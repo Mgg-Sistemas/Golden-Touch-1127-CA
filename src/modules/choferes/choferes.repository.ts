@@ -28,7 +28,13 @@ export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_DOCS, T_FLOTA, 'perso
 
 export interface Conductor {
   id: string;
-  personal_id: string;
+  /** Ficha de RRHH. null = chofer EXTERNO (no está en la nómina; se le paga por fuera, 14/10/2026). */
+  personal_id: string | null;
+  /** Chofer externo: nombre y apellido, cédula, teléfono y empresa (o dueño) para la que trabaja. */
+  nombre: string | null;
+  cedula: string | null;
+  telefono: string | null;
+  empresa: string | null;
   licencia_grado: string | null;
   licencia_numero: string | null;
   licencia_vence: string | null;
@@ -111,8 +117,20 @@ export async function listConductores(): Promise<Conductor[]> {
   return (data ?? []) as Conductor[];
 }
 
+/** ¿Es un chofer externo (fuera de la nómina)? */
+export const esExterno = (c: Pick<Conductor, 'personal_id'>) => !c.personal_id;
+
+export interface DatosExterno {
+  nombre: string;
+  cedula?: string | null;
+  telefono?: string | null;
+  empresa?: string | null;
+}
+
 export interface ConductorInput {
-  personal_id: string;
+  /** Ficha de RRHH; si no viene, va `externo`. */
+  personal_id?: string | null;
+  externo?: DatosExterno | null;
   licencia_grado?: string | null;
   licencia_numero?: string | null;
   licencia_vence?: string | null;
@@ -121,7 +139,18 @@ export interface ConductorInput {
   observaciones?: string | null;
 }
 
-function filaConductor(i: Omit<ConductorInput, 'personal_id'>) {
+function filaExterno(x: DatosExterno) {
+  const nombre = limpio(x.nombre)?.toUpperCase() ?? '';
+  if (nombre.length < 3) throw new Error('Escribe el nombre y apellido del chofer externo.');
+  return {
+    nombre,
+    cedula: limpio(x.cedula)?.toUpperCase() ?? null,
+    telefono: limpio(x.telefono),
+    empresa: limpio(x.empresa)?.toUpperCase() ?? null,
+  };
+}
+
+function filaConductor(i: Omit<ConductorInput, 'personal_id' | 'externo'>) {
   return {
     licencia_grado: limpio(i.licencia_grado)?.toUpperCase() ?? null,
     licencia_numero: limpio(i.licencia_numero),
@@ -133,17 +162,20 @@ function filaConductor(i: Omit<ConductorInput, 'personal_id'>) {
 }
 
 export async function crearConductor(i: ConductorInput, actor: string, actorName: string | null): Promise<Conductor> {
-  if (!i.personal_id) throw new Error('Elige la ficha del trabajador.');
+  if (!i.personal_id && !i.externo) throw new Error('Elige la ficha del trabajador o marca que es un chofer externo.');
+  const quien = i.personal_id ? { personal_id: i.personal_id } : { personal_id: null, ...filaExterno(i.externo!) };
   const { data, error } = await supabase.from(T_CONDUCTORES)
-    .insert({ personal_id: i.personal_id, ...filaConductor(i), created_by: actor, actor_name: actorName })
+    .insert({ ...quien, ...filaConductor(i), created_by: actor, actor_name: actorName })
     .select('*').single();
-  if (error) throw err(error, error.code === '23505' ? 'Esa persona ya tiene expediente de conductor.' : 'No se pudo guardar el conductor.');
+  if (error) throw err(error, error.code === '23505'
+    ? (i.personal_id ? 'Esa persona ya tiene expediente de conductor.' : 'Ya hay un chofer externo con esa cédula.')
+    : 'No se pudo guardar el conductor.');
   return data as Conductor;
 }
 
 export async function editarConductor(id: string, i: Omit<ConductorInput, 'personal_id'>): Promise<void> {
-  const { error } = await supabase.from(T_CONDUCTORES).update(filaConductor(i)).eq('id', id);
-  if (error) throw err(error, 'No se pudo guardar el expediente.');
+  const { error } = await supabase.from(T_CONDUCTORES).update({ ...filaConductor(i), ...(i.externo ? filaExterno(i.externo) : {}) }).eq('id', id);
+  if (error) throw err(error, error.code === '23505' ? 'Ya hay un chofer externo con esa cédula.' : 'No se pudo guardar el expediente.');
 }
 
 /**
@@ -522,7 +554,7 @@ export async function subirDocumentoChofer(
   if (tipo === 'otro' && !etiqueta) throw new Error('Ponle un nombre al documento (ej.: Certificado de antecedentes).');
 
   const rand = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-  const path = `${c.personal_id}/${tipo}/${rand}_${nombreSeguro(file.name)}`;
+  const path = `${c.personal_id ?? `externo-${c.id}`}/${tipo}/${rand}_${nombreSeguro(file.name)}`;
   const { error: errSubir } = await supabase.storage.from(BUCKET_DOCS)
     .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
   if (errSubir) throw new Error(mensajeErrorDocumento(errSubir));

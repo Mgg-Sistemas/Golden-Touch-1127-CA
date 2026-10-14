@@ -88,12 +88,12 @@ export function ChoferesPage() {
       // Las dos nóminas (GT y MTO): un chofer puede estar en cualquiera.
       const ps = await listPersonal(false).catch(() => [] as Personal[]);
       const [cs, fl, vj] = await Promise.all([listConductores(), listFlota(), listViajes()]);
-      const ds = await listDescansos(cs.map((c) => c.personal_id)).catch(() => [] as Descanso[]);
+      const ds = await listDescansos(cs.map((c) => c.personal_id).filter((x): x is string => !!x)).catch(() => [] as Descanso[]);
       // Los documentos tienen su propio SQL: si falta, el resto del módulo sigue andando.
       const docs = await listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; });
       const porId = new Map(ps.map((p) => [p.id, p]));
       setPersonal(ps);
-      setConductores(cs.map((c) => ({ ...c, personal: porId.get(c.personal_id) ?? null })));
+      setConductores(cs.map((c) => ({ ...c, personal: c.personal_id ? porId.get(c.personal_id) ?? null : null })));
       setFlota(fl); setViajes(vj); setDescansos(ds);
       setDocumentos(docs); if (docs.length) setDocsSinInstalar(false);
       setSinInstalar(false);
@@ -156,7 +156,8 @@ export function ChoferesPage() {
 export function nombreConductor(c: Conductor | undefined | null): string {
   if (!c) return '—';
   const p = c.personal;
-  return p ? `${p.nombre} ${p.apellido ?? ''}`.trim() : '(ficha eliminada)';
+  if (p) return `${p.nombre} ${p.apellido ?? ''}`.trim();
+  return c.personal_id ? '(ficha eliminada)' : (c.nombre ?? '(sin nombre)');
 }
 
 export function textoVehiculo(v: VehiculoFlota | undefined | null): string {

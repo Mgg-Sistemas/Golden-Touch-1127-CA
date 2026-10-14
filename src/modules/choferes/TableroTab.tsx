@@ -20,7 +20,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
 
   const porEstado = useMemo(() => {
     const m = { en_ruta: 0, descanso: 0, disponible: 0, inactivo: 0 };
-    for (const c of conductores) m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id) })]++;
+    for (const c of conductores) m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: !!c.personal_id && descansoHoy.has(c.personal_id) })]++;
     return m;
   }, [conductores, enRutaIds, descansoHoy]);
 
@@ -60,7 +60,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
     const m: Record<EstadoChofer, typeof activos> = { en_ruta: [], descanso: [], disponible: [], inactivo: [] };
     for (const c of activos) {
       if (q && !nombreConductor(c).toLowerCase().includes(q)) continue;
-      m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id) })].push(c);
+      m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: !!c.personal_id && descansoHoy.has(c.personal_id) })].push(c);
     }
     for (const k of Object.keys(m) as EstadoChofer[]) m[k].sort((a, b) => nombreConductor(a).localeCompare(nombreConductor(b)));
     return { m, viajeDe };

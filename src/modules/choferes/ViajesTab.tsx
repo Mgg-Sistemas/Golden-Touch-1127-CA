@@ -360,7 +360,7 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
   const avisos = useMemo(() => {
     const out: string[] = [];
     if (chofer) {
-      if (descansos.some((d) => d.personal_id === chofer.personal_id && d.desde <= diaSalida && diaSalida <= d.hasta)) out.push(`${nombreConductor(chofer)} está de descanso el ${diaSalida.split('-').reverse().join('/')}.`);
+      if (chofer.personal_id && descansos.some((d) => d.personal_id === chofer.personal_id && d.desde <= diaSalida && diaSalida <= d.hasta)) out.push(`${nombreConductor(chofer)} está de descanso el ${diaSalida.split('-').reverse().join('/')}.`);
       for (const a of alertasDocumentos(chofer, hoy)) out.push(`${a.label} del chofer ${a.estado === 'vencido' ? 'VENCIDO' : 'por vencer'} (${a.vence?.split('-').reverse().join('/')}).`);
       if (!realizado && viajes.some((v) => v.id !== inicial?.id && v.chofer_id === chofer.id && v.estado === 'en_ruta')) out.push('Ese chofer está en ruta en otro viaje ahora mismo.');
     }
@@ -428,7 +428,7 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
         <div className="form-grid">
           <div className="form-row"><label htmlFor="vj-chofer">Chofer</label>
             <SearchSelect id="vj-chofer" value={choferId} onChange={elegirChofer} placeholder="🔍 Buscar chofer…"
-              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [c.personal?.cedula, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
+              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [c.personal?.cedula ?? c.cedula, c.personal_id ? null : 'Externo', c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
           <div className="form-row"><label htmlFor="vj-veh">Vehículo</label>
             <div style={{ display: 'flex', gap: '.35rem' }}>
               <SearchSelect id="vj-veh" value={vehiculoId} onChange={setVehiculoId} placeholder="🔍 Placa, marca, modelo…" style={{ flex: 1 }}
