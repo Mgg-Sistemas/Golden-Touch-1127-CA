@@ -27,9 +27,6 @@ import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { SearchMultiSelect } from '@/shared/ui/SearchMultiSelect';
 import { useSession } from '@/modules/auth/authStore';
 import { norm } from '@/shared/lib/texto';
-import { ActividadEconomicaSelect } from './ActividadEconomicaSelect';
-import { useActividadesEconomicas } from './actividadesEconomicas.repository';
-import { textoActividad } from './actividadesEconomicas';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -62,7 +59,11 @@ export function ProveedoresPage() {
   const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
   const [filterActividad, setFilterActividad] = useState('');
   const sinActividad = useMemo(() => proveedores.filter((p) => p.estado === 'activo' && !p.actividad_economica).length, [proveedores]);
-  const { actividades } = useActividadesEconomicas();
+  // Actividades escritas a mano (sin lista por ahora): las que ya tienen los proveedores.
+  const actividadesUsadas = useMemo(
+    () => Array.from(new Set(proveedores.map((p) => (p.actividad_economica ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es-VE')),
+    [proveedores],
+  );
   const [categoriasList, setCategoriasList] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -224,7 +225,7 @@ export function ProveedoresPage() {
           <span className="aviso-icono">ℹ</span>
           <div>
             <strong>{sinActividad} proveedor{sinActividad === 1 ? '' : 'es'} activo{sinActividad === 1 ? '' : 's'} sin actividad económica.</strong>{' '}
-            Se pide (una sola vez) cuando se le cotiza, compra o contrata un servicio en Bs; también se puede cargar desde su ficha.{' '}
+            Es opcional: se escribe al cargar una cotización o en su ficha.{' '}
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFilterActividad('__sin')}>Ver cuáles</button>
           </div>
         </div>
@@ -278,9 +279,7 @@ export function ProveedoresPage() {
         >
           <option value="">Todas las actividades económicas</option>
           <option value="__sin">Sin actividad económica</option>
-          {actividades.filter((a) => proveedores.some((p) => p.actividad_economica === a.codigo)).map((a) => (
-            <option key={a.codigo} value={a.codigo}>{a.codigo} · {a.descripcion}</option>
-          ))}
+          {actividadesUsadas.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
       </div>
 
@@ -328,10 +327,8 @@ export function ProveedoresPage() {
                   <td>
                     <Etiquetas items={p.categorias ?? []} max={3} />
                   </td>
-                  <td style={{ fontSize: '.8rem', maxWidth: 260 }} title={textoActividad(p.actividad_economica, actividades)}>
-                    {p.actividad_economica
-                      ? <><span className="mono">{p.actividad_economica}</span> <span className="muted">{actividades.find((a) => a.codigo === p.actividad_economica)?.descripcion ?? ''}</span></>
-                      : <span className="muted" title="Sin actividad económica: se pide cuando se le compre o cotice en Bs">—</span>}
+                  <td style={{ fontSize: '.8rem', maxWidth: 260 }}>
+                    {p.actividad_economica || <span className="muted">—</span>}
                   </td>
                   <td>
                     <StatusBadge estado={p.estado} />
@@ -444,7 +441,6 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
     };
   });
   const [categorias, setCategorias] = useState<string[]>([]);
-  const { actividades, recargar: recargarActividades } = useActividadesEconomicas();
   useEffect(() => {
     let cancelled = false;
     getCategorias(proveedores)
@@ -476,7 +472,8 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       telefono: form.telefono?.trim() || null,
       email: emailClean || null,
       direccion: form.direccion?.trim().toUpperCase() || null,
-      numero_administracion: form.numero_administracion?.replace(/\s+/g, ' ').trim().toUpperCase() || null,
+      numero_administracion: (form.numero_administracion ?? '').replace(/\D/g, '') || null,
+      actividad_economica: form.actividad_economica?.replace(/\s+/g, ' ').trim() || null,
     };
     if (!numero || !payload.razon_social) {
       toast('RIF (con número) y razón social son obligatorios', 'error');
@@ -628,17 +625,16 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         </div>
 
         <div className="form-row">
-          <label htmlFor="prov-numero-adm">Número de administración del proveedor</label>
-          <input id="prov-numero-adm" className="input mono" style={{ maxWidth: 280 }} value={form.numero_administracion ?? ''}
-            onChange={(e) => update('numero_administracion', e.target.value.toUpperCase())} maxLength={60}
+          <label htmlFor="prov-numero-adm">Número de administración del proveedor (teléfono)</label>
+          <input id="prov-numero-adm" className="input mono" style={{ maxWidth: 280 }} value={form.numero_administracion ?? ''} type="tel" inputMode="numeric"
+            onChange={(e) => update('numero_administracion', e.target.value.replace(/\D/g, '').slice(0, 15))} maxLength={15}
             placeholder="Se pide la primera vez al indicar el método de pago" />
         </div>
 
         <div className="form-row">
-          <label htmlFor="prov-actividad">Actividad económica (CIIU · SENIAT)</label>
-          <ActividadEconomicaSelect id="prov-actividad" value={form.actividad_economica ?? ''}
-            onChange={(c) => update('actividad_economica', c || null)}
-            actividades={actividades} onCreada={recargarActividades} />
+          <label htmlFor="prov-actividad">Actividad económica <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <input id="prov-actividad" className="input" value={form.actividad_economica ?? ''} maxLength={200}
+            onChange={(e) => update('actividad_economica', e.target.value)} placeholder="Ej. Comercio al por mayor de repuestos" />
         </div>
       </form>
     </Modal>
@@ -654,7 +650,6 @@ interface DetailModalProps {
 }
 
 function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
-  const { actividades } = useActividadesEconomicas();
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -702,8 +697,8 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
-        <DetailRow label="Actividad económica" value={textoActividad(proveedor.actividad_economica, actividades)} />
-        <DetailRow label="N° de administración" value={proveedor.numero_administracion ? <span className="mono">{proveedor.numero_administracion}</span> : '—'} />
+        <DetailRow label="Actividad económica" value={proveedor.actividad_economica || '—'} />
+        <DetailRow label="Tlf. de administración" value={proveedor.numero_administracion ? <span className="mono">📞 {proveedor.numero_administracion}</span> : '—'} />
         <DetailRow
           label="Categorías"
           value={

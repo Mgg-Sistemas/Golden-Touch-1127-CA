@@ -12,6 +12,7 @@ import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repo
 import { hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPara, rotuloConversion, tienePresentacion, type Presentacion } from '@/modules/inventario/presentaciones';
@@ -72,6 +73,15 @@ export function AgregarOfertaModal({
   // Modo proveedor: si el checkbox está activo, se crea uno nuevo en línea.
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
   const [proveedorId, setProveedorId] = useState<string>(ofertaEditar?.proveedor_id ?? opcionesProveedor[0]?.id ?? '');
+
+  // Actividad económica (14/10/2026): OPCIONAL y a mano (sin lista, hasta que llegue la
+  // nueva). Sale la de la ficha del proveedor; si se escribe o se cambia, queda allá.
+  const actividadDe = (id: string) => proveedores.find((p) => p.id === id)?.actividad_economica ?? '';
+  const [actividad, setActividad] = useState<string>(ofertaEditar?.actividad_economica ?? actividadDe(proveedorId));
+  function elegirProveedor(id: string) {
+    setProveedorId(id);
+    setActividad(actividadDe(id));
+  }
 
   // Campos del proveedor nuevo (cuando nuevoProveedor=true)
   const [provRazon, setProvRazon] = useState('');
@@ -371,6 +381,7 @@ export function AgregarOfertaModal({
     }
     // Anticipo parcial: solo en servicio + condición 'anticipado' + monto > 0.
     const usaAnticipo = esServicioOrden && condiciones.trim() === 'anticipado' && Number(anticipoMonto) > 0;
+    const actividadLimpia = actividad.replace(/\s+/g, ' ').trim();
     setSubmitting(true);
     try {
       // 1) Resolver proveedor (existente o crear uno nuevo)
@@ -403,6 +414,7 @@ export function AgregarOfertaModal({
           categorias: [],
           origen: provOrigen,
           estado: 'activo',
+          actividad_economica: actividadLimpia || null,
         });
         provId = creado.id;
         notify(`Proveedor "${creado.razon_social}" registrado`, 'success', { link: '#/app/proveedores' });
@@ -410,6 +422,8 @@ export function AgregarOfertaModal({
         toast('Selecciona un proveedor', 'error');
         setSubmitting(false);
         return;
+      } else if (actividadLimpia && actividadLimpia !== actividadDe(provId).trim()) {
+        await fijarActividadProveedor(provId, actividadLimpia);
       }
 
       // 2) Subir adjuntos (PDF y/o varias imágenes). El primero queda también en
@@ -448,6 +462,7 @@ export function AgregarOfertaModal({
         const primero = adjuntosFinal[0] ?? null;
         await actualizarOferta(ofertaEditar!.id, {
           proveedor_id: provId,
+          actividad_economica: actividadLimpia || null,
           items: itemsGuardar,
           precio_total: precioTotalGuardar,
           precio_divisa: tieneUsd ? totalUsd : null,
@@ -475,6 +490,7 @@ export function AgregarOfertaModal({
       await crearOferta({
         orden_id: orden.id,
         proveedor_id: provId,
+        actividad_economica: actividadLimpia || null,
         items: itemsGuardar,
         precio_total: precioTotalGuardar,
         fecha_entrega_prometida: fechaEntrega || null,
@@ -660,7 +676,7 @@ export function AgregarOfertaModal({
             <>
               <SearchSelect
                 value={proveedorId}
-                onChange={setProveedorId}
+                onChange={elegirProveedor}
                 options={opcionesProveedor.map((p) => ({ value: p.id, label: `${p.razon_social} (${p.rif})` }))}
                 placeholder="Buscar proveedor por nombre o RIF…"
                 emptyText="Ningún proveedor coincide"
@@ -690,6 +706,13 @@ export function AgregarOfertaModal({
           )}
         </div>
       )}
+
+      <div className="form-row">
+        <label htmlFor="of-actividad">Actividad económica del proveedor <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <input id="of-actividad" className="input" value={actividad} maxLength={200}
+          onChange={(e) => setActividad(e.target.value)} placeholder="Ej. Comercio al por mayor de repuestos" />
+        <small className="muted">Si la escribes, queda también en la ficha del proveedor (módulo Proveedores).</small>
+      </div>
 
       {/* Conversor Bs↔$ a la tasa del día (o la que se escriba): ayuda a pasar el precio
           que el proveedor dio en Bs a $ (o al revés) para tipearlo en las columnas. */}

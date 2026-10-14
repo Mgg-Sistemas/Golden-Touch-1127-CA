@@ -1381,7 +1381,8 @@ function MetodoPagoModal({
   // Número de administración del proveedor (14/10/2026): OBLIGATORIO. Se escribe la
   // primera vez y queda en la ficha del proveedor; las siguientes OC lo traen solo (con
   // «Cambiar» por si hay que corregirlo). Queda también en la OC: lo ven Retenciones y Tesorería.
-  const numeroAdmFicha = (proveedores.find((p) => p.id === orden.proveedor_id)?.numero_administracion ?? '').trim();
+  // Es un TELÉFONO: solo dígitos (7 a 15).
+  const numeroAdmFicha = (proveedores.find((p) => p.id === orden.proveedor_id)?.numero_administracion ?? '').replace(/\D/g, '');
   const [numeroAdm, setNumeroAdm] = useState<string>(orden.numero_administracion || numeroAdmFicha);
   const [cambiarNumeroAdm, setCambiarNumeroAdm] = useState(false);
   // Datos de pago del proveedor ya guardados (para precargar por método).
@@ -1522,8 +1523,9 @@ function MetodoPagoModal({
       return;
     }
     if (!validos.length) { setError('Indica al menos un método de pago.'); return; }
-    const numeroAdmLimpio = numeroAdm.replace(/\s+/g, ' ').trim().toUpperCase();
-    if (!numeroAdmLimpio) { setError('Coloca el número de administración del proveedor (es obligatorio; se pide una sola vez y queda guardado).'); return; }
+    const numeroAdmLimpio = numeroAdm.replace(/\D/g, '');
+    if (!numeroAdmLimpio) { setError('Coloca el número de administración del proveedor (teléfono). Es obligatorio; se pide una sola vez y queda guardado.'); return; }
+    if (numeroAdmLimpio.length < 7) { setError('El número de administración del proveedor (teléfono) debe tener al menos 7 dígitos.'); return; }
     // Multipago con reparto: si se cargó algún monto, todos deben sumar el total.
     if (esMultipago && hayMontos && !repartoOk) {
       setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(totalFinal)}).`); return;
@@ -1548,7 +1550,7 @@ function MetodoPagoModal({
     }
     try {
       // La primera vez (o si se corrigió) queda en la ficha del proveedor.
-      if (orden.proveedor_id && numeroAdmLimpio !== numeroAdmFicha.toUpperCase()) await fijarNumeroAdministracion(orden.proveedor_id, numeroAdmLimpio);
+      if (orden.proveedor_id && numeroAdmLimpio !== numeroAdmFicha) await fijarNumeroAdministracion(orden.proveedor_id, numeroAdmLimpio);
       await onSent(validos, {
         comprobanteTipo,
         retencionModo: comprobanteTipo === 'factura' ? retencionModo : null,
@@ -1599,20 +1601,20 @@ function MetodoPagoModal({
           </div>
         )}
         {!cambioProveedor && (
-          numeroAdmFicha && !cambiarNumeroAdm && numeroAdm.trim().toUpperCase() === numeroAdmFicha.toUpperCase() ? (
+          numeroAdmFicha && !cambiarNumeroAdm && numeroAdm.replace(/\D/g, '') === numeroAdmFicha ? (
             <div className="form-row" style={{ margin: '.6rem 0 0' }}>
-              <label>Número de administración del proveedor</label>
+              <label>Número de administración del proveedor (teléfono)</label>
               <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', fontSize: '.9rem' }}>
-                <strong className="mono">{numeroAdmFicha}</strong>
+                <strong className="mono">📞 {numeroAdmFicha}</strong>
                 <span className="muted" style={{ fontSize: '.78rem' }}>(guardado en la ficha del proveedor)</span>
                 <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCambiarNumeroAdm(true)}>Cambiar</button>
               </div>
             </div>
           ) : (
             <div className="form-row" style={{ margin: '.6rem 0 0' }}>
-              <label htmlFor="mp-numero-adm">Número de administración del proveedor *</label>
-              <input id="mp-numero-adm" className="input mono" style={{ maxWidth: 280 }} value={numeroAdm}
-                onChange={(e) => setNumeroAdm(e.target.value.toUpperCase())} placeholder="Ej. 000123" maxLength={60} />
+              <label htmlFor="mp-numero-adm">Número de administración del proveedor (teléfono) *</label>
+              <input id="mp-numero-adm" className="input mono" style={{ maxWidth: 280 }} value={numeroAdm} type="tel" inputMode="numeric"
+                onChange={(e) => setNumeroAdm(e.target.value.replace(/\D/g, '').slice(0, 15))} placeholder="Ej. 04141234567" maxLength={15} />
               <small className="muted">{numeroAdmFicha
                 ? 'Se actualiza también en la ficha del proveedor.'
                 : 'Obligatorio. Se pide esta primera vez y queda guardado en la ficha del proveedor; las próximas OC lo traen solo. Lo ven Retenciones y Tesorería.'}</small>
