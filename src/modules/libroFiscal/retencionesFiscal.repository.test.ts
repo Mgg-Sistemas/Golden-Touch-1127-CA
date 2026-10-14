@@ -32,6 +32,7 @@ import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { CONFIG_RETENCION_DEFECTO } from './retencionesCalculo';
 import {
   SIN_PERMISO, aRetencion, anularRetencion, conceptosDeFilaGt, conceptosLocales, configDeJson, direccionDeGt,
+  errorPorcentajesIva, guardarConfigRetencion,
   filaGtDeNueva, jsonDeConfig, llevaNumeroPropio, marcarDeclarada, registrarRetencion, rolAGt,
   sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, type NuevaRetencion,
 } from './retencionesFiscal.repository';
@@ -108,6 +109,19 @@ describe('la configuración es el JSON de Parámetros', () => {
     expect(c.esAgenteRetencionIva).toBe(false);
     expect(c.esContribuyenteEspecial).toBe(true);
     expect(c.valorUt).toBe(43);
+  });
+
+  it('la retención de IVA solo admite 75% y 100% (C-1); los dos son dato', () => {
+    expect(errorPorcentajesIva({ pctIvaGeneral: 75, pctIvaEspecial: 100 })).toBeNull();
+    expect(errorPorcentajesIva({ pctIvaGeneral: 100, pctIvaEspecial: 100 })).toBeNull();
+    expect(errorPorcentajesIva({ pctIvaGeneral: 50, pctIvaEspecial: 100 })).toContain('75% o 100%');
+    expect(jsonDeConfig({ ...CONFIG_RETENCION_DEFECTO, pctIvaEspecial: 75 }, null).iva_retencion_especial).toBe(75);
+    expect(configDeJson({ iva_retencion_especial: 75 }).pctIvaEspecial).toBe(75);
+  });
+
+  it('no guarda un porcentaje de IVA fuera de la norma, y no llega a la base', async () => {
+    await expect(guardarConfigRetencion({ ...CONFIG_RETENCION_DEFECTO, pctIvaGeneral: 60 })).rejects.toThrow('75% o 100%');
+    expect(llamadas).toHaveLength(0);
   });
 
   it('al guardar conserva las claves que este módulo no maneja', () => {

@@ -92,7 +92,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     esAgenteRetencionIva: bool('agente_retencion_iva', CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva),
     esContribuyenteEspecial: bool('contribuyente_especial', CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial),
     pctIvaGeneral: n(j.iva_retencion) || 75,
-    pctIvaEspecial: 100,
+    pctIvaEspecial: n(j.iva_retencion_especial) || 100,
     valorUt: n(j.unidad_tributaria),
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
   };
@@ -111,6 +111,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     agente_retencion_iva: c.esAgenteRetencionIva,
     contribuyente_especial: c.esContribuyenteEspecial,
     iva_retencion: c.pctIvaGeneral,
+    iva_retencion_especial: c.pctIvaEspecial,
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
   };
@@ -126,11 +127,38 @@ export async function getConfigRetencion(): Promise<ConfigRetencion> {
   return configDeJson(await leerJsonParametros());
 }
 
+/** La Providencia SNAT/2015/0049 solo admite 75% y 100%: los dos porcentajes son dato, pero no cualquier dato. */
+export const PORCENTAJES_IVA = [75, 100] as const;
+
+export function errorPorcentajesIva(c: Pick<ConfigRetencion, 'pctIvaGeneral' | 'pctIvaEspecial'>): string | null {
+  const vale = (p: number) => (PORCENTAJES_IVA as readonly number[]).includes(n(p));
+  return vale(c.pctIvaGeneral) && vale(c.pctIvaEspecial)
+    ? null
+    : 'La retención de IVA solo puede ser 75% o 100% (Providencia SNAT/2015/0049).';
+}
+
+/** Las alícuotas del ISAE y del timbre estadal: datos de Parámetros, no del catálogo. */
+export interface AlicuotasLocales { municipal: number; estadal: number }
+
+export function alicuotasLocalesDeJson(j: JsonParametros | null | undefined): AlicuotasLocales {
+  return { municipal: n(j?.municipal_alicuota), estadal: n(j?.estadal_alicuota) };
+}
+
+export async function getAlicuotasLocales(): Promise<AlicuotasLocales> {
+  return alicuotasLocalesDeJson(await leerJsonParametros());
+}
+
 /** Solo el administrador escribe la configuración (la base lo exige). */
-export async function guardarConfigRetencion(c: ConfigRetencion): Promise<void> {
+export async function guardarConfigRetencion(c: ConfigRetencion, locales?: AlicuotasLocales): Promise<void> {
+  const falla = errorPorcentajesIva(c);
+  if (falla) throw new Error(falla);
   const previo = await leerJsonParametros();
+  const value = {
+    ...jsonDeConfig(c, previo),
+    ...(locales ? { municipal_alicuota: n(locales.municipal), estadal_alicuota: n(locales.estadal) } : {}),
+  };
   const { data, error } = await supabase.from('config')
-    .upsert({ key: CLAVE_CONFIG, value: jsonDeConfig(c, previo) }, { onConflict: 'key' })
+    .upsert({ key: CLAVE_CONFIG, value }, { onConflict: 'key' })
     .select('key');
   if (error) throw error;
   if (!data?.length) throw new Error('No se guardaron los parámetros: solo el administrador puede cambiarlos.');
