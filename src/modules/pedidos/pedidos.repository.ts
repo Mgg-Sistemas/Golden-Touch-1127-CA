@@ -1076,6 +1076,8 @@ export async function indicarMetodoPago(
     conIva?: boolean; ivaPct?: number; ivaMonto?: number;
     conIgtf?: boolean; igtfPct?: number; igtfMonto?: number;
     conDescuento?: boolean; descuentoMonto?: number;
+    /** Número de administración del proveedor (lo ven Retenciones y Tesorería). */
+    numeroAdministracion?: string | null;
   },
   /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
    *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
@@ -1156,6 +1158,7 @@ export async function indicarMetodoPago(
     ...(imagenPath !== undefined ? { metodo_pago_imagen_path: imagenPath } : {}),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
+    numero_administracion: (soporte?.numeroAdministracion ?? '').replace(/\s+/g, ' ').trim() || null,
     iva_aplicado: aplicaIva,
     iva_pct: ivaPct,
     iva_monto: aplicaIva ? ivaMonto : null,

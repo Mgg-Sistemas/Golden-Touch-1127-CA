@@ -45,6 +45,7 @@ const EMPTY_FORM: ProveedorInput = {
   origen: 'nacional',
   estado: 'activo',
   actividad_economica: null,
+  numero_administracion: null,
 };
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -439,6 +440,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       origen: initial.origen ?? 'nacional',
       estado: initial.estado,
       actividad_economica: initial.actividad_economica ?? null,
+      numero_administracion: initial.numero_administracion ?? null,
     };
   });
   const [categorias, setCategorias] = useState<string[]>([]);
@@ -474,6 +476,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       telefono: form.telefono?.trim() || null,
       email: emailClean || null,
       direccion: form.direccion?.trim().toUpperCase() || null,
+      numero_administracion: form.numero_administracion?.replace(/\s+/g, ' ').trim().toUpperCase() || null,
     };
     if (!numero || !payload.razon_social) {
       toast('RIF (con número) y razón social son obligatorios', 'error');
@@ -625,6 +628,13 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         </div>
 
         <div className="form-row">
+          <label htmlFor="prov-numero-adm">Número de administración del proveedor</label>
+          <input id="prov-numero-adm" className="input mono" style={{ maxWidth: 280 }} value={form.numero_administracion ?? ''}
+            onChange={(e) => update('numero_administracion', e.target.value.toUpperCase())} maxLength={60}
+            placeholder="Se pide la primera vez al indicar el método de pago" />
+        </div>
+
+        <div className="form-row">
           <label htmlFor="prov-actividad">Actividad económica (CIIU · SENIAT)</label>
           <ActividadEconomicaSelect id="prov-actividad" value={form.actividad_economica ?? ''}
             onChange={(c) => update('actividad_economica', c || null)}
@@ -693,6 +703,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow label="Actividad económica" value={textoActividad(proveedor.actividad_economica, actividades)} />
+        <DetailRow label="N° de administración" value={proveedor.numero_administracion ? <span className="mono">{proveedor.numero_administracion}</span> : '—'} />
         <DetailRow
           label="Categorías"
           value={

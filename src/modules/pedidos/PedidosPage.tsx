@@ -106,8 +106,7 @@ import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio'
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { norm } from '@/shared/lib/texto';
-import { ActividadEconomicaSelect } from '@/modules/proveedores/ActividadEconomicaSelect';
-import { useActividadesEconomicas, fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
+import { fijarNumeroAdministracion } from '@/modules/proveedores/proveedores.repository';
 import { rotuloMarcaModelo, tieneMarcaModelo } from '@/shared/lib/marcaModelo';
 
 /* ============================================================
@@ -1365,7 +1364,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
 }) {
   // Al CAMBIAR el método (OC ya "Confirmada pagar") precargamos el/los método(s) ya
   // indicados; si es la primera vez, arranca con un método por defecto.
@@ -1379,11 +1378,12 @@ function MetodoPagoModal({
   // Cambio de proveedor (opcional): la OC sigue aprobada, solo se cambia el proveedor.
   const [proveedorSel, setProveedorSel] = useState<string>(orden.proveedor_id ?? '');
   const cambioProveedor = proveedorSel && proveedorSel !== orden.proveedor_id;
-  // Actividad económica del proveedor (CIIU · SENIAT, 14/10/2026): se coloca aquí, al
-  // indicar el método de pago. Opcional; sale la de su ficha y, si se cambia, se guarda ahí.
-  const { actividades, recargar: recargarActividades } = useActividadesEconomicas();
-  const actividadFicha = proveedores.find((p) => p.id === orden.proveedor_id)?.actividad_economica ?? '';
-  const [actividad, setActividad] = useState<string>(actividadFicha);
+  // Número de administración del proveedor (14/10/2026): OBLIGATORIO. Se escribe la
+  // primera vez y queda en la ficha del proveedor; las siguientes OC lo traen solo (con
+  // «Cambiar» por si hay que corregirlo). Queda también en la OC: lo ven Retenciones y Tesorería.
+  const numeroAdmFicha = (proveedores.find((p) => p.id === orden.proveedor_id)?.numero_administracion ?? '').trim();
+  const [numeroAdm, setNumeroAdm] = useState<string>(orden.numero_administracion || numeroAdmFicha);
+  const [cambiarNumeroAdm, setCambiarNumeroAdm] = useState(false);
   // Datos de pago del proveedor ya guardados (para precargar por método).
   const [datosGuardados, setDatosGuardados] = useState<Record<string, DatosPago>>({});
   // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
@@ -1522,6 +1522,8 @@ function MetodoPagoModal({
       return;
     }
     if (!validos.length) { setError('Indica al menos un método de pago.'); return; }
+    const numeroAdmLimpio = numeroAdm.replace(/\s+/g, ' ').trim().toUpperCase();
+    if (!numeroAdmLimpio) { setError('Coloca el número de administración del proveedor (es obligatorio; se pide una sola vez y queda guardado).'); return; }
     // Multipago con reparto: si se cargó algún monto, todos deben sumar el total.
     if (esMultipago && hayMontos && !repartoOk) {
       setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(totalFinal)}).`); return;
@@ -1545,13 +1547,15 @@ function MetodoPagoModal({
       imagenPath = null;
     }
     try {
-      if (actividad && actividad !== actividadFicha && orden.proveedor_id) await fijarActividadProveedor(orden.proveedor_id, actividad);
+      // La primera vez (o si se corrigió) queda en la ficha del proveedor.
+      if (orden.proveedor_id && numeroAdmLimpio !== numeroAdmFicha.toUpperCase()) await fijarNumeroAdministracion(orden.proveedor_id, numeroAdmLimpio);
       await onSent(validos, {
         comprobanteTipo,
         retencionModo: comprobanteTipo === 'factura' ? retencionModo : null,
         conIva: ivaActivo, ivaPct: ivaPctNum, ivaMonto,
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
         conDescuento, descuentoMonto,
+        numeroAdministracion: numeroAdmLimpio,
       }, null, imagenPath);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
@@ -1595,14 +1599,25 @@ function MetodoPagoModal({
           </div>
         )}
         {!cambioProveedor && (
-          <div className="form-row" style={{ margin: '.6rem 0 0' }}>
-            <label htmlFor="mp-actividad">Actividad económica del proveedor (CIIU · SENIAT) <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
-            <ActividadEconomicaSelect id="mp-actividad" value={actividad} onChange={setActividad}
-              actividades={actividades} onCreada={recargarActividades} />
-            <small className="muted">{actividadFicha
-              ? 'Viene de la ficha del proveedor. Si la cambias, se actualiza allá.'
-              : 'Este proveedor no la tiene: si la eliges, queda en su ficha (módulo Proveedores).'}</small>
-          </div>
+          numeroAdmFicha && !cambiarNumeroAdm && numeroAdm.trim().toUpperCase() === numeroAdmFicha.toUpperCase() ? (
+            <div className="form-row" style={{ margin: '.6rem 0 0' }}>
+              <label>Número de administración del proveedor</label>
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', fontSize: '.9rem' }}>
+                <strong className="mono">{numeroAdmFicha}</strong>
+                <span className="muted" style={{ fontSize: '.78rem' }}>(guardado en la ficha del proveedor)</span>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCambiarNumeroAdm(true)}>Cambiar</button>
+              </div>
+            </div>
+          ) : (
+            <div className="form-row" style={{ margin: '.6rem 0 0' }}>
+              <label htmlFor="mp-numero-adm">Número de administración del proveedor *</label>
+              <input id="mp-numero-adm" className="input mono" style={{ maxWidth: 280 }} value={numeroAdm}
+                onChange={(e) => setNumeroAdm(e.target.value.toUpperCase())} placeholder="Ej. 000123" maxLength={60} />
+              <small className="muted">{numeroAdmFicha
+                ? 'Se actualiza también en la ficha del proveedor.'
+                : 'Obligatorio. Se pide esta primera vez y queda guardado en la ficha del proveedor; las próximas OC lo traen solo. Lo ven Retenciones y Tesorería.'}</small>
+            </div>
+          )
         )}
       </div>
 

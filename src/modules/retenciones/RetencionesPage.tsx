@@ -70,7 +70,7 @@ export function RetencionesPage() {
       if (fDesde && !fin) return false;
       if (fTipo && !comprobantesDeOrden(o).some((c) => c.tipo === fTipo)) return false;
       if (txt) {
-        const hay = norm(`${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre}`);
+        const hay = norm(`${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre} ${o.numero_administracion ?? ''}`);
         if (!hay.includes(txt)) return false;
       }
       return true;
@@ -162,7 +162,7 @@ export function RetencionesPage() {
                 <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
                   <td className="mono">{o.oc_codigo ?? '—'}</td>
                   <td className="mono">{o.codigo}</td>
-                  <td>{proveedorNombre}</td>
+                  <td>{proveedorNombre}{o.numero_administracion ? <div className="muted mono" style={{ fontSize: '.74rem' }}>N° adm. {o.numero_administracion}</div> : null}</td>
                   <td>{labelCondicionPago(o.condiciones_pago)}</td>
                   <td>{labelRetencionModo(o.retencion_modo)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
@@ -242,6 +242,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la orden de compra</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
           <div><span className="muted">Proveedor:</span> <strong>{item.proveedorNombre}</strong></div>
+          <div><span className="muted">N° de administración del proveedor:</span> <strong className="mono">{o.numero_administracion || '—'}</strong></div>
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
           <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
           <div><span className="muted">Total:</span> <strong className="mono">{money(o.total)}</strong></div>

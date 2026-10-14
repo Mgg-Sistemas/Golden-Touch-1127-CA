@@ -150,3 +150,10 @@ export async function getOrdenesByProveedor(proveedorId: string): Promise<Orden[
   if (error) throw error;
   return (data ?? []) as Orden[];
 }
+
+/** Guarda el número de administración en la ficha del proveedor. Va por RPC porque quien
+ *  indica el método de pago (Compras) puede no tener permiso de escritura en Proveedores. */
+export async function fijarNumeroAdministracion(proveedorId: string, numero: string): Promise<void> {
+  const { error } = await supabase.rpc('proveedor_fijar_numero_administracion', { p_proveedor_id: proveedorId, p_numero: numero });
+  if (error) throw new Error(error.message || 'No se pudo guardar el número de administración del proveedor.');
+}

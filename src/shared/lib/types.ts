@@ -1049,6 +1049,9 @@ export interface Proveedor {
   estado: EstadoGenerico;
   /** Código CIIU (SENIAT) del catálogo `actividades_economicas` (14/10/2026). */
   actividad_economica?: string | null;
+  /** Número de administración del proveedor: se pide la primera vez al indicar el método
+   *  de pago y queda aquí; las siguientes OC lo traen solo (14/10/2026). */
+  numero_administracion?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
@@ -1319,6 +1322,9 @@ export interface Orden {
   retencion_nombre?: string | null;
   /** Retenciones fiscales (módulo Retenciones): comprobantes por tipo + estado. */
   comprobante_tipo?: 'nota_entrega' | 'factura' | null;
+  /** Número de administración del proveedor (se coloca con el método de pago; lo ven
+   *  Retenciones y Tesorería). 14/10/2026. */
+  numero_administracion?: string | null;
   retencion_modo?: 'se_paga_despues' | 'completo_reembolso' | null;
   retencion_iva_path?: string | null;
   retencion_iva_nombre?: string | null;
