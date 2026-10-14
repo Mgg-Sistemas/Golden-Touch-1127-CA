@@ -13,6 +13,7 @@ function esAdjuntoValido(file: File): boolean {
 export interface CrearOfertaInput {
   orden_id: string;
   proveedor_id: string;
+  actividad_economica?: string | null;
   items: ItemOrden[];
   precio_total: number;
   /** Precio con descuento en divisa (opcional). Si se indica, pasa a ser el precio final de la OC. */
@@ -108,6 +109,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
     .insert({
       orden_id: input.orden_id,
       proveedor_id: input.proveedor_id,
+      actividad_economica: input.actividad_economica ?? null,
       items: input.items,
       precio_total: input.precio_total,
       precio_divisa: input.precio_divisa ?? null,
@@ -138,7 +140,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
 export async function actualizarOferta(
   id: string,
   patch: Partial<Pick<CrearOfertaInput,
-    'proveedor_id' | 'items' | 'precio_total' | 'precio_divisa' | 'descuento_obtenido' |
+    'proveedor_id' | 'actividad_economica' | 'items' | 'precio_total' | 'precio_divisa' | 'descuento_obtenido' |
     'iva_pct' | 'iva_monto' | 'iva_aplicado' | 'igtf_pct' | 'igtf_monto' | 'igtf_aplicado' |
     'fecha_entrega_prometida' | 'condiciones_pago' | 'anticipo_monto' | 'anticipo_moneda' |
     'notas' | 'ficha' | 'adjuntos' | 'pdf_path' | 'pdf_filename'>>

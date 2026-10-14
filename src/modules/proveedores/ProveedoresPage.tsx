@@ -27,6 +27,9 @@ import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { SearchMultiSelect } from '@/shared/ui/SearchMultiSelect';
 import { useSession } from '@/modules/auth/authStore';
 import { norm } from '@/shared/lib/texto';
+import { ActividadEconomicaSelect } from './ActividadEconomicaSelect';
+import { useActividadesEconomicas } from './actividadesEconomicas.repository';
+import { textoActividad } from './actividadesEconomicas';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -41,6 +44,7 @@ const EMPTY_FORM: ProveedorInput = {
   categorias: [],
   origen: 'nacional',
   estado: 'activo',
+  actividad_economica: null,
 };
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -55,6 +59,8 @@ export function ProveedoresPage() {
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoFilter>('');
   const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
+  const [filterActividad, setFilterActividad] = useState('');
+  const { actividades } = useActividadesEconomicas();
   const [categoriasList, setCategoriasList] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +122,7 @@ export function ProveedoresPage() {
     return proveedores.filter((p) => {
       if (filterEstado && p.estado !== filterEstado) return false;
       if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
+      if (filterActividad === '__sin' ? !!p.actividad_economica : filterActividad && p.actividad_economica !== filterActividad) return false;
       if (q) {
         const hay = [p.razon_social, p.rif, p.contacto, p.email]
           .map((v) => norm(v))
@@ -124,7 +131,7 @@ export function ProveedoresPage() {
       }
       return true;
     });
-  }, [proveedores, filterText, filterEstado, filterCategoria]);
+  }, [proveedores, filterText, filterEstado, filterCategoria, filterActividad]);
 
   function openCreate() {
     setEditingId(null);
@@ -249,6 +256,19 @@ export function ProveedoresPage() {
             </option>
           ))}
         </select>
+        <select
+          className="select"
+          style={{ maxWidth: 260 }}
+          value={filterActividad}
+          onChange={(e) => setFilterActividad(e.target.value)}
+          aria-label="Actividad económica"
+        >
+          <option value="">Todas las actividades económicas</option>
+          <option value="__sin">Sin actividad económica</option>
+          {actividades.filter((a) => proveedores.some((p) => p.actividad_economica === a.codigo)).map((a) => (
+            <option key={a.codigo} value={a.codigo}>{a.codigo} · {a.descripcion}</option>
+          ))}
+        </select>
       </div>
 
       {loading ? (
@@ -272,6 +292,7 @@ export function ProveedoresPage() {
                 <th>Razón social</th>
                 <th>Teléfono</th>
                 <th>Categorías</th>
+                <th>Actividad económica</th>
                 <th>Estado</th>
                 <th></th>
               </tr>
@@ -293,6 +314,11 @@ export function ProveedoresPage() {
                   <td className="mono">{p.telefono || '—'}</td>
                   <td>
                     <Etiquetas items={p.categorias ?? []} max={3} />
+                  </td>
+                  <td style={{ fontSize: '.8rem', maxWidth: 260 }} title={textoActividad(p.actividad_economica, actividades)}>
+                    {p.actividad_economica
+                      ? <><span className="mono">{p.actividad_economica}</span> <span className="muted">{actividades.find((a) => a.codigo === p.actividad_economica)?.descripcion ?? ''}</span></>
+                      : <span className="muted">—</span>}
                   </td>
                   <td>
                     <StatusBadge estado={p.estado} />
@@ -400,9 +426,11 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       categorias: [...(initial.categorias ?? [])],
       origen: initial.origen ?? 'nacional',
       estado: initial.estado,
+      actividad_economica: initial.actividad_economica ?? null,
     };
   });
   const [categorias, setCategorias] = useState<string[]>([]);
+  const { actividades, recargar: recargarActividades } = useActividadesEconomicas();
   useEffect(() => {
     let cancelled = false;
     getCategorias(proveedores)
@@ -583,6 +611,13 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             hint="No se permiten repetidas (ni por mayúsculas/minúsculas). Las nuevas quedan disponibles para futuros proveedores."
           />
         </div>
+
+        <div className="form-row">
+          <label htmlFor="prov-actividad">Actividad económica (CIIU · SENIAT)</label>
+          <ActividadEconomicaSelect id="prov-actividad" value={form.actividad_economica ?? ''}
+            onChange={(c) => update('actividad_economica', c || null)}
+            actividades={actividades} onCreada={recargarActividades} />
+        </div>
       </form>
     </Modal>
   );
@@ -597,6 +632,7 @@ interface DetailModalProps {
 }
 
 function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
+  const { actividades } = useActividadesEconomicas();
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -644,6 +680,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
+        <DetailRow label="Actividad económica" value={textoActividad(proveedor.actividad_economica, actividades)} />
         <DetailRow
           label="Categorías"
           value={

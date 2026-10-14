@@ -1047,6 +1047,8 @@ export interface Proveedor {
   categorias: string[];
   origen: OrigenProveedor;
   estado: EstadoGenerico;
+  /** Código CIIU (SENIAT) del catálogo `actividades_economicas` (14/10/2026). */
+  actividad_economica?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
@@ -1735,6 +1737,8 @@ export interface OfertaProveedor {
   id: string;
   orden_id: string;
   proveedor_id: string;
+  /** Actividad económica (CIIU) del proveedor al cotizar; también queda en su ficha. */
+  actividad_economica?: string | null;
   items: ItemOrden[];
   precio_total: number;
   fecha_entrega_prometida?: string | null;
