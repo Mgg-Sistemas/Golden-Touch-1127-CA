@@ -108,6 +108,25 @@ export const ESTADO_VIAJE: Record<EstadoViaje, { label: string; icon: string; cl
   cancelado: { label: 'Cancelado', icon: '✖', clase: 'danger' },
 };
 
+/**
+ * Tipo de viaje (14/10/2026). El camión lleva su orden de ruta (programada, en ruta,
+ * finalizada, con paradas); la volqueta se anota por día como en su planilla:
+ * chofer, vehículo, material, origen, destino, fecha y cuántos viajes.
+ */
+export type TipoViaje = 'camion' | 'volqueta';
+export const TIPOS_VIAJE: Record<TipoViaje, { label: string; icon: string; hint: string }> = {
+  camion: { label: 'Camión', icon: '🚚', hint: 'Orden de ruta: salida, llegada y paradas' },
+  volqueta: { label: 'Volqueta', icon: '🚛', hint: 'Viajes del día: material, origen, destino y cantidad' },
+};
+
+/** Total de viajes de una lista (cada registro trae su cantidad; los cancelados no cuentan). */
+export function totalViajes(vs: { cantidad_viajes?: number | null; estado?: string }[]): number {
+  return vs.reduce((t, v) => t + (v.estado === 'cancelado' ? 0 : Math.max(1, Number(v.cantidad_viajes) || 1)), 0);
+}
+
+/** «12 viajes» / «1 viaje». */
+export const textoViajes = (n: number) => `${n} ${n === 1 ? 'viaje' : 'viajes'}`;
+
 export interface Parada {
   lugar: string;
   nota?: string | null;
@@ -162,6 +181,25 @@ export function errorViajeRealizado(o: { salida: string; llegada: string; kmSali
   if (o.kmSalida != null && o.kmLlegada != null && o.kmLlegada < o.kmSalida) return 'El kilometraje de llegada no puede ser menor que el de salida.';
   return null;
 }
+
+/** AAAA-MM-DD de un instante, en hora de Venezuela. */
+export function diaVE(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
+/** HH:mm de un instante, en hora de Venezuela. */
+export function horaVE(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+}
+
+/** AAAA-MM-DD → dd/mm/aaaa. */
+export const fechaCorta = (dia: string): string => (dia ? dia.split('-').reverse().join('/') : '—');
 
 /** Fecha AAAA-MM-DD de hoy en Venezuela. */
 export function hoyVE(): string {

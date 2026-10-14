@@ -12,7 +12,7 @@ import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { mensajeError } from '@/shared/lib/errores';
 import type { Personal } from '@/shared/lib/types';
 import type { VehiculoCatalogo } from '@/modules/asignaciones/vehiculosCatalogo';
-import type { Parada } from './choferes';
+import { hoyVE, type Parada, type TipoViaje } from './choferes';
 import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from './archivosChofer';
 
 const T_CONDUCTORES = 'choferes_conductores';
@@ -60,6 +60,12 @@ export interface Viaje {
   km_salida: number | null;
   km_llegada: number | null;
   estado: 'programado' | 'en_ruta' | 'finalizado' | 'cancelado';
+  /** camion = orden de ruta; volqueta = registro diario con la cantidad de viajes (14/10/2026). */
+  tipo_viaje: TipoViaje;
+  /** Cuántos viajes hizo con ese material y esa ruta. */
+  cantidad_viajes: number;
+  /** Empresa para la que se hizo (planilla de camión). */
+  empresa: string | null;
   nota: string | null;
   created_by: string | null;
   actor_name: string | null;
@@ -138,6 +144,22 @@ export async function crearConductor(i: ConductorInput, actor: string, actorName
 export async function editarConductor(id: string, i: Omit<ConductorInput, 'personal_id'>): Promise<void> {
   const { error } = await supabase.from(T_CONDUCTORES).update(filaConductor(i)).eq('id', id);
   if (error) throw err(error, 'No se pudo guardar el expediente.');
+}
+
+/**
+ * Borra el expediente del conductor con sus viajes y sus documentos (primero los
+ * archivos: desde la base no se pueden borrar archivos del Storage). La ficha de
+ * RRHH y sus descansos no se tocan.
+ */
+export async function eliminarConductor(id: string): Promise<void> {
+  const { data: docs } = await supabase.from(T_DOCS).select('path').eq('chofer_id', id);
+  const paths = (docs ?? []).map((d) => d.path as string).filter(Boolean);
+  if (paths.length) await supabase.storage.from(BUCKET_DOCS).remove(paths).catch(() => undefined);
+  const { error: ev } = await supabase.from(T_VIAJES).delete().eq('chofer_id', id);
+  if (ev) throw err(ev, 'No se pudieron borrar los viajes del conductor.');
+  const { data, error } = await supabase.from(T_CONDUCTORES).delete().eq('id', id).select('id');
+  if (error) throw err(error, 'No se pudo eliminar el conductor.');
+  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
 }
 
 export async function setConductorActivo(id: string, activo: boolean): Promise<void> {
@@ -229,6 +251,16 @@ export async function editarVehiculo(id: string, v: VehiculoInput, actor: string
   return data as VehiculoFlota;
 }
 
+/** Borra el vehículo del catálogo. Sus viajes quedan sin vehículo; si está en Asignaciones no se deja. */
+export async function eliminarVehiculo(id: string): Promise<void> {
+  const { data, error } = await supabase.from(T_FLOTA).delete().eq('id', id).select('id');
+  if (error) {
+    if (error.code === '23503') throw new Error('Ese vehículo está en Asignaciones y no se puede borrar. Dalo de baja desmarcando «En el catálogo».');
+    throw err(error, 'No se pudo eliminar el vehículo.');
+  }
+  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+}
+
 /* ───────────── Viajes ───────────── */
 
 function normViaje(v: Record<string, unknown>): Viaje {
@@ -237,6 +269,9 @@ function normViaje(v: Record<string, unknown>): Viaje {
     paradas: Array.isArray(v.paradas) ? (v.paradas as Parada[]) : [],
     km_salida: v.km_salida == null ? null : Number(v.km_salida),
     km_llegada: v.km_llegada == null ? null : Number(v.km_llegada),
+    tipo_viaje: v.tipo_viaje === 'volqueta' ? 'volqueta' : 'camion',
+    cantidad_viajes: Math.max(1, Number(v.cantidad_viajes) || 1),
+    empresa: (v.empresa as string | null) ?? null,
   };
 }
 
@@ -259,6 +294,9 @@ export interface ViajeInput {
   fecha_salida: string;
   llegada_prevista?: string | null;
   nota?: string | null;
+  /** Cuántos viajes (1 si no se indica). */
+  cantidad_viajes?: number | null;
+  empresa?: string | null;
   /** Viaje ya realizado: entra directo como finalizado con sus horas y km reales. */
   realizado?: ViajeRealizado | null;
 }
@@ -268,6 +306,12 @@ export interface ViajeRealizado {
   llegada_real_at: string;
   km_salida?: number | null;
   km_llegada?: number | null;
+}
+
+function cantidadValida(n: number | null | undefined): number {
+  const c = n == null ? 1 : Number(n);
+  if (!Number.isInteger(c) || c < 1 || c > 999) throw new Error('La cantidad de viajes tiene que ser un número entero entre 1 y 999.');
+  return c;
 }
 
 function filaViaje(i: ViajeInput) {
@@ -299,6 +343,9 @@ function filaViaje(i: ViajeInput) {
     destino: limpio(i.destino),
     paradas,
     carga: limpio(i.carga),
+    tipo_viaje: 'camion' as const,
+    cantidad_viajes: cantidadValida(i.cantidad_viajes),
+    empresa: limpio(i.empresa)?.toUpperCase() ?? null,
     fecha_salida: new Date(i.fecha_salida).toISOString(),
     llegada_prevista: i.llegada_prevista ? new Date(i.llegada_prevista).toISOString() : null,
     nota: limpio(i.nota),
@@ -317,6 +364,63 @@ export async function editarViaje(id: string, i: ViajeInput): Promise<void> {
     .in('estado', ['programado', 'en_ruta', 'finalizado']).select('id');
   if (error) throw errorEnRuta(error, 'No se pudo guardar la orden de ruta.');
   if (!data?.length) throw new Error('Ese viaje ya no se puede corregir (está cancelado o no existe).');
+}
+
+/* ── Viajes de volqueta: registro del día (chofer, vehículo, material, origen, destino, fecha, viajes) ── */
+
+export interface VolquetaInput {
+  chofer_id: string;
+  vehiculo_id?: string | null;
+  /** Material: escombros, cabilla, arena… */
+  carga: string;
+  origen: string;
+  destino: string;
+  /** AAAA-MM-DD. */
+  fecha: string;
+  cantidad_viajes: number;
+  nota?: string | null;
+}
+
+function filaVolqueta(i: VolquetaInput) {
+  if (!i.chofer_id) throw new Error('Elige el chofer.');
+  if (!limpio(i.carga)) throw new Error('Indica el material.');
+  if (!limpio(i.origen) || !limpio(i.destino)) throw new Error('Indica el origen y el destino.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(i.fecha ?? '')) throw new Error('Indica la fecha.');
+  if (i.fecha > hoyVE()) throw new Error('La fecha no puede ser futura.');
+  // Mediodía en Venezuela (UTC-4): la fecha no se corre de día en ningún huso.
+  const momento = new Date(`${i.fecha}T12:00:00-04:00`).toISOString();
+  return {
+    tipo_viaje: 'volqueta' as const,
+    estado: 'finalizado' as const,
+    chofer_id: i.chofer_id,
+    vehiculo_id: i.vehiculo_id || null,
+    carga: limpio(i.carga)?.toUpperCase() ?? null,
+    origen: limpio(i.origen)?.toUpperCase() ?? '',
+    destino: limpio(i.destino)?.toUpperCase() ?? '',
+    cantidad_viajes: cantidadValida(i.cantidad_viajes),
+    fecha_salida: momento, salida_real_at: momento, llegada_real_at: momento,
+    llegada_prevista: null, km_salida: null, km_llegada: null, paradas: [],
+    nota: limpio(i.nota),
+  };
+}
+
+export async function crearViajeVolqueta(i: VolquetaInput, actor: string, actorName: string | null): Promise<Viaje> {
+  const { data, error } = await supabase.from(T_VIAJES).insert({ ...filaVolqueta(i), created_by: actor, actor_name: actorName }).select('*').single();
+  if (error) throw err(error, 'No se pudieron registrar los viajes.');
+  return normViaje(data as Record<string, unknown>);
+}
+
+export async function editarViajeVolqueta(id: string, i: VolquetaInput): Promise<void> {
+  const { data, error } = await supabase.from(T_VIAJES).update(filaVolqueta(i)).eq('id', id).eq('tipo_viaje', 'volqueta').select('id');
+  if (error) throw err(error, 'No se pudo guardar.');
+  if (!data?.length) throw new Error('Ese registro ya no existe.');
+}
+
+/** Borra un viaje (cualquier estado). */
+export async function eliminarViaje(id: string): Promise<void> {
+  const { data, error } = await supabase.from(T_VIAJES).delete().eq('id', id).select('id');
+  if (error) throw err(error, 'No se pudo eliminar el viaje.');
+  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
 }
 
 function errorEnRuta(e: { code?: string; message?: string }, respaldo: string): Error {

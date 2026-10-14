@@ -7,9 +7,13 @@
 
    La flota es el catálogo de vehículos compartido con Asignaciones, con
    estado operativo (operativo / taller / inactivo), seguro y capacidad.
+
+   Se puede eliminar (14/10/2026): el expediente (con sus viajes y documentos; la
+   ficha de RRHH no se toca) y el vehículo (si no está en Asignaciones).
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { FechaVe } from '@/shared/ui/FechaVe';
@@ -23,6 +27,7 @@ import {
 } from './choferes';
 import {
   crearConductor, crearVehiculo, editarConductor, editarVehiculo, esCargoDeChofer, importarConductoresDesdeRrhh, normalizarPlaca, setConductorActivo,
+  eliminarConductor, eliminarVehiculo,
   type VehiculoInput,
   type Conductor, type ConductorInput, type VehiculoFlota,
 } from './choferes.repository';
@@ -63,6 +68,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const [verFlota, setVerFlota] = useState(false);
   const [importando, setImportando] = useState(false);
   const [cambiarEstado, setCambiarEstado] = useState<Conductor | null>(null);
+  const [borrar, setBorrar] = useState<Conductor | null>(null);
 
   const enRutaIds = useMemo(() => new Set(viajes.filter((v) => v.estado === 'en_ruta').map((v) => v.chofer_id)), [viajes]);
   const descansoHoy = useMemo(() => new Set(descansos.filter((d) => d.desde <= hoy && hoy <= d.hasta).map((d) => d.personal_id)), [descansos, hoy]);
@@ -169,6 +175,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                         <button className="btn btn-sm btn-ghost" onClick={() => setForm(c)} title={canWrite ? 'Editar expediente' : 'Ver expediente'}>{canWrite ? '✎' : '👁'}</button>
                         {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setCambiarEstado(c)} title={c.activo ? 'Desactivar' : 'Reactivar'}>{c.activo ? '⛔' : '♻'}</button>}
+                        {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(c)} title="Eliminar expediente">🗑</button>}
                       </td>
                     </tr>
                   );
@@ -202,6 +209,26 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
             : `${nombreConductor(cambiarEstado)} vuelve a estar disponible para rutas.`}
           onConfirm={() => { void confirmarEstado(); }} onCancel={() => setCambiarEstado(null)} />
       )}
+      {borrar && (() => {
+        const nViajes = viajes.filter((v) => v.chofer_id === borrar.id).length;
+        const nDocs = documentos.filter((d) => d.chofer_id === borrar.id).length;
+        return (
+          <ConfirmDialog title="Eliminar expediente del conductor" danger confirmText="Sí, eliminar" requireText={nViajes || nDocs ? 'ELIMINAR' : undefined}
+            message={`Se borra el expediente de ${nombreConductor(borrar)}${nViajes || nDocs ? ' junto con sus viajes y sus documentos' : ''}. Su ficha de RRHH y sus descansos no se tocan. No se puede deshacer; si solo dejó de manejar, usa ⛔ Desactivar.`}
+            preview={<VistaPrevia>
+              <Dato label="Conductor">{nombreConductor(borrar)}</Dato>
+              <Dato label="Cédula">{borrar.personal?.cedula ?? undefined}</Dato>
+              <Dato label="Viajes que se borran">{nViajes ? String(nViajes) : undefined}</Dato>
+              <Dato label="Documentos que se borran">{nDocs ? String(nDocs) : undefined}</Dato>
+            </VistaPrevia>}
+            onCancel={() => setBorrar(null)}
+            onConfirm={() => {
+              const c = borrar; setBorrar(null);
+              void eliminarConductor(c.id).then(async () => { toast('Expediente eliminado', 'success'); await recargar(); })
+                .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+            }} />
+        );
+      })()}
     </div>
   );
 }
@@ -292,6 +319,7 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
 }) {
   const [q, setQ] = useState('');
   const [form, setForm] = useState<VehiculoFlota | 'nuevo' | null>(null);
+  const [borrarVeh, setBorrarVeh] = useState<VehiculoFlota | null>(null);
   const visibles = useMemo(() => filtrarVehiculos(flota, q) as VehiculoFlota[], [flota, q]);
 
   return (
@@ -319,6 +347,7 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                     {onElegir && v.activo && <button className="btn btn-sm btn-primary" onClick={() => onElegir(v)}>Usar</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setForm(v)} title="Editar">✎</button>}
+                    {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrarVeh(v)} title="Eliminar">🗑</button>}
                   </td>
                 </tr>
               );
@@ -327,6 +356,17 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
         </table>
       </div>
       {form && <VehiculoFormModal inicial={form === 'nuevo' ? null : form} actor={actor} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await onChanged(); }} />}
+      {borrarVeh && (
+        <ConfirmDialog title="Eliminar vehículo" danger confirmText="Sí, eliminar"
+          message="Se borra el vehículo del catálogo (es el mismo de Asignaciones). Sus viajes quedan sin vehículo. Si está en Asignaciones no se puede: dalo de baja desmarcando «En el catálogo»."
+          preview={<VistaPrevia><Dato label="Vehículo">{[borrarVeh.marca, borrarVeh.modelo].filter(Boolean).join(' ') || labelTipoFlota(borrarVeh.tipo)}</Dato><Dato label="Placa">{borrarVeh.placa}</Dato></VistaPrevia>}
+          onCancel={() => setBorrarVeh(null)}
+          onConfirm={() => {
+            const v = borrarVeh; setBorrarVeh(null);
+            void eliminarVehiculo(v.id).then(async () => { toast(`Vehículo ${v.placa} eliminado`, 'success'); await onChanged(); })
+              .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+          }} />
+      )}
     </Modal>
   );
 }
