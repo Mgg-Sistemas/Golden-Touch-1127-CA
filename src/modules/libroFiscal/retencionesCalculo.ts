@@ -111,11 +111,14 @@ export function motivoNoPuedePracticar(
 ): string | null {
   if (puedePracticar(tipo, config)) return null;
   if (tipo === 'iva') {
-    return 'La empresa no está marcada como agente de retención de IVA ni como contribuyente especial. '
-      + 'Si la retención la practicó un cliente, se registra como «Nos la practicaron».';
+    return 'La empresa no está marcada como agente de retención de IVA ni como contribuyente especial '
+      + '(la Providencia SNAT/2015/0049 designa a los agentes). '
+      + 'Si la retención la practicó un cliente, se registra como «Nos la practicaron». '
+      + 'Si la empresa fue designada, se marca en Parámetros.';
   }
-  return 'Solo el contribuyente especial percibe el IGTF. '
-    + 'Si la retención la practicó un cliente, se registra como «Nos la practicaron».';
+  return 'Solo el contribuyente especial percibe el IGTF (Ley del IGTF). '
+    + 'Si la retención la practicó un cliente, se registra como «Nos la practicaron». '
+    + 'Si la empresa fue designada contribuyente especial, se marca en Parámetros.';
 }
 
 /** Un renglón del catálogo. */
