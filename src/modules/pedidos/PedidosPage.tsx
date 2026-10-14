@@ -106,6 +106,8 @@ import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio'
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { norm } from '@/shared/lib/texto';
+import { ActividadEconomicaSelect } from '@/modules/proveedores/ActividadEconomicaSelect';
+import { useActividadesEconomicas, fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
 import { rotuloMarcaModelo, tieneMarcaModelo } from '@/shared/lib/marcaModelo';
 
 /* ============================================================
@@ -1377,6 +1379,11 @@ function MetodoPagoModal({
   // Cambio de proveedor (opcional): la OC sigue aprobada, solo se cambia el proveedor.
   const [proveedorSel, setProveedorSel] = useState<string>(orden.proveedor_id ?? '');
   const cambioProveedor = proveedorSel && proveedorSel !== orden.proveedor_id;
+  // Actividad económica del proveedor (CIIU · SENIAT, 14/10/2026): se coloca aquí, al
+  // indicar el método de pago. Opcional; sale la de su ficha y, si se cambia, se guarda ahí.
+  const { actividades, recargar: recargarActividades } = useActividadesEconomicas();
+  const actividadFicha = proveedores.find((p) => p.id === orden.proveedor_id)?.actividad_economica ?? '';
+  const [actividad, setActividad] = useState<string>(actividadFicha);
   // Datos de pago del proveedor ya guardados (para precargar por método).
   const [datosGuardados, setDatosGuardados] = useState<Record<string, DatosPago>>({});
   // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
@@ -1538,6 +1545,7 @@ function MetodoPagoModal({
       imagenPath = null;
     }
     try {
+      if (actividad && actividad !== actividadFicha && orden.proveedor_id) await fijarActividadProveedor(orden.proveedor_id, actividad);
       await onSent(validos, {
         comprobanteTipo,
         retencionModo: comprobanteTipo === 'factura' ? retencionModo : null,
@@ -1584,6 +1592,16 @@ function MetodoPagoModal({
         {cambioProveedor && (
           <div className="badge" style={{ marginTop: '.4rem', background: 'rgba(255,138,0,.15)', borderColor: 'var(--brand, #ff8a00)' }}>
             ⚠ Al cambiar el proveedor, la OC <strong>vuelve a aprobación del Gerente General</strong> (no se envía a pagar ahora). Ítems y total se mantienen.
+          </div>
+        )}
+        {!cambioProveedor && (
+          <div className="form-row" style={{ margin: '.6rem 0 0' }}>
+            <label htmlFor="mp-actividad">Actividad económica del proveedor (CIIU · SENIAT) <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+            <ActividadEconomicaSelect id="mp-actividad" value={actividad} onChange={setActividad}
+              actividades={actividades} onCreada={recargarActividades} />
+            <small className="muted">{actividadFicha
+              ? 'Viene de la ficha del proveedor. Si la cambias, se actualiza allá.'
+              : 'Este proveedor no la tiene: si la eliges, queda en su ficha (módulo Proveedores).'}</small>
           </div>
         )}
       </div>
