@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest';
+import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
+import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCalculo';
+import type { RetencionPracticada } from './retencionesFiscal.repository';
+import { lineaEquivalenteBs, partesComprobante } from './comprobanteRetencionPdf';
+
+// Datos inventados: ninguna empresa, proveedor ni cliente real.
+const empresa: ConfigRetencion = {
+  ...CONFIG_RETENCION_DEFECTO,
+  razonSocial: 'Empresa de Prueba C.A.',
+  rif: 'J-00000000-0',
+  direccionFiscal: 'Dirección de prueba',
+  municipio: 'Municipio de prueba',
+  estado: 'Estado de prueba',
+};
+
+const retencion = (over: Partial<RetencionPracticada>): RetencionPracticada => ({
+  id: 'r1', tipo: 'iva', direccion: 'practicada', estado: 'registrada',
+  docKind: 'manual', docId: null, docCodigo: null,
+  contraparteId: null, contraparteRif: null, contraparteNombre: null, contraparteSujeto: null,
+  facturaNumero: '0001', facturaControl: '00-0001', facturaFecha: '2026-10-05',
+  periodo: '202610', quincena: 1, numeroComprobante: '20261000000001',
+  conceptoId: null, conceptoNombre: null, moneda: 'Bs', tasa: null,
+  baseImponible: 1000, alicuota: 16, impuesto: 160, porcentaje: 75, sustraendo: 0, montoRetenido: 120, montoBs: 120,
+  comprobantePath: null, comprobanteNombre: null, observacion: null,
+  anulada: false, anuladaMotivo: null, declaradaEn: null, actorName: null, createdAt: '2026-10-05T14:00:00Z',
+  ...over,
+});
+
+/* El comprobante dice quién retuvo y a quién. Cuando la practicamos, el agente
+   es la empresa; cuando nos la practicaron, el agente es el cliente y el sujeto
+   retenido es la empresa. Con los papeles al revés el comprobante no sirve. */
+describe('comprobante de retención · quién es el agente y quién el sujeto', () => {
+  it('la que practicamos: el agente es la empresa y el sujeto, el proveedor', () => {
+    const p = partesComprobante(retencion({
+      direccion: 'practicada', contraparteNombre: 'Proveedor de Prueba C.A.', contraparteRif: 'J-00000002-0',
+    }), empresa);
+    expect(p.agente[0]).toBe('Empresa de Prueba C.A.');
+    expect(p.agente).toContain('RIF: J-00000000-0');
+    expect(p.sujeto[0]).toBe('Proveedor de Prueba C.A.');
+    expect(p.sujeto).toContain('RIF: J-00000002-0');
+  });
+
+  it('la que nos practicaron: el agente es el cliente y el sujeto retenido, la empresa', () => {
+    const p = partesComprobante(retencion({
+      direccion: 'recibida', contraparteNombre: 'Cliente de Prueba S.A.', contraparteRif: 'J-00000003-0',
+    }), empresa);
+    expect(p.agente[0]).toBe('Cliente de Prueba S.A.');
+    expect(p.agente).toContain('RIF: J-00000003-0');
+    expect(p.sujeto[0]).toBe('Empresa de Prueba C.A.');
+    expect(p.sujeto).toContain('RIF: J-00000000-0');
+  });
+
+  it('el tipo de sujeto va con el sujeto retenido, nunca con el agente', () => {
+    const recibida = partesComprobante(retencion({
+      tipo: 'islr', direccion: 'recibida', contraparteNombre: 'Cliente de Prueba S.A.', contraparteRif: 'J-00000003-0',
+      contraparteSujeto: 'pj_domiciliada',
+    }), empresa);
+    expect(recibida.agente).not.toContain('Persona jurídica domiciliada');
+    const practicada = partesComprobante(retencion({
+      tipo: 'islr', direccion: 'practicada', contraparteNombre: 'Persona de Prueba', contraparteRif: 'V-00000004-0',
+      contraparteSujeto: 'pn_residente',
+    }), empresa);
+    expect(practicada.sujeto).toContain('Persona natural residente');
+  });
+
+  it('sin datos en Parámetros, el agente es la empresa de empresa.ts; nada escrito a mano', () => {
+    const p = partesComprobante(retencion({}), { ...CONFIG_RETENCION_DEFECTO, razonSocial: null, rif: null });
+    expect(p.agente[0]).toBe(EMPRESA_NOMBRE);
+    expect(p.agente).toContain(`RIF: ${EMPRESA_RIF}`);
+  });
+});
+
+describe('el equivalente en bolívares', () => {
+  it('en divisas, dice cuánto es en Bs y con qué tasa', () => {
+    expect(lineaEquivalenteBs({ moneda: 'USD', montoBs: 365, tasa: 36.5 })).toContain('Bs 365,00');
+  });
+
+  it('en Bs, o sin equivalente, no agrega nada', () => {
+    expect(lineaEquivalenteBs({ moneda: 'Bs', montoBs: 120, tasa: null })).toBeNull();
+    expect(lineaEquivalenteBs({ moneda: 'USD', montoBs: null, tasa: null })).toBeNull();
+  });
+});
