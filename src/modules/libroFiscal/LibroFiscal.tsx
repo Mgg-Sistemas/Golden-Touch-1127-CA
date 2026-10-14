@@ -65,8 +65,8 @@ const enBs = (r: RetencionPracticada) => r.montoBs ?? (r.moneda === 'Bs' ? r.mon
 
 /* ═══════════════════════ Libro fiscal ═══════════════════════ */
 
-export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
-  canWrite: boolean; esAdmin: boolean; actor: string; actorName: string | null;
+export function LibroFiscalView({ canWrite, actor, actorName }: {
+  canWrite: boolean; actor: string; actorName: string | null;
 }) {
   // Desde el 07/10/2026 la empresa retiene IVA: el libro abre en lo que
   // practicó (lo que hay que enterar), que es el trabajo del día a día.
@@ -395,7 +395,7 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
           onHecho={async () => { setRegistrar(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
       {parametros && (
-        <ConfiguracionFiscalModal esAdmin={esAdmin} onClose={() => { setParametros(false); void reload().catch(() => { /* idem */ }); }} />
+        <ConfiguracionFiscalModal puedeEditar={canWrite} onClose={() => { setParametros(false); void reload().catch(() => { /* idem */ }); }} />
       )}
     </div>
   );
@@ -759,7 +759,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
 /* ═══════════════════ Parámetros fiscales ═══════════════════ */
 
-export function ConfiguracionFiscalModal({ esAdmin, onClose }: { esAdmin: boolean; onClose: () => void }) {
+export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar: boolean; onClose: () => void }) {
   const [cfg, setCfg] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [locales, setLocales] = useState<AlicuotasLocales>({ municipal: 0, estadal: 0 });
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
@@ -776,7 +776,7 @@ export function ConfiguracionFiscalModal({ esAdmin, onClose }: { esAdmin: boolea
   }, [recargar]);
 
   const set = <K extends keyof ConfigRetencion>(k: K, v: ConfigRetencion[K]) => setCfg((p) => ({ ...p, [k]: v }));
-  const soloLectura = !esAdmin;
+  const soloLectura = !puedeEditar;
 
   async function guardar() {
     setSaving(true); setError(null);
@@ -795,7 +795,7 @@ export function ConfiguracionFiscalModal({ esAdmin, onClose }: { esAdmin: boolea
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
-          {tab === 'agente' && esAdmin && (
+          {tab === 'agente' && puedeEditar && (
             <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
           )}
         </>
@@ -803,7 +803,7 @@ export function ConfiguracionFiscalModal({ esAdmin, onClose }: { esAdmin: boolea
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
       {soloLectura && (
         <div className="hint muted" style={{ marginBottom: '.6rem', fontSize: '.82rem' }}>
-          Solo el administrador cambia los parámetros fiscales.
+          Para cambiar los parámetros fiscales hace falta permiso de escritura en Retenciones.
         </div>
       )}
 
@@ -890,7 +890,7 @@ export function ConfiguracionFiscalModal({ esAdmin, onClose }: { esAdmin: boolea
           </div>
         </fieldset>
       ) : (
-        <CatalogoConceptos conceptos={conceptos} puedeEditar={esAdmin} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />
+        <CatalogoConceptos conceptos={conceptos} puedeEditar={puedeEditar} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />
       )}
     </Modal>
   );

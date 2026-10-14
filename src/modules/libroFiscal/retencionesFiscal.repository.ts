@@ -161,7 +161,7 @@ export async function guardarConfigRetencion(c: ConfigRetencion, locales?: Alicu
     .upsert({ key: CLAVE_CONFIG, value }, { onConflict: 'key' })
     .select('key');
   if (error) throw error;
-  if (!data?.length) throw new Error('No se guardaron los parámetros: solo el administrador puede cambiarlos.');
+  if (!data?.length) throw new Error('No se guardaron los parámetros: hace falta permiso de escritura en Retenciones (o el cambio aún no está disponible en la base).');
 }
 
 /* ───────────────────── Catálogo ───────────────────── */

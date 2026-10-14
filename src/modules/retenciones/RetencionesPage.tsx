@@ -24,7 +24,7 @@ type Vista = 'pendientes' | 'hechas' | 'libro';
 
 export function RetencionesPage() {
   const { user } = useSession();
-  const { can, appUser, isAdmin } = usePermissions();
+  const { can, appUser } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -139,7 +139,7 @@ export function RetencionesPage() {
           favor) y lo poco que retenemos. Las otras dos vistas son el trámite de
           adjuntar comprobantes a una OC, que es otra cosa. */}
       {vista === 'libro' ? (
-        <LibroFiscalView canWrite={canWrite} esAdmin={isAdmin} actor={actor} actorName={actorName} />
+        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
       ) : (
       <>
       {/* Tarjeta total pendientes (solo en la vista Por realizar) */}
