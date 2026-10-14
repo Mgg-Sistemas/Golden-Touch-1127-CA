@@ -299,8 +299,12 @@ export interface RetencionPracticada {
   anulada: boolean;
   anuladaMotivo: string | null;
   declaradaEn: string | null;
+  /** Quién la declaró (la cuenta que lo marcó). */
+  declaradaPor: string | null;
   actorName: string | null;
   createdAt: string;
+  /** Último cambio de la fila (en una anulada, cuándo se anuló). */
+  updatedAt: string | null;
 }
 
 /** Una fila de la tabla de GT → una retención del módulo. */
@@ -337,8 +341,10 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     anulada: r.estado === 'anulada',
     anuladaMotivo: texto(r.anulada_motivo),
     declaradaEn: texto(r.declarada_at),
+    declaradaPor: texto(r.declarada_por),
     actorName: texto(r.actor_name),
     createdAt: String(r.created_at ?? ''),
+    updatedAt: texto(r.updated_at),
   };
 }
 

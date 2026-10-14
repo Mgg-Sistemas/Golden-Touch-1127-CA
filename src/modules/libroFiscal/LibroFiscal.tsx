@@ -26,7 +26,6 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { dateTime } from '@/shared/lib/format';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
@@ -45,6 +44,10 @@ import {
   type AlicuotasLocales, type DocKind, type RetencionPracticada,
 } from './retencionesFiscal.repository';
 import { faltaEnLaCarga } from './validarCarga';
+import { aplicarFiltros, buscaEn, conteoOpcion, paginar, type FiltroLista } from './listas';
+import { BarraLista, Paginador, type ControlFiltro } from './ListaControles';
+import { eventosRetencion, cuandoCorto, lineaQuien } from './quienCuando';
+import './libroFiscal.css';
 
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -85,18 +88,11 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
 
   const reload = useCallback(async () => {
     const [rs, cfg] = await Promise.all([
-      listRetenciones({
-        direccion: direccion || undefined,
-        tipo: tipo || undefined,
-        estado: estado === 'anulada' ? undefined : (estado || undefined),
-        desde: desde || undefined,
-        hasta: hasta || undefined,
-        incluirAnuladas: true,
-      }),
+      listRetenciones({ desde: desde || undefined, hasta: hasta || undefined, incluirAnuladas: true }),
       getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO),
     ]);
     setFilas(rs); setConfig(cfg); setErrorCarga(null);
-  }, [direccion, tipo, estado, desde, hasta]);
+  }, [desde, hasta]);
 
   useEffect(() => {
     let cancel = false;
@@ -108,17 +104,47 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
     return () => { cancel = true; };
   }, [reload]);
 
-  // El estado «anulada» y la búsqueda se filtran aquí: no son columnas de la consulta.
+  // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
+  // dice cuántas retenciones quedan con los demás filtros puestos.
+  const [orden, setOrden] = useState<'reciente' | 'antiguo' | 'contraparte'>('reciente');
+  const [pag, setPag] = useState(1);
+  const [tam, setTam] = useState(25);
+  useEffect(() => { setPag(1); }, [texto, direccion, tipo, estado, orden, desde, hasta]);
+
+  const filtros = useMemo<FiltroLista<RetencionPracticada>[]>(() => [
+    { campo: 'direccion', etiqueta: 'Quién retuvo', valor: direccion, opciones: DIRECCIONES.map((d): [string, string] => [d.key, d.label]), pasa: (r, v) => r.direccion === v },
+    { campo: 'tipo', etiqueta: 'Impuesto', valor: tipo, opciones: TIPOS_IMPUESTO.map((t): [string, string] => [t.key, t.corto]), pasa: (r, v) => r.tipo === v },
+    {
+      campo: 'estado', etiqueta: 'Estado', valor: estado,
+      opciones: [...ESTADOS_RETENCION.map((e): [string, string] => [e.key, e.label]), ['anulada', 'Anuladas']],
+      pasa: (r, v) => (v === 'anulada' ? r.anulada : !r.anulada && r.estado === v),
+    },
+  ], [direccion, tipo, estado]);
+
+  const base = useMemo(() => filas.filter((r) => buscaEn(texto, r.contraparteNombre, r.contraparteRif, r.numeroComprobante,
+    r.facturaNumero, r.docCodigo, r.conceptoNombre)), [filas, texto]);
+
   const visibles = useMemo(() => {
-    const q = texto.trim().toLowerCase();
-    return filas.filter((r) => {
-      if (estado === 'anulada' && !r.anulada) return false;
-      if (estado && estado !== 'anulada' && r.anulada) return false;
-      if (!q) return true;
-      const hay = `${r.contraparteNombre ?? ''} ${r.contraparteRif ?? ''} ${r.numeroComprobante ?? ''} ${r.facturaNumero ?? ''} ${r.docCodigo ?? ''} ${r.conceptoNombre ?? ''}`;
-      return hay.toLowerCase().includes(q);
-    });
-  }, [filas, estado, texto]);
+    const fecha = (r: RetencionPracticada) => r.facturaFecha ?? r.createdAt.slice(0, 10);
+    const xs = aplicarFiltros(base, filtros);
+    const reciente = (a: RetencionPracticada, b: RetencionPracticada) => fecha(b).localeCompare(fecha(a)) || b.createdAt.localeCompare(a.createdAt);
+    xs.sort(orden === 'antiguo' ? (a, b) => -reciente(a, b)
+      : orden === 'contraparte' ? (a, b) => (a.contraparteNombre ?? '').localeCompare(b.contraparteNombre ?? '') || reciente(a, b)
+        : reciente);
+    return xs;
+  }, [base, filtros, orden]);
+  const pagina = useMemo(() => paginar(visibles, pag, tam), [visibles, pag, tam]);
+
+  const controles: ControlFiltro[] = filtros.map((f) => ({
+    campo: f.campo, etiqueta: f.etiqueta, valor: f.valor,
+    total: aplicarFiltros(base, filtros.filter((o) => o.campo !== f.campo)).length,
+    opciones: f.opciones.map(([v, t]) => ({ valor: v, texto: t, cuenta: conteoOpcion(base, filtros, f.campo, v) })),
+  }));
+  const ponerFiltro = (campo: string, v: string) => {
+    if (campo === 'direccion') setDireccion(v as '' | DireccionRetencion);
+    else if (campo === 'tipo') setTipo(v as '' | TipoImpuesto);
+    else if (campo === 'estado') setEstado(v as '' | EstadoRetencion | 'anulada');
+  };
 
   const resumen = useMemo(() => resumenLibro(visibles.map((r) => ({
     tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada,
@@ -139,10 +165,7 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
       : null;
   const sinTasa = visibles.filter((r) => !r.anulada && r.moneda !== 'Bs' && r.montoBs == null).length;
 
-  const limpiar = () => {
-    setDireccion(''); setTipo(''); setEstado(''); setTexto('');
-    setDesde(primeroDelMes()); setHasta(hoyIso());
-  };
+  const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setTexto(''); };
 
   async function verComprobante(r: RetencionPracticada) {
     try {
@@ -212,48 +235,23 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
         </div>
       )}
 
-      {/* Filtros */}
       <div className="card" style={{ marginBottom: '.75rem' }}>
-        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label>Quién retuvo</label>
-            <select className="select" value={direccion} onChange={(e) => setDireccion(e.target.value as '' | DireccionRetencion)}>
-              <option value="">Todas</option>
-              {DIRECCIONES.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
-            </select>
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label>Impuesto</label>
-            <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as '' | TipoImpuesto)}>
-              <option value="">Todos</option>
-              {TIPOS_IMPUESTO.map((t) => <option key={t.key} value={t.key}>{t.corto}</option>)}
-            </select>
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label>Estado</label>
-            <select className="select" value={estado} onChange={(e) => setEstado(e.target.value as '' | EstadoRetencion | 'anulada')}>
-              <option value="">Todos</option>
-              {ESTADOS_RETENCION.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
-              <option value="anulada">Anuladas</option>
-            </select>
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label>Desde</label>
-            <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label>Hasta</label>
-            <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-          </div>
-          <div className="form-row" style={{ margin: 0, flex: '1 1 200px' }}>
-            <label>Buscar</label>
-            <input className="input" value={texto} onChange={(e) => setTexto(e.target.value)}
-              placeholder="Contraparte, RIF, comprobante, factura…" />
-          </div>
-          <button className="btn btn-ghost" onClick={limpiar}>Limpiar</button>
+        <BarraLista
+          q={texto} onQ={setTexto} placeholder="Buscar por contraparte, RIF, N° de comprobante, factura u OC"
+          resultados={visibles.length} unidad="retención(es)"
+          filtros={controles} onFiltro={ponerFiltro}
+          orden={{ valor: orden, opciones: [['reciente', 'Más reciente primero'], ['antiguo', 'Más antiguo primero'], ['contraparte', 'Contraparte (A–Z)']] }}
+          onOrden={(v) => setOrden(v as typeof orden)}
+          onQuitar={quitarFiltros}
+          extra={(
+            <>
+              <label className="lf-campo"><span>Desde</span><input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
+              <label className="lf-campo"><span>Hasta</span><input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
+            </>
+          )}
+        />
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
-        </div>
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginTop: '.6rem' }}>
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
         </div>
@@ -277,9 +275,9 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
                 <tr><td colSpan={9}><EmptyState icon="⚠" message={`No se pudo leer el libro: ${errorCarga}`} /></td></tr>
               )}
               {!loading && !errorCarga && !visibles.length && (
-                <tr><td colSpan={9}><EmptyState icon="🧾" message="Sin retenciones en ese rango" /></td></tr>
+                <tr><td colSpan={9}><EmptyState icon="🧾" message={filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros' : 'Sin retenciones en ese rango de fechas'} /></td></tr>
               )}
-              {!loading && !errorCarga && visibles.map((r) => {
+              {!loading && !errorCarga && pagina.filas.map((r) => {
                 const plazo = r.direccion === 'practicada' && !r.anulada && r.estado !== 'declarada' && r.facturaFecha
                   ? limiteEntregaComprobante(r.facturaFecha) : '';
                 return (
@@ -319,8 +317,18 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
                       {r.anulada
                         ? <span className="badge" style={{ color: 'var(--danger)' }}>Anulada</span>
                         : <span className="badge" style={{ color: r.estado === 'declarada' ? 'var(--success)' : undefined }}>{labelEstadoRetencion(r.estado)}</span>}
-                      <div className="muted" style={{ fontSize: '.7rem' }}>{r.createdAt ? dateTime(r.createdAt) : ''}</div>
                       {r.anulada && r.anuladaMotivo && <div className="muted" style={{ fontSize: '.7rem' }}>{r.anuladaMotivo}</div>}
+                      <small className="lf-quien">{lineaQuien(r)}</small>
+                      {eventosRetencion(r).length > 1 && (
+                        <details className="lf-historial">
+                          <summary>Historial ({eventosRetencion(r).length})</summary>
+                          <ol>
+                            {eventosRetencion(r).slice().reverse().map((ev, i) => (
+                              <li key={i}><b>{ev.accion}</b>{ev.quien ? ` · ${ev.quien}` : ''}{ev.cuando ? ` · ${cuandoCorto(ev.cuando)}` : ''}{ev.detalle ? ` · ${ev.detalle}` : ''}</li>
+                            ))}
+                          </ol>
+                        </details>
+                      )}
                     </td>
                     <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => void verComprobante(r)} title="Ver el comprobante">📄</button>
@@ -346,6 +354,9 @@ export function LibroFiscalView({ canWrite, esAdmin, actor, actorName }: {
             </tbody>
           </table>
         </div>
+        {!loading && !errorCarga && (
+          <Paginador pagina={pagina} tam={tam} unidad="retención(es)" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+        )}
         <div className="hint muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
           Una retención <strong>no se borra</strong>: se anula con su motivo y conserva su número, porque el correlativo no se reusa.
         </div>

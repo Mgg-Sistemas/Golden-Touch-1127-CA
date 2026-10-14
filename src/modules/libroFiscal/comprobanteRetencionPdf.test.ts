@@ -23,7 +23,7 @@ const retencion = (over: Partial<RetencionPracticada>): RetencionPracticada => (
   conceptoId: null, conceptoNombre: null, moneda: 'Bs', tasa: null,
   baseImponible: 1000, alicuota: 16, impuesto: 160, porcentaje: 75, sustraendo: 0, montoRetenido: 120, montoBs: 120,
   comprobantePath: null, comprobanteNombre: null, observacion: null,
-  anulada: false, anuladaMotivo: null, declaradaEn: null, actorName: null, createdAt: '2026-10-05T14:00:00Z',
+  anulada: false, anuladaMotivo: null, declaradaEn: null, declaradaPor: null, actorName: null, createdAt: '2026-10-05T14:00:00Z', updatedAt: null,
   ...over,
 });
 
