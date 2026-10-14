@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
-import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
+import { anularRetencionesVinculadas, pagarOrden, restaurarRetencionesAnuladas } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
 import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, recomponerImpuestos, type IvaEditado } from './impuestosOrden';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -2982,10 +2982,18 @@ export async function eliminarOrdenCompra(o: Orden, actorEmail: string, actorNam
     throw new Error(`${etiqueta} ya se está eliminando (o alguien la eliminó). Actualiza la pantalla.`);
   }
 
+  let anuladas: string[] = [];
   try {
+    // 0.b) Las retenciones del libro fiscal se anulan ANTES de mover dinero o stock:
+    //      con una declarada, o sin permiso para anularlas, la orden no se elimina.
+    anuladas = await anularRetencionesVinculadas({
+      columna: 'orden_id', id: o.id, motivo: 'OC eliminada', documento: `La orden ${etiqueta}`,
+    });
     await eliminarOrdenCompraInterno(o, etiqueta, actorEmail, actorName ?? null);
   } catch (e) {
-    // Se suelta la reserva: la orden sigue existiendo y se puede reintentar.
+    // Las retenciones vuelven a «registrada» y se suelta la reserva: la orden sigue
+    // existiendo y se puede reintentar.
+    if (anuladas.length) await restaurarRetencionesAnuladas(anuladas).catch(() => { /* quedan anuladas con su motivo */ });
     try { await supabase.from(TABLE).update({ eliminando_at: null }).eq('id', o.id); } catch { /* best-effort */ }
     throw e;
   }
@@ -3042,10 +3050,6 @@ async function eliminarOrdenCompraInterno(o: Orden, etiqueta: string, actorEmail
       });
     }
   }
-
-  // 2.b) Quitar las retenciones vinculadas (best-effort: la RLS de retenciones exige
-  //      Tesorería; si el usuario no la tiene, quedan con orden_id en NULL por el FK).
-  await supabase.from('retenciones').delete().eq('orden_id', o.id).then(undefined, () => { /* best-effort */ });
 
   // 3) Borrar la orden. Las hijas (ofertas, abonos, chat, evaluaciones) caen en cascada.
   const { error: dErr } = await supabase.from(TABLE).delete().eq('id', o.id);

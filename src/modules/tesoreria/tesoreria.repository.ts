@@ -353,10 +353,48 @@ export async function crearRetencion(input: {
   return data as Retencion;
 }
 
-/** Borra la(s) retención(es) vinculadas a una compra directa (al reabrir/anular su pago). */
-export async function borrarRetencionesDeCompra(compraDirectaId: string): Promise<void> {
-  if (!compraDirectaId) return;
-  await supabase.from('retenciones').delete().eq('compra_directa_id', compraDirectaId);
+/**
+ * Anula (nunca borra) las retenciones vigentes del libro fiscal vinculadas a una
+ * OC o a una compra directa, al eliminar la OC o reabrir el pago. Se llama al
+ * PRINCIPIO del flujo, antes de mover dinero o stock, y lo detiene:
+ * · si alguna ya está declarada (eso se resuelve en Retenciones);
+ * · si el usuario no pudo anularlas todas (la base no se lo permite y no avisa:
+ *   el cambio simplemente no toca la fila).
+ * Devuelve las que anuló, para devolverlas a «registrada» si un paso posterior falla.
+ */
+export async function anularRetencionesVinculadas(input: {
+  columna: 'orden_id' | 'compra_directa_id'; id: string; motivo: string; documento: string;
+}): Promise<string[]> {
+  if (!input.id) return [];
+  const { data: vivas, error } = await supabase.from('retenciones')
+    .select('id, estado, declarada_at').eq(input.columna, input.id).neq('estado', 'anulada');
+  if (error) throw error;
+  if (!vivas?.length) return [];
+  if (vivas.some((r) => r.estado === 'declarada' || r.declarada_at)) {
+    throw new Error(`${input.documento} tiene retenciones ya declaradas en el libro fiscal: se anulan desde Retenciones antes de continuar.`);
+  }
+  const ids = vivas.map((r) => String(r.id));
+  const { data: hechas, error: uErr } = await supabase.from('retenciones')
+    .update({ estado: 'anulada', anulada_motivo: input.motivo, updated_at: new Date().toISOString() })
+    .in('id', ids).neq('estado', 'anulada').select('id');
+  if (uErr) throw uErr;
+  const anuladas = (hechas ?? []).map((r) => String(r.id));
+  if (anuladas.length < ids.length) {
+    if (anuladas.length) await restaurarRetencionesAnuladas(anuladas).catch(() => { /* quedan anuladas con su motivo */ });
+    const n = ids.length;
+    throw new Error(`${input.documento} tiene ${n} retención${n === 1 ? '' : 'es'} vigente${n === 1 ? '' : 's'} en el libro fiscal `
+      + 'y el usuario no tiene permiso para anularlas. Debe anularlas antes alguien con permiso de Retenciones o de Tesorería.');
+  }
+  return anuladas;
+}
+
+/** Devuelve a «registrada» las retenciones que anuló `anularRetencionesVinculadas`. */
+export async function restaurarRetencionesAnuladas(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase.from('retenciones')
+    .update({ estado: 'registrada', anulada_motivo: null, updated_at: new Date().toISOString() })
+    .in('id', ids).eq('estado', 'anulada');
+  if (error) throw error;
 }
 
 export async function listRetenciones(filtros: {
