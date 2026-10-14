@@ -113,6 +113,9 @@ export default defineConfig(({ command }) => ({
           if (id.includes('react-dom') || id.includes('/react/') || id.includes('/scheduler/')) return 'react';
           // Librerías pesadas que solo se cargan bajo demanda (PDF/Excel/captura):
           // nombre de chunk estable → el navegador conserva la caché entre deploys.
+          // fflate (ZIP) es de jsPDF y del respaldo: en su propio chunk, para que pedir el
+          // ZIP nunca arrastre el bloque de jsPDF (pasó: ~200 kB de más en el arranque).
+          if (id.includes('/fflate/')) return 'fflate';
           if (id.includes('jspdf') || id.includes('/canvg/') || id.includes('dompurify')) return 'pdf';
           if (id.includes('xlsx')) return 'xlsx';
           if (id.includes('html2canvas')) return 'html2canvas';
