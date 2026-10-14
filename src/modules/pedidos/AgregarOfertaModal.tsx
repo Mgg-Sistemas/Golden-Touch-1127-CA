@@ -12,6 +12,8 @@ import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repo
 import { hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { ActividadEconomicaSelect } from '@/modules/proveedores/ActividadEconomicaSelect';
+import { useActividadesEconomicas, fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPara, rotuloConversion, tienePresentacion, type Presentacion } from '@/modules/inventario/presentaciones';
@@ -72,6 +74,16 @@ export function AgregarOfertaModal({
   // Modo proveedor: si el checkbox está activo, se crea uno nuevo en línea.
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
   const [proveedorId, setProveedorId] = useState<string>(ofertaEditar?.proveedor_id ?? opcionesProveedor[0]?.id ?? '');
+
+  // Actividad económica (CIIU · SENIAT): se toma de la ficha del proveedor elegido y,
+  // al guardar, queda en la oferta y en la ficha del proveedor.
+  const { actividades, recargar: recargarActividades } = useActividadesEconomicas();
+  const actividadDe = (id: string) => proveedores.find((p) => p.id === id)?.actividad_economica ?? '';
+  const [actividad, setActividad] = useState<string>(ofertaEditar?.actividad_economica ?? actividadDe(proveedorId));
+  function elegirProveedor(id: string) {
+    setProveedorId(id);
+    setActividad(actividadDe(id));
+  }
 
   // Campos del proveedor nuevo (cuando nuevoProveedor=true)
   const [provRazon, setProvRazon] = useState('');
@@ -369,6 +381,10 @@ export function AgregarOfertaModal({
       toast('Elige la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
+    if (!actividad) {
+      toast('Elige la actividad económica del proveedor (o agrégala con ➕ si no está)', 'error');
+      return;
+    }
     // Anticipo parcial: solo en servicio + condición 'anticipado' + monto > 0.
     const usaAnticipo = esServicioOrden && condiciones.trim() === 'anticipado' && Number(anticipoMonto) > 0;
     setSubmitting(true);
@@ -403,6 +419,7 @@ export function AgregarOfertaModal({
           categorias: [],
           origen: provOrigen,
           estado: 'activo',
+          actividad_economica: actividad,
         });
         provId = creado.id;
         notify(`Proveedor "${creado.razon_social}" registrado`, 'success', { link: '#/app/proveedores' });
@@ -410,6 +427,8 @@ export function AgregarOfertaModal({
         toast('Selecciona un proveedor', 'error');
         setSubmitting(false);
         return;
+      } else if (actividad !== actividadDe(provId)) {
+        await fijarActividadProveedor(provId, actividad);
       }
 
       // 2) Subir adjuntos (PDF y/o varias imágenes). El primero queda también en
@@ -448,6 +467,7 @@ export function AgregarOfertaModal({
         const primero = adjuntosFinal[0] ?? null;
         await actualizarOferta(ofertaEditar!.id, {
           proveedor_id: provId,
+          actividad_economica: actividad,
           items: itemsGuardar,
           precio_total: precioTotalGuardar,
           precio_divisa: tieneUsd ? totalUsd : null,
@@ -475,6 +495,7 @@ export function AgregarOfertaModal({
       await crearOferta({
         orden_id: orden.id,
         proveedor_id: provId,
+        actividad_economica: actividad,
         items: itemsGuardar,
         precio_total: precioTotalGuardar,
         fecha_entrega_prometida: fechaEntrega || null,
@@ -660,7 +681,7 @@ export function AgregarOfertaModal({
             <>
               <SearchSelect
                 value={proveedorId}
-                onChange={setProveedorId}
+                onChange={elegirProveedor}
                 options={opcionesProveedor.map((p) => ({ value: p.id, label: `${p.razon_social} (${p.rif})` }))}
                 placeholder="Buscar proveedor por nombre o RIF…"
                 emptyText="Ningún proveedor coincide"
@@ -690,6 +711,13 @@ export function AgregarOfertaModal({
           )}
         </div>
       )}
+
+      <div className="form-row">
+        <label htmlFor="of-actividad">Actividad económica del proveedor (CIIU · SENIAT) *</label>
+        <ActividadEconomicaSelect id="of-actividad" value={actividad} onChange={setActividad}
+          actividades={actividades} onCreada={recargarActividades} />
+        <small className="muted">Queda también en la ficha del proveedor (módulo Proveedores).</small>
+      </div>
 
       {/* Conversor Bs↔$ a la tasa del día (o la que se escriba): ayuda a pasar el precio
           que el proveedor dio en Bs a $ (o al revés) para tipearlo en las columnas. */}
