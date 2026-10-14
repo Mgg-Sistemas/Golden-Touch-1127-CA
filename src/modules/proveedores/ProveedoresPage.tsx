@@ -60,6 +60,7 @@ export function ProveedoresPage() {
   const [filterEstado, setFilterEstado] = useState<EstadoFilter>('');
   const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
   const [filterActividad, setFilterActividad] = useState('');
+  const sinActividad = useMemo(() => proveedores.filter((p) => p.estado === 'activo' && !p.actividad_economica).length, [proveedores]);
   const { actividades } = useActividadesEconomicas();
   const [categoriasList, setCategoriasList] = useState<string[]>([]);
   useEffect(() => {
@@ -217,6 +218,17 @@ export function ProveedoresPage() {
         </div>
       </div>
 
+      {sinActividad > 0 && (
+        <div className="aviso warning" style={{ marginBottom: '.75rem' }}>
+          <span className="aviso-icono">⚠</span>
+          <div>
+            <strong>{sinActividad} proveedor{sinActividad === 1 ? '' : 'es'} activo{sinActividad === 1 ? '' : 's'} sin actividad económica.</strong>{' '}
+            Es obligatoria: se pide al cotizarle, al usarlo en una compra o servicio directo, o al editar su ficha.{' '}
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFilterActividad('__sin')}>Ver cuáles</button>
+          </div>
+        </div>
+      )}
+
       <div
         style={{
           display: 'flex',
@@ -318,7 +330,7 @@ export function ProveedoresPage() {
                   <td style={{ fontSize: '.8rem', maxWidth: 260 }} title={textoActividad(p.actividad_economica, actividades)}>
                     {p.actividad_economica
                       ? <><span className="mono">{p.actividad_economica}</span> <span className="muted">{actividades.find((a) => a.codigo === p.actividad_economica)?.descripcion ?? ''}</span></>
-                      : <span className="muted">—</span>}
+                      : <span className="badge danger" title="Falta la actividad económica: es obligatoria">⚠ Falta</span>}
                   </td>
                   <td>
                     <StatusBadge estado={p.estado} />
@@ -467,6 +479,10 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       toast('RIF (con número) y razón social son obligatorios', 'error');
       return;
     }
+    if (!payload.actividad_economica) {
+      toast('Elige la actividad económica del proveedor (o agrégala con ➕ si no está)', 'error');
+      return;
+    }
     void onSubmit(payload);
   }
 
@@ -613,7 +629,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         </div>
 
         <div className="form-row">
-          <label htmlFor="prov-actividad">Actividad económica (CIIU · SENIAT)</label>
+          <label htmlFor="prov-actividad">Actividad económica (CIIU · SENIAT) *</label>
           <ActividadEconomicaSelect id="prov-actividad" value={form.actividad_economica ?? ''}
             onChange={(c) => update('actividad_economica', c || null)}
             actividades={actividades} onCreada={recargarActividades} />

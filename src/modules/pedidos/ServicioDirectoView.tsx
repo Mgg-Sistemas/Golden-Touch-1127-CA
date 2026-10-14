@@ -12,6 +12,9 @@ import { DetalleServicioEditor, limpiarDetalleServicio } from './DetalleServicio
 import { DetalleServicioBloque } from './DetalleServicioBloque';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { ActividadFaltanteCampo } from '@/modules/proveedores/ActividadFaltanteCampo';
+import { fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
+import { pideActividad } from '@/modules/proveedores/actividadesEconomicas';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import type { Producto } from '@/shared/lib/types';
@@ -449,6 +452,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   // Proveedor (opcional): directorio + alta en línea.
   const [proveedorId, setProveedorId] = useState(editServicio?.proveedor_id ?? '');
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
+  // Actividad económica: obligatoria al dar de alta y para el que no la tiene (14/10/2026).
+  const [actividad, setActividad] = useState('');
   const [provRazon, setProvRazon] = useState('');
   const [provRif, setProvRif] = useState('J-');
   const [provTelefono, setProvTelefono] = useState('');
@@ -492,6 +497,10 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         sinInsumo: cat === CATEGORIA_MANTENIMIENTO && !l.insumoId ? true : null,
       });
     }
+    const provElegido = nuevoProveedor ? null : provActivos.find((p) => p.id === proveedorId) ?? null;
+    if ((nuevoProveedor || provElegido) && pideActividad(provElegido, nuevoProveedor) && !actividad) {
+      setError('Elige la actividad económica del proveedor (o agrégala con ➕ si no está).'); return;
+    }
     if (nuevoProveedor) {
       if (!provRazon.trim() || !rifPartes.numero) { setError('Razón social y RIF (con número) son obligatorios para el nuevo proveedor.'); return; }
       const emailClean = provEmail.trim();
@@ -516,11 +525,13 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
           rif: `${rifPartes.letra}-${rifPartes.numero}`,
           contacto: null, telefono: provTelefono.trim() || null, email: provEmail.trim() || null,
           direccion: null, categorias: [], origen: provOrigen, estado: 'activo',
+          actividad_economica: actividad,
         });
         proveedorIdFinal = creado.id;
         proveedorNombreFinal = creado.razon_social;
         notify(`Proveedor "${creado.razon_social}" registrado`, 'success', { link: '#/app/proveedores' });
       } else if (proveedorId) {
+        if (pideActividad(provActivos.find((p) => p.id === proveedorId), false)) await fijarActividadProveedor(proveedorId, actividad);
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
@@ -617,6 +628,9 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
             </div>
           )}
         </div>
+        {(nuevoProveedor || proveedorId) && pideActividad(nuevoProveedor ? null : provActivos.find((p) => p.id === proveedorId), nuevoProveedor) && (
+          <ActividadFaltanteCampo id="sd-actividad" nuevo={nuevoProveedor} value={actividad} onChange={setActividad} />
+        )}
 
         {/* Quién solicita y su unidad/área (editable). */}
         <div className="form-grid">
