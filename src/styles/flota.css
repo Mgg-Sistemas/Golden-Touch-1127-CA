@@ -545,3 +545,21 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 .flo-seguimiento .txt { display: grid; gap: .1rem; padding-top: .2rem; font-size: .88rem; }
 .flo-seguimiento li.done .txt, .flo-seguimiento li.current .txt { color: var(--text); }
 .flo-seguimiento .txt small { color: var(--text-muted); font-size: .74rem; }
+
+/* Ficha de repuestos del equipo (14/10/2026) */
+.flo-rep-bar { display: flex; flex-wrap: wrap; gap: .45rem; }
+.flo-rep-bar .btn { flex: 1 1 150px; justify-content: center; }
+.flo-rep-list li { align-items: start; }
+.flo-rep-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .15rem .6rem; min-width: 0; grid-column: 1 / -1; }
+.flo-rep-main strong { overflow-wrap: anywhere; }
+.flo-rep-main small { grid-column: 1 / -1; color: var(--text-muted); font-size: .75rem; overflow-wrap: anywhere; }
+.flo-rep-cant { font-weight: 700; white-space: nowrap; }
+.flo-rep-list .src { align-items: center; }
+.flo-rep-list .flo-chip { white-space: normal; }
+.flo-rep-acc { display: inline-flex; gap: .2rem; margin-left: auto; }
+.flo-rep-sist .flo-svc { min-height: 0; padding: .45rem .5rem; }
+@media (min-width: 640px) { .flo-rep-sist { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.flo-rep-sug { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin-top: .35rem; }
+.flo-rep-check { display: grid; gap: .3rem; max-height: 280px; overflow-y: auto; }
+.flo-rep-check label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem; align-items: start; padding: .4rem .5rem; border-radius: var(--r-md); background: var(--bg-1); border: 1px solid var(--border); font-size: .82rem; cursor: pointer; }
+.flo-rep-check input { margin-top: .2rem; }

@@ -44,12 +44,14 @@ import { FotosOrden, FotosOrdenModal } from './FotosOrdenServicio';
 import { EstadoDetalleModal } from './EstadoDetalleModal';
 import { BorrarOrdenDialog } from './BorrarOrdenDialog';
 import { SeguimientoCompraModal } from './SeguimientoCompraModal';
+import { RepuestosEquipoTab } from './RepuestosEquipoTab';
 
-type Tab = 'resumen' | 'servicios' | 'compras' | 'contador' | 'lavados' | 'fotos' | 'ficha';
+type Tab = 'resumen' | 'servicios' | 'compras' | 'repuestos' | 'contador' | 'lavados' | 'fotos' | 'ficha';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'servicios', label: 'Servicios' },
   { id: 'compras', label: 'Compras' },
+  { id: 'repuestos', label: 'Repuestos' },
   { id: 'contador', label: 'Contador' },
   { id: 'lavados', label: 'Lavados' },
   { id: 'fotos', label: 'Fotos y documentos' },
@@ -373,6 +375,7 @@ export function EquipoExpedientePage() {
               onEditar={setEditarOrden} onBorrar={setBorrarOrden}
             />
           )}
+          {tab === 'repuestos' && <RepuestosEquipoTab equipo={eq} canWrite={perm.maquinaria} actor={actor} />}
           {tab === 'compras' && <TabCompras compras={compras} puedePedidos={perm.pedidos} onVer={setVerCompra} />}
           {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)}
             puedeEditar={perm.maquinaria} isAdmin={isAdmin} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}

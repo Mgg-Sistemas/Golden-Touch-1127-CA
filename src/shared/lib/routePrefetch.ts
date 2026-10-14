@@ -36,6 +36,7 @@ const LOADERS: Record<string, Loader> = {
   '/app/maquinaria/averias': () => import('@/modules/maquinaria/AveriasEstadosPage'),
   '/app/maquinaria/lavados': () => import('@/modules/maquinaria/LavadosPage'),
   '/app/maquinaria/repuestos': () => import('@/modules/maquinaria/RepuestosComprasPage'),
+  '/app/maquinaria/repuestos-equipo': () => import('@/modules/maquinaria/RepuestosPorEquipoPage'),
   '/app/usuarios': () => import('@/modules/usuarios/UsuariosPage'),
   '/app/ajustes': () => import('@/modules/ajustes/AjustesPage'),
 };
