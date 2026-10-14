@@ -533,7 +533,7 @@ function NavItem({
   }
   // Prefetch al primer indicio de intención (hover/foco/touch): baja el chunk del
   // módulo antes del clic, así la navegación se siente instantánea.
-  const precargar = () => prefetchRuta(to);
+  const precargar = () => { void prefetchRuta(to); };
   return (
     <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end={!incluyeSubrutas}
       onMouseEnter={precargar} onFocus={precargar} onTouchStart={precargar}>

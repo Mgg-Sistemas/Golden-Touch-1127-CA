@@ -5,7 +5,6 @@
    La generación corre en la función SQL `dump_database_sql()`
    (SECURITY DEFINER) que valida el rol del solicitante por dentro.
    ============================================================ */
-import { strToU8, zipSync } from 'fflate';
 import { supabase } from '@/shared/lib/supabase';
 import { avisoSiNoEntraEnCorreo, nombreSqlRespaldo, nombreZipRespaldo } from '@/shared/lib/respaldoAdjunto';
 import { motivoDeEdgeFunction } from '@/shared/lib/errores';
@@ -120,6 +119,9 @@ export async function enviarRespaldoPorCorreo(
   // moría con un 413 antes de llegar a nuestro código. Se comprime en ZIP
   // (Brevo filtra por extensión y acepta `.zip`) y baja alrededor de diez veces.
   const nombre = nombreZipRespaldo(fecha, automatico);
+  // fflate se pide aquí y no arriba: este archivo lo carga el menú al arrancar, y un
+  // import fijo metía en el arranque el bloque de jsPDF (comparten fflate). 14/10/2026.
+  const { strToU8, zipSync } = await import('fflate');
   const zip = zipSync({ [nombreSqlRespaldo(fecha, automatico)]: strToU8(sql) }, { level: 9 });
 
   // Si algún día ni comprimido entra, se corta aquí con un mensaje que dice el
