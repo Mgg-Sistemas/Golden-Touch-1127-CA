@@ -45,6 +45,7 @@ import { AjustarFoto } from './AjustarFoto';
 import type { Encuadre } from './encuadreFoto';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { ExportarPersonalModal } from './ExportarPersonalModal';
+import { DirectorioFotosModal } from './DirectorioFotosModal';
 import { descargarCarnetPdf } from './carnetPdf';
 import { VigenciaCarnetCampo } from './VigenciaCarnetCampo';
 import { CARNET_VENCE_POR_DEFECTO } from './vigenciaCarnet';
@@ -185,6 +186,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [filtros, setFiltros] = useState<FiltrosPersonal>(FILTROS_VACIOS);
   const [grupo, setGrupo] = useState<CriterioGrupo>('ninguno');
   const [exportando, setExportando] = useState(false);
+  const [directorio, setDirectorio] = useState(false);
   const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   // Campos de texto NO controlados (DOM = fuente de verdad): inmunes a re-renders
   // que de otro modo "cortan" lo tecleado. Se leen del DOM al guardar.
@@ -559,6 +561,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
           <button className="btn btn-ghost" onClick={() => setExportando(true)} disabled={!visibles.length}
             title="Descargar en Excel o PDF los datos que elijas (p. ej. solo nombre y cédula)">
             ⬇ Descargar datos
+          </button>
+          <button className="btn btn-ghost" onClick={() => setDirectorio(true)} disabled={!visibles.length}
+            title="Fotos con nombre y cargo de la gente de la lista (con sus filtros); se imprime una debajo de la otra">
+            📸 Directorio de fotos
           </button>
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>}
         </div>
@@ -1154,6 +1160,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       {exportando && (
         <ExportarPersonalModal personas={visibles} total={lista.length}
           titulo={`Personal · ${labelEmpresa(empresa)}`} onClose={() => setExportando(false)} />
+      )}
+      {directorio && (
+        <DirectorioFotosModal personas={visibles} empresa={empresa}
+          filtro={filtrando ? `con filtros (${visibles.length} de ${lista.length})` : null} onClose={() => setDirectorio(false)} />
       )}
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} canWrite={canWrite} onClose={() => setCarnetPersona(null)} onFotoCambio={() => void recargar()} />}

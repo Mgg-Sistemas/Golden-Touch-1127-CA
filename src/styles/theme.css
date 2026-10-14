@@ -763,3 +763,23 @@ body.hints-off .hint { display: none !important; }
 
 /* Más de dos empresas en RRHH (14/10/2026): lista plegable con buscador. */
 .rrhh-nominas-lista { min-width: min(360px, 100%); flex: 1 1 280px; }
+
+/* ───────── RRHH · Directorio de fotos (14/10/2026) ─────────
+   En pantalla las fotos van una al lado de la otra; la impresión (una debajo
+   de la otra) se arma aparte en directorioFotos.ts. */
+.dir-fotos {
+  display: grid; gap: .8rem;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.dir-fotos-item {
+  margin: 0; display: flex; flex-direction: column; align-items: center; gap: .4rem;
+  padding: .6rem; border: 1px solid var(--border); border-radius: var(--r-md, 10px);
+  background: var(--surface-2, var(--bg-1));
+}
+.dir-fotos-img {
+  width: 100%; max-width: 160px; aspect-ratio: 5 / 6; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border-strong, var(--border)); background: var(--surface-3, var(--bg-2));
+}
+.dir-fotos-sin { display: flex; align-items: center; justify-content: center; font-size: .75rem; color: var(--text-muted); }
+.dir-fotos-item figcaption { display: flex; flex-direction: column; align-items: center; text-align: center; gap: .1rem; font-size: .78rem; line-height: 1.25; overflow-wrap: anywhere; }
+.dir-fotos-item figcaption strong { font-size: .84rem; text-transform: uppercase; }
