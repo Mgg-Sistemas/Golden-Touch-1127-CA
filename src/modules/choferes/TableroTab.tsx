@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react';
 import { date as fmtDate } from '@/shared/lib/format';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, textoRuta, type EstadoChofer, type EstadoFlota } from './choferes';
+import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, textoRuta, totalViajes, type EstadoChofer, type EstadoFlota } from './choferes';
 import { fechaHora, nombreConductor, textoVehiculo, type PropsTab, type Vista } from './ChoferesPage';
 
 export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void }) {
@@ -39,7 +39,10 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
   const enRuta = useMemo(() => viajes.filter((v) => v.estado === 'en_ruta'), [viajes]);
   const programados = useMemo(() => viajes.filter((v) => v.estado === 'programado').sort((a, b) => a.fecha_salida.localeCompare(b.fecha_salida)).slice(0, 6), [viajes]);
   const mes = hoy.slice(0, 7);
-  const viajesMes = viajes.filter((v) => v.estado === 'finalizado' && (v.llegada_real_at ?? v.fecha_salida).slice(0, 7) === mes).length;
+  // Cada registro trae su cantidad de viajes (la volqueta anota «12 viajes» en una fila).
+  const delMes = viajes.filter((v) => v.estado === 'finalizado' && (v.llegada_real_at ?? v.fecha_salida).slice(0, 7) === mes);
+  const viajesMes = totalViajes(delMes);
+  const volquetaMes = totalViajes(delMes.filter((v) => v.tipo_viaje === 'volqueta'));
 
   const porId = useMemo(() => new Map(conductores.map((c) => [c.id, c])), [conductores]);
   const vehiculoPorId = useMemo(() => new Map(flota.map((v) => [v.id, v])), [flota]);
@@ -105,7 +108,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
         <button type="button" className="kpi desc-kpi" onClick={() => irA('viajes')}>
           <div className="label">Viajes finalizados este mes</div>
           <div className="value">{viajesMes}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>{viajes.length} en el histórico</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>🚚 {viajesMes - volquetaMes} de camión · 🚛 {volquetaMes} de volqueta</div>
           <div className="icon" aria-hidden="true">🏁</div>
         </button>
       </div>

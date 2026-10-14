@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   alertasDocumentos, diasHasta, errorViajeRealizado, estadoChofer, estadoVence, peorEstadoDocumentos,
-  progresoParadas,
+  progresoParadas, totalViajes, textoViajes, diaVE, horaVE, fechaCorta,
 } from './choferes';
 
 const HOY = '2026-10-12';
@@ -55,5 +55,23 @@ describe('cargar un viaje ya realizado (viaje pasado)', () => {
   });
   it('el kilometraje de llegada no baja del de salida', () => {
     expect(errorViajeRealizado({ salida: '2026-10-05T06:30', llegada: '2026-10-05T18:10', kmSalida: 1000, kmLlegada: 900, ahora })).toMatch(/kilometraje/i);
+  });
+});
+
+describe('viajes de camión y de volqueta (14/10/2026)', () => {
+  it('suma la cantidad de viajes de cada registro y no cuenta los cancelados', () => {
+    expect(totalViajes([{ cantidad_viajes: 12 }, { cantidad_viajes: 3 }, { cantidad_viajes: 5, estado: 'cancelado' }, {}])).toBe(16);
+    expect(textoViajes(1)).toBe('1 viaje');
+    expect(textoViajes(20)).toBe('20 viajes');
+  });
+
+  it('lleva la fecha y la hora a Venezuela', () => {
+    // Mediodía de Venezuela: mismo día en cualquier huso.
+    expect(diaVE('2026-10-12T16:00:00.000Z')).toBe('2026-10-12');
+    // 02:00 UTC del 13 = 22:00 del 12 en Venezuela.
+    expect(diaVE('2026-10-13T02:00:00.000Z')).toBe('2026-10-12');
+    expect(horaVE('2026-10-13T02:30:00.000Z')).toBe('22:30');
+    expect(fechaCorta('2026-10-02')).toBe('02/10/2026');
+    expect(diaVE(null)).toBe('');
   });
 });
