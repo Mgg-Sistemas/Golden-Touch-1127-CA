@@ -187,7 +187,17 @@ export async function cambiarEmailUsuario(userId: string, email: string): Promis
   const { data, error } = await supabase.functions.invoke<
     { ok: true; email: string } | { error: string }
   >('actualizar-email', { body: { user_id: userId, email } });
-  if (error) throw new Error(await mensajeErrorFuncion(error, 'Error al cambiar el correo'));
+  if (error) {
+    // «Failed to fetch» (14/10/2026): la función puede haber hecho el cambio y la respuesta
+    // perderse en el camino (red lenta, conexión cortada). Antes de dar error se mira la ficha.
+    const emailNorm = email.trim().toLowerCase();
+    if ((error as { name?: string }).name === 'FunctionsFetchError' || /failed to fetch|network/i.test(String((error as Error).message ?? ''))) {
+      const { data: fila } = await supabase.from(TABLE).select('email').eq('id', userId).maybeSingle();
+      if ((fila?.email ?? '').toLowerCase() === emailNorm) return emailNorm;
+      throw new Error('No hubo respuesta del servidor y el correo no cambió. Revisa la conexión e inténtalo de nuevo.');
+    }
+    throw new Error(await mensajeErrorFuncion(error, 'Error al cambiar el correo'));
+  }
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
   return data.email;
 }
