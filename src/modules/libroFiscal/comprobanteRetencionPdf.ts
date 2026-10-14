@@ -163,7 +163,8 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
     ? 'El comprobante se entrega al proveedor dentro de los plazos de la Providencia. El número no se reusa: una retención anulada conserva el suyo.'
     : 'Comprobante de retención. El número no se reusa: una retención anulada conserva el suyo.';
   doc.text(textoPdf(pie), MARGIN, LIMITE - 22, { maxWidth: anchoUtilPdf(W) });
-  doc.text(textoPdf(`Emitido por ${r.actorName ?? '—'} · ${razonSocialAgente(config)}`), MARGIN, LIMITE);
+  // Quién registró NO va en lo impreso (R3-12): solo se ve en pantalla. El pie lleva la razón social del agente.
+  doc.text(textoPdf(razonSocialAgente(config)), MARGIN, LIMITE);
 
   previewPdf(doc, `retencion-${r.tipo}-${r.numeroComprobante ?? r.id.slice(0, 8)}.pdf`);
 }
