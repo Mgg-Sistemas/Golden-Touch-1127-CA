@@ -7,6 +7,7 @@ const SUBMODULOS_FLOTA: { to: string; icon: string; label: string }[] = [
   { to: '/app/maquinaria/ordenes', icon: '🧾', label: 'Órdenes de servicio' },
   { to: '/app/maquinaria/averias', icon: '🔴', label: 'Averías y estados' },
   { to: '/app/maquinaria/lavados', icon: '🚿', label: 'Lavados' },
+  { to: '/app/maquinaria/repuestos-equipo', icon: '🔩', label: 'Repuestos por equipo' },
   { to: '/app/maquinaria/repuestos', icon: '🛒', label: 'Repuestos y compras' },
   { to: '/app/maquinaria/servicio-mantenimiento', icon: '🔧', label: 'Servicio de Mantenimiento' },
 ];

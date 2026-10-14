@@ -160,7 +160,7 @@ export function AppShell() {
       ['ventas', '/app/ventas'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
-      ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['retenciones', '/app/retenciones'], ['documentacion', '/app/documentacion'],
+      ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['maquinaria', '/app/maquinaria/repuestos-equipo'], ['retenciones', '/app/retenciones'], ['documentacion', '/app/documentacion'],
       ['rrhh', '/app/rrhh'], ['asignaciones', '/app/asignaciones'], ['choferes', '/app/choferes'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
       ['geodesta', '/app/geodesta'],
     ] as Array<[ModuleKey, string]>)

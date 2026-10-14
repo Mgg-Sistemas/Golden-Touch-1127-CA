@@ -21,6 +21,8 @@ import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { FotosNuevaOrden, FotosOrden } from './FotosOrdenServicio';
 import { useFotosLocales } from './useFotosLocales';
 import { subirFotosOrden } from './osFotos.repository';
+import { listRepuestosEquipo } from './repuestosEquipo.repository';
+import { marcadoParaOrden, lineasDesdeFicha, sistemaDe, textoEquivalencias, type ProductoRepuesto, type RepuestoEquipo } from './repuestosEquipo';
 
 interface Linea {
   productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null;
@@ -103,6 +105,14 @@ export function OrdenServicioModal({
   const [categoriaFija] = useState(categoriaFijaEnTelefono);
   // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
   const fotosOS = useFotosLocales();
+  // Ficha de repuestos del equipo (14/10/2026): «📋 Cargar de la ficha» llena las líneas.
+  const [ficha, setFicha] = useState<RepuestoEquipo[]>([]);
+  const [verFicha, setVerFicha] = useState(false);
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    listRepuestosEquipo(equipo.id).then(setFicha).catch(() => setFicha([]));
+  }, [equipo.id]);
 
   useEffect(() => {
     listProductosActivos().then((ps) => {
@@ -160,6 +170,20 @@ export function OrdenServicioModal({
   }
   const setCategoria = (i: number, categoria: string) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, categoria } : l)));
   const nuevasSinCategoria = lineas.filter((l) => !l.productoId && !(l.categoria ?? '').trim()).length;
+  function abrirFicha() {
+    setMarcados(new Set(ficha.filter((r) => marcadoParaOrden(r, tipo)).map((r) => r.id)));
+    setVerFicha(true);
+  }
+  /** Agrega a la orden lo marcado de la ficha (lo que ya está en la orden no se repite). */
+  function cargarDeFicha() {
+    const porId = new Map<string, ProductoRepuesto>(productos.map((p) => [p.id, p]));
+    const nuevas = lineasDesdeFicha(ficha.filter((r) => marcados.has(r.id)), porId)
+      .filter((n) => !lineas.some((l) => (n.productoId ? l.productoId === n.productoId : !l.productoId && l.nombre === n.nombre)));
+    if (!nuevas.length) { toast('Eso ya está en la orden.', 'info'); setVerFicha(false); return; }
+    setLineas((prev) => [...prev, ...nuevas.map((n) => (n.productoId ? n : { ...n, categoria: CATEGORIA_REPUESTOS }))]);
+    toast(`📋 ${nuevas.length} repuesto(s) de la ficha agregado(s).`, 'success');
+    setVerFicha(false);
+  }
   const setCant = (i: number, v: number) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, cantidad: Math.max(1, Math.round((Number(v) || 1) * 100) / 100) } : l)));
 
   async function guardarEdicion() {
@@ -333,6 +357,33 @@ export function OrdenServicioModal({
 
         {paso === 1 && editables && (
           <>
+            {ficha.length > 0 && !verFicha && (
+              <button type="button" className="btn" style={{ justifyContent: 'center' }} onClick={abrirFicha}>📋 Cargar de la ficha del equipo ({ficha.length})</button>
+            )}
+            {verFicha && (
+              <div className="aviso info sm"><span className="aviso-icono">📋</span><div style={{ display: 'grid', gap: '.4rem', minWidth: 0 }}>
+                <strong>Ficha de repuestos de {equipo.equipo}</strong>
+                <span>Marca lo que lleva esta orden. {tipo === 'preventivo' || tipo === 'aceite' ? 'Vienen marcados los que se cambian en cada servicio.' : tipo === 'cauchos' ? 'Vienen marcados los cauchos.' : ''}</span>
+                <div className="flo-rep-check">
+                  {ficha.map((r) => {
+                    const p = r.producto_id ? productos.find((x) => x.id === r.producto_id) : null;
+                    return (
+                      <label key={r.id}>
+                        <input type="checkbox" checked={marcados.has(r.id)} onChange={(e) => setMarcados((prev) => { const n = new Set(prev); if (e.target.checked) n.add(r.id); else n.delete(r.id); return n; })} />
+                        <span style={{ minWidth: 0 }}>
+                          <strong>{sistemaDe(r.sistema).icon} {r.tipo}{r.numero_parte ? ` · ${r.numero_parte}` : ''}</strong> <span className="mono">{fmtNum(r.cantidad)} {r.unidad}</span>
+                          <small className="muted" style={{ display: 'block' }}>{p ? `${p.nombre} · ${Number(p.stock) > 0 ? `${fmtNum(p.stock)} ${p.unidad} en stock` : 'sin stock'}` : ['No está en el inventario: entra como pieza nueva', textoEquivalencias(r.equivalencias)].filter(Boolean).join(' · ')}</small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={!marcados.size} onClick={cargarDeFicha}>Agregar {marcados.size} a la orden</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setVerFicha(false)}>Cancelar</button>
+                </div>
+              </div></div>
+            )}
             <div className="form-row"><label htmlFor="os-inv">Buscar en inventario</label>
               <input id="os-inv" className="input" type="search" autoComplete="off" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="🔍 Filtro, caucho, aceite, manguera…" />
             </div>
