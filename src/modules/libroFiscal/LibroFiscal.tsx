@@ -48,6 +48,7 @@ import { aplicarFiltros, buscaEn, conteoOpcion, paginar, type FiltroLista } from
 import { BarraLista, Paginador, type ControlFiltro } from './ListaControles';
 import { eventosRetencion, cuandoCorto, lineaQuien } from './quienCuando';
 import './libroFiscal.css';
+import { useDescartar } from './confirmarDescartar';
 
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -464,6 +465,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [archivo, setArchivo] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
 
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true)])
@@ -544,15 +546,17 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   }
 
   return (
-    <Modal title="🧾 Registrar retención" size="lg" onClose={() => !saving && onClose()}
+    <>
+    <Modal title="🧾 Registrar retención" size="lg" onClose={pedirCierre}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={() => void emitir()} disabled={saving || montoFinal <= 0 || !!bloqueo}>
+          <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
+          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || montoFinal <= 0 || !!bloqueo}>
             {saving ? 'Guardando…' : `Registrar · ${monto(montoFinal, moneda)}`}
           </button>
         </>
       }>
+      <div onChange={marcarSucio}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       {/* La dirección primero: cambia el significado de todo lo demás */}
@@ -753,7 +757,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           ? `Al registrar, la base le asigna el número de comprobante AAAAMM + 8 dígitos. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
           : 'Queda en el libro fiscal del período, con su comprobante imprimible.'}
       </div>
+      </div>
     </Modal>
+    {dialogo}
+    </>
   );
 }
 
@@ -766,6 +773,8 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const [tab, setTab] = useState<'agente' | 'catalogo'>('agente');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
 
   const recargar = useCallback(async () => {
     const [c, l, cs] = await Promise.all([getConfigRetencion(), getAlicuotasLocales(), listConceptos(false)]);
@@ -791,15 +800,17 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   }
 
   return (
-    <Modal title="⚙ Parámetros fiscales" size="xl" onClose={() => !saving && onClose()}
+    <>
+    <Modal title="⚙ Parámetros fiscales" size="xl" onClose={pedirCierre}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+          <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cerrar</button>
           {tab === 'agente' && puedeEditar && (
-            <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+            <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
           )}
         </>
       }>
+      <div onChange={marcarSucio}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
       {soloLectura && (
         <div className="hint muted" style={{ marginBottom: '.6rem', fontSize: '.82rem' }}>
@@ -892,7 +903,10 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
       ) : (
         <CatalogoConceptos conceptos={conceptos} puedeEditar={puedeEditar} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />
       )}
+      </div>
     </Modal>
+    {dialogo}
+    </>
   );
 }
 
