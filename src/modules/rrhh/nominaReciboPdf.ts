@@ -212,6 +212,8 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
     y = (doc.lastAutoTable?.finalY ?? y) + gap(10);
 
+    // Los montos del pie (totales y neto) alineados a la derecha como los del cuerpo.
+    const der = (texto: string) => ({ content: texto, styles: { halign: 'right' as const } });
     const pctSueldo = Number(r.sueldo_pct);
     const pctBono = Number.isFinite(pctSueldo) && pctSueldo > 0 ? Math.round(100 - pctSueldo) : null;
     let conformidad: string;
@@ -234,8 +236,8 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
           linea(8, 'Otros', 0, 'deduccion'),
         ],
         foot: [
-          ['', 'TOTALES', bsStr(m.netoBs), bsStr(0)],
-          ['', 'NETO A RECIBIR EN BOLÍVARES', bsStr(m.netoBs), ''],
+          ['', 'TOTALES', der(bsStr(m.netoBs)), der(bsStr(0))],
+          ['', 'NETO A RECIBIR EN BOLÍVARES', der(bsStr(m.netoBs)), ''],
         ],
         margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
         theme: 'grid',
@@ -250,9 +252,12 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
-      conformidad = `Certifico haber recibido la cantidad de ${bsStr(m.netoBs)}`
-        + ` por concepto de sueldo${Number.isFinite(pctSueldo) && pctSueldo > 0 ? ` (${Math.round(pctSueldo)} % del total acordado)` : ''}`
-        + ' correspondiente al período que se indica en el mismo, y firmo en señal de conformidad.';
+      // Texto dictado por RRHH (15/10/2026): monto en Bs, que es la totalidad del
+      // salario del período, sin porcentajes del total acordado (eso es en $).
+      const desde = meta.periodo.periodo_desde ? fmtDate(meta.periodo.periodo_desde) : '';
+      const hasta = meta.periodo.periodo_hasta ? fmtDate(meta.periodo.periodo_hasta) : '';
+      const periodoTexto = desde && hasta ? `al período del ${desde} al ${hasta}` : desde ? `al período del ${desde}` : 'al período indicado';
+      conformidad = `Certifico haber recibido la cantidad de ${bsStr(m.netoBs)}, que conforma la totalidad de mi salario correspondiente ${periodoTexto}, y firmo en señal de conformidad.`;
     } else {
       // ── Recibo 2: bonificación, menos préstamos y anticipos, en dólares ──
       const nPrest = (r.deducciones ?? []).filter((d) => d.tipo === 'prestamo').length;
@@ -270,8 +275,8 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
           fila(5, 'Otros descuentos', 0, 'deduccion'),
         ],
         foot: [
-          ['', 'TOTALES', usd(m.bonoBrutoUsd), m.prestamosUsd + m.anticiposUsd > 0 ? `− ${usd(m.prestamosUsd + m.anticiposUsd)}` : usd(0)],
-          ['', 'NETO A RECIBIR EN DIVISAS', usd(m.bonoNetoUsd), ''],
+          ['', 'TOTALES', der(usd(m.bonoBrutoUsd)), der(m.prestamosUsd + m.anticiposUsd > 0 ? `− ${usd(m.prestamosUsd + m.anticiposUsd)}` : usd(0))],
+          ['', 'NETO A RECIBIR EN DIVISAS', der(usd(m.bonoNetoUsd)), ''],
         ],
         margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
         theme: 'grid',
