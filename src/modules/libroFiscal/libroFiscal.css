@@ -55,3 +55,6 @@
 .lf-historial > summary { cursor: pointer; min-height: 24px; color: var(--text-muted); }
 .lf-historial ol { margin: .2rem 0 .3rem; padding-left: 1.1rem; }
 @media print { .lf-quien, .lf-historial { display: none !important; } }
+
+/* Atajos de fecha en los filtros del libro */
+.lf-atajos { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; align-self: flex-end; }

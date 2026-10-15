@@ -49,6 +49,7 @@ import { BarraLista, Paginador, type ControlFiltro } from './ListaControles';
 import { eventosRetencion, cuandoCorto, lineaQuien } from './quienCuando';
 import './libroFiscal.css';
 import { useDescartar } from './confirmarDescartar';
+import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -248,6 +249,13 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
             <>
               <label className="lf-campo"><span>Desde</span><input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
               <label className="lf-campo"><span>Hasta</span><input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
+              <div className="lf-atajos" role="group" aria-label="Atajos de fecha">
+                {RANGOS_RAPIDOS.map((r) => (
+                  <button key={r.valor} type="button"
+                    className={`btn btn-sm ${rangoActivo(desde, hasta) === r.valor ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => { const x = rangoRapido(r.valor); setDesde(x.desde); setHasta(x.hasta); }}>{r.label}</button>
+                ))}
+              </div>
             </>
           )}
         />
