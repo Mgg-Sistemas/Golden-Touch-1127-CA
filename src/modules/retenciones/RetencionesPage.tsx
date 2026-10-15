@@ -15,7 +15,7 @@ import {
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import type { Orden } from '@/shared/lib/types';
-import { LibroFiscalView, ConfiguracionFiscalModal } from '@/modules/libroFiscal/LibroFiscal';
+import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import '@/modules/libroFiscal/libroFiscal.css';
@@ -37,6 +37,7 @@ export function RetencionesPage() {
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
+  const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
 
   // Búsqueda, filtros, orden y página de las dos listas de OC (Por realizar y Realizadas).
   const [fDesde, setFDesde] = useState('');
@@ -67,6 +68,11 @@ export function RetencionesPage() {
 
   // Realtime multiusuario: lo que registra otro (o paga Tesorería) se refleja al instante.
   useRealtime(['ordenes'], () => { void reload(); });
+
+  const proveedorIdsPendientes = useMemo(
+    () => new Set(pendientes.map((i) => i.orden.proveedor_id).filter(Boolean) as string[]),
+    [pendientes],
+  );
 
   // La lista de la vista: búsqueda y fechas (las de siempre), filtros con su conteo y orden.
   const baseLista = useMemo(() => {
@@ -177,6 +183,7 @@ export function RetencionesPage() {
         <PorRealizarView
           items={pendientes} loading={loading} canWrite={canWrite}
           onVer={setSel} onVista={() => setVista('agrupada')}
+          onRegistrar={setRegistrar}
         />
       )}
 
@@ -248,6 +255,14 @@ export function RetencionesPage() {
       )}
       {parametros && (
         <ConfiguracionFiscalModal puedeEditar={canWrite} onClose={() => setParametros(false)} />
+      )}
+      {registrar && (
+        <RegistrarRetencionModal
+          semilla={registrar} actor={actor} actorName={actorName}
+          proveedorIdsPendientes={proveedorIdsPendientes}
+          onClose={() => setRegistrar(null)}
+          onHecho={async () => { setRegistrar(null); await reload().catch(() => {}); }}
+        />
       )}
     </div>
   );
@@ -393,9 +408,10 @@ function impuestosRegistradosDeOrden(o: Orden): number {
   return n;
 }
 
-function PorRealizarView({ items, loading, canWrite, onVer, onVista }: {
+function PorRealizarView({ items, loading, canWrite, onVer, onVista, onRegistrar }: {
   items: RetencionItem[]; loading: boolean; canWrite: boolean;
   onVer: (item: RetencionItem) => void; onVista: () => void;
+  onRegistrar: (semilla: SemillaRetencion) => void;
 }) {
   const [q, setQ] = useState('');
   const [fImp, setFImp] = useState('');
@@ -562,8 +578,17 @@ function PorRealizarView({ items, loading, canWrite, onVer, onVista }: {
               <span className="lfv8-sis-acc">
                 {pends.map((k) => {
                   const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
+                  const tipoModal = k === 'municipal' ? 'isae' : k;
                   return (
-                    <button key={k} className="btn btn-sm lfv8-btn-reg" onClick={() => onVer({ orden: o, proveedorNombre })}>
+                    <button key={k} className="btn btn-sm lfv8-btn-reg" onClick={() => onRegistrar({
+                      direccion: 'practicada',
+                      tipoInicial: tipoModal as SemillaRetencion['tipoInicial'],
+                      docKind: o.tipo === 'servicio' ? 'servicio_directo' : 'oc',
+                      docId: o.id, codigo: o.oc_codigo ?? o.codigo,
+                      contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
+                      moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
+                      total: o.total, baseImponible: o.total - (o.iva_monto ?? 0), iva: o.iva_monto ?? 0,
+                    })}>
                       Registrar {lbl}
                     </button>
                   );

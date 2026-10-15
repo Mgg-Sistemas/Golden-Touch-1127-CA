@@ -244,7 +244,7 @@ export function minimoIslr(concepto: Pick<ConceptoRetencion, 'baseMinimaUt'>, va
  * Persona jurídica domiciliada: pago × %, sin sustraendo ni mínimo.
  */
 export function calcularRetencionIslr(
-  input: { montoPago: number; concepto: ConceptoRetencion | null },
+  input: { montoPago: number; concepto: ConceptoRetencion | null; moneda?: string; tasa?: number },
   config: ConfigRetencion,
 ): CalculoRetencion {
   const c = input.concepto;
@@ -253,20 +253,25 @@ export function calcularRetencionIslr(
   const pago = r2(n0(input.montoPago));
   if (pago <= 0) return CERO('islr', 'El pago no tiene monto.');
 
-  // La base puede ser una porción del pago (transporte internacional, p. ej.).
   const base = r2((pago * n0(c.basePct)) / 100);
   const pct = n0(c.porcentaje);
   if (pct <= 0) return CERO('islr', `El concepto «${c.nombre}» está en 0%: hay que cargar su porcentaje en el catálogo.`);
 
+  const enDivisas = input.moneda != null && input.moneda !== 'Bs' && n0(input.tasa) > 0;
+  const tasaConv = enDivisas ? n0(input.tasa) : 0;
+  const baseBs = tasaConv > 0 ? r2(base * tasaConv) : base;
+
   const minimo = minimoIslr(c, config.valorUt);
-  if (minimo > 0 && base < minimo) {
+  if (minimo > 0 && baseBs < minimo) {
+    const detBs = tasaConv > 0 ? ` (${baseBs.toLocaleString('es-VE')} Bs al cambio)` : '';
     return {
       tipo: 'islr', baseImponible: base, alicuota: 0, impuesto: 0, porcentaje: pct, sustraendo: 0, montoRetenido: 0,
-      explicacion: `No se retiene: la base (${base.toLocaleString('es-VE')}) no llega al mínimo de ${minimo.toLocaleString('es-VE')} (${c.baseMinimaUt} UT).`,
+      explicacion: `No se retiene: la base${detBs} no llega al mínimo de ${minimo.toLocaleString('es-VE')} Bs (${c.baseMinimaUt} UT).`,
     };
   }
 
-  const sustraendo = c.aplicaSustraendo ? sustraendoIslr(pct, config.valorUt) : 0;
+  const sustraendoBs = c.aplicaSustraendo ? sustraendoIslr(pct, config.valorUt) : 0;
+  const sustraendo = tasaConv > 0 ? r2(sustraendoBs / tasaConv) : sustraendoBs;
   const bruto = r2((base * pct) / 100);
   const monto = Math.max(0, r2(bruto - sustraendo));
   const detalleBase = c.basePct !== 100 ? ` sobre el ${c.basePct}% del pago` : '';

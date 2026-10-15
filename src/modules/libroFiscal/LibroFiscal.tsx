@@ -47,6 +47,9 @@ import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
 import { Paginador } from './ListaControles';
 import './libroFiscal.css';
 import './libroFiscalV8.css';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
+import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
@@ -603,38 +606,38 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
 /** Datos con los que se abre el modal. Vacío = carga manual desde el libro. */
 export interface SemillaRetencion {
   direccion?: DireccionRetencion;
+  tipoInicial?: TipoImpuesto;
   docKind?: DocKind;
   docId?: string | null;
   codigo?: string | null;
-  /** Solo un proveedor: en una recibida la contraparte es un cliente. */
   contraparteId?: string | null;
   contraparteNombre?: string | null;
   contraparteRif?: string | null;
   moneda?: string;
-  /** Total del documento: la base de partida para ISLR y municipal. */
   total?: number;
-  /** IVA de la factura: la base de la retención de IVA. */
   iva?: number;
-  /** Base imponible (total sin IVA). */
   baseImponible?: number;
 }
 
-export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho }: {
+export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
   semilla: SemillaRetencion;
   actor: string;
   actorName: string | null;
   onClose: () => void;
   onHecho: () => void;
+  proveedorIdsPendientes?: Set<string>;
 }) {
   const [config, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
 
   const [direccion, setDireccion] = useState<DireccionRetencion>(semilla.direccion ?? 'practicada');
-  const [tipo, setTipo] = useState<TipoImpuesto>('iva');
+  const [tipo, setTipo] = useState<TipoImpuesto>(semilla.tipoInicial ?? 'iva');
   const [sujeto, setSujeto] = useState<SujetoRetenido>('pj_domiciliada');
   const [conceptoId, setConceptoId] = useState('');
   const [motivos, setMotivos] = useState<MotivosIvaCien>({});
 
+  const [proveedorId, setProveedorId] = useState(semilla.contraparteId ?? '');
   const [contraparte, setContraparte] = useState(semilla.contraparteNombre ?? '');
   const [rif, setRif] = useState(semilla.contraparteRif ?? '');
   const [moneda, setMoneda] = useState(semilla.moneda ?? 'Bs');
@@ -654,11 +657,42 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
 
   useEffect(() => {
-    void Promise.all([getConfigRetencion(), listConceptos(true)])
-      .then(([c, cs]) => { setConfig(c); setConceptos(cs); })
+    void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
+      .then(([c, cs, ps]) => {
+        setConfig(c); setConceptos(cs);
+        const activos = ps.filter((p) => p.estado === 'activo');
+        setProveedores(activos);
+        if (semilla.contraparteId) {
+          const p = activos.find((x) => x.id === semilla.contraparteId);
+          if (p) {
+            setContraparte(p.razon_social);
+            setRif(p.rif ?? '');
+            const sug = sugerirSujetoPorRif(p.rif ?? '');
+            if (sug) setSujeto(sug.sujeto);
+          }
+        }
+      })
       .catch((e) => setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'));
     getTasaHoy().then((t) => { if (t.usd != null) setTasaStr(String(t.usd)); }).catch(() => { /* se escribe a mano */ });
   }, []);
+
+  const opcionesProveedor = useMemo(() => {
+    const lista = proveedorIdsPendientes
+      ? proveedores.filter((p) => proveedorIdsPendientes.has(p.id))
+      : proveedores;
+    return lista.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }));
+  }, [proveedores, proveedorIdsPendientes]);
+
+  function elegirProveedor(id: string) {
+    setProveedorId(id);
+    const p = proveedores.find((x) => x.id === id);
+    if (p) {
+      setContraparte(p.razon_social);
+      setRif(p.rif ?? '');
+      const sug = sugerirSujetoPorRif(p.rif ?? '');
+      if (sug) setSujeto(sug.sujeto);
+    }
+  }
 
   const conceptosDelTipo = useMemo(() => conceptos.filter((c) =>
     c.tipo === tipo && (c.sujeto === sujeto || c.sujeto === 'todos')), [conceptos, tipo, sujeto]);
@@ -670,10 +704,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const calculo: CalculoRetencion = useMemo(() => {
     const base = nDec(baseStr);
     if (tipo === 'iva') return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(ivaStr), motivos }, config);
-    if (tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto }, config);
+    if (tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa: nDec(tasaStr) }, config);
     if (tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
     return calcularRetencionLocal({ montoPago: base, concepto }, tipo);
-  }, [tipo, baseStr, ivaStr, motivos, concepto, config]);
+  }, [tipo, baseStr, ivaStr, motivos, concepto, config, moneda, tasaStr]);
 
   const esManual = direccion === 'recibida';
   const bloqueo = direccion === 'practicada' ? motivoNoPuedePracticar(tipo, config) : null;
@@ -693,6 +727,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (montoFinal < 0) { setError('El monto no puede ser negativo.'); return; }
     if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escriba el motivo del 0%.'); return; }
     if (esManual && !contraparte.trim()) { setError('Indicar la contraparte que practicó la retención.'); return; }
+    if (!esManual && !proveedorId) { setError('Seleccionar el proveedor al que se le practica la retención.'); return; }
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indicar la tasa de cambio para convertir la retención a bolívares.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
     setSaving(true);
@@ -702,7 +737,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         tipo, direccion,
         docKind: semilla.docKind ?? 'manual',
         docId: semilla.docId ?? null, docCodigo: semilla.codigo ?? null,
-        contraparteId: semilla.contraparteId ?? null,
+        contraparteId: proveedorId || semilla.contraparteId || null,
         contraparteRif: rif.trim() || null,
         contraparteNombre: contraparte.trim() || null,
         contraparteSujeto: tipo === 'iva' || tipo === 'igtf' ? null : sujeto,
@@ -775,11 +810,22 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '2 1 240px' }}>
           <label>{direccion === 'recibida' ? 'Agente de retención' : 'Sujeto retenido'}</label>
-          <input className="input" value={contraparte} onChange={(e) => setContraparte(e.target.value)} placeholder="Razón social" />
+          {direccion === 'practicada' ? (
+            <SearchSelect
+              value={proveedorId}
+              onChange={elegirProveedor}
+              options={opcionesProveedor}
+              placeholder="Buscar proveedor por nombre o RIF…"
+              disabled={!!semilla.contraparteId}
+            />
+          ) : (
+            <input className="input" value={contraparte} onChange={(e) => setContraparte(e.target.value)} placeholder="Razón social" />
+          )}
         </div>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
           <label>RIF</label>
-          <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value)} placeholder="J-XXXXXXXX-X" />
+          <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value)} placeholder="J-XXXXXXXX-X"
+            readOnly={direccion === 'practicada' && !!proveedorId} />
         </div>
         <div className="form-row" style={{ flex: '0 1 110px' }}>
           <label>Moneda</label>
