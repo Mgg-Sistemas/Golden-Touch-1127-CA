@@ -89,6 +89,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   const [motivo, setMotivo] = useState('');
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   const [parametros, setParametros] = useState(false);
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   const reload = useCallback(async () => {
     const [rs, cfg] = await Promise.all([
@@ -355,13 +356,33 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
           <button type="button" aria-pressed={vista === 'factura'} onClick={() => setVista('factura')}>Por factura</button>
           <button type="button" aria-pressed={vista === 'impuesto'} onClick={() => setVista('impuesto')}>Por impuesto</button>
         </div>
-        <div className="lfv8-acciones-libro">
-          <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
-          <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
-            title={!tipo ? 'Elige un impuesto para la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
-          <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
-          {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
+        <div className="lfv8-activos" aria-live="polite">
+          {tipo && (
+            <span className="lfv8-activo">
+              Impuesto: {TIPOS_IMPUESTO.find((t) => t.key === tipo)?.corto ?? tipo}
+              <button type="button" onClick={() => setTipo('')} aria-label="Quitar filtro de impuesto">✕</button>
+            </span>
+          )}
+          {direccion && (
+            <span className="lfv8-activo">
+              {DIRECCIONES.find((d) => d.key === direccion)?.label ?? direccion}
+              <button type="button" onClick={() => setDireccion('')} aria-label="Quitar filtro de dirección">✕</button>
+            </span>
+          )}
+          {estado && (
+            <span className="lfv8-activo">
+              {estado === 'anulada' ? 'Anuladas' : ESTADOS_RETENCION.find((e) => e.key === estado)?.label ?? estado}
+              <button type="button" onClick={() => setEstado('')} aria-label="Quitar filtro de estado">✕</button>
+            </span>
+          )}
         </div>
+      </div>
+      <div className="lfv8-acciones-libro">
+        <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
+        <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
+          title={!tipo ? 'Elige un impuesto para la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
+        <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
+        {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
       </div>
 
       {/* ── Vista ── */}
@@ -378,65 +399,94 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
       {!loading && !errorCarga && visibles.length > 0 && vista === 'factura' && (
         <>
           <p className="lfv8-contador">{visibles.length} retención(es) en {proveedores.length} proveedor(es).</p>
-          {proveedores.map((prov) => (
-            <section key={prov.rif ?? prov.nombre ?? 'sin'} className="lfv8-proveedor">
-              <header>
-                <h3>{prov.nombre ?? 'Sin proveedor'}<span className="lfv8-rif">{prov.rif ?? ''}</span></h3>
-                <span className="lfv8-resumen">
-                  {prov.facturas.length} factura(s)
-                  {prov.pendientes > 0 && <> · <b>{prov.pendientes} pendiente(s)</b></>}
-                </span>
-              </header>
-              {prov.facturas.map((f) => {
-                const tipos = impuestosTarjeta.filter((t) => f.retenciones.has(t.key as TipoImpuesto));
-                const totalRet = [...f.retenciones.values()].reduce((a, r) => a + (!r.anulada ? enBs(r) : 0), 0);
-                return (
-                  <article key={f.key} className="lfv8-factura" aria-label={`Factura ${f.num}`}>
-                    <div>
-                      <div className="lfv8-num">Factura {f.num}</div>
-                      <div className="lfv8-meta">
-                        {f.fecha ? fechaCorta(f.fecha) : '—'}
-                        {f.doc && <> · <span className="lfv8-doc">{f.doc}</span></>}
-                        {' · '}{monto(f.total, f.moneda)}
+          {proveedores.map((prov) => {
+            const pk = prov.rif ?? prov.nombre ?? 'sin';
+            const MAX_VISIBLE = 5;
+            const abierto = expandidos.has(pk) || prov.facturas.length <= MAX_VISIBLE;
+            const facturasVis = abierto ? prov.facturas : prov.facturas.slice(0, MAX_VISIBLE);
+            return (
+              <section key={pk} className="lfv8-proveedor">
+                <header>
+                  <h3>{prov.nombre ?? 'Sin proveedor'}<span className="lfv8-rif">{prov.rif ?? ''}</span></h3>
+                  <span className="lfv8-resumen">
+                    {prov.facturas.length} factura(s)
+                    {prov.pendientes > 0 && <> · <b>{prov.pendientes} pendiente(s)</b></>}
+                    {!prov.pendientes && ' · sin pendientes'}
+                  </span>
+                </header>
+                {facturasVis.map((f) => {
+                  const nCasillas = impuestosTarjeta.length;
+                  const totalRet = [...f.retenciones.values()].reduce((a, r) => a + (!r.anulada ? enBs(r) : 0), 0);
+                  return (
+                    <article key={f.key} className="lfv8-factura" aria-label={`Factura ${f.num}`}>
+                      <div>
+                        <div className="lfv8-num">Factura {f.num}</div>
+                        <div className="lfv8-meta">
+                          {f.fecha ? fechaCorta(f.fecha) : '—'}
+                          {f.doc && <> · <span className="lfv8-doc">{f.doc}</span></>}
+                          {' · '}{monto(f.total, f.moneda)}
+                        </div>
                       </div>
-                    </div>
-                    <div className="lfv8-tira" style={{ '--n': tipos.length || 1 } as React.CSSProperties}
-                      role="group" aria-label={`Retenciones de la factura ${f.num}`}>
-                      {tipos.map((t) => {
-                        const r = f.retenciones.get(t.key as TipoImpuesto)!;
-                        const est = estadoCasilla(r);
-                        return (
-                          <div key={t.key} className={`lfv8-casilla ${est}`}>
-                            <span className="lfv8-imp">{t.corto}</span>
-                            <span className="lfv8-est">{signoEstado[est]} {textoEstado[est]}</span>
-                            {(est === 'ok' || est === 'declarada') && <span className="lfv8-monto">{monto(r.montoRetenido, r.moneda)}</span>}
-                            <span className="lfv8-por"><b>{r.porcentaje}%</b></span>
-                            {r.numeroComprobante && <span className="lfv8-comp" title="Comprobante">N° {r.numeroComprobante}</span>}
-                            <span className="lfv8-acciones">
-                              {canWrite && !r.anulada && est === 'falta' && (
-                                <button type="button" className="lfv8-mini registrar"
-                                  onClick={() => setRegistrar({ direccion: r.direccion, contraparteId: r.contraparteId, contraparteNombre: r.contraparteNombre, contraparteRif: r.contraparteRif })}>
-                                  Registrar
-                                </button>
-                              )}
-                              <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Comprobante">📄</button>
-                              {canWrite && !r.anulada && (
-                                <button type="button" className="lfv8-mini" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
-                              )}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="lfv8-tot">
-                      <small>Total retenido</small>
-                      <span>{totalRet ? monto(totalRet, 'Bs') : '—'}</span>
-                    </div>
-                  </article>
-                );
-              })}
-            </section>
-          ))}
+                      <div className="lfv8-tira" style={{ '--n': nCasillas } as React.CSSProperties}
+                        role="group" aria-label={`Retenciones de la factura ${f.num}`}>
+                        {impuestosTarjeta.map((t) => {
+                          const r = f.retenciones.get(t.key as TipoImpuesto);
+                          if (!r) {
+                            return (
+                              <div key={t.key} className="lfv8-casilla nc">
+                                <span className="lfv8-imp">{t.corto}</span>
+                                <span className="lfv8-est">— Sin registro</span>
+                              </div>
+                            );
+                          }
+                          const est = estadoCasilla(r);
+                          return (
+                            <div key={t.key} className={`lfv8-casilla ${est}`}>
+                              <span className="lfv8-imp">{t.corto}</span>
+                              <span className="lfv8-est">{signoEstado[est]} {textoEstado[est]}</span>
+                              {(est === 'ok' || est === 'declarada') && <span className="lfv8-monto">{monto(r.montoRetenido, r.moneda)}</span>}
+                              {est === 'anulada' && <span className="lfv8-monto">{monto(r.montoRetenido, r.moneda)}</span>}
+                              <span className="lfv8-por"><b>{r.porcentaje}%</b></span>
+                              {r.numeroComprobante && <span className="lfv8-comp" title="Comprobante">N° {r.numeroComprobante}</span>}
+                              <span className="lfv8-acciones">
+                                {canWrite && !r.anulada && est === 'falta' && (
+                                  <button type="button" className="lfv8-mini registrar"
+                                    onClick={() => setRegistrar({ direccion: r.direccion, contraparteId: r.contraparteId, contraparteNombre: r.contraparteNombre, contraparteRif: r.contraparteRif })}>
+                                    Registrar
+                                  </button>
+                                )}
+                                <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Comprobante">📄</button>
+                                {canWrite && !r.anulada && (
+                                  <button type="button" className="lfv8-mini" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="lfv8-tot">
+                        <small>Total retenido</small>
+                        <span>{totalRet ? monto(totalRet, 'Bs') : '—'}</span>
+                      </div>
+                    </article>
+                  );
+                })}
+                {prov.facturas.length > MAX_VISIBLE && (
+                  <button type="button" className="lfv8-ver-restantes"
+                    aria-expanded={abierto}
+                    onClick={() => setExpandidos((prev) => {
+                      const next = new Set(prev);
+                      abierto ? next.delete(pk) : next.add(pk);
+                      return next;
+                    })}>
+                    {abierto
+                      ? `Mostrar menos (las primeras ${MAX_VISIBLE})`
+                      : `Ver las ${prov.facturas.length - MAX_VISIBLE} facturas restantes de este proveedor`}
+                  </button>
+                )}
+              </section>
+            );
+          })}
           {!loading && !errorCarga && (
             <Paginador pagina={pagina} tam={tam} unidad="retención(es)" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
           )}

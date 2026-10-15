@@ -182,6 +182,10 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-pill.ok { color: #5fdca9; border-color: rgba(41,192,129,0.45); }
 .lfv8-pill.declarada { color: #7fc1ff; border-color: rgba(74,168,255,0.45); }
 
+/* ── Ver restantes (botón en proveedor) ── */
+.lfv8-ver-restantes { display: block; width: 100%; text-align: left; padding: .6rem 1rem; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--primary-2); cursor: pointer; font-size: .82rem; }
+.lfv8-ver-restantes:hover { background: rgba(255,138,0,0.04); }
+
 /* ── Vacío y contadores ── */
 .lfv8-vacio { text-align: center; padding: 2.5rem 1rem; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); color: var(--text-muted); }
 .lfv8-vacio button { margin-top: .8rem; }
