@@ -58,7 +58,6 @@ export function ProveedoresPage() {
   const [filterEstado, setFilterEstado] = useState<EstadoFilter>('');
   const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
   const [filterActividad, setFilterActividad] = useState('');
-  const sinActividad = useMemo(() => proveedores.filter((p) => p.estado === 'activo' && !p.actividad_economica).length, [proveedores]);
   // Actividades escritas a mano (sin lista por ahora): las que ya tienen los proveedores.
   const actividadesUsadas = useMemo(
     () => Array.from(new Set(proveedores.map((p) => (p.actividad_economica ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es-VE')),
@@ -219,17 +218,6 @@ export function ProveedoresPage() {
           )}
         </div>
       </div>
-
-      {sinActividad > 0 && (
-        <div className="aviso info" style={{ marginBottom: '.75rem' }}>
-          <span className="aviso-icono">ℹ</span>
-          <div>
-            <strong>{sinActividad} proveedor{sinActividad === 1 ? '' : 'es'} activo{sinActividad === 1 ? '' : 's'} sin actividad económica.</strong>{' '}
-            Es opcional: se escribe al cargar una cotización o en su ficha.{' '}
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFilterActividad('__sin')}>Ver cuáles</button>
-          </div>
-        </div>
-      )}
 
       <div
         style={{

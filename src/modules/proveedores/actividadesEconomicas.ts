@@ -49,9 +49,3 @@ export function validarActividadNueva(codigoRaw: string, descripcion: string, li
   if (ya) return `El código ${codigo} ya existe: ${ya.descripcion}.`;
   return null;
 }
-
-/** ¿Hay que pedir la actividad? Al dar de alta un proveedor, siempre; a uno existente,
- *  solo si no la tiene (se pide una sola vez y queda en su ficha). */
-export function pideActividad(proveedor: { actividad_economica?: string | null } | null | undefined, nuevo: boolean): boolean {
-  return nuevo || (!!proveedor && !proveedor.actividad_economica);
-}
