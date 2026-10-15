@@ -1,0 +1,145 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/* Supabase falso: la RPC y un from() encadenable que devuelven lo que se les ponga. */
+const rpc = vi.fn();
+const colaFrom: Array<{ data: unknown; error: unknown }> = [];
+const llamadasFrom: { tabla: string; metodos: unknown[][] }[] = [];
+
+function consulta(tabla: string, resp: { data: unknown; error: unknown }) {
+  const reg = { tabla, metodos: [] as unknown[][] };
+  llamadasFrom.push(reg);
+  const q: Record<string, unknown> = new Proxy({}, {
+    get(_t, prop) {
+      if (prop === 'then') return (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => Promise.resolve(resp).then(ok, ko);
+      return (...args: unknown[]) => { reg.metodos.push([prop, ...args]); return q; };
+    },
+  });
+  return q;
+}
+
+vi.mock('@/shared/lib/supabase', () => ({
+  supabase: {
+    rpc: (...a: unknown[]) => rpc(...a),
+    from: (tabla: string) => consulta(tabla, colaFrom.shift() ?? { data: [], error: null }),
+  },
+}));
+
+import {
+  aFacturaCabecera, actualizarFactura, listFacturas, pFacturaDe, pLineaDe, registrarFactura,
+  type FacturaNueva, type LineaFacturaNueva,
+} from './retencionFacturas.repository';
+
+const factura = (over: Partial<FacturaNueva> = {}): FacturaNueva => ({
+  direccion: 'practicada', docKind: 'oc', docId: 'oc-1',
+  contraparteId: 'prov-1', contraparteRif: 'J-00000001-0', contraparteNombre: 'Proveedor de prueba', contraparteSujeto: 'pj_domiciliada',
+  facturaNro: '000123', facturaFecha: '2026-10-05', facturaTotal: 1160, moneda: 'Bs', periodo: '202610',
+  actor: 'prueba@ejemplo.com', ...over,
+});
+const linea = (over: Partial<LineaFacturaNueva> = {}): LineaFacturaNueva => ({
+  tipo: 'iva', base: 1000, porcentaje: 75, monto: 120, ivaAlicuota: 16, ivaMonto: 160, ...over,
+});
+
+beforeEach(() => { rpc.mockReset(); colaFrom.length = 0; llamadasFrom.length = 0; });
+
+describe('traducción al contrato de la función (columnas de GT)', () => {
+  it('la cabecera: rol, impuesto por líneas, doc y proveedor', () => {
+    const p = pFacturaDe(factura());
+    expect(p.rol).toBe('practicada');
+    expect(p.proveedor_id).toBe('prov-1');
+    expect(p.doc_kind).toBe('oc');
+    expect(p.doc_id).toBe('oc-1');
+    expect(p.factura_nro).toBe('000123');
+    expect(p.sujeto).toBe('PJD');
+  });
+
+  it('una recibida no lleva proveedor_id (la contraparte es un cliente); guarda RIF y nombre', () => {
+    const p = pFacturaDe(factura({ direccion: 'recibida', contraparteId: 'cli-1' }));
+    expect(p.rol).toBe('sufrida');
+    expect(p.proveedor_id).toBeNull();
+    expect(p.razon_social).toBe('Proveedor de prueba');
+  });
+
+  it('manual no lleva doc_id', () => {
+    expect(pFacturaDe(factura({ docKind: 'manual', docId: 'x' })).doc_id).toBeNull();
+  });
+
+  it('las líneas: el impuesto en MAYÚSCULAS y el estadal como ESTADAL', () => {
+    expect(pLineaDe(linea()).tipo).toBe('IVA');
+    expect(pLineaDe(linea({ tipo: 'regional' })).tipo).toBe('ESTADAL');
+    expect(pLineaDe(linea({ tipo: 'islr', conceptoNombre: 'Honorarios' })).concepto).toBe('Honorarios');
+  });
+});
+
+describe('registro atómico', () => {
+  it('manda p_factura y p_lineas a la función y mapea lo devuelto (número asignado por V2)', async () => {
+    rpc.mockResolvedValueOnce({
+      data: {
+        factura: { id: 'f-1', rol: 'practicada', tipo: 'IVA', moneda: 'Bs', factura_nro: '000123', orden_id: 'oc-1' },
+        lineas: [
+          { id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', comprobante_nro: '20261000000007', numero: 7, monto: 120 },
+          { id: 'r-2', rol: 'practicada', tipo: 'ISAE', estado: 'registrada', comprobante_nro: '00000031', monto: 25 },
+        ],
+      },
+      error: null,
+    });
+    const res = await registrarFactura(factura(), [linea(), linea({ tipo: 'municipal', base: 1000, porcentaje: 2.5, monto: 25 })]);
+    expect(rpc).toHaveBeenCalledWith('retencion_factura_registrar', expect.objectContaining({ p_factura: expect.any(Object), p_lineas: expect.any(Array) }));
+    const arg = rpc.mock.calls[0][1] as { p_lineas: Record<string, unknown>[] };
+    expect(arg.p_lineas).toHaveLength(2);
+    expect(res.factura.id).toBe('f-1');
+    expect(res.lineas.map((l) => l.numeroComprobante)).toEqual(['20261000000007', '00000031']);
+    expect(res.lineas[0].tipo).toBe('iva');
+  });
+
+  it('sin líneas no llama a la base', async () => {
+    await expect(registrarFactura(factura(), [])).rejects.toThrow('al menos una línea');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('el 0% sin motivo lo rechaza la función, y el texto llega a la pantalla (RET_CERO_SIN_MOTIVO)', async () => {
+    rpc.mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'RET_CERO_SIN_MOTIVO: una retención en 0 debe llevar el motivo.' } });
+    await expect(registrarFactura(factura(), [linea({ monto: 0 })])).rejects.toThrow('motivo');
+  });
+
+  it('sin permiso (42501) y régimen (23514) dan mensajes claros', async () => {
+    rpc.mockResolvedValueOnce({ data: null, error: { code: '42501', message: 'permission denied' } });
+    await expect(registrarFactura(factura(), [linea()])).rejects.toThrow('permiso');
+    rpc.mockResolvedValueOnce({ data: null, error: { code: '23514', message: 'check_violation' } });
+    await expect(registrarFactura(factura(), [linea({ tipo: 'igtf' })])).rejects.toThrow('régimen');
+  });
+});
+
+describe('lectura cabecera + líneas', () => {
+  it('pide retencion_facturas anidando sus retenciones y mapea cada factura con sus líneas', async () => {
+    colaFrom.push({ data: [
+      { id: 'f-1', rol: 'practicada', factura_nro: '000123', orden_id: 'oc-1', retenciones: [
+        { id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', monto: 120 },
+      ] },
+    ], error: null });
+    const res = await listFacturas({ direccion: 'practicada', periodo: '202610' });
+    expect(llamadasFrom[0].tabla).toBe('retencion_facturas');
+    expect(llamadasFrom[0].metodos).toContainEqual(['select', '*, retenciones(*)']);
+    expect(llamadasFrom[0].metodos).toContainEqual(['eq', 'rol', 'practicada']);
+    expect(res).toHaveLength(1);
+    expect(res[0].factura.facturaNro).toBe('000123');
+    expect(res[0].lineas[0].tipo).toBe('iva');
+  });
+
+  it('aFacturaCabecera deduce el documento de origen y la dirección', () => {
+    const c = aFacturaCabecera({ id: 'f-9', rol: 'sufrida', compra_directa_id: 'cd-1', factura_nro: 'A-1' });
+    expect(c.direccion).toBe('recibida');
+    expect(c.docKind).toBe('compra_directa');
+    expect(c.docId).toBe('cd-1');
+  });
+});
+
+describe('editar una factura', () => {
+  it('traduce los cambios a columnas de GT y avisa si no toca filas', async () => {
+    colaFrom.push({ data: [{ id: 'f-1' }], error: null });
+    await actualizarFactura('f-1', { nota: 'Corrección', facturaNro: '000999' });
+    const upd = llamadasFrom[0].metodos.find((m) => m[0] === 'update')?.[1] as Record<string, unknown>;
+    expect(upd).toMatchObject({ nota: 'Corrección', factura_nro: '000999' });
+    colaFrom.push({ data: [], error: null });
+    await expect(actualizarFactura('f-2', { nota: 'x' })).rejects.toThrow('No se guardó');
+  });
+});
