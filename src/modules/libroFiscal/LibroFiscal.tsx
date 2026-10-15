@@ -36,7 +36,6 @@ import {
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
-import { pieRegistros } from './pieRegistros';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
   guardarConfigRetencion, listConceptos, listRetenciones, marcarDeclarada, registrarRetencion, urlComprobante,
@@ -44,8 +43,8 @@ import {
   type AlicuotasLocales, type DocKind, type RetencionPracticada,
 } from './retencionesFiscal.repository';
 import { faltaEnLaCarga } from './validarCarga';
-import { aplicarFiltros, buscaEn, conteoOpcion, paginar, type FiltroLista } from './listas';
-import { BarraLista, Paginador, type ControlFiltro } from './ListaControles';
+import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
+import { Paginador } from './ListaControles';
 import { eventosRetencion, cuandoCorto, lineaQuien } from './quienCuando';
 import './libroFiscal.css';
 import './libroFiscalV8.css';
@@ -111,10 +110,11 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
 
   // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
   // dice cuántas retenciones quedan con los demás filtros puestos.
+  const [vista, setVista] = useState<'factura' | 'impuesto'>('factura');
   const [orden, setOrden] = useState<'reciente' | 'antiguo' | 'contraparte'>('reciente');
   const [pag, setPag] = useState(1);
   const [tam, setTam] = useState(25);
-  useEffect(() => { setPag(1); }, [texto, direccion, tipo, estado, orden, desde, hasta]);
+  useEffect(() => { setPag(1); }, [texto, direccion, tipo, estado, orden, desde, hasta, vista]);
 
   const filtros = useMemo<FiltroLista<RetencionPracticada>[]>(() => [
     { campo: 'direccion', etiqueta: 'Quién retuvo', valor: direccion, opciones: DIRECCIONES.map((d): [string, string] => [d.key, d.label]), pasa: (r, v) => r.direccion === v },
@@ -140,37 +140,75 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   }, [base, filtros, orden]);
   const pagina = useMemo(() => paginar(visibles, pag, tam), [visibles, pag, tam]);
 
-  const controles: ControlFiltro[] = filtros.map((f) => ({
-    campo: f.campo, etiqueta: f.etiqueta, valor: f.valor,
-    total: aplicarFiltros(base, filtros.filter((o) => o.campo !== f.campo)).length,
-    opciones: f.opciones.map(([v, t]) => ({ valor: v, texto: t, cuenta: conteoOpcion(base, filtros, f.campo, v) })),
-  }));
-  const ponerFiltro = (campo: string, v: string) => {
-    if (campo === 'direccion') setDireccion(v as '' | DireccionRetencion);
-    else if (campo === 'tipo') setTipo(v as '' | TipoImpuesto);
-    else if (campo === 'estado') setEstado(v as '' | EstadoRetencion | 'anulada');
-  };
-
   const resumen = useMemo(() => resumenLibro(visibles.map((r) => ({
     tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada,
   }))), [visibles]);
 
-  // Los cuatro números en BOLÍVARES, que es como se declara.
-  const resumenBs = useMemo(() => resumenLibro(visibles.map((r) => ({
-    tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: enBs(r), anulada: r.anulada,
-  }))), [visibles]);
-
-  // Y el detalle por moneda: Bs y $ no se suman entre sí.
   const totales = useMemo(() => totalesPorMoneda(visibles.map((r) => ({
     tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, moneda: r.moneda,
   }))), [visibles]);
-  const detalle = (campo: 'aFavor' | 'igtfPagado' | 'porEnterar') =>
-    totales.some((t) => t.moneda !== 'Bs')
-      ? totales.map((t) => monto(t.resumen[campo], t.moneda)).join(' · ')
-      : null;
-  const sinTasa = visibles.filter((r) => !r.anulada && r.moneda !== 'Bs' && r.montoBs == null).length;
 
   const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setTexto(''); };
+
+  // ── Agrupado por proveedor → factura → casillas (v8) ──
+  type FacturaAgrupada = {
+    key: string; num: string; doc: string | null; fecha: string | null;
+    moneda: string; total: number; retenciones: Map<TipoImpuesto, RetencionPracticada>;
+  };
+  type ProveedorAgrupado = {
+    rif: string | null; nombre: string | null; facturas: FacturaAgrupada[];
+    pendientes: number; registradas: number;
+  };
+
+  const impuestosTarjeta = useMemo(() => {
+    const activos = TIPOS_IMPUESTO.filter((t) => t.key !== 'igtf');
+    return activos;
+  }, []);
+
+  const conteosPorImpuesto = useMemo(() => {
+    const m: Record<string, { pendientes: number; registradas: number; declaradas: number; anuladas: number }> = {};
+    for (const t of impuestosTarjeta) m[t.key] = { pendientes: 0, registradas: 0, declaradas: 0, anuladas: 0 };
+    for (const r of visibles) {
+      if (r.tipo === 'igtf') continue;
+      const c = m[r.tipo];
+      if (!c) continue;
+      if (r.anulada) c.anuladas++;
+      else if (r.estado === 'declarada') c.declaradas++;
+      else if (r.estado === 'registrada') c.registradas++;
+      else c.pendientes++;
+    }
+    return m;
+  }, [visibles, impuestosTarjeta]);
+
+  const proveedores = useMemo<ProveedorAgrupado[]>(() => {
+    const provMap = new Map<string, Map<string, FacturaAgrupada>>();
+    const provInfo = new Map<string, { nombre: string | null; rif: string | null }>();
+    for (const r of visibles) {
+      const pk = r.contraparteRif ?? r.contraparteNombre ?? 'sin-proveedor';
+      if (!provMap.has(pk)) { provMap.set(pk, new Map()); provInfo.set(pk, { nombre: r.contraparteNombre, rif: r.contraparteRif }); }
+      const fMap = provMap.get(pk)!;
+      const fk = r.facturaNumero ?? r.docCodigo ?? r.id;
+      if (!fMap.has(fk)) fMap.set(fk, {
+        key: fk, num: r.facturaNumero ?? '—',
+        doc: r.docCodigo, fecha: r.facturaFecha ?? r.createdAt.slice(0, 10),
+        moneda: r.moneda, total: r.baseImponible, retenciones: new Map(),
+      });
+      fMap.get(fk)!.retenciones.set(r.tipo, r);
+    }
+    const result: ProveedorAgrupado[] = [];
+    for (const [pk, fMap] of provMap) {
+      const info = provInfo.get(pk)!;
+      const facturas = [...fMap.values()];
+      let pendientes = 0, registradas = 0;
+      for (const f of facturas) for (const r of f.retenciones.values()) {
+        if (r.anulada) continue;
+        if (r.estado === 'registrada' || r.estado === 'declarada') registradas++;
+        else pendientes++;
+      }
+      result.push({ ...info, facturas, pendientes, registradas });
+    }
+    return result;
+  }, [visibles]);
 
   async function verComprobante(r: RetencionPracticada) {
     try {
@@ -207,185 +245,249 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   const razon = config.razonSocial || 'La empresa';
   const retieneIva = puedePracticar('iva', config);
 
+  const estadoCasilla = (r: RetencionPracticada) => r.anulada ? 'anulada' : r.estado === 'declarada' ? 'declarada' : r.estado === 'registrada' ? 'ok' : 'falta';
+  const signoEstado: Record<string, string> = { ok: '✓', declarada: '◉', falta: '⏳', anulada: '⊘', nc: '—', pd: '?' };
+  const textoEstado: Record<string, string> = { ok: 'Registrada', declarada: 'Declarada', falta: 'Pendiente', anulada: 'Anulada', nc: 'No aplica', pd: 'Por definir' };
+
   return (
     <div>
-      {/* Qué es la empresa frente al fisco: cambia la lectura de todo el libro */}
-      <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '1rem' }}>
-        {retieneIva ? (
-          <p style={{ margin: 0, fontSize: '.9rem' }}>
-            <strong>
-              {razon} es {config.esContribuyenteEspecial ? 'contribuyente especial y ' : ''}agente de retención de IVA.
-            </strong>{' '}
-            Lo que retiene no es suyo: hay que <strong>enterarlo al fisco</strong> en la quincena. Lo que le retienen
-            a ella es un <strong>anticipo de impuesto</strong> que se descuenta en la declaración.
-            {!config.esContribuyenteEspecial && ' No es contribuyente especial: el IGTF no lo percibe.'}
-          </p>
-        ) : (
-          <p style={{ margin: 0, fontSize: '.9rem' }}>
-            <strong>{razon} no está marcada como agente de retención de IVA.</strong> Cada comprobante que le
-            entregan es un <strong>anticipo de impuesto</strong> que se descuenta en la declaración. El IGTF que le
-            cobran al pagar en divisas no se recupera: es costo.
-          </p>
-        )}
-        {!config.rif && (
-          <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.82rem' }}>
-            Falta el <strong>RIF</strong> en ⚙ Parámetros: los comprobantes salen sin él.
-          </p>
-        )}
-      </div>
+      {/* ── Búsqueda v8 ── */}
+      <section className="lfv8-buscar" role="search">
+        <label htmlFor="lfv8-q">Búsqueda: factura, proveedor, RIF, OC o comprobante</label>
+        <span className="lfv8-lupa" aria-hidden="true">⌕</span>
+        <input id="lfv8-q" type="text" value={texto} onChange={(e) => setTexto(e.target.value)}
+          placeholder="Ej.: 000123, Alfa, J-00000002, OC-0045, 202609…" autoComplete="off" />
+      </section>
 
-      {/* Los cuatro números, en Bs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-        <Kpi titulo="A favor (nos retuvieron)" valor={monto(resumenBs.aFavor, 'Bs')} color="var(--success)"
-          pie={detalle('aFavor') ?? 'Se descuenta del impuesto a pagar'} />
-        <Kpi titulo="IGTF pagado" valor={monto(resumenBs.igtfPagado, 'Bs')} color="var(--danger)"
-          pie={detalle('igtfPagado') ?? 'No se recupera: es costo'} />
-        <Kpi titulo="Por enterar al fisco" valor={monto(resumenBs.porEnterar, 'Bs')}
-          color={resumenBs.porEnterar > 0 ? 'var(--warning)' : undefined}
-          pie={detalle('porEnterar') ?? 'Lo que la empresa retuvo y todavía no declaró'} />
-        <Kpi titulo="Registros" valor={String(resumen.registros)} pie={pieRegistros(visibles)} />
-      </div>
-      {sinTasa > 0 && (
-        <div className="hint muted" style={{ fontSize: '.78rem', margin: '-.5rem 0 .75rem' }}>
-          {sinTasa} retención{sinTasa === 1 ? '' : 'es'} en divisas sin tasa: no suma{sinTasa === 1 ? '' : 'n'} en los totales en Bs.
-        </div>
-      )}
-
-      <div className="card" style={{ marginBottom: '.75rem' }}>
-        <BarraLista
-          q={texto} onQ={setTexto} placeholder="Buscar por contraparte, RIF, N° de comprobante, factura u OC"
-          resultados={visibles.length} unidad="retención(es)"
-          filtros={controles} onFiltro={ponerFiltro}
-          orden={{ valor: orden, opciones: [['reciente', 'Más reciente primero'], ['antiguo', 'Más antiguo primero'], ['contraparte', 'Contraparte (A–Z)']] }}
-          onOrden={(v) => setOrden(v as typeof orden)}
-          onQuitar={quitarFiltros}
-          extra={(
-            <>
-              <label className="lf-campo"><span>Desde</span><input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
-              <label className="lf-campo"><span>Hasta</span><input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
-              <div className="lf-atajos" role="group" aria-label="Atajos de fecha">
-                {RANGOS_RAPIDOS.map((r) => (
-                  <button key={r.valor} type="button"
-                    className={`btn btn-sm ${rangoActivo(desde, hasta) === r.valor ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => { const x = rangoRapido(r.valor); setDesde(x.desde); setHasta(x.hasta); }}>{r.label}</button>
-                ))}
+      {/* ── Tarjetas de impuesto (totales v8) ── */}
+      <section className="lfv8-totales" style={{ '--n': impuestosTarjeta.length } as React.CSSProperties}
+        aria-label="Totales por impuesto">
+        {impuestosTarjeta.map((t) => {
+          const c = conteosPorImpuesto[t.key] ?? { pendientes: 0, registradas: 0, declaradas: 0, anuladas: 0 };
+          const montoImp = visibles.filter((r) => r.tipo === t.key && !r.anulada).reduce((a, r) => a + enBs(r), 0);
+          return (
+            <div key={t.key} className="lfv8-total-imp">
+              <h2>{t.corto} <span>Retenido: {monto(montoImp, 'Bs')}</span></h2>
+              <div className="lfv8-botones">
+                <button type="button" className={`lfv8-cuenta falta${tipo === t.key && estado === 'registrada' ? '' : ''}`}
+                  aria-pressed={tipo === t.key && estado === ''} disabled={!c.pendientes}
+                  onClick={() => { setTipo(tipo === t.key && estado === '' ? '' : t.key as TipoImpuesto); setEstado(''); }}>
+                  <strong>{c.pendientes}</strong> {c.pendientes === 1 ? 'pendiente' : 'pendientes'}
+                </button>
+                <button type="button" className="lfv8-cuenta"
+                  aria-pressed={tipo === t.key && estado === 'registrada'} disabled={!c.registradas}
+                  onClick={() => { setTipo(t.key as TipoImpuesto); setEstado(estado === 'registrada' && tipo === t.key ? '' : 'registrada'); }}>
+                  <strong>{c.registradas}</strong> {c.registradas === 1 ? 'registrada' : 'registradas'}
+                </button>
+                <button type="button" className="lfv8-cuenta"
+                  aria-pressed={tipo === t.key && estado === 'declarada'} disabled={!c.declaradas}
+                  onClick={() => { setTipo(t.key as TipoImpuesto); setEstado(estado === 'declarada' && tipo === t.key ? '' : 'declarada'); }}>
+                  <strong>{c.declaradas}</strong> {c.declaradas === 1 ? 'declarada' : 'declaradas'}
+                </button>
               </div>
-            </>
-          )}
-        />
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            </div>
+          );
+        })}
+      </section>
+      <p className="lfv8-nota">El IGTF no se incluye en las tarjetas: es una percepción por pago en divisas, no una retención por factura.</p>
+
+      {/* ── Filtros v8 (chips) ── */}
+      <div className="lfv8-filtros">
+        <div className="lfv8-filtros-cuerpo">
+          <div className="lfv8-campo">
+            <span>Fecha</span>
+            <div className="lfv8-chips" role="group" aria-label="Fecha">
+              {RANGOS_RAPIDOS.map((r) => (
+                <button key={r.valor} type="button" className="lfv8-chip"
+                  aria-pressed={rangoActivo(desde, hasta) === r.valor}
+                  onClick={() => { const x = rangoRapido(r.valor); setDesde(x.desde); setHasta(x.hasta); }}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <div className="lfv8-rango">
+              <input className="lfv8-fecha" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} aria-label="Desde" />
+              <span className="muted">a</span>
+              <input className="lfv8-fecha" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} aria-label="Hasta" />
+            </div>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Impuesto</span>
+            <div className="lfv8-chips" role="group" aria-label="Impuesto">
+              <button type="button" className="lfv8-chip" aria-pressed={tipo === ''} onClick={() => setTipo('')}>Todos</button>
+              {TIPOS_IMPUESTO.map((t) => (
+                <button key={t.key} type="button" className="lfv8-chip"
+                  aria-pressed={tipo === t.key} onClick={() => setTipo(tipo === t.key ? '' : t.key as TipoImpuesto)}>
+                  {t.corto}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Dirección</span>
+            <div className="lfv8-chips" role="group" aria-label="Dirección">
+              {[['', 'Todas'], ...DIRECCIONES.map((d): [string, string] => [d.key, d.label])].map(([v, t]) => (
+                <button key={v} type="button" className="lfv8-chip"
+                  aria-pressed={direccion === v} onClick={() => setDireccion(v as '' | DireccionRetencion)}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Estado</span>
+            <select className="lfv8-select" value={estado}
+              onChange={(e) => setEstado(e.target.value as '' | EstadoRetencion | 'anulada')}>
+              <option value="">Todos</option>
+              {ESTADOS_RETENCION.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
+              <option value="anulada">Anuladas</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Barra vista + acciones ── */}
+      <div className="lfv8-barra-vista">
+        <div className="lfv8-view-switch" role="group" aria-label="Agrupar por">
+          <button type="button" aria-pressed={vista === 'factura'} onClick={() => setVista('factura')}>Por factura</button>
+          <button type="button" aria-pressed={vista === 'impuesto'} onClick={() => setVista('impuesto')}>Por impuesto</button>
+        </div>
+        <div className="lfv8-acciones-libro">
           <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
           <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
-            title={!tipo ? 'Elige un impuesto para la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación (SENIAT)</button>
+            title={!tipo ? 'Elige un impuesto para la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
         </div>
       </div>
 
-      <div className="card">
-        <div className="table-wrap">
-          <table className="table" style={{ fontSize: '.86rem' }}>
-            <thead>
-              <tr>
-                <th>N° comprobante</th><th>Impuesto</th><th>Contraparte</th><th>Documento</th>
-                <th style={{ textAlign: 'right' }}>Base</th>
-                <th style={{ textAlign: 'right' }}>%</th>
-                <th style={{ textAlign: 'right' }}>Retenido</th>
-                <th>Estado</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && <tr><td colSpan={9}><EmptyState icon="◔" message="Cargando el libro…" /></td></tr>}
-              {!loading && errorCarga && (
-                <tr><td colSpan={9}><EmptyState icon="⚠" message={`No se pudo leer el libro: ${errorCarga}`} /></td></tr>
-              )}
-              {!loading && !errorCarga && !visibles.length && (
-                <tr><td colSpan={9}><EmptyState icon="🧾" message={filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros' : 'Sin retenciones en ese rango de fechas'} /></td></tr>
-              )}
-              {!loading && !errorCarga && pagina.filas.map((r) => {
-                const plazo = r.direccion === 'practicada' && !r.anulada && r.estado !== 'declarada' && r.facturaFecha
-                  ? limiteEntregaComprobante(r.facturaFecha) : '';
+      {/* ── Vista ── */}
+      {loading && <EmptyState icon="◔" message="Cargando el libro…" />}
+      {!loading && errorCarga && <EmptyState icon="⚠" message={`No se pudo leer el libro: ${errorCarga}`} />}
+      {!loading && !errorCarga && !visibles.length && (
+        <div className="lfv8-vacio">
+          <p>{filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros.' : 'Sin retenciones en ese rango de fechas.'}</p>
+          <button className="btn" onClick={quitarFiltros}>Quitar filtros</button>
+        </div>
+      )}
+
+      {/* ── Vista por factura (agrupada por proveedor) ── */}
+      {!loading && !errorCarga && visibles.length > 0 && vista === 'factura' && (
+        <>
+          <p className="lfv8-contador">{visibles.length} retención(es) en {proveedores.length} proveedor(es).</p>
+          {proveedores.map((prov) => (
+            <section key={prov.rif ?? prov.nombre ?? 'sin'} className="lfv8-proveedor">
+              <header>
+                <h3>{prov.nombre ?? 'Sin proveedor'}<span className="lfv8-rif">{prov.rif ?? ''}</span></h3>
+                <span className="lfv8-resumen">
+                  {prov.facturas.length} factura(s)
+                  {prov.pendientes > 0 && <> · <b>{prov.pendientes} pendiente(s)</b></>}
+                </span>
+              </header>
+              {prov.facturas.map((f) => {
+                const tipos = impuestosTarjeta.filter((t) => f.retenciones.has(t.key as TipoImpuesto));
+                const totalRet = [...f.retenciones.values()].reduce((a, r) => a + (!r.anulada ? enBs(r) : 0), 0);
                 return (
-                  <tr key={r.id} style={{ opacity: r.anulada ? 0.55 : 1 }}>
-                    <td className="mono" style={{ fontSize: '.8rem' }}>
-                      {r.numeroComprobante ?? '—'}
-                      <div className="muted" style={{ fontSize: '.7rem' }}>
-                        {labelPeriodo(r.periodo)}{r.quincena ? ` · ${r.quincena}.ª quincena` : ''}
+                  <article key={f.key} className="lfv8-factura" aria-label={`Factura ${f.num}`}>
+                    <div>
+                      <div className="lfv8-num">Factura {f.num}</div>
+                      <div className="lfv8-meta">
+                        {f.fecha ? fechaCorta(f.fecha) : '—'}
+                        {f.doc && <> · <span className="lfv8-doc">{f.doc}</span></>}
+                        {' · '}{monto(f.total, f.moneda)}
                       </div>
-                      {plazo && <div className="muted" style={{ fontSize: '.7rem' }}>Entregar hasta {fechaCorta(plazo)}</div>}
-                    </td>
-                    <td>
-                      <span className="badge">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? r.tipo}</span>
-                      <div className="muted" style={{ fontSize: '.7rem' }}>
-                        {r.direccion === 'recibida' ? '← nos retuvieron' : '→ retuvimos'}
-                      </div>
-                    </td>
-                    <td>
-                      <div>{r.contraparteNombre ?? '—'}</div>
-                      <div className="muted mono" style={{ fontSize: '.72rem' }}>{r.contraparteRif ?? ''}</div>
-                    </td>
-                    <td>
-                      <div>{r.facturaNumero ? `Fact. ${r.facturaNumero}` : (r.docCodigo ?? '—')}</div>
-                      {r.conceptoNombre && <div className="muted" style={{ fontSize: '.72rem' }}>{r.conceptoNombre}</div>}
-                    </td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{monto(r.baseImponible, r.moneda)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{r.porcentaje}%</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: r.tipo === 'igtf' ? 'var(--danger)' : r.direccion === 'recibida' ? 'var(--success)' : undefined }}>
-                      {monto(r.montoRetenido, r.moneda)}
-                      {r.moneda !== 'Bs' && (
-                        <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>
-                          {r.montoBs != null ? monto(r.montoBs, 'Bs') : 'sin tasa'}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      {r.anulada
-                        ? <span className="badge" style={{ color: 'var(--danger)' }}>Anulada</span>
-                        : <span className="badge" style={{ color: r.estado === 'declarada' ? 'var(--success)' : undefined }}>{labelEstadoRetencion(r.estado)}</span>}
-                      {r.anulada && r.anuladaMotivo && <div className="muted" style={{ fontSize: '.7rem' }}>{r.anuladaMotivo}</div>}
-                      <small className="lf-quien">{lineaQuien(r)}</small>
-                      {eventosRetencion(r).length > 1 && (
-                        <details className="lf-historial">
-                          <summary>Historial ({eventosRetencion(r).length})</summary>
-                          <ol>
-                            {eventosRetencion(r).slice().reverse().map((ev, i) => (
-                              <li key={i}><b>{ev.accion}</b>{ev.quien ? ` · ${ev.quien}` : ''}{ev.cuando ? ` · ${cuandoCorto(ev.cuando)}` : ''}{ev.detalle ? ` · ${ev.detalle}` : ''}</li>
-                            ))}
-                          </ol>
-                        </details>
-                      )}
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      <button className="btn btn-sm btn-ghost" onClick={() => void verComprobante(r)} title="Ver el comprobante">📄</button>
-                      {r.comprobantePath && (
-                        <button className="btn btn-sm btn-ghost" onClick={() => void verAdjunto(r)} title={r.comprobanteNombre ?? 'Adjunto'}>📎</button>
-                      )}
-                      {canWrite && !r.anulada && r.direccion === 'practicada' && (
-                        <button className="btn btn-sm btn-ghost" title={r.estado === 'declarada' ? 'Volver a registrada' : 'Marcar como declarada'}
-                          onClick={async () => {
-                            try {
-                              await marcarDeclarada(r.id, r.estado !== 'declarada', actor);
-                              await reload();
-                            } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
-                          }}>{r.estado === 'declarada' ? '↩' : '✓'}</button>
-                      )}
-                      {canWrite && !r.anulada && (
-                        <button className="btn btn-sm btn-ghost" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
-                      )}
-                    </td>
-                  </tr>
+                    </div>
+                    <div className="lfv8-tira" style={{ '--n': tipos.length || 1 } as React.CSSProperties}
+                      role="group" aria-label={`Retenciones de la factura ${f.num}`}>
+                      {tipos.map((t) => {
+                        const r = f.retenciones.get(t.key as TipoImpuesto)!;
+                        const est = estadoCasilla(r);
+                        return (
+                          <div key={t.key} className={`lfv8-casilla ${est}`}>
+                            <span className="lfv8-imp">{t.corto}</span>
+                            <span className="lfv8-est">{signoEstado[est]} {textoEstado[est]}</span>
+                            {(est === 'ok' || est === 'declarada') && <span className="lfv8-monto">{monto(r.montoRetenido, r.moneda)}</span>}
+                            <span className="lfv8-por"><b>{r.porcentaje}%</b></span>
+                            {r.numeroComprobante && <span className="lfv8-comp" title="Comprobante">N° {r.numeroComprobante}</span>}
+                            <span className="lfv8-acciones">
+                              {canWrite && !r.anulada && est === 'falta' && (
+                                <button type="button" className="lfv8-mini registrar"
+                                  onClick={() => setRegistrar({ direccion: r.direccion, contraparteId: r.contraparteId, contraparteNombre: r.contraparteNombre, contraparteRif: r.contraparteRif })}>
+                                  Registrar
+                                </button>
+                              )}
+                              <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Comprobante">📄</button>
+                              {canWrite && !r.anulada && (
+                                <button type="button" className="lfv8-mini" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="lfv8-tot">
+                      <small>Total retenido</small>
+                      <span>{totalRet ? monto(totalRet, 'Bs') : '—'}</span>
+                    </div>
+                  </article>
                 );
               })}
-            </tbody>
-          </table>
+            </section>
+          ))}
+          {!loading && !errorCarga && (
+            <Paginador pagina={pagina} tam={tam} unidad="retención(es)" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+          )}
+        </>
+      )}
+
+      {/* ── Vista por impuesto (columnas) ── */}
+      {!loading && !errorCarga && visibles.length > 0 && vista === 'impuesto' && (
+        <div className="lfv8-columnas" style={{ '--n': impuestosTarjeta.length } as React.CSSProperties}>
+          {impuestosTarjeta.map((t) => {
+            const del = visibles.filter((r) => r.tipo === t.key);
+            const pendientes = del.filter((r) => !r.anulada && r.estado !== 'registrada' && r.estado !== 'declarada');
+            const registradas = del.filter((r) => !r.anulada && (r.estado === 'registrada' || r.estado === 'declarada'));
+            return (
+              <section key={t.key} className="lfv8-columna">
+                <header>
+                  <h3>{t.corto}</h3>
+                  <span className="lfv8-contador">{pendientes.length} pendientes · {registradas.length} registradas</span>
+                </header>
+                <h4>Pendientes ({pendientes.length})</h4>
+                {pendientes.map((r) => (
+                  <div key={r.id} className="lfv8-item">
+                    <span className="lfv8-quien">
+                      {r.contraparteNombre ?? '—'}
+                      <small>Factura {r.facturaNumero ?? r.docCodigo ?? '—'} · {r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</small>
+                    </span>
+                    <span className="lfv8-cuanto">
+                      <span className={`lfv8-pill falta`}>Pendiente</span>
+                    </span>
+                  </div>
+                ))}
+                {!pendientes.length && <div className="lfv8-item"><span className="lfv8-quien muted">Sin pendientes.</span><span /></div>}
+                <h4>Registradas ({registradas.length})</h4>
+                {registradas.map((r) => (
+                  <div key={r.id} className="lfv8-item">
+                    <span className="lfv8-quien">
+                      {r.contraparteNombre ?? '—'}
+                      <small>Factura {r.facturaNumero ?? r.docCodigo ?? '—'} · {r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</small>
+                    </span>
+                    <span className="lfv8-cuanto">
+                      <span className={`lfv8-pill ${r.estado === 'declarada' ? 'declarada' : 'ok'}`}>{r.estado === 'declarada' ? 'Declarada' : 'Registrada'}</span>
+                      <br /><span className="lfv8-monto">{monto(r.montoRetenido, r.moneda)}</span>
+                    </span>
+                  </div>
+                ))}
+                {!registradas.length && <div className="lfv8-item"><span className="lfv8-quien muted">Sin registros en el período.</span><span /></div>}
+              </section>
+            );
+          })}
         </div>
-        {!loading && !errorCarga && (
-          <Paginador pagina={pagina} tam={tam} unidad="retención(es)" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
-        )}
-        <div className="hint muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
-          Una retención <strong>no se borra</strong>: se anula con su motivo y conserva su número, porque el correlativo no se reusa.
-        </div>
-      </div>
+      )}
 
       {anular && (
         <Modal title={`Anular la retención ${anular.numeroComprobante ?? ''}`} compact onClose={() => setAnular(null)}
@@ -426,15 +528,6 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   );
 }
 
-function Kpi({ titulo, valor, pie, color }: { titulo: string; valor: string; pie: string; color?: string }) {
-  return (
-    <div className="card" style={{ margin: 0 }}>
-      <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>{titulo}</div>
-      <div className="mono" style={{ fontSize: '1.7rem', fontWeight: 800, color: color ?? 'inherit', lineHeight: 1.2 }}>{valor}</div>
-      <div className="muted" style={{ fontSize: '.74rem' }}>{pie}</div>
-    </div>
-  );
-}
 
 /* ═══════════════ Registrar / practicar una retención ═══════════════ */
 
