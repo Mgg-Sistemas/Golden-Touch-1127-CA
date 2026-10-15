@@ -14,13 +14,14 @@ import {
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
-import { LibroFiscalView } from '@/modules/libroFiscal/LibroFiscal';
+import { LibroFiscalView, ConfiguracionFiscalModal } from '@/modules/libroFiscal/LibroFiscal';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import '@/modules/libroFiscal/libroFiscal.css';
+import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes';
 
 export function RetencionesPage() {
   const { user } = useSession();
@@ -29,7 +30,8 @@ export function RetencionesPage() {
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
-  const [vista, setVista] = useState<Vista>('libro');
+  const [vista, setVista] = useState<Vista>('agrupada');
+  const [parametros, setParametros] = useState(false);
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,27 +122,72 @@ export function RetencionesPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+      {/* ── Cabecera v8 ── */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>Retenciones</h1>
           <p className="muted" style={{ margin: '.25rem 0 0' }}>
-            Libro fiscal (IVA, ISLR, ISAE, estadal e IGTF) y comprobantes de las OC con factura.
+            Retenciones por factura: aplicables, registradas y no aplicables.
           </p>
         </div>
-        <div className="view-toggle" role="tablist" aria-label="Vista de retenciones">
-          <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}</button>
-          <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-          <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')} title="IVA, ISLR, ISAE, estadal e IGTF">📒 Libro fiscal</button>
+        <div className="lfv8-cabeza-acciones">
+          <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
         </div>
+      </header>
+
+      {/* ── Tabs del módulo (6 pantallas como en la maqueta v8) ── */}
+      <div className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ marginBottom: '.75rem' }}>
+        <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
+          Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}
+        </button>
+        <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
+        <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
+        <button className={vista === 'agrupada' ? 'active' : ''} onClick={() => setVista('agrupada')}>Vista agrupada</button>
+        <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>
+        <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
       </div>
 
-      {/* El LIBRO FISCAL vive en la tabla `retenciones` y es el corazón del módulo:
-          IVA, ISLR, ISAE, estadal e IGTF, retenciones recibidas (anticipos a
-          favor) y practicadas. Las otras dos vistas son el trámite de
-          adjuntar comprobantes a una OC, que es otra cosa. */}
-      {vista === 'libro' ? (
+      {/* ── Período en curso (sobre la vista agrupada y libro fiscal) ── */}
+      {(vista === 'agrupada' || vista === 'libro') && (
+        <div className="lfv8-per-curso">
+          <span className="lfv8-per-curso-label">Período en curso</span>
+          <span className="lfv8-per-chip"><b>IVA</b> <span className="muted">Sin período configurado</span></span>
+          <span className="lfv8-per-chip"><b>ISLR</b> <span className="muted">Sin período configurado</span></span>
+          <span className="lfv8-per-chip"><b>ISAE</b> <span className="muted">Sin período configurado</span></span>
+        </div>
+      )}
+
+      {/* ── Vista agrupada (v8): tarjetas, casillas, tira ── */}
+      {vista === 'agrupada' && (
         <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
-      ) : (
+      )}
+
+      {/* ── Libro fiscal: una fila por retención ── */}
+      {vista === 'libro' && (
+        <div className="lfv8-vacio">
+          <p>Una fila por retención registrada. Para agrupar por factura o proveedor, usar la Vista agrupada.</p>
+          <button className="btn" onClick={() => setVista('agrupada')}>Ir a Vista agrupada</button>
+        </div>
+      )}
+
+      {/* ── Períodos fiscales ── */}
+      {vista === 'periodos' && (
+        <div className="lfv8-vacio">
+          <p>Períodos fiscales por impuesto: apertura, cierre, declaración y vencimientos.</p>
+          <p className="muted" style={{ fontSize: '.82rem', marginTop: '.3rem' }}>Disponible próximamente. La configuración de períodos se gestiona desde Parámetros.</p>
+        </div>
+      )}
+
+      {/* ── Reportes ── */}
+      {vista === 'reportes' && (
+        <div className="lfv8-vacio">
+          <p>Libro de retenciones, relaciones por proveedor, resumen por período y exportación.</p>
+          <p className="muted" style={{ fontSize: '.82rem', marginTop: '.3rem' }}>Disponible próximamente. Los PDF del libro y la relación se generan desde la Vista agrupada.</p>
+        </div>
+      )}
+
+      {/* ── Listas de OC: Por realizar / Realizadas ── */}
+      {(vista === 'pendientes' || vista === 'hechas') && (
       <>
       {/* Tarjeta total pendientes (solo en la vista Por realizar) */}
       {vista === 'pendientes' && (
@@ -216,6 +263,9 @@ export function RetencionesPage() {
           onClose={() => setSel(null)}
           onSaved={async () => { setSel(null); await reload(); }}
         />
+      )}
+      {parametros && (
+        <ConfiguracionFiscalModal puedeEditar={canWrite} onClose={() => setParametros(false)} />
       )}
     </div>
   );
