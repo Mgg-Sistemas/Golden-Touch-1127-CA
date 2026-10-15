@@ -66,3 +66,41 @@ export async function dibujarPdfEnCanvas(datos: ArrayBuffer, cont: HTMLElement, 
     aviso.textContent = 'No se pudo mostrar la vista previa en este teléfono. Usa «⬇ Descargar» para verlo.';
   }
 }
+
+/** Una página del PDF ya dibujada como imagen, con su tamaño real en puntos. */
+export interface HojaImagen { url: string; anchoPt: number; altoPt: number }
+
+/**
+ * Dibuja cada página del PDF como imagen PNG a `dpi` (para imprimir hoja por hoja).
+ * Devuelve las URL de los blobs; quien las pide las suelta con URL.revokeObjectURL.
+ */
+export async function paginasPdfComoImagenes(datos: ArrayBuffer, dpi = 200): Promise<HojaImagen[]> {
+  const pdfjs = await cargarPdfjs();
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(datos) }).promise;
+  const hojas: HojaImagen[] = [];
+  try {
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const pagina = await pdf.getPage(n);
+      const base = pagina.getViewport({ scale: 1 });
+      const vista = pagina.getViewport({ scale: dpi / 72 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vista.width);
+      canvas.height = Math.floor(vista.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Sin canvas 2D');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await pagina.render({ canvasContext: ctx, viewport: vista }).promise;
+      const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, 'image/png'));
+      canvas.width = 0; canvas.height = 0;
+      if (!blob) throw new Error('No se pudo dibujar la página');
+      hojas.push({ url: URL.createObjectURL(blob), anchoPt: base.width, altoPt: base.height });
+    }
+    return hojas;
+  } catch (e) {
+    hojas.forEach((h) => URL.revokeObjectURL(h.url));
+    throw e;
+  } finally {
+    void pdf.destroy();
+  }
+}
