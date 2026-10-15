@@ -1102,6 +1102,9 @@ export async function indicarMetodoPago(
     }))
     .filter((m) => m.metodo && m.moneda);
   if (!limpios.length) throw new Error('Indica al menos un método de pago.');
+  // Teléfono de administración del proveedor: OBLIGATORIO (la actividad económica no).
+  const numeroAdministracion = (soporte?.numeroAdministracion ?? '').replace(/\D/g, '');
+  if (numeroAdministracion.length < 7) throw new Error('Coloca el número de administración del proveedor (teléfono, al menos 7 dígitos). Es obligatorio.');
   // Soporte: Nota de entrega → directo a Tesorería (como hoy). Factura → además
   // entra a Retenciones (se marca el tipo y el modo de retención). En ambos casos
   // la OC queda "Confirmada pagar" (oc_aprobada) para que Tesorería pague.
@@ -1158,7 +1161,7 @@ export async function indicarMetodoPago(
     ...(imagenPath !== undefined ? { metodo_pago_imagen_path: imagenPath } : {}),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
-    numero_administracion: (soporte?.numeroAdministracion ?? '').replace(/\s+/g, ' ').trim() || null,
+    numero_administracion: numeroAdministracion,
     iva_aplicado: aplicaIva,
     iva_pct: ivaPct,
     iva_monto: aplicaIva ? ivaMonto : null,
