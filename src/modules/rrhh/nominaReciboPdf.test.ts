@@ -34,6 +34,10 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     expect(soloBs).not.toContain('$');
     expect(soloBs).toContain('Sueldo quincenal');
     expect(soloBs).toContain('Sueldo diario');
+    // Conformidad dictada por RRHH: la totalidad del salario del período, sin «% del total acordado».
+    expect(soloBs).toContain('totalidad de mi salario');
+    expect(soloBs).toContain('16-09-2026 al 30-09-2026');
+    expect(soloBs).not.toContain('total acordado');
     const bono = (await construir([base], { ...meta, tipos: ['bono'] } as never)).output();
     expect(bono).toContain('$');
     // Y el de bonificación es SOLO $: ni montos en Bs, ni la tasa, ni el total mezclado.
