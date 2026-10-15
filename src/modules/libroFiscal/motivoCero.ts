@@ -35,7 +35,7 @@ export function esCeroSinMotivo(
 const LABEL_TIPO: Record<string, string> = {
   iva: 'La retención de IVA',
   islr: 'La retención de ISLR',
-  municipal: 'La retención municipal',
-  regional: 'El timbre fiscal',
+  municipal: 'La retención de ISAE',
+  regional: 'El timbre estadal',
   igtf: 'La percepción de IGTF',
 };

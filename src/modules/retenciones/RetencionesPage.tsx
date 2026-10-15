@@ -122,21 +122,21 @@ export function RetencionesPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
-          <h1 style={{ margin: 0 }}>🧾 Retenciones</h1>
+          <h1 style={{ margin: 0 }}>Retenciones</h1>
           <p className="muted" style={{ margin: '.25rem 0 0' }}>
-            Libro fiscal (IVA, ISLR, municipal, estadal e IGTF) y comprobantes de las OC con factura.
+            Libro fiscal (IVA, ISLR, ISAE, estadal e IGTF) y comprobantes de las OC con factura.
           </p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de retenciones">
           <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}</button>
           <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-          <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')} title="IVA, ISLR, municipal, estadal e IGTF: lo que nos retienen y lo que retenemos">📒 Libro fiscal</button>
+          <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')} title="IVA, ISLR, ISAE, estadal e IGTF">📒 Libro fiscal</button>
         </div>
       </div>
 
       {/* El LIBRO FISCAL vive en la tabla `retenciones` y es el corazón del módulo:
-          IVA, ISLR, municipal, estadal e IGTF, con lo que nos retienen (anticipos a
-          favor) y lo poco que retenemos. Las otras dos vistas son el trámite de
+          IVA, ISLR, ISAE, estadal e IGTF, retenciones recibidas (anticipos a
+          favor) y practicadas. Las otras dos vistas son el trámite de
           adjuntar comprobantes a una OC, que es otra cosa. */}
       {vista === 'libro' ? (
         <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
