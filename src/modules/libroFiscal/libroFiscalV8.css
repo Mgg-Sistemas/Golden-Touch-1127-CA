@@ -237,3 +237,38 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
   .lfv8-columnas { grid-template-columns: 1fr; }
   .lfv8-buscar input { font-size: .95rem; padding-left: 2.2rem; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Parámetros — tarjetas en dos capas (Ajustes / Avanzados)
+   Calca visual del modal de la maqueta v8.
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-pa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .65rem; margin: .5rem 0 1rem; }
+.lfv8-pa-btn { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: .3rem; padding: .85rem .95rem; border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--grad-surface); min-height: 112px; width: 100%; text-align: left; }
+.lfv8-pa-btn:hover { border-color: rgba(255,138,0,0.6); }
+.lfv8-pa-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lfv8-pa-btn .lfv8-pa-t { font-weight: 700; font-size: .98rem; color: var(--text); }
+.lfv8-pa-btn .lfv8-pa-d { font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
+.lfv8-pa-btn .lfv8-pa-r { margin-top: auto; font-size: .76rem; color: var(--primary-3); }
+.lfv8-pa-avanzados { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: .3rem; padding: .85rem .95rem; border: 1px solid var(--border-strong); border-radius: var(--r-md); width: 100%; text-align: left; border-left: 4px solid var(--warning); background: rgba(245,177,51,0.06); position: relative; padding-right: 2.6rem; }
+.lfv8-pa-avanzados::after { content: '\203A'; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); font-size: 1.6rem; color: var(--warning); }
+.lfv8-pa-avanzados:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lfv8-pa-avanzados .lfv8-pa-t { font-weight: 700; font-size: .98rem; color: var(--text); }
+.lfv8-pa-avanzados .lfv8-pa-d { font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
+.lfv8-pa-avanzados .lfv8-pa-r { font-size: .76rem; color: #ffd99a; }
+.lfv8-pa-capa-t { margin: .2rem 0 0; font-size: 1rem; font-weight: 700; }
+.lfv8-pa-capa-d { margin: .1rem 0 0; font-size: .82rem; color: var(--text-muted); }
+.lfv8-pa-volver { all: unset; cursor: pointer; font-size: .84rem; color: var(--primary-3); padding: .3rem 0; min-height: 24px; }
+.lfv8-pa-volver:hover { text-decoration: underline; }
+.lfv8-pa-volver:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lfv8-pa-sec-t { margin: .3rem 0 .4rem; font-size: 1.05rem; font-weight: 700; }
+.lfv8-pa-que { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: .3rem .8rem; margin: 0 0 .7rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-1); font-size: .82rem; }
+.lfv8-pa-que dt { color: var(--text-muted); font-weight: 600; }
+.lfv8-pa-que dd { margin: 0; }
+.lfv8-pa-aviso { padding: .5rem .75rem; border: 1px solid rgba(245,177,51,0.4); border-radius: var(--r-md); background: rgba(245,177,51,0.06); font-size: .82rem; color: #ffd99a; margin-bottom: .6rem; }
+.lfv8-pa-placeholder { text-align: center; padding: 2rem 1rem; color: var(--text-muted); font-size: .85rem; border: 1px dashed var(--border-strong); border-radius: var(--r-md); }
+@media (max-width: 640px) {
+  .lfv8-pa-grid { grid-template-columns: 1fr; }
+  .lfv8-pa-btn { min-height: 0; }
+  .lfv8-pa-que { grid-template-columns: 1fr; gap: .1rem; }
+  .lfv8-pa-que dd { margin-bottom: .35rem; }
+}

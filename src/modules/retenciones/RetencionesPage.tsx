@@ -123,29 +123,24 @@ export function RetencionesPage() {
   return (
     <div>
       {/* ── Cabecera v8 ── */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Retenciones</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>
-            Retenciones por factura: aplicables, registradas y no aplicables.
-          </p>
-        </div>
+      <header style={{ marginBottom: '.75rem' }}>
+        <p className="muted" style={{ margin: '0 0 .5rem' }}>
+          Retenciones por factura: aplicables, registradas y no aplicables.
+        </p>
         <div className="lfv8-cabeza-acciones">
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
+          <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
+            <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
+              Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}
+            </button>
+            <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
+            <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
+            <button className={vista === 'agrupada' ? 'active' : ''} onClick={() => setVista('agrupada')}>Vista agrupada</button>
+            <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>
+            <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
+          </nav>
         </div>
       </header>
-
-      {/* ── Tabs del módulo (6 pantallas como en la maqueta v8) ── */}
-      <div className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ marginBottom: '.75rem' }}>
-        <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
-          Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}
-        </button>
-        <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-        <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
-        <button className={vista === 'agrupada' ? 'active' : ''} onClick={() => setVista('agrupada')}>Vista agrupada</button>
-        <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>
-        <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
-      </div>
 
       {/* ── Período en curso (sobre la vista agrupada y libro fiscal) ── */}
       {(vista === 'agrupada' || vista === 'libro') && (

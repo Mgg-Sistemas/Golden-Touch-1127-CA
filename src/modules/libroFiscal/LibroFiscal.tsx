@@ -88,7 +88,6 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
   const [motivo, setMotivo] = useState('');
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
-  const [parametros, setParametros] = useState(false);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   const reload = useCallback(async () => {
@@ -381,7 +380,6 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
           title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
-        <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
         {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
       </div>
 
@@ -570,9 +568,6 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
         <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
-      )}
-      {parametros && (
-        <ConfiguracionFiscalModal puedeEditar={canWrite} onClose={() => { setParametros(false); void reload().catch(() => { /* idem */ }); }} />
       )}
     </div>
   );
@@ -952,11 +947,56 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
 /* ═══════════════════ Parámetros fiscales ═══════════════════ */
 
+type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'vencimientos'
+  | 'impuestos' | 'valores' | 'numeracion' | 'regimen' | 'interruptores';
+interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
+
+const AJUSTES_PA: DefSeccionPa[] = [
+  { key: 'motivos', capa: 'ajustes', titulo: 'Motivos de «No aplica»', linea: 'Las razones para marcar que una factura no lleva retención.',
+    que: 'Las razones que se eligen al marcar que una factura no lleva retención.', ingresa: 'El texto del motivo y el impuesto en que se ofrece (o todos).',
+    efecto: 'Aparecen en el selector de «No aplica» al modificar una factura.', noCambia: 'Lo ya marcado conserva su motivo, aunque el motivo se edite o se deshabilite.' },
+  { key: 'entes', capa: 'ajustes', titulo: 'Entes y logos', linea: 'Quién recibe cada retención y el logo de su comprobante.',
+    que: 'Los organismos que reciben cada retención y su logo en el comprobante.', ingresa: 'El nombre del ente, su logo y qué impuestos lo usan.',
+    efecto: 'El comprobante de cada impuesto lleva el logo de su ente.', noCambia: 'Los comprobantes emitidos conservan el logo de su emisión.' },
+  { key: 'perfiles', capa: 'ajustes', titulo: 'Perfiles fiscales de proveedores', linea: 'Tipo de contribuyente, persona, actividades y licencia de cada proveedor.',
+    que: 'Los datos fiscales de cada proveedor que deciden qué se le retiene.', ingresa: 'Tipo de contribuyente, tipo de persona, residencia, actividades económicas y licencia.',
+    efecto: 'Con estos datos se propone si cada retención aplica en las facturas pendientes.', noCambia: 'Las retenciones registradas y sus comprobantes conservan los datos con que se emitieron.' },
+  { key: 'licencias', capa: 'ajustes', titulo: 'Tipos de licencia', linea: 'Los tipos de licencia de actividad económica que se eligen en el perfil.',
+    que: 'Los tipos de licencia de actividad económica que se eligen en el perfil fiscal de cada proveedor.', ingresa: 'El nombre del tipo.',
+    efecto: 'Aparecen en el selector «Tipo» de la licencia, en el perfil fiscal del proveedor.', noCambia: 'Un perfil que ya tiene un tipo lo conserva, aunque el tipo se deshabilite.' },
+  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Los datos del agente de retención que van en cada comprobante.',
+    que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
+    efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
+  { key: 'vencimientos', capa: 'ajustes', titulo: 'Avisos de vencimiento', linea: 'Cuándo avisar de licencias, declaraciones y actividades que vencen.',
+    que: 'Los avisos de lo que vence: licencias, declaraciones y actividades con fecha «hasta».', ingresa: 'Con cuántos días de anticipación se avisa y si los avisos están encendidos.',
+    efecto: 'Cambia la lista de vencimientos de la cabecera y los avisos del registro.', noCambia: 'Ninguna fecha ni ningún monto: solo cuándo se avisa.' },
+];
+const AVANZADOS_PA: DefSeccionPa[] = [
+  { key: 'impuestos', capa: 'avanzados', titulo: 'Impuestos y reglas', linea: 'Catálogo: nombre, regla de cálculo, ente, estado; conceptos o actividades.',
+    que: 'El catálogo de impuestos. Cada uno decide su casilla en la tira, sus períodos y su reporte.', ingresa: 'Nombre, regla por piezas, ente, estado, y la tabla del impuesto (conceptos o actividades con su alícuota).',
+    efecto: 'Cambia cuánto se retiene y qué impuestos aparecen en toda la pantalla.', noCambia: 'Lo emitido conserva su nombre y su monto.' },
+  { key: 'valores', capa: 'avanzados', titulo: 'Valores con vigencia', linea: 'UT, % de IVA y % de IGTF, cada uno con su fecha «desde».',
+    que: 'Los valores que usan las reglas: Unidad Tributaria, % de IVA general y del art. 5, % de IGTF.', ingresa: 'Un valor nuevo con su fecha «desde». El anterior se conserva.',
+    efecto: 'Las retenciones se calculan con el valor vigente a la fecha de la factura.', noCambia: 'Las retenciones declaradas. Ningún valor se sobrescribe.' },
+  { key: 'numeracion', capa: 'avanzados', titulo: 'Períodos y numeración', linea: 'Periodicidad, series de comprobantes y paso inicial de cada impuesto.',
+    que: 'Cómo se agrupan las retenciones para declarar y cómo se numeran los comprobantes.', ingresa: 'Periodicidad, quién numera la serie, período en curso y último número del otro sistema.',
+    efecto: 'Cambia los períodos por declarar y el número que se propone al registrar.', noCambia: 'Nunca se cambia dentro de un período declarado. Un número usado no se repite.' },
+  { key: 'regimen', capa: 'avanzados', titulo: 'Régimen fiscal de la empresa', linea: 'Agente de retención de IVA y contribuyente especial, con su fecha.',
+    que: 'Las condiciones de la empresa ante el SENIAT, cada una con su fecha «desde».', ingresa: 'Agente de retención de IVA, contribuyente especial y percepción del IGTF.',
+    efecto: '«Agente de retención de IVA» decide si se propone la retención de IVA. «Contribuyente especial» decide el calendario.', noCambia: 'Lo emitido.' },
+  { key: 'interruptores', capa: 'avanzados', titulo: 'Interruptores de reglas', linea: 'Reglas del módulo que se encienden o se apagan sin programar.',
+    que: 'Reglas del módulo que se encienden o se apagan sin programar.', ingresa: 'El valor de cada interruptor. Cada cambio pide confirmación.',
+    efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
+];
+const TODAS_PA: Record<SeccionPa, DefSeccionPa> = Object.fromEntries([...AJUSTES_PA, ...AVANZADOS_PA].map((s) => [s.key, s])) as Record<SeccionPa, DefSeccionPa>;
+const AVISO_AVANZADOS = 'Estos cambios afectan cálculos, números o fechas de declaración. Lo ya emitido no cambia.';
+
 export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar: boolean; onClose: () => void }) {
   const [cfg, setCfg] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [locales, setLocales] = useState<AlicuotasLocales>({ municipal: 0, estadal: 0 });
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
-  const [tab, setTab] = useState<'agente' | 'catalogo'>('agente');
+  const [capa, setCapa] = useState<'inicio' | 'avanzados'>('inicio');
+  const [seccion, setSeccion] = useState<SeccionPa | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -985,110 +1025,208 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
     }
   }
 
+  function volver() {
+    if (seccion) { setCapa(TODAS_PA[seccion].capa === 'avanzados' ? 'avanzados' : 'inicio'); setSeccion(null); }
+    else if (capa === 'avanzados') { setCapa('inicio'); }
+  }
+
+  function resumen(k: SeccionPa): string {
+    switch (k) {
+      case 'empresa': return cfg.rif ? `RIF ${cfg.rif}` : 'Sin configurar';
+      case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
+      case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
+      case 'impuestos': return `${conceptos.length} conceptos`;
+      default: return 'Pendiente';
+    }
+  }
+
+  const capaActual = seccion ? TODAS_PA[seccion].capa : capa;
+  const tituloModal = capaActual === 'avanzados' ? '⚙ Parámetros · Ajustes avanzados' : '⚙ Parámetros de retenciones';
+  const seccionGuardable = seccion === 'empresa' || seccion === 'regimen' || seccion === 'valores';
+
   return (
     <>
-    <Modal title="⚙ Parámetros fiscales" size="xl" onClose={pedirCierre}
+    <Modal title={tituloModal} size="xl" onClose={pedirCierre}
       footer={
         <>
+          <span className="hint muted" style={{ fontSize: '.78rem', marginRight: 'auto' }}>
+            {capaActual === 'avanzados' ? 'Edición: administración, o escritura en Retenciones (las dos capas).' : 'Edición: administración, o escritura en Retenciones.'}
+          </span>
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cerrar</button>
-          {tab === 'agente' && puedeEditar && (
+          {seccionGuardable && puedeEditar && (
             <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
           )}
         </>
       }>
       <div onChange={marcarSucio}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      {soloLectura && (
-        <div className="hint muted" style={{ marginBottom: '.6rem', fontSize: '.82rem' }}>
-          Para cambiar los parámetros fiscales hace falta permiso de escritura en Retenciones.
-        </div>
+
+      {/* ── Pantalla de inicio: grilla de tarjetas ── */}
+      {!seccion && capa === 'inicio' && (
+        <>
+          <h4 className="lfv8-pa-capa-t">Ajustes</h4>
+          <p className="lfv8-pa-capa-d">Mantenimiento de todos los días. No cambian cuánto se retiene, cómo se numera ni cuándo se declara.</p>
+          <div className="lfv8-pa-grid">
+            {AJUSTES_PA.map((s) => (
+              <button key={s.key} type="button" className="lfv8-pa-btn" onClick={() => setSeccion(s.key)}>
+                <span className="lfv8-pa-t">{s.titulo}</span>
+                <span className="lfv8-pa-d">{s.linea}</span>
+                <span className="lfv8-pa-r">{resumen(s.key)}</span>
+              </button>
+            ))}
+          </div>
+          <button type="button" className="lfv8-pa-avanzados" onClick={() => setCapa('avanzados')}>
+            <span className="lfv8-pa-t">Ajustes avanzados</span>
+            <span className="lfv8-pa-d">Impuestos y reglas, valores con vigencia, períodos y numeración, régimen fiscal e interruptores.</span>
+            <span className="lfv8-pa-r">Cambian cálculos, números o fechas de declaración · {AVANZADOS_PA.length} secciones</span>
+          </button>
+        </>
       )}
 
-      <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
-        <button className={tab === 'agente' ? 'active' : ''} onClick={() => setTab('agente')}>Datos de la empresa</button>
-        <button className={tab === 'catalogo' ? 'active' : ''} onClick={() => setTab('catalogo')}>Catálogo de conceptos ({conceptos.length})</button>
-      </div>
-
-      {tab === 'agente' ? (
-        <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
-          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-            <div className="form-row" style={{ flex: '1 1 220px' }}>
-              <label>Razón social</label>
-              <input className="input" value={cfg.razonSocial ?? ''} onChange={(e) => set('razonSocial', e.target.value)} />
-            </div>
-            <div className="form-row" style={{ flex: '1 1 150px' }}>
-              <label>RIF</label>
-              <input className="input mono" value={cfg.rif ?? ''} onChange={(e) => set('rif', e.target.value)} placeholder="J-XXXXXXXX-X" />
-            </div>
+      {/* ── Capa avanzados: grilla de tarjetas ── */}
+      {!seccion && capa === 'avanzados' && (
+        <>
+          <button type="button" className="lfv8-pa-volver" onClick={volver}>← Parámetros</button>
+          <div className="lfv8-pa-aviso"><strong>Ajustes avanzados.</strong> {AVISO_AVANZADOS}</div>
+          <div className="lfv8-pa-grid">
+            {AVANZADOS_PA.map((s) => (
+              <button key={s.key} type="button" className="lfv8-pa-btn" onClick={() => setSeccion(s.key)}>
+                <span className="lfv8-pa-t">{s.titulo}</span>
+                <span className="lfv8-pa-d">{s.linea}</span>
+                <span className="lfv8-pa-r">{resumen(s.key)}</span>
+              </button>
+            ))}
           </div>
-          <div className="form-row">
-            <label>Dirección fiscal</label>
-            <input className="input" value={cfg.direccionFiscal ?? ''} onChange={(e) => set('direccionFiscal', e.target.value)} />
-          </div>
-          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-            <div className="form-row" style={{ flex: '1 1 180px' }}>
-              <label>Municipio</label>
-              <input className="input" value={cfg.municipio ?? ''} onChange={(e) => set('municipio', e.target.value)} />
-              <small className="hint muted">Define qué ordenanza de ISAE aplica.</small>
-            </div>
-            <div className="form-row" style={{ flex: '1 1 140px' }}>
-              <label>Alícuota municipal (ISAE, %)</label>
-              <input className="input mono" value={String(locales.municipal)} onChange={(e) => setLocales((l) => ({ ...l, municipal: nDec(e.target.value) }))} inputMode="decimal" />
-            </div>
-            <div className="form-row" style={{ flex: '1 1 140px' }}>
-              <label>Timbre fiscal estadal (%)</label>
-              <input className="input mono" value={String(locales.estadal)} onChange={(e) => setLocales((l) => ({ ...l, estadal: nDec(e.target.value) }))} inputMode="decimal" />
-            </div>
-          </div>
-
-          <div className="card" style={{ background: 'var(--bg-2)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
-              <input type="checkbox" checked={cfg.esAgenteRetencionIva} onChange={(e) => set('esAgenteRetencionIva', e.target.checked)} />
-              La empresa está designada agente de retención de IVA
-            </label>
-            <p className="muted" style={{ margin: '.3rem 0 .6rem', fontSize: '.82rem' }}>
-              Hoy está en <strong>{cfg.esAgenteRetencionIva ? 'sí' : 'no'}</strong>. Con la casilla marcada se calcula y se registra la retención de IVA que la empresa practica.
-            </p>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
-              <input type="checkbox" checked={cfg.esContribuyenteEspecial} onChange={(e) => set('esContribuyenteEspecial', e.target.checked)} />
-              La empresa es contribuyente especial
-            </label>
-            <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.82rem' }}>
-              Hoy está en <strong>{cfg.esContribuyenteEspecial ? 'sí' : 'no'}</strong>. El contribuyente especial también retiene IVA y, además, percibe el IGTF.
-            </p>
-            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
-                <label>% general</label>
-                <select className="select" value={cfg.pctIvaGeneral} onChange={(e) => set('pctIvaGeneral', Number(e.target.value))}>
-                  {PORCENTAJES_IVA.map((p) => <option key={p} value={p}>{p}%</option>)}
-                </select>
-              </div>
-              <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>
-                <label>% en los supuestos del art. 5</label>
-                <select className="select" value={cfg.pctIvaEspecial} onChange={(e) => set('pctIvaEspecial', Number(e.target.value))}>
-                  {PORCENTAJES_IVA.map((p) => <option key={p} value={p}>{p}%</option>)}
-                </select>
-              </div>
-            </div>
-            <small className="hint muted">La Providencia SNAT/2015/0049 solo admite 75% y 100%.</small>
-          </div>
-
-          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-            <div className="form-row" style={{ flex: '1 1 180px' }}>
-              <label>Valor de la Unidad Tributaria (Bs)</label>
-              <input className="input mono" value={String(cfg.valorUt)} onChange={(e) => set('valorUt', nDec(e.target.value))} inputMode="decimal" />
-              <small className="hint muted">Define el <strong>sustraendo</strong> y el mínimo del ISLR de personas naturales. Sin esto, el sustraendo queda en cero.</small>
-            </div>
-            <div className="form-row" style={{ flex: '1 1 140px' }}>
-              <label>% de IGTF</label>
-              <input className="input mono" value={String(cfg.pctIgtf)} onChange={(e) => set('pctIgtf', nDec(e.target.value))} inputMode="decimal" />
-              <small className="hint muted">3% vigente; la ley admite entre 2% y 8%.</small>
-            </div>
-          </div>
-        </fieldset>
-      ) : (
-        <CatalogoConceptos conceptos={conceptos} puedeEditar={puedeEditar} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />
+          <p className="hint muted" style={{ fontSize: '.78rem' }}>Cada sección conserva sus guardas: la regla se prueba antes de guardar, una fecha pasada abre la lista del recálculo y lo declarado bloquea el cambio.</p>
+        </>
       )}
+
+      {/* ── Detalle de sección ── */}
+      {seccion && (() => {
+        const def = TODAS_PA[seccion];
+        return (
+        <>
+          <button type="button" className="lfv8-pa-volver" onClick={volver}>
+            {def.capa === 'avanzados' ? '← Ajustes avanzados' : '← Parámetros'}
+          </button>
+          {def.capa === 'avanzados' && <div className="lfv8-pa-aviso" style={{ marginTop: '.4rem' }}>{AVISO_AVANZADOS}</div>}
+          <h4 className="lfv8-pa-sec-t">{def.titulo}</h4>
+          <dl className="lfv8-pa-que">
+            <dt>Qué es</dt><dd>{def.que}</dd>
+            <dt>Qué se ingresa</dt><dd>{def.ingresa}</dd>
+            <dt>Qué efecto tiene</dt><dd>{def.efecto}</dd>
+            <dt>Qué no cambia</dt><dd>{def.noCambia}</dd>
+          </dl>
+          {soloLectura && (
+            <div className="hint muted" style={{ marginBottom: '.6rem', fontSize: '.82rem' }}>
+              Para cambiar los parámetros fiscales hace falta permiso de escritura en Retenciones.
+            </div>
+          )}
+
+          {/* ── Empresa ── */}
+          {seccion === 'empresa' && (
+            <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                <div className="form-row" style={{ flex: '1 1 220px' }}>
+                  <label>Razón social</label>
+                  <input className="input" value={cfg.razonSocial ?? ''} onChange={(e) => set('razonSocial', e.target.value)} />
+                </div>
+                <div className="form-row" style={{ flex: '1 1 150px' }}>
+                  <label>RIF</label>
+                  <input className="input mono" value={cfg.rif ?? ''} onChange={(e) => set('rif', e.target.value)} placeholder="J-XXXXXXXX-X" />
+                </div>
+              </div>
+              <div className="form-row">
+                <label>Dirección fiscal</label>
+                <input className="input" value={cfg.direccionFiscal ?? ''} onChange={(e) => set('direccionFiscal', e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                <div className="form-row" style={{ flex: '1 1 180px' }}>
+                  <label>Municipio</label>
+                  <input className="input" value={cfg.municipio ?? ''} onChange={(e) => set('municipio', e.target.value)} />
+                  <small className="hint muted">Define qué ordenanza de ISAE aplica.</small>
+                </div>
+                <div className="form-row" style={{ flex: '1 1 140px' }}>
+                  <label>Alícuota municipal (ISAE, %)</label>
+                  <input className="input mono" value={String(locales.municipal)} onChange={(e) => setLocales((l) => ({ ...l, municipal: nDec(e.target.value) }))} inputMode="decimal" />
+                </div>
+                <div className="form-row" style={{ flex: '1 1 140px' }}>
+                  <label>Timbre fiscal estadal (%)</label>
+                  <input className="input mono" value={String(locales.estadal)} onChange={(e) => setLocales((l) => ({ ...l, estadal: nDec(e.target.value) }))} inputMode="decimal" />
+                </div>
+              </div>
+              <p className="hint muted" style={{ fontSize: '.82rem' }}>El régimen fiscal (agente de retención de IVA, contribuyente especial) está en Ajustes avanzados › Régimen fiscal de la empresa.</p>
+            </fieldset>
+          )}
+
+          {/* ── Régimen fiscal ── */}
+          {seccion === 'regimen' && (
+            <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div className="card" style={{ background: 'var(--bg-2)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
+                  <input type="checkbox" checked={cfg.esAgenteRetencionIva} onChange={(e) => set('esAgenteRetencionIva', e.target.checked)} />
+                  La empresa está designada agente de retención de IVA
+                </label>
+                <p className="muted" style={{ margin: '.3rem 0 .6rem', fontSize: '.82rem' }}>
+                  Hoy está en <strong>{cfg.esAgenteRetencionIva ? 'sí' : 'no'}</strong>. Con la casilla marcada se calcula y se registra la retención de IVA que la empresa practica.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
+                  <input type="checkbox" checked={cfg.esContribuyenteEspecial} onChange={(e) => set('esContribuyenteEspecial', e.target.checked)} />
+                  La empresa es contribuyente especial
+                </label>
+                <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.82rem' }}>
+                  Hoy está en <strong>{cfg.esContribuyenteEspecial ? 'sí' : 'no'}</strong>. El contribuyente especial también retiene IVA y, además, percibe el IGTF.
+                </p>
+                <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                  <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+                    <label>% general</label>
+                    <select className="select" value={cfg.pctIvaGeneral} onChange={(e) => set('pctIvaGeneral', Number(e.target.value))}>
+                      {PORCENTAJES_IVA.map((p) => <option key={p} value={p}>{p}%</option>)}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>
+                    <label>% en los supuestos del art. 5</label>
+                    <select className="select" value={cfg.pctIvaEspecial} onChange={(e) => set('pctIvaEspecial', Number(e.target.value))}>
+                      {PORCENTAJES_IVA.map((p) => <option key={p} value={p}>{p}%</option>)}
+                    </select>
+                  </div>
+                </div>
+                <small className="hint muted">La Providencia SNAT/2015/0049 solo admite 75% y 100%.</small>
+              </div>
+            </fieldset>
+          )}
+
+          {/* ── Valores con vigencia ── */}
+          {seccion === 'valores' && (
+            <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                <div className="form-row" style={{ flex: '1 1 180px' }}>
+                  <label>Valor de la Unidad Tributaria (Bs)</label>
+                  <input className="input mono" value={String(cfg.valorUt)} onChange={(e) => set('valorUt', nDec(e.target.value))} inputMode="decimal" />
+                  <small className="hint muted">Define el <strong>sustraendo</strong> y el mínimo del ISLR de personas naturales. Sin esto, el sustraendo queda en cero.</small>
+                </div>
+                <div className="form-row" style={{ flex: '1 1 140px' }}>
+                  <label>% de IGTF</label>
+                  <input className="input mono" value={String(cfg.pctIgtf)} onChange={(e) => set('pctIgtf', nDec(e.target.value))} inputMode="decimal" />
+                  <small className="hint muted">3% vigente; la ley admite entre 2% y 8%.</small>
+                </div>
+              </div>
+            </fieldset>
+          )}
+
+          {/* ── Impuestos y reglas (catálogo de conceptos) ── */}
+          {seccion === 'impuestos' && (
+            <CatalogoConceptos conceptos={conceptos} puedeEditar={puedeEditar} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />
+          )}
+
+          {/* ── Secciones pendientes ── */}
+          {!['empresa', 'regimen', 'valores', 'impuestos'].includes(seccion) && (
+            <div className="lfv8-pa-placeholder">Sección pendiente de implementación.</div>
+          )}
+        </>
+        );
+      })()}
+
       </div>
     </Modal>
     {dialogo}
