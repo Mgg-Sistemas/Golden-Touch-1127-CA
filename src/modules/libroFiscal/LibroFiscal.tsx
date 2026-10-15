@@ -48,7 +48,9 @@ import { aplicarFiltros, buscaEn, conteoOpcion, paginar, type FiltroLista } from
 import { BarraLista, Paginador, type ControlFiltro } from './ListaControles';
 import { eventosRetencion, cuandoCorto, lineaQuien } from './quienCuando';
 import './libroFiscal.css';
+import './libroFiscalV8.css';
 import { useDescartar } from './confirmarDescartar';
+import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 
 function monto(n: number | null | undefined, moneda: string): string {
@@ -651,10 +653,16 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           {tipo === 'islr' && (
             <div className="form-row">
               <label>¿A quién se le retiene?</label>
-              <select className="select" value={sujeto} onChange={(e) => setSujeto(e.target.value as SujetoRetenido)}>
-                {SUJETOS.filter((s) => s.key !== 'todos').map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-              </select>
-              <small className="hint muted">El porcentaje del ISLR cambia según el sujeto: no es lo mismo una persona natural que una empresa.</small>
+              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <select className="select" style={{ flex: '1 1 240px' }} value={sujeto} onChange={(e) => setSujeto(e.target.value as SujetoRetenido)}>
+                  {SUJETOS.filter((s) => s.key !== 'todos').map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                </select>
+                {(() => { const sug = sugerirSujetoPorRif(rif); return sug ? (
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSujeto(sug.sujeto)}
+                    title={`Según el RIF: ${SUJETOS.find((s) => s.key === sug.sujeto)?.label ?? ''}`}>Sugerir por el RIF</button>
+                ) : null; })()}
+              </div>
+              <small className="hint muted">El porcentaje del ISLR cambia según el sujeto: no es lo mismo una persona natural que una empresa. La letra del RIF sugiere el sujeto; confírmalo.</small>
             </div>
           )}
           <div className="form-row">
