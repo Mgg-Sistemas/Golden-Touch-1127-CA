@@ -113,12 +113,12 @@ export function motivoNoPuedePracticar(
   if (tipo === 'iva') {
     return 'La empresa no está marcada como agente de retención de IVA ni como contribuyente especial '
       + '(la Providencia SNAT/2015/0049 designa a los agentes). '
-      + 'Si la retención la practicó un cliente, se registra como «Nos la practicaron». '
-      + 'Si la empresa fue designada, se marca en Parámetros.';
+      + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
+      + 'Si la empresa fue designada, activar la casilla en Parámetros.';
   }
   return 'Solo el contribuyente especial percibe el IGTF (Ley del IGTF). '
-    + 'Si la retención la practicó un cliente, se registra como «Nos la practicaron». '
-    + 'Si la empresa fue designada contribuyente especial, se marca en Parámetros.';
+    + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
+    + 'Si la empresa fue designada contribuyente especial, activar la casilla en Parámetros.';
 }
 
 /** Un renglón del catálogo. */
@@ -431,8 +431,8 @@ export function totalRetenido(filas: FilaResumen[]): number {
 export type DireccionRetencion = 'recibida' | 'practicada';
 
 export const DIRECCIONES: { key: DireccionRetencion; label: string; corto: string }[] = [
-  { key: 'recibida', label: 'Nos la practicaron', corto: 'Nos retuvieron' },
-  { key: 'practicada', label: 'La practicamos', corto: 'Retuvimos' },
+  { key: 'recibida', label: 'Retención recibida', corto: 'Recibida' },
+  { key: 'practicada', label: 'Retención practicada', corto: 'Practicada' },
 ];
 
 export function labelDireccion(d: DireccionRetencion | string | null | undefined): string {
@@ -517,8 +517,8 @@ export function totalesPorMoneda(filas: (FilaLibro & { moneda: string })[]): { m
  * mismo monto es a favor en un caso y deuda en el otro.
  */
 export function significadoRetencion(tipo: TipoImpuesto, direccion: DireccionRetencion): string {
-  if (tipo === 'igtf') return 'IGTF pagado: no se recupera, va a costo.';
+  if (tipo === 'igtf') return 'IGTF percibido: no es recuperable, se registra como costo.';
   return direccion === 'recibida'
-    ? 'Nos lo retuvieron: es un anticipo que se descuenta en la declaración.'
-    : 'Lo retuvo la empresa: hay que enterarlo al fisco.';
+    ? 'Retención recibida: anticipo descontable en la declaración del impuesto.'
+    : 'Retención practicada: monto pendiente de enteramiento al fisco.';
 }

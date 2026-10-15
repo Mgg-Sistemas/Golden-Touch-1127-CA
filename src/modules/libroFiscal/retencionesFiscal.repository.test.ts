@@ -61,7 +61,7 @@ describe('traducciones entre el módulo y las tablas de GT', () => {
     expect(tipoDeGt('IGTF')).toBe('igtf');
   });
 
-  it('«nos la practicaron» es el rol sufrida', () => {
+  it('la retención recibida mapea al rol sufrida en GT', () => {
     expect(rolAGt('recibida')).toBe('sufrida');
     expect(rolAGt('practicada')).toBe('practicada');
     expect(direccionDeGt('sufrida')).toBe('recibida');
@@ -269,7 +269,7 @@ describe('un cambio que no toca ninguna fila no es un éxito', () => {
   });
 
   it('sin motivo no se anula', async () => {
-    await expect(anularRetencion('r-1', '  ')).rejects.toThrow('por qué');
+    await expect(anularRetencion('r-1', '  ')).rejects.toThrow('Motivo de anulación requerido');
   });
 
   it('declarar sin permiso también avisa', async () => {

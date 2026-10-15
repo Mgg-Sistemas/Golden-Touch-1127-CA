@@ -58,8 +58,8 @@ export async function verLibroFiscalPdf(
   const enMonedas = (campo: 'aFavor' | 'igtfPagado' | 'porEnterar') =>
     ctx.totales.length ? ctx.totales.map((t) => montoPdf(t.resumen[campo], t.moneda)) : [montoPdf(0, 'Bs')];
   const tarjetas: [string, string[]][] = [
-    ['A favor (nos retuvieron)', enMonedas('aFavor')],
-    ['IGTF pagado (es costo)', enMonedas('igtfPagado')],
+    ['Retenciones recibidas (a favor)', enMonedas('aFavor')],
+    ['IGTF percibido (costo)', enMonedas('igtfPagado')],
     ['Por enterar al fisco', enMonedas('porEnterar')],
     ['Registros', [String(ctx.resumen.registros)]],
   ];
@@ -84,7 +84,7 @@ export async function verLibroFiscalPdf(
       r.numeroComprobante ?? '—',
       fechaPdf(r.facturaFecha),
       corto(r.tipo),
-      r.direccion === 'recibida' ? 'Nos retuvieron' : 'Retuvimos',
+      r.direccion === 'recibida' ? 'Recibida' : 'Practicada',
       r.contraparteNombre ?? '—',
       r.contraparteRif ?? '—',
       r.facturaNumero ?? (r.docCodigo ?? '—'),
@@ -108,7 +108,7 @@ export async function verLibroFiscalPdf(
   if (finY + 16 + 20 > limiteInferiorPdf(doc.internal.pageSize.getHeight())) { doc.addPage(); finY = MARGIN - 8; }
   doc.setFontSize(7.5); doc.setTextColor(110, 110, 110);
   doc.text(textoPdf(
-    'Lo que nos retienen es un anticipo de impuesto que se descuenta en la declaración. Lo que retiene la empresa hay que enterarlo al fisco. El IGTF no se recupera: es costo.',
+    'Las retenciones recibidas constituyen un anticipo de impuesto descontable en la declaración. Las retenciones practicadas representan montos pendientes de enteramiento al fisco. El IGTF percibido no es recuperable: se registra como costo.',
   ), MARGIN, finY + 16, { maxWidth: anchoUtilPdf(W) });
 
   previewPdf(doc, `libro-retenciones-${ctx.desde}-a-${ctx.hasta}.pdf`);

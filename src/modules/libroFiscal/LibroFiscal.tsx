@@ -235,7 +235,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   // La relación para el SENIAT es por impuesto y de lo que la empresa practicó.
   const relacionables = visibles.filter((r) => r.direccion === 'practicada' && !r.anulada);
   async function verRelacion() {
-    if (!tipo) { toast('Elige un impuesto para la relación.', 'error'); return; }
+    if (!tipo) { toast('Seleccionar un impuesto para generar la relación.', 'error'); return; }
     if (!relacionables.length) { toast('No hay retenciones practicadas en el rango para la relación.', 'error'); return; }
     try {
       const { verRelacionPdf } = await import('./relacionesPdf');
@@ -380,7 +380,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
       <div className="lfv8-acciones-libro">
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
-          title={!tipo ? 'Elige un impuesto para la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
+          title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
         <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
         {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
       </div>
@@ -673,8 +673,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (bloqueo) { setError(bloqueo); return; }
     if (montoFinal < 0) { setError('El monto no puede ser negativo.'); return; }
     if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escriba el motivo del 0%.'); return; }
-    if (esManual && !contraparte.trim()) { setError('Indica quién practicó la retención.'); return; }
-    if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indica la tasa para llevar la retención a bolívares: así se declara.'); return; }
+    if (esManual && !contraparte.trim()) { setError('Indicar la contraparte que practicó la retención.'); return; }
+    if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indicar la tasa de cambio para convertir la retención a bolívares.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
     setSaving(true);
     try {
@@ -718,7 +718,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
   return (
     <>
-    <Modal title="🧾 Registrar retención" size="lg" onClose={pedirCierre}
+    <Modal title="Registrar retención" size="lg" onClose={pedirCierre}
       footer={
         <>
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
@@ -755,7 +755,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '2 1 240px' }}>
-          <label>{direccion === 'recibida' ? 'Quién nos retuvo' : 'A quién le retenemos'}</label>
+          <label>{direccion === 'recibida' ? 'Agente de retención' : 'Sujeto retenido'}</label>
           <input className="input" value={contraparte} onChange={(e) => setContraparte(e.target.value)} placeholder="Razón social" />
         </div>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
@@ -810,7 +810,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
                     title={`Según el RIF: ${SUJETOS.find((s) => s.key === sug.sujeto)?.label ?? ''}`}>Sugerir por el RIF</button>
                 ) : null; })()}
               </div>
-              <small className="hint muted">El porcentaje del ISLR cambia según el sujeto: no es lo mismo una persona natural que una empresa. La letra del RIF sugiere el sujeto; confírmalo.</small>
+              <small className="hint muted">El porcentaje del ISLR cambia según el sujeto: no es lo mismo una persona natural que una empresa. La letra del RIF sugiere el sujeto; verificar antes de registrar.</small>
             </div>
           )}
           <div className="form-row">
@@ -849,8 +849,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         {esManual && (
           <div className="form-row" style={{ flex: '1 1 170px' }}>
             <label>N° del comprobante</label>
-            <input className="input mono" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="El que trae el comprobante" />
-            <small className="hint muted">Lo puso quien retuvo: se copia tal cual.</small>
+            <input className="input mono" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Según el comprobante recibido" />
+            <small className="hint muted">Número asignado por el agente de retención. Transcribir como figura en el comprobante.</small>
           </div>
         )}
         <div className="form-row" style={{ flex: '1 1 150px' }}>
@@ -919,7 +919,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div className="card" style={{ borderColor: montoFinal > 0 ? 'var(--primary)' : 'var(--border)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
-            <div className="muted" style={{ fontSize: '.72rem' }}>{direccion === 'recibida' ? 'Nos retuvieron' : 'A retener'}</div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>{direccion === 'recibida' ? 'Retención recibida' : 'Monto a retener'}</div>
             <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>
               {monto(montoFinal, moneda)}
             </div>

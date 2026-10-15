@@ -232,8 +232,8 @@ export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: 
   if (c.tipo !== 'islr') throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
   const codigo = (c.id ? partirIdConcepto(c.id).codigo : c.codigo)?.trim();
   const sujeto = sujetoAGt(c.sujeto);
-  if (!codigo) throw new Error('Indica el código del concepto (Decreto 1.808).');
-  if (!sujeto) throw new Error('Indica a qué sujeto se le aplica el porcentaje.');
+  if (!codigo) throw new Error('Código del concepto requerido (Decreto 1.808).');
+  if (!sujeto) throw new Error('Sujeto requerido: indicar a quién se le aplica el porcentaje.');
   const { data, error } = await supabase.from(T_CONCEPTOS).upsert({
     codigo, concepto: c.nombre.trim(), base_pct: n(c.basePct) || 100,
     [COLUMNA_SUJETO[sujeto]]: n(c.porcentaje), nota: c.fundamento ?? null,
@@ -540,7 +540,7 @@ function exigirFilas(data: unknown[] | null): void {
  */
 export async function anularRetencion(id: string, motivo: string): Promise<void> {
   const m = motivo.trim();
-  if (!m) throw new Error('Indica por qué se anula la retención: queda en el libro como constancia.');
+  if (!m) throw new Error('Motivo de anulación requerido: queda en el libro como constancia.');
   const { data, error } = await supabase.from(T_RETENCIONES)
     .update({ estado: 'anulada', anulada_motivo: m, updated_at: new Date().toISOString() })
     .eq('id', id).neq('estado', 'anulada').select('id');

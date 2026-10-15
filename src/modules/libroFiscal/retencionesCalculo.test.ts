@@ -50,8 +50,8 @@ describe('quién retiene · dos marcas separadas (D2)', () => {
     }
   });
 
-  it('sin marcas, el motivo del IVA lo explica y remite a «Nos la practicaron»', () => {
-    expect(motivoNoPuedePracticar('iva', ninguna)).toContain('Nos la practicaron');
+  it('sin marcas, el motivo del IVA lo explica y remite a «Retención recibida»', () => {
+    expect(motivoNoPuedePracticar('iva', ninguna)).toContain('Retención recibida');
   });
 });
 
@@ -296,13 +296,13 @@ describe('el libro tiene dos direcciones', () => {
 
   it('el mismo monto significa cosas opuestas según quién retuvo', () => {
     expect(significadoRetencion('islr', 'recibida')).toMatch(/anticipo/i);
-    expect(significadoRetencion('islr', 'practicada')).toMatch(/enterarlo/i);
+    expect(significadoRetencion('islr', 'practicada')).toMatch(/enteramiento/i);
     expect(significadoRetencion('igtf', 'recibida')).toMatch(/costo/i);
   });
 
   it('las direcciones se nombran en palabras', () => {
-    expect(labelDireccion('recibida')).toBe('Nos la practicaron');
-    expect(labelDireccion('practicada')).toBe('La practicamos');
+    expect(labelDireccion('recibida')).toBe('Retención recibida');
+    expect(labelDireccion('practicada')).toBe('Retención practicada');
   });
 });
 
