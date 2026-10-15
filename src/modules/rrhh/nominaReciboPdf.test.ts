@@ -36,6 +36,10 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     expect(soloBs).toContain('Sueldo diario');
     const bono = (await construir([base], { ...meta, tipos: ['bono'] } as never)).output();
     expect(bono).toContain('$');
+    // Y el de bonificación es SOLO $: ni montos en Bs, ni la tasa, ni el total mezclado.
+    expect(bono).not.toMatch(/Bs\s/);
+    expect(bono).not.toContain('Tasa de cierre');
+    expect(bono).not.toContain('TOTAL DE LA QUINCENA');
   });
 
   it('con préstamos, anticipos, asignaciones y muchos seriales sigue en una hoja', async () => {

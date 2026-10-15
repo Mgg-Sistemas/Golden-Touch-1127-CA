@@ -1,8 +1,8 @@
 /* ============================================================
    Golden Touch · RRHH · Recibos de pago de personal
 
-   DOS recibos por trabajador (09/10/2026), cada uno en su hoja y con sus
-   firmas:
+   DOS recibos por trabajador (09/10/2026), cada uno en su hoja y con la
+   firma de la persona (la de RRHH se quitó el 15/10/2026):
 
    1. RECIBO DE PAGO EN BOLÍVARES — el sueldo que se declara: días
       trabajados y de descanso como renglones aparte, las deducciones de ley y
@@ -14,7 +14,8 @@
       y anticipos (que se descuentan del bono en $, no del sueldo en Bs), y
       el neto a recibir. Los seriales de billetes van aquí.
 
-   El de bonificación lleva al pie el total de la quincena (los dos recibos).
+   Cada uno SOLO en su moneda (15/10/2026): el 1 sin nada en $, el 2 sin nada en
+   Bs (sin tasa ni el cuadro del total de la quincena, que mezclaba las dos).
    ============================================================ */
 import { loadLogoPdfEmpresa, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { identidadEmpresa } from '@/shared/lib/empresa';
@@ -186,9 +187,6 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     y += compacto ? 9 : 18;
 
     // Datos del trabajador.
-    const tasaTexto = m.tasa > 0
-      ? `Bs ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / $`
-      : '— (sin tasa)';
     const cedula = meta.cedulas?.[r.personal_id ?? ''] || '';
     const periodoStr = meta.periodo.periodo_desde
       ? `${fmtDate(meta.periodo.periodo_desde)}${meta.periodo.periodo_hasta ? ' — ' + fmtDate(meta.periodo.periodo_hasta) : ''}`
@@ -200,9 +198,10 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
         ['Período', periodoStr, 'Fecha de pago', r.pagada_en ? fmtDate(r.pagada_en) : '—'],
         ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', `${m.diasT} trab. + ${m.diasD} desc.`],
-        // El recibo en Bs no muestra nada en $: ni la tasa ni el total acordado.
+        // Cada recibo en su moneda (15/10/2026): el de Bs no muestra nada en $ y el de
+        // bonificación nada en Bs (ni la tasa).
         esBono
-          ? ['Total acordado / mes', usd(r.sueldo_base_mensual), 'Tasa de cierre', tasaTexto]
+          ? ['Total acordado / mes', usd(r.sueldo_base_mensual), 'Forma de pago', 'Divisas ($)']
           : ['Sueldo quincenal', bsStr(m.sueldoBs), 'Sueldo diario', bsStr(m.diarioBs)],
       ],
       margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
@@ -304,25 +303,8 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         + ', y firmo en señal de conformidad.';
     }
 
-    // ── El total de la quincena: lo que dicen los dos recibos juntos ──
-    // Solo en el de bonificación: el recibo en Bs no muestra nada en $.
-    if (esBono) autoTable(doc, {
-      startY: y,
-      head: [['TOTAL DE LA QUINCENA (los dos recibos)', 'Bs', 'Equivalente $']],
-      body: [
-        [`Recibo 1 · pago en bolívares${Number.isFinite(pctSueldo) && pctSueldo > 0 ? ` (${Math.round(pctSueldo)} %)` : ''}`, bsStr(m.netoBs), usd(m.netoBsEnUsd)],
-        [m.prestamosUsd + m.anticiposUsd > 0 ? 'Recibo 2 · bonificación (neta de préstamos y anticipos)' : 'Recibo 2 · bonificación en divisas', '', usd(m.bonoNetoUsd)],
-      ],
-      foot: [['TOTAL RECIBIDO', '', usd(m.totalUsd)]],
-      margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
-      theme: 'grid',
-      styles: { fontSize: fs(8.5), cellPadding: pad(2.5) },
-      headStyles: { fillColor: esBono ? [60, 60, 60] : [255, 138, 0], textColor: 255, fontStyle: 'bold' },
-      footStyles: { fillColor: [235, 235, 235], textColor: 20, fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right', cellWidth: 104 }, 2: { halign: 'right', cellWidth: 104 } },
-    });
-    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    if (esBono) y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
+    // (15/10/2026) Ya no va el cuadro «Total de la quincena (los dos recibos)»: mezclaba
+    // Bs y $, y cada recibo sale solo en su moneda.
 
     // Texto de conformidad.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(fs(8.5));
@@ -356,16 +338,15 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
     doc.text(esBono ? 'Recibí conforme la bonificación aquí detallada.' : 'Recibí conforme el pago aquí detallado.', MARGIN, recibiY);
     doc.setTextColor(0);
+    // Una sola firma, la de la persona, centrada (15/10/2026: se quitó la de RRHH).
     const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
+    const cx = PAGE_W / 2;
     doc.setDrawColor(120); doc.setLineWidth(0.7);
-    doc.line(MARGIN, fy, MARGIN + colW, fy);
-    doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
+    doc.line(cx - colW / 2, fy, cx + colW / 2, fy);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Firma de la persona', MARGIN + colW / 2, fy + 13, { align: 'center' });
-    doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 13, { align: 'center' });
+    doc.text('Firma de la persona', cx, fy + 13, { align: 'center' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90);
-    doc.text(`${r.nombre}${cedula ? ' · C.I. ' + cedula : ''}`, MARGIN + colW / 2, fy + BAJO_LA_RAYA, { align: 'center' });
-    doc.text('Jefatura de Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + BAJO_LA_RAYA, { align: 'center' });
+    doc.text(`${r.nombre}${cedula ? ' · C.I. ' + cedula : ''}`, cx, fy + BAJO_LA_RAYA, { align: 'center' });
     doc.setTextColor(0);
     return doc.getNumberOfPages() > pagina;
   }
