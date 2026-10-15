@@ -190,6 +190,17 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el libro', 'error'); }
   }
 
+  // La relación para el SENIAT es por impuesto y de lo que la empresa practicó.
+  const relacionables = visibles.filter((r) => r.direccion === 'practicada' && !r.anulada);
+  async function verRelacion() {
+    if (!tipo) { toast('Elige un impuesto para la relación.', 'error'); return; }
+    if (!relacionables.length) { toast('No hay retenciones practicadas en el rango para la relación.', 'error'); return; }
+    try {
+      const { verRelacionPdf } = await import('./relacionesPdf');
+      await verRelacionPdf(relacionables, config, { desde, hasta, tipo });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la relación', 'error'); }
+  }
+
   const razon = config.razonSocial || 'La empresa';
   const retieneIva = puedePracticar('iva', config);
 
@@ -261,6 +272,8 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
         />
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
+          <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
+            title={!tipo ? 'Elige un impuesto para la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación (SENIAT)</button>
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
         </div>
@@ -923,6 +936,9 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
 }) {
   const [edit, setEdit] = useState<ConceptoRetencion | null>(null);
   const [pct, setPct] = useState('');
+  const [busca, setBusca] = useState('');
+  const visiblesCat = conceptos.filter((c) => buscaEn(busca, c.codigo, c.nombre, labelSujeto(c.sujeto),
+    TIPOS_IMPUESTO.find((t) => t.key === c.tipo)?.corto));
 
   async function guardarPct(c: ConceptoRetencion) {
     try {
@@ -948,13 +964,21 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
         <strong> ISAE</strong> y el <strong>timbre estadal</strong> salen de la ordenanza del municipio y de la ley del estado:
         su alícuota se cambia en «Datos de la empresa».
       </p>
+      <div className="lf-campo-q" style={{ marginBottom: '.5rem', maxWidth: 360 }}>
+        <input type="search" className="input" value={busca} onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar en el catálogo: código, concepto o sujeto" aria-label="Buscar en el catálogo" />
+        {busca && <button type="button" className="lf-limpiar" aria-label="Limpiar la búsqueda" onClick={() => setBusca('')}>×</button>}
+      </div>
       <div className="table-wrap" style={{ maxHeight: 420, overflow: 'auto' }}>
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead>
             <tr><th>Tipo</th><th>Concepto</th><th>Sujeto</th><th style={{ textAlign: 'right' }}>%</th><th>Nota</th><th></th></tr>
           </thead>
           <tbody>
-            {conceptos.map((c) => (
+            {!visiblesCat.length && (
+              <tr><td colSpan={6} className="muted" style={{ textAlign: 'center', padding: '.6rem' }}>Ningún concepto coincide con la búsqueda</td></tr>
+            )}
+            {visiblesCat.map((c) => (
               <tr key={c.id} style={{ opacity: c.activo ? 1 : 0.5 }}>
                 <td><span className="badge">{TIPOS_IMPUESTO.find((t) => t.key === c.tipo)?.corto ?? c.tipo}</span></td>
                 <td>{c.codigo ? <span className="muted mono">{c.codigo} · </span> : null}{c.nombre}
