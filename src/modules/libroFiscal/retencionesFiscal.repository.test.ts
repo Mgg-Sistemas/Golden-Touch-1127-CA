@@ -223,9 +223,20 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
 
   it('sin factura, sin monto o con un RIF mal escrito no se pide número', async () => {
     await expect(registrarRetencion(nueva({ facturaNumero: '' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('N° de factura');
-    await expect(registrarRetencion(nueva({ montoRetenido: 0 }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('no tiene monto');
+    await expect(registrarRetencion(nueva({ montoRetenido: 0 }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('debe llevar el motivo');
     await expect(registrarRetencion(nueva({ contraparteRif: 'J-12' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('RIF');
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('un monto 0 CON motivo sí se registra (D19): deja constancia de por qué no se retiene', async () => {
+    cola.push({ data: [], error: null });                        // doble registro: nada
+    cola.push({ data: { id: 'r-0', rol: 'practicada', tipo: 'ISLR', estado: 'registrada', monto: 0, descripcion: 'No supera el mínimo exento' }, error: null });
+    rpc.mockResolvedValueOnce({ data: 1, error: null });
+    const r = await registrarRetencion(nueva({ tipo: 'islr', montoRetenido: 0, observacion: 'No supera el mínimo exento' }), CONFIG_RETENCION_DEFECTO);
+    expect(r.montoRetenido).toBe(0);
+    const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
+    expect(insert.monto).toBe(0);
+    expect(insert.descripcion).toBe('No supera el mínimo exento');
   });
 
   it('una recibida no pide número: guarda el del comprobante del cliente', async () => {

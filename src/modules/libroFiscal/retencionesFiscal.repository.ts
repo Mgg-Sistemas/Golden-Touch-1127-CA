@@ -507,7 +507,11 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
   if (input.contraparteRif?.trim() && !rifValido(input.contraparteRif)) {
     throw new Error('El RIF de la contraparte no es válido: revisa la letra, los números y el dígito verificador.');
   }
-  if (!(input.montoRetenido > 0)) throw new Error('La retención no tiene monto: revisa la base y el porcentaje.');
+  if (input.montoRetenido < 0) throw new Error('La retención no puede ser negativa.');
+  // Un 0 se registra solo con su motivo (D19 · v8 §4.10): deja constancia de por qué no se retiene.
+  if (input.montoRetenido === 0 && !input.observacion?.trim()) {
+    throw new Error('Una retención en 0 debe llevar el motivo (por qué no se retiene).');
+  }
   if (!/^\d{6}$/.test(input.periodo)) throw new Error('El período de la retención no es válido.');
   const previa = await retencionVigenteDeLaFactura(input);
   if (previa) throw new Error(mensajeDobleRegistro(previa));

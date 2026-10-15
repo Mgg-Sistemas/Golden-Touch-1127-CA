@@ -51,6 +51,7 @@ import './libroFiscal.css';
 import './libroFiscalV8.css';
 import { useDescartar } from './confirmarDescartar';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
+import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 
 function monto(n: number | null | undefined, moneda: string): string {
@@ -520,11 +521,15 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     : calculo.montoRetenido;
   const tasa = nDec(tasaStr);
   const montoBs = enBolivares(montoFinal, moneda, tasa);
+  // Un 0% se registra solo con su motivo (D19 · v8 §4.10). El motivo es la observación.
+  const esCero = montoFinal === 0;
+  const ceroSinMotivo = esCeroSinMotivo(pctFinal, montoFinal, observacion);
 
   async function emitir() {
     setError(null);
     if (bloqueo) { setError(bloqueo); return; }
-    if (montoFinal <= 0) { setError(esManual ? 'Falta el monto que dice el comprobante.' : calculo.explicacion); return; }
+    if (montoFinal < 0) { setError('El monto no puede ser negativo.'); return; }
+    if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escriba el motivo del 0%.'); return; }
     if (esManual && !contraparte.trim()) { setError('Indica quién practicó la retención.'); return; }
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indica la tasa para llevar la retención a bolívares: así se declara.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
@@ -574,8 +579,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       footer={
         <>
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || montoFinal <= 0 || !!bloqueo}>
-            {saving ? 'Guardando…' : `Registrar · ${monto(montoFinal, moneda)}`}
+          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || montoFinal < 0 || ceroSinMotivo || !!bloqueo}>
+            {saving ? 'Guardando…' : (esCero ? 'Registrar en 0 con motivo' : `Registrar · ${monto(montoFinal, moneda)}`)}
           </button>
         </>
       }>
@@ -753,10 +758,19 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         {archivo && <small className="muted">{archivo.name}</small>}
       </div>
 
-      <div className="form-row">
-        <label>Observación</label>
-        <input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
-      </div>
+      {esCero ? (
+        <div className="lfv8-motivo-0">
+          <label htmlFor="lf-motivo-0">Motivo del 0 %: ¿por qué no se retiene? (obligatorio)</label>
+          <textarea id="lf-motivo-0" className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
+            placeholder="Ej.: el pago no supera el mínimo exento del ISLR" />
+          {ceroSinMotivo && <small className="hint" style={{ color: 'var(--warning)' }}>{validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje}</small>}
+        </div>
+      ) : (
+        <div className="form-row">
+          <label>Observación</label>
+          <input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
+        </div>
+      )}
 
       {/* El resultado, con la cuenta a la vista */}
       <div className="card" style={{ borderColor: montoFinal > 0 ? 'var(--primary)' : 'var(--border)' }}>
