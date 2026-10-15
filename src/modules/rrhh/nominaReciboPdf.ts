@@ -4,18 +4,17 @@
    DOS recibos por trabajador (09/10/2026), cada uno en su hoja y con sus
    firmas:
 
-   1. RECIBO DE PAGO EN BOLÍVARES — el sueldo que se declara, a la tasa de
-      CIERRE de la quincena: días trabajados y de descanso como renglones
-      aparte, las deducciones de ley y el neto en Bs (con su equivalente en $
-      a la misma tasa). Es el recibo de siempre (la planilla del Drive), sin
-      el bono.
+   1. RECIBO DE PAGO EN BOLÍVARES — el sueldo que se declara: días
+      trabajados y de descanso como renglones aparte, las deducciones de ley y
+      el neto. SOLO EN Bs (15/10/2026): no lleva nada en $ (ni tasa, ni
+      equivalentes, ni el total en divisas), como la planilla en papel. Es el
+      recibo de siempre, sin el bono.
    2. RECIBO DE BONIFICACIÓN Y DESCUENTOS — lo que se paga en divisas: el
       bono de la quincena y las asignaciones adicionales, menos los préstamos
       y anticipos (que se descuentan del bono en $, no del sueldo en Bs), y
       el neto a recibir. Los seriales de billetes van aquí.
 
-   Los dos llevan al pie el total de la quincena, para que ninguno de los dos
-   papeles diga menos de lo que la persona realmente cobra.
+   El de bonificación lleva al pie el total de la quincena (los dos recibos).
    ============================================================ */
 import { loadLogoPdfEmpresa, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { identidadEmpresa } from '@/shared/lib/empresa';
@@ -58,6 +57,8 @@ export interface MontosRecibo {
   diasT: number;
   diasD: number;
   /** Recibo 1 (Bs). */
+  sueldoBs: number;
+  diarioBs: number;
   trabajadosBs: number;
   descansoBs: number;
   netoBs: number;
@@ -99,7 +100,7 @@ export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null): Mon
   const bonoNetoUsd = r2(Math.max(0, bonoBrutoUsd - prestamosUsd - anticiposUsd));
   const netoBsEnUsd = enUsd(netoBs);
   return {
-    tasa, diasT, diasD, trabajadosBs, descansoBs, netoBs, netoBsEnUsd,
+    tasa, diasT, diasD, sueldoBs, diarioBs: r2(diarioBs), trabajadosBs, descansoBs, netoBs, netoBsEnUsd,
     bonoUsd, asignacionesUsd, prestamosUsd, anticiposUsd, bonoBrutoUsd, bonoNetoUsd,
     totalUsd: r2(netoBsEnUsd + bonoNetoUsd),
   };
@@ -199,9 +200,10 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
         ['Período', periodoStr, 'Fecha de pago', r.pagada_en ? fmtDate(r.pagada_en) : '—'],
         ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', `${m.diasT} trab. + ${m.diasD} desc.`],
+        // El recibo en Bs no muestra nada en $: ni la tasa ni el total acordado.
         esBono
           ? ['Total acordado / mes', usd(r.sueldo_base_mensual), 'Tasa de cierre', tasaTexto]
-          : ['Tasa de cierre', tasaTexto, 'Total acordado / mes', usd(r.sueldo_base_mensual)],
+          : ['Sueldo quincenal', bsStr(m.sueldoBs), 'Sueldo diario', bsStr(m.diarioBs)],
       ],
       margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
       theme: 'grid',
@@ -216,18 +218,12 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     let conformidad: string;
 
     if (!esBono) {
-      // ── Recibo 1: el sueldo en bolívares, como en la planilla ──
-      const enUsd = (bs: number) => (m.tasa > 0 ? r2(bs / m.tasa) : 0);
-      const linea = (item: number, concepto: string, bs: number, columna: 'devengado' | 'deduccion'): string[] => {
-        const dev = columna === 'devengado' ? bsStr(bs) : '';
-        const devU = columna === 'devengado' ? usd(enUsd(bs)) : '';
-        const ded = columna === 'deduccion' ? bsStr(bs) : '';
-        const dedU = columna === 'deduccion' ? usd(enUsd(bs)) : '';
-        return [String(item), concepto, dev, devU, ded, dedU];
-      };
+      // ── Recibo 1: el sueldo en bolívares, como en la planilla (solo Bs) ──
+      const linea = (item: number, concepto: string, bs: number, columna: 'devengado' | 'deduccion'): string[] =>
+        [String(item), concepto, columna === 'devengado' ? bsStr(bs) : '', columna === 'deduccion' ? bsStr(bs) : ''];
       autoTable(doc, {
         startY: y,
-        head: [['#', 'CONCEPTO', 'DEVENGADO Bs', 'en $', 'DEDUCCIÓN Bs', 'en $']],
+        head: [['#', 'CONCEPTO', 'DEVENGADO Bs', 'DEDUCCIÓN Bs']],
         body: [
           linea(1, `Días trabajados (${m.diasT})`, m.trabajadosBs, 'devengado'),
           linea(2, `Días de descanso (${m.diasD})`, m.descansoBs, 'devengado'),
@@ -239,8 +235,8 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
           linea(8, 'Otros', 0, 'deduccion'),
         ],
         foot: [
-          ['', 'TOTALES', bsStr(m.netoBs), usd(m.netoBsEnUsd), bsStr(0), usd(0)],
-          ['', 'NETO A RECIBIR EN BOLÍVARES', bsStr(m.netoBs), usd(m.netoBsEnUsd), '', ''],
+          ['', 'TOTALES', bsStr(m.netoBs), bsStr(0)],
+          ['', 'NETO A RECIBIR EN BOLÍVARES', bsStr(m.netoBs), ''],
         ],
         margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
         theme: 'grid',
@@ -249,16 +245,13 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
         columnStyles: {
           0: { cellWidth: 18, halign: 'center' },
-          2: { halign: 'right', cellWidth: 78 },
-          3: { halign: 'right', cellWidth: 62, textColor: 110 },
-          4: { halign: 'right', cellWidth: 78 },
-          5: { halign: 'right', cellWidth: 62, textColor: 110 },
+          2: { halign: 'right', cellWidth: 110 },
+          3: { halign: 'right', cellWidth: 110 },
         },
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
       conformidad = `Certifico haber recibido la cantidad de ${bsStr(m.netoBs)}`
-        + (m.tasa > 0 ? `, equivalente a ${usd(m.netoBsEnUsd)} a la tasa de cierre de ${tasaTexto},` : '')
         + ` por concepto de sueldo${Number.isFinite(pctSueldo) && pctSueldo > 0 ? ` (${Math.round(pctSueldo)} % del total acordado)` : ''}`
         + ' correspondiente al período que se indica en el mismo, y firmo en señal de conformidad.';
     } else {
@@ -312,7 +305,8 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     }
 
     // ── El total de la quincena: lo que dicen los dos recibos juntos ──
-    autoTable(doc, {
+    // Solo en el de bonificación: el recibo en Bs no muestra nada en $.
+    if (esBono) autoTable(doc, {
       startY: y,
       head: [['TOTAL DE LA QUINCENA (los dos recibos)', 'Bs', 'Equivalente $']],
       body: [
@@ -328,7 +322,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       columnStyles: { 1: { halign: 'right', cellWidth: 104 }, 2: { halign: 'right', cellWidth: 104 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
+    if (esBono) y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
 
     // Texto de conformidad.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(fs(8.5));
