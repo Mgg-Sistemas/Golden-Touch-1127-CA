@@ -26,27 +26,25 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { previewArchivo } from '@/shared/lib/reportePreview';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares,
-  labelDireccion, labelEstadoRetencion, labelImpuesto, labelPeriodo, labelSujeto, limiteEntregaComprobante,
+  labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
   motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
-  guardarConfigRetencion, listConceptos, listRetenciones, marcarDeclarada, registrarRetencion, urlComprobante,
+  guardarConfigRetencion, listConceptos, listRetenciones, registrarRetencion,
   PORCENTAJES_IVA,
   type AlicuotasLocales, type DocKind, type RetencionPracticada,
 } from './retencionesFiscal.repository';
 import { faltaEnLaCarga } from './validarCarga';
 import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
 import { Paginador } from './ListaControles';
-import { eventosRetencion, cuandoCorto, lineaQuien } from './quienCuando';
 import './libroFiscal.css';
 import './libroFiscalV8.css';
 import { useDescartar } from './confirmarDescartar';
@@ -123,7 +121,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
   // dice cuántas retenciones quedan con los demás filtros puestos.
   const [vista, setVista] = useState<'factura' | 'impuesto' | 'sin'>('factura');
-  const [orden, setOrden] = useState<'reciente' | 'antiguo' | 'contraparte'>('reciente');
+  const [orden] = useState<'reciente' | 'antiguo' | 'contraparte'>('reciente');
   const [pag, setPag] = useState(1);
   const [tam, setTam] = useState(25);
   useEffect(() => { setPag(1); }, [texto, direccion, tipo, estado, orden, desde, hasta, vista]);
@@ -231,13 +229,6 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
 
-  async function verAdjunto(r: RetencionPracticada) {
-    if (!r.comprobantePath) return;
-    try {
-      previewArchivo(await urlComprobante(r.comprobantePath), r.comprobanteNombre ?? 'comprobante');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error'); }
-  }
-
   async function verLibroPdf() {
     try {
       const { verLibroFiscalPdf } = await import('./libroFiscalPdf');
@@ -255,9 +246,6 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
       await verRelacionPdf(relacionables, config, { desde, hasta, tipo });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la relación', 'error'); }
   }
-
-  const razon = config.razonSocial || 'La empresa';
-  const retieneIva = puedePracticar('iva', config);
 
   const estadoCasilla = (r: RetencionPracticada) => r.anulada ? 'anulada' : r.estado === 'declarada' ? 'declarada' : r.estado === 'registrada' ? 'ok' : 'falta';
   const signoEstado: Record<string, string> = { ok: '✓', declarada: '◉', falta: '⏳', anulada: '⊘', nc: '—', pd: '?' };

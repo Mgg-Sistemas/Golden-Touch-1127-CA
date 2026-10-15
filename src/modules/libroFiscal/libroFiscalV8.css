@@ -298,3 +298,66 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-rep-progreso { font-size: .8rem; color: var(--text-muted); margin: .6rem 0 .3rem; }
 @media (max-width: 900px) { .lfv8-rep-layout { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .lfv8-rep-filtros { flex-direction: column; } .lfv8-rep-filtros .lfv8-campo { min-width: 0; width: 100%; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Por realizar — grid table, pills, tarjeta-pagar, alertas
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-sis { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.lfv8-sis-fila { display: grid; grid-template-columns: var(--cols); gap: .6rem; align-items: center; padding: .55rem 1rem; border-top: 1px solid var(--border); font-size: .82rem; }
+.lfv8-sis-cab { display: grid; grid-template-columns: var(--cols); gap: .6rem; align-items: center; padding: .55rem 1rem; color: var(--text-dim); font-size: .72rem; font-weight: 600; background: var(--bg-1, var(--surface-2)); text-transform: uppercase; letter-spacing: .03em; }
+.lfv8-sis-fila .n { font-family: var(--font-mono, monospace); text-align: right; }
+.lfv8-sis-acc { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: flex-end; }
+.lfv8-sis-fila small { display: block; color: var(--text-dim); font-size: .72rem; }
+.lfv8-sis-vacio { padding: 2rem 1rem; text-align: center; color: var(--text-dim); font-size: .84rem; border-top: 1px solid var(--border); }
+.lfv8-sis-pag { display: flex; justify-content: space-between; align-items: center; padding: .5rem 1rem; border-top: 1px solid var(--border); font-size: .8rem; color: var(--text-dim); }
+.lfv8-sis-pag-btns { display: flex; gap: .3rem; }
+
+.lfv8-pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font-size: .7rem; font-weight: 600; border: 1px solid var(--border); color: var(--text-dim); }
+.lfv8-pill.falta { color: #ffcc66; border-color: rgba(245,177,51,0.5); }
+.lfv8-pill.ok { color: var(--success); border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+
+.lfv8-btn-reg { border-color: rgba(245,177,51,0.6); color: #ffcc66; }
+.lfv8-btn-reg:hover { background: rgba(245,177,51,0.15); color: #fff; }
+
+.lfv8-pagar { border: 1px solid rgba(74,168,255,0.45); background: rgba(74,168,255,0.06); border-radius: var(--r-md); padding: .6rem .75rem; margin-bottom: .8rem; display: flex; flex-direction: column; gap: .3rem; }
+.lfv8-pagar h3 { margin: 0; font-size: .9rem; }
+.lfv8-pagar-fila { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .25rem 0; font-size: .82rem; }
+.lfv8-pagar-acc { display: inline-flex; gap: .35rem; align-items: center; flex-wrap: wrap; }
+.lfv8-pagar-acc select { min-height: 32px; width: auto; }
+
+.lfv8-alerta-media { border: 1px solid rgba(245,177,51,0.55); background: rgba(245,177,51,0.08); color: #ffd99a; border-radius: var(--r-md); padding: .5rem .7rem; font-size: .8rem; margin-bottom: .5rem; display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+
+.lfv8-barra { display: flex; flex-direction: column; gap: .5rem; margin: .4rem 0 .6rem; }
+.lfv8-buscar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; }
+.lfv8-buscar-q { flex: 1 1 300px; max-width: 560px; min-height: 40px; }
+.lfv8-barra-res { font-size: .8rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.lfv8-barra-filtros { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: flex-end; }
+.lfv8-barra-filtros .lfv8-campo { min-width: 170px; }
+
+.lfv8-huella { font-size: .74rem; color: var(--text-dim); margin: .2rem 0 .4rem; }
+
+@media (max-width: 640px) {
+  .lfv8-sis-fila { grid-template-columns: 1fr 1fr; }
+  .lfv8-sis-cab { display: none; }
+  .lfv8-sis-fila [data-l]::before { content: attr(data-l) ': '; color: var(--text-dim); font-size: .72rem; }
+  .lfv8-sis-fila .n { text-align: left; }
+  .lfv8-sis-acc { grid-column: 1 / -1; justify-content: flex-start; }
+  .lfv8-buscar-q { flex-basis: 100%; max-width: none; }
+  .lfv8-barra-filtros .lfv8-campo { min-width: 100%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Períodos — filtros por impuesto, atención, timeline
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-periodos-filtros { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; align-items: flex-end; margin-bottom: .8rem; }
+.lfv8-periodos-filtros .lfv8-campo { min-width: 140px; }
+.lfv8-atencion { border: 1px solid var(--border); border-radius: var(--r-lg); padding: .6rem 1rem; margin-bottom: 1rem; background: var(--surface); }
+.lfv8-atencion summary { font-size: .9rem; cursor: pointer; min-height: 40px; line-height: 40px; font-weight: 600; }
+.lfv8-atencion-fila { display: grid; grid-template-columns: 80px 1fr 1fr 1fr auto; gap: .6rem; align-items: center; padding: .5rem 0; border-top: 1px solid var(--border); font-size: .82rem; }
+.lfv8-atencion-fila strong { font-size: .9rem; }
+.lfv8-atencion-venc { color: #ffcc66; font-weight: 600; font-size: .8rem; }
+@media (max-width: 640px) {
+  .lfv8-atencion-fila { grid-template-columns: 1fr; gap: .2rem; }
+  .lfv8-periodos-filtros { flex-direction: column; }
+  .lfv8-periodos-filtros .lfv8-campo { min-width: 0; width: 100%; }
+}
