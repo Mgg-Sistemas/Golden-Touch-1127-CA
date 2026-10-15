@@ -28,6 +28,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares,
@@ -69,9 +70,20 @@ const enBs = (r: RetencionPracticada) => r.montoBs ?? (r.moneda === 'Bs' ? r.mon
 
 /* ═══════════════════════ Libro fiscal ═══════════════════════ */
 
+function rutaDocumento(kind: DocKind, id: string | null): string | null {
+  if (!id) return null;
+  if (kind === 'oc') return `/app/pedidos?detalle=${encodeURIComponent(id)}`;
+  if (kind === 'compra_directa') return `/app/pedidos?detalle=${encodeURIComponent(id)}`;
+  if (kind === 'servicio_directo') return `/app/pedidos?detalle=${encodeURIComponent(id)}`;
+  return null;
+}
+
 export function LibroFiscalView({ canWrite, actor, actorName }: {
   canWrite: boolean; actor: string; actorName: string | null;
 }) {
+  const { can } = usePermissions();
+  const canVerPedidos = can('pedidos', 'lectura');
+
   // Desde el 07/10/2026 la empresa retiene IVA: el libro abre en lo que
   // practicó (lo que hay que enterar), que es el trabajo del día a día.
   const [direccion, setDireccion] = useState<'' | DireccionRetencion>('practicada');
@@ -110,7 +122,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
 
   // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
   // dice cuántas retenciones quedan con los demás filtros puestos.
-  const [vista, setVista] = useState<'factura' | 'impuesto'>('factura');
+  const [vista, setVista] = useState<'factura' | 'impuesto' | 'sin'>('factura');
   const [orden, setOrden] = useState<'reciente' | 'antiguo' | 'contraparte'>('reciente');
   const [pag, setPag] = useState(1);
   const [tam, setTam] = useState(25);
@@ -152,8 +164,9 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
 
   // ── Agrupado por proveedor → factura → casillas (v8) ──
   type FacturaAgrupada = {
-    key: string; num: string; doc: string | null; fecha: string | null;
-    moneda: string; total: number; retenciones: Map<TipoImpuesto, RetencionPracticada>;
+    key: string; num: string; doc: string | null; docKind: DocKind; docId: string | null;
+    fecha: string | null; moneda: string; total: number;
+    retenciones: Map<TipoImpuesto, RetencionPracticada>;
   };
   type ProveedorAgrupado = {
     rif: string | null; nombre: string | null; facturas: FacturaAgrupada[];
@@ -190,7 +203,8 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
       const fk = r.facturaNumero ?? r.docCodigo ?? r.id;
       if (!fMap.has(fk)) fMap.set(fk, {
         key: fk, num: r.facturaNumero ?? '—',
-        doc: r.docCodigo, fecha: r.facturaFecha ?? r.createdAt.slice(0, 10),
+        doc: r.docCodigo, docKind: r.docKind, docId: r.docId,
+        fecha: r.facturaFecha ?? r.createdAt.slice(0, 10),
         moneda: r.moneda, total: r.baseImponible, retenciones: new Map(),
       });
       fMap.get(fk)!.retenciones.set(r.tipo, r);
@@ -354,6 +368,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
         <div className="lfv8-view-switch" role="group" aria-label="Agrupar por">
           <button type="button" aria-pressed={vista === 'factura'} onClick={() => setVista('factura')}>Por factura</button>
           <button type="button" aria-pressed={vista === 'impuesto'} onClick={() => setVista('impuesto')}>Por impuesto</button>
+          <button type="button" aria-pressed={vista === 'sin'} onClick={() => setVista('sin')}>Sin retención</button>
         </div>
         <div className="lfv8-activos" aria-live="polite">
           {tipo && (
@@ -386,7 +401,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
       {/* ── Vista ── */}
       {loading && <EmptyState icon="◔" message="Cargando el libro…" />}
       {!loading && errorCarga && <EmptyState icon="⚠" message={`No se pudo leer el libro: ${errorCarga}`} />}
-      {!loading && !errorCarga && !visibles.length && (
+      {!loading && !errorCarga && !visibles.length && vista !== 'sin' && (
         <div className="lfv8-vacio">
           <p>{filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros.' : 'Sin retenciones en ese rango de fechas.'}</p>
           <button className="btn" onClick={quitarFiltros}>Quitar filtros</button>
@@ -421,7 +436,12 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
                         <div className="lfv8-num">Factura {f.num}</div>
                         <div className="lfv8-meta">
                           {f.fecha ? fechaCorta(f.fecha) : '—'}
-                          {f.doc && <> · <span className="lfv8-doc">{f.doc}</span></>}
+                          {f.doc && <> · {(() => {
+                            const ruta = canVerPedidos ? rutaDocumento(f.docKind, f.docId) : null;
+                            return ruta
+                              ? <a href={`#${ruta}`} className="lfv8-doc">{f.doc}</a>
+                              : <span className="lfv8-doc">{f.doc}</span>;
+                          })()}</>}
                           {' · '}{monto(f.total, f.moneda)}
                         </div>
                       </div>
@@ -505,35 +525,51 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
                   <span className="lfv8-contador">{pendientes.length} pendientes · {registradas.length} registradas</span>
                 </header>
                 <h4>Pendientes ({pendientes.length})</h4>
-                {pendientes.map((r) => (
+                {pendientes.map((r) => {
+                  const docLabel = r.facturaNumero ?? r.docCodigo ?? '—';
+                  const docRuta = canVerPedidos ? rutaDocumento(r.docKind, r.docId) : null;
+                  return (
                   <div key={r.id} className="lfv8-item">
                     <span className="lfv8-quien">
                       {r.contraparteNombre ?? '—'}
-                      <small>Factura {r.facturaNumero ?? r.docCodigo ?? '—'} · {r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</small>
+                      <small>Factura {docRuta ? <a href={`#${docRuta}`} className="lfv8-doc">{docLabel}</a> : docLabel} · {r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</small>
                     </span>
                     <span className="lfv8-cuanto">
                       <span className={`lfv8-pill falta`}>Pendiente</span>
                     </span>
                   </div>
-                ))}
+                  );
+                })}
                 {!pendientes.length && <div className="lfv8-item"><span className="lfv8-quien muted">Sin pendientes.</span><span /></div>}
                 <h4>Registradas ({registradas.length})</h4>
-                {registradas.map((r) => (
+                {registradas.map((r) => {
+                  const docLabel = r.facturaNumero ?? r.docCodigo ?? '—';
+                  const docRuta = canVerPedidos ? rutaDocumento(r.docKind, r.docId) : null;
+                  return (
                   <div key={r.id} className="lfv8-item">
                     <span className="lfv8-quien">
                       {r.contraparteNombre ?? '—'}
-                      <small>Factura {r.facturaNumero ?? r.docCodigo ?? '—'} · {r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</small>
+                      <small>Factura {docRuta ? <a href={`#${docRuta}`} className="lfv8-doc">{docLabel}</a> : docLabel} · {r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</small>
                     </span>
                     <span className="lfv8-cuanto">
                       <span className={`lfv8-pill ${r.estado === 'declarada' ? 'declarada' : 'ok'}`}>{r.estado === 'declarada' ? 'Declarada' : 'Registrada'}</span>
                       <br /><span className="lfv8-monto">{monto(r.montoRetenido, r.moneda)}</span>
                     </span>
                   </div>
-                ))}
+                  );
+                })}
                 {!registradas.length && <div className="lfv8-item"><span className="lfv8-quien muted">Sin registros en el período.</span><span /></div>}
               </section>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Vista sin retención ── */}
+      {!loading && !errorCarga && vista === 'sin' && (
+        <div className="lfv8-vacio">
+          <p>Facturas sin retenciones aplicables. Cada casilla indica el motivo.</p>
+          <p className="muted" style={{ fontSize: '.82rem', marginTop: '.3rem' }}>Esta vista requiere el modelo de facturas con retenciones por casilla (D20). Disponible próximamente.</p>
         </div>
       )}
 
@@ -1219,10 +1255,36 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
             <CatalogoConceptos conceptos={conceptos} puedeEditar={puedeEditar} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />
           )}
 
-          {/* ── Secciones pendientes ── */}
-          {!['empresa', 'regimen', 'valores', 'impuestos'].includes(seccion) && (
-            <div className="lfv8-pa-placeholder">Sección pendiente de implementación.</div>
+          {/* ── Motivos de «No aplica» ── */}
+          {seccion === 'motivos' && <SeccionMotivos puedeEditar={puedeEditar} />}
+
+          {/* ── Entes y logos ── */}
+          {seccion === 'entes' && <SeccionEntes puedeEditar={puedeEditar} />}
+
+          {/* ── Perfiles fiscales ── */}
+          {seccion === 'perfiles' && (
+            <div>
+              <p style={{ fontSize: '.86rem', marginBottom: '.6rem' }}>
+                El perfil fiscal se configura desde la Vista agrupada: seleccionar un proveedor y presionar <strong>Perfil fiscal</strong>.
+              </p>
+              <p className="muted" style={{ fontSize: '.82rem' }}>
+                Cada perfil incluye tipo de contribuyente, tipo de persona, residencia, actividades económicas y licencia.
+                Los cambios afectan solo las retenciones pendientes; las registradas conservan los datos con que se emitieron.
+              </p>
+            </div>
           )}
+
+          {/* ── Tipos de licencia ── */}
+          {seccion === 'licencias' && <SeccionLicencias puedeEditar={puedeEditar} />}
+
+          {/* ── Avisos de vencimiento ── */}
+          {seccion === 'vencimientos' && <SeccionVencimientos puedeEditar={puedeEditar} />}
+
+          {/* ── Períodos y numeración ── */}
+          {seccion === 'numeracion' && <SeccionNumeracion puedeEditar={puedeEditar} />}
+
+          {/* ── Interruptores de reglas ── */}
+          {seccion === 'interruptores' && <SeccionInterruptores puedeEditar={puedeEditar} />}
         </>
         );
       })()}
@@ -1231,6 +1293,264 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
     </Modal>
     {dialogo}
     </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Secciones de Parámetros — formularios de cada tarjeta
+   ═══════════════════════════════════════════════════════════════ */
+
+function SeccionMotivos({ puedeEditar }: { puedeEditar: boolean }) {
+  const [motivos, setMotivos] = useState([
+    { id: '1', texto: 'Exento por ley', impuesto: 'todos', activo: true },
+    { id: '2', texto: 'Pago inferior al mínimo', impuesto: 'islr', activo: true },
+    { id: '3', texto: 'Operación no gravada', impuesto: 'iva', activo: true },
+  ]);
+  const [nuevo, setNuevo] = useState('');
+  const [nuevoImp, setNuevoImp] = useState('todos');
+
+  function agregar() {
+    if (!nuevo.trim()) return;
+    setMotivos((prev) => [...prev, { id: String(Date.now()), texto: nuevo.trim(), impuesto: nuevoImp, activo: true }]);
+    setNuevo('');
+  }
+
+  return (
+    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
+      <table className="table" style={{ fontSize: '.84rem' }}>
+        <thead><tr><th>Motivo</th><th>Impuesto</th><th style={{ width: 80 }}>Estado</th></tr></thead>
+        <tbody>
+          {motivos.map((m) => (
+            <tr key={m.id} style={{ opacity: m.activo ? 1 : .5 }}>
+              <td>{m.texto}</td>
+              <td>{m.impuesto === 'todos' ? 'Todos' : m.impuesto.toUpperCase()}</td>
+              <td>
+                <button type="button" className="btn btn-sm btn-ghost"
+                  onClick={() => setMotivos((p) => p.map((x) => x.id === m.id ? { ...x, activo: !x.activo } : x))}>
+                  {m.activo ? 'Desactivar' : 'Activar'}
+                </button>
+              </td>
+            </tr>
+          ))}
+          {!motivos.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin motivos configurados.</td></tr>}
+        </tbody>
+      </table>
+      {puedeEditar && (
+        <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+          <input className="input" style={{ flex: '1 1 200px' }} placeholder="Nuevo motivo" value={nuevo} onChange={(e) => setNuevo(e.target.value)} />
+          <select className="select" value={nuevoImp} onChange={(e) => setNuevoImp(e.target.value)}>
+            <option value="todos">Todos</option><option value="iva">IVA</option><option value="islr">ISLR</option><option value="isae">ISAE</option>
+          </select>
+          <button type="button" className="btn" onClick={agregar}>Agregar</button>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+function SeccionEntes({ puedeEditar }: { puedeEditar: boolean }) {
+  const [entes, setEntes] = useState([
+    { id: '1', nombre: 'SENIAT', impuestos: ['iva', 'islr'], logo: null as string | null },
+    { id: '2', nombre: 'Alcaldía del municipio', impuestos: ['isae'], logo: null as string | null },
+  ]);
+
+  function subirLogo(id: string, file: File) {
+    const url = URL.createObjectURL(file);
+    setEntes((prev) => prev.map((e) => e.id === id ? { ...e, logo: url } : e));
+    toast('Logo cargado. Se guardará con los parámetros.', 'info');
+  }
+
+  return (
+    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
+      <p className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
+        El logo aparece en cada comprobante de retención emitido por ese ente.
+      </p>
+      <div style={{ display: 'grid', gap: '.75rem' }}>
+        {entes.map((e) => (
+          <div key={e.id} className="card" style={{ margin: 0, display: 'grid', gridTemplateColumns: '80px 1fr', gap: '.75rem', alignItems: 'center' }}>
+            <div style={{ width: 80, height: 60, border: '1px dashed var(--border-strong)', borderRadius: 'var(--r-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: e.logo ? '#fff' : 'var(--bg-2)' }}>
+              {e.logo
+                ? <img src={e.logo} alt={`Logo ${e.nombre}`} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                : <span className="muted" style={{ fontSize: '.7rem' }}>Sin logo</span>}
+            </div>
+            <div>
+              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input className="input" style={{ flex: '1 1 180px' }} value={e.nombre}
+                  onChange={(ev) => setEntes((p) => p.map((x) => x.id === e.id ? { ...x, nombre: ev.target.value } : x))} />
+                <span className="muted" style={{ fontSize: '.8rem' }}>{e.impuestos.map((i) => i.toUpperCase()).join(', ')}</span>
+              </div>
+              {puedeEditar && (
+                <div style={{ marginTop: '.35rem' }}>
+                  <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
+                    📎 Cargar logo
+                    <input type="file" accept="image/*" hidden onChange={(ev) => { if (ev.target.files?.[0]) subirLogo(e.id, ev.target.files[0]); }} />
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function SeccionLicencias({ puedeEditar }: { puedeEditar: boolean }) {
+  const [tipos, setTipos] = useState([
+    { id: '1', nombre: 'Licencia de actividad económica', activo: true },
+    { id: '2', nombre: 'Licencia temporal', activo: true },
+    { id: '3', nombre: 'Exoneración municipal', activo: true },
+  ]);
+  const [nuevo, setNuevo] = useState('');
+
+  function agregar() {
+    if (!nuevo.trim()) return;
+    setTipos((prev) => [...prev, { id: String(Date.now()), nombre: nuevo.trim(), activo: true }]);
+    setNuevo('');
+  }
+
+  return (
+    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
+      <div style={{ display: 'grid', gap: '.35rem' }}>
+        {tipos.map((t) => (
+          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .6rem', borderRadius: 'var(--r-md)', background: 'var(--bg-1)', opacity: t.activo ? 1 : .5 }}>
+            <span style={{ flex: 1, fontSize: '.86rem' }}>{t.nombre}</span>
+            <button type="button" className="btn btn-sm btn-ghost"
+              onClick={() => setTipos((p) => p.map((x) => x.id === t.id ? { ...x, activo: !x.activo } : x))}>
+              {t.activo ? 'Desactivar' : 'Activar'}
+            </button>
+          </div>
+        ))}
+      </div>
+      {puedeEditar && (
+        <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
+          <input className="input" style={{ flex: 1 }} placeholder="Nuevo tipo de licencia" value={nuevo} onChange={(e) => setNuevo(e.target.value)} />
+          <button type="button" className="btn" onClick={agregar}>Agregar</button>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+function SeccionVencimientos({ puedeEditar }: { puedeEditar: boolean }) {
+  const [cfg, setCfg] = useState({
+    avisosActivos: true,
+    diasLicencia: 30,
+    diasDeclaracion: 5,
+    diasActividad: 15,
+  });
+
+  return (
+    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
+      <div className="card" style={{ background: 'var(--bg-2)', margin: '0 0 .6rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
+          <input type="checkbox" checked={cfg.avisosActivos} onChange={(e) => setCfg((p) => ({ ...p, avisosActivos: e.target.checked }))} />
+          Avisos de vencimiento activos
+        </label>
+        <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.82rem' }}>
+          Al desactivar, no se muestra la lista de vencimientos en la cabecera ni los avisos al registrar.
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap' }}>
+        <div className="form-row" style={{ flex: '1 1 180px' }}>
+          <label>Días antes del vencimiento de licencia</label>
+          <input className="input mono" type="number" min={0} value={cfg.diasLicencia}
+            onChange={(e) => setCfg((p) => ({ ...p, diasLicencia: Number(e.target.value) }))} />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 180px' }}>
+          <label>Días antes del vencimiento de declaración</label>
+          <input className="input mono" type="number" min={0} value={cfg.diasDeclaracion}
+            onChange={(e) => setCfg((p) => ({ ...p, diasDeclaracion: Number(e.target.value) }))} />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 180px' }}>
+          <label>Días antes del vencimiento de actividad</label>
+          <input className="input mono" type="number" min={0} value={cfg.diasActividad}
+            onChange={(e) => setCfg((p) => ({ ...p, diasActividad: Number(e.target.value) }))} />
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
+function SeccionNumeracion({ puedeEditar }: { puedeEditar: boolean }) {
+  const [periodos, setPeriodos] = useState([
+    { imp: 'IVA', freq: 'quincenal' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
+    { imp: 'ISLR', freq: 'mensual' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
+    { imp: 'ISAE', freq: 'mensual' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
+  ]);
+
+  function setP(i: number, k: string, v: string) {
+    setPeriodos((prev) => prev.map((p, j) => j === i ? { ...p, [k]: v } : p));
+  }
+
+  return (
+    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
+      <div style={{ display: 'grid', gap: '1rem' }}>
+        {periodos.map((p, i) => (
+          <div key={p.imp} className="card" style={{ margin: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '.5rem' }}>
+              <strong>{p.imp}</strong>
+              <select className="select" style={{ width: 'auto' }} value={p.freq}
+                onChange={(e) => setP(i, 'freq', e.target.value)}>
+                <option value="quincenal">Quincenal</option>
+                <option value="mensual">Mensual</option>
+              </select>
+            </div>
+            <p className="muted" style={{ fontSize: '.82rem', margin: '0 0 .5rem' }}>
+              {p.freq === 'quincenal' ? 'Cada mes se divide en dos quincenas (1–15 y 16–fin).' : 'Un período por mes calendario.'}
+            </p>
+            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+                <label>Inicio del período en curso</label>
+                <input className="input" type="date" value={p.inicio} onChange={(e) => setP(i, 'inicio', e.target.value)} />
+              </div>
+              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+                <label>Cierre</label>
+                <input className="input" type="date" value={p.cierre} onChange={(e) => setP(i, 'cierre', e.target.value)} />
+              </div>
+              <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
+                <label>Último N° de comprobante emitido</label>
+                <input className="input mono" value={p.ultimoNumero} onChange={(e) => setP(i, 'ultimoNumero', e.target.value)} placeholder="Ej.: 00000244" />
+              </div>
+              <div className="form-row" style={{ flex: '1 1 120px', margin: 0 }}>
+                <label>Serie</label>
+                <input className="input mono" value={p.serie} onChange={(e) => setP(i, 'serie', e.target.value)} placeholder="Ej.: 2026" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>Un período no cruza de un mes a otro. El número se propone al registrar y avanza consecutivamente.</p>
+    </fieldset>
+  );
+}
+
+function SeccionInterruptores({ puedeEditar }: { puedeEditar: boolean }) {
+  const [reglas, setReglas] = useState([
+    { id: 'auto_iva', label: 'Proponer IVA automáticamente en cada factura', desc: 'Si el proveedor tiene perfil fiscal, se propone la retención de IVA al crear la factura.', activo: true },
+    { id: 'auto_islr', label: 'Proponer ISLR según concepto y actividad', desc: 'Se busca el concepto por el tipo de servicio/producto y se propone el porcentaje.', activo: true },
+    { id: 'auto_isae', label: 'Proponer ISAE en servicios', desc: 'Todo servicio genera retención de ISAE según la actividad económica del proveedor.', activo: true },
+    { id: 'bloquear_sin_perfil', label: 'Bloquear registro sin perfil fiscal', desc: 'No permite registrar una retención si el proveedor no tiene perfil fiscal configurado.', activo: false },
+    { id: 'validar_numero', label: 'Validar número de comprobante consecutivo', desc: 'Rechaza un número que no sea el siguiente al último emitido en la serie.', activo: true },
+    { id: 'exigir_factura', label: 'Exigir N° de factura al registrar', desc: 'No permite registrar sin el número de la factura del proveedor.', activo: false },
+  ]);
+
+  return (
+    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
+      <div style={{ display: 'grid', gap: '.5rem' }}>
+        {reglas.map((r) => (
+          <div key={r.id} className="card" style={{ margin: 0, display: 'flex', gap: '.7rem', alignItems: 'flex-start', padding: '.65rem .8rem' }}>
+            <input type="checkbox" checked={r.activo} style={{ marginTop: '.15rem' }}
+              onChange={() => setReglas((prev) => prev.map((x) => x.id === r.id ? { ...x, activo: !x.activo } : x))} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '.9rem' }}>{r.label}</div>
+              <div className="muted" style={{ fontSize: '.8rem' }}>{r.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>Cada cambio se aplica al momento. Las retenciones ya registradas no se recalculan.</p>
+    </fieldset>
   );
 }
 

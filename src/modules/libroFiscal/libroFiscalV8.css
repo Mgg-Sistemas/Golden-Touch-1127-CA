@@ -272,3 +272,29 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
   .lfv8-pa-que { grid-template-columns: 1fr; gap: .1rem; }
   .lfv8-pa-que dd { margin-bottom: .35rem; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Reportes — plantillas, filtros y vista previa
+   Calca visual de docs/cuaderno/disenos/v8-retenciones/
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-rep-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 1rem; align-items: start; }
+.lfv8-rep-plantillas { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .6rem; }
+.lfv8-rep-plantillas h4 { margin: .6rem .4rem .3rem; font-size: .74rem; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lfv8-rep-pl { all: unset; box-sizing: border-box; display: block; width: 100%; text-align: left; border-radius: var(--r-md); padding: .5rem .6rem; color: var(--text); cursor: pointer; min-height: 40px; font-size: .84rem; }
+.lfv8-rep-pl:hover { background: var(--surface-2); }
+.lfv8-rep-pl[aria-current="true"] { background: var(--grad-primary-soft); color: var(--primary-3); }
+.lfv8-rep-pl small { display: block; color: var(--text-dim); font-size: .7rem; }
+.lfv8-rep-constructor { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .9rem 1rem; min-width: 0; }
+.lfv8-rep-filtros { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; align-items: flex-start; margin: .8rem 0; }
+.lfv8-rep-filtros .lfv8-campo { min-width: 160px; }
+.lfv8-rep-acciones { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0 .4rem; }
+.lfv8-rep-vista { background: #fff; color: #111; border-radius: var(--r-md); padding: 1rem; overflow-x: auto; min-height: 120px; }
+.lfv8-rep-columnas { display: flex; flex-wrap: wrap; gap: .2rem .9rem; font-size: .8rem; margin: .4rem 0; }
+.lfv8-rep-columnas label { display: inline-flex; gap: .3rem; align-items: center; min-height: 30px; cursor: pointer; }
+.lfv8-rep-columnas input { accent-color: var(--primary); }
+.lfv8-rep-orient { display: inline-flex; gap: .7rem; align-items: center; border: 0; padding: 0; margin: .4rem 0 0; font-size: .82rem; }
+.lfv8-rep-orient legend { float: left; font-weight: 600; margin-right: .5rem; padding: 0; }
+.lfv8-rep-orient label { display: inline-flex; gap: .3rem; align-items: center; min-height: 32px; cursor: pointer; }
+.lfv8-rep-progreso { font-size: .8rem; color: var(--text-muted); margin: .6rem 0 .3rem; }
+@media (max-width: 900px) { .lfv8-rep-layout { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .lfv8-rep-filtros { flex-direction: column; } .lfv8-rep-filtros .lfv8-campo { min-width: 0; width: 100%; } }
