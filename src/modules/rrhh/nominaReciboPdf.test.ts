@@ -29,6 +29,15 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     expect((await construir([base], { ...meta, tipos: ['bono'] } as never)).getNumberOfPages()).toBe(1);
   });
 
+  it('el recibo en Bs es SOLO Bs: no lleva nada en $ (15/10/2026); el de bonificación sí', async () => {
+    const soloBs = (await construir([base], { ...meta, tipos: ['sueldo'] } as never)).output();
+    expect(soloBs).not.toContain('$');
+    expect(soloBs).toContain('Sueldo quincenal');
+    expect(soloBs).toContain('Sueldo diario');
+    const bono = (await construir([base], { ...meta, tipos: ['bono'] } as never)).output();
+    expect(bono).toContain('$');
+  });
+
   it('con préstamos, anticipos, asignaciones y muchos seriales sigue en una hoja', async () => {
     const cargado = {
       ...base, asignaciones: 40, deduc_prestamos: 50, deduc_anticipos: 30,
