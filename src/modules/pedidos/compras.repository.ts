@@ -14,7 +14,7 @@ import { cantidadEnUso, rotuloConversion } from '@/modules/inventario/presentaci
 import { crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
-import { crearRetencion, borrarRetencionesDeCompra } from '@/modules/tesoreria/tesoreria.repository';
+import { crearRetencion, anularRetencionesVinculadas, restaurarRetencionesAnuladas } from '@/modules/tesoreria/tesoreria.repository';
 import { CATEGORIA_REEMBOLSO, errorRetencionPago, montoLegadoARevertir, netoAPagar, patasConMonto } from './pagoDirecto';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { costoUnitarioUsd, planRemontaje } from './costoCompraDirecta';
@@ -639,6 +639,23 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
 export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string, actorName?: string | null): Promise<void> {
   if (compra.estado !== 'finalizada') throw new Error('Solo se puede reabrir una compra FINALIZADA.');
 
+  // 0) Las retenciones del libro fiscal se anulan ANTES de devolver dinero o stock:
+  //    con una declarada, o sin permiso para anularlas, la compra no se reabre. Si un
+  //    paso posterior falla, vuelven a «registrada».
+  const anuladas = await anularRetencionesVinculadas({
+    columna: 'compra_directa_id', id: compra.id, motivo: 'Pago reabierto',
+    documento: `La compra ${compra.codigo ?? ''}`.trim(),
+  });
+  try {
+    await reabrirCompraDirectaInterno(compra, actor, actorName ?? null);
+  } catch (e) {
+    if (anuladas.length) await restaurarRetencionesAnuladas(anuladas).catch(() => { /* quedan anuladas con su motivo */ });
+    throw e;
+  }
+}
+
+/** Cuerpo de la reapertura, con las retenciones ya anuladas (ver `reabrirCompraDirecta`). */
+async function reabrirCompraDirectaInterno(compra: CompraDirecta, actor: string, actorName: string | null): Promise<void> {
   // 1) Devolver el dinero a la caja (revertir el egreso de Tesorería).
   const concepto = `Reapertura ${compra.codigo ?? ''} · ${compra.producto_nombre}`.trim();
   const legs = Array.isArray(compra.pago_legs) ? compra.pago_legs.filter((l) => Number(l.monto) > 0) : [];
@@ -706,9 +723,6 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
       });
     }
   }
-
-  // 2.b) Quitar la retención vinculada del módulo Retenciones (se recrea al re-pagar).
-  await borrarRetencionesDeCompra(compra.id).catch(() => { /* best-effort */ });
 
   // 3) Volver a EN PROCESO (limpia pago/inventario; conserva ítems y proveedor para editar).
   const { error } = await supabase

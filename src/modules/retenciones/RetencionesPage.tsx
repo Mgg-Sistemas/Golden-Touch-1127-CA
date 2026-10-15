@@ -14,33 +14,40 @@ import {
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
-import { LibroRetencionesPanel } from './LibroRetencionesPanel';
+import { LibroFiscalView, ConfiguracionFiscalModal } from '@/modules/libroFiscal/LibroFiscal';
+import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
+import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
+import '@/modules/libroFiscal/libroFiscal.css';
+import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes';
 
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
-  // La tabla `retenciones` (compras directas) tiene su propia RLS:
-  // is_admin() or puede('tesoreria'). Escribir en Retenciones no alcanza.
-  const puedeCargarDirectas = can('tesoreria', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
-  const [vista, setVista] = useState<Vista>('libro');
+  const [vista, setVista] = useState<Vista>('agrupada');
+  const [parametros, setParametros] = useState(false);
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
 
-  // Filtros del historial (vista Realizadas).
+  // Búsqueda, filtros, orden y página de las dos listas de OC (Por realizar y Realizadas).
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
   const [fTipo, setFTipo] = useState<'' | TipoRetencion>('');
+  const [fTesoreria, setFTesoreria] = useState('');
   const [fTexto, setFTexto] = useState('');
-  const limpiarFiltros = () => { setFDesde(''); setFHasta(''); setFTipo(''); setFTexto(''); };
+  const [orden, setOrden] = useState<'reciente' | 'antiguo' | 'proveedor'>('reciente');
+  const [pag, setPag] = useState(1);
+  const [tam, setTam] = useState(25);
+  const limpiarFiltros = () => { setFDesde(''); setFHasta(''); setFTipo(''); setFTesoreria(''); setFTexto(''); };
+  useEffect(() => { setPag(1); }, [vista, fDesde, fHasta, fTipo, fTesoreria, fTexto, orden]);
 
   const reload = useCallback(async () => {
     const [p, h] = await Promise.all([
@@ -60,48 +67,136 @@ export function RetencionesPage() {
   // Realtime multiusuario: lo que registra otro (o paga Tesorería) se refleja al instante.
   useRealtime(['ordenes'], () => { void reload(); });
 
-  // Historial filtrado (solo aplica a la vista Realizadas).
-  const hechasFiltradas = useMemo(() => {
+  // La lista de la vista: búsqueda y fechas (las de siempre), filtros con su conteo y orden.
+  const baseLista = useMemo(() => {
     const txt = norm(fTexto);
-    return hechas.filter(({ orden: o, proveedorNombre }) => {
-      const fin = (o.retencion_finalizada_en ?? '').slice(0, 10);
-      if (fDesde && fin && fin < fDesde) return false;
-      if (fHasta && fin && fin > fHasta) return false;
-      if (fDesde && !fin) return false;
-      if (fTipo && !comprobantesDeOrden(o).some((c) => c.tipo === fTipo)) return false;
+    const xs = vista === 'pendientes' ? pendientes : hechas;
+    return xs.filter(({ orden: o, proveedorNombre }) => {
+      if (vista === 'hechas') {
+        const fin = (o.retencion_finalizada_en ?? '').slice(0, 10);
+        if (fDesde && fin && fin < fDesde) return false;
+        if (fHasta && fin && fin > fHasta) return false;
+        if (fDesde && !fin) return false;
+      }
       if (txt) {
         const hay = norm(`${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre} ${o.numero_administracion ?? ''}`);
         if (!hay.includes(txt)) return false;
       }
       return true;
     });
-  }, [hechas, fDesde, fHasta, fTipo, fTexto]);
+  }, [vista, pendientes, hechas, fDesde, fHasta, fTexto]);
 
-  const filas = vista === 'pendientes' ? pendientes : hechasFiltradas;
+  const filtrosLista = useMemo<FiltroLista<RetencionItem>[]>(() => [
+    {
+      campo: 'tesoreria', etiqueta: 'Tesorería', valor: fTesoreria,
+      opciones: [['pagada', 'Pagada'], ['por_pagar', 'Por pagar']],
+      pasa: ({ orden: o }, v) => (v === 'pagada' ? !!o.retencion_pagada : !o.retencion_pagada),
+    },
+    ...(vista === 'hechas' ? [{
+      campo: 'tipo', etiqueta: 'Tipo de retención', valor: fTipo,
+      opciones: TIPOS_RETENCION.map((t): [string, string] => [t.key, t.label]),
+      pasa: ({ orden: o }: RetencionItem, v: string) => comprobantesDeOrden(o).some((c) => c.tipo === v),
+    }] : []),
+  ], [vista, fTesoreria, fTipo]);
+
+  const filas = useMemo(() => {
+    const fecha = ({ orden: o }: RetencionItem) => String((vista === 'hechas' ? o.retencion_finalizada_en : o.metodo_pago_en) ?? '');
+    const xs = aplicarFiltros(baseLista, filtrosLista);
+    const reciente = (a: RetencionItem, b: RetencionItem) => fecha(b).localeCompare(fecha(a));
+    xs.sort(orden === 'antiguo' ? (a, b) => -reciente(a, b)
+      : orden === 'proveedor' ? (a, b) => a.proveedorNombre.localeCompare(b.proveedorNombre) || reciente(a, b)
+        : reciente);
+    return xs;
+  }, [vista, baseLista, filtrosLista, orden]);
+  const pagina = useMemo(() => paginar(filas, pag, tam), [filas, pag, tam]);
+
+  const controles: ControlFiltro[] = filtrosLista.map((f) => ({
+    campo: f.campo, etiqueta: f.etiqueta, valor: f.valor,
+    total: aplicarFiltros(baseLista, filtrosLista.filter((o) => o.campo !== f.campo)).length,
+    opciones: f.opciones.map(([v, t]) => ({ valor: v, texto: t, cuenta: conteoOpcion(baseLista, filtrosLista, f.campo, v) })),
+  }));
+  const ponerFiltro = (campo: string, v: string) => {
+    if (campo === 'tesoreria') setFTesoreria(v);
+    else if (campo === 'tipo') setFTipo(v as '' | TipoRetencion);
+  };
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <div>
-          <h1 style={{ margin: 0 }}>🧾 Retenciones</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>
-            Libro fiscal (IVA, ISLR, municipal, estadal e IGTF) y comprobantes de las OC con factura.
-          </p>
+      {/* ── Cabecera v8 ── */}
+      <header style={{ marginBottom: '.75rem' }}>
+        <p className="muted" style={{ margin: '0 0 .5rem' }}>
+          Retenciones por factura: aplicables, registradas y no aplicables.
+        </p>
+        <div className="lfv8-cabeza-acciones">
+          <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
+          <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
+            <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
+              Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}
+            </button>
+            <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
+            <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
+            <button className={vista === 'agrupada' ? 'active' : ''} onClick={() => setVista('agrupada')}>Vista agrupada</button>
+            <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>
+            <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
+          </nav>
         </div>
-        <div className="view-toggle" role="tablist" aria-label="Vista de retenciones">
-          <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}</button>
-          <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-          <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')} title="IVA, ISLR, municipal, estadal e IGTF: lo que nos retienen y lo que retenemos">📒 Libro fiscal</button>
-        </div>
-      </div>
+      </header>
 
-      {/* El LIBRO FISCAL vive en la tabla `retenciones` y es el corazón del módulo:
-          IVA, ISLR, municipal, estadal e IGTF, con lo que nos retienen (anticipos a
-          favor) y lo poco que retenemos. Las otras dos vistas son el trámite de
-          adjuntar comprobantes a una OC, que es otra cosa. */}
-      {vista === 'libro' ? (
-        <LibroRetencionesPanel puedeCargar={puedeCargarDirectas} actor={actor} actorName={actorName} />
-      ) : (
+      {/* ── Período en curso (sobre la vista agrupada y libro fiscal) ── */}
+      {(vista === 'agrupada' || vista === 'libro') && (
+        <div className="lfv8-per-curso">
+          <span className="lfv8-per-curso-label">Período en curso</span>
+          <span className="lfv8-per-chip"><b>IVA</b> <span className="muted">Quincenal · sin período configurado</span></span>
+          <span className="lfv8-per-chip"><b>ISLR</b> <span className="muted">Mensual · sin período configurado</span></span>
+          <span className="lfv8-per-chip"><b>ISAE</b> <span className="muted">Mensual · sin período configurado</span></span>
+        </div>
+      )}
+
+      {/* ── Vista agrupada (v8): tarjetas, casillas, tira ── */}
+      {vista === 'agrupada' && (
+        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
+      )}
+
+      {/* ── Libro fiscal: una fila por retención ── */}
+      {vista === 'libro' && (
+        <div className="lfv8-vacio">
+          <p>Una fila por retención registrada. Para agrupar por factura o proveedor, usar la Vista agrupada.</p>
+          <button className="btn" onClick={() => setVista('agrupada')}>Ir a Vista agrupada</button>
+        </div>
+      )}
+
+      {/* ── Períodos fiscales ── */}
+      {vista === 'periodos' && (
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          {[
+            { imp: 'IVA', freq: 'Quincenal', desc: 'Cada mes se divide en dos quincenas. La declaración y enteramiento se realiza por quincena vencida.' },
+            { imp: 'ISLR', freq: 'Mensual', desc: 'Un período por mes calendario. El porcentaje varía según el servicio, la actividad y el rubro del proveedor. Se aplica sobre la base imponible.' },
+            { imp: 'ISAE', freq: 'Mensual', desc: 'Un período por mes calendario. Todo servicio genera retención de ISAE según la actividad económica del proveedor en el municipio.' },
+          ].map((p) => (
+            <div key={p.imp} className="card" style={{ margin: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', marginBottom: '.4rem' }}>
+                <strong style={{ fontSize: '1rem' }}>{p.imp}</strong>
+                <span className="muted" style={{ fontSize: '.8rem' }}>{p.freq}</span>
+              </div>
+              <p className="muted" style={{ fontSize: '.84rem', margin: 0 }}>{p.desc}</p>
+              <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem', fontStyle: 'italic' }}>Sin períodos configurados. Configurar desde ⚙ Parámetros → Períodos y numeración.</p>
+            </div>
+          ))}
+          <div className="card" style={{ margin: 0, borderColor: 'var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', marginBottom: '.4rem' }}>
+              <strong style={{ fontSize: '1rem' }}>Período fiscal</strong>
+              <span className="muted" style={{ fontSize: '.8rem' }}>Anual</span>
+            </div>
+            <p className="muted" style={{ fontSize: '.84rem', margin: 0 }}>Enero a diciembre. Agrupa todos los períodos de los tres impuestos para el resumen anual y la conciliación.</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reportes ── */}
+      {vista === 'reportes' && <ReportesView />}
+
+      {/* ── Listas de OC: Por realizar / Realizadas ── */}
+      {(vista === 'pendientes' || vista === 'hechas') && (
       <>
       {/* Tarjeta total pendientes (solo en la vista Por realizar) */}
       {vista === 'pendientes' && (
@@ -113,34 +208,22 @@ export function RetencionesPage() {
         </div>
       )}
 
-      {/* Filtros del historial (solo en Realizadas) */}
-      {vista === 'hechas' && (
-        <div className="card" style={{ marginBottom: '.75rem' }}>
-          <div className="filterbar" style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div className="form-row" style={{ margin: 0 }}>
-              <label>Desde</label>
-              <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} />
-            </div>
-            <div className="form-row" style={{ margin: 0 }}>
-              <label>Hasta</label>
-              <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
-            </div>
-            <div className="form-row" style={{ margin: 0 }}>
-              <label>Tipo de retención</label>
-              <select className="select" value={fTipo} onChange={(e) => setFTipo(e.target.value as '' | TipoRetencion)}>
-                <option value="">Todas</option>
-                {TIPOS_RETENCION.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-              </select>
-            </div>
-            <div className="form-row" style={{ margin: 0, flex: '1 1 200px' }}>
-              <label>Buscar (OC / proveedor)</label>
-              <input className="input" value={fTexto} onChange={(e) => setFTexto(e.target.value)} placeholder="N° OC, OP o proveedor…" />
-            </div>
-            <button className="btn btn-ghost" onClick={limpiarFiltros}>Limpiar</button>
-            <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{hechasFiltradas.length} de {hechas.length}</span>
-          </div>
-        </div>
-      )}
+      <div className="card" style={{ marginBottom: '.75rem' }}>
+        <BarraLista
+          q={fTexto} onQ={setFTexto} placeholder="Buscar por N° de OC, OP o proveedor"
+          resultados={filas.length} unidad="OC"
+          filtros={controles} onFiltro={ponerFiltro}
+          orden={{ valor: orden, opciones: [['reciente', 'Más reciente primero'], ['antiguo', 'Más antiguo primero'], ['proveedor', 'Proveedor (A–Z)']] }}
+          onOrden={(v) => setOrden(v as typeof orden)}
+          onQuitar={limpiarFiltros}
+          extra={vista === 'hechas' ? (
+            <>
+              <label className="lf-campo"><span>Realizada desde</span><input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} /></label>
+              <label className="lf-campo"><span>Hasta</span><input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} /></label>
+            </>
+          ) : undefined}
+        />
+      </div>
 
       <div className="card">
         <div className="table-wrap">
@@ -158,7 +241,7 @@ export function RetencionesPage() {
               {!loading && !filas.length && (
                 <tr><td colSpan={vista === 'hechas' ? 9 : 8}><EmptyState icon={vista === 'pendientes' ? '✅' : '🧾'} message={vista === 'pendientes' ? 'No hay retenciones pendientes' : 'Sin retenciones en el historial con esos filtros'} /></td></tr>
               )}
-              {!loading && filas.map(({ orden: o, proveedorNombre }) => (
+              {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => (
                 <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
                   <td className="mono">{o.oc_codigo ?? '—'}</td>
                   <td className="mono">{o.codigo}</td>
@@ -176,6 +259,9 @@ export function RetencionesPage() {
             </tbody>
           </table>
         </div>
+        {!loading && (
+          <Paginador pagina={pagina} tam={tam} unidad="OC" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+        )}
       </div>
       </>
       )}
@@ -186,6 +272,9 @@ export function RetencionesPage() {
           onClose={() => setSel(null)}
           onSaved={async () => { setSel(null); await reload(); }}
         />
+      )}
+      {parametros && (
+        <ConfiguracionFiscalModal puedeEditar={canWrite} onClose={() => setParametros(false)} />
       )}
     </div>
   );
@@ -303,5 +392,246 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         <div className="muted" style={{ fontSize: '.84rem' }}>✓ Retención finalizada{o.retencion_finalizada_en ? ` el ${dateTime(o.retencion_finalizada_en)}` : ''}.</div>
       )}
     </Modal>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Reportes — plantillas del sistema, filtros, acciones y vista previa
+   Estructura visual de la maqueta v8 §sec-reportes
+   ═══════════════════════════════════════════════════════════════ */
+
+interface PlantillaReporte {
+  id: string;
+  nombre: string;
+  titulo: string;
+}
+
+const PLANTILLAS_SISTEMA: PlantillaReporte[] = [
+  { id: 'relacion_iva', nombre: 'Relación quincenal de IVA', titulo: 'Relación quincenal de IVA' },
+  { id: 'relacion_islr', nombre: 'Relación mensual de ISLR', titulo: 'Relación mensual de ISLR' },
+  { id: 'relacion_isae', nombre: 'Relación mensual de ISAE', titulo: 'Relación mensual de ISAE' },
+  { id: 'libro', nombre: 'Libro de retenciones', titulo: 'Libro de retenciones' },
+  { id: 'por_proveedor', nombre: 'Retenciones por proveedor', titulo: 'Retenciones por proveedor' },
+  { id: 'retenido_periodo', nombre: 'Retenido por proveedor y período', titulo: 'Retenido por proveedor y período' },
+  { id: 'anual', nombre: 'Resumen anual', titulo: 'Resumen anual de retenciones' },
+];
+
+const COLUMNAS_DETALLE = [
+  { id: 'comprobante', label: 'N° comprobante' },
+  { id: 'fecha', label: 'Fecha' },
+  { id: 'tipo', label: 'Impuesto' },
+  { id: 'direccion', label: 'Dirección' },
+  { id: 'nombre', label: 'Proveedor' },
+  { id: 'rif', label: 'RIF' },
+  { id: 'factura', label: 'N° factura' },
+  { id: 'control', label: 'N° control' },
+  { id: 'base', label: 'Base imponible' },
+  { id: 'pct', label: '% retención' },
+  { id: 'retenido', label: 'Monto retenido' },
+  { id: 'estado', label: 'Estado' },
+];
+
+function ReportesView() {
+  const [plantillaId, setPlantillaId] = useState('relacion_iva');
+  const [periodo, setPeriodo] = useState('quincena_anterior');
+  const [impuestos, setImpuestos] = useState<Record<string, boolean>>({ iva: true, islr: false, isae: false });
+  const [direccion, setDireccion] = useState('practicada');
+  const [estado, setEstado] = useState('');
+  const [moneda, setMoneda] = useState('');
+  const [provQ, setProvQ] = useState('');
+  const [agrupar, setAgrupar] = useState('ninguno');
+  const [fBase, setFBase] = useState('factura');
+  const [ordenRep, setOrdenRep] = useState('fecha');
+  const [orientacion, setOrientacion] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [colsActivas, setColsActivas] = useState<Set<string>>(
+    new Set(['comprobante', 'fecha', 'tipo', 'nombre', 'rif', 'factura', 'base', 'pct', 'retenido', 'estado']),
+  );
+
+  const plantilla = PLANTILLAS_SISTEMA.find((p) => p.id === plantillaId) ?? PLANTILLAS_SISTEMA[0];
+
+  function seleccionarPlantilla(id: string) {
+    setPlantillaId(id);
+    if (id === 'relacion_iva') { setPeriodo('quincena_anterior'); setImpuestos({ iva: true, islr: false, isae: false }); setDireccion('practicada'); setAgrupar('ninguno'); }
+    else if (id === 'relacion_islr') { setPeriodo('mes_anterior'); setImpuestos({ iva: false, islr: true, isae: false }); setDireccion('practicada'); setAgrupar('ninguno'); }
+    else if (id === 'relacion_isae') { setPeriodo('mes_anterior'); setImpuestos({ iva: false, islr: false, isae: true }); setDireccion('practicada'); setAgrupar('ninguno'); }
+    else if (id === 'libro') { setPeriodo('mes_actual'); setImpuestos({ iva: true, islr: true, isae: true }); setDireccion(''); setAgrupar('ninguno'); }
+    else if (id === 'por_proveedor') { setPeriodo('anio_actual'); setImpuestos({ iva: true, islr: true, isae: true }); setDireccion('practicada'); setAgrupar('proveedor'); setOrdenRep('retenido'); }
+    else if (id === 'retenido_periodo') { setPeriodo('anio_actual'); setImpuestos({ iva: true, islr: true, isae: true }); setDireccion('practicada'); setAgrupar('mes'); }
+    else if (id === 'anual') { setPeriodo('anio_actual'); setImpuestos({ iva: true, islr: true, isae: true }); setDireccion('practicada'); setAgrupar('mes'); setOrdenRep('fecha'); }
+  }
+
+  function toggleCol(id: string) {
+    setColsActivas((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+
+  function toggleImp(key: string) {
+    setImpuestos((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  return (
+    <div className="lfv8-rep-layout">
+      {/* ── Sidebar: plantillas ── */}
+      <aside className="lfv8-rep-plantillas" aria-label="Plantillas de reporte">
+        <h4>Plantillas del sistema</h4>
+        {PLANTILLAS_SISTEMA.map((p) => (
+          <button key={p.id} className="lfv8-rep-pl" aria-current={plantillaId === p.id ? 'true' : undefined} onClick={() => seleccionarPlantilla(p.id)}>
+            {p.nombre}
+          </button>
+        ))}
+
+        <h4>Mis plantillas</h4>
+        <p className="muted" style={{ fontSize: '.78rem', padding: '.3rem .6rem' }}>
+          Sin plantillas propias. Usar «Guardar como plantilla».
+        </p>
+
+        <h4>Compartidas</h4>
+        <p className="muted" style={{ fontSize: '.78rem', padding: '.3rem .6rem' }}>
+          Sin plantillas compartidas.
+        </p>
+      </aside>
+
+      {/* ── Constructor del reporte ── */}
+      <section className="lfv8-rep-constructor">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{plantilla.titulo}</h2>
+          <span className="muted" style={{ fontSize: '.78rem' }}>Plantilla del sistema</span>
+        </div>
+
+        {/* Filtros */}
+        <div className="lfv8-rep-filtros">
+          <div className="lfv8-campo">
+            <span>Período del reporte</span>
+            <select className="lfv8-select" value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
+              <optgroup label="Atajos">
+                <option value="semana_actual">Esta semana</option>
+                <option value="semana_anterior">Semana anterior</option>
+                <option value="quincena_actual">Quincena actual</option>
+                <option value="quincena_anterior">Quincena anterior</option>
+                <option value="mes_actual">Mes actual</option>
+                <option value="mes_anterior">Mes anterior</option>
+                <option value="anio_actual">Año actual</option>
+                <option value="anio_anterior">Año anterior</option>
+              </optgroup>
+              <optgroup label="Elegir">
+                <option value="semana">Semana…</option>
+                <option value="quincena">Quincena…</option>
+                <option value="mes">Mes…</option>
+                <option value="anio">Año…</option>
+                <option value="rango">Rango de fechas…</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Impuestos</span>
+            <div className="lfv8-chips">
+              <button type="button" className="lfv8-chip" aria-pressed={impuestos.iva} onClick={() => toggleImp('iva')}>IVA</button>
+              <button type="button" className="lfv8-chip" aria-pressed={impuestos.islr} onClick={() => toggleImp('islr')}>ISLR</button>
+              <button type="button" className="lfv8-chip" aria-pressed={impuestos.isae} onClick={() => toggleImp('isae')}>ISAE</button>
+            </div>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Dirección</span>
+            <select className="lfv8-select" value={direccion} onChange={(e) => setDireccion(e.target.value)}>
+              <option value="">Todas</option>
+              <option value="practicada">A proveedores</option>
+              <option value="recibida">De clientes</option>
+            </select>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Estado</span>
+            <select className="lfv8-select" value={estado} onChange={(e) => setEstado(e.target.value)}>
+              <option value="">Todos (sin anuladas)</option>
+              <option value="ok">Registradas</option>
+              <option value="declarada">Declaradas</option>
+              <option value="anulada">Anuladas</option>
+              <option value="todas">Todas (con anuladas)</option>
+            </select>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Moneda</span>
+            <select className="lfv8-select" value={moneda} onChange={(e) => setMoneda(e.target.value)}>
+              <option value="">Todas</option>
+              <option value="Bs">Bs</option>
+              <option value="USD">$</option>
+            </select>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Proveedores</span>
+            <input className="lfv8-select" style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }} placeholder="Proveedor o RIF" value={provQ} onChange={(e) => setProvQ(e.target.value)} />
+            {!provQ && <small className="muted" style={{ fontSize: '.76rem' }}>Todos los proveedores</small>}
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Agrupar por</span>
+            <select className="lfv8-select" value={agrupar} onChange={(e) => setAgrupar(e.target.value)}>
+              <option value="ninguno">Sin agrupar (detalle)</option>
+              <option value="proveedor">Proveedor</option>
+              <option value="periodo">Período fiscal</option>
+              <option value="tipo">Impuesto</option>
+              <option value="semana">Semana</option>
+              <option value="quincena">Quincena</option>
+              <option value="mes">Mes</option>
+              <option value="anio">Año</option>
+            </select>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Fecha de referencia</span>
+            <select className="lfv8-select" value={fBase} onChange={(e) => setFBase(e.target.value)}>
+              <option value="factura">Fecha de la factura</option>
+              <option value="registro">Fecha de registro</option>
+            </select>
+          </div>
+
+          <div className="lfv8-campo">
+            <span>Orden</span>
+            <select className="lfv8-select" value={ordenRep} onChange={(e) => setOrdenRep(e.target.value)}>
+              <option value="fecha">Fecha</option>
+              <option value="proveedor">Proveedor</option>
+              <option value="retenido">Monto retenido (mayor primero)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Columnas del detalle */}
+        <details>
+          <summary className="muted" style={{ cursor: 'pointer', fontSize: '.82rem' }}>Columnas del detalle</summary>
+          <div className="lfv8-rep-columnas">
+            {COLUMNAS_DETALLE.map((c) => (
+              <label key={c.id}><input type="checkbox" checked={colsActivas.has(c.id)} onChange={() => toggleCol(c.id)} /> {c.label}</label>
+            ))}
+          </div>
+        </details>
+
+        {/* Acciones */}
+        <div className="lfv8-rep-acciones">
+          <button className="btn" onClick={() => toast('Guardar como plantilla: disponible próximamente.', 'info')}>Guardar como plantilla</button>
+          <button className="btn" onClick={() => toast('Descargar CSV: disponible próximamente.', 'info')}>Descargar CSV</button>
+          <button className="btn" onClick={() => toast('Descargar Excel: disponible próximamente.', 'info')}>Descargar Excel</button>
+          <button className="btn" onClick={() => toast('Imprimir / PDF: disponible próximamente.', 'info')}>Imprimir / PDF</button>
+          <button className="btn" disabled title="Disponible próximamente">TXT para el SENIAT</button>
+        </div>
+
+        {/* Orientación */}
+        <fieldset className="lfv8-rep-orient">
+          <legend>Orientación</legend>
+          <label><input type="radio" name="rep-orient" checked={orientacion === 'horizontal'} onChange={() => setOrientacion('horizontal')} /> Horizontal</label>
+          <label><input type="radio" name="rep-orient" checked={orientacion === 'vertical'} onChange={() => setOrientacion('vertical')} /> Vertical</label>
+        </fieldset>
+
+        {/* Vista previa */}
+        <p className="lfv8-rep-progreso">Sin retenciones registradas en el período seleccionado.</p>
+        <div className="lfv8-rep-vista">
+          <p style={{ textAlign: 'center', padding: '2rem 0', color: '#777' }}>
+            La vista previa se genera con las retenciones registradas. Al disponer de datos, se muestra el formato del reporte con sus cortes de página.
+          </p>
+        </div>
+      </section>
+    </div>
   );
 }
