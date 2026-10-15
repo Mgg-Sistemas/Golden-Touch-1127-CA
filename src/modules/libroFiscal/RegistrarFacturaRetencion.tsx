@@ -47,6 +47,8 @@ export interface SemillaFactura {
   iva?: number | null;
   /** Base imponible sugerida (total sin IVA ni IGTF). */
   baseImponible?: number | null;
+  /** Impuesto con el que arranca la primera línea (si se entra desde un botón de «Por realizar»). */
+  tipoInicial?: TipoImpuesto;
 }
 
 interface LineaUI {
@@ -91,7 +93,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [facturaTotal, setFacturaTotal] = useState(String(s.facturaTotal ?? 0));
   const [nota, setNota] = useState('');
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
-    tipo: 'iva', baseStr: String(s.baseImponible ?? 0), ivaStr: String(s.iva ?? 0),
+    tipo: s.tipoInicial ?? 'iva', baseStr: String(s.baseImponible ?? 0), ivaStr: String(s.iva ?? 0),
   })]);
 
   useEffect(() => {
