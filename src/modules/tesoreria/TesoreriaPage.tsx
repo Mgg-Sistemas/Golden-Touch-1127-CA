@@ -26,6 +26,7 @@ import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinance
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { repartirPagoYReembolso } from './reembolsoPago';
 import { filtrarMovimientos } from './filtrosMovimientos';
+import { filtrarRenglonesNomina, montoRenglonLote, totalLote } from './nominaLote';
 import { convertirRetencion } from './retencionPago';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, listConversiones, type ConversionCaja } from './cajaSaldos.repository';
 import {
@@ -2429,10 +2430,19 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [rows, setRows] = useState<NominaRenglon[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagar, setPagar] = useState<NominaRenglon | null>(null);
+  // Buscador y pago por lote (15/10/2026).
+  const [buscar, setBuscar] = useState('');
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [lote, setLote] = useState(false);
 
   const recargar = useCallback(async () => {
     setLoading(true);
-    try { setRows(await listRenglonesPorPagar()); }
+    try {
+      const rs = await listRenglonesPorPagar();
+      setRows(rs);
+      // Lo que ya se pagó (o salió de la cola) deja de estar marcado.
+      setSel((prev) => new Set(rs.filter((r) => prev.has(r.id)).map((r) => r.id)));
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar la nómina', 'error'); }
     finally { setLoading(false); }
   }, []);
@@ -2440,21 +2450,60 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   useRealtime(['nomina_renglones'], () => { void recargar(); });
 
   const total = useMemo(() => round2(rows.reduce((a, r) => a + (Number(r.neto_usd) || 0), 0)), [rows]);
+  const visibles = useMemo(() => filtrarRenglonesNomina(rows, buscar), [rows, buscar]);
+  const seleccionados = useMemo(() => rows.filter((r) => sel.has(r.id)), [rows, sel]);
+  const totalSel = useMemo(() => totalLote(seleccionados, 'USD', 0), [seleccionados]);
+  const todosVisiblesMarcados = visibles.length > 0 && visibles.every((r) => sel.has(r.id));
+  // Marcar / desmarcar actúa sobre lo que se VE con el buscador.
+  function marcarVisibles(marcar: boolean) {
+    setSel((prev) => {
+      const n = new Set(prev);
+      visibles.forEach((r) => (marcar ? n.add(r.id) : n.delete(r.id)));
+      return n;
+    });
+  }
+  function alternar(id: string) {
+    setSel((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
 
   return (
     <Modal title="Pagar nómina" size="xl" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <div className="muted" style={{ marginBottom: '.6rem', fontSize: '.86rem' }}>
-        Renglones cargados desde <strong>RRHH</strong>. Tesorería paga uno a uno (efectivo USD con seriales, o Bs a tasa BCV) y adjunta el comprobante (opcional).
+        Renglones cargados desde <strong>RRHH</strong>. Tesorería paga uno a uno (efectivo USD con seriales, o Bs a tasa BCV) o <strong>por lote</strong>: marca a quiénes y «Pagar seleccionados». El comprobante es opcional.
         {rows.length > 0 && <> · {rows.length} pendiente(s) · Total <strong className="mono">{monto(total, 'USD')}</strong></>}
       </div>
+
+      {/* Buscador + marcar/desmarcar (sobre lo que se ve) + pago por lote. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'center', marginBottom: '.5rem' }}>
+        <input className="input" id="tes-nom-buscar" name="tes-nom-buscar" type="search" value={buscar} onChange={(e) => setBuscar(e.target.value)}
+          placeholder="🔍 Buscar por nombre, cargo, departamento o nómina…" style={{ flex: 1, minWidth: 220 }} />
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarVisibles(true)} disabled={!visibles.length}
+          title="Marca para pagar a todos los que se ven con el buscador">☑ Marcar todos</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarVisibles(false)} disabled={!visibles.some((r) => sel.has(r.id))}
+          title="Desmarca a todos los que se ven con el buscador">☐ Desmarcar todos</button>
+        <button type="button" className="btn btn-sm btn-primary" onClick={() => setLote(true)} disabled={!seleccionados.length}
+          title="Paga de una vez a todos los marcados, desde la misma caja">
+          💸 Pagar seleccionados ({seleccionados.length}){seleccionados.length ? ` · ${monto(totalSel, 'USD')}` : ''}
+        </button>
+      </div>
+
       <div className="table-wrap" style={{ maxHeight: 440, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.84rem' }}>
-          <thead><tr><th>Trabajador</th><th>Nómina</th><th>Motivo</th><th>Departamento</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
+          <thead><tr>
+            <th style={{ width: 34, textAlign: 'center' }}>
+              <input type="checkbox" aria-label="Marcar o desmarcar todos los que se ven" checked={todosVisiblesMarcados}
+                disabled={!visibles.length} onChange={() => marcarVisibles(!todosVisiblesMarcados)} />
+            </th>
+            <th>Trabajador</th><th>Nómina</th><th>Motivo</th><th>Departamento</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={7}><EmptyState message="No hay nómina pendiente por pagar" icon="✅" /></td></tr>}
-            {!loading && rows.map((r) => (
-              <tr key={r.id}>
+            {loading && !rows.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={8}><EmptyState message="No hay nómina pendiente por pagar" icon="✅" /></td></tr>}
+            {rows.length > 0 && !visibles.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Nadie coincide con «{buscar}».</td></tr>}
+            {visibles.map((r) => (
+              <tr key={r.id} style={sel.has(r.id) ? { background: 'var(--bg-2, rgba(255,138,0,.08))' } : undefined}>
+                <td style={{ textAlign: 'center' }}>
+                  <input type="checkbox" aria-label={`Marcar a ${r.nombre}`} checked={sel.has(r.id)} onChange={() => alternar(r.id)} />
+                </td>
                 <td>{r.nombre}</td>
                 <td className="mono muted">{r.periodo?.codigo ?? '—'}</td>
                 <td><span className="badge" style={{ background: r.periodo?.tipo === 'vacaciones' ? 'var(--danger, #e5484d)' : r.periodo?.tipo === 'liquidacion' ? 'var(--warning, #ffae00)' : 'var(--primary-2, #2b6cb0)', color: '#fff' }}>{labelMotivoNomina(r.periodo?.tipo)}</span></td>
@@ -2473,6 +2522,159 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
           onClose={() => setPagar(null)}
           onPaid={async () => { setPagar(null); await recargar(); onPaid(); }} />
       )}
+      {lote && (
+        <PagarLoteNominaModal renglones={seleccionados} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setLote(false)}
+          onPaid={async () => { await recargar(); onPaid(); }} />
+      )}
+    </Modal>
+  );
+}
+
+/* ───────── Pagar nómina por lote: los marcados, desde una misma caja ───────── */
+function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose, onPaid }: {
+  renglones: NominaRenglon[]; cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void | Promise<void>;
+}) {
+  // La lista se congela al abrir: si llega un cambio por realtime no se mueve lo que se está pagando.
+  const [lista] = useState(renglones);
+  const [pagados, setPagados] = useState<Set<string>>(new Set());
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const caja = cajas.find((c) => c.id === cajaId) ?? null;
+  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  const [saldoSelId, setSaldoSelId] = useState('');
+  const [tasa, setTasa] = useState(0);
+  const [tasaFecha, setTasaFecha] = useState<string | null>(null);
+  const [comprobante, setComprobante] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [avance, setAvance] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!cajaId) { setSaldosCaja([]); setSaldoSelId(''); return; }
+    saldosDeCaja(cajaId).then((rows) => {
+      const conSaldo = rows.filter((r) => Number(r.saldo) > 0);
+      setSaldosCaja(conSaldo);
+      const pref = conSaldo.find((r) => r.moneda === 'USD') ?? conSaldo[0];
+      setSaldoSelId(pref?.id ?? '');
+    }).catch(() => { setSaldosCaja([]); setSaldoSelId(''); });
+  }, [cajaId]);
+
+  const esMulti = saldosCaja.length > 0;
+  const selSaldo = saldosCaja.find((s) => s.id === saldoSelId) ?? null;
+  const moneda = esMulti ? (selSaldo?.moneda ?? 'USD') : (caja?.moneda ?? 'USD');
+  const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
+  const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
+  const pendientes = lista.filter((r) => !pagados.has(r.id));
+  const total = totalLote(pendientes, moneda, tasa);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!pendientes.length) { onClose(); return; }
+    if (!cajaId) { setError('Elige la caja con la que se paga.'); return; }
+    if (esMulti && !selSaldo) { setError('Elige de qué saldo (moneda) de la caja se paga.'); return; }
+    if (moneda === 'Bs' && !(tasa > 0)) { setError('Indica la tasa BCV para pagar en Bs.'); return; }
+    if (total > disponible + 0.01) { setError(`Saldo insuficiente para el lote. Hace falta ${monto(total, moneda)} y hay ${monto(disponible, moneda)}.`); return; }
+    setSaving(true);
+    // Uno por uno con el mismo motor del pago individual: cada pago lee el saldo
+    // del momento, deja su movimiento en el libro y marca su renglón.
+    const fallos: string[] = [];
+    let ok = 0, sumado = 0;
+    for (let i = 0; i < pendientes.length; i++) {
+      const r = pendientes[i];
+      setAvance(`Pagando ${i + 1} de ${pendientes.length} · ${r.nombre}`);
+      const m = montoRenglonLote(r, moneda, tasa);
+      try {
+        if (m <= 0) throw new Error('el neto es 0');
+        await pagarRenglon({
+          renglon: r, cajaId, monto: m, cuenta: cuentaPago, moneda,
+          tasa: moneda === 'Bs' ? tasa : null, seriales: null, comprobante,
+          actorEmail: actor, actorName,
+        });
+        ok++; sumado = round2(sumado + m);
+        setPagados((prev) => new Set(prev).add(r.id));
+      } catch (err) {
+        fallos.push(`${r.nombre}: ${mensajeError(err, 'no se pudo pagar')}`);
+      }
+    }
+    setAvance(null);
+    setSaving(false);
+    if (ok) notify(`Nómina pagada por lote · ${ok} persona(s) · ${monto(sumado, moneda)}`, 'success', { link: '#/app/tesoreria' });
+    await onPaid();
+    if (fallos.length) setError(`Se pagaron ${ok} de ${pendientes.length}. No se pudo pagar a: ${fallos.join(' · ')}`);
+    else onClose();
+  }
+
+  return (
+    <Modal title={`Pagar nómina por lote · ${lista.length} persona(s)`} size="lg" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>{pagados.size ? 'Cerrar' : 'Cancelar'}</button>
+        <button type="submit" form="pagar-nomina-lote" className="btn btn-primary" disabled={saving || !pendientes.length}>
+          {saving ? 'Pagando…' : `PAGAR ${pendientes.length} · ${monto(total, moneda)}`}
+        </button>
+      </>
+    }>
+      <form id="pagar-nomina-lote" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        {avance && <div className="card" style={{ marginBottom: '.75rem' }}>⏳ {avance}</div>}
+
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Caja (de dónde sale el dinero)</label>
+            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length || saving}
+              placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+              options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
+          </div>
+          {esMulti && (
+            <div className="form-row">
+              <label>Saldo de la caja (moneda / cuenta)</label>
+              <select className="select" value={saldoSelId} onChange={(e) => setSaldoSelId(e.target.value)} disabled={saving} required>
+                {saldosCaja.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.moneda}{s.cuenta !== 'general' ? ` · ${s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}` : ''} · {monto(Number(s.saldo), s.moneda)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {moneda === 'Bs' && (
+            <div className="form-row">
+              <label>Tasa BCV (Bs/$){tasaFecha ? ` · ${fmtDate(tasaFecha)}` : ''}</label>
+              <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} disabled={saving} placeholder="0,00" />
+            </div>
+          )}
+        </div>
+        <div className="muted" style={{ fontSize: '.84rem', margin: '.25rem 0 .6rem' }}>
+          Total del lote: <strong className="mono">{monto(total, moneda)}</strong> · Disponible: <strong className="mono" style={{ color: total > disponible + 0.01 ? 'var(--danger)' : undefined }}>{monto(disponible, moneda)}</strong>
+          {moneda === 'Bs' && <> · cada neto en $ × la tasa</>}
+        </div>
+
+        <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto', marginBottom: '.6rem' }}>
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>Trabajador</th><th>Nómina</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'right' }}>Se paga</th><th></th></tr></thead>
+            <tbody>
+              {lista.map((r) => (
+                <tr key={r.id} style={pagados.has(r.id) ? { opacity: .55 } : undefined}>
+                  <td>{r.nombre}</td>
+                  <td className="mono muted">{r.periodo?.codigo ?? '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(r.neto_usd, 'USD')}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(montoRenglonLote(r, moneda, tasa), moneda)}</td>
+                  <td>{pagados.has(r.id) ? '✅' : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="form-row">
+          <label>Comprobante de pago (PDF o imagen) <span className="muted">(opcional · queda en cada uno)</span></label>
+          <input className="input" type="file" accept="application/pdf,image/*" disabled={saving} onChange={(e) => setComprobante(e.target.files?.[0] ?? null)} />
+          {comprobante && <small className="muted">{comprobante.name}</small>}
+        </div>
+        <small className="muted">Los seriales de billetes se cargan pagando uno a uno (botón 💸 Pagar de cada persona).</small>
+      </form>
     </Modal>
   );
 }
