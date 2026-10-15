@@ -1,6 +1,6 @@
 import type { jsPDF as JsPDFType } from 'jspdf';
 import type { WorkBook } from 'xlsx-js-style';
-import { dibujarPdfEnCanvas, navegadorSinVisorPdf } from './pdfCanvas';
+import { dibujarPdfEnCanvas, navegadorSinVisorPdf, paginasPdfComoImagenes, type HojaImagen } from './pdfCanvas';
 
 /**
  * Vista previa de reportes antes de descargar.
@@ -105,6 +105,24 @@ function htmlImagen(src: string, titulo: string): string {
     `</head><body><img src="${esc(src)}"></body></html>`;
 }
 
+/**
+ * Página para imprimir un PDF hoja por hoja, cada una a su tamaño exacto y sin márgenes
+ * del navegador (15/10/2026). Mandado a imprimir como PDF, Chrome le aplicaba su propia
+ * escala y márgenes de PDF y la hoja salía achicada y corrida a la izquierda; descargado
+ * salía bien. Así sale igual que el archivo descargado, en cualquier impresora.
+ */
+function htmlHojas(hojas: HojaImagen[], titulo: string): string {
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  const { anchoPt: w, altoPt: h } = hojas[0];
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(titulo)}</title>` +
+    `<style>@page{size:${w}pt ${h}pt;margin:0}html,body{margin:0;padding:0;background:#fff}` +
+    `img{display:block;width:${w}pt;height:${h}pt;break-after:page;page-break-after:always}img:last-child{break-after:auto;page-break-after:auto}</style>` +
+    `</head><body>${hojas.map((x) => `<img src="${esc(x.url)}" alt="">`).join('')}</body></html>`;
+}
+
+/** Más hojas que esto no se pasan a imagen (memoria): se imprime el PDF tal cual. */
+const MAX_HOJAS_IMAGEN = 60;
+
 /** Muestra el PDF (jsPDF) en un visor embebido; descarga solo si el usuario lo pide. */
 export function previewPdf(doc: JsPDFType, filename: string): void {
   const blob = doc.output('blob');
@@ -123,7 +141,24 @@ export function previewPdf(doc: JsPDFType, filename: string): void {
   ui.btnDl.onclick = () => doc.save(filename);
   // En el teléfono no se puede imprimir el PDF desde el visor: ahí queda solo ⬇ Descargar.
   if (!navegadorSinVisorPdf()) ui.btnPrint.style.display = '';
-  ui.btnPrint.onclick = () => imprimirUrlLocal(url, ui);
+  ui.btnPrint.onclick = async () => {
+    if (doc.getNumberOfPages() > MAX_HOJAS_IMAGEN) { imprimirUrlLocal(url, ui); return; }
+    const texto = ui.btnPrint.textContent;
+    ui.btnPrint.disabled = true;
+    ui.btnPrint.textContent = '🖨 Preparando…';
+    try {
+      const hojas = await paginasPdfComoImagenes(doc.output('arraybuffer'));
+      const pagina = URL.createObjectURL(new Blob([htmlHojas(hojas, filename)], { type: 'text/html' }));
+      ui.onClose(() => { URL.revokeObjectURL(pagina); hojas.forEach((x) => URL.revokeObjectURL(x.url)); });
+      imprimirUrlLocal(pagina, ui);
+    } catch {
+      // Si pdf.js no carga, se imprime el PDF como antes.
+      imprimirUrlLocal(url, ui);
+    } finally {
+      ui.btnPrint.disabled = false;
+      ui.btnPrint.textContent = texto;
+    }
+  };
   ui.onClose(() => URL.revokeObjectURL(url));
 }
 
