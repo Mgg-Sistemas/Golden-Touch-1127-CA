@@ -31,6 +31,8 @@ import {
 import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from './dobleRegistro';
 import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
+import { configDeFecha } from './parametros.repository';
+import { tablaDisponible } from './disponibilidad';
 
 const T_RETENCIONES = 'retenciones';
 const T_CONCEPTOS = 'retenciones_conceptos';
@@ -170,7 +172,10 @@ export async function guardarConfigRetencion(c: ConfigRetencion, locales?: Alicu
   if (!data?.length) throw new Error('Los parámetros fiscales aún no se pueden guardar con este permiso: falta aplicar un cambio pendiente en la base.');
 }
 
-/* ───────────────── Tipos de licencia (en el JSON hasta R3) ───────────────── */
+/* ───────────────── Tipos de licencia (en el JSON hasta R3; con R3, su tabla) ───────────────── */
+
+const T_LICENCIA_TIPOS = 'retencion_licencia_tipos';
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface TipoLicencia { id: string; nombre: string; activo: boolean }
 
@@ -186,7 +191,33 @@ export function tiposLicenciaDeJson(j: JsonParametros | null | undefined): TipoL
 }
 
 export async function listTiposLicencia(): Promise<TipoLicencia[]> {
+  if (await tablaDisponible(T_LICENCIA_TIPOS)) {
+    const { data, error } = await supabase.from(T_LICENCIA_TIPOS).select('id, nombre, activo').order('orden').order('nombre');
+    if (error) throw errorRetencion(error, 'No se pudieron leer los tipos de licencia.');
+    return ((data ?? []) as { id: string; nombre: string; activo: boolean }[]).map((t) => ({ id: t.id, nombre: t.nombre, activo: t.activo !== false }));
+  }
   return tiposLicenciaDeJson(await leerJsonParametros());
+}
+
+/**
+ * Con R3: cada tipo en su fila. Los que ya existen se actualizan por id; los
+ * nuevos (o con id de antes de R3) se insertan. Ninguno se borra: se desactiva.
+ */
+async function guardarTiposLicenciaR3(tipos: TipoLicencia[]): Promise<void> {
+  const filas = tipos.map((t, i) => ({ ...(ES_UUID.test(t.id) ? { id: t.id } : {}), nombre: t.nombre.trim(), activo: t.activo, orden: i }));
+  const existentes = filas.filter((f) => 'id' in f);
+  const nuevas = filas.filter((f) => !('id' in f));
+  const textos = { unico: 'Ese tipo de licencia ya existe.' };
+  if (existentes.length) {
+    const { data, error } = await supabase.from(T_LICENCIA_TIPOS).upsert(existentes, { onConflict: 'id' }).select('id');
+    if (error) throw errorRetencion(error, 'No se guardaron los tipos de licencia.', textos);
+    if ((data?.length ?? 0) < existentes.length) throw new Error('No se guardaron los tipos de licencia: sin permiso de escritura en Retenciones.');
+  }
+  if (nuevas.length) {
+    const { data, error } = await supabase.from(T_LICENCIA_TIPOS).insert(nuevas).select('id');
+    if (error) throw errorRetencion(error, 'No se guardaron los tipos de licencia nuevos.', textos);
+    if ((data?.length ?? 0) < nuevas.length) throw new Error('No se guardaron los tipos de licencia nuevos: sin permiso de escritura en Retenciones.');
+  }
 }
 
 /** Guarda la lista entera sobre el JSON que ya hay. Ninguno se borra: se desactiva. */
@@ -194,6 +225,10 @@ export async function guardarTiposLicencia(tipos: TipoLicencia[]): Promise<void>
   const nombres = tipos.map((t) => t.nombre.trim().toLocaleLowerCase('es'));
   if (nombres.some((x) => !x)) throw new Error('Un tipo de licencia no puede quedar sin nombre.');
   if (new Set(nombres).size !== nombres.length) throw new Error('Ese tipo de licencia ya existe.');
+  if (await tablaDisponible(T_LICENCIA_TIPOS)) {
+    await guardarTiposLicenciaR3(tipos);
+    return;
+  }
   const previo = await leerJsonParametros();
   const value = { ...(previo ?? {}), licencia_tipos: tipos.map((t) => ({ id: t.id, nombre: t.nombre.trim(), activo: t.activo })) };
   const { data, error } = await supabase.from('config')
@@ -563,6 +598,8 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
   if (!/^\d{6}$/.test(input.periodo)) throw new Error('El período de la retención no es válido.');
   const previa = await retencionVigenteDeLaFactura(input);
   if (previa) throw new Error(mensajeDobleRegistro(previa));
+  // R3: la UT (y los % del IVA) de la fecha de la factura. Antes de pedir el número: si falta, no se gasta.
+  const vigente = await configDeFecha(config, (input.facturaFecha ?? '').slice(0, 10), [input.tipo]);
 
   let numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
   if (llevaNumeroPropio(input)) {
@@ -573,7 +610,7 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
     numero = { entero, texto: formatoComprobante(input.periodo, entero) };
   }
   // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
-  const fila = { ...filaGtDeNueva(input, numero), valor_ut: config.valorUt > 0 ? config.valorUt : null };
+  const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null };
   const { data, error } = await supabase.from(T_RETENCIONES).insert(fila).select('*').single();
   if (error) throw errorLegible(error);
   return aRetencion(data as Record<string, unknown>);

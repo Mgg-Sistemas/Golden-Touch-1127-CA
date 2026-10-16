@@ -22,6 +22,7 @@ import {
   type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import { getConfigRetencion, listConceptos, type DocKind } from './retencionesFiscal.repository';
+import { configDeFecha } from './parametros.repository';
 import { esCeroSinMotivo } from './motivoCero';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import {
@@ -94,7 +95,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   onClose: () => void;
   onHecho: (res: Awaited<ReturnType<typeof registrarFactura>>) => void;
 }) {
+  const [configBase, setConfigBase] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
+  // Con R3, los valores (UT, % del IVA) de la fecha de la factura; sin R3, los de Parámetros.
   const [config, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
+  const [avisoFecha, setAvisoFecha] = useState<string | null>(null);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [saving, setSaving] = useState(false);
@@ -118,7 +122,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
       .then(([c, cs, ps]) => {
-        setConfig(c); setConceptos(cs);
+        setConfigBase(c); setConfig(c); setConceptos(cs);
         const activos = ps.filter((p) => p.estado === 'activo');
         setProveedores(activos);
         const p = s.contraparteId ? activos.find((x) => x.id === s.contraparteId) : null;
@@ -142,6 +146,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
   const esManual = direccion === 'recibida';
   const tasa = nDec(tasaStr);
+
+  const tiposLineas = lineas.map((l) => l.tipo).join(',');
+  useEffect(() => {
+    let vivo = true;
+    configDeFecha(configBase, facturaFecha, tiposLineas ? (tiposLineas.split(',') as TipoImpuesto[]) : [])
+      .then((c) => { if (vivo) { setConfig(c); setAvisoFecha(null); } })
+      .catch((e) => { if (vivo) { setConfig(configBase); setAvisoFecha(e instanceof Error ? e.message : 'No se pudieron leer los valores de esa fecha.'); } });
+    return () => { vivo = false; };
+  }, [configBase, facturaFecha, tiposLineas]);
 
   const setLinea = useCallback((id: number, patch: Partial<LineaUI>) => {
     setLineas((xs) => xs.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -172,6 +185,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (direccion === 'recibida' && !contraparte.trim()) return 'Indica quién nos retuvo.';
     if (!facturaNro.trim()) return 'Indica el número de la factura.';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(facturaFecha)) return 'Indica la fecha de la factura.';
+    if (avisoFecha) return avisoFecha;
     if (moneda !== 'Bs' && !(tasa > 0)) return 'Indica la tasa para llevar los montos a bolívares.';
     if (!lineas.length) return 'Agrega al menos una línea de impuesto.';
     for (const l of lineas) {
@@ -302,6 +316,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Fecha de la factura</label>
           <input className="input" type="date" value={facturaFecha} onChange={(e) => setFacturaFecha(e.target.value)} />
+          {avisoFecha && <small className="hint" style={{ color: 'var(--danger)' }}>{avisoFecha}</small>}
         </div>
         <div className="form-row" style={{ flex: '1 1 130px' }}>
           <label>Total de la factura</label>
