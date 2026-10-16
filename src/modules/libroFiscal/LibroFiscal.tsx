@@ -27,7 +27,8 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
-import { r1Disponible } from './disponibilidad';
+import { r1Disponible, r2Disponible } from './disponibilidad';
+import { ParametrosImpuestos } from './ParametrosImpuestos';
 import { ParametrosEntes } from './ParametrosEntes';
 import { ParametrosFirmaSello } from './ParametrosFirmaSello';
 import { ParametrosPerfiles } from './ParametrosPerfiles';
@@ -1224,7 +1225,11 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [r1, setR1] = useState(false);
-  useEffect(() => { void r1Disponible().then(setR1).catch(() => setR1(false)); }, []);
+  const [r2, setR2] = useState(false);
+  useEffect(() => {
+    void r1Disponible().then(setR1).catch(() => setR1(false));
+    void r2Disponible().then(setR2).catch(() => setR2(false));
+  }, []);
   const visible = (s: DefSeccionPa) => CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key));
   const AJUSTES_VIS = AJUSTES_PA.filter(visible);
   const AVANZADOS_VIS = AVANZADOS_PA.filter(visible);
@@ -1264,7 +1269,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
       case 'empresa': return cfg.rif ? `RIF ${cfg.rif}` : 'Sin configurar';
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
-      case 'impuestos': return `${conceptos.length} conceptos`;
+      case 'impuestos': return r2 ? 'Ficha de cada impuesto y conceptos del ISLR' : `${conceptos.length} conceptos`;
       default: return '';
     }
   }
@@ -1448,9 +1453,10 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           )}
 
           {/* ── Impuestos y reglas (catálogo de conceptos) ── */}
-          {seccion === 'impuestos' && (
-            <CatalogoConceptos conceptos={conceptos} puedeEditar={puedeEditar} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />
-          )}
+          {seccion === 'impuestos' && (() => {
+            const catalogo = <CatalogoConceptos conceptos={conceptos} puedeEditar={puedeEditar} onCambio={() => void recargar().catch(() => { /* se reintenta */ })} />;
+            return r2 ? <ParametrosImpuestos puedeEditar={puedeEditar} conceptosIslr={catalogo} /> : catalogo;
+          })()}
 
           {/* ── Motivos de «No aplica» ── */}
           {seccion === 'motivos' && <SeccionMotivos puedeEditar={puedeEditar} />}
