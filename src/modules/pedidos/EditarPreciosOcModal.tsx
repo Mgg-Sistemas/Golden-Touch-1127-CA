@@ -118,6 +118,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
     // Los ítems agregados aquí deben tener nombre y cantidad válida.
     const nuevosInvalidos = items.slice(origLen).some((it) => !it.nombre.trim() || !(Number(it.cantidad) > 0));
     if (nuevosInvalidos) { setError('Completa nombre y cantidad (> 0) de los productos agregados.'); return; }
+    if (idxComprar.some(({ it }) => !(Number(it.cantidad) > 0))) { setError('La cantidad de cada producto debe ser mayor que 0.'); return; }
     setSaving(true);
     try {
       const limpios = items.map((it) => (it.nombre ? { ...it, nombre: it.nombre.trim() } : it));
@@ -131,15 +132,15 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   }
 
   return (
-    <Modal title={`✏️ Editar precios · ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={
+    <Modal title={`✏️ Editar precios y cantidades · ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar precios'}</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-        Ajusta el <strong>precio unitario</strong> de cada ítem y, si hace falta, <strong>agrega productos</strong> (hasta {MAX_NUEVOS}). También puedes <strong>corregir el IVA y el IGTF</strong> aquí abajo. El <strong>total a pagar</strong> se recompone desde cero (base + IVA + IGTF), el cambio queda en la <strong>traza</strong> de la OC y se sincroniza solo en Tesorería.
+        Ajusta la <strong>cantidad</strong> y el <strong>precio unitario</strong> de cada ítem y, si hace falta, <strong>agrega productos</strong> (hasta {MAX_NUEVOS}). También puedes <strong>corregir el IVA y el IGTF</strong> aquí abajo. El <strong>total a pagar</strong> se recompone desde cero (base + IVA + IGTF), el cambio queda en la <strong>traza</strong> de la OC y se sincroniza solo en Tesorería.
       </p>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
@@ -161,11 +162,10 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
                   )}
                 </td>
                 <td className="num">
-                  {esNuevo ? (
-                    <input className="input mono" type="number" min={0} step="any" style={{ width: 80, textAlign: 'right' }}
-                      value={String(it.cantidad ?? 0)} onChange={(e) => setCantidad(i, e.target.value)} />
-                  ) : (
-                    <span className="mono">{Number(it.cantidad)}</span>
+                  <input className="input mono" type="number" min={0} step="any" style={{ width: 80, textAlign: 'right' }}
+                    value={String(it.cantidad ?? 0)} onChange={(e) => setCantidad(i, e.target.value)} disabled={saving} />
+                  {!esNuevo && Number(it.cantidad) !== Number(o.items?.[i]?.cantidad) && (
+                    <div className="muted" style={{ fontSize: '.72rem' }}>antes {Number(o.items?.[i]?.cantidad)}</div>
                   )}
                 </td>
                 <td className="num">
