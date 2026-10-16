@@ -1,7 +1,7 @@
 /* ============================================================
    Golden Touch · Libro fiscal · Errores de la base, en texto de pantalla
 
-   Las funciones de la base (V2, V3, VF) rechazan con un prefijo estable
+   Las funciones de la base (V2, V3, VF, R1) rechazan con un prefijo estable
    RET_* en el mensaje. Aquí se traduce cada código a un texto neutro; si el
    código no está en la lista, se muestra el mensaje de la base tal cual
    (BD ya lo redacta para la pantalla). Pieza pura, sin base de datos.
@@ -34,7 +34,16 @@ const TEXTOS: Record<string, string> = {
   RET_PERIODO_SOLO_POR_FUNCION: 'El estado del período solo se cambia con «Declarar» o «Reabrir».',
   RET_MOTIVO_OBLIGATORIO: 'Indica el motivo del cambio.',
   RET_SIN_PERMISO: 'No tienes permiso para esta operación en Retenciones.',
+  RET_PERFIL_DESDE: 'La versión nueva del perfil fiscal tiene que empezar después de la vigente.',
 };
+
+/** Textos propios de una pantalla para los rechazos genéricos de Postgres. */
+export interface TextosError {
+  /** 23505: ya existe (nombre, fecha de versión, actividad repetida…). */
+  unico?: string;
+  /** 23514: no cumple una regla de la tabla. */
+  regla?: string;
+}
 
 /** El código RET_* que trae un mensaje de la base, o null. */
 export function codigoRet(mensaje: string | null | undefined): string | null {
@@ -43,11 +52,21 @@ export function codigoRet(mensaje: string | null | undefined): string | null {
 }
 
 /** Un error de Supabase/PostgREST → un Error con texto de pantalla. */
-export function errorRetencion(e: { code?: string; message?: string } | null | undefined, porDefecto = 'No se pudo completar la operación.'): Error {
+export function errorRetencion(
+  e: { code?: string; message?: string } | null | undefined,
+  porDefecto = 'No se pudo completar la operación.',
+  textos: TextosError = {},
+): Error {
   const code = e?.code ?? '';
   const ret = codigoRet(e?.message);
+  if (ret === 'RET_PERFIL_DESDE') {
+    const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
+    return new Error(fecha ? `La versión nueva del perfil fiscal tiene que empezar después del ${fecha}, que es cuando empezó la vigente.` : TEXTOS.RET_PERFIL_DESDE);
+  }
   if (ret && TEXTOS[ret]) return new Error(TEXTOS[ret]);
   if (code === '42501') return new Error(TEXTOS.RET_SIN_PERMISO);
+  if (code === '23514' && textos.regla) return new Error(textos.regla);
+  if (code === '23505' && textos.unico) return new Error(textos.unico);
   if (code === '23514') {
     return new Error('La empresa no puede practicar esa retención con su régimen (revisa agente de IVA / contribuyente especial en Parámetros).');
   }
