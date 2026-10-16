@@ -165,6 +165,39 @@ export async function guardarConfigRetencion(c: ConfigRetencion, locales?: Alicu
   if (!data?.length) throw new Error('Los parámetros fiscales aún no se pueden guardar con este permiso: falta aplicar un cambio pendiente en la base.');
 }
 
+/* ───────────────── Tipos de licencia (en el JSON hasta R3) ───────────────── */
+
+export interface TipoLicencia { id: string; nombre: string; activo: boolean }
+
+/** Los tipos guardados; los que no tienen forma válida se descartan. */
+export function tiposLicenciaDeJson(j: JsonParametros | null | undefined): TipoLicencia[] {
+  const xs = Array.isArray(j?.licencia_tipos) ? (j?.licencia_tipos as unknown[]) : [];
+  return xs.flatMap((x) => {
+    const t = x as Partial<TipoLicencia>;
+    return typeof t?.id === 'string' && typeof t?.nombre === 'string' && t.nombre.trim()
+      ? [{ id: t.id, nombre: t.nombre.trim(), activo: t.activo !== false }]
+      : [];
+  });
+}
+
+export async function listTiposLicencia(): Promise<TipoLicencia[]> {
+  return tiposLicenciaDeJson(await leerJsonParametros());
+}
+
+/** Guarda la lista entera sobre el JSON que ya hay. Ninguno se borra: se desactiva. */
+export async function guardarTiposLicencia(tipos: TipoLicencia[]): Promise<void> {
+  const nombres = tipos.map((t) => t.nombre.trim().toLocaleLowerCase('es'));
+  if (nombres.some((x) => !x)) throw new Error('Un tipo de licencia no puede quedar sin nombre.');
+  if (new Set(nombres).size !== nombres.length) throw new Error('Ese tipo de licencia ya existe.');
+  const previo = await leerJsonParametros();
+  const value = { ...(previo ?? {}), licencia_tipos: tipos.map((t) => ({ id: t.id, nombre: t.nombre.trim(), activo: t.activo })) };
+  const { data, error } = await supabase.from('config')
+    .upsert({ key: CLAVE_CONFIG, value }, { onConflict: 'key' })
+    .select('key');
+  if (error) throw error;
+  if (!data?.length) throw new Error('No se guardó: tu cuenta no tiene permiso para cambiar los parámetros de retenciones.');
+}
+
 /* ───────────────────── Catálogo ───────────────────── */
 
 const COLUMNA_SUJETO: Record<SujetoGt, 'pjd' | 'pjnd' | 'pnr' | 'pnnr'> = {

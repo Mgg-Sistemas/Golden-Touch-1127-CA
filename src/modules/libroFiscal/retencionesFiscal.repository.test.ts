@@ -34,7 +34,7 @@ import {
   SIN_PERMISO, aRetencion, anularRetencion, conceptosDeFilaGt, conceptosLocales, configDeJson, direccionDeGt,
   errorPorcentajesIva, guardarConfigRetencion,
   filaGtDeNueva, jsonDeConfig, llevaNumeroPropio, marcarDeclarada, registrarRetencion, rolAGt,
-  sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, type NuevaRetencion,
+  sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, tiposLicenciaDeJson, type NuevaRetencion,
 } from './retencionesFiscal.repository';
 
 // Datos inventados. El RIF se arma con el dígito verificador que acepte la validación de GT.
@@ -303,5 +303,24 @@ describe('un cambio que no toca ninguna fila no es un éxito', () => {
   it('declarar sin permiso también avisa', async () => {
     cola.push({ data: [], error: null });
     await expect(marcarDeclarada('r-1', true, 'prueba@ejemplo.com')).rejects.toThrow(SIN_PERMISO);
+  });
+});
+
+describe('tipos de licencia en el JSON de parámetros', () => {
+  it('lee los válidos y descarta lo que no tiene forma', () => {
+    expect(tiposLicenciaDeJson({ licencia_tipos: [
+      { id: 'a', nombre: ' Permanente ', activo: true },
+      { id: 'b', nombre: 'Provisional', activo: false },
+      { id: 'c', nombre: '' },
+      { nombre: 'sin id' },
+      'texto suelto',
+    ] })).toEqual([
+      { id: 'a', nombre: 'Permanente', activo: true },
+      { id: 'b', nombre: 'Provisional', activo: false },
+    ]);
+  });
+  it('sin la clave, la lista está vacía', () => {
+    expect(tiposLicenciaDeJson({})).toEqual([]);
+    expect(tiposLicenciaDeJson(null)).toEqual([]);
   });
 });

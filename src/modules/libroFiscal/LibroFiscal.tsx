@@ -39,9 +39,9 @@ import {
 } from './retencionesCalculo';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
-  guardarConfigRetencion, listConceptos, listRetenciones, registrarRetencion,
+  guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion,
   PORCENTAJES_IVA,
-  type AlicuotasLocales, type DocKind, type RetencionPracticada,
+  type AlicuotasLocales, type DocKind, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
 import { faltaEnLaCarga, leerMonto } from './validarCarga';
 import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
@@ -1175,7 +1175,7 @@ const AJUSTES_PA: DefSeccionPa[] = [
     efecto: 'Con estos datos se propone si cada retención aplica en las facturas pendientes.', noCambia: 'Las retenciones registradas y sus comprobantes conservan los datos con que se emitieron.' },
   { key: 'licencias', capa: 'ajustes', titulo: 'Tipos de licencia', linea: 'Los tipos de licencia de actividad económica que se eligen en el perfil.',
     que: 'Los tipos de licencia de actividad económica que se eligen en el perfil fiscal de cada proveedor.', ingresa: 'El nombre del tipo.',
-    efecto: 'Aparecen en el selector «Tipo» de la licencia, en el perfil fiscal del proveedor.', noCambia: 'Un perfil que ya tiene un tipo lo conserva, aunque el tipo se deshabilite.' },
+    efecto: 'Son las opciones del tipo de licencia en el perfil fiscal de cada proveedor.', noCambia: 'Un perfil que ya tiene un tipo lo conserva, aunque el tipo se desactive.' },
   { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Los datos del agente de retención que van en cada comprobante.',
     que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
     efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
@@ -1201,7 +1201,7 @@ const AVANZADOS_PA: DefSeccionPa[] = [
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
 ];
 /** Solo se muestran las secciones que guardan en la base; las demás vuelven cuando exista su tabla (R1, R2, R3, R6). */
-const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'impuestos', 'valores', 'regimen']);
+const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen']);
 const AJUSTES_VIS = AJUSTES_PA.filter((s) => CONECTADAS_PA.has(s.key));
 const AVANZADOS_VIS = AVANZADOS_PA.filter((s) => CONECTADAS_PA.has(s.key));
 const TODAS_PA: Record<SeccionPa, DefSeccionPa> = Object.fromEntries([...AJUSTES_PA, ...AVANZADOS_PA].map((s) => [s.key, s])) as Record<SeccionPa, DefSeccionPa>;
@@ -1575,38 +1575,62 @@ function SeccionEntes({ puedeEditar }: { puedeEditar: boolean }) {
 }
 
 function SeccionLicencias({ puedeEditar }: { puedeEditar: boolean }) {
-  const [tipos, setTipos] = useState([
-    { id: '1', nombre: 'Licencia de actividad económica', activo: true },
-    { id: '2', nombre: 'Licencia temporal', activo: true },
-    { id: '3', nombre: 'Exoneración municipal', activo: true },
-  ]);
+  const [tipos, setTipos] = useState<TipoLicencia[] | null>(null);
   const [nuevo, setNuevo] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function agregar() {
-    if (!nuevo.trim()) return;
-    setTipos((prev) => [...prev, { id: String(Date.now()), nombre: nuevo.trim(), activo: true }]);
-    setNuevo('');
+  useEffect(() => {
+    listTiposLicencia().then(setTipos).catch((e) => setError(e instanceof Error ? e.message : 'No se pudieron leer los tipos de licencia.'));
+  }, []);
+
+  // Cada cambio se guarda en la base; la lista en pantalla solo cambia si guardó.
+  async function guardar(lista: TipoLicencia[], aviso: string) {
+    setGuardando(true); setError(null);
+    try {
+      await guardarTiposLicencia(lista);
+      setTipos(lista);
+      toast(aviso, 'success');
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo guardar.');
+      return false;
+    } finally { setGuardando(false); }
   }
 
+  async function agregar() {
+    const nombre = nuevo.trim();
+    if (!nombre || !tipos) return;
+    if (await guardar([...tipos, { id: crypto.randomUUID(), nombre, activo: true }], 'Tipo de licencia agregado')) setNuevo('');
+  }
+
+  if (!tipos && !error) return <p className="muted">Cargando…</p>;
+
   return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
+    <fieldset disabled={!puedeEditar || guardando} style={{ border: 0, padding: 0, margin: 0 }}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><small>{error}</small></div>}
+      {tipos && tipos.length === 0 && <p className="muted" style={{ fontSize: '.84rem' }}>Todavía no hay tipos de licencia. Agrega el primero.</p>}
       <div style={{ display: 'grid', gap: '.35rem' }}>
-        {tipos.map((t) => (
+        {(tipos ?? []).map((t) => (
           <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .6rem', borderRadius: 'var(--r-md)', background: 'var(--bg-1)', opacity: t.activo ? 1 : .5 }}>
-            <span style={{ flex: 1, fontSize: '.86rem' }}>{t.nombre}</span>
-            <button type="button" className="btn btn-sm btn-ghost"
-              onClick={() => setTipos((p) => p.map((x) => x.id === t.id ? { ...x, activo: !x.activo } : x))}>
-              {t.activo ? 'Desactivar' : 'Activar'}
-            </button>
+            <span style={{ flex: 1, fontSize: '.86rem' }}>{t.nombre}{!t.activo && <small className="muted"> · desactivado</small>}</span>
+            {puedeEditar && (
+              <button type="button" className="btn btn-sm btn-ghost"
+                onClick={() => void guardar((tipos ?? []).map((x) => x.id === t.id ? { ...x, activo: !x.activo } : x), t.activo ? 'Tipo desactivado' : 'Tipo activado')}>
+                {t.activo ? 'Desactivar' : 'Activar'}
+              </button>
+            )}
           </div>
         ))}
       </div>
-      {puedeEditar && (
+      {puedeEditar && tipos && (
         <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
-          <input className="input" style={{ flex: 1 }} placeholder="Nuevo tipo de licencia" value={nuevo} onChange={(e) => setNuevo(e.target.value)} />
-          <button type="button" className="btn" onClick={agregar}>Agregar</button>
+          <input className="input" style={{ flex: 1 }} placeholder="Nuevo tipo de licencia (p. ej.: Permanente, Provisional)" value={nuevo}
+            onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} />
+          <button type="button" className="btn" onClick={() => void agregar()} disabled={!nuevo.trim()}>Agregar</button>
         </div>
       )}
+      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Ningún tipo se borra: se desactiva y deja de ofrecerse.</p>
     </fieldset>
   );
 }
