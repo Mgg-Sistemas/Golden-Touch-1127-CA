@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { faltaEnLaCarga } from './validarCarga';
+import { faltaEnLaCarga, leerMonto } from './validarCarga';
 
 describe('lo que la carga exige antes de registrar', () => {
   it('sin N° de factura no se registra una retención de IVA, ISLR o municipal', () => {
@@ -26,5 +26,29 @@ describe('lo que la carga exige antes de registrar', () => {
   it('una fecha a medias tampoco sirve', () => {
     expect(faltaEnLaCarga({ tipo: 'islr', facturaNumero: '000123', facturaFecha: '2026-10' })).toContain('Fecha de la factura requerida');
     expect(faltaEnLaCarga({ tipo: 'islr', facturaNumero: '000123', facturaFecha: '2026-13-01' })).toContain('Fecha de la factura requerida');
+  });
+});
+
+describe('montos escritos a mano', () => {
+  it('entiende la coma decimal con y sin punto de miles', () => {
+    expect(leerMonto('1.234,56')).toBe(1234.56);
+    expect(leerMonto('1234,56')).toBe(1234.56);
+    expect(leerMonto('1.234.567,8')).toBe(1234567.8);
+  });
+  it('entiende el punto decimal (como viene la tasa)', () => {
+    expect(leerMonto('879.12')).toBe(879.12);
+    expect(leerMonto('151.54')).toBe(151.54);
+  });
+  it('varios puntos sin coma son miles', () => {
+    expect(leerMonto('1.234.567')).toBe(1234567);
+  });
+  it('vacío es 0', () => {
+    expect(leerMonto('')).toBe(0);
+    expect(leerMonto('  ')).toBe(0);
+  });
+  it('lo que no se entiende no se vuelve 0', () => {
+    expect(leerMonto('1,234,56')).toBeNull();
+    expect(leerMonto('12a')).toBeNull();
+    expect(leerMonto('1.23.4,5')).toBeNull();
   });
 });

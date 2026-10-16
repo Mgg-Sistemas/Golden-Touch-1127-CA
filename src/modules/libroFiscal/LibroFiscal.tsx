@@ -43,7 +43,7 @@ import {
   PORCENTAJES_IVA,
   type AlicuotasLocales, type DocKind, type RetencionPracticada,
 } from './retencionesFiscal.repository';
-import { faltaEnLaCarga } from './validarCarga';
+import { faltaEnLaCarga, leerMonto } from './validarCarga';
 import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
 import { Paginador } from './ListaControles';
 import './libroFiscal.css';
@@ -64,7 +64,8 @@ function fechaCorta(iso: string): string {
   const [y, m, d] = iso.split('-');
   return y && m && d ? `${d}/${m}/${y}` : '—';
 }
-const nDec = (v: string) => Number(String(v).replace(',', '.')) || 0;
+/** Para calcular mientras se escribe. Lo ilegible lo señala `montosIlegibles` antes de registrar. */
+const nDec = (v: string) => leerMonto(v) ?? 0;
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 const primeroDelMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
 /** Practicada sin OC, CS ni compra directa: se registró a mano, sin documento del sistema. */
@@ -748,10 +749,18 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const sinDocumento = direccion === 'practicada' && !semilla.docId;
   const rifMal = rif.trim() !== '' && !rifValido(rif);
   const equivalenteUsd = moneda === 'Bs' && tasaBcv?.tasa ? montoFinal / tasaBcv.tasa : null;
+  const montosIlegibles = ([
+    [tipo === 'iva' ? 'Base imponible' : 'Monto del pago', baseStr, true],
+    ['IVA de la factura', ivaStr, tipo === 'iva'],
+    ['Tasa', tasaStr, moneda !== 'Bs'],
+    ['% retenido', pctStr, esManual],
+    ['Monto retenido', montoStr, esManual],
+  ] as Array<[string, string, boolean]>).filter(([, v, aplica]) => aplica && leerMonto(v) == null).map(([n]) => n);
 
   async function emitir() {
     setError(null);
     if (bloqueo) { setError(bloqueo); return; }
+    if (montosIlegibles.length) { setError(`No se entiende: ${montosIlegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`); return; }
     if (montoFinal < 0) { setError('El monto no puede ser negativo.'); return; }
     if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escriba el motivo del 0%.'); return; }
     if (esManual && !contraparte.trim()) { setError('Indicar la contraparte que practicó la retención.'); return; }
@@ -1058,6 +1067,11 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.8rem' }}>
           {esManual ? significadoRetencion(tipo, direccion) : calculo.explicacion}
         </p>
+        {montosIlegibles.length > 0 && (
+          <p style={{ margin: '.3rem 0 0', fontSize: '.8rem', color: 'var(--warning)' }}>
+            No se entiende {montosIlegibles.join(', ')}: el cálculo no los toma. Escribe 1.234,56 o 1234,56.
+          </p>
+        )}
       </div>
       <div className="hint muted" style={{ fontSize: '.74rem' }}>
         {direccion === 'practicada' && tipo !== 'igtf'
