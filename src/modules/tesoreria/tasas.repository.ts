@@ -109,6 +109,21 @@ async function ultimaConocida(): Promise<TasaHoy> {
   };
 }
 
+/** Tasa USD del BCV de una fecha (YYYY-MM-DD), o null si no está registrada. La manual manda. */
+export async function getTasaUsdDeFecha(fecha: string): Promise<number | null> {
+  const { data, error } = await supabase.from('tasa_cambio').select('tasa, fuente')
+    .eq('moneda', 'USD').eq('fecha', fecha);
+  if (error) throw error;
+  const rows = (data ?? []) as Array<{ tasa: number; fuente: string | null }>;
+  const r = rows.find((x) => x.fuente === 'manual') ?? rows[0];
+  if (r) return Number(r.tasa);
+  if (fecha === hoyVE()) {
+    const hoy = await getTasaHoy();
+    if (hoy.fecha === fecha && hoy.usd != null) return hoy.usd;
+  }
+  return null;
+}
+
 /** Corrección / carga manual de la tasa de una moneda (admin). Acepta cualquier
  *  moneda registrada (USD/EUR/USDT/COP o personalizada). */
 export async function setTasaManual(input: { moneda: string; tasa: number; fecha?: string }): Promise<void> {

@@ -26,11 +26,11 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
   motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
@@ -645,7 +645,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [numero, setNumero] = useState('');
   const [facturaNumero, setFacturaNumero] = useState('');
   const [facturaControl, setFacturaControl] = useState('');
-  const [facturaFecha, setFacturaFecha] = useState(hoyIso());
+  const [facturaFecha, setFacturaFecha] = useState('');
+  const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
+  const [tasaNota, setTasaNota] = useState<string | null>(null);
   const [baseStr, setBaseStr] = useState(String(semilla.baseImponible ?? semilla.total ?? 0));
   const [ivaStr, setIvaStr] = useState(String(semilla.iva ?? 0));
   const [pctStr, setPctStr] = useState('');
@@ -673,8 +675,24 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         }
       })
       .catch((e) => setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'));
-    getTasaHoy().then((t) => { if (t.usd != null) setTasaStr(String(t.usd)); }).catch(() => { /* se escribe a mano */ });
   }, []);
+
+  // La tasa es la BCV de la fecha de la factura (sábado y domingo: la del lunes), no la del día en que se registra.
+  useEffect(() => {
+    if (moneda === 'Bs') { setTasaNota(null); return; }
+    const f = fechaTasaBcv(facturaFecha);
+    if (!f) { setTasaNota('Escriba la fecha de la factura: la tasa es la BCV de esa fecha.'); return; }
+    let vigente = true;
+    const cuando = f === facturaFecha ? fechaCorta(f) : `${fechaCorta(f)}, el lunes siguiente`;
+    getTasaUsdDeFecha(f)
+      .then((t) => {
+        if (!vigente) return;
+        if (t != null) { setTasaStr(String(t)); setTasaNota(`Tasa BCV del ${cuando}, por la fecha de la factura.`); }
+        else { setTasaStr(''); setTasaNota(`No hay tasa BCV registrada del ${cuando}: escríbala.`); }
+      })
+      .catch(() => { if (vigente) setTasaNota('No se pudo leer la tasa BCV: escríbala.'); });
+    return () => { vigente = false; };
+  }, [facturaFecha, moneda]);
 
   const opcionesProveedor = useMemo(() => {
     const lista = proveedorIdsPendientes
@@ -730,6 +748,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (!esManual && !proveedorId) { setError('Seleccionar el proveedor al que se le practica la retención.'); return; }
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indicar la tasa de cambio para convertir la retención a bolívares.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) { setError('Indicar la fecha de la retención (emisión del comprobante).'); return; }
     setSaving(true);
     try {
       const periodo = periodoDe(facturaFecha);
@@ -744,6 +763,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         facturaNumero: facturaNumero.trim() || null,
         facturaControl: facturaControl.trim() || null,
         facturaFecha: facturaFecha || null,
+        fechaRetencion,
         periodo, quincena: tipo === 'iva' ? quincenaDe(facturaFecha) : null,
         numeroComprobante: esManual ? (numero.trim() || null) : null,
         conceptoId: esManual ? null : (concepto?.id ?? null),
@@ -838,7 +858,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           <div className="form-row" style={{ flex: '0 1 140px' }}>
             <label>Tasa (Bs por $)</label>
             <input className="input mono" value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} inputMode="decimal" />
-            <small className="hint muted">Para el equivalente en Bs, que es como se declara.</small>
+            <small className="hint muted">{tasaNota ?? 'Para el equivalente en Bs, que es como se declara.'}</small>
           </div>
         )}
       </div>
@@ -956,7 +976,12 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Fecha de la factura</label>
           <input className="input" type="date" value={facturaFecha} onChange={(e) => setFacturaFecha(e.target.value)} />
-          <small className="hint muted">Define el período{tipo === 'iva' ? ' y la quincena' : ''}.</small>
+          <small className="hint muted">Define el período{tipo === 'iva' ? ' y la quincena' : ''} y la tasa.</small>
+        </div>
+        <div className="form-row" style={{ flex: '1 1 150px' }}>
+          <label>Fecha de la retención</label>
+          <input className="input" type="date" value={fechaRetencion} onChange={(e) => setFechaRetencion(e.target.value)} />
+          <small className="hint muted">Emisión del comprobante. No cambia el período.</small>
         </div>
       </div>
 

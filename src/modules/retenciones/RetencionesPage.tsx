@@ -16,6 +16,8 @@ import {
 } from './retenciones.repository';
 import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
+import { listRetenciones } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import type { TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import '@/modules/libroFiscal/libroFiscal.css';
@@ -35,6 +37,7 @@ export function RetencionesPage() {
   const [parametros, setParametros] = useState(false);
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
+  const [registradas, setRegistradas] = useState<Registradas>(new Map());
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
@@ -52,11 +55,19 @@ export function RetencionesPage() {
   useEffect(() => { setPag(1); }, [vista, fDesde, fHasta, fTipo, fTesoreria, fTexto, orden]);
 
   const reload = useCallback(async () => {
-    const [p, h] = await Promise.all([
+    const [p, h, libro] = await Promise.all([
       listRetencionesPendientes().catch(() => [] as RetencionItem[]),
       listRetencionesHechas().catch(() => [] as RetencionItem[]),
+      listRetenciones({ direccion: 'practicada' }).catch(() => []),
     ]);
-    setPendientes(p); setHechas(h);
+    const reg: Registradas = new Map();
+    for (const r of libro) {
+      if (!r.docId) continue;
+      const s = reg.get(r.docId) ?? new Set<TipoImpuesto>();
+      s.add(r.tipo);
+      reg.set(r.docId, s);
+    }
+    setPendientes(p); setHechas(h); setRegistradas(reg);
   }, []);
 
   useEffect(() => {
@@ -67,11 +78,17 @@ export function RetencionesPage() {
   }, [reload]);
 
   // Realtime multiusuario: lo que registra otro (o paga Tesorería) se refleja al instante.
-  useRealtime(['ordenes'], () => { void reload(); });
+  useRealtime(['ordenes', 'retenciones'], () => { void reload(); });
+
+  // Una OC sigue «por realizar» mientras le quede un impuesto sin registrar en el libro.
+  const porRealizar = useMemo(
+    () => pendientes.filter((i) => impuestosPendientesDeOrden(i.orden, registradas).length > 0),
+    [pendientes, registradas],
+  );
 
   const proveedorIdsPendientes = useMemo(
-    () => new Set(pendientes.map((i) => i.orden.proveedor_id).filter(Boolean) as string[]),
-    [pendientes],
+    () => new Set(porRealizar.map((i) => i.orden.proveedor_id).filter(Boolean) as string[]),
+    [porRealizar],
   );
 
   // La lista de la vista: búsqueda y fechas (las de siempre), filtros con su conteo y orden.
@@ -138,7 +155,7 @@ export function RetencionesPage() {
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
             <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
-              Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}
+              Por realizar{porRealizar.length ? ` (${porRealizar.length})` : ''}
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
@@ -181,7 +198,7 @@ export function RetencionesPage() {
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {vista === 'pendientes' && (
         <PorRealizarView
-          items={pendientes} loading={loading} canWrite={canWrite}
+          items={porRealizar} registradas={registradas} loading={loading} canWrite={canWrite}
           onVer={setSel} onVista={() => setVista('agrupada')}
           onRegistrar={setRegistrar}
         />
@@ -392,24 +409,21 @@ const IMPUESTOS_PENDIENTES: { key: ImpuestoPendiente; label: string }[] = [
   { key: 'iva', label: 'IVA' }, { key: 'islr', label: 'ISLR' }, { key: 'municipal', label: 'ISAE' },
 ];
 
-function impuestosPendientesDeOrden(o: Orden): ImpuestoPendiente[] {
+/** Impuestos registrados en el libro, por id de la OC. */
+type Registradas = Map<string, Set<TipoImpuesto>>;
+
+/** Lo que falta: ni el comprobante del flujo anterior ni una retención vigente en el libro. */
+function impuestosPendientesDeOrden(o: Orden, reg: Registradas): ImpuestoPendiente[] {
+  const ya = reg.get(o.id);
   const out: ImpuestoPendiente[] = [];
-  if (!o.retencion_iva_path) out.push('iva');
-  if (!o.retencion_islr_path) out.push('islr');
-  if (!o.retencion_municipal_path) out.push('municipal');
+  if (!o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
+  if (!o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
+  if (!o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
   return out;
 }
 
-function impuestosRegistradosDeOrden(o: Orden): number {
-  let n = 0;
-  if (o.retencion_iva_path) n++;
-  if (o.retencion_islr_path) n++;
-  if (o.retencion_municipal_path) n++;
-  return n;
-}
-
-function PorRealizarView({ items, loading, canWrite, onVer, onVista, onRegistrar }: {
-  items: RetencionItem[]; loading: boolean; canWrite: boolean;
+function PorRealizarView({ items, registradas, loading, canWrite, onVer, onVista, onRegistrar }: {
+  items: RetencionItem[]; registradas: Registradas; loading: boolean; canWrite: boolean;
   onVer: (item: RetencionItem) => void; onVista: () => void;
   onRegistrar: (semilla: SemillaRetencion) => void;
 }) {
@@ -422,8 +436,8 @@ function PorRealizarView({ items, loading, canWrite, onVer, onVista, onRegistrar
   useEffect(() => { setPag(1); }, [q, fImp, ord]);
 
   const retenidosSinRegistrar = useMemo(
-    () => items.filter((i) => i.orden.retencion_aplicada && !i.orden.retencion_finalizada),
-    [items],
+    () => items.filter((i) => i.orden.retencion_aplicada && !i.orden.retencion_finalizada && !registradas.has(i.orden.id)),
+    [items, registradas],
   );
 
   const alertas = useMemo(
@@ -443,12 +457,12 @@ function PorRealizarView({ items, loading, canWrite, onVer, onVista, onRegistrar
         if (!hay.includes(txt)) return false;
       }
       if (fImp) {
-        const pends = impuestosPendientesDeOrden(o);
+        const pends = impuestosPendientesDeOrden(o, registradas);
         if (!pends.includes(fImp as ImpuestoPendiente)) return false;
       }
       return true;
     });
-  }, [items, q, fImp]);
+  }, [items, registradas, q, fImp]);
 
   const ordenadas = useMemo(() => {
     const xs = [...filtradas];
@@ -466,10 +480,10 @@ function PorRealizarView({ items, loading, canWrite, onVer, onVista, onRegistrar
   const conteoImp = useMemo(() => {
     const c: Record<string, number> = { iva: 0, islr: 0, municipal: 0 };
     for (const i of items) {
-      for (const k of impuestosPendientesDeOrden(i.orden)) c[k]++;
+      for (const k of impuestosPendientesDeOrden(i.orden, registradas)) c[k]++;
     }
     return c;
-  }, [items]);
+  }, [items, registradas]);
 
   return (
     <>
@@ -554,8 +568,8 @@ function PorRealizarView({ items, loading, canWrite, onVer, onVista, onRegistrar
         {!loading && !ordenadas.length && <div className="lfv8-sis-vacio">Sin registros para los filtros aplicados.</div>}
 
         {!loading && visible.map(({ orden: o, proveedorNombre }) => {
-          const pends = impuestosPendientesDeOrden(o);
-          const regs = impuestosRegistradosDeOrden(o);
+          const pends = impuestosPendientesDeOrden(o, registradas);
+          const regs = IMPUESTOS_PENDIENTES.length - pends.length;
           const moneda = o.total_moneda === 'Bs' ? 'Bs' : '$';
           return (
             <div key={o.id} className="lfv8-sis-fila">
@@ -578,12 +592,12 @@ function PorRealizarView({ items, loading, canWrite, onVer, onVista, onRegistrar
               <span className="lfv8-sis-acc">
                 {pends.map((k) => {
                   const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  const tipoModal = k === 'municipal' ? 'isae' : k;
                   return (
                     <button key={k} className="btn btn-sm lfv8-btn-reg" onClick={() => onRegistrar({
                       direccion: 'practicada',
-                      tipoInicial: tipoModal as SemillaRetencion['tipoInicial'],
-                      docKind: o.tipo === 'servicio' ? 'servicio_directo' : 'oc',
+                      tipoInicial: k,
+                      // Las OC de servicio también viven en `ordenes`: van por orden_id, no por servicio_directo_id.
+                      docKind: 'oc',
                       docId: o.id, codigo: o.oc_codigo ?? o.codigo,
                       contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
                       moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',

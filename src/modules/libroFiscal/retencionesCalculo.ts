@@ -388,6 +388,21 @@ export function limiteEntregaComprobante(fechaIso: string): string {
   return base.toISOString().slice(0, 10);
 }
 
+/**
+ * Fecha de la tasa BCV que vale para una factura: la de su fecha, y si cae en
+ * sábado o domingo, la del lunes. Sin calendario de feriados.
+ */
+export function fechaTasaBcv(fechaIso: string): string {
+  const d = String(fechaIso ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+  const f = new Date(`${d}T00:00:00Z`);
+  if (Number.isNaN(f.getTime())) return '';
+  const dia = f.getUTCDay();
+  if (dia === 6) f.setUTCDate(f.getUTCDate() + 2);
+  else if (dia === 0) f.setUTCDate(f.getUTCDate() + 1);
+  return f.toISOString().slice(0, 10);
+}
+
 /* ───────────────────────── Bolívares ───────────────────────── */
 
 /**

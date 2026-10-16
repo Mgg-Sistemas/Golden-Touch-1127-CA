@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONFIG_RETENCION_DEFECTO, calcularIgtf, calcularRetencionIslr, calcularRetencionIva,
-  calcularRetencionLocal, comprobanteValido, formatoComprobante, labelPeriodo, minimoIslr,
+  calcularRetencionLocal, comprobanteValido, fechaTasaBcv, formatoComprobante, labelPeriodo, minimoIslr,
   motivoCienTexto, periodoDe, quincenaDe, retieneCienPorCiento, sustraendoIslr,
   totalRetenido, totalesPorImpuesto,
   type ConceptoRetencion, type ConfigRetencion,
@@ -332,5 +332,50 @@ describe('los totales del libro, uno por moneda', () => {
 
   it('sin filas no inventa totales', () => {
     expect(totalesPorMoneda([])).toEqual([]);
+  });
+});
+
+describe('ISLR en divisas · mínimo y sustraendo en Bs', () => {
+  const ut43: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, valorUt: 43 };
+  const pn = concepto({ sujeto: 'pn_residente', porcentaje: 3, aplicaSustraendo: true, baseMinimaUt: 83.3334 });
+
+  it('compara la base en Bs contra el mínimo y resta el sustraendo convertido a $', () => {
+    const r = calcularRetencionIslr({ montoPago: 151.54, concepto: pn, moneda: 'USD', tasa: 879.12 }, ut43);
+    expect(r.sustraendo).toBe(0.12);
+    expect(r.montoRetenido).toBe(4.43);
+  });
+
+  it('sin la tasa compararía $ contra Bs: con tasa no se queda en 0', () => {
+    expect(calcularRetencionIslr({ montoPago: 151.54, concepto: pn }, ut43).montoRetenido).toBe(0);
+    expect(calcularRetencionIslr({ montoPago: 151.54, concepto: pn, moneda: 'USD', tasa: 879.12 }, ut43).montoRetenido).toBeGreaterThan(0);
+  });
+
+  it('por debajo del mínimo en Bs no retiene, y lo explica en Bs', () => {
+    const r = calcularRetencionIslr({ montoPago: 3, concepto: pn, moneda: 'USD', tasa: 879.12 }, ut43);
+    expect(r.montoRetenido).toBe(0);
+    expect(r.explicacion).toContain('Bs');
+  });
+
+  it('en Bs la tasa no cambia nada', () => {
+    const conTasa = calcularRetencionIslr({ montoPago: 100000, concepto: pn, moneda: 'Bs', tasa: 879.12 }, ut43);
+    const sinTasa = calcularRetencionIslr({ montoPago: 100000, concepto: pn }, ut43);
+    expect(conTasa.montoRetenido).toBe(sinTasa.montoRetenido);
+  });
+});
+
+describe('fecha de la tasa BCV de una factura', () => {
+  it('un día hábil usa su propia fecha', () => {
+    expect(fechaTasaBcv('2026-10-16')).toBe('2026-10-16');
+  });
+  it('sábado y domingo usan la del lunes', () => {
+    expect(fechaTasaBcv('2026-10-17')).toBe('2026-10-19');
+    expect(fechaTasaBcv('2026-10-18')).toBe('2026-10-19');
+  });
+  it('cruza el fin de mes', () => {
+    expect(fechaTasaBcv('2026-10-31')).toBe('2026-11-02');
+  });
+  it('sin fecha válida no inventa una', () => {
+    expect(fechaTasaBcv('')).toBe('');
+    expect(fechaTasaBcv('2026-13-40')).toBe('');
   });
 });

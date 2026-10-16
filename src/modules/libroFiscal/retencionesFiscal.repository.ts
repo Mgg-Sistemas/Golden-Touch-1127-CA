@@ -406,6 +406,8 @@ export interface NuevaRetencion {
   facturaNumero?: string | null;
   facturaControl?: string | null;
   facturaFecha?: string | null;
+  /** Emisión del comprobante (columna `fecha`). El período sale de la fecha de la factura. */
+  fechaRetencion?: string | null;
   periodo: string;
   quincena?: 1 | 2 | null;
   /** Solo para las recibidas: el número que trae el comprobante del cliente. */
@@ -449,7 +451,7 @@ export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'>)
 export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
   const tasa = input.tasa ?? null;
   const conceptoCodigo = input.conceptoId && !input.conceptoId.endsWith(':todos') ? partirIdConcepto(input.conceptoId).codigo : null;
-  const fecha = (input.facturaFecha || new Date().toISOString()).slice(0, 10);
+  const fecha = (input.fechaRetencion || input.facturaFecha || new Date().toISOString()).slice(0, 10);
   return {
     rol: rolAGt(input.direccion), tipo: tipoAGt(input.tipo), estado: 'registrada', fecha,
     numero: numero.entero, comprobante_nro: numero.texto,
