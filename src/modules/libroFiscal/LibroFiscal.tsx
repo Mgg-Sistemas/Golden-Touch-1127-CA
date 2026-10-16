@@ -485,7 +485,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
                     aria-expanded={abierto}
                     onClick={() => setExpandidos((prev) => {
                       const next = new Set(prev);
-                      abierto ? next.delete(pk) : next.add(pk);
+                      if (abierto) next.delete(pk); else next.add(pk);
                       return next;
                     })}>
                     {abierto
