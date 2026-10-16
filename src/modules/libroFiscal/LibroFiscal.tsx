@@ -84,8 +84,10 @@ function rutaDocumento(kind: DocKind, id: string | null): string | null {
   return null;
 }
 
-export function LibroFiscalView({ canWrite, actor, actorName }: {
-  canWrite: boolean; actor: string; actorName: string | null;
+type VistaLibro = 'lista' | 'factura' | 'impuesto' | 'sin';
+
+export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'factura' }: {
+  canWrite: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
 }) {
   const { can } = usePermissions();
   const canVerPedidos = can('pedidos', 'lectura');
@@ -128,7 +130,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
 
   // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
   // dice cuántas retenciones quedan con los demás filtros puestos.
-  const [vista, setVista] = useState<'factura' | 'impuesto' | 'sin'>('factura');
+  const [vista, setVista] = useState<VistaLibro>(vistaInicial);
   const [orden] = useState<'reciente' | 'antiguo' | 'contraparte'>('reciente');
   const [pag, setPag] = useState(1);
   const [tam, setTam] = useState(25);
@@ -167,6 +169,19 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   }))), [visibles]);
 
   const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setTexto(''); };
+
+  // «Sin retención»: lo registrado en 0 con su motivo, agrupado por factura.
+  const sinRetencion = useMemo(() => {
+    const m = new Map<string, { key: string; nombre: string | null; rif: string | null; num: string; fecha: string | null; filas: RetencionPracticada[] }>();
+    for (const r of visibles) {
+      if (r.anulada || r.montoRetenido !== 0) continue;
+      const key = `${r.contraparteRif ?? r.contraparteNombre ?? ''}|${r.facturaNumero ?? r.id}`;
+      const g = m.get(key) ?? { key, nombre: r.contraparteNombre, rif: r.contraparteRif, num: r.facturaNumero ?? r.docCodigo ?? '—', fecha: r.facturaFecha, filas: [] };
+      g.filas.push(r);
+      m.set(key, g);
+    }
+    return [...m.values()];
+  }, [visibles]);
 
   // ── Agrupado por proveedor → factura → casillas (v8) ──
   type FacturaAgrupada = {
@@ -362,6 +377,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
       {/* ── Barra vista + acciones ── */}
       <div className="lfv8-barra-vista">
         <div className="lfv8-view-switch" role="group" aria-label="Agrupar por">
+          <button type="button" aria-pressed={vista === 'lista'} onClick={() => setVista('lista')}>Una fila por retención</button>
           <button type="button" aria-pressed={vista === 'factura'} onClick={() => setVista('factura')}>Por factura</button>
           <button type="button" aria-pressed={vista === 'impuesto'} onClick={() => setVista('impuesto')}>Por impuesto</button>
           <button type="button" aria-pressed={vista === 'sin'} onClick={() => setVista('sin')}>Sin retención</button>
@@ -561,12 +577,68 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
         </div>
       )}
 
-      {/* ── Vista sin retención ── */}
+      {/* ── Una fila por retención (el libro) ── */}
+      {!loading && !errorCarga && visibles.length > 0 && vista === 'lista' && (
+        <>
+          <div className="lfv8-sis" style={{ '--cols': '.8fr 1.1fr .6fr 1.6fr 1fr 1fr 1fr .8fr' } as React.CSSProperties}>
+            <div className="lfv8-sis-cab">
+              <span>Fecha</span><span>Comprobante</span><span>Impuesto</span><span>Contraparte</span>
+              <span>Factura</span><span style={{ textAlign: 'right' }}>Retenido</span><span style={{ textAlign: 'right' }}>En Bs</span><span>Estado</span>
+            </div>
+            {pagina.filas.map((r) => (
+              <div key={r.id} className="lfv8-sis-fila" style={r.anulada ? { opacity: .6 } : undefined}>
+                <span data-l="Fecha">{r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</span>
+                <span data-l="Comprobante" className="mono">{r.numeroComprobante ?? '—'}</span>
+                <span data-l="Impuesto">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? r.tipo}<small>{r.direccion === 'recibida' ? 'Recibida' : 'Practicada'}</small></span>
+                <span data-l="Contraparte">{r.contraparteNombre ?? '—'}<small className="mono">{r.contraparteRif ?? ''}{fueraDelSistema(r) ? ' · Fuera del sistema' : ''}</small></span>
+                <span data-l="Factura" className="mono">{r.facturaNumero ?? r.docCodigo ?? '—'}</span>
+                <span data-l="Retenido" className="n">{monto(r.montoRetenido, r.moneda)}</span>
+                <span data-l="En Bs" className="n">{enBs(r) ? monto(enBs(r), 'Bs') : '—'}</span>
+                <span data-l="Estado">
+                  <span className={`lfv8-pill ${r.anulada ? 'falta' : r.estado === 'declarada' ? 'declarada' : 'ok'}`}>
+                    {r.anulada ? 'Anulada' : r.estado === 'declarada' ? 'Declarada' : 'Registrada'}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+          {visibles.length > tam && (
+            <Paginador pagina={pagina} tam={tam} unidad="retención(es)" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+          )}
+        </>
+      )}
+
+      {/* ── Vista sin retención: lo registrado en 0, con su motivo ── */}
       {!loading && !errorCarga && vista === 'sin' && (
-        <div className="lfv8-vacio">
-          <p>Facturas sin retenciones aplicables. Cada casilla indica el motivo.</p>
-          <p className="muted" style={{ fontSize: '.82rem', marginTop: '.3rem' }}>Esta vista requiere el modelo de facturas con retenciones por casilla (D20). Disponible próximamente.</p>
-        </div>
+        sinRetencion.length === 0 ? (
+          <div className="lfv8-vacio">
+            <p>Ninguna factura sin retención en este rango.</p>
+            <p className="muted" style={{ fontSize: '.82rem', marginTop: '.3rem' }}>
+              Aparecen aquí las retenciones registradas en 0 % con su motivo (por ejemplo, el pago no llega al mínimo del ISLR).
+            </p>
+          </div>
+        ) : (
+          <div className="lfv8-sis" style={{ '--cols': '1.6fr 1fr .8fr 2.6fr' } as React.CSSProperties}>
+            <div className="lfv8-sis-cab">
+              <span>Contraparte</span><span>Factura</span><span>Fecha</span><span>Sin retención · motivo</span>
+            </div>
+            {sinRetencion.map((g) => (
+              <div key={g.key} className="lfv8-sis-fila">
+                <span data-l="Contraparte">{g.nombre ?? '—'}<small className="mono">{g.rif ?? ''}</small></span>
+                <span data-l="Factura" className="mono">{g.num}</span>
+                <span data-l="Fecha">{g.fecha ? fechaCorta(g.fecha) : '—'}</span>
+                <span data-l="Motivo">
+                  {g.filas.map((r) => (
+                    <span key={r.id} style={{ display: 'block' }}>
+                      <span className="lfv8-pill ok">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? r.tipo}</span>{' '}
+                      {r.observacion ?? 'Sin motivo anotado'}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        )
       )}
 
       {anular && (

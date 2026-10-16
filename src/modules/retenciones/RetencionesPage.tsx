@@ -196,10 +196,7 @@ export function RetencionesPage() {
 
       {/* ── Libro fiscal: una fila por retención ── */}
       {vista === 'libro' && (
-        <div className="lfv8-vacio">
-          <p>Una fila por retención registrada. Para agrupar por factura o proveedor, usar la Vista agrupada.</p>
-          <button className="btn" onClick={() => setVista('agrupada')}>Ir a Vista agrupada</button>
-        </div>
+        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} vistaInicial="lista" />
       )}
 
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}
