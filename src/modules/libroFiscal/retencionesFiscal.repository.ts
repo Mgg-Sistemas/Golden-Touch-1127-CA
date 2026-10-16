@@ -30,6 +30,7 @@ import {
 } from './retencionesCalculo';
 import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from './dobleRegistro';
 import { faltaEnLaCarga } from './validarCarga';
+import { errorRetencion } from './erroresRetencion';
 
 const T_RETENCIONES = 'retenciones';
 const T_CONCEPTOS = 'retenciones_conceptos';
@@ -281,6 +282,8 @@ export interface RetencionPracticada {
   periodo: string;
   quincena: 1 | 2 | null;
   numeroComprobante: string | null;
+  /** Quién puso el número (V2, solo informativo): la serie de la base o una persona. */
+  numeroOrigen?: 'sistema' | 'dado' | null;
   conceptoId: string | null;
   conceptoNombre: string | null;
   moneda: string;
@@ -329,6 +332,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     periodo: String(r.comprobante_periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
     numeroComprobante: texto(r.comprobante_nro),
+    numeroOrigen: r.numero_origen === 'sistema' || r.numero_origen === 'dado' ? r.numero_origen : null,
     conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${r.sujeto ? `:${r.sujeto}` : ''}` : null,
     conceptoNombre: texto(r.concepto),
     moneda: String(r.moneda ?? 'Bs'), tasa: r.tasa == null ? null : n(r.tasa),
@@ -483,12 +487,16 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
   };
 }
 
-/** Traduce el choque del número único de comprobante a algo que se entienda. */
+/**
+ * Traduce los errores de la base a algo que se entienda. El número único vale
+ * solo para las practicadas (VF): una recibida anulada se vuelve a registrar
+ * con el mismo número del cliente sin chocar.
+ */
 function errorLegible(e: { code?: string; message?: string }): Error {
   if (e.code === '23505') {
     return new Error('Ya hay en el libro un comprobante de ese impuesto con el mismo número. Revisa el número del comprobante.');
   }
-  return e instanceof Error ? e : new Error(e.message || 'No se pudo registrar la retención.');
+  return errorRetencion(e, 'No se pudo registrar la retención.');
 }
 
 /**

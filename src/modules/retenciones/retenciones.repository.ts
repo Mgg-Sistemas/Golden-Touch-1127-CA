@@ -117,8 +117,13 @@ export async function finalizarRetencion(input: {
     patch[`retencion_${tipo}_path`] = path;
     patch[`retencion_${tipo}_nombre`] = nombre;
   }
-  const { error } = await supabase.from(TABLE).update(patch).eq('id', input.orden.id);
+  // Sin permiso sobre la OC (o si la OC ya no existe) la base no toca ninguna fila y no
+  // da error: se pide la fila de vuelta para no dar por finalizada una retención que no quedó.
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', input.orden.id).select('id');
   if (error) throw error;
+  if (!data?.length) {
+    throw new Error('No se pudo finalizar la retención: no tienes permiso sobre esta OC o la OC ya no existe. Los comprobantes quedaron subidos; se pueden volver a cargar.');
+  }
 }
 
 /** Comprobantes cargados en una OC (para mostrar/descargar en Retenciones y Tesorería). */
