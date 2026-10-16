@@ -8,6 +8,10 @@
    logo nuevo es una versión nueva desde una fecha, y un comprobante viejo
    conserva el logo de su fecha de emisión.
 
+   Qué impuestos cobra cada ente: hasta R2, el puente retencion_ente_impuestos;
+   desde R2, retencion_impuestos.ente_id (el puente queda de solo lectura). Se
+   elige con el detector de tablas.
+
    Archivos en el bucket privado `retenciones-logos` (PNG o JPG, hasta 1 MB).
    Se sube sin reemplazar; si la versión no se guarda, se borra el archivo
    (la política solo deja borrar un archivo que ninguna versión usa).
@@ -15,6 +19,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
+import { r2Disponible } from './disponibilidad';
 
 export const BUCKET_LOGOS = 'retenciones-logos';
 const T_ENTES = 'retencion_entes';
@@ -24,9 +29,10 @@ const T_AGENTE_IMAGENES = 'retencion_agente_imagenes';
 export const MAX_IMAGEN_BYTES = 1024 * 1024;
 
 export type TipoEnte = 'nacional' | 'estadal' | 'municipal';
-/** Clave del impuesto en la base (la de `retenciones.tipo`), hasta que R2 traiga el impuesto contenedor. */
-export type ClaveImpuesto = 'IVA' | 'ISLR' | 'MUNICIPAL' | 'ESTADAL' | 'IGTF';
+/** Clave del impuesto en la base (la de `retenciones.tipo`). Con R2 puede haber claves nuevas. */
+export type ClaveImpuesto = 'IVA' | 'ISLR' | 'MUNICIPAL' | 'ESTADAL' | 'IGTF' | (string & {});
 export const CLAVES_IMPUESTO: ClaveImpuesto[] = ['IVA', 'ISLR', 'MUNICIPAL', 'ESTADAL', 'IGTF'];
+const T_IMPUESTOS = 'retencion_impuestos';
 export type ClaseImagenAgente = 'logo' | 'firma' | 'sello';
 
 export interface VersionImagen {
@@ -70,6 +76,22 @@ const hoyIso = () => new Date().toISOString().slice(0, 10);
 
 /* ───────── Piezas puras ───────── */
 
+/** Las cinco de siempre en su orden; las nuevas (R2), después y por nombre. */
+function ordenClaves(a: string, b: string): number {
+  const ia = CLAVES_IMPUESTO.indexOf(a); const ib = CLAVES_IMPUESTO.indexOf(b);
+  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+}
+
+/** Con R2: los impuestos de cada ente salen de retencion_impuestos.ente_id (solo los activos). */
+export function impuestosPorEnte(impuestos: { clave: string; ente_id: string | null; activo?: boolean }[]): Map<string, ClaveImpuesto[]> {
+  const m = new Map<string, ClaveImpuesto[]>();
+  for (const i of impuestos) {
+    if (!i.ente_id || i.activo === false) continue;
+    m.set(i.ente_id, [...(m.get(i.ente_id) ?? []), i.clave].sort(ordenClaves));
+  }
+  return m;
+}
+
 function aVersion(r: Record<string, unknown>): VersionImagen {
   return {
     id: String(r.id), ruta: String(r.ruta ?? ''), nombreArchivo: texto(r.nombre_archivo),
@@ -86,7 +108,7 @@ export function aEnte(r: Record<string, unknown>): Ente {
     estado: texto(r.estado), municipio: texto(r.municipio), rif: texto(r.rif),
     activo: r.activo !== false, desde: String(r.desde ?? ''), hasta: texto(r.hasta), motivo: texto(r.motivo),
     impuestos: imps.filter((i) => i.activo !== false).map((i) => String(i.impuesto_clave) as ClaveImpuesto)
-      .sort((a, b) => CLAVES_IMPUESTO.indexOf(a) - CLAVES_IMPUESTO.indexOf(b)),
+      .sort(ordenClaves),
     logos: logos.map(aVersion).sort((a, b) => b.desde.localeCompare(a.desde)),
     actualizadoEn: texto(r.actualizado_en), actualizadoPor: texto(r.actualizado_por),
   };
@@ -130,7 +152,20 @@ export async function listEntes(): Promise<Ente[]> {
     .select(`*, ${T_ENTE_IMPUESTOS}(*), ${T_ENTE_LOGOS}(*)`)
     .order('activo', { ascending: false }).order('nombre');
   if (error) throw errorRetencion(error, 'No se pudieron leer los entes.');
-  return (data ?? []).map((r) => aEnte(r as Record<string, unknown>));
+  const entes = (data ?? []).map((r) => aEnte(r as Record<string, unknown>));
+  if (!(await r2Disponible())) return entes;
+  const { data: imps, error: errImps } = await supabase.from(T_IMPUESTOS).select('clave, ente_id, activo');
+  if (errImps) throw errorRetencion(errImps, 'No se pudieron leer los impuestos de los entes.');
+  const porEnte = impuestosPorEnte((imps ?? []) as { clave: string; ente_id: string | null; activo?: boolean }[]);
+  return entes.map((e) => ({ ...e, impuestos: porEnte.get(e.id) ?? [] }));
+}
+
+/** Los impuestos que se pueden asignar a un ente: con R2, los activos del catálogo con su nombre. */
+export async function opcionesImpuestoEnte(): Promise<{ clave: ClaveImpuesto; nombre: string | null }[]> {
+  if (!(await r2Disponible())) return CLAVES_IMPUESTO.map((clave) => ({ clave, nombre: null }));
+  const { data, error } = await supabase.from(T_IMPUESTOS).select('clave, nombre, activo').eq('activo', true).order('orden').order('clave');
+  if (error) throw errorRetencion(error, 'No se pudieron leer los impuestos.');
+  return ((data ?? []) as { clave: string; nombre: string }[]).map((i) => ({ clave: i.clave, nombre: i.nombre }));
 }
 
 /** URL firmada (10 minutos) de una imagen del bucket. */
@@ -226,8 +261,12 @@ export async function activarEnte(id: string, activo: boolean, motivo: string): 
  * Deja activos exactamente los impuestos indicados: activa (o crea) los
  * elegidos y desactiva los demás. Nada se borra.
  */
-export async function fijarImpuestosEnte(enteId: string, claves: ClaveImpuesto[]): Promise<void> {
+export async function fijarImpuestosEnte(enteId: string, claves: ClaveImpuesto[], motivo = 'Impuestos del ente'): Promise<void> {
   const elegidos = [...new Set(claves)];
+  if (await r2Disponible()) {
+    await fijarImpuestosEnteR2(enteId, elegidos, motivo);
+    return;
+  }
   if (elegidos.length) {
     const { data, error } = await supabase.from(T_ENTE_IMPUESTOS)
       .upsert(elegidos.map((c) => ({ ente_id: enteId, impuesto_clave: c, activo: true })), { onConflict: 'ente_id,impuesto_clave' })
@@ -238,6 +277,24 @@ export async function fijarImpuestosEnte(enteId: string, claves: ClaveImpuesto[]
   let q = supabase.from(T_ENTE_IMPUESTOS).update({ activo: false }).eq('ente_id', enteId).eq('activo', true);
   if (elegidos.length) q = q.not('impuesto_clave', 'in', `(${elegidos.join(',')})`);
   const { error } = await q.select('id');
+  if (error) throw errorRetencion(error, 'No se pudieron quitar los impuestos que ya no cobra el ente.');
+}
+
+/**
+ * Con R2: el ente de cada impuesto es retencion_impuestos.ente_id. Los elegidos
+ * pasan a este ente (si eran de otro, cambian); los que eran de este y ya no, quedan sin ente.
+ */
+async function fijarImpuestosEnteR2(enteId: string, elegidos: string[], motivo: string): Promise<void> {
+  const m = motivo.trim() || 'Impuestos del ente';
+  if (elegidos.length) {
+    const { data, error } = await supabase.from(T_IMPUESTOS)
+      .update({ ente_id: enteId, motivo_cambio: m }).in('clave', elegidos).select('clave');
+    if (error) throw errorRetencion(error, 'No se pudieron asignar los impuestos al ente.');
+    if ((data?.length ?? 0) < elegidos.length) throw new Error('No se asignaron los impuestos al ente: sin permiso de escritura en Retenciones.');
+  }
+  let q = supabase.from(T_IMPUESTOS).update({ ente_id: null, motivo_cambio: m }).eq('ente_id', enteId);
+  if (elegidos.length) q = q.not('clave', 'in', `(${elegidos.join(',')})`);
+  const { error } = await q.select('clave');
   if (error) throw errorRetencion(error, 'No se pudieron quitar los impuestos que ya no cobra el ente.');
 }
 
