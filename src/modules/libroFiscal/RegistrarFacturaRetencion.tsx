@@ -10,10 +10,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import type { Proveedor } from '@/shared/lib/types';
+import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares,
-  labelImpuesto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
+  labelImpuesto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
@@ -60,18 +64,31 @@ interface LineaUI {
   ivaStr: string;
   pctStr: string;
   montoStr: string;
+  /** En una recibida: el número del comprobante que entregó el cliente. */
+  numeroStr: string;
   motivos: MotivosIvaCien;
   descripcion: string;
 }
 
+/** Los supuestos del art. 5 (Providencia SNAT/2015/0049) que llevan la retención de IVA al 100 %. */
+const MOTIVOS_IVA_CIEN: Array<[keyof MotivosIvaCien, string]> = [
+  ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
+  ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
+  ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
+  ['proveedorNoDomiciliado', 'El proveedor no está domiciliado en el país'],
+  ['metalesPreciosos', 'Compra de metales o piedras preciosas'],
+];
+
 let semilla = 0;
 const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
   id: (semilla += 1), tipo: 'iva', sujeto: 'pj_domiciliada', conceptoId: '',
-  baseStr: '0', ivaStr: '0', pctStr: '', montoStr: '', motivos: {}, descripcion: '', ...over,
+  baseStr: '0', ivaStr: '0', pctStr: '', montoStr: '', numeroStr: '', motivos: {}, descripcion: '', ...over,
 });
 
-export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho }: {
+export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
   semilla?: SemillaFactura;
+  /** En una practicada, solo se ofrecen los proveedores con retenciones por realizar (si se pasa). */
+  proveedorIdsPendientes?: Set<string>;
   actor: string;
   actorName: string | null;
   onClose: () => void;
@@ -79,10 +96,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 }) {
   const [config, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [direccion, setDireccion] = useState<DireccionRetencion>(s.direccion ?? 'practicada');
+  const [proveedorId, setProveedorId] = useState(s.contraparteId ?? '');
   const [contraparte, setContraparte] = useState(s.contraparteNombre ?? '');
   const [rif, setRif] = useState(s.contraparteRif ?? '');
   const [moneda, setMoneda] = useState(s.moneda ?? 'Bs');
@@ -97,10 +116,29 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   })]);
 
   useEffect(() => {
-    void Promise.all([getConfigRetencion(), listConceptos(true)])
-      .then(([c, cs]) => { setConfig(c); setConceptos(cs); })
+    void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
+      .then(([c, cs, ps]) => {
+        setConfig(c); setConceptos(cs);
+        const activos = ps.filter((p) => p.estado === 'activo');
+        setProveedores(activos);
+        const p = s.contraparteId ? activos.find((x) => x.id === s.contraparteId) : null;
+        if (p) { setContraparte(p.razon_social); setRif(p.rif ?? ''); }
+      })
       .catch((e) => setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'));
-  }, []);
+    getTasaHoy().then((t) => { if (t.usd != null) setTasaStr(String(t.usd)); }).catch(() => { /* se escribe a mano */ });
+  }, [s.contraparteId]);
+
+  const opcionesProveedor = useMemo(() => {
+    const lista = proveedorIdsPendientes ? proveedores.filter((p) => proveedorIdsPendientes.has(p.id)) : proveedores;
+    return lista.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }));
+  }, [proveedores, proveedorIdsPendientes]);
+
+  /** El proveedor llena razón social y RIF. El sujeto del ISLR no se toca: se sugiere en cada línea. */
+  function elegirProveedor(id: string) {
+    setProveedorId(id);
+    const p = proveedores.find((x) => x.id === id);
+    if (p) { setContraparte(p.razon_social); setRif(p.rif ?? ''); }
+  }
 
   const esManual = direccion === 'recibida';
   const tasa = nDec(tasaStr);
@@ -114,10 +152,11 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     const base = nDec(l.baseStr);
     const concepto = conceptos.find((c) => c.id === l.conceptoId) ?? null;
     if (l.tipo === 'iva') return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(l.ivaStr), motivos: l.motivos }, config);
-    if (l.tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto }, config);
+    // El mínimo en UT y el sustraendo están en Bs: el cálculo necesita la moneda y la tasa.
+    if (l.tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa }, config);
     if (l.tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
     return calcularRetencionLocal({ montoPago: base, concepto }, l.tipo);
-  }, [conceptos, config]);
+  }, [conceptos, config, moneda, tasa]);
 
   const montoDe = useCallback((l: LineaUI): number => (esManual
     ? (nDec(l.montoStr) || Math.round(nDec(l.baseStr) * nDec(l.pctStr)) / 100)
@@ -129,6 +168,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const conceptosDeLinea = (l: LineaUI) => conceptos.filter((c) => c.tipo === l.tipo && (c.sujeto === l.sujeto || c.sujeto === 'todos'));
 
   function validar(): string | null {
+    if (direccion === 'practicada' && !proveedorId) return 'Elige el proveedor al que se le retiene.';
+    if (direccion === 'recibida' && !contraparte.trim()) return 'Indica quién nos retuvo.';
     if (!facturaNro.trim()) return 'Indica el número de la factura.';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(facturaFecha)) return 'Indica la fecha de la factura.';
     if (moneda !== 'Bs' && !(tasa > 0)) return 'Indica la tasa para llevar los montos a bolívares.';
@@ -153,11 +194,11 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const periodo = periodoDe(facturaFecha);
       const facturaNueva: FacturaNueva = {
         direccion, docKind: s.docKind ?? 'manual', docId: s.docId ?? null,
-        contraparteId: s.contraparteId ?? null, contraparteRif: rif.trim() || null, contraparteNombre: contraparte.trim() || null,
+        contraparteId: direccion === 'practicada' ? proveedorId || null : null, contraparteRif: rif.trim() || null, contraparteNombre: contraparte.trim() || null,
         facturaNro: facturaNro.trim() || null, facturaControl: facturaControl.trim() || null,
         facturaFecha, facturaTotal: nDec(facturaTotal) || null,
         moneda, tasa: moneda === 'Bs' ? null : tasa, periodo,
-        nota: nota.trim() || null, actor, actorName,
+        nota: nota.trim() || null, valorUt: config.valorUt, actor, actorName,
       };
       const lineasNuevas: LineaFacturaNueva[] = lineas.map((l) => {
         const calc = calculoDe(l);
@@ -170,6 +211,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           sustraendo: esManual ? null : calc.sustraendo,
           ivaAlicuota: l.tipo === 'iva' ? (esManual ? null : calc.alicuota) : null,
           ivaMonto: l.tipo === 'iva' ? (esManual ? nDec(l.ivaStr) : calc.impuesto) : null,
+          motivo: l.tipo === 'iva' && !esManual ? motivoCienTexto(l.motivos) : null,
           moneda,
           tasa: moneda === 'Bs' ? null : tasa,
           baseBs: enBolivares(esManual ? nDec(l.baseStr) : calc.baseImponible, moneda, tasa) || null,
@@ -178,7 +220,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           conceptoNombre: conceptos.find((c) => c.id === l.conceptoId)?.nombre ?? null,
           descripcion: l.descripcion.trim() || null,
           quincena: l.tipo === 'iva' ? quincenaDe(facturaFecha) : null,
-          comprobanteNro: esManual ? null : null,
+          comprobanteNro: esManual ? (l.numeroStr.trim() || null) : null,
           fecha: facturaFecha,
         };
       });
@@ -221,11 +263,17 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '2 1 240px' }}>
           <label>{direccion === 'recibida' ? 'Quién nos retuvo' : 'A quién le retenemos'}</label>
-          <input className="input" value={contraparte} onChange={(e) => setContraparte(e.target.value)} placeholder="Razón social" />
+          {direccion === 'practicada' ? (
+            <SearchSelect value={proveedorId} onChange={elegirProveedor} options={opcionesProveedor}
+              placeholder="Buscar proveedor por nombre o RIF…" disabled={!!s.contraparteId} />
+          ) : (
+            <input className="input" value={contraparte} onChange={(e) => setContraparte(e.target.value)} placeholder="Razón social" />
+          )}
         </div>
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>RIF</label>
-          <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value)} placeholder="J-XXXXXXXX-X" />
+          <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value)} placeholder="J-XXXXXXXX-X"
+            readOnly={direccion === 'practicada' && !!proveedorId} />
         </div>
         <div className="form-row" style={{ flex: '0 1 110px' }}>
           <label>Moneda</label>
@@ -283,7 +331,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 </div>
                 {l.tipo === 'islr' && (
                   <div className="form-row" style={{ margin: 0, flex: '1 1 180px' }}>
-                    <label>Sujeto {sugerido && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLinea(l.id, { sujeto: sugerido.sujeto })}>por RIF</button>}</label>
+                    <label>Sujeto</label>
                     <select className="select" value={l.sujeto} onChange={(e) => setLinea(l.id, { sujeto: e.target.value as SujetoRetenido })}>
                       {SUJETOS.filter((x) => x.key !== 'todos').map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
                     </select>
@@ -310,6 +358,11 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 )}
                 {esManual && (
                   <>
+                    <div className="form-row" style={{ margin: 0, flex: '1 1 140px' }}>
+                      <label>N° de comprobante</label>
+                      <input className="input mono" value={l.numeroStr} onChange={(e) => setLinea(l.id, { numeroStr: e.target.value })}
+                        placeholder="El del cliente" />
+                    </div>
                     <div className="form-row" style={{ margin: 0, flex: '0 1 90px' }}>
                       <label>% ret.</label>
                       <input className="input mono" value={l.pctStr} onChange={(e) => setLinea(l.id, { pctStr: e.target.value })} inputMode="decimal" />
@@ -328,6 +381,26 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   <button type="button" className="btn btn-sm btn-ghost" title="Quitar la línea" onClick={() => setLineas((xs) => xs.filter((x) => x.id !== l.id))}>✕</button>
                 )}
               </div>
+              {l.tipo === 'islr' && sugerido && sugerido.sujeto !== l.sujeto && (
+                <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.25rem' }}>
+                  <small className="hint muted">
+                    Según la letra del RIF sería «{SUJETOS.find((x) => x.key === sugerido.sujeto)?.label ?? sugerido.sujeto}». Verifica antes de registrar: el porcentaje cambia con el sujeto.
+                  </small>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLinea(l.id, { sujeto: sugerido.sujeto })}>Usar la sugerencia</button>
+                </div>
+              )}
+              {direccion === 'practicada' && l.tipo === 'iva' && (
+                <div className="form-row" style={{ margin: '.3rem 0 0' }}>
+                  <label>¿Corresponde retener el 100%? (Providencia SNAT/2015/0049, art. 5)</label>
+                  {MOTIVOS_IVA_CIEN.map(([k, label]) => (
+                    <label key={k} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.84rem', marginTop: '.2rem' }}>
+                      <input type="checkbox" checked={!!l.motivos[k]} onChange={(e) => setLinea(l.id, { motivos: { ...l.motivos, [k]: e.target.checked } })} />
+                      {label}
+                    </label>
+                  ))}
+                  <small className="hint muted">Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.</small>
+                </div>
+              )}
               {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{motivoNoPuedePracticar(l.tipo, config)}</small>}
               {!esManual && <small className="hint muted">{calc.explicacion}</small>}
               {monto === 0 && (
@@ -344,7 +417,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
       <div className="form-row">
         <label>Nota de la factura</label>
-        <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Opcional: p. ej. la compra incluye 2 facturas" />
+        <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="P. ej.: la compra incluye 2 facturas" />
       </div>
     </Modal>
   );

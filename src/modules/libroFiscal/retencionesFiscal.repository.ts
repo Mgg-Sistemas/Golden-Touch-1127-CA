@@ -534,7 +534,9 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
     if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
     numero = { entero, texto: formatoComprobante(input.periodo, entero) };
   }
-  const { data, error } = await supabase.from(T_RETENCIONES).insert(filaGtDeNueva(input, numero)).select('*').single();
+  // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
+  const fila = { ...filaGtDeNueva(input, numero), valor_ut: config.valorUt > 0 ? config.valorUt : null };
+  const { data, error } = await supabase.from(T_RETENCIONES).insert(fila).select('*').single();
   if (error) throw errorLegible(error);
   return aRetencion(data as Record<string, unknown>);
 }

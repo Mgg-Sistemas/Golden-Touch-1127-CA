@@ -59,6 +59,21 @@ describe('traducción al contrato de la función (columnas de GT)', () => {
     expect(p.razon_social).toBe('Proveedor de prueba');
   });
 
+  it('una factura va como factura y sin documento afectado, aunque se lo pasen', () => {
+    const p = pFacturaDe(factura({ documentoAfectadoId: 'f-0', facturaAfectadaNro: '000100' }));
+    expect(p.tipo_documento).toBe('factura');
+    expect(p.documento_afectado_id).toBeNull();
+    expect(p.factura_afectada_nro).toBeNull();
+  });
+
+  it('una nota de crédito lleva la factura que ajusta; los montos siguen en positivo', () => {
+    const p = pFacturaDe(factura({ tipoDocumento: 'nota_credito', documentoAfectadoId: 'f-0', facturaAfectadaNro: ' 000100 ' }));
+    expect(p.tipo_documento).toBe('nota_credito');
+    expect(p.documento_afectado_id).toBe('f-0');
+    expect(p.factura_afectada_nro).toBe('000100');
+    expect(pLineaDe(linea()).monto).toBe(120);
+  });
+
   it('manual no lleva doc_id', () => {
     expect(pFacturaDe(factura({ docKind: 'manual', docId: 'x' })).doc_id).toBeNull();
   });
@@ -91,6 +106,15 @@ describe('registro atómico', () => {
     expect(res.lineas[0].tipo).toBe('iva');
   });
 
+  it('cada línea lleva la UT con la que se calculó (VU); sin UT cargada no se manda', async () => {
+    rpc.mockResolvedValue({ data: { factura: { id: 'f-1' }, lineas: [] }, error: null });
+    await registrarFactura(factura({ valorUt: 43 }), [linea(), linea({ tipo: 'islr' })]);
+    const conUt = rpc.mock.calls[0][1] as { p_lineas: Record<string, unknown>[] };
+    expect(conUt.p_lineas.map((l) => l.valor_ut)).toEqual([43, 43]);
+    await registrarFactura(factura({ valorUt: 0 }), [linea()]);
+    expect((rpc.mock.calls[1][1] as { p_lineas: Record<string, unknown>[] }).p_lineas[0].valor_ut).toBeNull();
+  });
+
   it('sin líneas no llama a la base', async () => {
     await expect(registrarFactura(factura(), [])).rejects.toThrow('al menos una línea');
     expect(rpc).not.toHaveBeenCalled();
@@ -110,14 +134,14 @@ describe('registro atómico', () => {
 });
 
 describe('lectura cabecera + líneas', () => {
-  it('pide retencion_facturas anidando sus retenciones y mapea cada factura con sus líneas', async () => {
+  it('pide retencion_documentos anidando sus retenciones y mapea cada documento con sus líneas', async () => {
     colaFrom.push({ data: [
       { id: 'f-1', rol: 'practicada', factura_nro: '000123', orden_id: 'oc-1', retenciones: [
         { id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', monto: 120 },
       ] },
     ], error: null });
     const res = await listFacturas({ direccion: 'practicada', periodo: '202610' });
-    expect(llamadasFrom[0].tabla).toBe('retencion_facturas');
+    expect(llamadasFrom[0].tabla).toBe('retencion_documentos');
     expect(llamadasFrom[0].metodos).toContainEqual(['select', '*, retenciones(*)']);
     expect(llamadasFrom[0].metodos).toContainEqual(['eq', 'rol', 'practicada']);
     expect(res).toHaveLength(1);
@@ -130,6 +154,9 @@ describe('lectura cabecera + líneas', () => {
     expect(c.direccion).toBe('recibida');
     expect(c.docKind).toBe('compra_directa');
     expect(c.docId).toBe('cd-1');
+    expect(c.tipoDocumento).toBe('factura');
+    const nc = aFacturaCabecera({ id: 'f-10', rol: 'practicada', tipo_documento: 'nota_credito', documento_afectado_id: 'f-9', factura_afectada_nro: 'A-1' });
+    expect(nc).toMatchObject({ tipoDocumento: 'nota_credito', documentoAfectadoId: 'f-9', facturaAfectadaNro: 'A-1' });
   });
 });
 

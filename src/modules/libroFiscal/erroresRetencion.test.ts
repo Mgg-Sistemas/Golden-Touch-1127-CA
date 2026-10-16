@@ -24,4 +24,9 @@ describe('errores de la base en texto de pantalla', () => {
     expect(errorRetencion({ code: 'P0001', message: 'RET_ALGO_NUEVO: detalle' }).message).toBe('RET_ALGO_NUEVO: detalle');
     expect(errorRetencion({ code: 'P0001' }, 'No se pudo.').message).toBe('No se pudo.');
   });
+
+  it('documentos (VF): tipo y factura afectada de una nota', () => {
+    expect(errorRetencion({ code: 'P0001', message: 'RET_DOCUMENTO_TIPO: x' }).message).toContain('nota de crédito');
+    expect(errorRetencion({ code: 'P0001', message: 'RET_DOCUMENTO_AFECTADO: x' }).message).toContain('la factura que ajusta');
+  });
 });
