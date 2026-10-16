@@ -140,13 +140,27 @@ describe('lectura cabecera + líneas', () => {
         { id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', monto: 120 },
       ] },
     ], error: null });
-    const res = await listFacturas({ direccion: 'practicada', periodo: '202610' });
+    const res = await listFacturas({ direccion: 'practicada' });
     expect(llamadasFrom[0].tabla).toBe('retencion_documentos');
     expect(llamadasFrom[0].metodos).toContainEqual(['select', '*, retenciones(*)']);
     expect(llamadasFrom[0].metodos).toContainEqual(['eq', 'rol', 'practicada']);
     expect(res).toHaveLength(1);
     expect(res[0].factura.facturaNro).toBe('000123');
     expect(res[0].lineas[0].tipo).toBe('iva');
+  });
+
+  it('el período se filtra en las líneas (la cabecera no tiene columna periodo) y la cabecera lo toma de ellas', async () => {
+    colaFrom.push({ data: [
+      { id: 'f-1', rol: 'practicada', factura_nro: '000123', retenciones: [
+        { id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', comprobante_periodo: '202610', monto: 120 },
+      ] },
+    ], error: null });
+    const res = await listFacturas({ periodo: '202610' });
+    const m = llamadasFrom[0].metodos;
+    expect(m).toContainEqual(['select', '*, retenciones!inner(*)']);
+    expect(m).toContainEqual(['eq', 'retenciones.comprobante_periodo', '202610']);
+    expect(m.some((x) => x[0] === 'eq' && x[1] === 'periodo')).toBe(false);
+    expect(res[0].factura.periodo).toBe('202610');
   });
 
   it('aFacturaCabecera deduce el documento de origen y la dirección', () => {

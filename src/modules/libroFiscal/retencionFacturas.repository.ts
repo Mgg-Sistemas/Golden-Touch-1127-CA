@@ -198,10 +198,18 @@ export function aFacturaCabecera(r: Record<string, unknown>): FacturaCabecera {
     facturaFecha: texto(r.factura_fecha),
     facturaTotal: r.factura_total == null ? null : n(r.factura_total),
     moneda: String(r.moneda ?? 'Bs'),
-    periodo: texto(r.periodo ?? r.comprobante_periodo),
+    // La cabecera no guarda el período: lo llevan sus líneas (retenciones.comprobante_periodo).
+    periodo: periodoDeLineas(r.retenciones) ?? texto(r.periodo ?? r.comprobante_periodo),
     nota: texto(r.nota),
     createdAt: String(r.created_at ?? ''),
   };
+}
+
+/** El período de un documento: el de sus líneas (todas comparten el de la factura). */
+function periodoDeLineas(lineas: unknown): string | null {
+  if (!Array.isArray(lineas)) return null;
+  const l = lineas.find((x) => x && (x as Record<string, unknown>).comprobante_periodo) as Record<string, unknown> | undefined;
+  return l ? texto(l.comprobante_periodo) : null;
 }
 
 /** Traduce los errores de la función a un texto para la pantalla (códigos RET_* en erroresRetencion). */
@@ -223,7 +231,7 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
   const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
   if (!res.factura) throw new Error('La base no devolvió la factura registrada.');
   return {
-    factura: aFacturaCabecera(res.factura),
+    factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }),
     lineas: (res.lineas ?? []).map((l) => aRetencion(l)),
   };
 }
@@ -238,13 +246,17 @@ export interface FiltroFacturas {
   docId?: string;
 }
 
-/** Los documentos con sus líneas. PostgREST anida por la FK retenciones.documento_id. */
+/**
+ * Los documentos con sus líneas. PostgREST anida por la FK retenciones.documento_id.
+ * El período no está en la cabecera sino en las líneas: con ese filtro, el
+ * anidado pasa a «inner» y solo quedan los documentos con líneas del período.
+ */
 export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLineas[]> {
-  let q = supabase.from(T_DOCUMENTOS).select('*, retenciones(*)')
+  let q = supabase.from(T_DOCUMENTOS).select(f.periodo ? '*, retenciones!inner(*)' : '*, retenciones(*)')
     .order('factura_fecha', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
   if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
-  if (f.periodo) q = q.eq('periodo', f.periodo);
+  if (f.periodo) q = q.eq('retenciones.comprobante_periodo', f.periodo);
   if (f.desde) q = q.gte('factura_fecha', f.desde);
   if (f.hasta) q = q.lte('factura_fecha', f.hasta);
   if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
