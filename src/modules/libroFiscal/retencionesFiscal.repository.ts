@@ -152,18 +152,27 @@ export async function getAlicuotasLocales(): Promise<AlicuotasLocales> {
 }
 
 /** Solo el administrador escribe la configuración (la base lo exige). */
-export async function guardarConfigRetencion(c: ConfigRetencion, locales?: AlicuotasLocales, opciones?: { conservarRegimen?: boolean }): Promise<void> {
+/** Claves del JSON que, con R3, copia la base desde los parámetros con vigencia. */
+const CLAVES_R3 = ['unidad_tributaria', 'iva_alicuota', 'iva_retencion', 'iva_retencion_especial', 'igtf_alicuota', 'municipal_alicuota', 'estadal_alicuota'] as const;
+
+export async function guardarConfigRetencion(c: ConfigRetencion, locales?: AlicuotasLocales,
+  opciones?: { conservarRegimen?: boolean; conservarParametros?: boolean }): Promise<void> {
   const falla = errorPorcentajesIva(c);
   if (falla) throw new Error(falla);
   const previo = await leerJsonParametros();
-  // Con R1, el régimen lo escribe la base desde sus condiciones con fecha: no se pisa con lo que la pantalla leyó antes.
+  // Con R1 y R3, el régimen y los valores los escribe la base desde sus tablas con fecha:
+  // no se pisan con lo que la pantalla leyó antes.
   const regimen = opciones?.conservarRegimen && previo
     ? { agente_retencion_iva: previo.agente_retencion_iva, contribuyente_especial: previo.contribuyente_especial }
     : {};
+  const parametros = opciones?.conservarParametros && previo
+    ? Object.fromEntries(CLAVES_R3.filter((k) => k in previo).map((k) => [k, previo[k]]))
+    : {};
   const value = {
     ...jsonDeConfig(c, previo),
+    ...(locales && !opciones?.conservarParametros ? { municipal_alicuota: n(locales.municipal), estadal_alicuota: n(locales.estadal) } : {}),
     ...regimen,
-    ...(locales ? { municipal_alicuota: n(locales.municipal), estadal_alicuota: n(locales.estadal) } : {}),
+    ...parametros,
   };
   const { data, error } = await supabase.from('config')
     .upsert({ key: CLAVE_CONFIG, value }, { onConflict: 'key' })
