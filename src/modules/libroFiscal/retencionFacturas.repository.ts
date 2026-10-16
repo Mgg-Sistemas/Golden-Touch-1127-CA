@@ -20,6 +20,8 @@ import {
   aRetencion, rolAGt, sujetoAGt, tipoAGt, type DocKind, type RetencionPracticada,
 } from './retencionesFiscal.repository';
 import { errorRetencion } from './erroresRetencion';
+import { configDeFecha } from './parametros.repository';
+import { CONFIG_RETENCION_DEFECTO } from './retencionesCalculo';
 
 const T_DOCUMENTOS = 'retencion_documentos';
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -215,9 +217,12 @@ function errorLegibleFactura(e: { code?: string; message?: string }): Error {
  */
 export async function registrarFactura(factura: FacturaNueva, lineas: LineaFacturaNueva[]): Promise<FacturaConLineas> {
   if (!lineas.length) throw new Error('La factura necesita al menos una línea de impuesto.');
+  // R3: la UT de la fecha de la factura (sin UT cargada para esa fecha, no se registra).
+  const vigente = await configDeFecha({ ...CONFIG_RETENCION_DEFECTO, valorUt: factura.valorUt ?? 0 },
+    (factura.facturaFecha ?? '').slice(0, 10), lineas.map((l) => l.tipo));
   const { data, error } = await supabase.rpc('retencion_factura_registrar', {
     p_factura: pFacturaDe(factura),
-    p_lineas: lineas.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(factura.valorUt) })),
+    p_lineas: lineas.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(vigente.valorUt) })),
   });
   if (error) throw errorLegibleFactura(error);
   const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
