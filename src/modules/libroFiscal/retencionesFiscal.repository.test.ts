@@ -19,8 +19,8 @@ function consulta(tabla: string, resp: Resp) {
   return q;
 }
 
-// Sin R3: los valores salen del JSON de Parámetros (las pruebas de R3 cubren el otro camino).
-vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false }));
+// Sin R3 (valores del JSON) y con V2R (la base numera): las pruebas de v2rV3r cubren el camino sin V2R.
+vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false, v2rDisponible: async () => true }));
 
 vi.mock('@/shared/lib/supabase', () => ({
   supabase: {

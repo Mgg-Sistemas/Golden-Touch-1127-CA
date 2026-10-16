@@ -9,6 +9,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Caja, MovimientoCaja, Retencion, TipoRetencion, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from './tasas.repository';
 import { categoriaLlevaCorrelativo } from './categoriasGasto.repository';
+import { v2rDisponible } from '@/modules/libroFiscal/disponibilidad';
 
 const TABLE = 'cajas';
 const LIBRO = 'movimientos_caja';
@@ -317,8 +318,15 @@ export async function crearRetencion(input: {
   const fecha = (input.fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const periodo = `${fecha.slice(0, 4)}${fecha.slice(5, 7)}`;
 
-  // Sin número escrito, lo asigna la base con el formato de la serie del impuesto.
-  const comprobante = input.comprobanteNro?.trim() || null;
+  // Con V2R, sin número escrito lo asigna la base con el formato de la serie del impuesto.
+  // Sin V2R (la base de hoy), se pide con siguiente_numero_retencion y se arma AAAAMM + 8.
+  let numero: number | null = null;
+  let comprobante = input.comprobanteNro?.trim() || null;
+  if (!comprobante && !(await v2rDisponible())) {
+    const { data: n } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: input.tipo, p_periodo: periodo });
+    numero = Number(n) || null;
+    if (numero) comprobante = `${periodo}${String(numero).padStart(8, '0')}`;
+  }
 
   // El nombre y el RIF se copian al registrar: si mañana se corrige la ficha del
   // proveedor, el comprobante emitido hace seis meses sigue diciendo lo que decía.
@@ -333,7 +341,7 @@ export async function crearRetencion(input: {
   const { data, error } = await supabase.from('retenciones').insert({
     rol: 'practicada', estado: 'registrada',
     tipo: input.tipo, base, porcentaje, monto, moneda: input.moneda || 'Bs',
-    comprobante_nro: comprobante, comprobante_periodo: periodo,
+    numero, comprobante_nro: comprobante, comprobante_periodo: periodo,
     quincena: Number(fecha.slice(8, 10)) <= 15 ? 1 : 2,
     rif, razon_social: razonSocial,
     base_bs: (input.moneda || 'Bs') === 'Bs' ? base : null,

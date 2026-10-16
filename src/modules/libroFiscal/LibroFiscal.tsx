@@ -66,6 +66,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
 import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
+import { v2rDisponible } from './disponibilidad';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
@@ -722,6 +723,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   // Con R3, la UT y los % salen de los valores vigentes a la fecha de la factura; sin R3, del JSON.
   const [config, setConfigFecha] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [avisoFecha, setAvisoFecha] = useState<string | null>(null);
+  // Con V2R la serie de cada impuesto tiene su formato; sin V2R, todas AAAAMM + 8 (la base de hoy).
+  const [conV2R, setConV2R] = useState(false);
+  useEffect(() => { v2rDisponible().then(setConV2R).catch(() => setConV2R(false)); }, []);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
 
@@ -1235,7 +1239,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       </div>
       <div className="hint muted" style={{ fontSize: '.74rem' }}>
         {direccion === 'practicada' && tipo !== 'igtf'
-          ? `Al registrar, la base le asigna el número de comprobante ${tipo === 'iva' ? 'AAAAMM + 8 dígitos' : 'de 10 dígitos continuos'}. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
+          ? `Al registrar, la base le asigna el número de comprobante ${!conV2R || tipo === 'iva' ? 'AAAAMM + 8 dígitos' : 'de 10 dígitos continuos'}. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
           : 'Queda en el libro fiscal del período, con su comprobante imprimible.'}
       </div>
       </div>
