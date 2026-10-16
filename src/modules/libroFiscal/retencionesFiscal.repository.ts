@@ -14,17 +14,17 @@
    · la configuración es el JSON `config['retenciones.parametros']`.
    · el catálogo del ISLR es una fila por código con una columna por sujeto.
 
-   El correlativo AAAAMM + 8 dígitos lo da la BASE (`siguiente_numero_retencion`,
-   una serie por impuesto y período), el mismo que usa Tesorería: dos personas
-   emitiendo a la vez no pueden sacar el mismo número. Como el número se gasta
-   aunque el registro falle después, todo se valida ANTES de pedirlo.
+   El número de una practicada lo pone la BASE al insertar (V2): el IVA,
+   AAAAMM + 8 dígitos; ISLR, ISAE y estadal, 10 dígitos continuos. El front no
+   lo pide ni lo arma: lo lee de la fila devuelta. Solo manda un número cuando
+   se escribe a mano («dado»), y la base lo valida con el formato de su serie.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { EMPRESA_DOMICILIO, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
-  CONFIG_RETENCION_DEFECTO, enBolivares, formatoComprobante, motivoNoPuedePracticar,
+  CONFIG_RETENCION_DEFECTO, comprobanteValido, enBolivares, labelImpuesto, motivoNoPuedePracticar, textoFormatoSerie,
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
@@ -366,6 +366,8 @@ export interface RetencionPracticada {
   numeroComprobante: string | null;
   /** Quién puso el número (V2, solo informativo): la serie de la base o una persona. */
   numeroOrigen?: 'sistema' | 'dado' | null;
+  /** ISAE: «Operación N°», correlativo del año que pone la base (V2), solo informativo. */
+  operacionNumero?: number | null;
   conceptoId: string | null;
   conceptoNombre: string | null;
   moneda: string;
@@ -415,6 +417,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
     numeroComprobante: texto(r.comprobante_nro),
     numeroOrigen: r.numero_origen === 'sistema' || r.numero_origen === 'dado' ? r.numero_origen : null,
+    operacionNumero: r.operacion_numero == null ? null : n(r.operacion_numero),
     conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${r.sujeto ? `:${r.sujeto}` : ''}` : null,
     conceptoNombre: texto(r.concepto),
     moneda: String(r.moneda ?? 'Bs'), tasa: r.tasa == null ? null : n(r.tasa),
@@ -584,10 +587,10 @@ function errorLegible(e: { code?: string; message?: string }): Error {
 /**
  * Registra una retención en el libro.
  *
- * Primero se valida TODO (régimen, carga, monto y doble registro): el número
- * propio se gasta en cuanto se pide, aunque el registro falle después. Las
- * practicadas (menos el IGTF) llevan el correlativo de la base; el de una
- * recibida lo puso otra empresa y se copia del comprobante que entregaron.
+ * Primero se valida todo lo que se puede en pantalla (régimen, carga, monto y
+ * doble registro). Las practicadas (menos el IGTF) reciben el número de la base
+ * al insertar; el de una recibida lo puso otra empresa y se copia del
+ * comprobante que entregaron.
  */
 export async function registrarRetencion(input: NuevaRetencion, config: ConfigRetencion): Promise<RetencionPracticada> {
   if (input.direccion === 'practicada') {
@@ -610,13 +613,10 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
   // R3: la UT (y los % del IVA) de la fecha de la factura. Antes de pedir el número: si falta, no se gasta.
   const vigente = await configDeFecha(config, (input.facturaFecha ?? '').slice(0, 10), [input.tipo]);
 
-  let numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
-  if (llevaNumeroPropio(input)) {
-    const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(input.tipo), p_periodo: input.periodo });
-    if (error) throw error;
-    const entero = Number(data);
-    if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
-    numero = { entero, texto: formatoComprobante(input.periodo, entero) };
+  // El número de una practicada lo asigna la base (V2). Solo viaja si se escribió a mano: «dado».
+  const numero = { entero: null, texto: input.numeroComprobante?.trim() || null };
+  if (numero.texto && llevaNumeroPropio(input) && !comprobanteValido(numero.texto, input.tipo)) {
+    throw new Error(`El número del comprobante de ${labelImpuesto(input.tipo)} lleva ${textoFormatoSerie(input.tipo)}.`);
   }
   // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
   const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null };

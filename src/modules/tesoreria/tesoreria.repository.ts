@@ -300,8 +300,8 @@ export async function listLibroMayor(filtros: {
 /**
  * Retención que la empresa PRACTICA al pagar (hoy solo la compra directa la usa).
  * Va al libro fiscal marcada como «practicada» y con su período y quincena, que
- * es lo que después permite declararla; el correlativo del comprobante se lo
- * pide a la base, único lugar donde dos usuarios no pueden sacar el mismo.
+ * es lo que después permite declararla; el número del comprobante lo pone la
+ * base al insertar (V2), único lugar donde dos usuarios no pueden sacar el mismo.
  */
 export async function crearRetencion(input: {
   tipo: TipoRetencion; base: number; porcentaje: number; moneda: string;
@@ -317,13 +317,8 @@ export async function crearRetencion(input: {
   const fecha = (input.fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const periodo = `${fecha.slice(0, 4)}${fecha.slice(5, 7)}`;
 
-  let numero: number | null = null;
-  let comprobante = input.comprobanteNro?.trim() || null;
-  if (!comprobante) {
-    const { data: n } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: input.tipo, p_periodo: periodo });
-    numero = Number(n) || null;
-    if (numero) comprobante = `${periodo}${String(numero).padStart(8, '0')}`;
-  }
+  // Sin número escrito, lo asigna la base con el formato de la serie del impuesto.
+  const comprobante = input.comprobanteNro?.trim() || null;
 
   // El nombre y el RIF se copian al registrar: si mañana se corrige la ficha del
   // proveedor, el comprobante emitido hace seis meses sigue diciendo lo que decía.
@@ -338,7 +333,7 @@ export async function crearRetencion(input: {
   const { data, error } = await supabase.from('retenciones').insert({
     rol: 'practicada', estado: 'registrada',
     tipo: input.tipo, base, porcentaje, monto, moneda: input.moneda || 'Bs',
-    numero, comprobante_nro: comprobante, comprobante_periodo: periodo,
+    comprobante_nro: comprobante, comprobante_periodo: periodo,
     quincena: Number(fecha.slice(8, 10)) <= 15 ? 1 : 2,
     rif, razon_social: razonSocial,
     base_bs: (input.moneda || 'Bs') === 'Bs' ? base : null,
