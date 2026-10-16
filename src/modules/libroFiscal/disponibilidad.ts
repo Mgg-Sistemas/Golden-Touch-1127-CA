@@ -49,6 +49,11 @@ export async function r1Disponible(): Promise<boolean> {
   return entes && perfiles;
 }
 
+/** R2 aplicado: el impuesto contenedor. */
+export function r2Disponible(): Promise<boolean> {
+  return tablaDisponible('retencion_impuestos');
+}
+
 /** Olvida lo preguntado (al cambiar de sesión, o en las pruebas). */
 export function olvidarDisponibilidad(): void {
   cache.clear();

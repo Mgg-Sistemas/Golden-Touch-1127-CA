@@ -9,9 +9,11 @@ import type { EstadoLicencia, FilaPerfil, PerfilFiscal, PerfilNuevo, TipoContrib
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { sujetoDelPerfil } from './perfilesFiscales.repository';
 
-export const LABEL_IMPUESTO: Record<ClaveImpuesto, string> = {
+export const LABEL_IMPUESTO: Record<string, string> = {
   IVA: 'IVA', ISLR: 'ISLR', MUNICIPAL: 'ISAE', ESTADAL: 'Estadal', IGTF: 'IGTF',
 };
+/** El rótulo de una clave de impuesto; una clave nueva (R2) se muestra tal cual. */
+export const labelClave = (c: ClaveImpuesto) => LABEL_IMPUESTO[c] ?? c;
 
 export const TIPOS_ENTE: { key: TipoEnte; label: string }[] = [
   { key: 'nacional', label: 'Nacional' },
