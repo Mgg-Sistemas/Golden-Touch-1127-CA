@@ -38,6 +38,9 @@ const TEXTOS: Record<string, string> = {
   RET_VERSION_DESDE: 'La versión nueva del impuesto tiene que empezar después de la vigente. Para corregir la vigente, usa «Corregir».',
   RET_SERIE_INICIAL: 'El primer número de la serie tiene que ser mayor que el último del otro sistema.',
   RET_SERIE_EN_USO: 'La serie de ese impuesto ya dio números: no cambia de formato.',
+  RET_PARAMETRO_DESDE: 'El valor nuevo tiene que empezar después del vigente. Para corregir el vigente, usa «Corregir».',
+  RET_PARAMETRO_AMBITO: 'Ese valor no va con ese impuesto: revisa si es general o de un impuesto.',
+  RET_PARAMETRO_TIPO: 'El valor no es del tipo que lleva esa clave (número, texto o sí/no).',
 };
 
 /** Textos propios de una pantalla para los rechazos genéricos de Postgres. */
@@ -69,6 +72,10 @@ export function errorRetencion(
   if (ret === 'RET_VERSION_DESDE') {
     const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
     if (fecha) return new Error(`La versión nueva tiene que empezar después del ${fecha}, que es cuando empezó la vigente. Para corregir la vigente, usa «Corregir».`);
+  }
+  if (ret === 'RET_PARAMETRO_DESDE') {
+    const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
+    if (fecha) return new Error(`El valor nuevo tiene que empezar después del ${fecha}, que es cuando empezó el vigente. Para corregir el vigente, usa «Corregir».`);
   }
   if (ret === 'RET_SERIE_INICIAL') {
     const ultimo = String(e?.message ?? '').match(/\((\d+)\)/)?.[1];

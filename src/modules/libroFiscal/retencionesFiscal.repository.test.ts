@@ -19,6 +19,9 @@ function consulta(tabla: string, resp: Resp) {
   return q;
 }
 
+// Sin R3: los valores salen del JSON de Parámetros (las pruebas de R3 cubren el otro camino).
+vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false }));
+
 vi.mock('@/shared/lib/supabase', () => ({
   supabase: {
     from: (tabla: string) => consulta(tabla, cola.shift() ?? { data: [], error: null }),

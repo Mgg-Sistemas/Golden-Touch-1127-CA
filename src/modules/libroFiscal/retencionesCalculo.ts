@@ -199,7 +199,11 @@ export function motivoCienTexto(m: MotivosIvaCien | null | undefined): string | 
  * retiene: da cero.
  */
 export function calcularRetencionIva(
-  input: { baseImponible: number; ivaFactura: number; motivos?: MotivosIvaCien | null },
+  input: {
+    baseImponible: number; ivaFactura: number; motivos?: MotivosIvaCien | null;
+    /** R6: el supuesto marcado, con su % y su texto, leído de la base por fecha. Si viene, manda sobre las casillas fijas. */
+    supuesto?: { pct: number; texto: string } | null;
+  },
   config: ConfigRetencion,
 ): CalculoRetencion {
   if (!puedePracticar('iva', config)) {
@@ -208,11 +212,13 @@ export function calcularRetencionIva(
   const base = r2(n0(input.baseImponible));
   const iva = r2(n0(input.ivaFactura));
   if (iva <= 0) return CERO('iva', 'La factura no tiene IVA sobre el cual retener.');
-  const cien = retieneCienPorCiento(input.motivos);
-  const pct = cien ? n0(config.pctIvaEspecial) : n0(config.pctIvaGeneral);
+  const sup = input.supuesto ?? null;
+  const cien = !sup && retieneCienPorCiento(input.motivos);
+  const pct = sup ? n0(sup.pct) : cien ? n0(config.pctIvaEspecial) : n0(config.pctIvaGeneral);
   const monto = r2((iva * pct) / 100);
   const alicuota = base > 0 ? r2((iva / base) * 100) : 0;
-  const porQue = cien ? ` (100% porque: ${motivoCienTexto(input.motivos)?.toLowerCase()})` : '';
+  const porQue = sup ? ` (${pct}% porque: ${sup.texto.toLowerCase()})`
+    : cien ? ` (100% porque: ${motivoCienTexto(input.motivos)?.toLowerCase()})` : '';
   return {
     tipo: 'iva', baseImponible: base, alicuota, impuesto: iva,
     porcentaje: pct, sustraendo: 0, montoRetenido: monto,
