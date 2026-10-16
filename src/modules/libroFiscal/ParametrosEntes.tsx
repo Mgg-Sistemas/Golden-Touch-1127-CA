@@ -8,10 +8,10 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
-  CLAVES_IMPUESTO, activarEnte, crearEnte, desactivarLogoEnte, editarEnte, faltaEnEnte, faltaEnImagen,
+  CLAVES_IMPUESTO, activarEnte, opcionesImpuestoEnte, crearEnte, desactivarLogoEnte, editarEnte, faltaEnEnte, faltaEnImagen,
   fijarImpuestosEnte, listEntes, subirLogoEnte, versionVigente, type ClaveImpuesto, type Ente, type TipoEnte,
 } from './entes.repository';
-import { LABEL_IMPUESTO, TIPOS_ENTE, fechaCorta, labelTipoEnte, territorio } from './parametrosR1';
+import { TIPOS_ENTE, fechaCorta, labelClave, labelTipoEnte, territorio } from './parametrosR1';
 import { ImagenRetencion } from './ImagenRetencion';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
@@ -61,7 +61,7 @@ export function ParametrosEntes({ puedeEditar }: { puedeEditar: boolean }) {
                   <td><strong>{e.nombre}</strong>{e.rif && <div className="muted mono" style={{ fontSize: '.74rem' }}>{e.rif}</div>}</td>
                   <td>{labelTipoEnte(e.tipo)}</td>
                   <td>{territorio(e)}</td>
-                  <td>{e.impuestos.length ? e.impuestos.map((i) => LABEL_IMPUESTO[i]).join(', ') : <span className="muted">Ninguno</span>}</td>
+                  <td>{e.impuestos.length ? e.impuestos.map(labelClave).join(', ') : <span className="muted">Ninguno</span>}</td>
                   <td>{e.activo ? 'Activo' : `Inactivo${e.hasta ? ` desde ${fechaCorta(e.hasta)}` : ''}`}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <button type="button" className="btn btn-sm" onClick={() => setEditando(e)}>{puedeEditar ? 'Editar' : 'Ver'}</button>
@@ -139,6 +139,8 @@ function EnteModal({ ente, puedeEditar, onClose, onCambio }: {
   const [logoMotivo, setLogoMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [opciones, setOpciones] = useState<{ clave: ClaveImpuesto; nombre: string | null }[]>(CLAVES_IMPUESTO.map((clave) => ({ clave, nombre: null })));
+  useEffect(() => { opcionesImpuestoEnte().then(setOpciones).catch(() => { /* quedan las cinco de siempre */ }); }, []);
 
   const falta = faltaEnEnte({ nombre, tipo, estado, municipio });
   const faltaLogo = logo ? faltaEnImagen(logo) : null;
@@ -151,7 +153,7 @@ function EnteModal({ ente, puedeEditar, onClose, onCambio }: {
     try {
       if (ente) {
         await editarEnte(ente.id, { nombre, tipo, estado, municipio, rif, ...(motivo.trim() ? { motivo } : {}) });
-        await fijarImpuestosEnte(ente.id, impuestos);
+        await fijarImpuestosEnte(ente.id, impuestos, motivo.trim() || `Impuestos de ${nombre.trim()}`);
         toast('Ente guardado.', 'success');
       } else {
         const id = await crearEnte({ nombre, tipo, estado, municipio, rif, impuestos, motivo });
@@ -223,9 +225,9 @@ function EnteModal({ ente, puedeEditar, onClose, onCambio }: {
         <div className="form-row">
           <label>Impuestos que crea o cobra</label>
           <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap' }}>
-            {CLAVES_IMPUESTO.map((c) => (
-              <label key={c} style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: '.86rem' }}>
-                <input type="checkbox" checked={impuestos.includes(c)} onChange={() => toggleImp(c)} /> {LABEL_IMPUESTO[c]}
+            {opciones.map(({ clave, nombre }) => (
+              <label key={clave} style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: '.86rem' }}>
+                <input type="checkbox" checked={impuestos.includes(clave)} onChange={() => toggleImp(clave)} /> {nombre ?? labelClave(clave)}
               </label>
             ))}
           </div>

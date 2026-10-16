@@ -35,6 +35,9 @@ const TEXTOS: Record<string, string> = {
   RET_MOTIVO_OBLIGATORIO: 'Indica el motivo del cambio.',
   RET_SIN_PERMISO: 'No tienes permiso para esta operación en Retenciones.',
   RET_PERFIL_DESDE: 'La versión nueva del perfil fiscal tiene que empezar después de la vigente.',
+  RET_VERSION_DESDE: 'La versión nueva del impuesto tiene que empezar después de la vigente. Para corregir la vigente, usa «Corregir».',
+  RET_SERIE_INICIAL: 'El primer número de la serie tiene que ser mayor que el último del otro sistema.',
+  RET_SERIE_EN_USO: 'La serie de ese impuesto ya dio números: no cambia de formato.',
 };
 
 /** Textos propios de una pantalla para los rechazos genéricos de Postgres. */
@@ -62,6 +65,14 @@ export function errorRetencion(
   if (ret === 'RET_PERFIL_DESDE') {
     const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
     return new Error(fecha ? `La versión nueva del perfil fiscal tiene que empezar después del ${fecha}, que es cuando empezó la vigente.` : TEXTOS.RET_PERFIL_DESDE);
+  }
+  if (ret === 'RET_VERSION_DESDE') {
+    const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
+    if (fecha) return new Error(`La versión nueva tiene que empezar después del ${fecha}, que es cuando empezó la vigente. Para corregir la vigente, usa «Corregir».`);
+  }
+  if (ret === 'RET_SERIE_INICIAL') {
+    const ultimo = String(e?.message ?? '').match(/\((\d+)\)/)?.[1];
+    if (ultimo) return new Error(`El primer número de la serie tiene que ser mayor que ${ultimo}, el último del otro sistema.`);
   }
   if (ret && TEXTOS[ret]) return new Error(TEXTOS[ret]);
   if (code === '42501') return new Error(TEXTOS.RET_SIN_PERMISO);

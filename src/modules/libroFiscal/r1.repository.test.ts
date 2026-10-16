@@ -21,6 +21,9 @@ function consulta(tabla: string) {
   return q;
 }
 
+// Sin R2: entes escribe el puente de R1 (las pruebas de R2 cubren el otro camino).
+vi.mock('./disponibilidad', () => ({ r2Disponible: async () => false, tablaDisponible: async () => false }));
+
 vi.mock('@/shared/lib/supabase', () => ({
   supabase: {
     from: (t: string) => consulta(t),
