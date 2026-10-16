@@ -68,3 +68,21 @@ export function nombreDescargaDocumento(nombre: string, archivo: string | null |
   const base = normalizarNombreDocumento(nombre).replace(/[\\/:*?"<>|]+/g, '-') || 'DOCUMENTO';
   return `${base}.${extension(archivo) || 'pdf'}`;
 }
+
+/** Primer espacio libre del equipo (1..4), o null si los 4 están ocupados. */
+export function espacioLibre(docs: { espacio: number }[]): number | null {
+  return espaciosDocumentos(docs).find((e) => !e.doc)?.espacio ?? null;
+}
+
+/**
+ * Nombre de una foto subida desde la tarjeta del equipo (16/10/2026): la primera
+ * es «FOTO DEL EQUIPO»; las siguientes, «FOTO DEL EQUIPO 2», «… 3»…
+ */
+export function nombreFotoEquipo(docs: { nombre: string }[]): string {
+  const base = 'FOTO DEL EQUIPO';
+  const usados = new Set(docs.map((d) => normalizarNombreDocumento(d.nombre)));
+  if (!usados.has(base)) return base;
+  let n = 2;
+  while (usados.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}

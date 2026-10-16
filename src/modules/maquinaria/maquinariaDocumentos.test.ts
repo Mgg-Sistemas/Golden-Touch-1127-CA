@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_DOCUMENTOS_EQUIPO, espaciosDocumentos, nombreDescargaDocumento, normalizarNombreDocumento,
+  MAX_DOCUMENTOS_EQUIPO, espacioLibre, espaciosDocumentos, nombreFotoEquipo, nombreDescargaDocumento, normalizarNombreDocumento,
   rutaDocumento, tamanoLegible, validarArchivoDocumento,
 } from './maquinariaDocumentos';
 
@@ -68,5 +68,18 @@ describe('nombreDescargaDocumento', () => {
   it('limpia caracteres que no admite un nombre de archivo', () => {
     expect(nombreDescargaDocumento('póliza a/b', null)).toBe('PÓLIZA A-B.pdf');
     expect(nombreDescargaDocumento('', 'x.pdf')).toBe('DOCUMENTO.pdf');
+  });
+});
+
+describe('foto subida desde la tarjeta del equipo', () => {
+  it('va al primer espacio libre, o a ninguno si están los 4 ocupados', () => {
+    expect(espacioLibre([])).toBe(1);
+    expect(espacioLibre([{ espacio: 1 }, { espacio: 3 }])).toBe(2);
+    expect(espacioLibre([{ espacio: 1 }, { espacio: 2 }, { espacio: 3 }, { espacio: 4 }])).toBeNull();
+  });
+  it('se llama FOTO DEL EQUIPO, y las siguientes llevan número', () => {
+    expect(nombreFotoEquipo([{ nombre: 'CONTRATO' }])).toBe('FOTO DEL EQUIPO');
+    expect(nombreFotoEquipo([{ nombre: 'foto del equipo' }])).toBe('FOTO DEL EQUIPO 2');
+    expect(nombreFotoEquipo([{ nombre: 'FOTO DEL EQUIPO' }, { nombre: 'FOTO DEL EQUIPO 2' }])).toBe('FOTO DEL EQUIPO 3');
   });
 });
