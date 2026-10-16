@@ -17,6 +17,7 @@ import type { DireccionRetencion, SujetoRetenido, TipoImpuesto } from './retenci
 import {
   aRetencion, rolAGt, sujetoAGt, tipoAGt, type DocKind, type RetencionPracticada,
 } from './retencionesFiscal.repository';
+import { errorRetencion } from './erroresRetencion';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
@@ -175,13 +176,9 @@ export function aFacturaCabecera(r: Record<string, unknown>): FacturaCabecera {
   };
 }
 
-/** Traduce los errores de la función a un texto para la pantalla. */
+/** Traduce los errores de la función a un texto para la pantalla (códigos RET_* en erroresRetencion). */
 function errorLegibleFactura(e: { code?: string; message?: string }): Error {
-  const code = e.code ?? '';
-  if (code === '42501') return new Error('No tienes permiso para registrar retenciones.');
-  if (code === '23514') return new Error('La empresa no puede practicar esa retención con su régimen (revisa agente de IVA / contribuyente especial en Parámetros).');
-  // La función ya trae un texto útil con su prefijo RET_* estable.
-  return e instanceof Error ? e : new Error(e.message || 'No se pudo registrar la factura.');
+  return errorRetencion(e, 'No se pudo registrar la factura.');
 }
 
 /**

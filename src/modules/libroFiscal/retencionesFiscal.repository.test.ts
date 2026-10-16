@@ -252,6 +252,26 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
     await expect(registrarRetencion(nueva({ direccion: 'recibida', numeroComprobante: 'C-55' }), CONFIG_RETENCION_DEFECTO))
       .rejects.toThrow('mismo número');
   });
+
+  it('una recibida anulada no impide volver a registrarla con el mismo número del cliente (VF)', async () => {
+    cola.push({ data: [], error: null });                        // la búsqueda deja fuera las anuladas
+    cola.push({ data: { id: 'r-4', rol: 'sufrida', tipo: 'IVA', estado: 'registrada', comprobante_nro: 'C-55' }, error: null });
+    const r = await registrarRetencion(nueva({ direccion: 'recibida', numeroComprobante: 'C-55' }), CONFIG_RETENCION_DEFECTO);
+    expect(llamadas[0].metodos).toContainEqual(['neq', 'estado', 'anulada']);
+    expect(r.numeroComprobante).toBe('C-55');
+  });
+
+  it('serie manual sin número (V2 · RET_NUMERO_FALTA): mensaje legible', async () => {
+    cola.push({ data: [], error: null });
+    cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FALTA: la serie es manual.' } });
+    rpc.mockResolvedValueOnce({ data: 1, error: null });
+    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('escribe el número del comprobante');
+  });
+
+  it('numero_origen (V2) se lee como dato informativo', () => {
+    expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA', numero_origen: 'dado' }).numeroOrigen).toBe('dado');
+    expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA' }).numeroOrigen).toBeNull();
+  });
 });
 
 describe('un cambio que no toca ninguna fila no es un éxito', () => {
