@@ -1235,7 +1235,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       </div>
       <div className="hint muted" style={{ fontSize: '.74rem' }}>
         {direccion === 'practicada' && tipo !== 'igtf'
-          ? `Al registrar, la base le asigna el número de comprobante AAAAMM + 8 dígitos. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
+          ? `Al registrar, la base le asigna el número de comprobante ${tipo === 'iva' ? 'AAAAMM + 8 dígitos' : 'de 10 dígitos continuos'}. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
           : 'Queda en el libro fiscal del período, con su comprobante imprimible.'}
       </div>
       </div>
