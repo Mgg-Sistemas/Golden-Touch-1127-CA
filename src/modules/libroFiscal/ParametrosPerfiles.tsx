@@ -15,6 +15,7 @@ import { labelSujeto } from './retencionesCalculo';
 import { paginar } from './listas';
 import { Paginador } from './ListaControles';
 import { listEntes, type Ente } from './entes.repository';
+import { codigosDeEnte, r4Disponible, type CodigoClasificacion } from './clasificaciones.repository';
 import {
   ESTADOS_LICENCIA, TEXTO_FALTA, agregarActividad, anotarPerfil, bajaActividad, faltaEnActividad, faltaEnPerfil,
   filtrarPerfiles, guardarPerfil, listActividades, listPerfiles, marcarPrincipal, perfilVigente, pideLicencia,
@@ -349,6 +350,22 @@ function Actividades({ proveedorId, actividades, municipales, puedeEditar, onCam
   const [descripcion, setDescripcion] = useState('');
   const [principal, setPrincipal] = useState(false);
   const [trabajando, setTrabajando] = useState(false);
+  // R4: con la alcaldía elegida, sus códigos se eligen de su clasificación (la base vincula el código solo).
+  const [conR4, setConR4] = useState(false);
+  const [codigosEnte, setCodigosEnte] = useState<CodigoClasificacion[]>([]);
+  useEffect(() => { r4Disponible().then(setConR4).catch(() => setConR4(false)); }, []);
+  useEffect(() => {
+    let vivo = true;
+    if (conR4 && enteId) codigosDeEnte(enteId).then((xs) => { if (vivo) setCodigosEnte(xs); }).catch(() => { if (vivo) setCodigosEnte([]); });
+    else setCodigosEnte([]);
+    return () => { vivo = false; };
+  }, [conR4, enteId]);
+  const opcionesEnte = useMemo(() => codigosEnte.map((c) => ({ value: c.codigo, label: `${c.codigo} · ${c.descripcion}` })), [codigosEnte]);
+  function elegirCodigoEnte(codigo: string) {
+    setOrdenanza(codigo);
+    const c = codigosEnte.find((x) => x.codigo === codigo);
+    if (c && !descripcion.trim()) setDescripcion(c.descripcion);
+  }
 
   const opciones = useMemo(() => catalogo.filter((a) => a.activa).map((a) => ({ value: a.codigo, label: etiquetaActividad(a) })), [catalogo]);
   const nombreCiiu = (c: string | null) => (c ? catalogo.find((a) => a.codigo === c)?.descripcion ?? '' : '');
@@ -407,7 +424,9 @@ function Actividades({ proveedorId, actividades, municipales, puedeEditar, onCam
             </div>
             <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
               <label>Código de la ordenanza</label>
-              <input className="input mono" value={ordenanza} onChange={(e) => setOrdenanza(e.target.value)} />
+              {opcionesEnte.length
+                ? <SearchSelect value={ordenanza} onChange={elegirCodigoEnte} options={opcionesEnte} placeholder="Buscar en la clasificación de la alcaldía…" />
+                : <input className="input mono" value={ordenanza} onChange={(e) => setOrdenanza(e.target.value)} />}
             </div>
           </div>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '.4rem' }}>
