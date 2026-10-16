@@ -4,7 +4,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
-import { money, num, dateTime } from '@/shared/lib/format';
+import { money, montoMoneda, num, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -17,7 +17,8 @@ import {
 import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { listRetenciones } from '@/modules/libroFiscal/retencionesFiscal.repository';
-import type { TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
+import { fechaTasaBcv, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
+import { diaVE, getTasasUsdDeFechas } from '@/modules/tesoreria/tasas.repository';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import '@/modules/libroFiscal/libroFiscal.css';
@@ -38,6 +39,7 @@ export function RetencionesPage() {
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [registradas, setRegistradas] = useState<Registradas>(new Map());
+  const [tasasDoc, setTasasDoc] = useState<TasasDoc>(new Map());
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
@@ -68,6 +70,17 @@ export function RetencionesPage() {
       reg.set(r.docId, s);
     }
     setPendientes(p); setHechas(h); setRegistradas(reg);
+    const docs = p.map((i) => {
+      const d = fechaDocumento(i.orden);
+      return { id: i.orden.id, fecha: fechaTasaBcv(d.fecha), origen: d.origen };
+    });
+    const porFecha = await getTasasUsdDeFechas(docs.map((d) => d.fecha)).catch(() => new Map<string, number>());
+    const td: TasasDoc = new Map();
+    for (const d of docs) {
+      const tasa = porFecha.get(d.fecha);
+      if (tasa) td.set(d.id, { tasa, fecha: d.fecha, origen: d.origen });
+    }
+    setTasasDoc(td);
   }, []);
 
   useEffect(() => {
@@ -198,7 +211,7 @@ export function RetencionesPage() {
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {vista === 'pendientes' && (
         <PorRealizarView
-          items={porRealizar} registradas={registradas} loading={loading} canWrite={canWrite}
+          items={porRealizar} registradas={registradas} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
           onVer={setSel} onVista={() => setVista('agrupada')}
           onRegistrar={setRegistrar}
         />
@@ -412,6 +425,27 @@ const IMPUESTOS_PENDIENTES: { key: ImpuestoPendiente; label: string }[] = [
 /** Impuestos registrados en el libro, por id de la OC. */
 type Registradas = Map<string, Set<TipoImpuesto>>;
 
+/** Tasa BCV del día del documento (OC o CS), por id, con el rótulo de qué fecha se usó. */
+type TasaDoc = { tasa: number; fecha: string; origen: string };
+type TasasDoc = Map<string, TasaDoc>;
+
+/** Día del documento: emisión de la OC/CS; si no la tiene, su creación. Nunca el pago. */
+function fechaDocumento(o: Orden): { fecha: string; origen: string } {
+  const origen = o.tipo === 'servicio' ? 'CS' : 'OC';
+  if (o.oc_emitida_en) return { fecha: diaVE(o.oc_emitida_en), origen: `emisión ${origen}` };
+  return { fecha: diaVE(o.oc_creada_en ?? o.created_at), origen: `creación ${origen}` };
+}
+
+/** El equivalente en la otra moneda, a la tasa del día del documento. */
+function equivalente(o: Orden, t: TasaDoc | undefined): { monto: string; tasa: string } | null {
+  if (!t) return null;
+  const enBs = o.total_moneda === 'Bs';
+  return {
+    monto: `≈ ${enBs ? montoMoneda(o.total / t.tasa, 'USD') : montoMoneda(o.total * t.tasa, 'Bs')}`,
+    tasa: `BCV ${num(t.tasa)} del ${t.fecha.slice(8, 10)}/${t.fecha.slice(5, 7)} (${t.origen})`,
+  };
+}
+
 /** Lo que falta: ni el comprobante del flujo anterior ni una retención vigente en el libro. */
 function impuestosPendientesDeOrden(o: Orden, reg: Registradas): ImpuestoPendiente[] {
   const ya = reg.get(o.id);
@@ -422,8 +456,8 @@ function impuestosPendientesDeOrden(o: Orden, reg: Registradas): ImpuestoPendien
   return out;
 }
 
-function PorRealizarView({ items, registradas, loading, canWrite, onVer, onVista, onRegistrar }: {
-  items: RetencionItem[]; registradas: Registradas; loading: boolean; canWrite: boolean;
+function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVer, onVista, onRegistrar }: {
+  items: RetencionItem[]; registradas: Registradas; tasasDoc: TasasDoc; loading: boolean; canWrite: boolean;
   onVer: (item: RetencionItem) => void; onVista: () => void;
   onRegistrar: (semilla: SemillaRetencion) => void;
 }) {
@@ -497,7 +531,7 @@ function PorRealizarView({ items, registradas, loading, canWrite, onVer, onVista
               <div key={o.id} className="lfv8-pagar-fila">
                 <span>
                   <b className="mono">{o.oc_codigo ?? o.codigo}</b> · {o.tipo === 'servicio' ? 'Servicio directo' : 'OC'} · {proveedorNombre}
-                  {o.retencion_monto != null && <> · retenido {o.total_moneda === 'Bs' ? 'Bs' : '$'} {money(o.retencion_monto)}</>}
+                  {o.retencion_monto != null && <> · retenido {montoMoneda(o.retencion_monto, o.total_moneda)}</>}
                   {o.retencion_tasa != null && <> · tasa del pago {num(o.retencion_tasa)}</>}
                 </span>
                 {canWrite && (
@@ -570,7 +604,6 @@ function PorRealizarView({ items, registradas, loading, canWrite, onVer, onVista
         {!loading && visible.map(({ orden: o, proveedorNombre }) => {
           const pends = impuestosPendientesDeOrden(o, registradas);
           const regs = IMPUESTOS_PENDIENTES.length - pends.length;
-          const moneda = o.total_moneda === 'Bs' ? 'Bs' : '$';
           return (
             <div key={o.id} className="lfv8-sis-fila">
               <span data-l="OC o compra" className="mono">{o.oc_codigo ?? o.codigo}</span>
@@ -581,7 +614,17 @@ function PorRealizarView({ items, registradas, loading, canWrite, onVer, onVista
               <span data-l="Facturas">
                 {regs > 0 ? `${regs} registrada(s)` : 'Ninguna registrada'}
               </span>
-              <span className="n" data-l="Total">{moneda} {money(o.total)}</span>
+              <span className="n" data-l="Total">
+                {montoMoneda(o.total, o.total_moneda)}
+                {(() => {
+                  const eq = equivalente(o, tasasDoc.get(o.id));
+                  if (!eq) return <small className="muted" style={{ display: 'block' }}>sin tasa BCV del día</small>;
+                  return (<>
+                    <small style={{ display: 'block', whiteSpace: 'nowrap' }}>{eq.monto}</small>
+                    <small className="muted" style={{ display: 'block', whiteSpace: 'nowrap' }}>{eq.tasa}</small>
+                  </>);
+                })()}
+              </span>
               <span data-l="Pendiente">
                 {pends.map((k) => {
                   const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;

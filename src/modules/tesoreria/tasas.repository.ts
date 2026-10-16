@@ -124,6 +124,26 @@ export async function getTasaUsdDeFecha(fecha: string): Promise<number | null> {
   return null;
 }
 
+/** Tasas USD del BCV de varias fechas (fecha → tasa; la manual manda). Las que no estén registradas no vienen. */
+export async function getTasasUsdDeFechas(fechas: string[]): Promise<Map<string, number>> {
+  const unicas = [...new Set(fechas.filter(Boolean))];
+  const out = new Map<string, number>();
+  if (!unicas.length) return out;
+  const { data, error } = await supabase.from('tasa_cambio').select('fecha, tasa, fuente')
+    .eq('moneda', 'USD').in('fecha', unicas);
+  if (error) throw error;
+  for (const r of (data ?? []) as Array<{ fecha: string; tasa: number; fuente: string | null }>) {
+    if (!out.has(r.fecha) || r.fuente === 'manual') out.set(r.fecha, Number(r.tasa));
+  }
+  return out;
+}
+
+/** Fecha (YYYY-MM-DD) en horario de Venezuela de un instante ISO. */
+export function diaVE(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(d);
+}
+
 /** Corrección / carga manual de la tasa de una moneda (admin). Acepta cualquier
  *  moneda registrada (USD/EUR/USDT/COP o personalizada). */
 export async function setTasaManual(input: { moneda: string; tasa: number; fecha?: string }): Promise<void> {
