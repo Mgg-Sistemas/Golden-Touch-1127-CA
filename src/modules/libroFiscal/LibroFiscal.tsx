@@ -1200,6 +1200,10 @@ const AVANZADOS_PA: DefSeccionPa[] = [
     que: 'Reglas del módulo que se encienden o se apagan sin programar.', ingresa: 'El valor de cada interruptor. Cada cambio pide confirmación.',
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
 ];
+/** Solo se muestran las secciones que guardan en la base; las demás vuelven cuando exista su tabla (R1, R2, R3, R6). */
+const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'impuestos', 'valores', 'regimen']);
+const AJUSTES_VIS = AJUSTES_PA.filter((s) => CONECTADAS_PA.has(s.key));
+const AVANZADOS_VIS = AVANZADOS_PA.filter((s) => CONECTADAS_PA.has(s.key));
 const TODAS_PA: Record<SeccionPa, DefSeccionPa> = Object.fromEntries([...AJUSTES_PA, ...AVANZADOS_PA].map((s) => [s.key, s])) as Record<SeccionPa, DefSeccionPa>;
 const AVISO_AVANZADOS = 'Estos cambios afectan cálculos, números o fechas de declaración. Lo ya emitido no cambia.';
 
@@ -1279,7 +1283,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           <h4 className="lfv8-pa-capa-t">Ajustes</h4>
           <p className="lfv8-pa-capa-d">Mantenimiento de todos los días. No cambian cuánto se retiene, cómo se numera ni cuándo se declara.</p>
           <div className="lfv8-pa-grid">
-            {AJUSTES_PA.map((s) => (
+            {AJUSTES_VIS.map((s) => (
               <button key={s.key} type="button" className="lfv8-pa-btn" onClick={() => setSeccion(s.key)}>
                 <span className="lfv8-pa-t">{s.titulo}</span>
                 <span className="lfv8-pa-d">{s.linea}</span>
@@ -1289,8 +1293,8 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           </div>
           <button type="button" className="lfv8-pa-avanzados" onClick={() => setCapa('avanzados')}>
             <span className="lfv8-pa-t">Ajustes avanzados</span>
-            <span className="lfv8-pa-d">Impuestos y reglas, valores con vigencia, períodos y numeración, régimen fiscal e interruptores.</span>
-            <span className="lfv8-pa-r">Cambian cálculos, números o fechas de declaración · {AVANZADOS_PA.length} secciones</span>
+            <span className="lfv8-pa-d">{AVANZADOS_VIS.map((s) => s.titulo).join(', ')}.</span>
+            <span className="lfv8-pa-r">Cambian cálculos, números o fechas de declaración · {AVANZADOS_VIS.length} secciones</span>
           </button>
         </>
       )}
@@ -1301,7 +1305,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           <button type="button" className="lfv8-pa-volver" onClick={volver}>← Parámetros</button>
           <div className="lfv8-pa-aviso"><strong>Ajustes avanzados.</strong> {AVISO_AVANZADOS}</div>
           <div className="lfv8-pa-grid">
-            {AVANZADOS_PA.map((s) => (
+            {AVANZADOS_VIS.map((s) => (
               <button key={s.key} type="button" className="lfv8-pa-btn" onClick={() => setSeccion(s.key)}>
                 <span className="lfv8-pa-t">{s.titulo}</span>
                 <span className="lfv8-pa-d">{s.linea}</span>
@@ -1309,7 +1313,6 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
               </button>
             ))}
           </div>
-          <p className="hint muted" style={{ fontSize: '.78rem' }}>Cada sección conserva sus guardas: la regla se prueba antes de guardar, una fecha pasada abre la lista del recálculo y lo declarado bloquea el cambio.</p>
         </>
       )}
 
