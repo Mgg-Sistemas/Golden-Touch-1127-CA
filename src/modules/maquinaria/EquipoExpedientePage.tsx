@@ -35,6 +35,7 @@ import { OrdenServicioModal } from './OrdenServicioModal';
 import { PedirCompraModal } from './PedirCompraModal';
 import { BitacoraModal } from './BitacoraModal';
 import { EquipoDocumentosModal } from './EquipoDocumentosModal';
+import { SubirFotoEquipoModal } from './SubirFotoEquipoModal';
 import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { LavadoModal } from './LavadoModal';
@@ -108,6 +109,7 @@ export function EquipoExpedientePage() {
   const [nuevaOrden, setNuevaOrden] = useState(false);
   const [bitacora, setBitacora] = useState(false);
   const [documentos, setDocumentos] = useState(false);
+  const [subirFoto, setSubirFoto] = useState(false);
   const [movimientos, setMovimientos] = useState(false);
   const [editar, setEditar] = useState(false);
   const [confirmMantt, setConfirmMantt] = useState(false);
@@ -289,8 +291,9 @@ export function EquipoExpedientePage() {
         <div className="flo-media">
           {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
           <div className={`estado tone-${st.tono}`}><Chip tono={st.tono} lg>{st.icon} {st.label}</Chip></div>
-          <button className="fotos-btn" type="button" onClick={() => (fotos.length ? setTab('fotos') : setDocumentos(true))}>
-            📷 {fotos.length ? `${fotos.length} foto(s)` : perm.maquinaria ? 'Agregar foto' : 'Documentos'}
+          {/* Quien edita Maquinaria elige aquí: tomar foto con la cámara o subirla de un archivo (16/10/2026). */}
+          <button className="fotos-btn" type="button" onClick={() => (perm.maquinaria ? setSubirFoto(true) : fotos.length ? setTab('fotos') : setDocumentos(true))}>
+            📷 {perm.maquinaria ? (fotos.length ? `${fotos.length} foto(s) · Subir foto` : 'Subir foto') : fotos.length ? `${fotos.length} foto(s)` : 'Documentos'}
           </button>
         </div>
         <div className="flo-plate">
@@ -457,6 +460,11 @@ export function EquipoExpedientePage() {
       )}
       {bitacora && <BitacoraModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => setBitacora(false)} />}
       {documentos && <EquipoDocumentosModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => { setDocumentos(false); void cargar(); }} />}
+      {subirFoto && (
+        <SubirFotoEquipoModal equipoId={eq.id} equipoNombre={eq.equipo} fotos={fotos.length} actor={actor} actorName={actorName}
+          onClose={() => setSubirFoto(false)} onSubida={() => cargar()}
+          onVerFotos={() => setTab('fotos')} onDocumentos={() => setDocumentos(true)} />
+      )}
       {movimientos && <EquipoMovimientosModal equipo={eq} onClose={() => setMovimientos(false)} />}
       {editar && <EquipoFormModal equipo={eq} actor={actor} onClose={() => setEditar(false)} onSaved={() => void cargar()} />}
       {confirmMantt && (
