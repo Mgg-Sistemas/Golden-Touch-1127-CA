@@ -1184,22 +1184,26 @@ const AJUSTES_PA: DefSeccionPa[] = [
     efecto: 'Cambia la lista de vencimientos de la cabecera y los avisos del registro.', noCambia: 'Ninguna fecha ni ningún monto: solo cuándo se avisa.' },
 ];
 const AVANZADOS_PA: DefSeccionPa[] = [
-  { key: 'impuestos', capa: 'avanzados', titulo: 'Impuestos y reglas', linea: 'Catálogo: nombre, regla de cálculo, ente, estado; conceptos o actividades.',
-    que: 'El catálogo de impuestos. Cada uno decide su casilla en la tira, sus períodos y su reporte.', ingresa: 'Nombre, regla por piezas, ente, estado, y la tabla del impuesto (conceptos o actividades con su alícuota).',
-    efecto: 'Cambia cuánto se retiene y qué impuestos aparecen en toda la pantalla.', noCambia: 'Lo emitido conserva su nombre y su monto.' },
-  { key: 'valores', capa: 'avanzados', titulo: 'Valores con vigencia', linea: 'UT, % de IVA y % de IGTF, cada uno con su fecha «desde».',
-    que: 'Los valores que usan las reglas: Unidad Tributaria, % de IVA general y del art. 5, % de IGTF.', ingresa: 'Un valor nuevo con su fecha «desde». El anterior se conserva.',
-    efecto: 'Las retenciones se calculan con el valor vigente a la fecha de la factura.', noCambia: 'Las retenciones declaradas. Ningún valor se sobrescribe.' },
+  { key: 'impuestos', capa: 'avanzados', titulo: 'Impuestos y reglas', linea: 'Conceptos del ISLR: porcentaje por sujeto y si están activos.',
+    que: 'El catálogo de conceptos del ISLR (Decreto 1.808).', ingresa: 'El porcentaje de cada concepto por sujeto y si está activo.',
+    efecto: 'Cambia cuánto se retiene de ISLR en los registros nuevos.', noCambia: 'Lo ya registrado conserva su porcentaje y su monto.' },
+  { key: 'valores', capa: 'avanzados', titulo: 'Valores', linea: 'Unidad Tributaria y porcentaje del IGTF.',
+    que: 'Los valores que usan los cálculos: la Unidad Tributaria y el porcentaje del IGTF.', ingresa: 'El valor vigente. Todavía no guarda historial: el nuevo reemplaza al anterior.',
+    efecto: 'Los registros nuevos se calculan con el valor guardado.', noCambia: 'Lo ya registrado conserva su monto.' },
   { key: 'numeracion', capa: 'avanzados', titulo: 'Períodos y numeración', linea: 'Periodicidad, series de comprobantes y paso inicial de cada impuesto.',
     que: 'Cómo se agrupan las retenciones para declarar y cómo se numeran los comprobantes.', ingresa: 'Periodicidad, quién numera la serie, período en curso y último número del otro sistema.',
     efecto: 'Cambia los períodos por declarar y el número que se propone al registrar.', noCambia: 'Nunca se cambia dentro de un período declarado. Un número usado no se repite.' },
-  { key: 'regimen', capa: 'avanzados', titulo: 'Régimen fiscal de la empresa', linea: 'Agente de retención de IVA y contribuyente especial, con su fecha.',
-    que: 'Las condiciones de la empresa ante el SENIAT, cada una con su fecha «desde».', ingresa: 'Agente de retención de IVA, contribuyente especial y percepción del IGTF.',
-    efecto: '«Agente de retención de IVA» decide si se propone la retención de IVA. «Contribuyente especial» decide el calendario.', noCambia: 'Lo emitido.' },
+  { key: 'regimen', capa: 'avanzados', titulo: 'Régimen fiscal de la empresa', linea: 'Agente de retención de IVA, contribuyente especial y % de retención del IVA.',
+    que: 'Las condiciones de la empresa ante el SENIAT.', ingresa: 'Si es agente de retención de IVA, si es contribuyente especial y los porcentajes de retención del IVA (75 y 100).',
+    efecto: '«Agente de retención de IVA» decide si se propone la retención de IVA. «Contribuyente especial» habilita el IGTF.', noCambia: 'Lo ya registrado. Todavía no guarda la fecha ni el historial del cambio.' },
   { key: 'interruptores', capa: 'avanzados', titulo: 'Interruptores de reglas', linea: 'Reglas del módulo que se encienden o se apagan sin programar.',
     que: 'Reglas del módulo que se encienden o se apagan sin programar.', ingresa: 'El valor de cada interruptor. Cada cambio pide confirmación.',
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
 ];
+/** Solo se muestran las secciones que guardan en la base; las demás vuelven cuando exista su tabla (R1, R2, R3, R6). */
+const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'impuestos', 'valores', 'regimen']);
+const AJUSTES_VIS = AJUSTES_PA.filter((s) => CONECTADAS_PA.has(s.key));
+const AVANZADOS_VIS = AVANZADOS_PA.filter((s) => CONECTADAS_PA.has(s.key));
 const TODAS_PA: Record<SeccionPa, DefSeccionPa> = Object.fromEntries([...AJUSTES_PA, ...AVANZADOS_PA].map((s) => [s.key, s])) as Record<SeccionPa, DefSeccionPa>;
 const AVISO_AVANZADOS = 'Estos cambios afectan cálculos, números o fechas de declaración. Lo ya emitido no cambia.';
 
@@ -1279,7 +1283,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           <h4 className="lfv8-pa-capa-t">Ajustes</h4>
           <p className="lfv8-pa-capa-d">Mantenimiento de todos los días. No cambian cuánto se retiene, cómo se numera ni cuándo se declara.</p>
           <div className="lfv8-pa-grid">
-            {AJUSTES_PA.map((s) => (
+            {AJUSTES_VIS.map((s) => (
               <button key={s.key} type="button" className="lfv8-pa-btn" onClick={() => setSeccion(s.key)}>
                 <span className="lfv8-pa-t">{s.titulo}</span>
                 <span className="lfv8-pa-d">{s.linea}</span>
@@ -1289,8 +1293,8 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           </div>
           <button type="button" className="lfv8-pa-avanzados" onClick={() => setCapa('avanzados')}>
             <span className="lfv8-pa-t">Ajustes avanzados</span>
-            <span className="lfv8-pa-d">Impuestos y reglas, valores con vigencia, períodos y numeración, régimen fiscal e interruptores.</span>
-            <span className="lfv8-pa-r">Cambian cálculos, números o fechas de declaración · {AVANZADOS_PA.length} secciones</span>
+            <span className="lfv8-pa-d">{AVANZADOS_VIS.map((s) => s.titulo).join(', ')}.</span>
+            <span className="lfv8-pa-r">Cambian cálculos, números o fechas de declaración · {AVANZADOS_VIS.length} secciones</span>
           </button>
         </>
       )}
@@ -1301,7 +1305,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           <button type="button" className="lfv8-pa-volver" onClick={volver}>← Parámetros</button>
           <div className="lfv8-pa-aviso"><strong>Ajustes avanzados.</strong> {AVISO_AVANZADOS}</div>
           <div className="lfv8-pa-grid">
-            {AVANZADOS_PA.map((s) => (
+            {AVANZADOS_VIS.map((s) => (
               <button key={s.key} type="button" className="lfv8-pa-btn" onClick={() => setSeccion(s.key)}>
                 <span className="lfv8-pa-t">{s.titulo}</span>
                 <span className="lfv8-pa-d">{s.linea}</span>
@@ -1309,7 +1313,6 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
               </button>
             ))}
           </div>
-          <p className="hint muted" style={{ fontSize: '.78rem' }}>Cada sección conserva sus guardas: la regla se prueba antes de guardar, una fecha pasada abre la lista del recálculo y lo declarado bloquea el cambio.</p>
         </>
       )}
 
