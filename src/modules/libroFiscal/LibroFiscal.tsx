@@ -27,6 +27,11 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
+import { r1Disponible } from './disponibilidad';
+import { ParametrosEntes } from './ParametrosEntes';
+import { ParametrosFirmaSello } from './ParametrosFirmaSello';
+import { ParametrosPerfiles } from './ParametrosPerfiles';
+import { ParametrosRegimen } from './ParametrosRegimen';
 import { rifValido } from '@/shared/lib/rif';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
@@ -1159,7 +1164,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
 /* ═══════════════════ Parámetros fiscales ═══════════════════ */
 
-type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'vencimientos'
+type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'firma' | 'vencimientos'
   | 'impuestos' | 'valores' | 'numeracion' | 'regimen' | 'interruptores';
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
@@ -1179,6 +1184,9 @@ const AJUSTES_PA: DefSeccionPa[] = [
   { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Los datos del agente de retención que van en cada comprobante.',
     que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
     efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
+  { key: 'firma', capa: 'ajustes', titulo: 'Firma y sello', linea: 'La firma, el sello y el logo de la empresa en los comprobantes.',
+    que: 'Las imágenes de la empresa que van en cada comprobante: logo, firma (con su firmante) y sello.', ingresa: 'Una imagen PNG o JPG de hasta 1 MB, vigente desde una fecha.',
+    efecto: 'Los comprobantes nuevos llevan la versión vigente a su fecha de emisión. Sin imagen, el recuadro queda en blanco para firmar a mano.', noCambia: 'Los comprobantes emitidos conservan la versión con que salieron.' },
   { key: 'vencimientos', capa: 'ajustes', titulo: 'Avisos de vencimiento', linea: 'Cuándo avisar de licencias, declaraciones y actividades que vencen.',
     que: 'Los avisos de lo que vence: licencias, declaraciones y actividades con fecha «hasta».', ingresa: 'Con cuántos días de anticipación se avisa y si los avisos están encendidos.',
     efecto: 'Cambia la lista de vencimientos de la cabecera y los avisos del registro.', noCambia: 'Ninguna fecha ni ningún monto: solo cuándo se avisa.' },
@@ -1202,8 +1210,8 @@ const AVANZADOS_PA: DefSeccionPa[] = [
 ];
 /** Solo se muestran las secciones que guardan en la base; las demás vuelven cuando exista su tabla (R1, R2, R3, R6). */
 const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen']);
-const AJUSTES_VIS = AJUSTES_PA.filter((s) => CONECTADAS_PA.has(s.key));
-const AVANZADOS_VIS = AVANZADOS_PA.filter((s) => CONECTADAS_PA.has(s.key));
+/** Las de R1 aparecen solas cuando sus tablas existen en la base. */
+const CONECTADAS_R1 = new Set<SeccionPa>(['entes', 'firma', 'perfiles']);
 const TODAS_PA: Record<SeccionPa, DefSeccionPa> = Object.fromEntries([...AJUSTES_PA, ...AVANZADOS_PA].map((s) => [s.key, s])) as Record<SeccionPa, DefSeccionPa>;
 const AVISO_AVANZADOS = 'Estos cambios afectan cálculos, números o fechas de declaración. Lo ya emitido no cambia.';
 
@@ -1215,6 +1223,11 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const [seccion, setSeccion] = useState<SeccionPa | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [r1, setR1] = useState(false);
+  useEffect(() => { void r1Disponible().then(setR1).catch(() => setR1(false)); }, []);
+  const visible = (s: DefSeccionPa) => CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key));
+  const AJUSTES_VIS = AJUSTES_PA.filter(visible);
+  const AVANZADOS_VIS = AVANZADOS_PA.filter(visible);
 
   const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
 
@@ -1232,7 +1245,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   async function guardar() {
     setSaving(true); setError(null);
     try {
-      await guardarConfigRetencion(cfg, locales);
+      await guardarConfigRetencion(cfg, locales, { conservarRegimen: r1 });
       toast('Parámetros fiscales guardados', 'success');
       onClose();
     } catch (e) {
@@ -1252,7 +1265,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
       case 'impuestos': return `${conceptos.length} conceptos`;
-      default: return 'Pendiente';
+      default: return '';
     }
   }
 
@@ -1377,7 +1390,10 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           {/* ── Régimen fiscal ── */}
           {seccion === 'regimen' && (
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              {/* Con R1, las dos condiciones llevan fecha e historial y las escribe su propia pantalla. */}
+              {r1 && <ParametrosRegimen puedeEditar={puedeEditar} />}
               <div className="card" style={{ background: 'var(--bg-2)' }}>
+                {!r1 && (<>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
                   <input type="checkbox" checked={cfg.esAgenteRetencionIva} onChange={(e) => set('esAgenteRetencionIva', e.target.checked)} />
                   La empresa está designada agente de retención de IVA
@@ -1392,6 +1408,8 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                 <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.82rem' }}>
                   Hoy está en <strong>{cfg.esContribuyenteEspecial ? 'sí' : 'no'}</strong>. El contribuyente especial también retiene IVA y, además, percibe el IGTF.
                 </p>
+                </>)}
+                {r1 && <p className="muted" style={{ margin: '0 0 .5rem', fontSize: '.82rem' }}>Porcentajes de retención del IVA (se guardan con el botón Guardar):</p>}
                 <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
                   <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
                     <label>% general</label>
@@ -1437,21 +1455,10 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           {/* ── Motivos de «No aplica» ── */}
           {seccion === 'motivos' && <SeccionMotivos puedeEditar={puedeEditar} />}
 
-          {/* ── Entes y logos ── */}
-          {seccion === 'entes' && <SeccionEntes puedeEditar={puedeEditar} />}
-
-          {/* ── Perfiles fiscales ── */}
-          {seccion === 'perfiles' && (
-            <div>
-              <p style={{ fontSize: '.86rem', marginBottom: '.6rem' }}>
-                El perfil fiscal se configura desde la Vista agrupada: seleccionar un proveedor y presionar <strong>Perfil fiscal</strong>.
-              </p>
-              <p className="muted" style={{ fontSize: '.82rem' }}>
-                Cada perfil incluye tipo de contribuyente, tipo de persona, residencia, actividades económicas y licencia.
-                Los cambios afectan solo las retenciones pendientes; las registradas conservan los datos con que se emitieron.
-              </p>
-            </div>
-          )}
+          {/* ── R1: entes y logos, firma y sello, perfiles fiscales ── */}
+          {r1 && seccion === 'entes' && <ParametrosEntes puedeEditar={puedeEditar} />}
+          {r1 && seccion === 'firma' && <ParametrosFirmaSello puedeEditar={puedeEditar} />}
+          {r1 && seccion === 'perfiles' && <ParametrosPerfiles puedeEditar={puedeEditar} />}
 
           {/* ── Tipos de licencia ── */}
           {seccion === 'licencias' && <SeccionLicencias puedeEditar={puedeEditar} />}
@@ -1523,53 +1530,6 @@ function SeccionMotivos({ puedeEditar }: { puedeEditar: boolean }) {
           <button type="button" className="btn" onClick={agregar}>Agregar</button>
         </div>
       )}
-    </fieldset>
-  );
-}
-
-function SeccionEntes({ puedeEditar }: { puedeEditar: boolean }) {
-  const [entes, setEntes] = useState([
-    { id: '1', nombre: 'SENIAT', impuestos: ['iva', 'islr'], logo: null as string | null },
-    { id: '2', nombre: 'Alcaldía del municipio', impuestos: ['isae'], logo: null as string | null },
-  ]);
-
-  function subirLogo(id: string, file: File) {
-    const url = URL.createObjectURL(file);
-    setEntes((prev) => prev.map((e) => e.id === id ? { ...e, logo: url } : e));
-    toast('Logo cargado. Se guardará con los parámetros.', 'info');
-  }
-
-  return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
-      <p className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
-        El logo aparece en cada comprobante de retención emitido por ese ente.
-      </p>
-      <div style={{ display: 'grid', gap: '.75rem' }}>
-        {entes.map((e) => (
-          <div key={e.id} className="card" style={{ margin: 0, display: 'grid', gridTemplateColumns: '80px 1fr', gap: '.75rem', alignItems: 'center' }}>
-            <div style={{ width: 80, height: 60, border: '1px dashed var(--border-strong)', borderRadius: 'var(--r-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: e.logo ? '#fff' : 'var(--bg-2)' }}>
-              {e.logo
-                ? <img src={e.logo} alt={`Logo ${e.nombre}`} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-                : <span className="muted" style={{ fontSize: '.7rem' }}>Sin logo</span>}
-            </div>
-            <div>
-              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <input className="input" style={{ flex: '1 1 180px' }} value={e.nombre}
-                  onChange={(ev) => setEntes((p) => p.map((x) => x.id === e.id ? { ...x, nombre: ev.target.value } : x))} />
-                <span className="muted" style={{ fontSize: '.8rem' }}>{e.impuestos.map((i) => i.toUpperCase()).join(', ')}</span>
-              </div>
-              {puedeEditar && (
-                <div style={{ marginTop: '.35rem' }}>
-                  <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
-                    📎 Cargar logo
-                    <input type="file" accept="image/*" hidden onChange={(ev) => { if (ev.target.files?.[0]) subirLogo(e.id, ev.target.files[0]); }} />
-                  </label>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
     </fieldset>
   );
 }

@@ -150,12 +150,17 @@ export async function getAlicuotasLocales(): Promise<AlicuotasLocales> {
 }
 
 /** Solo el administrador escribe la configuración (la base lo exige). */
-export async function guardarConfigRetencion(c: ConfigRetencion, locales?: AlicuotasLocales): Promise<void> {
+export async function guardarConfigRetencion(c: ConfigRetencion, locales?: AlicuotasLocales, opciones?: { conservarRegimen?: boolean }): Promise<void> {
   const falla = errorPorcentajesIva(c);
   if (falla) throw new Error(falla);
   const previo = await leerJsonParametros();
+  // Con R1, el régimen lo escribe la base desde sus condiciones con fecha: no se pisa con lo que la pantalla leyó antes.
+  const regimen = opciones?.conservarRegimen && previo
+    ? { agente_retencion_iva: previo.agente_retencion_iva, contribuyente_especial: previo.contribuyente_especial }
+    : {};
   const value = {
     ...jsonDeConfig(c, previo),
+    ...regimen,
     ...(locales ? { municipal_alicuota: n(locales.municipal), estadal_alicuota: n(locales.estadal) } : {}),
   };
   const { data, error } = await supabase.from('config')
