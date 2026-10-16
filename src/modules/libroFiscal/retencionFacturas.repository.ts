@@ -1,7 +1,9 @@
 /* ============================================================
    Golden Touch · Libro fiscal · Registro por factura (v8 · VF)
 
-   Una FACTURA (cabecera) con varias LÍNEAS de impuesto. El registro es
+   Un DOCUMENTO (cabecera: factura, nota de débito o nota de crédito) con
+   varias LÍNEAS de impuesto. La tabla es `retencion_documentos` y cada línea
+   apunta a ella por `retenciones.documento_id`. El registro es
    atómico: la base crea la cabecera y las líneas en una sola transacción con
    `retencion_factura_registrar`, y devuelve todo con sus números ya asignados
    (V2). Si algo falla, no se gasta ningún número ni queda cabecera huérfana.
@@ -19,6 +21,7 @@ import {
 } from './retencionesFiscal.repository';
 import { errorRetencion } from './erroresRetencion';
 
+const T_DOCUMENTOS = 'retencion_documentos';
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 const texto = (v: unknown) => (v == null || v === '' ? null : String(v));
@@ -53,8 +56,17 @@ export interface LineaFacturaNueva {
   fecha?: string | null;
 }
 
+/** Qué documento es la cabecera. Los montos van siempre en positivo: el tipo decide el signo (la nota de crédito resta). */
+export type TipoDocumento = 'factura' | 'nota_debito' | 'nota_credito';
+
 export interface FacturaNueva {
   direccion: DireccionRetencion;
+  /** Por defecto, factura. */
+  tipoDocumento?: TipoDocumento;
+  /** La cabecera que ajusta una nota, si está en el libro. */
+  documentoAfectadoId?: string | null;
+  /** N° de la factura que ajusta una nota; obligatorio en una nota (puede no estar en el libro). */
+  facturaAfectadaNro?: string | null;
   docKind: DocKind;
   docId?: string | null;
   /** Solo un proveedor: en una recibida la contraparte es un cliente (no lleva proveedor_id). */
@@ -85,8 +97,14 @@ export interface FacturaNueva {
 
 /** p_factura: la cabecera con los nombres de columna de GT. */
 export function pFacturaDe(f: FacturaNueva): Record<string, unknown> {
+  const tipoDocumento = f.tipoDocumento ?? 'factura';
+  const esNota = tipoDocumento !== 'factura';
   return {
     rol: rolAGt(f.direccion),
+    tipo_documento: tipoDocumento,
+    // Una factura no ajusta a otra: la base rechaza estos datos en una factura.
+    documento_afectado_id: esNota ? f.documentoAfectadoId ?? null : null,
+    factura_afectada_nro: esNota ? f.facturaAfectadaNro?.trim() || null : null,
     // En una recibida la contraparte es un cliente: no cabe en la FK a proveedores.
     proveedor_id: f.direccion === 'practicada' ? f.contraparteId ?? null : null,
     rif: f.contraparteRif ? normalizarRif(f.contraparteRif) : null,
@@ -143,6 +161,9 @@ export function pLineaDe(l: LineaFacturaNueva): Record<string, unknown> {
 export interface FacturaCabecera {
   id: string;
   direccion: DireccionRetencion;
+  tipoDocumento: TipoDocumento;
+  documentoAfectadoId: string | null;
+  facturaAfectadaNro: string | null;
   docKind: DocKind;
   docId: string | null;
   contraparteRif: string | null;
@@ -161,11 +182,14 @@ export interface FacturaConLineas {
   lineas: RetencionPracticada[];
 }
 
-/** Una fila de retencion_facturas → la cabecera del módulo. */
+/** Una fila de retencion_documentos → la cabecera del módulo. */
 export function aFacturaCabecera(r: Record<string, unknown>): FacturaCabecera {
   return {
     id: String(r.id),
     direccion: r.rol === 'practicada' ? 'practicada' : 'recibida',
+    tipoDocumento: r.tipo_documento === 'nota_debito' || r.tipo_documento === 'nota_credito' ? r.tipo_documento : 'factura',
+    documentoAfectadoId: texto(r.documento_afectado_id),
+    facturaAfectadaNro: texto(r.factura_afectada_nro),
     docKind: r.orden_id ? 'oc' : r.compra_directa_id ? 'compra_directa' : r.servicio_directo_id ? 'servicio_directo' : 'manual',
     docId: texto(r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id),
     contraparteRif: texto(r.rif),
@@ -214,9 +238,9 @@ export interface FiltroFacturas {
   docId?: string;
 }
 
-/** Las facturas con sus líneas. PostgREST anida por la FK retenciones.factura_id. */
+/** Los documentos con sus líneas. PostgREST anida por la FK retenciones.documento_id. */
 export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLineas[]> {
-  let q = supabase.from('retencion_facturas').select('*, retenciones(*)')
+  let q = supabase.from(T_DOCUMENTOS).select('*, retenciones(*)')
     .order('factura_fecha', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
   if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
@@ -243,7 +267,7 @@ export async function actualizarFactura(id: string, cambios: Partial<Pick<Factur
   if ('facturaFecha' in cambios) patch.factura_fecha = cambios.facturaFecha || null;
   if ('facturaTotal' in cambios) patch.factura_total = cambios.facturaTotal ?? null;
   if ('nota' in cambios) patch.nota = cambios.nota?.trim() || null;
-  const { data, error } = await supabase.from('retencion_facturas').update(patch).eq('id', id).select('id');
+  const { data, error } = await supabase.from(T_DOCUMENTOS).update(patch).eq('id', id).select('id');
   if (error) throw errorLegibleFactura(error);
   if (!data?.length) throw new Error('No se guardó el cambio de la factura: sin permiso, o la factura ya no existe.');
 }

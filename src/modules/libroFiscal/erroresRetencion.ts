@@ -12,6 +12,8 @@ const TEXTOS: Record<string, string> = {
   RET_FACTURA_ROL: 'Falta indicar quién retuvo (la empresa o el cliente).',
   RET_FACTURA_DOC: 'Falta el documento de origen (OC, compra o servicio) de la factura.',
   RET_FACTURA_DECLARADA: 'La factura tiene líneas ya declaradas: solo se puede cambiar la nota.',
+  RET_DOCUMENTO_TIPO: 'El documento debe ser una factura, una nota de débito o una nota de crédito.',
+  RET_DOCUMENTO_AFECTADO: 'Una nota de débito o de crédito lleva el N° de la factura que ajusta.',
   RET_LINEA_TIPO: 'Una línea tiene un impuesto que no se reconoce.',
   RET_MONTO_NEGATIVO: 'El monto retenido no puede ser negativo.',
   RET_CERO_SIN_MOTIVO: 'Una retención en 0 se registra solo con su motivo.',
