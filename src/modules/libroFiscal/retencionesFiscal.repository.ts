@@ -24,7 +24,7 @@ import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { EMPRESA_DOMICILIO, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
-  CONFIG_RETENCION_DEFECTO, comprobanteValido, enBolivares, labelImpuesto, motivoNoPuedePracticar, textoFormatoSerie,
+  CONFIG_RETENCION_DEFECTO, enBolivares, formatoSerie, labelImpuesto, motivoNoPuedePracticar, numeroConFormato, textoDeFormato,
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
@@ -32,6 +32,7 @@ import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from '
 import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
+import { serieDeImpuesto } from './impuestos.repository';
 import { tablaDisponible } from './disponibilidad';
 
 const T_RETENCIONES = 'retenciones';
@@ -615,8 +616,14 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
 
   // El número de una practicada lo asigna la base (V2). Solo viaja si se escribió a mano: «dado».
   const numero = { entero: null, texto: input.numeroComprobante?.trim() || null };
-  if (numero.texto && llevaNumeroPropio(input) && !comprobanteValido(numero.texto, input.tipo)) {
-    throw new Error(`El número del comprobante de ${labelImpuesto(input.tipo)} lleva ${textoFormatoSerie(input.tipo)}.`);
+  if (numero.texto && input.direccion === 'practicada') {
+    // V2R: la serie (si numera y su formato) sale de retencion_impuestos; sin R2, las reglas fijas.
+    const serie = await serieDeImpuesto(tipoAGt(input.tipo));
+    const numera = serie ? serie.numera : llevaNumeroPropio(input);
+    const formato = serie ? serie.formato : formatoSerie(input.tipo);
+    if (numera && formato && !numeroConFormato(numero.texto, formato)) {
+      throw new Error(`El número del comprobante de ${labelImpuesto(input.tipo)} lleva ${textoDeFormato(formato)}.`);
+    }
   }
   // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
   const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null };

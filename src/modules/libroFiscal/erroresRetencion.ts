@@ -30,6 +30,7 @@ const TEXTOS: Record<string, string> = {
   RET_PERIODO_YA_DECLARADO: 'Ese período ya estaba declarado.',
   RET_PERIODO_NO_DECLARADO: 'Ese período no está declarado: no hay nada que reabrir.',
   RET_PERIODO_NO_EXISTE: 'Ese período no existe. Genera los períodos del año primero.',
+  RET_ANIO_INVALIDO: 'El año tiene que estar entre 2020 y 2100.',
   RET_PERIODO_DECLARA_DECLARADO: 'No se puede cambiar quién declara un período ya declarado.',
   RET_PERIODO_SOLO_POR_FUNCION: 'El estado del período solo se cambia con «Declarar» o «Reabrir».',
   RET_MOTIVO_OBLIGATORIO: 'Indica el motivo del cambio.',

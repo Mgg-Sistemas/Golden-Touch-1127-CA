@@ -396,6 +396,13 @@ export function comprobanteValido(v: string | null | undefined, tipo?: TipoImpue
   return /^(\d{14}|\d{10})$/.test(s);
 }
 
+/** ¿El número tiene la forma de ese formato? (con V2R el formato sale de retencion_impuestos). */
+export function numeroConFormato(v: string, formato: FormatoSerie): boolean {
+  return formato === 'AAAAMM8' ? /^\d{14}$/.test(v) : /^\d{10}$/.test(v);
+}
+
+export const textoDeFormato = (formato: FormatoSerie) => (formato === 'AAAAMM8' ? '14 dígitos (AAAAMM y 8 de la serie)' : '10 dígitos');
+
 /** Cómo se escribe el número de una serie, para los avisos. */
 export function textoFormatoSerie(tipo: TipoImpuesto): string {
   return formatoSerie(tipo) === 'AAAAMM8' ? '14 dígitos (AAAAMM y 8 de la serie)' : '10 dígitos';

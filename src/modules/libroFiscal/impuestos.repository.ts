@@ -15,6 +15,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
+import { tablaDisponible } from './disponibilidad';
 
 const T_IMPUESTOS = 'retencion_impuestos';
 const T_VERSIONES = 'retencion_impuesto_versiones';
@@ -236,6 +237,19 @@ export async function historialImpuesto(clave: string, limite = 50): Promise<Cam
       motivo: texto(x.motivo), actor: texto(x.actor), at: String(x.at ?? ''),
     };
   });
+}
+
+/**
+ * La serie de un impuesto (V2R la lee de aquí): si numera y con qué formato.
+ * Sin R2 (o si el impuesto no está), null: quien llama usa las reglas fijas.
+ */
+export async function serieDeImpuesto(clave: string): Promise<{ numera: boolean; formato: FormatoSerie | null } | null> {
+  if (!(await tablaDisponible(T_IMPUESTOS))) return null;
+  const { data, error } = await supabase.from(T_IMPUESTOS).select('numera, serie_formato').eq('clave', clave).maybeSingle();
+  if (error) throw errorRetencion(error, 'No se pudo leer la serie del impuesto.');
+  if (!data) return null;
+  const r = data as { numera: boolean; serie_formato: string | null };
+  return { numera: r.numera !== false, formato: (r.serie_formato as FormatoSerie | null) ?? null };
 }
 
 /** El plazo de entrega que calcula la base para una fecha. */
