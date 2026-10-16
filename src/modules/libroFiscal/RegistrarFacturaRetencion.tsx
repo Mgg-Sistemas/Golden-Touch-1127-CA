@@ -23,6 +23,7 @@ import {
 } from './retencionesCalculo';
 import { getConfigRetencion, listConceptos, type DocKind } from './retencionesFiscal.repository';
 import { configDeFecha } from './parametros.repository';
+import { supuestoAplicado, supuestosVigentes, type Supuesto } from './motivosSupuestos.repository';
 import { esCeroSinMotivo } from './motivoCero';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import {
@@ -67,12 +68,13 @@ interface LineaUI {
   montoStr: string;
   /** En una recibida: el número del comprobante que entregó el cliente. */
   numeroStr: string;
-  motivos: MotivosIvaCien;
+  /** Los supuestos marcados por código (las 5 casillas fijas, o los de R6). */
+  motivos: Record<string, boolean>;
   descripcion: string;
 }
 
 /** Los supuestos del art. 5 (Providencia SNAT/2015/0049) que llevan la retención de IVA al 100 %. */
-const MOTIVOS_IVA_CIEN: Array<[keyof MotivosIvaCien, string]> = [
+const MOTIVOS_IVA_CIEN: Array<[keyof MotivosIvaCien & string, string]> = [
   ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
   ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
   ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
@@ -99,6 +101,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // Con R3, los valores (UT, % del IVA) de la fecha de la factura; sin R3, los de Parámetros.
   const [config, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [avisoFecha, setAvisoFecha] = useState<string | null>(null);
+  // R6: los supuestos del IVA vigentes a la fecha de la factura; null = sin R6, las 5 casillas fijas.
+  const [supuestosIva, setSupuestosIva] = useState<Supuesto[] | null>(null);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [saving, setSaving] = useState(false);
@@ -156,6 +160,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     return () => { vivo = false; };
   }, [configBase, facturaFecha, tiposLineas]);
 
+  useEffect(() => {
+    let vivo = true;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(facturaFecha)) {
+      supuestosVigentes('IVA', facturaFecha).then((xs) => { if (vivo) setSupuestosIva(xs); }).catch(() => { if (vivo) setSupuestosIva(null); });
+    }
+    return () => { vivo = false; };
+  }, [facturaFecha]);
+
   const setLinea = useCallback((id: number, patch: Partial<LineaUI>) => {
     setLineas((xs) => xs.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }, []);
@@ -164,12 +176,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const calculoDe = useCallback((l: LineaUI): CalculoRetencion => {
     const base = nDec(l.baseStr);
     const concepto = conceptos.find((c) => c.id === l.conceptoId) ?? null;
-    if (l.tipo === 'iva') return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(l.ivaStr), motivos: l.motivos }, config);
+    if (l.tipo === 'iva') {
+      const supuesto = supuestosIva ? supuestoAplicado(l.motivos, supuestosIva) : undefined;
+      return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(l.ivaStr), motivos: l.motivos, supuesto }, config);
+    }
     // El mínimo en UT y el sustraendo están en Bs: el cálculo necesita la moneda y la tasa.
     if (l.tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa }, config);
     if (l.tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
     return calcularRetencionLocal({ montoPago: base, concepto }, l.tipo);
-  }, [conceptos, config, moneda, tasa]);
+  }, [conceptos, config, moneda, tasa, supuestosIva]);
 
   const montoDe = useCallback((l: LineaUI): number => (esManual
     ? (nDec(l.montoStr) || Math.round(nDec(l.baseStr) * nDec(l.pctStr)) / 100)
@@ -225,7 +240,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           sustraendo: esManual ? null : calc.sustraendo,
           ivaAlicuota: l.tipo === 'iva' ? (esManual ? null : calc.alicuota) : null,
           ivaMonto: l.tipo === 'iva' ? (esManual ? nDec(l.ivaStr) : calc.impuesto) : null,
-          motivo: l.tipo === 'iva' && !esManual ? motivoCienTexto(l.motivos) : null,
+          // El texto del supuesto queda como foto en la retención.
+          motivo: l.tipo === 'iva' && !esManual
+            ? (supuestosIva ? supuestoAplicado(l.motivos, supuestosIva)?.texto ?? null : motivoCienTexto(l.motivos))
+            : null,
           moneda,
           tasa: moneda === 'Bs' ? null : tasa,
           baseBs: enBolivares(esManual ? nDec(l.baseStr) : calc.baseImponible, moneda, tasa) || null,
@@ -406,8 +424,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               )}
               {direccion === 'practicada' && l.tipo === 'iva' && (
                 <div className="form-row" style={{ margin: '.3rem 0 0' }}>
-                  <label>¿Corresponde retener el 100%? (Providencia SNAT/2015/0049, art. 5)</label>
-                  {MOTIVOS_IVA_CIEN.map(([k, label]) => (
+                  <label>{supuestosIva ? '¿Aplica un supuesto con su propio porcentaje? (vigentes a la fecha de la factura)' : '¿Corresponde retener el 100%? (Providencia SNAT/2015/0049, art. 5)'}</label>
+                  {(supuestosIva ? supuestosIva.map((x): [string, string] => [x.codigo, `${x.texto}${x.pct !== 100 ? ` (${x.pct} %)` : ''}`]) : MOTIVOS_IVA_CIEN).map(([k, label]) => (
                     <label key={k} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.84rem', marginTop: '.2rem' }}>
                       <input type="checkbox" checked={!!l.motivos[k]} onChange={(e) => setLinea(l.id, { motivos: { ...l.motivos, [k]: e.target.checked } })} />
                       {label}
