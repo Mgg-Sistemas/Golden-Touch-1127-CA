@@ -157,7 +157,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         facturaNro: facturaNro.trim() || null, facturaControl: facturaControl.trim() || null,
         facturaFecha, facturaTotal: nDec(facturaTotal) || null,
         moneda, tasa: moneda === 'Bs' ? null : tasa, periodo,
-        nota: nota.trim() || null, actor, actorName,
+        nota: nota.trim() || null, valorUt: config.valorUt, actor, actorName,
       };
       const lineasNuevas: LineaFacturaNueva[] = lineas.map((l) => {
         const calc = calculoDe(l);

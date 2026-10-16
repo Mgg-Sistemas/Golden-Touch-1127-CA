@@ -91,6 +91,15 @@ describe('registro atómico', () => {
     expect(res.lineas[0].tipo).toBe('iva');
   });
 
+  it('cada línea lleva la UT con la que se calculó (VU); sin UT cargada no se manda', async () => {
+    rpc.mockResolvedValue({ data: { factura: { id: 'f-1' }, lineas: [] }, error: null });
+    await registrarFactura(factura({ valorUt: 43 }), [linea(), linea({ tipo: 'islr' })]);
+    const conUt = rpc.mock.calls[0][1] as { p_lineas: Record<string, unknown>[] };
+    expect(conUt.p_lineas.map((l) => l.valor_ut)).toEqual([43, 43]);
+    await registrarFactura(factura({ valorUt: 0 }), [linea()]);
+    expect((rpc.mock.calls[1][1] as { p_lineas: Record<string, unknown>[] }).p_lineas[0].valor_ut).toBeNull();
+  });
+
   it('sin líneas no llama a la base', async () => {
     await expect(registrarFactura(factura(), [])).rejects.toThrow('al menos una línea');
     expect(rpc).not.toHaveBeenCalled();

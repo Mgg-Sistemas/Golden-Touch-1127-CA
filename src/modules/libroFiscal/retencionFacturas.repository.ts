@@ -22,6 +22,8 @@ import { errorRetencion } from './erroresRetencion';
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 const texto = (v: unknown) => (v == null || v === '' ? null : String(v));
+/** Una UT sin cargar (0) no se manda: la pone el trigger desde la configuración. */
+const utValida = (v: number | null | undefined) => (Number(v) > 0 ? Number(v) : null);
 
 /* ───────── El modelo del front ───────── */
 
@@ -73,6 +75,8 @@ export interface FacturaNueva {
   concepto?: string | null;
   nota?: string | null;
   periodo?: string;
+  /** La UT con la que se calcularon las líneas (VU): va en cada línea; el trigger de la base es solo respaldo. */
+  valorUt?: number | null;
   actor: string;
   actorName?: string | null;
 }
@@ -189,7 +193,7 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
   if (!lineas.length) throw new Error('La factura necesita al menos una línea de impuesto.');
   const { data, error } = await supabase.rpc('retencion_factura_registrar', {
     p_factura: pFacturaDe(factura),
-    p_lineas: lineas.map(pLineaDe),
+    p_lineas: lineas.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(factura.valorUt) })),
   });
   if (error) throw errorLegibleFactura(error);
   const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };

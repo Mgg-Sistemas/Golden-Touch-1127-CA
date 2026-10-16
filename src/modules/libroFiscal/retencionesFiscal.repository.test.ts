@@ -253,6 +253,14 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
       .rejects.toThrow('mismo número');
   });
 
+  it('la fila guarda la UT con la que se calculó (VU)', async () => {
+    cola.push({ data: [], error: null });
+    cola.push({ data: { id: 'r-5', rol: 'sufrida', tipo: 'ISLR', estado: 'registrada' }, error: null });
+    await registrarRetencion(nueva({ direccion: 'recibida', tipo: 'islr', numeroComprobante: 'C-56' }), { ...CONFIG_RETENCION_DEFECTO, valorUt: 43 });
+    const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
+    expect(insert.valor_ut).toBe(43);
+  });
+
   it('una recibida anulada no impide volver a registrarla con el mismo número del cliente (VF)', async () => {
     cola.push({ data: [], error: null });                        // la búsqueda deja fuera las anuladas
     cola.push({ data: { id: 'r-4', rol: 'sufrida', tipo: 'IVA', estado: 'registrada', comprobante_nro: 'C-55' }, error: null });
