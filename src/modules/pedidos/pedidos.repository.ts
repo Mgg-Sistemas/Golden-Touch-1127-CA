@@ -576,12 +576,23 @@ export async function editarPreciosOrdenPorPagar(
     : recompuesto.igtfMonto;
   // El `total` que paga Tesorería está en divisa cuando el pago es en divisa; si no, en Bs.
   const totalNuevo = Math.max(0, r2(baseNueva + ivaNuevo + igtfNuevo));
+  if (comprados(items).some((i) => !(Number(i.cantidad) > 0))) {
+    throw new Error('La cantidad de cada producto debe ser mayor que 0.');
+  }
+  // Las cantidades cambiadas de los ítems originales quedan en la traza de la OC.
+  const cantidades = (o.items ?? []).flatMap((antes, idx) => {
+    const despues = items[idx];
+    return despues && Number(despues.cantidad) !== Number(antes.cantidad)
+      ? [{ sku: antes.sku ?? null, nombre: antes.nombre, antes: Number(antes.cantidad), despues: Number(despues.cantidad) }]
+      : [];
+  });
   const upd: Record<string, unknown> = {
     items,
     total: totalNuevo,
     historial: appendHistorial(o, 'precios_editados', actorEmail, {
       total_anterior: r2(Number(o.total) || 0), total_nuevo: totalNuevo, delta: enDivisa ? deltaUsd : deltaBs,
       iva_anterior: ivaPrev, iva_nuevo: ivaNuevo, igtf_anterior: igtfPrev, igtf_nuevo: igtfNuevo,
+      ...(cantidades.length ? { cantidades } : {}),
     }),
   };
   if (impuestos) {
