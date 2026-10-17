@@ -4,6 +4,7 @@ import { notify } from '@/shared/lib/notify';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { norm } from '@/shared/lib/texto';
 import {
   loadPermisos,
@@ -52,6 +53,7 @@ type ModalState =
 
 export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readOnly?: boolean; onRolesChanged?: () => void } = {}) {
   const { user } = useSession();
+  const { isAdmin } = usePermissions(); // el rol admin solo lo edita el admin
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [permisos, setPermisos] = useState<AllPermisos>({} as AllPermisos);
@@ -324,13 +326,13 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                         <tr key={m.key}>
                           <td><strong>{m.label}</strong></td>
                           <td style={{ textAlign: 'center' }}>
-                            <input type="checkbox" disabled={readOnly} checked={p.lectura} onChange={() => togglePerm(rc.key, m.key, 'lectura')} aria-label={`Lectura ${m.label} para ${rc.label}`} />
+                            <input type="checkbox" disabled={readOnly || (rc.key === 'admin' && !isAdmin)} checked={p.lectura} onChange={() => togglePerm(rc.key, m.key, 'lectura')} aria-label={`Lectura ${m.label} para ${rc.label}`} />
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <input type="checkbox" disabled={readOnly} checked={p.escritura} onChange={() => togglePerm(rc.key, m.key, 'escritura')} aria-label={`Escritura ${m.label} para ${rc.label}`} />
+                            <input type="checkbox" disabled={readOnly || (rc.key === 'admin' && !isAdmin)} checked={p.escritura} onChange={() => togglePerm(rc.key, m.key, 'escritura')} aria-label={`Escritura ${m.label} para ${rc.label}`} />
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <input type="checkbox" disabled={readOnly} checked={p.full} onChange={() => togglePerm(rc.key, m.key, 'full')} aria-label={`Full control ${m.label} para ${rc.label}`} />
+                            <input type="checkbox" disabled={readOnly || (rc.key === 'admin' && !isAdmin)} checked={p.full} onChange={() => togglePerm(rc.key, m.key, 'full')} aria-label={`Full control ${m.label} para ${rc.label}`} />
                           </td>
                         </tr>
                       );

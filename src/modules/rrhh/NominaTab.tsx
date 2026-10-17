@@ -57,7 +57,9 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
   const [imprimirDe, setImprimirDe] = useState<NominaPeriodoResumen | null>(null);
   const [resumenOpen, setResumenOpen] = useState(false);
   // Papelera: las nóminas eliminadas (con motivo). Solo un admin recupera o vacía.
-  const { isAdmin } = usePermissions();
+  const { can } = usePermissions();
+  // Full control de RRHH: papelera y borrado definitivo, como el admin (17/10/2026).
+  const isAdmin = can('rrhh', 'full');
   const [vista, setVista] = useState<'activas' | 'papelera'>('activas');
   const [papelera, setPapelera] = useState<NominaPeriodoResumen[]>([]);
   const [motivoBorrar, setMotivoBorrar] = useState('');

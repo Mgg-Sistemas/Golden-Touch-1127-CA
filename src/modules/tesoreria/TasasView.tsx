@@ -51,7 +51,8 @@ export function TasasView() {
   const [metales, setMetales] = useState<MetalTasa[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const { isAdmin } = usePermissions();
+  const { can } = usePermissions();
+  const isAdmin = can('tesoreria', 'full'); // Full control de Tesorería carga las tasas manuales (17/10/2026).
 
   // Carga inicial: todo en paralelo y leyendo de snapshots (cripto desde cache,
   // sin pegarle a CoinGecko). El cron mantiene los valores al día.

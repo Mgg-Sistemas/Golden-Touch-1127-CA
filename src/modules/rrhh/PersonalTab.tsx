@@ -120,7 +120,8 @@ function detalleCascada(r: ResumenBorradoPersonal): string[] {
 
 export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh; canWrite: boolean; actor: string }) {
   // Solo un admin puede borrar un renglón del historial de sueldo.
-  const { isAdmin } = usePermissions();
+  const { can } = usePermissions();
+  const isAdmin = can('rrhh', 'full'); // Full control de RRHH actúa como el admin en el módulo (17/10/2026).
   const [lista, setLista] = useState<Personal[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);

@@ -485,7 +485,7 @@ export function PedidosPage() {
       const esServicio = o.tipo === 'servicio';
       if (scope === 'servicios') { if (!esServicio) return false; }
       else if (esServicio && canManageProcurement) return false;
-      if (viewMode === 'lista' && filterEstado && o.estado !== filterEstado) return false;
+      if (filterEstado && o.estado !== filterEstado) return false;
       if (filterPersona && realizadaPor(o) !== filterPersona) return false;
       // Busca por TODAS las características de la orden (código, proveedor, quién la hizo,
       // productos, montos, fechas, estado, método de pago…). 17/10/2026.
@@ -513,6 +513,19 @@ export function PedidosPage() {
 
   const kanbanCols =
     scope === 'servicios' ? KANBAN_COLS_SERVICIOS : scope === 'oc' ? KANBAN_COLS_OC : KANBAN_COLS_PEDIDOS;
+  // Estados del selector: las columnas del Kanban de la pestaña (con sus mismos nombres)
+  // más los demás estados que puede tener una orden. 17/10/2026: antes el filtro estaba
+  // apagado en Kanban; ahora deja solo la columna elegida.
+  const estadoOpciones = useMemo(() => {
+    const extra: { key: EstadoOrden; label: string }[] = [
+      { key: 'pendiente', label: 'Pendientes' }, { key: 'aprobada', label: 'Aprobadas (OP)' }, { key: 'oc_creada', label: 'OC creada' },
+      { key: 'oc_aprobada', label: 'OC confirmada' }, { key: 'pagada', label: 'Pagadas' }, { key: 'desistida_proveedor', label: 'Proveedor desistió' },
+      { key: 'recibida', label: 'Recibidas' }, { key: 'finalizada', label: 'Finalizadas' }, { key: 'cancelada', label: 'Canceladas' },
+    ];
+    const base = kanbanCols.map((c) => ({ key: c.key, label: c.label }));
+    return [...base, ...extra.filter((e) => !base.some((b) => b.key === e.key))];
+  }, [kanbanCols]);
+  const kanbanColsVisibles = filterEstado ? kanbanCols.filter((c) => c.key === filterEstado) : kanbanCols;
 
   // Detalle abierto: se deriva por id para reflejar datos en vivo. Pero retenemos el
   // último detalle conocido (ref) para NO cerrar el modal si un refresh (realtime al
@@ -730,19 +743,10 @@ export function PedidosPage() {
           style={{ maxWidth: 220 }}
           value={filterEstado}
           onChange={(e) => setFilterEstado(e.target.value as EstadoOrden | '')}
-          disabled={viewMode === 'kanban'}
-          title={viewMode === 'kanban' ? 'Filtro deshabilitado en vista Kanban' : ''}
+          title={viewMode === 'kanban' ? 'En Kanban deja solo la columna de ese estado' : 'Filtra la lista por estado'}
         >
           <option value="">Todos los estados</option>
-          <option value="pendiente">Pendientes</option>
-          <option value="aprobada">Aprobadas (OP)</option>
-          <option value="oc_creada">OC creada</option>
-          <option value="oc_aprobada">OC confirmada</option>
-          <option value="pagada">Pagadas</option>
-          <option value="desistida_proveedor">Proveedor desistió</option>
-          <option value="recibida">Recibidas</option>
-          <option value="finalizada">Finalizadas</option>
-          <option value="cancelada">Canceladas</option>
+          {estadoOpciones.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
         </select>
         <div className="view-toggle" role="tablist" aria-label="Modo de vista">
           <button
@@ -768,7 +772,7 @@ export function PedidosPage() {
         <KanbanBoard
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
-          cols={kanbanCols}
+          cols={kanbanColsVisibles}
           onOpen={openDetail}
           noLeidos={noLeidos}
         />
