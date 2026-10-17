@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_DOCUMENTOS_EQUIPO, espacioLibre, espaciosDocumentos, nombreFotoEquipo, nombreDescargaDocumento, normalizarNombreDocumento,
+  MAX_DOCUMENTOS_EQUIPO, espacioLibre, espaciosDocumentos, espaciosVisibles, ordenarFotosEquipo, nombreFotoEquipo, nombreDescargaDocumento, normalizarNombreDocumento,
   rutaDocumento, tamanoLegible, validarArchivoDocumento,
 } from './maquinariaDocumentos';
 
@@ -43,10 +43,10 @@ describe('rutaDocumento', () => {
 });
 
 describe('espaciosDocumentos', () => {
-  it('siempre devuelve los 4 espacios, con cada documento en el suyo', () => {
+  it('siempre devuelve todos los espacios, con cada documento en el suyo', () => {
     const r = espaciosDocumentos([{ espacio: 3, nombre: 'CONTRATO' }]);
     expect(r).toHaveLength(MAX_DOCUMENTOS_EQUIPO);
-    expect(r.map((e) => e.espacio)).toEqual([1, 2, 3, 4]);
+    expect(r.slice(0, 4).map((e) => e.espacio)).toEqual([1, 2, 3, 4]);
     expect(r[2].doc?.nombre).toBe('CONTRATO');
     expect(r[0].doc).toBeNull();
   });
@@ -72,14 +72,37 @@ describe('nombreDescargaDocumento', () => {
 });
 
 describe('foto subida desde la tarjeta del equipo', () => {
-  it('va al primer espacio libre, o a ninguno si están los 4 ocupados', () => {
+  it('va al primer espacio libre, también después del 4', () => {
     expect(espacioLibre([])).toBe(1);
     expect(espacioLibre([{ espacio: 1 }, { espacio: 3 }])).toBe(2);
-    expect(espacioLibre([{ espacio: 1 }, { espacio: 2 }, { espacio: 3 }, { espacio: 4 }])).toBeNull();
+    expect(espacioLibre([{ espacio: 1 }, { espacio: 2 }, { espacio: 3 }, { espacio: 4 }])).toBe(5);
+  });
+  it('la foto principal es la que se llama FOTO DEL EQUIPO / FOTO EQUIPO, si no la primera', () => {
+    const fotos = [{ nombre: 'PLACA' }, { nombre: 'foto equipo' }, { nombre: 'FOTO DEL EQUIPO 2' }];
+    expect(ordenarFotosEquipo(fotos).map((f) => f.nombre)).toEqual(['foto equipo', 'FOTO DEL EQUIPO 2', 'PLACA']);
+    expect(ordenarFotosEquipo([{ nombre: 'B' }, { nombre: 'FOTO DEL EQUIPO' }])[0].nombre).toBe('FOTO DEL EQUIPO');
+    expect(ordenarFotosEquipo([{ nombre: 'B' }, { nombre: 'A' }]).map((f) => f.nombre)).toEqual(['B', 'A']);
   });
   it('se llama FOTO DEL EQUIPO, y las siguientes llevan número', () => {
     expect(nombreFotoEquipo([{ nombre: 'CONTRATO' }])).toBe('FOTO DEL EQUIPO');
     expect(nombreFotoEquipo([{ nombre: 'foto del equipo' }])).toBe('FOTO DEL EQUIPO 2');
     expect(nombreFotoEquipo([{ nombre: 'FOTO DEL EQUIPO' }, { nombre: 'FOTO DEL EQUIPO 2' }])).toBe('FOTO DEL EQUIPO 3');
+  });
+});
+
+describe('hasta 20 documentos: se ven los cargados y un espacio libre', () => {
+  it('admite 20 por equipo', () => {
+    expect(MAX_DOCUMENTOS_EQUIPO).toBe(20);
+  });
+  it('sin documentos, un solo espacio (el 1)', () => {
+    expect(espaciosVisibles([]).map((e) => e.espacio)).toEqual([1]);
+  });
+  it('los cargados y el primer hueco, aunque haya huecos en medio', () => {
+    expect(espaciosVisibles([{ espacio: 1 }, { espacio: 3 }]).map((e) => e.espacio)).toEqual([1, 2, 3]);
+  });
+  it('con los 20 cargados no queda espacio libre', () => {
+    const llenos = Array.from({ length: 20 }, (_, i) => ({ espacio: i + 1 }));
+    expect(espaciosVisibles(llenos)).toHaveLength(20);
+    expect(espacioLibre(llenos)).toBeNull();
   });
 });
