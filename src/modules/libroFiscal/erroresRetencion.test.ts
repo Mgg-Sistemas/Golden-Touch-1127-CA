@@ -14,10 +14,24 @@ describe('errores de la base en texto de pantalla', () => {
     expect(e.message).not.toContain('RET_');
   });
 
+  it('los rechazos de la serie (V2) llegan como texto, sin el código', () => {
+    const casos: Array<[string, string]> = [
+      ['RET_NUMERO_NO_ES_EL_ULTIMO', 'la última retención de su serie'],
+      ['RET_NUMERO_NO_EDITABLE', 'declarada o anulada'],
+      ['RET_NUMERO_NO_SE_QUITA', 'no se puede quitar'],
+      ['RET_SERIE_LLENA', 'último número'],
+    ];
+    for (const [codigo, texto] of casos) {
+      const e = errorRetencion({ code: 'P0001', message: `${codigo}: detalle de la base.` });
+      expect(e.message).toContain(texto);
+      expect(e.message).not.toContain('RET_');
+    }
+  });
+
   it('permiso, régimen y número repetido por su código de Postgres', () => {
     expect(errorRetencion({ code: '42501', message: 'permission denied' }).message).toContain('permiso');
     expect(errorRetencion({ code: '23514', message: 'check_violation' }).message).toContain('régimen');
-    expect(errorRetencion({ code: '23505', message: 'duplicate key' }).message).toContain('ya está usado');
+    expect(errorRetencion({ code: '23505', message: 'duplicate key' }).message).toContain('ya se dio');
   });
 
   it('un código que no está en la lista deja el texto de la base; sin texto, el de respaldo', () => {

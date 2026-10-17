@@ -54,6 +54,11 @@ export function r2Disponible(): Promise<boolean> {
   return tablaDisponible('retencion_impuestos');
 }
 
+/** V2R aplicado: la base numera las practicadas (su tabla propia es retencion_numeros). */
+export function v2rDisponible(): Promise<boolean> {
+  return tablaDisponible('retencion_numeros');
+}
+
 /** Olvida lo preguntado (al cambiar de sesión, o en las pruebas). */
 export function olvidarDisponibilidad(): void {
   cache.clear();

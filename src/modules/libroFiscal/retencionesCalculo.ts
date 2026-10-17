@@ -369,14 +369,43 @@ export function labelPeriodo(periodo: string): string {
   return `${mes} de ${p.slice(0, 4)}`;
 }
 
-/** El correlativo legal: AAAAMM + 8 dígitos. */
-export function formatoComprobante(periodo: string, consecutivo: number): string {
-  return `${periodo}${String(Math.max(1, Math.trunc(n0(consecutivo)))).padStart(8, '0')}`;
+/**
+ * Formato del número de cada serie (V1): el IVA lleva AAAAMM + 8 dígitos; ISLR,
+ * ISAE y estadal, 10 dígitos continuos que no se reinician por período. El IGTF
+ * no lleva comprobante propio.
+ */
+export type FormatoSerie = 'AAAAMM8' | 'N10';
+export function formatoSerie(tipo: TipoImpuesto): FormatoSerie | null {
+  if (tipo === 'iva') return 'AAAAMM8';
+  if (tipo === 'igtf') return null;
+  return 'N10';
 }
 
-/** ¿Tiene forma de correlativo válido? */
-export function comprobanteValido(v: string | null | undefined): boolean {
-  return /^\d{14}$/.test(String(v ?? ''));
+/** El número con el formato de su serie (la base es la que lo asigna; esto es para mostrar y probar). */
+export function formatoComprobante(periodo: string, consecutivo: number, tipo: TipoImpuesto = 'iva'): string {
+  const sec = String(Math.max(1, Math.trunc(n0(consecutivo))));
+  return formatoSerie(tipo) === 'N10' ? sec.padStart(10, '0') : `${periodo}${sec.padStart(8, '0')}`;
+}
+
+/** ¿Tiene la forma del número de su serie? Sin impuesto, vale cualquiera de los dos formatos. */
+export function comprobanteValido(v: string | null | undefined, tipo?: TipoImpuesto): boolean {
+  const s = String(v ?? '');
+  const formato = tipo ? formatoSerie(tipo) : null;
+  if (formato === 'AAAAMM8') return /^\d{14}$/.test(s);
+  if (formato === 'N10') return /^\d{10}$/.test(s);
+  return /^(\d{14}|\d{10})$/.test(s);
+}
+
+/** ¿El número tiene la forma de ese formato? (con V2R el formato sale de retencion_impuestos). */
+export function numeroConFormato(v: string, formato: FormatoSerie): boolean {
+  return formato === 'AAAAMM8' ? /^\d{14}$/.test(v) : /^\d{10}$/.test(v);
+}
+
+export const textoDeFormato = (formato: FormatoSerie) => (formato === 'AAAAMM8' ? '14 dígitos (AAAAMM y 8 de la serie)' : '10 dígitos');
+
+/** Cómo se escribe el número de una serie, para los avisos. */
+export function textoFormatoSerie(tipo: TipoImpuesto): string {
+  return formatoSerie(tipo) === 'AAAAMM8' ? '14 dígitos (AAAAMM y 8 de la serie)' : '10 dígitos';
 }
 
 /**

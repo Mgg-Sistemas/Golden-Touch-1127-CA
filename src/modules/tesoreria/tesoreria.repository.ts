@@ -9,6 +9,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Caja, MovimientoCaja, Retencion, TipoRetencion, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from './tasas.repository';
 import { categoriaLlevaCorrelativo } from './categoriasGasto.repository';
+import { v2rDisponible } from '@/modules/libroFiscal/disponibilidad';
 
 const TABLE = 'cajas';
 const LIBRO = 'movimientos_caja';
@@ -300,8 +301,8 @@ export async function listLibroMayor(filtros: {
 /**
  * Retención que la empresa PRACTICA al pagar (hoy solo la compra directa la usa).
  * Va al libro fiscal marcada como «practicada» y con su período y quincena, que
- * es lo que después permite declararla; el correlativo del comprobante se lo
- * pide a la base, único lugar donde dos usuarios no pueden sacar el mismo.
+ * es lo que después permite declararla; el número del comprobante lo pone la
+ * base al insertar (V2), único lugar donde dos usuarios no pueden sacar el mismo.
  */
 export async function crearRetencion(input: {
   tipo: TipoRetencion; base: number; porcentaje: number; moneda: string;
@@ -317,9 +318,11 @@ export async function crearRetencion(input: {
   const fecha = (input.fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const periodo = `${fecha.slice(0, 4)}${fecha.slice(5, 7)}`;
 
+  // Con V2R, sin número escrito lo asigna la base con el formato de la serie del impuesto.
+  // Sin V2R (la base de hoy), se pide con siguiente_numero_retencion y se arma AAAAMM + 8.
   let numero: number | null = null;
   let comprobante = input.comprobanteNro?.trim() || null;
-  if (!comprobante) {
+  if (!comprobante && !(await v2rDisponible())) {
     const { data: n } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: input.tipo, p_periodo: periodo });
     numero = Number(n) || null;
     if (numero) comprobante = `${periodo}${String(numero).padStart(8, '0')}`;

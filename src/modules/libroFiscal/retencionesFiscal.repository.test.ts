@@ -19,8 +19,8 @@ function consulta(tabla: string, resp: Resp) {
   return q;
 }
 
-// Sin R3: los valores salen del JSON de Parámetros (las pruebas de R3 cubren el otro camino).
-vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false }));
+// Sin R3 (valores del JSON) y con V2R (la base numera): las pruebas de v2rV3r cubren el camino sin V2R.
+vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false, v2rDisponible: async () => true }));
 
 vi.mock('@/shared/lib/supabase', () => ({
   supabase: {
@@ -187,24 +187,54 @@ describe('la fila que se escribe en el libro', () => {
   });
 });
 
-describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', () => {
-  it('practica un IVA: pide el número con el impuesto en MAYÚSCULAS y lo arma AAAAMM + 8 dígitos', async () => {
+describe('registrar: el número de una practicada lo pone la base (V2)', () => {
+  it('practica un IVA: no pide ni arma el número; lo lee de la fila devuelta', async () => {
     cola.push({ data: [], error: null });                                    // doble registro: nada
-    cola.push({ data: { id: 'r-9', rol: 'practicada', tipo: 'IVA', estado: 'registrada', comprobante_nro: '20261000000007' }, error: null });
-    rpc.mockResolvedValueOnce({ data: 7, error: null });
+    cola.push({ data: { id: 'r-9', rol: 'practicada', tipo: 'IVA', estado: 'registrada', comprobante_nro: '20261000000007', numero: 7, numero_origen: 'sistema' }, error: null });
     const r = await registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO);
-    expect(rpc).toHaveBeenCalledWith('siguiente_numero_retencion', { p_tipo: 'IVA', p_periodo: '202610' });
+    expect(rpc).not.toHaveBeenCalled();
     const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
-    expect(insert.comprobante_nro).toBe('20261000000007');
-    expect(insert.numero).toBe(7);
+    expect(insert.comprobante_nro).toBeNull();
+    expect(insert.numero).toBeNull();
     expect(insert.tipo).toBe('IVA');
     expect(r.numeroComprobante).toBe('20261000000007');
+    expect(r.numeroOrigen).toBe('sistema');
+  });
+
+  it('ISLR: la base le da 10 dígitos continuos y la fila llega así', async () => {
+    cola.push({ data: [], error: null });
+    cola.push({ data: { id: 'r-8', rol: 'practicada', tipo: 'ISLR', estado: 'registrada', comprobante_nro: '0000000031', numero: 31, numero_origen: 'sistema' }, error: null });
+    const r = await registrarRetencion(nueva({ tipo: 'islr' }), CONFIG_RETENCION_DEFECTO);
+    expect(r.numeroComprobante).toBe('0000000031');
+  });
+
+  it('un número dado viaja tal cual; con otro formato se rechaza antes de tocar la base', async () => {
+    cola.push({ data: [], error: null });
+    cola.push({ data: { id: 'r-7', rol: 'practicada', tipo: 'ISLR', estado: 'registrada', comprobante_nro: '0000000120', numero_origen: 'dado' }, error: null });
+    await registrarRetencion(nueva({ tipo: 'islr', numeroComprobante: '0000000120' }), CONFIG_RETENCION_DEFECTO);
+    const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
+    expect(insert.comprobante_nro).toBe('0000000120');
+    llamadas.length = 0;
+    cola.push({ data: [], error: null });
+    await expect(registrarRetencion(nueva({ tipo: 'islr', numeroComprobante: '20261000000120' }), CONFIG_RETENCION_DEFECTO))
+      .rejects.toThrow('10 dígitos');
+    expect(llamadas.some((l) => l.metodos.some((m) => m[0] === 'insert'))).toBe(false);
+  });
+
+  it('RET_NUMERO_FORMATO de la base se explica con los dos formatos', async () => {
+    cola.push({ data: [], error: null });
+    cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FORMATO: el comprobante de ISLR lleva 10 dígitos.' } });
+    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('10 dígitos');
+  });
+
+  it('operacion_numero (ISAE) se lee como dato informativo', () => {
+    expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'MUNICIPAL', operacion_numero: 4 }).operacionNumero).toBe(4);
+    expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA' }).operacionNumero).toBeNull();
   });
 
   it('el doble registro busca solo lo no anulado, con el rol y el impuesto de GT', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: { id: 'r-9', rol: 'practicada', tipo: 'IVA', estado: 'registrada' }, error: null });
-    rpc.mockResolvedValueOnce({ data: 1, error: null });
     await registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO);
     const m = llamadas[0].metodos;
     expect(m).toContainEqual(['eq', 'rol', 'practicada']);
@@ -212,7 +242,7 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
     expect(m).toContainEqual(['neq', 'estado', 'anulada']);
   });
 
-  it('si la factura ya tiene una retención vigente, no gasta número', async () => {
+  it('si la factura ya tiene una retención vigente, no inserta', async () => {
     cola.push({ data: [{ id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', rif: RIF, factura_nro: '000123' }], error: null });
     await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('ya tiene una retención');
     expect(rpc).not.toHaveBeenCalled();
@@ -224,7 +254,7 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
     expect(llamadas).toHaveLength(0);
   });
 
-  it('sin factura, sin monto o con un RIF mal escrito no se pide número', async () => {
+  it('sin factura, sin monto o con un RIF mal escrito no toca la base', async () => {
     await expect(registrarRetencion(nueva({ facturaNumero: '' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('N° de factura');
     await expect(registrarRetencion(nueva({ montoRetenido: 0 }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('debe llevar el motivo');
     await expect(registrarRetencion(nueva({ contraparteRif: 'J-12' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('RIF');
@@ -234,7 +264,6 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
   it('un monto 0 CON motivo sí se registra (D19): deja constancia de por qué no se retiene', async () => {
     cola.push({ data: [], error: null });                        // doble registro: nada
     cola.push({ data: { id: 'r-0', rol: 'practicada', tipo: 'ISLR', estado: 'registrada', monto: 0, descripcion: 'No supera el mínimo exento' }, error: null });
-    rpc.mockResolvedValueOnce({ data: 1, error: null });
     const r = await registrarRetencion(nueva({ tipo: 'islr', montoRetenido: 0, observacion: 'No supera el mínimo exento' }), CONFIG_RETENCION_DEFECTO);
     expect(r.montoRetenido).toBe(0);
     const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
@@ -275,7 +304,6 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
   it('serie manual sin número (V2 · RET_NUMERO_FALTA): mensaje legible', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FALTA: la serie es manual.' } });
-    rpc.mockResolvedValueOnce({ data: 1, error: null });
     await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('escribe el número del comprobante');
   });
 

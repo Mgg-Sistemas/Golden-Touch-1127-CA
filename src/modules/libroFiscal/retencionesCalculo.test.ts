@@ -231,6 +231,13 @@ describe('período y comprobante', () => {
     expect(comprobanteValido('20260900000001')).toBe(true);
     expect(comprobanteValido('2026-09-1')).toBe(false);
     expect(comprobanteValido(null)).toBe(false);
+    // V1/V2: ISLR, ISAE y estadal llevan 10 dígitos continuos; el IVA, 14.
+    expect(formatoComprobante('202609', 31, 'islr')).toBe('0000000031');
+    expect(formatoComprobante('202609', 31, 'municipal')).toBe('0000000031');
+    expect(comprobanteValido('0000000031', 'islr')).toBe(true);
+    expect(comprobanteValido('0000000031', 'iva')).toBe(false);
+    expect(comprobanteValido('20260900000001', 'regional')).toBe(false);
+    expect(comprobanteValido('0000000031')).toBe(true);
   });
 
   it('el período se lee en palabras', () => {

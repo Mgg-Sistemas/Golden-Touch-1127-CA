@@ -17,6 +17,8 @@ import {
 import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { listRetenciones } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
+import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
 import { fechaTasaBcv, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import { diaVE, getTasasUsdDeFechas } from '@/modules/tesoreria/tasas.repository';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
@@ -41,6 +43,8 @@ export function RetencionesPage() {
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [registradas, setRegistradas] = useState<Registradas>(new Map());
   const [tasasDoc, setTasasDoc] = useState<TasasDoc>(new Map());
+  const [conV3, setConV3] = useState(false);
+  useEffect(() => { v3Disponible().then(setConV3).catch(() => setConV3(false)); }, []);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
@@ -174,7 +178,7 @@ export function RetencionesPage() {
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
             <button className={vista === 'agrupada' ? 'active' : ''} onClick={() => setVista('agrupada')}>Vista agrupada</button>
-            <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>
+            {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
           </nav>
         </div>
@@ -201,7 +205,8 @@ export function RetencionesPage() {
       )}
 
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}
-      {vista === 'periodos' && <PeriodosView />}
+      {/* Períodos solo con V3R en la base: generar el año, declarar y reabrir. */}
+      {vista === 'periodos' && conV3 && <PeriodosRetencion puedeEditar={canWrite} />}
 
       {/* ── Reportes ── */}
       {vista === 'reportes' && <ReportesView actor={actor} />}
@@ -681,114 +686,3 @@ async function descargarFactura(o: Orden) {
   } catch { toast('No se pudo abrir la factura', 'error'); }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   Períodos — v8: filtros por impuesto, sección de atención, timeline
-   ═══════════════════════════════════════════════════════════════ */
-
-const IMPUESTOS_PERIODO = [
-  { key: 'iva', label: 'IVA', freq: 'Por quincena' },
-  { key: 'islr', label: 'ISLR', freq: 'Mensual' },
-  { key: 'isae', label: 'ISAE', freq: 'Mensual' },
-] as const;
-
-function PeriodosView() {
-  const [impSel, setImpSel] = useState('iva');
-  const [estadoSel, setEstadoSel] = useState('');
-  const [anio, setAnio] = useState(new Date().getFullYear());
-
-  const anios = useMemo(() => {
-    const a = new Date().getFullYear();
-    return [a, a - 1, a - 2];
-  }, []);
-
-  const imp = IMPUESTOS_PERIODO.find((i) => i.key === impSel) ?? IMPUESTOS_PERIODO[0];
-
-  return (
-    <div style={{ display: 'grid', gap: '1rem' }}>
-      {/* Sección de atención */}
-      <details className="lfv8-atencion" open>
-        <summary>Requiere atención · <span className="muted">sin períodos configurados</span></summary>
-        {IMPUESTOS_PERIODO.map((t) => (
-          <div key={t.key} className="lfv8-atencion-fila">
-            <strong>{t.label}</strong>
-            <span className="muted">Sin período configurado</span>
-            <span className="muted">Nada por declarar</span>
-            <span className="muted">Sin vencidos</span>
-            <button className="btn btn-sm btn-ghost" onClick={() => setImpSel(t.key)}>Ver períodos</button>
-          </div>
-        ))}
-      </details>
-
-      <p className="lfv8-huella">
-        Marcar declarado, reabrir un período (con motivo obligatorio) y cargar el calendario: administración o escritura en Retenciones.
-      </p>
-
-      {/* Filtros */}
-      <div className="lfv8-periodos-filtros">
-        <div className="lfv8-campo">
-          <span>Impuesto</span>
-          <div className="lfv8-chips">
-            {IMPUESTOS_PERIODO.map((t) => (
-              <button key={t.key} type="button" className="lfv8-chip" aria-pressed={impSel === t.key} onClick={() => setImpSel(t.key)}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <label className="lfv8-campo">
-          <span>Estado</span>
-          <select className="lfv8-select" value={estadoSel} onChange={(e) => setEstadoSel(e.target.value)}>
-            <option value="">Todos</option>
-            <option value="abierto">Abierto</option>
-            <option value="declarado">Declarado</option>
-            <option value="vencido">Vencido</option>
-          </select>
-        </label>
-        <label className="lfv8-campo">
-          <span>Año fiscal</span>
-          <select className="lfv8-select" value={anio} onChange={(e) => setAnio(Number(e.target.value))}>
-            {anios.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </label>
-      </div>
-
-      {/* Encabezado del impuesto seleccionado */}
-      <div className="card" style={{ margin: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '.4rem' }}>
-          <strong style={{ fontSize: '1.1rem' }}>{imp.label}</strong>
-          <span className="muted" style={{ fontSize: '.82rem' }}>{imp.freq}</span>
-        </div>
-
-        <p className="muted" style={{ fontSize: '.82rem', margin: '.3rem 0' }}>
-          {imp.key === 'iva' && `${imp.label}: quincenal. Vencimientos de ejemplo; en el sistema, el calendario oficial se carga como dato.`}
-          {imp.key === 'islr' && `${imp.label}: mensual. El porcentaje varía según el servicio, la actividad y el rubro del proveedor. Se aplica sobre la base imponible.`}
-          {imp.key === 'isae' && `${imp.label}: mensual. Todo servicio genera retención de ISAE según la actividad económica del proveedor en el municipio.`}
-          {' '}Fecha de referencia: {new Date().toLocaleDateString('es-VE')}.
-        </p>
-
-        {/* Timeline de períodos */}
-        <div className="lfv8-sis" style={{ '--cols': '1fr 1fr 1fr 1fr auto' } as React.CSSProperties}>
-          <div className="lfv8-sis-cab">
-            <span>Período</span>
-            <span>Estado</span>
-            <span>Retenciones</span>
-            <span style={{ textAlign: 'right' }}>Total retenido</span>
-            <span></span>
-          </div>
-          <div className="lfv8-sis-vacio">
-            Sin períodos configurados para {imp.label} en {anio}. Configurar desde ⚙ Parámetros → Períodos y numeración.
-          </div>
-        </div>
-      </div>
-
-      {/* Período fiscal anual */}
-      <div className="card" style={{ margin: 0, borderColor: 'var(--border)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '.4rem' }}>
-          <strong style={{ fontSize: '1rem' }}>Período fiscal {anio}</strong>
-          <span className="muted" style={{ fontSize: '.8rem' }}>Anual</span>
-        </div>
-        <p className="muted" style={{ fontSize: '.84rem', margin: 0 }}>Enero a diciembre. Agrupa todos los períodos de los tres impuestos para el resumen anual y la conciliación.</p>
-      </div>
-    </div>
-  );
-}
