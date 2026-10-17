@@ -199,7 +199,11 @@ export function motivoCienTexto(m: MotivosIvaCien | null | undefined): string | 
  * retiene: da cero.
  */
 export function calcularRetencionIva(
-  input: { baseImponible: number; ivaFactura: number; motivos?: MotivosIvaCien | null },
+  input: {
+    baseImponible: number; ivaFactura: number; motivos?: MotivosIvaCien | null;
+    /** R6: el supuesto marcado, con su % y su texto, leído de la base por fecha. Si viene, manda sobre las casillas fijas. */
+    supuesto?: { pct: number; texto: string } | null;
+  },
   config: ConfigRetencion,
 ): CalculoRetencion {
   if (!puedePracticar('iva', config)) {
@@ -208,11 +212,13 @@ export function calcularRetencionIva(
   const base = r2(n0(input.baseImponible));
   const iva = r2(n0(input.ivaFactura));
   if (iva <= 0) return CERO('iva', 'La factura no tiene IVA sobre el cual retener.');
-  const cien = retieneCienPorCiento(input.motivos);
-  const pct = cien ? n0(config.pctIvaEspecial) : n0(config.pctIvaGeneral);
+  const sup = input.supuesto ?? null;
+  const cien = !sup && retieneCienPorCiento(input.motivos);
+  const pct = sup ? n0(sup.pct) : cien ? n0(config.pctIvaEspecial) : n0(config.pctIvaGeneral);
   const monto = r2((iva * pct) / 100);
   const alicuota = base > 0 ? r2((iva / base) * 100) : 0;
-  const porQue = cien ? ` (100% porque: ${motivoCienTexto(input.motivos)?.toLowerCase()})` : '';
+  const porQue = sup ? ` (${pct}% porque: ${sup.texto.toLowerCase()})`
+    : cien ? ` (100% porque: ${motivoCienTexto(input.motivos)?.toLowerCase()})` : '';
   return {
     tipo: 'iva', baseImponible: base, alicuota, impuesto: iva,
     porcentaje: pct, sustraendo: 0, montoRetenido: monto,
@@ -386,6 +392,21 @@ export function limiteEntregaComprobante(fechaIso: string): string {
   const base = quincenaDe(d) === 1 ? new Date(Date.UTC(y, m - 1, 15)) : new Date(Date.UTC(y, m, 0));
   base.setUTCDate(base.getUTCDate() + 5);
   return base.toISOString().slice(0, 10);
+}
+
+/**
+ * Fecha de la tasa BCV que vale para una factura: la de su fecha, y si cae en
+ * sábado o domingo, la del lunes. Sin calendario de feriados.
+ */
+export function fechaTasaBcv(fechaIso: string): string {
+  const d = String(fechaIso ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+  const f = new Date(`${d}T00:00:00Z`);
+  if (Number.isNaN(f.getTime())) return '';
+  const dia = f.getUTCDay();
+  if (dia === 6) f.setUTCDate(f.getUTCDate() + 2);
+  else if (dia === 0) f.setUTCDate(f.getUTCDate() + 1);
+  return f.toISOString().slice(0, 10);
 }
 
 /* ───────────────────────── Bolívares ───────────────────────── */

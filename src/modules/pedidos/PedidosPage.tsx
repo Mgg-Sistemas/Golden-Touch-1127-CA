@@ -182,7 +182,7 @@ function eventLabel(ev: string): string {
       confirmada_cuenta_abierta: 'OC confirmada · crédito (cuenta abierta)',
       metodo_pago: 'Método de pago indicado · enviada a pagar',
       oc_aprobada: 'Confirmada pagar',
-      precios_editados: 'Precios editados · total a pagar actualizado',
+      precios_editados: 'Precios o cantidades editados · total a pagar actualizado',
       orden_modificada: 'Orden modificada',
       items_actualizados: 'Ítems actualizados',
       total_corregido: 'Total corregido (IVA que no se había sumado)',
@@ -2633,7 +2633,7 @@ function OrdenDetailModal({
       {puedeEditarPreciosPago && (
         <button className="btn btn-ghost" onClick={() => setEditarPreciosOpen(true)}
           title="Corregir los precios y/o agregar productos (hasta 3) sin devolver la OC a aprobación. El total se recalcula y se sincroniza a Tesorería.">
-          ✏️ Editar precios / agregar productos
+          ✏️ Editar precios y cantidades / agregar productos
         </button>
       )}
       {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar.

@@ -19,6 +19,9 @@ function consulta(tabla: string, resp: Resp) {
   return q;
 }
 
+// Sin R3: los valores salen del JSON de Parámetros (las pruebas de R3 cubren el otro camino).
+vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false }));
+
 vi.mock('@/shared/lib/supabase', () => ({
   supabase: {
     from: (tabla: string) => consulta(tabla, cola.shift() ?? { data: [], error: null }),
@@ -34,7 +37,7 @@ import {
   SIN_PERMISO, aRetencion, anularRetencion, conceptosDeFilaGt, conceptosLocales, configDeJson, direccionDeGt,
   errorPorcentajesIva, guardarConfigRetencion,
   filaGtDeNueva, jsonDeConfig, llevaNumeroPropio, marcarDeclarada, registrarRetencion, rolAGt,
-  sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, type NuevaRetencion,
+  sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, tiposLicenciaDeJson, type NuevaRetencion,
 } from './retencionesFiscal.repository';
 
 // Datos inventados. El RIF se arma con el dígito verificador que acepte la validación de GT.
@@ -252,6 +255,34 @@ describe('registrar: todo se valida ANTES de pedir el número (que se gasta)', (
     await expect(registrarRetencion(nueva({ direccion: 'recibida', numeroComprobante: 'C-55' }), CONFIG_RETENCION_DEFECTO))
       .rejects.toThrow('mismo número');
   });
+
+  it('la fila guarda la UT con la que se calculó (VU)', async () => {
+    cola.push({ data: [], error: null });
+    cola.push({ data: { id: 'r-5', rol: 'sufrida', tipo: 'ISLR', estado: 'registrada' }, error: null });
+    await registrarRetencion(nueva({ direccion: 'recibida', tipo: 'islr', numeroComprobante: 'C-56' }), { ...CONFIG_RETENCION_DEFECTO, valorUt: 43 });
+    const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
+    expect(insert.valor_ut).toBe(43);
+  });
+
+  it('una recibida anulada no impide volver a registrarla con el mismo número del cliente (VF)', async () => {
+    cola.push({ data: [], error: null });                        // la búsqueda deja fuera las anuladas
+    cola.push({ data: { id: 'r-4', rol: 'sufrida', tipo: 'IVA', estado: 'registrada', comprobante_nro: 'C-55' }, error: null });
+    const r = await registrarRetencion(nueva({ direccion: 'recibida', numeroComprobante: 'C-55' }), CONFIG_RETENCION_DEFECTO);
+    expect(llamadas[0].metodos).toContainEqual(['neq', 'estado', 'anulada']);
+    expect(r.numeroComprobante).toBe('C-55');
+  });
+
+  it('serie manual sin número (V2 · RET_NUMERO_FALTA): mensaje legible', async () => {
+    cola.push({ data: [], error: null });
+    cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FALTA: la serie es manual.' } });
+    rpc.mockResolvedValueOnce({ data: 1, error: null });
+    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('escribe el número del comprobante');
+  });
+
+  it('numero_origen (V2) se lee como dato informativo', () => {
+    expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA', numero_origen: 'dado' }).numeroOrigen).toBe('dado');
+    expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA' }).numeroOrigen).toBeNull();
+  });
 });
 
 describe('un cambio que no toca ninguna fila no es un éxito', () => {
@@ -275,5 +306,24 @@ describe('un cambio que no toca ninguna fila no es un éxito', () => {
   it('declarar sin permiso también avisa', async () => {
     cola.push({ data: [], error: null });
     await expect(marcarDeclarada('r-1', true, 'prueba@ejemplo.com')).rejects.toThrow(SIN_PERMISO);
+  });
+});
+
+describe('tipos de licencia en el JSON de parámetros', () => {
+  it('lee los válidos y descarta lo que no tiene forma', () => {
+    expect(tiposLicenciaDeJson({ licencia_tipos: [
+      { id: 'a', nombre: ' Permanente ', activo: true },
+      { id: 'b', nombre: 'Provisional', activo: false },
+      { id: 'c', nombre: '' },
+      { nombre: 'sin id' },
+      'texto suelto',
+    ] })).toEqual([
+      { id: 'a', nombre: 'Permanente', activo: true },
+      { id: 'b', nombre: 'Provisional', activo: false },
+    ]);
+  });
+  it('sin la clave, la lista está vacía', () => {
+    expect(tiposLicenciaDeJson({})).toEqual([]);
+    expect(tiposLicenciaDeJson(null)).toEqual([]);
   });
 });
