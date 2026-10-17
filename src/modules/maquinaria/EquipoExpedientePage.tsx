@@ -21,7 +21,7 @@ import {
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
 import {
-  listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, fotosDeEquipos,
+  listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, fotosDeEquipos, fijarEncuadreFoto,
   lecturaVigenteEquipo, listLecturasEquipo, ultimoSurtidoEquipo,
   avanzarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden,
   listLavados, eliminarLavado, eliminarLectura,
@@ -36,6 +36,9 @@ import { PedirCompraModal } from './PedirCompraModal';
 import { BitacoraModal } from './BitacoraModal';
 import { EquipoDocumentosModal } from './EquipoDocumentosModal';
 import { SubirFotoEquipoModal } from './SubirFotoEquipoModal';
+import { ImagenEncuadrada } from './ImagenEncuadrada';
+import { AjustarFoto } from '@/modules/rrhh/AjustarFoto';
+import { esNeutro, type Encuadre } from '@/modules/rrhh/encuadreFoto';
 import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { LavadoModal } from './LavadoModal';
@@ -110,6 +113,8 @@ export function EquipoExpedientePage() {
   const [bitacora, setBitacora] = useState(false);
   const [documentos, setDocumentos] = useState(false);
   const [subirFoto, setSubirFoto] = useState(false);
+  const [ajustarFoto, setAjustarFoto] = useState(false);
+  const [guardandoEncuadre, setGuardandoEncuadre] = useState(false);
   const [movimientos, setMovimientos] = useState(false);
   const [editar, setEditar] = useState(false);
   const [confirmMantt, setConfirmMantt] = useState(false);
@@ -289,7 +294,10 @@ export function EquipoExpedientePage() {
 
       <div className="flo-hero">
         <div className="flo-media">
-          {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
+          {foto ? <ImagenEncuadrada src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} encuadre={fotos[0].encuadre} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
+          {foto && perm.maquinaria && (
+            <button className="ajustar-btn" type="button" onClick={() => setAjustarFoto(true)} title="Acercar o alejar la foto y elegir qué queda en el centro">✂ Ajustar foto</button>
+          )}
           <div className={`estado tone-${st.tono}`}><Chip tono={st.tono} lg>{st.icon} {st.label}</Chip></div>
           {/* Quien edita Maquinaria elige aquí: tomar foto con la cámara o subirla de un archivo (16/10/2026). */}
           <button className="fotos-btn" type="button" onClick={() => (perm.maquinaria ? setSubirFoto(true) : fotos.length ? setTab('fotos') : setDocumentos(true))}>
@@ -382,7 +390,7 @@ export function EquipoExpedientePage() {
           {tab === 'compras' && <TabCompras compras={compras} puedePedidos={perm.pedidos} onVer={setVerCompra} />}
           {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)}
             puedeEditar={perm.maquinaria} isAdmin={isAdmin} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
-          {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} />}
+          {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} onSubir={perm.maquinaria ? () => setSubirFoto(true) : undefined} />}
           {tab === 'ficha' && <TabFicha eq={eq} onPdf={() => void pdfFicha()} />}
         </section>
       </div>
@@ -460,6 +468,21 @@ export function EquipoExpedientePage() {
       )}
       {bitacora && <BitacoraModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => setBitacora(false)} />}
       {documentos && <EquipoDocumentosModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => { setDocumentos(false); void cargar(); }} />}
+      {ajustarFoto && fotos[0] && (
+        <AjustarFoto fotoDataUrl={fotos[0].url} encuadreInicial={fotos[0].encuadre ?? null} guardando={guardandoEncuadre}
+          vistaW={480} vistaH={270} destino="la foto del expediente"
+          onCerrar={() => setAjustarFoto(false)}
+          onGuardar={async (e: Encuadre) => {
+            setGuardandoEncuadre(true);
+            try {
+              await fijarEncuadreFoto(fotos[0].id, esNeutro(e) ? null : e);
+              toast('Encuadre de la foto guardado', 'success');
+              setAjustarFoto(false);
+              await cargar();
+            } catch (err) { toast(errMsg(err, 'No se pudo guardar el encuadre'), 'error'); }
+            finally { setGuardandoEncuadre(false); }
+          }} />
+      )}
       {subirFoto && (
         <SubirFotoEquipoModal equipoId={eq.id} equipoNombre={eq.equipo} fotos={fotos.length} actor={actor} actorName={actorName}
           onClose={() => setSubirFoto(false)} onSubida={() => cargar()}
@@ -810,15 +833,18 @@ function TabLavados({ lavados, puedeRegistrar, puedeEditar, onNuevo, onEditar, o
   );
 }
 
-function TabFotos({ fotos, onDocs }: { fotos: FotoEquipo[]; onDocs: () => void }) {
+function TabFotos({ fotos, onDocs, onSubir }: { fotos: FotoEquipo[]; onDocs: () => void; onSubir?: () => void }) {
   return (
     <>
-      <button className="btn" style={{ justifyContent: 'center' }} onClick={onDocs}>📎 Documentos del equipo (contrato, catálogo, fotos…)</button>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.5rem' }}>
+        {onSubir && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onSubir}>📷 Agregar foto (cámara o archivo)</button>}
+        <button className="btn" style={{ justifyContent: 'center' }} onClick={onDocs}>📎 Documentos del equipo (contrato, catálogo, fotos…)</button>
+      </div>
       {fotos.length ? (
         <div className="flo-fotos">
-          {fotos.map((f) => <figure key={f.id}><a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={f.nombre} loading="lazy" /></a><figcaption>{f.nombre}</figcaption></figure>)}
+          {fotos.map((f, i) => <figure key={f.id}><a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={f.nombre} loading="lazy" /></a><figcaption>{f.nombre}{i === 0 ? ' · principal' : ''}</figcaption></figure>)}
         </div>
-      ) : <div className="flo-sec"><EmptyState message="Sin fotos. Sube una imagen (JPG o PNG) en los documentos del equipo: la primera es la foto del expediente y de la ficha PDF." icon="📷" /></div>}
+      ) : <div className="flo-sec"><EmptyState message="Sin fotos. Agrega una con la cámara o desde un archivo: la que se llama «FOTO DEL EQUIPO» es la que se muestra en el expediente y en la ficha PDF." icon="📷" /></div>}
     </>
   );
 }

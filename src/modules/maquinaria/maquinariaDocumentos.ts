@@ -4,8 +4,8 @@
    qué archivos se aceptan, cómo se nombran y dónde se guardan.
    ============================================================ */
 
-/** Cada equipo tiene 4 espacios de documento (la base también lo exige). */
-export const MAX_DOCUMENTOS_EQUIPO = 4;
+/** Cada equipo tiene hasta 20 espacios de documento (la base también lo exige; antes del 16/10/2026 eran 4). */
+export const MAX_DOCUMENTOS_EQUIPO = 20;
 /** Tope por archivo (igual al del bucket). */
 export const MAX_MB_DOCUMENTO = 50;
 
@@ -69,7 +69,32 @@ export function nombreDescargaDocumento(nombre: string, archivo: string | null |
   return `${base}.${extension(archivo) || 'pdf'}`;
 }
 
-/** Primer espacio libre del equipo (1..4), o null si los 4 están ocupados. */
+/**
+ * Los espacios que se muestran: los que tienen documento y UN espacio libre (el
+ * primero) para cargar el siguiente. Con 20 espacios, mostrarlos todos vacíos
+ * llenaba la ventana de tarjetas en blanco.
+ */
+export function espaciosVisibles<T extends { espacio: number }>(docs: T[]): { espacio: number; doc: T | null }[] {
+  const todos = espaciosDocumentos(docs);
+  const libre = todos.find((e) => !e.doc);
+  return todos.filter((e) => e.doc || e === libre);
+}
+
+/** ¿Es la foto principal del equipo? «FOTO DEL EQUIPO», «FOTO EQUIPO», «Foto del equipo 2»… */
+export function esFotoDelEquipo(nombre: string | null | undefined): boolean {
+  return /^FOTO (DEL )?EQUIPO\b/.test(normalizarNombreDocumento(nombre).normalize('NFD').replace(/\p{Diacritic}/gu, ''));
+}
+
+/**
+ * Orden de las fotos del equipo (16/10/2026): primero las que se llaman «FOTO
+ * DEL EQUIPO» (la primera es la que se ve en el expediente, el catálogo y la
+ * ficha PDF); después el resto, en el orden de sus espacios. Orden estable.
+ */
+export function ordenarFotosEquipo<T extends { nombre: string }>(fotos: T[]): T[] {
+  return [...fotos.filter((f) => esFotoDelEquipo(f.nombre)), ...fotos.filter((f) => !esFotoDelEquipo(f.nombre))];
+}
+
+/** Primer espacio libre del equipo, o null si están todos ocupados. */
 export function espacioLibre(docs: { espacio: number }[]): number | null {
   return espaciosDocumentos(docs).find((e) => !e.doc)?.espacio ?? null;
 }

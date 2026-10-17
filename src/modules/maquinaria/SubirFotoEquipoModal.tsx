@@ -82,7 +82,7 @@ export function SubirFotoEquipoModal({ equipoId, equipoNombre, fotos, actor, act
           {docs === null && <p className="muted">Revisando los espacios del equipo…</p>}
           {lleno ? (
             <div className="card" style={{ borderColor: 'var(--warning, #ffae00)' }}>
-              El equipo ya tiene sus {MAX_DOCUMENTOS_EQUIPO} documentos ocupados. Para agregar otra foto, cambia o quita uno en <strong>📎 Documentos</strong>.
+              El equipo ya tiene los {MAX_DOCUMENTOS_EQUIPO} espacios de documentos ocupados. Para agregar otra foto, cambia o quita uno en <strong>📎 Documentos</strong>.
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.6rem' }}>

@@ -13,7 +13,7 @@ import {
   eliminarDocumentoEquipo, urlDocumentoEquipo, type DocumentoEquipo,
 } from './maquinariaDocumentos.repository';
 import {
-  ACCEPT_DOCUMENTO, MAX_DOCUMENTOS_EQUIPO, MAX_MB_DOCUMENTO, espaciosDocumentos,
+  ACCEPT_DOCUMENTO, MAX_DOCUMENTOS_EQUIPO, MAX_MB_DOCUMENTO, espaciosVisibles,
   nombreDescargaDocumento, normalizarNombreDocumento, tamanoLegible, validarArchivoDocumento,
 } from './maquinariaDocumentos';
 
@@ -76,7 +76,7 @@ export function EquipoDocumentosModal({ equipo, canWrite, actor, actorName, onCl
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         Hasta <strong>{MAX_DOCUMENTOS_EQUIPO} documentos</strong> por equipo, en PDF o imagen de hasta {MAX_MB_DOCUMENTO} MB cada uno.
-        Cada espacio es independiente. <strong>{docs.length} de {MAX_DOCUMENTOS_EQUIPO}</strong> cargados.
+        Cada espacio es independiente; al cargar uno aparece el siguiente libre. <strong>{docs.length} de {MAX_DOCUMENTOS_EQUIPO}</strong> cargados.
       </p>
       <datalist id={listId}>
         {nombres.map((n) => <option key={n} value={n} />)}
@@ -86,7 +86,7 @@ export function EquipoDocumentosModal({ equipo, canWrite, actor, actorName, onCl
         <p className="muted">Cargando…</p>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '.75rem' }}>
-          {espaciosDocumentos(docs).map(({ espacio, doc }) => (
+          {espaciosVisibles(docs).map(({ espacio, doc }) => (
             <EspacioDocumento
               // La key cambia al llenarse o vaciarse el espacio: la tarjeta arranca limpia.
               key={doc?.id ?? `libre-${espacio}`}
