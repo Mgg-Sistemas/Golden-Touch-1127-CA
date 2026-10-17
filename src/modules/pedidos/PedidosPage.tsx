@@ -83,6 +83,7 @@ import { rotuloConversion } from '@/modules/inventario/presentaciones';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
 import { CategoriaProductoSelect, asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { coincideOrden, personasQueRealizaron, realizadaPor } from './buscarOrdenes';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
@@ -105,7 +106,6 @@ import { CrearServicioModal } from './CrearServicioModal';
 import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
-import { norm } from '@/shared/lib/texto';
 import { fijarNumeroAdministracion } from '@/modules/proveedores/proveedores.repository';
 import { rotuloMarcaModelo, tieneMarcaModelo } from '@/shared/lib/marcaModelo';
 
@@ -280,6 +280,8 @@ export function PedidosPage() {
 
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoOrden | ''>('');
+  // «Realizadas por»: correo del analista de Compras que hizo la OC ('' = todos). 17/10/2026.
+  const [filterPersona, setFilterPersona] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(VIEW_KEY) : null;
     return saved === 'lista' ? 'lista' : 'kanban';
@@ -465,8 +467,16 @@ export function PedidosPage() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // sku → categoría, para que el buscador encuentre por categoría del producto.
+  const categoriaPorSku = useMemo(() => new Map(productos.map((p) => [p.sku, p.categoria])), [productos]);
+  const ctxBusqueda = useMemo(() => ({ proveedores: proveedorMap, personas: personaMap, categorias: categoriaPorSku }), [proveedorMap, personaMap, categoriaPorSku]);
+  // Quiénes hicieron las órdenes de la pestaña actual (para el select «Realizadas por»).
+  const personasRealizaron = useMemo(() => {
+    const base = ordenes.filter((o) => (scope === 'servicios' ? o.tipo === 'servicio' : !(o.tipo === 'servicio' && canManageProcurement)));
+    return personasQueRealizaron(base, personaMap);
+  }, [ordenes, scope, canManageProcurement, personaMap]);
+
   const filteredOrdenes = useMemo(() => {
-    const q = norm(filterText);
     return ordenes.filter((o) => {
       // Los servicios viven en su propia pestaña: se muestran SOLO en "Servicios"
       // y se excluyen del resto (Solicitud de Pedido / Órdenes de Compra). Para
@@ -476,22 +486,12 @@ export function PedidosPage() {
       if (scope === 'servicios') { if (!esServicio) return false; }
       else if (esServicio && canManageProcurement) return false;
       if (viewMode === 'lista' && filterEstado && o.estado !== filterEstado) return false;
-      if (q) {
-        const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
-        const haystack = [
-          o.codigo,
-          prov?.razon_social,
-          o.solicitante,
-          o.solicitante_email,
-          o.notas,
-        ]
-          .map((v) => norm(String(v ?? '')))
-          .join(' | ');
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
+      if (filterPersona && realizadaPor(o) !== filterPersona) return false;
+      // Busca por TODAS las características de la orden (código, proveedor, quién la hizo,
+      // productos, montos, fechas, estado, método de pago…). 17/10/2026.
+      return coincideOrden(o, filterText, ctxBusqueda);
     });
-  }, [ordenes, filterText, filterEstado, viewMode, proveedorMap, scope, canManageProcurement]);
+  }, [ordenes, filterText, filterEstado, filterPersona, viewMode, ctxBusqueda, scope, canManageProcurement]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -709,10 +709,22 @@ export function PedidosPage() {
       <div className="filterbar">
         <input
           className="search"
-          placeholder="Buscar por código, proveedor, solicitante…"
+          placeholder="Buscar por código, proveedor, producto, monto, fecha, estado, quién la hizo…"
+          title="Busca por cualquier característica de la orden: código, proveedor, RIF, solicitante, quién la hizo, productos, marca, equipo, categoría, montos, fechas, estado, método y condiciones de pago, notas…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
+        <select
+          className="select"
+          style={{ maxWidth: 240 }}
+          value={filterPersona}
+          onChange={(e) => setFilterPersona(e.target.value)}
+          title="Ver solo las órdenes que hizo un analista de Compras"
+          aria-label="Realizadas por"
+        >
+          <option value="">Realizadas por: todos</option>
+          {personasRealizaron.map((p) => <option key={p.email} value={p.email}>{p.nombre}</option>)}
+        </select>
         <select
           className="select"
           style={{ maxWidth: 220 }}
