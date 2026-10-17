@@ -891,7 +891,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // Merma de recepción (02/10/2026): lo que llegó de verdad en una entrada o un traslado.
   const [recibidos, setRecibidos] = useState('');
   const [motivoMerma, setMotivoMerma] = useState('');
-  const { isAdmin } = usePermissions();
+  const { can } = usePermissions();
+  const isAdmin = can('combustible', 'full'); // Full control de Combustible guarda mermas fuera de margen (17/10/2026).
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 

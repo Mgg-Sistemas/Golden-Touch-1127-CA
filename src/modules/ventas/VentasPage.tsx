@@ -154,12 +154,13 @@ export function VentasPage() {
 
   // Escribir el módulo: admin o quien tenga `escritura` sobre Ventas.
   const puedeEscribir = isAdmin || can('ventas', 'escritura');
+  const fullVentas = isAdmin || can('ventas', 'full');
   // Anular lo que ya movió dinero o material: solo el administrador. Cancelar lo
   // que todavía no movió nada (por autorizar / autorizada): quien escribe Ventas.
   const puedeAnular = useCallback(
     (v: Venta) => v.estado !== 'anulada' && v.estado !== 'borrador'
-      && (isAdmin || (puedeEscribir && SIN_MOVIMIENTO.includes(v.estado))),
-    [isAdmin, puedeEscribir],
+      && (fullVentas || (puedeEscribir && SIN_MOVIMIENTO.includes(v.estado))),
+    [fullVentas, puedeEscribir],
   );
   // Autorizar o rechazar: LEYDIS RENGEL y JESUS LOZADA (la base lo vuelve a comprobar).
   const puedeAutorizar = puedeAutorizarVentas(user?.email);

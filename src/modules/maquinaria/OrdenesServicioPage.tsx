@@ -37,7 +37,7 @@ const ESTADO_SALIDA: Record<string, string> = { por_aprobar: 'Por aprobar', apro
  * con filtros, búsqueda sin acentos, «+ Nueva orden» y PDF/Excel del listado.
  */
 export function OrdenesServicioPage() {
-  const { can, isAdmin, appUser } = usePermissions();
+  const { can, appUser } = usePermissions();
   const { user } = useSession();
   const canWrite = can('maquinaria', 'escritura');
   const [editar, setEditar] = useState<OrdenServicio | null>(null);
@@ -211,7 +211,7 @@ export function OrdenesServicioPage() {
                   <button className="btn" onClick={() => setVerFotos(o)}>📷 Fotos{nFotos.get(o.id) ? ` (${nFotos.get(o.id)})` : ''}</button>
                   <button className="btn" onClick={() => void pdfOrden(o)}>📄 PDF</button>
                   {canWrite && eq && <button className="btn btn-ghost" onClick={() => setEditar(o)}>✎ Editar</button>}
-                  {puedeBorrarOrden(o, { maquinaria: canWrite, admin: isAdmin }) && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(o)}>🗑 Borrar</button>}
+                  {puedeBorrarOrden(o, { maquinaria: canWrite, admin: can('maquinaria', 'full') }) && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(o)}>🗑 Borrar</button>}
                 </div>
               </div>
             );

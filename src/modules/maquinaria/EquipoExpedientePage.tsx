@@ -79,7 +79,9 @@ export function EquipoExpedientePage() {
   const { id = '' } = useParams();
   const [sp, setSp] = useSearchParams();
   const navigate = useNavigate();
-  const { can, appUser, isAdmin } = usePermissions();
+  const { can, appUser } = usePermissions();
+  // Full control de Maquinaria: corrige y borra lecturas como el admin (17/10/2026).
+  const fullMaq = can('maquinaria', 'full');
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -88,7 +90,7 @@ export function EquipoExpedientePage() {
     combustible: can('combustible', 'escritura'),
     salidas: can('salidas', 'escritura'),
     pedidos: can('pedidos', 'escritura'),
-    admin: isAdmin,
+    admin: fullMaq,
   };
   const tab = (TABS.some((t) => t.id === sp.get('tab')) ? sp.get('tab') : 'resumen') as Tab;
   const setTab = (t: Tab) => setSp((p) => { const n = new URLSearchParams(p); n.set('tab', t); return n; }, { replace: true });
@@ -389,7 +391,7 @@ export function EquipoExpedientePage() {
           {tab === 'repuestos' && <RepuestosEquipoTab equipo={eq} canWrite={perm.maquinaria} actor={actor} />}
           {tab === 'compras' && <TabCompras compras={compras} puedePedidos={perm.pedidos} onVer={setVerCompra} />}
           {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)}
-            puedeEditar={perm.maquinaria} isAdmin={isAdmin} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
+            puedeEditar={perm.maquinaria} isAdmin={fullMaq} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
           {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} onSubir={perm.maquinaria ? () => setSubirFoto(true) : undefined} />}
           {tab === 'ficha' && <TabFicha eq={eq} onPdf={() => void pdfFicha()} />}
         </section>
@@ -419,12 +421,12 @@ export function EquipoExpedientePage() {
           actor={actor} actorName={actorName} onClose={() => setCerrar(null)} onDone={() => void cargar()} />
       )}
       {lecturaOpen && (
-        <LecturaModal equipo={eq} isAdmin={isAdmin}
+        <LecturaModal equipo={eq} isAdmin={fullMaq}
           vigente={vigente ?? { horometro: null, horometro_fecha: null, horometro_origen: null, kilometraje: null, km_fecha: null, km_origen: null }}
           onClose={() => setLecturaOpen(false)} onSaved={() => void cargar()} />
       )}
       {editarLectura && (
-        <LecturaModal equipo={eq} isAdmin={isAdmin} lecturaId={editarLectura}
+        <LecturaModal equipo={eq} isAdmin={fullMaq} lecturaId={editarLectura}
           vigente={vigente ?? { horometro: null, horometro_fecha: null, horometro_origen: null, kilometraje: null, km_fecha: null, km_origen: null }}
           onClose={() => setEditarLectura(null)} onSaved={() => void cargar()} />
       )}

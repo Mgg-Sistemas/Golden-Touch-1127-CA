@@ -55,9 +55,13 @@ type ModalKind =
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
 
 export function UsuariosPage() {
-  const canWrite = usePermissions().can('usuarios', 'escritura');
+  const { can, isAdmin } = usePermissions();
+  const canWrite = can('usuarios', 'escritura');
+  // Full control de Usuarios (17/10/2026): edita roles y permisos; el rol admin sigue siendo solo del admin.
+  const canFull = can('usuarios', 'full');
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<CustomRole[]>([]);
+  const rolesAsignables = useMemo(() => (isAdmin ? roles : roles.filter((r) => r.key !== 'admin')), [roles, isAdmin]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
@@ -184,7 +188,7 @@ export function UsuariosPage() {
       )}
 
       {view === 'roles' ? (
-        <RolesPermisosPanel readOnly={!canWrite} onRolesChanged={refresh} />
+        <RolesPermisosPanel readOnly={!canFull} onRolesChanged={refresh} />
       ) : (
       <>
       {/* Tarjetas dinámicas: un clic filtra la lista por ese estado; otro clic lo quita. */}
@@ -336,7 +340,7 @@ export function UsuariosPage() {
 
       {modal.kind === 'create' && (
         <UsuarioFormModal
-          roles={roles}
+          roles={rolesAsignables}
           departamentos={departamentos}
           actorEmail={user?.email ?? undefined}
           recientementeCreado={lastCreatedRoleKey}
@@ -360,7 +364,7 @@ export function UsuariosPage() {
       {modal.kind === 'edit' && (
         <UsuarioEditModal
           usuario={modal.usuario}
-          roles={roles}
+          roles={rolesAsignables}
           departamentos={departamentos}
           actorEmail={user?.email ?? undefined}
           recientementeCreado={lastCreatedRoleKey}
