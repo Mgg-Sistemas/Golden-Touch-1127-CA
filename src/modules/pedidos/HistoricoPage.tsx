@@ -9,14 +9,15 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
-import { listOrdenes, listProveedoresActivos, eliminarOrdenCompra, listAbonos, urlAdjuntoOc } from './pedidos.repository';
+import { listOrdenes, listProveedores, eliminarOrdenCompra, listAbonos, urlAdjuntoOc } from './pedidos.repository';
 import { adjuntosDePago, comprobantesDeLaOrden, type AdjuntoPago } from './adjuntosPago';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { descargarComprobantePagoPdf } from './comprobantePagoPdf';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
-import { norm } from '@/shared/lib/texto';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { coincideOrden, personasQueRealizaron, realizadaPor } from './buscarOrdenes';
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
 
@@ -40,6 +41,9 @@ const FECHA_CAMPOS: Array<{ value: FechaCampo; label: string }> = [
 export function HistoricoPage() {
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  // email → nombre, para buscar y filtrar por quién hizo la OC (17/10/2026).
+  const [personas, setPersonas] = useState<Map<string, string>>(new Map());
+  const [personaSel, setPersonaSel] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,7 +122,9 @@ export function HistoricoPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [os, pvs] = await Promise.all([listOrdenes(), listProveedoresActivos()]);
+      // Todos los proveedores (también inactivos): una OC vieja tiene que seguir mostrando el suyo.
+      const [os, pvs, us] = await Promise.all([listOrdenes(), listProveedores(), listUsuarios().catch(() => [])]);
+      setPersonas(new Map(us.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])));
       setOrdenes(os);
       setProveedores(pvs);
     } catch (e) {
@@ -136,15 +142,16 @@ export function HistoricoPage() {
     [proveedores],
   );
 
+  const ctxBusqueda = useMemo(() => ({ proveedores: proveedorMap, personas }), [proveedorMap, personas]);
+  const personasRealizaron = useMemo(() => personasQueRealizaron(ordenes, personas), [ordenes, personas]);
+
   const filtered = useMemo(() => {
-    const free = norm(qFree);
     const desdeMs = desde ? new Date(desde + 'T00:00:00').getTime() : null;
     const hastaMs = hasta ? new Date(hasta + 'T23:59:59.999').getTime() : null;
 
     const rows = ordenes.filter((o) => {
-      const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : null;
-
       if (estadosSel.size > 0 && !estadosSel.has(o.estado)) return false;
+      if (personaSel && realizadaPor(o) !== personaSel) return false;
 
       if (desdeMs || hastaMs) {
         const raw = (o as unknown as Record<string, string | null | undefined>)[fechaCampo];
@@ -154,17 +161,8 @@ export function HistoricoPage() {
         if (hastaMs && ts > hastaMs) return false;
       }
 
-      if (free) {
-        const hay = [
-          o.codigo, o.oc_codigo, o.solicitante, o.solicitante_email, o.ci_solicitante,
-          o.notas, prov?.razon_social, prov?.rif, prov?.contacto,
-          o.estado,
-          o.total != null ? String(o.total) : null,
-          ...o.items.map((it) => `${it.sku} ${it.nombre}`),
-        ].map((v) => norm(String(v ?? ''))).join(' | ');
-        if (!hay.includes(free)) return false;
-      }
-      return true;
+      // Por TODAS las características (código, proveedor, quién la hizo, productos, montos, fechas, estado, pago…).
+      return coincideOrden(o, qFree, ctxBusqueda);
     });
 
     return rows.sort((a, b) => {
@@ -172,7 +170,7 @@ export function HistoricoPage() {
       const tb = new Date(b.created_at).getTime();
       return sortDesc ? tb - ta : ta - tb;
     });
-  }, [ordenes, proveedorMap, qFree, estadosSel, fechaCampo, desde, hasta, sortDesc]);
+  }, [ordenes, ctxBusqueda, personaSel, qFree, estadosSel, fechaCampo, desde, hasta, sortDesc]);
 
   function toggleEstado(value: EstadoOrden) {
     setEstadosSel((prev) => {
@@ -183,10 +181,10 @@ export function HistoricoPage() {
     });
   }
 
-  const hasFiltro = Boolean(qFree.trim() || estadosSel.size > 0 || desde || hasta);
+  const hasFiltro = Boolean(qFree.trim() || estadosSel.size > 0 || desde || hasta || personaSel);
 
   function limpiar() {
-    setQFree(''); setEstadosSel(new Set());
+    setQFree(''); setEstadosSel(new Set()); setPersonaSel('');
     setDesde(''); setHasta(''); setFechaOpen(false); setFechaCampo('created_at');
   }
 
@@ -196,7 +194,7 @@ export function HistoricoPage() {
         <div>
           <h1>Histórico de Pedidos / Compras</h1>
           <p className="muted hint">
-            Busca por código de pedido, OC, usuario, proveedor, SKU o cualquier dato del registro.
+            Busca por cualquier característica: código, OC, quién la hizo, proveedor, RIF, producto, marca, equipo, monto, fecha, estado, método de pago, nota…
           </p>
         </div>
         <div className="actions">
@@ -216,11 +214,20 @@ export function HistoricoPage() {
         <div style={{ position: 'relative' }}>
           <input
             className="input"
-            placeholder="🔎 Busca por OP, OC, usuario, proveedor, SKU, monto, nota… (cualquier cosa)"
+            placeholder="🔎 Busca por OP, OC, quién la hizo, proveedor, producto, monto, fecha, estado, nota… (cualquier cosa)"
             value={qFree}
             onChange={(e) => setQFree(e.target.value)}
             style={{ fontSize: '1rem', padding: '.75rem 1rem' }}
           />
+        </div>
+
+        {/* Realizadas por: el analista de Compras que hizo la OC */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.75rem', flexWrap: 'wrap' }}>
+          <label htmlFor="hist-realizadas-por" className="muted" style={{ fontSize: '.85rem' }}>Realizadas por:</label>
+          <select id="hist-realizadas-por" className="select" style={{ maxWidth: 280 }} value={personaSel} onChange={(e) => setPersonaSel(e.target.value)}>
+            <option value="">Todos</option>
+            {personasRealizaron.map((p) => <option key={p.email} value={p.email}>{p.nombre}</option>)}
+          </select>
         </div>
 
         {/* Chips de estado */}
