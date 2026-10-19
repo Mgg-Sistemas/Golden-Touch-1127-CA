@@ -126,6 +126,52 @@ export async function exigirAdmin(req: Request): Promise<Sesion | Response> {
 }
 
 /**
+ * Réplica de `public.puede_full(modulo)`: admin pleno, o cuenta activa sin cambio de
+ * clave pendiente cuyo rol tiene `full` = true en ese módulo.
+ */
+export async function puedeFull(s: Sesion, modulo: string): Promise<boolean> {
+  const f = await leerFila(s);
+  if (!f) return false;
+  if (esAdminFila(f)) return true;
+  if ((f.estado ?? 'activo') !== 'activo') return false;
+  if (f.must_change_password ?? false) return false;
+  if (!f.role) return false;
+  const { data, error } = await s.admin.from('roles_permisos').select('permisos').eq('role', f.role).maybeSingle();
+  if (error || !data) return false;
+  const m = ((data.permisos ?? {}) as Record<string, unknown>)[modulo] as { full?: unknown } | undefined;
+  return Boolean(m && (m.full === true || m.full === 'true'));
+}
+
+export type Gestor = Sesion & {
+  /** true = administrador pleno; false = alguien con Full control de Usuarios. */
+  esAdmin: boolean;
+};
+
+/**
+ * Quién puede gestionar usuarios (crear, resetear clave, cambiar correo): el admin pleno
+ * o quien tenga Full control del módulo Usuarios (17/10/2026, misma regla que la base:
+ * `puede_full('usuarios')` y el trigger usuarios_guardia_campos_sensibles). Quien no es
+ * admin NUNCA toca a un administrador ni crea uno: eso lo revisa cada función con
+ * `gestorPuedeTocar`.
+ */
+export async function exigirGestorUsuarios(req: Request): Promise<Gestor | Response> {
+  const s = await exigirSesion(req);
+  if (s instanceof Response) return s;
+  const f = await leerFila(s);
+  if (f?.must_change_password) {
+    return json({ error: 'Cambiá tu contraseña temporal antes de hacer esto' }, 403);
+  }
+  if (esAdminFila(f)) return { ...s, esAdmin: true };
+  if (await puedeFull(s, 'usuarios')) return { ...s, esAdmin: false };
+  return json({ error: 'Solo un administrador o quien tenga Full control de Usuarios puede hacer esto' }, 403);
+}
+
+/** ¿El gestor puede actuar sobre un usuario con este rol? Un no-admin no toca administradores. */
+export function gestorPuedeTocar(g: Gestor, rolObjetivo: string | null | undefined): boolean {
+  return g.esAdmin || rolObjetivo !== 'admin';
+}
+
+/**
  * Permiso de escritura por módulo. Réplica exacta de `public.puede(modulo)`:
  *
  *   is_admin()

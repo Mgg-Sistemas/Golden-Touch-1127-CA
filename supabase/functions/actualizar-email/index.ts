@@ -1,19 +1,20 @@
 // Golden Touch · Edge Function: actualizar-email
-// Solo admin. Cambia el correo de un usuario en Auth (auth.users) y en la tabla
+// La llama el admin o quien tenga Full control de Usuarios (17/10/2026); un no-admin
+// no puede cambiar el correo de un administrador. Cambia el correo de un usuario en Auth (auth.users) y en la tabla
 // public.usuarios de forma coordinada. El correo es la identidad de login.
 //
-// verify_jwt = false: la validación del llamador la hace `exigirAdmin` por
-// dentro, con las mismas reglas que is_admin() de Postgres (rol admin, cuenta
-// activa y sin cambio de clave pendiente).
+// verify_jwt = false: la validación del llamador la hace `exigirGestorUsuarios` por
+// dentro, con las mismas reglas que puede_full('usuarios') de Postgres (admin pleno o
+// Full control de Usuarios, cuenta activa y sin cambio de clave pendiente).
 
-import { CORS, json, exigirAdmin } from '../_shared/auth.ts';
+import { CORS, json, exigirGestorUsuarios, gestorPuedeTocar } from '../_shared/auth.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  // 1) Validar caller admin pleno
-  const s = await exigirAdmin(req);
+  // 1) Validar caller: admin pleno o Full control de Usuarios
+  const s = await exigirGestorUsuarios(req);
   if (s instanceof Response) return s;
   const admin = s.admin;
 
@@ -34,7 +35,7 @@ Deno.serve(async (req) => {
   //    actual en Auth para poder revertir si algo falla a mitad de camino.
   const { data: destino, error: destErr } = await admin
     .from('usuarios')
-    .select('id, email')
+    .select('id, email, role')
     .eq('id', targetId)
     .maybeSingle();
   if (destErr) {
@@ -42,6 +43,7 @@ Deno.serve(async (req) => {
     return json({ error: 'No se pudo leer el usuario' }, 500);
   }
   if (!destino) return json({ error: 'Usuario no encontrado' }, 404);
+  if (!gestorPuedeTocar(s, destino.role)) return json({ error: 'Solo un administrador puede cambiar el correo de otro administrador.' }, 403);
 
   const { data: authUser, error: getErr } = await admin.auth.admin.getUserById(targetId);
   if (getErr || !authUser?.user) {

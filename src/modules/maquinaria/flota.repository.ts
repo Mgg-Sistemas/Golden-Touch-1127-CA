@@ -16,6 +16,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { ItemSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
+import { ordenarFotosEquipo } from './maquinariaDocumentos';
 import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
 import { servicioPorId, piezasNuevas } from './flota';
@@ -282,23 +283,25 @@ export async function surtidosDeEquipo(nombreCombustible: string | null | undefi
 
 /* ───────── Fotos (las imágenes de los documentos del equipo) ───────── */
 
-export interface FotoEquipo { id: string; equipo_id: string; nombre: string; url: string }
+export interface FotoEquipo { id: string; equipo_id: string; nombre: string; url: string; encuadre?: { zoom: number; x: number; y: number } | null }
 
 /** Imágenes de los documentos (📎) de uno o de todos los equipos, con URL firmada (1 h). */
 export async function fotosDeEquipos(equipoId?: string): Promise<FotoEquipo[]> {
-  let q = supabase.from('maquinaria_documentos').select('id, equipo_id, nombre, path, content_type, espacio')
+  let q = supabase.from('maquinaria_documentos').select('id, equipo_id, nombre, path, content_type, espacio, encuadre')
     .like('content_type', 'image/%').order('espacio', { ascending: true });
   if (equipoId) q = q.eq('equipo_id', equipoId);
   const { data, error } = await q;
   if (error) throw error;
-  const rows = (data ?? []) as { id: string; equipo_id: string; nombre: string; path: string }[];
+  const rows = (data ?? []) as { id: string; equipo_id: string; nombre: string; path: string; encuadre: FotoEquipo['encuadre'] }[];
   if (!rows.length) return [];
   const { data: urls, error: ue } = await supabase.storage.from(BUCKET_DOCUMENTOS).createSignedUrls(rows.map((r) => r.path), 3600);
   if (ue) throw ue;
-  return rows.flatMap((r, i) => {
+  // La foto que se llama «FOTO DEL EQUIPO» va primero: es la que se muestra por defecto.
+  const lista = rows.flatMap((r, i) => {
     const url = urls?.[i]?.signedUrl;
-    return url ? [{ id: r.id, equipo_id: r.equipo_id, nombre: r.nombre, url }] : [];
+    return url ? [{ id: r.id, equipo_id: r.equipo_id, nombre: r.nombre, url, encuadre: r.encuadre ?? null }] : [];
   });
+  return ordenarFotosEquipo(lista);
 }
 
 /* ───────── Piezas nuevas: aviso a Compras y cambio por el producto ───────── */
@@ -613,4 +616,10 @@ export async function ultimoSurtidoEquipo(nombreCombustible: string | null | und
     tanque = (t as { nombre?: string } | null)?.nombre ?? null;
   }
   return { fecha: r.fecha, hora: r.hora, litros: Number(r.litros) || 0, tanque, quien: r.autorizado_por || r.actor_name || r.created_by };
+}
+
+/** Guarda el encuadre de una foto del equipo (null = cubrir y centrar, como antes). 16/10/2026. */
+export async function fijarEncuadreFoto(documentoId: string, encuadre: { zoom: number; x: number; y: number } | null): Promise<void> {
+  const { error } = await supabase.from('maquinaria_documentos').update({ encuadre }).eq('id', documentoId);
+  if (error) throw error;
 }

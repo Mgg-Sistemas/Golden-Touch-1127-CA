@@ -83,6 +83,7 @@ import { rotuloConversion } from '@/modules/inventario/presentaciones';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
 import { CategoriaProductoSelect, asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { coincideOrden, personasQueRealizaron, realizadaPor } from './buscarOrdenes';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
@@ -105,7 +106,6 @@ import { CrearServicioModal } from './CrearServicioModal';
 import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
-import { norm } from '@/shared/lib/texto';
 import { fijarNumeroAdministracion } from '@/modules/proveedores/proveedores.repository';
 import { rotuloMarcaModelo, tieneMarcaModelo } from '@/shared/lib/marcaModelo';
 
@@ -280,6 +280,8 @@ export function PedidosPage() {
 
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoOrden | ''>('');
+  // «Realizadas por»: correo del analista de Compras que hizo la OC ('' = todos). 17/10/2026.
+  const [filterPersona, setFilterPersona] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(VIEW_KEY) : null;
     return saved === 'lista' ? 'lista' : 'kanban';
@@ -465,8 +467,16 @@ export function PedidosPage() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // sku → categoría, para que el buscador encuentre por categoría del producto.
+  const categoriaPorSku = useMemo(() => new Map(productos.map((p) => [p.sku, p.categoria])), [productos]);
+  const ctxBusqueda = useMemo(() => ({ proveedores: proveedorMap, personas: personaMap, categorias: categoriaPorSku }), [proveedorMap, personaMap, categoriaPorSku]);
+  // Quiénes hicieron las órdenes de la pestaña actual (para el select «Realizadas por»).
+  const personasRealizaron = useMemo(() => {
+    const base = ordenes.filter((o) => (scope === 'servicios' ? o.tipo === 'servicio' : !(o.tipo === 'servicio' && canManageProcurement)));
+    return personasQueRealizaron(base, personaMap);
+  }, [ordenes, scope, canManageProcurement, personaMap]);
+
   const filteredOrdenes = useMemo(() => {
-    const q = norm(filterText);
     return ordenes.filter((o) => {
       // Los servicios viven en su propia pestaña: se muestran SOLO en "Servicios"
       // y se excluyen del resto (Solicitud de Pedido / Órdenes de Compra). Para
@@ -475,23 +485,13 @@ export function PedidosPage() {
       const esServicio = o.tipo === 'servicio';
       if (scope === 'servicios') { if (!esServicio) return false; }
       else if (esServicio && canManageProcurement) return false;
-      if (viewMode === 'lista' && filterEstado && o.estado !== filterEstado) return false;
-      if (q) {
-        const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
-        const haystack = [
-          o.codigo,
-          prov?.razon_social,
-          o.solicitante,
-          o.solicitante_email,
-          o.notas,
-        ]
-          .map((v) => norm(String(v ?? '')))
-          .join(' | ');
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
+      if (filterEstado && o.estado !== filterEstado) return false;
+      if (filterPersona && realizadaPor(o) !== filterPersona) return false;
+      // Busca por TODAS las características de la orden (código, proveedor, quién la hizo,
+      // productos, montos, fechas, estado, método de pago…). 17/10/2026.
+      return coincideOrden(o, filterText, ctxBusqueda);
     });
-  }, [ordenes, filterText, filterEstado, viewMode, proveedorMap, scope, canManageProcurement]);
+  }, [ordenes, filterText, filterEstado, filterPersona, viewMode, ctxBusqueda, scope, canManageProcurement]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -513,6 +513,19 @@ export function PedidosPage() {
 
   const kanbanCols =
     scope === 'servicios' ? KANBAN_COLS_SERVICIOS : scope === 'oc' ? KANBAN_COLS_OC : KANBAN_COLS_PEDIDOS;
+  // Estados del selector: las columnas del Kanban de la pestaña (con sus mismos nombres)
+  // más los demás estados que puede tener una orden. 17/10/2026: antes el filtro estaba
+  // apagado en Kanban; ahora deja solo la columna elegida.
+  const estadoOpciones = useMemo(() => {
+    const extra: { key: EstadoOrden; label: string }[] = [
+      { key: 'pendiente', label: 'Pendientes' }, { key: 'aprobada', label: 'Aprobadas (OP)' }, { key: 'oc_creada', label: 'OC creada' },
+      { key: 'oc_aprobada', label: 'OC confirmada' }, { key: 'pagada', label: 'Pagadas' }, { key: 'desistida_proveedor', label: 'Proveedor desistió' },
+      { key: 'recibida', label: 'Recibidas' }, { key: 'finalizada', label: 'Finalizadas' }, { key: 'cancelada', label: 'Canceladas' },
+    ];
+    const base = kanbanCols.map((c) => ({ key: c.key, label: c.label }));
+    return [...base, ...extra.filter((e) => !base.some((b) => b.key === e.key))];
+  }, [kanbanCols]);
+  const kanbanColsVisibles = filterEstado ? kanbanCols.filter((c) => c.key === filterEstado) : kanbanCols;
 
   // Detalle abierto: se deriva por id para reflejar datos en vivo. Pero retenemos el
   // último detalle conocido (ref) para NO cerrar el modal si un refresh (realtime al
@@ -709,28 +722,31 @@ export function PedidosPage() {
       <div className="filterbar">
         <input
           className="search"
-          placeholder="Buscar por código, proveedor, solicitante…"
+          placeholder="Buscar por código, proveedor, producto, monto, fecha, estado, quién la hizo…"
+          title="Busca por cualquier característica de la orden: código, proveedor, RIF, solicitante, quién la hizo, productos, marca, equipo, categoría, montos, fechas, estado, método y condiciones de pago, notas…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
         <select
           className="select"
+          style={{ maxWidth: 240 }}
+          value={filterPersona}
+          onChange={(e) => setFilterPersona(e.target.value)}
+          title="Ver solo las órdenes que hizo un analista de Compras"
+          aria-label="Realizadas por"
+        >
+          <option value="">Realizadas por: todos</option>
+          {personasRealizaron.map((p) => <option key={p.email} value={p.email}>{p.nombre}</option>)}
+        </select>
+        <select
+          className="select"
           style={{ maxWidth: 220 }}
           value={filterEstado}
           onChange={(e) => setFilterEstado(e.target.value as EstadoOrden | '')}
-          disabled={viewMode === 'kanban'}
-          title={viewMode === 'kanban' ? 'Filtro deshabilitado en vista Kanban' : ''}
+          title={viewMode === 'kanban' ? 'En Kanban deja solo la columna de ese estado' : 'Filtra la lista por estado'}
         >
           <option value="">Todos los estados</option>
-          <option value="pendiente">Pendientes</option>
-          <option value="aprobada">Aprobadas (OP)</option>
-          <option value="oc_creada">OC creada</option>
-          <option value="oc_aprobada">OC confirmada</option>
-          <option value="pagada">Pagadas</option>
-          <option value="desistida_proveedor">Proveedor desistió</option>
-          <option value="recibida">Recibidas</option>
-          <option value="finalizada">Finalizadas</option>
-          <option value="cancelada">Canceladas</option>
+          {estadoOpciones.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
         </select>
         <div className="view-toggle" role="tablist" aria-label="Modo de vista">
           <button
@@ -756,7 +772,7 @@ export function PedidosPage() {
         <KanbanBoard
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
-          cols={kanbanCols}
+          cols={kanbanColsVisibles}
           onOpen={openDetail}
           noLeidos={noLeidos}
         />

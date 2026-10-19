@@ -19,8 +19,13 @@ import {
 const VISTA_W = 260;
 const VISTA_H = 312;
 
-export function AjustarFoto({ fotoDataUrl, encuadreInicial, guardando, onGuardar, onCerrar }: {
+export function AjustarFoto({ fotoDataUrl, encuadreInicial, guardando, onGuardar, onCerrar, vistaW = VISTA_W, vistaH = VISTA_H, destino = 'el carnet' }: {
   fotoDataUrl: string;
+  /** Recuadro de la vista (por defecto, el del carnet). Maquinaria lo usa apaisado, como la foto del expediente. */
+  vistaW?: number;
+  vistaH?: number;
+  /** Dónde va a salir la foto, para el texto de ayuda. */
+  destino?: string;
   encuadreInicial?: Encuadre | null;
   guardando?: boolean;
   onGuardar: (e: Encuadre) => void;
@@ -53,10 +58,10 @@ export function AjustarFoto({ fotoDataUrl, encuadreInicial, guardando, onGuardar
     if (!cv || !im || !medidas) return;
     const ctx = cv.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, VISTA_W, VISTA_H);
-    const { sx, sy, sw, sh } = recorteDeEncuadre(medidas.w, medidas.h, VISTA_W, VISTA_H, encuadre);
-    if (sw > 0 && sh > 0) ctx.drawImage(im, sx, sy, sw, sh, 0, 0, VISTA_W, VISTA_H);
-  }, [encuadre, medidas]);
+    ctx.clearRect(0, 0, vistaW, vistaH);
+    const { sx, sy, sw, sh } = recorteDeEncuadre(medidas.w, medidas.h, vistaW, vistaH, encuadre);
+    if (sw > 0 && sh > 0) ctx.drawImage(im, sx, sy, sw, sh, 0, 0, vistaW, vistaH);
+  }, [encuadre, medidas, vistaW, vistaH]);
 
   function alBajar(e: ReactPointerEvent<HTMLCanvasElement>) {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -68,7 +73,9 @@ export function AjustarFoto({ fotoDataUrl, encuadreInicial, guardando, onGuardar
     const dx = e.clientX - arrastre.current.x;
     const dy = e.clientY - arrastre.current.y;
     arrastre.current = { x: e.clientX, y: e.clientY };
-    setEncuadre((prev) => moverFoco(prev, dx, dy, medidas.w, medidas.h, VISTA_W, VISTA_H));
+    // El arrastre se mide en píxeles de pantalla: si el lienzo se ve más chico (teléfono), se corrige.
+    const escala = vistaW / (e.currentTarget.getBoundingClientRect().width || vistaW);
+    setEncuadre((prev) => moverFoco(prev, dx * escala, dy * escala, medidas.w, medidas.h, vistaW, vistaH));
   }
 
   function alSoltar(e: ReactPointerEvent<HTMLCanvasElement>) {
@@ -77,7 +84,7 @@ export function AjustarFoto({ fotoDataUrl, encuadreInicial, guardando, onGuardar
   }
 
   const estiloLienzo: CSSProperties = {
-    width: VISTA_W, height: VISTA_H, maxWidth: '100%',
+    width: vistaW, maxWidth: '100%', height: 'auto', aspectRatio: `${vistaW} / ${vistaH}`,
     borderRadius: 12, border: '2px solid var(--primary)',
     cursor: arrastre.current ? 'grabbing' : 'grab',
     touchAction: 'none', // si no, el navegador se queda con el gesto y no se puede arrastrar
@@ -102,13 +109,13 @@ export function AjustarFoto({ fotoDataUrl, encuadreInicial, guardando, onGuardar
     >
       <p className="muted" style={{ fontSize: '.8rem', marginTop: 0 }}>
         <strong>Arrastrá la foto</strong> para elegir qué queda en el centro y usa la barra para acercar.
-        Lo que ves aquí es <strong>exactamente</strong> lo que va a salir en el carnet.
+        Lo que ves aquí es <strong>exactamente</strong> lo que va a salir en {destino}.
       </p>
 
       <canvas
         ref={lienzo}
-        width={VISTA_W}
-        height={VISTA_H}
+        width={vistaW}
+        height={vistaH}
         style={estiloLienzo}
         onPointerDown={alBajar}
         onPointerMove={alMover}
