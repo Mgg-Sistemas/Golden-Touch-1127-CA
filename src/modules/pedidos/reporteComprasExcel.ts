@@ -1,14 +1,28 @@
 /* ============================================================
    Golden Touch · Compras · Excel "Compras por estado"
-   Mismo reporte del PDF, en Excel con los estilos del sistema:
-   título naranja, encabezado naranja con letra blanca, franjas
-   cebra, un bloque por estado (Pendiente por aprobar · Cuentas a
-   crédito · Por indicar método de pago · Por pagar) con subtotal,
+   Mismo reporte del PDF, en Excel con los estilos del sistema en
+   tonos PASTEL: título terracota, encabezado durazno con letra café,
+   franjas cebra, un bloque por estado (Pendiente por aprobar · Cuentas
+   a crédito · Por indicar método de pago · Por pagar) con subtotal,
    y total general. Vista previa antes de descargar.
    ============================================================ */
 import { previewExcelArchivo } from '@/shared/lib/reportePreview';
 import type { Orden } from '@/shared/lib/types';
 import { agruparReporteCompras, aDolaresYBolivares } from './reporteCompras';
+
+/* Paleta PASTEL (los mismos tonos del PDF). El naranja fuerte de la marca
+   queda para los botones de la pantalla: esto se imprime y se manda, así que
+   va suave para que no canse la vista. */
+const PASTEL = {
+  titulo: 'FFC07E46',        // terracota suave (títulos)
+  cabecera: 'FFF6D9B8',      // durazno claro (encabezado de la tabla)
+  cabeceraTexto: 'FF5C3A1C', // café oscuro: legible sobre el durazno
+  grupo: 'FFFBEBD8',         // arena (cabecera de cada estado y subtotales)
+  grupoTexto: 'FF8A5A2B',    // terracota oscura (texto de los bloques)
+  cebra: 'FFFDF8F2',         // crema casi blanco (filas alternas)
+  total: 'FFF4D2AE',         // durazno algo más cargado (fila del total)
+  borde: 'FFE0D3C2',         // café muy claro (bordes)
+};
 
 export interface OpcionesReporteComprasExcel {
   ordenes: Orden[];
@@ -40,7 +54,7 @@ export async function construirReporteComprasExcel(
   ws.columns = [
     { width: 28 }, { width: 16 }, { width: 72 }, { width: 16 }, { width: 14 }, { width: 18 },
   ];
-  const borde = { style: 'thin' as const, color: { argb: 'FFBFC5CC' } };
+  const borde = { style: 'thin' as const, color: { argb: PASTEL.borde } };
   const bordes = { top: borde, left: borde, bottom: borde, right: borde };
 
   // ── Encabezado del documento ──
@@ -52,7 +66,7 @@ export async function construirReporteComprasExcel(
 
   const titulo = ws.getCell(1, 1);
   titulo.value = `COMPRAS POR ESTADO · ${emp.nombre}`;
-  titulo.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFF8A00' } };
+  titulo.font = { name: 'Arial', size: 14, bold: true, color: { argb: PASTEL.titulo } };
   titulo.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
   const subtitulo = ws.getCell(2, 1);
@@ -72,8 +86,8 @@ export async function construirReporteComprasExcel(
   cab.values = ['TIPO', 'CÓDIGO', 'MOTIVO', 'MONTO', 'MONTO $', 'MONTO Bs'];
   cab.height = 24;
   cab.eachCell((c) => {
-    c.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } };
+    c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cabecera } };
     c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     c.border = bordes;
   });
@@ -100,9 +114,9 @@ export async function construirReporteComprasExcel(
     ws.mergeCells(cabGrupo.number, 1, cabGrupo.number, COLS);
     const gc = ws.getCell(cabGrupo.number, 1);
     gc.value = `${grupo.titulo} (${grupo.filas.length})`;
-    gc.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFB24A00' } };
+    gc.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.grupoTexto } };
     gc.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-    filaBanda(cabGrupo, 'FFFFF4E8');
+    filaBanda(cabGrupo, PASTEL.grupo);
 
     let subUsd: number | null = null;
     let subBs: number | null = null;
@@ -125,18 +139,18 @@ export async function construirReporteComprasExcel(
         };
         if (col >= 4) c.numFmt = col === 4 ? fmtMoneda(f.moneda) : col === 5 ? fmtMoneda('USD') : fmtMoneda('Bs');
       });
-      if (zebra % 2 === 1) filaBanda(r, 'FFFAF6F0');
+      if (zebra % 2 === 1) filaBanda(r, PASTEL.cebra);
       zebra += 1;
     }
 
     const st = ws.addRow(['SUBTOTAL', '', '', '', subUsd ?? '', subBs ?? '']);
     st.eachCell({ includeEmpty: true }, (c, col) => {
-      c.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF7A3A00' } };
+      c.font = { name: 'Arial', size: 10, bold: true, color: { argb: PASTEL.grupoTexto } };
       c.alignment = { vertical: 'middle', horizontal: col >= 4 ? 'right' : 'left', indent: col === 1 ? 1 : 0 };
       if (col === 5) c.numFmt = fmtMoneda('USD');
       if (col === 6) c.numFmt = fmtMoneda('Bs');
     });
-    filaBanda(st, 'FFFFF4E8');
+    filaBanda(st, PASTEL.grupo);
   }
 
   // ── Total general (el mismo número que el subtotal del PDF) ──
@@ -144,8 +158,8 @@ export async function construirReporteComprasExcel(
     const tr = ws.addRow(['TOTAL GENERAL', `${total} orden(es)`, '', '', totUsd ?? '', totBs ?? '']);
     tr.height = 24;
     tr.eachCell({ includeEmpty: true }, (c, col) => {
-      c.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } };
+      c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.total } };
       c.alignment = { vertical: 'middle', horizontal: col >= 4 ? 'right' : 'left', indent: col === 1 ? 1 : 0 };
       c.border = bordes;
       if (col === 5) c.numFmt = fmtMoneda('USD');
