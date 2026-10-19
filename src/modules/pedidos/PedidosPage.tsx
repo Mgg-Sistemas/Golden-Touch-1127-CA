@@ -69,6 +69,7 @@ import type { RecepcionRenglon } from './pedidos.repository';
 import { MarcaRecibidaCampos, useMarcasRecibidas } from './MarcaRecibidaCampos';
 import { avisarCambiosDeMarca } from './avisoMarcaDistinta';
 import { descargarOrdenesPorPagarPdf } from '@/modules/tesoreria/ordenesPorPagarPdf';
+import { ReporteComprasModal } from './ReporteComprasModal';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
@@ -299,6 +300,8 @@ export function PedidosPage() {
   // Contador liviano de pendientes por pagar (para el badge del botón, en vivo).
   const [pendPagar, setPendPagar] = useState<{ porPagar: number; credito: number }>({ porPagar: 0, credito: 0 });
   const [generandoPP, setGenerandoPP] = useState(false);
+  // Modal del reporte «Compras por estado» (las tres salidas viven ahí adentro).
+  const [reporteComprasOpen, setReporteComprasOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -568,6 +571,15 @@ export function PedidosPage() {
           {canManageProcurement && (
             <button
               className="btn btn-ghost"
+              onClick={() => setReporteComprasOpen(true)}
+              title="Reporte por estado: Pendiente por aprobar, Cuentas a crédito, Por indicar método de pago y Por pagar · PDF/Imprimir, Excel y WhatsApp"
+            >
+              📋 Compras por estado
+            </button>
+          )}
+          {canManageProcurement && (
+            <button
+              className="btn btn-ghost"
               onClick={() => void abrirPendientesPorPagar()}
               disabled={generandoPP}
               title="Relación de TODO lo pendiente por pagar (compras directas, OC, servicios), con las cuentas a crédito indicadas · vista previa PDF"
@@ -788,6 +800,9 @@ export function PedidosPage() {
       )}
       </>
       )}
+
+      {/* Modal: reporte «Compras por estado» (PDF/Imprimir · Excel · WhatsApp) */}
+      {reporteComprasOpen && <ReporteComprasModal onClose={() => setReporteComprasOpen(false)} />}
 
       {/* Modal: detalle */}
       {modal.kind === 'detail' && currentDetail && (
