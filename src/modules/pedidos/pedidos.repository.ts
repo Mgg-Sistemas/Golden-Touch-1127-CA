@@ -1530,6 +1530,25 @@ export async function reconciliarPagosOcHuerfanos(): Promise<number> {
   return reparadas;
 }
 
+/** Estados del reporte «Compras por estado» (el ciclo pendiente de una OC). */
+export const ESTADOS_REPORTE_COMPRAS: readonly EstadoOrden[] = [
+  'oc_creada', 'cuenta_abierta', 'confirmada_metodo', 'oc_aprobada',
+];
+
+/**
+ * OC de los cuatro estados del reporte «Compras por estado», en una sola consulta.
+ * No trae proveedores ni dispara la reconciliación de pagos: el reporte no los usa.
+ */
+export async function listOrdenesReporteCompras(): Promise<Orden[]> {
+  return todasLasFilas<Orden>((d, h) => supabase
+    .from(TABLE)
+    .select('*')
+    .in('estado', [...ESTADOS_REPORTE_COMPRAS])
+    .order('created_at', { ascending: true })
+    .order('id')
+    .range(d, h));
+}
+
 /** Última vez (ms) que esta sesión corrió la reconciliación de pagos huérfanos de OC. */
 let ultimaReconciliacionOc = 0;
 /** Cada cuánto, como máximo, se vuelve a reconciliar al listar (ver `listOrdenesPorPagar`). */
