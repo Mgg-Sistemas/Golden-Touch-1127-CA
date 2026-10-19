@@ -308,7 +308,13 @@ export async function resumenBorradoPersonal(id: string): Promise<ResumenBorrado
 /** Elimina definitivamente una persona del personal. */
 export async function eliminarPersonal(id: string): Promise<void> {
   const { data, error } = await supabase.from(TABLE).delete().eq('id', id).select('id');
-  if (error) throw error;
+  if (error) {
+    // Los errores de PostgREST NO son instancias de Error. Si se lanzan tal cual,
+    // la pantalla no puede leer su `message` y cae en un «No se pudo eliminar»
+    // seco, sin decir qué pasó. Envolverlos deja ver el motivo real (por ejemplo,
+    // una nómina que la base todavía no deja tocar).
+    throw new Error(error.message || 'No se pudo eliminar.');
+  }
   if (!data || data.length === 0) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
 }
 
