@@ -11,6 +11,8 @@
    defecto» (ninguno necesita el selector U+FE0F, que WhatsApp pierde).
    ============================================================ */
 
+import { norm } from '@/shared/lib/texto';
+
 export const MAX_FOTOS_SALIDA_MINA = 4;
 
 export type EstadoSalidaMina = 'sin_retorno' | 'por_retornar' | 'retornada';
@@ -97,6 +99,24 @@ export function errorFotosSalidaMina(archivos: { name: string; type: string }[],
 
 export const num = (n: number | null | undefined) =>
   Number(n ?? 0).toLocaleString('es-VE', { maximumFractionDigits: 4 });
+
+/** Lo que se puede buscar de una salida pendiente: material, código, motivo, quién autorizó,
+ *  quién la registró, unidad, cantidades y la fecha (dd/mm/yyyy y dd-mm-yyyy). */
+export function textoBuscableSalidaMina(s: SalidaMina): string {
+  const f = fechaHoraVE(s.created_at);
+  return norm([
+    s.producto_nombre, s.codigo, s.motivo, s.autorizado_por, s.actor_name, s.unidad,
+    String(s.cantidad), String(pendienteRetorno(s)), f, f.replace(/\//g, '-'),
+  ].filter(Boolean).join(' '));
+}
+
+/** Filtra «Por retornar» por lo tecleado: sin acentos ni mayúsculas, y con varias palabras
+ *  todas tienen que aparecer («manguera bomba»). Vacío devuelve todo. */
+export function filtrarPorRetornar(salidas: SalidaMina[], buscar: string): SalidaMina[] {
+  const palabras = norm(buscar).split(/\s+/).filter(Boolean);
+  if (!palabras.length) return salidas;
+  return salidas.filter((s) => { const t = textoBuscableSalidaMina(s); return palabras.every((p) => t.includes(p)); });
+}
 
 /** Fecha y hora de Venezuela: «13/10/2026 09:45». */
 export function fechaHoraVE(iso: string | null | undefined): string {

@@ -14,7 +14,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
-  MAX_FOTOS_SALIDA_MINA, errorFotosSalidaMina, errorRetornoMina, errorSalidaMina, fechaHoraVE, leerCantidad,
+  MAX_FOTOS_SALIDA_MINA, errorFotosSalidaMina, errorRetornoMina, errorSalidaMina, fechaHoraVE, filtrarPorRetornar, leerCantidad,
   mensajeRetornoMina, mensajeSalidaMina, num, pendienteRetorno, type FotoSalidaMina, type SalidaMina,
 } from './salidasMina';
 import { registrarSalidaMina, retornarSalidaMina, subirFotosSalidaMina, urlFotoSalidaMina } from './salidasMina.repository';
@@ -175,6 +175,9 @@ export function PorRetornarMina({ salidas, actor, actorName, canWrite, onVolver,
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  // Buscador (19/10/2026): material, código, motivo, quién autorizó, fecha… ver filtrarPorRetornar.
+  const [busca, setBusca] = useState('');
+  const lista = useMemo(() => filtrarPorRetornar(salidas, busca), [salidas, busca]);
 
   function elegir(s: SalidaMina) { setElegida(s); setCantidad(String(pendienteRetorno(s))); setNota(''); }
 
@@ -239,8 +242,15 @@ export function PorRetornarMina({ salidas, actor, actorName, canWrite, onVolver,
         <strong style={{ fontSize: '1.1rem' }}>🔄 Por retornar ({salidas.length})</strong>
         <button type="button" className="btn btn-ghost" onClick={onVolver}>← Volver</button>
       </div>
+      {salidas.length > 0 && (
+        <>
+          <input className="input surt-input" type="search" name="mina-retornar-buscar" placeholder="🔍 Buscar salida pendiente…"
+            value={busca} onChange={(e) => setBusca(e.target.value)} autoComplete="off" aria-label="Buscar en Por retornar" />
+          {busca.trim() && <h2>{lista.length ? `${lista.length} encontrada(s)` : 'Ninguna salida pendiente coincide'}</h2>}
+        </>
+      )}
       {!salidas.length && <p className="muted">No hay nada pendiente por retornar.</p>}
-      {salidas.map((s) => (
+      {lista.map((s) => (
         <button key={s.id} type="button" className="surt-mov" disabled={!canWrite} onClick={() => elegir(s)}>
           <span className="icono" aria-hidden>📦</span>
           <span style={{ minWidth: 0 }}>
