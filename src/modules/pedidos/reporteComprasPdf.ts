@@ -24,6 +24,19 @@ function bsNum(n: number): string {
   return Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* Paleta PASTEL del reporte (los mismos tonos van en el Excel). El naranja
+   fuerte de la marca queda para los botones de la pantalla; esto se imprime y
+   se manda por correo/WhatsApp, así que va suave para que no canse la vista. */
+const PASTEL: Record<'titulo' | 'cabecera' | 'cabeceraTexto' | 'cebra' | 'pie' | 'caja' | 'cajaBorde', [number, number, number]> = {
+  titulo: [192, 126, 70],        // terracota suave (títulos)
+  cabecera: [246, 217, 184],     // durazno claro (encabezado de la tabla)
+  cabeceraTexto: [92, 58, 28],   // café oscuro: legible sobre el durazno
+  cebra: [253, 248, 242],        // crema casi blanco (filas alternas)
+  pie: [251, 235, 216],          // arena (subtotales)
+  caja: [251, 233, 211],         // arena clara (cuadro del total)
+  cajaBorde: [214, 162, 110],    // terracota claro (borde del cuadro)
+};
+
 export interface OpcionesReporteComprasPdf {
   ordenes: Orden[];
   /** Bs por 1 USD (BCV). 0 = no se imprimen equivalencias ni Bs. */
@@ -76,7 +89,7 @@ export async function construirReporteComprasPdf(
   let y = MARGIN;
   if (op.logo) { dibujarLogoPdf(doc, op.logo, MARGIN, y, 44); }
 
-  doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text('COMPRAS POR ESTADO', W / 2 + 28, y + 20, { align: 'center' });
   doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text(`GOLDEN TOUCH 1127 C.A. · Generado ${fmt.dateTime(generado)}`, W / 2 + 28, y + 35, { align: 'center' });
@@ -90,7 +103,7 @@ export async function construirReporteComprasPdf(
   const drawTabla = (grupo: (typeof grupos)[number]) => {
     // Título del renglón (salta de página si no cabe con al menos una fila).
     if (y > H - 120) { doc.addPage(); y = MARGIN; }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 138, 0);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...PASTEL.titulo);
     doc.text(grupo.titulo, MARGIN, y);
     doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
     doc.text(`${grupo.filas.length} ítem(s)`, MARGIN + 300, y);
@@ -121,9 +134,9 @@ export async function construirReporteComprasPdf(
       body,
       foot: [['', '', '', 'SUBTOTAL', fmt.money(grupo.subUsd), tasa > 0 ? bsNum(grupo.subBs) : '—']],
       styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
-      headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
-      alternateRowStyles: { fillColor: [250, 246, 240] },
-      footStyles: { fillColor: [255, 244, 232], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'right', fontSize: 9 },
+      headStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
+      alternateRowStyles: { fillColor: PASTEL.cebra },
+      footStyles: { fillColor: PASTEL.pie, textColor: [20, 20, 20], fontStyle: 'bold', halign: 'right', fontSize: 9 },
       tableWidth: 'auto',
       columnStyles: {
         0: { halign: 'center', cellWidth: 32 },
@@ -146,8 +159,8 @@ export async function construirReporteComprasPdf(
     if (y > H - (boxH + MARGIN)) { doc.addPage(); y = MARGIN; }
     const boxW = 340;
     const boxX = W - MARGIN - boxW;
-    doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.4);
-    doc.setFillColor(255, 244, 232);
+    doc.setDrawColor(...PASTEL.cajaBorde); doc.setLineWidth(1.4);
+    doc.setFillColor(...PASTEL.caja);
     doc.roundedRect(boxX, y, boxW, boxH, 6, 6, 'FD');
 
     doc.setTextColor(60, 60, 60); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
@@ -156,7 +169,7 @@ export async function construirReporteComprasPdf(
     doc.text(fmt.money(totUsd), boxX + boxW - 14, y + 26, { align: 'right' });
 
     if (tasa > 0) {
-      doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
+      doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
       doc.text(`Bs ${bsNum(totBs)}`, boxX + boxW - 14, y + 56, { align: 'right' });
       doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
       doc.text(`Convertido a la tasa BCV del día: Bs ${bsNum(tasa)} / $`, boxX + 14, y + 56);
