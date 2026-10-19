@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  errorFotosSalidaMina, errorRetornoMina, errorSalidaMina, leerCantidad, mensajeRetornoMina, mensajeSalidaMina,
+  errorFotosSalidaMina, errorRetornoMina, errorSalidaMina, filtrarPorRetornar, leerCantidad, mensajeRetornoMina, mensajeSalidaMina,
   pendienteRetorno, type SalidaMina,
 } from './salidasMina';
 
@@ -41,6 +41,28 @@ describe('retorno', () => {
     expect(errorRetornoMina(salida({ retornado: 1.5 }), 1)).toMatch(/Solo faltan 0,5/);
     expect(errorRetornoMina(salida({ retorna: false }), 1)).toMatch(/no retorna/);
     expect(errorRetornoMina(salida({ retornado: 2 }), 1)).toMatch(/completa/);
+  });
+});
+
+describe('buscador de Por retornar', () => {
+  const lista = [
+    salida(),
+    salida({ id: 's2', codigo: 'SDM-0002', producto_nombre: 'CABLE 10 AWG', motivo: 'Planta Yamagro', autorizado_por: 'EDINSON ANGULO', unidad: 'm', cantidad: 50, retornado: 20, created_at: '2026-10-17T15:00:00Z' }),
+  ];
+  it('vacío devuelve todo; busca por material, código, motivo, quién autorizó y unidad, sin acentos ni mayúsculas', () => {
+    expect(filtrarPorRetornar(lista, '')).toHaveLength(2);
+    expect(filtrarPorRetornar(lista, 'manguéra').map((s) => s.id)).toEqual(['s1']);
+    expect(filtrarPorRetornar(lista, 'sdm-0002').map((s) => s.id)).toEqual(['s2']);
+    expect(filtrarPorRetornar(lista, 'yamagro').map((s) => s.id)).toEqual(['s2']);
+    expect(filtrarPorRetornar(lista, 'jesus').map((s) => s.id)).toEqual(['s1']);
+    expect(filtrarPorRetornar(lista, 'pedro')).toHaveLength(2);
+  });
+  it('varias palabras: todas tienen que aparecer; también busca por fecha y por lo que falta', () => {
+    expect(filtrarPorRetornar(lista, 'cable yamagro').map((s) => s.id)).toEqual(['s2']);
+    expect(filtrarPorRetornar(lista, 'cable bomba')).toHaveLength(0);
+    expect(filtrarPorRetornar(lista, '17/10/2026').map((s) => s.id)).toEqual(['s2']);
+    expect(filtrarPorRetornar(lista, '13-10-2026').map((s) => s.id)).toEqual(['s1']);
+    expect(filtrarPorRetornar(lista, '30').map((s) => s.id)).toEqual(['s2']); // faltan 30 m
   });
 });
 
