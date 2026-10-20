@@ -1675,7 +1675,7 @@ function MetodoPagoModal({
         </div>
         {puedeCambiarProveedor && (
           <div style={{ marginTop: '.6rem', paddingTop: '.6rem', borderTop: '1px dashed var(--border)' }}>
-            <div style={{ fontSize: '.85rem', fontWeight: 700 }}>¿Este proveedor ya no sirve? Cambiar de proveedor</div>
+            <div style={{ fontSize: '.85rem', fontWeight: 700 }}>¿El proveedor desistió? Cambia de proveedor</div>
             <p className="muted" style={{ margin: '.25rem 0 .5rem', fontSize: '.82rem' }}>
               Se usa <strong>volver a cotizar</strong>: la OC regresa a <strong>«Pendiente (cargar ofertas)»</strong> con <strong>todas las cotizaciones</strong> a la vista
               para que <strong>escojas una nueva</strong> (o cargues otra); luego el <strong>Gerente General la aprueba de nuevo</strong> y recién ahí se indica el método de pago.
