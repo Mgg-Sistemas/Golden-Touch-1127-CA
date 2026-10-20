@@ -11,6 +11,7 @@ import { loadLogoPdfEmpresa, loadFirmaDataUrl, loadFirma2DataUrl, dibujarLogoPdf
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { EMPRESA_RIF, identidadEmpresa } from '@/shared/lib/empresa';
+import { cedulaConPuntos } from '@/modules/asignaciones/actas';
 
 export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
@@ -31,7 +32,7 @@ export interface ConstanciaTrabajoInput {
 }
 
 const FIRMANTES: Record<Exclude<FirmanteConstancia, 'ninguna'>, { nombre: string | null; cargo: string }> = {
-  // RRHH firma y sella a mano: no lleva firma digital, solo el cargo (rota la persona).
+  // RRHH firma a mano: no lleva firma digital, solo el cargo (rota la persona).
   rrhh: { nombre: null, cargo: 'Jefa de Recursos Humanos' },
   leydis: { nombre: 'LEYDIS RENGEL', cargo: 'Jefa de Administración' },
   gerente: { nombre: 'JESÚS LOZADA', cargo: 'Gerente General' },
@@ -74,8 +75,8 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
   doc.text(`RIF: ${emp.rif}`, derecha, y + 26, { align: 'right' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90);
+  // Sin el WhatsApp en el membrete (pedido del usuario 20/10/2026): solo RIF y correo.
   doc.text(emp.email, derecha, y + 41, { align: 'right' });
-  doc.text(`WhatsApp ${emp.whatsapp}`, derecha, y + 55, { align: 'right' });
   if (!logo) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20, 20, 20);
     doc.text(emp.nombre, MARGIN, y + 34);
@@ -108,7 +109,8 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
 
   // ─── Cuerpo (justificado) ───
   const nombre = pdfSafe(`${p.nombre} ${p.apellido ?? ''}`.trim().toUpperCase());
-  const cedula = p.cedula ? pdfSafe(p.cedula) : '—';
+  // Con los puntos de miles: V-12.874.838 (20/10/2026).
+  const cedula = p.cedula ? pdfSafe(cedulaConPuntos(p.cedula)) : '—';
   const cargo = pdfSafe(p.cargo) || 'su cargo';
   const depto = pdfSafe(p.departamento);
   const ingreso = fechaLarga(p.fecha_ingreso);
@@ -173,22 +175,8 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   } else {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     doc.setTextColor(90, 90, 90);
-    doc.text('Firma y sello autorizados', centro, firmaY + 16, { align: 'center' });
+    doc.text('Firma autorizada', centro, firmaY + 16, { align: 'center' });
     doc.text(emp.nombre, centro, firmaY + 30, { align: 'center' });
-  }
-
-  // Recuadro para el SELLO húmedo (a la izquierda de la firma) cuando la firma la
-  // estampa RRHH a mano o cuando no hay firma digital.
-  if (input.firmante === 'rrhh' || input.firmante === 'ninguna') {
-    const bw = 108, bh = 90;
-    const bx = MARGIN + 6;
-    const by = firmaY - 54;
-    doc.setDrawColor(185); doc.setLineWidth(0.8);
-    doc.setLineDashPattern([3, 3], 0);
-    doc.roundedRect(bx, by, bw, bh, 6, 6);
-    doc.setLineDashPattern([], 0);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150, 150, 150);
-    doc.text('Sello', bx + bw / 2, by + bh / 2 + 3, { align: 'center' });
   }
 
   // Pie: domicilio fiscal de la empresa y marca de generación.

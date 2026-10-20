@@ -1343,7 +1343,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
       <div className="form-row">
         <label>Firma al pie</label>
         <select className="select" value={firmante} onChange={(e) => setFirmante(e.target.value as FirmanteConstancia)}>
-          <option value="rrhh">Jefa de Recursos Humanos · firma y sello a mano</option>
+          <option value="rrhh">Jefa de Recursos Humanos · firma a mano</option>
           <option value="leydis">LEYDIS RENGEL · Jefa de Administración</option>
           <option value="gerente">JESÚS LOZADA · Gerente General</option>
           <option value="ninguna">Sin firma (línea para firmar a mano)</option>
