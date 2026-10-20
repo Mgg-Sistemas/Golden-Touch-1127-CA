@@ -59,6 +59,11 @@ export function v2rDisponible(): Promise<boolean> {
   return tablaDisponible('retencion_numeros');
 }
 
+/** P03 aplicado: la puente documento × origen y el borrado de una factura libre. */
+export function p03Disponible(): Promise<boolean> {
+  return tablaDisponible('retencion_documento_origenes');
+}
+
 /** Olvida lo preguntado (al cambiar de sesión, o en las pruebas). */
 export function olvidarDisponibilidad(): void {
   cache.clear();

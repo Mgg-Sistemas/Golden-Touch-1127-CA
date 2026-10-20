@@ -56,7 +56,10 @@ export interface LineaFacturaNueva {
   comprobanteNro?: string | null;
   comprobantePeriodo?: string | null;
   quincena?: 1 | 2 | null;
+  /** La fecha de la retención (emisión del comprobante). El período sale de la factura. */
   fecha?: string | null;
+  /** R7: la regla vigente con que se calculó y la foto del cálculo (columnasDeRegla). Sin R7F la base lo ignora. */
+  regla?: { regla_id: string; foto: Record<string, unknown> } | null;
 }
 
 /** Qué documento es la cabecera. Los montos van siempre en positivo: el tipo decide el signo (la nota de crédito resta). */
@@ -92,6 +95,8 @@ export interface FacturaNueva {
   periodo?: string;
   /** La UT con la que se calcularon las líneas (VU): va en cada línea; el trigger de la base es solo respaldo. */
   valorUt?: number | null;
+  /** P03: el archivo de factura de Compras del que sale el registro. Se manda solo si viene; la base lo enlaza en la misma transacción. */
+  adjuntoId?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -130,6 +135,7 @@ export function pFacturaDe(f: FacturaNueva): Record<string, unknown> {
     periodo: f.periodo || null,
     actor: f.actor,
     actor_name: f.actorName ?? null,
+    ...(f.adjuntoId ? { adjunto_id: f.adjuntoId } : {}),
   };
 }
 
@@ -156,6 +162,7 @@ export function pLineaDe(l: LineaFacturaNueva): Record<string, unknown> {
     comprobante_periodo: l.comprobantePeriodo ?? null,
     quincena: l.quincena ?? null,
     fecha: l.fecha ?? null,
+    ...(l.regla ? { regla_id: l.regla.regla_id, foto: l.regla.foto } : {}),
   };
 }
 
@@ -311,4 +318,15 @@ export async function actualizarFactura(id: string, cambios: Partial<Pick<Factur
   const { data, error } = await supabase.from(T_DOCUMENTOS).update(patch).eq('id', id).select('id');
   if (error) throw errorLegibleFactura(error);
   if (!data?.length) throw new Error('No se guardó el cambio de la factura: sin permiso, o la factura ya no existe.');
+}
+
+/**
+ * Borra una factura LIBRE (P03): sin retenciones (aunque estén anuladas), sin
+ * decisiones y sin notas que la afecten. La base lo revisa y, si no, rechaza
+ * con RET_DOCUMENTO_NO_LIBRE. Queda en el historial.
+ */
+export async function borrarFacturaLibre(id: string): Promise<void> {
+  const { data, error } = await supabase.from(T_DOCUMENTOS).delete().eq('id', id).select('id');
+  if (error) throw errorRetencion(error, 'No se pudo borrar la factura.');
+  if (!data?.length) throw new Error('No se borró la factura: sin permiso de Retenciones, o ya no existe.');
 }
