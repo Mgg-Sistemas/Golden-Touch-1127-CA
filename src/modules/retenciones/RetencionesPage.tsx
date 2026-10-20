@@ -18,6 +18,10 @@ import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { listRetenciones } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
+import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
+import { FacturasPorRegistrar } from '@/modules/libroFiscal/FacturasPorRegistrar';
+import { AvisoSinFactura } from '@/modules/libroFiscal/AvisoSinFactura';
+import type { FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
 import { fechaTasaBcv, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import { diaVE, getTasasUsdDeFechas } from '@/modules/tesoreria/tasas.repository';
@@ -48,6 +52,8 @@ export function RetencionesPage() {
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
+  // P03: registrar el documento fiscal desde un archivo de factura que subió Compras.
+  const [registrarFactura, setRegistrarFactura] = useState<SemillaFactura | null>(null);
 
   // Búsqueda, filtros, orden y página de las dos listas de OC (Por realizar y Realizadas).
   const [fDesde, setFDesde] = useState('');
@@ -103,6 +109,22 @@ export function RetencionesPage() {
     () => pendientes.filter((i) => impuestosPendientesDeOrden(i.orden, registradas).length > 0),
     [pendientes, registradas],
   );
+
+  // La semilla del registro sale del archivo: su orden y, si es una OC que ya está en la lista, proveedor y montos.
+  function semillaDeFactura(f: FacturaDeOrigen): SemillaFactura {
+    const s: SemillaFactura = {
+      direccion: 'practicada', docKind: f.origen.tipo, docId: f.origen.id,
+      adjuntoId: f.adjuntoId, adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
+    };
+    const item = f.origen.tipo === 'oc' ? [...pendientes, ...hechas].find((i) => i.orden.id === f.origen.id) : undefined;
+    if (!item) return s;
+    const o = item.orden;
+    return {
+      ...s, contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
+      moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
+      facturaTotal: o.total, baseImponible: o.total - (o.iva_monto ?? 0), iva: o.iva_monto ?? 0,
+    };
+  }
 
   const proveedorIdsPendientes = useMemo(
     () => new Set(porRealizar.map((i) => i.orden.proveedor_id).filter(Boolean) as string[]),
@@ -212,6 +234,13 @@ export function RetencionesPage() {
       {vista === 'reportes' && <ReportesView actor={actor} />}
 
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
+      {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}
+      {vista === 'pendientes' && (
+        <>
+          <AvisoSinFactura rutaDe={(o) => `/app/pedidos?detalle=${encodeURIComponent(o.origen.id)}`} />
+          <FacturasPorRegistrar puedeRegistrar={canWrite} onRegistrar={(f) => setRegistrarFactura(semillaDeFactura(f))} />
+        </>
+      )}
       {vista === 'pendientes' && (
         <PorRealizarView
           items={porRealizar} registradas={registradas} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
@@ -295,6 +324,13 @@ export function RetencionesPage() {
           proveedorIdsPendientes={proveedorIdsPendientes}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => {}); }}
+        />
+      )}
+      {registrarFactura && (
+        <RegistrarFacturaRetencion
+          semilla={registrarFactura} actor={actor} actorName={actorName}
+          onClose={() => setRegistrarFactura(null)}
+          onHecho={async () => { setRegistrarFactura(null); await reload().catch(() => {}); }}
         />
       )}
     </div>

@@ -349,6 +349,8 @@ export type DocKind = 'oc' | 'compra_directa' | 'servicio_directo' | 'manual';
 
 export interface RetencionPracticada {
   id: string;
+  /** VF: el documento fiscal (factura) al que pertenece la línea, si lo tiene. */
+  documentoId?: string | null;
   tipo: TipoImpuesto;
   direccion: DireccionRetencion;
   estado: EstadoRetencion;
@@ -401,7 +403,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
   const sujeto = sujetoDeGt(r.sujeto);
   const fechaRef = String(r.factura_fecha ?? r.fecha ?? '');
   return {
-    id: String(r.id), tipo: tipoDeGt(r.tipo),
+    id: String(r.id), documentoId: texto(r.documento_id), tipo: tipoDeGt(r.tipo),
     direccion: direccionDeGt(r.rol),
     estado: r.declarada_at || r.estado === 'declarada' ? 'declarada' : 'registrada',
     docKind,
