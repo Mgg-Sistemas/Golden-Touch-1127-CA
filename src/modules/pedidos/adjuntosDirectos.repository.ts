@@ -62,11 +62,20 @@ export async function agregarAdjuntoDirecto(
   return data as AdjuntoDirecto;
 }
 
-/** Elimina una factura: borra el archivo del Storage y su registro. */
+/**
+ * Elimina una factura: primero su registro y después el archivo. Si la base no
+ * deja borrar el registro (p. ej., la factura ya está registrada en
+ * Retenciones), el archivo queda intacto. Si falla borrar el archivo, queda un
+ * archivo sin registro: es preferible a perder el de una factura registrada.
+ */
 export async function eliminarAdjuntoDirecto(adjunto: AdjuntoDirecto): Promise<void> {
-  await supabase.storage.from(BUCKET[adjunto.modulo]).remove([adjunto.path]);
-  const { error } = await supabase.from('adjuntos_directos').delete().eq('id', adjunto.id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('adjuntos_directos').delete().eq('id', adjunto.id).select('id');
+  if (error) {
+    if (/RET_ADJUNTO_REGISTRADO/.test(error.message ?? '')) throw new Error('No se puede eliminar: esta factura ya está registrada en Retenciones.');
+    throw error;
+  }
+  if (!data?.length) throw new Error('No se eliminó la factura: sin permiso, o ya no existe.');
+  await supabase.storage.from(BUCKET[adjunto.modulo]).remove([adjunto.path]).catch(() => { /* el registro ya no está; el archivo suelto se limpia después */ });
 }
 
 /** URL firmada (10 min) para previsualizar/descargar la factura. */
