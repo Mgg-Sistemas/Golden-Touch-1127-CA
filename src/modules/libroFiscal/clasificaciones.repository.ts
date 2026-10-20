@@ -52,6 +52,8 @@ export interface ValorCodigo {
   minimo: number | null;
   minimoUnidad: UnidadMinimo | null;
   sustraendoFactor: number | null;
+  /** R5: la tasa sale de esta tarifa por tramos (y entonces no hay %). */
+  tarifaId: string | null;
   desde: string;
   hasta: string | null;
   fuente: string | null;
@@ -90,7 +92,7 @@ export function aValorCodigo(r: Record<string, unknown>): ValorCodigo {
   return {
     id: String(r.id), codigoId: String(r.codigo_id ?? ''), sujeto: (texto(r.sujeto) as SujetoGt | null),
     pct: num(r.pct), basePct: num(r.base_pct) ?? 100, minimo: num(r.minimo), minimoUnidad: (texto(r.minimo_unidad) as UnidadMinimo | null),
-    sustraendoFactor: num(r.sustraendo_factor), desde: String(r.desde ?? ''), hasta: texto(r.hasta),
+    sustraendoFactor: num(r.sustraendo_factor), tarifaId: texto(r.tarifa_id), desde: String(r.desde ?? ''), hasta: texto(r.hasta),
     fuente: texto(r.fuente), motivo: String(r.motivo ?? ''), nota: texto(r.nota), actualizadoPor: texto(r.actualizado_por),
   };
 }
@@ -117,7 +119,7 @@ const n2 = (v: number) => v.toLocaleString('es-VE', { maximumFractionDigits: 4 }
 /** «2 % · base 90 % · mín. 83,3334 UT · sustraendo × 83,3334». */
 export function resumenValor(v: ValorCodigo | null): string {
   if (!v) return '—';
-  const partes = [v.pct == null ? 'sin %' : `${n2(v.pct)} %`];
+  const partes = [v.tarifaId ? 'tarifa por tramos' : v.pct == null ? 'sin %' : `${n2(v.pct)} %`];
   if (v.basePct !== 100) partes.push(`base ${n2(v.basePct)} %`);
   if (v.minimo != null) partes.push(`mín. ${n2(v.minimo)} ${v.minimoUnidad ?? ''}`.trim());
   if (v.sustraendoFactor != null) partes.push(`sustraendo × ${n2(v.sustraendoFactor)}`);
@@ -131,12 +133,15 @@ export interface DatosValorCodigo {
   minimo: number | null;
   minimoUnidad: UnidadMinimo | null;
   sustraendoFactor: number | null;
+  /** R5: tarifa por tramos en vez de %. Solo se manda si viene (sin R5 la columna no existe). */
+  tarifaId?: string | null;
   fuente?: string | null;
   nota?: string | null;
 }
 
 export function faltaEnValorCodigo(v: DatosValorCodigo, desde: string, motivo: string): string | null {
   if (v.pct != null && (!Number.isFinite(v.pct) || v.pct < 0 || v.pct > 100)) return 'El % va de 0 a 100.';
+  if (v.pct != null && v.tarifaId) return 'Un valor usa un % o una tarifa, no los dos.';
   if (!Number.isFinite(v.basePct) || v.basePct <= 0 || v.basePct > 100) return 'La porción de la base va de más de 0 a 100.';
   if ((v.minimo == null) !== (v.minimoUnidad == null)) return 'El mínimo va con su unidad (UT, Bs o MMV).';
   if (v.minimo != null && v.minimo < 0) return 'El mínimo no puede ser negativo.';
@@ -292,6 +297,7 @@ export async function editarCodigo(id: string, cambios: { descripcion?: string; 
 const filaValor = (v: DatosValorCodigo) => ({
   sujeto: v.sujeto, pct: v.pct, base_pct: v.basePct, minimo: v.minimo, minimo_unidad: v.minimo == null ? null : v.minimoUnidad,
   sustraendo_factor: v.sustraendoFactor, fuente: v.fuente?.trim() || null, nota: v.nota?.trim() || null,
+  ...(v.tarifaId !== undefined ? { tarifa_id: v.tarifaId || null } : {}),
 });
 const TEXTOS_VALOR = {
   unico: 'Ya hay un valor de ese código y sujeto que empieza en esa fecha: elige otra fecha o corrige ese.',
