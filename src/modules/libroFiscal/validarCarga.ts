@@ -3,7 +3,12 @@ import type { TipoImpuesto } from './retencionesCalculo';
 const FECHA = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 /**
- * Un monto escrito a mano: «1.234,56», «1234,56» o «1234.56». Vacío es 0.
+ * Un monto escrito a mano, en formato venezolano: el punto separa miles y la
+ * coma es el decimal. Vacío es 0.
+ * · «1.234» = 1234 y «36.500» = 36500 (un punto seguido de 3 dígitos, sin coma, son miles);
+ * · «1.234,56», «1234,56» = 1234,56;
+ * · «1234.56», «879.1» = decimal (punto con 1, 2, 4 o más dígitos);
+ * · «0.125» = 0,125 (con parte entera 0 no hay miles).
  * Lo que no se entiende devuelve null: nunca se convierte en 0 sin avisar.
  */
 export function leerMonto(v: string): number | null {
@@ -12,7 +17,7 @@ export function leerMonto(v: string): number | null {
   let normal: string | null = null;
   if (s.includes(',')) {
     if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s) || /^-?\d+(,\d+)?$/.test(s)) normal = s.replace(/\./g, '').replace(',', '.');
-  } else if (/^-?\d{1,3}(\.\d{3}){2,}$/.test(s)) {
+  } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(s)) {
     normal = s.replace(/\./g, '');
   } else if (/^-?\d+(\.\d+)?$/.test(s)) {
     normal = s;
@@ -20,6 +25,21 @@ export function leerMonto(v: string): number | null {
   if (normal == null) return null;
   const n = Number(normal);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Un número que el sistema pone en un campo de texto, para que leerMonto lo lea igual: coma decimal, sin miles. */
+export function numeroATexto(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(Number(n))) return '';
+  return String(Number(n)).replace('.', ',');
+}
+
+/** Cómo se leyó un monto, para mostrarlo junto al campo: «36.500,00». null si no se entiende o está vacío. */
+export function textoLeido(v: string, decimales = 2): string | null {
+  if (!String(v ?? '').trim()) return null;
+  const n = leerMonto(v);
+  if (n == null) return null;
+  const max = Math.max(decimales, (String(n).split('.')[1] ?? '').length);
+  return n.toLocaleString('es-VE', { minimumFractionDigits: decimales, maximumFractionDigits: Math.min(max, 8) });
 }
 
 /**

@@ -19,8 +19,10 @@ import {
 } from './reglas.repository';
 import { cargarDatosPrueba, correrPrueba, loQueUsa, type EntradaPrueba, type ResultadoPrueba } from './probarRegla';
 import { fechaCorta } from './parametrosR1';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const ESTADO: Record<ReglaGuardada['estado'], { texto: string; color: string }> = {
   en_prueba: { texto: 'En prueba', color: 'var(--warning)' }, vigente: { texto: 'Vigente', color: 'var(--success)' }, retirada: { texto: 'Retirada', color: 'var(--text-muted)' },

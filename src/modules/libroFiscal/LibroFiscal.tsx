@@ -75,6 +75,7 @@ import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from '
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -86,8 +87,9 @@ function fechaCorta(iso: string): string {
 }
 /** Para calcular mientras se escribe. Lo ilegible lo señala `montosIlegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
-const hoyIso = () => new Date().toISOString().slice(0, 10);
-const primeroDelMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
+const primeroDelMes = () => `${hoyVenezuela().slice(0, 7)}-01`;
 /** Practicada sin OC, CS ni compra directa: se registró a mano, sin documento del sistema. */
 const fueraDelSistema = (r: Pick<RetencionPracticada, 'docKind' | 'direccion'>) => r.direccion === 'practicada' && r.docKind === 'manual';
 

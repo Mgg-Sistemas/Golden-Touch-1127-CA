@@ -25,8 +25,10 @@ import { r5Disponible } from './tarifas.repository';
 import { ParametrosTarifas } from './ParametrosTarifas';
 import { r7Disponible } from './reglas.repository';
 import { ParametrosReglas } from './ParametrosReglas';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const etiqueta = <K extends string>(xs: { key: K; label: string }[], k: K) => xs.find((x) => x.key === k)?.label ?? k;
 

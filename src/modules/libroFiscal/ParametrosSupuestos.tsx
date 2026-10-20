@@ -11,8 +11,10 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { activarSupuesto, faltaEnSupuesto, guardarSupuesto, listSupuestos, vigenteEn, type Supuesto, type SupuestoDatos } from './motivosSupuestos.repository';
 import { opcionesImpuestoEnte } from './entes.repository';
 import { fechaCorta, labelClave } from './parametrosR1';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
 export function ParametrosSupuestos({ puedeEditar }: { puedeEditar: boolean }) {

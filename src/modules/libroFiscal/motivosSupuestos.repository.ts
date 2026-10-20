@@ -13,6 +13,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_MOTIVOS = 'retencion_motivos_no_aplica';
 const T_SUPUESTOS = 'retencion_supuestos';
@@ -42,7 +43,8 @@ export interface Supuesto extends Vigencia {
 
 const texto = (v: unknown) => (v == null || String(v).trim() === '' ? null : String(v));
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 
 const vigencia = (r: Record<string, unknown>): Vigencia => ({
   desde: String(r.desde ?? ''), hasta: texto(r.hasta), activo: r.activo !== false,

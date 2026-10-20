@@ -34,6 +34,7 @@ import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
 import { serieDeImpuesto } from './impuestos.repository';
 import { tablaDisponible, v2rDisponible } from './disponibilidad';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_RETENCIONES = 'retenciones';
 const T_CONCEPTOS = 'retenciones_conceptos';
@@ -545,7 +546,7 @@ export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'>)
 export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
   const tasa = input.tasa ?? null;
   const conceptoCodigo = input.conceptoId && !input.conceptoId.endsWith(':todos') ? partirIdConcepto(input.conceptoId).codigo : null;
-  const fecha = (input.fechaRetencion || input.facturaFecha || new Date().toISOString()).slice(0, 10);
+  const fecha = (input.fechaRetencion || input.facturaFecha || hoyVenezuela()).slice(0, 10);
   return {
     rol: rolAGt(input.direccion), tipo: tipoAGt(input.tipo), estado: 'registrada', fecha,
     numero: numero.entero, comprobante_nro: numero.texto,

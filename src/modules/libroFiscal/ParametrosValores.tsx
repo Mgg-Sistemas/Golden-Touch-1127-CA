@@ -16,8 +16,10 @@ import {
 } from './parametros.repository';
 import { opcionesImpuestoEnte } from './entes.repository';
 import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
 export function ParametrosValores({ puedeEditar }: { puedeEditar: boolean }) {

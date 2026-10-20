@@ -16,6 +16,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { ConfigRetencion, TipoImpuesto } from './retencionesCalculo';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_CLAVES = 'retencion_parametro_claves';
 const T_VALORES = 'retencion_parametros';
@@ -53,7 +54,8 @@ export interface ValorParametro {
 
 const texto = (v: unknown) => (v == null || String(v).trim() === '' ? null : String(v));
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 
 export const r3Disponible = () => tablaDisponible(T_VALORES);
 

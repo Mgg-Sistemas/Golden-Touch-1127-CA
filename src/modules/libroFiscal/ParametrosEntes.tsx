@@ -13,8 +13,10 @@ import {
 } from './entes.repository';
 import { TIPOS_ENTE, fechaCorta, labelClave, labelTipoEnte, territorio } from './parametrosR1';
 import { ImagenRetencion } from './ImagenRetencion';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
 export function ParametrosEntes({ puedeEditar }: { puedeEditar: boolean }) {

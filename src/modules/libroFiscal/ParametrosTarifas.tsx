@@ -14,8 +14,10 @@ import {
   versionAplicable, type Tarifa, type Tramo, type UnidadTarifa, type VersionTarifa,
 } from './tarifas.repository';
 import { desdeMinimo, fechaCorta } from './parametrosR1';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const numOpt = (s: string): number | null => { const t = s.trim().replace(',', '.'); return t === '' ? null : Number(t); };
 

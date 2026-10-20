@@ -41,11 +41,13 @@ import { previewArchivo } from '@/shared/lib/reportePreview';
 import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva,
 } from './retencionFacturas.repository';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 /** Para calcular mientras se escribe. Lo ilegible lo señala `ilegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
 /** Hoy en la hora local (AAAA-MM-DD). */
-const hoyIso = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+/** Hoy en Venezuela. */
+const hoyIso = hoyVenezuela;
 const fechaCorta = (iso: string) => { const [a, m, d] = iso.slice(0, 10).split('-'); return a && m && d ? `${d}/${m}/${a}` : iso; };
 const money = (n: number, moneda: string) => {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
