@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
@@ -14,15 +14,14 @@ import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
 import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
 import { mensajeError } from '@/shared/lib/errores';
-import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
-import { BarraPestanas } from '@/shared/ui/BarraPestanas';
-import { Dato, VistaPrevia } from '@/shared/ui/VistaPrevia';
-import { descartarSalida, etiquetaModulo, necesitaAvisoSalida, solicitarSalida, usePestanas } from '@/shared/lib/pestanasModal';
+import { Modal } from '@/shared/ui/Modal';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
 import { supabase } from '@/shared/lib/supabase';
 import { prefetchRuta, prefetchRutasEnIdle } from '@/shared/lib/routePrefetch';
+import { intentarSalir, vaciarMinimizadas } from '@/shared/lib/minimizadas';
+import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -53,8 +52,6 @@ export function AppShell() {
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  // Pestañas minimizadas: al salir de un módulo se pierden, así que se pregunta antes.
-  const { minimizadas, salidaPendiente } = usePestanas();
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
   const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
@@ -181,6 +178,7 @@ export function AppShell() {
   useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
 
   async function handleLogout() {
+    vaciarMinimizadas();
     await signOut();
     navigate('/login');
   }
@@ -304,7 +302,7 @@ export function AppShell() {
       <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <NavLink to="/app" className="brand" onClick={(e) => avisarSalida(e, location.pathname, '/app')}>
+          <NavLink to="/app" className="brand" onClick={(e) => { if (!intentarSalir('/app')) e.preventDefault(); }}>
             <img src="/LOGO.jpg" alt="GOLDEN TOUCH 1127 C.A." />
             <div className="brand-text">
               <strong>GOLDEN TOUCH 1127 C.A.</strong>
@@ -481,34 +479,13 @@ export function AppShell() {
         </div>
       </header>
 
+      <AvisoSalidaModulo />
+
       <main className="main">
         <AvisoActualizacion />
         <AvisoCombustibleBajo />
         <Outlet />
       </main>
-
-      <BarraPestanas />
-
-      {salidaPendiente && (
-        <ConfirmDialog
-          title="Salir del módulo"
-          danger
-          confirmText="Sí, salir"
-          message={
-            <>
-              ¿Seguro que quieres salirte del módulo{etiquetaModulo(location.pathname) ? <> de <strong>{etiquetaModulo(location.pathname)}</strong></> : ' actual'}?{' '}
-              <strong>Perderás las pestañas minimizadas.</strong>
-            </>
-          }
-          preview={
-            <VistaPrevia titulo={`Pestañas minimizadas que se pierden (${minimizadas.length})`}>
-              {minimizadas.map((p, i) => <Dato key={p.id} label={`Pestaña ${i + 1}`}>{p.titulo}</Dato>)}
-            </VistaPrevia>
-          }
-          onCancel={descartarSalida}
-          onConfirm={() => { const a = salidaPendiente; descartarSalida(); navigate(a); }}
-        />
-      )}
 
       <NotificacionesPanel
         open={notifOpen}
@@ -538,16 +515,6 @@ export function AppShell() {
   );
 }
 
-/** Clic en un enlace del menú: si cambia de módulo y hay pestañas minimizadas, no navega
- *  todavía; pide confirmar (el aviso lo dibuja el AppShell). Con Ctrl/⌘/Mayús el
- *  navegador abre otra pestaña y esta no se pierde, así que se deja pasar. */
-function avisarSalida(e: ReactMouseEvent, desde: string, hacia: string) {
-  if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
-  if (!necesitaAvisoSalida(desde, hacia)) return;
-  e.preventDefault();
-  solicitarSalida(hacia);
-}
-
 function NavItem({
   to,
   icon,
@@ -572,10 +539,10 @@ function NavItem({
   // Prefetch al primer indicio de intención (hover/foco/touch): baja el chunk del
   // módulo antes del clic, así la navegación se siente instantánea.
   const precargar = () => { void prefetchRuta(to); };
-  const { pathname } = useLocation();
   return (
     <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end={!incluyeSubrutas}
-      onClick={(e) => avisarSalida(e, pathname, to)}
+      // Con pestañas minimizadas, salir del módulo pide confirmación (minimizadas.ts).
+      onClick={(e) => { if (!intentarSalir(to)) e.preventDefault(); }}
       onMouseEnter={precargar} onFocus={precargar} onTouchStart={precargar}>
       <span className="icn">{icon}</span> <span>{label}</span>
     </NavLink>

@@ -7,7 +7,7 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { firmaDeAprobador, ELABORADOR_OC } from './aprobadoresOc';
 import { esRecargaAgua } from './servicios.repository';
-import { leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
+import { esCambioProveedor, leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -59,7 +59,7 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
     const pid = (h as { proveedorAnteriorId?: string }).proveedorAnteriorId;
     if (pid) provIds.add(pid);
     // Cambios de proveedor: el nuevo también (los eventos viejos no guardaron el nombre).
-    if (h.evento === 'proveedor_cambiado') {
+    if (esCambioProveedor(h as { evento: string; cambioProveedor?: boolean })) {
       const nuevo = leerCambioProveedor(h as EventoCambioProveedor).nuevoId;
       if (nuevo) provIds.add(nuevo);
     }
@@ -365,7 +365,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   // ─── Cambios de proveedor al indicar el método de pago (vuelven a aprobación) ───
   const historial = orden.historial ?? [];
-  const cambiosProv = historial.filter((h) => h.evento === 'proveedor_cambiado');
+  const cambiosProv = historial.filter((h) => esCambioProveedor(h as { evento: string; cambioProveedor?: boolean }));
   if (cambiosProv.length) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
@@ -374,13 +374,15 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y += 6;
     autoTable(doc, {
       startY: y,
-      head: [['Fecha y hora', 'Proveedor anterior', 'Proveedor nuevo', 'Aprobación anulada', 'Registró']],
+      head: [['Fecha y hora', 'Proveedor anterior', 'Proveedor nuevo', 'Motivo', 'Aprobación anulada', 'Registró']],
       body: cambiosProv.map((h) => {
         const c = leerCambioProveedor(h as EventoCambioProveedor, (id) => proveedoresMap.get(id)?.razon_social);
         return [
           dateTime(h.at),
           pdfSafe(c.anterior ?? '—'),
-          pdfSafe(c.nuevo ?? '—'),
+          // El cambio actual reabre la elección: el proveedor nuevo es el de la cotización que se escoja después.
+          pdfSafe(c.nuevo ?? (h.evento === 'eleccion_reabierta' ? 'Nueva cotización' : '—')),
+          pdfSafe(c.motivo ?? '—'),
           c.aprobacionAnteriorPor
             ? `${quien(c.aprobacionAnteriorPor, c.aprobacionAnteriorEn ?? h.at)}${c.aprobacionAnteriorEn ? ' · ' + dateTime(c.aprobacionAnteriorEn) : ''}`
             : '—',
@@ -396,7 +398,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8);
     doc.setTextColor(120);
-    doc.text('Cada cambio devolvió la OC a aprobación del Gerente General; la aprobación anterior quedó sin efecto.', MARGIN, y + 4);
+    doc.text('Cada cambio devolvió la OC a cotización y a aprobación del Gerente General; la aprobación anterior quedó sin efecto.', MARGIN, y + 4);
     doc.setTextColor(0);
     y += 18;
   }

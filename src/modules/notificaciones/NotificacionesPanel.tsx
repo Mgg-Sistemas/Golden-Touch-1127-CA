@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavegarConAviso } from '@/shared/ui/useNavegarConAviso';
+import { useNavigate } from 'react-router-dom';
+import { intentarSalir } from '@/shared/lib/minimizadas';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { relTime } from '@/shared/lib/format';
@@ -23,7 +24,7 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
   const [items, setItems] = useState<Notificacion[]>([]);
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
-  const navigate = useNavegarConAviso();
+  const navigate = useNavigate();
 
   // Al hacer click en una notificación: la marca leída, va a su módulo/detalle y cierra.
   function abrir(n: Notificacion) {
@@ -33,7 +34,7 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
     }
     if (n.link) {
       const destino = n.link.startsWith('#') ? n.link.slice(1) : n.link;
-      navigate(destino);
+      if (intentarSalir(destino)) navigate(destino); // con pestañas minimizadas pregunta antes de salir del módulo
     }
     onClose();
   }
