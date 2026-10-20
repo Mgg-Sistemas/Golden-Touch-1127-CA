@@ -76,8 +76,9 @@ describe('borrar una factura libre (P03)', () => {
 describe('errores de P03 en texto de pantalla', () => {
   it('los códigos RET_* nuevos', () => {
     for (const [codigo, texto] of [
-      ['RET_ORIGEN_UNO', 'exactamente una'], ['RET_ADJUNTO_REGISTRADO', 'ya está registrada'], ['RET_ADJUNTO_CAMPO', 'el nombre y la nota'],
-      ['RET_ADJUNTO_ORIGEN', 'de otra orden'], ['RET_DOCUMENTO_NO_LIBRE', 'no se borra'],
+      ['RET_ORIGEN_UNO', 'exactamente una'], ['RET_ADJUNTO_REGISTRADO', 'ya está registrado'], ['RET_ADJUNTO_CAMPO', 'si es factura'],
+      ['RET_ADJUNTO_ORIGEN', 'de otra orden'], ['RET_DOCUMENTO_NO_LIBRE', 'no se borra'], ['RET_ADJUNTO_NO_FACTURA', 'no está marcado como factura'],
+      ['RET_ADJUNTO_SIN_ORIGEN', 'fuera del sistema'], ['RET_ORIGEN_CON_DOCUMENTO', 'No se puede eliminar'],
     ]) {
       const e = errorRetencion({ code: 'P0001', message: `${codigo}: detalle` });
       expect(e.message).toContain(texto);

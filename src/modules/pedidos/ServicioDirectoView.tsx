@@ -31,7 +31,8 @@ import {
 } from './serviciosDirectos.repository';
 import { descargarServicioDirectoPdf } from './servicioDirectoPdf';
 import { FacturasDirectas } from './FacturasDirectas';
-import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
+import { agregarAdjuntoDirecto, cuentaComoFactura, listAdjuntosDirectos } from './adjuntosDirectos.repository';
+import { useP03 } from './useP03';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { PagoExternoFields, PAGO_EXTERNO_VACIO, pagoExternoDesdeRow, pagoExternoAInput, type PagoExternoState } from './PagoExternoFields';
 import { mensajeError } from '@/shared/lib/errores';
@@ -533,13 +534,13 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       const pe = pagoExternoAInput(pagoExterno);
       if (esEdicion && editServicio) {
         const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, detalleServicio: limpiarDetalleServicio(detalleServicio), pagoExterno: pe, actor, actorName });
-        for (const f of files) await agregarAdjuntoDirecto('servicio', edit.id, f, actor);
+        for (const f of files) await agregarAdjuntoDirecto('servicio', edit.id, f, actor, false);
         notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       } else {
         const creado = await crearServicioDirecto({
           lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, detalleServicio: limpiarDetalleServicio(detalleServicio), pagoExterno: pe, actor, actorName,
         });
-        for (const f of files) await agregarAdjuntoDirecto('servicio', creado.id, f, actor);
+        for (const f of files) await agregarAdjuntoDirecto('servicio', creado.id, f, actor, false);
         notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       }
       onSaved();
@@ -788,6 +789,18 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   const [convKey, setConvKey] = useState(0);
   const [tasaConversion, setTasaConversion] = useState<number | null>(servicio.tasa_conversion ?? null);
   const [files, setFiles] = useState<File[]>([]);
+  // P03: al enviar a pagar, el servicio tiene que tener al menos una factura del proveedor (como la compra directa).
+  const conP03 = useP03();
+  const [facturasPrevias, setFacturasPrevias] = useState<number | null>(null);
+  useEffect(() => {
+    if (!conP03 || esPago) return;
+    let vivo = true;
+    listAdjuntosDirectos('servicio', servicio.id)
+      .then((l) => { if (vivo) setFacturasPrevias(l.filter(cuentaComoFactura).length + (servicio.adjunto_path ? 1 : 0)); })
+      .catch(() => { if (vivo) setFacturasPrevias(0); });
+    return () => { vivo = false; };
+  }, [conP03, esPago, servicio.id, servicio.adjunto_path]);
+  const pideFactura = conP03 && !esPago && facturasPrevias === 0;
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
   const [subId, setSubId] = useState('');
@@ -904,9 +917,10 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
 
     // MODO MONTAR (analista): carga factura + montos y lo deja "Por pagar" (no toca caja).
     if (!esPago) {
+      if (pideFactura && !files.length) { setError('El servicio no tiene factura del proveedor: carga al menos una (PDF o imagen).'); return; }
       setSaving(true);
       try {
-        for (const f of files) await agregarAdjuntoDirecto('servicio', servicio.id, f, actor);
+        for (const f of files) await agregarAdjuntoDirecto('servicio', servicio.id, f, actor, true);
         await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, tasaConversion, conAbonos,
           anticipoMonto: anticipoOn ? (Number(anticipoMonto) || 0) : 0, anticipoMoneda: anticipoOn ? anticipoMoneda : null,
           actor, actorName });
@@ -1234,7 +1248,9 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
         )}
 
         <div className="form-row">
-          <label>Adjuntar facturas / comprobantes · PDF o imagen (puedes elegir varios)</label>
+          <label>Adjuntar facturas / comprobantes · PDF o imagen{pideFactura
+            ? <> <span style={{ color: 'var(--danger)' }}>*</span> <span className="muted">(al menos una factura del proveedor · puedes elegir varios)</span></>
+            : ' (puedes elegir varios)'}</label>
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
         </div>

@@ -28,7 +28,7 @@ import {
   eliminarCompraDirecta, eliminarCompraDirectaConReverso, listComprasDirectas, reabrirCompraDirecta, editarCompraDirectaEnProceso,
   urlAdjuntoCompra, actualizarNotaCompraDirecta, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg, type PresentacionLinea,
 } from './compras.repository';
-import { agregarAdjuntoDirecto, listAdjuntosDirectos } from './adjuntosDirectos.repository';
+import { agregarAdjuntoDirecto, cuentaComoFactura, listAdjuntosDirectos } from './adjuntosDirectos.repository';
 import { nombrePresentacion, presentacionesPara, rotuloConversion, type Presentacion } from '@/modules/inventario/presentaciones';
 import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 import { FacturasDirectas } from './FacturasDirectas';
@@ -910,7 +910,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const [facturasPrevias, setFacturasPrevias] = useState(0);
   useEffect(() => {
     if (esPago) return;
-    listAdjuntosDirectos('compra', compra.id).then((l) => setFacturasPrevias(l.length)).catch(() => setFacturasPrevias(0));
+    listAdjuntosDirectos('compra', compra.id).then((l) => setFacturasPrevias(l.filter(cuentaComoFactura).length)).catch(() => setFacturasPrevias(0));
   }, [compra.id, esPago]);
   // Categoría / subcategoría de gasto (Tesorería): etiqueta el movimiento del egreso.
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
@@ -1113,7 +1113,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
       setSaving(true);
       try {
-        for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor);
+        for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor, true);
         await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, tasaConversion, iva: ivaNum, ivaPct: Number(ivaPct) || 0, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, retencionTipo: retTipo, retencionBase: subtotal, retencionPct: Number(retPct) || 0, nota: notaRef.current?.value ?? '', actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
@@ -1571,7 +1571,7 @@ function FacturaNotaModal({ compra, actor, onClose, onSaved }: {
             placeholder="Ej.: SWITCH PARA EL CABLEADO DE LAS OFICINAS NUEVAS, SOLICITADO POR JOEL" />
         </div>
         {compra.adjunto_path && <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}><strong>Factura anterior:</strong> <AdjuntoLink compra={compra} /></div>}
-        <FacturasDirectas modulo="compra" refId={compra.id} actor={actor} titulo="🧾 Facturas del proveedor" />
+        <FacturasDirectas modulo="compra" refId={compra.id} actor={actor} titulo="🧾 Facturas del proveedor" papel="factura" />
       </div>
     </Modal>
   );

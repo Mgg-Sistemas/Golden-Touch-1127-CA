@@ -99,6 +99,7 @@ describe('traducción al contrato de la función (columnas de GT)', () => {
   it('P03: adjunto_id va en p_factura solo si viene', () => {
     expect(pFacturaDe(factura({ adjuntoId: 'adj-1' })).adjunto_id).toBe('adj-1');
     expect('adjunto_id' in pFacturaDe(factura())).toBe(false);
+    expect('adjunto_id' in pFacturaDe(factura({ docKind: 'manual', adjuntoId: 'adj-1' }))).toBe(false);
   });
 
   it('las líneas: el impuesto en MAYÚSCULAS y el estadal como ESTADAL', () => {

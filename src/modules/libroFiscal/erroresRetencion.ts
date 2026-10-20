@@ -52,8 +52,11 @@ const TEXTOS: Record<string, string> = {
   RET_DECISION_DETALLE: 'Ese motivo pide un texto que lo explique.',
   RET_CLASIFICACION_DESDE: 'El valor nuevo del código tiene que empezar después del vigente. Para corregir el vigente, usa «Corregir».',
   RET_ORIGEN_UNO: 'El archivo o el enlace va en exactamente una orden, compra directa o servicio directo.',
-  RET_ADJUNTO_REGISTRADO: 'Esta factura ya está registrada en Retenciones: no se cambia ni se quita. Para quitarla, primero hay que borrar su documento fiscal.',
-  RET_ADJUNTO_CAMPO: 'De un archivo de factura solo se cambian el nombre y la nota.',
+  RET_ADJUNTO_REGISTRADO: 'Este archivo ya está registrado como factura en Retenciones: no se cambia ni se borra mientras su documento fiscal exista.',
+  RET_ADJUNTO_CAMPO: 'De un archivo solo se cambian el nombre, el tipo y si es factura.',
+  RET_ADJUNTO_NO_FACTURA: 'Ese archivo no está marcado como factura (es un pago, una solicitud u otro papel). Márcalo como factura en Compras si lo es.',
+  RET_ADJUNTO_SIN_ORIGEN: 'Una factura fuera del sistema no lleva archivo de Compras: el archivo es de una orden, compra o servicio.',
+  RET_ORIGEN_CON_DOCUMENTO: 'No se puede eliminar: tiene una factura registrada en Retenciones. Primero hay que borrar ese documento fiscal (solo si no tiene retenciones).',
   RET_ADJUNTO_ORIGEN: 'Ese archivo de factura es de otra orden, compra o servicio.',
   RET_DOCUMENTO_NO_LIBRE: 'Esta factura tiene retenciones (aunque estén anuladas), decisiones o notas que la afectan: no se borra.',
 };

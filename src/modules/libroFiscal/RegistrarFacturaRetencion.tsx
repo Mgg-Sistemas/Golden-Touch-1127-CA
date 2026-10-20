@@ -34,6 +34,8 @@ import { faltaEnDatosFactura } from './facturaDocumento';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { useDescartar } from './confirmarDescartar';
+import { urlFacturaDeOrigen } from './documentosOrigen.repository';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva,
 } from './retencionFacturas.repository';
@@ -63,6 +65,8 @@ export interface SemillaFactura {
   facturaTotal?: number | null;
   /** P03: el archivo de factura de Compras del que sale el registro. */
   adjuntoId?: string | null;
+  /** P03: para verlo mientras se registra (bucket y ruta del archivo). */
+  adjunto?: { nombre: string; bucket: string; path: string } | null;
   /** IVA de la factura (base de la línea de IVA). */
   iva?: number | null;
   /** Base imponible sugerida (total sin IVA ni IGTF). */
@@ -389,6 +393,16 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       )}>
       {dialogo}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      {s.adjunto && (
+        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+          <span>📄 Factura cargada por Compras: <strong>{s.adjunto.nombre}</strong></span>
+          <button type="button" className="btn btn-sm btn-ghost"
+            onClick={() => { const a = s.adjunto; if (a) urlFacturaDeOrigen(a).then((u) => previewArchivo(u, a.nombre)).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo abrir el archivo.')); }}>
+            Ver
+          </button>
+          <small className="muted">Al registrar, el archivo queda enlazado a esta factura.</small>
+        </div>
+      )}
       {sinDocumento && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem' }}>
           <small>Esta factura no viene de una OC, un CS ni una compra directa. Quedará en el libro marcada «Fuera del sistema» y hay que anotar en la nota de dónde viene.</small>

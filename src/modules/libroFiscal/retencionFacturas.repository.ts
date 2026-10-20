@@ -135,7 +135,8 @@ export function pFacturaDe(f: FacturaNueva): Record<string, unknown> {
     periodo: f.periodo || null,
     actor: f.actor,
     actor_name: f.actorName ?? null,
-    ...(f.adjuntoId ? { adjunto_id: f.adjuntoId } : {}),
+    // Una factura fuera del sistema no lleva archivo de Compras (la base: RET_ADJUNTO_SIN_ORIGEN).
+    ...(f.adjuntoId && f.docKind !== 'manual' ? { adjunto_id: f.adjuntoId } : {}),
   };
 }
 
