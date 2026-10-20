@@ -53,7 +53,7 @@ import {
 } from './retencionesCalculo';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
-  guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, tipoAGt,
+  guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt,
   PORCENTAJES_IVA,
   type AlicuotasLocales, type DocKind, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
@@ -67,6 +67,8 @@ import { list as listProveedores } from '@/modules/proveedores/proveedores.repos
 import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
 import { v2rDisponible } from './disponibilidad';
+import { r7Disponible } from './reglas.repository';
+import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
@@ -726,6 +728,11 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   // Con V2R la serie de cada impuesto tiene su formato; sin V2R, todas AAAAMM + 8 (la base de hoy).
   const [conV2R, setConV2R] = useState(false);
   useEffect(() => { v2rDisponible().then(setConV2R).catch(() => setConV2R(false)); }, []);
+  // Con R7, una practicada se calcula con la regla vigente a la fecha de la factura; sin R7 o sin regla que aplique, como hoy.
+  const [conR7, setConR7] = useState(false);
+  useEffect(() => { r7Disponible().then(setConR7).catch(() => setConR7(false)); }, []);
+  const [reglaCalc, setReglaCalc] = useState<CalculoConRegla | null>(null);
+  const [avisoRegla, setAvisoRegla] = useState<string | null>(null);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
 
@@ -856,7 +863,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
   // Cuando la practica la empresa, el sistema calcula. Cuando se la
   // practicaron, el número ya está en el comprobante: se copia, no se inventa.
-  const calculo: CalculoRetencion = useMemo(() => {
+  const calculoHoy: CalculoRetencion = useMemo(() => {
     const base = nDec(baseStr);
     if (tipo === 'iva') return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(ivaStr), motivos, supuesto }, config);
     if (tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa: nDec(tasaStr) }, config);
@@ -865,6 +872,42 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   }, [tipo, baseStr, ivaStr, motivos, supuesto, concepto, config, moneda, tasaStr]);
 
   const esManual = direccion === 'recibida';
+
+  useEffect(() => {
+    setAvisoRegla(null);
+    if (!conR7 || esManual || !facturaFecha) { setReglaCalc(null); return; }
+    let vigente = true;
+    const t = setTimeout(() => {
+      const base = nDec(baseStr);
+      calcularConReglaVigente(tipoAGt(tipo), {
+        fecha: facturaFecha, direccion: 'practicada',
+        sujeto: tipo === 'iva' || tipo === 'igtf' ? null : sujetoAGt(sujeto),
+        moneda, tasa: moneda === 'Bs' ? null : (nDec(tasaStr) || null),
+        pago: base, baseImponible: base, iva: nDec(ivaStr),
+        supuesto: !!supuesto, codigo: concepto?.codigo ?? null,
+      })
+        .then((c) => { if (vigente) setReglaCalc(c); })
+        .catch((e) => {
+          if (!vigente) return;
+          setReglaCalc(null);
+          setAvisoRegla(e instanceof Error ? `No se pudo leer la regla vigente: ${e.message}` : 'No se pudo leer la regla vigente.');
+        });
+    }, 300);
+    return () => { vigente = false; clearTimeout(t); };
+  }, [conR7, esManual, facturaFecha, tipo, sujeto, moneda, tasaStr, baseStr, ivaStr, supuesto, concepto]);
+
+  // La regla manda sobre el cálculo de hoy solo cuando hay una vigente que aplica.
+  const calculo: CalculoRetencion = useMemo(() => {
+    if (!reglaCalc) return calculoHoy;
+    const r = reglaCalc.resultado;
+    const cual = `regla «${reglaCalc.regla.nombre}» v${reglaCalc.regla.version}`;
+    return {
+      ...calculoHoy,
+      baseImponible: r.base, impuesto: r.impuesto, porcentaje: r.pct ?? 0,
+      sustraendo: r.sustraendo, montoRetenido: r.monto,
+      explicacion: r.aplica ? `Calculado con la ${cual}, vigente al ${fechaCorta(facturaFecha)}.` : `No se retiene según la ${cual}: ${r.motivo ?? 'sin motivo'}.`,
+    };
+  }, [calculoHoy, reglaCalc, facturaFecha]);
   const bloqueo = direccion === 'practicada' ? motivoNoPuedePracticar(tipo, config) : null;
   const pctFinal = esManual ? nDec(pctStr) : calculo.porcentaje;
   const montoFinal = esManual
@@ -891,6 +934,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     setError(null);
     if (bloqueo) { setError(bloqueo); return; }
     if (avisoFecha) { setError(avisoFecha); return; }
+    if (avisoRegla) { setError(avisoRegla); return; }
     if (motivoNa?.requiereTexto && !motivoNaDetalle.trim()) { setError(`El motivo «${motivoNa.texto}» pide un detalle.`); return; }
     if (montosIlegibles.length) { setError(`No se entiende: ${montosIlegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`); return; }
     if (montoFinal < 0) { setError('El monto no puede ser negativo.'); return; }
@@ -932,6 +976,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         observacion: [supuesto && tipo === 'iva' ? `Retención al ${supuesto.pct} %: ${supuesto.texto}` : null, observacion.trim() || null]
           .filter(Boolean).join(' · ') || null,
         actor, actorName,
+        regla: !esManual && reglaCalc ? columnasDeRegla(reglaCalc) : null,
       }, config);
       if (archivo) await adjuntarComprobante(r.id, archivo).catch(() => toast('La retención quedó registrada, pero el adjunto no subió: se puede adjuntar después', 'error'));
       notify(
