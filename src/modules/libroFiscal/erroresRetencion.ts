@@ -51,6 +51,11 @@ const TEXTOS: Record<string, string> = {
   RET_DECISION_MOTIVO: '«No aplica» lleva un motivo de ese impuesto.',
   RET_DECISION_DETALLE: 'Ese motivo pide un texto que lo explique.',
   RET_CLASIFICACION_DESDE: 'El valor nuevo del código tiene que empezar después del vigente. Para corregir el vigente, usa «Corregir».',
+  RET_ORIGEN_UNO: 'El archivo o el enlace va en exactamente una orden, compra directa o servicio directo.',
+  RET_ADJUNTO_REGISTRADO: 'Esta factura ya está registrada en Retenciones: no se cambia ni se quita. Para quitarla, primero hay que borrar su documento fiscal.',
+  RET_ADJUNTO_CAMPO: 'De un archivo de factura solo se cambian el nombre y la nota.',
+  RET_ADJUNTO_ORIGEN: 'Ese archivo de factura es de otra orden, compra o servicio.',
+  RET_DOCUMENTO_NO_LIBRE: 'Esta factura tiene retenciones (aunque estén anuladas), decisiones o notas que la afectan: no se borra.',
 };
 
 /** Textos propios de una pantalla para los rechazos genéricos de Postgres. */
@@ -106,6 +111,11 @@ export function errorRetencion(
   }
   if (ret && TEXTOS[ret]) return new Error(TEXTOS[ret]);
   if (code === '42501') return new Error(TEXTOS.RET_SIN_PERMISO);
+  // P03: la misma factura no se registra dos veces; un documento cubre una vez cada origen; forma de número, control y fecha.
+  const mensaje = String(e?.message ?? '');
+  if (code === '23505' && /retencion_documentos_unica_/.test(mensaje)) return new Error('Esa factura ya está registrada (mismo número, control y tipo de documento del mismo emisor).');
+  if (code === '23505' && /retencion_documento_origenes_unico/.test(mensaje)) return new Error('Esa factura ya cubre esa orden, compra o servicio.');
+  if (code === '23514' && /retencion_documentos_forma/.test(mensaje)) return new Error('El número y el control de la factura van de 1 a 30 caracteres, sin espacios al borde ni saltos de línea, y la fecha entre 2000 y 2100.');
   if (code === '23514' && textos.regla) return new Error(textos.regla);
   if (code === '23505' && textos.unico) return new Error(textos.unico);
   if (code === '23514') {

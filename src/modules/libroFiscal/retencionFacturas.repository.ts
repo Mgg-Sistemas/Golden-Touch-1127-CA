@@ -312,3 +312,14 @@ export async function actualizarFactura(id: string, cambios: Partial<Pick<Factur
   if (error) throw errorLegibleFactura(error);
   if (!data?.length) throw new Error('No se guardó el cambio de la factura: sin permiso, o la factura ya no existe.');
 }
+
+/**
+ * Borra una factura LIBRE (P03): sin retenciones (aunque estén anuladas), sin
+ * decisiones y sin notas que la afecten. La base lo revisa y, si no, rechaza
+ * con RET_DOCUMENTO_NO_LIBRE. Queda en el historial.
+ */
+export async function borrarFacturaLibre(id: string): Promise<void> {
+  const { data, error } = await supabase.from(T_DOCUMENTOS).delete().eq('id', id).select('id');
+  if (error) throw errorRetencion(error, 'No se pudo borrar la factura.');
+  if (!data?.length) throw new Error('No se borró la factura: sin permiso de Retenciones, o ya no existe.');
+}
