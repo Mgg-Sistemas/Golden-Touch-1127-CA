@@ -19,6 +19,7 @@ import {
 } from './clasificaciones.repository';
 import { listEntes, opcionesImpuestoEnte, type Ente } from './entes.repository';
 import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
+import { listTarifas, r5Disponible, type Tarifa } from './tarifas.repository';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
@@ -191,9 +192,14 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
   const [desde, setDesde] = useState(minimo && minimo > hoyIso() ? minimo : hoyIso());
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // R5: la tasa puede salir de una tarifa por tramos en vez de un %.
+  const [tarifas, setTarifas] = useState<Tarifa[] | null>(null);
+  const [tarifaId, setTarifaId] = useState(vig?.tarifaId ?? '');
+  useEffect(() => { r5Disponible().then((si) => (si ? listTarifas().then(setTarifas) : setTarifas(null))).catch(() => setTarifas(null)); }, []);
 
   const datos: DatosValorCodigo = {
-    sujeto, pct: numOpt(pct), basePct: numOpt(basePct) ?? NaN, minimo: numOpt(min), minimoUnidad: numOpt(min) == null ? null : unidad,
+    ...(tarifas ? { tarifaId: tarifaId || null } : {}),
+    sujeto, pct: tarifaId ? null : numOpt(pct), basePct: numOpt(basePct) ?? NaN, minimo: numOpt(min), minimoUnidad: numOpt(min) == null ? null : unidad,
     sustraendoFactor: numOpt(sustraendo), fuente, nota,
   };
   const falta = faltaEnValorCodigo(datos, modo === 'nuevo' ? desde : '2000-01-01', motivo)
@@ -219,7 +225,16 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
       )}>
       <fieldset disabled={guardando} style={{ border: 0, padding: 0, margin: 0 }}>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-          <div className="form-row" style={{ flex: '0 1 110px' }}><label>%</label><input className="input mono" inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value)} /></div>
+          {tarifas && (
+            <div className="form-row" style={{ flex: '1 1 200px' }}>
+              <label>Tasa</label>
+              <select className="select" value={tarifaId} onChange={(e) => setTarifaId(e.target.value)}>
+                <option value="">Un % fijo</option>
+                {tarifas.filter((t) => t.activo).map((t) => <option key={t.id} value={t.id}>Tarifa · {t.nombre}</option>)}
+              </select>
+            </div>
+          )}
+          {!tarifaId && <div className="form-row" style={{ flex: '0 1 110px' }}><label>%</label><input className="input mono" inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value)} /></div>}
           <div className="form-row" style={{ flex: '0 1 130px' }}><label>Porción de la base (%)</label><input className="input mono" inputMode="decimal" value={basePct} onChange={(e) => setBasePct(e.target.value)} /></div>
           <div className="form-row" style={{ flex: '0 1 130px' }}><label>Mínimo</label><input className="input mono" inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value)} /></div>
           <div className="form-row" style={{ flex: '0 1 100px' }}>

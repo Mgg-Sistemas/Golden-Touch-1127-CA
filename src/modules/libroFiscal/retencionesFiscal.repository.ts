@@ -483,6 +483,8 @@ export async function listPeriodos(): Promise<string[]> {
 }
 
 export interface NuevaRetencion {
+  /** R7: la regla vigente con que se calculó y la foto de sus pasos (de calcularConReglaVigente). Solo se guarda si existe R7. */
+  regla?: { regla_id: string; foto: Record<string, unknown> } | null;
   tipo: TipoImpuesto;
   direccion: DireccionRetencion;
   docKind: DocKind;
@@ -635,7 +637,9 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
     }
   }
   // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
-  const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null };
+  // R7: la regla y la foto viajan solo si la retención se calculó con una regla y la base las tiene.
+  const conRegla = input.regla && (await tablaDisponible('retencion_reglas')) ? input.regla : null;
+  const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null, ...(conRegla ?? {}) };
   const { data, error } = await supabase.from(T_RETENCIONES).insert(fila).select('*').single();
   if (error) throw errorLegible(error);
   return aRetencion(data as Record<string, unknown>);

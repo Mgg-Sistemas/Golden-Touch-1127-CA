@@ -27,7 +27,7 @@ import { errorRetencion } from './erroresRetencion';
 
 // Datos inventados.
 const valor = (id: string, sujeto: ValorCodigo['sujeto'], desde: string, pct: number, over: Partial<ValorCodigo> = {}): ValorCodigo => ({
-  id, codigoId: 'c-1', sujeto, pct, basePct: 100, minimo: null, minimoUnidad: null, sustraendoFactor: null,
+  id, codigoId: 'c-1', sujeto, pct, basePct: 100, minimo: null, minimoUnidad: null, sustraendoFactor: null, tarifaId: null,
   desde, hasta: null, fuente: null, motivo: 'x', nota: null, actualizadoPor: null, ...over,
 });
 const datos = (over: Partial<DatosValorCodigo> = {}): DatosValorCodigo => ({

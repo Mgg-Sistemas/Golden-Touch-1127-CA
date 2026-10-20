@@ -42,6 +42,14 @@ const TEXTOS: Record<string, string> = {
   RET_PARAMETRO_DESDE: 'El valor nuevo tiene que empezar después del vigente. Para corregir el vigente, usa «Corregir».',
   RET_PARAMETRO_AMBITO: 'Ese valor no va con ese impuesto: revisa si es general o de un impuesto.',
   RET_PARAMETRO_TIPO: 'El valor no es del tipo que lleva esa clave (número, texto o sí/no).',
+  RET_TARIFA_DESDE: 'La versión nueva de la tarifa tiene que empezar después de la vigente.',
+  RET_TARIFA_CERRADA: 'La versión está publicada: sus tramos no cambian. Haz una versión nueva.',
+  RET_REGLA_NO_EDITABLE: 'La regla ya no está en prueba: para cambiarla, haz una versión nueva.',
+  RET_REGLA_ESTADO: 'Ese cambio de estado no corresponde a la regla.',
+  RET_REGLA_NO_EXISTE: 'Esa regla no existe.',
+  RET_FOTO_NO_CAMBIA: 'La retención ya guarda la regla y la foto con que se calculó: no cambian.',
+  RET_DECISION_MOTIVO: '«No aplica» lleva un motivo de ese impuesto.',
+  RET_DECISION_DETALLE: 'Ese motivo pide un texto que lo explique.',
   RET_CLASIFICACION_DESDE: 'El valor nuevo del código tiene que empezar después del vigente. Para corregir el vigente, usa «Corregir».',
 };
 
@@ -82,6 +90,15 @@ export function errorRetencion(
   if (ret === 'RET_CLASIFICACION_DESDE') {
     const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
     if (fecha) return new Error(`El valor nuevo del código tiene que empezar después del ${fecha}, que es cuando empezó el vigente. Para corregir el vigente, usa «Corregir».`);
+  }
+  // Estos traen en el mensaje el detalle que hace falta (qué tramo, qué condición, qué paso, qué fecha).
+  if (ret && ['RET_TARIFA_TRAMOS', 'RET_REGLA_CONDICION', 'RET_REGLA_PASO', 'RET_REGLA_ESTADO', 'RET_TARIFA_DESDE'].includes(ret)) {
+    const detalle = String(e?.message ?? '').replace(/^.*?RET_[A-Z_]+:\s*/, '').trim();
+    const lead: Record<string, string> = {
+      RET_TARIFA_TRAMOS: 'No se puede publicar', RET_REGLA_CONDICION: 'La condición no es válida', RET_REGLA_PASO: 'El paso no es válido',
+      RET_REGLA_ESTADO: 'No corresponde', RET_TARIFA_DESDE: 'Fecha de la versión',
+    };
+    if (detalle) return new Error(`${lead[ret]}: ${detalle.replace(/^no se puede publicar:\s*/i, '')}`);
   }
   if (ret === 'RET_SERIE_INICIAL') {
     const ultimo = String(e?.message ?? '').match(/\((\d+)\)/)?.[1];
