@@ -37,6 +37,8 @@ vi.mock('@/modules/salidas/cajas.repository', () => ({
   egresarGastoCaja: vi.fn(),
 }));
 vi.mock('@/modules/inventario/movimientos.repository', () => ({ registrarMovimiento: vi.fn() }));
+// La base de hoy (sin P03): el borrado no pregunta por facturas registradas en Retenciones.
+vi.mock('@/modules/libroFiscal/disponibilidad', async (orig) => ({ ...(await orig<object>()), p03Disponible: async () => false }));
 
 import { anularRetencionesVinculadas, restaurarRetencionesAnuladas } from './tesoreria.repository';
 import { reabrirCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';

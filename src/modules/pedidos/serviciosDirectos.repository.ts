@@ -8,6 +8,7 @@
    a un equipo de Control de Maquinaria para sincronizar su historial.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { errorBorrarOrigen, exigirSinFacturaRegistrada } from './origenRegistrado';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa, saldosDeCaja } from '@/modules/tesoreria/cajaSaldos.repository';
 import { CATEGORIA_REEMBOLSO, errorRetencionPago, montoLegadoARevertir, netoAPagar, patasConMonto } from './pagoDirecto';
@@ -276,8 +277,9 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
 export async function eliminarServicioDirecto(servicio: ServicioDirecto): Promise<void> {
   if (servicio.estado === 'finalizada' || servicio.pagada_at)
     throw new Error('Este servicio ya fue pagado. Reabrilo primero (devuelve el dinero a la caja) y luego eliminalo.');
+  await exigirSinFacturaRegistrada('servicio_directo_id', servicio.id);
   const { error } = await supabase.from('servicios_directos').delete().eq('id', servicio.id);
-  if (error) throw error;
+  if (error) throw errorBorrarOrigen(error);
 }
 
 /* ───────── Adjunto en Storage ───────── */

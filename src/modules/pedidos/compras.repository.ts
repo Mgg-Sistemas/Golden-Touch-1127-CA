@@ -8,6 +8,7 @@
    (costo = gasto/cant → PMP).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { errorBorrarOrigen, exigirSinFacturaRegistrada } from './origenRegistrado';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { cantidadEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
@@ -505,11 +506,12 @@ export async function eliminarCompraDirecta(compra: CompraDirecta): Promise<void
     throw new Error('Esta compra ya fue pagada. Reabrila primero (devuelve el dinero a la caja) y después eliminala.');
   if (compra.recepcionada_at)
     throw new Error('Esta compra ya entró al inventario: no se puede eliminar.');
+  await exigirSinFacturaRegistrada('compra_directa_id', compra.id);
   // `neq('estado','finalizada')` cubre la carrera con Tesorería: si la pagaron justo
   // ahora, el borrado no toca ninguna fila y avisamos en vez de perder el pago.
   const { data, error } = await supabase
     .from('compras_directas').delete().eq('id', compra.id).neq('estado', 'finalizada').select('id');
-  if (error) throw error;
+  if (error) throw errorBorrarOrigen(error);
   if (!data || !data.length)
     throw new Error('No se pudo eliminar: la compra acaba de pagarse, ya no existe o no tienes permiso.');
   await limpiarAdjuntosDeCompra(compra.id, compra.adjunto_path).catch(() => { /* archivos huérfanos, no bloquea */ });
@@ -754,6 +756,8 @@ async function reabrirCompraDirectaInterno(compra: CompraDirecta, actor: string,
  * a mitad puede quedar un estado parcial; el inventario se clampa a ≥ 0.
  */
 export async function eliminarCompraDirectaConReverso(compra: CompraDirecta, actor: string, actorName?: string | null): Promise<void> {
+  // P03: con una factura registrada en Retenciones no se borra; se pregunta antes de revertir nada.
+  await exigirSinFacturaRegistrada('compra_directa_id', compra.id);
   if (compra.estado === 'finalizada') {
     // Reabre: devuelve dinero a la caja + revierte inventario + quita retención (deja en_proceso).
     await reabrirCompraDirecta(compra, actor, actorName);
@@ -779,7 +783,7 @@ export async function eliminarCompraDirectaConReverso(compra: CompraDirecta, act
   // Borrar la fila (ya sin caja/inventario pendientes) + sus adjuntos.
   const { data, error } = await supabase
     .from('compras_directas').delete().eq('id', compra.id).select('id');
-  if (error) throw error;
+  if (error) throw errorBorrarOrigen(error);
   if (!data || !data.length) throw new Error('No se pudo eliminar: la compra ya no existe o no tienes permiso.');
   await limpiarAdjuntosDeCompra(compra.id, compra.adjunto_path).catch(() => { /* archivos huérfanos, no bloquea */ });
 }

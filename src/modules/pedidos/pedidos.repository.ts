@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { errorBorrarOrigen, exigirSinFacturaRegistrada } from './origenRegistrado';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
 import { anularRetencionesVinculadas, pagarOrden, restaurarRetencionesAnuladas } from '@/modules/tesoreria/tesoreria.repository';
@@ -2995,6 +2996,8 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
  */
 export async function eliminarOrdenCompra(o: Orden, actorEmail: string, actorName?: string | null): Promise<void> {
   const etiqueta = o.oc_codigo ?? o.codigo ?? 'la orden';
+  // P03: con una factura registrada en Retenciones no se borra; se pregunta antes de revertir nada.
+  await exigirSinFacturaRegistrada('orden_id', o.id);
 
   // 0) RESERVA. Toma la orden quien logre marcarla; el resto se detiene ANTES de mover
   //    dinero o stock. Se reserva con una marca y no borrando la fila porque el borrado
@@ -3086,5 +3089,5 @@ async function eliminarOrdenCompraInterno(o: Orden, etiqueta: string, actorEmail
 
   // 3) Borrar la orden. Las hijas (ofertas, abonos, chat, evaluaciones) caen en cascada.
   const { error: dErr } = await supabase.from(TABLE).delete().eq('id', o.id);
-  if (dErr) throw dErr;
+  if (dErr) throw errorBorrarOrigen(dErr);
 }
