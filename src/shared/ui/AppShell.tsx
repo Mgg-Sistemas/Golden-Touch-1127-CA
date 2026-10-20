@@ -520,7 +520,6 @@ export function AppShell() {
         <Modal
           title="Respaldo de la base de datos"
           size="md"
-          minimizable={false}
           onClose={() => { if (!descargandoBackup) setRespaldoOpen(false); }}
           footer={
             <>

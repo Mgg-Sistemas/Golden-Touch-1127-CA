@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_MINIMIZADAS, actualizarVentana, cerrarVentana, claveModulo, descartarSalida, etiquetaModulo,
   leerPestanas, minimizarVentana, montarBarraPestanas, necesitaAvisoSalida, puedeMinimizar,
-  quitarVentana, registrarVentana, reiniciarPestanas, restaurarVentana, solicitarSalida,
+  quitarVentana, registrarVentana, reiniciarPestanas, restaurarVentana, solicitarSalida, ventanaDetalleOrden,
 } from './pestanasModal';
 
 const abrir = (...ids: string[]) => ids.forEach((id) => registrarVentana(id, `Orden ${id}`, () => undefined));
@@ -61,6 +61,21 @@ describe('restaurar', () => {
     ['a', 'b', 'c'].forEach(minimizarVentana);
     restaurarVentana('b');
     expect(minimizadas()).toEqual(['a', 'c', 'd']);
+  });
+
+  it('si hay dos a la vista y no hay lugar, restaurar no se pasa de 3 (la otra queda debajo)', () => {
+    abrir('a', 'b', 'c', 'd', 'e');
+    ['a', 'b', 'c'].forEach(minimizarVentana);   // d y e a la vista
+    restaurarVentana('a');                       // a sale; solo hay 1 lugar libre para una de d/e
+    expect(minimizadas().length).toBeLessThanOrEqual(MAX_MINIMIZADAS);
+    expect(leerPestanas().ventanas.find((v) => v.id === 'a')?.minimizada).toBe(false);
+  });
+
+  it('restaurar por id una ventana que aún no existe no hace nada', () => {
+    abrir('a');
+    restaurarVentana(ventanaDetalleOrden('nueva'));
+    expect(leerPestanas().ventanas).toHaveLength(1);
+    expect(ventanaDetalleOrden('o1')).toBe('orden:o1');
   });
 });
 
