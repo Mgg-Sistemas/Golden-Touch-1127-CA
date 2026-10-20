@@ -115,6 +115,9 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
 
+  // Título y pie como el aviso de Combustible: el chat es un grupo de trabajo y el
+  // mensaje tiene que decir de entrada qué es y de dónde viene.
+  L.push(o.estado === 'cuenta_abierta' ? '🧾 *COMPRA A CRÉDITO*' : '💸 *ORDEN PARA PAGAR*', '');
   L.push(`🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`);
   L.push(`🏭 *Proveedor:* ${proveedor?.razon_social?.trim() || '—'}`);
   // El detalle solo si existe: un «Detalle: —» no informa nada y aleja el
@@ -125,7 +128,8 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
   // las 70 ordenes con metodo de pago cargado, contra 2 que tienen finalidad o
   // motivo. Va entera y sin cortar: el chat la envuelve solo.
   const nota = o.notas?.trim();
-  if (nota) L.push(`🗒 *Nota:* ${nota}`);
+  // 📌 y no 🗒: ese es símbolo de TEXTO y necesita el selector invisible U+FE0F, que WhatsApp pierde.
+  if (nota) L.push(`📌 *Nota:* ${nota}`);
   // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
   // IGTF o un descuento por encima de las líneas.
   const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
@@ -158,29 +162,6 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
       L.push(...lineasDatosPago(m.metodo, m.datos));
     }
   }
+  L.push('', '🏢 GOLDEN TOUCH 1127 C.A.');
   return L.join('\n');
-}
-
-/** Dispara la descarga de un texto como archivo .txt. */
-function descargar(texto: string, nombre: string): void {
-  // El Bloc de notas de Windows solo corta en \r\n: sin eso el archivo se ve
-  // como un único renglón enorme. Al pegar en WhatsApp da igual.
-  const blob = new Blob([texto.split('\n').join('\r\n')], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = nombre;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-/** Una sola orden: la instrucción de pago para mandarla por chat. */
-export function descargarOrdenPagarTxt(orden: Orden, proveedor: Proveedor | null): void {
-  const texto = textoOrdenPagar(orden, proveedor);
-  // El nombre del archivo lleva el código: llegan varios por chat y hay que
-  // distinguirlos sin abrirlos.
-  const codigo = (orden.oc_codigo || orden.codigo || 'orden').replace(/[^A-Za-z0-9_-]+/g, '-');
-  descargar(texto, `pagar-${codigo}.txt`);
 }
