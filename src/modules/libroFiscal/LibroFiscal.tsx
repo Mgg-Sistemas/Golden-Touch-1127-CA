@@ -42,6 +42,7 @@ import { ParametrosFirmaSello } from './ParametrosFirmaSello';
 import { ParametrosPerfiles } from './ParametrosPerfiles';
 import { ParametrosRegimen } from './ParametrosRegimen';
 import { rifValido } from '@/shared/lib/rif';
+import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
@@ -766,6 +767,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
 
   const [direccion, setDireccion] = useState<DireccionRetencion>(semilla.direccion ?? 'practicada');
+  const verProveedores = usePermissions().can('proveedores');
   const [tipo, setTipo] = useState<TipoImpuesto>(semilla.tipoInicial ?? 'iva');
   const [sujeto, setSujeto] = useState<SujetoRetenido>('pj_domiciliada');
   const [conceptoId, setConceptoId] = useState('');
@@ -950,6 +952,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   // Una practicada sin OC, CS ni compra directa queda «fuera del sistema»: se dice y se anota de dónde viene.
   const sinDocumento = direccion === 'practicada' && !semilla.docId;
   const rifMal = rif.trim() !== '' && !rifValido(rif);
+  // D43: el mensaje dice cuál RIF y dónde se corrige (practicada: en la ficha del proveedor).
+  const textoRif = rifMal ? textoRifInvalido({ direccion, rif, nombre: contraparte }) : null;
   const equivalenteUsd = moneda === 'Bs' && tasaBcv?.tasa ? montoFinal / tasaBcv.tasa : null;
   const montosIlegibles = ([
     [tipo === 'iva' ? 'Base imponible' : 'Monto del pago', baseStr, true],
@@ -970,7 +974,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escriba el motivo del 0%.'); return; }
     if (esManual && !contraparte.trim()) { setError('Indicar la contraparte que practicó la retención.'); return; }
     if (!esManual && !proveedorId) { setError('Seleccionar el proveedor al que se le practica la retención.'); return; }
-    if (rifMal) { setError('El RIF no es válido: revisa la letra, los números y el dígito verificador.'); return; }
+    if (textoRif) { setError(textoRif.error); return; }
     if (sinDocumento && !observacion.trim()) { setError('Sin documento del sistema: indica en la observación de dónde viene esta retención.'); return; }
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indicar la tasa de cambio para convertir la retención a bolívares.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
@@ -1091,7 +1095,12 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           ) : (
             <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value.toUpperCase())} placeholder="J-XXXXXXXX-X" />
           )}
-          {rifMal && <small className="hint" style={{ color: 'var(--warning)' }}>RIF no válido: letra, 8 o 9 números y dígito verificador.</small>}
+          {textoRif && (
+            <small className="hint" style={{ color: 'var(--warning)' }}>
+              {textoRif.hint}
+              {direccion === 'practicada' && proveedorId && verProveedores && <> <a href={`#${rutaFichaProveedor(proveedorId)}`}>Abrir la ficha</a></>}
+            </small>
+          )}
         </div>
       </div>
 
