@@ -41,7 +41,7 @@ import { ParametrosEntes } from './ParametrosEntes';
 import { ParametrosFirmaSello } from './ParametrosFirmaSello';
 import { ParametrosPerfiles } from './ParametrosPerfiles';
 import { ParametrosRegimen } from './ParametrosRegimen';
-import { rifValido } from '@/shared/lib/rif';
+import { completarRif, formatearRif, rifValido } from '@/shared/lib/rif';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
@@ -877,7 +877,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const ceroSinMotivo = esCeroSinMotivo(pctFinal, montoFinal, observacion);
   // Una practicada sin OC, CS ni compra directa queda «fuera del sistema»: se dice y se anota de dónde viene.
   const sinDocumento = direccion === 'practicada' && !semilla.docId;
-  const rifMal = rif.trim() !== '' && !rifValido(rif);
+  // A muchos RIF de proveedores les falta el dígito verificador (V-12345678): se calcula y se registra completo.
+  const rifCompleto = rif.trim() ? completarRif(rif) : null;
+  const rifCompletado = rifCompleto && !rifValido(rif) ? formatearRif(rifCompleto) : null;
+  const rifMal = rif.trim() !== '' && !rifCompleto;
+  const textoRifMal = direccion === 'practicada'
+    ? `El RIF del proveedor «${contraparte || 'elegido'}» es «${rif}» y no es válido. Corrígelo en su ficha (Proveedores) y vuelve a intentarlo.`
+    : `El RIF «${rif}» no es válido: letra (V, E, J, P, G o C), 8 números y el dígito verificador.`;
   const equivalenteUsd = moneda === 'Bs' && tasaBcv?.tasa ? montoFinal / tasaBcv.tasa : null;
   const montosIlegibles = ([
     [tipo === 'iva' ? 'Base imponible' : 'Monto del pago', baseStr, true],
@@ -897,7 +903,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escriba el motivo del 0%.'); return; }
     if (esManual && !contraparte.trim()) { setError('Indicar la contraparte que practicó la retención.'); return; }
     if (!esManual && !proveedorId) { setError('Seleccionar el proveedor al que se le practica la retención.'); return; }
-    if (rifMal) { setError('El RIF no es válido: revisa la letra, los números y el dígito verificador.'); return; }
+    if (rifMal) { setError(textoRifMal); return; }
     if (sinDocumento && !observacion.trim()) { setError('Sin documento del sistema: indica en la observación de dónde viene esta retención.'); return; }
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indicar la tasa de cambio para convertir la retención a bolívares.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
@@ -910,7 +916,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         docKind: semilla.docKind ?? 'manual',
         docId: semilla.docId ?? null, docCodigo: semilla.codigo ?? null,
         contraparteId: proveedorId || semilla.contraparteId || null,
-        contraparteRif: rif.trim() || null,
+        contraparteRif: rifCompleto ? formatearRif(rifCompleto) : (rif.trim() || null),
         contraparteNombre: contraparte.trim() || null,
         contraparteSujeto: tipo === 'iva' || tipo === 'igtf' ? null : sujeto,
         facturaNumero: facturaNumero.trim() || null,
@@ -1017,7 +1023,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           ) : (
             <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value.toUpperCase())} placeholder="J-XXXXXXXX-X" />
           )}
-          {rifMal && <small className="hint" style={{ color: 'var(--warning)' }}>RIF no válido: letra, 8 o 9 números y dígito verificador.</small>}
+          {rifMal && <small className="hint" style={{ color: 'var(--warning)' }}>{textoRifMal}</small>}
+          {rifCompletado && (
+            <small className="hint muted">
+              Le faltaba el dígito verificador: se registra como <b className="mono">{rifCompletado}</b> (calculado).
+              {direccion === 'practicada' && ' Conviene completarlo también en la ficha del proveedor.'}
+            </small>
+          )}
         </div>
       </div>
 
