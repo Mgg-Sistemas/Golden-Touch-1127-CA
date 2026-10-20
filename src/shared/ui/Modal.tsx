@@ -12,16 +12,21 @@ interface ModalProps {
    *  van a pantalla completa (compact=false, por defecto). */
   compact?: boolean;
   /** Ofrece el botón «—» para minimizar el modal a una pestaña (solo en los de pantalla
-   *  completa, y solo mientras haya barra de pestañas). `false` en los que viven fuera
-   *  de la página (p. ej. el del menú lateral): su pestaña no se perdería al cambiar de módulo. */
+   *  completa, y solo mientras haya barra de pestañas). Es OPT-IN: la pantalla que lo use
+   *  debe poder tener VARIAS de estas ventanas montadas a la vez (cada una con su `key` y su
+   *  `ventanaId`). Si la pantalla guarda un solo modal, abrir otro reemplazaría al minimizado
+   *  (que seguiría oculto): ahí no se ofrece minimizar. */
   minimizable?: boolean;
+  /** Identificador estable de la ventana (p. ej. `orden:<id>`), para traerla al frente por id. */
+  ventanaId?: string;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
 }
 
-export function Modal({ title, size = 'md', compact = false, minimizable = true, onClose, children, footer }: ModalProps) {
-  const id = useId();
+export function Modal({ title, size = 'md', compact = false, minimizable = false, ventanaId, onClose, children, footer }: ModalProps) {
+  const propio = useId();
+  const id = ventanaId ?? propio;
   const puedeMinimizar = minimizable && !compact;
   const { ventanas, minimizadas, hayBarra } = usePestanas();
   const minimizado = puedeMinimizar && !!ventanas.find((v) => v.id === id)?.minimizada;

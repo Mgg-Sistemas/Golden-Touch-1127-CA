@@ -69,6 +69,9 @@ export function usePestanas(): EstadoPestanas {
   return useSyncExternalStore(suscribirPestanas, leerPestanas, leerPestanas);
 }
 
+/** Identificador estable de la ventana de detalle de una orden (para traerla al frente por id). */
+export const ventanaDetalleOrden = (ordenId: string): string => `orden:${ordenId}`;
+
 /** Un modal se abrió. */
 export function registrarVentana(id: string, titulo: string, onClose: () => void): void {
   alCerrar.set(id, onClose);
@@ -110,12 +113,17 @@ export function minimizarVentana(id: string): boolean {
 }
 
 /** Restaura una ventana. La que estaba a la vista pasa a minimizada (intercambio),
- *  para que la restaurada quede arriba sin apilarse debajo de otra. */
+ *  para que la restaurada quede arriba sin apilarse debajo de otra. Nunca pasa de
+ *  MAX_MINIMIZADAS: si no hay lugar, la otra se queda a la vista (debajo). */
 export function restaurarVentana(id: string): void {
-  if (!ventanas.some((v) => v.id === id)) return;
+  const objetivo = ventanas.find((v) => v.id === id);
+  if (!objetivo) return;
+  let lugares = MAX_MINIMIZADAS - ventanas.filter((v) => v.minimizada).length + (objetivo.minimizada ? 1 : 0);
   ventanas = ventanas.map((x) => {
     if (x.id === id) return { ...x, minimizada: false };
-    return x.minimizada ? x : { ...x, minimizada: true };
+    if (x.minimizada || lugares <= 0) return x;
+    lugares -= 1;
+    return { ...x, minimizada: true };
   });
   emitir();
 }

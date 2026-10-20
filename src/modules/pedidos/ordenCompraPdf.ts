@@ -7,6 +7,7 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { firmaDeAprobador, ELABORADOR_OC } from './aprobadoresOc';
 import { esRecargaAgua } from './servicios.repository';
+import { leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -57,6 +58,11 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
   ((orden as Orden).historial ?? []).forEach((h) => {
     const pid = (h as { proveedorAnteriorId?: string }).proveedorAnteriorId;
     if (pid) provIds.add(pid);
+    // Cambios de proveedor: el nuevo también (los eventos viejos no guardaron el nombre).
+    if (h.evento === 'proveedor_cambiado') {
+      const nuevo = leerCambioProveedor(h as EventoCambioProveedor).nuevoId;
+      if (nuevo) provIds.add(nuevo);
+    }
   });
   const proveedoresMap = new Map<string, Proveedor>();
   if (provIds.size) {
@@ -75,7 +81,10 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
   addEmail(o.aprobada_por);
   addEmail(o.oc_aprobada_por);
   addEmail(o.solicitante_email);
-  (o.historial ?? []).forEach((h) => addEmail(h.actor));
+  (o.historial ?? []).forEach((h) => {
+    addEmail(h.actor);
+    addEmail((h as EventoCambioProveedor).aprobacionAnteriorPor); // aprobación que anuló un cambio de proveedor
+  });
   const personasMap = new Map<string, string>();
   if (emails.size) {
     const { data: us } = await supabase
@@ -354,8 +363,45 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 
-  // ─── Desistimientos de proveedor (datos del proveedor + su oferta) ───
+  // ─── Cambios de proveedor al indicar el método de pago (vuelven a aprobación) ───
   const historial = orden.historial ?? [];
+  const cambiosProv = historial.filter((h) => h.evento === 'proveedor_cambiado');
+  if (cambiosProv.length) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(0);
+    doc.text('CAMBIOS DE PROVEEDOR', MARGIN, y);
+    y += 6;
+    autoTable(doc, {
+      startY: y,
+      head: [['Fecha y hora', 'Proveedor anterior', 'Proveedor nuevo', 'Aprobación anulada', 'Registró']],
+      body: cambiosProv.map((h) => {
+        const c = leerCambioProveedor(h as EventoCambioProveedor, (id) => proveedoresMap.get(id)?.razon_social);
+        return [
+          dateTime(h.at),
+          pdfSafe(c.anterior ?? '—'),
+          pdfSafe(c.nuevo ?? '—'),
+          c.aprobacionAnteriorPor
+            ? `${quien(c.aprobacionAnteriorPor, c.aprobacionAnteriorEn ?? h.at)}${c.aprobacionAnteriorEn ? ' · ' + dateTime(c.aprobacionAnteriorEn) : ''}`
+            : '—',
+          quien(h.actor, h.at),
+        ];
+      }),
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 3 },
+      headStyles: { fillColor: [244, 244, 244], textColor: 20, fontStyle: 'bold' },
+      margin: MARGIN,
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(120);
+    doc.text('Cada cambio devolvió la OC a aprobación del Gerente General; la aprobación anterior quedó sin efecto.', MARGIN, y + 4);
+    doc.setTextColor(0);
+    y += 18;
+  }
+
+  // ─── Desistimientos de proveedor (datos del proveedor + su oferta) ───
   if (historial.some((h) => h.evento === 'desistida_proveedor')) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);

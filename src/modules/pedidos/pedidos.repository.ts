@@ -1205,7 +1205,13 @@ export async function indicarMetodoPago(
  * Cambia el proveedor de una OC mientras se está indicando el método de pago
  * (estado `confirmada_metodo`). Como cambia el proveedor adjudicado, la OC
  * VUELVE A APROBACIÓN DEL GERENTE: pasa a `oc_creada` y se limpia la aprobación
- * previa (oc_aprobada_por/en). No cambian ítems ni total. Queda en el historial.
+ * previa (oc_aprobada_por/en). No cambian ítems ni total.
+ *
+ * Todo queda en la traza (evento `proveedor_cambiado`): proveedor anterior y nuevo
+ * (id y nombre, tal como eran en ese momento), quién lo cambió y cuándo, el estado
+ * en que estaba y la aprobación que se anuló (quién y cuándo la había dado).
+ * Solo se aplica si la orden sigue en el estado que se vio: si otro usuario ya la
+ * movió (p. ej. Compras ya la mandó a pagar), no se pisa.
  */
 export async function cambiarProveedorOrden(
   o: Orden,
@@ -1218,6 +1224,12 @@ export async function cambiarProveedorOrden(
   if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida) {
     throw new Error('Solo se puede cambiar el proveedor mientras se indica el método de pago.');
   }
+  // Nombres de los dos proveedores, para que la traza no dependa de que la ficha cambie después.
+  const nombres = new Map<string, string>();
+  const ids = [o.proveedor_id, nuevoProveedorId].filter((x): x is string => !!x);
+  const { data: provs } = await supabase.from('proveedores').select('id, razon_social').in('id', ids);
+  (provs ?? []).forEach((p: { id: string; razon_social: string }) => nombres.set(p.id, p.razon_social));
+
   const { data, error } = await supabase.from(TABLE).update({
     proveedor_id: nuevoProveedorId,
     // Vuelve a aprobación del Gerente General.
@@ -1225,11 +1237,20 @@ export async function cambiarProveedorOrden(
     oc_aprobada_por: null,
     oc_aprobada_en: null,
     historial: appendHistorial(o, 'proveedor_cambiado', actorEmail, {
-      proveedorAnteriorId: o.proveedor_id, proveedorId: nuevoProveedorId,
-      nota: 'Cambio de proveedor al indicar método de pago · vuelve a aprobación del Gerente General',
+      proveedorAnteriorId: o.proveedor_id,
+      proveedorNuevoId: nuevoProveedorId,
+      proveedorAnterior: (o.proveedor_id && nombres.get(o.proveedor_id)) || null,
+      proveedorNuevo: nombres.get(nuevoProveedorId) ?? null,
+      estadoAnterior: o.estado,
+      aprobacionAnteriorPor: o.oc_aprobada_por ?? null,
+      aprobacionAnteriorEn: o.oc_aprobada_en ?? null,
+      motivo: 'Cambio de proveedor al indicar método de pago · vuelve a aprobación del Gerente General',
     }),
-  }).eq('id', o.id).select('*').single();
+  }).eq('id', o.id).eq('estado', o.estado).select('*').maybeSingle();
   if (error) throw error;
+  if (!data) {
+    throw new Error('La orden cambió de estado mientras la editabas (otro usuario la movió). Actualiza la pantalla y revísala antes de cambiar el proveedor.');
+  }
   return data as Orden;
 }
 

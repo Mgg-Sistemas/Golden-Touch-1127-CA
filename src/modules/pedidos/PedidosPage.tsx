@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { restaurarVentana, ventanaDetalleOrden } from '@/shared/lib/pestanasModal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DespieceResBloque } from './DespieceResBloque';
@@ -13,6 +14,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { descargarOrdenPagarTxt } from './confirmadasPagarTxt';
+import { leerCambioProveedor, textoCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
@@ -290,7 +292,34 @@ export function PedidosPage() {
   // Al entrar al módulo siempre arrancamos en "Órdenes de Pedido" (vista por defecto).
   const [scope, setScope] = useState<Scope>('pedidos');
 
-  const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
+  // Ventanas de DETALLE de orden: pueden estar varias abiertas a la vez (una minimizada
+  // mientras se abre otra, hasta 3 minimizadas). Cada una es su propio componente con su
+  // propio estado. Los demás modales (aprobar, método de pago, crear…) siguen siendo de
+  // uno en uno, en `modal`.
+  const [detalles, setDetalles] = useState<string[]>([]);
+  const [modal, setModalRaw] = useState<ModalKind>({ kind: 'none' });
+  const modalRef = useRef(modal);
+  modalRef.current = modal;
+  const detalleCache = useRef(new Map<string, Orden>());
+  const cerrarDetalle = useCallback((id: string) => {
+    detalleCache.current.delete(id);
+    setDetalles((d) => d.filter((x) => x !== id));
+  }, []);
+  const setModal = useCallback((next: ModalKind) => {
+    const prev = modalRef.current;
+    if (next.kind === 'detail') {
+      // Abrir el detalle (o «volver al detalle» tras una acción): si esa orden ya está
+      // abierta —minimizada o debajo— se trae al frente; si no, se abre otra ventana.
+      setDetalles((d) => (d.includes(next.ordenId) ? d : [...d, next.ordenId]));
+      restaurarVentana(ventanaDetalleOrden(next.ordenId));
+      setModalRaw({ kind: 'none' });
+      return;
+    }
+    // Al terminar o cancelar una acción sobre una orden (aprobar, enviar a pagar, cancelar…)
+    // se vuelve a la lista como siempre: se cierra también el detalle de esa orden.
+    if (next.kind === 'none' && prev.kind !== 'none' && 'orden' in prev) cerrarDetalle(prev.orden.id);
+    setModalRaw(next);
+  }, [cerrarDetalle]);
   const [categoriasOpen, setCategoriasOpen] = useState(false);
   const [offersReloadKey, setOffersReloadKey] = useState(0);
   // Mensajes de chat NO leídos por orden (chip 💬 N en tarjetas/filas).
@@ -530,18 +559,17 @@ export function PedidosPage() {
   }, [kanbanCols]);
   const kanbanColsVisibles = filterEstado ? kanbanCols.filter((c) => c.key === filterEstado) : kanbanCols;
 
-  // Detalle abierto: se deriva por id para reflejar datos en vivo. Pero retenemos el
-  // último detalle conocido (ref) para NO cerrar el modal si un refresh (realtime al
-  // cambiar de pestaña) lo deja un instante fuera de la lista. El modal solo se cierra
-  // cuando el usuario lo cierra (modal.kind deja de ser 'detail').
-  const detailRef = useRef<Orden | null>(null);
-  const detailEncontrado = modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
-  if (modal.kind === 'detail') {
-    if (detailEncontrado) detailRef.current = detailEncontrado;
-  } else {
-    detailRef.current = null;
-  }
-  const currentDetail = modal.kind === 'detail' ? (detailEncontrado ?? detailRef.current) : null;
+  // Detalles abiertos: cada uno se deriva por id para reflejar datos en vivo. Pero se retiene
+  // el último dato conocido (cache) para NO cerrar la ventana si un refresh (realtime al
+  // cambiar de pestaña) la deja un instante fuera de la lista. Una ventana solo se cierra
+  // cuando el usuario la cierra (`cerrarDetalle`).
+  const detallesAbiertos = detalles
+    .map((id) => {
+      const vivo = ordenes.find((o) => o.id === id);
+      if (vivo) detalleCache.current.set(id, vivo);
+      return detalleCache.current.get(id) ?? null;
+    })
+    .filter((o): o is Orden => o !== null);
 
   return (
     <div>
@@ -804,11 +832,12 @@ export function PedidosPage() {
       {/* Modal: reporte «Compras por estado» (PDF/Imprimir · Excel · WhatsApp) */}
       {reporteComprasOpen && <ReporteComprasModal onClose={() => setReporteComprasOpen(false)} />}
 
-      {/* Modal: detalle */}
-      {modal.kind === 'detail' && currentDetail && (
+      {/* Ventanas de detalle de orden (varias a la vez; se pueden minimizar, hasta 3) */}
+      {detallesAbiertos.map((od) => (
         <OrdenDetailModal
-          orden={currentDetail}
-          proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
+          key={od.id}
+          orden={od}
+          proveedor={od.proveedor_id ? proveedorMap.get(od.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
           personaMap={personaMap}
           isAdmin={puedeAprobarPedidos}
@@ -816,36 +845,36 @@ export function PedidosPage() {
           enOc={scope === 'oc' || scope === 'servicios'}
           actorEmail={user?.email ?? ''}
           offersReloadKey={offersReloadKey}
-          onAddOffer={() => setModal({ kind: 'add-offer', orden: currentDetail })}
-          onEditarOferta={(of) => setModal({ kind: 'edit-offer', orden: currentDetail, oferta: of })}
-          onEditarOrden={() => setModal({ kind: 'edit-orden', orden: currentDetail })}
+          onAddOffer={() => setModal({ kind: 'add-offer', orden: od })}
+          onEditarOferta={(of) => setModal({ kind: 'edit-offer', orden: od, oferta: of })}
+          onEditarOrden={() => setModal({ kind: 'edit-orden', orden: od })}
           onAcceptedOffer={async () => {
             await refresh();
             setOffersReloadKey((k) => k + 1);
           }}
-          onClose={() => setModal({ kind: 'none' })}
-          onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
-          onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: currentDetail })}
-          onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: currentDetail })}
-          onCancel={() => setModal({ kind: 'cancel', orden: currentDetail })}
-          onDesistir={() => setModal({ kind: 'desistir', orden: currentDetail })}
-          onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
-          onAbono={() => setModal({ kind: 'abono', orden: currentDetail })}
+          onClose={() => cerrarDetalle(od.id)}
+          onApprove={() => setModal({ kind: 'approve', orden: od })}
+          onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: od })}
+          onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: od })}
+          onCancel={() => setModal({ kind: 'cancel', orden: od })}
+          onDesistir={() => setModal({ kind: 'desistir', orden: od })}
+          onReceive={() => setModal({ kind: 'receive', orden: od })}
+          onAbono={() => setModal({ kind: 'abono', orden: od })}
           onEnviarRecepcion={async () => {
             try {
-              await enviarCreditoARecepcion(currentDetail, usuario?.email ?? user?.email ?? 'sistema');
-              notify(`Crédito pagado · ${currentDetail.oc_codigo ?? currentDetail.codigo} → Pendiente por recepción`, 'success', { link: '#/app/pedidos' });
-              setModal({ kind: 'none' });
+              await enviarCreditoARecepcion(od, usuario?.email ?? user?.email ?? 'sistema');
+              notify(`Crédito pagado · ${od.oc_codigo ?? od.codigo} → Pendiente por recepción`, 'success', { link: '#/app/pedidos' });
+              cerrarDetalle(od.id);
               await refresh();
             } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar a recepción', 'error'); }
           }}
-          onFinalizar={() => setModal({ kind: 'finalizar', orden: currentDetail })}
+          onFinalizar={() => setModal({ kind: 'finalizar', orden: od })}
           usuarioRole={usuario?.role ?? null}
           onSeePriceHistory={(sku, nombre) =>
             setModal({ kind: 'price-history', sku, nombre })
           }
         />
-      )}
+      ))}
 
       {/* Modal: crear */}
       {modal.kind === 'create' && (
@@ -2784,7 +2813,8 @@ function OrdenDetailModal({
 
   return (
     <>
-    <Modal title={`${esServicioOrd ? 'Servicio' : 'Orden'} ${o.codigo}`} size="lg" onClose={onClose} footer={buttons}>
+    // Minimizable: es una ventana de consulta; se pueden tener varias órdenes abiertas.
+    <Modal title={`${esServicioOrd ? 'Servicio' : 'Orden'} ${o.codigo}`} size="lg" minimizable ventanaId={ventanaDetalleOrden(o.id)} onClose={onClose} footer={buttons}>
       <div className="detail-row">
         <div className="k">Código</div>
         <div className="v mono">{o.codigo}</div>
@@ -3334,18 +3364,21 @@ function Timeline({
   return (
     <div className="timeline">
       {items.map((h, i) => {
-        const ext = h as EventoHistorial & {
-          proveedorAnteriorId?: string;
-          proveedorNuevoId?: string;
-        };
-        const anterior = ext.proveedorAnteriorId ? proveedorMap.get(ext.proveedorAnteriorId) : null;
-        const nuevo = ext.proveedorNuevoId ? proveedorMap.get(ext.proveedorNuevoId) : null;
         let extra = '';
-        if (h.motivo) extra = ` · ${h.motivo}`;
-        if (anterior && nuevo) {
-          extra = ` · de ${anterior.razon_social} → ${nuevo.razon_social}${
-            h.motivo ? ' · ' + h.motivo : ''
-          }`;
+        let aprobacionAnulada: string | null = null;
+        if (h.evento === 'proveedor_cambiado') {
+          // «de A → B · motivo», y la aprobación del Gerente que el cambio dejó sin efecto.
+          const c = leerCambioProveedor(h as EventoCambioProveedor, (id) => proveedorMap.get(id)?.razon_social);
+          extra = textoCambioProveedor(c);
+          if (c.aprobacionAnteriorPor) {
+            aprobacionAnulada = `Aprobación anulada: ${persona(c.aprobacionAnteriorPor, personaMap)}${c.aprobacionAnteriorEn ? ` · ${dateTime(c.aprobacionAnteriorEn)}` : ''}. La OC vuelve a aprobación del Gerente General.`;
+          }
+        } else {
+          const ext = h as EventoHistorial & { proveedorAnteriorId?: string; proveedorNuevoId?: string };
+          const anterior = ext.proveedorAnteriorId ? proveedorMap.get(ext.proveedorAnteriorId) : null;
+          const nuevo = ext.proveedorNuevoId ? proveedorMap.get(ext.proveedorNuevoId) : null;
+          if (h.motivo) extra = ` · ${h.motivo}`;
+          if (anterior && nuevo) extra = ` · de ${anterior.razon_social} → ${nuevo.razon_social}${h.motivo ? ' · ' + h.motivo : ''}`;
         }
         return (
           <div className="tl-item" key={`${h.at}-${i}`}>
@@ -3355,6 +3388,9 @@ function Timeline({
                 {eventLabel(h.evento)}
                 {extra}
               </div>
+              {aprobacionAnulada && (
+                <div className="tl-meta" style={{ marginTop: '.15rem' }}>{aprobacionAnulada}</div>
+              )}
               {h.documentos && h.documentos.length > 0 && (
                 <div className="tl-meta" style={{ marginTop: '.15rem' }}>
                   📄 Documentos: {h.documentos.join(' · ')}
