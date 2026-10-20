@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavegarConAviso } from '@/shared/ui/useNavegarConAviso';
 import {
   buscarGlobal, etiquetaResultado, iconoResultado, type ResultadoBusqueda,
 } from '@/shared/lib/globalSearch';
@@ -15,7 +15,7 @@ export function GlobalSearch() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activo, setActivo] = useState(0);
-  const navigate = useNavigate();
+  const navigate = useNavegarConAviso();
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Búsqueda con debounce.

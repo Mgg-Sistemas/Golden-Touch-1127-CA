@@ -48,7 +48,10 @@ describe('construirReporteComprasExcel', () => {
     const ws = await leer(bytes);
     expect(String(ws.getCell('A1').value)).toContain('COMPRAS POR ESTADO');
     expect(ws.getCell('A4').value).toBe('TIPO');
-    expect(ws.getCell('F4').value).toBe('MONTO Bs');
+    expect(ws.getCell('D4').value).toBe('MONTO $');
+    expect(ws.getCell('E4').value).toBe('MONTO Bs');
+    // Solo dos columnas de monto: no hay una tercera repitiendo el mismo número.
+    expect(ws.getCell('F4').value).toBeNull();
 
     const codigos = ws.getColumn(2).values.map((v) => String(v ?? ''));
     for (const c of ['OC-1', 'OC-2', 'OC-3', 'OC-4']) expect(codigos).toContain(c);
@@ -68,6 +71,7 @@ describe('construirReporteComprasExcel', () => {
     const fila = ws.getColumn(2).values.findIndex((v) => v === 'OC-2');
     expect(fila).toBeGreaterThan(0);
     expect(ws.getCell(fila, 4).value).toBe(750);
+    expect(ws.getCell(fila, 5).value).toBe(27000);
   });
 
   it('el total general suma $ y Bs convirtiendo a la tasa BCV', async () => {
@@ -82,8 +86,8 @@ describe('construirReporteComprasExcel', () => {
     expect(filaTotal).toBeGreaterThan(0);
     expect(ws.getCell(filaTotal, 1).value).toBe('TOTAL GENERAL');
     // 100 $ + 3600 Bs/36 = 100 $ → 200 $; 3600 + 100·36 = 7200 Bs.
-    expect(ws.getCell(filaTotal, 5).value).toBe(200);
-    expect(ws.getCell(filaTotal, 6).value).toBe(7200);
+    expect(ws.getCell(filaTotal, 4).value).toBe(200);
+    expect(ws.getCell(filaTotal, 5).value).toBe(7200);
   });
 
   it('sin tasa no rompe: deja en blanco la columna de la otra moneda', async () => {
@@ -92,8 +96,8 @@ describe('construirReporteComprasExcel', () => {
       tasa: 0,
     }));
     const fila = ws.getColumn(2).values.findIndex((v) => v === 'OC-4');
-    expect(ws.getCell(fila, 4).value).toBe(3600);
-    // Sin tasa, la otra moneda va vacía (no se inventa un 0 que parezca un monto).
-    expect(ws.getCell(fila, 5).value).toBe('');
+    // Sin tasa, el monto queda en su moneda (Bs) y la otra va vacía (no se inventa un 0).
+    expect(ws.getCell(fila, 5).value).toBe(3600);
+    expect(ws.getCell(fila, 4).value).toBe('');
   });
 });

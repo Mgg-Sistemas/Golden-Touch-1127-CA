@@ -527,6 +527,55 @@ button.tira:focus-visible { outline: 2px solid var(--primary); outline-offset: 2
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+/* Modal MINIMIZADO: sigue montado (conserva lo escrito) pero oculto; su pestaña va
+   en la barra inferior. */
+.modal-backdrop.modal-min { display: none; }
+
+/* Barra de pestañas minimizadas (hasta 3). z-index sobre el modal (9000) y bajo los
+   desplegables (9500) y los toasts (9999). */
+:root { --pestanas-h: 46px; }
+.pestanas-barra {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 9100;
+  height: var(--pestanas-h);
+  display: flex; align-items: center; gap: .5rem;
+  padding: 0 .75rem;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -6px 18px rgba(0,0,0,0.35);
+  overflow-x: auto;
+}
+.pestanas-cuenta {
+  flex: 0 0 auto; font-size: .72rem; font-weight: 700; letter-spacing: .04em;
+  color: var(--text-muted);
+}
+.pestana {
+  flex: 0 1 260px; min-width: 0;
+  display: flex; align-items: stretch;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-top: 2px solid var(--primary);
+  border-radius: var(--r-sm);
+}
+.pestana:hover { background: var(--surface-3); }
+.pestana-abrir, .pestana-cerrar {
+  background: transparent; border: 0; color: var(--text); cursor: pointer; font: inherit;
+}
+.pestana-abrir {
+  flex: 1 1 auto; min-width: 0; padding: .35rem .65rem; text-align: left;
+  font-size: .85rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pestana-cerrar { flex: 0 0 auto; padding: 0 .55rem; color: var(--text-muted); font-size: .8rem; }
+.pestana-cerrar:hover { color: var(--danger); }
+/* Con pestañas minimizadas la barra ocupa su franja: ni el modal ni la página la tapan. */
+body.con-pestanas .modal-backdrop { bottom: var(--pestanas-h); }
+body.con-pestanas .modal:not(.modal-compact) {
+  height: calc(100vh - var(--pestanas-h)); height: calc(100dvh - var(--pestanas-h));
+  max-height: calc(100vh - var(--pestanas-h)); max-height: calc(100dvh - var(--pestanas-h));
+}
+body.con-pestanas .main { padding-bottom: calc(3rem + var(--pestanas-h)); }
+@media (max-width: 720px) { .pestana { flex-basis: 200px; } }
+
 /* Alerta: banner que reclama atención (p. ej. DINERO POR ENTRAR) */
 .alert-presione {
   position: relative;
