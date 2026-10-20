@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavegarConAviso } from '@/shared/ui/useNavegarConAviso';
+import { useNavigate } from 'react-router-dom';
+import { intentarSalir } from '@/shared/lib/minimizadas';
 import {
   buscarGlobal, etiquetaResultado, iconoResultado, type ResultadoBusqueda,
 } from '@/shared/lib/globalSearch';
@@ -15,7 +16,7 @@ export function GlobalSearch() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activo, setActivo] = useState(0);
-  const navigate = useNavegarConAviso();
+  const navigate = useNavigate();
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Búsqueda con debounce.
@@ -45,6 +46,7 @@ export function GlobalSearch() {
     setOpen(false);
     setQ('');
     setResults([]);
+    if (!intentarSalir(r.ruta)) return; // con pestañas minimizadas pregunta antes de salir del módulo
     navigate(r.ruta);
   }
 

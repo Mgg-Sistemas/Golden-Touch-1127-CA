@@ -62,6 +62,23 @@ export function leerCambioProveedor(
   };
 }
 
+/** ¿Este evento del historial es un cambio de proveedor? Hay dos formas:
+ *  · `proveedor_cambiado`: el cambio directo de antes (se sigue mostrando en órdenes viejas).
+ *  · `eleccion_reabierta` con `cambioProveedor`: el actual — al indicar el método de pago,
+ *    cambiar de proveedor reabre la elección (volver a cotizar). */
+export function esCambioProveedor(h: { evento: string; cambioProveedor?: boolean }): boolean {
+  return h.evento === 'proveedor_cambiado' || (h.evento === 'eleccion_reabierta' && h.cambioProveedor === true);
+}
+
+/** « · proveedor anterior: A · motivo» del evento `eleccion_reabierta` por cambio de proveedor
+ *  (todavía no hay proveedor nuevo: se escoge en la nueva cotización). */
+export function textoReeleccionPorCambio(c: CambioProveedorLeido): string {
+  const partes: string[] = [];
+  if (c.anterior) partes.push(`proveedor anterior: ${c.anterior}`);
+  if (c.motivo) partes.push(`motivo: ${c.motivo}`);
+  return partes.length ? ` · ${partes.join(' · ')}` : '';
+}
+
 /** « · de A → B · motivo» para el título del evento en la línea de tiempo ('' si no hay nada). */
 export function textoCambioProveedor(c: CambioProveedorLeido): string {
   const partes: string[] = [];

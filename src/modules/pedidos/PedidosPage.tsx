@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
-import { restaurarVentana, ventanaDetalleOrden } from '@/shared/lib/pestanasModal';
+import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
+import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DespieceResBloque } from './DespieceResBloque';
@@ -14,7 +15,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { descargarOrdenPagarTxt } from './confirmadasPagarTxt';
-import { leerCambioProveedor, textoCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
+import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReeleccionPorCambio, type EventoCambioProveedor } from './cambioProveedor';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
@@ -58,7 +59,7 @@ import {
   urlAdjuntoOc,
   adjuntarFacturaRecepcion,
   indicarMetodoPago,
-  cambiarProveedorOrden,
+  getOrdenById,
   reabrirEleccionOferta,
   METODOS_PAGO,
   labelMetodoPago,
@@ -292,34 +293,7 @@ export function PedidosPage() {
   // Al entrar al módulo siempre arrancamos en "Órdenes de Pedido" (vista por defecto).
   const [scope, setScope] = useState<Scope>('pedidos');
 
-  // Ventanas de DETALLE de orden: pueden estar varias abiertas a la vez (una minimizada
-  // mientras se abre otra, hasta 3 minimizadas). Cada una es su propio componente con su
-  // propio estado. Los demás modales (aprobar, método de pago, crear…) siguen siendo de
-  // uno en uno, en `modal`.
-  const [detalles, setDetalles] = useState<string[]>([]);
-  const [modal, setModalRaw] = useState<ModalKind>({ kind: 'none' });
-  const modalRef = useRef(modal);
-  modalRef.current = modal;
-  const detalleCache = useRef(new Map<string, Orden>());
-  const cerrarDetalle = useCallback((id: string) => {
-    detalleCache.current.delete(id);
-    setDetalles((d) => d.filter((x) => x !== id));
-  }, []);
-  const setModal = useCallback((next: ModalKind) => {
-    const prev = modalRef.current;
-    if (next.kind === 'detail') {
-      // Abrir el detalle (o «volver al detalle» tras una acción): si esa orden ya está
-      // abierta —minimizada o debajo— se trae al frente; si no, se abre otra ventana.
-      setDetalles((d) => (d.includes(next.ordenId) ? d : [...d, next.ordenId]));
-      restaurarVentana(ventanaDetalleOrden(next.ordenId));
-      setModalRaw({ kind: 'none' });
-      return;
-    }
-    // Al terminar o cancelar una acción sobre una orden (aprobar, enviar a pagar, cancelar…)
-    // se vuelve a la lista como siempre: se cierra también el detalle de esa orden.
-    if (next.kind === 'none' && prev.kind !== 'none' && 'orden' in prev) cerrarDetalle(prev.orden.id);
-    setModalRaw(next);
-  }, [cerrarDetalle]);
+  const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
   const [categoriasOpen, setCategoriasOpen] = useState(false);
   const [offersReloadKey, setOffersReloadKey] = useState(0);
   // Mensajes de chat NO leídos por orden (chip 💬 N en tarjetas/filas).
@@ -559,17 +533,49 @@ export function PedidosPage() {
   }, [kanbanCols]);
   const kanbanColsVisibles = filterEstado ? kanbanCols.filter((c) => c.key === filterEstado) : kanbanCols;
 
-  // Detalles abiertos: cada uno se deriva por id para reflejar datos en vivo. Pero se retiene
-  // el último dato conocido (cache) para NO cerrar la ventana si un refresh (realtime al
-  // cambiar de pestaña) la deja un instante fuera de la lista. Una ventana solo se cierra
-  // cuando el usuario la cierra (`cerrarDetalle`).
-  const detallesAbiertos = detalles
-    .map((id) => {
-      const vivo = ordenes.find((o) => o.id === id);
-      if (vivo) detalleCache.current.set(id, vivo);
-      return detalleCache.current.get(id) ?? null;
-    })
-    .filter((o): o is Orden => o !== null);
+  // Detalle abierto: se deriva por id para reflejar datos en vivo. Pero retenemos el
+  // último detalle conocido (ref) para NO cerrar el modal si un refresh (realtime al
+  // cambiar de pestaña) lo deja un instante fuera de la lista. El modal solo se cierra
+  // cuando el usuario lo cierra (modal.kind deja de ser 'detail').
+  const detailRef = useRef<Orden | null>(null);
+  const detailEncontrado = modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
+  if (modal.kind === 'detail') {
+    if (detailEncontrado) detailRef.current = detailEncontrado;
+  } else {
+    detailRef.current = null;
+  }
+  const currentDetail = modal.kind === 'detail' ? (detailEncontrado ?? detailRef.current) : null;
+
+  // Pestañas minimizadas (20-10-2026, traído de MGG): el detalle de una orden se minimiza a la
+  // barra de abajo para abrir otra; viven SOLO en este módulo (al salir, AppShell avisa y se pierden).
+  const tituloMin = (o: Orden) => `Orden ${o.codigo}${o.urgente ? ' · 🚨' : ''}`;
+  function minimizarDetalle() {
+    if (!currentDetail) return;
+    const r = minimizar('Pedidos / Compras', '/app/pedidos', { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    if (r === 'lleno') {
+      toast(`Ya tienes ${MAX_MINIMIZADAS} pestañas minimizadas (el máximo). Restaura o descarta una para minimizar esta.`, 'warning');
+      return;
+    }
+    setModal({ kind: 'none' });
+  }
+  async function restaurarMinimizada(id: string) {
+    let o = ordenes.find((x) => x.id === id) ?? null;
+    if (!o) {
+      // La lista cargada ya no la trae (otra sesión la movió o la borró): se pide por su id.
+      try { o = await getOrdenById(id); } catch { o = null; }
+      if (!o) { quitarMinimizada(id); toast('Esa orden ya no existe.', 'warning'); return; }
+      const nueva = o;
+      setOrdenes((prev) => (prev.some((x) => x.id === nueva.id) ? prev : [...prev, nueva]));
+    }
+    // Con otro detalle abierto, ese ocupa el lugar de la restaurada en la barra (no se pierde).
+    if (currentDetail && currentDetail.id !== id) intercambiarMinimizada(id, { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    else quitarMinimizada(id);
+    setModal({ kind: 'detail', ordenId: id });
+  }
+  // Si la orden se abre por otro camino (lista, buscador) deja de estar «minimizada».
+  useEffect(() => { if (modal.kind === 'detail') quitarMinimizada(modal.ordenId); }, [modal]);
+  // Al salir del módulo (con el aviso o por otro camino) la barra se pierde.
+  useEffect(() => () => vaciarMinimizadas(), []);
 
   return (
     <div>
@@ -832,12 +838,15 @@ export function PedidosPage() {
       {/* Modal: reporte «Compras por estado» (PDF/Imprimir · Excel · WhatsApp) */}
       {reporteComprasOpen && <ReporteComprasModal onClose={() => setReporteComprasOpen(false)} />}
 
-      {/* Ventanas de detalle de orden (varias a la vez; se pueden minimizar, hasta 3) */}
-      {detallesAbiertos.map((od) => (
+      {/* Barra de pestañas minimizadas (hasta 3) */}
+      <DockMinimizadas onRestaurar={(id) => { void restaurarMinimizada(id); }} bloqueado={modal.kind !== 'none' && modal.kind !== 'detail'} />
+
+      {/* Modal: detalle */}
+      {modal.kind === 'detail' && currentDetail && (
         <OrdenDetailModal
-          key={od.id}
-          orden={od}
-          proveedor={od.proveedor_id ? proveedorMap.get(od.proveedor_id) ?? null : null}
+          onMinimizar={minimizarDetalle}
+          orden={currentDetail}
+          proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
           personaMap={personaMap}
           isAdmin={puedeAprobarPedidos}
@@ -845,36 +854,36 @@ export function PedidosPage() {
           enOc={scope === 'oc' || scope === 'servicios'}
           actorEmail={user?.email ?? ''}
           offersReloadKey={offersReloadKey}
-          onAddOffer={() => setModal({ kind: 'add-offer', orden: od })}
-          onEditarOferta={(of) => setModal({ kind: 'edit-offer', orden: od, oferta: of })}
-          onEditarOrden={() => setModal({ kind: 'edit-orden', orden: od })}
+          onAddOffer={() => setModal({ kind: 'add-offer', orden: currentDetail })}
+          onEditarOferta={(of) => setModal({ kind: 'edit-offer', orden: currentDetail, oferta: of })}
+          onEditarOrden={() => setModal({ kind: 'edit-orden', orden: currentDetail })}
           onAcceptedOffer={async () => {
             await refresh();
             setOffersReloadKey((k) => k + 1);
           }}
-          onClose={() => cerrarDetalle(od.id)}
-          onApprove={() => setModal({ kind: 'approve', orden: od })}
-          onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: od })}
-          onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: od })}
-          onCancel={() => setModal({ kind: 'cancel', orden: od })}
-          onDesistir={() => setModal({ kind: 'desistir', orden: od })}
-          onReceive={() => setModal({ kind: 'receive', orden: od })}
-          onAbono={() => setModal({ kind: 'abono', orden: od })}
+          onClose={() => setModal({ kind: 'none' })}
+          onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
+          onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: currentDetail })}
+          onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: currentDetail })}
+          onCancel={() => setModal({ kind: 'cancel', orden: currentDetail })}
+          onDesistir={() => setModal({ kind: 'desistir', orden: currentDetail })}
+          onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
+          onAbono={() => setModal({ kind: 'abono', orden: currentDetail })}
           onEnviarRecepcion={async () => {
             try {
-              await enviarCreditoARecepcion(od, usuario?.email ?? user?.email ?? 'sistema');
-              notify(`Crédito pagado · ${od.oc_codigo ?? od.codigo} → Pendiente por recepción`, 'success', { link: '#/app/pedidos' });
-              cerrarDetalle(od.id);
+              await enviarCreditoARecepcion(currentDetail, usuario?.email ?? user?.email ?? 'sistema');
+              notify(`Crédito pagado · ${currentDetail.oc_codigo ?? currentDetail.codigo} → Pendiente por recepción`, 'success', { link: '#/app/pedidos' });
+              setModal({ kind: 'none' });
               await refresh();
             } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar a recepción', 'error'); }
           }}
-          onFinalizar={() => setModal({ kind: 'finalizar', orden: od })}
+          onFinalizar={() => setModal({ kind: 'finalizar', orden: currentDetail })}
           usuarioRole={usuario?.role ?? null}
           onSeePriceHistory={(sku, nombre) =>
             setModal({ kind: 'price-history', sku, nombre })
           }
         />
-      ))}
+      )}
 
       {/* Modal: crear */}
       {modal.kind === 'create' && (
@@ -1042,18 +1051,23 @@ export function PedidosPage() {
           orden={modal.orden}
           proveedores={proveedores}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos, soporte, nuevoProveedorId, imagenPath) => {
+          // Cambiar de proveedor = volver a cotizar: la OC regresa a la etapa de elección con
+          // TODAS las ofertas; al escoger una nueva, el Gerente General la aprueba de nuevo.
+          onCambiarProveedor={async (motivo) => {
+            const orden = modal.orden;
+            const destino = await reabrirEleccionOferta(orden, usuario?.email ?? user?.email ?? 'sistema', { motivo });
+            notify(
+              orden.op_padre_id
+                ? `OC ${orden.oc_codigo ?? orden.codigo} volvió a la orden ${destino.codigo} · cambio de proveedor: escoge una nueva cotización`
+                : `OC ${orden.oc_codigo ?? orden.codigo} · cambio de proveedor: vuelve a cotizar y escoge una nueva cotización`,
+              'success', { link: '#/app/pedidos' });
+            setModal({ kind: 'none' });
+            await refresh();
+            setOffersReloadKey((k) => k + 1);
+          }}
+          onSent={async (metodos, soporte, imagenPath) => {
             try {
               const actorMp = usuario?.email ?? user?.email ?? 'sistema';
-              // Si se CAMBIÓ el proveedor: la OC vuelve a aprobación del Gerente General
-              // (no se indica método ni se envía a pagar en este paso).
-              if (nuevoProveedorId && nuevoProveedorId !== modal.orden.proveedor_id) {
-                await cambiarProveedorOrden(modal.orden, nuevoProveedorId, actorMp);
-                notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} · proveedor cambiado → vuelve a aprobación del Gerente General`, 'success', { link: '#/app/pedidos' });
-                setModal({ kind: 'none' });
-                await refresh();
-                return;
-              }
               await indicarMetodoPago(modal.orden, metodos, actorMp, soporte, imagenPath);
               const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
               notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
@@ -1420,11 +1434,14 @@ function MetodoPagoModal({
   proveedores,
   onClose,
   onSent,
+  onCambiarProveedor,
 }: {
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null }, imagenPath?: string | null) => Promise<void> | void;
+  /** Cambiar de proveedor: reabre la elección de oferta (volver a cotizar). Lleva el motivo. */
+  onCambiarProveedor: (motivo: string) => Promise<void>;
 }) {
   // Al CAMBIAR el método (OC ya "Confirmada pagar") precargamos el/los método(s) ya
   // indicados; si es la primera vez, arranca con un método por defecto.
@@ -1435,9 +1452,12 @@ function MetodoPagoModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Cambio de proveedor (opcional): la OC sigue aprobada, solo se cambia el proveedor.
-  const [proveedorSel, setProveedorSel] = useState<string>(orden.proveedor_id ?? '');
-  const cambioProveedor = proveedorSel && proveedorSel !== orden.proveedor_id;
+  // Cambio de proveedor = volver a cotizar. Solo mientras se indica el método de pago
+  // (OC «Confirmada · indicar método de pago»), antes de enviarla a Tesorería.
+  const proveedorActual = proveedores.find((p) => p.id === orden.proveedor_id) ?? null;
+  const puedeCambiarProveedor = orden.estado === 'confirmada_metodo';
+  const [motivoCambio, setMotivoCambio] = useState('');
+  const [reabriendo, setReabriendo] = useState(false);
   // Número de administración del proveedor (14/10/2026): OBLIGATORIO. Se escribe la
   // primera vez y queda en la ficha del proveedor; las siguientes OC lo traen solo (con
   // «Cambiar» por si hay que corregirlo). Queda también en la OC: lo ven Retenciones y Tesorería.
@@ -1548,10 +1568,20 @@ function MetodoPagoModal({
   const mm = (x: number) => montoMoneda(x, monedaOrden);
 
   useEffect(() => {
-    const pid = proveedorSel || orden.proveedor_id;
+    const pid = orden.proveedor_id;
     if (!pid) return;
     listDatosPago(pid).then(setDatosGuardados).catch(() => { /* sin datos previos */ });
-  }, [proveedorSel, orden.proveedor_id]);
+  }, [orden.proveedor_id]);
+
+  // Cambiar de proveedor = VOLVER A COTIZAR: reabre la elección de oferta (ver
+  // `reabrirEleccionOferta`). Pide un motivo, que queda en la traza.
+  async function handleCambiarProveedor() {
+    setError(null);
+    if (motivoCambio.trim().length < 5) { setError('Escribe el motivo del cambio de proveedor (mínimo 5 letras).'); return; }
+    setReabriendo(true);
+    try { await onCambiarProveedor(motivoCambio.trim()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo reabrir la elección'); setReabriendo(false); }
+  }
 
   function setLeg(i: number, patch: Partial<PagoMetodo>) {
     setLegs((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
@@ -1574,14 +1604,6 @@ function MetodoPagoModal({
 
   async function handleSend() {
     setError(null);
-    // Si se cambió el proveedor, la OC vuelve a aprobación del Gerente General: no
-    // se exige método de pago (se indicará tras la nueva aprobación).
-    if (cambioProveedor) {
-      setSaving(true);
-      try { await onSent([], { comprobanteTipo, retencionModo: null, conIva: false, conIgtf: false }, proveedorSel); }
-      catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cambiar el proveedor'); setSaving(false); }
-      return;
-    }
     if (!validos.length) { setError('Indica al menos un método de pago.'); return; }
     const numeroAdmLimpio = numeroAdm.replace(/\D/g, '');
     if (!numeroAdmLimpio) { setError('Coloca el número de administración del proveedor (teléfono). Es obligatorio; se pide una sola vez y queda guardado.'); return; }
@@ -1618,7 +1640,7 @@ function MetodoPagoModal({
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
         conDescuento, descuentoMonto,
         numeroAdministracion: numeroAdmLimpio,
-      }, null, imagenPath);
+      }, imagenPath);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
@@ -1632,7 +1654,7 @@ function MetodoPagoModal({
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
           <button className="btn btn-primary" onClick={handleSend} disabled={saving}>
-            {saving ? 'Enviando…' : (cambioProveedor ? '🔁 Cambiar proveedor → a aprobación del Gerente' : '💳 Enviar para Pagar')}
+            {saving ? 'Enviando…' : '💳 Enviar para Pagar'}
           </button>
         </>
       }
@@ -1645,22 +1667,31 @@ function MetodoPagoModal({
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-      {/* Cambio de proveedor: la OC sigue aprobada, solo se cambia el proveedor. */}
+      {/* Proveedor de la OC. Cambiarlo NO es editar el nombre: es volver a cotizar (ver abajo). */}
       <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
         <div className="card-title" style={{ marginBottom: '.45rem' }}>Proveedor</div>
-        <SearchSelect
-          value={proveedorSel}
-          onChange={setProveedorSel}
-          options={proveedores.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ' · ' + p.rif : ''}` }))}
-          placeholder="🔍 Buscar proveedor…"
-          emptyText="Ningún proveedor coincide"
-        />
-        {cambioProveedor && (
-          <div className="badge" style={{ marginTop: '.4rem', background: 'rgba(255,138,0,.15)', borderColor: 'var(--brand, #ff8a00)' }}>
-            ⚠ Al cambiar el proveedor, la OC <strong>vuelve a aprobación del Gerente General</strong> (no se envía a pagar ahora). Ítems y total se mantienen.
+        <div style={{ fontWeight: 700 }}>
+          {proveedorActual ? `${proveedorActual.razon_social}${proveedorActual.rif ? ' · ' + proveedorActual.rif : ''}` : '—'}
+        </div>
+        {puedeCambiarProveedor && (
+          <div style={{ marginTop: '.6rem', paddingTop: '.6rem', borderTop: '1px dashed var(--border)' }}>
+            <div style={{ fontSize: '.85rem', fontWeight: 700 }}>¿Este proveedor ya no sirve? Cambiar de proveedor</div>
+            <p className="muted" style={{ margin: '.25rem 0 .5rem', fontSize: '.82rem' }}>
+              Se usa <strong>volver a cotizar</strong>: la OC regresa a <strong>«Pendiente (cargar ofertas)»</strong> con <strong>todas las cotizaciones</strong> a la vista
+              para que <strong>escojas una nueva</strong> (o cargues otra); luego el <strong>Gerente General la aprueba de nuevo</strong> y recién ahí se indica el método de pago.
+              No mueve caja ni inventario, y <strong>todo queda en la traza</strong>.
+            </p>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label htmlFor="mp-motivo-cambio">Motivo del cambio de proveedor *</label>
+              <textarea id="mp-motivo-cambio" className="input" rows={2} value={motivoCambio} maxLength={300}
+                onChange={(e) => setMotivoCambio(e.target.value)} placeholder="Ej. el proveedor no tiene el material / subió el precio…" />
+            </div>
+            <button type="button" className="btn btn-warning" style={{ marginTop: '.5rem' }} disabled={reabriendo || saving} onClick={() => void handleCambiarProveedor()}>
+              {reabriendo ? 'Reabriendo…' : '🔄 Cambiar proveedor (volver a cotizar)'}
+            </button>
           </div>
         )}
-        {!cambioProveedor && (
+        {(
           numeroAdmFicha && !cambiarNumeroAdm && numeroAdm.replace(/\D/g, '') === numeroAdmFicha ? (
             <div className="form-row" style={{ margin: '.6rem 0 0' }}>
               <label>Número de administración del proveedor (teléfono)</label>
@@ -2211,7 +2242,7 @@ function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onAp
           {ordenes.map((o) => {
             const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
             const canApprove = canApproveSolicitud && o.estado === 'pendiente';
-            const cambios = (o.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
+            const cambios = (o.historial ?? []).filter((h) => esCambioProveedor(h as { evento: string; cambioProveedor?: boolean })).length;
             return (
               <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => onView(o.id)} title="Ver detalle">
                 <td className="mono">
@@ -2333,7 +2364,7 @@ const KanbanCard = memo(function KanbanCard({
   onOpen: (id: string) => void;
   noLeidos?: number;
 }) {
-  const changes = (orden.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
+  const changes = (orden.historial ?? []).filter((h) => esCambioProveedor(h as { evento: string; cambioProveedor?: boolean })).length;
   // Crédito pagado en su totalidad (cuenta abierta saldada) → tarjeta resaltada.
   const creditoPagado = orden.estado === 'cuenta_abierta' && (Number(orden.abonado_total) || 0) >= Number(orden.total) - 0.01;
   return (
@@ -2408,6 +2439,8 @@ const KanbanCard = memo(function KanbanCard({
    ───────────────────────────────────────────── */
 interface OrdenDetailModalProps {
   orden: Orden;
+  /** Minimiza el detalle a la barra de abajo (máx. 3 pestañas). */
+  onMinimizar: () => void;
   proveedor: Proveedor | null;
   proveedorMap: Map<string, Proveedor>;
   personaMap: Map<string, string>;
@@ -2436,6 +2469,7 @@ interface OrdenDetailModalProps {
 }
 function OrdenDetailModal({
   orden: o,
+  onMinimizar,
   proveedor,
   proveedorMap,
   personaMap,
@@ -2813,8 +2847,7 @@ function OrdenDetailModal({
 
   return (
     <>
-    // Minimizable: es una ventana de consulta; se pueden tener varias órdenes abiertas.
-    <Modal title={`${esServicioOrd ? 'Servicio' : 'Orden'} ${o.codigo}`} size="lg" minimizable ventanaId={ventanaDetalleOrden(o.id)} onClose={onClose} footer={buttons}>
+    <Modal title={`${esServicioOrd ? 'Servicio' : 'Orden'} ${o.codigo}`} size="lg" onClose={onClose} onMinimizar={onMinimizar} footer={buttons}>
       <div className="detail-row">
         <div className="k">Código</div>
         <div className="v mono">{o.codigo}</div>
@@ -3366,12 +3399,15 @@ function Timeline({
       {items.map((h, i) => {
         let extra = '';
         let aprobacionAnulada: string | null = null;
-        if (h.evento === 'proveedor_cambiado') {
-          // «de A → B · motivo», y la aprobación del Gerente que el cambio dejó sin efecto.
+        let titulo = eventLabel(h.evento);
+        if (esCambioProveedor(h as EventoCambioProveedor & { evento: string; cambioProveedor?: boolean })) {
+          // Cambio de proveedor: el actual reabre la elección («proveedor anterior · motivo»); el
+          // directo de antes dice «de A → B». Además, la aprobación del Gerente que quedó sin efecto.
+          if (h.evento === 'eleccion_reabierta') titulo = 'Cambio de proveedor · se vuelve a cotizar (elección reabierta)';
           const c = leerCambioProveedor(h as EventoCambioProveedor, (id) => proveedorMap.get(id)?.razon_social);
-          extra = textoCambioProveedor(c);
+          extra = h.evento === 'proveedor_cambiado' ? textoCambioProveedor(c) : textoReeleccionPorCambio(c);
           if (c.aprobacionAnteriorPor) {
-            aprobacionAnulada = `Aprobación anulada: ${persona(c.aprobacionAnteriorPor, personaMap)}${c.aprobacionAnteriorEn ? ` · ${dateTime(c.aprobacionAnteriorEn)}` : ''}. La OC vuelve a aprobación del Gerente General.`;
+            aprobacionAnulada = `Aprobación anulada: ${persona(c.aprobacionAnteriorPor, personaMap)}${c.aprobacionAnteriorEn ? ` · ${dateTime(c.aprobacionAnteriorEn)}` : ''}. La OC vuelve a cotizarse y a aprobación del Gerente General.`;
           }
         } else {
           const ext = h as EventoHistorial & { proveedorAnteriorId?: string; proveedorNuevoId?: string };
@@ -3385,7 +3421,7 @@ function Timeline({
             <div className={`tl-dot ${eventClass(h.evento)}`}></div>
             <div className="tl-body">
               <div className="tl-title">
-                {eventLabel(h.evento)}
+                {titulo}
                 {extra}
               </div>
               {aprobacionAnulada && (
