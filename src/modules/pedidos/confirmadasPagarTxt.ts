@@ -57,6 +57,33 @@ function banco(codigo: string | null | undefined): string {
   return b ? `${b.nombre} (${b.codigo})` : codigo;
 }
 
+/** Nombre de quien hizo algo: el de la tabla de usuarios si se conoce; si no, el correo tal cual. */
+function nombreDe(email: string | null | undefined, personas?: Map<string, string>): string {
+  const e = (email ?? '').trim();
+  if (!e) return '';
+  return personas?.get(e.toLowerCase()) || e;
+}
+
+/**
+ * Quiénes intervinieron en la orden, uno por renglón y solo los que se conocen:
+ * quien hace la solicitud, quien autorizó (el Gerente General al aprobar la OC) y el
+ * analista de compras encargado (el que eligió la oferta). Quien paga o aprueba necesita
+ * saber con quién hablar si algo no cuadra.
+ */
+function lineasPersonas(o: Orden, personas: Map<string, string> | undefined, conAutorizo: boolean): string[] {
+  const L: string[] = [];
+  const unidad = o.unidad_solicitante?.trim();
+  const solicita = [o.solicitante?.trim() || nombreDe(o.solicitante_email, personas), unidad].filter(Boolean).join(' · ');
+  if (solicita) L.push(`👤 *Solicita:* ${solicita}`);
+  if (conAutorizo) {
+    const autorizo = nombreDe(o.oc_aprobada_por || o.aprobada_por, personas);
+    if (autorizo) L.push(`✅ *Autorizó:* ${autorizo}`);
+  }
+  const analista = nombreDe(o.oc_creada_por || o.oc_emitida_por || o.metodo_pago_por, personas);
+  if (analista) L.push(`🛒 *Analista de compras:* ${analista}`);
+  return L;
+}
+
 /**
  * El «para qué» de la solicitud. Se resuelve igual que en el PDF de la orden
  * —primero la finalidad de la orden, si no las de sus renglones, si no el
@@ -111,7 +138,7 @@ function lineasDatosPago(metodo: string, d: Record<string, string> | undefined):
  * lo lee del otro lado del chat, así que un cambio accidental se tiene que
  * notar aquí y no en el teléfono de alguien.
  */
-export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
+export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
 
@@ -120,6 +147,7 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
   L.push(o.estado === 'cuenta_abierta' ? '🧾 *COMPRA A CRÉDITO*' : '💸 *ORDEN PARA PAGAR*', '');
   L.push(`🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`);
   L.push(`🏭 *Proveedor:* ${proveedor?.razon_social?.trim() || '—'}`);
+  L.push(...lineasPersonas(o, personas, true));
   // El detalle solo si existe: un «Detalle: —» no informa nada y aleja el
   // método de pago, que es lo que se busca en este papel.
   const descripcion = descripcionDe(o);
@@ -162,6 +190,44 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
       L.push(...lineasDatosPago(m.metodo, m.datos));
     }
   }
+  L.push('', '🏢 GOLDEN TOUCH 1127 C.A.');
+  return L.join('\n');
+}
+
+
+/**
+ * El aviso para el Gerente General: la orden ya tiene proveedor elegido y espera su
+ * aprobación. Lleva lo que se necesita para decidir —quién pide, a quién se le compra,
+ * qué y cuánto cuesta— y nada del pago, que todavía no se indica en esta etapa.
+ */
+export function textoOrdenAprobacion(o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>): string {
+  const L: string[] = [];
+  const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
+  const esServicio = o.tipo === 'servicio';
+
+  L.push(`⏳ *${esServicio ? 'CONTROL DE SERVICIO' : 'ORDEN'} PENDIENTE POR APROBACIÓN*`, '');
+  L.push(`🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`);
+  L.push(`🏭 *Proveedor:* ${proveedor?.razon_social?.trim() || '—'}`);
+  L.push(...lineasPersonas(o, personas, false));
+  if (o.urgente) L.push('🚨 *URGENTE*');
+  const descripcion = descripcionDe(o);
+  if (descripcion) L.push(`📝 *Detalle:* ${descripcion}`);
+
+  const items = (o.items ?? []).filter((it) => it.comprar !== false);
+  if (items.length) {
+    const MAX = 10;
+    L.push(`📦 *Productos (${items.length}):*`);
+    for (const it of items.slice(0, MAX)) {
+      const unidad = it.unidad ? ` ${it.unidad}` : '';
+      L.push(`* ${num(it.cantidad)}${unidad} · ${it.nombre}`);
+    }
+    if (items.length > MAX) L.push(`* y ${items.length - MAX} más…`);
+  }
+
+  const nota = o.notas?.trim();
+  if (nota) L.push(`📌 *Nota:* ${nota}`);
+  const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
+  L.push(`💵 *Total:* ${monto(totalOrden, moneda)}`);
   L.push('', '🏢 GOLDEN TOUCH 1127 C.A.');
   return L.join('\n');
 }
