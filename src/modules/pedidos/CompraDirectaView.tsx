@@ -19,7 +19,7 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { requiereTasa, textoTasaPago } from './tasaPago';
-import { monedaYaElegida } from './costoCompraDirecta';
+import { monedaYaElegida, pctRetencionValido } from './costoCompraDirecta';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { RetencionPagoCard, useRetencionPago } from '@/modules/tesoreria/RetencionPagoCard';
 import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
@@ -1110,6 +1110,8 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
         setError('Adjunta la factura del proveedor (PDF o foto). Es obligatoria: Tesorería paga viéndola.');
         return;
       }
+      // La retención va al libro al pagar: la base exige un % de 0 a 100 (R9).
+      if (!pctRetencionValido(retPct)) { setError('El % de retención va de 0 a 100.'); return; }
       const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
       setSaving(true);
       try {
@@ -1478,7 +1480,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 <option value="MUNICIPAL">Municipal</option>
               </select>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
-                <input className="input mono" type="number" min={0} step="any" value={retPct} onChange={(e) => setRetPct(e.target.value)} placeholder="0" style={{ width: 90, textAlign: 'right' }} /> %
+                <input className="input mono" type="number" min={0} max={100} step="any" value={retPct} onChange={(e) => setRetPct(e.target.value)} placeholder="0" style={{ width: 90, textAlign: 'right' }} /> %
               </label>
               <span className="muted" style={{ fontSize: '.78rem' }}>
                 {(Number(retPct) || 0) > 0 ? <>= <strong className="mono">{montoCaja(Math.round(subtotal * (Number(retPct) || 0)) / 100, monedaCompra)}</strong> · se registra en Retenciones al pagar</> : 'opcional · se vincula al módulo Retenciones al pagar'}

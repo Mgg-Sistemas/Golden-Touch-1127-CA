@@ -59,7 +59,42 @@ const TEXTOS: Record<string, string> = {
   RET_ORIGEN_CON_DOCUMENTO: 'No se puede eliminar: tiene una factura registrada en Retenciones. Primero hay que borrar ese documento fiscal (solo si no tiene retenciones).',
   RET_ADJUNTO_ORIGEN: 'Ese archivo de factura es de otra orden, compra o servicio.',
   RET_DOCUMENTO_NO_LIBRE: 'Esta factura tiene retenciones (aunque estén anuladas), decisiones o notas que la afectan: no se borra.',
+  RET_LICENCIA_TIPO: 'Ese tipo de licencia no está en el catálogo o está inactivo (Parámetros → Tipos de licencia).',
+  RET_FORMATO_FORMA: 'El formato no tiene la forma esperada: textos y rótulos van como objeto ({…}) y columnas como lista ([…]).',
+  RET_FORMATO_DESDE: 'La versión nueva del formato tiene que empezar después de la vigente.',
 };
+
+/**
+ * Las reglas de forma y rango de la base (CHECK, por nombre de restricción): R9 y P03.
+ * Un 23514 trae el nombre entre comillas; con él se dice qué dato no cumple.
+ */
+const RESTRICCIONES: Record<string, string> = {
+  retencion_documentos_forma: 'El número y el control de la factura van de 1 a 30 caracteres, sin espacios al borde ni saltos de línea, y la fecha entre 2000 y 2100.',
+  retenciones_forma: 'El número de factura, el de control, el de comprobante y el código del concepto van de 1 a 30 caracteres, sin espacios al borde ni saltos de línea.',
+  retenciones_montos_no_negativos: 'Los montos de la retención (base, monto, sustraendo, IVA, exento, total) no pueden ser negativos.',
+  retenciones_porcentajes: 'El porcentaje retenido y la alícuota del IVA van de 0 a 100.',
+  retenciones_tasa_positiva: 'La tasa de cambio tiene que ser mayor que 0.',
+  retenciones_valor_ut_positivo: 'El valor de la UT tiene que ser mayor que 0 (revisa la UT vigente en Parámetros → Valores).',
+  retenciones_quincena: 'La quincena es 1 o 2.',
+  retenciones_periodo_forma: 'El período va como AAAAMM (por ejemplo, 202610).',
+  retenciones_fechas: 'La fecha de la retención y la de la factura van entre 2000 y 2100.',
+  retenciones_moneda: 'La moneda es Bs o USD.',
+  retencion_documentos_montos: 'Los montos de la factura no pueden ser negativos.',
+  retencion_documentos_porcentajes: 'La alícuota del IVA de la factura va de 0 a 100.',
+  retencion_documentos_tasa_positiva: 'La tasa de cambio de la factura tiene que ser mayor que 0.',
+  retencion_documentos_moneda: 'La moneda de la factura es Bs o USD.',
+  retencion_entes_rif_forma: 'El RIF del ente no es válido: letra V, E, J, P o G y 9 números (los guiones no cuentan).',
+  retencion_ente_impuestos_desde_rango: 'La fecha «desde» va entre 2000 y 2100.',
+  retencion_ente_logos_desde_rango: 'La fecha «desde» del logo va entre 2000 y 2100.',
+  retencion_agente_imagenes_desde_rango: 'La fecha «desde» de la firma, el sello o el logo va entre 2000 y 2100.',
+  retencion_contraparte_perfiles_licencia_vence_rango: 'El vencimiento de la licencia va entre 2000 y 2100.',
+};
+
+/** El texto de una restricción de forma o rango nombrada en el mensaje, o null. */
+export function textoRestriccion(mensaje: string | null | undefined): string | null {
+  const m = String(mensaje ?? '').match(/constraint "([a-z0-9_]+)"/i) ?? String(mensaje ?? '').match(/"([a-z0-9_]+)"\s*$/i);
+  return m && RESTRICCIONES[m[1]] ? RESTRICCIONES[m[1]] : null;
+}
 
 /** Textos propios de una pantalla para los rechazos genéricos de Postgres. */
 export interface TextosError {
@@ -91,6 +126,10 @@ export function errorRetencion(
     const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
     if (fecha) return new Error(`La versión nueva tiene que empezar después del ${fecha}, que es cuando empezó la vigente. Para corregir la vigente, usa «Corregir».`);
   }
+  if (ret === 'RET_FORMATO_DESDE') {
+    const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
+    if (fecha) return new Error(`La versión nueva del formato tiene que empezar después del ${fecha}, que es cuando empezó la vigente. Para corregir la vigente, edítala.`);
+  }
   if (ret === 'RET_PARAMETRO_DESDE') {
     const fecha = String(e?.message ?? '').match(/\d{2}\/\d{2}\/\d{4}/)?.[0];
     if (fecha) return new Error(`El valor nuevo tiene que empezar después del ${fecha}, que es cuando empezó el vigente. Para corregir el vigente, usa «Corregir».`);
@@ -118,7 +157,9 @@ export function errorRetencion(
   const mensaje = String(e?.message ?? '');
   if (code === '23505' && /retencion_documentos_unica_/.test(mensaje)) return new Error('Esa factura ya está registrada (mismo número, control y tipo de documento del mismo emisor).');
   if (code === '23505' && /retencion_documento_origenes_unico/.test(mensaje)) return new Error('Esa factura ya cubre esa orden, compra o servicio.');
-  if (code === '23514' && /retencion_documentos_forma/.test(mensaje)) return new Error('El número y el control de la factura van de 1 a 30 caracteres, sin espacios al borde ni saltos de línea, y la fecha entre 2000 y 2100.');
+  // R9 y P03: una regla de forma o rango, dicha por su nombre (antes que el texto genérico de la pantalla).
+  const restriccion = code === '23514' ? textoRestriccion(mensaje) : null;
+  if (restriccion) return new Error(restriccion);
   if (code === '23514' && textos.regla) return new Error(textos.regla);
   if (code === '23505' && textos.unico) return new Error(textos.unico);
   if (code === '23514') {
