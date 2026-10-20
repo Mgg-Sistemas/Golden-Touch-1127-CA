@@ -32,14 +32,33 @@ export function normalizarRif(rif: string | null | undefined): string {
 export function rifValido(rif: string | null | undefined): boolean {
   const v = normalizarRif(rif);
   if (!/^[JGVEPC]\d{9}$/.test(v)) return false;
-  const pesos = [4, 3, 2, 7, 6, 5, 4, 3, 2];
+  return digitoVerificadorRif(v[0], v.slice(1, 9)) === Number(v[9]);
+}
+
+/** El dígito verificador (SENIAT) de una letra y sus 8 números. */
+export function digitoVerificadorRif(letra: string, ocho: string): number {
+  const pesos = [3, 2, 7, 6, 5, 4, 3, 2];
   const letras: Record<string, number> = { V: 1, E: 2, J: 3, P: 4, G: 5, C: 3 };
-  let suma = (letras[v[0]] ?? 0) * 4;
-  for (let i = 0; i < 8; i += 1) suma += Number(v[i + 1]) * pesos[i + 1];
-  const resto = suma % 11;
-  let dv = 11 - resto;
-  if (dv === 11 || dv === 10) dv = 0;
-  return dv === Number(v[9]);
+  let suma = (letras[letra] ?? 0) * 4;
+  for (let i = 0; i < 8; i += 1) suma += Number(ocho[i]) * pesos[i];
+  const dv = 11 - (suma % 11);
+  return dv === 11 || dv === 10 ? 0 : dv;
+}
+
+/**
+ * El RIF completo (J123456789) si es válido o si solo le falta el dígito
+ * verificador: con la letra y hasta 8 números, el dígito se calcula (hay uno
+ * solo posible) y los números se completan con ceros a la izquierda, como la
+ * cédula en el RIF de una persona. null si no tiene arreglo (9 números con el
+ * dígito equivocado, letra que no existe, texto como «S/R»).
+ */
+export function completarRif(rif: string | null | undefined): string | null {
+  const v = normalizarRif(rif);
+  if (rifValido(v)) return v;
+  const m = /^([JGVEPC])(\d{1,8})$/.exec(v);
+  if (!m) return null;
+  const ocho = m[2].padStart(8, '0');
+  return `${m[1]}${ocho}${digitoVerificadorRif(m[1], ocho)}`;
 }
 
 /** El RIF con guiones, como se escribe en los documentos: J-50129993-5. */
