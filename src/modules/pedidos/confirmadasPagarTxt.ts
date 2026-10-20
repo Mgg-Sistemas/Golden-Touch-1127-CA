@@ -214,15 +214,9 @@ export function textoOrdenAprobacion(o: Orden, proveedor: Proveedor | null, pers
   if (descripcion) L.push(`📝 *Detalle:* ${descripcion}`);
 
   const items = (o.items ?? []).filter((it) => it.comprar !== false);
-  if (items.length) {
-    const MAX = 10;
-    L.push(`📦 *Productos (${items.length}):*`);
-    for (const it of items.slice(0, MAX)) {
-      const unidad = it.unidad ? ` ${it.unidad}` : '';
-      L.push(`* ${num(it.cantidad)}${unidad} · ${it.nombre}`);
-    }
-    if (items.length > MAX) L.push(`* y ${items.length - MAX} más…`);
-  }
+  // Solo CUÁNTOS productos son, no cuáles (pedido del usuario 20/10/2026): el gerente decide
+  // con quién, para qué y por cuánto; qué se compró se revisa en la OC.
+  if (items.length) L.push(`📦 *Cantidad de productos:* ${items.length}`);
 
   const nota = o.notas?.trim();
   if (nota) L.push(`📌 *Nota:* ${nota}`);

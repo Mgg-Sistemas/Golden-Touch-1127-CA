@@ -160,8 +160,7 @@ describe('textoOrdenAprobacion (aviso al Gerente General)', () => {
         '🏭 *Proveedor:* MAXI SHOES',
         '👤 *Solicita:* JAIME CAMPO · COCINA',
         '📝 *Detalle:* Dotación de calzado para motorizado (delivery). Para: Héctor Alagal.',
-        '📦 *Productos (1):*',
-        '* 10,00 KG · HARINA',
+        '📦 *Cantidad de productos:* 1',
         '💵 *Total:* $79,00',
         '',
         '🏢 GOLDEN TOUCH 1127 C.A.',
@@ -173,7 +172,7 @@ describe('textoOrdenAprobacion (aviso al Gerente General)', () => {
     expect(textoOrdenAprobacion(pendiente, proveedor)).not.toContain('💳');
   });
 
-  it('marca URGENTE, lleva la nota y recorta la lista de productos', () => {
+  it('marca URGENTE, lleva la nota y dice solo cuántos productos son, sin nombrarlos', () => {
     const muchos = {
       ...pendiente, urgente: true, notas: 'Aprobar hoy',
       items: Array.from({ length: 13 }, (_, i) => ({ sku: 'S' + i, nombre: 'P' + i, cantidad: 1, precio: 1 })),
@@ -181,9 +180,9 @@ describe('textoOrdenAprobacion (aviso al Gerente General)', () => {
     const txt = textoOrdenAprobacion(muchos, proveedor);
     expect(txt).toContain('🚨 *URGENTE*');
     expect(txt).toContain('📌 *Nota:* Aprobar hoy');
-    expect(txt).toContain('📦 *Productos (13):*');
-    expect(txt).toContain('* y 3 más…');
-    expect(txt).not.toContain('P10');
+    expect(txt).toContain('📦 *Cantidad de productos:* 13');
+    expect(txt).not.toContain('P0');
+    expect(txt).not.toContain('más…');
   });
 
   it('un servicio se titula Control de Servicio y no usa selectores de emoji', () => {
