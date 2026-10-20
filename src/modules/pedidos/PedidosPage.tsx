@@ -64,15 +64,13 @@ import {
   METODOS_PAGO,
   labelMetodoPago,
   resumenPendientesPorPagar,
-  listOrdenesPorPagar,
-  listOrdenesEnCredito,
   type PrecioHistorico,
 } from './pedidos.repository';
 import type { RecepcionRenglon } from './pedidos.repository';
 import { MarcaRecibidaCampos, useMarcasRecibidas } from './MarcaRecibidaCampos';
 import { avisarCambiosDeMarca } from './avisoMarcaDistinta';
-import { descargarOrdenesPorPagarPdf } from '@/modules/tesoreria/ordenesPorPagarPdf';
 import { ReporteComprasModal } from './ReporteComprasModal';
+import { ReportePendientesPagarModal } from './ReportePendientesPagarModal';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
@@ -302,7 +300,8 @@ export function PedidosPage() {
   const [alertasMercado, setAlertasMercado] = useState<AlertaMercado[]>([]);
   // Contador liviano de pendientes por pagar (para el badge del botón, en vivo).
   const [pendPagar, setPendPagar] = useState<{ porPagar: number; credito: number }>({ porPagar: 0, credito: 0 });
-  const [generandoPP, setGenerandoPP] = useState(false);
+  // Modal del reporte «Pendientes por pagar» (PDF · Excel · WhatsApp viven ahí adentro).
+  const [pendientesPagarOpen, setPendientesPagarOpen] = useState(false);
   // Modal del reporte «Compras por estado» (las tres salidas viven ahí adentro).
   const [reporteComprasOpen, setReporteComprasOpen] = useState(false);
 
@@ -337,17 +336,6 @@ export function PedidosPage() {
   }, []);
   useEffect(() => { void cargarPendPagar(); }, [cargarPendPagar]);
   useRealtime(['ordenes', 'compras_directas', 'servicios_directos', 'cuentas_por_pagar'], () => { void cargarPendPagar(); });
-
-  // Genera el PDF (vista previa) de todo lo pendiente por pagar, indicando el crédito.
-  const abrirPendientesPorPagar = useCallback(async () => {
-    setGenerandoPP(true);
-    try {
-      const [rows, creditos] = await Promise.all([listOrdenesPorPagar(), listOrdenesEnCredito()]);
-      await descargarOrdenesPorPagarPdf(rows, { creditos });
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
-    } finally { setGenerandoPP(false); }
-  }, []);
 
   // No leídos del chat por orden (para el chip 💬). Se recalcula al cambiar las
   // órdenes y en vivo cuando entra/se lee un mensaje.
@@ -614,11 +602,10 @@ export function PedidosPage() {
           {canManageProcurement && (
             <button
               className="btn btn-ghost"
-              onClick={() => void abrirPendientesPorPagar()}
-              disabled={generandoPP}
-              title="Relación de TODO lo pendiente por pagar (compras directas, OC, servicios), con las cuentas a crédito indicadas · vista previa PDF"
+              onClick={() => setPendientesPagarOpen(true)}
+              title="Relación de TODO lo pendiente por pagar (compras directas, OC, servicios), con las cuentas a crédito indicadas · PDF/Imprimir, Excel y WhatsApp"
             >
-              🧾 {generandoPP ? 'Generando…' : 'Pendientes por pagar'}
+              🧾 Pendientes por pagar
               {pendPagar.porPagar > 0 && (
                 <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--brand, #ff8a00)', color: '#111', fontWeight: 700 }}>
                   {pendPagar.porPagar}
@@ -837,6 +824,9 @@ export function PedidosPage() {
 
       {/* Modal: reporte «Compras por estado» (PDF/Imprimir · Excel · WhatsApp) */}
       {reporteComprasOpen && <ReporteComprasModal onClose={() => setReporteComprasOpen(false)} />}
+
+      {/* Modal: reporte «Pendientes por pagar» (PDF/Imprimir · Excel · WhatsApp) */}
+      {pendientesPagarOpen && <ReportePendientesPagarModal onClose={() => setPendientesPagarOpen(false)} />}
 
       {/* Barra de pestañas minimizadas (hasta 3) */}
       <DockMinimizadas onRestaurar={(id) => { void restaurarMinimizada(id); }} bloqueado={modal.kind !== 'none' && modal.kind !== 'detail'} />
