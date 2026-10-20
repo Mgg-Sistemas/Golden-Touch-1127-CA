@@ -67,6 +67,7 @@ import { list as listProveedores } from '@/modules/proveedores/proveedores.repos
 import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
 import { v2rDisponible } from './disponibilidad';
+import { RegistrarFacturaRetencion } from './RegistrarFacturaRetencion';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
@@ -125,6 +126,10 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
   const [motivo, setMotivo] = useState('');
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
+  // Con V2R: una factura con varias líneas de impuesto en un solo registro.
+  const [conFacturaVarias, setConFacturaVarias] = useState(false);
+  useEffect(() => { v2rDisponible().then(setConFacturaVarias).catch(() => setConFacturaVarias(false)); }, []);
+  const [facturaVarias, setFacturaVarias] = useState(false);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   const reload = useCallback(async () => {
@@ -424,6 +429,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
           title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
+        {canWrite && conFacturaVarias && <button className="btn btn-ghost" onClick={() => setFacturaVarias(true)}>+ Registrar factura (varios impuestos)</button>}
         {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
       </div>
 
@@ -689,6 +695,11 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
+      )}
+      {facturaVarias && (
+        <RegistrarFacturaRetencion actor={actor} actorName={actorName}
+          onClose={() => setFacturaVarias(false)}
+          onHecho={async () => { setFacturaVarias(false); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
     </div>
   );
