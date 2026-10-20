@@ -14,7 +14,7 @@ import {
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { previewArchivo } from '@/shared/lib/reportePreview';
-import { descargarOrdenPagarTxt } from './confirmadasPagarTxt';
+import { OrdenPagarWhatsappModal } from './OrdenPagarWhatsappModal';
 import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReeleccionPorCambio, type EventoCambioProveedor } from './cambioProveedor';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -2548,6 +2548,7 @@ function OrdenDetailModal({
   // Editar precios / agregar productos a una OC ya «Confirmada pagar» (o esperando método),
   // sin devolverla a aprobación. El total se recalcula y se sincroniza a Tesorería.
   const [editarPreciosOpen, setEditarPreciosOpen] = useState(false);
+  const [whatsappPagarOpen, setWhatsappPagarOpen] = useState(false);
   const puedeEditarPreciosPago = canManageProcurement && (isConfirmadaMetodo || isOcAprobada) && Number(o.total) > 0;
   // Reelegir oferta: devuelve la OC (oc_creada) a la etapa de elección para mostrar todas
   // las ofertas de nuevo (re-elegir, editar precios, cargar IVA/IGTF/descuento).
@@ -2725,14 +2726,14 @@ function OrdenDetailModal({
       {isOcAprobada && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
-          {/* La instrucción de pago en texto plano, para MANDARLA (chat, correo).
-              El PDF de arriba es para imprimir y archivar; este se pega. */}
+          {/* La instrucción de pago como mensaje de WhatsApp, para MANDARLA.
+              El PDF de arriba es para imprimir y archivar; este se envía o se copia. */}
           <button
             className="btn btn-ghost"
-            onClick={() => descargarOrdenPagarTxt(o, proveedor)}
-            title="Bajar esta orden en texto plano: quién solicita, su unidad, qué solicitó, el proveedor y el método de pago con sus datos y el monto. Para pegarlo en un chat o un correo."
+            onClick={() => setWhatsappPagarOpen(true)}
+            title="Mensaje de WhatsApp con emojis: el proveedor, el detalle, el monto y el método de pago con sus datos. Para enviarlo o copiarlo."
           >
-            ↓ TXT
+            💬 WhatsApp
           </button>
           {canManageProcurement && (
             <button className="btn btn-primary" onClick={onEnviarPagar} title="Cambiar el método de pago indicado (antes de que Tesorería pague)">
@@ -2746,15 +2747,15 @@ function OrdenDetailModal({
       {isCuentaAbierta && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
-          {/* La misma instrucción de pago en texto plano que las órdenes por pagar. Aquí
-              hace más falta todavía: un crédito se salda de a poco y lo que se manda es
-              el SALDO, no el total. El TXT lo dice. */}
+          {/* El mismo mensaje de pago que las órdenes por pagar. Aquí hace más falta
+              todavía: un crédito se salda de a poco y lo que se manda es el SALDO,
+              no el total. El mensaje lo dice. */}
           <button
             className="btn btn-ghost"
-            onClick={() => descargarOrdenPagarTxt(o, proveedor)}
-            title="Bajar esta cuenta en texto plano: el proveedor, qué se pidió, el total, lo abonado y el saldo que queda, con el método de pago y sus datos. Para pegarlo en un chat o un correo."
+            onClick={() => setWhatsappPagarOpen(true)}
+            title="Mensaje de WhatsApp con emojis: el proveedor, el total, lo abonado y el saldo que queda, con el método de pago y sus datos. Para enviarlo o copiarlo."
           >
-            ↓ TXT
+            💬 WhatsApp
           </button>
           <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
             📋 Ver crédito / historial
@@ -3230,6 +3231,9 @@ function OrdenDetailModal({
         defaultEmail={actorEmail}
         onClose={() => setEnviarOpen(false)}
       />
+    )}
+    {whatsappPagarOpen && (
+      <OrdenPagarWhatsappModal orden={o} proveedor={proveedor} onClose={() => setWhatsappPagarOpen(false)} />
     )}
     {editarPreciosOpen && (
       <EditarPreciosOcModal

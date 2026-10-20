@@ -26,6 +26,8 @@ describe('textoOrdenPagar', () => {
   it('sale exactamente con el formato acordado', () => {
     expect(textoOrdenPagar(ordenBase, proveedor)).toBe(
       [
+        '💸 *ORDEN PARA PAGAR*',
+        '',
         '🔹 *ORDEN:* OC-2026-0130',
         '🏭 *Proveedor:* MAXI SHOES',
         '📝 *Detalle:* Dotación de calzado para motorizado (delivery). Para: Héctor Alagal.',
@@ -34,8 +36,21 @@ describe('textoOrdenPagar', () => {
         '* Banco: Banco de Venezuela (0102)',
         '* CI/RIF: P1131881',
         '* Tlf: 04249692172',
+        '',
+        '🏢 GOLDEN TOUCH 1127 C.A.',
       ].join('\n'),
     );
+  });
+
+  it('una compra a crédito lleva su propio título', () => {
+    const credito = { ...ordenBase, estado: 'cuenta_abierta' } as unknown as Orden;
+    expect(textoOrdenPagar(credito, proveedor).startsWith('🧾 *COMPRA A CRÉDITO*\n\n')).toBe(true);
+  });
+
+  it('no usa emojis que necesiten el selector invisible (WhatsApp lo pierde)', () => {
+    const completa = { ...ordenBase, notas: 'x', estado: 'cuenta_abierta', abonado_total: 10 } as unknown as Orden;
+    expect(textoOrdenPagar(completa, proveedor)).not.toContain('️');
+    expect(textoOrdenPagar(completa, proveedor)).not.toContain('🗒');
   });
 
   it('con una sola pata NO repite el monto al lado del método', () => {
@@ -61,15 +76,15 @@ describe('textoOrdenPagar', () => {
   it('lleva la nota cuando la orden la tiene, debajo del detalle', () => {
     const conNota = { ...ordenBase, notas: 'Retirar en tienda, preguntar por Luis.' } as unknown as Orden;
     const txt = textoOrdenPagar(conNota, proveedor);
-    expect(txt).toContain('🗒 *Nota:* Retirar en tienda, preguntar por Luis.');
+    expect(txt).toContain('📌 *Nota:* Retirar en tienda, preguntar por Luis.');
     // El orden importa: primero para qué se pide, después la aclaración, y
     // recién al final el dinero y por dónde se paga.
-    expect(txt.indexOf('📝')).toBeLessThan(txt.indexOf('🗒'));
-    expect(txt.indexOf('🗒')).toBeLessThan(txt.indexOf('💵'));
+    expect(txt.indexOf('📝')).toBeLessThan(txt.indexOf('📌'));
+    expect(txt.indexOf('📌')).toBeLessThan(txt.indexOf('💵'));
   });
 
   it('omite la nota cuando la orden no tiene ninguna', () => {
-    expect(textoOrdenPagar(ordenBase, proveedor)).not.toContain('🗒');
+    expect(textoOrdenPagar(ordenBase, proveedor)).not.toContain('📌');
   });
 
   it('omite el detalle cuando la orden no tiene ninguno', () => {
