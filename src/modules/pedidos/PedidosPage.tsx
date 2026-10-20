@@ -2701,6 +2701,16 @@ function OrdenDetailModal({
           </button>
         </>
       )}
+      {/* Aviso al Gerente General por WhatsApp: lo que necesita para aprobar. */}
+      {isOcCreada && (canManageProcurement || isAdmin) && (
+        <button
+          className="btn btn-ghost"
+          onClick={() => setWhatsappPagarOpen(true)}
+          title="Mensaje de WhatsApp con emojis para el Gerente General: proveedor, quién solicita, productos y total. Para enviarlo o copiarlo."
+        >
+          💬 WhatsApp
+        </button>
+      )}
       {isOcCreada && isAdmin && (
         <button className="btn btn-success" onClick={onConfirmOc} title={`Aprobar ${esServicioOrd ? 'este Control de Servicio' : 'esta OC'} de forma puntual (sin pasar por el lote)`}>
           ✔ Aprobar {ocLbl}
@@ -3233,7 +3243,7 @@ function OrdenDetailModal({
       />
     )}
     {whatsappPagarOpen && (
-      <OrdenPagarWhatsappModal orden={o} proveedor={proveedor} onClose={() => setWhatsappPagarOpen(false)} />
+      <OrdenPagarWhatsappModal orden={o} proveedor={proveedor} modo={isOcCreada ? 'aprobacion' : 'pagar'} personas={personaMap} onClose={() => setWhatsappPagarOpen(false)} />
     )}
     {editarPreciosOpen && (
       <EditarPreciosOcModal
