@@ -17,6 +17,8 @@ import type { Proveedor } from '@/shared/lib/types';
 import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
 import { getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
 import { rifValido } from '@/shared/lib/rif';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
@@ -133,6 +135,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
 
   const [direccion, setDireccion] = useState<DireccionRetencion>(s.direccion ?? 'practicada');
+  const verProveedores = usePermissions().can('proveedores');
   const [proveedorId, setProveedorId] = useState(s.contraparteId ?? '');
   const [contraparte, setContraparte] = useState(s.contraparteNombre ?? '');
   const [rif, setRif] = useState(s.contraparteRif ?? '');
@@ -292,6 +295,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // Una practicada sin OC, CS ni compra directa queda «fuera del sistema»: se dice y se anota de dónde viene.
   const sinDocumento = direccion === 'practicada' && !s.docId;
   const rifMal = rif.trim() !== '' && !rifValido(rif);
+  // D43: el mensaje dice cuál RIF y dónde se corrige (practicada: en la ficha del proveedor).
+  const textoRif = rifMal ? textoRifInvalido({ direccion, rif, nombre: contraparte }) : null;
   const ilegibles = [
     ...(moneda !== 'Bs' && leerMonto(tasaStr) == null ? ['Tasa'] : []),
     ...(leerMonto(facturaTotal) == null ? ['Total de la factura'] : []),
@@ -306,7 +311,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   function validar(): string | null {
     if (direccion === 'practicada' && !proveedorId) return 'Elige el proveedor al que se le retiene.';
     if (direccion === 'recibida' && !contraparte.trim()) return 'Indica quién nos retuvo.';
-    if (rifMal) return 'El RIF no es válido: revisa la letra, los números y el dígito verificador.';
+    if (textoRif) return textoRif.error;
     const falta = faltaEnDatosFactura({ nro: facturaNro, control: facturaControl, fecha: facturaFecha }, hoyIso());
     if (falta) return falta;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) return 'Indica la fecha de la retención (emisión del comprobante).';
@@ -438,7 +443,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           <label>RIF</label>
           <input className="input mono" value={rif} onChange={(e) => { marcarSucio(); setRif(e.target.value); }} placeholder="J-XXXXXXXX-X"
             readOnly={direccion === 'practicada' && !!proveedorId} />
-          {rifMal && <small className="hint" style={{ color: 'var(--danger)' }}>El RIF no es válido.</small>}
+          {textoRif && (
+            <small className="hint" style={{ color: 'var(--danger)' }}>
+              {textoRif.hint}
+              {direccion === 'practicada' && proveedorId && verProveedores && <> <a href={`#${rutaFichaProveedor(proveedorId)}`}>Abrir la ficha</a></>}
+            </small>
+          )}
         </div>
         <div className="form-row" style={{ flex: '0 1 110px' }}>
           <label>Moneda de la factura</label>
