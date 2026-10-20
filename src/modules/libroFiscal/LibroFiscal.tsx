@@ -21,7 +21,7 @@
 
    La cuenta no se hace aquí: viene de `retencionesCalculo.ts`.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -66,8 +66,9 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
 import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
-import { v2rDisponible } from './disponibilidad';
+import { p03Disponible, v2rDisponible } from './disponibilidad';
 import { RegistrarFacturaRetencion } from './RegistrarFacturaRetencion';
+import { CubrirOtrasOrdenes } from './CubrirOtrasOrdenes';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
@@ -130,6 +131,9 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const [conFacturaVarias, setConFacturaVarias] = useState(false);
   useEffect(() => { v2rDisponible().then(setConFacturaVarias).catch(() => setConFacturaVarias(false)); }, []);
   const [facturaVarias, setFacturaVarias] = useState(false);
+  // P03: una factura registrada puede cubrir varias órdenes del mismo proveedor.
+  const [conP03, setConP03] = useState(false);
+  useEffect(() => { p03Disponible().then(setConP03).catch(() => setConP03(false)); }, []);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   const reload = useCallback(async () => {
@@ -208,6 +212,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   // ── Agrupado por proveedor → factura → casillas (v8) ──
   type FacturaAgrupada = {
     key: string; num: string; doc: string | null; docKind: DocKind; docId: string | null;
+    documentoId: string | null; proveedorId: string | null;
     fecha: string | null; moneda: string; total: number;
     retenciones: Map<TipoImpuesto, RetencionPracticada>;
   };
@@ -247,10 +252,13 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
       if (!fMap.has(fk)) fMap.set(fk, {
         key: fk, num: r.facturaNumero ?? '—',
         doc: r.docCodigo, docKind: r.docKind, docId: r.docId,
+        documentoId: null, proveedorId: r.contraparteId,
         fecha: r.facturaFecha ?? r.createdAt.slice(0, 10),
         moneda: r.moneda, total: r.baseImponible, retenciones: new Map(),
       });
-      fMap.get(fk)!.retenciones.set(r.tipo, r);
+      const fa = fMap.get(fk)!;
+      fa.retenciones.set(r.tipo, r);
+      if (!fa.documentoId && r.documentoId) fa.documentoId = r.documentoId;
     }
     const result: ProveedorAgrupado[] = [];
     for (const [pk, fMap] of provMap) {
@@ -466,7 +474,8 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                   const nCasillas = impuestosTarjeta.length;
                   const totalRet = [...f.retenciones.values()].reduce((a, r) => a + (!r.anulada ? enBs(r) : 0), 0);
                   return (
-                    <article key={f.key} className="lfv8-factura" aria-label={`Factura ${f.num}`}>
+                    <Fragment key={f.key}>
+                    <article className="lfv8-factura" aria-label={`Factura ${f.num}`}>
                       <div>
                         <div className="lfv8-num">Factura {f.num}</div>
                         <div className="lfv8-meta">
@@ -522,6 +531,15 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                         <span>{totalRet ? monto(totalRet, 'Bs') : '—'}</span>
                       </div>
                     </article>
+                    {conP03 && f.documentoId && (
+                      <details style={{ margin: '-.2rem 0 .5rem', fontSize: '.84rem' }}>
+                        <summary className="muted" style={{ cursor: 'pointer' }}>Órdenes que cubre la factura {f.num}</summary>
+                        <CubrirOtrasOrdenes documentoId={f.documentoId} proveedorId={f.proveedorId}
+                          principal={f.docId && f.docKind !== 'manual' ? { tipo: f.docKind, id: f.docId } : null}
+                          puedeEditar={canWrite} />
+                      </details>
+                    )}
+                    </Fragment>
                   );
                 })}
                 {prov.facturas.length > MAX_VISIBLE && (
