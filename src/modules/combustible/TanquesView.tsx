@@ -587,6 +587,20 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
   const [ordenDesc, setOrdenDesc] = useState(true);
   const [ordenCampo, setOrdenCampo] = useState<'fecha' | 'contIni' | 'contFin'>('fecha');
   const [correoOpen, setCorreoOpen] = useState(false);
+  // Cuántas fotos tiene cada movimiento (el 📎 n de la lista). Se pide por tandas para no armar una URL enorme.
+  const [conteoFotos, setConteoFotos] = useState<Map<string, number>>(new Map());
+  const idsMovs = useMemo(() => movs.map((m) => m.id), [movs]);
+  const cargarConteoFotos = useCallback(async () => {
+    try {
+      const total = new Map<string, number>();
+      for (let i = 0; i < idsMovs.length; i += 150) {
+        for (const [k, v] of await adjuntosCombustible.contar(MODULO_ADJUNTO_TANQUE, idsMovs.slice(i, i + 150))) total.set(k, v);
+      }
+      setConteoFotos(total);
+    } catch { /* sin permiso o sin red: la lista sale sin el 📎 */ }
+  }, [idsMovs]);
+  useEffect(() => { void cargarConteoFotos(); }, [cargarConteoFotos]);
+  useRealtime([adjuntosCombustible.tabla], () => { void cargarConteoFotos(); });
   function ordenarPor(campo: 'fecha' | 'contIni' | 'contFin') {
     if (campo === ordenCampo) setOrdenDesc((d) => !d);
     else { setOrdenCampo(campo); setOrdenDesc(true); }
@@ -726,6 +740,11 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
                   <td className="mono"><strong>{money(m.saldo_usd)}</strong></td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => onVerDetalle(m)}>👁 Ver</button>
+                    {(conteoFotos.get(m.id) ?? 0) > 0 && (
+                      <button className="btn btn-sm btn-ghost" title="Ver las fotos cargadas de este movimiento" onClick={() => onVerDetalle(m)}>
+                        📷 {conteoFotos.get(m.id)}
+                      </button>
+                    )}
                     {canWrite && allowDelete && onBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>🗑</button>}
                   </td>
                 </tr>
@@ -1242,7 +1261,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
       {(mov.created_by || mov.actor_name) && <Fila k="Registrado por" v={mov.actor_name || mov.created_by || '—'} />}
 
       {/* Las fotos que sacó el surtidor desde el teléfono (o las que se agreguen aquí). */}
-      <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} />
+      <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} miniaturas />
 
       {/* Datos editables (TODO). Al cambiar tipo/litros/tasa se recalcula el saldo del tanque. */}
       <div className="card-title" style={{ marginTop: '1rem' }}>✎ Datos editables</div>

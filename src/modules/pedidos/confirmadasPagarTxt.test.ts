@@ -8,7 +8,7 @@
    ============================================================ */
 import { describe, it, expect } from 'vitest';
 import type { Orden, Proveedor } from '@/shared/lib/types';
-import { textoOrdenPagar } from './confirmadasPagarTxt';
+import { textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
 
 const proveedor = { razon_social: 'MAXI SHOES' } as Proveedor;
 
@@ -26,6 +26,8 @@ describe('textoOrdenPagar', () => {
   it('sale exactamente con el formato acordado', () => {
     expect(textoOrdenPagar(ordenBase, proveedor)).toBe(
       [
+        '💸 *ORDEN PARA PAGAR*',
+        '',
         '🔹 *ORDEN:* OC-2026-0130',
         '🏭 *Proveedor:* MAXI SHOES',
         '📝 *Detalle:* Dotación de calzado para motorizado (delivery). Para: Héctor Alagal.',
@@ -34,8 +36,21 @@ describe('textoOrdenPagar', () => {
         '* Banco: Banco de Venezuela (0102)',
         '* CI/RIF: P1131881',
         '* Tlf: 04249692172',
+        '',
+        '🏢 GOLDEN TOUCH 1127 C.A.',
       ].join('\n'),
     );
+  });
+
+  it('una compra a crédito lleva su propio título', () => {
+    const credito = { ...ordenBase, estado: 'cuenta_abierta' } as unknown as Orden;
+    expect(textoOrdenPagar(credito, proveedor).startsWith('🧾 *COMPRA A CRÉDITO*\n\n')).toBe(true);
+  });
+
+  it('no usa emojis que necesiten el selector invisible (WhatsApp lo pierde)', () => {
+    const completa = { ...ordenBase, notas: 'x', estado: 'cuenta_abierta', abonado_total: 10 } as unknown as Orden;
+    expect(textoOrdenPagar(completa, proveedor)).not.toContain('\uFE0F');
+    expect(textoOrdenPagar(completa, proveedor)).not.toContain('🗒');
   });
 
   it('con una sola pata NO repite el monto al lado del método', () => {
@@ -61,15 +76,15 @@ describe('textoOrdenPagar', () => {
   it('lleva la nota cuando la orden la tiene, debajo del detalle', () => {
     const conNota = { ...ordenBase, notas: 'Retirar en tienda, preguntar por Luis.' } as unknown as Orden;
     const txt = textoOrdenPagar(conNota, proveedor);
-    expect(txt).toContain('🗒 *Nota:* Retirar en tienda, preguntar por Luis.');
+    expect(txt).toContain('📌 *Nota:* Retirar en tienda, preguntar por Luis.');
     // El orden importa: primero para qué se pide, después la aclaración, y
     // recién al final el dinero y por dónde se paga.
-    expect(txt.indexOf('📝')).toBeLessThan(txt.indexOf('🗒'));
-    expect(txt.indexOf('🗒')).toBeLessThan(txt.indexOf('💵'));
+    expect(txt.indexOf('📝')).toBeLessThan(txt.indexOf('📌'));
+    expect(txt.indexOf('📌')).toBeLessThan(txt.indexOf('💵'));
   });
 
   it('omite la nota cuando la orden no tiene ninguna', () => {
-    expect(textoOrdenPagar(ordenBase, proveedor)).not.toContain('🗒');
+    expect(textoOrdenPagar(ordenBase, proveedor)).not.toContain('📌');
   });
 
   it('omite el detalle cuando la orden no tiene ninguno', () => {
@@ -120,5 +135,100 @@ describe('textoOrdenPagar', () => {
     const txt = textoOrdenPagar(ordenBase, proveedor);
     expect(txt).not.toContain('Saldo a pagar');
     expect(txt).not.toContain('Abonado');
+  });
+});
+
+describe('textoOrdenAprobacion (aviso al Gerente General)', () => {
+  const pendiente = {
+    ...ordenBase,
+    estado: 'oc_creada',
+    solicitante: 'JAIME CAMPO',
+    unidad_solicitante: 'COCINA',
+    metodo_pago: [],
+    items: [
+      { sku: 'A', nombre: 'HARINA', cantidad: 10, precio: 5, unidad: 'KG' },
+      { sku: 'B', nombre: 'ACEITE', cantidad: 2, precio: 3, unidad: 'L', comprar: false },
+    ],
+  } as unknown as Orden;
+
+  it('sale exactamente con el formato acordado', () => {
+    expect(textoOrdenAprobacion(pendiente, proveedor)).toBe(
+      [
+        '⏳ *ORDEN PENDIENTE POR APROBACIÓN*',
+        '',
+        '🔹 *ORDEN:* OC-2026-0130',
+        '🏭 *Proveedor:* MAXI SHOES',
+        '👤 *Solicita:* JAIME CAMPO · COCINA',
+        '📝 *Detalle:* Dotación de calzado para motorizado (delivery). Para: Héctor Alagal.',
+        '📦 *Cantidad de productos:* 1',
+        '💵 *Total:* $79,00',
+        '',
+        '🏢 GOLDEN TOUCH 1127 C.A.',
+      ].join('\n'),
+    );
+  });
+
+  it('no habla del método de pago: todavía no se indica en esta etapa', () => {
+    expect(textoOrdenAprobacion(pendiente, proveedor)).not.toContain('💳');
+  });
+
+  it('marca URGENTE, lleva la nota y dice solo cuántos productos son, sin nombrarlos', () => {
+    const muchos = {
+      ...pendiente, urgente: true, notas: 'Aprobar hoy',
+      items: Array.from({ length: 13 }, (_, i) => ({ sku: 'S' + i, nombre: 'P' + i, cantidad: 1, precio: 1 })),
+    } as unknown as Orden;
+    const txt = textoOrdenAprobacion(muchos, proveedor);
+    expect(txt).toContain('🚨 *URGENTE*');
+    expect(txt).toContain('📌 *Nota:* Aprobar hoy');
+    expect(txt).toContain('📦 *Cantidad de productos:* 13');
+    expect(txt).not.toContain('P0');
+    expect(txt).not.toContain('más…');
+  });
+
+  it('un servicio se titula Control de Servicio y no usa selectores de emoji', () => {
+    const txt = textoOrdenAprobacion({ ...pendiente, tipo: 'servicio' } as unknown as Orden, proveedor);
+    expect(txt.startsWith('⏳ *CONTROL DE SERVICIO PENDIENTE POR APROBACIÓN*')).toBe(true);
+    expect(txt).not.toContain('\uFE0F');
+  });
+});
+
+describe('quién solicitó, quién autorizó y el analista a cargo', () => {
+  const personas = new Map([
+    ['gerente@gt.com', 'JESUS LOZADA'],
+    ['analista@gt.com', 'MARIA PEREZ'],
+    ['pide@gt.com', 'JAIME CAMPO'],
+  ]);
+  const confirmada = {
+    ...ordenBase,
+    estado: 'oc_aprobada',
+    solicitante: null,
+    solicitante_email: 'pide@gt.com',
+    unidad_solicitante: 'COCINA',
+    oc_aprobada_por: 'gerente@gt.com',
+    oc_creada_por: 'analista@gt.com',
+  } as unknown as Orden;
+
+  it('la orden por pagar dice quién solicita, quién autorizó y el analista de compras, tras el proveedor', () => {
+    const txt = textoOrdenPagar(confirmada, proveedor, personas);
+    expect(txt).toContain('👤 *Solicita:* JAIME CAMPO · COCINA');
+    expect(txt).toContain('✅ *Autorizó:* JESUS LOZADA');
+    expect(txt).toContain('🛒 *Analista de compras:* MARIA PEREZ');
+    expect(txt.indexOf('🏭')).toBeLessThan(txt.indexOf('👤'));
+    expect(txt.indexOf('✅')).toBeLessThan(txt.indexOf('💵'));
+  });
+
+  it('sin el mapa de personas usa el correo, y omite lo que no se sabe', () => {
+    const txt = textoOrdenPagar(confirmada, proveedor);
+    expect(txt).toContain('✅ *Autorizó:* gerente@gt.com');
+    const sinNada = textoOrdenPagar({ ...confirmada, solicitante_email: '', oc_aprobada_por: null, oc_creada_por: null } as unknown as Orden, proveedor);
+    expect(sinNada).not.toContain('Autorizó');
+    expect(sinNada).not.toContain('Analista');
+  });
+
+  it('el aviso de aprobación lleva quién solicita y el analista, pero no «Autorizó» (aún no se aprueba)', () => {
+    const txt = textoOrdenAprobacion({ ...confirmada, estado: 'oc_creada' } as unknown as Orden, proveedor, personas);
+    expect(txt).toContain('👤 *Solicita:* JAIME CAMPO · COCINA');
+    expect(txt).toContain('🛒 *Analista de compras:* MARIA PEREZ');
+    expect(txt).not.toContain('Autorizó');
   });
 });

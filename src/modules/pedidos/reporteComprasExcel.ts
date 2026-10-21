@@ -32,7 +32,9 @@ export interface OpcionesReporteComprasExcel {
   generadoEn?: string;
 }
 
-const COLS = 6;
+/* Dos columnas de monto ($ y Bs): una tercera «en su moneda» repetía el mismo
+   número de alguna de las dos. */
+const COLS = 5;
 
 export async function construirReporteComprasExcel(
   op: OpcionesReporteComprasExcel,
@@ -52,7 +54,7 @@ export async function construirReporteComprasExcel(
     views: [{ state: 'frozen', ySplit: 4 }],
   });
   ws.columns = [
-    { width: 28 }, { width: 16 }, { width: 72 }, { width: 16 }, { width: 14 }, { width: 18 },
+    { width: 28 }, { width: 16 }, { width: 72 }, { width: 18 }, { width: 22 },
   ];
   const borde = { style: 'thin' as const, color: { argb: PASTEL.borde } };
   const bordes = { top: borde, left: borde, bottom: borde, right: borde };
@@ -83,7 +85,7 @@ export async function construirReporteComprasExcel(
 
   // ── Encabezado de la tabla ──
   const cab = ws.getRow(4);
-  cab.values = ['TIPO', 'CÓDIGO', 'MOTIVO', 'MONTO', 'MONTO $', 'MONTO Bs'];
+  cab.values = ['TIPO', 'CÓDIGO', 'MOTIVO', 'MONTO $', 'MONTO Bs'];
   cab.height = 24;
   cab.eachCell((c) => {
     c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
@@ -129,7 +131,7 @@ export async function construirReporteComprasExcel(
       if (usd != null) totUsd = (totUsd ?? 0) + usd;
       if (bs != null) totBs = (totBs ?? 0) + bs;
 
-      const r = ws.addRow([grupo.titulo, f.codigo, f.motivo, f.monto, usd ?? '', bs ?? '']);
+      const r = ws.addRow([grupo.titulo, f.codigo, f.motivo, usd ?? '', bs ?? '']);
       r.eachCell({ includeEmpty: true }, (c, col) => {
         c.font = { name: 'Arial', size: 10 };
         c.border = bordes;
@@ -137,33 +139,33 @@ export async function construirReporteComprasExcel(
           vertical: 'middle', wrapText: col === 3, indent: col === 2 || col === 3 ? 1 : 0,
           horizontal: col >= 4 ? 'right' : 'left',
         };
-        if (col >= 4) c.numFmt = col === 4 ? fmtMoneda(f.moneda) : col === 5 ? fmtMoneda('USD') : fmtMoneda('Bs');
+        if (col >= 4) c.numFmt = col === 4 ? fmtMoneda('USD') : fmtMoneda('Bs');
       });
       if (zebra % 2 === 1) filaBanda(r, PASTEL.cebra);
       zebra += 1;
     }
 
-    const st = ws.addRow(['SUBTOTAL', '', '', '', subUsd ?? '', subBs ?? '']);
+    const st = ws.addRow(['SUBTOTAL', '', '', subUsd ?? '', subBs ?? '']);
     st.eachCell({ includeEmpty: true }, (c, col) => {
       c.font = { name: 'Arial', size: 10, bold: true, color: { argb: PASTEL.grupoTexto } };
       c.alignment = { vertical: 'middle', horizontal: col >= 4 ? 'right' : 'left', indent: col === 1 ? 1 : 0 };
-      if (col === 5) c.numFmt = fmtMoneda('USD');
-      if (col === 6) c.numFmt = fmtMoneda('Bs');
+      if (col === 4) c.numFmt = fmtMoneda('USD');
+      if (col === 5) c.numFmt = fmtMoneda('Bs');
     });
     filaBanda(st, PASTEL.grupo);
   }
 
   // ── Total general (el mismo número que el subtotal del PDF) ──
   if (total > 0) {
-    const tr = ws.addRow(['TOTAL GENERAL', `${total} orden(es)`, '', '', totUsd ?? '', totBs ?? '']);
+    const tr = ws.addRow(['TOTAL GENERAL', `${total} orden(es)`, '', totUsd ?? '', totBs ?? '']);
     tr.height = 24;
     tr.eachCell({ includeEmpty: true }, (c, col) => {
       c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.total } };
       c.alignment = { vertical: 'middle', horizontal: col >= 4 ? 'right' : 'left', indent: col === 1 ? 1 : 0 };
       c.border = bordes;
-      if (col === 5) c.numFmt = fmtMoneda('USD');
-      if (col === 6) c.numFmt = fmtMoneda('Bs');
+      if (col === 4) c.numFmt = fmtMoneda('USD');
+      if (col === 5) c.numFmt = fmtMoneda('Bs');
     });
   }
 

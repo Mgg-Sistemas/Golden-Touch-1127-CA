@@ -810,13 +810,36 @@ export async function aprobarOrdenConOferta(
  * REPARTO MULTIPROVEEDOR: si la OC es HIJA de un reparto, reelegir la devuelve a la
  * ORDEN PADRE con todas sus ofertas (ver `devolverHijaAPadre`) y lo que se obtiene de
  * vuelta es la madre, no la hija.
+ *
+ * CAMBIO DE PROVEEDOR al indicar el método de pago (20-10-2026): también se puede reabrir
+ * desde `confirmada_metodo` («Confirmada · indicar método de pago»). Cambiar de proveedor
+ * ES volver a cotizar: la OC regresa a la etapa de elección con todas las cotizaciones, se
+ * escoge una nueva y el Gerente General la aprueba de nuevo. Desde ahí se EXIGE un motivo
+ * y se ANULA la aprobación del Gerente (oc_aprobada_por/en). Todo queda en la traza
+ * (evento `eleccion_reabierta`): quién y cuándo, el motivo, el proveedor anterior, el total
+ * que tenía y quién había aprobado antes.
+ *
+ * Solo escribe si la OC sigue en el estado que se vio: si otro usuario ya la movió (p. ej.
+ * ya la mandó a pagar), no se pisa.
  */
-export async function reabrirEleccionOferta(o: Orden, actorEmail: string): Promise<Orden> {
-  if (o.estado !== 'oc_creada')
-    throw new Error('Solo se puede reelegir la oferta mientras la OC está «Pendiente por aprobación del Gerente General».');
+export async function reabrirEleccionOferta(
+  o: Orden,
+  actorEmail: string,
+  opciones: { motivo?: string } = {},
+): Promise<Orden> {
+  const desdeMetodoPago = o.estado === 'confirmada_metodo';
+  if (o.estado !== 'oc_creada' && !desdeMetodoPago)
+    throw new Error('Solo se puede reelegir la oferta mientras la OC está «Pendiente por aprobación del Gerente General» o «Confirmada (indicar método de pago)».');
+  const motivo = opciones.motivo?.trim() || null;
+  if (desdeMetodoPago && !motivo) throw new Error('Escribe el motivo del cambio de proveedor.');
+  // Otro usuario pudo mover la OC mientras esta pantalla estaba abierta (p. ej. ya la mandó a
+  // pagar): se comprueba ANTES de tocar nada, para no dejar las ofertas reactivadas a medias.
+  const MOVIDA = 'La orden cambió de estado mientras la editabas (otro usuario la movió). Actualiza la pantalla y revísala antes de reabrir la elección.';
+  const { data: vigente } = await supabase.from(TABLE).select('estado').eq('id', o.id).maybeSingle();
+  if (!vigente || (vigente as { estado: string }).estado !== o.estado) throw new Error(MOVIDA);
   // OC hija de un reparto: los ítems vuelven a la madre y se re-elige desde ahí, con
   // todas las ofertas de nuevo a la vista.
-  if (o.op_padre_id) return devolverHijaAPadre(o, actorEmail, 'eleccion_reabierta');
+  if (o.op_padre_id) return devolverHijaAPadre(o, actorEmail, 'eleccion_reabierta', motivo ?? undefined);
   // 1) Reactivar TODAS las ofertas de la orden (aceptada + descartadas → pendiente).
   const { error: ofErr } = await supabase
     .from('ofertas_proveedor')
@@ -825,16 +848,38 @@ export async function reabrirEleccionOferta(o: Orden, actorEmail: string): Promi
   if (ofErr) throw ofErr;
   // 2) Devolver la OC a «aprobada» para reabrir la comparativa/elección. Se limpian los
   //    datos de creación de la OC; al re-elegir se vuelven a fijar desde la oferta.
+  const extras: Record<string, unknown> = { oc_codigo: o.oc_codigo ?? null };
   const patch: Record<string, unknown> = {
     estado: 'aprobada' as EstadoOrden,
     oc_creada_por: null,
     oc_creada_en: null,
     oc_seleccion_observacion: null,
     oc_seleccion_adjuntos: [],
-    historial: appendHistorial(o, 'eleccion_reabierta', actorEmail, { oc_codigo: o.oc_codigo ?? null }),
   };
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (desdeMetodoPago) {
+    // El proveedor anterior, con su nombre tal como era hoy (no cambia si luego lo renombran).
+    let anterior: string | null = null;
+    if (o.proveedor_id) {
+      const { data: prov } = await supabase.from('proveedores').select('razon_social').eq('id', o.proveedor_id).maybeSingle();
+      anterior = (prov as { razon_social?: string } | null)?.razon_social ?? null;
+    }
+    Object.assign(extras, {
+      cambioProveedor: true,
+      motivo,
+      estadoAnterior: o.estado,
+      proveedorAnteriorId: o.proveedor_id ?? null,
+      proveedorAnterior: anterior,
+      totalAnterior: o.total ?? null,
+      aprobacionAnteriorPor: o.oc_aprobada_por ?? null,
+      aprobacionAnteriorEn: o.oc_aprobada_en ?? null,
+    });
+    // Se anula la aprobación del Gerente: volverá a aprobar la nueva cotización.
+    Object.assign(patch, { oc_aprobada_por: null, oc_aprobada_en: null });
+  }
+  patch.historial = appendHistorial(o, 'eleccion_reabierta', actorEmail, extras);
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).eq('estado', o.estado).select('*').maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error(MOVIDA);
   return data as Orden;
 }
 
@@ -1199,38 +1244,6 @@ export async function indicarMetodoPago(
       }
     }
   }
-  return data as Orden;
-}
-
-/**
- * Cambia el proveedor de una OC mientras se está indicando el método de pago
- * (estado `confirmada_metodo`). Como cambia el proveedor adjudicado, la OC
- * VUELVE A APROBACIÓN DEL GERENTE: pasa a `oc_creada` y se limpia la aprobación
- * previa (oc_aprobada_por/en). No cambian ítems ni total. Queda en el historial.
- */
-export async function cambiarProveedorOrden(
-  o: Orden,
-  nuevoProveedorId: string,
-  actorEmail: string,
-): Promise<Orden> {
-  if (!nuevoProveedorId) throw new Error('Elige el proveedor.');
-  if (nuevoProveedorId === o.proveedor_id) return o;
-  const esContraEntregaRecibida = o.estado === 'recibida' && o.condiciones_pago === 'contra_entrega';
-  if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida) {
-    throw new Error('Solo se puede cambiar el proveedor mientras se indica el método de pago.');
-  }
-  const { data, error } = await supabase.from(TABLE).update({
-    proveedor_id: nuevoProveedorId,
-    // Vuelve a aprobación del Gerente General.
-    estado: 'oc_creada' as EstadoOrden,
-    oc_aprobada_por: null,
-    oc_aprobada_en: null,
-    historial: appendHistorial(o, 'proveedor_cambiado', actorEmail, {
-      proveedorAnteriorId: o.proveedor_id, proveedorId: nuevoProveedorId,
-      nota: 'Cambio de proveedor al indicar método de pago · vuelve a aprobación del Gerente General',
-    }),
-  }).eq('id', o.id).select('*').single();
-  if (error) throw error;
   return data as Orden;
 }
 

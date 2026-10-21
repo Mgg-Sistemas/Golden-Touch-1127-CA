@@ -20,6 +20,8 @@ import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
 import { supabase } from '@/shared/lib/supabase';
 import { prefetchRuta, prefetchRutasEnIdle } from '@/shared/lib/routePrefetch';
+import { intentarSalir, vaciarMinimizadas } from '@/shared/lib/minimizadas';
+import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -176,6 +178,7 @@ export function AppShell() {
   useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
 
   async function handleLogout() {
+    vaciarMinimizadas();
     await signOut();
     navigate('/login');
   }
@@ -299,7 +302,7 @@ export function AppShell() {
       <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <NavLink to="/app" className="brand">
+          <NavLink to="/app" className="brand" onClick={(e) => { if (!intentarSalir('/app')) e.preventDefault(); }}>
             <img src="/LOGO.jpg" alt="GOLDEN TOUCH 1127 C.A." />
             <div className="brand-text">
               <strong>GOLDEN TOUCH 1127 C.A.</strong>
@@ -476,6 +479,8 @@ export function AppShell() {
         </div>
       </header>
 
+      <AvisoSalidaModulo />
+
       <main className="main">
         <AvisoActualizacion />
         <AvisoCombustibleBajo />
@@ -536,6 +541,8 @@ function NavItem({
   const precargar = () => { void prefetchRuta(to); };
   return (
     <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end={!incluyeSubrutas}
+      // Con pestañas minimizadas, salir del módulo pide confirmación (minimizadas.ts).
+      onClick={(e) => { if (!intentarSalir(to)) e.preventDefault(); }}
       onMouseEnter={precargar} onFocus={precargar} onTouchStart={precargar}>
       <span className="icn">{icon}</span> <span>{label}</span>
     </NavLink>

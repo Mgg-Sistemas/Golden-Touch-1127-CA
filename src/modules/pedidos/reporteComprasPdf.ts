@@ -124,15 +124,20 @@ export async function construirReporteComprasPdf(
       String(i + 1),
       f.codigo,
       f.motivo,
-      fmt.montoMoneda(f.monto, f.moneda),
-      fmt.money(f.usd),
-      tasa > 0 ? bsNum(f.bs) : '—',
+      // Sin tasa BCV solo se conoce la moneda propia de la orden: la otra va en «—»
+      // (no un 0 que parezca un monto).
+      tasa > 0 || f.moneda === 'USD' ? fmt.money(f.usd) : '—',
+      tasa > 0 || f.moneda === 'Bs' ? bsNum(f.bs) : '—',
     ]);
+    // Solo dos columnas de monto ($ y Bs): una tercera con el monto «en su moneda»
+    // repetía el mismo número de alguna de las dos.
     autoTable(doc, {
       startY: y,
-      head: [['ITEM', 'CÓDIGO', 'MOTIVO', 'MONTO', 'MONTO $', 'MONTO Bs']],
+      head: [['ITEM', 'CÓDIGO', 'MOTIVO', 'MONTO $', 'MONTO Bs']],
       body,
-      foot: [['', '', '', 'SUBTOTAL', fmt.money(grupo.subUsd), tasa > 0 ? bsNum(grupo.subBs) : '—']],
+      foot: [['', '', 'SUBTOTAL',
+        tasa > 0 || grupo.subUsd > 0 ? fmt.money(grupo.subUsd) : '—',
+        tasa > 0 || grupo.subBs > 0 ? bsNum(grupo.subBs) : '—']],
       styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
       alternateRowStyles: { fillColor: PASTEL.cebra },
@@ -142,9 +147,8 @@ export async function construirReporteComprasPdf(
         0: { halign: 'center', cellWidth: 32 },
         1: { halign: 'center', cellWidth: 74 },
         2: { fontSize: 9.5 }, // motivo: se lleva el ancho restante
-        3: { halign: 'right', cellWidth: 78 },
-        4: { halign: 'right', cellWidth: 64 },
-        5: { halign: 'right', cellWidth: 74 },
+        3: { halign: 'right', cellWidth: 84 },
+        4: { halign: 'right', cellWidth: 96 },
       },
       margin: MARGIN,
     });

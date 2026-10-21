@@ -8,11 +8,13 @@ interface ModalProps {
    *  van a pantalla completa (compact=false, por defecto). */
   compact?: boolean;
   onClose: () => void;
+  /** Si viene, el encabezado muestra «—» para minimizar la ventana a la barra inferior (ver minimizadas.ts). */
+  onMinimizar?: () => void;
   children: ReactNode;
   footer?: ReactNode;
 }
 
-export function Modal({ title, size = 'md', compact = false, onClose, children, footer }: ModalProps) {
+export function Modal({ title, size = 'md', compact = false, onClose, onMinimizar, children, footer }: ModalProps) {
   // Regla del sistema: el modal NO se cierra por clic fuera ni con Escape; solo
   // con la ✕ (o un botón explícito del pie). Así no se pierde lo cargado por error.
   return createPortal(
@@ -20,7 +22,12 @@ export function Modal({ title, size = 'md', compact = false, onClose, children, 
       <div className={`modal ${compact ? 'modal-compact' : ''} ${size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''}`}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{title ?? ''}</h3>
-          <button className="btn btn-icon btn-ghost" onClick={onClose} title="Cerrar" aria-label="Cerrar">✕</button>
+          <div style={{ display: 'flex', gap: '.35rem' }}>
+            {onMinimizar && (
+              <button type="button" className="btn btn-icon btn-ghost" onClick={onMinimizar} title="Minimizar (queda en la barra de abajo)" aria-label="Minimizar">—</button>
+            )}
+            <button className="btn btn-icon btn-ghost" onClick={onClose} title="Cerrar" aria-label="Cerrar">✕</button>
+          </div>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
