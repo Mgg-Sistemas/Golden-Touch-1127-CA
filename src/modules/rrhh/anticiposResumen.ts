@@ -217,6 +217,26 @@ export function errorAbono(saldo: number, monto: number | null, fecha: string, f
   return null;
 }
 
+/** Qué le falta a la edición de un abono existente; null si está bien. */
+export function errorEdicionAbono(
+  montoTotalPrestamo: number,
+  otrosAbonos: number,
+  monto: number | null,
+  fecha: string,
+  fechaPrestamo?: string | null,
+): string | null {
+  if (monto == null || !(monto > 0)) return 'Indica el monto del abono (debe ser mayor que 0).';
+  const maxPermitido = Math.max(0, r2(montoTotalPrestamo - otrosAbonos));
+  if (r2(monto) > maxPermitido) {
+    return `El monto supera el total disponible del préstamo (máximo posible para este abono: ${maxPermitido.toFixed(2)} $).`;
+  }
+  if (!esFecha(fecha)) return 'Indica la fecha del abono.';
+  if (fechaPrestamo && fecha < String(fechaPrestamo).slice(0, 10)) {
+    return 'El abono no puede ser anterior a la fecha del préstamo.';
+  }
+  return null;
+}
+
 export const ETIQUETA_TIPO: Record<AnticipoPrestamo['tipo'], string> = { anticipo: 'Anticipo', prestamo: 'Préstamo' };
 export const ETIQUETA_ORIGEN: Record<AnticipoPago['origen'], string> = {
   nomina: 'Nómina', manual: 'Abono manual', historico: 'Histórico',

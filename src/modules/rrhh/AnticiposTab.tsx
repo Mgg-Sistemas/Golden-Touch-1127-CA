@@ -388,8 +388,16 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
       )}
 
       {detalle && (
-        <AnticipoDetalleModal anticipo={detalle} persona={personas.get(detalle.personal_id)} empresa={empresa}
-          canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setDetalleId(null)} />
+        <AnticipoDetalleModal
+          anticipo={detalle}
+          persona={personas.get(detalle.personal_id)}
+          empresa={empresa}
+          canWrite={canWrite}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setDetalleId(null)}
+          onActualizado={() => { void recargar(); }}
+        />
       )}
 
       {porBorrar && (
