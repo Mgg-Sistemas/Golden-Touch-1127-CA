@@ -162,6 +162,11 @@ describe('el catálogo de GT: un código, un porcentaje por sujeto', () => {
 });
 
 describe('la fila que se escribe en el libro', () => {
+  it('el ISAE del registro suelto guarda el municipio; los demás impuestos no (D41)', () => {
+    expect(filaGtDeNueva(nueva({ tipo: 'municipal', municipio: ' Caroní ' }), { entero: 1, texto: 'x' }).municipio).toBe('Caroní');
+    expect(filaGtDeNueva(nueva({ tipo: 'iva', municipio: 'Caroní' }), { entero: 1, texto: 'x' }).municipio).toBeNull();
+  });
+
   it('una recibida no lleva proveedor (la contraparte es un cliente) y guarda RIF y nombre', () => {
     const f = filaGtDeNueva(nueva({ direccion: 'recibida', contraparteId: 'cliente-1' }), { entero: null, texto: 'A-1' });
     expect(f.rol).toBe('sufrida');

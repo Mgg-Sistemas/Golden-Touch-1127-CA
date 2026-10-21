@@ -15,6 +15,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 export interface ResultadoPeriodo {
   /** Retenciones que cambiaron de estado. */
@@ -110,7 +111,7 @@ export function nombrePeriodo(p: Pick<PeriodoFiscal, 'periodo' | 'tramo' | 'peri
 export type EstadoPeriodo = 'declarado' | 'vencido' | 'abierto' | 'otro_sistema';
 
 /** Cómo está hoy: declarado; lo declara el otro sistema; vencido sin declarar; abierto. */
-export function estadoPeriodo(p: Pick<PeriodoFiscal, 'declaradoEn' | 'declara' | 'vence'>, hoy: string = new Date().toISOString().slice(0, 10)): EstadoPeriodo {
+export function estadoPeriodo(p: Pick<PeriodoFiscal, 'declaradoEn' | 'declara' | 'vence'>, hoy: string = hoyVenezuela()): EstadoPeriodo {
   if (p.declaradoEn) return 'declarado';
   if (p.declara === 'otro_sistema') return 'otro_sistema';
   if (p.vence && p.vence < hoy) return 'vencido';

@@ -19,6 +19,7 @@ import type { SujetoRetenido } from './retencionesCalculo';
 import { sujetoDeGt } from './retencionesFiscal.repository';
 import { sujetoDesdePersona, type TipoPersona } from './residenciaSujeto';
 import { errorRetencion } from './erroresRetencion';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_PERFILES = 'retencion_contraparte_perfiles';
 const T_ACTIVIDADES = 'retencion_contraparte_actividades';
@@ -44,7 +45,8 @@ export const TEXTO_FALTA: Record<Falta, string> = {
 
 const texto = (v: unknown) => (v == null || String(v).trim() === '' ? null : String(v));
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 
 /* ───────── La lista: proveedor + estado del perfil ───────── */
 

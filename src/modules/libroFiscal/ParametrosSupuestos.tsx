@@ -11,8 +11,12 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { activarSupuesto, faltaEnSupuesto, guardarSupuesto, listSupuestos, vigenteEn, type Supuesto, type SupuestoDatos } from './motivosSupuestos.repository';
 import { opcionesImpuestoEnte } from './entes.repository';
 import { fechaCorta, labelClave } from './parametrosR1';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { numeroATexto } from './validarCarga';
+import { leerSupuestoNumeros, pistaLeido } from './parametrosNumeros';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
 export function ParametrosSupuestos({ puedeEditar }: { puedeEditar: boolean }) {
@@ -78,14 +82,18 @@ function SupuestoModal({ supuesto, impuestos, onClose, onHecho }: {
   const [s, setS] = useState<SupuestoDatos>(supuesto
     ? { impuestoClave: supuesto.impuestoClave, codigo: supuesto.codigo, texto: supuesto.texto, pct: supuesto.pct, orden: supuesto.orden, desde: supuesto.desde, hasta: supuesto.hasta, fuente: supuesto.fuente, activo: supuesto.activo }
     : { impuestoClave: 'IVA', codigo: '', texto: '', pct: 100, orden: 10, desde: hoyIso(), hasta: null, fuente: null, activo: true });
-  const [pctTexto, setPctTexto] = useState(String(s.pct));
+  const [pctTexto, setPctTexto] = useState(numeroATexto(s.pct));
+  const [ordenTexto, setOrdenTexto] = useState(numeroATexto(s.orden));
   const [nota, setNota] = useState(supuesto ? '' : 'Alta del supuesto');
   const [guardando, setGuardando] = useState(false);
-  const datos = { ...s, pct: Number(pctTexto.replace(',', '.')) };
-  const falta = faltaEnSupuesto(datos, nota);
+  // Un solo lector: % vacío falta (no se guarda 0 %) y lo ilegible bloquea.
+  const numeros = leerSupuestoNumeros(pctTexto, ordenTexto);
+  const datos: SupuestoDatos = { ...s, ...('error' in numeros ? {} : numeros.valor) };
+  const falta = 'error' in numeros ? numeros.error : faltaEnSupuesto(datos, nota);
   const set = (p: Partial<SupuestoDatos>) => setS((x) => ({ ...x, ...p }));
 
   async function guardar() {
+    if (falta) { toast(falta, 'error'); return; }
     setGuardando(true);
     try { await guardarSupuesto(datos, nota, supuesto?.id); toast('Supuesto guardado.', 'success'); onHecho(); } catch (e) { toast(mensaje(e, 'No se pudo guardar.'), 'error'); setGuardando(false); }
   }
@@ -111,8 +119,8 @@ function SupuestoModal({ supuesto, impuestos, onClose, onHecho }: {
             <label>Código</label>
             <input className="input mono" value={s.codigo} disabled={!!supuesto} onChange={(e) => set({ codigo: e.target.value.replace(/[^A-Za-z0-9_]/g, '') })} />
           </div>
-          <div className="form-row" style={{ flex: '0 1 100px' }}><label>%</label><input className="input mono" inputMode="decimal" value={pctTexto} onChange={(e) => setPctTexto(e.target.value)} /></div>
-          <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" inputMode="numeric" value={String(s.orden)} onChange={(e) => set({ orden: Number(e.target.value.replace(/\D/g, '')) || 0 })} /></div>
+          <div className="form-row" style={{ flex: '0 1 100px' }}><label>%</label><input className="input mono" type="text" inputMode="decimal" value={pctTexto} onChange={(e) => setPctTexto(e.target.value)} />{pistaLeido(pctTexto, 0) && <small className="hint muted">{pistaLeido(pctTexto, 0)}</small>}</div>
+          <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" type="text" inputMode="numeric" value={ordenTexto} onChange={(e) => setOrdenTexto(e.target.value)} /><small className="hint muted">Vacío = 10</small></div>
         </div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '0 1 160px' }}><label>Desde</label><input className="input" type="date" value={s.desde} onChange={(e) => set({ desde: e.target.value })} /></div>
@@ -120,7 +128,7 @@ function SupuestoModal({ supuesto, impuestos, onClose, onHecho }: {
           <div className="form-row" style={{ flex: '2 1 200px' }}><label>Fuente</label><input className="input" value={s.fuente ?? ''} onChange={(e) => set({ fuente: e.target.value })} placeholder="Providencia y artículo" /></div>
         </div>
         <div className="form-row"><label>Motivo del cambio</label><input className="input" value={nota} onChange={(e) => setNota(e.target.value)} /></div>
-        {falta && (s.texto || s.codigo || nota) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && (s.texto || s.codigo || nota || 'error' in numeros) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
       </fieldset>
     </Modal>
   );

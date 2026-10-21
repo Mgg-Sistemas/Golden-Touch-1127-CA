@@ -20,8 +20,12 @@ import {
 import { listEntes, opcionesImpuestoEnte, type Ente } from './entes.repository';
 import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
 import { listTarifas, r5Disponible, type Tarifa } from './tarifas.repository';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { numeroATexto } from './validarCarga';
+import { leerEntero, leerValorCodigo, pistaLeido } from './parametrosNumeros';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 export function ParametrosClasificaciones({ puedeEditar, impuestoClave }: { puedeEditar: boolean; impuestoClave?: string }) {
   const [clasificaciones, setClasificaciones] = useState<Clasificacion[] | null>(null);
@@ -131,7 +135,6 @@ const VALOR_VACIO: DatosValorCodigo = { sujeto: null, pct: null, basePct: 100, m
 const datosDe = (v: ValorCodigo | null, sujeto: SujetoGt | null): DatosValorCodigo => (v
   ? { sujeto, pct: v.pct, basePct: v.basePct, minimo: v.minimo, minimoUnidad: v.minimoUnidad, sustraendoFactor: v.sustraendoFactor, fuente: v.fuente, nota: v.nota }
   : { ...VALOR_VACIO, sujeto });
-const numOpt = (s: string): number | null => { const t = s.trim().replace(',', '.'); return t === '' ? null : Number(t); };
 
 function ValoresModal({ codigo, puedeEditar, onClose, onCambio }: { codigo: CodigoClasificacion; puedeEditar: boolean; onClose: () => void; onCambio: () => void }) {
   const [editar, setEditar] = useState<{ sujeto: SujetoGt | null; modo: 'nuevo' | 'corregir' } | null>(null);
@@ -182,11 +185,11 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
   const vig = valorVigenteCodigo(propios, sujeto);
   const minimo = modo === 'nuevo' ? desdeMinimo(propios[0] ?? null) : null;
   const inicial = datosDe(vig, sujeto);
-  const [pct, setPct] = useState(inicial.pct == null ? '' : String(inicial.pct));
-  const [basePct, setBasePct] = useState(String(inicial.basePct));
-  const [min, setMin] = useState(inicial.minimo == null ? '' : String(inicial.minimo));
+  const [pct, setPct] = useState(numeroATexto(inicial.pct));
+  const [basePct, setBasePct] = useState(numeroATexto(inicial.basePct));
+  const [min, setMin] = useState(numeroATexto(inicial.minimo));
   const [unidad, setUnidad] = useState<UnidadMinimo>(inicial.minimoUnidad ?? 'UT');
-  const [sustraendo, setSustraendo] = useState(inicial.sustraendoFactor == null ? '' : String(inicial.sustraendoFactor));
+  const [sustraendo, setSustraendo] = useState(numeroATexto(inicial.sustraendoFactor));
   const [fuente, setFuente] = useState(modo === 'corregir' ? inicial.fuente ?? '' : '');
   const [nota, setNota] = useState(modo === 'corregir' ? inicial.nota ?? '' : '');
   const [desde, setDesde] = useState(minimo && minimo > hoyIso() ? minimo : hoyIso());
@@ -197,15 +200,18 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
   const [tarifaId, setTarifaId] = useState(vig?.tarifaId ?? '');
   useEffect(() => { r5Disponible().then((si) => (si ? listTarifas().then(setTarifas) : setTarifas(null))).catch(() => setTarifas(null)); }, []);
 
-  const datos: DatosValorCodigo = {
+  // Un solo lector de números: lo que no se entiende bloquea el guardado (nunca pasa a vacío ni a 0).
+  const numeros = leerValorCodigo({ pct, basePct, minimo: min, sustraendo }, !!tarifaId);
+  const datos: DatosValorCodigo | null = 'error' in numeros ? null : {
     ...(tarifas ? { tarifaId: tarifaId || null } : {}),
-    sujeto, pct: tarifaId ? null : numOpt(pct), basePct: numOpt(basePct) ?? NaN, minimo: numOpt(min), minimoUnidad: numOpt(min) == null ? null : unidad,
-    sustraendoFactor: numOpt(sustraendo), fuente, nota,
+    sujeto, ...numeros.valor, minimoUnidad: numeros.valor.minimo == null ? null : unidad, fuente, nota,
   };
-  const falta = faltaEnValorCodigo(datos, modo === 'nuevo' ? desde : '2000-01-01', motivo)
-    ?? (minimo && modo === 'nuevo' && desde < minimo ? `El valor nuevo tiene que empezar el ${fechaCorta(minimo)} o después.` : null);
+  const falta = 'error' in numeros ? numeros.error
+    : faltaEnValorCodigo(datos as DatosValorCodigo, modo === 'nuevo' ? desde : '2000-01-01', motivo)
+      ?? (minimo && modo === 'nuevo' && desde < minimo ? `El valor nuevo tiene que empezar el ${fechaCorta(minimo)} o después.` : null);
 
   async function guardar() {
+    if (!datos || falta) { if (falta) toast(falta, 'error'); return; }
     setGuardando(true);
     try {
       if (modo === 'corregir' && vig) await corregirValorCodigo(vig.id, datos, motivo);
@@ -234,14 +240,14 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
               </select>
             </div>
           )}
-          {!tarifaId && <div className="form-row" style={{ flex: '0 1 110px' }}><label>%</label><input className="input mono" inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value)} /></div>}
-          <div className="form-row" style={{ flex: '0 1 130px' }}><label>Porción de la base (%)</label><input className="input mono" inputMode="decimal" value={basePct} onChange={(e) => setBasePct(e.target.value)} /></div>
-          <div className="form-row" style={{ flex: '0 1 130px' }}><label>Mínimo</label><input className="input mono" inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value)} /></div>
+          {!tarifaId && <div className="form-row" style={{ flex: '0 1 110px' }}><label>%</label><input className="input mono" type="text" inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value)} /><Pista texto={pct} /></div>}
+          <div className="form-row" style={{ flex: '0 1 130px' }}><label>Porción de la base (%)</label><input className="input mono" type="text" inputMode="decimal" value={basePct} onChange={(e) => setBasePct(e.target.value)} /><Pista texto={basePct} /></div>
+          <div className="form-row" style={{ flex: '0 1 130px' }}><label>Mínimo</label><input className="input mono" type="text" inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value)} /><Pista texto={min} /></div>
           <div className="form-row" style={{ flex: '0 1 100px' }}>
             <label>Unidad</label>
             <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as UnidadMinimo)}><option value="UT">UT</option><option value="Bs">Bs</option><option value="MMV">MMV</option></select>
           </div>
-          <div className="form-row" style={{ flex: '0 1 150px' }}><label>Factor del sustraendo</label><input className="input mono" inputMode="decimal" value={sustraendo} onChange={(e) => setSustraendo(e.target.value)} /></div>
+          <div className="form-row" style={{ flex: '0 1 150px' }}><label>Factor del sustraendo</label><input className="input mono" type="text" inputMode="decimal" value={sustraendo} onChange={(e) => setSustraendo(e.target.value)} /><Pista texto={sustraendo} /></div>
         </div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           {modo === 'nuevo' && <div className="form-row" style={{ flex: '0 1 160px' }}><label>Vale desde</label><input className="input" type="date" value={desde} min={minimo ?? undefined} onChange={(e) => setDesde(e.target.value)} /></div>}
@@ -249,10 +255,16 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
         </div>
         <div className="form-row"><label>Nota</label><input className="input" value={nota} onChange={(e) => setNota(e.target.value)} /></div>
         <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></div>
-        {falta && motivo && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && (motivo || 'error' in numeros) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
       </fieldset>
     </Modal>
   );
+}
+
+/** «Se leyó 36.500,00» debajo de un campo de número, cuando el texto tiene punto o coma. */
+function Pista({ texto }: { texto: string }) {
+  const p = pistaLeido(texto, 0);
+  return p ? <small className="hint muted">{p}</small> : null;
 }
 
 function CodigoModal({ clasificacion, onClose, onHecho }: { clasificacion: Clasificacion; onClose: () => void; onHecho: () => void }) {
@@ -260,23 +272,26 @@ function CodigoModal({ clasificacion, onClose, onHecho }: { clasificacion: Clasi
   const [descripcion, setDescripcion] = useState('');
   const [orden, setOrden] = useState('100');
   const [guardando, setGuardando] = useState(false);
+  const ordenLeido = leerEntero(orden, 'el orden', 100);
   async function guardar() {
+    if ('error' in ordenLeido) { toast(ordenLeido.error, 'error'); return; }
     setGuardando(true);
-    try { await crearCodigo(clasificacion.id, { codigo, descripcion, orden: Number(orden) || 100 }); toast('Código creado. Cárgale sus valores con «Valores».', 'success'); onHecho(); } catch (e) { toast(mensaje(e, 'No se pudo crear.'), 'error'); setGuardando(false); }
+    try { await crearCodigo(clasificacion.id, { codigo, descripcion, orden: ordenLeido.valor }); toast('Código creado. Cárgale sus valores con «Valores».', 'success'); onHecho(); } catch (e) { toast(mensaje(e, 'No se pudo crear.'), 'error'); setGuardando(false); }
   }
   return (
     <Modal title={`Nuevo código · ${clasificacion.nombre}`} onClose={() => !guardando && onClose()}
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={!codigo.trim() || descripcion.trim().length < 2 || guardando}>{guardando ? 'Guardando…' : 'Crear'}</button>
+          <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={!codigo.trim() || descripcion.trim().length < 2 || 'error' in ordenLeido || guardando}>{guardando ? 'Guardando…' : 'Crear'}</button>
         </>
       )}>
       <fieldset disabled={guardando} style={{ border: 0, padding: 0, margin: 0 }}>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '1 1 120px' }}><label>Código</label><input className="input mono" value={codigo} onChange={(e) => setCodigo(e.target.value)} /></div>
-          <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" inputMode="numeric" value={orden} onChange={(e) => setOrden(e.target.value.replace(/\D/g, ''))} /></div>
+          <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" type="text" inputMode="numeric" value={orden} onChange={(e) => setOrden(e.target.value)} /><small className="hint muted">Vacío = 100</small></div>
         </div>
+        {'error' in ordenLeido && <small className="hint" style={{ color: 'var(--warning)' }}>{ordenLeido.error}</small>}
         <div className="form-row"><label>Descripción</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} /></div>
       </fieldset>
     </Modal>
@@ -341,12 +356,18 @@ function CargaModal({ clasificacion, codigos, onClose, onHecho }: { clasificacio
               <thead><tr><th>Qué pasa</th><th>Código</th><th>Descripción</th><th>Alícuota</th><th>Mínimo</th></tr></thead>
               <tbody>
                 {plan.nuevos.map((f) => <tr key={`n${f.codigo}`}><td>Nuevo</td><td className="mono">{f.codigo}</td><td>{f.descripcion}</td><td>{f.alicuota ?? '—'}</td><td>{f.minimo ?? '—'}</td></tr>)}
-                {plan.cambian.map((c) => (
-                  <tr key={`c${c.fila.codigo}`}>
-                    <td>{[c.cambiaDescripcion && 'descripción', c.cambiaValor && 'valor'].filter(Boolean).join(' y ')}</td>
-                    <td className="mono">{c.fila.codigo}</td><td>{c.fila.descripcion}</td><td>{c.fila.alicuota ?? '—'}</td><td>{c.fila.minimo ?? '—'}</td>
-                  </tr>
-                ))}
+                {plan.cambian.map((c) => {
+                  // Lo que la fila no trae se conserva del valor vigente (y así se ve antes de cargar).
+                  const v = c.cambiaValor ? valorVigenteCodigo(c.codigo.valores, null, desde) : null;
+                  const alicuota = c.fila.alicuota ?? (v?.tarifaId ? 'tarifa (se conserva)' : v?.pct != null ? `${v.pct} (se conserva)` : '—');
+                  const minimoTxt = c.fila.minimo ?? (v?.minimo != null ? `${v.minimo} ${v.minimoUnidad ?? ''} (se conserva)` : '—');
+                  return (
+                    <tr key={`c${c.fila.codigo}`}>
+                      <td>{[c.cambiaDescripcion && 'descripción', c.cambiaValor && 'valor'].filter(Boolean).join(' y ')}</td>
+                      <td className="mono">{c.fila.codigo}</td><td>{c.fila.descripcion}</td><td>{alicuota}</td><td>{minimoTxt}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

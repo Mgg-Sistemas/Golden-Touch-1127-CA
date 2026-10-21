@@ -14,10 +14,13 @@ import {
   versionAplicable, type Tarifa, type Tramo, type UnidadTarifa, type VersionTarifa,
 } from './tarifas.repository';
 import { desdeMinimo, fechaCorta } from './parametrosR1';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { numeroATexto } from './validarCarga';
+import { filasATramos, leerObligatorio, leerOpcional, pistaLeido, type FilaTramo } from './parametrosNumeros';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
-const numOpt = (s: string): number | null => { const t = s.trim().replace(',', '.'); return t === '' ? null : Number(t); };
 
 export function ParametrosTarifas({ puedeEditar, impuestoClave }: { puedeEditar: boolean; impuestoClave?: string }) {
   const [tarifas, setTarifas] = useState<Tarifa[] | null>(null);
@@ -74,18 +77,16 @@ function TarifaCard({ tarifa, puedeEditar, onCambio }: { tarifa: Tarifa; puedeEd
   );
 }
 
-type FilaTramo = { id?: string; desde: string; hasta: string; pct: string; sustraendo: string };
-const aFila = (t: Tramo): FilaTramo => ({ id: t.id, desde: String(t.desdeMonto), hasta: t.hastaMonto == null ? '' : String(t.hastaMonto), pct: String(t.pct), sustraendo: String(t.sustraendo) });
-const aTramo = (f: FilaTramo): Tramo => ({ id: f.id, desdeMonto: numOpt(f.desde) ?? NaN, hastaMonto: numOpt(f.hasta), pct: numOpt(f.pct) ?? NaN, sustraendo: numOpt(f.sustraendo) ?? 0 });
+const aFila = (t: Tramo): FilaTramo => ({ id: t.id, desde: numeroATexto(t.desdeMonto), hasta: numeroATexto(t.hastaMonto), pct: numeroATexto(t.pct), sustraendo: numeroATexto(t.sustraendo) });
 
 function EditorTramos({ tarifa, version, puedeEditar, onCambio }: { tarifa: Tarifa; version: VersionTarifa; puedeEditar: boolean; onCambio: () => void }) {
   const editable = puedeEditar && !version.cerrada;
   const [filas, setFilas] = useState<FilaTramo[]>(version.tramos.map(aFila));
   const [trabajando, setTrabajando] = useState(false);
   useEffect(() => { setFilas(version.tramos.map(aFila)); }, [version]);
-  const tramos = useMemo(() => filas.map(aTramo), [filas]);
-  const ilegibles = tramos.some((t) => !Number.isFinite(t.desdeMonto) || !Number.isFinite(t.pct));
-  const problemas = ilegibles ? ['hay montos o % que no se entienden'] : revisarTramos(tramos);
+  const leidos = useMemo(() => filasATramos(filas), [filas]);
+  const ilegible = 'error' in leidos ? leidos.error : null;
+  const problemas = 'error' in leidos ? [leidos.error] : revisarTramos(leidos.valor);
   const set = (i: number, p: Partial<FilaTramo>) => setFilas((xs) => xs.map((x, j) => (j === i ? { ...x, ...p } : x)));
   const cambio = JSON.stringify(filas) !== JSON.stringify(version.tramos.map(aFila));
 
@@ -95,8 +96,9 @@ function EditorTramos({ tarifa, version, puedeEditar, onCambio }: { tarifa: Tari
     try { await quitarTramo(f.id); toast('Tramo quitado.', 'success'); onCambio(); } catch (e) { toast(mensaje(e, 'No se pudo quitar.'), 'error'); }
   }
   async function guardar() {
+    if ('error' in leidos) { toast(leidos.error, 'error'); return; }
     setTrabajando(true);
-    try { await guardarTramos(version.id, tramos); toast('Tramos guardados.', 'success'); onCambio(); } catch (e) { toast(mensaje(e, 'No se pudieron guardar.'), 'error'); } finally { setTrabajando(false); }
+    try { await guardarTramos(version.id, leidos.valor); toast('Tramos guardados.', 'success'); onCambio(); } catch (e) { toast(mensaje(e, 'No se pudieron guardar.'), 'error'); } finally { setTrabajando(false); }
   }
   async function publicar() {
     setTrabajando(true);
@@ -112,12 +114,14 @@ function EditorTramos({ tarifa, version, puedeEditar, onCambio }: { tarifa: Tari
     <div>
       <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.3rem' }}>{version.motivo}{version.fuente ? ` · ${version.fuente}` : ''}</div>
       <table className="table" style={{ fontSize: '.8rem', width: '100%' }}>
-        <thead><tr><th>Más de ({tarifa.unidad})</th><th>Hasta ({tarifa.unidad})</th><th>%</th><th>Sustraendo ({tarifa.unidad})</th>{editable && <th aria-label="Quitar" />}</tr></thead>
+        <thead><tr><th>Más de ({tarifa.unidad})</th><th>Hasta ({tarifa.unidad}){editable && <div className="muted" style={{ fontWeight: 400, fontSize: '.72rem' }}>Vacío = sin tope</div>}</th><th>%</th><th>Sustraendo ({tarifa.unidad})</th>{editable && <th aria-label="Quitar" />}</tr></thead>
         <tbody>
           {filas.map((f, i) => (
             <tr key={f.id ?? `n${i}`}>
               {(['desde', 'hasta', 'pct', 'sustraendo'] as const).map((k) => (
-                <td key={k}>{editable ? <input className="input mono" inputMode="decimal" value={f[k]} placeholder={k === 'hasta' ? 'sin tope' : ''} onChange={(e) => set(i, { [k]: e.target.value })} aria-label={k} /> : (k === 'hasta' && !f.hasta ? 'sin tope' : f[k])}</td>
+                <td key={k}>{editable
+                  ? <><input className="input mono" type="text" inputMode="decimal" value={f[k]} placeholder={k === 'hasta' ? 'sin tope' : ''} onChange={(e) => set(i, { [k]: e.target.value })} aria-label={k} />{pistaLeido(f[k], 0) && <small className="hint muted">{pistaLeido(f[k], 0)}</small>}</>
+                  : (k === 'hasta' && !f.hasta ? 'sin tope' : f[k])}</td>
               ))}
               {editable && <td><button type="button" className="btn btn-sm btn-ghost" onClick={() => void quitar(i)}>Quitar</button></td>}
             </tr>
@@ -127,7 +131,7 @@ function EditorTramos({ tarifa, version, puedeEditar, onCambio }: { tarifa: Tari
       {editable && (
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.3rem' }}>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFilas((xs) => [...xs, { desde: xs.length ? xs[xs.length - 1].hasta : '0', hasta: '', pct: '', sustraendo: '0' }])}>Agregar tramo</button>
-          <button type="button" className="btn btn-sm" onClick={() => void guardar()} disabled={!cambio || ilegibles || trabajando}>Guardar tramos</button>
+          <button type="button" className="btn btn-sm" onClick={() => void guardar()} disabled={!cambio || !!ilegible || trabajando}>Guardar tramos</button>
           <button type="button" className="btn btn-sm btn-primary" onClick={() => void publicar()} disabled={cambio || problemas.length > 0 || trabajando}>Publicar</button>
         </div>
       )}
@@ -171,20 +175,27 @@ function ProbarTarifaModal({ tarifa, onClose }: { tarifa: Tarifa; onClose: () =>
   useEffect(() => {
     if (tarifa.unidad !== 'UT') return;
     import('./parametros.repository').then(async ({ r3Disponible, parametroEnFecha }) => {
-      if (await r3Disponible()) { const v = await parametroEnFecha(null, 'ut', fecha); if (typeof v === 'number') setUt(String(v)); }
+      if (await r3Disponible()) { const v = await parametroEnFecha(null, 'ut', fecha); if (typeof v === 'number') setUt(numeroATexto(v)); }
     }).catch(() => undefined);
   }, [tarifa.unidad, fecha]);
+  const baseLeida = leerObligatorio(base, 'la base', 'Indica la base.');
+  const utLeida = leerOpcional(ut, 'la UT');
+  const errorPrueba = 'error' in baseLeida ? baseLeida.error : 'error' in utLeida ? utLeida.error : null;
+  /** Lo que no se entiende (la base vacía no se avisa: solo apaga el botón). */
+  const noSe = base.trim() || 'error' in utLeida ? errorPrueba : null;
   async function probar() {
-    try { const r = await probarTarifa(tarifa.id, numOpt(base) ?? 0, numOpt(ut), fecha); setRes(r ?? 'nada'); } catch (e) { toast(mensaje(e, 'No se pudo probar.'), 'error'); }
+    if ('error' in baseLeida || 'error' in utLeida) { toast(errorPrueba ?? 'Revisa la base y la UT.', 'error'); return; }
+    try { const r = await probarTarifa(tarifa.id, baseLeida.valor, utLeida.valor, fecha); setRes(r ?? 'nada'); } catch (e) { toast(mensaje(e, 'No se pudo probar.'), 'error'); }
   }
   return (
     <Modal title={`Probar ${tarifa.nombre}`} onClose={onClose} footer={<button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}><label>Base (Bs)</label><input className="input mono" inputMode="decimal" value={base} onChange={(e) => setBase(e.target.value)} /></div>
+        <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}><label>Base (Bs)</label><input className="input mono" type="text" inputMode="decimal" value={base} onChange={(e) => setBase(e.target.value)} />{pistaLeido(base) && <small className="hint muted">{pistaLeido(base)}</small>}</div>
         <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
-        {tarifa.unidad === 'UT' && <div className="form-row" style={{ flex: '0 1 110px', margin: 0 }}><label>UT (Bs)</label><input className="input mono" inputMode="decimal" value={ut} onChange={(e) => setUt(e.target.value)} /></div>}
-        <button type="button" className="btn btn-primary" onClick={() => void probar()} disabled={!numOpt(base)}>Probar</button>
+        {tarifa.unidad === 'UT' && <div className="form-row" style={{ flex: '0 1 110px', margin: 0 }}><label>UT (Bs)</label><input className="input mono" type="text" inputMode="decimal" value={ut} onChange={(e) => setUt(e.target.value)} />{pistaLeido(ut) && <small className="hint muted">{pistaLeido(ut)}</small>}</div>}
+        <button type="button" className="btn btn-primary" onClick={() => void probar()} disabled={'error' in baseLeida || !baseLeida.valor || 'error' in utLeida}>Probar</button>
       </div>
+      {noSe && <small className="hint" style={{ color: 'var(--warning)' }}>{noSe}</small>}
       {res === 'nada' && <p className="muted" style={{ marginTop: '.5rem' }}>Sin resultado: no hay versión publicada para esa fecha, o falta la UT.</p>}
       {res && res !== 'nada' && (
         <div className="card" style={{ marginTop: '.5rem' }}>

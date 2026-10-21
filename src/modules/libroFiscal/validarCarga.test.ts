@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { faltaEnLaCarga, leerMonto } from './validarCarga';
+import { faltaEnLaCarga, leerMonto, numeroATexto, textoLeido } from './validarCarga';
 
 describe('lo que la carga exige antes de registrar', () => {
   it('sin N° de factura no se registra una retención de IVA, ISLR o municipal', () => {
@@ -42,6 +42,21 @@ describe('montos escritos a mano', () => {
   it('varios puntos sin coma son miles', () => {
     expect(leerMonto('1.234.567')).toBe(1234567);
   });
+  it('formato venezolano: un punto seguido de 3 dígitos, sin coma, son miles (D41, Lote 1)', () => {
+    expect(leerMonto('1.234')).toBe(1234);
+    expect(leerMonto('36.500')).toBe(36500);
+    expect(leerMonto('1.234,56')).toBe(1234.56);
+    expect(leerMonto('-1.234')).toBe(-1234);
+  });
+  it('punto con 1, 2 o 4+ dígitos es decimal; con parte entera 0 también', () => {
+    expect(leerMonto('1234.56')).toBe(1234.56);
+    expect(leerMonto('879.1')).toBe(879.1);
+    expect(leerMonto('36.5432')).toBe(36.5432);
+    expect(leerMonto('0.125')).toBe(0.125);
+    expect(leerMonto('0,125')).toBe(0.125);
+    expect(leerMonto('.125')).toBe(0.125);
+    expect(leerMonto('-.5')).toBe(-0.5);
+  });
   it('vacío es 0', () => {
     expect(leerMonto('')).toBe(0);
     expect(leerMonto('  ')).toBe(0);
@@ -50,5 +65,22 @@ describe('montos escritos a mano', () => {
     expect(leerMonto('1,234,56')).toBeNull();
     expect(leerMonto('12a')).toBeNull();
     expect(leerMonto('1.23.4,5')).toBeNull();
+  });
+});
+
+describe('números que el sistema pone en un campo', () => {
+  it('van con coma decimal, para que se lean igual (una tasa de 3 decimales no se vuelve miles)', () => {
+    expect(numeroATexto(179.437)).toBe('179,437');
+    expect(leerMonto(numeroATexto(179.437))).toBe(179.437);
+    expect(numeroATexto(36500)).toBe('36500');
+    expect(numeroATexto(null)).toBe('');
+    expect(numeroATexto(Number.NaN)).toBe('');
+  });
+  it('cómo se leyó, para mostrarlo junto al campo', () => {
+    expect(textoLeido('36.500')).toBe('36.500,00');
+    expect(textoLeido('1234,5')).toBe('1.234,50');
+    expect(textoLeido('179,437')).toBe('179,437');
+    expect(textoLeido('')).toBeNull();
+    expect(textoLeido('12a')).toBeNull();
   });
 });

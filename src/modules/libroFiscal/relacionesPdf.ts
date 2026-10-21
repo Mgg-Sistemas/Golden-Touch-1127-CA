@@ -19,6 +19,7 @@ import type { TipoImpuesto, ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import { razonSocialAgente } from './comprobanteRetencionPdf';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, fechaPdf, montoPdf, textoPdf } from './pdfComun';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 /* jsPDF y autoTable se cargan a pedido; el tipo exacto no aporta aquí. */
 type JsPDFLike = Parameters<typeof previewPdf>[0];
@@ -75,7 +76,7 @@ export async function verRelacionPdf(
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text(textoPdf(`${razonSocialAgente(config)}${config.rif ? ` · RIF ${config.rif}` : ''}`), M, y + 26);
   doc.text(textoPdf(`Entre los dias desde: ${fechaPdf(ctx.desde)} hasta: ${fechaPdf(ctx.hasta)}`), M, y + 38);
-  doc.text(textoPdf(`Fecha: ${fechaPdf(new Date().toISOString().slice(0, 10))}`), W - M, y + 12, { align: 'right' });
+  doc.text(textoPdf(`Fecha: ${fechaPdf(hoyVenezuela())}`), W - M, y + 12, { align: 'right' });
   y += 50;
 
   const proveedores = agruparPorProveedor(filas);

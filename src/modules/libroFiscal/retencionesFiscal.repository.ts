@@ -34,6 +34,7 @@ import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
 import { serieDeImpuesto } from './impuestos.repository';
 import { tablaDisponible, v2rDisponible } from './disponibilidad';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_RETENCIONES = 'retenciones';
 const T_CONCEPTOS = 'retenciones_conceptos';
@@ -508,6 +509,8 @@ export interface NuevaRetencion {
   numeroComprobante?: string | null;
   conceptoId?: string | null;
   conceptoNombre?: string | null;
+  /** El municipio de un ISAE (el de la empresa). */
+  municipio?: string | null;
   moneda: string;
   tasa?: number | null;
   baseImponible: number;
@@ -545,7 +548,7 @@ export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'>)
 export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
   const tasa = input.tasa ?? null;
   const conceptoCodigo = input.conceptoId && !input.conceptoId.endsWith(':todos') ? partirIdConcepto(input.conceptoId).codigo : null;
-  const fecha = (input.fechaRetencion || input.facturaFecha || new Date().toISOString()).slice(0, 10);
+  const fecha = (input.fechaRetencion || input.facturaFecha || hoyVenezuela()).slice(0, 10);
   return {
     rol: rolAGt(input.direccion), tipo: tipoAGt(input.tipo), estado: 'registrada', fecha,
     numero: numero.entero, comprobante_nro: numero.texto,
@@ -564,6 +567,7 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     porcentaje: n(input.porcentaje),
     concepto_codigo: conceptoCodigo,
     concepto: input.conceptoNombre?.trim() || null,
+    municipio: input.tipo === 'municipal' ? input.municipio?.trim() || null : null,
     sustraendo: input.sustraendo ?? null,
     monto: r2(input.montoRetenido), moneda: input.moneda || 'Bs', tasa,
     base_bs: enBolivares(r2(input.baseImponible), input.moneda, tasa) || null,

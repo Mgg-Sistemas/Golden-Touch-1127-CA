@@ -31,7 +31,9 @@ import { configDeFecha } from './parametros.repository';
 import { supuestoAplicado, supuestosVigentes, type Supuesto } from './motivosSupuestos.repository';
 import { esCeroSinMotivo } from './motivoCero';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
-import { leerMonto } from './validarCarga';
+import { leerMonto, numeroATexto } from './validarCarga';
+import { montoEscrito, municipioDeLinea, sujetoDeLineas } from './lineasRegistro';
+import { SeLeyo } from './SeLeyo';
 import { faltaEnDatosFactura } from './facturaDocumento';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
@@ -41,11 +43,13 @@ import { previewArchivo } from '@/shared/lib/reportePreview';
 import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva,
 } from './retencionFacturas.repository';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 /** Para calcular mientras se escribe. Lo ilegible lo señala `ilegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
 /** Hoy en la hora local (AAAA-MM-DD). */
-const hoyIso = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+/** Hoy en Venezuela. */
+const hoyIso = hoyVenezuela;
 const fechaCorta = (iso: string) => { const [a, m, d] = iso.slice(0, 10).split('-'); return a && m && d ? `${d}/${m}/${a}` : iso; };
 const money = (n: number, moneda: string) => {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -145,10 +149,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [facturaControl, setFacturaControl] = useState(s.facturaControl ?? '');
   const [facturaFecha, setFacturaFecha] = useState(s.facturaFecha ?? '');
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
-  const [facturaTotal, setFacturaTotal] = useState(String(s.facturaTotal ?? 0));
+  const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
   const [nota, setNota] = useState('');
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
-    tipo: s.tipoInicial ?? 'iva', baseStr: String(s.baseImponible ?? 0), ivaStr: String(s.iva ?? 0),
+    tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
   })]);
 
   useEffect(() => {
@@ -180,7 +184,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         setTasaBcv(t != null
           ? { tasa: t, nota: `Tasa BCV del ${cuando}, por la fecha de la factura.` }
           : { tasa: null, nota: `No hay tasa BCV registrada del ${cuando}${moneda === 'Bs' ? '' : ': escríbela'}.` });
-        if (moneda !== 'Bs') setTasaStr(t != null ? String(t) : '');
+        if (moneda !== 'Bs') setTasaStr(t != null ? numeroATexto(t) : '');
       })
       .catch(() => { if (vivo) setTasaBcv({ tasa: null, nota: 'No se pudo leer la tasa BCV.' }); });
     return () => { vivo = false; };
@@ -282,7 +286,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   }, [calculoHoyDe, reglas, direccion, facturaFecha]);
 
   const montoDe = useCallback((l: LineaUI): number => (esManual
-    ? (nDec(l.montoStr) || Math.round(nDec(l.baseStr) * nDec(l.pctStr)) / 100)
+    // Vacío = el calculado; «0» escrito = 0 (y pide el motivo del 0 %). Lo ilegible lo frena «ilegibles».
+    ? (montoEscrito(l.montoStr, Math.round(nDec(l.baseStr) * nDec(l.pctStr)) / 100) ?? 0)
     : calculoDe(l).montoRetenido), [esManual, calculoDe]);
   const pctDe = (l: LineaUI) => (esManual ? nDec(l.pctStr) : calculoDe(l).porcentaje);
 
@@ -322,6 +327,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (moneda !== 'Bs' && !(tasa > 0)) return 'Indica la tasa para llevar los montos a bolívares.';
     if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
     if (!lineas.length) return 'Agrega al menos una línea de impuesto.';
+    const sujeto = sujetoDeLineas(lineas);
+    if (sujeto.error) return sujeto.error;
     for (const l of lineas) {
       if (direccion === 'practicada') {
         const m = motivoNoPuedePracticar(l.tipo, config);
@@ -343,8 +350,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const facturaNueva: FacturaNueva = {
         direccion, docKind: s.docKind ?? 'manual', docId: s.docId ?? null, adjuntoId: s.adjuntoId ?? null,
         contraparteId: direccion === 'practicada' ? proveedorId || null : null, contraparteRif: rif.trim() || null, contraparteNombre: contraparte.trim() || null,
+        // El sujeto del ISLR es del proveedor: va en la cabecera (antes llegaba null).
+        contraparteSujeto: sujetoDeLineas(lineas).sujeto,
         facturaNro: facturaNro.trim() || null, facturaControl: facturaControl.trim() || null,
-        facturaFecha, facturaTotal: nDec(facturaTotal) || null,
+        facturaFecha, facturaTotal: facturaTotal.trim() ? nDec(facturaTotal) : null,
         moneda, tasa: moneda === 'Bs' ? null : tasa, periodo,
         nota: nota.trim() || null, valorUt: config.valorUt, actor, actorName,
       };
@@ -369,6 +378,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           montoBs: enBolivares(monto, moneda, tasa) || null,
           conceptoCodigo: l.tipo === 'islr' ? (l.conceptoId.split(':')[0] || null) : null,
           conceptoNombre: conceptos.find((c) => c.id === l.conceptoId)?.nombre ?? null,
+          // El ISAE es del municipio de la empresa (antes llegaba null).
+          municipio: municipioDeLinea(l.tipo, config),
           descripcion: l.descripcion.trim() || null,
           quincena: l.tipo === 'iva' ? quincenaDe(facturaFecha) : null,
           comprobanteNro: esManual ? (l.numeroStr.trim() || null) : null,
@@ -461,6 +472,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           <div className="form-row" style={{ flex: '0 1 140px' }}>
             <label>Tasa (Bs por $)</label>
             <input className="input mono" value={tasaStr} onChange={(e) => { marcarSucio(); setTasaStr(e.target.value); }} inputMode="decimal" />
+            <SeLeyo texto={tasaStr} decimales={4} />
           </div>
         )}
         {tasaBcv && <small className="hint muted" style={{ alignSelf: 'center', flex: '1 1 100%' }}>{tasaBcv.nota}</small>}
@@ -490,6 +502,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         <div className="form-row" style={{ flex: '1 1 130px' }}>
           <label>Total de la factura</label>
           <input className="input mono" value={facturaTotal} onChange={(e) => { marcarSucio(); setFacturaTotal(e.target.value); }} inputMode="decimal" />
+          <SeLeyo texto={facturaTotal} />
         </div>
       </div>
 
@@ -534,11 +547,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 <div className="form-row" style={{ margin: 0, flex: '1 1 120px' }}>
                   <label>{l.tipo === 'iva' ? 'Base imponible' : 'Monto del pago'}</label>
                   <input className="input mono" value={l.baseStr} onChange={(e) => setLinea(l.id, { baseStr: e.target.value })} inputMode="decimal" />
+                  <SeLeyo texto={l.baseStr} />
                 </div>
                 {l.tipo === 'iva' && (
                   <div className="form-row" style={{ margin: 0, flex: '1 1 110px' }}>
                     <label>IVA de la factura</label>
                     <input className="input mono" value={l.ivaStr} onChange={(e) => setLinea(l.id, { ivaStr: e.target.value })} inputMode="decimal" />
+                    <SeLeyo texto={l.ivaStr} />
                   </div>
                 )}
                 {esManual && (
@@ -554,7 +569,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                     </div>
                     <div className="form-row" style={{ margin: 0, flex: '1 1 120px' }}>
                       <label>Monto retenido</label>
-                      <input className="input mono" value={l.montoStr} onChange={(e) => setLinea(l.id, { montoStr: e.target.value })} inputMode="decimal" />
+                      <input className="input mono" value={l.montoStr} onChange={(e) => setLinea(l.id, { montoStr: e.target.value })} inputMode="decimal"
+                        placeholder="Vacío = base × %" />
+                      <SeLeyo texto={l.montoStr} />
                     </div>
                   </>
                 )}

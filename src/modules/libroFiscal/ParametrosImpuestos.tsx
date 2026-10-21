@@ -25,8 +25,12 @@ import { r5Disponible } from './tarifas.repository';
 import { ParametrosTarifas } from './ParametrosTarifas';
 import { r7Disponible } from './reglas.repository';
 import { ParametrosReglas } from './ParametrosReglas';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { numeroATexto } from './validarCarga';
+import { ENTEROS_IMPUESTO, faltaEnEnteros, leerEntero } from './parametrosNumeros';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const etiqueta = <K extends string>(xs: { key: K; label: string }[], k: K) => xs.find((x) => x.key === k)?.label ?? k;
 
@@ -117,7 +121,7 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
   useEffect(() => { if (!motivo) setFicha(JSON.parse(firma) as FichaImpuesto); }, [firma]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cambio = JSON.stringify(ficha) !== firma;
-  const falta = faltaEnImpuesto(ficha);
+  const falta = faltaEnEnteros(ficha) ?? faltaEnImpuesto(ficha);
 
   async function guardar() {
     setGuardando(true);
@@ -267,7 +271,7 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
         </div>
         <div className="form-row" style={{ flex: '0 1 90px' }}>
           <label>Orden</label>
-          <input className="input mono" inputMode="numeric" value={String(ficha.orden)} onChange={(e) => set({ orden: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
+          <CampoEntero valor={ficha.orden} {...ENTEROS_IMPUESTO.orden} onValor={(orden) => set({ orden })} />
         </div>
       </div>
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '.86rem', margin: '.2rem 0 .5rem' }}>
@@ -300,7 +304,7 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
             </div>
             <div className="form-row" style={{ flex: '1 1 130px', margin: 0 }}>
               <label>Primer número</label>
-              <input className="input mono" inputMode="numeric" value={String(ficha.serieInicial)} onChange={(e) => set({ serieInicial: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
+              <CampoEntero valor={ficha.serieInicial} {...ENTEROS_IMPUESTO.serieInicial} onValor={(serieInicial) => set({ serieInicial })} />
             </div>
             <div className="form-row" style={{ flex: '1 1 170px', margin: 0 }}>
               <label>Último del otro sistema</label>
@@ -317,6 +321,31 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
           {EXPORTA.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
         </select>
       </div>
+    </>
+  );
+}
+
+/**
+ * Un entero escrito a mano (orden, días, número de serie), con el lector de
+ * todo el sistema: vacío = `porDefecto` (y lo dice), «0» es 0, y lo que no se
+ * entiende queda como NaN en el dato (bloquea el guardado) con su mensaje aquí.
+ */
+function CampoEntero({ valor, campo, porDefecto, onValor }: { valor: number; campo: string; porDefecto: number; onValor: (n: number) => void }) {
+  const [texto, setTexto] = useState(numeroATexto(valor));
+  const leido = leerEntero(texto, campo, porDefecto);
+  // Si el dato cambia desde afuera (Deshacer, otro usuario), el texto lo sigue.
+  useEffect(() => {
+    if (!Number.isFinite(valor)) return;
+    const l = leerEntero(texto, campo, porDefecto);
+    if ('error' in l || l.valor !== valor) setTexto(numeroATexto(valor));
+  }, [valor]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <>
+      <input className="input mono" type="text" inputMode="numeric" value={texto}
+        onChange={(e) => { setTexto(e.target.value); const l = leerEntero(e.target.value, campo, porDefecto); onValor('error' in l ? NaN : l.valor); }} />
+      {'error' in leido
+        ? <small className="hint" style={{ color: 'var(--warning)' }}>{leido.error}</small>
+        : !texto.trim() && <small className="hint muted">Vacío = {porDefecto}</small>}
     </>
   );
 }
@@ -346,7 +375,7 @@ function CamposVersion({ v, set }: { v: DatosVersion; set: (p: Partial<DatosVers
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div className="form-row" style={{ flex: '0 1 170px' }}>
           <label>Plazo de entrega (días)</label>
-          <input className="input mono" inputMode="numeric" value={String(v.plazoEntregaDias)} onChange={(e) => set({ plazoEntregaDias: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
+          <CampoEntero valor={v.plazoEntregaDias} {...ENTEROS_IMPUESTO.plazoEntregaDias} onValor={(plazoEntregaDias) => set({ plazoEntregaDias })} />
         </div>
         <label className="form-row" style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', minHeight: 36 }}>
           <input type="checkbox" checked={v.plazoDiasHabiles} onChange={(e) => set({ plazoDiasHabiles: e.target.checked })} /> Días hábiles (lunes a viernes)
@@ -391,7 +420,7 @@ function VersionModal({ impuesto, vigente, modo, onClose, onHecho }: {
   const [desde, setDesde] = useState(minimo && minimo > hoyIso() ? minimo : hoyIso());
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const falta = faltaEnVersion(v, modo === 'nueva' ? desde : '2000-01-01', motivo)
+  const falta = faltaEnEnteros(v) ?? faltaEnVersion(v, modo === 'nueva' ? desde : '2000-01-01', motivo)
     ?? (modo === 'nueva' && minimo && desde < minimo ? `La versión nueva tiene que empezar el ${fechaCorta(minimo)} o después.` : null);
 
   async function guardar() {
@@ -450,7 +479,7 @@ function NuevoImpuestoModal({ entes, onClose, onHecho }: { entes: Ente[]; onClos
   const [motivo, setMotivo] = useState('Alta del impuesto');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const falta = faltaEnImpuesto(ficha) ?? faltaEnVersion(v, desde, motivo);
+  const falta = faltaEnEnteros({ ...ficha, ...v }) ?? faltaEnImpuesto(ficha) ?? faltaEnVersion(v, desde, motivo);
 
   async function crear() {
     setGuardando(true); setError(null);

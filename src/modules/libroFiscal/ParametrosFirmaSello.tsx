@@ -11,8 +11,10 @@ import {
 } from './entes.repository';
 import { CLASES_AGENTE, fechaCorta } from './parametrosR1';
 import { ImagenRetencion } from './ImagenRetencion';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
-const hoyIso = () => new Date().toISOString().slice(0, 10);
+/** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
+const hoyIso = hoyVenezuela;
 
 export function ParametrosFirmaSello({ puedeEditar }: { puedeEditar: boolean }) {
   const [imagenes, setImagenes] = useState<ImagenAgente[] | null>(null);
