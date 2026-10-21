@@ -42,13 +42,17 @@ describe('descargarConstanciaTrabajoPdf', () => {
     expect(await generar({ firmante: 'orlando', dirigidoA: 'Banco Provincial' })).toContain('Banco Provincial');
   }, 30000);
 
-  it('con la firma de Orlando: su firma, nombre, cédula y cargo al pie', async () => {
+  it('con la firma de Orlando: su firma, nombre, cédula, cargo y redacción oficial', async () => {
     firmaOrlando.mockClear();
     const pdf = await generar({ firmante: 'orlando' });
     expect(firmaOrlando).toHaveBeenCalledTimes(1);
+    expect(pdf).toContain('ORLANDO SIMON MOLINA CHACON');
     expect(pdf).toContain('ORLANDO MOLINA');
-    expect(pdf).toContain('C.I. V-8.336.951');
+    expect(pdf).toContain('13.847.053');
     expect(pdf).toContain('PRESIDENTE');
+    expect(pdf).toContain('Sin más a que hacer referencia');
+    expect(pdf).toContain('Domicilio Fiscal');
+    expect(pdf).toContain('0414-1924237');
     expect(pdf).toContain('/Subtype /Image');   // la firma quedó estampada
   }, 30000);
 
