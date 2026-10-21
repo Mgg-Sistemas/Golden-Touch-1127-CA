@@ -74,4 +74,54 @@ describe('PDF', () => {
     const doc = await construirProveedoresPdf(lista, null, { generadoEn: GEN });
     expect(doc.getNumberOfPages()).toBeGreaterThan(1);
   }, 30000);
+
+  it('permite exportar solo las columnas elegidas en PDF y Excel', async () => {
+    const doc = await construirProveedoresPdf([prov({})], null, { claves: ['rif', 'razon_social'], orientacion: 'vertical' });
+    const pdf = new TextDecoder('latin1').decode(doc.output('arraybuffer'));
+    expect(pdf).toContain('RIF');
+    expect(pdf).toContain('RAZ');
+
+    const { default: ExcelJS } = await import('exceljs');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await construirProveedoresExcel([prov({})], { claves: ['rif', 'razon_social'] }));
+    const ws = wb.worksheets[0];
+    const c = (f: number, k: number) => String(ws.getCell(f, k).value ?? '');
+    expect([c(4, 2), c(4, 3)]).toEqual(['RIF', 'RAZÓN SOCIAL']);
+    expect(c(4, 4)).toBe(''); // no hay columna 4 de datos
+  }, 30000);
 });
+
+describe('selección dinámica de campos y orientación', () => {
+  it('camposElegidos conserva el orden del catálogo y filtra claves', async () => {
+    const { camposElegidos } = await import('./proveedoresReporte');
+    const c = camposElegidos(['telefono', 'rif', 'no-existe']);
+    expect(c.map((x) => x.clave)).toEqual(['rif', 'telefono']);
+  });
+
+  it('tablaProveedores genera encabezados y filas ordenadas por razón social', async () => {
+    const { tablaProveedores } = await import('./proveedoresReporte');
+    const p1 = prov({ razon_social: 'ZETA C.A.', rif: 'J-2' });
+    const p2 = prov({ razon_social: 'ALFA C.A.', rif: 'J-1' });
+    const res = tablaProveedores([p1, p2], ['rif', 'razon_social']);
+    expect(res.encabezados).toEqual(['RIF', 'Razón social']);
+    expect(res.filas).toEqual([
+      ['J-1', 'ALFA C.A.'],
+      ['J-2', 'ZETA C.A.'],
+    ]);
+  });
+
+  it('orientacionFinal calcula automático o respeta lo elegido', async () => {
+    const { orientacionFinal } = await import('./proveedoresReporte');
+    expect(orientacionFinal(['rif', 'razon_social'])).toBe('portrait');
+    expect(orientacionFinal(['rif', 'razon_social', 'contacto', 'telefono', 'email', 'direccion'])).toBe('landscape');
+    expect(orientacionFinal(['rif'], 'horizontal')).toBe('landscape');
+    expect(orientacionFinal(['rif', 'razon_social', 'contacto', 'telefono', 'email', 'direccion'], 'vertical')).toBe('portrait');
+  });
+
+  it('letraQueEntra ajusta el tamaño entre 6 y 9 pt', async () => {
+    const { letraQueEntra } = await import('./proveedoresReporte');
+    expect(letraQueEntra(500, 50)).toBe(9);
+    expect(letraQueEntra(500, 1000)).toBe(6);
+  });
+});
+

@@ -27,7 +27,7 @@ import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { SearchMultiSelect } from '@/shared/ui/SearchMultiSelect';
 import { useSession } from '@/modules/auth/authStore';
 import { norm } from '@/shared/lib/texto';
-import { descargarProveedoresExcel, descargarProveedoresPdf } from './proveedoresReporte';
+import { ExportarProveedoresModal } from './ExportarProveedoresModal';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -136,24 +136,14 @@ export function ProveedoresPage() {
     });
   }, [proveedores, filterText, filterEstado, filterCategoria, filterActividad]);
 
-  // Descargar la lista que se ve (con los filtros de la pantalla) en PDF o Excel.
-  const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
+  // Descargar datos de los proveedores visibles en PDF o Excel.
+  const [exportarOpen, setExportarOpen] = useState(false);
   const descripcionFiltro = [
     filterText.trim() && `Búsqueda «${filterText.trim()}»`,
     filterEstado && (filterEstado === 'activo' ? 'Activos' : 'Inactivos'),
     filterCategoria && `Categoría ${filterCategoria}`,
     filterActividad && (filterActividad === '__sin' ? 'Sin actividad económica' : `Actividad ${filterActividad}`),
   ].filter(Boolean).join(' · ');
-  async function exportar(formato: 'pdf' | 'excel') {
-    setExportando(formato);
-    try {
-      const op = { filtro: descripcionFiltro };
-      if (formato === 'pdf') await descargarProveedoresPdf(filtered, op);
-      else await descargarProveedoresExcel(filtered, op);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error');
-    } finally { setExportando(null); }
-  }
 
   function openCreate() {
     setEditingId(null);
@@ -228,19 +218,11 @@ export function ProveedoresPage() {
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button
             className="btn btn-ghost"
-            disabled={filtered.length === 0 || exportando !== null}
-            onClick={() => void exportar('pdf')}
-            title="Descargar en PDF los proveedores que se ven (con el filtro aplicado)"
+            disabled={filtered.length === 0}
+            onClick={() => setExportarOpen(true)}
+            title="Descargar en Excel o PDF los datos que elijas (con el filtro aplicado)"
           >
-            {exportando === 'pdf' ? 'Generando…' : '↓ PDF'}
-          </button>
-          <button
-            className="btn btn-ghost"
-            disabled={filtered.length === 0 || exportando !== null}
-            onClick={() => void exportar('excel')}
-            title="Descargar en Excel los proveedores que se ven (con el filtro aplicado)"
-          >
-            {exportando === 'excel' ? 'Generando…' : '📊 Excel'}
+            ⬇ Descargar datos
           </button>
           {canWrite && (
             <button className="btn btn-ghost" onClick={() => setGestionCatsOpen(true)} title="Gestionar y renombrar categorías">
@@ -410,6 +392,15 @@ export function ProveedoresPage() {
           danger={toggleTarget.estado === 'activo'}
           onConfirm={() => void handleToggle(toggleTarget)}
           onCancel={() => setToggleTarget(null)}
+        />
+      )}
+
+      {exportarOpen && (
+        <ExportarProveedoresModal
+          proveedores={filtered}
+          total={proveedores.length}
+          filtro={descripcionFiltro}
+          onClose={() => setExportarOpen(false)}
         />
       )}
 
