@@ -16,7 +16,9 @@ import {
 } from './retenciones.repository';
 import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
-import { listRetenciones } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { listRetenciones, tipoAGt } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { noAplicaDisponible, noAplicaPorOrden } from '@/modules/libroFiscal/noAplica.repository';
+import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAplicaModal';
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
 import { FacturasPorRegistrar } from '@/modules/libroFiscal/FacturasPorRegistrar';
@@ -64,6 +66,10 @@ export function RetencionesPage() {
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // P03: registrar el documento fiscal desde un archivo de factura que subió Compras.
   const [registrarFactura, setRegistrarFactura] = useState<SemillaFactura | null>(null);
+  // D48: «no aplica» por impuesto, sin número de comprobante (con R10 en la base).
+  const [conNoAplica, setConNoAplica] = useState(false);
+  useEffect(() => { noAplicaDisponible().then(setConNoAplica).catch(() => setConNoAplica(false)); }, []);
+  const [noAplica, setNoAplica] = useState<ObjetivoNoAplica | null>(null);
 
   // Búsqueda, filtros, orden y página de las dos listas de OC (Por realizar y Realizadas).
   const [fDesde, setFDesde] = useState('');
@@ -90,6 +96,13 @@ export function RetencionesPage() {
       s.add(r.tipo);
       reg.set(r.docId, s);
     }
+    // Lo marcado «no aplica» cuenta como resuelto para ese impuesto.
+    const na = await noAplicaPorOrden(p.map((i) => i.orden.id)).catch(() => new Map<string, Set<TipoImpuesto>>());
+    for (const [id, tipos] of na) {
+      const s = reg.get(id) ?? new Set<TipoImpuesto>();
+      for (const t of tipos) s.add(t);
+      reg.set(id, s);
+    }
     setPendientes(p); setHechas(h); setRegistradas(reg);
     const docs = p.map((i) => {
       const d = fechaDocumento(i.orden);
@@ -112,7 +125,7 @@ export function RetencionesPage() {
   }, [reload]);
 
   // Realtime multiusuario: lo que registra otro (o paga Tesorería) se refleja al instante.
-  useRealtime(['ordenes', 'retenciones'], () => { void reload(); });
+  useRealtime(['ordenes', 'retenciones', 'retencion_decisiones'], () => { void reload(); });
 
   // Una OC sigue «por realizar» mientras le quede un impuesto sin registrar en el libro.
   const porRealizar = useMemo(
@@ -248,6 +261,7 @@ export function RetencionesPage() {
           items={porRealizar} registradas={registradas} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
           onVer={setSel} onVista={() => setVista('agrupada')}
           onRegistrar={setRegistrar}
+          onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
         />
       )}
 
@@ -327,6 +341,11 @@ export function RetencionesPage() {
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => {}); }}
         />
+      )}
+      {noAplica && (
+        <NoAplicaModal objetivo={noAplica} actor={actor} actorName={actorName}
+          onClose={() => setNoAplica(null)}
+          onHecho={async () => { setNoAplica(null); await reload().catch(() => {}); }} />
       )}
       {registrarFactura && (
         <RegistrarFacturaRetencion
@@ -497,10 +516,12 @@ function impuestosPendientesDeOrden(o: Orden, reg: Registradas): ImpuestoPendien
   return out;
 }
 
-function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVer, onVista, onRegistrar }: {
+function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVer, onVista, onRegistrar, onNoAplica }: {
   items: RetencionItem[]; registradas: Registradas; tasasDoc: TasasDoc; loading: boolean; canWrite: boolean;
   onVer: (item: RetencionItem) => void; onVista: () => void;
   onRegistrar: (semilla: SemillaRetencion) => void;
+  /** Solo con R10 y permiso: marcar que un impuesto no aplica. */
+  onNoAplica?: (o: ObjetivoNoAplica) => void;
 }) {
   const [q, setQ] = useState('');
   const [fImp, setFImp] = useState('');
@@ -691,6 +712,19 @@ function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVe
                       total: o.total, baseImponible: o.total - (o.iva_monto ?? 0), iva: o.iva_monto ?? 0,
                     })}>
                       Registrar {lbl}
+                    </button>
+                  );
+                })}
+                {onNoAplica && pends.map((k) => {
+                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
+                  return (
+                    <button key={`na-${k}`} className="btn btn-sm btn-ghost" title={`Al ${lbl} de esta compra no le corresponde retención`}
+                      onClick={() => onNoAplica({
+                        ordenId: o.id, codigo: o.oc_codigo ?? o.codigo, proveedorId: o.proveedor_id ?? null, proveedorNombre,
+                        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD', total: o.total ?? null,
+                        impuestoClave: tipoAGt(k), impuestoNombre: lbl,
+                      })}>
+                      {lbl}: no aplica
                     </button>
                   );
                 })}
