@@ -13,9 +13,11 @@ import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { AnticipoPago, AnticipoPrestamo, EmpresaRrhh, Personal } from '@/shared/lib/types';
 import {
-  ETIQUETA_ORIGEN, ETIQUETA_TIPO, errorAbono, nombreCompleto, pagadoDe, r2,
+  ETIQUETA_ORIGEN, ETIQUETA_TIPO, errorAbono, errorEdicionAbono, nombreCompleto, pagadoDe, r2,
 } from './anticiposResumen';
-import { editarAnticipo, eliminarAbono, listPagos, registrarAbono } from './anticipos.repository';
+import {
+  editarAbono, editarAnticipo, eliminarAbono, getAnticipo, listPagos, registrarAbono,
+} from './anticipos.repository';
 import { descargarPrestamosPdf, nombreArchivo } from './prestamosPdf';
 
 const hoy = () => new Date().toISOString().slice(0, 10);
@@ -28,7 +30,7 @@ const numOrNull = (s: string): number | null => {
 };
 
 export function AnticipoDetalleModal({
-  anticipo, persona, empresa, canWrite, actor, actorName, onClose,
+  anticipo, persona, empresa, canWrite, actor, actorName, onClose, onActualizado,
 }: {
   anticipo: AnticipoPrestamo;
   persona: Personal | undefined;
@@ -37,12 +39,14 @@ export function AnticipoDetalleModal({
   actor: string;
   actorName: string | null;
   onClose: () => void;
+  onActualizado?: () => void;
 }) {
+  const [actualAnticipo, setActualAnticipo] = useState<AnticipoPrestamo>(anticipo);
   const [pagos, setPagos] = useState<AnticipoPago[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
-  const [modo, setModo] = useState<'ver' | 'abonar' | 'editar'>('ver');
+  const [modo, setModo] = useState<'ver' | 'abonar' | 'editar' | 'editar-pago'>('ver');
   const [porBorrar, setPorBorrar] = useState<AnticipoPago | null>(null);
 
   // Abono a mano
@@ -50,26 +54,56 @@ export function AnticipoDetalleModal({
   const [abMonto, setAbMonto] = useState('');
   const [abNota, setAbNota] = useState('');
 
-  // Edición
+  // Edición del préstamo
   const [edTipo, setEdTipo] = useState<AnticipoPrestamo['tipo']>(anticipo.tipo);
   const [edFecha, setEdFecha] = useState(String(anticipo.fecha ?? '').slice(0, 10));
   const [edMonto, setEdMonto] = useState(String(anticipo.monto_total ?? ''));
   const [edCuota, setEdCuota] = useState(anticipo.cuota_sugerida != null ? String(anticipo.cuota_sugerida) : '');
   const [edMotivo, setEdMotivo] = useState(anticipo.motivo ?? '');
 
-  const recargar = useCallback(async () => {
-    try { setPagos(await listPagos(anticipo.id)); setError(null); }
-    catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron cargar los abonos'); }
-    finally { setCargando(false); }
-  }, [anticipo.id]);
-  useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['anticipos_pagos'], () => { void recargar(); });
+  // Edición de un abono (movimiento)
+  const [editandoPago, setEditandoPago] = useState<AnticipoPago | null>(null);
+  const [edPagoFecha, setEdPagoFecha] = useState(hoy());
+  const [edPagoMonto, setEdPagoMonto] = useState('');
+  const [edPagoOrigen, setEdPagoOrigen] = useState<AnticipoPago['origen']>('manual');
+  const [edPagoNota, setEdPagoNota] = useState('');
 
-  const saldo = Number(anticipo.saldo) || 0;
-  const pagado = pagadoDe(anticipo);
+  useEffect(() => {
+    setActualAnticipo(anticipo);
+    setEdTipo(anticipo.tipo);
+    setEdFecha(String(anticipo.fecha ?? '').slice(0, 10));
+    setEdMonto(String(anticipo.monto_total ?? ''));
+    setEdCuota(anticipo.cuota_sugerida != null ? String(anticipo.cuota_sugerida) : '');
+    setEdMotivo(anticipo.motivo ?? '');
+  }, [anticipo]);
+
+  const recargar = useCallback(async () => {
+    try {
+      const [nuevosPagos, antActualizado] = await Promise.all([
+        listPagos(anticipo.id),
+        getAnticipo(anticipo.id).catch(() => null),
+      ]);
+      setPagos(nuevosPagos);
+      if (antActualizado) setActualAnticipo(antActualizado);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron cargar los abonos');
+    } finally {
+      setCargando(false);
+    }
+  }, [anticipo.id]);
+
+  useEffect(() => { void recargar(); }, [recargar]);
+  useRealtime(['anticipos_pagos', 'anticipos_prestamos'], () => { void recargar(); });
+
+  // Saldo y pagado recalculados con los abonos actuales
+  const pagado = useMemo(() => r2(pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0)), [pagos]);
+  const saldo = useMemo(() => Math.max(0, r2((Number(actualAnticipo.monto_total) || 0) - pagado)), [actualAnticipo.monto_total, pagado]);
+  const activo = saldo > 0;
+
   const abMontoNum = useMemo(() => numOrNull(abMonto), [abMonto]);
   const problemaAbono = modo === 'abonar'
-    ? errorAbono(saldo, abMontoNum != null && Number.isFinite(abMontoNum) ? abMontoNum : null, abFecha, anticipo.fecha)
+    ? errorAbono(saldo, abMontoNum != null && Number.isFinite(abMontoNum) ? abMontoNum : null, abFecha, actualAnticipo.fecha)
     : null;
 
   const edMontoNum = numOrNull(edMonto);
@@ -82,6 +116,37 @@ export function AnticipoDetalleModal({
             : null
     : null;
 
+  // Cálculos para la edición del abono
+  const otrosAbonos = useMemo(() => {
+    if (!editandoPago) return 0;
+    return r2(pagos.filter((p) => p.id !== editandoPago.id).reduce((acc, p) => acc + (Number(p.monto) || 0), 0));
+  }, [pagos, editandoPago]);
+
+  const maxMontoPermitido = useMemo(() => {
+    return Math.max(0, r2((Number(actualAnticipo.monto_total) || 0) - otrosAbonos));
+  }, [actualAnticipo.monto_total, otrosAbonos]);
+
+  const edPagoMontoNum = useMemo(() => numOrNull(edPagoMonto), [edPagoMonto]);
+  const problemaEdicionPago = modo === 'editar-pago' && editandoPago
+    ? errorEdicionAbono(
+        Number(actualAnticipo.monto_total) || 0,
+        otrosAbonos,
+        edPagoMontoNum != null && Number.isFinite(edPagoMontoNum) ? edPagoMontoNum : null,
+        edPagoFecha,
+        actualAnticipo.fecha,
+      )
+    : null;
+
+  function iniciarEdicionPago(p: AnticipoPago) {
+    setEditandoPago(p);
+    setEdPagoFecha(String(p.fecha ?? '').slice(0, 10));
+    setEdPagoMonto(String(p.monto ?? ''));
+    setEdPagoOrigen(p.origen);
+    setEdPagoNota(p.nota ?? '');
+    setModo('editar-pago');
+    setError(null);
+  }
+
   async function abonar() {
     if (problemaAbono) { setError(problemaAbono); return; }
     setGuardando(true); setError(null);
@@ -90,6 +155,7 @@ export function AnticipoDetalleModal({
       toast('Abono registrado', 'success');
       setAbMonto(''); setAbNota(''); setAbFecha(hoy()); setModo('ver');
       await recargar();
+      onActualizado?.();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el abono'); }
     finally { setGuardando(false); }
   }
@@ -104,35 +170,72 @@ export function AnticipoDetalleModal({
       });
       toast('Préstamo actualizado', 'success');
       setModo('ver');
+      await recargar();
+      onActualizado?.();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); }
     finally { setGuardando(false); }
   }
 
+  async function guardarEdicionPago() {
+    if (problemaEdicionPago || !editandoPago || edPagoMontoNum == null) {
+      if (problemaEdicionPago) setError(problemaEdicionPago);
+      return;
+    }
+    setGuardando(true); setError(null);
+    try {
+      await editarAbono(
+        editandoPago.id,
+        {
+          fecha: edPagoFecha,
+          monto: Number(edPagoMontoNum),
+          origen: edPagoOrigen,
+          nota: edPagoNota,
+        },
+        actor,
+        actorName,
+      );
+      toast('Abono actualizado y sincronizado', 'success');
+      setModo('ver');
+      setEditandoPago(null);
+      await recargar();
+      onActualizado?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo actualizar el abono');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   async function borrarAbono(p: AnticipoPago) {
     setPorBorrar(null);
-    try { await eliminarAbono(p.id); toast('Abono eliminado: el saldo volvió a subir', 'success'); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar el abono', 'error'); }
+    try {
+      await eliminarAbono(p.id);
+      toast('Abono eliminado: el saldo volvió a subir', 'success');
+      await recargar();
+      onActualizado?.();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo eliminar el abono', 'error');
+    }
   }
 
   async function pdf() {
     if (!persona) { toast('No se encontró el trabajador de este préstamo', 'error'); return; }
     try {
       await descargarPrestamosPdf({
-        titulo: 'Estado de cuenta · ' + ETIQUETA_TIPO[anticipo.tipo],
+        titulo: 'Estado de cuenta · ' + ETIQUETA_TIPO[actualAnticipo.tipo],
         empresa,
-        detalle: `${nombreCompleto(persona)} · ${ETIQUETA_TIPO[anticipo.tipo]} del ${date(anticipo.fecha)}`,
-        grupos: [{ persona, anticipos: [anticipo], pagos }],
-        archivo: nombreArchivo(`prestamo-${nombreCompleto(persona)}-${anticipo.fecha}`),
+        detalle: `${nombreCompleto(persona)} · ${ETIQUETA_TIPO[actualAnticipo.tipo]} del ${date(actualAnticipo.fecha)}`,
+        grupos: [{ persona, anticipos: [actualAnticipo], pagos }],
+        archivo: nombreArchivo(`prestamo-${nombreCompleto(persona)}-${actualAnticipo.fecha}`),
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
   const nombre = nombreCompleto(persona);
-  const activo = saldo > 0;
 
   return (
     <Modal
-      title={`${ETIQUETA_TIPO[anticipo.tipo]} · ${nombre}`}
+      title={`${ETIQUETA_TIPO[actualAnticipo.tipo]} · ${nombre}`}
       size="lg"
       onClose={() => { if (!guardando) onClose(); }}
       footer={
@@ -141,7 +244,7 @@ export function AnticipoDetalleModal({
           <button className="btn btn-ghost" onClick={() => void pdf()} title="Estado de cuenta de este préstamo">↓ PDF</button>
           {canWrite && modo === 'ver' && (
             <>
-              <button className="btn btn-ghost" onClick={() => { setError(null); setModo('editar'); }}>✏ Corregir</button>
+              <button className="btn btn-ghost" onClick={() => { setError(null); setModo('editar'); }}>✏ Corregir préstamo</button>
               {activo && <button className="btn btn-primary" onClick={() => { setError(null); setModo('abonar'); }}>💵 Registrar abono</button>}
             </>
           )}
@@ -153,6 +256,11 @@ export function AnticipoDetalleModal({
           {canWrite && modo === 'editar' && (
             <button className="btn btn-primary" onClick={() => void guardarEdicion()} disabled={guardando || !!problemaEdicion}>
               {guardando ? 'Guardando…' : 'Guardar los cambios'}
+            </button>
+          )}
+          {canWrite && modo === 'editar-pago' && (
+            <button className="btn btn-primary" onClick={() => void guardarEdicionPago()} disabled={guardando || !!problemaEdicionPago}>
+              {guardando ? 'Guardando…' : 'Guardar cambios del abono'}
             </button>
           )}
         </>
@@ -167,7 +275,7 @@ export function AnticipoDetalleModal({
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.7rem' }}>
         <div className="tira" style={{ flex: '1 1 140px' }}>
           <div className="tira-titulo">Total del préstamo</div>
-          <div className="tira-valor mono">{money(anticipo.monto_total)}</div>
+          <div className="tira-valor mono">{money(actualAnticipo.monto_total)}</div>
         </div>
         <div className="tira" style={{ flex: '1 1 140px' }}>
           <div className="tira-titulo">Total pagado</div>
@@ -186,11 +294,11 @@ export function AnticipoDetalleModal({
       {modo !== 'editar' && (
         <VistaPrevia titulo="Datos del préstamo">
           <Dato label="Trabajador">{nombre}{persona?.ficha_nro ? ` · Ficha ${persona.ficha_nro}` : ''}{persona?.cedula ? ` · C.I. ${persona.cedula}` : ''}</Dato>
-          <Dato label="Tipo">{ETIQUETA_TIPO[anticipo.tipo]}{anticipo.historico ? ' · cargado como histórico' : ''}</Dato>
-          <Dato label="Fecha del préstamo"><span className="mono">{date(anticipo.fecha)}</span></Dato>
-          <Dato label="Cuota sugerida por quincena">{anticipo.cuota_sugerida != null ? <span className="mono">{money(anticipo.cuota_sugerida)}</span> : undefined}</Dato>
-          <Dato label="Motivo">{anticipo.motivo || undefined}</Dato>
-          <Dato label="Registrado">{dateTime(anticipo.created_at)}{anticipo.actor_name || anticipo.creado_por ? ` · ${anticipo.actor_name || anticipo.creado_por}` : ''}</Dato>
+          <Dato label="Tipo">{ETIQUETA_TIPO[actualAnticipo.tipo]}{actualAnticipo.historico ? ' · cargado como histórico' : ''}</Dato>
+          <Dato label="Fecha del préstamo"><span className="mono">{date(actualAnticipo.fecha)}</span></Dato>
+          <Dato label="Cuota sugerida por quincena">{actualAnticipo.cuota_sugerida != null ? <span className="mono">{money(actualAnticipo.cuota_sugerida)}</span> : undefined}</Dato>
+          <Dato label="Motivo">{actualAnticipo.motivo || undefined}</Dato>
+          <Dato label="Registrado">{dateTime(actualAnticipo.created_at)}{actualAnticipo.actor_name || actualAnticipo.creado_por ? ` · ${actualAnticipo.actor_name || actualAnticipo.creado_por}` : ''}</Dato>
         </VistaPrevia>
       )}
 
@@ -254,6 +362,84 @@ export function AnticipoDetalleModal({
         </div>
       )}
 
+      {modo === 'editar-pago' && editandoPago && (
+        <div className="card" style={{ margin: '.6rem 0 .8rem', padding: '.8rem', border: '1px solid var(--accent, #f59e0b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
+            <div className="card-title" style={{ margin: 0 }}>✏ Corregir movimiento de abono</div>
+            <span className="badge">{ETIQUETA_ORIGEN[edPagoOrigen] ?? edPagoOrigen}</span>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Fecha del abono *</label>
+              <input
+                className="input"
+                type="date"
+                value={edPagoFecha}
+                onChange={(e) => setEdPagoFecha(e.target.value)}
+              />
+            </div>
+            <div className="form-row">
+              <label>Monto (USD) *</label>
+              <input
+                className="input mono"
+                type="number"
+                min={0.01}
+                step="any"
+                autoFocus
+                value={edPagoMonto}
+                onChange={(e) => setEdPagoMonto(e.target.value)}
+                placeholder="0,00"
+              />
+              <small className="muted">
+                Anterior: {money(editandoPago.monto)} · Máx disponible: {money(maxMontoPermitido)}
+              </small>
+            </div>
+            <div className="form-row">
+              <label>Origen del abono *</label>
+              <select
+                className="select"
+                value={edPagoOrigen}
+                onChange={(e) => setEdPagoOrigen(e.target.value as AnticipoPago['origen'])}
+              >
+                <option value="manual">Abono manual</option>
+                <option value="historico">Histórico</option>
+                <option value="nomina">Nómina</option>
+              </select>
+            </div>
+            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+              <label>Nota o concepto del abono</label>
+              <input
+                className="input"
+                value={edPagoNota}
+                onChange={(e) => setEdPagoNota(e.target.value)}
+                placeholder="Ej. SE DESCONTO DE SU NOMINA PARA ABONO A PRESTAMO"
+              />
+            </div>
+          </div>
+          {problemaEdicionPago && (
+            <div className="aviso warning sm" style={{ marginTop: '.5rem' }}>
+              <span className="aviso-icono">⚠</span><div>{problemaEdicionPago}</div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.6rem' }}>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => { setModo('ver'); setEditandoPago(null); setError(null); }}
+              disabled={guardando}
+            >
+              Cancelar
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => void guardarEdicionPago()}
+              disabled={guardando || !!problemaEdicionPago}
+            >
+              {guardando ? 'Guardando…' : 'Guardar cambios del abono'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card-title" style={{ margin: '.8rem 0 .4rem' }}>Abonos <span className="badge">{pagos.length}</span></div>
       {cargando && <p className="muted">Cargando…</p>}
       {!cargando && !pagos.length && <p className="muted" style={{ fontSize: '.85rem' }}>Todavía no tiene abonos.</p>}
@@ -267,26 +453,47 @@ export function AnticipoDetalleModal({
                 <th>Nota</th>
                 <th style={{ textAlign: 'right' }}>Monto</th>
                 <th>Cargado</th>
-                {canWrite && <th />}
+                {canWrite && <th style={{ textAlign: 'center' }}>Acciones</th>}
               </tr>
             </thead>
             <tbody>
-              {pagos.map((p) => (
-                <tr key={p.id}>
-                  <td className="mono">{date(p.fecha)}</td>
-                  <td><span className="badge">{ETIQUETA_ORIGEN[p.origen] ?? p.origen}</span></td>
-                  <td className="muted">{p.nota || '—'}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(p.monto)}</td>
-                  <td className="muted" style={{ fontSize: '.76rem' }}>{dateTime(p.created_at)}{(p.actor_name || p.created_by) && <div>{p.actor_name || p.created_by}</div>}</td>
-                  {canWrite && (
-                    <td style={{ textAlign: 'center' }}>
-                      {p.origen !== 'nomina' && (
-                        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} title="Eliminar este abono" onClick={() => setPorBorrar(p)}>🗑</button>
-                      )}
+              {pagos.map((p) => {
+                const esElQueSeEdita = editandoPago?.id === p.id && modo === 'editar-pago';
+                return (
+                  <tr key={p.id} style={esElQueSeEdita ? { background: 'rgba(245, 158, 11, 0.12)' } : undefined}>
+                    <td className="mono">{date(p.fecha)}</td>
+                    <td><span className="badge">{ETIQUETA_ORIGEN[p.origen] ?? p.origen}</span></td>
+                    <td className="muted">{p.nota || '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(p.monto)}</td>
+                    <td className="muted" style={{ fontSize: '.76rem' }}>
+                      {dateTime(p.created_at)}
+                      {(p.actor_name || p.created_by) && <div>{p.actor_name || p.created_by}</div>}
                     </td>
-                  )}
-                </tr>
-              ))}
+                    {canWrite && (
+                      <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          title="Editar este movimiento de abono"
+                          onClick={() => iniciarEdicionPago(p)}
+                          disabled={guardando}
+                          style={{ marginRight: '.25rem' }}
+                        >
+                          ✏
+                        </button>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          style={{ color: 'var(--danger)' }}
+                          title="Eliminar este abono"
+                          onClick={() => setPorBorrar(p)}
+                          disabled={guardando}
+                        >
+                          🗑
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
@@ -299,7 +506,7 @@ export function AnticipoDetalleModal({
         </div>
       )}
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
-        Los abonos de <strong>nómina</strong> no se borran desde aquí: quedan casados con la quincena pagada. Los abonos a mano y los históricos sí.
+        Puedes corregir cualquier movimiento de abono (fecha, monto, origen o nota) con el botón ✏ y el saldo se sincronizará automáticamente.
       </small>
 
       {porBorrar && (

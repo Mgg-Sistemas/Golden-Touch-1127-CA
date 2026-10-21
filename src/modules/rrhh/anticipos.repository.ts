@@ -118,6 +118,37 @@ export async function eliminarAnticipo(id: string): Promise<void> {
   if (!data || data.length === 0) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
 }
 
+export async function getAnticipo(id: string): Promise<AnticipoPrestamo> {
+  const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).single();
+  if (error) throw error;
+  return data as AnticipoPrestamo;
+}
+
+/**
+ * Recalcula y sincroniza el saldo y estado de un préstamo a partir de la suma
+ * de todos sus abonos registrados en `anticipos_pagos`.
+ */
+export async function sincronizarSaldoAnticipo(anticipoId: string): Promise<AnticipoPrestamo> {
+  const { data: ant, error: antErr } = await supabase.from(TABLE).select('*').eq('id', anticipoId).single();
+  if (antErr) throw antErr;
+
+  const { data: pagos, error: pagosErr } = await supabase.from(PAGOS).select('monto').eq('anticipo_id', anticipoId);
+  if (pagosErr) throw pagosErr;
+
+  const totalPagado = (pagos ?? []).reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+  const montoTotal = Number(ant.monto_total) || 0;
+  const nuevoSaldo = Math.max(0, r2(montoTotal - totalPagado));
+  const nuevoEstado = nuevoSaldo <= 0 ? 'saldado' : 'activo';
+
+  const { data: updated, error: updErr } = await supabase.from(TABLE).update({
+    saldo: nuevoSaldo,
+    estado: nuevoEstado,
+  }).eq('id', anticipoId).select('*').single();
+  if (updErr) throw updErr;
+
+  return updated as AnticipoPrestamo;
+}
+
 /* ───────────── Abonos ───────────── */
 
 export async function listPagos(anticipoId: string): Promise<AnticipoPago[]> {
@@ -140,7 +171,7 @@ export interface AbonoInput {
   fecha: string;
   monto: number;
   nota?: string | null;
-  origen?: 'manual' | 'historico';
+  origen?: 'manual' | 'historico' | 'nomina';
 }
 
 /** Abono a mano (fuera de nómina). La base rechaza el que supere el saldo. */
@@ -152,14 +183,61 @@ export async function registrarAbono(anticipoId: string, input: AbonoInput, acto
     nota: input.nota?.trim() || null, created_by: actorEmail ?? null, actor_name: actorName ?? null,
   }).select('*').single();
   if (error) throw error;
+  try { await sincronizarSaldoAnticipo(anticipoId); } catch { /* ignore */ }
   return data as AnticipoPago;
+}
+
+export interface EdicionAbono {
+  fecha?: string;
+  monto?: number;
+  origen?: 'manual' | 'historico' | 'nomina';
+  nota?: string | null;
+}
+
+/**
+ * Permite editar todos los campos de un abono (fecha, monto, origen, nota)
+ * y sincroniza automáticamente el saldo y estado del préstamo.
+ */
+export async function editarAbono(
+  id: string,
+  cambios: EdicionAbono,
+  actorEmail?: string,
+  actorName?: string | null,
+): Promise<AnticipoPago> {
+  const patch: Record<string, unknown> = {};
+  if (cambios.fecha) patch.fecha = cambios.fecha;
+  if (cambios.monto != null) {
+    const m = r2(cambios.monto);
+    if (m <= 0) throw new Error('El abono debe ser mayor que 0.');
+    patch.monto = m;
+  }
+  if (cambios.origen) patch.origen = cambios.origen;
+  if ('nota' in cambios) patch.nota = cambios.nota?.trim() || null;
+  if (actorEmail) patch.created_by = actorEmail;
+  if (actorName) patch.actor_name = actorName;
+
+  const { data, error } = await supabase.from(PAGOS).update(patch).eq('id', id).select('*').single();
+  if (error) throw error;
+  const pagoActualizado = data as AnticipoPago;
+
+  try {
+    await sincronizarSaldoAnticipo(pagoActualizado.anticipo_id);
+  } catch (syncErr) {
+    console.error('Error sincronizando saldo tras editar abono:', syncErr);
+  }
+
+  return pagoActualizado;
 }
 
 /** Borra un abono: el saldo del préstamo vuelve a subir. */
 export async function eliminarAbono(id: string): Promise<void> {
+  const { data: pago } = await supabase.from(PAGOS).select('anticipo_id').eq('id', id).maybeSingle();
   const { data, error } = await supabase.from(PAGOS).delete().eq('id', id).select('id');
   if (error) throw error;
   if (!data || data.length === 0) throw new Error('No se pudo eliminar el abono: sin permiso o ya no existía.');
+  if (pago?.anticipo_id) {
+    try { await sincronizarSaldoAnticipo(pago.anticipo_id); } catch { /* ignore */ }
+  }
 }
 
 /** Descuenta `monto` del saldo registrándolo como abono manual (al pagar un renglón fuera de nómina). */

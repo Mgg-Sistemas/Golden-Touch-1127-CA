@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AnticipoPago, AnticipoPrestamo, Personal } from '@/shared/lib/types';
 import {
-  FILTROS_VACIOS, agruparPorTrabajador, buscarTrabajadores, errorAbono, errorAlta, filtrarAnticipos,
+  FILTROS_VACIOS, agruparPorTrabajador, buscarTrabajadores, errorAbono, errorEdicionAbono, errorAlta, filtrarAnticipos,
   filtrosActivos, normalizarTexto, ordenarPagos, pagadoDe, resumenAnticipos, trabajadoresConPendiente,
   type AltaAnticipo,
 } from './anticiposResumen';
@@ -109,6 +109,14 @@ describe('reglas de carga', () => {
     expect(errorAbono(200, 250, '2026-07-01')).toMatch(/supera/);
     expect(errorAbono(200, null, '2026-07-01')).toMatch(/monto/);
     expect(errorAbono(200, 10, '2026-05-01', '2026-06-10')).toMatch(/anterior/);
+  });
+  it('edición de abono', () => {
+    // Total 1000, otros abonos 300 -> máximo 700
+    expect(errorEdicionAbono(1000, 300, 200, '2026-07-01', '2026-06-10')).toBeNull();
+    expect(errorEdicionAbono(1000, 300, 700, '2026-07-01', '2026-06-10')).toBeNull();
+    expect(errorEdicionAbono(1000, 300, 750, '2026-07-01', '2026-06-10')).toMatch(/supera/);
+    expect(errorEdicionAbono(1000, 300, 0, '2026-07-01', '2026-06-10')).toMatch(/monto/);
+    expect(errorEdicionAbono(1000, 300, 100, '2026-05-01', '2026-06-10')).toMatch(/anterior/);
   });
 });
 
