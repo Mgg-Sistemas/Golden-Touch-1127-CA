@@ -55,7 +55,7 @@ export const TIPOS_IMPUESTO: { key: TipoImpuesto; label: string; corto: string }
   { key: 'iva', label: 'Retención de IVA', corto: 'IVA' },
   { key: 'islr', label: 'Retención de ISLR', corto: 'ISLR' },
   { key: 'municipal', label: 'ISAE (actividades económicas)', corto: 'ISAE' },
-  { key: 'regional', label: 'Timbre fiscal estadal', corto: 'Estadal' },
+  { key: 'regional', label: 'Estadal (timbre fiscal)', corto: 'Estadal' },
   { key: 'igtf', label: 'IGTF', corto: 'IGTF' },
 ];
 

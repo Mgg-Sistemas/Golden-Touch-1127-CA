@@ -7,7 +7,7 @@ import {
 describe('rótulos: ninguna clave técnica a la vista (usuario 21/10 11:15)', () => {
   it('impuestos por clave o tipo interno', () => {
     expect(rotuloImpuesto('MUNICIPAL')).toBe('ISAE (municipal)');
-    expect(rotuloImpuesto('regional')).toBe('Timbre fiscal estadal');
+    expect(rotuloImpuesto('regional')).toBe('Estadal (timbre fiscal)');
     expect(rotuloImpuesto(null)).toBe('Todos los impuestos');
   });
 
