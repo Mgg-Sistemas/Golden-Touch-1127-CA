@@ -36,6 +36,20 @@ export async function noAplicaPorOrden(ordenIds: string[]): Promise<Map<string, 
   return out;
 }
 
+/**
+ * Los impuestos que la empresa practica a esa fecha, según su Régimen (R1, vía R10).
+ * Sin R10 devuelve null: la pantalla sigue mostrando todos, como antes.
+ */
+export async function impuestosQuePractica(claves: string[], fecha: string): Promise<Set<string> | null> {
+  if (!(await noAplicaDisponible())) return null;
+  const res = await Promise.all(claves.map(async (c) => {
+    const { data, error } = await supabase.rpc('retencion_empresa_practica', { p_impuesto: c, p_fecha: fecha });
+    if (error) throw errorRetencion(error, 'No se pudo leer el régimen de la empresa.');
+    return data === true ? c : null;
+  }));
+  return new Set(res.filter((c): c is string => !!c));
+}
+
 export interface NoAplicaNuevo {
   ordenId: string;
   proveedorId: string | null;
