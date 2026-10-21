@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_MINIMIZADAS, cancelarSalida, confirmarSalida, intentarSalir, intercambiarMinimizada,
-  leerMinimizadas, minimizar, mismoModulo, quitarMinimizada, vaciarMinimizadas,
+  descartarPestana, fijarRestauradorModulo, leerMinimizadas, minimizar, minimizarUltimaAbierta, mismoModulo, moduloActual,
+  quitarMinimizada, registrarVentana, restaurarPestana, vaciarMinimizadas,
 } from './minimizadas';
 
 const MOD = 'Pedidos / Compras';
@@ -119,5 +120,50 @@ describe('salir del módulo', () => {
     expect(confirmarSalida()).toBe('/app/inventario');
     expect(leerMinimizadas().items).toHaveLength(0);
     expect(leerMinimizadas().salida).toBeNull();
+  });
+});
+
+describe('moduloActual (el módulo de la ruta, para minimizar en cualquier módulo)', () => {
+  it('lee el módulo de la ruta con o sin #, con subrutas y parámetros', () => {
+    expect(moduloActual('#/app/tesoreria')).toEqual({ ruta: '/app/tesoreria', nombre: 'Tesorería' });
+    expect(moduloActual('/app/combustible/x?y=1')).toEqual({ ruta: '/app/combustible', nombre: 'Combustible' });
+    expect(moduloActual('#/app/maquinaria/ordenes')).toEqual({ ruta: '/app/maquinaria', nombre: 'Control de Maquinaria y Vehículos' });
+    expect(moduloActual('#/app/pedidos').nombre).toBe('Pedidos / Compras');
+  });
+  it('fuera de un módulo conocido no falla', () => {
+    expect(moduloActual('#/app')).toEqual({ ruta: '/app', nombre: 'Inicio' });
+    expect(moduloActual('#/app/cosa-nueva').ruta).toBe('/app/cosa-nueva');
+  });
+});
+
+describe('pestañas con su propio restaurar y descartar', () => {
+  it('restaurarPestana usa el restaurar de la pestaña; sin él, el restaurador del módulo', () => {
+    const propio = vi.fn();
+    const delModulo = vi.fn();
+    fijarRestauradorModulo(delModulo);
+    minimizar(MOD, RUTA, { ...a, restaurar: propio });
+    minimizar(MOD, RUTA, b);
+    restaurarPestana('a');
+    restaurarPestana('b');
+    expect(propio).toHaveBeenCalledTimes(1);
+    expect(delModulo).toHaveBeenCalledWith('b');
+    fijarRestauradorModulo(null);
+  });
+  it('descartarPestana la quita y avisa a la ventana para que se cierre', () => {
+    const cerrar = vi.fn();
+    minimizar(MOD, RUTA, { ...a, descartar: cerrar });
+    descartarPestana('a');
+    expect(cerrar).toHaveBeenCalledTimes(1);
+    expect(leerMinimizadas().items).toHaveLength(0);
+  });
+  it('minimizarUltimaAbierta manda a la barra la última ventana a la vista, no la indicada', () => {
+    const m1 = vi.fn(); const m2 = vi.fn(); const m3 = vi.fn();
+    const quitar = [registrarVentana('v1', m1), registrarVentana('v2', m2), registrarVentana('v3', m3)];
+    minimizarUltimaAbierta('v3');
+    expect(m2).toHaveBeenCalledTimes(1);
+    expect(m1).not.toHaveBeenCalled();
+    expect(m3).not.toHaveBeenCalled();
+    quitar.forEach((q) => q());
+    minimizarUltimaAbierta('x');   // sin ventanas: no hace nada
   });
 });

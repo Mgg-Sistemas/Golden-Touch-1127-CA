@@ -2,8 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
-import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
-import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
+import { MAX_MINIMIZADAS, fijarRestauradorModulo, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DespieceResBloque } from './DespieceResBloque';
@@ -549,6 +548,11 @@ export function PedidosPage() {
     setModal({ kind: 'none' });
   }
   async function restaurarMinimizada(id: string) {
+    // Con una ventana de formulario abierta, restaurar la descartaría.
+    if (modal.kind !== 'none' && modal.kind !== 'detail') {
+      toast('Cierra la ventana abierta para restaurar esta pestaña.', 'warning');
+      return;
+    }
     let o = ordenes.find((x) => x.id === id) ?? null;
     if (!o) {
       // La lista cargada ya no la trae (otra sesión la movió o la borró): se pide por su id.
@@ -564,6 +568,13 @@ export function PedidosPage() {
   }
   // Si la orden se abre por otro camino (lista, buscador) deja de estar «minimizada».
   useEffect(() => { if (modal.kind === 'detail') quitarMinimizada(modal.ordenId); }, [modal]);
+  // La barra vive en AppShell: aquí se le dice cómo reabrir una orden minimizada.
+  const restaurarRef = useRef(restaurarMinimizada);
+  restaurarRef.current = restaurarMinimizada;
+  useEffect(() => {
+    fijarRestauradorModulo((id) => { void restaurarRef.current(id); });
+    return () => fijarRestauradorModulo(null);
+  }, []);
   // Al salir del módulo (con el aviso o por otro camino) la barra se pierde.
   useEffect(() => () => vaciarMinimizadas(), []);
 
@@ -840,9 +851,6 @@ export function PedidosPage() {
 
       {/* Modal: reporte «Pendientes por pagar» (PDF/Imprimir · Excel · WhatsApp) */}
       {pendientesPagarOpen && <ReportePendientesPagarModal onClose={() => setPendientesPagarOpen(false)} />}
-
-      {/* Barra de pestañas minimizadas (hasta 3) */}
-      <DockMinimizadas onRestaurar={(id) => { void restaurarMinimizada(id); }} bloqueado={modal.kind !== 'none' && modal.kind !== 'detail'} />
 
       {/* Modal: detalle */}
       {modal.kind === 'detail' && currentDetail && (

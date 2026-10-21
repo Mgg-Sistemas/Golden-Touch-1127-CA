@@ -12,6 +12,10 @@ export const MAX_MINIMIZADAS = 3;
 export interface Minimizada {
   id: string;
   titulo: string;
+  /** Cómo se vuelve a mostrar. Sin esto, lo hace el restaurador del módulo (Pedidos: reabre la orden por su id). */
+  restaurar?: () => void;
+  /** Qué hacer al descartarla con su ✕ (una ventana oculta se cierra). */
+  descartar?: () => void;
 }
 
 export interface EstadoMinimizadas {
@@ -120,4 +124,60 @@ export function confirmarSalida(): string | null {
 /** El usuario se quedó en el módulo. */
 export function cancelarSalida() {
   if (estado.salida !== null) fijar({ ...estado, salida: null });
+}
+
+/* ───────── Ventanas que se minimizan solas (Modal) ───────── */
+
+const NOMBRES_MODULO: Record<string, string> = {
+  dashboard: 'Dashboard', pedidos: 'Pedidos / Compras', proveedores: 'Proveedores', inventario: 'Inventario',
+  produccion: 'Producción', salidas: 'Salidas / Traslados', combustible: 'Combustible',
+  acopio: 'Centro de Costo PERAMANAL', recepciones: 'Recepciones', cocina: 'Control de Alimentación (Cocina)',
+  tesoreria: 'Tesorería', ventas: 'Ventas', retenciones: 'Retenciones', documentacion: 'Documentación',
+  rrhh: 'RRHH / Nómina', geodesta: 'Geodesta', asignaciones: 'Asignaciones', choferes: 'Choferes / Conductores',
+  maquinaria: 'Control de Maquinaria y Vehículos', usuarios: 'Usuarios', auditoria: 'Auditoría', ajustes: 'Ajustes',
+  telefono: 'Mis pantallas',
+};
+
+/** El módulo donde está el usuario, a partir de la ruta («#/app/tesoreria/x» → Tesorería). */
+export function moduloActual(destino?: string): { nombre: string; ruta: string } {
+  const hash = destino ?? (typeof window !== 'undefined' ? window.location.hash : '');
+  const clave = limpiarRuta(hash).split('/').filter(Boolean)[1] ?? '';
+  return { ruta: clave ? `/app/${clave}` : '/app', nombre: NOMBRES_MODULO[clave] ?? (clave || 'Inicio') };
+}
+
+let restauradorModulo: ((id: string) => void) | null = null;
+
+/** Pedidos registra aquí cómo reabrir una orden minimizada (sus pestañas no traen `restaurar`). */
+export function fijarRestauradorModulo(f: ((id: string) => void) | null) {
+  restauradorModulo = f;
+}
+
+/** La barra pide mostrar una pestaña. */
+export function restaurarPestana(id: string) {
+  const it = estado.items.find((x) => x.id === id);
+  if (!it) return;
+  if (it.restaurar) it.restaurar();
+  else restauradorModulo?.(id);
+}
+
+/** La barra pide descartar una pestaña (✕): una ventana oculta se cierra. */
+export function descartarPestana(id: string) {
+  const it = estado.items.find((x) => x.id === id);
+  quitarMinimizada(id);
+  it?.descartar?.();
+}
+
+/** Ventanas a la vista que se pueden minimizar, en el orden en que se abrieron. */
+const ventanasAbiertas = new Map<string, () => void>();
+
+export function registrarVentana(id: string, minimizarla: () => void): () => void {
+  ventanasAbiertas.set(id, minimizarla);
+  return () => { ventanasAbiertas.delete(id); };
+}
+
+/** Al restaurar una pestaña, la ventana que está arriba (la última abierta) pasa a la barra en su lugar. */
+export function minimizarUltimaAbierta(excepto: string) {
+  const ids = [...ventanasAbiertas.keys()].filter((k) => k !== excepto);
+  const ultima = ids[ids.length - 1];
+  if (ultima) ventanasAbiertas.get(ultima)?.();
 }
