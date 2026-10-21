@@ -19,12 +19,12 @@ describe('filasProveedores', () => {
     expect(filasProveedores([prov({})])).toEqual([{
       rif: 'J-12345678-9', razon: 'FERREMAX C.A.', contacto: 'Ana Pérez', telefono: '0414-1234567',
       email: 'ventas@ferremax.com', direccion: 'Av. Principal, Upata', categorias: 'Ferretería, Repuestos',
-      origen: 'Nacional', actividad: '5110 · Comercio al por mayor', numeroAdm: 'ADM-77', estado: 'Activo',
+      origen: 'Nacional', numeroAdm: 'ADM-77', estado: 'Activo',
     }]);
   });
   it('lo que falta queda vacío y el estado inactivo se lee', () => {
     const [f] = filasProveedores([prov({ contacto: null, telefono: undefined, email: null, direccion: null, categorias: [], actividad_economica: null, numero_administracion: null, origen: 'internacional', estado: 'inactivo' })]);
-    expect(f).toMatchObject({ contacto: '', telefono: '', email: '', direccion: '', categorias: '', actividad: '', numeroAdm: '', origen: 'Internacional', estado: 'Inactivo' });
+    expect(f).toMatchObject({ contacto: '', telefono: '', email: '', direccion: '', categorias: '', numeroAdm: '', origen: 'Internacional', estado: 'Inactivo' });
   });
 });
 
@@ -45,9 +45,9 @@ describe('Excel', () => {
     expect(c(1, 1)).toContain('PROVEEDORES');
     expect(c(2, 1)).toBe('2 proveedor(es) · Generado 21/10/2026 11:30');
     expect(c(3, 1)).toBe('Filtro: Activos · Categoría Ferretería');
-    expect([c(4, 2), c(4, 3), c(4, 12)]).toEqual(['RIF', 'RAZÓN SOCIAL', 'ESTADO']);
-    expect([c(5, 2), c(5, 3), c(5, 8), c(5, 11), c(5, 12)]).toEqual(['J-12345678-9', 'FERREMAX C.A.', 'Ferretería, Repuestos', 'ADM-77', 'Activo']);
-    expect([c(6, 3), c(6, 12)]).toEqual(['OTRO', 'Inactivo']);
+    expect([c(4, 2), c(4, 3), c(4, 11)]).toEqual(['RIF', 'RAZÓN SOCIAL', 'ESTADO']);
+    expect([c(5, 2), c(5, 3), c(5, 8), c(5, 10), c(5, 11)]).toEqual(['J-12345678-9', 'FERREMAX C.A.', 'Ferretería, Repuestos', 'ADM-77', 'Activo']);
+    expect([c(6, 3), c(6, 11)]).toEqual(['OTRO', 'Inactivo']);
   }, 30000);
 
   it('sin filtro lo dice', async () => {

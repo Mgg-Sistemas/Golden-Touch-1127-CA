@@ -44,7 +44,6 @@ export const CAMPOS_PROVEEDOR: CampoProveedor[] = [
   { clave: 'direccion', etiqueta: 'Dirección', ancho: 32, valor: (p) => txt(p.direccion) },
   { clave: 'categorias', etiqueta: 'Categorías', ancho: 26, valor: (p) => (p.categorias ?? []).map(txt).filter(Boolean).join(', ') },
   { clave: 'origen', etiqueta: 'Origen', ancho: 14, valor: (p) => ORIGEN[p.origen] ?? txt(p.origen) },
-  { clave: 'actividad_economica', etiqueta: 'Actividad económica', ancho: 28, valor: (p) => txt(p.actividad_economica) },
   { clave: 'numero_administracion', etiqueta: 'N° administración', ancho: 18, valor: (p) => txt(p.numero_administracion) },
   { clave: 'estado', etiqueta: 'Estado', ancho: 11, valor: (p) => (p.estado === 'activo' ? 'Activo' : 'Inactivo') },
 ];
@@ -104,7 +103,6 @@ export interface FilaProveedor {
   direccion: string;
   categorias: string;
   origen: string;
-  actividad: string;
   numeroAdm: string;
   estado: string;
 }
@@ -119,7 +117,6 @@ export function filasProveedores(lista: readonly Proveedor[]): FilaProveedor[] {
     direccion: txt(p.direccion),
     categorias: (p.categorias ?? []).map(txt).filter(Boolean).join(', '),
     origen: ORIGEN[p.origen] ?? txt(p.origen),
-    actividad: txt(p.actividad_economica),
     numeroAdm: txt(p.numero_administracion),
     estado: p.estado === 'activo' ? 'Activo' : 'Inactivo',
   }));

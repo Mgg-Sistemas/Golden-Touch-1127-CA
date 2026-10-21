@@ -58,12 +58,6 @@ export function ProveedoresPage() {
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoFilter>('');
   const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
-  const [filterActividad, setFilterActividad] = useState('');
-  // Actividades escritas a mano (sin lista por ahora): las que ya tienen los proveedores.
-  const actividadesUsadas = useMemo(
-    () => Array.from(new Set(proveedores.map((p) => (p.actividad_economica ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es-VE')),
-    [proveedores],
-  );
   const [categoriasList, setCategoriasList] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -125,7 +119,6 @@ export function ProveedoresPage() {
     return proveedores.filter((p) => {
       if (filterEstado && p.estado !== filterEstado) return false;
       if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
-      if (filterActividad === '__sin' ? !!p.actividad_economica : filterActividad && p.actividad_economica !== filterActividad) return false;
       if (q) {
         const hay = [p.razon_social, p.rif, p.contacto, p.email]
           .map((v) => norm(v))
@@ -134,7 +127,7 @@ export function ProveedoresPage() {
       }
       return true;
     });
-  }, [proveedores, filterText, filterEstado, filterCategoria, filterActividad]);
+  }, [proveedores, filterText, filterEstado, filterCategoria]);
 
   // Descargar datos de los proveedores visibles en PDF o Excel.
   const [exportarOpen, setExportarOpen] = useState(false);
@@ -142,7 +135,6 @@ export function ProveedoresPage() {
     filterText.trim() && `Búsqueda «${filterText.trim()}»`,
     filterEstado && (filterEstado === 'activo' ? 'Activos' : 'Inactivos'),
     filterCategoria && `Categoría ${filterCategoria}`,
-    filterActividad && (filterActividad === '__sin' ? 'Sin actividad económica' : `Actividad ${filterActividad}`),
   ].filter(Boolean).join(' · ');
 
   function openCreate() {
@@ -276,17 +268,6 @@ export function ProveedoresPage() {
             </option>
           ))}
         </select>
-        <select
-          className="select"
-          style={{ maxWidth: 260 }}
-          value={filterActividad}
-          onChange={(e) => setFilterActividad(e.target.value)}
-          aria-label="Actividad económica"
-        >
-          <option value="">Todas las actividades económicas</option>
-          <option value="__sin">Sin actividad económica</option>
-          {actividadesUsadas.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
       </div>
 
       {loading ? (
@@ -310,7 +291,6 @@ export function ProveedoresPage() {
                 <th>Razón social</th>
                 <th>Teléfono</th>
                 <th>Categorías</th>
-                <th>Actividad económica</th>
                 <th>Estado</th>
                 <th></th>
               </tr>
@@ -332,9 +312,6 @@ export function ProveedoresPage() {
                   <td className="mono">{p.telefono || '—'}</td>
                   <td>
                     <Etiquetas items={p.categorias ?? []} max={3} />
-                  </td>
-                  <td style={{ fontSize: '.8rem', maxWidth: 260 }}>
-                    {p.actividad_economica || <span className="muted">—</span>}
                   </td>
                   <td>
                     <StatusBadge estado={p.estado} />
@@ -645,12 +622,6 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             onChange={(e) => update('numero_administracion', e.target.value.replace(/\D/g, '').slice(0, 15))} maxLength={15}
             placeholder="Se pide la primera vez al indicar el método de pago" />
         </div>
-
-        <div className="form-row">
-          <label htmlFor="prov-actividad">Actividad económica <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
-          <input id="prov-actividad" className="input" value={form.actividad_economica ?? ''} maxLength={200}
-            onChange={(e) => update('actividad_economica', e.target.value)} placeholder="Ej. Comercio al por mayor de repuestos" />
-        </div>
       </form>
     </Modal>
   );
@@ -712,7 +683,6 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
-        <DetailRow label="Actividad económica" value={proveedor.actividad_economica || '—'} />
         <DetailRow label="Tlf. de administración" value={proveedor.numero_administracion ? <span className="mono">📞 {proveedor.numero_administracion}</span> : '—'} />
         <DetailRow
           label="Categorías"
