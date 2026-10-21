@@ -28,9 +28,9 @@ import { esTablaInexistente, olvidarDisponibilidad, r1Disponible, tablaDisponibl
 beforeEach(() => { respuestas.clear(); preguntas.length = 0; olvidarDisponibilidad(); });
 
 describe('¿está la tabla en la base?', () => {
-  it('responde: existe; pregunta con un conteo vacío, sin traer filas', async () => {
+  it('responde: existe; pregunta con un GET de 0 filas', async () => {
     expect(await tablaDisponible('retencion_entes')).toBe(true);
-    expect(preguntas[0].metodos).toContainEqual(['select', '*', { head: true, count: 'exact' }]);
+    expect(preguntas[0].metodos).toContainEqual(['select', '*']);
     expect(preguntas[0].metodos).toContainEqual(['limit', 0]);
   });
 
@@ -67,5 +67,16 @@ describe('¿está la tabla en la base?', () => {
     olvidarDisponibilidad();
     respuestas.set('retencion_contraparte_perfiles', { error: { code: 'PGRST205', message: 'Could not find the table' } });
     expect(await r1Disponible()).toBe(false);
+  });
+});
+
+describe('cómo pregunta', () => {
+  // A un HEAD de una tabla inexistente PostgREST responde 404 sin cuerpo, y la librería lo da por bueno:
+  // la sección aparecía en producción sin su tabla (21/10). Tiene que ser un GET.
+  it('no usa HEAD', async () => {
+    await tablaDisponible('retencion_motivos_no_aplica');
+    const select = preguntas.find((p) => p.tabla === 'retencion_motivos_no_aplica')?.metodos.find((m) => m[0] === 'select');
+    expect(select).toBeDefined();
+    expect(JSON.stringify(select)).not.toMatch(/"head":true/);
   });
 });

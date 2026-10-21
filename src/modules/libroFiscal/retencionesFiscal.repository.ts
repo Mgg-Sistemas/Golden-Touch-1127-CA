@@ -674,7 +674,8 @@ export async function marcarDeclarada(id: string, declarada: boolean, actor: str
 }
 
 /** Adjunta el comprobante: el que firma el proveedor, o el que entregó el cliente. */
-export async function adjuntarComprobante(id: string, file: File): Promise<void> {
+/** `tipo` dice qué documento es (factura, comprobante firmado…): queda delante del nombre, sin cambiar la base. */
+export async function adjuntarComprobante(id: string, file: File, tipo?: string): Promise<void> {
   if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
     throw new Error('El comprobante debe ser PDF o imagen.');
   }
@@ -684,7 +685,7 @@ export async function adjuntarComprobante(id: string, file: File): Promise<void>
     .upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' });
   if (upErr) throw upErr;
   const { data, error } = await supabase.from(T_RETENCIONES)
-    .update({ comprobante_path: path, comprobante_nombre: file.name, updated_at: new Date().toISOString() })
+    .update({ comprobante_path: path, comprobante_nombre: tipo ? `${tipo} · ${file.name}` : file.name, updated_at: new Date().toISOString() })
     .eq('id', id).select('id');
   if (error) throw error;
   exigirFilas(data);
