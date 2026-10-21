@@ -14,10 +14,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { toast } from '@/shared/ui/Toast';
-import { listOrdenesCierreDiario } from './pedidos.repository';
+import { listOrdenesCierreDiario, listCotizacionesCierreDiario } from './pedidos.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import {
   TITULOS_CIERRE, calcularCierre, etiquetaPeriodo, hoyCaracas, momentoImpresion, periodoDe,
-  type FilaCierre, type ModoPeriodo,
+  type FilaCierre, type FilaCotizacionCierre, type ModoPeriodo,
 } from './cierreDiario';
 import { descargarCierreDiarioPdf } from './cierreDiarioPdf';
 import { descargarCierreDiarioExcel } from './cierreDiarioExcel';
@@ -35,6 +36,8 @@ const MODOS: { modo: ModoPeriodo; etiqueta: string }[] = [
 export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
   const hoy = hoyCaracas();
   const [filas, setFilas] = useState<FilaCierre[] | null>(null);
+  const [cotizaciones, setCotizaciones] = useState<FilaCotizacionCierre[] | null>(null);
+  const [personasMap, setPersonasMap] = useState<Map<string, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [modo, setModo] = useState<ModoPeriodo>('dia');
   const [fecha, setFecha] = useState(hoy);
@@ -45,9 +48,23 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let vivo = true;
-    listOrdenesCierreDiario()
-      .then((f) => { if (vivo) setFilas(f); })
-      .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudo cargar el cierre'); });
+    Promise.all([
+      listOrdenesCierreDiario(),
+      listCotizacionesCierreDiario(),
+      listUsuarios().catch(() => []),
+    ])
+      .then(([f, c, usrs]) => {
+        if (!vivo) return;
+        setFilas(f);
+        setCotizaciones(c);
+        const pm = new Map(
+          usrs.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])
+        );
+        setPersonasMap(pm);
+      })
+      .catch((e) => {
+        if (vivo) setError(e instanceof Error ? e.message : 'No se pudo cargar el cierre');
+      });
     return () => { vivo = false; };
   }, []);
 
@@ -55,7 +72,10 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
     () => (modo === 'mes' ? periodoDe('mes', mes || hoy.slice(0, 7)) : periodoDe(modo, fecha || hoy, hasta || fecha || hoy)),
     [modo, fecha, mes, hasta, hoy],
   );
-  const resumen = useMemo(() => calcularCierre(filas ?? [], periodo), [filas, periodo]);
+  const resumen = useMemo(
+    () => calcularCierre(filas ?? [], periodo, cotizaciones ?? [], personasMap),
+    [filas, periodo, cotizaciones, personasMap],
+  );
 
   async function generar(salida: Salida) {
     setGenerando(salida);
@@ -151,6 +171,43 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
               </li>
             ))}
           </ul>
+
+          <div style={{ margin: '1rem 0 .8rem', borderTop: '1px solid var(--border, rgba(255,255,255,.08))', paddingTop: '.75rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.5rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span>👥 Por analista</span>
+            </div>
+            {resumen.analistas.length === 0 ? (
+              <p className="muted" style={{ margin: '0 0 .4rem', fontSize: '.82rem' }}>
+                Sin cotizaciones ni órdenes finalizadas en este período.
+              </p>
+            ) : (
+              <div style={{ display: 'grid', gap: '.4rem' }}>
+                {resumen.analistas.map((a) => (
+                  <div
+                    key={a.email}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '.5rem',
+                      padding: '.45rem .65rem',
+                      background: 'var(--surface-hover, rgba(255,255,255,.03))',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border, rgba(255,255,255,.06))',
+                    }}
+                  >
+                    <strong style={{ fontSize: '.88rem' }}>{a.nombre}</strong>
+                    <div style={{ display: 'flex', gap: '1.2rem', fontSize: '.82rem' }}>
+                      <span>Cotizaciones realizadas: <strong className="mono" style={{ fontSize: '.95rem' }}>{a.cotizaciones}</strong></span>
+                      <span>Órdenes finalizadas: <strong className="mono" style={{ fontSize: '.95rem' }}>{a.finalizadas}</strong></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <p className="muted" style={{ margin: '0 0 1rem', fontSize: '.78rem' }}>
             La fecha y la hora de impresión se anotan al generar el reporte (ahora: {momentoImpresion()}).
           </p>

@@ -42,7 +42,7 @@ export interface OpcionesPrestamosPdf {
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 
-export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<void> {
+export async function construirPrestamosPdf(op: OpcionesPrestamosPdf): Promise<import('jspdf').jsPDF> {
   const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa }, { identidadEmpresa }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -65,11 +65,13 @@ export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<v
   doc.setTextColor(0, 0, 0);
   y += 52;
 
-  doc.setFontSize(8.5); doc.setTextColor(90, 90, 90);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90, 90, 90);
   const emitido = `Emitido el ${dia(new Date().toISOString())}`;
-  doc.text(pdfSafe(op.detalle ? `${op.detalle}   ·   ${emitido}` : emitido), MARGIN, y, { maxWidth: W - MARGIN * 2 });
+  const detalleTxt = op.detalle ? `${op.detalle}   ·   ${emitido}` : emitido;
+  const lineasDetalle = doc.splitTextToSize(pdfSafe(detalleTxt), W - MARGIN * 2) as string[];
+  doc.text(lineasDetalle, MARGIN, y);
   doc.setTextColor(0, 0, 0);
-  y += 16;
+  y += (lineasDetalle.length - 1) * 11 + 16;
 
   // Totales generales arriba: es lo primero que se mira.
   const todos = op.grupos.flatMap((g) => g.anticipos);
@@ -89,19 +91,39 @@ export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<v
     margin: MARGIN,
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
-  y = ((doc.lastAutoTable?.finalY ?? y) as number) + 14;
+  y = ((doc.lastAutoTable?.finalY ?? y) as number) + 18;
 
   for (const g of op.grupos) {
-    if (y > H - 110) { doc.addPage(); y = MARGIN; }
     const p = g.persona;
-    const datos: string[] = [nombreCompleto(p)];
-    if (p.ficha_nro) datos.push(`Ficha ${p.ficha_nro}`);
-    if (p.cedula) datos.push(`C.I. ${p.cedula}`);
-    if (p.cargo) datos.push(p.cargo);
-    if (p.departamento) datos.push(p.departamento);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(0, 0, 0);
-    doc.text(pdfSafe(datos.join('  ·  ')), MARGIN, y, { maxWidth: W - MARGIN * 2 });
-    y += 6;
+    const nombre = nombreCompleto(p);
+    const subDatos: string[] = [];
+    if (p.ficha_nro) subDatos.push(`Ficha ${p.ficha_nro}`);
+    if (p.cedula) subDatos.push(`C.I. ${p.cedula}`);
+    if (p.cargo) subDatos.push(p.cargo);
+    if (p.departamento) subDatos.push(p.departamento);
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    const subLineas = subDatos.length
+      ? (doc.splitTextToSize(pdfSafe(subDatos.join('  ·  ')), W - MARGIN * 2) as string[])
+      : [];
+    const alturaHeaderWorker = 14 + (subLineas.length ? (subLineas.length - 1) * 11 + 12 : 0) + 8;
+
+    if (y + alturaHeaderWorker + 60 > H) {
+      doc.addPage();
+      y = MARGIN;
+    }
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20, 20, 20);
+    doc.text(pdfSafe(nombre), MARGIN, y);
+    y += 13;
+
+    if (subLineas.length) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90, 90, 90);
+      doc.text(subLineas, MARGIN, y);
+      y += (subLineas.length - 1) * 11 + 10;
+    } else {
+      y += 2;
+    }
 
     const gPrestado = r2(g.anticipos.reduce((s, a) => s + (Number(a.monto_total) || 0), 0));
     const gPagado = r2(g.anticipos.reduce((s, a) => s + pagadoDe(a), 0));
@@ -144,7 +166,7 @@ export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<v
       startY: y,
       head: [['FECHA', 'TIPO', 'MOTIVO / ABONOS', 'TOTAL', 'PAGADO', 'SALDO', 'ESTADO']],
       body: filas.map((f) => f.celdas.map((c) => pdfSafe(c))),
-      styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
+      styles: { fontSize: 8, cellPadding: 3.5, overflow: 'linebreak' },
       headStyles: { fillColor: NARANJA, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
       columnStyles: {
         0: { cellWidth: 58 },
@@ -174,7 +196,7 @@ export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<v
       margin: MARGIN,
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
-    y = ((doc.lastAutoTable?.finalY ?? y) as number) + 16;
+    y = ((doc.lastAutoTable?.finalY ?? y) as number) + 18;
   }
 
   if (!op.grupos.length) {
@@ -190,6 +212,11 @@ export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<v
     + 'de un prestamo historico); SALDO = total - pagado. Un prestamo "(hist.)" existia antes del sistema y se cargo con lo que ya se habia abonado.',
   ), MARGIN, y, { maxWidth: W - MARGIN * 2 });
 
+  return doc;
+}
+
+export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<void> {
+  const doc = await construirPrestamosPdf(op);
   previewPdf(doc, op.archivo);
 }
 

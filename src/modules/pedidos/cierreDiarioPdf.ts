@@ -58,6 +58,30 @@ export async function construirCierreDiarioPdf(
     margin: MARGIN,
   });
 
+  // @ts-expect-error lastAutoTable lo agrega el plugin
+  y = ((doc.lastAutoTable?.finalY ?? y) as number) + 20;
+
+  if (r.analistas && r.analistas.length > 0) {
+    doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(pdfSafe('POR ANALISTA'), MARGIN, y);
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']],
+      body: r.analistas.map((a) => [pdfSafe(a.nombre), String(a.cotizaciones), String(a.finalizadas)]),
+      styles: { fontSize: 10, cellPadding: 7, valign: 'middle' },
+      headStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
+      alternateRowStyles: { fillColor: PASTEL.cebra },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { halign: 'center', cellWidth: 160, fontStyle: 'bold', fontSize: 11 },
+        2: { halign: 'center', cellWidth: 140, fontStyle: 'bold', fontSize: 11 },
+      },
+      margin: MARGIN,
+    });
+  }
+
   doc.setDrawColor(225, 225, 225); doc.setLineWidth(0.4);
   doc.line(MARGIN, H - 30, W - MARGIN, H - 30);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);

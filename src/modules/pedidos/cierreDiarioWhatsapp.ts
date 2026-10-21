@@ -11,6 +11,12 @@ export function textoCierreDiarioWhatsapp(r: ResumenCierre, p: PeriodoCierre, ah
   L.push(`📅 *Período:* ${etiquetaPeriodo(p)}`);
   L.push(`🕒 *Impreso:* ${momentoImpresion(ahora)}`, '');
   for (const t of TITULOS_CIERRE) L.push(`${t.emoji} *${t.titulo}:* ${r[t.clave]}`);
+  if (r.analistas && r.analistas.length > 0) {
+    L.push('', '👥 *POR ANALISTA*');
+    for (const a of r.analistas) {
+      L.push(`· *${a.nombre}:* ${a.cotizaciones} cotizaciones realizadas · ${a.finalizadas} órdenes finalizadas`);
+    }
+  }
   L.push('', '🏢 GOLDEN TOUCH 1127 C.A.');
   return L.join('\n');
 }

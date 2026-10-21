@@ -30,21 +30,48 @@ export interface PeriodoCierre {
   hasta: string;
 }
 
+/** Una cotización registrada en una orden. */
+export interface FilaCotizacionCierre {
+  registrada_por_email?: string | null;
+  registrada_en?: string | null;
+}
+
 /** Lo mínimo de una orden que el cierre necesita (la consulta trae solo estas columnas). */
 export type FilaCierre = Pick<
   Orden,
-  'id' | 'estado' | 'created_at' | 'op_padre_id' | 'oc_creada_en' | 'oc_aprobada_en' | 'aprobada_en' | 'pagada_en'
+  | 'id'
+  | 'estado'
+  | 'created_at'
+  | 'op_padre_id'
+  | 'oc_creada_en'
+  | 'oc_aprobada_en'
+  | 'aprobada_en'
+  | 'pagada_en'
+  | 'finalizada_en'
+  | 'finalizada_por'
+  | 'oc_creada_por'
+  | 'oc_emitida_por'
 >;
+
+export interface AnalistaCierre {
+  email: string;
+  nombre: string;
+  cotizaciones: number;
+  finalizadas: number;
+}
+
+export type ClaveMetricaCierre = 'pedidos' | 'porAprobar' | 'porPagar' | 'pagadas';
 
 export interface ResumenCierre {
   pedidos: number;
   porAprobar: number;
   porPagar: number;
   pagadas: number;
+  analistas: AnalistaCierre[];
 }
 
 export interface TituloCierre {
-  clave: keyof ResumenCierre;
+  clave: ClaveMetricaCierre;
   titulo: string;
   /** Emoji por defecto (sin selector invisible U+FE0F, que WhatsApp pierde). */
   emoji: string;
@@ -140,18 +167,65 @@ export function etiquetaPeriodo(p: PeriodoCierre, hoy: string = hoyCaracas()): s
 /** Estados en que una orden no cuenta como pagada aunque tenga fecha de pago (el crédito se salda por abonos). */
 const SIN_PAGO_VALIDO = new Set(['cancelada', 'rechazada', 'reasignada', 'desistida_proveedor', 'cuenta_abierta']);
 
-export function calcularCierre(filas: readonly FilaCierre[], p: PeriodoCierre): ResumenCierre {
+export function calcularCierre(
+  filas: readonly FilaCierre[],
+  p: PeriodoCierre,
+  cotizaciones: readonly FilaCotizacionCierre[] = [],
+  personas?: Map<string, string>,
+): ResumenCierre {
   const en = (v: string | null | undefined) => {
     const d = fechaCaracas(v);
     return d !== '' && d >= p.desde && d <= p.hasta;
   };
-  const r: ResumenCierre = { pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0 };
+  const r: ResumenCierre = { pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0, analistas: [] };
+  const analistasMap = new Map<string, { cotizaciones: number; finalizadas: number }>();
+  const getAnalista = (email: string) => {
+    const norm = email.toLowerCase().trim();
+    let entry = analistasMap.get(norm);
+    if (!entry) {
+      entry = { cotizaciones: 0, finalizadas: 0 };
+      analistasMap.set(norm, entry);
+    }
+    return entry;
+  };
+
   for (const o of filas) {
     // Una OC hija de un reparto no es otro pedido: es parte del mismo.
     if (!o.op_padre_id && en(o.created_at)) r.pedidos += 1;
     if (o.estado === 'oc_creada' && en(o.oc_creada_en ?? o.created_at)) r.porAprobar += 1;
     if ((o.estado === 'oc_aprobada' || o.estado === 'confirmada_metodo') && en(o.oc_aprobada_en ?? o.aprobada_en ?? o.created_at)) r.porPagar += 1;
     if (o.pagada_en && !SIN_PAGO_VALIDO.has(o.estado) && en(o.pagada_en)) r.pagadas += 1;
+
+    // Órdenes finalizadas por analista en el período
+    if (o.estado === 'finalizada' && en(o.finalizada_en ?? o.created_at)) {
+      const email = (o.oc_creada_por || o.oc_emitida_por || o.finalizada_por)?.trim();
+      if (email) {
+        getAnalista(email).finalizadas += 1;
+      }
+    }
   }
+
+  // Cotizaciones cargadas por analista en el período
+  for (const c of cotizaciones) {
+    if (en(c.registrada_en) && c.registrada_por_email) {
+      const email = c.registrada_por_email.trim();
+      if (email) {
+        getAnalista(email).cotizaciones += 1;
+      }
+    }
+  }
+
+  r.analistas = [...analistasMap.entries()]
+    .map(([email, stats]) => {
+      const nombre = personas?.get(email) || email;
+      return {
+        email,
+        nombre,
+        cotizaciones: stats.cotizaciones,
+        finalizadas: stats.finalizadas,
+      };
+    })
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
   return r;
 }

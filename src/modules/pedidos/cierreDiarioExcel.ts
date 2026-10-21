@@ -22,11 +22,11 @@ export async function construirCierreDiarioExcel(r: ResumenCierre, p: PeriodoCie
   const emp = identidadEmpresa('GT');
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Cierre diario', { pageSetup: { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
-  ws.columns = [{ width: 46 }, { width: 16 }];
+  ws.columns = [{ width: 42 }, { width: 24 }, { width: 22 }];
   const borde = { style: 'thin' as const, color: { argb: PASTEL.borde } };
   const bordes = { top: borde, left: borde, bottom: borde, right: borde };
 
-  for (const fila of [1, 2, 3, 4]) ws.mergeCells(fila, 1, fila, 2);
+  for (const fila of [1, 2, 3, 4]) ws.mergeCells(fila, 1, fila, 3);
   ws.getRow(1).height = 26;
   const t = ws.getCell(1, 1);
   t.value = 'CIERRE DIARIO · COMPRAS';
@@ -63,6 +63,37 @@ export async function construirCierreDiarioExcel(r: ResumenCierre, p: PeriodoCie
       if (i % 2 === 1) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cebra } };
     });
   });
+
+  if (r.analistas && r.analistas.length > 0) {
+    ws.addRow([]); // fila vacía separadora
+    const secRow = ws.addRow(['POR ANALISTA']);
+    secRow.height = 24;
+    ws.mergeCells(secRow.number, 1, secRow.number, 3);
+    const secCell = secRow.getCell(1);
+    secCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: PASTEL.titulo } };
+    secCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+    const cabAnalistas = ws.addRow(['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']);
+    cabAnalistas.height = 24;
+    cabAnalistas.eachCell((c) => {
+      c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cabecera } };
+      c.alignment = { horizontal: 'center', vertical: 'middle' };
+      c.border = bordes;
+    });
+
+    r.analistas.forEach((a, i) => {
+      const row = ws.addRow([a.nombre, a.cotizaciones, a.finalizadas]);
+      row.height = 22;
+      row.eachCell((c, col) => {
+        c.font = { name: 'Arial', size: 11, bold: col > 1 };
+        c.border = bordes;
+        c.alignment = { vertical: 'middle', horizontal: col === 1 ? 'left' : 'center', indent: col === 1 ? 1 : 0 };
+        if (col > 1) c.numFmt = '#,##0';
+        if (i % 2 === 1) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cebra } };
+      });
+    });
+  }
 
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }
