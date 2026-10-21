@@ -294,10 +294,10 @@ describe('régimen de la empresa por impuesto', () => {
 });
 
 describe('traductor: textos propios de cada pantalla', () => {
-  it('23505 y 23514 con texto propio; sin texto propio, igual que antes', () => {
+  it('23505 y 23514 con texto propio; sin texto propio, un texto genérico en español (no «régimen», D41)', () => {
     expect(errorRetencion({ code: '23505', message: 'x' }, 'd', { unico: 'Ya existe.' }).message).toBe('Ya existe.');
     expect(errorRetencion({ code: '23514', message: 'x' }, 'd', { regla: 'No cumple.' }).message).toBe('No cumple.');
-    expect(errorRetencion({ code: '23514', message: 'x' }).message).toMatch(/régimen/);
+    expect(errorRetencion({ code: '23514', message: 'x' }).message).toMatch(/no cumple una regla de la base/);
     expect(errorRetencion({ code: 'P0001', message: 'RET_PERFIL_DESDE' }).message).toMatch(/después de la vigente/);
   });
 });

@@ -12,6 +12,7 @@ import {
 import { CLASES_AGENTE, fechaCorta } from './parametrosR1';
 import { ImagenRetencion } from './ImagenRetencion';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { faltaEnFechaRango } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -60,10 +61,13 @@ function TarjetaImagen({ clase, titulo, ayuda, versiones, puedeEditar, onCambio 
   const [motivo, setMotivo] = useState('');
   const [subiendo, setSubiendo] = useState(false);
   const faltaArchivo = archivo ? faltaEnImagen(archivo) : null;
-  const faltaFirmante = clase === 'firma' && !firmante.trim();
+  const faltaDesde = desde ? faltaEnFechaRango(desde, `la fecha «vale desde» ${clase === 'logo' ? 'del logo' : clase === 'firma' ? 'de la firma' : 'del sello'}`) : 'Indica desde qué fecha vale la imagen.';
+  const faltaFirmante = clase === 'firma' && !firmante.trim() ? 'Indica el nombre y el cargo de quien firma.' : null;
+  /** Por qué «Cargar» está apagado (se dice debajo del botón). */
+  const falta = !archivo ? 'Elige la imagen.' : faltaArchivo ?? faltaFirmante ?? faltaDesde;
 
   async function subir() {
-    if (!archivo) return;
+    if (!archivo || falta) { if (falta) toast(falta, 'error'); return; }
     setSubiendo(true);
     try {
       await subirImagenAgente(clase, archivo, desde, { firmante, motivo });
@@ -118,7 +122,8 @@ function TarjetaImagen({ clase, titulo, ayuda, versiones, puedeEditar, onCambio 
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginTop: '.4rem' }}>
             <div className="form-row" style={{ flex: '1 1 130px', margin: 0 }}>
               <label>Vale desde</label>
-              <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+              <input className="input" type="date" value={desde} min="2000-01-01" max="2100-12-31" onChange={(e) => setDesde(e.target.value)} />
+              {faltaDesde && <small style={{ color: 'var(--danger)' }}>{faltaDesde}</small>}
             </div>
             <div className="form-row" style={{ flex: '2 1 160px', margin: 0 }}>
               <label>Motivo</label>
@@ -126,7 +131,8 @@ function TarjetaImagen({ clase, titulo, ayuda, versiones, puedeEditar, onCambio 
             </div>
           </div>
           <button type="button" className="btn" style={{ marginTop: '.5rem' }} onClick={() => void subir()}
-            disabled={!archivo || !!faltaArchivo || faltaFirmante || subiendo}>{subiendo ? 'Subiendo…' : 'Cargar'}</button>
+            disabled={!!falta || subiendo}>{subiendo ? 'Subiendo…' : 'Cargar'}</button>
+          {falta && falta !== faltaArchivo && falta !== faltaDesde && <small className="hint muted" style={{ marginLeft: '.5rem' }}>{falta}</small>}
         </div>
       )}
     </div>

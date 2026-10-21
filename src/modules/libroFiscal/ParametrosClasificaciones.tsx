@@ -13,7 +13,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { norm } from '@/shared/lib/texto';
 import {
   SUJETOS_GT, cargarClasificador, corregirValorCodigo, crearClasificacion, crearCodigo, editarCodigo,
-  faltaEnClasificacion, faltaEnValorCodigo, leerTablaPegada, listClasificaciones, listCodigos, nuevoValorCodigo,
+  faltaEnClasificacion, faltaEnCodigoNuevo, faltaEnValorCodigo, leerTablaPegada, listClasificaciones, listCodigos, nuevoValorCodigo,
   planCarga, resumenValor, valorVigenteCodigo,
   type Clasificacion, type CodigoClasificacion, type DatosValorCodigo, type SujetoGt, type UnidadMinimo, type ValorCodigo,
 } from './clasificaciones.repository';
@@ -22,7 +22,7 @@ import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
 import { listTarifas, r5Disponible, type Tarifa } from './tarifas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
-import { leerEntero, leerValorCodigo, pistaLeido } from './parametrosNumeros';
+import { leerEntero, leerValorCodigo, normalizarClave, normalizarCodigo, pistaClave, pistaLeido } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -255,7 +255,7 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
         </div>
         <div className="form-row"><label>Nota</label><input className="input" value={nota} onChange={(e) => setNota(e.target.value)} /></div>
         <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></div>
-        {falta && (motivo || 'error' in numeros) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: motivo || 'error' in numeros ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );
@@ -273,8 +273,11 @@ function CodigoModal({ clasificacion, onClose, onHecho }: { clasificacion: Clasi
   const [orden, setOrden] = useState('100');
   const [guardando, setGuardando] = useState(false);
   const ordenLeido = leerEntero(orden, 'el orden', 100);
+  // El código se guarda sin espacios al borde y en MAYÚSCULAS (así coincide con el catálogo); la pista lo dice.
+  const pista = pistaClave(codigo, normalizarCodigo(codigo));
+  const falta = 'error' in ordenLeido ? ordenLeido.error : faltaEnCodigoNuevo({ codigo, descripcion, orden: ordenLeido.valor });
   async function guardar() {
-    if ('error' in ordenLeido) { toast(ordenLeido.error, 'error'); return; }
+    if ('error' in ordenLeido || falta) { toast(falta ?? 'Revisa el código.', 'error'); return; }
     setGuardando(true);
     try { await crearCodigo(clasificacion.id, { codigo, descripcion, orden: ordenLeido.valor }); toast('Código creado. Cárgale sus valores con «Valores».', 'success'); onHecho(); } catch (e) { toast(mensaje(e, 'No se pudo crear.'), 'error'); setGuardando(false); }
   }
@@ -283,16 +286,16 @@ function CodigoModal({ clasificacion, onClose, onHecho }: { clasificacion: Clasi
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={!codigo.trim() || descripcion.trim().length < 2 || 'error' in ordenLeido || guardando}>{guardando ? 'Guardando…' : 'Crear'}</button>
+          <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={!!falta || guardando}>{guardando ? 'Guardando…' : 'Crear'}</button>
         </>
       )}>
       <fieldset disabled={guardando} style={{ border: 0, padding: 0, margin: 0 }}>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-          <div className="form-row" style={{ flex: '1 1 120px' }}><label>Código</label><input className="input mono" value={codigo} onChange={(e) => setCodigo(e.target.value)} /></div>
+          <div className="form-row" style={{ flex: '1 1 120px' }}><label>Código</label><input className="input mono" value={codigo} onChange={(e) => setCodigo(e.target.value)} />{pista && <small className="hint muted">{pista}</small>}</div>
           <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" type="text" inputMode="numeric" value={orden} onChange={(e) => setOrden(e.target.value)} /><small className="hint muted">Vacío = 100</small></div>
         </div>
-        {'error' in ordenLeido && <small className="hint" style={{ color: 'var(--warning)' }}>{ordenLeido.error}</small>}
         <div className="form-row"><label>Descripción</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} /></div>
+        {falta && <small className="hint" style={{ color: codigo || descripcion || 'error' in ordenLeido ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );
@@ -308,8 +311,14 @@ function CargaModal({ clasificacion, codigos, onClose, onHecho }: { clasificacio
   const lectura = useMemo(() => leerTablaPegada(crudo), [crudo]);
   const plan = useMemo(() => planCarga(codigos, lectura.filas, desde), [codigos, lectura, desde]);
   const hayAlgo = plan.nuevos.length + plan.cambian.length > 0;
+  /** Por qué «Cargar» está apagado (se dice debajo). */
+  const falta = !crudo.trim() ? 'Pega la tabla del clasificador.'
+    : !hayAlgo ? 'No hay códigos nuevos ni cambios que cargar.'
+      : !desde ? 'Indica desde qué fecha valen las alícuotas.'
+        : !motivo.trim() ? 'Indica el motivo de la carga: queda en el historial.' : null;
 
   async function cargar() {
+    if (falta) { toast(falta, 'error'); return; }
     setCargando(true);
     try {
       const r = await cargarClasificador(clasificacion.id, plan, { desde, motivo, minimoUnidad: unidad, fuente });
@@ -325,7 +334,7 @@ function CargaModal({ clasificacion, codigos, onClose, onHecho }: { clasificacio
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={cargando}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void cargar()} disabled={!hayAlgo || !motivo.trim() || cargando}>{cargando ? 'Cargando…' : 'Cargar'}</button>
+          <button type="button" className="btn btn-primary" onClick={() => void cargar()} disabled={!!falta || cargando}>{cargando ? 'Cargando…' : 'Cargar'}</button>
         </>
       )}>
       <p className="muted" style={{ fontSize: '.82rem', marginTop: 0 }}>Pega la tabla (desde Excel o el PDF de la ordenanza): código, descripción, alícuota (%) y mínimo, una fila por línea, separadas por tabulador o «;». La alícuota y el mínimo valen para todos los sujetos desde la fecha.</p>
@@ -339,6 +348,7 @@ function CargaModal({ clasificacion, codigos, onClose, onHecho }: { clasificacio
         <div className="form-row" style={{ flex: '2 1 220px' }}><label>Fuente</label><input className="input" value={fuente} onChange={(e) => setFuente(e.target.value)} placeholder="Ordenanza y gaceta" /></div>
       </div>
       <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: clasificador revisado por el contador" /></div>
+      {falta && <small className="hint" style={{ color: crudo.trim() ? 'var(--warning)' : undefined }}>{falta}</small>}
 
       {crudo.trim() && (
         <div className="card" style={{ marginTop: '.4rem' }}>
@@ -379,7 +389,10 @@ function CargaModal({ clasificacion, codigos, onClose, onHecho }: { clasificacio
 
 function ClasificacionModal({ entes, impuestoClave, onClose, onHecho }: { entes: Ente[]; impuestoClave?: string; onClose: () => void; onHecho: (id: string) => void }) {
   const [nombre, setNombre] = useState('');
-  const [clave, setClave] = useState('');
+  // La clave se escribe libre y se guarda normalizada (minúsculas, espacios → _); la pista dice cómo queda.
+  const [escrita, setEscrita] = useState('');
+  const clave = normalizarClave(escrita);
+  const pista = pistaClave(escrita, clave);
   const [impuesto, setImpuesto] = useState(impuestoClave ?? '');
   const [enteId, setEnteId] = useState('');
   const [fuente, setFuente] = useState('');
@@ -417,10 +430,10 @@ function ClasificacionModal({ entes, impuestoClave, onClose, onHecho }: { entes:
               {entes.filter((e) => e.activo).map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
           </div>
-          <div className="form-row" style={{ flex: '1 1 150px' }}><label>Clave</label><input className="input mono" value={clave} onChange={(e) => setClave(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} placeholder="ej: isae_otro" /></div>
+          <div className="form-row" style={{ flex: '1 1 150px' }}><label>Clave</label><input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="ej: isae_otro" />{pista && <small className="hint muted">{pista}</small>}</div>
         </div>
         <div className="form-row"><label>Fuente</label><input className="input" value={fuente} onChange={(e) => setFuente(e.target.value)} /></div>
-        {falta && nombre && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: nombre || escrita ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );

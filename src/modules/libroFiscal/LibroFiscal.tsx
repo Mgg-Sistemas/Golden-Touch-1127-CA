@@ -26,7 +26,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
+import { diaVE, getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
 import { r1Disponible, r2Disponible } from './disponibilidad';
 import { ParametrosImpuestos } from './ParametrosImpuestos';
 import { ParametrosValores } from './ParametrosValores';
@@ -61,6 +61,9 @@ import {
 import { faltaEnLaCarga, leerMonto, numeroATexto } from './validarCarga';
 import { montoEscrito, municipioDeLinea } from './lineasRegistro';
 import { CampoMonto } from './CampoMonto';
+import { formatoParaImprimir, r8Disponible } from './formatos.repository';
+import { ParametrosFormatos } from './ParametrosFormatos';
+import { faltaEnPctConcepto, faltaEnValoresSinR3, rifEmpresaParaGuardar } from './parametrosEmpresa';
 import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
 import { Paginador } from './ListaControles';
 import './libroFiscal.css';
@@ -286,7 +289,9 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   async function verComprobante(r: RetencionPracticada) {
     try {
       const { verComprobanteRetencionPdf } = await import('./comprobanteRetencionPdf');
-      await verComprobanteRetencionPdf(r, config);
+      // R8: el formato vigente a la fecha de emisión del comprobante (si no hay, el de hoy; sin R8, de fábrica).
+      const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyIso());
+      await verComprobanteRetencionPdf(r, config, formato);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
 
@@ -1411,7 +1416,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 /* ═══════════════════ Parámetros fiscales ═══════════════════ */
 
 type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'firma' | 'vencimientos'
-  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'interruptores';
+  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores';
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
@@ -1453,6 +1458,9 @@ const AVANZADOS_PA: DefSeccionPa[] = [
   { key: 'regimen', capa: 'avanzados', titulo: 'Régimen fiscal de la empresa', linea: 'Agente de retención de IVA, contribuyente especial y % de retención del IVA.',
     que: 'Las condiciones de la empresa ante el SENIAT.', ingresa: 'Si es agente de retención de IVA, si es contribuyente especial y los porcentajes de retención del IVA (75 y 100).',
     efecto: '«Agente de retención de IVA» decide si se propone la retención de IVA. «Contribuyente especial» habilita el IGTF.', noCambia: 'Lo ya registrado. Todavía no guarda la fecha ni el historial del cambio.' },
+  { key: 'formatos', capa: 'avanzados', titulo: 'Formatos de impresión', linea: 'Textos, rótulos y columnas del comprobante de cada impuesto, por fecha.',
+    que: 'Cómo se imprime el comprobante de cada impuesto: encabezado, nota legal, pie, rótulos, columnas y orientación.', ingresa: 'Una versión con su fecha «desde» y su motivo; o la vuelta al diseño de fábrica.',
+    efecto: 'El comprobante usa la versión vigente a su fecha de emisión.', noCambia: 'Los datos de las retenciones: solo cambia cómo se imprimen.' },
   { key: 'interruptores', capa: 'avanzados', titulo: 'Interruptores de reglas', linea: 'Reglas del módulo que se encienden o se apagan sin programar.',
     que: 'Reglas del módulo que se encienden o se apagan sin programar.', ingresa: 'El valor de cada interruptor. Cada cambio pide confirmación.',
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
@@ -1462,6 +1470,8 @@ const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', '
 /** Las de R1 y R6 aparecen solas cuando sus tablas existen en la base. */
 const CONECTADAS_R1 = new Set<SeccionPa>(['entes', 'firma', 'perfiles']);
 const CONECTADAS_R6 = new Set<SeccionPa>(['motivos', 'supuestos']);
+/** R8: los formatos de impresión, cuando su tabla existe. */
+const CONECTADAS_R8 = new Set<SeccionPa>(['formatos']);
 const TODAS_PA: Record<SeccionPa, DefSeccionPa> = Object.fromEntries([...AJUSTES_PA, ...AVANZADOS_PA].map((s) => [s.key, s])) as Record<SeccionPa, DefSeccionPa>;
 const DEF_VALORES_R3: DefSeccionPa = {
   key: 'valores', capa: 'avanzados', titulo: 'Valores con vigencia', linea: 'UT, % de IVA, alícuotas de IGTF, ISAE y estadal, cada uno con su fecha «desde».',
@@ -1490,13 +1500,15 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const [r2, setR2] = useState(false);
   const [r3, setR3] = useState(false);
   const [r6, setR6] = useState(false);
+  const [r8, setR8] = useState(false);
   useEffect(() => {
+    void r8Disponible().then(setR8).catch(() => setR8(false));
     void r1Disponible().then(setR1).catch(() => setR1(false));
     void r2Disponible().then(setR2).catch(() => setR2(false));
     void r3Disponible().then(setR3).catch(() => setR3(false));
     void r6Disponible().then(setR6).catch(() => setR6(false));
   }, []);
-  const visible = (s: DefSeccionPa) => CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key));
+  const visible = (s: DefSeccionPa) => CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key)) || (r8 && CONECTADAS_R8.has(s.key));
   const AJUSTES_VIS = AJUSTES_PA.filter(visible);
   const AVANZADOS_VIS = AVANZADOS_PA.filter(visible);
 
@@ -1516,9 +1528,16 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   async function guardar() {
     const malos = Object.entries(ilegiblesPa).filter(([, mal]) => mal).map(([campo]) => campo);
     if (malos.length) { setError(`No se entiende ${malos.join(', ')}: escribe 1.234,56 o 1234,56.`); return; }
+    // D41, Lote 2: el RIF de la empresa se valida como cualquier RIF; los valores sin R3, con su rango.
+    const rifEmpresa = rifEmpresaParaGuardar(cfg.rif);
+    if (rifEmpresa.error) { setError(rifEmpresa.error); return; }
+    if (!r3) {
+      const falta = faltaEnValoresSinR3({ valorUt: cfg.valorUt, pctIgtf: cfg.pctIgtf, municipal: locales.municipal, estadal: locales.estadal });
+      if (falta) { setError(falta); return; }
+    }
     setSaving(true); setError(null);
     try {
-      await guardarConfigRetencion(cfg, locales, { conservarRegimen: r1, conservarParametros: r3 });
+      await guardarConfigRetencion({ ...cfg, rif: rifEmpresa.rif || cfg.rif }, locales, { conservarRegimen: r1, conservarParametros: r3 });
       toast('Parámetros fiscales guardados', 'success');
       onClose();
     } catch (e) {
@@ -1737,6 +1756,9 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           {/* ── Motivos de «No aplica» ── */}
           {r6 && seccion === 'motivos' && <ParametrosMotivos puedeEditar={puedeEditar} />}
           {r6 && seccion === 'supuestos' && <ParametrosSupuestos puedeEditar={puedeEditar} />}
+
+          {/* ── R8: formatos de impresión ── */}
+          {r8 && seccion === 'formatos' && <ParametrosFormatos puedeEditar={puedeEditar} />}
 
           {/* ── R1: entes y logos, firma y sello, perfiles fiscales ── */}
           {r1 && seccion === 'entes' && <ParametrosEntes puedeEditar={puedeEditar} />}
@@ -1965,6 +1987,8 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
     // D41: un % vacío o ilegible no se guarda como 0 %.
     const porcentaje = pct.trim() ? leerMonto(pct) : null;
     if (porcentaje == null) { toast('No se entiende el porcentaje: escribe, por ejemplo, 3 o 1,5.', 'error'); return; }
+    const fueraDeRango = faltaEnPctConcepto(porcentaje);
+    if (fueraDeRango) { toast(fueraDeRango, 'error'); return; }
     try {
       await guardarConcepto({ ...c, porcentaje });
       toast(`«${c.nombre}» quedó en ${numeroATexto(porcentaje)} % para ${labelSujeto(c.sujeto).toLowerCase()}`, 'success');

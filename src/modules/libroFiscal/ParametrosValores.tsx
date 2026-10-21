@@ -10,7 +10,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
-  claveRenglon, corregirValor, renglones, type Renglon, crearClaveParametro, faltaEnClave, faltaEnValor, historialValor, leerValor,
+  claveRenglon, corregirValor, renglones, type Renglon, crearClaveParametro, faltaEnClave, faltaEnRangoValor, faltaEnValor, historialValor, leerValor,
   listClavesParametro, listValores, mostrarValor, nuevoValor, valorEnFecha,
   type Ambito, type ClaveParametro, type TipoValor, type Unidad, type Valor, type ValorParametro,
 } from './parametros.repository';
@@ -18,7 +18,7 @@ import { opcionesImpuestoEnte } from './entes.repository';
 import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
-import { pistaLeido } from './parametrosNumeros';
+import { normalizarClave, pistaClave, pistaLeido } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -139,14 +139,14 @@ function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
   const imp = k?.ambito === 'impuesto' ? impuesto || null : null;
   const falta = 'error' in leido ? leido.error
     : !k ? 'Elige qué valor.'
-      : modo === 'corregir' ? (motivo.trim() ? null : 'Indica el motivo de la corrección.')
-        : faltaEnValor(k, imp, desde, motivo) ?? (minimo && desde < minimo ? `El valor nuevo tiene que empezar el ${fechaCorta(minimo)} o después.` : null);
+      : faltaEnRangoValor(k, leido.valor) ?? (modo === 'corregir' ? (motivo.trim() ? null : 'Indica el motivo de la corrección.')
+        : faltaEnValor(k, imp, desde, motivo) ?? (minimo && desde < minimo ? `El valor nuevo tiene que empezar el ${fechaCorta(minimo)} o después.` : null));
 
   async function guardar() {
     if (falta || !k || 'error' in leido) return;
     setGuardando(true);
     try {
-      if (modo === 'corregir' && vigente) await corregirValor(vigente.id, leido.valor as Valor, fuente, motivo);
+      if (modo === 'corregir' && vigente) await corregirValor(vigente.id, leido.valor as Valor, fuente, motivo, k);
       else await nuevoValor(k, { impuestoClave: imp, clave: k.clave, valor: leido.valor as Valor, desde, fuente, motivo });
       toast(modo === 'corregir' ? 'Valor corregido.' : 'Valor guardado.', 'success');
       onHecho();
@@ -208,21 +208,24 @@ function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
           <label>Motivo</label>
           <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
         </div>
-        {falta && (crudo || motivo) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: crudo || motivo ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );
 }
 
 function ClaveModal({ onClose, onHecho }: { onClose: () => void; onHecho: () => void }) {
-  const [clave, setClave] = useState('');
+  // La clave se escribe libre y se normaliza al guardar (minúsculas, espacios → _); la pista dice cómo queda.
+  const [escrita, setEscrita] = useState('');
+  const clave = normalizarClave(escrita);
   const [nombre, setNombre] = useState('');
   const [ambito, setAmbito] = useState<Ambito>('impuesto');
   const [tipoValor, setTipoValor] = useState<TipoValor>('numero');
   const [unidad, setUnidad] = useState<Unidad | ''>('%');
   const [descripcion, setDescripcion] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const falta = faltaEnClave({ clave, nombre });
+  const falta = faltaEnClave({ clave, nombre, ambito, tipoValor, unidad: unidad || null });
+  const pista = pistaClave(escrita, clave);
 
   async function crear() {
     setGuardando(true);
@@ -248,7 +251,8 @@ function ClaveModal({ onClose, onHecho }: { onClose: () => void; onHecho: () => 
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '1 1 160px' }}>
             <label>Clave</label>
-            <input className="input mono" value={clave} onChange={(e) => setClave(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} placeholder="ej: minimo_isae" />
+            <input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="ej: minimo_isae" />
+            {pista && <small className="hint muted">{pista}</small>}
           </div>
           <div className="form-row" style={{ flex: '2 1 220px' }}>
             <label>Nombre</label>
@@ -279,7 +283,7 @@ function ClaveModal({ onClose, onHecho }: { onClose: () => void; onHecho: () => 
           <label>Descripción</label>
           <input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
         </div>
-        {falta && (clave || nombre) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: escrita || nombre ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );

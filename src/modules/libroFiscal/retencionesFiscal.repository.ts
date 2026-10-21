@@ -124,7 +124,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
 
 async function leerJsonParametros(): Promise<JsonParametros | null> {
   const { data, error } = await supabase.from('config').select('value').eq('key', CLAVE_CONFIG).maybeSingle();
-  if (error) throw error;
+  if (error) throw errorRetencion(error, 'No se pudieron leer los parámetros fiscales.');
   return (data?.value as JsonParametros | undefined) ?? null;
 }
 
@@ -179,7 +179,7 @@ export async function guardarConfigRetencion(c: ConfigRetencion, locales?: Alicu
   const { data, error } = await supabase.from('config')
     .upsert({ key: CLAVE_CONFIG, value }, { onConflict: 'key' })
     .select('key');
-  if (error) throw error;
+  if (error) throw errorRetencion(error, 'No se pudieron guardar los parámetros fiscales.');
   if (!data?.length) throw new Error('Los parámetros fiscales aún no se pueden guardar con este permiso: falta aplicar un cambio pendiente en la base.');
 }
 
@@ -297,7 +297,7 @@ export async function listConceptos(soloActivos = false): Promise<ConceptoRetenc
     .order('orden', { ascending: true });
   if (soloActivos) q = q.eq('activo', true);
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) throw errorRetencion(error, 'No se pudo leer el catálogo de conceptos.');
   const islr = (data ?? []).flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
   return [...islr, ...conceptosLocales(await leerJsonParametros())];
 }
@@ -324,7 +324,7 @@ export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: 
     [COLUMNA_SUJETO[sujeto]]: n(c.porcentaje), nota: c.fundamento ?? null,
     ...(c.orden != null ? { orden: n(c.orden) } : {}),
   }, { onConflict: 'codigo' }).select('codigo');
-  if (error) throw error;
+  if (error) throw errorRetencion(error, 'No se pudo guardar el concepto.');
   if (!data?.length) throw new Error(SIN_PERMISO);
 }
 
@@ -333,7 +333,7 @@ export async function activarConcepto(id: string, activo: boolean): Promise<void
   const { codigo } = partirIdConcepto(id);
   if (id.endsWith(':todos')) throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
   const { data, error } = await supabase.from(T_CONCEPTOS).update({ activo }).eq('codigo', codigo).select('codigo');
-  if (error) throw error;
+  if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
   if (!data?.length) throw new Error(SIN_PERMISO);
 }
 
@@ -587,10 +587,8 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
  * con el mismo número del cliente sin chocar.
  */
 function errorLegible(e: { code?: string; message?: string }): Error {
-  if (e.code === '23505') {
-    return new Error('Ya hay en el libro un comprobante de ese impuesto con el mismo número. Revisa el número del comprobante.');
-  }
-  return errorRetencion(e, 'No se pudo registrar la retención.');
+  // D41: el único del número de comprobante lo dice errorRetencion por su nombre; otro único dice lo suyo.
+  return errorRetencion(e, 'No se pudo registrar la retención.', { unico: 'Ya hay en el libro un comprobante de ese impuesto con el mismo número. Revisa el número del comprobante.' });
 }
 
 /**

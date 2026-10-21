@@ -21,6 +21,8 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { r2Disponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { completarRif, normalizarRif } from '@/shared/lib/rif';
+import { faltaEnFechaRango } from './parametrosNumeros';
 
 export const BUCKET_LOGOS = 'retenciones-logos';
 const T_ENTES = 'retencion_entes';
@@ -121,12 +123,47 @@ export function versionVigente<T extends Pick<VersionImagen, 'desde' | 'activo'>
   return versiones.filter((v) => v.activo && v.desde <= fecha).sort((a, b) => b.desde.localeCompare(a.desde))[0] ?? null;
 }
 
+export const TIPOS_ENTE_VALIDOS: TipoEnte[] = ['nacional', 'estadal', 'municipal'];
+
+/** Las letras que la base acepta en el RIF de un ente (retencion_entes_rif_forma: sin la C). */
+export const LETRAS_RIF_ENTE = ['V', 'E', 'J', 'P', 'G'];
+export const MENSAJE_RIF_ENTE = 'El RIF del ente no es válido: letra (V, E, J, P o G), 8 dígitos y el verificador.';
+
+/**
+ * El RIF del ente como se guarda: sin guiones ni espacios (J123456789). Vacío
+ * = sin RIF (null). Con la letra y hasta 8 números se completa el dígito
+ * verificador, como en el registro; lo demás no se guarda.
+ */
+export function leerRifEnte(texto: string | null | undefined): { valor: string | null } | { error: string } {
+  const v = normalizarRif(texto);
+  if (!v) return { valor: null };
+  const completo = completarRif(v);
+  if (!completo || !LETRAS_RIF_ENTE.includes(completo[0])) return { error: MENSAJE_RIF_ENTE };
+  return { valor: completo };
+}
+
 /** Lo que falta o sobra en los datos de un ente, o null si está bien. Las mismas reglas que la tabla. */
-export function faltaEnEnte(e: { nombre: string; tipo: TipoEnte; estado?: string | null; municipio?: string | null }): string | null {
+export function faltaEnEnte(e: { nombre: string; tipo: TipoEnte; estado?: string | null; municipio?: string | null; rif?: string | null }): string | null {
   if (e.nombre.trim().length < 3) return 'El nombre del ente necesita al menos 3 letras.';
+  if (!TIPOS_ENTE_VALIDOS.includes(e.tipo)) return 'El tipo del ente es nacional, estadal o municipal.';
   if (e.tipo === 'municipal' && (!e.estado?.trim() || !e.municipio?.trim())) return 'Un ente municipal lleva su estado y su municipio.';
   if (e.tipo === 'estadal' && !e.estado?.trim()) return 'Un ente estadal lleva su estado.';
+  if (e.rif !== undefined) {
+    const rif = leerRifEnte(e.rif);
+    if ('error' in rif) return rif.error;
+  }
   return null;
+}
+
+/**
+ * ¿Ya hay otro ente del mismo tipo con ese nombre? La base no distingue
+ * mayúsculas ni espacios al borde (retencion_entes_unico). Con la lista a mano
+ * se avisa antes de mandar.
+ */
+export function enteRepetido(e: { nombre: string; tipo: TipoEnte }, entes: Pick<Ente, 'id' | 'nombre' | 'tipo'>[], idPropio?: string): string | null {
+  const n = e.nombre.trim().toLocaleLowerCase('es');
+  const otro = entes.find((x) => x.id !== idPropio && x.tipo === e.tipo && x.nombre.trim().toLocaleLowerCase('es') === n);
+  return otro ? `Ya hay un ente ${e.tipo} con ese nombre: «${otro.nombre}» (sin distinguir mayúsculas).` : null;
 }
 
 /** Revisa la imagen antes de subirla: PNG o JPG, hasta 1 MB. */
@@ -210,11 +247,15 @@ export async function crearEnte(e: EnteNuevo): Promise<string> {
   const falta = faltaEnEnte(e);
   if (falta) throw new Error(falta);
   if (e.desde && !FECHA.test(e.desde)) throw new Error('La fecha «desde» no es válida.');
+  const faltaDesde = faltaEnFechaRango(e.desde, 'la fecha «desde» del ente');
+  if (faltaDesde) throw new Error(faltaDesde);
+  const rif = leerRifEnte(e.rif);
+  if ('error' in rif) throw new Error(rif.error);
   const { data, error } = await supabase.from(T_ENTES).insert({
     nombre: e.nombre.trim(), tipo: e.tipo,
     estado: e.tipo === 'nacional' ? null : e.estado?.trim() || null,
     municipio: e.tipo === 'municipal' ? e.municipio?.trim() || null : null,
-    rif: e.rif?.trim() || null,
+    rif: rif.valor,
     desde: e.desde || undefined,
     motivo: e.motivo?.trim() || null,
   }).select('id');
@@ -238,7 +279,12 @@ export async function editarEnte(id: string, cambios: Partial<Pick<EnteNuevo, 'n
   if (cambios.tipo !== undefined) patch.tipo = cambios.tipo;
   if (cambios.estado !== undefined) patch.estado = cambios.estado?.trim() || null;
   if (cambios.municipio !== undefined) patch.municipio = cambios.municipio?.trim() || null;
-  if (cambios.rif !== undefined) patch.rif = cambios.rif?.trim() || null;
+  if (cambios.rif !== undefined) {
+    const rif = leerRifEnte(cambios.rif);
+    if ('error' in rif) throw new Error(rif.error);
+    patch.rif = rif.valor;
+  }
+  if (cambios.tipo !== undefined && !TIPOS_ENTE_VALIDOS.includes(cambios.tipo)) throw new Error('El tipo del ente es nacional, estadal o municipal.');
   if (cambios.motivo !== undefined) patch.motivo = cambios.motivo?.trim() || null;
   if (cambios.nombre !== undefined && cambios.tipo !== undefined) {
     const falta = faltaEnEnte({ nombre: cambios.nombre, tipo: cambios.tipo, estado: cambios.estado, municipio: cambios.municipio });
@@ -325,6 +371,8 @@ async function subirVersion(ruta: string, archivo: File, insertar: () => Promise
 /** Logo nuevo de un ente, vigente desde una fecha. */
 export async function subirLogoEnte(enteId: string, archivo: File, desde: string, motivo?: string | null): Promise<string> {
   if (!FECHA.test(desde)) throw new Error('Indica desde qué fecha vale el logo.');
+  const faltaDesde = faltaEnFechaRango(desde, 'la fecha «vale desde» del logo');
+  if (faltaDesde) throw new Error(faltaDesde);
   const ruta = rutaLogoEnte(enteId, desde, archivo.name);
   return subirVersion(ruta, archivo, () => supabase.from(T_ENTE_LOGOS).insert({
     ente_id: enteId, ruta, nombre_archivo: archivo.name, desde, motivo: motivo?.trim() || null,
@@ -353,6 +401,8 @@ export async function listImagenesAgente(): Promise<ImagenAgente[]> {
 /** Nueva versión del logo, la firma o el sello de la empresa. La firma lleva el nombre y cargo de quien firma. */
 export async function subirImagenAgente(clase: ClaseImagenAgente, archivo: File, desde: string, opciones: { firmante?: string | null; motivo?: string | null } = {}): Promise<string> {
   if (!FECHA.test(desde)) throw new Error('Indica desde qué fecha vale la imagen.');
+  const faltaDesde = faltaEnFechaRango(desde, `la fecha «vale desde» ${clase === 'logo' ? 'del logo' : clase === 'firma' ? 'de la firma' : 'del sello'}`);
+  if (faltaDesde) throw new Error(faltaDesde);
   if (clase === 'firma' && !opciones.firmante?.trim()) throw new Error('Indica el nombre y el cargo de quien firma.');
   const ruta = rutaImagenAgente(clase, desde, archivo.name);
   return subirVersion(ruta, archivo, () => supabase.from(T_AGENTE_IMAGENES).insert({

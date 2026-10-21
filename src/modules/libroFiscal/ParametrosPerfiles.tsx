@@ -27,6 +27,8 @@ import {
   perfilInicial, sugerenciaDistinta, type FiltroCompleto,
 } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { listTiposLicencia } from './retencionesFiscal.repository';
+import { normalizarCodigo, pistaClave } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -132,6 +134,11 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
   const [desde, setDesde] = useState(hoyIso());
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // El tipo de licencia tiene que estar activo en el catálogo (la base lo exige): se ofrece la lista y se avisa antes.
+  const [tiposLicencia, setTiposLicencia] = useState<string[] | null>(null);
+  useEffect(() => {
+    listTiposLicencia().then((ts) => setTiposLicencia(ts.filter((t) => t.activo).map((t) => t.nombre))).catch(() => setTiposLicencia(null));
+  }, []);
 
   const recargar = useCallback(async () => {
     try {
@@ -160,7 +167,7 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
   const vigente = versiones ? perfilVigente(versiones) : null;
   const minimo = desdeMinimo(versiones?.[0] ?? null);
   const sugerencia = sugerenciaDistinta(fila.rif, form);
-  const falta = faltaEnPerfil(form, desde, motivo) ?? (minimo && desde < minimo ? `La versión nueva tiene que empezar el ${fechaCorta(minimo)} o después.` : null);
+  const falta = faltaEnPerfil(form, desde, motivo, tiposLicencia) ?? (minimo && desde < minimo ? `La versión nueva tiene que empezar el ${fechaCorta(minimo)} o después.` : null);
   const set = (patch: Partial<PerfilNuevo>) => setForm((f) => ({ ...f, ...patch }));
 
   async function guardar() {
@@ -270,7 +277,8 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
               </div>
               <div className="form-row" style={{ flex: '1 1 160px', margin: 0 }}>
                 <label>Tipo</label>
-                <input className="input" value={form.licenciaTipo ?? ''} onChange={(e) => set({ licenciaTipo: e.target.value })} />
+                <input className="input" list="tipos-licencia" value={form.licenciaTipo ?? ''} onChange={(e) => set({ licenciaTipo: e.target.value })} />
+                <datalist id="tipos-licencia">{(tiposLicencia ?? []).map((t) => <option key={t} value={t} />)}</datalist>
               </div>
               <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
                 <label>Número{form.licenciaEstado === 'vigente' ? ' (obligatorio)' : ''}</label>
@@ -278,7 +286,7 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
               </div>
               <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
                 <label>Vence</label>
-                <input className="input" type="date" value={form.licenciaVence ?? ''} onChange={(e) => set({ licenciaVence: e.target.value || null })} />
+                <input className="input" type="date" min="2000-01-01" max="2100-12-31" value={form.licenciaVence ?? ''} onChange={(e) => set({ licenciaVence: e.target.value || null })} />
               </div>
               <div className="form-row" style={{ flex: '2 1 200px', margin: 0 }}>
                 <label>Alcaldía que la emite</label>
@@ -375,6 +383,7 @@ function Actividades({ proveedorId, actividades, municipales, puedeEditar, onCam
   const activas = actividades.filter((a) => a.activa);
   const nueva = { ciiuCodigo: ciiu, enteId: enteId || null, ordenanzaCodigo: ordenanza, descripcion, principal: principal || activas.length === 0 };
   const falta = faltaEnActividad(nueva);
+  const pistaOrdenanza = pistaClave(ordenanza, normalizarCodigo(ordenanza));
 
   async function hacer(fn: () => Promise<unknown>, ok: string) {
     setTrabajando(true);
@@ -429,6 +438,7 @@ function Actividades({ proveedorId, actividades, municipales, puedeEditar, onCam
               {opcionesEnte.length
                 ? <SearchSelect value={ordenanza} onChange={elegirCodigoEnte} options={opcionesEnte} placeholder="Buscar en la clasificación de la alcaldía…" />
                 : <input className="input mono" value={ordenanza} onChange={(e) => setOrdenanza(e.target.value)} />}
+              {pistaOrdenanza && <small className="hint muted">{pistaOrdenanza}</small>}
             </div>
           </div>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '.4rem' }}>
@@ -441,7 +451,7 @@ function Actividades({ proveedorId, actividades, municipales, puedeEditar, onCam
             </label>
             <button type="button" className="btn" onClick={() => void agregar()} disabled={!!falta || trabajando}>Agregar actividad</button>
           </div>
-          {(ciiu || ordenanza || enteId) && falta && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+          {falta && <small className="hint" style={{ color: ciiu || ordenanza || enteId ? 'var(--warning)' : undefined }}>{falta}</small>}
         </div>
       )}
     </div>

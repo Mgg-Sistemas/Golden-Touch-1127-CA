@@ -8,9 +8,11 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
-  CLAVES_IMPUESTO, activarEnte, opcionesImpuestoEnte, crearEnte, desactivarLogoEnte, editarEnte, faltaEnEnte, faltaEnImagen,
-  fijarImpuestosEnte, listEntes, subirLogoEnte, versionVigente, type ClaveImpuesto, type Ente, type TipoEnte,
+  CLAVES_IMPUESTO, activarEnte, opcionesImpuestoEnte, crearEnte, desactivarLogoEnte, editarEnte, enteRepetido, faltaEnEnte, faltaEnImagen,
+  fijarImpuestosEnte, leerRifEnte, listEntes, subirLogoEnte, versionVigente, type ClaveImpuesto, type Ente, type TipoEnte,
 } from './entes.repository';
+import { formatearRif, normalizarRif } from '@/shared/lib/rif';
+import { faltaEnFechaRango } from './parametrosNumeros';
 import { TIPOS_ENTE, fechaCorta, labelClave, labelTipoEnte, territorio } from './parametrosR1';
 import { ImagenRetencion } from './ImagenRetencion';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
@@ -60,7 +62,7 @@ export function ParametrosEntes({ puedeEditar }: { puedeEditar: boolean }) {
               {entes.map((e) => (
                 <tr key={e.id} style={e.activo ? undefined : { opacity: 0.6 }}>
                   <td><ImagenRetencion ruta={versionVigente(e.logos)?.ruta} alt={`Logo de ${e.nombre}`} ancho={72} alto={44} vacio="Sin logo" /></td>
-                  <td><strong>{e.nombre}</strong>{e.rif && <div className="muted mono" style={{ fontSize: '.74rem' }}>{e.rif}</div>}</td>
+                  <td><strong>{e.nombre}</strong>{e.rif && <div className="muted mono" style={{ fontSize: '.74rem' }}>{formatearRif(e.rif)}</div>}</td>
                   <td>{labelTipoEnte(e.tipo)}</td>
                   <td>{territorio(e)}</td>
                   <td>{e.impuestos.length ? e.impuestos.map(labelClave).join(', ') : <span className="muted">Ninguno</span>}</td>
@@ -79,7 +81,7 @@ export function ParametrosEntes({ puedeEditar }: { puedeEditar: boolean }) {
       )}
 
       {abierto && (
-        <EnteModal ente={abierto === 'nuevo' ? null : abierto} puedeEditar={puedeEditar}
+        <EnteModal ente={abierto === 'nuevo' ? null : abierto} entes={entes ?? []} puedeEditar={puedeEditar}
           onClose={() => setEditando(null)} onCambio={() => void cargar()} />
       )}
       {cambiarEstado && (
@@ -123,8 +125,10 @@ function EstadoEnteModal({ ente, onClose, onHecho }: { ente: Ente; onClose: () =
   );
 }
 
-function EnteModal({ ente, puedeEditar, onClose, onCambio }: {
+function EnteModal({ ente, entes, puedeEditar, onClose, onCambio }: {
   ente: Ente | null;
+  /** Para avisar antes de mandar si el nombre ya existe (la base no distingue mayúsculas). */
+  entes: Ente[];
   puedeEditar: boolean;
   onClose: () => void;
   onCambio: () => void;
@@ -144,8 +148,11 @@ function EnteModal({ ente, puedeEditar, onClose, onCambio }: {
   const [opciones, setOpciones] = useState<{ clave: ClaveImpuesto; nombre: string | null }[]>(CLAVES_IMPUESTO.map((clave) => ({ clave, nombre: null })));
   useEffect(() => { opcionesImpuestoEnte().then(setOpciones).catch(() => { /* quedan las cinco de siempre */ }); }, []);
 
-  const falta = faltaEnEnte({ nombre, tipo, estado, municipio });
-  const faltaLogo = logo ? faltaEnImagen(logo) : null;
+  const falta = faltaEnEnte({ nombre, tipo, estado, municipio, rif }) ?? enteRepetido({ nombre, tipo }, entes, ente?.id);
+  const faltaLogo = logo ? faltaEnImagen(logo) ?? faltaEnFechaRango(logoDesde, 'la fecha «vale desde» del logo') : null;
+  // El RIF se guarda sin guiones y, si le falta el dígito verificador, completo: se dice antes.
+  const rifLeido = leerRifEnte(rif);
+  const rifPista = 'valor' in rifLeido && rifLeido.valor && rifLeido.valor !== normalizarRif(rif) ? `Se guardará como: ${formatearRif(rifLeido.valor)}` : null;
   const toggleImp = (c: ClaveImpuesto) => setImpuestos((xs) => (xs.includes(c) ? xs.filter((x) => x !== c) : [...xs, c]));
 
   async function guardar() {
@@ -208,6 +215,9 @@ function EnteModal({ ente, puedeEditar, onClose, onCambio }: {
           <div className="form-row" style={{ flex: '1 1 150px' }}>
             <label>RIF</label>
             <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value)} placeholder="G-XXXXXXXX-X" />
+            {'error' in rifLeido
+              ? <small className="hint" style={{ color: 'var(--warning)' }}>{rifLeido.error}</small>
+              : rifPista && <small className="hint muted">{rifPista}</small>}
           </div>
         </div>
         {tipo !== 'nacional' && (
@@ -239,6 +249,8 @@ function EnteModal({ ente, puedeEditar, onClose, onCambio }: {
           <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
         </div>
 
+        {puedeEditar && (falta || faltaLogo) && <small className="hint" style={{ color: 'var(--warning)', display: 'block' }}>{falta ?? faltaLogo}</small>}
+
         {!ente && (
           <div className="card" style={{ marginTop: '.4rem' }}>
             <strong style={{ fontSize: '.86rem' }}>Logo inicial</strong>
@@ -258,6 +270,7 @@ function LogoForm({ archivo, onArchivo, desde, onDesde, motivo, onMotivo }: {
   motivo: string; onMotivo: (v: string) => void;
 }) {
   const falta = archivo ? faltaEnImagen(archivo) : null;
+  const faltaDesde = faltaEnFechaRango(desde, 'la fecha «vale desde» del logo');
   return (
     <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '.4rem' }}>
       <div className="form-row" style={{ flex: '2 1 220px', margin: 0 }}>
@@ -267,7 +280,8 @@ function LogoForm({ archivo, onArchivo, desde, onDesde, motivo, onMotivo }: {
       </div>
       <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
         <label>Vale desde</label>
-        <input className="input" type="date" value={desde} onChange={(e) => onDesde(e.target.value)} />
+        <input className="input" type="date" value={desde} min="2000-01-01" max="2100-12-31" onChange={(e) => onDesde(e.target.value)} />
+        {faltaDesde && <small style={{ color: 'var(--danger)' }}>{faltaDesde}</small>}
       </div>
       <div className="form-row" style={{ flex: '2 1 200px', margin: 0 }}>
         <label>Motivo</label>
@@ -284,8 +298,10 @@ function HistorialLogos({ ente, puedeEditar, onCambio }: { ente: Ente; puedeEdit
   const [subiendo, setSubiendo] = useState(false);
   const vigente = versionVigente(ente.logos);
 
+  const faltaSubir = !archivo ? 'Elige la imagen del logo.' : faltaEnImagen(archivo) ?? faltaEnFechaRango(desde, 'la fecha «vale desde» del logo') ?? (desde ? null : 'Indica desde qué fecha vale el logo.');
+
   async function subir() {
-    if (!archivo) return;
+    if (!archivo || faltaSubir) { if (faltaSubir) toast(faltaSubir, 'error'); return; }
     setSubiendo(true);
     try {
       await subirLogoEnte(ente.id, archivo, desde, motivo);
@@ -324,7 +340,8 @@ function HistorialLogos({ ente, puedeEditar, onCambio }: { ente: Ente; puedeEdit
           <p style={{ fontSize: '.84rem', margin: '.6rem 0 0', fontWeight: 600 }}>Cargar logo nuevo desde…</p>
           <LogoForm archivo={archivo} onArchivo={setArchivo} desde={desde} onDesde={setDesde} motivo={motivo} onMotivo={setMotivo} />
           <button type="button" className="btn" style={{ marginTop: '.5rem' }} onClick={() => void subir()}
-            disabled={!archivo || !!faltaEnImagen(archivo) || subiendo}>{subiendo ? 'Subiendo…' : 'Cargar logo'}</button>
+            disabled={!!faltaSubir || subiendo}>{subiendo ? 'Subiendo…' : 'Cargar logo'}</button>
+          {faltaSubir && !archivo && <small className="hint muted" style={{ marginLeft: '.5rem' }}>{faltaSubir}</small>}
         </>
       )}
     </div>

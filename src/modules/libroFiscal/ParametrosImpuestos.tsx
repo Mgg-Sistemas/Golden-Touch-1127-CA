@@ -27,7 +27,7 @@ import { r7Disponible } from './reglas.repository';
 import { ParametrosReglas } from './ParametrosReglas';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
-import { ENTEROS_IMPUESTO, faltaEnEnteros, leerEntero } from './parametrosNumeros';
+import { ENTEROS_IMPUESTO, faltaEnEnteros, leerEntero, normalizarClaveImpuesto, pistaClave } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -168,6 +168,7 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
           </div>
         )}
         {cambio && falta && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {puedeEditar && cambio && !falta && !motivo.trim() && <small className="hint muted">Indica el motivo del cambio para guardar la ficha: queda en el historial.</small>}
       </fieldset>
 
       <div className="card" style={{ marginTop: '.7rem', background: 'var(--bg-2)' }}>
@@ -249,13 +250,17 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
   ficha: FichaImpuesto; set: (p: Partial<FichaImpuesto>) => void; entes: Ente[]; conClave?: boolean;
 }) {
   const num = (v: string) => (v.trim() === '' ? null : Number(v));
+  // La clave se escribe libre y se guarda en MAYÚSCULAS con «_» en vez de espacios; la pista dice cómo queda.
+  const [claveEscrita, setClaveEscrita] = useState(ficha.clave);
+  const pista = pistaClave(claveEscrita, ficha.clave);
   return (
     <>
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         {conClave && (
           <div className="form-row" style={{ flex: '1 1 140px' }}>
             <label>Clave</label>
-            <input className="input mono" value={ficha.clave} onChange={(e) => set({ clave: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })} placeholder="EJ: TIMBRE_X" />
+            <input className="input mono" value={claveEscrita} onChange={(e) => { setClaveEscrita(e.target.value); set({ clave: normalizarClaveImpuesto(e.target.value) }); }} placeholder="EJ: TIMBRE_X" />
+            {pista && <small className="hint muted">{pista}</small>}
           </div>
         )}
         <div className="form-row" style={{ flex: '2 1 200px' }}>
@@ -462,7 +467,7 @@ function VersionModal({ impuesto, vigente, modo, onClose, onHecho }: {
             <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           </div>
         </div>
-        {falta && (motivo || modo === 'nueva') && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: motivo || modo === 'nueva' ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );
@@ -516,7 +521,7 @@ function NuevoImpuestoModal({ entes, onClose, onHecho }: { entes: Ente[]; onClos
             <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           </div>
         </div>
-        {falta && ficha.clave && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: ficha.clave ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );

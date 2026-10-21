@@ -16,7 +16,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
-import { leerOpcional } from './parametrosNumeros';
+import { faltaEnClaveMinusculas, faltaEnCodigo, leerOpcional, normalizarCodigo } from './parametrosNumeros';
 
 const T_CLASIFICACIONES = 'retencion_clasificaciones';
 const T_CODIGOS = 'retencion_clasificacion_codigos';
@@ -26,6 +26,9 @@ export const r4Disponible = () => tablaDisponible(T_CLASIFICACIONES);
 
 export type SujetoGt = 'PJD' | 'PJND' | 'PNR' | 'PNNR';
 export type UnidadMinimo = 'UT' | 'Bs' | 'MMV';
+/** Las listas cerradas de la base (retencion_clasificacion_valores): lo que mandan los select, exacto. */
+export const SUJETOS_VALIDOS: SujetoGt[] = ['PJD', 'PJND', 'PNR', 'PNNR'];
+export const UNIDADES_MINIMO: UnidadMinimo[] = ['UT', 'Bs', 'MMV'];
 export const SUJETOS_GT: { key: SujetoGt | null; label: string }[] = [
   { key: 'PJD', label: 'P. jurídica domiciliada' },
   { key: 'PJND', label: 'P. jurídica no domiciliada' },
@@ -143,6 +146,8 @@ export interface DatosValorCodigo {
 }
 
 export function faltaEnValorCodigo(v: DatosValorCodigo, desde: string, motivo: string): string | null {
+  if (v.sujeto != null && !SUJETOS_VALIDOS.includes(v.sujeto)) return 'El sujeto es PJD, PJND, PNR, PNNR o todos.';
+  if (v.minimoUnidad != null && !UNIDADES_MINIMO.includes(v.minimoUnidad)) return 'La unidad del mínimo es UT, Bs o MMV.';
   if (v.pct != null && (!Number.isFinite(v.pct) || v.pct < 0 || v.pct > 100)) return 'El % va de 0 a 100.';
   if (v.pct != null && v.tarifaId) return 'Un valor usa un % o una tarifa, no los dos.';
   if (!Number.isFinite(v.basePct) || v.basePct <= 0 || v.basePct > 100) return 'La porción de la base va de más de 0 a 100.';
@@ -172,10 +177,14 @@ export function leerTablaPegada(crudo: string): LecturaPegada {
   const vistos = new Set<string>();
   lineas.forEach((linea, i) => {
     const cols = (linea.includes('\t') ? linea.split('\t') : linea.split(';')).map((c) => c.trim());
-    const [codigo = '', descripcion = '', alic = '', min = ''] = cols;
-    if (i === 0 && /c[oó]digo/i.test(codigo)) return;   // títulos
+    const [crudoCodigo = '', descripcion = '', alic = '', min = ''] = cols;
+    if (i === 0 && /c[oó]digo/i.test(crudoCodigo)) return;   // títulos
     const n = i + 1;
+    // En MAYÚSCULAS y sin espacios al borde, como lo guarda la base: así se compara con lo que ya hay.
+    const codigo = normalizarCodigo(crudoCodigo);
     if (!codigo) { errores.push(`Fila ${n}: falta el código.`); return; }
+    const faltaCodigo = faltaEnCodigo(codigo);
+    if (faltaCodigo) { errores.push(`Fila ${n} (${codigo}): ${faltaCodigo}`); return; }
     if (descripcion.length < 2) { errores.push(`Fila ${n} (${codigo}): falta la descripción.`); return; }
     // El lector de montos de todo el sistema (vacío = sin dato; el «%» pegado se ignora).
     const a = leerOpcional(alic, 'la alícuota'); const m = leerOpcional(min, 'el mínimo');
@@ -200,10 +209,10 @@ export interface PlanCarga {
 
 /** Qué hace la carga con lo que ya hay: lo nuevo, lo que cambia y lo que queda igual. */
 export function planCarga(existentes: CodigoClasificacion[], filas: FilaPegada[], fecha: string = hoyIso()): PlanCarga {
-  const porCodigo = new Map(existentes.map((c) => [c.codigo, c]));
+  const porCodigo = new Map(existentes.map((c) => [normalizarCodigo(c.codigo), c]));
   const plan: PlanCarga = { nuevos: [], cambian: [], iguales: [] };
   for (const f of filas) {
-    const c = porCodigo.get(f.codigo);
+    const c = porCodigo.get(normalizarCodigo(f.codigo));
     if (!c) { plan.nuevos.push(f); continue; }
     const v = valorVigenteCodigo(c.valores, null, fecha);
     const cambiaDescripcion = c.descripcion.trim() !== f.descripcion.trim();
@@ -276,8 +285,20 @@ export interface ClasificacionNueva { clave?: string | null; nombre: string; imp
 export function faltaEnClasificacion(k: ClasificacionNueva): string | null {
   if (k.nombre.trim().length < 3) return 'El nombre necesita al menos 3 letras.';
   if (!k.impuestoClave && !k.enteId) return 'Una clasificación es de un impuesto, de un ente o de ambos.';
-  if (k.clave && !/^[a-z][a-z0-9_]{1,40}$/.test(k.clave)) return 'La clave va en minúsculas, sin espacios.';
+  if (k.clave) return faltaEnClaveMinusculas(k.clave);
   return null;
+}
+
+export interface CodigoNuevo { codigo: string; descripcion: string; orden?: number; nota?: string | null }
+
+/**
+ * Lo que falta en un código nuevo, o null. El código se revisa ya normalizado
+ * (normalizarCodigo: sin espacios al borde y en MAYÚSCULAS), como la base.
+ */
+export function faltaEnCodigoNuevo(c: CodigoNuevo): string | null {
+  return faltaEnCodigo(normalizarCodigo(c.codigo))
+    ?? (c.descripcion.trim().length < 2 ? 'Indica la descripción (al menos 2 letras).' : null)
+    ?? (c.orden != null && c.orden < 0 ? 'El orden no puede ser negativo.' : null);
 }
 
 export async function crearClasificacion(k: ClasificacionNueva): Promise<string> {
@@ -291,13 +312,14 @@ export async function crearClasificacion(k: ClasificacionNueva): Promise<string>
   return exigir(data, 'la clasificación');
 }
 
-export async function crearCodigo(clasificacionId: string, c: { codigo: string; descripcion: string; orden?: number; nota?: string | null }): Promise<string> {
-  if (!c.codigo.trim()) throw new Error('Indica el código.');
-  if (c.descripcion.trim().length < 2) throw new Error('Indica la descripción.');
+export async function crearCodigo(clasificacionId: string, c: CodigoNuevo): Promise<string> {
+  const falta = faltaEnCodigoNuevo(c);
+  if (falta) throw new Error(falta);
+  const codigo = normalizarCodigo(c.codigo);
   const { data, error } = await supabase.from(T_CODIGOS).insert({
-    clasificacion_id: clasificacionId, codigo: c.codigo.trim(), descripcion: c.descripcion.trim(), orden: c.orden ?? 100, nota: c.nota?.trim() || null,
+    clasificacion_id: clasificacionId, codigo, descripcion: c.descripcion.trim(), orden: c.orden ?? 100, nota: c.nota?.trim() || null,
   }).select('id');
-  if (error) throw errorRetencion(error, 'No se pudo crear el código.', { unico: `El código ${c.codigo.trim()} ya está en esta clasificación.` });
+  if (error) throw errorRetencion(error, 'No se pudo crear el código.', { unico: `El código ${codigo} ya está en esta clasificación.` });
   return exigir(data, 'el código');
 }
 
@@ -308,7 +330,10 @@ export async function editarCodigo(id: string, cambios: { descripcion?: string; 
     if (cambios.descripcion.trim().length < 2) throw new Error('Indica la descripción.');
     patch.descripcion = cambios.descripcion.trim();
   }
-  if (cambios.orden !== undefined) patch.orden = cambios.orden;
+  if (cambios.orden !== undefined) {
+    if (!Number.isInteger(cambios.orden) || cambios.orden < 0) throw new Error('El orden es un entero desde 0.');
+    patch.orden = cambios.orden;
+  }
   if (cambios.nota !== undefined) patch.nota = cambios.nota?.trim() || null;
   if (cambios.activo !== undefined) patch.activo = cambios.activo;
   const { data, error } = await supabase.from(T_CODIGOS).update(patch).eq('id', id).select('id');

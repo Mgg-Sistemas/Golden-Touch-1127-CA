@@ -10,6 +10,10 @@
    «ANULADO» como marca de agua diagonal solo en pantalla (R3-10b, 1.8).
    Quién registró NO va en lo impreso (R3-12c): solo en la lista.
 
+   Con R8, el formato vigente a la fecha del comprobante cambia textos,
+   rótulos, columnas y orientación (formatoComprobante.ts); sin formato, el
+   diseño de fábrica, igual que antes.
+
    Solo vista previa, por botón: aquí nunca se descarga nada solo.
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -19,6 +23,7 @@ import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, fechaPdf, limiteInferiorPdf, montoPdf, textoPdf,
 } from './pdfComun';
+import { aplicarFormato, type FormatoParaAplicar } from './formatoComprobante';
 
 /** La razón social del agente: la de Parámetros o, si falta, la de la empresa. */
 export const razonSocialAgente = (config: ConfigRetencion) => config.razonSocial || EMPRESA_NOMBRE;
@@ -44,34 +49,30 @@ export function lineaEquivalenteBs(r: Pick<RetencionPracticada, 'moneda' | 'mont
   return `Equivalente en bolívares: ${montoPdf(r.montoBs, 'Bs')}${tasa}`;
 }
 
-const TEXTOS_LEGAL: Record<string, { titulo: string; subtitulo: string }> = {
-  iva: {
-    titulo: 'COMPROBANTE DE RETENCION DE IVA',
-    subtitulo: 'Providencia Administrativa SNAT/2015/0049',
-  },
-  islr: {
-    titulo: 'COMPROBANTE DE RETENCION DE IMPUESTO SOBRE LA RENTA',
-    subtitulo: 'Decreto 1.808 · Reglamento Parcial de la Ley de ISLR en materia de retenciones',
-  },
-  municipal: {
-    titulo: 'COMPROBANTE DE RETENCION DEL IMPUESTO DE ACTIVIDAD ECONOMICA',
-    subtitulo: 'Ordenanza sobre Agente de Retencion de Impuesto de Actividades Economicas',
-  },
-  regional: {
-    titulo: 'COMPROBANTE DE RETENCION DE TIMBRE FISCAL ESTADAL',
-    subtitulo: '',
-  },
-  igtf: {
-    titulo: 'COMPROBANTE DE PERCEPCION DE IGTF',
-    subtitulo: 'Ley de Impuesto a las Grandes Transacciones Financieras',
-  },
-};
+/** El valor de cada columna de la tabla del comprobante (por su campo). */
+export function valoresDeColumnas(r: RetencionPracticada): Record<string, string> {
+  return {
+    factura: r.facturaNumero || r.docCodigo || '—',
+    fecha: fechaPdf(r.facturaFecha),
+    control: r.facturaControl || '—',
+    concepto: r.conceptoNombre || '—',
+    base: montoPdf(r.baseImponible, r.moneda),
+    alicuota: r.alicuota ? `${r.alicuota}%` : '—',
+    iva: montoPdf(r.impuesto, r.moneda),
+    sustraendo: r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '—',
+    pct: `${r.porcentaje}%`,
+    monto: montoPdf(r.montoRetenido, r.moneda),
+  };
+}
 
-export async function verComprobanteRetencionPdf(r: RetencionPracticada, config: ConfigRetencion): Promise<void> {
+const COLUMNAS_NUMERICAS = new Set(['base', 'alicuota', 'iva', 'sustraendo', 'pct', 'monto']);
+
+export async function verComprobanteRetencionPdf(r: RetencionPracticada, config: ConfigRetencion, formato?: FormatoParaAplicar | null): Promise<void> {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'), import('jspdf-autotable'),
   ]);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
+  const f = aplicarFormato(r.tipo, formato);
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: f.orientacion === 'vertical' ? 'portrait' : 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const M = MARGEN_PDF;
@@ -79,14 +80,12 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   const LIMITE = limiteInferiorPdf(H);
   let y = M;
 
-  const legal = TEXTOS_LEGAL[r.tipo] ?? TEXTOS_LEGAL.iva;
-
   // ── Encabezado: título y fundamento legal ──
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-  doc.text(textoPdf(legal.titulo), W / 2, y + 16, { align: 'center' });
+  doc.text(textoPdf(f.textos.encabezado), W / 2, y + 16, { align: 'center', maxWidth: UTIL });
   doc.setTextColor(40, 40, 40); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-  if (legal.subtitulo) {
-    doc.text(textoPdf(legal.subtitulo), W / 2, y + 32, { align: 'center' });
+  if (f.textos.nota_legal) {
+    doc.text(textoPdf(f.textos.nota_legal), W / 2, y + 32, { align: 'center', maxWidth: UTIL });
   }
   y += 46;
 
@@ -98,9 +97,9 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
 
   boxesX.forEach((bx) => doc.rect(bx, y, tercio, boxH));
   doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
-  doc.text(textoPdf('N° DE COMPROBANTE'), boxesX[0] + 8, y + 12);
-  doc.text(textoPdf('PERIODO FISCAL'), boxesX[1] + 8, y + 12);
-  doc.text(textoPdf('FECHA DE EMISION'), boxesX[2] + 8, y + 12);
+  doc.text(textoPdf(f.rotulos.n_comprobante), boxesX[0] + 8, y + 12);
+  doc.text(textoPdf(f.rotulos.periodo), boxesX[1] + 8, y + 12);
+  doc.text(textoPdf(f.rotulos.fecha_emision), boxesX[2] + 8, y + 12);
 
   doc.setFontSize(12); doc.setTextColor(20, 20, 20);
   doc.text(textoPdf(r.numeroComprobante ?? '—'), boxesX[0] + 8, y + 28);
@@ -115,7 +114,7 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   const partes = partesComprobante(r, config);
   autoTable(doc, {
     startY: y,
-    head: [[textoPdf('AGENTE DE RETENCION'), textoPdf('SUJETO RETENIDO')]],
+    head: [[textoPdf(f.rotulos.agente), textoPdf(f.rotulos.sujeto)]],
     body: [[partes.agente.map(textoPdf).join('\n'), partes.sujeto.map(textoPdf).join('\n')]],
     styles: { fontSize: 8.5, cellPadding: 6, overflow: 'linebreak', valign: 'top' },
     headStyles: { fillColor: [235, 235, 235], textColor: [20, 20, 20], fontStyle: 'bold', fontSize: 8 },
@@ -124,40 +123,14 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   });
   y = (doc as any).lastAutoTable.finalY + 12;
 
-  // ── La operación: varía según el tipo ──
-  const esIva = r.tipo === 'iva';
-  const esIslr = r.tipo === 'islr';
-  const esMun = r.tipo === 'municipal' || r.tipo === 'regional';
-  const cabecera = esIva
-    ? ['FACTURA', 'FECHA', 'N° CONTROL', 'BASE IMPONIBLE', 'ALICUOTA', 'IVA FACTURA', '% RET.', 'IVA RETENIDO']
-    : esIslr
-      ? ['DOCUMENTO', 'FECHA', 'N° CONTROL', 'CONCEPTO', 'BASE IMPONIBLE', 'SUSTRAENDO', '% RET.', 'MONTO RETENIDO']
-      : ['DOCUMENTO', 'FECHA', 'N° CONTROL', 'BASE IMPONIBLE', '% RET.', 'MONTO RETENIDO'];
-  const fila = esIva
-    ? [
-      r.facturaNumero || r.docCodigo || '—', fechaPdf(r.facturaFecha), r.facturaControl || '—',
-      montoPdf(r.baseImponible, r.moneda), r.alicuota ? `${r.alicuota}%` : '—',
-      montoPdf(r.impuesto, r.moneda), `${r.porcentaje}%`, montoPdf(r.montoRetenido, r.moneda),
-    ]
-    : esIslr
-      ? [
-        r.facturaNumero || r.docCodigo || '—', fechaPdf(r.facturaFecha), r.facturaControl || '—',
-        r.conceptoNombre || '—', montoPdf(r.baseImponible, r.moneda),
-        r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '—',
-        `${r.porcentaje}%`, montoPdf(r.montoRetenido, r.moneda),
-      ]
-      : [
-        r.facturaNumero || r.docCodigo || '—', fechaPdf(r.facturaFecha), r.facturaControl || '—',
-        montoPdf(r.baseImponible, r.moneda), `${r.porcentaje}%`, montoPdf(r.montoRetenido, r.moneda),
-      ];
-
-  const nCols = cabecera.length;
-  const estilosCols: Record<number, { halign?: 'right' | 'left' }> = {};
-  for (let i = 0; i < nCols; i++) {
-    if (esIva && i >= 3) estilosCols[i] = { halign: 'right' };
-    else if (esIslr && i >= 4) estilosCols[i] = { halign: 'right' };
-    else if (esMun && i >= 3) estilosCols[i] = { halign: 'right' };
-  }
+  // ── La operación: las columnas del formato (de fábrica: las de cada impuesto) ──
+  const valores = valoresDeColumnas(r);
+  const cabecera = f.columnas.map((c) => c.rotulo);
+  const fila = f.columnas.map((c) => valores[c.campo] ?? '—');
+  const estilosCols: Record<number, { halign?: 'right' | 'left'; cellWidth?: number }> = {};
+  f.columnas.forEach((c, i) => {
+    estilosCols[i] = { ...(COLUMNAS_NUMERICAS.has(c.campo) ? { halign: 'right' as const } : {}), ...(c.ancho ? { cellWidth: c.ancho } : {}) };
+  });
 
   autoTable(doc, {
     startY: y,
@@ -175,7 +148,7 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   doc.setFillColor(255, 138, 0);
   doc.rect(W - M - rectW, y, rectW, 32, 'F');
   doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-  doc.text(textoPdf('TOTAL RETENIDO'), W - M - rectW + 10, y + 12);
+  doc.text(textoPdf(f.rotulos.total), W - M - rectW + 10, y + 12);
   doc.setFontSize(14);
   doc.text(textoPdf(montoPdf(r.montoRetenido, r.moneda)), W - M - 10, y + 26, { align: 'right' });
   doc.setTextColor(0, 0, 0);
@@ -215,15 +188,12 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   doc.rect(M, firmaY, anchoFirma, 50);
   doc.rect(M + anchoFirma + 60, firmaY, anchoFirma, 50);
   doc.setFontSize(7.5); doc.setTextColor(80, 80, 80);
-  doc.text(textoPdf('Firma y sello del agente de retencion'), M + anchoFirma / 2, firmaY + 62, { align: 'center' });
-  doc.text(textoPdf('Recibido por el sujeto retenido'), M + anchoFirma + 60 + anchoFirma / 2, firmaY + 62, { align: 'center' });
+  doc.text(textoPdf(f.rotulos.firma_agente), M + anchoFirma / 2, firmaY + 62, { align: 'center' });
+  doc.text(textoPdf(f.rotulos.firma_sujeto), M + anchoFirma + 60 + anchoFirma / 2, firmaY + 62, { align: 'center' });
 
   // ── Pie ──
   doc.setFontSize(7); doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal');
-  const pie = esIva
-    ? 'Este comprobante se emite segun lo establecido en la Providencia Administrativa SNAT/2015/0049. El numero no se reusa: una retencion anulada conserva el suyo.'
-    : 'Comprobante de retencion. El numero no se reusa: una retencion anulada conserva el suyo.';
-  doc.text(textoPdf(pie), M, LIMITE - 6, { maxWidth: anchoUtilPdf(W) });
+  doc.text(textoPdf(f.textos.pie), M, LIMITE - 6, { maxWidth: anchoUtilPdf(W) });
   doc.text(textoPdf(razonSocialAgente(config)), M, LIMITE + 6);
 
   previewPdf(doc, `retencion-${r.tipo}-${r.numeroComprobante ?? r.id.slice(0, 8)}.pdf`);

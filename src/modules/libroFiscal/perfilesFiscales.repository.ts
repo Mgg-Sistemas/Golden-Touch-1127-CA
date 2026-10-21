@@ -20,6 +20,7 @@ import { sujetoDeGt } from './retencionesFiscal.repository';
 import { sujetoDesdePersona, type TipoPersona } from './residenciaSujeto';
 import { errorRetencion } from './erroresRetencion';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { faltaEnCodigo, faltaEnFechaRango, normalizarCodigo } from './parametrosNumeros';
 
 const T_PERFILES = 'retencion_contraparte_perfiles';
 const T_ACTIVIDADES = 'retencion_contraparte_actividades';
@@ -204,13 +205,25 @@ export interface PerfilNuevo {
 export const sujetoDelPerfil = (p: Pick<PerfilNuevo, 'tipoPersona' | 'residente'>): SujetoRetenido =>
   sujetoDesdePersona(p.tipoPersona, p.residente ? 'residente' : 'no_residente');
 
+/**
+ * El tipo de licencia tiene que estar activo en el catálogo (la base lo
+ * revisa sin distinguir mayúsculas ni espacios al borde: RET_LICENCIA_TIPO).
+ * Vacío = sin tipo. Sin la lista a mano (null) no se revisa aquí.
+ */
+export function faltaEnTipoLicencia(tipo: string | null | undefined, activos: string[] | null | undefined): string | null {
+  const t = String(tipo ?? '').trim();
+  if (!t || !activos) return null;
+  const igual = (x: string) => x.trim().toLocaleLowerCase('es') === t.toLocaleLowerCase('es');
+  return activos.some(igual) ? null : `El tipo de licencia «${t}» no está en el catálogo o está inactivo: elígelo de la lista o agrégalo en Parámetros → Tipos de licencia.`;
+}
+
 /** Lo que falta para guardar una versión, o null. Las mismas reglas que la tabla. */
-export function faltaEnPerfil(p: PerfilNuevo, desde: string, motivo: string): string | null {
+export function faltaEnPerfil(p: PerfilNuevo, desde: string, motivo: string, tiposLicencia?: string[] | null): string | null {
   if (!FECHA.test(desde)) return 'Indica desde qué fecha vale el perfil.';
   if (!motivo.trim()) return 'Indica el motivo del cambio: queda en el historial del perfil.';
   if (p.licenciaEstado === 'vigente' && !p.licenciaNumero?.trim()) return 'Una licencia vigente lleva su número.';
   if (p.licenciaVence && !FECHA.test(p.licenciaVence)) return 'La fecha de vencimiento de la licencia no es válida.';
-  return null;
+  return faltaEnFechaRango(p.licenciaVence, 'la fecha de vencimiento de la licencia') ?? faltaEnTipoLicencia(p.licenciaTipo, tiposLicencia);
 }
 
 /**
@@ -297,10 +310,11 @@ export interface ActividadNueva {
 
 /** Lo que falta para una actividad, o null. Las mismas reglas que la tabla. */
 export function faltaEnActividad(a: ActividadNueva): string | null {
-  const ciiu = a.ciiuCodigo?.trim(); const ord = a.ordenanzaCodigo?.trim();
+  const ciiu = a.ciiuCodigo?.trim(); const ord = normalizarCodigo(a.ordenanzaCodigo);
   if (!ciiu && !ord) return 'Indica la actividad: el código CIIU o el código de la ordenanza del municipio.';
   if (ord && !a.enteId) return 'El código de la ordenanza va con su alcaldía (el ente).';
   if (!ord && a.enteId) return 'Con la alcaldía va el código de su ordenanza.';
+  if (ord) { const f = faltaEnCodigo(ord, 'el código de la ordenanza'); if (f) return f; }
   if (a.desde && !FECHA.test(a.desde)) return 'La fecha «desde» no es válida.';
   return null;
 }
@@ -313,11 +327,13 @@ export async function agregarActividad(proveedorId: string, a: ActividadNueva): 
   const falta = faltaEnActividad(a);
   if (falta) throw new Error(falta);
   if (a.principal) await quitarPrincipal(proveedorId);
+  // En MAYÚSCULAS y sin espacios al borde, como el catálogo de la alcaldía: así el enlace por igualdad coincide.
+  const ordenanza = normalizarCodigo(a.ordenanzaCodigo) || null;
   const { data, error } = await supabase.from(T_ACTIVIDADES).insert({
     proveedor_id: proveedorId,
     ciiu_codigo: a.ciiuCodigo?.trim() || null,
-    ente_id: a.ordenanzaCodigo?.trim() ? a.enteId : null,
-    ordenanza_codigo: a.ordenanzaCodigo?.trim() || null,
+    ente_id: ordenanza ? a.enteId : null,
+    ordenanza_codigo: ordenanza,
     descripcion: a.descripcion?.trim() || null,
     principal: !!a.principal,
     desde: a.desde || undefined,
