@@ -13,6 +13,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { faltaEnClaveMinusculas, faltaNoNegativo, faltaPct } from './parametrosNumeros';
 
 const T_TARIFAS = 'retencion_tarifas';
 const T_VERSIONES = 'retencion_tarifa_versiones';
@@ -21,6 +22,7 @@ const T_TRAMOS = 'retencion_tarifa_tramos';
 export const r5Disponible = () => tablaDisponible(T_TARIFAS);
 
 export type UnidadTarifa = 'UT' | 'Bs';
+export const UNIDADES_TARIFA: UnidadTarifa[] = ['UT', 'Bs'];
 
 export interface Tramo { id?: string; desdeMonto: number; hastaMonto: number | null; pct: number; sustraendo: number; nota?: string | null }
 
@@ -103,6 +105,33 @@ export function revisarTramos(tramos: Tramo[]): string[] {
   return r;
 }
 
+/**
+ * Lo que la base rechaza al GUARDAR un tramo (sus CHECK), o null: «Más de»,
+ * «Hasta» y el sustraendo no negativos, «Hasta» mayor que «Más de» y el % de
+ * 0 a 100. Huecos y solapes se revisan al publicar (revisarTramos).
+ */
+export function faltaEnTramos(tramos: Tramo[]): string | null {
+  for (const [i, t] of tramos.entries()) {
+    const n = i + 1;
+    const falta = faltaNoNegativo(t.desdeMonto, `«Más de» del tramo ${n}`)
+      ?? faltaNoNegativo(t.hastaMonto, `«Hasta» del tramo ${n}`)
+      ?? (t.hastaMonto != null && t.hastaMonto <= t.desdeMonto ? `«Hasta» del tramo ${n} tiene que ser mayor que «Más de» (${t.desdeMonto}).` : null)
+      ?? faltaPct(t.pct, `el % del tramo ${n}`)
+      ?? faltaNoNegativo(t.sustraendo, `el sustraendo del tramo ${n}`);
+    if (falta) return falta;
+  }
+  return null;
+}
+
+export interface TarifaNueva { clave: string; nombre: string; impuestoClave: string | null; unidad: UnidadTarifa; fuente?: string | null; nota?: string | null }
+
+/** Lo que falta en una tarifa nueva, o null. La clave llega ya normalizada (normalizarClave). */
+export function faltaEnTarifa(t: Pick<TarifaNueva, 'clave' | 'nombre' | 'unidad'>): string | null {
+  return faltaEnClaveMinusculas(t.clave)
+    ?? (t.nombre.trim().length < 3 ? 'El nombre de la tarifa necesita al menos 3 letras.' : null)
+    ?? (UNIDADES_TARIFA.includes(t.unidad) ? null : 'La unidad de la tarifa es UT o Bs.');
+}
+
 export interface Aplicacion { tramo: Tramo; pct: number; sustraendo: number; monto: number }
 
 /** Aplica unos tramos a una base, como retencion_tarifa_aplicar: en UT, la base se lleva a UT y el sustraendo vuelve a Bs. */
@@ -148,9 +177,9 @@ const exigir = (data: unknown, que: string) => {
   return id;
 };
 
-export async function crearTarifa(t: { clave: string; nombre: string; impuestoClave: string | null; unidad: UnidadTarifa; fuente?: string | null; nota?: string | null }): Promise<string> {
-  if (!/^[a-z][a-z0-9_]{1,40}$/.test(t.clave)) throw new Error('La clave va en minúsculas, sin espacios.');
-  if (t.nombre.trim().length < 3) throw new Error('El nombre necesita al menos 3 letras.');
+export async function crearTarifa(t: TarifaNueva): Promise<string> {
+  const falta = faltaEnTarifa(t);
+  if (falta) throw new Error(falta);
   const { data, error } = await supabase.from(T_TARIFAS).insert({
     clave: t.clave, nombre: t.nombre.trim(), impuesto_clave: t.impuestoClave, unidad: t.unidad, fuente: t.fuente?.trim() || null, nota: t.nota?.trim() || null,
   }).select('id');
@@ -175,6 +204,8 @@ export async function nuevaVersionTarifa(tarifaId: string, desde: string, motivo
  * actualizan y los nuevos se insertan. Para quitar uno, quitarTramo.
  */
 export async function guardarTramos(versionId: string, tramos: Tramo[]): Promise<void> {
+  const falta = faltaEnTramos(tramos);
+  if (falta) throw new Error(falta);
   const fila = (t: Tramo) => ({ desde_monto: t.desdeMonto, hasta_monto: t.hastaMonto, pct: t.pct, sustraendo: t.sustraendo, nota: t.nota?.trim() || null });
   const textos = { unico: 'Hay dos tramos que empiezan en el mismo monto.', regla: 'Revisa los tramos: «hasta» mayor que «desde», % de 0 a 100 y sustraendo no negativo.' };
   for (const t of tramos.filter((x) => x.id)) {

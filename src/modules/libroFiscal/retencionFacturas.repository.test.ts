@@ -152,8 +152,9 @@ describe('registro atómico', () => {
   it('sin permiso (42501) y régimen (23514) dan mensajes claros', async () => {
     rpc.mockResolvedValueOnce({ data: null, error: { code: '42501', message: 'permission denied' } });
     await expect(registrarFactura(factura(), [linea()])).rejects.toThrow('permiso');
-    rpc.mockResolvedValueOnce({ data: null, error: { code: '23514', message: 'check_violation' } });
-    await expect(registrarFactura(factura(), [linea({ tipo: 'igtf' })])).rejects.toThrow('régimen');
+    // El régimen lo dice el trigger de la base (retencion_agente_valido), ya redactado.
+    rpc.mockResolvedValueOnce({ data: null, error: { code: '23514', message: 'La empresa no puede percibir IGTF: no está designada contribuyente especial.' } });
+    await expect(registrarFactura(factura(), [linea({ tipo: 'igtf' })])).rejects.toThrow('contribuyente especial');
   });
 });
 

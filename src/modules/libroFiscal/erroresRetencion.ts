@@ -62,6 +62,9 @@ const TEXTOS: Record<string, string> = {
   RET_LICENCIA_TIPO: 'Ese tipo de licencia no está en el catálogo o está inactivo (Parámetros → Tipos de licencia).',
   RET_FORMATO_FORMA: 'El formato no tiene la forma esperada: textos y rótulos van como objeto ({…}) y columnas como lista ([…]).',
   RET_FORMATO_DESDE: 'La versión nueva del formato tiene que empezar después de la vigente.',
+  RET_ENLACE_PRINCIPAL: 'Es la orden principal de la factura: se corrige en la factura, o se borra la factura si no tiene retenciones.',
+  RET_ENLACE_CON_ARCHIVO: 'Este enlace dice de qué archivo salió la factura: primero hay que quitar el archivo del enlace.',
+  RET_DOCUMENTO_NO_EXISTE: 'Esa factura no está registrada (o no tienes permiso para verla).',
 };
 
 /**
@@ -88,7 +91,77 @@ const RESTRICCIONES: Record<string, string> = {
   retencion_ente_logos_desde_rango: 'La fecha «desde» del logo va entre 2000 y 2100.',
   retencion_agente_imagenes_desde_rango: 'La fecha «desde» de la firma, el sello o el logo va entre 2000 y 2100.',
   retencion_contraparte_perfiles_licencia_vence_rango: 'El vencimiento de la licencia va entre 2000 y 2100.',
+  retencion_clasificacion_codigos_forma: 'El código de la clasificación va en mayúsculas, de 1 a 30 caracteres, sin espacios al borde ni saltos de línea.',
+  retencion_contraparte_actividades_ordenanza_forma: 'El código de ordenanza va en mayúsculas, de 1 a 30 caracteres, sin espacios al borde ni saltos de línea.',
 };
+
+/**
+ * Los únicos de la base (23505), por nombre de índice o restricción: qué ya existe.
+ * Los «…_key» son los únicos sin nombre propio (Postgres los nombra tabla_columnas_key).
+ */
+const UNICOS: Record<string, string> = {
+  retenciones_comprobante_propio_uk: 'Ese número de comprobante ya se dio en la serie: no se vuelve a dar, aunque se haya anulado o cambiado.',
+  retencion_documentos_unica_practicada: 'Esa factura ya está registrada (mismo número, control y tipo de documento del mismo emisor).',
+  retencion_documentos_unica_recibida: 'Esa factura ya está registrada (mismo número, control y tipo de documento).',
+  retencion_documento_origenes_unico: 'Esa factura ya cubre esa orden, compra o servicio.',
+  retencion_entes_unico: 'Ya hay un ente de ese tipo con ese nombre (sin distinguir mayúsculas).',
+  retencion_ente_impuestos_ente_id_impuesto_clave_key: 'Ese ente ya tiene ese impuesto.',
+  retencion_ente_logos_ente_id_desde_key: 'Ese ente ya tiene un logo con esa fecha «desde».',
+  retencion_agente_imagenes_clase_desde_key: 'Ya hay una imagen de ese tipo (firma, sello o logo) con esa fecha «desde».',
+  retencion_agente_condiciones_desde: 'Ya hay un cambio del régimen con esa fecha «desde».',
+  retencion_contraparte_perfiles_desde: 'Ese proveedor ya tiene una versión del perfil con esa fecha «desde».',
+  retencion_contraparte_perfiles_abierto: 'Ese proveedor ya tiene un perfil vigente: haz una versión nueva o corrige la vigente.',
+  retencion_contraparte_actividades_unica: 'Esa actividad ya está en el perfil del proveedor.',
+  retencion_proveedor_actividades_unica: 'Esa actividad ya está en el perfil del proveedor.',
+  retencion_contraparte_actividades_principal: 'El proveedor ya tiene una actividad principal: quítale la marca a la otra primero.',
+  retencion_proveedor_actividades_principal: 'El proveedor ya tiene una actividad principal: quítale la marca a la otra primero.',
+  retencion_impuestos_pkey: 'Ya hay un impuesto con esa clave.',
+  retencion_impuesto_versiones_desde: 'Ese impuesto ya tiene una versión con esa fecha «desde».',
+  retencion_impuesto_versiones_abierta: 'Ese impuesto ya tiene una versión vigente: haz una versión nueva o corrige la vigente.',
+  retencion_parametro_claves_pkey: 'Ya hay un valor con esa clave.',
+  retencion_parametros_desde: 'Ese valor ya tiene una versión con esa fecha «desde».',
+  retencion_parametros_abierto: 'Ese valor ya tiene una versión vigente: haz una versión nueva o corrige la vigente.',
+  retencion_licencia_tipos_nombre: 'Ya hay un tipo de licencia con ese nombre (sin distinguir mayúsculas).',
+  retencion_motivos_no_aplica_texto: 'Ya hay un motivo con ese texto en ese impuesto.',
+  retencion_supuestos_codigo_unico_sin_mayusculas: 'Ya hay un supuesto con ese código en ese impuesto (sin distinguir mayúsculas).',
+  retencion_supuestos_impuesto_clave_codigo_key: 'Ya hay un supuesto con ese código en ese impuesto.',
+  retencion_formatos_desde: 'Ese formato ya tiene una versión con esa fecha «desde».',
+  retencion_formatos_abierto: 'Ese formato ya tiene una versión vigente: haz una versión nueva o corrige la vigente.',
+  retencion_clasificaciones_pkey: 'Ya hay una clasificación con esa clave.',
+  retencion_clasificacion_codigos_clasificacion_id_codigo_key: 'Ese código ya existe en la clasificación.',
+  retencion_clasificacion_valores_desde: 'Ese código ya tiene un valor con esa fecha «desde».',
+  retencion_clasificacion_valores_abierto: 'Ese código ya tiene un valor vigente: haz uno nuevo o corrige el vigente.',
+  retencion_tarifas_pkey: 'Ya hay una tarifa con esa clave.',
+  retencion_tarifa_versiones_desde: 'Esa tarifa ya tiene una versión con esa fecha «desde».',
+  retencion_tarifa_versiones_abierta: 'Esa tarifa ya tiene una versión vigente: haz una versión nueva.',
+  retencion_tarifa_tramos_version_id_desde_monto_key: 'Ya hay un tramo que empieza en ese monto.',
+  retencion_reglas_impuesto_clave_nombre_version_key: 'Ya hay una regla con ese nombre y versión en el impuesto.',
+  retencion_regla_pasos_regla_id_paso_key: 'Esa regla ya tiene ese paso.',
+  retencion_decisiones_documento_id_impuesto_clave_key: 'Esa factura ya tiene una decisión para ese impuesto.',
+  retencion_periodos_tipo_periodo_tramo_key: 'Ese período ya existe.',
+  retencion_isae_actividades_municipio_codigo_key: 'Ese código ya existe en ese municipio.',
+};
+
+/** Cómo se dice cada columna en pantalla (para «Falta …»). */
+const COLUMNAS: Record<string, string> = {
+  motivo: 'el motivo', desde: 'la fecha «desde»', hasta: 'la fecha «hasta»', nombre: 'el nombre', clave: 'la clave',
+  impuesto_clave: 'el impuesto', tipo: 'el tipo', documento: 'el documento', codigo: 'el código', texto: 'el texto',
+  pct: 'el %', porcentaje: 'el %', sustraendo: 'el sustraendo', desde_monto: '«Más de»', hasta_monto: '«Hasta»',
+  valor: 'el valor', unidad: 'la unidad', ambito: 'el ámbito', rif: 'el RIF', fecha: 'la fecha', base: 'la base',
+  monto: 'el monto', moneda: 'la moneda', proveedor_id: 'el proveedor', ente_id: 'el ente', clase: 'el tipo de imagen',
+  path: 'el archivo', operacion: 'la operación', pieza: 'la pieza', paso: 'el paso', estado: 'el estado', orden: 'el orden',
+  prioridad: 'la prioridad', version: 'la versión', minimo_unidad: 'la unidad del mínimo', sujeto: 'el sujeto',
+};
+
+const nombreEntreComillas = (mensaje: string, tras: RegExp) => mensaje.match(tras)?.[1] ?? null;
+
+/** El texto de un único (23505) nombrado en el mensaje, o null. */
+export function textoUnico(mensaje: string | null | undefined): string | null {
+  const n = nombreEntreComillas(String(mensaje ?? ''), /constraint "([a-z0-9_]+)"/i);
+  if (!n) return null;
+  if (UNICOS[n]) return UNICOS[n];
+  return /_pkey$/.test(n) ? 'Ya existe uno con esa clave.' : null;
+}
 
 /** El texto de una restricción de forma o rango nombrada en el mensaje, o null. */
 export function textoRestriccion(mensaje: string | null | undefined): string | null {
@@ -152,20 +225,60 @@ export function errorRetencion(
     if (ultimo) return new Error(`El primer número de la serie tiene que ser mayor que ${ultimo}, el último del otro sistema.`);
   }
   if (ret && TEXTOS[ret]) return new Error(TEXTOS[ret]);
-  if (code === '42501') return new Error(TEXTOS.RET_SIN_PERMISO);
-  // P03: la misma factura no se registra dos veces; un documento cubre una vez cada origen; forma de número, control y fecha.
   const mensaje = String(e?.message ?? '');
-  if (code === '23505' && /retencion_documentos_unica_/.test(mensaje)) return new Error('Esa factura ya está registrada (mismo número, control y tipo de documento del mismo emisor).');
-  if (code === '23505' && /retencion_documento_origenes_unico/.test(mensaje)) return new Error('Esa factura ya cubre esa orden, compra o servicio.');
-  // R9 y P03: una regla de forma o rango, dicha por su nombre (antes que el texto genérico de la pantalla).
-  const restriccion = code === '23514' ? textoRestriccion(mensaje) : null;
-  if (restriccion) return new Error(restriccion);
-  if (code === '23514' && textos.regla) return new Error(textos.regla);
-  if (code === '23505' && textos.unico) return new Error(textos.unico);
+  // Un RET_* que no está en la lista: la base lo redacta para la pantalla; se quita el código.
+  if (ret) return new Error(sinCodigo(mensaje) || porDefecto);
+  if (code === '42501') return new Error(TEXTOS.RET_SIN_PERMISO);
+  // D41, Lote 3: cada rechazo de Postgres por su nombre, en español; nada en inglés.
   if (code === '23514') {
-    return new Error('La empresa no puede practicar esa retención con su régimen (revisa agente de IVA / contribuyente especial en Parámetros).');
+    const restriccion = textoRestriccion(mensaje);
+    if (restriccion) return new Error(restriccion);
+    // El régimen de la empresa (trigger retencion_agente_valido) ya viene redactado.
+    if (/^La empresa no puede/.test(mensaje)) return new Error(mensaje);
+    if (textos.regla) return new Error(textos.regla);
+    const n = nombreEntreComillas(mensaje, /constraint "([a-z0-9_]+)"/i);
+    return new Error(`Un dato no cumple una regla de la base${n ? ` (${n})` : ''}: revisa lo que escribiste.`);
   }
-  if (code === '23505') return new Error(TEXTOS.RET_NUMERO_USADO);
+  if (code === '23505') {
+    const unico = textoUnico(mensaje);
+    if (unico) return new Error(unico);
+    if (textos.unico) return new Error(textos.unico);
+    return new Error('Ya existe un registro igual: revisa que no esté repetido.');
+  }
+  if (code === '23502') {
+    const col = nombreEntreComillas(mensaje, /column "([a-z0-9_]+)"/i);
+    return new Error(`Falta ${col ? COLUMNAS[col] ?? `«${col.replace(/_/g, ' ')}»` : 'un dato obligatorio'}.`);
+  }
+  if (code === '23503') {
+    if (/update or delete on table/i.test(mensaje)) return new Error('No se puede borrar: otros datos lo usan.');
+    if (/impuesto_clave/i.test(mensaje)) return new Error('Ese impuesto no existe en la base (revisa «Impuestos y reglas»).');
+    return new Error('Un dato elegido ya no existe (se borró o no está en el catálogo): vuelve a elegirlo.');
+  }
+  if (code === '22P02') return new Error('Un dato tiene un formato inválido (número, fecha o identificador): revisa lo que escribiste.');
+  if (code === '22007' || code === '22008') return new Error('Una fecha no es válida.');
+  if (code === '22003') return new Error('Un número es demasiado grande para la base.');
+  if (code === '22001') return new Error('Un texto es demasiado largo para la base.');
   if (e instanceof Error) return e;
   return new Error(e?.message || porDefecto);
+}
+
+/** El mensaje de la base sin el prefijo RET_*: «RET_X: algo» → «Algo». */
+function sinCodigo(mensaje: string): string {
+  const t = mensaje.replace(/^.*?\bRET_[A-Z_]+:?\s*/, '').trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : '';
+}
+
+const conMayuscula = (t: string) => t[0].toUpperCase() + t.slice(1);
+
+/** Un error de Storage (logos, firma, sello, archivos) en español. */
+export function errorStorage(e: { message?: string; statusCode?: string | number } | null | undefined, que = 'el archivo'): Error {
+  const m = String(e?.message ?? '');
+  const status = String(e?.statusCode ?? '');
+  if (/row-level security|unauthorized|not allowed/i.test(m) || status === '403') {
+    return new Error(`No se pudo subir ${que}: sin permiso, o el archivo ya está registrado en Retenciones y no se puede reemplazar.`);
+  }
+  if (/payload too large|too large|maximum allowed size/i.test(m) || status === '413') return new Error(`${conMayuscula(que)} es demasiado grande.`);
+  if (/mime|content type|invalid file type/i.test(m)) return new Error(`${conMayuscula(que)} no es de un tipo permitido (PDF o imagen).`);
+  if (/exist|duplicate/i.test(m)) return new Error(`Ya hay ${que} con ese nombre: vuelve a intentarlo.`);
+  return new Error(`No se pudo subir ${que}. Vuelve a intentarlo.`);
 }

@@ -72,10 +72,27 @@ const exigir = (data: unknown, que: string) => {
   return id;
 };
 
-export async function crearRegla(r: { impuestoClave: string; nombre: string; desde: string; prioridad?: number; motivo: string; fuente?: string | null }): Promise<string> {
-  if (r.nombre.trim().length < 2) throw new Error('El nombre de la regla necesita al menos 2 letras.');
-  if (!FECHA.test(r.desde)) throw new Error('Indica desde qué fecha vale la regla.');
-  if (!r.motivo.trim()) throw new Error('Indica el motivo: queda en el historial.');
+export interface ReglaNueva { impuestoClave: string; nombre: string; desde: string; prioridad?: number; motivo: string; fuente?: string | null }
+
+/** Lo que falta en una regla nueva, o null (lo mismo que se dice debajo del botón «Crear»). */
+export function faltaEnReglaNueva(r: Omit<ReglaNueva, 'impuestoClave' | 'fuente'>): string | null {
+  if (r.nombre.trim().length < 2) return 'El nombre de la regla necesita al menos 2 letras.';
+  if (!FECHA.test(r.desde)) return 'Indica desde qué fecha vale la regla.';
+  if (r.prioridad != null && (!Number.isInteger(r.prioridad) || r.prioridad < 0)) return 'La prioridad es un entero desde 0.';
+  if (!r.motivo.trim()) return 'Indica el motivo: queda en el historial.';
+  return null;
+}
+
+/** Lo que falta para activar, retirar o hacer una versión nueva de una regla, o null. */
+export function faltaEnEstadoRegla(accion: 'activar' | 'retirar' | 'version', fecha: string, motivo: string): string | null {
+  if (accion !== 'activar' && !FECHA.test(fecha)) return accion === 'retirar' ? 'Indica hasta qué fecha vale.' : 'Indica desde qué fecha vale la versión nueva.';
+  if (!motivo.trim()) return accion === 'activar' ? 'Indica el motivo de la activación.' : accion === 'retirar' ? 'Indica el motivo del retiro.' : 'Indica el motivo.';
+  return null;
+}
+
+export async function crearRegla(r: ReglaNueva): Promise<string> {
+  const falta = faltaEnReglaNueva(r);
+  if (falta) throw new Error(falta);
   const { data, error } = await supabase.from(T_REGLAS).insert({
     impuesto_clave: r.impuestoClave, nombre: r.nombre.trim(), desde: r.desde, prioridad: r.prioridad ?? 100,
     motivo: r.motivo.trim(), fuente: r.fuente?.trim() || null,
@@ -88,7 +105,10 @@ export async function crearRegla(r: { impuestoClave: string; nombre: string; des
 export async function editarRegla(id: string, cambios: { desde?: string; prioridad?: number; motivo?: string; fuente?: string | null }): Promise<void> {
   const patch: Record<string, unknown> = {};
   if (cambios.desde !== undefined) { if (!FECHA.test(cambios.desde)) throw new Error('La fecha no es válida.'); patch.desde = cambios.desde; }
-  if (cambios.prioridad !== undefined) patch.prioridad = cambios.prioridad;
+  if (cambios.prioridad !== undefined) {
+    if (!Number.isInteger(cambios.prioridad) || cambios.prioridad < 0) throw new Error('La prioridad es un entero desde 0.');
+    patch.prioridad = cambios.prioridad;
+  }
   if (cambios.motivo !== undefined) { if (!cambios.motivo.trim()) throw new Error('Indica el motivo.'); patch.motivo = cambios.motivo.trim(); }
   if (cambios.fuente !== undefined) patch.fuente = cambios.fuente?.trim() || null;
   const { data, error } = await supabase.from(T_REGLAS).update(patch).eq('id', id).select('id');

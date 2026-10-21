@@ -163,7 +163,9 @@ export function faltaEnImpuesto(f: Partial<FichaImpuesto> & { clave: string; nom
   if (f.nombre.trim().length < 2) return 'El nombre necesita al menos 2 letras.';
   if (f.admitePracticada === false && f.admiteSufrida === false) return 'El impuesto tiene que admitir practicadas, recibidas o ambas.';
   if (f.numera && !f.serieFormato) return 'Un impuesto que numera lleva el formato de su serie.';
+  if (f.orden != null && Number.isFinite(f.orden) && f.orden < 0) return 'El orden no puede ser negativo.';
   if (f.serieInicial != null && (!Number.isInteger(f.serieInicial) || f.serieInicial < 1)) return 'El primer número de la serie es un entero desde 1.';
+  if (f.serieUltimoOtroSistema != null && f.serieUltimoOtroSistema < 0) return 'El último número del otro sistema no puede ser negativo.';
   if (f.serieUltimoOtroSistema != null && f.serieInicial != null && f.serieInicial <= f.serieUltimoOtroSistema) {
     return `El primer número tiene que ser mayor que el último del otro sistema (${f.serieUltimoOtroSistema}).`;
   }

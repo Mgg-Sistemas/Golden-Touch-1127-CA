@@ -87,12 +87,25 @@ export function faltaEnMotivo(m: { texto: string; desde: string; hasta?: string 
   return faltaEnVigencia(m, nota);
 }
 
-export function faltaEnSupuesto(s: { impuestoClave: string; codigo: string; texto: string; pct: number; desde: string; hasta?: string | null }, nota: string): string | null {
+export function faltaEnSupuesto(s: { impuestoClave: string; codigo: string; texto: string; pct: number; orden?: number; desde: string; hasta?: string | null }, nota: string): string | null {
   if (!s.impuestoClave) return 'Indica el impuesto del supuesto.';
-  if (!/^[A-Za-z][A-Za-z0-9_]{1,40}$/.test(s.codigo)) return 'El código va sin espacios (letras, números y _).';
+  if (!/^[A-Za-z][A-Za-z0-9_]{1,40}$/.test(s.codigo)) return 'El código va sin espacios ni acentos (letras, números y _), empieza con una letra y lleva de 2 a 41 caracteres.';
   if (s.texto.trim().length < 3) return 'El texto del supuesto necesita al menos 3 letras.';
   if (!Number.isFinite(s.pct) || s.pct < 0 || s.pct > 100) return 'El porcentaje va de 0 a 100.';
+  if (s.orden != null && s.orden < 0) return 'El orden no puede ser negativo.';
   return faltaEnVigencia(s, nota);
+}
+
+/**
+ * ¿Ya hay en ese impuesto otro supuesto con el mismo código, sin distinguir
+ * mayúsculas? La base lo rechaza (retencion_supuestos_codigo_unico_sin_mayusculas):
+ * con la lista a mano se avisa antes de mandar.
+ */
+export function supuestoRepetido(s: { impuestoClave: string; codigo: string }, lista: Pick<Supuesto, 'id' | 'impuestoClave' | 'codigo'>[], idPropio?: string): string | null {
+  const c = s.codigo.trim().toLowerCase();
+  if (!c) return null;
+  const otro = lista.find((x) => x.id !== idPropio && x.impuestoClave === s.impuestoClave && x.codigo.toLowerCase() === c);
+  return otro ? `Ese impuesto ya tiene el supuesto «${otro.codigo}»: el código no puede repetirse cambiando solo mayúsculas.` : null;
 }
 
 /* ───────── Lectura ───────── */

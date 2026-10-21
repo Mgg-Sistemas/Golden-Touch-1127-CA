@@ -90,7 +90,7 @@ describe('errores de P03 en texto de pantalla', () => {
     expect(errorRetencion({ code: '23505', message: 'duplicate key value violates unique constraint "retencion_documentos_unica_practicada"' }).message).toMatch(/ya está registrada/);
     expect(errorRetencion({ code: '23505', message: 'duplicate key value violates unique constraint "retencion_documentos_unica_recibida"' }).message).toMatch(/ya está registrada/);
     expect(errorRetencion({ code: '23505', message: 'duplicate key value violates unique constraint "retencion_documento_origenes_unico"' }).message).toMatch(/ya cubre/);
-    expect(errorRetencion({ code: '23505', message: 'duplicate key' }).message).toContain('ya se dio');
+    expect(errorRetencion({ code: '23505', message: 'duplicate key' }).message).toMatch(/Ya existe un registro igual/);
   });
 
   it('forma de número, control y fecha (CHECK de la base)', () => {

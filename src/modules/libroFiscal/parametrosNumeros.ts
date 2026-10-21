@@ -127,8 +127,12 @@ export function leerSupuestoNumeros(pct: string, orden: string): Leido<{ pct: nu
 
 /* ───────── Reglas (R7) ───────── */
 
-/** La prioridad de una regla nueva: «0» es 0, vacío = 100 (la de siempre), ilegible bloquea. */
-export const leerPrioridad = (texto: string) => leerEntero(texto, 'la prioridad', 100);
+/** La prioridad de una regla nueva: «0» es 0, vacío = 100 (la de siempre), ilegible bloquea; negativa no. */
+export function leerPrioridad(texto: string): Leido<number> {
+  const r = leerEntero(texto, 'la prioridad', 100);
+  if ('error' in r) return r;
+  return r.valor < 0 ? { error: 'La prioridad no puede ser negativa.' } : r;
+}
 
 /* ───────── Ficha y versión de un impuesto (R2) ───────── */
 
@@ -148,5 +152,87 @@ export function faltaEnEnteros(x: Partial<Record<keyof typeof ENTEROS_IMPUESTO, 
     const v = x[k];
     if (v !== undefined && !Number.isFinite(v)) return noSeEntiende(ENTEROS_IMPUESTO[k].campo);
   }
+  return null;
+}
+
+/* ───────── Rangos, fechas y claves: lo mismo que exige la base (D41, Lote 2) ───────── */
+
+const mayuscula = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+
+/** Un % de 0 a 100 (null = sin dato, no se revisa). «El % del tramo 2 va de 0 a 100.» */
+export function faltaPct(n: number | null | undefined, campo: string): string | null {
+  if (n == null) return null;
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? null : `${mayuscula(campo)} va de 0 a 100.`;
+}
+
+/** Un monto que no puede ser negativo (null = sin dato). */
+export function faltaNoNegativo(n: number | null | undefined, campo: string): string | null {
+  if (n == null) return null;
+  return Number.isFinite(n) && n >= 0 ? null : `${mayuscula(campo)} no puede ser negativo.`;
+}
+
+/** Un valor que tiene que ser mayor que 0 (la UT). */
+export function faltaPositivo(n: number | null | undefined, campo: string): string | null {
+  if (n == null) return null;
+  return Number.isFinite(n) && n > 0 ? null : `${mayuscula(campo)} tiene que ser mayor que 0.`;
+}
+
+export const FECHA_MINIMA = '2000-01-01';
+export const FECHA_MAXIMA = '2100-12-31';
+
+/**
+ * Una fecha entre el 01/01/2000 y el 31/12/2100 (los CHECK *_desde_rango y
+ * *_licencia_vence_rango). Vacía = null: si hace falta, lo dice quien llama.
+ */
+export function faltaEnFechaRango(fecha: string | null | undefined, campo: string): string | null {
+  const f = String(fecha ?? '').trim();
+  if (!f) return null;
+  const [y, m, d] = f.split('-').map(Number);
+  const real = /^\d{4}-\d{2}-\d{2}$/.test(f) && new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) === f;
+  if (!real) return `${mayuscula(campo)} no es una fecha válida.`;
+  if (f < FECHA_MINIMA || f > FECHA_MAXIMA) return `${mayuscula(campo)} tiene que estar entre el 01/01/2000 y el 31/12/2100.`;
+  return null;
+}
+
+/* Claves y códigos: se normalizan al escribir y se dice qué cambió (nada se borra en silencio). */
+
+const sinAcentos = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
+/** Clave de parámetro (R3), clasificación (R4) o tarifa (R5): minúsculas, sin acentos, espacios y guiones → «_». */
+export const normalizarClave = (t: string) => sinAcentos(String(t ?? '').trim()).toLowerCase().replace(/[\s-]+/g, '_');
+
+/** Clave de impuesto (R2): igual, en MAYÚSCULAS. */
+export const normalizarClaveImpuesto = (t: string) => sinAcentos(String(t ?? '').trim()).toUpperCase().replace(/[\s-]+/g, '_');
+
+/** Código de supuesto (R6): camelCase como las semillas (se respetan las mayúsculas); sin acentos, espacios → «_». */
+export const normalizarCodigoSupuesto = (t: string) => sinAcentos(String(t ?? '').trim()).replace(/[\s-]+/g, '_');
+
+/** Código de clasificación (R4) y de ordenanza (R1): sin espacios al borde y en MAYÚSCULAS, para que el enlace con el catálogo coincida. */
+export const normalizarCodigo = (t: string | null | undefined) => String(t ?? '').trim().toUpperCase();
+
+/** Lo que sobra en una clave, sin repetir: «#», «.». */
+const sobrantes = (clave: string, permitido: RegExp) => [...new Set([...clave].filter((c) => !permitido.test(c)))].map((c) => `«${c}»`).join(', ');
+
+/** «Se guardará como: minimo_isae» cuando lo escrito cambia al normalizarlo; null si queda igual o está vacío. */
+export function pistaClave(escrito: string, normalizada: string): string | null {
+  if (!String(escrito ?? '').trim() || escrito === normalizada) return null;
+  return `Se guardará como: ${normalizada}`;
+}
+
+/** Una clave en minúsculas (R3, R4, R5): ^[a-z][a-z0-9_]{1,40}$, como la base. Recibe la clave ya normalizada. */
+export function faltaEnClaveMinusculas(clave: string, campo = 'la clave'): string | null {
+  if (!clave) return `Indica ${campo}.`;
+  const sobra = sobrantes(clave, /[a-z0-9_]/);
+  if (sobra) return `${mayuscula(campo)} va en minúsculas, sin espacios (letras sin acento, números y _); sobra ${sobra}.`;
+  if (!/^[a-z]/.test(clave)) return `${mayuscula(campo)} empieza con una letra.`;
+  if (clave.length < 2 || clave.length > 41) return `${mayuscula(campo)} lleva de 2 a 41 caracteres.`;
+  return null;
+}
+
+/** Un código de clasificación u ordenanza ya normalizado: de 1 a 30 caracteres, sin saltos de línea. */
+export function faltaEnCodigo(codigo: string, campo = 'el código'): string | null {
+  if (!codigo) return `Indica ${campo}.`;
+  if (/[\r\n]/.test(codigo)) return `${mayuscula(campo)} va en una sola línea.`;
+  if (codigo.length > 30) return `${mayuscula(campo)} lleva hasta 30 caracteres.`;
   return null;
 }

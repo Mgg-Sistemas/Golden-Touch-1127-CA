@@ -18,7 +18,7 @@ import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { leerMonto } from './validarCarga';
-import { noSeEntiende } from './parametrosNumeros';
+import { faltaEnClaveMinusculas, faltaNoNegativo, faltaPct, faltaPositivo, noSeEntiende } from './parametrosNumeros';
 
 const T_CLAVES = 'retencion_parametro_claves';
 const T_VALORES = 'retencion_parametros';
@@ -28,6 +28,11 @@ export type Ambito = 'general' | 'impuesto';
 export type TipoValor = 'numero' | 'texto' | 'si_no';
 export type Unidad = '%' | 'Bs' | 'UT' | 'dias';
 export type Valor = number | string | boolean;
+
+/** Las listas cerradas de la base (retencion_parametro_claves): lo que mandan los select, exacto. */
+export const AMBITOS: Ambito[] = ['general', 'impuesto'];
+export const TIPOS_VALOR: TipoValor[] = ['numero', 'texto', 'si_no'];
+export const UNIDADES: Unidad[] = ['%', 'Bs', 'UT', 'dias'];
 
 export interface ClaveParametro {
   clave: string;
@@ -118,9 +123,34 @@ export function faltaEnValor(k: Pick<ClaveParametro, 'ambito' | 'clave'>, impues
   return null;
 }
 
-export function faltaEnClave(k: Pick<ClaveParametro, 'clave' | 'nombre'>): string | null {
-  if (!/^[a-z][a-z0-9_]{1,40}$/.test(k.clave)) return 'La clave va en minúsculas, sin espacios (letras, números y _).';
+/**
+ * Lo que falta en una clave nueva, o null. La clave llega ya normalizada
+ * (normalizarClave): aquí solo se revisa, como la base. Una clave de texto o
+ * de sí/no no lleva unidad: la unidad es de los números.
+ */
+export function faltaEnClave(k: Pick<ClaveParametro, 'clave' | 'nombre'> & Partial<Pick<ClaveParametro, 'ambito' | 'tipoValor' | 'unidad'>>): string | null {
+  const faltaClave = faltaEnClaveMinusculas(k.clave);
+  if (faltaClave) return faltaClave;
   if (k.nombre.trim().length < 2) return 'El nombre necesita al menos 2 letras.';
+  if (k.ambito !== undefined && !AMBITOS.includes(k.ambito)) return 'El ámbito es «general» o «de un impuesto».';
+  if (k.tipoValor !== undefined && !TIPOS_VALOR.includes(k.tipoValor)) return 'El tipo es número, texto o sí/no.';
+  if (k.unidad != null && !UNIDADES.includes(k.unidad)) return 'La unidad es %, Bs, UT o días.';
+  if (k.unidad != null && k.tipoValor && k.tipoValor !== 'numero') {
+    return `Una clave de tipo ${k.tipoValor === 'texto' ? 'texto' : 'sí/no'} no lleva unidad (${k.unidad === 'dias' ? 'días' : k.unidad}): la unidad es para los números. Deja la unidad en «—».`;
+  }
+  return null;
+}
+
+/**
+ * El rango de un valor según su unidad, o null: un % va de 0 a 100; la UT
+ * (la clave «ut») y lo que va en UT, mayor que 0; Bs y días, no negativos.
+ */
+export function faltaEnRangoValor(k: Pick<ClaveParametro, 'clave' | 'nombre' | 'unidad'>, valor: Valor): string | null {
+  if (typeof valor !== 'number') return null;
+  const campo = `el valor de «${k.nombre}»`;
+  if (k.unidad === '%') return faltaPct(valor, campo);
+  if (k.clave === 'ut' || k.unidad === 'UT') return faltaPositivo(valor, campo);
+  if (k.unidad === 'Bs' || k.unidad === 'dias') return faltaNoNegativo(valor, campo);
   return null;
 }
 
@@ -227,8 +257,9 @@ export interface ValorNuevo {
 }
 
 /** Un valor nuevo desde una fecha (la base cierra el anterior el día antes). */
-export async function nuevoValor(k: Pick<ClaveParametro, 'ambito' | 'clave'>, v: ValorNuevo): Promise<string> {
-  const falta = faltaEnValor(k, v.impuestoClave, v.desde, v.motivo);
+export async function nuevoValor(k: Pick<ClaveParametro, 'ambito' | 'clave'> & Partial<Pick<ClaveParametro, 'nombre' | 'unidad'>>, v: ValorNuevo): Promise<string> {
+  const falta = faltaEnValor(k, v.impuestoClave, v.desde, v.motivo)
+    ?? faltaEnRangoValor({ clave: k.clave, nombre: k.nombre ?? k.clave, unidad: k.unidad ?? null }, v.valor);
   if (falta) throw new Error(falta);
   const { data, error } = await supabase.from(T_VALORES).insert({
     impuesto_clave: v.impuestoClave, clave: v.clave, valor: v.valor, desde: v.desde,
@@ -241,8 +272,10 @@ export async function nuevoValor(k: Pick<ClaveParametro, 'ambito' | 'clave'>, v:
 }
 
 /** Corrige un valor ya cargado (sin cambiar su «desde»): lo que se escribió mal. */
-export async function corregirValor(id: string, valor: Valor, fuente: string | null, motivo: string): Promise<void> {
+export async function corregirValor(id: string, valor: Valor, fuente: string | null, motivo: string, k?: Pick<ClaveParametro, 'clave' | 'nombre' | 'unidad'>): Promise<void> {
   if (!motivo.trim()) throw new Error('Indica el motivo de la corrección: queda en el historial.');
+  const fueraDeRango = k ? faltaEnRangoValor(k, valor) : null;
+  if (fueraDeRango) throw new Error(fueraDeRango);
   const { data, error } = await supabase.from(T_VALORES)
     .update({ valor, fuente: fuente?.trim() || null, motivo: motivo.trim() }).eq('id', id).select('id');
   if (error) throw errorRetencion(error, 'No se pudo corregir el valor.', TEXTOS);

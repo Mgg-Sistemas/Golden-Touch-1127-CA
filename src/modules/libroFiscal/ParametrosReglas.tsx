@@ -14,8 +14,8 @@ import {
   type CondicionRegla, type Operador, type PasoRegla, type Pieza, type SujetoGt,
 } from './motorReglas';
 import {
-  activarRegla, crearRegla, guardarCondicion, guardarPaso, listReglas, nuevaVersionRegla, quitarCondicion, quitarPaso, retirarRegla,
-  type ReglaGuardada,
+  activarRegla, crearRegla, faltaEnEstadoRegla, faltaEnReglaNueva, guardarCondicion, guardarPaso, listReglas, nuevaVersionRegla, quitarCondicion,
+  quitarPaso, retirarRegla, type ReglaGuardada,
 } from './reglas.repository';
 import { cargarDatosPrueba, correrPrueba, loQueUsa, type EntradaPrueba, type ResultadoPrueba } from './probarRegla';
 import { fechaCorta } from './parametrosR1';
@@ -204,22 +204,24 @@ function NuevaReglaModal({ impuestoClave, onClose, onHecho }: { impuestoClave: s
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const prioridadLeida = leerPrioridad(prioridad);
+  /** Por qué «Crear» está apagado (se dice debajo). */
+  const falta = 'error' in prioridadLeida ? prioridadLeida.error : faltaEnReglaNueva({ nombre, desde, prioridad: prioridadLeida.valor, motivo });
   async function crear() {
-    if ('error' in prioridadLeida) { toast(prioridadLeida.error, 'error'); return; }
+    if ('error' in prioridadLeida || falta) { toast(falta ?? 'Revisa la regla.', 'error'); return; }
     setGuardando(true);
     try { const id = await crearRegla({ impuestoClave, nombre, desde, prioridad: prioridadLeida.valor, motivo }); toast('Regla creada en prueba. Agrega sus condiciones y pasos.', 'success'); onHecho(id); } catch (e) { toast(mensaje(e, 'No se pudo crear.'), 'error'); setGuardando(false); }
   }
   return (
     <Modal title={`Nueva regla · ${impuestoClave}`} onClose={() => !guardando && onClose()}
-      footer={(<><button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => void crear()} disabled={guardando || nombre.trim().length < 2 || !motivo.trim() || 'error' in prioridadLeida}>{guardando ? 'Guardando…' : 'Crear'}</button></>)}>
+      footer={(<><button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => void crear()} disabled={guardando || !!falta}>{guardando ? 'Guardando…' : 'Crear'}</button></>)}>
       <fieldset disabled={guardando} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="form-row"><label>Nombre</label><input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: ISAE de otro municipio" /></div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '0 1 160px' }}><label>Desde</label><input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></div>
           <div className="form-row" style={{ flex: '0 1 120px' }}><label>Prioridad</label><input className="input mono" type="text" inputMode="numeric" value={prioridad} onChange={(e) => setPrioridad(e.target.value)} /><small className="hint muted">Vacío = 100</small></div>
         </div>
-        {'error' in prioridadLeida && <small className="hint" style={{ color: 'var(--warning)', display: 'block' }}>{prioridadLeida.error}</small>}
         <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></div>
+        {falta && <small className="hint" style={{ color: nombre || motivo || 'error' in prioridadLeida ? 'var(--warning)' : undefined, display: 'block' }}>{falta}</small>}
         <small className="hint muted">Nace «en prueba»: no se usa al registrar hasta que se active. Menor prioridad = se revisa primero.</small>
       </fieldset>
     </Modal>
@@ -231,7 +233,9 @@ function EstadoReglaModal({ regla, accion, onClose, onHecho }: { regla: ReglaGua
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const titulo = { activar: 'Activar', retirar: 'Retirar', version: 'Nueva versión de' }[accion];
+  const falta = faltaEnEstadoRegla(accion, fecha, motivo);
   async function confirmar() {
+    if (falta) { toast(falta, 'error'); return; }
     setGuardando(true);
     try {
       if (accion === 'activar') { await activarRegla(regla.id, motivo); toast('Regla activada: desde su fecha se usa al registrar.', 'success'); onHecho(); }
@@ -241,10 +245,11 @@ function EstadoReglaModal({ regla, accion, onClose, onHecho }: { regla: ReglaGua
   }
   return (
     <Modal title={`${titulo} ${regla.nombre} v${regla.version}`} compact onClose={() => !guardando && onClose()}
-      footer={(<><button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => void confirmar()} disabled={guardando || !motivo.trim()}>{guardando ? 'Guardando…' : titulo}</button></>)}>
+      footer={(<><button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => void confirmar()} disabled={guardando || !!falta}>{guardando ? 'Guardando…' : titulo}</button></>)}>
       {accion === 'activar' && <p style={{ fontSize: '.84rem' }}>Antes de activarla, pruébala y compárala con el cálculo de hoy. Desde el {fechaCorta(regla.desde)} el registro la usa; la versión vigente anterior cierra el día antes.</p>}
       {accion !== 'activar' && <div className="form-row"><label>{accion === 'retirar' ? 'Vale hasta' : 'Vale desde'}</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>}
       <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></div>
+      {falta && <small className="hint" style={{ color: motivo ? 'var(--warning)' : undefined }}>{falta}</small>}
     </Modal>
   );
 }

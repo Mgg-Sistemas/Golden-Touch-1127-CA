@@ -115,7 +115,7 @@ function MotivoModal({ motivo, impuestos, onClose, onHecho }: {
           <div className="form-row" style={{ flex: '2 1 200px' }}><label>Fuente</label><input className="input" value={m.fuente ?? ''} onChange={(e) => set({ fuente: e.target.value })} /></div>
         </div>
         <div className="form-row"><label>Motivo del cambio</label><input className="input" value={nota} onChange={(e) => setNota(e.target.value)} /></div>
-        {falta && (m.texto || nota) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: m.texto || nota ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );

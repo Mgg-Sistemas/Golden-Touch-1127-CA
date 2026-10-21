@@ -81,6 +81,7 @@ export interface CondicionNueva {
 }
 
 export function faltaEnCondicion(c: CondicionNueva): string | null {
+  if (!CONDICIONES.some((x) => x.key === c.condicion)) return 'La condición es agente de retención, agente de percepción o contribuyente especial.';
   const porImpuesto = c.condicion !== 'contribuyente_especial';
   if (porImpuesto && !c.impuestoClave) return 'Indica el impuesto de esa condición.';
   if (!porImpuesto && c.impuestoClave) return 'Contribuyente especial es de la empresa, no de un impuesto.';

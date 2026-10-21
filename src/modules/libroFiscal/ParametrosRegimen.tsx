@@ -137,6 +137,7 @@ function RenglonRegimen({ impuesto, condicion, titulo, ayuda, historial, puedeEd
           </button>
         </div>
       )}
+      {puedeEditar && falta && <small className="hint" style={{ color: motivo || fuente ? 'var(--warning)' : undefined }}>{falta}</small>}
 
       {historial.length > 0 && (
         <details style={{ marginTop: '.5rem' }}>

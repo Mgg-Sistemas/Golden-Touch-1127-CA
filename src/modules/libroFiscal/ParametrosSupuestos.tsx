@@ -8,12 +8,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { activarSupuesto, faltaEnSupuesto, guardarSupuesto, listSupuestos, vigenteEn, type Supuesto, type SupuestoDatos } from './motivosSupuestos.repository';
+import {
+  activarSupuesto, faltaEnSupuesto, guardarSupuesto, listSupuestos, supuestoRepetido, vigenteEn, type Supuesto, type SupuestoDatos,
+} from './motivosSupuestos.repository';
 import { opcionesImpuestoEnte } from './entes.repository';
 import { fechaCorta, labelClave } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
-import { leerSupuestoNumeros, pistaLeido } from './parametrosNumeros';
+import { leerSupuestoNumeros, normalizarCodigoSupuesto, pistaClave, pistaLeido } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -71,25 +73,32 @@ export function ParametrosSupuestos({ puedeEditar }: { puedeEditar: boolean }) {
           </tbody>
         </table>
       )}
-      {editar && <SupuestoModal supuesto={editar === 'nuevo' ? null : editar} impuestos={impuestos} onClose={() => setEditar(null)} onHecho={() => { setEditar(null); void cargar(); }} />}
+      {editar && <SupuestoModal supuesto={editar === 'nuevo' ? null : editar} supuestos={supuestos ?? []} impuestos={impuestos} onClose={() => setEditar(null)} onHecho={() => { setEditar(null); void cargar(); }} />}
     </div>
   );
 }
 
-function SupuestoModal({ supuesto, impuestos, onClose, onHecho }: {
-  supuesto: Supuesto | null; impuestos: { clave: string; nombre: string | null }[]; onClose: () => void; onHecho: () => void;
+function SupuestoModal({ supuesto, supuestos, impuestos, onClose, onHecho }: {
+  supuesto: Supuesto | null;
+  /** Los que ya hay: para avisar si el código se repite cambiando solo mayúsculas. */
+  supuestos: Supuesto[];
+  impuestos: { clave: string; nombre: string | null }[]; onClose: () => void; onHecho: () => void;
 }) {
   const [s, setS] = useState<SupuestoDatos>(supuesto
     ? { impuestoClave: supuesto.impuestoClave, codigo: supuesto.codigo, texto: supuesto.texto, pct: supuesto.pct, orden: supuesto.orden, desde: supuesto.desde, hasta: supuesto.hasta, fuente: supuesto.fuente, activo: supuesto.activo }
     : { impuestoClave: 'IVA', codigo: '', texto: '', pct: 100, orden: 10, desde: hoyIso(), hasta: null, fuente: null, activo: true });
   const [pctTexto, setPctTexto] = useState(numeroATexto(s.pct));
   const [ordenTexto, setOrdenTexto] = useState(numeroATexto(s.orden));
+  // El código se escribe libre y se guarda sin acentos y con «_» en vez de espacios (camelCase, como las semillas).
+  const [codigoEscrito, setCodigoEscrito] = useState(s.codigo);
+  const pistaCodigo = supuesto ? null : pistaClave(codigoEscrito, s.codigo);
   const [nota, setNota] = useState(supuesto ? '' : 'Alta del supuesto');
   const [guardando, setGuardando] = useState(false);
   // Un solo lector: % vacío falta (no se guarda 0 %) y lo ilegible bloquea.
   const numeros = leerSupuestoNumeros(pctTexto, ordenTexto);
   const datos: SupuestoDatos = { ...s, ...('error' in numeros ? {} : numeros.valor) };
-  const falta = 'error' in numeros ? numeros.error : faltaEnSupuesto(datos, nota);
+  const falta = 'error' in numeros ? numeros.error
+    : faltaEnSupuesto(datos, nota) ?? (supuesto ? null : supuestoRepetido(datos, supuestos));
   const set = (p: Partial<SupuestoDatos>) => setS((x) => ({ ...x, ...p }));
 
   async function guardar() {
@@ -117,7 +126,8 @@ function SupuestoModal({ supuesto, impuestos, onClose, onHecho }: {
           </div>
           <div className="form-row" style={{ flex: '1 1 160px' }}>
             <label>Código</label>
-            <input className="input mono" value={s.codigo} disabled={!!supuesto} onChange={(e) => set({ codigo: e.target.value.replace(/[^A-Za-z0-9_]/g, '') })} />
+            <input className="input mono" value={codigoEscrito} disabled={!!supuesto} onChange={(e) => { setCodigoEscrito(e.target.value); set({ codigo: normalizarCodigoSupuesto(e.target.value) }); }} />
+            {pistaCodigo && <small className="hint muted">{pistaCodigo}</small>}
           </div>
           <div className="form-row" style={{ flex: '0 1 100px' }}><label>%</label><input className="input mono" type="text" inputMode="decimal" value={pctTexto} onChange={(e) => setPctTexto(e.target.value)} />{pistaLeido(pctTexto, 0) && <small className="hint muted">{pistaLeido(pctTexto, 0)}</small>}</div>
           <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" type="text" inputMode="numeric" value={ordenTexto} onChange={(e) => setOrdenTexto(e.target.value)} /><small className="hint muted">Vacío = 10</small></div>
@@ -128,7 +138,7 @@ function SupuestoModal({ supuesto, impuestos, onClose, onHecho }: {
           <div className="form-row" style={{ flex: '2 1 200px' }}><label>Fuente</label><input className="input" value={s.fuente ?? ''} onChange={(e) => set({ fuente: e.target.value })} placeholder="Providencia y artículo" /></div>
         </div>
         <div className="form-row"><label>Motivo del cambio</label><input className="input" value={nota} onChange={(e) => setNota(e.target.value)} /></div>
-        {falta && (s.texto || s.codigo || nota || 'error' in numeros) && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
+        {falta && <small className="hint" style={{ color: s.texto || s.codigo || nota || 'error' in numeros ? 'var(--warning)' : undefined }}>{falta}</small>}
       </fieldset>
     </Modal>
   );
