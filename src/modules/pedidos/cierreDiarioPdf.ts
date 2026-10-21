@@ -41,17 +41,17 @@ export async function construirCierreDiarioPdf(
   doc.text('Período:', MARGIN, y);
   doc.setFont('helvetica', 'normal');
   doc.text(pdfSafe(etiquetaPeriodo(p)), MARGIN + 52, y);
-  y += 18;
+  y += 20;
   doc.setFont('helvetica', 'bold'); doc.text('Impreso:', MARGIN, y);
   doc.setFont('helvetica', 'normal');
   doc.text(pdfSafe(momentoImpresion(ahora)), MARGIN + 52, y);
-  y += 16;
+  y += 20;
 
   autoTable(doc, {
     startY: y,
     head: [['TÍTULO', 'CANTIDAD']],
     body: TITULOS_CIERRE.map((t) => [pdfSafe(t.titulo), String(r[t.clave])]),
-    styles: { fontSize: 12, cellPadding: 9, valign: 'middle' },
+    styles: { fontSize: 12, cellPadding: 11, valign: 'middle' },
     headStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
     alternateRowStyles: { fillColor: PASTEL.cebra },
     columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'center', cellWidth: 100, fontStyle: 'bold', fontSize: 14 } },
@@ -59,18 +59,18 @@ export async function construirCierreDiarioPdf(
   });
 
   // @ts-expect-error lastAutoTable lo agrega el plugin
-  y = ((doc.lastAutoTable?.finalY ?? y) as number) + 20;
+  y = ((doc.lastAutoTable?.finalY ?? y) as number) + 24;
 
   if (r.analistas && r.analistas.length > 0) {
     doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text(pdfSafe('POR ANALISTA'), MARGIN, y);
-    y += 8;
+    y += 10;
 
     autoTable(doc, {
       startY: y,
       head: [['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']],
       body: r.analistas.map((a) => [pdfSafe(a.nombre), String(a.cotizaciones), String(a.finalizadas)]),
-      styles: { fontSize: 10, cellPadding: 7, valign: 'middle' },
+      styles: { fontSize: 10, cellPadding: 8.5, valign: 'middle' },
       headStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
       alternateRowStyles: { fillColor: PASTEL.cebra },
       columnStyles: {
