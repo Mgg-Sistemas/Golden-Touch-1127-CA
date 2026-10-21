@@ -142,22 +142,29 @@ describe('salidas', () => {
   };
   const p = periodoDe('dia', '2026-10-21');
 
-  it('WhatsApp: títulos y desglose por analista con sus cantidades', () => {
+  it('WhatsApp: títulos y desglose por analista con sus cantidades y espacios entre líneas', () => {
     expect(textoCierreDiarioWhatsapp(r, p, AHORA)).toBe([
       '📊 *CIERRE DIARIO · COMPRAS*',
       '',
       '📅 *Período:* Hoy · 21/10/2026',
+      '',
       '🕒 *Impreso:* 21/10/2026 · 08:45 a. m.',
       '',
       '📥 *Pedidos:* 12',
+      '',
       '⏳ *Órdenes pendientes por aprobar:* 5',
+      '',
       '💵 *Órdenes por pagar:* 3',
+      '',
       '✅ *Órdenes pagadas:* 7',
       '',
       '👥 *POR ANALISTA*',
-      '· *Nazareth Salazar:* 4 cotizaciones realizadas · 2 órdenes finalizadas',
       '',
-      '🏢 GOLDEN TOUCH 1127 C.A.',
+      '👤 *Nazareth Salazar:*',
+      'Total de cotizaciones realizadas: *4*',
+      'Total de órdenes finalizadas: *2*',
+      '',
+      '🏢 *GOLDEN TOUCH 1127 C.A.*',
     ].join('\n'));
   });
 
