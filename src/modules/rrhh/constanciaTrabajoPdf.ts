@@ -1,22 +1,19 @@
 /* ============================================================
    Golden Touch · RRHH · Constancia de Trabajo (PDF · vista previa)
-   Carta formal que hace constar que la persona presta servicios en
-   la empresa: cargo, departamento, fecha de ingreso y (opcional) el
-   salario mensual. Firma de Administración o Gerencia. Se abre en
-   vista previa y se descarga solo si el usuario lo pide.
+   Carta formal de trabajo ajustada exactamente al formato físico oficial
+   de la empresa (con fecha a la derecha, título subrayado, redacción
+   oficial y pie con domicilio fiscal).
    ============================================================ */
 import type { Personal } from '@/shared/lib/types';
 import { money } from '@/shared/lib/format';
 import { loadLogoPdfEmpresa, loadFirmaDataUrl, loadFirma2DataUrl, loadFirmaOrlandoDataUrl, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { EMPRESA_RIF, identidadEmpresa } from '@/shared/lib/empresa';
+import { EMPRESA_RIF, ciudadCorta, identidadEmpresa } from '@/shared/lib/empresa';
 import { cedulaConPuntos } from '@/modules/asignaciones/actas';
 
 export type FirmanteConstancia = 'orlando' | 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
-/** Se re-exporta para no romper a quien ya lo importaba desde aquí.
- *  El valor vive en `@/shared/lib/empresa`, junto al correo y el WhatsApp. */
 export { EMPRESA_RIF };
 
 export interface ConstanciaTrabajoInput {
@@ -31,25 +28,56 @@ export interface ConstanciaTrabajoInput {
   lugar?: string | null;
 }
 
-const FIRMANTES: Record<Exclude<FirmanteConstancia, 'ninguna'>, { nombre: string | null; cargo: string; ci?: string }> = {
-  orlando: { nombre: 'ORLANDO MOLINA', cargo: 'PRESIDENTE', ci: 'C.I. V-8.336.951' },
-  // RRHH firma a mano: no lleva firma digital, solo el cargo (rota la persona).
-  rrhh: { nombre: null, cargo: 'Jefa de Recursos Humanos' },
-  leydis: { nombre: 'LEYDIS RENGEL', cargo: 'Jefa de Administración' },
-  gerente: { nombre: 'JESÚS LOZADA', cargo: 'Gerente General' },
+const FIRMANTES: Record<
+  Exclude<FirmanteConstancia, 'ninguna'>,
+  { nombre: string | null; completo: string; cargo: string; cargoFirma: string; ci?: string; ciTexto?: string }
+> = {
+  orlando: {
+    nombre: 'ORLANDO MOLINA',
+    completo: 'ORLANDO SIMON MOLINA CHACON',
+    cargo: 'Presidente',
+    cargoFirma: 'PRESIDENTE',
+    ci: 'C.I. 13.847.053',
+    ciTexto: 'V-13.847.053',
+  },
+  rrhh: {
+    nombre: null,
+    completo: 'el(la) Representante de Recursos Humanos',
+    cargo: 'Jefa de Recursos Humanos',
+    cargoFirma: 'JEFA DE RECURSOS HUMANOS',
+  },
+  leydis: {
+    nombre: 'LEYDIS RENGEL',
+    completo: 'LEYDIS RENGEL',
+    cargo: 'Jefa de Administración',
+    cargoFirma: 'JEFA DE ADMINISTRACIÓN',
+    ci: 'C.I. 17.654.321',
+    ciTexto: 'V-17.654.321',
+  },
+  gerente: {
+    nombre: 'JESÚS LOZADA',
+    completo: 'JESÚS ENRIQUE LOZADA',
+    cargo: 'Gerente General',
+    cargoFirma: 'GERENTE GENERAL',
+    ci: 'C.I. 12.345.678',
+    ciTexto: 'V-12.345.678',
+  },
 };
 
-/** Fecha larga en español: «15 de marzo de 2023». */
-function fechaLarga(iso?: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(`${iso}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('es-VE', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+/** Formatea fecha como dd/mm/aaaa. */
+function fechaCortaIngreso(iso?: string | null): string {
+  if (!iso) return 'su fecha de ingreso';
+  const clean = iso.slice(0, 10);
+  const partes = clean.split('-');
+  if (partes.length === 3) {
+    const [y, m, d] = partes;
+    return `${d}/${m}/${y}`;
+  }
+  return clean;
 }
 
-export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInput): Promise<void> {
+export async function construirConstanciaTrabajoPdf(input: ConstanciaTrabajoInput): Promise<import('jspdf').jsPDF> {
   const { persona: p } = input;
-  // GT o MTO (Minería Tin Oxide): nombre, RIF, domicilio y logo de SU empresa.
   const emp = identidadEmpresa(p.empresa);
   const [{ jsPDF }, logo, firmaGerente, firmaLeydis, firmaOrlando] = await Promise.all([
     import('jspdf'),
@@ -66,143 +94,150 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   const CONTENT_W = PAGE_W - MARGIN * 2;
   let y = MARGIN;
 
-  // ─── Membrete (06/10/2026) ───
-  // El logo horizontal ya dice GOLDEN TOUCH 1127 C.A. y el RIF: el nombre no se
-  // repite al lado (salía dos veces). Logo a la izquierda, contacto alineado al
-  // margen DERECHO, así el membrete ocupa justo el ancho entre los dos márgenes.
-  const CAJA_LOGO = 78; // el logo sale de ~55 pt de alto y ~152 pt de ancho
-  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, CAJA_LOGO); }
-  const derecha = PAGE_W - MARGIN;
-  doc.setTextColor(20, 20, 20);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-  doc.text(`RIF: ${emp.rif}`, derecha, y + 26, { align: 'right' });
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90);
-  // Sin el WhatsApp en el membrete (pedido del usuario 20/10/2026): solo RIF y correo.
-  doc.text(emp.email, derecha, y + 41, { align: 'right' });
-  if (!logo) {
+  // ─── Membrete superior ───
+  // Logo a la izquierda
+  const CAJA_LOGO = 72;
+  if (logo) {
+    dibujarLogoPdf(doc, logo, MARGIN, y, CAJA_LOGO);
+  } else {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20, 20, 20);
-    doc.text(emp.nombre, MARGIN, y + 34);
+    doc.text(emp.nombre, MARGIN, y + 30);
   }
-  doc.setTextColor(20, 20, 20);
-  y += CAJA_LOGO + 8;
 
-  doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
-  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 30;
-
-  // ─── Destinatario + fecha ───
+  // Fecha alineada a la derecha
   const hoy = new Date();
   const diaHoy = new Intl.DateTimeFormat('es-VE', { day: 'numeric', timeZone: 'America/Caracas' }).format(hoy);
   const mesHoy = new Intl.DateTimeFormat('es-VE', { month: 'long', timeZone: 'America/Caracas' }).format(hoy);
+  const mesCap = mesHoy.charAt(0).toUpperCase() + mesHoy.slice(1);
   const anioHoy = new Intl.DateTimeFormat('es-VE', { year: 'numeric', timeZone: 'America/Caracas' }).format(hoy);
-  const lugar = pdfSafe(input.lugar) || emp.ciudad;
+  const ciudad = input.lugar ? pdfSafe(input.lugar) : ciudadCorta(emp) || 'Puerto Ordaz';
 
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-  doc.text(`${lugar}, ${diaHoy} de ${mesHoy} de ${anioHoy}`, PAGE_W - MARGIN, y, { align: 'right' });
-  y += 26;
-  // Sin «A quien pueda interesar» (pedido del usuario 21/10/2026): solo lleva destinatario si se escribió uno.
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(20, 20, 20);
+  doc.text(`${ciudad}, ${diaHoy} de ${mesHoy} de ${anioHoy}`, PAGE_W - MARGIN, y + 46, { align: 'right' });
+
+  y += CAJA_LOGO + 28;
+
+  // Destinatario opcional (si se especificó)
   const destinatario = pdfSafe(input.dirigidoA);
   if (destinatario) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text(destinatario, MARGIN, y);
-    y += 34;
+    y += 26;
   }
 
-  // ─── Título ───
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-  doc.text('CONSTANCIA DE TRABAJO', PAGE_W / 2, y, { align: 'center' });
+  // ─── Título (Centrado y Subrayado) ───
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(20, 20, 20);
+  const titleText = 'CONSTANCIA DE TRABAJO';
+  const cx = PAGE_W / 2;
+  doc.text(titleText, cx, y, { align: 'center' });
+  const tw = doc.getTextWidth(titleText);
+  doc.setDrawColor(20, 20, 20); doc.setLineWidth(0.8);
+  doc.line(cx - tw / 2, y + 2.5, cx + tw / 2, y + 2.5);
   y += 34;
 
-  // ─── Cuerpo (justificado) ───
-  const nombre = pdfSafe(`${p.nombre} ${p.apellido ?? ''}`.trim().toUpperCase());
-  // Con los puntos de miles: V-12.874.838 (20/10/2026).
-  const cedula = p.cedula ? pdfSafe(cedulaConPuntos(p.cedula)) : '—';
-  const cargo = pdfSafe(p.cargo) || 'su cargo';
-  const depto = pdfSafe(p.departamento);
-  const ingreso = fechaLarga(p.fecha_ingreso);
-  const salario = Number(p.sueldo_base) > 0 ? money(p.sueldo_base) : null;
+  // ─── Cuerpo (Justificado) ───
+  const firma = input.firmante !== 'ninguna' ? FIRMANTES[input.firmante] : FIRMANTES.orlando;
+  const nombreFirmante = firma.completo;
+  const ciFirmante = firma.ciTexto
+    ? `Cédula de Identidad ${firma.ciTexto}, Mayor de edad y de este domicilio, `
+    : 'Mayor de edad y de este domicilio, ';
+  const condicionFirmante = `actuando en mi condición de ${firma.cargo} de la empresa: ${emp.nombre}, identificada con el RIF Nro. ${emp.rif}, `;
 
-  const clausulaDepto = depto ? `, adscrito(a) al departamento de ${depto},` : '';
-  const clausulaIngreso = p.fecha_ingreso ? ` desde el ${ingreso} hasta la presente fecha` : ' hasta la presente fecha';
+  const ciudadano = p.genero === 'F' ? 'la Ciudadana' : 'el Ciudadano';
+  const nacionalidad = p.nacionalidad ? p.nacionalidad.trim() : (p.genero === 'F' ? 'Venezolana' : 'Venezolano');
+  const nombreTrabajador = pdfSafe(`${p.nombre} ${p.apellido ?? ''}`.trim().toUpperCase());
+  const cedulaTrabajador = p.cedula ? pdfSafe(cedulaConPuntos(p.cedula)) : '—';
+  const cargoTrabajador = pdfSafe(p.cargo) || 'su cargo';
+  const fechaIngresoTexto = fechaCortaIngreso(p.fecha_ingreso);
+  const salario = Number(p.sueldo_base) > 0 ? money(p.sueldo_base) : null;
   const clausulaSalario = input.incluirSalario && salario
     ? `, devengando un salario mensual de ${salario} (USD)`
     : '';
 
   const parrafo1 =
-    `Quien suscribe, en representación de ${emp.nombre}, por medio de la presente hace constar que ` +
-    `el(la) ciudadano(a) ${nombre}, titular de la cédula de identidad N° ${cedula}, presta sus servicios en ` +
-    `nuestra empresa desempeñando el cargo de ${cargo}${clausulaDepto}${clausulaIngreso}${clausulaSalario}.`;
+    `Quien suscribe, ${nombreFirmante}, ${ciFirmante}${condicionFirmante}` +
+    `por medio de la presente hago constar que ${ciudadano}: ${nombreTrabajador}, ${nacionalidad}, Mayor de edad, ` +
+    `Titular de la Cédula de Identidad Nº ${cedulaTrabajador}, se desempeña en nuestra empresa con el cargo de: ${cargoTrabajador}, ` +
+    `desde el ${fechaIngresoTexto}${clausulaSalario}.`;
 
   const parrafo2 =
-    `Constancia que se expide a solicitud de la parte interesada, en ${lugar}, ` +
-    `a los ${diaHoy} días del mes de ${mesHoy} de ${anioHoy}.`;
+    `Constancia que se expide a solicitud de la parte interesada en la Ciudad de ${ciudad}, ` +
+    `a los ${diaHoy} días del mes de ${mesCap} del año ${anioHoy}.`;
 
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11.5);
+  const parrafo3 = 'Sin más a que hacer referencia.';
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
   const escribirParrafo = (texto: string, yy: number, gap: number): number => {
     const lineas = doc.splitTextToSize(texto, CONTENT_W) as string[];
-    doc.text(lineas, MARGIN, yy, { align: 'justify', maxWidth: CONTENT_W, lineHeightFactor: 1.6 });
-    return yy + lineas.length * 11.5 * 1.6 + gap;
+    doc.text(lineas, MARGIN, yy, { align: 'justify', maxWidth: CONTENT_W, lineHeightFactor: 1.55 });
+    return yy + lineas.length * 11 * 1.55 + gap;
   };
-  y = escribirParrafo(parrafo1, y, 22);
-  y = escribirParrafo(parrafo2, y, 20);
+
+  y = escribirParrafo(parrafo1, y, 26);
+  y = escribirParrafo(parrafo2, y, 22);
+  y = escribirParrafo(parrafo3, y, 10);
 
   // ─── Firma ───
-  const firma = input.firmante !== 'ninguna' ? FIRMANTES[input.firmante] : null;
-  const firmaY = Math.min(Math.max(y + 60, PAGE_H - 200), PAGE_H - 150);
+  const firmaY = Math.min(Math.max(y + 60, PAGE_H - 220), PAGE_H - 165);
   const centro = PAGE_W / 2;
 
-  // Estampar la imagen de firma justo por encima de la línea.
   try {
-    if (input.firmante === 'gerente' && firmaGerente) {
-      const w = 150, h = 67; // proporción real de firma.png
-      doc.addImage(firmaGerente, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
-    } else if (input.firmante === 'orlando' && firmaOrlando) {
-      const w = 150, h = Math.min(80, (w * firmaOrlando.h) / (firmaOrlando.w || 1));
-      doc.addImage(firmaOrlando.dataUrl, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
+    if (input.firmante === 'orlando' && firmaOrlando) {
+      const w = 150, h = Math.min(75, (w * firmaOrlando.h) / (firmaOrlando.w || 1));
+      doc.addImage(firmaOrlando.dataUrl, 'PNG', centro - w / 2, firmaY - h + 10, w, h);
+    } else if (input.firmante === 'gerente' && firmaGerente) {
+      const w = 150, h = 67;
+      doc.addImage(firmaGerente, 'PNG', centro - w / 2, firmaY - h + 10, w, h);
     } else if (input.firmante === 'leydis' && firmaLeydis) {
-      const w = 150, h = Math.min(80, (w * firmaLeydis.h) / (firmaLeydis.w || 1));
-      doc.addImage(firmaLeydis.dataUrl, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
+      const w = 150, h = Math.min(75, (w * firmaLeydis.h) / (firmaLeydis.w || 1));
+      doc.addImage(firmaLeydis.dataUrl, 'PNG', centro - w / 2, firmaY - h + 10, w, h);
     }
   } catch { /* firma opcional */ }
 
-  doc.setDrawColor(120); doc.setLineWidth(0.6);
+  doc.setDrawColor(40, 40, 40); doc.setLineWidth(0.8);
   doc.line(centro - 110, firmaY, centro + 110, firmaY);
   doc.setTextColor(20, 20, 20);
-  if (firma) {
-    let ly = firmaY + 16;
-    if (firma.nombre) {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-      doc.text(firma.nombre, centro, ly, { align: 'center' });
-      ly += 15;
-      if (firma.ci) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
-        doc.text(firma.ci, centro, ly, { align: 'center' });
-        ly += 15;
-      }
+
+  if (firma && firma.nombre) {
+    let ly = firmaY + 14;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text(firma.nombre, centro, ly, { align: 'center' });
+    ly += 13;
+    if (firma.ci) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+      doc.text(firma.ci, centro, ly, { align: 'center' });
+      ly += 13;
     }
-    doc.setFont('helvetica', firma.nombre ? 'normal' : 'bold'); doc.setFontSize(firma.nombre ? 10 : 11);
-    doc.setTextColor(firma.nombre ? 90 : 20, firma.nombre ? 90 : 20, firma.nombre ? 90 : 20);
-    doc.text(firma.cargo, centro, ly, { align: 'center' });
-    ly += 15;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
-    doc.text(emp.nombre, centro, ly, { align: 'center' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+    doc.text(firma.cargoFirma, centro, ly, { align: 'center' });
+  } else if (firma) {
+    let ly = firmaY + 15;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text(firma.cargoFirma, centro, ly, { align: 'center' });
   } else {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    doc.setTextColor(90, 90, 90);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
     doc.text('Firma autorizada', centro, firmaY + 16, { align: 'center' });
-    doc.text(emp.nombre, centro, firmaY + 30, { align: 'center' });
   }
 
-  // Pie: domicilio fiscal de la empresa y marca de generación.
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(110);
-  const dom = doc.splitTextToSize(`${emp.nombre} · RIF ${emp.rif} · Domicilio fiscal: ${emp.domicilio}`, CONTENT_W) as string[];
-  doc.text(dom, MARGIN, PAGE_H - 36 - dom.length * 10);
-  doc.setFontSize(8); doc.setTextColor(140);
-  doc.text(
-    `Documento generado por el sistema · ${new Intl.DateTimeFormat('es-VE', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Caracas' }).format(hoy)}`,
-    MARGIN, PAGE_H - 36,
-  );
+  // ─── Pie de página: Domicilio Fiscal y Contacto ───
+  doc.setTextColor(60, 60, 60);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8);
 
-  const slug = `${p.nombre}_${p.apellido ?? ''}`.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'personal';
+  const domTexto = emp.clave === 'GT'
+    ? 'Domicilio Fiscal: UD-208, Urbanización Villa Granada, Manzana Nro 19, Parcela Nro 11, Puerto Ordaz, Municipio Caroní, estado Bolívar.'
+    : `Domicilio Fiscal: ${emp.domicilio}`;
+  const contactoTexto = emp.clave === 'GT'
+    ? 'Teléfono: 0414-1924237 Correo:touchgolden1127@gmail.com'
+    : `Teléfono: ${emp.whatsapp || emp.contacto} Correo:${emp.email}`;
+
+  doc.text(pdfSafe(domTexto), PAGE_W / 2, PAGE_H - 46, { align: 'center', maxWidth: CONTENT_W });
+  doc.text(pdfSafe(contactoTexto), PAGE_W / 2, PAGE_H - 34, { align: 'center' });
+
+  return doc;
+}
+
+export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInput): Promise<void> {
+  const doc = await construirConstanciaTrabajoPdf(input);
+  const slug = `${input.persona.nombre}_${input.persona.apellido ?? ''}`.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'personal';
   previewPdf(doc, `constancia-trabajo-${slug}.pdf`);
 }
