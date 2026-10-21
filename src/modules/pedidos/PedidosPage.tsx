@@ -89,7 +89,8 @@ import { coincideOrden, personasQueRealizaron, realizadaPor } from './buscarOrde
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
-import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
+import { agregarAdjuntoDirecto, listAdjuntosDirectos } from './adjuntosDirectos.repository';
+import { useP03 } from './useP03';
 import { DetalleServicioBloque } from './DetalleServicioBloque';
 import { AnticipoServicioBloque } from './AnticipoServicioBloque';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
@@ -1139,7 +1140,7 @@ export function PedidosPage() {
           orden={modal.orden}
           rolEvaluador={usuario?.role === 'obrero' ? 'almacenista' : 'jefe'}
           onClose={() => setModal({ kind: 'none' })}
-          onConfirm={async ({ calidad, puntualidadDias, comentario, factura }) => {
+          onConfirm={async ({ calidad, puntualidadDias, comentario, factura, facturas }) => {
             const actor = usuario?.email ?? user?.email ?? 'sistema';
             // Registrar la evaluación (queda en la trazabilidad PDF y en el correo).
             if (modal.orden.proveedor_id) {
@@ -1153,7 +1154,8 @@ export function PedidosPage() {
                 evaluado_por_rol: usuario?.role === 'obrero' ? 'almacenista' : 'jefe',
               });
             }
-            // Factura del proveedor (si se cargó al finalizar).
+            // Factura del proveedor (si se cargó al finalizar). Con P03, las facturas van a «Facturas del proveedor» de la OC.
+            for (const f of facturas) await agregarAdjuntoDirecto('orden_factura', modal.orden.id, f, actor, true);
             if (factura) await adjuntarFacturaRecepcion(modal.orden.id, factura);
             await finalizarPedido(modal.orden, actor);
             notify(`Pedido finalizado · ${modal.orden.codigo}`, 'success', { link: '#/app/pedidos' });
@@ -1279,10 +1281,24 @@ function FinalizarPedidoModal({
   orden: Orden;
   rolEvaluador: 'almacenista' | 'jefe';
   onClose: () => void;
-  onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string; factura: File | null }) => Promise<void>;
+  onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string; factura: File | null; facturas: File[] }) => Promise<void>;
 }) {
   const [calidad, setCalidad] = useState(5);
   const [factura, setFactura] = useState<File | null>(null);
+  // P03: varias facturas del proveedor; al recibir hace falta al menos una (salvo que ya tenga, o venga con nota de entrega).
+  const conP03 = useP03();
+  const [facturas, setFacturas] = useState<File[]>([]);
+  const [facturasPrevias, setFacturasPrevias] = useState(0);
+  useEffect(() => {
+    if (!conP03) return;
+    let vivo = true;
+    listAdjuntosDirectos('orden_factura', orden.id)
+      .then((l) => { if (vivo) setFacturasPrevias(l.length + (orden.factura_path || orden.factura_recepcion_path ? 1 : 0)); })
+      .catch(() => { /* se pide igual */ });
+    return () => { vivo = false; };
+  }, [conP03, orden.id, orden.factura_path, orden.factura_recepcion_path]);
+  const conNotaEntrega = orden.comprobante_tipo === 'nota_entrega';
+  const facturaObligatoria = conP03 && facturasPrevias === 0 && !conNotaEntrega;
   const [puntualidad, setPuntualidad] = useState<'por_fecha' | 'en_fecha' | 'adelantado' | 'atrasado'>('por_fecha');
   const [dias, setDias] = useState('1');
   const [comentario, setComentario] = useState('');
@@ -1331,9 +1347,12 @@ function FinalizarPedidoModal({
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('La factura debe ser un PDF o una imagen.'); return;
     }
+    const noSirve = facturas.find((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'));
+    if (noSirve) { setError(`«${noSirve.name}» no es PDF ni imagen.`); return; }
+    if (facturaObligatoria && !facturas.length) { setError('Carga al menos una factura del proveedor (PDF o imagen).'); return; }
     setSaving(true);
     try {
-      await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim(), factura });
+      await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim(), factura: conP03 ? null : factura, facturas: conP03 ? facturas : [] });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo finalizar');
       setSaving(false);
@@ -1420,11 +1439,23 @@ function FinalizarPedidoModal({
           placeholder="Observaciones de la recepción…" />
       </div>
 
-      <div className="form-row">
-        <label>Cargar factura</label>
-        <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} />
-        {factura && <small className="muted">📎 {factura.name}</small>}
-      </div>
+      {conP03 ? (
+        <div className="form-row">
+          <label>Facturas del proveedor · PDF o imagen{' '}
+            {facturaObligatoria
+              ? <><span style={{ color: 'var(--danger)' }}>*</span> <span className="muted">(al menos una · puedes elegir varias)</span></>
+              : <span className="muted">({facturasPrevias ? `ya tiene ${facturasPrevias} · puedes sumar más` : 'con nota de entrega: se cargan cuando lleguen'})</span>}
+          </label>
+          <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFacturas(Array.from(e.target.files ?? []))} />
+          {facturas.length > 0 && <small className="muted">📎 {facturas.map((f) => f.name).join(', ')}</small>}
+        </div>
+      ) : (
+        <div className="form-row">
+          <label>Cargar factura</label>
+          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} />
+          {factura && <small className="muted">📎 {factura.name}</small>}
+        </div>
+      )}
       <small className="muted">Evaluador: {rolEvaluador === 'jefe' ? 'Jefe / analista' : 'Almacenista'}.</small>
     </Modal>
   );
@@ -2506,6 +2537,7 @@ function OrdenDetailModal({
   offersReloadKey,
   usuarioRole,
 }: OrdenDetailModalProps) {
+  const conP03 = useP03();
   const isPendiente = o.estado === 'pendiente';
   // Aprobar la Solicitud de Pedido la hace Compras (analista/admin). La firma de
   // la OC (✔ Aprobar OC, más abajo) sí queda reservada al Administrador (isAdmin).
@@ -3074,6 +3106,9 @@ function OrdenDetailModal({
       )}
       {/* Si la SP nació de una orden de servicio de Maquinaria, sus fotos. */}
       <FotosOrdenServicioDeSp spId={o.id} />
+      {conP03 && !isPendiente && (
+        <FacturasDirectas modulo="orden_factura" refId={o.id} actor={actorEmail || 'sistema'} titulo="🧾 Facturas del proveedor" papel="factura" />
+      )}
       <FacturasDirectas modulo="orden" refId={o.id} actor={actorEmail || 'sistema'} titulo="📎 Adjuntos (imágenes / PDF)" textoBoton="＋ Agregar adjunto (PDF/imagen)" />
 
       {mostrarOfertas && (

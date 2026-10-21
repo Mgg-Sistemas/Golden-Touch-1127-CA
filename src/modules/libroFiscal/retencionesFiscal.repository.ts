@@ -349,6 +349,8 @@ export type DocKind = 'oc' | 'compra_directa' | 'servicio_directo' | 'manual';
 
 export interface RetencionPracticada {
   id: string;
+  /** VF: el documento fiscal (factura) al que pertenece la línea, si lo tiene. */
+  documentoId?: string | null;
   tipo: TipoImpuesto;
   direccion: DireccionRetencion;
   estado: EstadoRetencion;
@@ -401,7 +403,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
   const sujeto = sujetoDeGt(r.sujeto);
   const fechaRef = String(r.factura_fecha ?? r.fecha ?? '');
   return {
-    id: String(r.id), tipo: tipoDeGt(r.tipo),
+    id: String(r.id), documentoId: texto(r.documento_id), tipo: tipoDeGt(r.tipo),
     direccion: direccionDeGt(r.rol),
     estado: r.declarada_at || r.estado === 'declarada' ? 'declarada' : 'registrada',
     docKind,
@@ -483,6 +485,8 @@ export async function listPeriodos(): Promise<string[]> {
 }
 
 export interface NuevaRetencion {
+  /** R7: la regla vigente con que se calculó y la foto de sus pasos (de calcularConReglaVigente). Solo se guarda si existe R7. */
+  regla?: { regla_id: string; foto: Record<string, unknown> } | null;
   tipo: TipoImpuesto;
   direccion: DireccionRetencion;
   docKind: DocKind;
@@ -635,7 +639,9 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
     }
   }
   // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
-  const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null };
+  // R7: la regla y la foto viajan solo si la retención se calculó con una regla y la base las tiene.
+  const conRegla = input.regla && (await tablaDisponible('retencion_reglas')) ? input.regla : null;
+  const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null, ...(conRegla ?? {}) };
   const { data, error } = await supabase.from(T_RETENCIONES).insert(fila).select('*').single();
   if (error) throw errorLegible(error);
   return aRetencion(data as Record<string, unknown>);
@@ -674,7 +680,8 @@ export async function marcarDeclarada(id: string, declarada: boolean, actor: str
 }
 
 /** Adjunta el comprobante: el que firma el proveedor, o el que entregó el cliente. */
-export async function adjuntarComprobante(id: string, file: File): Promise<void> {
+/** `tipo` dice qué documento es (factura, comprobante firmado…): queda delante del nombre, sin cambiar la base. */
+export async function adjuntarComprobante(id: string, file: File, tipo?: string): Promise<void> {
   if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
     throw new Error('El comprobante debe ser PDF o imagen.');
   }
@@ -684,7 +691,7 @@ export async function adjuntarComprobante(id: string, file: File): Promise<void>
     .upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' });
   if (upErr) throw upErr;
   const { data, error } = await supabase.from(T_RETENCIONES)
-    .update({ comprobante_path: path, comprobante_nombre: file.name, updated_at: new Date().toISOString() })
+    .update({ comprobante_path: path, comprobante_nombre: tipo ? `${tipo} · ${file.name}` : file.name, updated_at: new Date().toISOString() })
     .eq('id', id).select('id');
   if (error) throw error;
   exigirFilas(data);

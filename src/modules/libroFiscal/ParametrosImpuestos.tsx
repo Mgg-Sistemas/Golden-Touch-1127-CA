@@ -19,6 +19,12 @@ import {
 } from './impuestos.repository';
 import { desdeMinimo, fechaCorta } from './parametrosR1';
 import { cambiosTexto, resumenVersion } from './parametrosR2';
+import { r4Disponible } from './clasificaciones.repository';
+import { ParametrosClasificaciones } from './ParametrosClasificaciones';
+import { r5Disponible } from './tarifas.repository';
+import { ParametrosTarifas } from './ParametrosTarifas';
+import { r7Disponible } from './reglas.repository';
+import { ParametrosReglas } from './ParametrosReglas';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
@@ -45,6 +51,16 @@ export function ParametrosImpuestos({ puedeEditar, conceptosIslr }: { puedeEdita
   const [entes, setEntes] = useState<Ente[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [nuevo, setNuevo] = useState(false);
+  // R4: cada ficha muestra su clasificación (conceptos, actividades); sin R4, abajo el catálogo de hoy.
+  const [conR4, setConR4] = useState(false);
+  useEffect(() => { r4Disponible().then(setConR4).catch(() => setConR4(false)); }, []);
+  // R5 (tarifas por tramos) y R7 (reglas de 8 pasos): cada una aparece en la ficha cuando su paquete existe.
+  const [conR5, setConR5] = useState(false);
+  const [conR7, setConR7] = useState(false);
+  useEffect(() => {
+    r5Disponible().then(setConR5).catch(() => setConR5(false));
+    r7Disponible().then(setConR7).catch(() => setConR7(false));
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -70,10 +86,10 @@ export function ParametrosImpuestos({ puedeEditar, conceptosIslr }: { puedeEdita
       )}
       {!impuestos && !error && <p className="muted">Leyendo los impuestos…</p>}
       {impuestos?.map((i) => (
-        <FichaImpuestoCard key={i.clave} impuesto={i} entes={entes} puedeEditar={puedeEditar} onCambio={() => void cargar()} />
+        <FichaImpuestoCard key={i.clave} impuesto={i} entes={entes} puedeEditar={puedeEditar} conR4={conR4} conR5={conR5} conR7={conR7} onCambio={() => void cargar()} />
       ))}
 
-      {conceptosIslr && (
+      {!conR4 && conceptosIslr && (
         <section style={{ marginTop: '1rem' }}>
           <h4 style={{ margin: '0 0 .4rem' }}>Conceptos del ISLR</h4>
           {conceptosIslr}
@@ -85,8 +101,8 @@ export function ParametrosImpuestos({ puedeEditar, conceptosIslr }: { puedeEdita
   );
 }
 
-function FichaImpuestoCard({ impuesto, entes, puedeEditar, onCambio }: {
-  impuesto: Impuesto; entes: Ente[]; puedeEditar: boolean; onCambio: () => void;
+function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, onCambio }: {
+  impuesto: Impuesto; entes: Ente[]; puedeEditar: boolean; conR4: boolean; conR5: boolean; conR7: boolean; onCambio: () => void;
 }) {
   const vigente = versionDeFecha(impuesto.versiones);
   const ente = entes.find((e) => e.id === impuesto.enteId);
@@ -183,6 +199,27 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, onCambio }: {
           </details>
         )}
       </div>
+
+      {conR7 && (
+        <details style={{ marginTop: '.5rem' }}>
+          <summary style={{ cursor: 'pointer', fontSize: '.84rem', fontWeight: 600 }}>Reglas (cuándo y cómo se retiene)</summary>
+          <div style={{ marginTop: '.4rem' }}><ParametrosReglas puedeEditar={puedeEditar} impuestoClave={impuesto.clave} /></div>
+        </details>
+      )}
+      {conR5 && (
+        <details style={{ marginTop: '.5rem' }}>
+          <summary style={{ cursor: 'pointer', fontSize: '.84rem', fontWeight: 600 }}>Tarifas progresivas</summary>
+          <div style={{ marginTop: '.4rem' }}><ParametrosTarifas puedeEditar={puedeEditar} impuestoClave={impuesto.clave} /></div>
+        </details>
+      )}
+      {conR4 && (
+        <details style={{ marginTop: '.5rem' }}>
+          <summary style={{ cursor: 'pointer', fontSize: '.84rem', fontWeight: 600 }}>Clasificación (conceptos o actividades, con sus valores)</summary>
+          <div style={{ marginTop: '.4rem' }}>
+            <ParametrosClasificaciones puedeEditar={puedeEditar} impuestoClave={impuesto.clave} />
+          </div>
+        </details>
+      )}
 
       <details style={{ marginTop: '.5rem' }} onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !historial) void verHistorial(); }}>
         <summary className="muted" style={{ cursor: 'pointer', fontSize: '.8rem' }}>Historial de cambios</summary>

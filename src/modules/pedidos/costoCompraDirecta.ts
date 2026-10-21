@@ -97,3 +97,10 @@ export function planRemontaje(
   const tasaIgual = monedaD !== 'Bs' || mismaTasa(antes.tasa_conversion, despues.tasa_conversion);
   return monedaA === monedaD && gastosIguales && tasaIgual ? 'mantener' : 'revalorizar';
 }
+
+/** El % de retención de una compra: vacío vale (no hay retención); si se escribe, de 0 a 100 (la base lo exige, R9). */
+export function pctRetencionValido(v: string): boolean {
+  if (!v.trim()) return true;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 && n <= 100;
+}

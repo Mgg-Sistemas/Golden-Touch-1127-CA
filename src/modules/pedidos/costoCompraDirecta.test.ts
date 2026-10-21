@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { costoUnitarioUsd, gastoRenglonUsd, monedaYaElegida, planRemontaje, type MontajeInventario } from './costoCompraDirecta';
+import { costoUnitarioUsd, gastoRenglonUsd, monedaYaElegida, planRemontaje, type MontajeInventario, pctRetencionValido } from './costoCompraDirecta';
 
 describe('costo en $ de un renglón de compra directa', () => {
   it('en $ queda igual', () => {
@@ -73,5 +73,17 @@ describe('volver a montar una compra que ya entró al inventario', () => {
     const kg: MontajeInventario = { ...base, items: [{ producto_id: 'harina', cantidad: 100, gasto: 10 }] };
     const sacos: MontajeInventario = { ...base, items: [{ producto_id: 'harina', cantidad: 4, factor: 25, gasto: 10 }] };
     expect(planRemontaje(true, kg, sacos)).toBe('mantener');
+  });
+});
+
+describe('% de retención de una compra directa (R9)', () => {
+  it('vacío vale; de 0 a 100 vale; fuera de rango o ilegible, no', () => {
+    expect(pctRetencionValido('')).toBe(true);
+    expect(pctRetencionValido('0')).toBe(true);
+    expect(pctRetencionValido('75')).toBe(true);
+    expect(pctRetencionValido('100')).toBe(true);
+    expect(pctRetencionValido('150')).toBe(false);
+    expect(pctRetencionValido('-1')).toBe(false);
+    expect(pctRetencionValido('abc')).toBe(false);
   });
 });

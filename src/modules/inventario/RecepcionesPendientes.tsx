@@ -9,6 +9,8 @@ import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { avisarCambiosDeMarca } from '@/modules/pedidos/avisoMarcaDistinta';
 import { MarcaRecibidaCampos, useMarcasRecibidas } from '@/modules/pedidos/MarcaRecibidaCampos';
 import { recepcionarCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { agregarAdjuntoDirecto, cuentaComoFactura, listAdjuntosDirectos } from '@/modules/pedidos/adjuntosDirectos.repository';
+import { useP03 } from '@/modules/pedidos/useP03';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { nombreCortoAlmacen } from './almacenes.repository';
 import { rotuloMarcaModelo } from '@/shared/lib/marcaModelo';
@@ -238,6 +240,19 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
   const [almacen, setAlmacen] = useState<string>(destinoValido || ordenados[0]?.nombre || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // P03: al recibir, la compra tiene que tener al menos una factura del proveedor; si no la tiene, se carga aquí.
+  const conP03 = useP03();
+  const [facturasPrevias, setFacturasPrevias] = useState<number | null>(null);
+  const [facturas, setFacturas] = useState<File[]>([]);
+  useEffect(() => {
+    if (!conP03) return;
+    let vivo = true;
+    listAdjuntosDirectos('compra', compra.id)
+      .then((l) => { if (vivo) setFacturasPrevias(l.filter(cuentaComoFactura).length + (compra.adjunto_path ? 1 : 0)); })
+      .catch(() => { if (vivo) setFacturasPrevias(0); });
+    return () => { vivo = false; };
+  }, [conP03, compra.id, compra.adjunto_path]);
+  const pideFactura = conP03 && facturasPrevias === 0;
 
   const items = Array.isArray(compra.items) ? compra.items : [];
   const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
@@ -257,8 +272,10 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
   async function handleConfirm() {
     setError(null);
     if (!almacen.trim()) { setError('Elige el almacén/sub-almacén destino.'); return; }
+    if (pideFactura && !facturas.length) { setError('La compra no tiene factura del proveedor: carga al menos una (PDF o imagen).'); return; }
     setSaving(true);
     try {
+      for (const f of facturas) await agregarAdjuntoDirecto('compra', compra.id, f, actor, true);
       await recepcionarCompraDirecta({ compra, almacen: almacen.trim(), actor, actorName });
       toast(`Materiales recibidos · ${compra.codigo ?? 'compra directa'} · stock actualizado en ${almacen.trim()}`, 'success');
       await onSaved();
@@ -316,6 +333,14 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
         </select>
         <small className="muted">La mercancía entra a este almacén y queda en la trazabilidad final.</small>
       </div>
+
+      {pideFactura && (
+        <div className="form-row" style={{ marginBottom: '.6rem' }}>
+          <label>Factura del proveedor · PDF o imagen <span style={{ color: 'var(--danger)' }}>*</span> <span className="muted">(la compra no tiene ninguna · puedes elegir varias)</span></label>
+          <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFacturas(Array.from(e.target.files ?? []))} />
+          {facturas.length > 0 && <small className="muted">📎 {facturas.map((f) => f.name).join(', ')}</small>}
+        </div>
+      )}
 
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>

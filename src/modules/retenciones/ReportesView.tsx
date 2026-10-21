@@ -244,12 +244,7 @@ export function ReportesView({ actor }: { actor: string }) {
             <button type="button" className="btn btn-sm btn-ghost" title={`Quitar «${p.nombre}»`} aria-label={`Quitar la plantilla ${p.nombre}`} onClick={() => quitarPlantilla(p)}>✕</button>
           </div>
         ))}
-        <p className="muted" style={{ fontSize: '.72rem', padding: '.2rem .6rem' }}>Se guardan en este navegador, para tu usuario.</p>
-
-        <h4>Compartidas</h4>
-        <p className="muted" style={{ fontSize: '.78rem', padding: '.3rem .6rem' }}>
-          Sin plantillas compartidas.
-        </p>
+        <p className="muted" style={{ fontSize: '.72rem', padding: '.2rem .6rem' }}>Se guardan solo en este navegador: no se ven desde otra computadora ni las ven otros usuarios.</p>
       </aside>
 
       {/* ── Constructor del reporte ── */}

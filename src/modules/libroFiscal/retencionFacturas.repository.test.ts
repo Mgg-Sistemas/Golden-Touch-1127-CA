@@ -81,6 +81,27 @@ describe('traducción al contrato de la función (columnas de GT)', () => {
     expect(pFacturaDe(factura({ docKind: 'manual', docId: 'x' })).doc_id).toBeNull();
   });
 
+  it('R7F: cada línea manda regla_id y foto solo si se calculó con una regla', () => {
+    const foto = { pasos: [{ paso: 1 }], monto: 120 };
+    const p = pLineaDe(linea({ regla: { regla_id: 'regla-v2', foto } }));
+    expect(p.regla_id).toBe('regla-v2');
+    expect(p.foto).toEqual(foto);
+    const sin = pLineaDe(linea());
+    expect('regla_id' in sin).toBe(false);
+    expect('foto' in sin).toBe(false);
+  });
+
+  it('la fecha de la línea es la de la retención; el período sale de la factura', () => {
+    expect(pLineaDe(linea({ fecha: '2026-10-08' })).fecha).toBe('2026-10-08');
+    expect(pFacturaDe(factura()).periodo).toBe('202610');
+  });
+
+  it('P03: adjunto_id va en p_factura solo si viene', () => {
+    expect(pFacturaDe(factura({ adjuntoId: 'adj-1' })).adjunto_id).toBe('adj-1');
+    expect('adjunto_id' in pFacturaDe(factura())).toBe(false);
+    expect('adjunto_id' in pFacturaDe(factura({ docKind: 'manual', adjuntoId: 'adj-1' }))).toBe(false);
+  });
+
   it('las líneas: el impuesto en MAYÚSCULAS y el estadal como ESTADAL', () => {
     expect(pLineaDe(linea()).tipo).toBe('IVA');
     expect(pLineaDe(linea({ tipo: 'regional' })).tipo).toBe('ESTADAL');

@@ -19,7 +19,7 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { requiereTasa, textoTasaPago } from './tasaPago';
-import { monedaYaElegida } from './costoCompraDirecta';
+import { monedaYaElegida, pctRetencionValido } from './costoCompraDirecta';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { RetencionPagoCard, useRetencionPago } from '@/modules/tesoreria/RetencionPagoCard';
 import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
@@ -28,7 +28,7 @@ import {
   eliminarCompraDirecta, eliminarCompraDirectaConReverso, listComprasDirectas, reabrirCompraDirecta, editarCompraDirectaEnProceso,
   urlAdjuntoCompra, actualizarNotaCompraDirecta, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg, type PresentacionLinea,
 } from './compras.repository';
-import { agregarAdjuntoDirecto, listAdjuntosDirectos } from './adjuntosDirectos.repository';
+import { agregarAdjuntoDirecto, cuentaComoFactura, listAdjuntosDirectos } from './adjuntosDirectos.repository';
 import { nombrePresentacion, presentacionesPara, rotuloConversion, type Presentacion } from '@/modules/inventario/presentaciones';
 import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 import { FacturasDirectas } from './FacturasDirectas';
@@ -910,7 +910,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const [facturasPrevias, setFacturasPrevias] = useState(0);
   useEffect(() => {
     if (esPago) return;
-    listAdjuntosDirectos('compra', compra.id).then((l) => setFacturasPrevias(l.length)).catch(() => setFacturasPrevias(0));
+    listAdjuntosDirectos('compra', compra.id).then((l) => setFacturasPrevias(l.filter(cuentaComoFactura).length)).catch(() => setFacturasPrevias(0));
   }, [compra.id, esPago]);
   // Categoría / subcategoría de gasto (Tesorería): etiqueta el movimiento del egreso.
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
@@ -1110,10 +1110,12 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
         setError('Adjunta la factura del proveedor (PDF o foto). Es obligatoria: Tesorería paga viéndola.');
         return;
       }
+      // La retención va al libro al pagar: la base exige un % de 0 a 100 (R9).
+      if (!pctRetencionValido(retPct)) { setError('El % de retención va de 0 a 100.'); return; }
       const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
       setSaving(true);
       try {
-        for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor);
+        for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor, true);
         await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, tasaConversion, iva: ivaNum, ivaPct: Number(ivaPct) || 0, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, retencionTipo: retTipo, retencionBase: subtotal, retencionPct: Number(retPct) || 0, nota: notaRef.current?.value ?? '', actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
@@ -1478,7 +1480,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 <option value="MUNICIPAL">Municipal</option>
               </select>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
-                <input className="input mono" type="number" min={0} step="any" value={retPct} onChange={(e) => setRetPct(e.target.value)} placeholder="0" style={{ width: 90, textAlign: 'right' }} /> %
+                <input className="input mono" type="number" min={0} max={100} step="any" value={retPct} onChange={(e) => setRetPct(e.target.value)} placeholder="0" style={{ width: 90, textAlign: 'right' }} /> %
               </label>
               <span className="muted" style={{ fontSize: '.78rem' }}>
                 {(Number(retPct) || 0) > 0 ? <>= <strong className="mono">{montoCaja(Math.round(subtotal * (Number(retPct) || 0)) / 100, monedaCompra)}</strong> · se registra en Retenciones al pagar</> : 'opcional · se vincula al módulo Retenciones al pagar'}
@@ -1571,7 +1573,7 @@ function FacturaNotaModal({ compra, actor, onClose, onSaved }: {
             placeholder="Ej.: SWITCH PARA EL CABLEADO DE LAS OFICINAS NUEVAS, SOLICITADO POR JOEL" />
         </div>
         {compra.adjunto_path && <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}><strong>Factura anterior:</strong> <AdjuntoLink compra={compra} /></div>}
-        <FacturasDirectas modulo="compra" refId={compra.id} actor={actor} titulo="🧾 Facturas del proveedor" />
+        <FacturasDirectas modulo="compra" refId={compra.id} actor={actor} titulo="🧾 Facturas del proveedor" papel="factura" />
       </div>
     </Modal>
   );
