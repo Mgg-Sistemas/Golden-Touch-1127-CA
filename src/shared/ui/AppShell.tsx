@@ -22,6 +22,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { prefetchRuta, prefetchRutasEnIdle } from '@/shared/lib/routePrefetch';
 import { intentarSalir, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
+import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -480,6 +481,8 @@ export function AppShell() {
       </header>
 
       <AvisoSalidaModulo />
+      {/* Barra de pestañas minimizadas (hasta 3) de cualquier módulo */}
+      <DockMinimizadas />
 
       <main className="main">
         <AvisoActualizacion />
