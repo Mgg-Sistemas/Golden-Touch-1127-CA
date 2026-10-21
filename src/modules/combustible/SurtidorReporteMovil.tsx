@@ -19,6 +19,7 @@ import { esImagenAdjunto } from '@/modules/salidas/adjuntosSalidaReglas';
 import type { AdjuntoSalida } from '@/modules/salidas/adjuntosSalida.repository';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { ORDEN_TIPOS, TITULO_TIPO, descargarSurtidorReportePdf } from './surtidorReportePdf';
+import { mensajeError } from '@/shared/lib/errores';
 
 const ICONO: Record<TipoMovTanque, string> = { entrada: '⬇', uso: '⛽', traslado: '🔁', retorno: '↩', merma: '🔻' };
 
@@ -51,7 +52,7 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
       const adj = await adjuntosCombustible.listarDe(MODULO_ADJUNTO_TANQUE, todos.map((m) => m.id));
       setFotos(adj);
       setUrls(await adjuntosCombustible.urls(adj.map((a) => a.path)));
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo armar el reporte', 'error'); }
+    } catch (e) { toast(mensajeError(e, 'No se pudo armar el reporte'), 'error'); }
     finally { setCargando(false); }
   }, [tanqueId, tanques, desde, hasta]);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -74,7 +75,7 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
   async function pdf() {
     setGenerando(true);
     try { await descargarSurtidorReportePdf({ tanques, tanqueId, desde, hasta, movs, fotos, urls }); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    catch (e) { toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'); }
     finally { setGenerando(false); }
   }
 

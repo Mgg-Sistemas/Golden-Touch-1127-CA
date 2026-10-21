@@ -46,6 +46,7 @@ import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 import { errorHorometro } from './horometroEquipo';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTanque, tanqueSinLitros } from './saldoSuficiente';
+import { mensajeError } from '@/shared/lib/errores';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -297,7 +298,7 @@ export function TanquesView() {
   useEffect(() => {
     let cancel = false;
     setLoading(true);
-    reloadTanques().catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'Error al cargar', 'error'); })
+    reloadTanques().catch((e) => { if (!cancel) toast(mensajeError(e, 'Error al cargar'), 'error'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reloadTanques]);
@@ -486,7 +487,7 @@ export function TanquesView() {
               if (selId === t.id) { setSelId(''); setAbierto(false); }
               await reloadTanques();
             } catch (err) {
-              toast(err instanceof Error ? err.message : 'No se pudo eliminar el tanque', 'error');
+              toast(mensajeError(err, 'No se pudo eliminar el tanque'), 'error');
             } finally { setBorrandoTanque(false); }
           }}
         />
@@ -519,7 +520,7 @@ export function TanquesView() {
 
   async function borrar(m: MovimientoTanque) {
     try { await eliminarMovimientoTanque(m); await recargarTodo(); toast('Movimiento eliminado', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    catch (e) { toast(mensajeError(e, 'No se pudo eliminar'), 'error'); }
   }
 }
 
@@ -652,9 +653,9 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
           <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
             {titulo}
             <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar PDF del registro (con el filtro aplicado)"
-              onClick={() => void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+              onClick={() => void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'))}>↓ PDF</button>
             <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar Excel del registro (con el filtro aplicado)"
-              onClick={() => void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
+              onClick={() => void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(mensajeError(e, 'No se pudo generar el Excel'), 'error'))}>📊 Excel</button>
             <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Enviar el registro por correo (con el filtro aplicado)"
               onClick={() => setCorreoOpen(true)}>✉ Correo</button>
           </span>
@@ -803,7 +804,7 @@ function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, rel
       // Conservar el mes que el usuario está viendo (si sigue existiendo tras recargar);
       // si no, mostrar el más reciente.
       setMes((prev) => (prev && meses.includes(prev) ? prev : (meses[meses.length - 1] ?? '')));
-    }).catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'No se pudo cargar el histórico', 'error'); })
+    }).catch((e) => { if (!cancel) toast(mensajeError(e, 'No se pudo cargar el histórico'), 'error'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
     // reloadKey: al editar/eliminar un movimiento (o por realtime) se vuelve a consultar.
@@ -1398,7 +1399,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
         toast('Tanque creado', 'success');
       }
       onSaved();
-    } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo guardar', 'error'); }
+    } catch (err) { toast(mensajeError(err, 'No se pudo guardar'), 'error'); }
     finally { setSaving(false); }
   }
   const footer = (
@@ -1505,20 +1506,20 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
     if (!valor.trim()) { toast('Indica el valor', 'error'); return; }
     setBusy(true);
     try { await addCatalogo(tab, valor); setValor(''); setValorKey((k) => k + 1); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+    catch (e) { toast(mensajeError(e, 'No se pudo agregar'), 'error'); }
     finally { setBusy(false); }
   }
   async function guardarEdicion(id: string) {
     try { await updateCatalogo(id, editValor); setEditId(null); await onChanged(); toast('Actualizado', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo editar', 'error'); }
+    catch (e) { toast(mensajeError(e, 'No se pudo editar'), 'error'); }
   }
   async function toggle(id: string, activo: boolean) {
     try { await setCatalogoActivo(id, !activo); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+    catch (e) { toast(mensajeError(e, 'No se pudo cambiar'), 'error'); }
   }
   async function borrar(id: string) {
     try { await eliminarCatalogo(id); await onChanged(); toast('Eliminado', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    catch (e) { toast(mensajeError(e, 'No se pudo eliminar'), 'error'); }
   }
 
   return (
@@ -1686,7 +1687,7 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
       }
       toast('Conciliación semanal registrada', 'success');
       cargarHistorial(); setNotas(''); setNotasKey((k) => k + 1);
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+    } catch (e) { toast(mensajeError(e, 'No se pudo guardar'), 'error'); }
     finally { setBusy(false); }
   }
 
@@ -1771,9 +1772,9 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
           <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
             Conciliaciones registradas
             <button className="btn btn-sm btn-ghost" disabled={!historialFiltrado.length} title="Descargar PDF (con el filtro aplicado)"
-              onClick={() => void descargarConciliacionesPdf(historialFiltrado, { filtro: hayFiltroHist ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+              onClick={() => void descargarConciliacionesPdf(historialFiltrado, { filtro: hayFiltroHist ? 'filtrado' : undefined }).catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'))}>↓ PDF</button>
             <button className="btn btn-sm btn-ghost" disabled={!historialFiltrado.length} title="Descargar Excel (con el filtro aplicado)"
-              onClick={() => void descargarConciliacionesExcel(historialFiltrado).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
+              onClick={() => void descargarConciliacionesExcel(historialFiltrado).catch((e) => toast(mensajeError(e, 'No se pudo generar el Excel'), 'error'))}>📊 Excel</button>
             <button className="btn btn-sm btn-ghost" disabled={!historialFiltrado.length} title="Enviar por correo (con el filtro aplicado)"
               onClick={() => setCorreoOpen(true)}>✉ Correo</button>
           </span>
@@ -1878,13 +1879,13 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
       setHistorial(await listCubicaciones(tanque.id));
       setAltura(''); setNotas(''); setFormKey((k) => k + 1);
       onSaved();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+    } catch (e) { toast(mensajeError(e, 'No se pudo guardar'), 'error'); }
     finally { setBusy(false); }
   }
   async function borrar(id: string) {
     if (!confirm('¿Eliminar esta medición?')) return;
     try { await eliminarCubicacion(id); setHistorial(await listCubicaciones(tanque.id)); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    catch (e) { toast(mensajeError(e, 'No se pudo eliminar'), 'error'); }
   }
 
   return (
@@ -1966,7 +1967,7 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
     setPreviewing(true); setPreviewErr(null);
     previewConsumoCombustibleSemana(desde, hasta)
       .then((p) => { if (!cancel) setPreview(p); })
-      .catch((e) => { if (!cancel) { setPreview(null); setPreviewErr(e instanceof Error ? e.message : 'No se pudo calcular el resumen'); } })
+      .catch((e) => { if (!cancel) { setPreview(null); setPreviewErr(mensajeError(e, 'No se pudo calcular el resumen')); } })
       .finally(() => { if (!cancel) setPreviewing(false); });
     return () => { cancel = true; };
   }, [desde, hasta]);
@@ -1985,7 +1986,7 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
       await onPosted();
       onClose();
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo cargar el consumo', 'error');
+      toast(mensajeError(e, 'No se pudo cargar el consumo'), 'error');
     } finally {
       setBusy(false);
     }
