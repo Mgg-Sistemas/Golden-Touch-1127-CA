@@ -15,6 +15,7 @@ import { opcionesImpuestoEnte } from './entes.repository';
 import { fechaCorta, labelClave } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
+import { AYUDA_ORDEN, ROTULO_ORDEN } from './rotulos';
 import { leerSupuestoNumeros, normalizarCodigoSupuesto, pistaClave, pistaLeido } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
@@ -59,7 +60,7 @@ export function ParametrosSupuestos({ puedeEditar }: { puedeEditar: boolean }) {
           <tbody>
             {supuestos.map((s) => (
               <tr key={s.id} style={vigenteEn(s) ? undefined : { opacity: 0.6 }}>
-                <td>{s.texto}<div className="muted mono" style={{ fontSize: '.72rem' }}>{s.codigo}{s.fuente ? ` · ${s.fuente}` : ''}</div></td>
+                <td>{s.texto}{s.fuente && <div className="muted" style={{ fontSize: '.72rem' }}>{s.fuente}</div>}</td>
                 <td>{nombre(s.impuestoClave)}</td>
                 <td className="mono">{s.pct} %</td>
                 <td>{fechaCorta(s.desde)} – {s.hasta ? fechaCorta(s.hasta) : 'sin fin'}</td>
@@ -130,7 +131,7 @@ function SupuestoModal({ supuesto, supuestos, impuestos, onClose, onHecho }: {
             {pistaCodigo && <small className="hint muted">{pistaCodigo}</small>}
           </div>
           <div className="form-row" style={{ flex: '0 1 100px' }}><label>%</label><input className="input mono" type="text" inputMode="decimal" value={pctTexto} onChange={(e) => setPctTexto(e.target.value)} />{pistaLeido(pctTexto, 0) && <small className="hint muted">{pistaLeido(pctTexto, 0)}</small>}</div>
-          <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" type="text" inputMode="numeric" value={ordenTexto} onChange={(e) => setOrdenTexto(e.target.value)} /><small className="hint muted">Vacío = 10</small></div>
+          <div className="form-row" style={{ flex: '1 1 180px' }}><label>{ROTULO_ORDEN}</label><input className="input mono" type="text" inputMode="numeric" value={ordenTexto} onChange={(e) => setOrdenTexto(e.target.value)} /><small className="hint muted">{AYUDA_ORDEN} Vacío = 10.</small></div>
         </div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '0 1 160px' }}><label>Desde</label><input className="input" type="date" value={s.desde} onChange={(e) => set({ desde: e.target.value })} /></div>

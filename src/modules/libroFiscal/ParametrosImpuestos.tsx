@@ -18,7 +18,8 @@ import {
   type ModoSerie, type Periodicidad, type VenceSiInhabil, type VersionImpuesto,
 } from './impuestos.repository';
 import { desdeMinimo, fechaCorta } from './parametrosR1';
-import { cambiosTexto, resumenVersion } from './parametrosR2';
+import { cambiosTexto, lineaHistorial, resumenVersion } from './parametrosR2';
+import { AYUDA_ORDEN, ROTULO_ORDEN, rotuloAutor, rotuloMotivo, rotuloSerie } from './rotulos';
 import { r4Disponible } from './clasificaciones.repository';
 import { ParametrosClasificaciones } from './ParametrosClasificaciones';
 import { r5Disponible } from './tarifas.repository';
@@ -147,7 +148,6 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
     <details className="card" style={{ marginBottom: '.6rem', opacity: impuesto.activo ? 1 : 0.7 }}>
       <summary style={{ cursor: 'pointer', display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
         <strong>{impuesto.nombre}</strong>
-        <span className="muted mono" style={{ fontSize: '.76rem' }}>{impuesto.clave}</span>
         <span className="muted" style={{ fontSize: '.8rem' }}>{ente?.nombre ?? 'Sin ente'}</span>
         {!impuesto.activo && <span className="lfv8-pill falta">Inactivo</span>}
         <span className="muted" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>{resumenVersion(vigente)}</span>
@@ -190,7 +190,7 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
             </div>
             {vigente.baseLegal && <div className="muted">Base legal: {vigente.baseLegal}</div>}
             {vigente.fuente && <div className="muted">Fuente: {vigente.fuente}</div>}
-            <div className="muted" style={{ fontSize: '.74rem' }}>{vigente.motivo}{vigente.actualizadoPor ? ` · ${vigente.actualizadoPor}` : ''}</div>
+            <div className="muted" style={{ fontSize: '.74rem' }}>{rotuloMotivo(vigente.motivo)} · {rotuloAutor(vigente.actualizadoPor)}</div>
           </div>
         ) : <p className="muted" style={{ fontSize: '.82rem' }}>Sin versión: agrega la primera con «Nueva versión desde…».</p>}
         {impuesto.versiones.length > 1 && (
@@ -198,7 +198,7 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
             <summary className="muted" style={{ cursor: 'pointer', fontSize: '.8rem' }}>Versiones ({impuesto.versiones.length})</summary>
             {impuesto.versiones.map((v) => (
               <div key={v.id} style={{ fontSize: '.78rem', padding: '.2rem 0' }}>
-                {fechaCorta(v.desde)} – {v.hasta ? fechaCorta(v.hasta) : 'hoy'} · {resumenVersion(v)} · <span className="muted">{v.motivo}</span>
+                {fechaCorta(v.desde)} – {v.hasta ? fechaCorta(v.hasta) : 'hoy'} · {resumenVersion(v)} · <span className="muted">{rotuloMotivo(v.motivo)}</span>
               </div>
             ))}
           </details>
@@ -230,12 +230,15 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
         <summary className="muted" style={{ cursor: 'pointer', fontSize: '.8rem' }}>Historial de cambios</summary>
         {!historial && <p className="muted" style={{ fontSize: '.8rem' }}>Leyendo…</p>}
         {historial && historial.length === 0 && <p className="muted" style={{ fontSize: '.8rem' }}>Sin cambios registrados.</p>}
-        {historial?.map((h) => (
-          <div key={h.id} style={{ fontSize: '.78rem', padding: '.2rem 0', borderBottom: '1px solid var(--border)' }}>
-            <strong>{new Date(h.at).toLocaleString('es-VE')}</strong> · {h.tabla === 'retencion_impuestos' ? 'Ficha' : 'Versión'} · {h.actor ?? '—'}
-            <div className="muted">{h.motivo ?? 'Sin motivo'}{cambiosTexto(h)}</div>
-          </div>
-        ))}
+        {historial?.map((h) => {
+          const l = lineaHistorial(h);
+          return (
+            <div key={h.id} style={{ fontSize: '.78rem', padding: '.2rem 0', borderBottom: '1px solid var(--border)' }}>
+              <strong>{new Date(h.at).toLocaleString('es-VE')}</strong> · {l.que} · {l.quien}
+              <div className="muted">{l.motivo}{cambiosTexto(h)}</div>
+            </div>
+          );
+        })}
       </details>
 
       {modoVersion && (
@@ -259,7 +262,7 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
         {conClave && (
           <div className="form-row" style={{ flex: '1 1 140px' }}>
             <label>Clave</label>
-            <input className="input mono" value={claveEscrita} onChange={(e) => { setClaveEscrita(e.target.value); set({ clave: normalizarClaveImpuesto(e.target.value) }); }} placeholder="EJ: TIMBRE_X" />
+            <input className="input mono" value={claveEscrita} onChange={(e) => { setClaveEscrita(e.target.value); set({ clave: normalizarClaveImpuesto(e.target.value) }); }} placeholder="Ej.: timbre fiscal" />
             {pista && <small className="hint muted">{pista}</small>}
           </div>
         )}
@@ -274,9 +277,10 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
             {entes.filter((e) => e.activo || e.id === ficha.enteId).map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
           </select>
         </div>
-        <div className="form-row" style={{ flex: '0 1 90px' }}>
-          <label>Orden</label>
+        <div className="form-row" style={{ flex: '1 1 180px' }}>
+          <label>{ROTULO_ORDEN}</label>
           <CampoEntero valor={ficha.orden} {...ENTEROS_IMPUESTO.orden} onValor={(orden) => set({ orden })} />
+          <small className="hint muted">{AYUDA_ORDEN}</small>
         </div>
       </div>
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '.86rem', margin: '.2rem 0 .5rem' }}>
@@ -296,8 +300,7 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
             <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>
               <label>Formato del número</label>
               <select className="select" value={ficha.serieFormato ?? ''} onChange={(e) => set({ serieFormato: (e.target.value || null) as FormatoSerie | null })}>
-                <option value="AAAAMM8">AAAAMM + 8 dígitos (14)</option>
-                <option value="N10">10 dígitos continuos</option>
+                {(['AAAAMM8', 'N10'] as const).map((f) => <option key={f} value={f}>{rotuloSerie(f)}</option>)}
               </select>
             </div>
             <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>

@@ -89,7 +89,7 @@ describe('impuestos: piezas puras', () => {
   it('resumen y cambios del historial para la pantalla', () => {
     expect(resumenVersion(v('a', '2026-10-16'))).toBe('Mensual · vence el día 15 · entrega en 2 días hábiles');
     expect(resumenVersion(null)).toBe('Sin versión');
-    expect(cambiosTexto({ antes: { nombre: 'A', orden: 1 }, despues: { nombre: 'B', orden: 1 } })).toBe(' · cambió: nombre');
+    expect(cambiosTexto({ antes: { nombre: 'A', orden: 1 }, despues: { nombre: 'B', orden: 1 } })).toBe(' · cambió: el nombre');
     expect(cambiosTexto({ antes: null, despues: { nombre: 'B' } })).toBe('');
   });
 });

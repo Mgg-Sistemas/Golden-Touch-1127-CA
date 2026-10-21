@@ -8,12 +8,10 @@ import type { ClaseImagenAgente, ClaveImpuesto, Ente, TipoEnte } from './entes.r
 import type { EstadoLicencia, FilaPerfil, PerfilFiscal, PerfilNuevo, TipoContribuyente } from './perfilesFiscales.repository';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { sujetoDelPerfil } from './perfilesFiscales.repository';
+import { rotuloImpuesto, rotuloTipoEnte } from './rotulos';
 
-export const LABEL_IMPUESTO: Record<string, string> = {
-  IVA: 'IVA', ISLR: 'ISLR', MUNICIPAL: 'ISAE', ESTADAL: 'Estadal', IGTF: 'IGTF',
-};
-/** El rótulo de una clave de impuesto; una clave nueva (R2) se muestra tal cual. */
-export const labelClave = (c: ClaveImpuesto) => LABEL_IMPUESTO[c] ?? c;
+/** El rótulo de una clave de impuesto (MUNICIPAL → «ISAE (municipal)»); nunca la clave cruda (rotulos.ts). */
+export const labelClave = (c: ClaveImpuesto) => rotuloImpuesto(c);
 
 export const TIPOS_ENTE: { key: TipoEnte; label: string }[] = [
   { key: 'nacional', label: 'Nacional' },
@@ -33,7 +31,7 @@ export const CLASES_AGENTE: { key: ClaseImagenAgente; label: string; ayuda: stri
   { key: 'sello', label: 'Sello', ayuda: 'El sello húmedo de la empresa, escaneado.' },
 ];
 
-export const labelTipoEnte = (t: TipoEnte) => TIPOS_ENTE.find((x) => x.key === t)?.label ?? t;
+export const labelTipoEnte = (t: TipoEnte) => TIPOS_ENTE.find((x) => x.key === t)?.label ?? rotuloTipoEnte(t);
 export const labelContribuyente = (t: TipoContribuyente | null) => TIPOS_CONTRIBUYENTE.find((x) => x.key === t)?.label ?? '—';
 
 /** «Municipal · Caroní, Bolívar» / «Estadal · Bolívar» / «Nacional». */

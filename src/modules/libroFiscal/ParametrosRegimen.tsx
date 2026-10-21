@@ -14,6 +14,7 @@ import {
 import type { ClaveImpuesto } from './entes.repository';
 import { fechaCorta } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { rotuloAutor, rotuloMotivo } from './rotulos';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -148,7 +149,7 @@ function RenglonRegimen({ impuesto, condicion, titulo, ayuda, historial, puedeEd
               {historial.map((h) => (
                 <tr key={h.id}>
                   <td>{fechaCorta(h.desde)}</td><td>{h.hasta ? fechaCorta(h.hasta) : '—'}</td>
-                  <td>{h.valor ? 'Sí' : 'No'}</td><td>{h.motivo}</td><td>{h.fuente ?? '—'}</td><td>{h.actualizadoPor ?? '—'}</td>
+                  <td>{h.valor ? 'Sí' : 'No'}</td><td>{rotuloMotivo(h.motivo)}</td><td>{h.fuente ?? '—'}</td><td>{rotuloAutor(h.actualizadoPor)}</td>
                 </tr>
               ))}
             </tbody>

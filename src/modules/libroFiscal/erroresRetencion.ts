@@ -6,6 +6,7 @@
    código no está en la lista, se muestra el mensaje de la base tal cual
    (BD ya lo redacta para la pantalla). Pieza pura, sin base de datos.
    ============================================================ */
+import { sinRotulo } from './rotulos';
 
 const TEXTOS: Record<string, string> = {
   RET_FACTURA_SIN_LINEAS: 'La factura necesita al menos una línea de impuesto.',
@@ -151,7 +152,17 @@ const COLUMNAS: Record<string, string> = {
   monto: 'el monto', moneda: 'la moneda', proveedor_id: 'el proveedor', ente_id: 'el ente', clase: 'el tipo de imagen',
   path: 'el archivo', operacion: 'la operación', pieza: 'la pieza', paso: 'el paso', estado: 'el estado', orden: 'el orden',
   prioridad: 'la prioridad', version: 'la versión', minimo_unidad: 'la unidad del mínimo', sujeto: 'el sujeto',
+  serie_formato: 'el formato de la serie', serie_modo: 'quién numera la serie', serie_inicial: 'el primer número de la serie',
+  serie_ultimo_otro_sistema: 'el último número del otro sistema', numera: 'si numera', numera_operacion: 'si numera la operación',
+  agrupa: 'cómo se agrupa', exporta: 'si se exporta', activo: 'si está activo', admite_practicada: 'si admite practicadas',
+  admite_sufrida: 'si admite recibidas', periodicidad: 'la periodicidad', vence_dia: 'el día de vencimiento',
+  vence_si_inhabil: 'qué pasa si vence en día inhábil', plazo_entrega_dias: 'el plazo de entrega', plazo_dias_habiles: 'si el plazo cuenta días hábiles',
+  convive: 'si convive con el otro sistema', otro_sistema_nombre: 'el nombre del otro sistema', otro_sistema_en_totales: 'si el otro sistema entra en los totales',
+  base_legal: 'la base legal', fuente: 'la fuente', nota: 'la nota', descripcion: 'la descripción', requiere_texto: 'si pide un detalle',
 };
+
+/** Una columna en palabras («serie_inicial» nunca sale cruda): la de este diccionario o la de rotulos.ts. */
+export const nombreColumna = (col: string): string => COLUMNAS[col] ?? sinRotulo(col).toLowerCase();
 
 const nombreEntreComillas = (mensaje: string, tras: RegExp) => mensaje.match(tras)?.[1] ?? null;
 

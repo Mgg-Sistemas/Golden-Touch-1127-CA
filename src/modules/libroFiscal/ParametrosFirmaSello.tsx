@@ -13,6 +13,7 @@ import { CLASES_AGENTE, fechaCorta } from './parametrosR1';
 import { ImagenRetencion } from './ImagenRetencion';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { faltaEnFechaRango } from './parametrosNumeros';
+import { rotuloMotivo } from './rotulos';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -99,7 +100,7 @@ function TarjetaImagen({ clase, titulo, ayuda, versiones, puedeEditar, onCambio 
             <div key={v.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'center', padding: '.25rem 0', opacity: v.activo ? 1 : 0.55 }}>
               <ImagenRetencion ruta={v.ruta} alt={`${titulo} desde ${fechaCorta(v.desde)}`} ancho={60} alto={36} />
               <span style={{ fontSize: '.76rem' }}>
-                Desde {fechaCorta(v.desde)}{v.firmante ? ` · ${v.firmante}` : ''}{v.motivo ? ` · ${v.motivo}` : ''}{!v.activo ? ' · desactivada' : ''}
+                Desde {fechaCorta(v.desde)}{v.firmante ? ` · ${v.firmante}` : ''}{v.motivo ? ` · ${rotuloMotivo(v.motivo)}` : ''}{!v.activo ? ' · desactivada' : ''}
               </span>
             </div>
           ))}

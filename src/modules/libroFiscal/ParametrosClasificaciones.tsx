@@ -22,11 +22,16 @@ import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
 import { listTarifas, r5Disponible, type Tarifa } from './tarifas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
+import { AYUDA_ORDEN, ROTULO_ORDEN, rotuloAutor, rotuloMotivo, rotuloSujeto, rotuloUnidad, siglaSujeto } from './rotulos';
 import { leerEntero, leerValorCodigo, normalizarClave, normalizarCodigo, pistaClave, pistaLeido } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
+const UNIDADES_MINIMO: UnidadMinimo[] = ['UT', 'Bs', 'MMV'];
+/** El sujeto en pantalla: «PJD · Persona jurídica domiciliada»; sin sujeto, todos. */
+const nombreSujeto = (s: SujetoGt | null) => (s ? siglaSujeto(s) : 'Todos los sujetos');
+
 export function ParametrosClasificaciones({ puedeEditar, impuestoClave }: { puedeEditar: boolean; impuestoClave?: string }) {
   const [clasificaciones, setClasificaciones] = useState<Clasificacion[] | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
@@ -106,7 +111,7 @@ export function ParametrosClasificaciones({ puedeEditar, impuestoClave }: { pued
                       <td style={{ fontSize: '.76rem' }}>
                         {SUJETOS_GT.map((s) => {
                           const v = c.valores.find((x) => x.sujeto === s.key) ? valorVigenteCodigo(c.valores.filter((x) => x.sujeto === s.key), s.key) : null;
-                          return v ? <div key={s.key ?? 'todos'}><strong>{s.key ?? 'Todos'}</strong> {resumenValor(v)}</div> : null;
+                          return v ? <div key={s.key ?? 'todos'}><strong>{nombreSujeto(s.key)}:</strong> {resumenValor(v)}</div> : null;
                         })}
                         {!c.valores.length && <span className="muted">Sin valores</span>}
                       </td>
@@ -147,7 +152,7 @@ function ValoresModal({ codigo, puedeEditar, onClose, onCambio }: { codigo: Codi
         return (
           <div key={s.key ?? 'todos'} className="card" style={{ marginBottom: '.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
-              <strong style={{ fontSize: '.86rem' }}>{s.label}{s.key ? ` (${s.key})` : ''}</strong>
+              <strong style={{ fontSize: '.86rem' }}>{nombreSujeto(s.key)}</strong>
               <span className="mono" style={{ fontSize: '.84rem' }}>{vig ? `${resumenValor(vig)} · desde ${fechaCorta(vig.desde)}` : <span className="muted">Sin valor vigente</span>}</span>
               {puedeEditar && (
                 <span style={{ display: 'flex', gap: '.3rem' }}>
@@ -162,7 +167,7 @@ function ValoresModal({ codigo, puedeEditar, onClose, onCambio }: { codigo: Codi
                 <summary className="muted" style={{ cursor: 'pointer', fontSize: '.78rem' }}>Vigencias ({propios.length})</summary>
                 {propios.map((v) => (
                   <div key={v.id} style={{ fontSize: '.76rem', padding: '.15rem 0' }}>
-                    {fechaCorta(v.desde)} – {v.hasta ? fechaCorta(v.hasta) : 'hoy'} · {resumenValor(v)} · <span className="muted">{v.motivo}{v.actualizadoPor ? ` · ${v.actualizadoPor}` : ''}</span>
+                    {fechaCorta(v.desde)} – {v.hasta ? fechaCorta(v.hasta) : 'hoy'} · {resumenValor(v)} · <span className="muted">{rotuloMotivo(v.motivo)} · {rotuloAutor(v.actualizadoPor)}</span>
                   </div>
                 ))}
               </details>
@@ -222,7 +227,7 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
   }
 
   return (
-    <Modal title={`${codigo.codigo} · ${sujeto ?? 'todos'} · ${modo === 'nuevo' ? 'nuevo valor' : `corregir el vigente desde ${fechaCorta(vig?.desde)}`}`} onClose={() => !guardando && onClose()}
+    <Modal title={`${codigo.codigo} · ${sujeto ? rotuloSujeto(sujeto) : 'Todos los sujetos'} · ${modo === 'nuevo' ? 'nuevo valor' : `corregir el vigente desde ${fechaCorta(vig?.desde)}`}`} onClose={() => !guardando && onClose()}
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
@@ -245,7 +250,7 @@ function ValorCodigoModal({ codigo, sujeto, modo, onClose, onHecho }: {
           <div className="form-row" style={{ flex: '0 1 130px' }}><label>Mínimo</label><input className="input mono" type="text" inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value)} /><Pista texto={min} /></div>
           <div className="form-row" style={{ flex: '0 1 100px' }}>
             <label>Unidad</label>
-            <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as UnidadMinimo)}><option value="UT">UT</option><option value="Bs">Bs</option><option value="MMV">MMV</option></select>
+            <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as UnidadMinimo)}>{UNIDADES_MINIMO.map((u) => <option key={u} value={u}>{rotuloUnidad(u)}</option>)}</select>
           </div>
           <div className="form-row" style={{ flex: '0 1 150px' }}><label>Factor del sustraendo</label><input className="input mono" type="text" inputMode="decimal" value={sustraendo} onChange={(e) => setSustraendo(e.target.value)} /><Pista texto={sustraendo} /></div>
         </div>
@@ -272,7 +277,7 @@ function CodigoModal({ clasificacion, onClose, onHecho }: { clasificacion: Clasi
   const [descripcion, setDescripcion] = useState('');
   const [orden, setOrden] = useState('100');
   const [guardando, setGuardando] = useState(false);
-  const ordenLeido = leerEntero(orden, 'el orden', 100);
+  const ordenLeido = leerEntero(orden, 'la posición en la lista', 100);
   // El código se guarda sin espacios al borde y en MAYÚSCULAS (así coincide con el catálogo); la pista lo dice.
   const pista = pistaClave(codigo, normalizarCodigo(codigo));
   const falta = 'error' in ordenLeido ? ordenLeido.error : faltaEnCodigoNuevo({ codigo, descripcion, orden: ordenLeido.valor });
@@ -292,7 +297,7 @@ function CodigoModal({ clasificacion, onClose, onHecho }: { clasificacion: Clasi
       <fieldset disabled={guardando} style={{ border: 0, padding: 0, margin: 0 }}>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '1 1 120px' }}><label>Código</label><input className="input mono" value={codigo} onChange={(e) => setCodigo(e.target.value)} />{pista && <small className="hint muted">{pista}</small>}</div>
-          <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" type="text" inputMode="numeric" value={orden} onChange={(e) => setOrden(e.target.value)} /><small className="hint muted">Vacío = 100</small></div>
+          <div className="form-row" style={{ flex: '1 1 180px' }}><label>{ROTULO_ORDEN}</label><input className="input mono" type="text" inputMode="numeric" value={orden} onChange={(e) => setOrden(e.target.value)} /><small className="hint muted">{AYUDA_ORDEN} Vacío = 100.</small></div>
         </div>
         <div className="form-row"><label>Descripción</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} /></div>
         {falta && <small className="hint" style={{ color: codigo || descripcion || 'error' in ordenLeido ? 'var(--warning)' : undefined }}>{falta}</small>}
@@ -343,7 +348,7 @@ function CargaModal({ clasificacion, codigos, onClose, onHecho }: { clasificacio
         <div className="form-row" style={{ flex: '0 1 160px' }}><label>Vale desde</label><input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></div>
         <div className="form-row" style={{ flex: '0 1 120px' }}>
           <label>Mínimo en</label>
-          <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as UnidadMinimo)}><option value="UT">UT</option><option value="Bs">Bs</option><option value="MMV">MMV</option></select>
+          <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as UnidadMinimo)}>{UNIDADES_MINIMO.map((u) => <option key={u} value={u}>{rotuloUnidad(u)}</option>)}</select>
         </div>
         <div className="form-row" style={{ flex: '2 1 220px' }}><label>Fuente</label><input className="input" value={fuente} onChange={(e) => setFuente(e.target.value)} placeholder="Ordenanza y gaceta" /></div>
       </div>
@@ -430,7 +435,7 @@ function ClasificacionModal({ entes, impuestoClave, onClose, onHecho }: { entes:
               {entes.filter((e) => e.activo).map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
           </div>
-          <div className="form-row" style={{ flex: '1 1 150px' }}><label>Clave</label><input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="ej: isae_otro" />{pista && <small className="hint muted">{pista}</small>}</div>
+          <div className="form-row" style={{ flex: '1 1 150px' }}><label>Clave</label><input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="Ej.: ISAE otro municipio" />{pista && <small className="hint muted">{pista}</small>}</div>
         </div>
         <div className="form-row"><label>Fuente</label><input className="input" value={fuente} onChange={(e) => setFuente(e.target.value)} /></div>
         {falta && <small className="hint" style={{ color: nombre || escrita ? 'var(--warning)' : undefined }}>{falta}</small>}

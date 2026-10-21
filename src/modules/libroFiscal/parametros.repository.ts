@@ -19,6 +19,7 @@ import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { leerMonto } from './validarCarga';
 import { faltaEnClaveMinusculas, faltaNoNegativo, faltaPct, faltaPositivo, noSeEntiende } from './parametrosNumeros';
+import { rotuloParametro } from './rotulos';
 
 const T_CLAVES = 'retencion_parametro_claves';
 const T_VALORES = 'retencion_parametros';
@@ -115,9 +116,9 @@ export function mostrarValor(v: Valor | null | undefined, unidad: Unidad | null)
   return v;
 }
 
-export function faltaEnValor(k: Pick<ClaveParametro, 'ambito' | 'clave'>, impuesto: string | null, desde: string, motivo: string): string | null {
-  if (k.ambito === 'general' && impuesto) return `«${k.clave}» es general: va sin impuesto.`;
-  if (k.ambito === 'impuesto' && !impuesto) return `«${k.clave}» es de un impuesto: indica cuál.`;
+export function faltaEnValor(k: Pick<ClaveParametro, 'ambito' | 'clave'> & Partial<Pick<ClaveParametro, 'nombre'>>, impuesto: string | null, desde: string, motivo: string): string | null {
+  if (k.ambito === 'general' && impuesto) return `«${rotuloParametro(k.clave, k.nombre)}» es general: va sin impuesto.`;
+  if (k.ambito === 'impuesto' && !impuesto) return `«${rotuloParametro(k.clave, k.nombre)}» es de un impuesto: indica cuál.`;
   if (!FECHA.test(desde)) return 'Indica desde qué fecha vale.';
   if (!motivo.trim()) return 'Indica el motivo: queda en el historial.';
   return null;

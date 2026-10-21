@@ -19,6 +19,14 @@ import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
 import { normalizarClave, pistaClave, pistaLeido } from './parametrosNumeros';
+import { lineaHistorial } from './parametrosR2';
+import { rotuloAmbito, rotuloAutor, rotuloMotivo, rotuloParametro, rotuloTipoValor, rotuloUnidad } from './rotulos';
+
+/** El nombre de un valor: el de la base o el del diccionario (nunca la clave cruda). */
+const nombreValor = (k: Pick<ClaveParametro, 'clave' | 'nombre'>) => rotuloParametro(k.clave, k.nombre);
+const AMBITOS: Ambito[] = ['impuesto', 'general'];
+const TIPOS_VALOR: TipoValor[] = ['numero', 'texto', 'si_no'];
+const UNIDADES: Unidad[] = ['%', 'Bs', 'UT', 'dias'];
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -74,7 +82,7 @@ export function ParametrosValores({ puedeEditar }: { puedeEditar: boolean }) {
                 const hoy = valorEnFecha(r.versiones, r.impuesto, r.clave.clave);
                 return (
                   <tr key={claveRenglon(r.impuesto, r.clave.clave)}>
-                    <td><strong>{r.clave.nombre}</strong>{r.clave.descripcion && <div className="muted" style={{ fontSize: '.74rem' }}>{r.clave.descripcion}</div>}</td>
+                    <td><strong>{nombreValor(r.clave)}</strong>{r.clave.descripcion && <div className="muted" style={{ fontSize: '.74rem' }}>{r.clave.descripcion}</div>}</td>
                     <td>{nombreImpuesto(r.impuesto)}</td>
                     <td className="mono" style={{ fontWeight: 700 }}>{hoy ? mostrarValor(hoy.valor, r.clave.unidad) : <span className="muted">Sin valor hoy</span>}</td>
                     <td>{hoy ? fechaCorta(hoy.desde) : '—'}</td>
@@ -156,7 +164,8 @@ function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
     }
   }
 
-  const titulo = modo === 'alta' ? 'Nuevo valor' : `${renglon?.clave.nombre ?? ''}${renglon?.impuesto ? ` · ${renglon.impuesto}` : ''} · ${modo === 'corregir' ? `corregir el vigente desde ${fechaCorta(vigente?.desde)}` : 'nuevo valor'}`;
+  const impuestoDe = (c: string) => impuestos.find((i) => i.clave === c)?.nombre ?? labelClave(c);
+  const titulo = modo === 'alta' ? 'Nuevo valor' : `${renglon ? nombreValor(renglon.clave) : ''}${renglon?.impuesto ? ` · ${impuestoDe(renglon.impuesto)}` : ''} · ${modo === 'corregir' ? `corregir el vigente desde ${fechaCorta(vigente?.desde)}` : 'nuevo valor'}`;
   return (
     <Modal title={titulo} onClose={() => !guardando && onClose()}
       footer={(
@@ -171,7 +180,7 @@ function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
             <div className="form-row" style={{ flex: '2 1 220px' }}>
               <label>Qué valor</label>
               <select className="select" value={clave} onChange={(e) => setClave(e.target.value)}>
-                {claves.filter((x) => x.activo).map((x) => <option key={x.clave} value={x.clave}>{x.nombre}</option>)}
+                {claves.filter((x) => x.activo).map((x) => <option key={x.clave} value={x.clave}>{nombreValor(x)}</option>)}
               </select>
             </div>
             {k?.ambito === 'impuesto' && (
@@ -190,7 +199,7 @@ function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
           : vigente && <p className="muted" style={{ fontSize: '.82rem', marginTop: 0 }}>Hoy vale {mostrarValor(vigente.valor, k?.unidad ?? null)} desde el {fechaCorta(vigente.desde)}. El nuevo lo reemplaza desde su fecha; lo anterior conserva el suyo.</p>}
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '1 1 140px' }}>
-            <label>Valor{k?.unidad ? ` (${k.unidad})` : ''}</label>
+            <label>Valor{k?.unidad ? ` (${rotuloUnidad(k.unidad)})` : ''}</label>
             {k && <CampoValor tipo={k.tipoValor} valor={crudo} onValor={setCrudo} />}
           </div>
           {modo !== 'corregir' && (
@@ -251,7 +260,7 @@ function ClaveModal({ onClose, onHecho }: { onClose: () => void; onHecho: () => 
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '1 1 160px' }}>
             <label>Clave</label>
-            <input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="ej: minimo_isae" />
+            <input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="Ej.: mínimo ISAE" />
             {pista && <small className="hint muted">{pista}</small>}
           </div>
           <div className="form-row" style={{ flex: '2 1 220px' }}>
@@ -263,19 +272,20 @@ function ClaveModal({ onClose, onHecho }: { onClose: () => void; onHecho: () => 
           <div className="form-row" style={{ flex: '1 1 160px' }}>
             <label>Ámbito</label>
             <select className="select" value={ambito} onChange={(e) => setAmbito(e.target.value as Ambito)}>
-              <option value="impuesto">De un impuesto</option><option value="general">General</option>
+              {AMBITOS.map((a) => <option key={a} value={a}>{rotuloAmbito(a)}</option>)}
             </select>
           </div>
           <div className="form-row" style={{ flex: '1 1 140px' }}>
             <label>Tipo</label>
             <select className="select" value={tipoValor} onChange={(e) => setTipoValor(e.target.value as TipoValor)}>
-              <option value="numero">Número</option><option value="texto">Texto</option><option value="si_no">Sí / No</option>
+              {TIPOS_VALOR.map((t) => <option key={t} value={t}>{rotuloTipoValor(t)}</option>)}
             </select>
           </div>
           <div className="form-row" style={{ flex: '1 1 120px' }}>
             <label>Unidad</label>
             <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as Unidad | '')}>
-              <option value="">—</option><option value="%">%</option><option value="Bs">Bs</option><option value="UT">UT</option><option value="dias">días</option>
+              <option value="">—</option>
+              {UNIDADES.map((u) => <option key={u} value={u}>{rotuloUnidad(u)}</option>)}
             </select>
           </div>
         </div>
@@ -289,13 +299,19 @@ function ClaveModal({ onClose, onHecho }: { onClose: () => void; onHecho: () => 
   );
 }
 
+/** El valor guardado en el historial, como se lee en pantalla (75 %, Sí, 9,00 Bs…). */
+function valorLegible(v: unknown, unidad: Unidad | null): string {
+  if (v == null || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') return mostrarValor(v as Valor | null, unidad);
+  return JSON.stringify(v);
+}
+
 function HistorialModal({ renglon, nombreImpuesto, onClose }: { renglon: Renglon; nombreImpuesto: string; onClose: () => void }) {
   const [cambios, setCambios] = useState<Awaited<ReturnType<typeof historialValor>> | null>(null);
   useEffect(() => {
     historialValor(renglon.impuesto, renglon.clave.clave).then(setCambios).catch((e) => { toast(mensaje(e, 'No se pudo leer el historial.'), 'error'); setCambios([]); });
   }, [renglon]);
   return (
-    <Modal title={`${renglon.clave.nombre} · ${nombreImpuesto}`} size="lg" onClose={onClose}
+    <Modal title={`${nombreValor(renglon.clave)} · ${nombreImpuesto}`} size="lg" onClose={onClose}
       footer={<button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <h4 style={{ margin: '0 0 .3rem' }}>Vigencias</h4>
       <table className="table" style={{ fontSize: '.8rem', width: '100%' }}>
@@ -305,7 +321,7 @@ function HistorialModal({ renglon, nombreImpuesto, onClose }: { renglon: Renglon
             <tr key={v.id}>
               <td>{fechaCorta(v.desde)}</td><td>{v.hasta ? fechaCorta(v.hasta) : '—'}</td>
               <td className="mono">{mostrarValor(v.valor, renglon.clave.unidad)}</td>
-              <td>{v.fuente ?? '—'}</td><td>{v.motivo}</td><td>{v.actualizadoPor ?? '—'}</td>
+              <td>{v.fuente ?? '—'}</td><td>{rotuloMotivo(v.motivo)}</td><td>{rotuloAutor(v.actualizadoPor)}</td>
             </tr>
           ))}
         </tbody>
@@ -313,12 +329,16 @@ function HistorialModal({ renglon, nombreImpuesto, onClose }: { renglon: Renglon
       <h4 style={{ margin: '.8rem 0 .3rem' }}>Cambios</h4>
       {!cambios && <p className="muted">Leyendo…</p>}
       {cambios?.length === 0 && <p className="muted">Sin cambios registrados.</p>}
-      {cambios?.map((c) => (
-        <div key={c.id} style={{ fontSize: '.78rem', padding: '.2rem 0', borderBottom: '1px solid var(--border)' }}>
-          <strong>{new Date(c.at).toLocaleString('es-VE')}</strong> · {c.actor ?? '—'} · {c.antes ? 'cambio' : 'alta'}
-          <div className="muted">{c.motivo ?? 'Sin motivo'}{c.despues?.valor !== undefined ? ` · valor ${JSON.stringify(c.despues.valor)}` : ''}</div>
-        </div>
-      ))}
+      {cambios?.map((c) => {
+        const l = lineaHistorial(c);
+        const valor = c.despues?.valor;
+        return (
+          <div key={c.id} style={{ fontSize: '.78rem', padding: '.2rem 0', borderBottom: '1px solid var(--border)' }}>
+            <strong>{new Date(c.at).toLocaleString('es-VE')}</strong> · {l.quien} · {c.antes ? 'Cambio' : 'Alta'}
+            <div className="muted">{l.motivo}{valor !== undefined ? ` · valor ${valorLegible(valor, renglon.clave.unidad)}` : ''}</div>
+          </div>
+        );
+      })}
     </Modal>
   );
 }

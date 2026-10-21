@@ -24,15 +24,12 @@ import { retencionDeMuestra } from './formatoMuestra';
 import { getConfigRetencion } from './retencionesFiscal.repository';
 import { leerMonto, numeroATexto } from './validarCarga';
 import { fechaCorta } from './parametrosR1';
+import { AYUDA_ORDEN, ROTULO_ORDEN, rotuloAutor, rotuloImpuesto, rotuloMotivo, sinRotulo } from './rotulos';
 import type { TipoImpuesto } from './retencionesCalculo';
 
-const IMPUESTOS: Array<{ clave: string; tipo: TipoImpuesto; nombre: string }> = [
-  { clave: 'IVA', tipo: 'iva', nombre: 'IVA' },
-  { clave: 'ISLR', tipo: 'islr', nombre: 'ISLR' },
-  { clave: 'MUNICIPAL', tipo: 'municipal', nombre: 'ISAE (municipal)' },
-  { clave: 'ESTADAL', tipo: 'regional', nombre: 'Timbre estadal' },
-  { clave: 'IGTF', tipo: 'igtf', nombre: 'IGTF' },
-];
+const IMPUESTOS: Array<{ clave: string; tipo: TipoImpuesto; nombre: string }> = ([
+  ['IVA', 'iva'], ['ISLR', 'islr'], ['MUNICIPAL', 'municipal'], ['ESTADAL', 'regional'], ['IGTF', 'igtf'],
+] as const).map(([clave, tipo]) => ({ clave, tipo, nombre: rotuloImpuesto(clave) }));
 const NOMBRE_TEXTO: Record<string, string> = { encabezado: 'Encabezado (título)', nota_legal: 'Nota legal (bajo el título)', pie: 'Pie' };
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const diaSiguiente = (iso: string) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
@@ -81,7 +78,7 @@ export function ParametrosFormatos({ puedeEditar }: { puedeEditar: boolean }) {
                   <td><strong>{imp.nombre}</strong></td>
                   <td>
                     {!vigente || vigente.deFabrica ? 'De fábrica' : `Desde el ${fechaCorta(vigente.desde)}`}
-                    {vigente && <div className="muted" style={{ fontSize: '.74rem' }}>{vigente.motivo}{vigente.actualizadoPor ? ` · ${vigente.actualizadoPor}` : ''}</div>}
+                    {vigente && <div className="muted" style={{ fontSize: '.74rem' }}>{rotuloMotivo(vigente.motivo)} · {rotuloAutor(vigente.actualizadoPor)}</div>}
                   </td>
                   <td>{proxima ? `${proxima.deFabrica ? 'De fábrica' : 'Versión nueva'} desde el ${fechaCorta(proxima.desde)}` : '—'}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -110,8 +107,8 @@ export function ParametrosFormatos({ puedeEditar }: { puedeEditar: boolean }) {
                 <tr key={f.id}>
                   <td>{fechaCorta(f.desde)} – {f.hasta ? fechaCorta(f.hasta) : 'sin fin'}</td>
                   <td>{f.deFabrica ? 'De fábrica' : `${f.orientacion === 'vertical' ? 'Vertical' : 'Horizontal'}${f.textos ? ` · textos: ${Object.keys(f.textos).length}` : ''}${f.rotulos ? ` · rótulos: ${Object.keys(f.rotulos).length}` : ''}${f.columnas ? ' · columnas propias' : ''}`}</td>
-                  <td>{f.motivo}{f.fuente && <div className="muted">{f.fuente}</div>}</td>
-                  <td>{f.actualizadoPor ?? '—'}</td>
+                  <td>{rotuloMotivo(f.motivo)}{f.fuente && <div className="muted">{f.fuente}</div>}</td>
+                  <td>{rotuloAutor(f.actualizadoPor)}</td>
                 </tr>
               ))}
             </tbody>
@@ -146,18 +143,20 @@ function EditorFormato({ edicion, hoy, onClose, onHecho }: { edicion: Edicion; h
   const [falla, setFalla] = useState<string | null>(null);
   const fabrica = textosFabrica(imp.tipo);
 
+  // El nombre de fábrica de cada columna, para los avisos de una columna sin rótulo (nunca el campo interno).
+  const rotuloFabrica = useMemo(() => new Map(columnasFabrica(imp.tipo).map((c) => [c.campo, c.rotulo])), [imp.tipo]);
   // Las columnas escritas → las del formato (orden y ancho leídos; lo ilegible frena).
   const leidas = useMemo((): { cols: ColumnaFormato[]; error: string | null } => {
     const cols: ColumnaFormato[] = [];
     for (const c of columnas) {
       const orden = leerMonto(c.orden);
-      if (orden == null || !Number.isInteger(orden) || orden < 0) return { cols, error: `El orden de la columna «${c.rotulo || c.campo}» va como número entero.` };
+      if (orden == null || !Number.isInteger(orden) || orden < 0) return { cols, error: `La posición de la columna «${c.rotulo || (rotuloFabrica.get(c.campo) ?? sinRotulo(c.campo))}» va como número entero.` };
       const ancho = c.ancho.trim() ? leerMonto(c.ancho) : null;
-      if (c.ancho.trim() && ancho == null) return { cols, error: `No se entiende el ancho de «${c.rotulo || c.campo}».` };
+      if (c.ancho.trim() && ancho == null) return { cols, error: `No se entiende el ancho de «${c.rotulo || (rotuloFabrica.get(c.campo) ?? sinRotulo(c.campo))}».` };
       cols.push({ campo: c.campo, rotulo: c.rotulo, visible: c.visible, orden, ancho });
     }
     return { cols, error: null };
-  }, [columnas]);
+  }, [columnas, rotuloFabrica]);
 
   const contenido = (): ContenidoFormato => ({ orientacion, textos, rotulos, columnas: leidas.cols, fuente });
   const falta = modo === 'fabrica'
@@ -244,7 +243,7 @@ function EditorFormato({ edicion, hoy, onClose, onHecho }: { edicion: Edicion; h
           <fieldset style={{ border: 0, padding: 0, margin: '.4rem 0' }}>
             <legend style={{ fontWeight: 600, fontSize: '.86rem' }}>Columnas de la tabla</legend>
             <table className="table" style={{ fontSize: '.8rem', width: '100%' }}>
-              <thead><tr><th>Se ve</th><th>Rótulo</th><th>Orden</th><th>Ancho (pt)</th></tr></thead>
+              <thead><tr><th>Se ve</th><th>Rótulo</th><th>{ROTULO_ORDEN}</th><th>Ancho (pt)</th></tr></thead>
               <tbody>
                 {columnas.map((c, i) => (
                   <tr key={c.campo}>
@@ -256,6 +255,7 @@ function EditorFormato({ edicion, hoy, onClose, onHecho }: { edicion: Edicion; h
                 ))}
               </tbody>
             </table>
+            <small className="hint muted">{ROTULO_ORDEN}: {AYUDA_ORDEN.charAt(0).toLowerCase()}{AYUDA_ORDEN.slice(1)}</small>
           </fieldset>
         </>
       )}

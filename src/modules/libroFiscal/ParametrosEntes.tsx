@@ -16,6 +16,7 @@ import { faltaEnFechaRango } from './parametrosNumeros';
 import { TIPOS_ENTE, fechaCorta, labelClave, labelTipoEnte, territorio } from './parametrosR1';
 import { ImagenRetencion } from './ImagenRetencion';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { rotuloAutor, rotuloMotivo } from './rotulos';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -330,7 +331,7 @@ function HistorialLogos({ ente, puedeEditar, onCambio }: { ente: Ente; puedeEdit
           <ImagenRetencion ruta={l.ruta} alt={`Logo desde ${fechaCorta(l.desde)}`} ancho={72} alto={44} />
           <div style={{ flex: 1, fontSize: '.82rem' }}>
             Desde {fechaCorta(l.desde)}{vigente?.id === l.id && <strong> · vigente</strong>}{!l.activo && ' · desactivado'}
-            <div className="muted" style={{ fontSize: '.74rem' }}>{[l.nombreArchivo, l.motivo, l.actualizadoPor].filter(Boolean).join(' · ')}</div>
+            <div className="muted" style={{ fontSize: '.74rem' }}>{[l.nombreArchivo, rotuloMotivo(l.motivo), rotuloAutor(l.actualizadoPor)].filter(Boolean).join(' · ')}</div>
           </div>
           {puedeEditar && l.activo && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void desactivar(l.id)}>Desactivar</button>}
         </div>

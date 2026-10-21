@@ -77,7 +77,7 @@ export function BarraLista({
           ))}
           {orden && onOrden && (
             <label className="lf-campo">
-              <span>Orden</span>
+              <span>Ordenar por</span>
               <select className="select" value={orden.valor} onChange={(e) => onOrden(e.target.value)}>
                 {orden.opciones.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
               </select>
@@ -112,7 +112,7 @@ export function Paginador<T>({ pagina, tam, unidad, onPagina, onTam }: {
 
   const irA = () => {
     const n = Math.round(Number(ir));
-    if (!(n >= 1 && n <= paginas)) { setAviso(`Indique una página entre 1 y ${nf(paginas)}.`); return; }
+    if (!(n >= 1 && n <= paginas)) { setAviso(`Indica una página entre 1 y ${nf(paginas)}.`); return; }
     setAviso(null); setIr(''); onPagina(n);
   };
   const boton = (p: number, contenido: React.ReactNode, etiqueta: string, cls = '') => (

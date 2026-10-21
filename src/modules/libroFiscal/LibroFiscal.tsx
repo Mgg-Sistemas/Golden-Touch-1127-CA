@@ -81,6 +81,7 @@ import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { rotuloImpuesto, rotuloSerie } from './rotulos';
 
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -428,7 +429,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         <div className="lfv8-activos" aria-live="polite">
           {tipo && (
             <span className="lfv8-activo">
-              Impuesto: {TIPOS_IMPUESTO.find((t) => t.key === tipo)?.corto ?? tipo}
+              Impuesto: {TIPOS_IMPUESTO.find((t) => t.key === tipo)?.corto ?? rotuloImpuesto(tipo)}
               <button type="button" onClick={() => setTipo('')} aria-label="Quitar filtro de impuesto">✕</button>
             </span>
           )}
@@ -643,7 +644,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
               <div key={r.id} className="lfv8-sis-fila" style={r.anulada ? { opacity: .6 } : undefined}>
                 <span data-l="Fecha">{r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</span>
                 <span data-l="Comprobante" className="mono">{r.numeroComprobante ?? '—'}</span>
-                <span data-l="Impuesto">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? r.tipo}<small>{r.direccion === 'recibida' ? 'Recibida' : 'Practicada'}</small></span>
+                <span data-l="Impuesto">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? rotuloImpuesto(r.tipo)}<small>{r.direccion === 'recibida' ? 'Recibida' : 'Practicada'}</small></span>
                 <span data-l="Contraparte">{r.contraparteNombre ?? '—'}<small className="mono">{r.contraparteRif ?? ''}{fueraDelSistema(r) ? ' · Fuera del sistema' : ''}</small></span>
                 <span data-l="Factura" className="mono">{r.facturaNumero ?? r.docCodigo ?? '—'}</span>
                 <span data-l="Retenido" className="n">{monto(r.montoRetenido, r.moneda)}</span>
@@ -684,7 +685,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                 <span data-l="Motivo">
                   {g.filas.map((r) => (
                     <span key={r.id} style={{ display: 'block' }}>
-                      <span className="lfv8-pill ok">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? r.tipo}</span>{' '}
+                      <span className="lfv8-pill ok">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? rotuloImpuesto(r.tipo)}</span>{' '}
                       {r.observacion ?? 'Sin motivo anotado'}
                     </span>
                   ))}
@@ -946,7 +947,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const calculo: CalculoRetencion = useMemo(() => {
     if (!reglaCalc) return calculoHoy;
     const r = reglaCalc.resultado;
-    const cual = `regla «${reglaCalc.regla.nombre}» v${reglaCalc.regla.version}`;
+    const cual = `regla «${reglaCalc.regla.nombre}» (versión ${reglaCalc.regla.version})`;
     return {
       ...calculoHoy,
       baseImponible: r.base, impuesto: r.impuesto, porcentaje: r.pct ?? 0,
@@ -990,7 +991,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (motivoNa?.requiereTexto && !motivoNaDetalle.trim()) { setError(`El motivo «${motivoNa.texto}» pide un detalle.`); return; }
     if (montosIlegibles.length) { setError(`No se entiende: ${montosIlegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`); return; }
     if (montoFinal < 0) { setError('El monto no puede ser negativo.'); return; }
-    if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escriba el motivo del 0%.'); return; }
+    if (ceroSinMotivo) { setError(validarMotivoCero(pctFinal, montoFinal, observacion, tipo).mensaje ?? 'Escribe el motivo del 0 %.'); return; }
     if (esManual && !contraparte.trim()) { setError('Indicar la contraparte que practicó la retención.'); return; }
     if (!esManual && !proveedorId) { setError('Seleccionar el proveedor al que se le practica la retención.'); return; }
     if (textoRif) { setError(textoRif.error); return; }
@@ -1310,12 +1311,12 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div className="form-row">
         {esManual ? (
           <>
-            <label>Comprobante de retención recibido (PDF o imagen, opcional)</label>
+            <label>Comprobante de retención recibido (PDF o imagen, si lo tienes)</label>
             <small className="hint muted">El comprobante que entregó quien practicó la retención.</small>
           </>
         ) : (
           <>
-            <label>Documento de respaldo (PDF o imagen, opcional)</label>
+            <label>Documento de respaldo (PDF o imagen, si lo tienes)</label>
             <select className="select" value={tipoArchivo} onChange={(e) => setTipoArchivo(e.target.value)} style={{ marginBottom: '.3rem' }}>
               <option value="">— ¿Qué documento es? —</option>
               {TIPOS_RESPALDO.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -1403,7 +1404,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       </div>
       <div className="hint muted" style={{ fontSize: '.74rem' }}>
         {direccion === 'practicada' && tipo !== 'igtf'
-          ? `Al registrar, la base le asigna el número de comprobante ${!conV2R || tipo === 'iva' ? 'AAAAMM + 8 dígitos' : 'de 10 dígitos continuos'}. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
+          ? `Al registrar, la base le asigna el número de comprobante: ${rotuloSerie(!conV2R || tipo === 'iva' ? 'AAAAMM8' : 'N10').toLowerCase()}. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
           : 'Queda en el libro fiscal del período, con su comprobante imprimible.'}
       </div>
       </div>
@@ -1763,7 +1764,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           {/* ── R1: entes y logos, firma y sello, perfiles fiscales ── */}
           {r1 && seccion === 'entes' && <ParametrosEntes puedeEditar={puedeEditar} />}
           {r1 && seccion === 'firma' && <ParametrosFirmaSello puedeEditar={puedeEditar} />}
-          {r1 && seccion === 'perfiles' && <ParametrosPerfiles puedeEditar={puedeEditar} />}
+          {r1 && seccion === 'perfiles' && <ParametrosPerfiles puedeEditar={puedeEditar} onIrALicencias={() => setSeccion('licencias')} />}
 
           {/* ── Tipos de licencia ── */}
           {seccion === 'licencias' && <SeccionLicencias puedeEditar={puedeEditar} />}
@@ -2028,7 +2029,7 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
             )}
             {visiblesCat.map((c) => (
               <tr key={c.id} style={{ opacity: c.activo ? 1 : 0.5 }}>
-                <td><span className="badge">{TIPOS_IMPUESTO.find((t) => t.key === c.tipo)?.corto ?? c.tipo}</span></td>
+                <td><span className="badge">{TIPOS_IMPUESTO.find((t) => t.key === c.tipo)?.corto ?? rotuloImpuesto(c.tipo)}</span></td>
                 <td>{c.codigo ? <span className="muted mono">{c.codigo} · </span> : null}{c.nombre}
                   {c.aplicaSustraendo && <div className="muted" style={{ fontSize: '.7rem' }}>con sustraendo · mínimo {c.baseMinimaUt} UT</div>}
                   {c.basePct !== 100 && <div className="muted" style={{ fontSize: '.7rem' }}>base: {c.basePct}% del pago</div>}

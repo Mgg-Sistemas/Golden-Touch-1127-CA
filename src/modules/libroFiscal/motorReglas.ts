@@ -14,6 +14,7 @@
    se lleva a la moneda del documento con la tasa; dos decimales en la base y
    en el impuesto bruto.
    ============================================================ */
+import { fraseCondicion, NOMBRE_PIEZA, sinRotulo } from './rotulos';
 
 export type Pieza = 'direccion' | 'tipo_documento' | 'tipo_operacion' | 'sujeto' | 'tipo_contribuyente'
   | 'condicion_agente' | 'clasificacion' | 'monto_minimo';
@@ -208,26 +209,26 @@ export function condicionesQueFallan(regla: Pick<Regla, 'condiciones'>, ctx: Con
       const v = c.valor as { clasificacion?: string; codigos?: string[] };
       const coincide = !!ctx.clasificacion && ctx.clasificacion.clave === v.clasificacion
         && (!Array.isArray(v.codigos) || v.codigos.includes(ctx.clasificacion.codigo));
-      if (coincide !== (c.operador === 'es')) fallas.push(`clasificación ${c.operador === 'es' ? 'distinta de' : 'igual a'} «${v.clasificacion}»`);
+      if (coincide !== (c.operador === 'es')) fallas.push(`No se cumple: ${fraseCondicion(c)}`);
       continue;
     }
     if (c.pieza === 'monto_minimo') {
       const v = c.valor as { monto: number; unidad: 'UT' | 'Bs'; sobre: 'base' | 'pago' };
       const monto = enBs(Number(ctx.montos[v.sobre === 'base' ? 'base_imponible' : 'pago'] ?? 0), ctx);
       const umbral = v.unidad === 'UT' ? (ctx.ut && ctx.ut > 0 ? v.monto * ctx.ut : null) : v.monto;
-      if (umbral == null) { fallas.push('monto mínimo en UT sin UT cargada'); continue; }
+      if (umbral == null) { fallas.push('El mínimo va en UT y no hay UT cargada para esa fecha.'); continue; }
       const supera = monto >= umbral;
-      if (supera !== (c.operador === 'es')) fallas.push(`el ${v.sobre} ${c.operador === 'es' ? 'no llega' : 'supera'} a ${v.monto} ${v.unidad}`);
+      if (supera !== (c.operador === 'es')) fallas.push(`No se cumple: ${fraseCondicion(c)}`);
       continue;
     }
     const dato = datoDePieza(c.pieza, ctx);
-    if (dato === undefined || dato === null) { fallas.push(`falta el dato «${c.pieza}»`); continue; }
+    if (dato === undefined || dato === null) { fallas.push(`Falta el dato: ${NOMBRE_PIEZA[c.pieza]}.`); continue; }
     const tiene = (x: string) => (Array.isArray(dato) ? dato.includes(x) : dato === x);
     const esta = c.operador === 'es' || c.operador === 'no_es'
       ? tiene(String(c.valor))
       : (Array.isArray(c.valor) ? c.valor : []).some((x) => tiene(String(x)));
     const cumple = c.operador === 'es' || c.operador === 'en' ? esta : !esta;
-    if (!cumple) fallas.push(`${c.pieza} ${c.operador} ${Array.isArray(c.valor) ? c.valor.join('/') : String(c.valor)}`);
+    if (!cumple) fallas.push(`No se cumple: ${fraseCondicion(c)}`);
   }
   return fallas;
 }
@@ -297,7 +298,7 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
     } else if (p4.operacion === 'tramos') {
       const t = ctx.tarifa?.(String(v.tarifa)) ?? null;
       const ap = t ? aplicarTramos(t.tramos, t.unidad, baseBs, ctx.ut) : null;
-      if (!ap) return resultado(false, `La tarifa «${String(v.tarifa)}» no da tramo para esa base (o falta publicarla).`, base, baseBs, null, 0, 0, 0);
+      if (!ap) return resultado(false, `La tarifa por tramos «${sinRotulo(v.tarifa)}» no da tramo para esa base (o falta publicarla).`, base, baseBs, null, 0, 0, 0);
       pct = ap.pct; sustraendoTramoBs = ap.sustraendoBs;
     } else if (p4.operacion === 'monto_fijo') {
       const montoBs = String(v.unidad) === 'UT' ? (ctx.ut && ctx.ut > 0 ? Number(v.monto) * ctx.ut : null) : Number(v.monto);

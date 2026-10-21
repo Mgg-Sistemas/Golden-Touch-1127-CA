@@ -17,6 +17,7 @@ import {
   nombrePeriodo, reabrirPeriodo, type Declara, type EstadoPeriodo, type PeriodoFiscal,
 } from './periodosRetencion.repository';
 import { fechaCorta, labelClave } from './parametrosR1';
+import { rotuloAutor, rotuloMotivo } from './rotulos';
 
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 type Conteo = { tipoGt: string; periodo: string; quincena: 1 | 2 | null; declarada: boolean };
@@ -151,8 +152,8 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
                     </td>
                     <td>
                       <span style={{ color: ROTULO[est].color, fontWeight: est === 'vencido' ? 700 : 400 }}>{ROTULO[est].texto}</span>
-                      {p.declaradoEn && <div className="muted" style={{ fontSize: '.72rem' }}>{fechaCorta(p.declaradoEn)}{p.declaradoPor ? ` · ${p.declaradoPor}` : ''}</div>}
-                      {!p.declaradoEn && p.reabiertoEn && <div className="muted" style={{ fontSize: '.72rem' }}>Reabierto {fechaCorta(p.reabiertoEn)}: {p.reabiertoMotivo}</div>}
+                      {p.declaradoEn && <div className="muted" style={{ fontSize: '.72rem' }}>{fechaCorta(p.declaradoEn)}{p.declaradoPor ? ` · ${rotuloAutor(p.declaradoPor)}` : ''}</div>}
+                      {!p.declaradoEn && p.reabiertoEn && <div className="muted" style={{ fontSize: '.72rem' }}>Reabierto {fechaCorta(p.reabiertoEn)}: {rotuloMotivo(p.reabiertoMotivo)}</div>}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {puedeEditar && !p.declaradoEn && p.declara === 'gt' && <button type="button" className="btn btn-sm btn-primary" onClick={() => setDeclarar(p)}>Declarar</button>}
@@ -250,7 +251,7 @@ function DeclaraModal({ periodo, nombre, onClose, onHecho }: { periodo: PeriodoF
       <div className="form-row">
         <label>Lo declara</label>
         <select className="select" value={declara} onChange={(e) => setDeclara(e.target.value as Declara)}>
-          <option value="gt">GT</option><option value="otro_sistema">El otro sistema</option>
+          <option value="gt">Este sistema</option><option value="otro_sistema">El otro sistema</option>
         </select>
       </div>
       <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></div>

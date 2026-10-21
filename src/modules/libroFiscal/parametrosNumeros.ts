@@ -120,7 +120,7 @@ export function entradaDePrueba(e: Omit<EntradaPrueba, 'tasa' | 'pago' | 'baseIm
 export function leerSupuestoNumeros(pct: string, orden: string): Leido<{ pct: number; orden: number }> {
   const p = leerObligatorio(pct, 'el %', 'Indica el %.');
   if ('error' in p) return p;
-  const o = leerEntero(orden, 'el orden', 10);
+  const o = leerEntero(orden, 'la posición en la lista', 10);
   if ('error' in o) return o;
   return { valor: { pct: p.valor, orden: o.valor } };
 }
@@ -138,7 +138,7 @@ export function leerPrioridad(texto: string): Leido<number> {
 
 /** Lo vacío en los enteros de la ficha y de la versión vale lo mismo que la base da por defecto. */
 export const ENTEROS_IMPUESTO = {
-  orden: { campo: 'el orden', porDefecto: 0 },
+  orden: { campo: 'la posición en la lista', porDefecto: 0 },
   serieInicial: { campo: 'el primer número de la serie', porDefecto: 1 },
   plazoEntregaDias: { campo: 'el plazo de entrega', porDefecto: 2 },
 } as const;

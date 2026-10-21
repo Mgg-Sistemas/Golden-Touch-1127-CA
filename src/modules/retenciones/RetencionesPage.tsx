@@ -637,7 +637,7 @@ function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVe
             </select>
           </label>
           <label className="lfv8-campo">
-            <span>Orden</span>
+            <span>Ordenar por</span>
             <select className="lfv8-select" value={ord} onChange={(e) => setOrd(e.target.value as typeof ord)}>
               <option value="antiguo">Más antiguo primero</option>
               <option value="reciente">Más reciente primero</option>
