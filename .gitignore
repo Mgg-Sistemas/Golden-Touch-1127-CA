@@ -54,6 +54,7 @@ q2.sql
 # siguen en disco y en la historia de git. Una excepcion va solo si el usuario la indica,
 # con una linea `!ruta` aca y la misma ruta en EXCEPCIONES del hook local de pre-commit.
 *.sql
+!supabase/2026-10-21-activar-rls-todas-las-tablas.sql
 .env.*
 !.env.example
 *.pem
