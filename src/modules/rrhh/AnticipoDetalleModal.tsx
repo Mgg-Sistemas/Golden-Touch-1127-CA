@@ -13,7 +13,7 @@ import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { AnticipoPago, AnticipoPrestamo, EmpresaRrhh, Personal } from '@/shared/lib/types';
 import {
-  ETIQUETA_ORIGEN, ETIQUETA_TIPO, errorAbono, errorEdicionAbono, nombreCompleto, pagadoDe, r2,
+  ETIQUETA_ORIGEN, ETIQUETA_TIPO, errorAbono, errorEdicionAbono, nombreCompleto, r2,
 } from './anticiposResumen';
 import {
   editarAbono, editarAnticipo, eliminarAbono, getAnticipo, listPagos, registrarAbono,
