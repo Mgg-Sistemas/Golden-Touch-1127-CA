@@ -1,16 +1,9 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { MAX_MINIMIZADAS, quitarMinimizada, useMinimizadas } from '@/shared/lib/minimizadas';
+import { MAX_MINIMIZADAS, descartarPestana, restaurarPestana, useMinimizadas } from '@/shared/lib/minimizadas';
 
-interface Props {
-  /** Restaura una pestaña (la página decide cómo abrirla). */
-  onRestaurar: (id: string) => void;
-  /** true mientras hay otra ventana de formulario abierta: restaurar la descartaría. */
-  bloqueado?: boolean;
-}
-
-/** Barra inferior con las pestañas minimizadas del módulo (máx. MAX_MINIMIZADAS). */
-export function DockMinimizadas({ onRestaurar, bloqueado }: Props) {
+/** Barra inferior con las pestañas minimizadas del módulo (máx. MAX_MINIMIZADAS). Vive en AppShell. */
+export function DockMinimizadas() {
   const { items, salida } = useMinimizadas();
   // Con el aviso de salida abierto la barra se esconde: no se restaura nada a mitad de la pregunta.
   const hay = items.length > 0 && salida === null;
@@ -33,16 +26,15 @@ export function DockMinimizadas({ onRestaurar, bloqueado }: Props) {
           <button
             type="button"
             className="dock-min-abrir"
-            disabled={bloqueado}
-            onClick={() => onRestaurar(it.id)}
-            title={bloqueado ? 'Cierra la ventana abierta para restaurar esta pestaña' : `Restaurar ${it.titulo}`}
+            onClick={() => restaurarPestana(it.id)}
+            title={`Restaurar ${it.titulo}`}
           >
             {it.titulo}
           </button>
           <button
             type="button"
             className="dock-min-cerrar"
-            onClick={() => quitarMinimizada(it.id)}
+            onClick={() => descartarPestana(it.id)}
             title="Descartar esta pestaña minimizada"
             aria-label={`Descartar ${it.titulo}`}
           >
