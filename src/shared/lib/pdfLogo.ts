@@ -214,6 +214,51 @@ export async function loadFirma2DataUrl(): Promise<{ dataUrl: string; w: number;
   }
 }
 
+let cachedFirmaOrlando: { dataUrl: string; w: number; h: number } | null | undefined;
+
+/** Firma de ORLANDO MOLINA (Presidente, `public/firma orlando molina.jpeg`) como PNG con fondo
+ *  transparente y sus medidas naturales. Estamparla con formato 'PNG'. Null si el archivo no está. */
+export async function loadFirmaOrlandoDataUrl(): Promise<{ dataUrl: string; w: number; h: number } | null> {
+  if (cachedFirmaOrlando !== undefined) return cachedFirmaOrlando;
+  try {
+    const resp = await fetch(`${import.meta.env.BASE_URL}${encodeURIComponent('firma orlando molina.jpeg')}`);
+    if (!resp.ok) { cachedFirmaOrlando = null; return null; }
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('No se pudo decodificar la firma de Orlando'));
+        el.src = objectUrl;
+      });
+      const w = img.naturalWidth || 328;
+      const h = img.naturalHeight || 157;
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { cachedFirmaOrlando = null; return null; }
+      ctx.drawImage(img, 0, 0, w, h);
+      // Igual que las otras firmas: el fondo blanco del JPEG pasa a transparente.
+      const px = ctx.getImageData(0, 0, w, h);
+      const d = px.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const min = Math.min(d[i], d[i + 1], d[i + 2]);
+        if (min >= 235) d[i + 3] = 0;
+        else if (min >= 200) d[i + 3] = Math.round(((235 - min) / 35) * 255);
+      }
+      ctx.putImageData(px, 0, 0);
+      cachedFirmaOrlando = { dataUrl: canvas.toDataURL('image/png'), w, h };
+      return cachedFirmaOrlando;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    cachedFirmaOrlando = null;
+    return null;
+  }
+}
+
 /**
  * Firma del Gerente General (manuscrita) como data URL PNG, para estamparla en
  * los PDFs de Orden de Compra una vez aprobada. Conserva la transparencia (no se
