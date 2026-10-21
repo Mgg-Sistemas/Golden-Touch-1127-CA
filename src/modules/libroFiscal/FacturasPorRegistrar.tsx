@@ -13,9 +13,9 @@ import { previewArchivo } from '@/shared/lib/reportePreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { dateTime } from '@/shared/lib/format';
 import { p03Disponible } from './disponibilidad';
-import { facturasPorRegistrar, urlFacturaDeOrigen, type FacturaDeOrigen } from './documentosOrigen.repository';
+import { NOMBRE_ORIGEN, facturasPorRegistrar, urlFacturaDeOrigen, type FacturaDeOrigen } from './documentosOrigen.repository';
 
-export function FacturasPorRegistrar({ origenIds, puedeRegistrar, onRegistrar, titulo = '🧾 Facturas de Compras por registrar' }: {
+export function FacturasPorRegistrar({ origenIds, puedeRegistrar, onRegistrar, titulo = '🧾 Facturas de Compras sin cargar' }: {
   origenIds?: string[];
   puedeRegistrar: boolean;
   onRegistrar: (f: FacturaDeOrigen) => void;
@@ -23,6 +23,8 @@ export function FacturasPorRegistrar({ origenIds, puedeRegistrar, onRegistrar, t
 }) {
   const [conP03, setConP03] = useState(false);
   const [lista, setLista] = useState<FacturaDeOrigen[]>([]);
+  const [conViejas, setConViejas] = useState(false);
+  const [cuantas, setCuantas] = useState(10);
   const clave = origenIds ? origenIds.join(',') : '*';
 
   useEffect(() => {
@@ -45,26 +47,48 @@ export function FacturasPorRegistrar({ origenIds, puedeRegistrar, onRegistrar, t
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir la factura', 'error'); }
   }
 
+  // Por defecto, solo lo que Compras marcó como factura; los archivos anteriores (sin clasificar: pueden ser pagos) aparte.
+  const marcadas = lista.filter((f) => f.esFactura === true);
+  const viejas = lista.filter((f) => f.esFactura !== true);
+  const base = conViejas ? lista : marcadas;
+  const mostradas = base.slice(0, cuantas);
+
   if (!conP03 || !lista.length) return null;
 
   return (
-    <div className="card" style={{ marginTop: '.6rem' }}>
-      <strong style={{ fontSize: '.9rem' }}>{titulo} <span className="badge">{lista.length}</span></strong>
+    <details className="card" style={{ marginTop: '.6rem' }}>
+      <summary style={{ cursor: 'pointer' }}>
+        <strong style={{ fontSize: '.9rem' }}>{titulo}</strong>{' '}
+        <span className="badge">{marcadas.length}</span>
+        <small className="muted"> · archivos de factura que subió Compras y que todavía no se cargan en Retenciones. Pulsa para verlos.</small>
+      </summary>
+      {viejas.length > 0 && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem', marginTop: '.4rem' }}>
+          <input type="checkbox" checked={conViejas} onChange={(e) => { setConViejas(e.target.checked); setCuantas(10); }} />
+          Incluir {viejas.length} archivo(s) anteriores sin clasificar (pueden ser pagos u otros papeles, no solo facturas)
+        </label>
+      )}
+      {!base.length && <p className="muted" style={{ fontSize: '.82rem', margin: '.4rem 0 0' }}>Ningún archivo marcado como factura por cargar.</p>}
       <ul style={{ listStyle: 'none', margin: '.4rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
-        {lista.map((f) => (
+        {mostradas.map((f) => (
           <li key={f.adjuntoId} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', justifyContent: 'space-between', flexWrap: 'wrap' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', minWidth: 0 }}>
               <span>{(f.contentType ?? '').startsWith('image/') ? '🖼' : '📄'}</span>
               <button type="button" className="btn btn-sm btn-ghost" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 onClick={() => abrir(f)} title="Ver la factura">{f.nombre}</button>
-              <small className="muted">{dateTime(f.subidoEn)}{f.subidoPor ? ` · ${f.subidoPor}` : ''}</small>
+              <small className="muted">{NOMBRE_ORIGEN[f.origen.tipo]} · subido el {dateTime(f.subidoEn)}</small>
             </span>
             {puedeRegistrar && (
-              <button type="button" className="btn btn-sm btn-primary" onClick={() => onRegistrar(f)}>Registrar factura</button>
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => onRegistrar(f)}>Cargar en Retenciones</button>
             )}
           </li>
         ))}
       </ul>
-    </div>
+      {base.length > mostradas.length && (
+        <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={() => setCuantas((c) => c + 10)}>
+          Ver 10 más ({base.length - mostradas.length} restantes)
+        </button>
+      )}
+    </details>
   );
 }

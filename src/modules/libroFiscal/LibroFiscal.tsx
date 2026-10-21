@@ -505,7 +505,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                             return (
                               <div key={t.key} className="lfv8-casilla nc">
                                 <span className="lfv8-imp">{t.corto}</span>
-                                <span className="lfv8-est">— Sin registro</span>
+                                <span className="lfv8-est">— Falta cargar</span>
                               </div>
                             );
                           }

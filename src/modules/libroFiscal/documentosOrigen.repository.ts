@@ -42,6 +42,8 @@ export interface FacturaDeOrigen {
   /** Ya es (o está en) un documento fiscal registrado. */
   registrado: boolean;
   documentos: string[];
+  /** true: Compras la marcó como factura; null: archivo anterior, sin clasificar (puede ser un pago u otro papel). */
+  esFactura?: boolean | null;
 }
 
 export function aFacturaDeOrigen(r: Record<string, unknown>): FacturaDeOrigen {
@@ -51,6 +53,7 @@ export function aFacturaDeOrigen(r: Record<string, unknown>): FacturaDeOrigen {
     bucket: String(r.bucket ?? ''), path: String(r.path ?? ''), nombre: String(r.nombre ?? '') || 'factura',
     contentType: texto(r.content_type), subidoPor: texto(r.subido_por), subidoEn: String(r.subido_en ?? ''),
     registrado: r.registrado === true, documentos: Array.isArray(r.documentos) ? (r.documentos as string[]) : [],
+    esFactura: r.modulo === 'orden_factura' ? true : (typeof r.es_factura === 'boolean' ? r.es_factura : null),
   };
 }
 

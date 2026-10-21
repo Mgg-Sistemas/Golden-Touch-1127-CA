@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { hoyVE } from '@/modules/tesoreria/tasas.repository';
 import { listRetenciones, tipoAGt } from './retencionesFiscal.repository';
 import { opcionesImpuestoEnte } from './entes.repository';
 import {
@@ -106,17 +107,35 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
       {periodos && periodos.length === 0 && <p className="muted">No hay períodos de {anio}.{puedeEditar ? ' Usa «Generar períodos».' : ''}</p>}
       {periodos && periodos.length > 0 && visibles.length === 0 && <p className="muted">Ningún período con ese filtro.</p>}
 
-      {visibles.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
+      {/* Un bloque plegado por impuesto, con su resumen: así no son 60 filas de golpe. */}
+      {visibles.length > 0 && tiposConPeriodos.filter((t) => !tipo || t === tipo).map((t) => {
+        const lista = visibles.filter((p) => p.tipo === t);
+        if (!lista.length) return null;
+        const hoy = hoyVE();
+        const enCurso = lista.find((p) => p.desde <= hoy && hoy <= p.hasta);
+        const vencidos = lista.filter((p) => estadoPeriodo(p) === 'vencido').length;
+        const abiertos = lista.filter((p) => !p.declaradoEn).length;
+        const proximo = lista.filter((p) => !p.declaradoEn && p.vence && p.vence >= hoy).sort((a, b) => String(a.vence).localeCompare(String(b.vence)))[0];
+        return (
+          <details key={t} open={!!tipo} className="card" style={{ marginBottom: '.5rem', padding: '.5rem .75rem' }}>
+            <summary style={{ cursor: 'pointer', display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <strong>{nombre(t)}</strong>
+              <span className="muted" style={{ fontSize: '.82rem' }}>
+                {enCurso ? `En curso: ${nombrePeriodo(enCurso)}` : 'Sin período en curso'}
+                {' · '}{abiertos} sin declarar
+                {vencidos > 0 && <> · <b style={{ color: ROTULO.vencido.color }}>{vencidos} vencido{vencidos === 1 ? '' : 's'}</b></>}
+                {proximo ? ` · próximo vencimiento ${fechaCorta(proximo.vence)}` : ''}
+              </span>
+            </summary>
+        <div style={{ overflowX: 'auto', marginTop: '.4rem' }}>
           <table className="table" style={{ fontSize: '.82rem', width: '100%' }}>
-            <thead><tr><th>Impuesto</th><th>Período</th><th>Del</th><th>Vence</th><th>Retenciones</th><th>Declara</th><th>Estado</th><th aria-label="Acciones" /></tr></thead>
+            <thead><tr><th>Período</th><th>Del</th><th>Vence</th><th>Retenciones</th><th>Quién declara</th><th>Estado</th><th aria-label="Acciones" /></tr></thead>
             <tbody>
-              {visibles.map((p) => {
+              {lista.map((p) => {
                 const est = estadoPeriodo(p);
                 const c = conteoDelPeriodo(p, conteos);
                 return (
                   <tr key={p.id}>
-                    <td>{nombre(p.tipo)}</td>
                     <td><strong>{nombrePeriodo(p)}</strong></td>
                     <td>{fechaCorta(p.desde)} – {fechaCorta(p.hasta)}</td>
                     <td>
@@ -127,7 +146,7 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
                     </td>
                     <td>{c.total}{c.declaradas ? <span className="muted"> · {c.declaradas} declarada{c.declaradas === 1 ? '' : 's'}</span> : ''}</td>
                     <td>
-                      {p.declara === 'gt' ? 'GT' : 'Otro sistema'}
+                      {p.declara === 'gt' ? 'Este sistema' : 'Otro sistema'}
                       {puedeEditar && !p.declaradoEn && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setQuien(p)}>Cambiar</button>}
                     </td>
                     <td>
@@ -145,7 +164,9 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
             </tbody>
           </table>
         </div>
-      )}
+          </details>
+        );
+      })}
 
       {declarar && (
         <DeclararModal periodo={declarar} nombre={`${nombre(declarar.tipo)} · ${nombrePeriodo(declarar)}`} pendientes={(() => { const c = conteoDelPeriodo(declarar, conteos); return c.total - c.declaradas; })()}

@@ -34,6 +34,16 @@ import { norm } from '@/shared/lib/texto';
 
 type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes';
 
+/** Qué documento es un código, en palabras: el personal no tiene por qué saber las siglas. */
+function nombreDocumento(codigo: string | null | undefined): string {
+  const c = String(codigo ?? '').toUpperCase();
+  if (c.startsWith('OC-')) return 'Orden de compra';
+  if (c.startsWith('CS-')) return 'Control de servicio';
+  if (c.startsWith('OP-') || c.startsWith('SP-')) return 'Solicitud de pedido';
+  if (c.startsWith('SS-')) return 'Solicitud de servicio';
+  return 'Compra';
+}
+
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
@@ -206,15 +216,7 @@ export function RetencionesPage() {
         </div>
       </header>
 
-      {/* ── Período en curso (sobre la vista agrupada, libro fiscal y por realizar) ── */}
-      {(vista === 'agrupada' || vista === 'libro' || vista === 'pendientes') && (
-        <div className="lfv8-per-curso">
-          <span className="lfv8-per-curso-label">Período en curso</span>
-          <span className="lfv8-per-chip"><b>IVA</b> <span className="muted">Quincenal · sin período configurado</span></span>
-          <span className="lfv8-per-chip"><b>ISLR</b> <span className="muted">Mensual · sin período configurado</span></span>
-          <span className="lfv8-per-chip"><b>ISAE</b> <span className="muted">Mensual · sin período configurado</span></span>
-        </div>
-      )}
+      {/* El período en curso de cada impuesto se ve en «Períodos» (resumen por impuesto). */}
 
       {/* ── Vista agrupada (v8): tarjetas, casillas, tira ── */}
       {vista === 'agrupada' && (
@@ -563,13 +565,13 @@ function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVe
       {/* Retenido al pagar, sin registrar */}
       {retenidosSinRegistrar.length > 0 && (
         <div className="lfv8-pagar">
-          <h3>Retenido al pagar, sin registrar ({retenidosSinRegistrar.length})</h3>
+          <h3>Retenido al pagar, falta cargarlo en el libro ({retenidosSinRegistrar.length})</h3>
           <p className="lfv8-huella">Lo retenido en el pago que todavía no está en el libro, incluidos los servicios directos. Al registrar, se usa la tasa de la factura y la del pago queda como referencia.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
             {retenidosSinRegistrar.slice(0, 10).map(({ orden: o, proveedorNombre }) => (
               <div key={o.id} className="lfv8-pagar-fila">
                 <span>
-                  <b className="mono">{o.oc_codigo ?? o.codigo}</b> · {o.tipo === 'servicio' ? 'Servicio directo' : 'OC'} · {proveedorNombre}
+                  <b className="mono">{o.oc_codigo ?? o.codigo}</b> · {nombreDocumento(o.oc_codigo ?? o.codigo)} · {proveedorNombre}
                   {o.retencion_monto != null && <> · retenido {montoMoneda(o.retencion_monto, o.total_moneda)}</>}
                   {o.retencion_tasa != null && <> · tasa del pago {num(o.retencion_tasa)}</>}
                 </span>
@@ -624,14 +626,14 @@ function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVe
         </div>
       </div>
 
-      <p className="lfv8-huella">Lo pendiente se agrupa por documento (OC o compra). Cada factura se registra aparte, con su número escrito a mano; el documento sigue aquí mientras le quede algo por registrar.</p>
+      <p className="lfv8-huella">Cada fila es una compra ya pagada o por pagar (orden de compra «OC» o control de servicio «CS»). Sigue aquí mientras le falte cargar la retención de algún impuesto (IVA, ISLR o ISAE), o marcar que no aplica.</p>
 
       {/* Grid table */}
       <div className="lfv8-sis" style={{ '--cols': '1fr 1.5fr 1fr .9fr 1fr 2.4fr' } as React.CSSProperties}>
         <div className="lfv8-sis-cab">
-          <span>OC o compra</span>
+          <span>Compra</span>
           <span>Proveedor</span>
-          <span>Facturas</span>
+          <span>Retenciones cargadas</span>
           <span style={{ textAlign: 'right' }}>Total</span>
           <span>Pendiente</span>
           <span></span>
@@ -645,13 +647,16 @@ function PorRealizarView({ items, registradas, tasasDoc, loading, canWrite, onVe
           const regs = IMPUESTOS_PENDIENTES.length - pends.length;
           return (
             <div key={o.id} className="lfv8-sis-fila">
-              <span data-l="OC o compra" className="mono">{o.oc_codigo ?? o.codigo}</span>
+              <span data-l="Compra">
+                <span className="mono">{o.oc_codigo ?? o.codigo}</span>
+                <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
+              </span>
               <span data-l="Proveedor">
                 {proveedorNombre}
                 {o.numero_administracion && <small>{o.numero_administracion}</small>}
               </span>
-              <span data-l="Facturas">
-                {regs > 0 ? `${regs} registrada(s)` : 'Ninguna registrada'}
+              <span data-l="Retenciones cargadas">
+                {regs > 0 ? `${regs} de ${IMPUESTOS_PENDIENTES.length} impuestos` : 'Ninguna todavía'}
               </span>
               <span className="n" data-l="Total">
                 {montoMoneda(o.total, o.total_moneda)}

@@ -39,7 +39,7 @@ export function AvisoSinFactura({ rutaDe }: {
   return (
     <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.6rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-        <span>⚠ <strong>{lista.length}</strong> {lista.length === 1 ? 'recepción sin factura' : 'recepciones sin factura'} del proveedor: pídela a Compras.</span>
+        <span>⚠ <strong>{lista.length}</strong> {lista.length === 1 ? 'compra ya recibida no tiene' : 'compras ya recibidas no tienen'} la factura del proveedor (órdenes de compra, controles de servicio, compras y servicios directos): pídela a Compras.</span>
         <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAbierto((v) => !v)}>{abierto ? 'Ocultar' : 'Ver cuáles'}</button>
       </div>
       {abierto && (
