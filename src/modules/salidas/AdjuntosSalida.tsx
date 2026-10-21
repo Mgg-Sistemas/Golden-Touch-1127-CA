@@ -31,7 +31,7 @@ function Icono({ contentType, nombre }: { contentType?: string | null; nombre?: 
 }
 
 /** Lista viva de adjuntos de una solicitud existente. */
-export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titulo = '📎 Fotos y documentos', repo = adjuntosSalidasRepo, grande = false, regla }: {
+export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titulo = '📎 Fotos y documentos', repo = adjuntosSalidasRepo, grande = false, regla, miniaturas = false }: {
   modulo: ModuloAdjuntoSalida; refId: string; actor?: string | null; soloLectura?: boolean; titulo?: string;
   /** Otro bucket + tabla con la misma forma (p. ej. los movimientos de tanque). */
   repo?: RepoAdjuntos;
@@ -39,8 +39,11 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
   grande?: boolean;
   /** Cupo propio (p. ej. 4 fotos o 1 PDF). Sin ella: hasta 4 de cualquier cosa. */
   regla?: ReglaAdjuntos;
+  /** Muestra las fotos como miniaturas (tocar una la abre en grande), además de la lista. */
+  miniaturas?: boolean;
 }) {
   const [lista, setLista] = useState<AdjuntoSalida[]>([]);
+  const [urls, setUrls] = useState<Map<string, string>>(new Map());
   const [cargando, setCargando] = useState(true);
   const [subiendo, setSubiendo] = useState(false);
   const [borrar, setBorrar] = useState<AdjuntoSalida | null>(null);
@@ -54,6 +57,18 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
 
   useEffect(() => { void reload(); }, [reload]);
   useRealtime([repo.tabla], () => { void reload(); });
+
+  // Las miniaturas piden las URLs firmadas de todas las fotos de una vez.
+  const imagenes = miniaturas ? lista.filter((a) => esImagenAdjunto(a.content_type, a.nombre)) : [];
+  const clavesImagenes = imagenes.map((a) => a.path).join('|');
+  useEffect(() => {
+    if (!clavesImagenes) { setUrls(new Map()); return; }
+    let vivo = true;
+    repo.urls(clavesImagenes.split('|'))
+      .then((m) => { if (vivo) setUrls(m); })
+      .catch(() => { /* sin miniaturas: queda la lista de siempre */ });
+    return () => { vivo = false; };
+  }, [clavesImagenes, repo]);
 
   async function abrir(a: AdjuntoSalida) {
     try { previewArchivo(await repo.url(a.path), a.nombre); }
@@ -110,6 +125,19 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
           {soloLectura ? 'Sin fotos ni documentos.' : regla ? `Sin archivos. ${regla.ayuda} Hasta 10 MB cada uno.` : `Sin fotos ni documentos. Se admiten hasta ${MAX_ADJUNTOS_SALIDA} (imagen o PDF, hasta 10 MB cada uno).`}
         </div>
       ) : (
+        <>
+        {imagenes.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: '.5rem', margin: '.1rem 0 .65rem' }}>
+            {imagenes.map((a) => (
+              <button key={a.id} type="button" onClick={() => abrir(a)} title={`Ver «${a.nombre}» en grande`}
+                style={{ padding: 0, aspectRatio: '1 / 1', overflow: 'hidden', cursor: 'zoom-in', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)' }}>
+                {urls.get(a.path)
+                  ? <img src={urls.get(a.path)} alt={a.nombre} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  : <span className="muted" style={{ fontSize: '.72rem' }}>Cargando…</span>}
+              </button>
+            ))}
+          </div>
+        )}
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
           {lista.map((a) => (
             <li key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', justifyContent: 'space-between' }}>
@@ -127,6 +155,7 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
             </li>
           ))}
         </ul>
+        </>
       )}
 
       {borrar && (
