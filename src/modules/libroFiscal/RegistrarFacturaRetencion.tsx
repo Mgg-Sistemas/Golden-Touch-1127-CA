@@ -34,6 +34,9 @@ import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { leerMonto, numeroATexto } from './validarCarga';
 import { montoEscrito, municipioDeLinea, sujetoDeLineas } from './lineasRegistro';
 import { SeLeyo } from './SeLeyo';
+import { rotuloImpuesto } from './rotulos';
+import { BuscadorFactura } from './BuscadorFactura';
+import { pendientesComoTipos, r10Disponible, registrarFacturaSola, retenerDespues, type FacturaResumen } from './facturasResumen.repository';
 import { faltaEnDatosFactura } from './facturaDocumento';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
@@ -79,6 +82,8 @@ export interface SemillaFactura {
   baseImponible?: number | null;
   /** Impuesto con el que arranca la primera línea (si se entra desde un botón de «Por realizar»). */
   tipoInicial?: TipoImpuesto;
+  /** R10: retener después sobre esta factura ya registrada (desde «Facturas registradas»). */
+  documento?: FacturaResumen | null;
 }
 
 interface LineaUI {
@@ -151,6 +156,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
   const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
   const [nota, setNota] = useState('');
+  // R10: la factura sola (sin líneas, queda pendiente) y retener después sobre una ya registrada.
+  const [conR10, setConR10] = useState(false);
+  const [documento, setDocumento] = useState<FacturaResumen | null>(null);
+  const [soloFactura, setSoloFactura] = useState(false);
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
     tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
   })]);
@@ -317,8 +326,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (direccion === 'practicada' && !proveedorId) return 'Elige el proveedor al que se le retiene.';
     if (direccion === 'recibida' && !contraparte.trim()) return 'Indica quién nos retuvo.';
     if (textoRif) return textoRif.error;
-    const falta = faltaEnDatosFactura({ nro: facturaNro, control: facturaControl, fecha: facturaFecha }, hoyIso());
+    // Una factura ya registrada trae sus datos de la base (pueden ser de antes de pedir el control).
+    const falta = documento ? null : faltaEnDatosFactura({ nro: facturaNro, control: facturaControl, fecha: facturaFecha }, hoyIso());
     if (falta) return falta;
+    if (soloFactura) {
+      if (ilegibles.length) return `No se entiende: ${ilegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`;
+      if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
+      return null;
+    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) return 'Indica la fecha de la retención (emisión del comprobante).';
     if (fechaRetencion < facturaFecha) return 'La fecha de la retención no puede ser anterior a la de la factura.';
     if (avisoFecha) return avisoFecha;
@@ -327,6 +342,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (moneda !== 'Bs' && !(tasa > 0)) return 'Indica la tasa para llevar los montos a bolívares.';
     if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
     if (!lineas.length) return 'Agrega al menos una línea de impuesto.';
+    if (documento) {
+      const yaNo = lineas.find((l) => !pendientesComoTipos(documento).includes(l.tipo));
+      if (yaNo) return `${labelImpuesto(yaNo.tipo)} ya no está pendiente en esta factura (ya se retuvo o se marcó «no aplica»).`;
+    }
     const sujeto = sujetoDeLineas(lineas);
     if (sujeto.error) return sujeto.error;
     for (const l of lineas) {
@@ -340,6 +359,32 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     }
     return null;
   }
+
+  /** Elegir una factura ya registrada: se precargan sus datos y se retiene sobre ella lo pendiente. */
+  function aplicarDocumento(f: FacturaResumen) {
+    marcarSucio();
+    setDocumento(f); setSoloFactura(false); setDireccion('practicada');
+    if (f.proveedorId) setProveedorId(f.proveedorId);
+    setContraparte(f.razonSocial ?? ''); setRif(f.rif ?? '');
+    setFacturaNro(f.facturaNro ?? ''); setFacturaControl(f.facturaControl ?? ''); setFacturaFecha(f.facturaFecha ?? '');
+    setMoneda(f.moneda || 'Bs'); if (f.tasa) setTasaStr(numeroATexto(f.tasa));
+    setFacturaTotal(numeroATexto(f.facturaTotal ?? 0));
+    const base = f.facturaTotal != null ? Math.max(0, f.facturaTotal - (f.ivaMonto ?? 0)) : 0;
+    const tipos = pendientesComoTipos(f);
+    const sujeto = sugerirSujetoPorRif(f.rif ?? '')?.sujeto ?? 'pj_domiciliada';
+    setLineas((tipos.length ? tipos : ['iva' as TipoImpuesto]).map((t) => nuevaLinea({
+      tipo: t, sujeto, baseStr: numeroATexto(base), ivaStr: numeroATexto(f.ivaMonto ?? 0),
+    })));
+  }
+  function soltarDocumento() { marcarSucio(); setDocumento(null); }
+
+  useEffect(() => {
+    let vivo = true;
+    void r10Disponible().then((v) => { if (vivo) setConR10(v); });
+    return () => { vivo = false; };
+  }, []);
+  // Desde «Facturas registradas»: se abre ya sobre esa factura.
+  useEffect(() => { if (s.documento) aplicarDocumento(s.documento); }, [s.documento]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function emitir() {
     const falla = validar();
@@ -388,8 +433,16 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           regla: !esManual && reglas[l.id] ? columnasDeRegla(reglas[l.id] as CalculoConRegla) : null,
         };
       });
-      const res = await registrarFactura(facturaNueva, lineasNuevas);
-      notify(`Factura ${facturaNro} registrada · ${res.lineas.length} línea(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
+      if (soloFactura) {
+        const res = await registrarFacturaSola(facturaNueva);
+        notify(`Factura ${facturaNro} registrada: queda pendiente por retener`, 'success', { link: '#/app/retenciones' });
+        onHecho(res);
+        return;
+      }
+      const res = documento
+        ? await retenerDespues(documento, lineasNuevas, { periodo, actorName, valorUt: config.valorUt })
+        : await registrarFactura(facturaNueva, lineasNuevas);
+      notify(`Factura ${facturaNro} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
       onHecho(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo registrar la factura.');
@@ -398,12 +451,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   }
 
   return (
-    <Modal title="🧾 Registrar retención por factura" size="xl" onClose={pedirCierre}
+    <Modal title={documento ? '🧾 Retener sobre una factura registrada' : '🧾 Registrar retención por factura'} size="xl" onClose={pedirCierre}
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || !lineas.length}>
-            {saving ? 'Guardando…' : `Registrar · ${money(totalRetenido, moneda)}`}
+          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || (!soloFactura && !lineas.length)}>
+            {saving ? 'Guardando…' : soloFactura ? 'Registrar la factura' : `${documento ? 'Retener' : 'Registrar'} · ${money(totalRetenido, moneda)}`}
           </button>
         </>
       )}>
@@ -419,7 +472,17 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           <small className="muted">Al registrar, el archivo queda enlazado a esta factura.</small>
         </div>
       )}
-      {sinDocumento && (
+      {documento && (
+        <div className="card" style={{ borderColor: 'var(--primary)', marginBottom: '.75rem' }}>
+          <small>
+            Retienes sobre la factura N° <strong className="mono">{documento.facturaNro ?? '—'}</strong> ya registrada
+            {documento.razonSocial ? ` de ${documento.razonSocial}` : ''}. Por retener: <strong>{documento.pendientes.map(rotuloImpuesto).join(', ') || 'nada'}</strong>
+            {Object.keys(documento.retenido).length > 0 && <> · ya retenido: {Object.keys(documento.retenido).map(rotuloImpuesto).join(', ')}</>}.
+            Sus datos no se cambian aquí.
+          </small>
+        </div>
+      )}
+      {sinDocumento && !documento && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem' }}>
           <small>Esta factura no viene de una OC, un CS ni una compra directa. Quedará en el libro marcada «Fuera del sistema» y hay que anotar en la nota de dónde viene.</small>
         </div>
@@ -445,7 +508,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           <label>{direccion === 'recibida' ? 'Quién nos retuvo' : 'A quién le retenemos'}</label>
           {direccion === 'practicada' ? (
             <SearchSelect value={proveedorId} onChange={elegirProveedor} options={opcionesProveedor}
-              placeholder="Buscar proveedor por nombre o RIF…" disabled={!!s.contraparteId} />
+              placeholder="Buscar proveedor por nombre o RIF…" disabled={!!s.contraparteId || !!documento} />
           ) : (
             <input className="input" value={contraparte} onChange={(e) => { marcarSucio(); setContraparte(e.target.value); }} placeholder="Razón social" />
           )}
@@ -463,7 +526,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
         <div className="form-row" style={{ flex: '0 1 110px' }}>
           <label>Moneda de la factura</label>
-          <select className="select" value={moneda} onChange={(e) => { marcarSucio(); setMoneda(e.target.value); }}>
+          <select className="select" value={moneda} disabled={!!documento} onChange={(e) => { marcarSucio(); setMoneda(e.target.value); }}>
             <option value="Bs">Bs</option>
             <option value="USD">$</option>
           </select>
@@ -481,15 +544,21 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
           <label>N° de factura</label>
-          <input className="input mono" value={facturaNro} onChange={(e) => { marcarSucio(); setFacturaNro(e.target.value); }} placeholder="Número fiscal (no el código de la OC)" maxLength={30} />
+          {conR10 && direccion === 'practicada' ? (
+            <BuscadorFactura valor={facturaNro} onTexto={(t) => { marcarSucio(); setFacturaNro(t); }} proveedorId={proveedorId || null}
+              onElegir={aplicarDocumento} elegida={documento} onSoltar={s.documento ? undefined : soltarDocumento} />
+          ) : (
+            <input className="input mono" value={facturaNro} onChange={(e) => { marcarSucio(); setFacturaNro(e.target.value); }} placeholder="Número fiscal (no el código de la OC)" maxLength={30} />
+          )}
+          {conR10 && direccion === 'practicada' && !documento && <small className="hint muted">Si ya está registrada, elígela de la lista para retener sobre ella.</small>}
         </div>
         <div className="form-row" style={{ flex: '1 1 120px' }}>
           <label>N° de control</label>
-          <input className="input mono" value={facturaControl} onChange={(e) => { marcarSucio(); setFacturaControl(e.target.value); }} maxLength={30} />
+          <input className="input mono" value={facturaControl} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaControl(e.target.value); }} maxLength={30} />
         </div>
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Fecha de la factura</label>
-          <input className="input" type="date" value={facturaFecha} max={hoyIso()} onChange={(e) => { marcarSucio(); setFacturaFecha(e.target.value); }} />
+          <input className="input" type="date" value={facturaFecha} max={hoyIso()} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaFecha(e.target.value); }} />
           {avisoFecha
             ? <small className="hint" style={{ color: 'var(--danger)' }}>{avisoFecha}</small>
             : <small className="hint muted">Define el período, la quincena y la tasa.</small>}
@@ -501,12 +570,25 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
         <div className="form-row" style={{ flex: '1 1 130px' }}>
           <label>Total de la factura</label>
-          <input className="input mono" value={facturaTotal} onChange={(e) => { marcarSucio(); setFacturaTotal(e.target.value); }} inputMode="decimal" />
+          <input className="input mono" value={facturaTotal} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaTotal(e.target.value); }} inputMode="decimal" />
           <SeLeyo texto={facturaTotal} />
         </div>
       </div>
 
+      {conR10 && !documento && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.86rem', margin: '.4rem 0' }}>
+          <input type="checkbox" checked={soloFactura} onChange={(e) => { marcarSucio(); setSoloFactura(e.target.checked); }} />
+          Registrar solo la factura (retener después)
+        </label>
+      )}
+      {soloFactura && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginTop: '.4rem' }}>
+          <small>La factura quedará <strong>pendiente por retener</strong>: aparece en «Facturas registradas» y en el buscador del N° de factura para retener después.</small>
+        </div>
+      )}
+
       {/* Las líneas de impuesto */}
+      {!soloFactura && (
       <div className="card" style={{ marginTop: '.4rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
           <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
@@ -616,6 +698,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           );
         })}
       </div>
+      )}
 
       <div className="form-row">
         <label>Nota de la factura</label>

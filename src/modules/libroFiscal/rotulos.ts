@@ -26,8 +26,8 @@ const de = (dic: Record<string, string>, clave: unknown) => dic[String(clave ?? 
 /* ───────── Impuestos ───────── */
 
 const IMPUESTO: Record<string, string> = {
-  IVA: 'IVA', ISLR: 'ISLR', MUNICIPAL: 'ISAE (municipal)', ESTADAL: 'Timbre fiscal estadal', IGTF: 'IGTF',
-  iva: 'IVA', islr: 'ISLR', municipal: 'ISAE (municipal)', regional: 'Timbre fiscal estadal', estadal: 'Timbre fiscal estadal', igtf: 'IGTF',
+  IVA: 'IVA', ISLR: 'ISLR', MUNICIPAL: 'ISAE (municipal)', ESTADAL: 'Estadal (timbre fiscal)', IGTF: 'IGTF',
+  iva: 'IVA', islr: 'ISLR', municipal: 'ISAE (municipal)', regional: 'Estadal (timbre fiscal)', estadal: 'Estadal (timbre fiscal)', igtf: 'IGTF',
 };
 /** El nombre de un impuesto por su clave (IVA, MUNICIPAL…) o su tipo interno (municipal, regional…). */
 export const rotuloImpuesto = (clave: unknown) => (clave == null || clave === '' ? 'Todos los impuestos' : de(IMPUESTO, clave));

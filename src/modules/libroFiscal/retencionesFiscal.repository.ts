@@ -287,7 +287,7 @@ export function conceptosLocales(j: JsonParametros | null | undefined): Concepto
   return [
     { ...base, id: 'municipal:todos', tipo: 'municipal', nombre: `ISAE${v.municipio ? ` · ${v.municipio}` : ''}`,
       porcentaje: n(v.municipal_alicuota), fundamento: 'Ordenanza de actividades económicas del municipio', orden: 900 },
-    { ...base, id: 'regional:todos', tipo: 'regional', nombre: 'Timbre fiscal estadal',
+    { ...base, id: 'regional:todos', tipo: 'regional', nombre: 'Estadal (timbre fiscal)',
       porcentaje: n(v.estadal_alicuota), fundamento: 'Ley de timbre fiscal del estado', orden: 901 },
   ];
 }
