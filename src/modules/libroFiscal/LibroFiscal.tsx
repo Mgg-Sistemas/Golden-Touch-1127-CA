@@ -91,6 +91,9 @@ const enBs = (r: RetencionPracticada) => r.montoBs ?? (r.moneda === 'Bs' ? r.mon
 
 /* ═══════════════════════ Libro fiscal ═══════════════════════ */
 
+/** Qué documento puede adjuntarse a una retención practicada. */
+const TIPOS_RESPALDO = ['Factura del proveedor', 'Comprobante de retención firmado', 'Nota de entrega', 'Otro documento'];
+
 function rutaDocumento(kind: DocKind, id: string | null): string | null {
   if (!id) return null;
   if (kind === 'oc') return `/app/pedidos?detalle=${encodeURIComponent(id)}`;
@@ -757,6 +760,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [montoStr, setMontoStr] = useState('');
   const [observacion, setObservacion] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
+  // Qué documento se adjunta: en una recibida, el comprobante que entregó el agente; en una practicada, el respaldo.
+  const [tipoArchivo, setTipoArchivo] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
@@ -886,7 +891,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     : `El RIF «${rif}» no es válido: letra (V, E, J, P, G o C), 8 números y el dígito verificador.`;
   const equivalenteUsd = moneda === 'Bs' && tasaBcv?.tasa ? montoFinal / tasaBcv.tasa : null;
   const montosIlegibles = ([
-    [tipo === 'iva' ? 'Base imponible' : 'Monto del pago', baseStr, true],
+    ['Base imponible', baseStr, true],
     ['IVA de la factura', ivaStr, tipo === 'iva'],
     ['Tasa', tasaStr, moneda !== 'Bs'],
     ['% retenido', pctStr, esManual],
@@ -908,6 +913,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indicar la tasa de cambio para convertir la retención a bolívares.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) { setError('Indicar la fecha de la retención (emisión del comprobante).'); return; }
+    if (archivo && !esManual && !tipoArchivo) { setError('Indica qué documento adjuntas (factura, comprobante firmado, nota de entrega u otro).'); return; }
     setSaving(true);
     try {
       const periodo = periodoDe(facturaFecha);
@@ -939,7 +945,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           .filter(Boolean).join(' · ') || null,
         actor, actorName,
       }, config);
-      if (archivo) await adjuntarComprobante(r.id, archivo).catch(() => toast('La retención quedó registrada, pero el adjunto no subió: se puede adjuntar después', 'error'));
+      if (archivo) await adjuntarComprobante(r.id, archivo, esManual ? 'Comprobante de retención recibido' : tipoArchivo).catch(() => toast('La retención quedó registrada, pero el adjunto no subió: se puede adjuntar después', 'error'));
       notify(
         `${labelDireccion(direccion)} · ${labelImpuesto(tipo)} · ${monto(r.montoRetenido, r.moneda)}${r.numeroComprobante ? ` · ${r.numeroComprobante}` : ''}`,
         'success', { link: '#/app/retenciones' },
@@ -956,8 +962,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     <Modal title="Registrar retención" size="lg" onClose={pedirCierre}
       footer={
         <>
+          {/* El botón no se apaga en silencio: al pulsarlo se dice qué falta, aquí al lado y arriba. */}
+          {error && <small style={{ color: 'var(--danger)', marginRight: 'auto', maxWidth: '60%' }}>No se registró: {error}</small>}
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || montoFinal < 0 || ceroSinMotivo || !!bloqueo || !!avisoFecha}>
+          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving}>
             {saving ? 'Guardando…' : (esCero ? 'Registrar en 0 con motivo' : `Registrar · ${monto(montoFinal, moneda)}`)}
           </button>
         </>
@@ -997,7 +1005,12 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       {sinDocumento && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>
           <strong>Sin documento del sistema.</strong>{' '}
-          <small>Esta retención no viene de una OC, un CS ni una compra directa. Quedará en el libro marcada «Fuera del sistema» y hay que anotar en la observación de dónde viene. Si la compra está en el sistema, regístrala desde «Por realizar».</small>
+          <small>
+            Esta retención no viene de una OC, un CS ni una compra directa (por ejemplo, una factura de otra sede). Se registra igual:
+            escribe abajo los datos de la factura (<b>N° de factura</b>, <b>N° de control</b>, <b>fecha</b> y <b>base imponible</b>),
+            adjunta su imagen en <b>«Documento de respaldo»</b> eligiendo «Factura del proveedor», y anota en la <b>observación</b> de dónde viene.
+            Quedará en el libro marcada «Fuera del sistema». Si la compra sí está en el sistema, regístrala desde «Por realizar».
+          </small>
         </div>
       )}
 
@@ -1069,14 +1082,19 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
             </div>
           )}
           <div className="form-row">
-            <label>Concepto</label>
+            <label>{tipo === 'islr' ? 'Concepto del ISLR: qué se le paga al proveedor' : 'Actividad económica del proveedor (ordenanza)'}</label>
             <select className="select" value={conceptoId} onChange={(e) => setConceptoId(e.target.value)}>
               {!conceptosDelTipo.length && <option value="">— sin conceptos activos para este caso —</option>}
               {conceptosDelTipo.map((c) => (
                 <option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} · ` : ''}{c.nombre} — {c.porcentaje}%</option>
               ))}
             </select>
-            {concepto?.fundamento && <small className="hint muted">{concepto.fundamento}</small>}
+            <small className="hint muted">
+              {tipo === 'islr'
+                ? 'Por ejemplo: honorarios, servicios, fletes, arrendamiento. Define el % que se retiene.'
+                : 'La actividad por la que el proveedor factura. Define la alícuota que se retiene.'}
+              {concepto?.fundamento ? ` ${concepto.fundamento}` : ''}
+            </small>
           </div>
         </>
       )}
@@ -1156,8 +1174,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           </div>
         )}
         <div className="form-row" style={{ flex: '1 1 150px' }}>
-          <label>{tipo === 'iva' ? 'Base imponible' : 'Monto del pago (sin IVA)'}</label>
+          <label>Base imponible</label>
           <input className="input mono" value={baseStr} onChange={(e) => setBaseStr(e.target.value)} inputMode="decimal" />
+          {tipo !== 'iva' && <small className="hint muted">El monto de la factura sin IVA, sobre el que se calcula la retención.</small>}
         </div>
         {tipo === 'iva' && (
           <div className="form-row" style={{ flex: '1 1 130px' }}>
@@ -1182,7 +1201,21 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       </div>
 
       <div className="form-row">
-        <label>Comprobante (PDF o imagen)</label>
+        {esManual ? (
+          <>
+            <label>Comprobante de retención recibido (PDF o imagen, opcional)</label>
+            <small className="hint muted">El comprobante que entregó quien practicó la retención.</small>
+          </>
+        ) : (
+          <>
+            <label>Documento de respaldo (PDF o imagen, opcional)</label>
+            <select className="select" value={tipoArchivo} onChange={(e) => setTipoArchivo(e.target.value)} style={{ marginBottom: '.3rem' }}>
+              <option value="">— ¿Qué documento es? —</option>
+              {TIPOS_RESPALDO.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <small className="hint muted">El comprobante de retención lo genera el sistema al registrar. Aquí se adjunta la factura u otro respaldo.</small>
+          </>
+        )}
         <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} />
         {archivo && <small className="muted">{archivo.name}</small>}
       </div>
