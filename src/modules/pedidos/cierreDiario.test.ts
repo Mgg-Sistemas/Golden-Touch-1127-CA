@@ -89,30 +89,60 @@ describe('calcularCierre', () => {
   ];
 
   it('con HOY solo cuenta lo de hoy', () => {
-    expect(calcularCierre(filas, periodoDe('dia', '2026-10-21'))).toEqual({ pedidos: 2, porAprobar: 1, porPagar: 2, pagadas: 2 });
+    expect(calcularCierre(filas, periodoDe('dia', '2026-10-21'))).toMatchObject({ pedidos: 2, porAprobar: 1, porPagar: 2, pagadas: 2 });
   });
   it('con la semana suma también los días anteriores de esa semana', () => {
     // Pedidos: hoy 2 (la hija no cuenta) + ayer 1; oc_creada del 15 queda fuera de la semana 19-25
-    expect(calcularCierre(filas, periodoDe('semana', '2026-10-21'))).toEqual({ pedidos: 3, porAprobar: 1, porPagar: 2, pagadas: 2 });
+    expect(calcularCierre(filas, periodoDe('semana', '2026-10-21'))).toMatchObject({ pedidos: 3, porAprobar: 1, porPagar: 2, pagadas: 2 });
   });
   it('con el mes entra todo lo de octubre', () => {
-    expect(calcularCierre(filas, periodoDe('mes', '2026-10'))).toEqual({ pedidos: 13, porAprobar: 2, porPagar: 3, pagadas: 3 });
+    expect(calcularCierre(filas, periodoDe('mes', '2026-10'))).toMatchObject({ pedidos: 13, porAprobar: 2, porPagar: 3, pagadas: 3 });
   });
   it('un rango sin nada da ceros', () => {
-    expect(calcularCierre(filas, periodoDe('dia', '2026-01-05'))).toEqual({ pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0 });
+    expect(calcularCierre(filas, periodoDe('dia', '2026-01-05'))).toMatchObject({ pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0 });
   });
   it('usa la fecha de Venezuela: lo de las 11 p. m. del 20 no cae en el 21', () => {
     const f = [fila({ created_at: '2026-10-21T03:30:00Z' })]; // 20/10 11:30 p. m. en Caracas
     expect(calcularCierre(f, periodoDe('dia', '2026-10-20')).pedidos).toBe(1);
     expect(calcularCierre(f, periodoDe('dia', '2026-10-21')).pedidos).toBe(0);
   });
+  it('calcula cotizaciones cargadas y órdenes finalizadas por analista en el período', () => {
+    const cotizaciones = [
+      { registrada_por_email: 'nazareth@goldentouch.com', registrada_en: '2026-10-21T14:00:00Z' },
+      { registrada_por_email: 'nazareth@goldentouch.com', registrada_en: '2026-10-21T15:00:00Z' },
+      { registrada_por_email: 'javier@goldentouch.com', registrada_en: '2026-10-21T16:00:00Z' },
+      { registrada_por_email: 'nazareth@goldentouch.com', registrada_en: '2026-10-15T10:00:00Z' }, // fuera de hoy
+    ];
+    const ordenesFin = [
+      fila({ estado: 'finalizada', finalizada_en: '2026-10-21T17:00:00Z', oc_creada_por: 'nazareth@goldentouch.com' }),
+      fila({ estado: 'finalizada', finalizada_en: '2026-10-21T18:00:00Z', finalizada_por: 'javier@goldentouch.com' }),
+      fila({ estado: 'finalizada', finalizada_en: '2026-10-18T10:00:00Z', oc_creada_por: 'nazareth@goldentouch.com' }), // fuera de hoy
+    ];
+    const personas = new Map([
+      ['nazareth@goldentouch.com', 'Nazareth Salazar'],
+      ['javier@goldentouch.com', 'Javier Leiva'],
+    ]);
+    const res = calcularCierre(ordenesFin, periodoDe('dia', '2026-10-21'), cotizaciones, personas);
+    expect(res.analistas).toEqual([
+      { email: 'javier@goldentouch.com', nombre: 'Javier Leiva', cotizaciones: 1, finalizadas: 1 },
+      { email: 'nazareth@goldentouch.com', nombre: 'Nazareth Salazar', cotizaciones: 2, finalizadas: 1 },
+    ]);
+  });
 });
 
 describe('salidas', () => {
-  const r = { pedidos: 12, porAprobar: 5, porPagar: 3, pagadas: 7 };
+  const r = {
+    pedidos: 12,
+    porAprobar: 5,
+    porPagar: 3,
+    pagadas: 7,
+    analistas: [
+      { email: 'nazareth@goldentouch.com', nombre: 'Nazareth Salazar', cotizaciones: 4, finalizadas: 2 },
+    ],
+  };
   const p = periodoDe('dia', '2026-10-21');
 
-  it('WhatsApp: solo los títulos con sus cantidades, el período y la hora de impresión', () => {
+  it('WhatsApp: títulos y desglose por analista con sus cantidades', () => {
     expect(textoCierreDiarioWhatsapp(r, p, AHORA)).toBe([
       '📊 *CIERRE DIARIO · COMPRAS*',
       '',
@@ -124,6 +154,9 @@ describe('salidas', () => {
       '💵 *Órdenes por pagar:* 3',
       '✅ *Órdenes pagadas:* 7',
       '',
+      '👥 *POR ANALISTA*',
+      '· *Nazareth Salazar:* 4 cotizaciones realizadas · 2 órdenes finalizadas',
+      '',
       '🏢 GOLDEN TOUCH 1127 C.A.',
     ].join('\n'));
   });
@@ -132,7 +165,7 @@ describe('salidas', () => {
     expect(textoCierreDiarioWhatsapp(r, p, AHORA)).not.toContain('️');
   });
 
-  it('Excel: título, período, impreso y los cuatro renglones', async () => {
+  it('Excel: título, período, impreso y tablas con analistas', async () => {
     const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await construirCierreDiarioExcel(r, p, AHORA));
@@ -146,14 +179,21 @@ describe('salidas', () => {
       expect(celda(7 + i, 1)).toBe(t.titulo);
       expect(Number(ws.getCell(7 + i, 2).value)).toBe(r[t.clave]);
     });
+    expect(celda(12, 1)).toBe('POR ANALISTA');
+    expect([celda(13, 1), celda(13, 2), celda(13, 3)]).toEqual(['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']);
+    expect(celda(14, 1)).toBe('Nazareth Salazar');
+    expect(Number(ws.getCell(14, 2).value)).toBe(4);
+    expect(Number(ws.getCell(14, 3).value)).toBe(2);
   }, 30000);
 
-  it('PDF: se arma con el título, el período, la hora y los números', async () => {
+  it('PDF: se arma con el título, el período, los números y los analistas', async () => {
     const doc = await construirCierreDiarioPdf(r, p, null, AHORA);
     const pdf = new TextDecoder('latin1').decode(doc.output('arraybuffer'));
     expect(pdf).toContain('CIERRE DIARIO');
     expect(pdf).toContain('21/10/2026');
     expect(pdf).toContain('08:45');
     expect(pdf).toContain('pendientes por aprobar');
+    expect(pdf).toContain('POR ANALISTA');
+    expect(pdf).toContain('Nazareth Salazar');
   }, 30000);
 });

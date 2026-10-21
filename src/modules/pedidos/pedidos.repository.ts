@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { errorBorrarOrigen, exigirSinFacturaRegistrada } from './origenRegistrado';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
-import type { FilaCierre } from './cierreDiario';
+import type { FilaCierre, FilaCotizacionCierre } from './cierreDiario';
 import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
 import { anularRetencionesVinculadas, pagarOrden, restaurarRetencionesAnuladas } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
@@ -1577,14 +1577,25 @@ export async function listOrdenesReporteCompras(): Promise<Orden[]> {
 
 /**
  * Lo que el «Cierre diario» cuenta: todas las órdenes, pero SOLO las columnas que
- * hacen falta (estado y fechas), sin ítems ni historial, que pesan.
+ * hacen falta (estado, fechas y analista), sin ítems ni historial, que pesan.
  */
 export async function listOrdenesCierreDiario(): Promise<FilaCierre[]> {
   return todasLasFilas<FilaCierre>((d, h) => supabase
     .from(TABLE)
-    .select('id, estado, created_at, op_padre_id, oc_creada_en, oc_aprobada_en, aprobada_en, pagada_en')
+    .select('id, estado, created_at, op_padre_id, oc_creada_en, oc_aprobada_en, aprobada_en, pagada_en, finalizada_en, finalizada_por, oc_creada_por, oc_emitida_por')
     .order('created_at', { ascending: true })
     .order('id')
+    .range(d, h));
+}
+
+/**
+ * Cotizaciones registradas para el «Cierre diario»: quién la cargó y cuándo.
+ */
+export async function listCotizacionesCierreDiario(): Promise<FilaCotizacionCierre[]> {
+  return todasLasFilas<FilaCotizacionCierre>((d, h) => supabase
+    .from('ofertas_proveedor')
+    .select('registrada_por_email, registrada_en')
+    .order('registrada_en', { ascending: true })
     .range(d, h));
 }
 
