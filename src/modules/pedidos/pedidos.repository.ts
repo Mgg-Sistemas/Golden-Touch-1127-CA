@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { errorBorrarOrigen, exigirSinFacturaRegistrada } from './origenRegistrado';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import type { FilaCierre } from './cierreDiario';
 import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
 import { anularRetencionesVinculadas, pagarOrden, restaurarRetencionesAnuladas } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
@@ -1569,6 +1570,19 @@ export async function listOrdenesReporteCompras(): Promise<Orden[]> {
     .from(TABLE)
     .select('*')
     .in('estado', [...ESTADOS_REPORTE_COMPRAS])
+    .order('created_at', { ascending: true })
+    .order('id')
+    .range(d, h));
+}
+
+/**
+ * Lo que el «Cierre diario» cuenta: todas las órdenes, pero SOLO las columnas que
+ * hacen falta (estado y fechas), sin ítems ni historial, que pesan.
+ */
+export async function listOrdenesCierreDiario(): Promise<FilaCierre[]> {
+  return todasLasFilas<FilaCierre>((d, h) => supabase
+    .from(TABLE)
+    .select('id, estado, created_at, op_padre_id, oc_creada_en, oc_aprobada_en, aprobada_en, pagada_en')
     .order('created_at', { ascending: true })
     .order('id')
     .range(d, h));

@@ -70,6 +70,7 @@ import type { RecepcionRenglon } from './pedidos.repository';
 import { MarcaRecibidaCampos, useMarcasRecibidas } from './MarcaRecibidaCampos';
 import { avisarCambiosDeMarca } from './avisoMarcaDistinta';
 import { ReporteComprasModal } from './ReporteComprasModal';
+import { CierreDiarioModal } from './CierreDiarioModal';
 import { ReportePendientesPagarModal } from './ReportePendientesPagarModal';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
@@ -305,6 +306,7 @@ export function PedidosPage() {
   const [pendientesPagarOpen, setPendientesPagarOpen] = useState(false);
   // Modal del reporte «Compras por estado» (las tres salidas viven ahí adentro).
   const [reporteComprasOpen, setReporteComprasOpen] = useState(false);
+  const [cierreDiarioOpen, setCierreDiarioOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -603,6 +605,15 @@ export function PedidosPage() {
           {canManageProcurement && (
             <button
               className="btn btn-ghost"
+              onClick={() => setCierreDiarioOpen(true)}
+              title="Resumen de Compras: Pedidos, Órdenes pendientes por aprobar, por pagar y pagadas, por día, semana, mes o rango · PDF/Imprimir, Excel y WhatsApp"
+            >
+              📊 Cierre diario
+            </button>
+          )}
+          {canManageProcurement && (
+            <button
+              className="btn btn-ghost"
               onClick={() => setPendientesPagarOpen(true)}
               title="Relación de TODO lo pendiente por pagar (compras directas, OC, servicios), con las cuentas a crédito indicadas · PDF/Imprimir, Excel y WhatsApp"
             >
@@ -825,6 +836,8 @@ export function PedidosPage() {
 
       {/* Modal: reporte «Compras por estado» (PDF/Imprimir · Excel · WhatsApp) */}
       {reporteComprasOpen && <ReporteComprasModal onClose={() => setReporteComprasOpen(false)} />}
+      {/* Modal: «Cierre diario» (resumen por período · PDF/Imprimir · Excel · WhatsApp) */}
+      {cierreDiarioOpen && <CierreDiarioModal onClose={() => setCierreDiarioOpen(false)} />}
 
       {/* Modal: reporte «Pendientes por pagar» (PDF/Imprimir · Excel · WhatsApp) */}
       {pendientesPagarOpen && <ReportePendientesPagarModal onClose={() => setPendientesPagarOpen(false)} />}
