@@ -58,7 +58,9 @@ import {
   PORCENTAJES_IVA,
   type AlicuotasLocales, type DocKind, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
-import { faltaEnLaCarga, leerMonto } from './validarCarga';
+import { faltaEnLaCarga, leerMonto, numeroATexto } from './validarCarga';
+import { montoEscrito, municipioDeLinea } from './lineasRegistro';
+import { CampoMonto } from './CampoMonto';
 import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
 import { Paginador } from './ListaControles';
 import './libroFiscal.css';
@@ -794,8 +796,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [facturaFecha, setFacturaFecha] = useState('');
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
-  const [baseStr, setBaseStr] = useState(String(semilla.baseImponible ?? semilla.total ?? 0));
-  const [ivaStr, setIvaStr] = useState(String(semilla.iva ?? 0));
+  const [baseStr, setBaseStr] = useState(numeroATexto(semilla.baseImponible ?? semilla.total ?? 0));
+  const [ivaStr, setIvaStr] = useState(numeroATexto(semilla.iva ?? 0));
   const [pctStr, setPctStr] = useState('');
   const [montoStr, setMontoStr] = useState('');
   const [observacion, setObservacion] = useState('');
@@ -950,7 +952,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const bloqueo = direccion === 'practicada' ? motivoNoPuedePracticar(tipo, config) : null;
   const pctFinal = esManual ? nDec(pctStr) : calculo.porcentaje;
   const montoFinal = esManual
-    ? (nDec(montoStr) || Math.round(nDec(baseStr) * nDec(pctStr)) / 100)
+    // Vacío = el calculado; «0» escrito = 0 (y pide el motivo del 0 %). Lo ilegible lo frena «montosIlegibles».
+    ? (montoEscrito(montoStr, Math.round(nDec(baseStr) * nDec(pctStr)) / 100) ?? 0)
     : calculo.montoRetenido;
   const tasa = nDec(tasaStr);
   const montoBs = enBolivares(montoFinal, moneda, tasa);
@@ -1010,6 +1013,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         numeroComprobante: esManual ? (numero.trim() || null) : null,
         conceptoId: esManual ? null : (concepto?.id ?? null),
         conceptoNombre: esManual ? null : (concepto?.nombre ?? null),
+        municipio: municipioDeLinea(tipo, config),
         moneda, tasa: moneda === 'Bs' ? null : tasa,
         baseImponible: esManual ? nDec(baseStr) : calculo.baseImponible,
         alicuota: esManual ? 0 : calculo.alicuota,
@@ -1476,6 +1480,12 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const [seccion, setSeccion] = useState<SeccionPa | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // D41: los montos de Parámetros sin R3 que no se entienden (o quedan vacíos) frenan el guardado.
+  const [ilegiblesPa, setIlegiblesPa] = useState<Record<string, boolean>>({});
+  const marcarPa = (campo: string, n: number | null, aplicar: (n: number) => void) => {
+    setIlegiblesPa((m) => ({ ...m, [campo]: n == null }));
+    if (n != null) aplicar(n);
+  };
   const [r1, setR1] = useState(false);
   const [r2, setR2] = useState(false);
   const [r3, setR3] = useState(false);
@@ -1504,6 +1514,8 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const soloLectura = !puedeEditar;
 
   async function guardar() {
+    const malos = Object.entries(ilegiblesPa).filter(([, mal]) => mal).map(([campo]) => campo);
+    if (malos.length) { setError(`No se entiende ${malos.join(', ')}: escribe 1.234,56 o 1234,56.`); return; }
     setSaving(true); setError(null);
     try {
       await guardarConfigRetencion(cfg, locales, { conservarRegimen: r1, conservarParametros: r3 });
@@ -1639,11 +1651,11 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                 {!r3 && (<>
                 <div className="form-row" style={{ flex: '1 1 140px' }}>
                   <label>Alícuota municipal (ISAE, %)</label>
-                  <input className="input mono" value={String(locales.municipal)} onChange={(e) => setLocales((l) => ({ ...l, municipal: nDec(e.target.value) }))} inputMode="decimal" />
+                  <CampoMonto valor={locales.municipal} decimales={2} onValor={(n) => marcarPa('la alícuota municipal', n, (v) => setLocales((l) => ({ ...l, municipal: v })))} />
                 </div>
                 <div className="form-row" style={{ flex: '1 1 140px' }}>
                   <label>Timbre fiscal estadal (%)</label>
-                  <input className="input mono" value={String(locales.estadal)} onChange={(e) => setLocales((l) => ({ ...l, estadal: nDec(e.target.value) }))} inputMode="decimal" />
+                  <CampoMonto valor={locales.estadal} decimales={2} onValor={(n) => marcarPa('el timbre estadal', n, (v) => setLocales((l) => ({ ...l, estadal: v })))} />
                 </div>
                 </>)}
               </div>
@@ -1704,12 +1716,12 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
               <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
                 <div className="form-row" style={{ flex: '1 1 180px' }}>
                   <label>Valor de la Unidad Tributaria (Bs)</label>
-                  <input className="input mono" value={String(cfg.valorUt)} onChange={(e) => set('valorUt', nDec(e.target.value))} inputMode="decimal" />
+                  <CampoMonto valor={cfg.valorUt} decimales={2} onValor={(n) => marcarPa('el valor de la UT', n, (v) => set('valorUt', v))} />
                   <small className="hint muted">Define el <strong>sustraendo</strong> y el mínimo del ISLR de personas naturales. Sin esto, el sustraendo queda en cero.</small>
                 </div>
                 <div className="form-row" style={{ flex: '1 1 140px' }}>
                   <label>% de IGTF</label>
-                  <input className="input mono" value={String(cfg.pctIgtf)} onChange={(e) => set('pctIgtf', nDec(e.target.value))} inputMode="decimal" />
+                  <CampoMonto valor={cfg.pctIgtf} decimales={2} onValor={(n) => marcarPa('el % de IGTF', n, (v) => set('pctIgtf', v))} />
                   <small className="hint muted">3% vigente; la ley admite entre 2% y 8%.</small>
                 </div>
               </div>
@@ -1950,9 +1962,12 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
     TIPOS_IMPUESTO.find((t) => t.key === c.tipo)?.corto));
 
   async function guardarPct(c: ConceptoRetencion) {
+    // D41: un % vacío o ilegible no se guarda como 0 %.
+    const porcentaje = pct.trim() ? leerMonto(pct) : null;
+    if (porcentaje == null) { toast('No se entiende el porcentaje: escribe, por ejemplo, 3 o 1,5.', 'error'); return; }
     try {
-      await guardarConcepto({ ...c, porcentaje: nDec(pct) });
-      toast(`«${c.nombre}» quedó en ${nDec(pct)}% para ${labelSujeto(c.sujeto).toLowerCase()}`, 'success');
+      await guardarConcepto({ ...c, porcentaje });
+      toast(`«${c.nombre}» quedó en ${numeroATexto(porcentaje)} % para ${labelSujeto(c.sujeto).toLowerCase()}`, 'success');
       setEdit(null);
       onCambio();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
@@ -2009,7 +2024,7 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
                     </>
                   ) : (
                     <>
-                      <button className="btn btn-sm btn-ghost" onClick={() => { setEdit(c); setPct(String(c.porcentaje)); }} title="Cambiar el porcentaje">✎</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => { setEdit(c); setPct(numeroATexto(c.porcentaje)); }} title="Cambiar el porcentaje">✎</button>
                       <button className="btn btn-sm btn-ghost" title={c.activo ? 'Desactivar el código' : 'Activar el código'}
                         onClick={() => void activar(c)}>{c.activo ? '🚫' : '✓'}</button>
                     </>

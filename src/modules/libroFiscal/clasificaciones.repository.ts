@@ -16,6 +16,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { leerOpcional } from './parametrosNumeros';
 
 const T_CLASIFICACIONES = 'retencion_clasificaciones';
 const T_CODIGOS = 'retencion_clasificacion_codigos';
@@ -158,13 +159,6 @@ export function faltaEnValorCodigo(v: DatosValorCodigo, desde: string, motivo: s
 export interface FilaPegada { codigo: string; descripcion: string; alicuota: number | null; minimo: number | null }
 export interface LecturaPegada { filas: FilaPegada[]; errores: string[] }
 
-const numeroEs = (s: string): number | null => {
-  const t = s.replace(/%/g, '').replace(/\s/g, '');
-  if (!t) return null;
-  const normal = /,\d+$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
-  const n = Number(normal);
-  return Number.isFinite(n) ? n : NaN;
-};
 
 /**
  * Lee lo pegado desde Excel o un PDF: una fila por línea, columnas separadas
@@ -183,9 +177,13 @@ export function leerTablaPegada(crudo: string): LecturaPegada {
     const n = i + 1;
     if (!codigo) { errores.push(`Fila ${n}: falta el código.`); return; }
     if (descripcion.length < 2) { errores.push(`Fila ${n} (${codigo}): falta la descripción.`); return; }
-    const alicuota = numeroEs(alic); const minimo = numeroEs(min);
-    if (Number.isNaN(alicuota) || (alicuota != null && (alicuota < 0 || alicuota > 100))) { errores.push(`Fila ${n} (${codigo}): la alícuota no se entiende o no va de 0 a 100.`); return; }
-    if (Number.isNaN(minimo) || (minimo != null && minimo < 0)) { errores.push(`Fila ${n} (${codigo}): el mínimo no se entiende.`); return; }
+    // El lector de montos de todo el sistema (vacío = sin dato; el «%» pegado se ignora).
+    const a = leerOpcional(alic, 'la alícuota'); const m = leerOpcional(min, 'el mínimo');
+    if ('error' in a) { errores.push(`Fila ${n} (${codigo}): ${a.error}`); return; }
+    if ('error' in m) { errores.push(`Fila ${n} (${codigo}): ${m.error}`); return; }
+    const alicuota = a.valor; const minimo = m.valor;
+    if (alicuota != null && (alicuota < 0 || alicuota > 100)) { errores.push(`Fila ${n} (${codigo}): la alícuota no va de 0 a 100.`); return; }
+    if (minimo != null && minimo < 0) { errores.push(`Fila ${n} (${codigo}): el mínimo no puede ser negativo.`); return; }
     if (vistos.has(codigo)) { errores.push(`Fila ${n}: el código ${codigo} está repetido.`); return; }
     vistos.add(codigo);
     filas.push({ codigo, descripcion, alicuota, minimo });
@@ -214,6 +212,28 @@ export function planCarga(existentes: CodigoClasificacion[], filas: FilaPegada[]
     else plan.iguales.push(f);
   }
   return plan;
+}
+
+/**
+ * El valor que deja una fila pegada, desde la fecha de la carga. La tabla solo
+ * trae alícuota y mínimo: lo que la fila no trae (el mínimo, o la alícuota o
+ * tarifa) y la porción de la base y el factor del sustraendo se CONSERVAN del
+ * valor vigente para todos, en vez de quedar vacíos.
+ */
+export function valorDeFilaPegada(f: FilaPegada, vigente: ValorCodigo | null, o: { minimoUnidad: UnidadMinimo; fuente?: string | null }): DatosValorCodigo {
+  const conAlicuota = f.alicuota != null;
+  const conMinimo = f.minimo != null;
+  const tarifaVigente = !conAlicuota && vigente?.tarifaId ? vigente.tarifaId : null;
+  return {
+    sujeto: null,
+    pct: conAlicuota ? f.alicuota : tarifaVigente ? null : vigente?.pct ?? null,
+    basePct: vigente?.basePct ?? 100,
+    minimo: conMinimo ? f.minimo : vigente?.minimo ?? null,
+    minimoUnidad: conMinimo ? o.minimoUnidad : vigente?.minimo != null ? vigente.minimoUnidad : null,
+    sustraendoFactor: vigente?.sustraendoFactor ?? null,
+    ...(tarifaVigente ? { tarifaId: tarifaVigente } : {}),
+    fuente: o.fuente,
+  };
 }
 
 /* ───────── Lectura ───────── */
@@ -331,7 +351,8 @@ export interface ResultadoCarga { creados: number; actualizados: number; valores
 /**
  * Carga lo pegado según el plan: crea los códigos nuevos, actualiza la
  * descripción de los que cambian y, si traen alícuota o mínimo, les da un
- * valor nuevo para todos los sujetos desde la fecha. Sigue con el resto si una
+ * valor nuevo para todos los sujetos desde la fecha (lo que la fila no trae
+ * se conserva del vigente: valorDeFilaPegada). Sigue con el resto si una
  * fila falla, y la reporta.
  */
 export async function cargarClasificador(
@@ -341,20 +362,20 @@ export async function cargarClasificador(
   if (!FECHA.test(o.desde)) throw new Error('Indica desde qué fecha valen las alícuotas.');
   if (!o.motivo.trim()) throw new Error('Indica el motivo de la carga: queda en el historial.');
   const r: ResultadoCarga = { creados: 0, actualizados: 0, valores: 0, fallas: [] };
-  const valorDe = (f: FilaPegada): DatosValorCodigo => ({
-    sujeto: null, pct: f.alicuota, basePct: 100, minimo: f.minimo, minimoUnidad: f.minimo == null ? null : o.minimoUnidad, sustraendoFactor: null, fuente: o.fuente,
-  });
   for (const f of plan.nuevos) {
     try {
       const id = await crearCodigo(clasificacionId, { codigo: f.codigo, descripcion: f.descripcion });
       r.creados += 1;
-      if (f.alicuota != null || f.minimo != null) { await nuevoValorCodigo(id, valorDe(f), o.desde, o.motivo); r.valores += 1; }
+      if (f.alicuota != null || f.minimo != null) { await nuevoValorCodigo(id, valorDeFilaPegada(f, null, o), o.desde, o.motivo); r.valores += 1; }
     } catch (e) { r.fallas.push(`${f.codigo}: ${e instanceof Error ? e.message : 'error'}`); }
   }
   for (const c of plan.cambian) {
     try {
       if (c.cambiaDescripcion) { await editarCodigo(c.codigo.id, { descripcion: c.fila.descripcion, nota: o.motivo }); r.actualizados += 1; }
-      if (c.cambiaValor) { await nuevoValorCodigo(c.codigo.id, valorDe(c.fila), o.desde, o.motivo); r.valores += 1; }
+      if (c.cambiaValor) {
+        const vigente = valorVigenteCodigo(c.codigo.valores, null, o.desde);
+        await nuevoValorCodigo(c.codigo.id, valorDeFilaPegada(c.fila, vigente, o), o.desde, o.motivo); r.valores += 1;
+      }
     } catch (e) { r.fallas.push(`${c.fila.codigo}: ${e instanceof Error ? e.message : 'error'}`); }
   }
   return r;

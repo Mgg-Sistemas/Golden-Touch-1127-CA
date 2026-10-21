@@ -17,6 +17,8 @@ import type { ConfigRetencion, TipoImpuesto } from './retencionesCalculo';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { leerMonto } from './validarCarga';
+import { noSeEntiende } from './parametrosNumeros';
 
 const T_CLAVES = 'retencion_parametro_claves';
 const T_VALORES = 'retencion_parametros';
@@ -91,10 +93,10 @@ export function leerValor(tipo: TipoValor, crudo: string | boolean): { valor: Va
   if (tipo === 'si_no') return { valor: crudo === true || crudo === 'si' || crudo === 'true' };
   const s = String(crudo).trim();
   if (tipo === 'texto') return s ? { valor: s } : { error: 'Escribe el valor.' };
-  const limpio = s.replace(/\s/g, '');
-  const normal = /,\d{1,}$/.test(limpio) ? limpio.replace(/\./g, '').replace(',', '.') : limpio.replace(/,/g, '');
-  const n = Number(normal);
-  return s && Number.isFinite(n) ? { valor: n } : { error: 'El valor tiene que ser un número.' };
+  if (!s) return { error: 'Escribe el valor.' };
+  // El mismo lector de montos de todo el sistema: «1.234» = 1234, «1.234,56» y «1234.56» = 1234,56.
+  const n = leerMonto(s);
+  return n == null ? { error: noSeEntiende('el valor') } : { valor: n };
 }
 
 /** «43,00 Bs», «75 %», «Sí». */

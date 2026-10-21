@@ -509,6 +509,8 @@ export interface NuevaRetencion {
   numeroComprobante?: string | null;
   conceptoId?: string | null;
   conceptoNombre?: string | null;
+  /** El municipio de un ISAE (el de la empresa). */
+  municipio?: string | null;
   moneda: string;
   tasa?: number | null;
   baseImponible: number;
@@ -565,6 +567,7 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     porcentaje: n(input.porcentaje),
     concepto_codigo: conceptoCodigo,
     concepto: input.conceptoNombre?.trim() || null,
+    municipio: input.tipo === 'municipal' ? input.municipio?.trim() || null : null,
     sustraendo: input.sustraendo ?? null,
     monto: r2(input.montoRetenido), moneda: input.moneda || 'Bs', tasa,
     base_bs: enBolivares(r2(input.baseImponible), input.moneda, tasa) || null,

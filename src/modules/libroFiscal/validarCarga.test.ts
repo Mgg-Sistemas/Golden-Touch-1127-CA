@@ -54,6 +54,8 @@ describe('montos escritos a mano', () => {
     expect(leerMonto('36.5432')).toBe(36.5432);
     expect(leerMonto('0.125')).toBe(0.125);
     expect(leerMonto('0,125')).toBe(0.125);
+    expect(leerMonto('.125')).toBe(0.125);
+    expect(leerMonto('-.5')).toBe(-0.5);
   });
   it('vacío es 0', () => {
     expect(leerMonto('')).toBe(0);

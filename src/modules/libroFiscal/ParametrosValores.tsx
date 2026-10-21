@@ -17,6 +17,8 @@ import {
 import { opcionesImpuestoEnte } from './entes.repository';
 import { desdeMinimo, fechaCorta, labelClave } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { numeroATexto } from './validarCarga';
+import { pistaLeido } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -108,7 +110,13 @@ function CampoValor({ tipo, valor, onValor }: { tipo: TipoValor; valor: string; 
       </select>
     );
   }
-  return <input className={`input${tipo === 'numero' ? ' mono' : ''}`} inputMode={tipo === 'numero' ? 'decimal' : undefined} value={valor} onChange={(e) => onValor(e.target.value)} />;
+  const pista = tipo === 'numero' ? pistaLeido(valor, 0) : null;
+  return (
+    <>
+      <input className={`input${tipo === 'numero' ? ' mono' : ''}`} type="text" inputMode={tipo === 'numero' ? 'decimal' : undefined} value={valor} onChange={(e) => onValor(e.target.value)} />
+      {pista && <small className="hint muted">{pista}</small>}
+    </>
+  );
 }
 
 function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
@@ -121,7 +129,7 @@ function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
   const [clave, setClave] = useState(renglon?.clave.clave ?? claves.find((k) => k.activo)?.clave ?? '');
   const [impuesto, setImpuesto] = useState<string>(renglon?.impuesto ?? '');
   const k = claves.find((x) => x.clave === clave) ?? null;
-  const [crudo, setCrudo] = useState(vigente ? String(vigente.valor) : '');
+  const [crudo, setCrudo] = useState(vigente ? (typeof vigente.valor === 'number' ? numeroATexto(vigente.valor) : String(vigente.valor)) : '');
   const [desde, setDesde] = useState(minimo && minimo > hoyIso() ? minimo : hoyIso());
   const [fuente, setFuente] = useState(modo === 'corregir' ? vigente?.fuente ?? '' : '');
   const [motivo, setMotivo] = useState('');

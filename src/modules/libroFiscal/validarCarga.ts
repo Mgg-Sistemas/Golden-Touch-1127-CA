@@ -8,7 +8,7 @@ const FECHA = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
  * · «1.234» = 1234 y «36.500» = 36500 (un punto seguido de 3 dígitos, sin coma, son miles);
  * · «1.234,56», «1234,56» = 1234,56;
  * · «1234.56», «879.1» = decimal (punto con 1, 2, 4 o más dígitos);
- * · «0.125» = 0,125 (con parte entera 0 no hay miles).
+ * · «0.125» y «.125» = 0,125 (con parte entera 0 o vacía no hay miles).
  * Lo que no se entiende devuelve null: nunca se convierte en 0 sin avisar.
  */
 export function leerMonto(v: string): number | null {
@@ -21,6 +21,8 @@ export function leerMonto(v: string): number | null {
     normal = s.replace(/\./g, '');
   } else if (/^-?\d+(\.\d+)?$/.test(s)) {
     normal = s;
+  } else if (/^-?\.\d+$/.test(s)) {
+    normal = s.replace('.', '0.');
   }
   if (normal == null) return null;
   const n = Number(normal);

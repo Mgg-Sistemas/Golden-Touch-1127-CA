@@ -20,6 +20,7 @@ import {
 import { cargarDatosPrueba, correrPrueba, loQueUsa, type EntradaPrueba, type ResultadoPrueba } from './probarRegla';
 import { fechaCorta } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { entradaDePrueba, leerPrioridad, pistaLeido } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -202,19 +203,22 @@ function NuevaReglaModal({ impuestoClave, onClose, onHecho }: { impuestoClave: s
   const [prioridad, setPrioridad] = useState('100');
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const prioridadLeida = leerPrioridad(prioridad);
   async function crear() {
+    if ('error' in prioridadLeida) { toast(prioridadLeida.error, 'error'); return; }
     setGuardando(true);
-    try { const id = await crearRegla({ impuestoClave, nombre, desde, prioridad: Number(prioridad) || 100, motivo }); toast('Regla creada en prueba. Agrega sus condiciones y pasos.', 'success'); onHecho(id); } catch (e) { toast(mensaje(e, 'No se pudo crear.'), 'error'); setGuardando(false); }
+    try { const id = await crearRegla({ impuestoClave, nombre, desde, prioridad: prioridadLeida.valor, motivo }); toast('Regla creada en prueba. Agrega sus condiciones y pasos.', 'success'); onHecho(id); } catch (e) { toast(mensaje(e, 'No se pudo crear.'), 'error'); setGuardando(false); }
   }
   return (
     <Modal title={`Nueva regla · ${impuestoClave}`} onClose={() => !guardando && onClose()}
-      footer={(<><button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => void crear()} disabled={guardando || nombre.trim().length < 2 || !motivo.trim()}>{guardando ? 'Guardando…' : 'Crear'}</button></>)}>
+      footer={(<><button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => void crear()} disabled={guardando || nombre.trim().length < 2 || !motivo.trim() || 'error' in prioridadLeida}>{guardando ? 'Guardando…' : 'Crear'}</button></>)}>
       <fieldset disabled={guardando} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="form-row"><label>Nombre</label><input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: ISAE de otro municipio" /></div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '0 1 160px' }}><label>Desde</label><input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></div>
-          <div className="form-row" style={{ flex: '0 1 120px' }}><label>Prioridad</label><input className="input mono" inputMode="numeric" value={prioridad} onChange={(e) => setPrioridad(e.target.value.replace(/\D/g, ''))} /></div>
+          <div className="form-row" style={{ flex: '0 1 120px' }}><label>Prioridad</label><input className="input mono" type="text" inputMode="numeric" value={prioridad} onChange={(e) => setPrioridad(e.target.value)} /><small className="hint muted">Vacío = 100</small></div>
         </div>
+        {'error' in prioridadLeida && <small className="hint" style={{ color: 'var(--warning)', display: 'block' }}>{prioridadLeida.error}</small>}
         <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></div>
         <small className="hint muted">Nace «en prueba»: no se usa al registrar hasta que se active. Menor prioridad = se revisa primero.</small>
       </fieldset>
@@ -247,15 +251,21 @@ function EstadoReglaModal({ regla, accion, onClose, onHecho }: { regla: ReglaGua
 
 function ProbarModal({ regla, onClose }: { regla: ReglaGuardada; onClose: () => void }) {
   const usa = loQueUsa(regla);
-  const [e, setE] = useState<EntradaPrueba>({ fecha: hoyIso(), direccion: 'practicada', sujeto: 'PJD', moneda: 'Bs', tasa: null, pago: 1000, baseImponible: 1000, iva: 160, supuesto: false, codigo: null });
+  const [e, setE] = useState<Omit<EntradaPrueba, 'tasa' | 'pago' | 'baseImponible' | 'iva'>>({ fecha: hoyIso(), direccion: 'practicada', sujeto: 'PJD', moneda: 'Bs', supuesto: false, codigo: null });
+  // Los montos se escriben como texto (con decimales, en formato venezolano) y se leen al probar.
+  const [textos, setTextos] = useState({ tasa: '', pago: '1000', base: '1000', iva: '160' });
   const [resultado, setResultado] = useState<ResultadoPrueba | null>(null);
   const [probando, setProbando] = useState(false);
   const set = (p: Partial<EntradaPrueba>) => setE((x) => ({ ...x, ...p }));
-  const num = (s: string) => Number(s.replace(',', '.')) || 0;
+  const setTexto = (p: Partial<typeof textos>) => setTextos((x) => ({ ...x, ...p }));
+  const entrada = entradaDePrueba(e, textos);
+  const pista = (t: string) => { const x = pistaLeido(t); return x ? <small className="hint muted">{x}</small> : null; };
 
   async function probar() {
+    if ('error' in entrada) { toast(entrada.error, 'error'); return; }
+    const datos = entrada.valor;
     setProbando(true);
-    try { setResultado(correrPrueba(regla, e, await cargarDatosPrueba(regla, e))); } catch (err) { toast(mensaje(err, 'No se pudo probar.'), 'error'); } finally { setProbando(false); }
+    try { setResultado(correrPrueba(regla, datos, await cargarDatosPrueba(regla, datos))); } catch (err) { toast(mensaje(err, 'No se pudo probar.'), 'error'); } finally { setProbando(false); }
   }
 
   return (
@@ -265,14 +275,15 @@ function ProbarModal({ regla, onClose }: { regla: ReglaGuardada; onClose: () => 
         <div className="form-row" style={{ flex: '0 1 140px', margin: 0 }}><label>Dirección</label><select className="select" value={e.direccion} onChange={(x) => set({ direccion: x.target.value as EntradaPrueba['direccion'] })}><option value="practicada">Practicada</option><option value="sufrida">Recibida</option></select></div>
         <div className="form-row" style={{ flex: '0 1 110px', margin: 0 }}><label>Sujeto</label><select className="select" value={e.sujeto ?? ''} onChange={(x) => set({ sujeto: (x.target.value || null) as SujetoGt | null })}>{['PJD', 'PJND', 'PNR', 'PNNR'].map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
         <div className="form-row" style={{ flex: '0 1 100px', margin: 0 }}><label>Moneda</label><select className="select" value={e.moneda} onChange={(x) => set({ moneda: x.target.value })}><option value="Bs">Bs</option><option value="USD">$</option></select></div>
-        {e.moneda !== 'Bs' && <div className="form-row" style={{ flex: '0 1 110px', margin: 0 }}><label>Tasa</label><input className="input mono" inputMode="decimal" value={e.tasa ?? ''} onChange={(x) => set({ tasa: num(x.target.value) || null })} /></div>}
-        <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}><label>Pago</label><input className="input mono" inputMode="decimal" value={String(e.pago)} onChange={(x) => set({ pago: num(x.target.value) })} /></div>
-        <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}><label>Base imponible</label><input className="input mono" inputMode="decimal" value={String(e.baseImponible)} onChange={(x) => set({ baseImponible: num(x.target.value) })} /></div>
-        <div className="form-row" style={{ flex: '0 1 110px', margin: 0 }}><label>IVA</label><input className="input mono" inputMode="decimal" value={String(e.iva)} onChange={(x) => set({ iva: num(x.target.value) })} /></div>
+        {e.moneda !== 'Bs' && <div className="form-row" style={{ flex: '0 1 110px', margin: 0 }}><label>Tasa</label><input className="input mono" type="text" inputMode="decimal" value={textos.tasa} onChange={(x) => setTexto({ tasa: x.target.value })} />{pista(textos.tasa)}</div>}
+        <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}><label>Pago</label><input className="input mono" type="text" inputMode="decimal" value={textos.pago} onChange={(x) => setTexto({ pago: x.target.value })} />{pista(textos.pago)}</div>
+        <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}><label>Base imponible</label><input className="input mono" type="text" inputMode="decimal" value={textos.base} onChange={(x) => setTexto({ base: x.target.value })} />{pista(textos.base)}</div>
+        <div className="form-row" style={{ flex: '0 1 110px', margin: 0 }}><label>IVA</label><input className="input mono" type="text" inputMode="decimal" value={textos.iva} onChange={(x) => setTexto({ iva: x.target.value })} />{pista(textos.iva)}</div>
         {usa.clasificacion && <div className="form-row" style={{ flex: '0 1 130px', margin: 0 }}><label>Código ({usa.clasificacion})</label><input className="input mono" value={e.codigo ?? ''} onChange={(x) => set({ codigo: x.target.value || null })} /></div>}
         <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: '.84rem', minHeight: 36 }}><input type="checkbox" checked={e.supuesto} onChange={(x) => set({ supuesto: x.target.checked })} /> Supuesto marcado</label>
-        <button type="button" className="btn btn-primary" onClick={() => void probar()} disabled={probando}>{probando ? 'Probando…' : 'Probar'}</button>
+        <button type="button" className="btn btn-primary" onClick={() => void probar()} disabled={probando || 'error' in entrada}>{probando ? 'Probando…' : 'Probar'}</button>
       </div>
+      {'error' in entrada && <small className="hint" style={{ color: 'var(--warning)' }}>{entrada.error}</small>}
 
       {resultado && (
         <div style={{ marginTop: '.7rem' }}>
