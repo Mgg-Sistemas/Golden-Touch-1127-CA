@@ -1280,11 +1280,11 @@ function TarjetaRrhh({ titulo, valor, tono, marcada, onClick, ayuda }: {
 
 /* ───────── Constancia de trabajo (PDF · vista previa) ───────── */
 function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
-  const [dirigidoA, setDirigidoA] = useState('A quien pueda interesar:');
+  const [dirigidoA, setDirigidoA] = useState('');
   // Ciudad de SU empresa: Puerto Ordaz (GT) o Upata (MTO · Minería Tin Oxide).
   const [lugar, setLugar] = useState(identidadEmpresa(persona.empresa).ciudad);
   const [incluirSalario, setIncluirSalario] = useState(Number(persona.sueldo_base) > 0);
-  const [firmante, setFirmante] = useState<FirmanteConstancia>('rrhh');
+  const [firmante, setFirmante] = useState<FirmanteConstancia>('orlando');
   const [generando, setGenerando] = useState(false);
 
   const faltan = [
@@ -1333,8 +1333,8 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
       )}
 
       <div className="form-row">
-        <label>Dirigida a</label>
-        <input className="input" value={dirigidoA} onChange={(e) => setDirigidoA(e.target.value)} placeholder="A quien pueda interesar:" />
+        <label>Dirigida a (opcional)</label>
+        <input className="input" value={dirigidoA} onChange={(e) => setDirigidoA(e.target.value)} placeholder="Sin destinatario (déjalo vacío para no escribir ninguno)" />
       </div>
       <div className="form-row">
         <label>Lugar de expedición</label>
@@ -1343,6 +1343,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
       <div className="form-row">
         <label>Firma al pie</label>
         <select className="select" value={firmante} onChange={(e) => setFirmante(e.target.value as FirmanteConstancia)}>
+          <option value="orlando">ORLANDO MOLINA · Presidente</option>
           <option value="rrhh">Jefa de Recursos Humanos · firma a mano</option>
           <option value="leydis">LEYDIS RENGEL · Jefa de Administración</option>
           <option value="gerente">JESÚS LOZADA · Gerente General</option>

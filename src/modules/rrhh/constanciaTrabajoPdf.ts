@@ -7,13 +7,13 @@
    ============================================================ */
 import type { Personal } from '@/shared/lib/types';
 import { money } from '@/shared/lib/format';
-import { loadLogoPdfEmpresa, loadFirmaDataUrl, loadFirma2DataUrl, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfEmpresa, loadFirmaDataUrl, loadFirma2DataUrl, loadFirmaOrlandoDataUrl, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { EMPRESA_RIF, identidadEmpresa } from '@/shared/lib/empresa';
 import { cedulaConPuntos } from '@/modules/asignaciones/actas';
 
-export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
+export type FirmanteConstancia = 'orlando' | 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
 /** Se re-exporta para no romper a quien ya lo importaba desde aquí.
  *  El valor vive en `@/shared/lib/empresa`, junto al correo y el WhatsApp. */
@@ -21,7 +21,7 @@ export { EMPRESA_RIF };
 
 export interface ConstanciaTrabajoInput {
   persona: Personal;
-  /** A quién va dirigida (por defecto «A quien pueda interesar»). */
+  /** A quién va dirigida. Opcional: si no se escribe, la carta no lleva destinatario. */
   dirigidoA?: string | null;
   /** Incluir el salario mensual (USD) en el texto. */
   incluirSalario: boolean;
@@ -31,7 +31,8 @@ export interface ConstanciaTrabajoInput {
   lugar?: string | null;
 }
 
-const FIRMANTES: Record<Exclude<FirmanteConstancia, 'ninguna'>, { nombre: string | null; cargo: string }> = {
+const FIRMANTES: Record<Exclude<FirmanteConstancia, 'ninguna'>, { nombre: string | null; cargo: string; ci?: string }> = {
+  orlando: { nombre: 'ORLANDO MOLINA', cargo: 'PRESIDENTE', ci: 'C.I. V-8.336.951' },
   // RRHH firma a mano: no lleva firma digital, solo el cargo (rota la persona).
   rrhh: { nombre: null, cargo: 'Jefa de Recursos Humanos' },
   leydis: { nombre: 'LEYDIS RENGEL', cargo: 'Jefa de Administración' },
@@ -50,11 +51,12 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   const { persona: p } = input;
   // GT o MTO (Minería Tin Oxide): nombre, RIF, domicilio y logo de SU empresa.
   const emp = identidadEmpresa(p.empresa);
-  const [{ jsPDF }, logo, firmaGerente, firmaLeydis] = await Promise.all([
+  const [{ jsPDF }, logo, firmaGerente, firmaLeydis, firmaOrlando] = await Promise.all([
     import('jspdf'),
     loadLogoPdfEmpresa(p.empresa).catch(() => null),
     input.firmante === 'gerente' ? loadFirmaDataUrl().catch(() => null) : Promise.resolve(null),
     input.firmante === 'leydis' ? loadFirma2DataUrl().catch(() => null) : Promise.resolve(null),
+    input.firmante === 'orlando' ? loadFirmaOrlandoDataUrl().catch(() => null) : Promise.resolve(null),
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -98,9 +100,13 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
   doc.text(`${lugar}, ${diaHoy} de ${mesHoy} de ${anioHoy}`, PAGE_W - MARGIN, y, { align: 'right' });
   y += 26;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text(pdfSafe(input.dirigidoA) || 'A quien pueda interesar:', MARGIN, y);
-  y += 34;
+  // Sin «A quien pueda interesar» (pedido del usuario 21/10/2026): solo lleva destinatario si se escribió uno.
+  const destinatario = pdfSafe(input.dirigidoA);
+  if (destinatario) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(destinatario, MARGIN, y);
+    y += 34;
+  }
 
   // ─── Título ───
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
@@ -150,6 +156,9 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
     if (input.firmante === 'gerente' && firmaGerente) {
       const w = 150, h = 67; // proporción real de firma.png
       doc.addImage(firmaGerente, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
+    } else if (input.firmante === 'orlando' && firmaOrlando) {
+      const w = 150, h = Math.min(80, (w * firmaOrlando.h) / (firmaOrlando.w || 1));
+      doc.addImage(firmaOrlando.dataUrl, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
     } else if (input.firmante === 'leydis' && firmaLeydis) {
       const w = 150, h = Math.min(80, (w * firmaLeydis.h) / (firmaLeydis.w || 1));
       doc.addImage(firmaLeydis.dataUrl, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
@@ -165,6 +174,11 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
       doc.text(firma.nombre, centro, ly, { align: 'center' });
       ly += 15;
+      if (firma.ci) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
+        doc.text(firma.ci, centro, ly, { align: 'center' });
+        ly += 15;
+      }
     }
     doc.setFont('helvetica', firma.nombre ? 'normal' : 'bold'); doc.setFontSize(firma.nombre ? 10 : 11);
     doc.setTextColor(firma.nombre ? 90 : 20, firma.nombre ? 90 : 20, firma.nombre ? 90 : 20);
