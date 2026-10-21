@@ -16,6 +16,7 @@ import {
   TIPOS_IMPUESTO, enBolivares, labelDireccion, labelEstadoRetencion, type TipoImpuesto,
 } from '@/modules/libroFiscal/retencionesCalculo';
 import type { RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { rotuloImpuesto } from '@/modules/libroFiscal/rotulos';
 
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -195,7 +196,7 @@ export interface ColumnaReporte {
   valor: (r: RetencionPracticada, base: FechaBase) => Celda;
 }
 
-const corto = (t: string) => TIPOS_IMPUESTO.find((x) => x.key === t)?.corto ?? t;
+const corto = (t: string) => TIPOS_IMPUESTO.find((x) => x.key === t)?.corto ?? rotuloImpuesto(t);
 const fechaVe = (s: string) => { const [y, m, d] = s.slice(0, 10).split('-'); return y && m && d ? `${d}/${m}/${y}` : ''; };
 const estadoDe = (r: RetencionPracticada) => (r.anulada ? 'Anulada' : labelEstadoRetencion(r.estado));
 

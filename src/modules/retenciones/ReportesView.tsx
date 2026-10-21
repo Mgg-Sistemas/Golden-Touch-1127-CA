@@ -351,7 +351,7 @@ export function ReportesView({ actor }: { actor: string }) {
 
           {!esCruzada && (
             <div className="lfv8-campo">
-              <span>Orden</span>
+              <span>Ordenar por</span>
               <select className="lfv8-select" value={ordenRep} onChange={(e) => setOrdenRep(e.target.value as OrdenReporte)}>
                 <option value="fecha">Fecha</option>
                 <option value="proveedor">Proveedor</option>

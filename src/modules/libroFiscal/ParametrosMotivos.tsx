@@ -11,6 +11,7 @@ import { activarMotivo, faltaEnMotivo, guardarMotivo, listMotivos, vigenteEn, ty
 import { opcionesImpuestoEnte } from './entes.repository';
 import { fechaCorta, labelClave } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { AYUDA_ORDEN, ROTULO_ORDEN } from './rotulos';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -106,7 +107,7 @@ function MotivoModal({ motivo, impuestos, onClose, onHecho }: {
               {impuestos.map((i) => <option key={i.clave} value={i.clave}>{i.nombre ?? labelClave(i.clave)}</option>)}
             </select>
           </div>
-          <div className="form-row" style={{ flex: '0 1 90px' }}><label>Orden</label><input className="input mono" inputMode="numeric" value={String(m.orden)} onChange={(e) => set({ orden: Number(e.target.value.replace(/\D/g, '')) || 0 })} /></div>
+          <div className="form-row" style={{ flex: '1 1 180px' }}><label>{ROTULO_ORDEN}</label><input className="input mono" inputMode="numeric" value={String(m.orden)} onChange={(e) => set({ orden: Number(e.target.value.replace(/\D/g, '')) || 0 })} /><small className="hint muted">{AYUDA_ORDEN}</small></div>
           <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: '.86rem' }}><input type="checkbox" checked={m.requiereTexto} onChange={(e) => set({ requiereTexto: e.target.checked })} /> Pide un detalle escrito</label>
         </div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>

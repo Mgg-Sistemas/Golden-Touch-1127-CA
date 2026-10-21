@@ -29,12 +29,17 @@ import {
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { listTiposLicencia } from './retencionesFiscal.repository';
 import { normalizarCodigo, pistaClave } from './parametrosNumeros';
+import { rotuloAutor, rotuloMotivo } from './rotulos';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-export function ParametrosPerfiles({ puedeEditar }: { puedeEditar: boolean }) {
+export function ParametrosPerfiles({ puedeEditar, onIrALicencias }: {
+  puedeEditar: boolean;
+  /** Lleva a Parámetros › Tipos de licencia (cuando el catálogo está vacío). */
+  onIrALicencias?: () => void;
+}) {
   const [filas, setFilas] = useState<FilaPerfil[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
@@ -113,18 +118,20 @@ export function ParametrosPerfiles({ puedeEditar }: { puedeEditar: boolean }) {
       )}
 
       {abierto && (
-        <PerfilFiscalModal fila={abierto} puedeEditar={puedeEditar}
+        <PerfilFiscalModal fila={abierto} puedeEditar={puedeEditar} onIrALicencias={onIrALicencias}
           onClose={() => setAbierto(null)} onCambio={() => void cargar()} />
       )}
     </div>
   );
 }
 
-export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
+export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio, onIrALicencias }: {
   fila: FilaPerfil;
   puedeEditar: boolean;
   onClose: () => void;
   onCambio: () => void;
+  /** Lleva a Parámetros › Tipos de licencia (cuando el catálogo está vacío). */
+  onIrALicencias?: () => void;
 }) {
   const [versiones, setVersiones] = useState<PerfilFiscal[] | null>(null);
   const [actividades, setActividades] = useState<ActividadContraparte[]>([]);
@@ -221,7 +228,7 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
         </div>
         {vigente && (
           <div className="muted" style={{ fontSize: '.78rem', marginTop: '.3rem' }}>
-            Perfil vigente desde {fechaCorta(vigente.desde)}{vigente.actualizadoPor ? ` · ${vigente.actualizadoPor}` : ''}
+            Perfil vigente desde {fechaCorta(vigente.desde)} · {rotuloAutor(vigente.actualizadoPor)}
             {vigente.datosSolicitadosEn && ` · datos pedidos el ${fechaCorta(vigente.datosSolicitadosEn)}`}
             {puedeEditar && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void marcarSolicitado()}>Anotar: datos pedidos hoy</button>}
           </div>
@@ -277,8 +284,17 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
               </div>
               <div className="form-row" style={{ flex: '1 1 160px', margin: 0 }}>
                 <label>Tipo</label>
-                <input className="input" list="tipos-licencia" value={form.licenciaTipo ?? ''} onChange={(e) => set({ licenciaTipo: e.target.value })} />
-                <datalist id="tipos-licencia">{(tiposLicencia ?? []).map((t) => <option key={t} value={t} />)}</datalist>
+                {tiposLicencia && tiposLicencia.length === 0 ? (
+                  <small className="hint" style={{ color: 'var(--warning)' }}>
+                    Primero carga los tipos de licencia en Parámetros › Tipos de licencia.
+                    {onIrALicencias && <> <button type="button" className="btn btn-sm btn-ghost" onClick={onIrALicencias}>Ir a Tipos de licencia</button></>}
+                  </small>
+                ) : (
+                  <>
+                    <input className="input" list="tipos-licencia" value={form.licenciaTipo ?? ''} onChange={(e) => set({ licenciaTipo: e.target.value })} />
+                    <datalist id="tipos-licencia">{(tiposLicencia ?? []).map((t) => <option key={t} value={t} />)}</datalist>
+                  </>
+                )}
               </div>
               <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
                 <label>Número{form.licenciaEstado === 'vigente' ? ' (obligatorio)' : ''}</label>
@@ -335,7 +351,7 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio }: {
                   <td>{fechaCorta(v.desde)}</td><td>{v.hasta ? fechaCorta(v.hasta) : '—'}</td>
                   <td>{v.sujeto ? labelSujeto(v.sujeto) : '—'}</td><td>{labelContribuyente(v.tipoContribuyente)}</td>
                   <td>{LABEL_LICENCIA[v.licenciaEstado]}{v.licenciaNumero ? ` · ${v.licenciaNumero}` : ''}</td>
-                  <td>{v.motivo ?? '—'}</td><td>{v.actualizadoPor ?? '—'}</td>
+                  <td>{rotuloMotivo(v.motivo) || '—'}</td><td>{rotuloAutor(v.actualizadoPor)}</td>
                 </tr>
               ))}
             </tbody>

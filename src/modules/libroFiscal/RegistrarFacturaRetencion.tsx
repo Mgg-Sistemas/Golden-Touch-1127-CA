@@ -22,7 +22,7 @@ import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
-  labelImpuesto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
+  labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
@@ -277,7 +277,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     const rc = reglas[l.id];
     if (!rc || direccion !== 'practicada') return hoy;
     const r = rc.resultado;
-    const cual = `regla «${rc.regla.nombre}» v${rc.regla.version}`;
+    const cual = `regla «${rc.regla.nombre}» (versión ${rc.regla.version})`;
     return {
       ...hoy,
       baseImponible: r.base, impuesto: r.impuesto, porcentaje: r.pct ?? 0, sustraendo: r.sustraendo, montoRetenido: r.monto,
@@ -586,7 +586,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               {l.tipo === 'islr' && sugerido && sugerido.sujeto !== l.sujeto && (
                 <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.25rem' }}>
                   <small className="hint muted">
-                    Según la letra del RIF sería «{SUJETOS.find((x) => x.key === sugerido.sujeto)?.label ?? sugerido.sujeto}». Verifica antes de registrar: el porcentaje cambia con el sujeto.
+                    Según la letra del RIF sería «{labelSujeto(sugerido.sujeto)}». Verifica antes de registrar: el porcentaje cambia con el sujeto.
                   </small>
                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLinea(l.id, { sujeto: sugerido.sujeto })}>Usar la sugerencia</button>
                 </div>

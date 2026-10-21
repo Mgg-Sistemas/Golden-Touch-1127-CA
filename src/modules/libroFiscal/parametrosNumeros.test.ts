@@ -173,7 +173,7 @@ describe('supuestos, reglas, códigos e impuestos', () => {
 
   it('impuesto: orden, plazo o primer número que no se entienden bloquean', () => {
     expect(faltaEnEnteros({ orden: 3, plazoEntregaDias: 2, serieInicial: 1 })).toBeNull();
-    expect(faltaEnEnteros({ orden: NaN })).toBe(noSeEntiende('el orden'));
+    expect(faltaEnEnteros({ orden: NaN })).toBe(noSeEntiende('la posición en la lista'));
     expect(faltaEnEnteros({ plazoEntregaDias: NaN })).toBe(noSeEntiende('el plazo de entrega'));
     expect(faltaEnEnteros({ serieInicial: NaN })).toBe(noSeEntiende('el primer número de la serie'));
   });

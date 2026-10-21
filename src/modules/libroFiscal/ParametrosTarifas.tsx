@@ -16,6 +16,7 @@ import {
 import { desdeMinimo, fechaCorta } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
+import { rotuloMotivo, rotuloUnidad } from './rotulos';
 import { faltaPositivo, filasATramos, leerObligatorio, leerOpcional, normalizarClave, pistaClave, pistaLeido, type FilaTramo } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
@@ -57,7 +58,7 @@ function TarifaCard({ tarifa, puedeEditar, onCambio }: { tarifa: Tarifa; puedeEd
     <div className="card" style={{ marginBottom: '.5rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
         <strong>{tarifa.nombre}</strong>
-        <span className="muted" style={{ fontSize: '.78rem' }}>Montos en {tarifa.unidad} · {aplicable ? `aplica la versión desde el ${fechaCorta(aplicable.desde)}` : 'ninguna versión publicada: todavía no se aplica'}</span>
+        <span className="muted" style={{ fontSize: '.78rem' }}>Montos en {rotuloUnidad(tarifa.unidad)} · {aplicable ? `aplica la versión desde el ${fechaCorta(aplicable.desde)}` : 'ninguna versión publicada: todavía no se aplica'}</span>
       </div>
       {tarifa.nota && <div className="muted" style={{ fontSize: '.76rem' }}>{tarifa.nota}</div>}
       <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', margin: '.4rem 0' }}>
@@ -76,6 +77,9 @@ function TarifaCard({ tarifa, puedeEditar, onCambio }: { tarifa: Tarifa; puedeEd
     </div>
   );
 }
+
+/** Cómo se llama cada casilla del tramo (para quien usa lector de pantalla). */
+const COLUMNA_TRAMO: Record<'desde' | 'hasta' | 'pct' | 'sustraendo', string> = { desde: 'Más de', hasta: 'Hasta', pct: '%', sustraendo: 'Sustraendo' };
 
 const aFila = (t: Tramo): FilaTramo => ({ id: t.id, desde: numeroATexto(t.desdeMonto), hasta: numeroATexto(t.hastaMonto), pct: numeroATexto(t.pct), sustraendo: numeroATexto(t.sustraendo) });
 
@@ -114,15 +118,15 @@ function EditorTramos({ tarifa, version, puedeEditar, onCambio }: { tarifa: Tari
 
   return (
     <div>
-      <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.3rem' }}>{version.motivo}{version.fuente ? ` · ${version.fuente}` : ''}</div>
+      <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.3rem' }}>{rotuloMotivo(version.motivo)}{version.fuente ? ` · ${version.fuente}` : ''}</div>
       <table className="table" style={{ fontSize: '.8rem', width: '100%' }}>
-        <thead><tr><th>Más de ({tarifa.unidad})</th><th>Hasta ({tarifa.unidad}){editable && <div className="muted" style={{ fontWeight: 400, fontSize: '.72rem' }}>Vacío = sin tope</div>}</th><th>%</th><th>Sustraendo ({tarifa.unidad})</th>{editable && <th aria-label="Quitar" />}</tr></thead>
+        <thead><tr><th>Más de ({rotuloUnidad(tarifa.unidad)})</th><th>Hasta ({rotuloUnidad(tarifa.unidad)}){editable && <div className="muted" style={{ fontWeight: 400, fontSize: '.72rem' }}>Vacío = sin tope</div>}</th><th>%</th><th>Sustraendo ({rotuloUnidad(tarifa.unidad)})</th>{editable && <th aria-label="Quitar" />}</tr></thead>
         <tbody>
           {filas.map((f, i) => (
             <tr key={f.id ?? `n${i}`}>
               {(['desde', 'hasta', 'pct', 'sustraendo'] as const).map((k) => (
                 <td key={k}>{editable
-                  ? <><input className="input mono" type="text" inputMode="decimal" value={f[k]} placeholder={k === 'hasta' ? 'sin tope' : ''} onChange={(e) => set(i, { [k]: e.target.value })} aria-label={k} />{pistaLeido(f[k], 0) && <small className="hint muted">{pistaLeido(f[k], 0)}</small>}</>
+                  ? <><input className="input mono" type="text" inputMode="decimal" value={f[k]} placeholder={k === 'hasta' ? 'sin tope' : ''} onChange={(e) => set(i, { [k]: e.target.value })} aria-label={COLUMNA_TRAMO[k]} />{pistaLeido(f[k], 0) && <small className="hint muted">{pistaLeido(f[k], 0)}</small>}</>
                   : (k === 'hasta' && !f.hasta ? 'sin tope' : f[k])}</td>
               ))}
               {editable && <td><button type="button" className="btn btn-sm btn-ghost" onClick={() => void quitar(i)}>Quitar</button></td>}
@@ -208,7 +212,7 @@ function ProbarTarifaModal({ tarifa, onClose }: { tarifa: Tarifa; onClose: () =>
       {res === 'nada' && <p className="muted" style={{ marginTop: '.5rem' }}>Sin resultado: no hay versión publicada para esa fecha, o falta la UT.</p>}
       {res && res !== 'nada' && (
         <div className="card" style={{ marginTop: '.5rem' }}>
-          <div>Tramo: más de {res.desdeMonto} hasta {res.hastaMonto ?? 'sin tope'} {tarifa.unidad} · {res.pct} % · sustraendo {res.sustraendo.toLocaleString('es-VE')} Bs</div>
+          <div>Tramo: más de {res.desdeMonto} hasta {res.hastaMonto ?? 'sin tope'} {rotuloUnidad(tarifa.unidad)} · {res.pct} % · sustraendo {res.sustraendo.toLocaleString('es-VE')} Bs</div>
           <div className="mono" style={{ fontSize: '1.2rem', fontWeight: 700 }}>Retención: {res.monto.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs</div>
         </div>
       )}
@@ -236,8 +240,8 @@ function NuevaTarifaModal({ impuestoClave, onClose, onHecho }: { impuestoClave: 
       footer={(<><button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => void crear()} disabled={guardando || !!falta}>{guardando ? 'Guardando…' : 'Crear'}</button></>)}>
       <fieldset disabled={guardando} style={{ border: 0, padding: 0, margin: 0 }}>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-          <div className="form-row" style={{ flex: '1 1 150px' }}><label>Clave</label><input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="ej: islr_tarifa_1" />{pista && <small className="hint muted">{pista}</small>}</div>
-          <div className="form-row" style={{ flex: '0 1 100px' }}><label>Unidad</label><select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as UnidadTarifa)}><option value="UT">UT</option><option value="Bs">Bs</option></select></div>
+          <div className="form-row" style={{ flex: '1 1 150px' }}><label>Clave</label><input className="input mono" value={escrita} onChange={(e) => setEscrita(e.target.value)} placeholder="Ej.: tarifa 1 ISLR" />{pista && <small className="hint muted">{pista}</small>}</div>
+          <div className="form-row" style={{ flex: '0 1 100px' }}><label>Unidad</label><select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as UnidadTarifa)}>{(['UT', 'Bs'] as const).map((u) => <option key={u} value={u}>{rotuloUnidad(u)}</option>)}</select></div>
         </div>
         <div className="form-row"><label>Nombre</label><input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} /></div>
         <div className="form-row"><label>Fuente</label><input className="input" value={fuente} onChange={(e) => setFuente(e.target.value)} /></div>

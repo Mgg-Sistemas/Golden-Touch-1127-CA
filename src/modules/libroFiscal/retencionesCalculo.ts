@@ -32,6 +32,7 @@
    NADA SE CABLEA SALVO LAS FÓRMULAS. Los porcentajes vienen del catálogo y de
    la configuración, porque cambian por ley, por ordenanza y por año.
    ============================================================ */
+import { rotuloImpuesto } from './rotulos';
 
 export type TipoImpuesto = 'iva' | 'islr' | 'municipal' | 'regional' | 'igtf';
 
@@ -59,7 +60,7 @@ export const TIPOS_IMPUESTO: { key: TipoImpuesto; label: string; corto: string }
 ];
 
 export function labelImpuesto(t: TipoImpuesto | string | null | undefined): string {
-  return TIPOS_IMPUESTO.find((x) => x.key === t)?.label ?? String(t ?? '—');
+  return TIPOS_IMPUESTO.find((x) => x.key === t)?.label ?? (t == null || t === '' ? '—' : rotuloImpuesto(t));
 }
 
 /** Parámetros de la empresa como agente de retención. */

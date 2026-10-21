@@ -124,7 +124,7 @@ describe('condiciones', () => {
   it('un dato que falta no cumple; elegirRegla toma la primera por prioridad', () => {
     const conSujeto: Regla = { ...ISAE, nombre: 'A', prioridad: 10, condiciones: [{ pieza: 'sujeto', operador: 'es', valor: 'PNR' }] };
     const general: Regla = { ...ISAE, nombre: 'B', prioridad: 50 };
-    expect(condicionesQueFallan(conSujeto, ctx())).toEqual(['falta el dato «sujeto»']);
+    expect(condicionesQueFallan(conSujeto, ctx())).toEqual(['Falta el dato: Tipo de proveedor.']);
     expect(elegirRegla([general, conSujeto], ctx({ sujeto: 'PNR' }))?.nombre).toBe('A');
     expect(elegirRegla([general, conSujeto], ctx({ sujeto: 'PJD' }))?.nombre).toBe('B');
   });
