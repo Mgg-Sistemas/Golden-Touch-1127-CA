@@ -20,10 +20,12 @@ describe('construirPrestamosPdf', () => {
       cargo: 'SUPERVISOR DE PRODUCCION',
       departamento: 'OPERACIONES DE PRODUCCIÓN MINA',
       fecha_ingreso: '2024-01-01',
-      estado: 'activo',
+      sueldo_base: 0,
+      activo: true,
+      created_at: '2024-01-01T00:00:00Z',
     };
 
-    const anticipo: AnticipoPrestamo = {
+    const anticipo = {
       id: 'a1',
       personal_id: 'p1',
       tipo: 'prestamo',
@@ -34,7 +36,7 @@ describe('construirPrestamosPdf', () => {
       estado: 'activo',
       motivo: 'PRESTAMO SE PAGO CON USDT',
       created_at: '2026-08-15T10:00:00Z',
-    };
+    } as unknown as AnticipoPrestamo;
 
     const opciones: OpcionesPrestamosPdf = {
       titulo: 'Estado de cuenta · Préstamo',
