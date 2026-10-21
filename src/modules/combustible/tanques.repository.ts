@@ -27,6 +27,7 @@ import type {
   TipoMovTanque,
   TipoTanque,
 } from '@/shared/lib/types';
+import { mensajeError } from '@/shared/lib/errores';
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const round = (v: number, d = 4) => Math.round(v * 10 ** d) / 10 ** d;
@@ -848,8 +849,8 @@ export async function registrarTrasladoMGG(input: {
       .update({ estado: 'enviada', mensaje_error: null }).eq('id', rowId);
   } catch (e) {
     await supabase.from('transferencias_combustible_inter')
-      .update({ estado: 'error', mensaje_error: e instanceof Error ? e.message : 'No se pudo entregar' }).eq('id', rowId);
-    throw new Error(`El combustible salió del tanque pero no se pudo entregar a MGG (queda para reintentar): ${e instanceof Error ? e.message : ''}`);
+      .update({ estado: 'error', mensaje_error: mensajeError(e, 'No se pudo entregar') }).eq('id', rowId);
+    throw new Error(`El combustible salió del tanque pero no se pudo entregar a MGG (queda para reintentar): ${mensajeError(e, 'error desconocido')}`);
   }
 }
 
@@ -902,9 +903,9 @@ export async function reintentarTrasladoMGG(input: {
   } catch (e) {
     // Vuelve a `error` para que se pueda reintentar de nuevo o revertir.
     await supabase.from('transferencias_combustible_inter')
-      .update({ estado: 'error', mensaje_error: e instanceof Error ? e.message : 'No se pudo entregar' })
+      .update({ estado: 'error', mensaje_error: mensajeError(e, 'No se pudo entregar') })
       .eq('id', input.id);
-    throw new Error(`Sigue sin poder entregarse a MGG: ${e instanceof Error ? e.message : ''}`);
+    throw new Error(`Sigue sin poder entregarse a MGG: ${mensajeError(e, 'error desconocido')}`);
   }
 }
 
@@ -965,8 +966,8 @@ export async function revertirTrasladoMGG(input: {
     });
     await recomputarTanque(t.tanque_id);
   } catch (e) {
-    await liberar(e instanceof Error ? e.message : 'No se pudo devolver al tanque');
-    throw new Error(`No se pudo devolver el combustible al tanque: ${e instanceof Error ? e.message : ''}`);
+    await liberar(mensajeError(e, 'No se pudo devolver al tanque'));
+    throw new Error(`No se pudo devolver el combustible al tanque: ${mensajeError(e, 'error desconocido')}`);
   }
 }
 

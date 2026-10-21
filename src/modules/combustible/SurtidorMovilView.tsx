@@ -39,6 +39,7 @@ import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
 import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
 import { errorSaldoInsuficiente, etiquetaTanque, tanqueSinLitros } from './saldoSuficiente';
+import { mensajeError } from '@/shared/lib/errores';
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMOS_EN_TELEFONO = 10;
@@ -98,7 +99,7 @@ export function SurtidorMovilView() {
 
   useEffect(() => {
     let cancel = false;
-    reloadBase().catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); })
+    reloadBase().catch((e) => { if (!cancel) toast(mensajeError(e, 'No se pudo cargar'), 'error'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reloadBase]);
@@ -329,7 +330,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       }
       toast(`${TITULO[tipo]}: registrado`, 'success');
       await onSaved(movId);
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); }
+    } catch (err) { setError(mensajeError(err, 'No se pudo registrar.')); }
     finally { setGuardando(false); }
   }
 
@@ -551,7 +552,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
       toast('Movimiento borrado', 'success');
       await onBorrado();
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error');
+      toast(mensajeError(e, 'No se pudo borrar'), 'error');
       setBorrando(false);
     }
   }
