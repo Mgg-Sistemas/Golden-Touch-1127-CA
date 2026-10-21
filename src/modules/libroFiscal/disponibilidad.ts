@@ -3,7 +3,7 @@
 
    Mientras los paquetes de la base se aplican aparte, una pantalla que
    depende de una tabla nueva se muestra solo si la tabla existe y PostgREST la
-   expone. Se pregunta una vez por sesión con un conteo vacío (no trae filas).
+   expone. Se pregunta una vez por sesión con un GET de 0 filas (no HEAD: ver abajo).
    · responde (aunque sea con 0 filas o sin permiso de lectura) → existe;
    · «relation does not exist» (42P01) o tabla no expuesta (PGRST205) → no;
    · cualquier otro fallo (red, sesión) → no, y no se guarda en caché, para
@@ -28,7 +28,9 @@ export function tablaDisponible(nombre: string): Promise<boolean> {
   if (previa) return previa;
   const consulta = (async () => {
     try {
-      const { error } = await supabase.from(nombre).select('*', { head: true, count: 'exact' }).limit(0);
+      // GET y no HEAD: a un HEAD de una tabla que no existe PostgREST responde 404 sin cuerpo, y la librería
+      // lo da por bueno (sin error); así cada sección se mostraba sin su tabla. El GET trae el PGRST205.
+      const { error } = await supabase.from(nombre).select('*').limit(0);
       if (!error) return true;
       if (esTablaInexistente(error)) return false;
       if (esRespuestaDeLaBase(error)) return true;   // existe: respondió con otro rechazo (permiso, RLS…)
