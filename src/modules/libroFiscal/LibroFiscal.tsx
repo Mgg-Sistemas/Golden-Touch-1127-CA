@@ -827,16 +827,17 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   // En Bs también se lee: sirve para informar el equivalente en $, no se guarda.
   useEffect(() => {
     const f = fechaTasaBcv(facturaFecha);
-    if (!f) { setTasaBcv({ tasa: null, nota: 'Escriba la fecha de la factura: la tasa es la BCV de esa fecha.' }); return; }
+    if (!f) { setTasaBcv({ tasa: null, nota: 'Se llena sola con la tasa BCV del día de la factura: indica primero la «Fecha de la factura».' }); return; }
     let vigente = true;
     const cuando = f === facturaFecha ? fechaCorta(f) : `${fechaCorta(f)}, el lunes siguiente`;
     getTasaUsdDeFecha(f)
       .then((t) => {
         if (!vigente) return;
         setTasaBcv(t != null
-          ? { tasa: t, nota: `Tasa BCV del ${cuando}, por la fecha de la factura.` }
-          : { tasa: null, nota: `No hay tasa BCV registrada del ${cuando}${moneda === 'Bs' ? '' : ': escríbala'}.` });
-        if (moneda !== 'Bs') setTasaStr(t != null ? String(t) : '');
+          ? { tasa: t, nota: `Tasa BCV del ${cuando} (fecha de la factura), tomada del sistema.` }
+          : { tasa: null, nota: `No hay tasa BCV registrada del ${cuando}${moneda === 'Bs' ? '' : ': escríbela (Bs por cada $)'}.` });
+        // Con coma decimal: «179,437» no se confunde con miles.
+        if (moneda !== 'Bs') setTasaStr(t != null ? String(t).replace('.', ',') : '');
       })
       .catch(() => { if (vigente) setTasaBcv({ tasa: null, nota: 'No se pudo leer la tasa BCV.' }); });
     return () => { vigente = false; };
@@ -1041,7 +1042,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           {error && <small style={{ color: 'var(--danger)', marginRight: 'auto', maxWidth: '60%' }}>No se registró: {error}</small>}
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
           <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving}>
-            {saving ? 'Guardando…' : (esCero ? 'Registrar en 0 con motivo' : `Registrar · ${monto(montoFinal, moneda)}`)}
+            {saving ? 'Guardando…' : (esCero ? 'Registrar en 0 con motivo' : `Registrar · ${moneda !== 'Bs' && montoBs > 0 ? monto(montoBs, 'Bs') : monto(montoFinal, moneda)}`)}
           </button>
         </>
       }>
@@ -1241,8 +1242,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </div>
         {moneda !== 'Bs' && (
           <div className="form-row" style={{ flex: '0 1 150px' }}>
-            <label>Tasa (Bs por $)</label>
-            <input className="input mono" value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} inputMode="decimal" />
+            <label>Tasa BCV (Bs por $)</label>
+            {/* Se toma sola del sistema; solo se escribe si no hay tasa registrada de ese día. */}
+            <input className="input mono" value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} inputMode="decimal"
+              readOnly={!facturaFecha || tasaBcv?.tasa != null} placeholder={facturaFecha ? 'Bs por cada $' : 'Automática'} />
             <small className="hint muted">{tasaBcv?.nota ?? 'Para el equivalente en Bs, que es como se declara.'}</small>
           </div>
         )}
@@ -1260,8 +1263,21 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </div>
         {tipo === 'iva' && (
           <div className="form-row" style={{ flex: '1 1 130px' }}>
-            <label>IVA de la factura</label>
+            <label>Monto del IVA de la factura</label>
             <input className="input mono" value={ivaStr} onChange={(e) => setIvaStr(e.target.value)} inputMode="decimal" />
+            {(() => {
+              // El monto en dinero, no el %: se sugiere el 16 % de la base (alícuota general) para comparar.
+              const sugerido = Math.round(nDec(baseStr) * 16) / 100;
+              if (!(sugerido > 0)) return <small className="hint muted">En dinero, no el %.</small>;
+              const pareceElPct = nDec(ivaStr) > 0 && nDec(ivaStr) <= 100 && Math.abs(nDec(ivaStr) - sugerido) > 1;
+              return (
+                <small className="hint" style={{ color: pareceElPct ? 'var(--warning)' : undefined }}>
+                  {pareceElPct ? '¿Escribiste el %? Va el monto. ' : 'En dinero, no el %. '}
+                  16 % de la base = <b className="mono">{monto(sugerido, moneda)}</b>{' '}
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIvaStr(String(sugerido).replace('.', ','))}>Usar</button>
+                </small>
+              );
+            })()}
           </div>
         )}
         {esManual && (
@@ -1331,12 +1347,17 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div className="card" style={{ borderColor: montoFinal > 0 ? 'var(--primary)' : 'var(--border)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
-            <div className="muted" style={{ fontSize: '.72rem' }}>{direccion === 'recibida' ? 'Retención recibida' : 'Monto a retener'}</div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>
+              {direccion === 'recibida' ? 'Retención recibida' : 'Monto a retener'}{moneda !== 'Bs' ? ' · en Bs, que es lo que se declara y se entera al SENIAT' : ''}
+            </div>
+            {/* Ante el fisco la retención va en bolívares: con factura en $, el monto principal es el convertido. */}
             <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>
-              {monto(montoFinal, moneda)}
+              {moneda === 'Bs' ? monto(montoFinal, moneda) : (montoBs > 0 ? monto(montoBs, 'Bs') : 'Falta la tasa')}
             </div>
             {moneda !== 'Bs' && (
-              <div className="muted mono" style={{ fontSize: '.78rem' }}>{montoBs > 0 ? `≈ ${monto(montoBs, 'Bs')} · es lo que se declara` : 'Sin tasa: falta el equivalente en Bs'}</div>
+              <div className="muted mono" style={{ fontSize: '.78rem' }}>
+                = {monto(montoFinal, moneda)} en la moneda de la factura{tasa > 0 ? ` × ${tasaStr} Bs/$` : ''}
+              </div>
             )}
             {moneda === 'Bs' && (
               <div className="muted mono" style={{ fontSize: '.78rem' }}>
@@ -1347,8 +1368,15 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
             )}
           </div>
           <div className="muted mono" style={{ fontSize: '.78rem', textAlign: 'right' }}>
-            <div>Base {monto(esManual ? nDec(baseStr) : calculo.baseImponible, moneda)}</div>
-            {!esManual && calculo.impuesto > 0 && <div>Impuesto {monto(calculo.impuesto, moneda)}</div>}
+            {(() => {
+              // Con factura en $, cada cifra lleva al lado su equivalente en Bs.
+              const enBs = (v: number) => (moneda !== 'Bs' && tasa > 0 ? ` · ${monto(enBolivares(v, moneda, tasa), 'Bs')}` : '');
+              const base = esManual ? nDec(baseStr) : calculo.baseImponible;
+              return (<>
+                <div>Base {monto(base, moneda)}{enBs(base)}</div>
+                {!esManual && calculo.impuesto > 0 && <div>Impuesto {monto(calculo.impuesto, moneda)}{enBs(calculo.impuesto)}</div>}
+              </>);
+            })()}
             <div>Retención {pctFinal}%</div>
             {!esManual && calculo.sustraendo > 0 && <div>Sustraendo −{monto(calculo.sustraendo, moneda)}</div>}
           </div>
