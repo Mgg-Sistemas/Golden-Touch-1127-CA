@@ -841,7 +841,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           ? { tasa: t, nota: `Tasa BCV del ${cuando} (fecha de la factura), tomada del sistema.` }
           : { tasa: null, nota: `No hay tasa BCV registrada del ${cuando}${moneda === 'Bs' ? '' : ': escríbela (Bs por cada $)'}.` });
         // Con coma decimal: «179,437» no se confunde con miles.
-        if (moneda !== 'Bs') setTasaStr(t != null ? String(t).replace('.', ',') : '');
+        if (moneda !== 'Bs') setTasaStr(t != null ? numeroATexto(t) : '');
       })
       .catch(() => { if (vigente) setTasaBcv({ tasa: null, nota: 'No se pudo leer la tasa BCV.' }); });
     return () => { vigente = false; };
@@ -1280,7 +1280,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
                 <small className="hint" style={{ color: pareceElPct ? 'var(--warning)' : undefined }}>
                   {pareceElPct ? '¿Escribiste el %? Va el monto. ' : 'En dinero, no el %. '}
                   16 % de la base = <b className="mono">{monto(sugerido, moneda)}</b>{' '}
-                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIvaStr(String(sugerido).replace('.', ','))}>Usar</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIvaStr(numeroATexto(sugerido))}>Usar</button>
                 </small>
               );
             })()}
