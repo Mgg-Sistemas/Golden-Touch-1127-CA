@@ -3,6 +3,7 @@ import type { AnticipoPago, AnticipoPrestamo, Personal } from '@/shared/lib/type
 import {
   FILTROS_VACIOS, agruparPorTrabajador, buscarTrabajadores, errorAbono, errorEdicionAbono, errorAlta, filtrarAnticipos,
   filtrosActivos, normalizarTexto, ordenarPagos, pagadoDe, resumenAnticipos, trabajadoresConPendiente,
+  extraerEntregasPrestamo, agregarEntregaAMotivo, detectarPrestamosMultiples,
   type AltaAnticipo,
 } from './anticiposResumen';
 
@@ -134,5 +135,66 @@ describe('utilidades', () => {
       { id: '2', anticipo_id: 'a', fecha: '2026-06-01', monto: 1, origen: 'manual', created_at: '2026-06-01T10:00:00Z' },
     ];
     expect(ordenarPagos(pagos).map((p) => p.id)).toEqual(['2', '1']);
+  });
+});
+
+describe('historial de entregas y préstamos acumulados', () => {
+  it('extraerEntregasPrestamo con motivo simple devuelve una sola entrega', () => {
+    const p = prestamo('p1', 'p1', 1200, 550, {
+      fecha: '2026-06-09',
+      motivo: 'PRESTAMO EN USDT AUTORIZADO POR CHELI',
+    });
+    const entregas = extraerEntregasPrestamo(p);
+    expect(entregas).toHaveLength(1);
+    expect(entregas[0]).toEqual({
+      fecha: '2026-06-09',
+      monto: 1200,
+      motivo: 'PRESTAMO EN USDT AUTORIZADO POR CHELI',
+    });
+  });
+
+  it('agregarEntregaAMotivo convierte motivo simple en desglosado con fechas y montos', () => {
+    const combinado = agregarEntregaAMotivo(
+      'PRESTAMO EN USDT AUTORIZADO POR CHELI',
+      '2026-06-09',
+      1200,
+      {
+        fecha: '2026-08-23',
+        monto: 550,
+        motivo: 'PAGO PRÉSTAMO KEIMER GT AUTORIZADO POR SRA WENDY MONTO= 550$ 23-08-26',
+      },
+    );
+    expect(combinado).toContain('[Entrega 09-06-2026 · $ 1.200,00]: PRESTAMO EN USDT AUTORIZADO POR CHELI');
+    expect(combinado).toContain('[Entrega 23-08-2026 · $ 550,00]: PAGO PRÉSTAMO KEIMER GT AUTORIZADO POR SRA WENDY MONTO= 550$ 23-08-26');
+
+    const p = prestamo('p1', 'p1', 1750, 1100, {
+      fecha: '2026-08-23',
+      motivo: combinado,
+    });
+    const entregas = extraerEntregasPrestamo(p);
+    expect(entregas).toHaveLength(2);
+    expect(entregas[0].fecha).toBe('2026-06-09');
+    expect(entregas[0].monto).toBe(1200);
+    expect(entregas[1].fecha).toBe('2026-08-23');
+    expect(entregas[1].monto).toBe(550);
+  });
+
+  it('detectarPrestamosMultiples identifica trabajadores con más de un préstamo activo', () => {
+    const listaTest: AnticipoPrestamo[] = [
+      prestamo('k1', 'pk', 1200, 550, { fecha: '2026-06-09' }),
+      prestamo('k2', 'pk', 550, 550, { fecha: '2026-08-23' }),
+      prestamo('j1', 'pj', 2000, 1700, { fecha: '2026-08-15' }),
+    ];
+    const personasMap = new Map<string, Personal>([
+      ['pk', persona('pk', { nombre: 'Keimer', apellido: 'Valero' })],
+      ['pj', persona('pj', { nombre: 'José', apellido: 'Mejía' })],
+    ]);
+    const multiples = detectarPrestamosMultiples(listaTest, personasMap);
+    expect(multiples).toHaveLength(1);
+    expect(multiples[0].personalId).toBe('pk');
+    expect(multiples[0].cantidad).toBe(2);
+    expect(multiples[0].total).toBe(1750);
+    expect(multiples[0].saldo).toBe(1100);
+    expect(multiples[0].ids).toEqual(['k1', 'k2']);
   });
 });
