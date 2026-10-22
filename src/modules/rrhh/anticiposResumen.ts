@@ -400,3 +400,130 @@ export function detectarPrestamosMultiples(
 
   return resultado;
 }
+
+export interface PrestamoItemEntrega {
+  numero: number;
+  fecha: string;
+  monto: number;
+  motivo?: string | null;
+}
+
+export interface AnticipoUnificado extends AnticipoPrestamo {
+  ids: string[];
+  fechaInicial: string;
+  todasLasFechas: string[];
+  pagado: number;
+  entregas: PrestamoItemEntrega[];
+}
+
+/**
+ * Unifica la lista de anticipos por trabajador y tipo.
+ * Si un trabajador tiene varios préstamos (ej. Préstamo 1 de 50$ día 10/10/26 y Préstamo 2 de 100$ día 10/11/26),
+ * los consolida en un solo registro con la deuda total acumulada y el desglose de fechas y montos de cada préstamo.
+ */
+export function unificarAnticipos(lista: AnticipoPrestamo[]): AnticipoUnificado[] {
+  const grupos = new Map<string, AnticipoPrestamo[]>();
+
+  for (const a of lista) {
+    const clave = `${a.personal_id}__${a.tipo}`;
+    const arr = grupos.get(clave) ?? [];
+    arr.push(a);
+    grupos.set(clave, arr);
+  }
+
+  const resultado: AnticipoUnificado[] = [];
+
+  for (const [, items] of grupos.entries()) {
+    if (items.length === 1) {
+      const a = items[0];
+      const rawEntregas = extraerEntregasPrestamo(a);
+      const entregas: PrestamoItemEntrega[] = rawEntregas.map((e, idx) => ({
+        numero: idx + 1,
+        fecha: e.fecha,
+        monto: e.monto,
+        motivo: e.motivo,
+      }));
+      const fechaInicial = entregas[0]?.fecha || String(a.fecha ?? '').slice(0, 10);
+      const fechaReciente = entregas[entregas.length - 1]?.fecha || String(a.fecha ?? '').slice(0, 10);
+      const todasLasFechas = [...new Set(entregas.map((e) => e.fecha))].sort();
+
+      resultado.push({
+        ...a,
+        ids: [a.id],
+        fecha: fechaReciente,
+        fechaInicial,
+        todasLasFechas,
+        pagado: pagadoDe(a),
+        entregas,
+      });
+      continue;
+    }
+
+    // Múltiples préstamos: ordenar por fecha ascendente (el más antiguo primero)
+    const ordenados = [...items].sort((x, y) =>
+      String(x.fecha).localeCompare(String(y.fecha)) || String(x.created_at).localeCompare(String(y.created_at))
+    );
+
+    const entregas: PrestamoItemEntrega[] = [];
+    let montoTotal = 0;
+    let saldoTotal = 0;
+    let cuotaTotal = 0;
+    let tieneCuota = false;
+    const ids: string[] = [];
+
+    for (const item of ordenados) {
+      ids.push(item.id);
+      const rawEntregas = extraerEntregasPrestamo(item);
+      for (const e of rawEntregas) {
+        entregas.push({
+          numero: entregas.length + 1,
+          fecha: e.fecha,
+          monto: e.monto,
+          motivo: e.motivo,
+        });
+      }
+      montoTotal = r2(montoTotal + (Number(item.monto_total) || 0));
+      saldoTotal = r2(saldoTotal + (Number(item.saldo) || 0));
+      if (item.cuota_sugerida != null && Number(item.cuota_sugerida) > 0) {
+        cuotaTotal = r2(cuotaTotal + Number(item.cuota_sugerida));
+        tieneCuota = true;
+      }
+    }
+
+    const fechaInicial = entregas[0]?.fecha || ordenados[0].fecha;
+    const fechaReciente = entregas[entregas.length - 1]?.fecha || ordenados[ordenados.length - 1].fecha;
+    const todasLasFechas = [...new Set(entregas.map((e) => e.fecha))].sort();
+    const pagadoTotal = Math.max(0, r2(montoTotal - saldoTotal));
+
+    // Formatear motivo indicando cada préstamo por número, monto y fecha
+    const lineasMotivo = entregas.map((e) => {
+      const desc = e.motivo ? ` · ${e.motivo}` : '';
+      return `Préstamo ${e.numero}: ${money(e.monto)} (Día ${date(e.fecha)})${desc}`;
+    });
+
+    const principal = ordenados[ordenados.length - 1];
+
+    resultado.push({
+      id: principal.id,
+      ids,
+      personal_id: principal.personal_id,
+      tipo: principal.tipo,
+      fecha: fechaReciente,
+      fechaInicial,
+      todasLasFechas,
+      monto_total: montoTotal,
+      saldo: saldoTotal,
+      pagado: pagadoTotal,
+      cuota_sugerida: tieneCuota ? cuotaTotal : principal.cuota_sugerida,
+      estado: saldoTotal <= 0 ? 'saldado' : 'activo',
+      motivo: lineasMotivo.join('\n'),
+      historico: ordenados.some((x) => x.historico),
+      creado_por: principal.creado_por,
+      actor_name: principal.actor_name,
+      created_at: principal.created_at,
+      entregas,
+    });
+  }
+
+  return resultado.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+}

@@ -22,7 +22,7 @@ import { listAnticipos, eliminarAnticipo, registrarAnticipo, listPagosDe, coteja
 import {
   ALTA_VACIA, ETIQUETA_TIPO, FILTROS_VACIOS, agruparPorTrabajador, buscarTrabajadores, errorAlta, filtrarAnticipos,
   filtrosActivos, nombreCompleto, pagadoDe, resumenAnticipos, trabajadoresConPendiente,
-  extraerEntregasPrestamo, detectarPrestamosMultiples,
+  detectarPrestamosMultiples, unificarAnticipos,
   type AltaAnticipo, type FiltrosAnticipos, type TrabajadorConPrestamos,
 } from './anticiposResumen';
 import { AnticipoDetalleModal } from './AnticipoDetalleModal';
@@ -69,7 +69,20 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
     ]);
     setPersonal(ps); setLista(as);
     setLoading(false);
-  }, [empresa]);
+
+    // Cotejo y sincronización automática silenciosa en segundo plano
+    if (canWrite) {
+      try {
+        const res = await cotejarYSincronizarPrestamos(actor, actorName);
+        if (res.consolidados > 0) {
+          const actualizados = await listAnticipos().catch(() => null);
+          if (actualizados) setLista(actualizados);
+        }
+      } catch {
+        // En segundo plano
+      }
+    }
+  }, [empresa, canWrite, actor, actorName]);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['anticipos_prestamos', 'anticipos_pagos', 'personal'], () => { void recargar(); });
 
@@ -79,12 +92,33 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
   // La base de las tarjetas: todo lo filtrado MENOS el estado (lo pendiente es, por definición, activo).
   const baseKpi = useMemo(() => filtrarAnticipos(lista, { ...filtros, estado: 'todos' }, personas), [lista, filtros, personas]);
   const visibles = useMemo(() => filtrarAnticipos(lista, filtros, personas), [lista, filtros, personas]);
+  const unificados = useMemo(() => unificarAnticipos(visibles), [visibles]);
   const resumen = useMemo(() => resumenAnticipos(baseKpi), [baseKpi]);
   const resumenVisible = useMemo(() => resumenAnticipos(visibles), [visibles]);
   const pendientes = useMemo(() => baseKpi.filter((a) => (Number(a.saldo) || 0) > 0), [baseKpi]);
   const deudores = useMemo(() => trabajadoresConPendiente(baseKpi, personas), [baseKpi, personas]);
   const multiplesActivos = useMemo(() => detectarPrestamosMultiples(visibles, personas), [visibles, personas]);
-  const detalle = detalleId ? lista.find((a) => a.id === detalleId) ?? null : null;
+
+  // Auto-sincronización si se detectan múltiples activos para la misma persona
+  useEffect(() => {
+    if (canWrite && multiplesActivos.length > 0 && !sincronizando) {
+      setSincronizando(true);
+      cotejarYSincronizarPrestamos(actor, actorName)
+        .then((res) => {
+          if (res.consolidados > 0) {
+            void listAnticipos().then((as) => setLista(as)).catch(() => {});
+          }
+        })
+        .catch(() => {})
+        .finally(() => setSincronizando(false));
+    }
+  }, [multiplesActivos.length, canWrite, sincronizando, actor, actorName]);
+
+  const detalle = useMemo(() => {
+    if (!detalleId) return null;
+    return unificados.find((a) => a.id === detalleId || a.ids.includes(detalleId)) ?? lista.find((a) => a.id === detalleId) ?? null;
+  }, [detalleId, unificados, lista]);
+
   const nFiltros = filtrosActivos(filtros);
 
   const setF = <K extends keyof FiltrosAnticipos>(k: K, v: FiltrosAnticipos[K]) => setFiltros((f) => ({ ...f, [k]: v }));
@@ -104,26 +138,14 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
     finally { setGuardando(false); }
   }
 
-  async function ejecutarCotejo() {
-    setSincronizando(true);
-    try {
-      const res = await cotejarYSincronizarPrestamos(actor, actorName);
-      if (res.consolidados > 0) {
-        toast(`Cotejo y sincronización completada: ${res.consolidados} préstamo(s) unificado(s)`, 'success');
-        await recargar();
-      } else {
-        toast('No se encontraron préstamos duplicados para unificar', 'info');
-      }
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Error durante la sincronización', 'error');
-    } finally {
-      setSincronizando(false);
-    }
-  }
-
-  async function borrar(a: AnticipoPrestamo) {
+  async function borrar(a: AnticipoPrestamo & { ids?: string[] }) {
     setPorBorrar(null);
-    try { await eliminarAnticipo(a.id); await recargar(); toast('Eliminado', 'success'); }
+    try {
+      const idsABorrar = a.ids && a.ids.length > 0 ? a.ids : [a.id];
+      await Promise.all(idsABorrar.map((id) => eliminarAnticipo(id)));
+      await recargar();
+      toast('Eliminado', 'success');
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
@@ -254,39 +276,12 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
       {/* ── Acciones ── */}
       <div className="lt-acciones">
         {canWrite && <button className="btn btn-primary" onClick={() => setAltaAbierta(true)}>+ Registrar préstamo o anticipo</button>}
-        {canWrite && (
-          <button
-            className="btn btn-ghost"
-            onClick={() => void ejecutarCotejo()}
-            disabled={sincronizando}
-            title="Coteja y consolida préstamos activos de la misma persona, sumando los montos y registrando las fechas"
-          >
-            {sincronizando ? 'Sincronizando…' : '🔄 Cotejar y sincronizar'}
-          </button>
-        )}
-        <button className="btn btn-ghost" disabled={generandoPdf || !visibles.length}
+        <button className="btn btn-ghost" disabled={generandoPdf || !unificados.length}
           title="PDF de lo que se ve en la lista: total prestado, pagado y deuda por trabajador, con sus abonos"
           onClick={() => void pdfLista(visibles, 'Préstamos y anticipos', textoFiltros(), `prestamos-${empresa}-${new Date().toISOString().slice(0, 10)}`)}>
           {generandoPdf ? 'Generando…' : '📄 Consolidado en PDF'}
         </button>
       </div>
-
-      {/* ── Aviso si hay duplicados detectados ── */}
-      {multiplesActivos.length > 0 && (
-        <div className="aviso aviso-ambar" style={{ marginBottom: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap' }}>
-          <div>
-            <strong>⚠️ Se detectaron {multiplesActivos.length} trabajador(es) con más de un préstamo activo:</strong>
-            <div style={{ fontSize: '.84rem', marginTop: '.2rem' }}>
-              {multiplesActivos.map((d) => `${d.nombre} (${d.cantidad} préstamos · Total ${money(d.total)} · Saldo ${money(d.saldo)})`).join(' · ')}
-            </div>
-          </div>
-          {canWrite && (
-            <button className="btn btn-sm btn-primary" onClick={() => void ejecutarCotejo()} disabled={sincronizando}>
-              {sincronizando ? 'Sincronizando…' : '🔄 Cotejar y consolidar ahora'}
-            </button>
-          )}
-        </div>
-      )}
 
       {/* ── Lista ── */}
       <div className="table-wrap">
@@ -300,20 +295,19 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
           </thead>
           <tbody>
             {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !visibles.length && <tr><td colSpan={9}><EmptyState message={nFiltros ? 'Nada coincide con los filtros' : 'Sin anticipos ni préstamos'} icon="💵" /></td></tr>}
-            {!loading && visibles.map((a) => {
+            {!loading && !unificados.length && <tr><td colSpan={9}><EmptyState message={nFiltros ? 'Nada coincide con los filtros' : 'Sin anticipos ni préstamos'} icon="💵" /></td></tr>}
+            {!loading && unificados.map((a) => {
               const p = personas.get(a.personal_id);
-              const entregas = extraerEntregasPrestamo(a);
-              const fechaReciente = entregas[entregas.length - 1]?.fecha || a.fecha;
-              const otrasEntregas = entregas.slice(0, -1);
+              const fechaReciente = a.entregas[a.entregas.length - 1]?.fecha || a.fecha;
+              const otrasEntregas = a.entregas.slice(0, -1);
               return (
                 <tr key={a.id} style={{ opacity: a.estado === 'saldado' ? 0.65 : 1, cursor: 'pointer' }} onClick={() => abrirDetalle(a.id)} title="Ver detalle y abonos">
-                  <td className="mono">
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>
                     <div style={{ fontWeight: 600 }}>{date(fechaReciente)}</div>
                     {otrasEntregas.length > 0 && (
                       <div className="muted" style={{ fontSize: '.72rem', marginTop: '2px', lineHeight: 1.25 }}>
-                        {otrasEntregas.map((e, idx) => (
-                          <div key={idx} title={`Entrega: ${date(e.fecha)} (${money(e.monto)})`}>
+                        {otrasEntregas.map((e) => (
+                          <div key={e.numero} title={`Préstamo ${e.numero}: ${money(e.monto)} (${date(e.fecha)})`}>
                             + {date(e.fecha)} ({money(e.monto)})
                           </div>
                         ))}
@@ -322,10 +316,10 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
                   </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
-                      <span>{nombreCompleto(p)}</span>
-                      {entregas.length > 1 && (
-                        <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', background: 'rgba(255,255,255,0.08)' }} title={`${entregas.length} préstamos acumulados`}>
-                          {entregas.length} préstamos
+                      <span style={{ fontWeight: 500 }}>{nombreCompleto(p)}</span>
+                      {a.entregas.length > 1 && (
+                        <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', background: 'rgba(234, 88, 12, 0.15)', color: '#ea580c', borderColor: '#ea580c' }} title={`${a.entregas.length} préstamos acumulados`}>
+                          {a.entregas.length} préstamos
                         </span>
                       )}
                     </div>
@@ -335,12 +329,12 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
                     <span className="badge">{ETIQUETA_TIPO[a.tipo]}</span>
                     {a.historico && <span className="badge" style={{ marginLeft: '.25rem' }} title="Cargado como histórico (anterior al sistema)">📜</span>}
                   </td>
-                  <td className="muted" style={{ maxWidth: '320px', whiteSpace: 'normal' }}>
-                    {entregas.length > 1 ? (
+                  <td className="muted" style={{ maxWidth: '340px', whiteSpace: 'normal' }}>
+                    {a.entregas.length > 1 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        {entregas.map((e, idx) => (
-                          <div key={idx} style={{ fontSize: '.78rem', lineHeight: 1.25 }}>
-                            <strong style={{ color: 'var(--text)' }}>{date(e.fecha)}:</strong> {e.motivo || money(e.monto)}
+                        {a.entregas.map((e) => (
+                          <div key={e.numero} style={{ fontSize: '.78rem', lineHeight: 1.25 }}>
+                            <strong style={{ color: 'var(--text)' }}>Préstamo {e.numero} ({money(e.monto)} · {date(e.fecha)}):</strong> {e.motivo || '—'}
                           </div>
                         ))}
                       </div>
@@ -349,8 +343,8 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
                     )}
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(pagadoDe(a))}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: Number(a.saldo) > 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{money(a.saldo)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(a.pagado)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: a.saldo > 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{money(a.saldo)}</td>
                   <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: a.estado === 'activo' ? 'var(--warning)' : 'var(--success)' }}>{a.estado === 'activo' ? 'Activo' : 'Saldado'}</span></td>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => abrirDetalle(a.id)} title="Detalle y abonos">🔍</button>
@@ -360,10 +354,10 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
               );
             })}
           </tbody>
-          {!loading && visibles.length > 0 && (
+          {!loading && unificados.length > 0 && (
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
-                <td colSpan={4} style={{ textAlign: 'right' }}>Totales ({visibles.length})</td>
+                <td colSpan={4} style={{ textAlign: 'right' }}>Totales ({unificados.length})</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(resumenVisible.totalPrestado)}</td>
                 <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(resumenVisible.totalPagado)}</td>
                 <td className="mono" style={{ textAlign: 'right', color: resumenVisible.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(resumenVisible.totalPendiente)}</td>

@@ -3,7 +3,7 @@ import type { AnticipoPago, AnticipoPrestamo, Personal } from '@/shared/lib/type
 import {
   FILTROS_VACIOS, agruparPorTrabajador, buscarTrabajadores, errorAbono, errorEdicionAbono, errorAlta, filtrarAnticipos,
   filtrosActivos, normalizarTexto, ordenarPagos, pagadoDe, resumenAnticipos, trabajadoresConPendiente,
-  extraerEntregasPrestamo, agregarEntregaAMotivo, detectarPrestamosMultiples,
+  extraerEntregasPrestamo, agregarEntregaAMotivo, detectarPrestamosMultiples, unificarAnticipos,
   type AltaAnticipo,
 } from './anticiposResumen';
 
@@ -196,5 +196,29 @@ describe('historial de entregas y préstamos acumulados', () => {
     expect(multiples[0].total).toBe(1750);
     expect(multiples[0].saldo).toBe(1100);
     expect(multiples[0].ids).toEqual(['k1', 'k2']);
+  });
+
+  it('unificarAnticipos consolida varios préstamos de la misma persona en un solo renglón con desglose', () => {
+    // Ejemplo exacto: angelica prestamo 1 de 50$ dia 10/10/26 luego prestamo 2 de 100$ dia 10/11/26 deuda de 150$
+    const listaTest: AnticipoPrestamo[] = [
+      prestamo('a1', 'p-ang', 50, 50, { fecha: '2026-10-10', motivo: 'Préstamo inicial' }),
+      prestamo('a2', 'p-ang', 100, 100, { fecha: '2026-11-10', motivo: 'Ampliación' }),
+      prestamo('j1', 'p-jose', 200, 150, { fecha: '2026-08-15' }),
+    ];
+    const unificados = unificarAnticipos(listaTest);
+    expect(unificados).toHaveLength(2);
+
+    const ang = unificados.find((x) => x.personal_id === 'p-ang')!;
+    expect(ang).toBeDefined();
+    expect(ang.monto_total).toBe(150);
+    expect(ang.saldo).toBe(150);
+    expect(ang.pagado).toBe(0);
+    expect(ang.entregas).toHaveLength(2);
+    expect(ang.entregas[0].monto).toBe(50);
+    expect(ang.entregas[0].fecha).toBe('2026-10-10');
+    expect(ang.entregas[1].monto).toBe(100);
+    expect(ang.entregas[1].fecha).toBe('2026-11-10');
+    expect(ang.motivo).toContain('Préstamo 1: $ 50,00 (Día 10-10-2026)');
+    expect(ang.motivo).toContain('Préstamo 2: $ 100,00 (Día 10-11-2026)');
   });
 });
