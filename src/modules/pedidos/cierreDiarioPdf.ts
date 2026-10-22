@@ -6,7 +6,7 @@
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { TITULOS_CIERRE, etiquetaPeriodo, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
+import { TITULOS_CIERRE, etiquetaPeriodo, fechaCaracas, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
 
 const PASTEL: Record<'titulo' | 'cabecera' | 'cabeceraTexto' | 'cebra', [number, number, number]> = {
   titulo: [192, 126, 70],
@@ -40,7 +40,7 @@ export async function construirCierreDiarioPdf(
   doc.setTextColor(40, 40, 40); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
   doc.text('Período:', MARGIN, y);
   doc.setFont('helvetica', 'normal');
-  doc.text(pdfSafe(etiquetaPeriodo(p)), MARGIN + 52, y);
+  doc.text(pdfSafe(etiquetaPeriodo(p, fechaCaracas(ahora))), MARGIN + 52, y);
   y += 20;
   doc.setFont('helvetica', 'bold'); doc.text('Impreso:', MARGIN, y);
   doc.setFont('helvetica', 'normal');

@@ -8,6 +8,7 @@ import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { firmaDeAprobador, ELABORADOR_OC } from './aprobadoresOc';
 import { esRecargaAgua } from './servicios.repository';
 import { esCambioProveedor, leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
+import { obtenerInfoModalidadPago } from './modalidadPago';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -287,10 +288,15 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setFontSize(9);
   const documentosOc = orden.historial?.find((h) => h.evento === 'oc_emitida')?.documentos ?? [];
   const clasificacion = orden.clasificacion ?? [];
+  const modInfo = obtenerInfoModalidadPago(orden, ofertaAceptada);
   const cond: Array<[string, string]> = [
     ['Clasificación', clasificacion.length ? pdfSafe(clasificacion.join(' · ')) : '—'],
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
+    ['Modalidad de pago elegida', modInfo.etiqueta],
+    ...(modInfo.esDivisa && modInfo.precioBcv != null && modInfo.precioBcv > Number(orden.total)
+      ? [['Referencia cotización en Bs (BCV)', `${money(modInfo.precioBcv)} (Ahorro en $: ${money(modInfo.ahorro ?? 0)})`]] as Array<[string, string]>
+      : []),
     ['Documentos', documentosOc.length ? documentosOc.join(' · ') : '—'],
     [`Aprobada por (${SOL_ABBR})`, pdfSafe(quien(orden.aprobada_por, orden.aprobada_en))],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],

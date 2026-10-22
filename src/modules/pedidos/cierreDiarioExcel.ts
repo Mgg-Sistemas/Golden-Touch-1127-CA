@@ -4,7 +4,7 @@
    imprime. Mismos tonos pastel de «Compras por estado». Vista previa.
    ============================================================ */
 import { previewExcelArchivo } from '@/shared/lib/reportePreview';
-import { TITULOS_CIERRE, etiquetaPeriodo, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
+import { TITULOS_CIERRE, etiquetaPeriodo, fechaCaracas, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
 
 const PASTEL = {
   titulo: 'FFC07E46',
@@ -39,7 +39,7 @@ export async function construirCierreDiarioExcel(r: ResumenCierre, p: PeriodoCie
     c.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   };
   sub(2, emp.nombre);
-  sub(3, `Período: ${etiquetaPeriodo(p)}`);
+  sub(3, `Período: ${etiquetaPeriodo(p, fechaCaracas(ahora))}`);
   sub(4, `Impreso: ${momentoImpresion(ahora)}`);
 
   const cab = ws.getRow(6);
