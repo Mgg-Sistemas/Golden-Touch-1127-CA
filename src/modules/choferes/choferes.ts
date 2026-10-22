@@ -127,6 +127,48 @@ export function totalViajes(vs: { cantidad_viajes?: number | null; estado?: stri
 /** «12 viajes» / «1 viaje». */
 export const textoViajes = (n: number) => `${n} ${n === 1 ? 'viaje' : 'viajes'}`;
 
+/* ───────────── Categorías de viaje y liquidación de pagos ───────────── */
+
+export type CategoriaViaje = 'corto' | 'largo' | 'interno' | 'otro';
+
+export const CATEGORIAS_VIAJE: Record<CategoriaViaje, { label: string; montoDefecto: number; hint: string }> = {
+  corto: { label: 'VIAJE CORTO', montoDefecto: 25, hint: 'Viaje corto ($25 por defecto)' },
+  largo: { label: 'VIAJE LARGO', montoDefecto: 50, hint: 'Viaje largo ($50 o $100 por defecto)' },
+  interno: { label: 'VIAJE INTERNO', montoDefecto: 1, hint: 'Viaje interno ($1 o $5 por defecto)' },
+  otro: { label: 'OTRO', montoDefecto: 0, hint: 'Tarifa personalizada' },
+};
+
+export interface DatosPagoViaje {
+  categoria?: string | null;
+  monto_unitario?: number | null;
+  total_pagar?: number | null;
+  pagado?: boolean;
+  pagado_at?: string | null;
+  pago_ref?: string | null;
+  moneda?: string | null;
+}
+
+export function parsearDatosPago(nota: string | null | undefined): { datos: DatosPagoViaje; notaLimpia: string } {
+  if (!nota) return { datos: { categoria: null, monto_unitario: null, total_pagar: null, pagado: false }, notaLimpia: '' };
+  const match = nota.match(/<!--pago:([\s\S]*?)-->/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      const notaLimpia = nota.replace(/<!--pago:[\s\S]*?-->/, '').trim();
+      return { datos: parsed, notaLimpia };
+    } catch {
+      // fallo silencioso
+    }
+  }
+  return { datos: { categoria: null, monto_unitario: null, total_pagar: null, pagado: false }, notaLimpia: nota };
+}
+
+export function serializarNotaConPago(notaLimpia: string | null | undefined, datos: DatosPagoViaje): string {
+  const json = JSON.stringify(datos);
+  const base = (notaLimpia || '').trim();
+  return base ? `${base}\n<!--pago:${json}-->` : `<!--pago:${json}-->`;
+}
+
 export interface Parada {
   lugar: string;
   nota?: string | null;

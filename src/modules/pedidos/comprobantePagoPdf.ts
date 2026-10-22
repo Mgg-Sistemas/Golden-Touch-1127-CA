@@ -20,7 +20,7 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
   const orden = ordenRow as Orden;
 
   // Carga en paralelo: proveedor, caja, abonos, personas, logo/firma y libs de PDF.
-  const [proveedor, cajaNombre, abonos, personasMap, logoDataUrl, firmaGerente, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [proveedor, cajaNombre, abonos, { personasMap, personasCiMap }, logoDataUrl, firmaGerente, { jsPDF }, { default: autoTable }] = await Promise.all([
     orden.proveedor_id
       ? supabase.from('proveedores').select('*').eq('id', orden.proveedor_id).maybeSingle().then((r) => (r.data ?? null) as Proveedor | null)
       : Promise.resolve(null),
@@ -32,15 +32,19 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
       const emails = new Set<string>();
       const add = (e?: string | null) => { if (e && e.includes('@')) emails.add(e.toLowerCase()); };
       add(orden.pagada_por); add(orden.finalizada_por); add(orden.solicitante_email);
-      const map = new Map<string, string>();
+      if (orden.solicitante && orden.solicitante.includes('@')) add(orden.solicitante);
+      (orden.historial ?? []).forEach((h) => add(h.actor));
+      const pMap = new Map<string, string>();
+      const cMap = new Map<string, string>();
       if (emails.size) {
-        const { data } = await supabase.from('usuarios').select('email, nombre, apellido').in('email', Array.from(emails));
-        (data ?? []).forEach((u: { email: string; nombre?: string | null; apellido?: string | null }) => {
+        const { data } = await supabase.from('usuarios').select('email, nombre, apellido, ci').in('email', Array.from(emails));
+        (data ?? []).forEach((u: { email: string; nombre?: string | null; apellido?: string | null; ci?: string | null }) => {
           const nombre = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
-          if (u.email && nombre) map.set(u.email.toLowerCase(), nombre);
+          if (u.email && nombre) pMap.set(u.email.toLowerCase(), nombre);
+          if (u.email && u.ci) cMap.set(u.email.toLowerCase(), u.ci.trim());
         });
       }
-      return map;
+      return { personasMap: pMap, personasCiMap: cMap };
     })(),
     loadLogoPdfDataUrl().catch(() => null),
     loadFirmaDataUrl().catch(() => null),
@@ -215,12 +219,36 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
       doc.addImage(firmaGerente, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
     }
   } catch { /* firma opcional */ }
+  // Firma del analista solicitante (reemplaza firma del proveedor en los PDF de compras)
+  const emailSol = (
+    orden.solicitante_email ||
+    (orden.solicitante?.includes('@') ? orden.solicitante : '') ||
+    orden.historial?.find((h) => h.evento === 'creada')?.actor ||
+    ''
+  ).toLowerCase();
+  const nomDePersona = emailSol ? personasMap.get(emailSol) : null;
+  const nombreAnalista = (() => {
+    if (nomDePersona) return nomDePersona;
+    const nomHistorico = emailSol ? quien(emailSol) : '';
+    if (nomHistorico && nomHistorico !== emailSol) return nomHistorico;
+    if (orden.solicitante && !orden.solicitante.includes('@')) return orden.solicitante;
+    return orden.solicitante || emailSol || 'Analista solicitante';
+  })();
+  const ciAnalista = orden.ci_solicitante || (emailSol ? personasCiMap.get(emailSol) : null);
+
   doc.setDrawColor(180);
   doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
   doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
   doc.setFontSize(9); doc.setTextColor(0);
   doc.text('Firma autorizada · Tesorería', MARGIN, pageH - 66);
-  doc.text('Recibí conforme', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
+  doc.text('Analista solicitante', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
+  doc.setFontSize(7.5); doc.setTextColor(120);
+  doc.text(
+    `${nombreAnalista}${ciAnalista ? ' · C.I. ' + ciAnalista : ''}`,
+    PAGE_W - MARGIN,
+    pageH - 56,
+    { align: 'right' },
+  );
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · GOLDEN TOUCH 1127 C.A. · ${ocLabel} · ${dateTime(new Date().toISOString())}`, MARGIN, pageH - 24);
 

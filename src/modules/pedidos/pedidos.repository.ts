@@ -3117,3 +3117,74 @@ async function eliminarOrdenCompraInterno(o: Orden, etiqueta: string, actorEmail
   const { error: dErr } = await supabase.from(TABLE).delete().eq('id', o.id);
   if (dErr) throw dErr;
 }
+
+/**
+ * Sincroniza las órdenes ya finalizadas (o pagadas/recibidas) cuyo solicitante
+ * o CI esté incompleto o tenga solo correo, resolviendo su Nombre y Apellido
+ * y C.I. desde la tabla de usuarios.
+ */
+export async function sincronizarOrdenesFinalizadas(): Promise<{ revisadas: number; actualizadas: number }> {
+  try {
+    const { data: ordenes, error } = await supabase
+      .from(TABLE)
+      .select('id, solicitante, solicitante_email, ci_solicitante, historial')
+      .in('estado', ['finalizada', 'pagada', 'recibida']);
+    if (error || !ordenes?.length) return { revisadas: 0, actualizadas: 0 };
+
+    const emails = new Set<string>();
+    ordenes.forEach((o) => {
+      const e = o.solicitante_email || (o.solicitante?.includes('@') ? o.solicitante : null);
+      if (e && e.includes('@')) emails.add(e.toLowerCase().trim());
+      ((o.historial as EventoHistorial[] | null) ?? []).forEach((h) => {
+        if (h.actor && h.actor.includes('@')) emails.add(h.actor.toLowerCase().trim());
+      });
+    });
+
+    if (!emails.size) return { revisadas: ordenes.length, actualizadas: 0 };
+
+    const { data: users, error: ue } = await supabase
+      .from('usuarios')
+      .select('email, nombre, apellido, ci')
+      .in('email', Array.from(emails));
+    if (ue || !users?.length) return { revisadas: ordenes.length, actualizadas: 0 };
+
+    const userMap = new Map<string, { nombre: string; ci?: string | null }>();
+    users.forEach((u: { email: string; nombre?: string | null; apellido?: string | null; ci?: string | null }) => {
+      const nombre = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
+      if (u.email && nombre) {
+        userMap.set(u.email.toLowerCase().trim(), { nombre, ci: u.ci?.trim() ?? null });
+      }
+    });
+
+    let actualizadas = 0;
+    for (const o of ordenes) {
+      const emailSol = (
+        o.solicitante_email ||
+        (o.solicitante?.includes('@') ? o.solicitante : '') ||
+        ((o.historial as EventoHistorial[] | null)?.find((h) => h.evento === 'creada')?.actor) ||
+        ''
+      ).toLowerCase().trim();
+
+      const u = emailSol ? userMap.get(emailSol) : null;
+      if (!u) continue;
+
+      const patch: Record<string, string> = {};
+      const tieneSoloCorreo = !o.solicitante || o.solicitante.includes('@');
+      if (u.nombre && (tieneSoloCorreo || o.solicitante?.trim() !== u.nombre)) {
+        patch.solicitante = u.nombre;
+      }
+      if (u.ci && !o.ci_solicitante) {
+        patch.ci_solicitante = u.ci;
+      }
+      if (Object.keys(patch).length > 0) {
+        const { error: updErr } = await supabase.from(TABLE).update(patch).eq('id', o.id);
+        if (!updErr) actualizadas++;
+      }
+    }
+
+    return { revisadas: ordenes.length, actualizadas };
+  } catch {
+    return { revisadas: 0, actualizadas: 0 };
+  }
+}
+
