@@ -133,6 +133,16 @@ function lineasDatosPago(metodo: string, d: Record<string, string> | undefined):
 }
 
 /**
+ * Determina si la orden corresponde a una cuenta a crédito (abonos abiertos).
+ * En estas órdenes no se muestra método de pago: se pagan mediante abonos en Tesorería.
+ */
+export function esCuentaCredito(orden: Partial<Pick<Orden, 'condiciones_pago' | 'estado' | 'abonado_total'>>): boolean {
+  return orden.condiciones_pago === 'credito'
+    || orden.estado === 'cuenta_abierta'
+    || (Number(orden.abonado_total) || 0) > 0;
+}
+
+/**
  * El cuerpo de una orden, en el marcado de WhatsApp.
  * Se exporta para poder fijarlo con tests: el formato es un acuerdo con quien
  * lo lee del otro lado del chat, así que un cambio accidental se tiene que
@@ -141,10 +151,11 @@ function lineasDatosPago(metodo: string, d: Record<string, string> | undefined):
 export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
+  const esCredito = esCuentaCredito(o);
 
   // Título y pie como el aviso de Combustible: el chat es un grupo de trabajo y el
   // mensaje tiene que decir de entrada qué es y de dónde viene.
-  L.push(o.estado === 'cuenta_abierta' ? '🧾 *COMPRA A CRÉDITO*' : '💸 *ORDEN PARA PAGAR*', '');
+  L.push(esCredito ? '🧾 *COMPRA A CRÉDITO*' : '💸 *ORDEN PARA PAGAR*', '');
   L.push(`🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`);
   L.push(`🏭 *Proveedor:* ${proveedor?.razon_social?.trim() || '—'}`);
   L.push(...lineasPersonas(o, personas, true));
@@ -168,7 +179,8 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null, personas?
   // recibe el mensaje paga de más o vuelve a preguntar. Se dice cuánto se abonó y
   // cuánto queda. Sin abonos todavía no hay resta que mostrar, pero igual se avisa
   // que es a crédito para que nadie lo lea como un pago único.
-  if (o.estado === 'cuenta_abierta') {
+  // Tampoco lleva método de pago: se paga por abonos en Tesorería.
+  if (esCredito) {
     const abonado = Number(o.abonado_total) || 0;
     if (abonado > 0) {
       L.push(`💰 *Abonado:* ${monto(abonado, moneda)}`);
@@ -176,18 +188,18 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null, personas?
     } else {
       L.push('🧾 *A crédito:* cuenta abierta, sin abonos todavía');
     }
-  }
-
-  const metodos = (o.metodo_pago ?? []) as PagoMetodo[];
-  if (!metodos.length) {
-    L.push('💳 *Método de pago:* (sin indicar)');
   } else {
-    // Con una sola pata el monto ya está en el total y repetirlo estorba. Con
-    // varias hace falta: es lo que dice cuánto va por cada lado.
-    const partido = metodos.length > 1;
-    for (const m of metodos) {
-      L.push(`💳 *${labelMetodoPago(m.metodo)}:*${partido ? ` ${montoPata(m)}` : ''}`);
-      L.push(...lineasDatosPago(m.metodo, m.datos));
+    const metodos = (o.metodo_pago ?? []) as PagoMetodo[];
+    if (!metodos.length) {
+      L.push('💳 *Método de pago:* (sin indicar)');
+    } else {
+      // Con una sola pata el monto ya está en el total y repetirlo estorba. Con
+      // varias hace falta: es lo que dice cuánto va por cada lado.
+      const partido = metodos.length > 1;
+      for (const m of metodos) {
+        L.push(`💳 *${labelMetodoPago(m.metodo)}:*${partido ? ` ${montoPata(m)}` : ''}`);
+        L.push(...lineasDatosPago(m.metodo, m.datos));
+      }
     }
   }
   L.push('', '🏢 GOLDEN TOUCH 1127 C.A.');
