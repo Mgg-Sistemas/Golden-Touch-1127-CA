@@ -8,7 +8,7 @@
    ============================================================ */
 import { describe, it, expect } from 'vitest';
 import type { Orden, Proveedor } from '@/shared/lib/types';
-import { textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
+import { esCuentaCredito, textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
 
 const proveedor = { razon_social: 'MAXI SHOES' } as Proveedor;
 
@@ -135,6 +135,41 @@ describe('textoOrdenPagar', () => {
     const txt = textoOrdenPagar(ordenBase, proveedor);
     expect(txt).not.toContain('Saldo a pagar');
     expect(txt).not.toContain('Abonado');
+  });
+
+  it('en cuentas a crédito NO muestra método de pago (ni con datos ni sin indicar)', () => {
+    const creditoConMetodo = {
+      ...ordenBase,
+      estado: 'cuenta_abierta',
+      total: 1391.25,
+      abonado_total: 400,
+      metodo_pago: [
+        { metodo: 'pago_movil', moneda: 'USD', monto: 79, datos: { banco: '0102', ci_rif: 'P1131881', telefono: '04249692172' } },
+      ],
+    } as unknown as Orden;
+    const txt = textoOrdenPagar(creditoConMetodo, proveedor);
+    expect(txt).not.toContain('💳');
+    expect(txt).not.toContain('Pago móvil');
+    expect(txt).not.toContain('Método de pago');
+
+    const creditoSinAbonos = {
+      ...ordenBase,
+      condiciones_pago: 'credito',
+      estado: 'cuenta_abierta',
+      total: 1204.88,
+      abonado_total: 0,
+      metodo_pago: null,
+    } as unknown as Orden;
+    const txtSin = textoOrdenPagar(creditoSinAbonos, proveedor);
+    expect(txtSin).not.toContain('💳');
+    expect(txtSin).not.toContain('(sin indicar)');
+  });
+
+  it('esCuentaCredito detecta compras a credito por condicion, estado o abonos', () => {
+    expect(esCuentaCredito({ condiciones_pago: 'credito' })).toBe(true);
+    expect(esCuentaCredito({ estado: 'cuenta_abierta' })).toBe(true);
+    expect(esCuentaCredito({ abonado_total: 50 })).toBe(true);
+    expect(esCuentaCredito({ condiciones_pago: 'contado', estado: 'oc_aprobada', abonado_total: 0 })).toBe(false);
   });
 });
 
