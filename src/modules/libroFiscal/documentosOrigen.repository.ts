@@ -85,15 +85,20 @@ export async function urlFacturaDeOrigen(f: Pick<FacturaDeOrigen, 'bucket' | 'pa
 
 /* ───────── Recibidas sin factura ───────── */
 
+import { fechaDesdeAgenteRetencion } from './agenteCondiciones.repository';
+
 export const FECHA_PERMISO_RETENCION = '2026-10-01';
 
 export interface OrigenSinFactura { origen: Origen; codigo: string | null; desde: string | null }
 
 /** OC recibidas, compras recepcionadas y servicios finalizados sin ningún archivo que cuente como factura.
- *  Respecto a las órdenes de compra (y recepciones), solo considera las de este mes en adelante
- *  (después de que la empresa obtuvo el permiso para retener, >= 2026-10-01). */
+ *  Respecto a las órdenes de compra (y recepciones), solo considera las que corresponden al período
+ *  en que la empresa es agente de retención. */
 export async function origenesSinFactura(): Promise<OrigenSinFactura[]> {
-  const { data, error } = await supabase.from(V_SIN_FACTURA).select('*').order('desde', { ascending: true, nullsFirst: false });
+  const [desdeAgente, { data, error }] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
+    supabase.from(V_SIN_FACTURA).select('*').order('desde', { ascending: true, nullsFirst: false }),
+  ]);
   if (error) throw errorRetencion(error, 'No se pudo leer qué recepciones están sin factura.');
   return (data ?? [])
     .map((r) => {
@@ -102,7 +107,7 @@ export async function origenesSinFactura(): Promise<OrigenSinFactura[]> {
     })
     .filter((o) => {
       const d = (o.desde ?? '').slice(0, 10);
-      return !d || d >= FECHA_PERMISO_RETENCION;
+      return !d || d >= desdeAgente;
     });
 }
 
@@ -142,7 +147,8 @@ export interface OrigenDelProveedor { origen: Origen; codigo: string | null; fec
 
 /** Las órdenes, compras y servicios del mismo proveedor (para que una factura cubra varias). */
 export async function origenesDelProveedor(proveedorId: string, limite = 60): Promise<OrigenDelProveedor[]> {
-  const [oc, cd, sd] = await Promise.all([
+  const [desdeAgente, oc, cd, sd] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
     supabase.from('ordenes').select('id, oc_codigo, codigo, created_at')
       .eq('proveedor_id', proveedorId)
       .gte('created_at', '2026-09-25T00:00:00Z')
@@ -156,7 +162,7 @@ export async function origenesDelProveedor(proveedorId: string, limite = 60): Pr
     origen: { tipo, id: String(r.id) }, codigo: texto(r.oc_codigo ?? r.codigo), fecha: texto(r.created_at),
   });
   return [
-    ...((oc.data ?? []) as Record<string, unknown>[]).filter((r) => String(r.created_at ?? '').slice(0, 10) >= FECHA_PERMISO_RETENCION).map(fila('oc')),
+    ...((oc.data ?? []) as Record<string, unknown>[]).filter((r) => String(r.created_at ?? '').slice(0, 10) >= desdeAgente).map(fila('oc')),
     ...((cd.data ?? []) as Record<string, unknown>[]).map(fila('compra_directa')),
     ...((sd.data ?? []) as Record<string, unknown>[]).map(fila('servicio_directo')),
   ].sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')));

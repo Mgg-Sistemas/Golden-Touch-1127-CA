@@ -10,6 +10,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Orden } from '@/shared/lib/types';
+import { fechaDesdeAgenteRetencion } from '@/modules/libroFiscal/agenteCondiciones.repository';
 
 const TABLE = 'ordenes';
 const BUCKET = 'compras-oc';
@@ -38,21 +39,22 @@ async function mapProveedores(): Promise<Map<string, string>> {
 }
 
 /**
- * Fecha en que la empresa obtuvo la designación/permiso para retener (Octubre 2026).
- * Solo se consideran órdenes de compra de este mes en adelante (>= 2026-10-01).
+ * Fecha en que la empresa obtuvo la designación/permiso para retener.
+ * Por defecto '2026-10-01' si no hay configuración en el Régimen fiscal.
  */
 export const FECHA_PERMISO_RETENCION = '2026-10-01';
 
-/** Comprueba si una orden corresponde al período con autorización de retención (este mes en adelante). */
-export function ordenAplicaRetencion(o: Orden): boolean {
+/** Comprueba si una orden corresponde al período con autorización de retención (a partir de la fecha de designación). */
+export function ordenAplicaRetencion(o: Orden, fechaCorte: string = FECHA_PERMISO_RETENCION): boolean {
   const f = (o.oc_emitida_en || o.oc_creada_en || o.created_at || '').slice(0, 10);
-  return f >= FECHA_PERMISO_RETENCION;
+  return f >= fechaCorte;
 }
 
 /** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
- *  (al finalizar la OC), aún sin finalizar la retención. Solo las de este mes en adelante. */
+ *  (al finalizar la OC), aún sin finalizar la retención. Solo a partir de la vigencia del régimen. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
-  const [{ data, error }, pm] = await Promise.all([
+  const [desdeAgente, { data, error }, pm] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
     supabase.from(TABLE).select('*')
       .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
@@ -62,13 +64,14 @@ export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
   ]);
   if (error) throw error;
   return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden))
+    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
-/** Retenciones ya finalizadas (comprobantes cargados). Solo las de este mes en adelante. */
+/** Retenciones ya finalizadas (comprobantes cargados). Solo a partir de la vigencia del régimen. */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
-  const [{ data, error }, pm] = await Promise.all([
+  const [desdeAgente, { data, error }, pm] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
     supabase.from(TABLE).select('*')
       .eq('comprobante_tipo', 'factura')
       .eq('retencion_finalizada', true)
@@ -78,18 +81,21 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
   ]);
   if (error) throw error;
   return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden))
+    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
 export async function contarRetencionesPendientes(): Promise<number> {
-  const { data, error } = await supabase.from(TABLE)
-    .select('id, created_at, oc_creada_en, oc_emitida_en')
-    .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
-    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-    .gte('created_at', '2026-09-25T00:00:00Z');
+  const [desdeAgente, { data, error }] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
+    supabase.from(TABLE)
+      .select('id, created_at, oc_creada_en, oc_emitida_en')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
+      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+      .gte('created_at', '2026-09-25T00:00:00Z'),
+  ]);
   if (error) throw error;
-  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden)).length;
+  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente)).length;
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {

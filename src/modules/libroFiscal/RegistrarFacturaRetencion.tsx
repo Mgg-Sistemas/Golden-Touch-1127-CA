@@ -11,6 +11,7 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import type { Proveedor } from '@/shared/lib/types';
@@ -342,6 +343,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (moneda !== 'Bs' && !(tasa > 0)) return 'Indica la tasa para llevar los montos a bolívares.';
     if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
     if (!lineas.length) return 'Agrega al menos una línea de impuesto.';
+    // Regla: No se debe registrar una retención del mismo tipo para 1 Factura
+    const tiposEnFormulario = new Set<TipoImpuesto>();
+    for (const l of lineas) {
+      if (tiposEnFormulario.has(l.tipo)) {
+        return `No se puede registrar más de una retención de ${labelImpuesto(l.tipo)} para una misma factura. Cada línea debe corresponder a un impuesto diferente.`;
+      }
+      tiposEnFormulario.add(l.tipo);
+    }
     if (documento) {
       const yaNo = lineas.find((l) => !pendientesComoTipos(documento).includes(l.tipo));
       if (yaNo) return `${labelImpuesto(yaNo.tipo)} ya no está pendiente en esta factura (ya se retuvo o se marcó «no aplica»).`;
@@ -592,8 +601,32 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       <div className="card" style={{ marginTop: '.4rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
           <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
-          <button type="button" className="btn btn-sm btn-ghost"
-            onClick={() => { marcarSucio(); setLineas((xs) => [...xs, nuevaLinea({ sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada' })]); }}>+ Agregar línea</button>
+          {(() => {
+            const tiposUsados = new Set(lineas.map((l) => l.tipo));
+            const tiposDisponibles = TIPOS_IMPUESTO.filter((t) => !tiposUsados.has(t.key));
+            const puedeAgregar = tiposDisponibles.length > 0;
+            return (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                disabled={!puedeAgregar}
+                title={puedeAgregar ? 'Agregar otra línea de impuesto diferente' : 'Una factura no admite dos retenciones del mismo impuesto (ya están todos los tipos agregados)'}
+                onClick={() => {
+                  if (!puedeAgregar) return;
+                  marcarSucio();
+                  const proximoTipo = tiposDisponibles[0].key;
+                  const baseSugerida = facturaTotal.trim() ? facturaTotal : '0';
+                  setLineas((xs) => [...xs, nuevaLinea({
+                    tipo: proximoTipo,
+                    sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada',
+                    baseStr: baseSugerida,
+                  })]);
+                }}
+              >
+                + Agregar línea
+              </button>
+            );
+          })()}
         </div>
         {lineas.map((l) => {
           const calc = calculoDe(l);
@@ -605,8 +638,26 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
                   <label>Impuesto</label>
-                  <select className="select" value={l.tipo} onChange={(e) => setLinea(l.id, { tipo: e.target.value as TipoImpuesto })}>
-                    {TIPOS_IMPUESTO.map((t) => <option key={t.key} value={t.key}>{t.corto}</option>)}
+                  <select
+                    className="select"
+                    value={l.tipo}
+                    onChange={(e) => {
+                      const nuevoTipo = e.target.value as TipoImpuesto;
+                      if (lineas.some((otra) => otra.id !== l.id && otra.tipo === nuevoTipo)) {
+                        toast(`Esta factura ya tiene una línea de ${labelImpuesto(nuevoTipo)}. Una factura admite una sola retención por impuesto.`, 'warning');
+                        return;
+                      }
+                      setLinea(l.id, { tipo: nuevoTipo });
+                    }}
+                  >
+                    {TIPOS_IMPUESTO.map((t) => {
+                      const ocupadoPorOtra = lineas.some((otra) => otra.id !== l.id && otra.tipo === t.key);
+                      return (
+                        <option key={t.key} value={t.key} disabled={ocupadoPorOtra}>
+                          {t.corto}{ocupadoPorOtra ? ' (ya agregado)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 {l.tipo === 'islr' && (

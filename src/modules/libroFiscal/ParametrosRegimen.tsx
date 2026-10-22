@@ -9,7 +9,7 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   condicionVigente, consultarCondicion, faltaEnCondicion, listCondiciones,
-  registrarCondicion, type CondicionAgente, type CondicionRegistrada,
+  registrarCondicion, actualizarCondicion, eliminarCondicion, type CondicionAgente, type CondicionRegistrada,
 } from './agenteCondiciones.repository';
 import type { ClaveImpuesto } from './entes.repository';
 import { fechaCorta } from './parametrosR1';
@@ -71,6 +71,58 @@ function RenglonRegimen({ impuesto, condicion, titulo, ayuda, historial, puedeEd
   const [motivo, setMotivo] = useState('');
   const [fuente, setFuente] = useState('');
   const [guardando, setGuardando] = useState(false);
+
+  // Edición inline de filas en el historial
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editDesde, setEditDesde] = useState('');
+  const [editValor, setEditValor] = useState<'si' | 'no'>('si');
+  const [editMotivo, setEditMotivo] = useState('');
+  const [editFuente, setEditFuente] = useState('');
+  const [guardandoFila, setGuardandoFila] = useState(false);
+
+  function empezarEdicion(h: CondicionRegistrada) {
+    setEditId(h.id);
+    setEditDesde(h.desde);
+    setEditValor(h.valor ? 'si' : 'no');
+    setEditMotivo(h.motivo);
+    setEditFuente(h.fuente ?? '');
+  }
+
+  async function guardarFila(id: string) {
+    if (!editDesde) { toast('Indica la fecha desde.', 'error'); return; }
+    if (!editMotivo.trim()) { toast('Indica el motivo del cambio.', 'error'); return; }
+    setGuardandoFila(true);
+    try {
+      await actualizarCondicion(id, {
+        desde: editDesde,
+        valor: editValor === 'si',
+        motivo: editMotivo.trim(),
+        fuente: editFuente.trim() || null,
+      });
+      toast('Régimen actualizado.', 'success');
+      setEditId(null);
+      onCambio();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo actualizar el registro.', 'error');
+    } finally {
+      setGuardandoFila(false);
+    }
+  }
+
+  async function borrarFila(id: string) {
+    if (!window.confirm('¿Seguro que deseas eliminar este registro del historial del régimen?')) return;
+    setGuardandoFila(true);
+    try {
+      await eliminarCondicion(id);
+      toast('Registro eliminado del régimen.', 'success');
+      setEditId(null);
+      onCambio();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo eliminar el registro.', 'error');
+    } finally {
+      setGuardandoFila(false);
+    }
+  }
 
   // Lo que la base aplica hoy (incluye la vuelta al JSON de Parámetros si no hay registro vigente).
   useEffect(() => {
@@ -141,17 +193,72 @@ function RenglonRegimen({ impuesto, condicion, titulo, ayuda, historial, puedeEd
       {puedeEditar && falta && <small className="hint" style={{ color: motivo || fuente ? 'var(--warning)' : undefined }}>{falta}</small>}
 
       {historial.length > 0 && (
-        <details style={{ marginTop: '.5rem' }}>
+        <details style={{ marginTop: '.5rem' }} open={historial.length <= 3}>
           <summary className="muted" style={{ cursor: 'pointer', fontSize: '.8rem' }}>Historial ({historial.length})</summary>
           <table className="table" style={{ fontSize: '.78rem', width: '100%', marginTop: '.3rem' }}>
-            <thead><tr><th>Desde</th><th>Hasta</th><th>Valor</th><th>Motivo</th><th>Fuente</th><th>Quién</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Desde</th><th>Hasta</th><th>Valor</th><th>Motivo</th><th>Fuente</th><th>Quién</th>
+                {puedeEditar && <th>Acción</th>}
+              </tr>
+            </thead>
             <tbody>
-              {historial.map((h) => (
-                <tr key={h.id}>
-                  <td>{fechaCorta(h.desde)}</td><td>{h.hasta ? fechaCorta(h.hasta) : '—'}</td>
-                  <td>{h.valor ? 'Sí' : 'No'}</td><td>{rotuloMotivo(h.motivo)}</td><td>{h.fuente ?? '—'}</td><td>{rotuloAutor(h.actualizadoPor)}</td>
-                </tr>
-              ))}
+              {historial.map((h) => {
+                const enEdicion = editId === h.id;
+                if (enEdicion) {
+                  return (
+                    <tr key={h.id} style={{ background: 'rgba(255,255,255,0.05)' }}>
+                      <td>
+                        <input className="input" type="date" value={editDesde} onChange={(e) => setEditDesde(e.target.value)} style={{ width: '130px', padding: '2px 6px', fontSize: '.78rem' }} />
+                      </td>
+                      <td>{h.hasta ? fechaCorta(h.hasta) : '—'}</td>
+                      <td>
+                        <select className="select" value={editValor} onChange={(e) => setEditValor(e.target.value as 'si' | 'no')} style={{ width: '65px', padding: '2px 4px', fontSize: '.78rem' }}>
+                          <option value="si">Sí</option>
+                          <option value="no">No</option>
+                        </select>
+                      </td>
+                      <td>
+                        <input className="input" value={editMotivo} onChange={(e) => setEditMotivo(e.target.value)} placeholder="Motivo" style={{ padding: '2px 6px', fontSize: '.78rem' }} />
+                      </td>
+                      <td>
+                        <input className="input" value={editFuente} onChange={(e) => setEditFuente(e.target.value)} placeholder="Providencia/Acto" style={{ padding: '2px 6px', fontSize: '.78rem' }} />
+                      </td>
+                      <td>{rotuloAutor(h.actualizadoPor)}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+                          <button type="button" className="btn btn-sm btn-primary" onClick={() => void guardarFila(h.id)} disabled={guardandoFila}>
+                            Guardar
+                          </button>
+                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditId(null)} disabled={guardandoFila}>
+                            Cancelar
+                          </button>
+                          <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => void borrarFila(h.id)} disabled={guardandoFila} title="Eliminar registro">
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={h.id}>
+                    <td><strong>{fechaCorta(h.desde)}</strong></td>
+                    <td>{h.hasta ? fechaCorta(h.hasta) : '—'}</td>
+                    <td><span style={{ fontWeight: 600, color: h.valor ? 'var(--success)' : 'var(--text-muted)' }}>{h.valor ? 'Sí' : 'No'}</span></td>
+                    <td>{rotuloMotivo(h.motivo)}</td>
+                    <td>{h.fuente ?? '—'}</td>
+                    <td>{rotuloAutor(h.actualizadoPor)}</td>
+                    {puedeEditar && (
+                      <td>
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => empezarEdicion(h)}>
+                          Editar
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </details>

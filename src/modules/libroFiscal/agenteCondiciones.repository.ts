@@ -110,3 +110,59 @@ export async function registrarCondicion(c: CondicionNueva): Promise<string> {
   if (!id) throw new Error('No se guardó el régimen: sin permiso de escritura en Retenciones.');
   return id;
 }
+
+/**
+ * Fecha más antigua desde la cual la empresa fue designada como agente de retención (IVA o especial).
+ * Si no hay registros en retencion_agente_condiciones, devuelve el fallback '2026-10-01'.
+ */
+export async function fechaDesdeAgenteRetencion(): Promise<string> {
+  try {
+    const list = await listCondiciones();
+    const agentes = list.filter((c) => c.valor && (
+      c.condicion === 'contribuyente_especial' || (c.condicion === 'agente_retencion' && (c.impuestoClave === 'IVA' || !c.impuestoClave))
+    ));
+    if (agentes.length > 0) {
+      agentes.sort((a, b) => a.desde.localeCompare(b.desde));
+      return agentes[0].desde;
+    }
+  } catch {
+    // Si no está disponible o falla la red
+  }
+  return '2026-10-01';
+}
+
+/** Comprueba si en una fecha dada la empresa retenía IVA (por ser agente de retención o contribuyente especial). */
+export function empresaEsAgenteEnFecha(xs: CondicionRegistrada[], fecha: string, impuesto: ClaveImpuesto = 'IVA'): boolean {
+  if (!xs || xs.length === 0) return false;
+  const vImp = condicionVigente(xs, impuesto, 'agente_retencion', fecha);
+  const vEsp = condicionVigente(xs, null, 'contribuyente_especial', fecha);
+  return (vImp?.valor === true) || (vEsp?.valor === true);
+}
+
+/** Modifica un registro existente del historial del régimen (por ejemplo, corregir la fecha desde). */
+export async function actualizarCondicion(id: string, c: Partial<CondicionNueva>): Promise<void> {
+  const updateData: Record<string, unknown> = {};
+  if (c.desde !== undefined) {
+    if (!FECHA.test(c.desde)) throw new Error('Indica una fecha válida (AAAA-MM-DD).');
+    updateData.desde = c.desde;
+  }
+  if (c.hasta !== undefined) updateData.hasta = c.hasta || null;
+  if (c.valor !== undefined) updateData.valor = c.valor;
+  if (c.motivo !== undefined) updateData.motivo = c.motivo.trim();
+  if (c.fuente !== undefined) updateData.fuente = c.fuente?.trim() || null;
+  if (c.impuestoClave !== undefined) updateData.impuesto_clave = c.impuestoClave;
+  if (c.condicion !== undefined) updateData.condicion = c.condicion;
+
+  const { error } = await supabase.from(T_CONDICIONES).update(updateData).eq('id', id);
+  if (error) {
+    throw errorRetencion(error, 'No se pudo actualizar el registro del régimen.', {
+      unico: 'Ya hay un registro con esa misma fecha de inicio.',
+    });
+  }
+}
+
+/** Elimina un registro del régimen. */
+export async function eliminarCondicion(id: string): Promise<void> {
+  const { error } = await supabase.from(T_CONDICIONES).delete().eq('id', id);
+  if (error) throw errorRetencion(error, 'No se pudo eliminar el registro del régimen.');
+}
