@@ -158,6 +158,23 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const [verFacturas, setVerFacturas] = useState(false);
   const [retenerSobre, setRetenerSobre] = useState<FacturaResumen | null>(null);
 
+  const [imprimirConFirmaSello, setImprimirConFirmaSello] = useState<boolean>(() => {
+    try { return localStorage.getItem('gt_comprobante_con_firma_sello') !== '0'; } catch { return true; }
+  });
+  const [tieneFirmaOSello, setTieneFirmaOSello] = useState<boolean>(false);
+
+  useEffect(() => {
+    let vivo = true;
+    import('./comprobanteRetencionPdf').then(({ hayFirmaYSelloCargado }) => {
+      hayFirmaYSelloCargado().then((res) => {
+        if (vivo) setTieneFirmaOSello(res.tieneAlguno);
+      }).catch(() => {
+        if (vivo) setTieneFirmaOSello(false);
+      });
+    });
+    return () => { vivo = false; };
+  }, []);
+
   const reload = useCallback(async () => {
     const [rs, cfg] = await Promise.all([
       listRetenciones({ desde: desde || undefined, hasta: hasta || undefined, incluirAnuladas: true }),
@@ -318,7 +335,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
       const { verComprobanteRetencionPdf } = await import('./comprobanteRetencionPdf');
       // R8: el formato vigente a la fecha de emisión del comprobante (si no hay, el de hoy; sin R8, de fábrica).
       const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyIso());
-      await verComprobanteRetencionPdf(r, config, formato);
+      await verComprobanteRetencionPdf(r, config, formato, { incluirFirmaSello: imprimirConFirmaSello && tieneFirmaOSello });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
 
@@ -474,6 +491,23 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         </div>
       </div>
       <div className="lfv8-acciones-libro">
+        <label
+          className={`lfv8-check-firma ${!tieneFirmaOSello ? 'lfv8-check-firma-disabled' : ''}`}
+          title={tieneFirmaOSello
+            ? 'Imprimir los comprobantes con el sello y firma digital'
+            : 'No hay sello ni firma cargados en Parámetros'}
+        >
+          <input
+            type="checkbox"
+            checked={imprimirConFirmaSello && tieneFirmaOSello}
+            disabled={!tieneFirmaOSello}
+            onChange={(e) => {
+              setImprimirConFirmaSello(e.target.checked);
+              try { localStorage.setItem('gt_comprobante_con_firma_sello', e.target.checked ? '1' : '0'); } catch {}
+            }}
+          />
+          <span>Con sello y firma digital</span>
+        </label>
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
           title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
@@ -670,7 +704,12 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
             {pagina.filas.map((r) => (
               <div key={r.id} className="lfv8-sis-fila" style={r.anulada ? { opacity: .6 } : undefined}>
                 <span data-l="Fecha">{r.facturaFecha ? fechaCorta(r.facturaFecha) : '—'}</span>
-                <span data-l="Comprobante" className="mono">{r.numeroComprobante ?? '—'}</span>
+                <span data-l="Comprobante" className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+                  {r.numeroComprobante ?? '—'}
+                  {r.numeroComprobante && (
+                    <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Ver comprobante">📄</button>
+                  )}
+                </span>
                 <span data-l="Impuesto">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? rotuloImpuesto(r.tipo)}<small>{r.direccion === 'recibida' ? 'Recibida' : 'Practicada'}</small></span>
                 <span data-l="Contraparte">{r.contraparteNombre ?? '—'}<small className="mono">{r.contraparteRif ?? ''}{fueraDelSistema(r) ? ' · Fuera del sistema' : ''}</small></span>
                 <span data-l="Factura" className="mono">{r.facturaNumero ?? r.docCodigo ?? '—'}</span>

@@ -470,7 +470,7 @@ export function ReportesView({ actor }: { actor: string }) {
                   {visibles.map((f, ri) => {
                     const esTotal = tabla.totales.includes(ri);
                     return (
-                      <tr key={ri} style={esTotal ? { fontWeight: 700, background: '#fff1de' } : undefined}>
+                      <tr key={ri} className={esTotal ? 'lfv8-rep-fila-total' : undefined}>
                         {f.map((v, ci) => (
                           <td key={ci} className={tabla.numeros.includes(ci) ? 'mono' : undefined} style={{ textAlign: tabla.numeros.includes(ci) ? 'right' : 'left' }}>
                             {v == null ? '' : typeof v === 'number' && tabla.numeros.includes(ci) ? formatoMonto(v) : String(v)}

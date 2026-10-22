@@ -362,6 +362,7 @@ export interface RetencionPracticada {
   contraparteRif: string | null;
   contraparteNombre: string | null;
   contraparteSujeto: SujetoRetenido | null;
+  contraparteDireccion?: string | null;
   facturaNumero: string | null;
   facturaControl: string | null;
   facturaFecha: string | null;
@@ -414,6 +415,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     contraparteRif: texto(r.rif),
     contraparteNombre: texto(r.razon_social),
     contraparteSujeto: sujeto,
+    contraparteDireccion: texto(r.direccion ?? r.proveedor_direccion ?? r.contraparte_direccion),
     facturaNumero: texto(r.factura_nro),
     facturaControl: texto(r.factura_control),
     facturaFecha: texto(r.factura_fecha),

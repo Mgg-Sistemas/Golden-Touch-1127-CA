@@ -81,3 +81,15 @@ describe('el equivalente en bolívares', () => {
     expect(lineaEquivalenteBs({ moneda: 'USD', montoBs: null, tasa: null })).toBeNull();
   });
 });
+
+describe('dirección fiscal del sujeto retenido', () => {
+  it('incluye la dirección fiscal del sujeto retenido cuando está provista', () => {
+    const p = partesComprobante(retencion({
+      contraparteNombre: 'Proveedor Ejemplo C.A.',
+      contraparteRif: 'J-12345678-9',
+      contraparteDireccion: 'Zona Industrial 321, Galpón 5, Puerto Ordaz',
+    }), empresa);
+    expect(p.sujeto).toContain('Zona Industrial 321, Galpón 5, Puerto Ordaz');
+  });
+});
+

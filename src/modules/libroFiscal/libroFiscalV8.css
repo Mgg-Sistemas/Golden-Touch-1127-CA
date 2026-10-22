@@ -288,7 +288,85 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-rep-filtros { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; align-items: flex-start; margin: .8rem 0; }
 .lfv8-rep-filtros .lfv8-campo { min-width: 160px; }
 .lfv8-rep-acciones { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0 .4rem; }
-.lfv8-rep-vista { background: #fff; color: #111; border-radius: var(--r-md); padding: 1rem; overflow-x: auto; min-height: 120px; }
+.lfv8-rep-vista {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 1rem;
+  overflow-x: auto;
+  min-height: 120px;
+  box-shadow: var(--shadow-sm);
+}
+.lfv8-rep-vista .table {
+  background: transparent;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.lfv8-rep-vista .table thead th {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  font-size: .74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: .65rem .8rem;
+  white-space: nowrap;
+}
+.lfv8-rep-vista .table tbody td {
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding: .65rem .8rem;
+  font-size: .82rem;
+  background: transparent;
+}
+.lfv8-rep-vista .table tbody tr:hover td {
+  background: rgba(255, 138, 0, 0.05);
+}
+.lfv8-rep-fila-total td {
+  font-weight: 700 !important;
+  background: rgba(255, 138, 0, 0.12) !important;
+  color: var(--primary-3, #ffb347) !important;
+  border-top: 2px solid var(--primary, #ff8a00) !important;
+  border-bottom: 2px solid var(--primary, #ff8a00) !important;
+}
+
+.lfv8-check-firma {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .82rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  padding: .35rem .65rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: all .15s ease;
+}
+.lfv8-check-firma:hover:not(.lfv8-check-firma-disabled) {
+  border-color: var(--primary);
+  background: var(--surface-2);
+}
+.lfv8-check-firma input[type="checkbox"] {
+  accent-color: var(--primary);
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+.lfv8-check-firma.lfv8-check-firma-disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+.lfv8-check-firma.lfv8-check-firma-disabled input {
+  cursor: not-allowed;
+}
+
 .lfv8-rep-columnas { display: flex; flex-wrap: wrap; gap: .2rem .9rem; font-size: .8rem; margin: .4rem 0; }
 .lfv8-rep-columnas label { display: inline-flex; gap: .3rem; align-items: center; min-height: 30px; cursor: pointer; }
 .lfv8-rep-columnas input { accent-color: var(--primary); }
