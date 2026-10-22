@@ -474,6 +474,21 @@ export async function generarDocComprobanteRetencionPdf(
       lineColor: [0, 0, 0],
     },
     columnStyles: estilosCols,
+    didParseCell: (data) => {
+      const col = f.columnas[data.column.index];
+      if (!col) return;
+      const esNumerica = COLUMNAS_NUMERICAS.has(col.campo);
+      if (esNumerica) {
+        data.cell.styles.halign = 'right';
+      } else {
+        data.cell.styles.halign = 'left';
+      }
+      // Rótulo del total (ej. "TOTAL RETENIDO") en el pie: pegado a la derecha hacia las cifras
+      const rotuloTotal = (f.rotulos.total || 'TOTAL RETENIDO').trim().toUpperCase();
+      if (data.section === 'foot' && typeof data.cell.raw === 'string' && data.cell.raw.trim().toUpperCase() === rotuloTotal) {
+        data.cell.styles.halign = 'right';
+      }
+    },
     margin: { left: M, right: M },
   });
 
