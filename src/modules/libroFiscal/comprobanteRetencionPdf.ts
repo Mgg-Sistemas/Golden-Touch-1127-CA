@@ -14,7 +14,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
-import { labelPeriodo, labelSujeto, type ConfigRetencion } from './retencionesCalculo';
+import { labelSujeto, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   MARGEN_PDF, fechaPdf, montoPdf, textoPdf,
@@ -22,6 +22,7 @@ import {
 import { aplicarFormato, type FormatoParaAplicar } from './formatoComprobante';
 import { listImagenesAgente, versionVigente, urlImagen } from './entes.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { diaVE } from '@/modules/tesoreria/tasas.repository';
 
 /** La razón social del agente: la de Parámetros o, si falta, la de la empresa. */
 export const razonSocialAgente = (config: ConfigRetencion) => config.razonSocial || EMPRESA_NOMBRE;
