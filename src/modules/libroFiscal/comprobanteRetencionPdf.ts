@@ -203,63 +203,82 @@ export async function generarDocComprobanteRetencionPdf(
   const M = MARGEN_PDF;
   const UTIL = W - M * 2;
   let y = M + 8;
-
-  // Logo en encabezado izquierdo si se solicita y existe cargado en el modulo
+  // ── Encabezado: Zonas independientes para Logo, Título/Nota legal y Recuadro ──
   const { logoDataUrl, firmaDataUrl, selloDataUrl } = await cargarElementosDigitales(diaVE(r.createdAt) || hoyVenezuela());
-  if (opciones.incluirLogo && logoDataUrl) {
-    try {
-      doc.addImage(logoDataUrl, 'PNG', M, y - 4, 75, 34);
-    } catch { /* noop */ }
-  }
+  const tieneLogo = opciones.incluirLogo && !!logoDataUrl;
+  const logoW = 75;
+  const logoH = 34;
 
-  // ── Encabezado: Título centrado en mayúsculas negrita ──
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text(textoPdf(f.textos.encabezado), W / 2, y, { align: 'center', maxWidth: UTIL });
-
-  if (f.textos.nota_legal && f.textos.nota_legal.trim()) {
-    y += 12;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(0, 0, 0);
-    doc.text(textoPdf(f.textos.nota_legal), W / 2, y, { align: 'center', maxWidth: UTIL });
-  }
-
-  // ── Recuadro superior derecho: NRO. COMPROBANTE, PERÍODO FISCAL, FECHA ──
-  const boxW = Math.min(270, UTIL * 0.48);
-  const boxH = 40;
+  // Recuadro superior derecho: NRO. COMPROBANTE, PERÍODO FISCAL, FECHA
+  const boxW = Math.min(250, UTIL * 0.45);
+  const boxH = 44;
   const boxX = W - M - boxW;
-  const boxY = y + 8;
+  const boxY = M + 2;
 
+  // Dibujar recuadro superior derecho con cuadrícula interna
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.6);
   doc.rect(boxX, boxY, boxW, boxH);
-  doc.line(boxX, boxY + 16, boxX + boxW, boxY + 16);
+  doc.line(boxX, boxY + 17, boxX + boxW, boxY + 17);
+  doc.line(boxX + 118, boxY + 17, boxX + 118, boxY + boxH); // divisor vertical interno
 
-  // Fila superior del recuadro: NRO. COMPROBANTE
+  // Fila superior: N° DE COMPROBANTE
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
+  doc.setFontSize(7.2);
   doc.setTextColor(0, 0, 0);
-  doc.text(textoPdf(f.rotulos.n_comprobante || 'NRO. COMPROBANTE'), boxX + 6, boxY + 11.5);
+  doc.text(textoPdf(f.rotulos.n_comprobante || 'N° DE COMPROBANTE'), boxX + 6, boxY + 11.5);
   doc.setFontSize(8.5);
   doc.text(textoPdf(r.numeroComprobante ?? '—'), boxX + boxW - 6, boxY + 11.5, { align: 'right' });
 
-  // Fila inferior del recuadro: PERÍODO FISCAL | AÑO/MES | FECHA
-  doc.setFontSize(7);
+  // Fila inferior celda izquierda: PERÍODO FISCAL
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
   doc.text(textoPdf(f.rotulos.periodo || 'PERÍODO FISCAL'), boxX + 6, boxY + 26);
-
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
   const pDigits = (r.periodo ?? '').replace(/\D/g, '');
   const anioStr = pDigits.length >= 4 ? pDigits.slice(0, 4) : (r.facturaFecha?.slice(0, 4) ?? '');
   const mesStr = pDigits.length >= 6 ? pDigits.slice(4, 6) : (r.facturaFecha?.slice(5, 7) ?? '');
+  doc.text(`AÑO: ${anioStr}   MES: ${mesStr}`, boxX + 6, boxY + 37);
 
-  doc.text(`AÑO: ${anioStr}`, boxX + 88, boxY + 24);
-  doc.text(`MES: ${mesStr}`, boxX + 88, boxY + 34);
+  // Fila inferior celda derecha: FECHA DE EMISIÓN
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISIÓN'), boxX + 124, boxY + 26);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.text(textoPdf(fechaPdf(r.facturaFecha || r.createdAt)), boxX + 124, boxY + 37);
 
-  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA'), boxX + boxW - 85, boxY + 26);
-  doc.text(textoPdf(fechaPdf(r.facturaFecha || r.createdAt)), boxX + boxW - 6, boxY + 26, { align: 'right' });
+  // Logo en zona izquierda sin colisionar
+  if (tieneLogo) {
+    try {
+      doc.addImage(logoDataUrl!, 'PNG', M, boxY + 4, logoW, logoH);
+    } catch { /* noop */ }
+  }
 
-  y = boxY + boxH + 12;
+  // Zona central: Título y Nota Legal (acotados entre el logo y el recuadro)
+  const centroInicioX = tieneLogo ? M + logoW + 12 : M;
+  const centroFinX = boxX - 10;
+  const centroW = centroFinX - centroInicioX;
+  const centroX = centroInicioX + (centroW / 2);
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  const lineasEncabezado = doc.splitTextToSize(textoPdf(f.textos.encabezado), centroW) as string[];
+  doc.text(lineasEncabezado, centroX, boxY + 11, { align: 'center' });
+
+  let curHeaderY = boxY + 11 + (lineasEncabezado.length * 11);
+  if (f.textos.nota_legal && f.textos.nota_legal.trim()) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(0, 0, 0);
+    const lineasNotaLegal = doc.splitTextToSize(textoPdf(f.textos.nota_legal.trim()), centroW) as string[];
+    doc.text(lineasNotaLegal, centroX, curHeaderY + 2, { align: 'center' });
+    curHeaderY += 2 + (lineasNotaLegal.length * 8.2);
+  }
+
+  y = Math.max(boxY + boxH, curHeaderY, tieneLogo ? boxY + logoH + 6 : 0) + 10;
 
   // ── Determinación de partes (Agente vs Sujeto Retenido) ──
   const esRecibida = r.direccion === 'recibida';
@@ -274,6 +293,29 @@ export async function generarDocComprobanteRetencionPdf(
   const dirSujeto = esRecibida
     ? ([config.direccionFiscal, config.municipio, config.estado].filter(Boolean).join(', ') || '—')
     : direccionSujeto;
+
+  // ── Denominación y sincronización de términos (Agente vs Sujeto) ──
+  const rotuloSujetoConfig = (f.rotulos.sujeto || '').trim();
+  const sujetoTermino = rotuloSujetoConfig.toUpperCase().includes('BENEFICIARIO')
+    ? 'BENEFICIARIO'
+    : rotuloSujetoConfig.toUpperCase().includes('PROVEEDOR')
+      ? 'PROVEEDOR'
+      : rotuloSujetoConfig.toUpperCase().includes('CONTRIBUYENTE')
+        ? 'CONTRIBUYENTE'
+        : 'SUJETO RETENIDO';
+
+  const rotuloAgenteConfig = (f.rotulos.agente || '').trim();
+  const agenteTermino = rotuloAgenteConfig.toUpperCase().includes('AGENTE')
+    ? rotuloAgenteConfig.toUpperCase()
+    : 'AGENTE DE RETENCIÓN';
+
+  const rotuloAgenteNombre = rotuloAgenteConfig || 'AGENTE DE RETENCIÓN';
+  const rotuloAgenteDir = `DIRECCIÓN FISCAL DEL ${agenteTermino}`;
+  const rotuloAgenteRif = `REGISTRO DE INFORMACIÓN FISCAL DEL ${agenteTermino}`;
+
+  const rotuloSujetoNombre = rotuloSujetoConfig || `NOMBRE O RAZÓN SOCIAL DEL ${sujetoTermino}`;
+  const rotuloSujetoDir = `DIRECCIÓN FISCAL DEL ${sujetoTermino}`;
+  const rotuloSujetoRif = `REGISTRO DE INFORMACIÓN FISCAL DEL ${sujetoTermino}`;
 
   // ── Recuadros: AGENTE DE RETENCIÓN y SUJETO RETENIDO ──
   const colIzqW = UTIL * 0.62;
@@ -302,7 +344,7 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.8);
   doc.setTextColor(0, 0, 0);
-  doc.text(textoPdf(f.rotulos.agente || 'NOMBRE DEL AGENTE DE RETENCIÓN'), M + 6, curY);
+  doc.text(textoPdf(rotuloAgenteNombre), M + 6, curY);
   curY += 8.5;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
@@ -311,7 +353,7 @@ export async function generarDocComprobanteRetencionPdf(
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.8);
-  doc.text('DIRECCIÓN FISCAL DEL AGENTE DE RETENCIÓN', M + 6, curY);
+  doc.text(textoPdf(rotuloAgenteDir), M + 6, curY);
   curY += 8;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
@@ -320,7 +362,7 @@ export async function generarDocComprobanteRetencionPdf(
   // Textos Derecha Agente
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.8);
-  doc.text('REGISTRO DE INFORMACIÓN FISCAL DEL AGENTE DE RETENCIÓN', colDerX + 6, y + 8.5);
+  doc.text(textoPdf(rotuloAgenteRif), colDerX + 6, y + 8.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.text(textoPdf(rifAgente), colDerX + 6, y + 20);
@@ -346,7 +388,7 @@ export async function generarDocComprobanteRetencionPdf(
   curY = y + 8.5;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.8);
-  doc.text(textoPdf(f.rotulos.sujeto || 'NOMBRE Ó RAZON SOCIAL DEL SUJETO RETENIDO'), M + 6, curY);
+  doc.text(textoPdf(rotuloSujetoNombre), M + 6, curY);
   curY += 8.5;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
@@ -355,7 +397,7 @@ export async function generarDocComprobanteRetencionPdf(
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.8);
-  doc.text('DIRECCIÓN FISCAL DEL SUJETO RETENIDO', M + 6, curY);
+  doc.text(textoPdf(rotuloSujetoDir), M + 6, curY);
   curY += 8;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
@@ -364,7 +406,7 @@ export async function generarDocComprobanteRetencionPdf(
   // Textos Derecha Sujeto
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.8);
-  doc.text('REGISTRO DE INFORMACIÓN FISCAL DEL SUJETO RETENIDO', colDerX + 6, y + 8.5);
+  doc.text(textoPdf(rotuloSujetoRif), colDerX + 6, y + 8.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.text(textoPdf(rifSujeto), colDerX + 6, y + 20);
@@ -374,8 +416,8 @@ export async function generarDocComprobanteRetencionPdf(
   // ── Concepto arriba de la tabla ──
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  const labelImp = r.tipo === 'islr' ? 'I.S.L.R.' : r.tipo === 'iva' ? 'I.V.A.' : 'Impuesto';
-  const textoConcepto = `Retención de ${labelImp} por concepto de: ${r.conceptoNombre ? textoPdf(r.conceptoNombre) : ''}`;
+  const labelImp = r.tipo === 'islr' ? 'I.S.L.R.' : r.tipo === 'iva' ? 'I.V.A.' : r.tipo === 'municipal' ? 'I.S.A.E.' : 'Impuesto';
+  const textoConcepto = `Retención de ${labelImp}${r.conceptoNombre ? ` por concepto de: ${textoPdf(r.conceptoNombre)}` : ''}`;
   doc.text(textoConcepto, M, y);
   y += 4;
 
@@ -480,7 +522,7 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(0, 0, 0);
-  doc.text(textoPdf(f.rotulos.firma_agente || 'Agente de Retención:'), M + 8, firmaY + 12);
+  doc.text(textoPdf(f.rotulos.firma_agente || `${agenteTermino}:`), M + 8, firmaY + 12);
   doc.setFont('helvetica', 'normal');
   doc.text('Por', M + 8, firmaY + 23);
   doc.text(textoPdf(rifAgente), M + 8, firmaY + 34);
@@ -514,7 +556,7 @@ export async function generarDocComprobanteRetencionPdf(
   doc.rect(xSujetoFirma, firmaY, anchoCajaFirma, altoCajaFirma);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(f.rotulos.firma_sujeto || 'Sujeto Retenido:'), xSujetoFirma + 8, firmaY + 12);
+  doc.text(textoPdf(f.rotulos.firma_sujeto || `${sujetoTermino}:`), xSujetoFirma + 8, firmaY + 12);
   doc.setFont('helvetica', 'normal');
   doc.text(`Por ${textoPdf(nombreSujeto)}`, xSujetoFirma + 8, firmaY + 23, { maxWidth: anchoCajaFirma - 16 });
   doc.text(textoPdf(rifSujeto), xSujetoFirma + 8, firmaY + 34);
