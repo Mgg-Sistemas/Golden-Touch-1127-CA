@@ -47,6 +47,7 @@ import { errorHorometro } from './horometroEquipo';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTanque, tanqueSinLitros } from './saldoSuficiente';
 import { mensajeError } from '@/shared/lib/errores';
+import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -260,7 +261,7 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'consumoSemanal' | 'reporte' | 'transferencias'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias'>('none');
   // GT-INT-11 · Envíos a MGG. Se cargan siempre (no solo al abrir el modal) para poder
   // avisar en la barra cuando alguno quedó sin llegar: el combustible ya salió del
   // tanque, así que enterarse tarde es justamente el problema.
@@ -340,6 +341,7 @@ export function TanquesView() {
           <button className="btn btn-ghost btn-sm" onClick={() => setHistorico(true)} disabled={!tanques.length} title="Movimientos de meses anteriores, por mes">📚 Histórico de Movimientos</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('reporte')} disabled={!reporte.length} title="Vista previa del resumen de existencias por tanque a la fecha (imprimible)">📄 Reporte de existencias</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setModal('calculadora')} title="Calculadora rápida de cubicación (seleccionar tanque y altura en cm)">📐 Calculadora cubicación</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
@@ -448,6 +450,13 @@ export function TanquesView() {
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
+      )}
+      {modal === 'calculadora' && (
+        <CalculadoraCubicacionModal
+          tanqueInicial={sel?.nombre}
+          tanques={tanques}
+          onClose={() => setModal('none')}
+        />
       )}
       {detalle && (
         <DetalleMovimientoModal mov={detalle} tanque={tanques.find((t) => t.id === detalle.tanque_id) ?? sel}
