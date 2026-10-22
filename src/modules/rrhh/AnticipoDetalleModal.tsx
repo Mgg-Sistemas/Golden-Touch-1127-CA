@@ -14,6 +14,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { AnticipoPago, AnticipoPrestamo, EmpresaRrhh, Personal } from '@/shared/lib/types';
 import {
   ETIQUETA_ORIGEN, ETIQUETA_TIPO, errorAbono, errorEdicionAbono, nombreCompleto, r2,
+  extraerEntregasPrestamo,
 } from './anticiposResumen';
 import {
   editarAbono, editarAnticipo, eliminarAbono, getAnticipo, listPagos, registrarAbono,
@@ -100,6 +101,7 @@ export function AnticipoDetalleModal({
   const pagado = useMemo(() => r2(pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0)), [pagos]);
   const saldo = useMemo(() => Math.max(0, r2((Number(actualAnticipo.monto_total) || 0) - pagado)), [actualAnticipo.monto_total, pagado]);
   const activo = saldo > 0;
+  const entregas = useMemo(() => extraerEntregasPrestamo(actualAnticipo), [actualAnticipo]);
 
   const abMontoNum = useMemo(() => numOrNull(abMonto), [abMonto]);
   const problemaAbono = modo === 'abonar'
@@ -436,6 +438,35 @@ export function AnticipoDetalleModal({
             >
               {guardando ? 'Guardando…' : 'Guardar cambios del abono'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {entregas.length > 1 && (
+        <div style={{ marginTop: '.8rem', marginBottom: '.6rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Historial de entregas del préstamo <span className="badge">{entregas.length}</span></span>
+            <span className="mono" style={{ fontSize: '.84rem', fontWeight: 600 }}>Total: {money(actualAnticipo.monto_total)}</span>
+          </div>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead>
+                <tr>
+                  <th>Fecha entrega</th>
+                  <th>Concepto / Motivo de la entrega</th>
+                  <th style={{ textAlign: 'right' }}>Monto entregado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entregas.map((e, idx) => (
+                  <tr key={idx}>
+                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(e.fecha)}</td>
+                    <td className="muted">{e.motivo || '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{money(e.monto)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

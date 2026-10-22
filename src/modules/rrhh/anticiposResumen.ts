@@ -6,6 +6,7 @@
    se pagó y cuánto se debe, por préstamo y por trabajador.
    ============================================================ */
 import type { AnticipoPago, AnticipoPrestamo, Personal } from '@/shared/lib/types';
+import { date, money } from '@/shared/lib/format';
 
 export const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -245,4 +246,157 @@ export const ETIQUETA_ORIGEN: Record<AnticipoPago['origen'], string> = {
 /** Ordena abonos del más viejo al más nuevo (un estado de cuenta se lee hacia adelante). */
 export function ordenarPagos(pagos: AnticipoPago[]): AnticipoPago[] {
   return [...pagos].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || String(a.created_at).localeCompare(String(b.created_at)));
+}
+
+/* ───────────── Historial de entregas / préstamos acumulados ───────────── */
+
+export interface EntregaPrestamo {
+  fecha: string;
+  monto: number;
+  motivo?: string | null;
+}
+
+export function normalizarFechaIso(f: string): string {
+  const s = f.trim();
+  if (/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(s)) return s.replace(/\//g, '-');
+  const m = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return s;
+}
+
+export function parsearMontoTexto(s: string | undefined): number {
+  if (!s) return 0;
+  const limpio = s.replace(/[$USDT\s]/gi, '').trim();
+  if (limpio.includes(',') && limpio.includes('.')) {
+    if (limpio.indexOf('.') < limpio.indexOf(',')) {
+      return Number(limpio.replace(/\./g, '').replace(',', '.')) || 0;
+    } else {
+      return Number(limpio.replace(/,/g, '')) || 0;
+    }
+  }
+  if (limpio.includes(',')) {
+    return Number(limpio.replace(',', '.')) || 0;
+  }
+  return Number(limpio) || 0;
+}
+
+/**
+ * Extrae todas las entregas individuales de un préstamo (fecha, monto y motivo).
+ * Si no tiene desglose de entregas en el motivo, devuelve una sola entrega con los datos base.
+ */
+export function extraerEntregasPrestamo(anticipo: AnticipoPrestamo): EntregaPrestamo[] {
+  const texto = (anticipo.motivo ?? '').trim();
+  if (!texto) {
+    return [{
+      fecha: String(anticipo.fecha ?? '').slice(0, 10),
+      monto: Number(anticipo.monto_total) || 0,
+      motivo: null,
+    }];
+  }
+
+  // Coincide con líneas del tipo:
+  // [Entrega 23-08-2026 · $ 550,00]: Motivo
+  // [23/08/2026 · $ 550,00]: Motivo
+  // [23-08-2026]: Motivo
+  const patron = /\[(?:Entrega\s+)?(\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})(?:\s*·\s*\$?\s*([\d.,]+))?\](?::\s*|\s*-\s*)([^\n\r]*)/gi;
+  const entregas: EntregaPrestamo[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = patron.exec(texto)) !== null) {
+    const rawFecha = match[1];
+    const rawMonto = match[2];
+    const rawMotivo = match[3]?.trim() || null;
+    const fecha = normalizarFechaIso(rawFecha);
+    const monto = rawMonto ? parsearMontoTexto(rawMonto) : 0;
+    entregas.push({ fecha, monto: r2(monto), motivo: rawMotivo });
+  }
+
+  if (!entregas.length) {
+    return [{
+      fecha: String(anticipo.fecha ?? '').slice(0, 10),
+      monto: Number(anticipo.monto_total) || 0,
+      motivo: anticipo.motivo ?? null,
+    }];
+  }
+
+  // Ordenar por fecha cronológica (la más antigua primero)
+  entregas.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  const totalCalculado = entregas.reduce((acc, e) => acc + e.monto, 0);
+  if (totalCalculado <= 0 && anticipo.monto_total) {
+    entregas[0].monto = Number(anticipo.monto_total) || 0;
+  }
+
+  return entregas;
+}
+
+/**
+ * Agrega una nueva entrega al campo motivo preservando o iniciando el formato estructurado.
+ */
+export function agregarEntregaAMotivo(
+  motivoActual: string | null | undefined,
+  fechaBase: string,
+  montoBase: number,
+  nuevaEntrega: EntregaPrestamo,
+): string {
+  const actual = (motivoActual ?? '').trim();
+  const lineaNueva = `[Entrega ${date(nuevaEntrega.fecha)} · ${money(nuevaEntrega.monto)}]: ${nuevaEntrega.motivo?.trim() || 'Préstamo adicional'}`;
+
+  // Si ya tiene el formato estructurado de entregas:
+  if (/\[(?:Entrega\s+)?(?:\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})/i.test(actual)) {
+    return `${actual}\n${lineaNueva}`;
+  }
+
+  // Si era un motivo tradicional simple, convertimos el inicial a entrega 1 y agregamos la nueva:
+  const lineaInicial = `[Entrega ${date(fechaBase)} · ${money(montoBase)}]: ${actual || 'Préstamo inicial'}`;
+  return `${lineaInicial}\n${lineaNueva}`;
+}
+
+export interface PrestamosMultiplesDetectados {
+  personalId: string;
+  tipo: AnticipoPrestamo['tipo'];
+  nombre: string;
+  cantidad: number;
+  total: number;
+  saldo: number;
+  ids: string[];
+}
+
+/**
+ * Encuentra trabajadores que tengan más de un préstamo activo de un mismo tipo.
+ */
+export function detectarPrestamosMultiples(
+  lista: AnticipoPrestamo[],
+  personas: Map<string, Personal>,
+): PrestamosMultiplesDetectados[] {
+  const activos = lista.filter((a) => a.estado === 'activo' && Number(a.saldo) > 0);
+  const grupos = new Map<string, AnticipoPrestamo[]>();
+
+  for (const a of activos) {
+    const clave = `${a.personal_id}__${a.tipo}`;
+    const arr = grupos.get(clave) ?? [];
+    arr.push(a);
+    grupos.set(clave, arr);
+  }
+
+  const resultado: PrestamosMultiplesDetectados[] = [];
+  for (const [clave, items] of grupos.entries()) {
+    if (items.length > 1) {
+      const [personalId, tipo] = clave.split('__') as [string, AnticipoPrestamo['tipo']];
+      const persona = personas.get(personalId);
+      const total = r2(items.reduce((acc, a) => acc + (Number(a.monto_total) || 0), 0));
+      const saldo = r2(items.reduce((acc, a) => acc + (Number(a.saldo) || 0), 0));
+      resultado.push({
+        personalId,
+        tipo,
+        nombre: nombreCompleto(persona),
+        cantidad: items.length,
+        total,
+        saldo,
+        ids: items.map((a) => a.id),
+      });
+    }
+  }
+
+  return resultado;
 }

@@ -18,7 +18,7 @@
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import type { AnticipoPago, AnticipoPrestamo, EmpresaRrhh, Personal } from '@/shared/lib/types';
-import { ETIQUETA_ORIGEN, ETIQUETA_TIPO, nombreCompleto, ordenarPagos, pagadoDe, r2 } from './anticiposResumen';
+import { ETIQUETA_ORIGEN, ETIQUETA_TIPO, nombreCompleto, ordenarPagos, pagadoDe, r2, extraerEntregasPrestamo } from './anticiposResumen';
 import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const usd = (v: number | null | undefined) =>
@@ -214,11 +214,16 @@ export async function construirPrestamosPdf(op: OpcionesPrestamosPdf): Promise<i
 
     for (const a of orden) {
       const saldoNum = Number(a.saldo) || 0;
+      const entregas = extraerEntregasPrestamo(a);
+      const fechasTxt = entregas.length > 1
+        ? entregas.map((e) => dia(e.fecha)).join(' · ')
+        : dia(a.fecha);
+
       filas.push({
         debe: saldoNum > 0,
         celdas: [
-          dia(a.fecha),
-          ETIQUETA_TIPO[a.tipo] + (a.historico ? ' (hist.)' : ''),
+          fechasTxt,
+          ETIQUETA_TIPO[a.tipo] + (a.historico ? ' (hist.)' : '') + (entregas.length > 1 ? ` (${entregas.length} ent.)` : ''),
           a.motivo || '—',
           usd(a.monto_total),
           usd(pagadoDe(a)),

@@ -8,7 +8,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { AnticipoPago, AnticipoPrestamo } from '@/shared/lib/types';
-import { r2, type AltaAnticipo } from './anticiposResumen';
+import { money } from '@/shared/lib/format';
+import { r2, agregarEntregaAMotivo, type AltaAnticipo } from './anticiposResumen';
 
 const TABLE = 'anticipos_prestamos';
 const PAGOS = 'anticipos_pagos';
@@ -58,13 +59,86 @@ export async function crearAnticipo(input: AnticipoInput, actorEmail?: string, a
   return data as AnticipoPrestamo;
 }
 
+export interface AcumulacionAnticipoInput {
+  fecha: string;
+  monto: number;
+  motivo?: string | null;
+  cuota_sugerida?: number | null;
+}
+
 /**
- * Alta desde la pestaña: común o en MODO HISTÓRICO. El histórico va por una
- * función de la base que crea el préstamo y su abono «ya pagado» en un solo
- * paso: o entran los dos o no entra ninguno.
+ * Suma un nuevo monto a un préstamo existente del mismo trabajador,
+ * guardando la fecha, monto y motivo de la nueva entrega en el historial.
+ */
+export async function acumularAnticipo(
+  anticipoId: string,
+  input: AcumulacionAnticipoInput,
+  actorEmail?: string,
+  actorName?: string | null,
+): Promise<AnticipoPrestamo> {
+  const monto = r2(Number(input.monto) || 0);
+  if (monto <= 0) throw new Error('El monto a sumar debe ser mayor que 0.');
+
+  const ant = await getAnticipo(anticipoId);
+  const nuevoTotal = r2((Number(ant.monto_total) || 0) + monto);
+  const nuevoMotivo = agregarEntregaAMotivo(
+    ant.motivo,
+    ant.fecha,
+    Number(ant.monto_total) || 0,
+    {
+      fecha: input.fecha,
+      monto,
+      motivo: input.motivo?.trim() || null,
+    },
+  );
+
+  const fechaReciente = input.fecha && (!ant.fecha || input.fecha > ant.fecha) ? input.fecha : ant.fecha;
+  const cuota = input.cuota_sugerida != null && Number(input.cuota_sugerida) > 0 ? r2(Number(input.cuota_sugerida)) : ant.cuota_sugerida;
+
+  const patch: Record<string, unknown> = {
+    monto_total: nuevoTotal,
+    motivo: nuevoMotivo,
+    fecha: fechaReciente,
+    estado: 'activo',
+  };
+  if (cuota !== undefined) patch.cuota_sugerida = cuota;
+  if (actorEmail) patch.creado_por = actorEmail;
+  if (actorName) patch.actor_name = actorName;
+
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', anticipoId).select('*').single();
+  if (error) throw error;
+
+  try {
+    return await sincronizarSaldoAnticipo(anticipoId);
+  } catch {
+    return data as AnticipoPrestamo;
+  }
+}
+
+/**
+ * Alta desde la pestaña: común o en MODO HISTÓRICO.
+ * Si el trabajador ya tiene un préstamo/anticipo ACTIVO del mismo tipo,
+ * el nuevo monto se SUMA a lo que ya había pedido prestado y se registran las fechas.
  */
 export async function registrarAnticipo(alta: AltaAnticipo, actorEmail?: string, actorName?: string | null): Promise<string> {
   if (!alta.historico) {
+    const activos = await listAnticipos(alta.personal_id, true);
+    const existente = activos.find((a) => a.tipo === alta.tipo && Number(a.saldo) > 0);
+    if (existente) {
+      const acumulado = await acumularAnticipo(
+        existente.id,
+        {
+          fecha: alta.fecha,
+          monto: Number(alta.monto_total) || 0,
+          motivo: alta.motivo,
+          cuota_sugerida: alta.cuota_sugerida,
+        },
+        actorEmail,
+        actorName,
+      );
+      return acumulado.id;
+    }
+
     const creado = await crearAnticipo({
       personal_id: alta.personal_id, tipo: alta.tipo, monto_total: Number(alta.monto_total) || 0,
       cuota_sugerida: alta.cuota_sugerida, motivo: alta.motivo, fecha: alta.fecha,
@@ -248,4 +322,89 @@ export async function descontarSaldo(id: string, monto: number, actorEmail?: str
   const abono = Math.min(r2(Number(monto) || 0), r2(Number(data.saldo) || 0));
   if (abono <= 0) return;
   await registrarAbono(id, { fecha: new Date().toISOString().slice(0, 10), monto: abono }, actorEmail, actorName);
+}
+
+export interface ResultadoCotejo {
+  consolidados: number;
+  afectados: number;
+  detalles: string[];
+}
+
+/**
+ * Coteja y sincroniza préstamos de la base de datos:
+ * Si un trabajador tiene múltiples préstamos activos del mismo tipo (ej. Keimer),
+ * los unifica en uno solo sumando los montos totales, moviendo sus abonos
+ * y registrando el desglose de fechas y motivos.
+ */
+export async function cotejarYSincronizarPrestamos(
+  actorEmail?: string,
+  actorName?: string | null,
+): Promise<ResultadoCotejo> {
+  const todosActivos = await listAnticipos(undefined, true);
+  const grupos = new Map<string, AnticipoPrestamo[]>();
+
+  for (const a of todosActivos) {
+    if (Number(a.saldo) <= 0) continue;
+    const clave = `${a.personal_id}__${a.tipo}`;
+    const arr = grupos.get(clave) ?? [];
+    arr.push(a);
+    grupos.set(clave, arr);
+  }
+
+  let consolidados = 0;
+  let afectados = 0;
+  const detalles: string[] = [];
+
+  for (const [, items] of grupos.entries()) {
+    if (items.length <= 1) continue;
+
+    // Orden cronológico ascendente (el más antiguo será el principal a conservar)
+    const ordenados = [...items].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || String(a.created_at).localeCompare(String(b.created_at)));
+    const principal = ordenados[0];
+    const secundarios = ordenados.slice(1);
+
+    let montoAcumulado = Number(principal.monto_total) || 0;
+    let motivoAcumulado = principal.motivo ?? '';
+    let fechaFinal = principal.fecha;
+
+    for (const sec of secundarios) {
+      const montoSec = Number(sec.monto_total) || 0;
+      motivoAcumulado = agregarEntregaAMotivo(
+        motivoAcumulado,
+        fechaFinal,
+        montoAcumulado,
+        {
+          fecha: sec.fecha,
+          monto: montoSec,
+          motivo: sec.motivo,
+        },
+      );
+      montoAcumulado = r2(montoAcumulado + montoSec);
+      if (sec.fecha > fechaFinal) fechaFinal = sec.fecha;
+
+      // Reasignar abonos del secundario al principal
+      await supabase.from(PAGOS).update({ anticipo_id: principal.id }).eq('anticipo_id', sec.id);
+
+      // Eliminar el secundario ya integrado
+      await supabase.from(TABLE).delete().eq('id', sec.id);
+      consolidados++;
+    }
+
+    // Actualizar el principal con el monto acumulado, nuevo motivo y fecha más reciente
+    await supabase.from(TABLE).update({
+      monto_total: montoAcumulado,
+      motivo: motivoAcumulado,
+      fecha: fechaFinal,
+      ...(actorEmail ? { creado_por: actorEmail } : {}),
+      ...(actorName ? { actor_name: actorName } : {}),
+    }).eq('id', principal.id);
+
+    // Recalcular saldo exacto a partir de todos los abonos
+    const actualizado = await sincronizarSaldoAnticipo(principal.id);
+
+    afectados++;
+    detalles.push(`Consolidados ${ordenados.length} préstamos en 1: Total ${money(montoAcumulado)}, saldo pendiente ${money(actualizado.saldo)}`);
+  }
+
+  return { consolidados, afectados, detalles };
 }

@@ -18,10 +18,11 @@ import { RANGOS_RAPIDOS, hoyVenezuela, rangoActivo, rangoRapido } from '@/shared
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal, AnticipoPrestamo } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
-import { listAnticipos, eliminarAnticipo, registrarAnticipo, listPagosDe } from './anticipos.repository';
+import { listAnticipos, eliminarAnticipo, registrarAnticipo, listPagosDe, cotejarYSincronizarPrestamos } from './anticipos.repository';
 import {
   ALTA_VACIA, ETIQUETA_TIPO, FILTROS_VACIOS, agruparPorTrabajador, buscarTrabajadores, errorAlta, filtrarAnticipos,
   filtrosActivos, nombreCompleto, pagadoDe, resumenAnticipos, trabajadoresConPendiente,
+  extraerEntregasPrestamo, detectarPrestamosMultiples,
   type AltaAnticipo, type FiltrosAnticipos, type TrabajadorConPrestamos,
 } from './anticiposResumen';
 import { AnticipoDetalleModal } from './AnticipoDetalleModal';
@@ -55,6 +56,7 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [modal, setModal] = useState<'pendientes' | 'trabajadores' | null>(null);
   const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
   const [altaAbierta, setAltaAbierta] = useState(false);
   const [masFiltros, setMasFiltros] = useState(false);
   const hoy = useMemo(hoyVenezuela, []);
@@ -81,6 +83,7 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
   const resumenVisible = useMemo(() => resumenAnticipos(visibles), [visibles]);
   const pendientes = useMemo(() => baseKpi.filter((a) => (Number(a.saldo) || 0) > 0), [baseKpi]);
   const deudores = useMemo(() => trabajadoresConPendiente(baseKpi, personas), [baseKpi, personas]);
+  const multiplesActivos = useMemo(() => detectarPrestamosMultiples(visibles, personas), [visibles, personas]);
   const detalle = detalleId ? lista.find((a) => a.id === detalleId) ?? null : null;
   const nFiltros = filtrosActivos(filtros);
 
@@ -93,12 +96,29 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
     setError(null); setGuardando(true);
     try {
       await registrarAnticipo(alta, actor, actorName);
-      toast(alta.historico ? 'Préstamo histórico cargado' : 'Registrado', 'success');
+      toast(alta.historico ? 'Préstamo histórico cargado' : 'Registrado exitosamente', 'success');
       setAlta({ ...ALTA_VACIA, historico: alta.historico, fecha: alta.historico ? alta.fecha : ALTA_VACIA.fecha });
       setAltaAbierta(false);
       await recargar();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
     finally { setGuardando(false); }
+  }
+
+  async function ejecutarCotejo() {
+    setSincronizando(true);
+    try {
+      const res = await cotejarYSincronizarPrestamos(actor, actorName);
+      if (res.consolidados > 0) {
+        toast(`Cotejo y sincronización completada: ${res.consolidados} préstamo(s) unificado(s)`, 'success');
+        await recargar();
+      } else {
+        toast('No se encontraron préstamos duplicados para unificar', 'info');
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Error durante la sincronización', 'error');
+    } finally {
+      setSincronizando(false);
+    }
   }
 
   async function borrar(a: AnticipoPrestamo) {
@@ -234,12 +254,39 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
       {/* ── Acciones ── */}
       <div className="lt-acciones">
         {canWrite && <button className="btn btn-primary" onClick={() => setAltaAbierta(true)}>+ Registrar préstamo o anticipo</button>}
+        {canWrite && (
+          <button
+            className="btn btn-ghost"
+            onClick={() => void ejecutarCotejo()}
+            disabled={sincronizando}
+            title="Coteja y consolida préstamos activos de la misma persona, sumando los montos y registrando las fechas"
+          >
+            {sincronizando ? 'Sincronizando…' : '🔄 Cotejar y sincronizar'}
+          </button>
+        )}
         <button className="btn btn-ghost" disabled={generandoPdf || !visibles.length}
           title="PDF de lo que se ve en la lista: total prestado, pagado y deuda por trabajador, con sus abonos"
           onClick={() => void pdfLista(visibles, 'Préstamos y anticipos', textoFiltros(), `prestamos-${empresa}-${new Date().toISOString().slice(0, 10)}`)}>
           {generandoPdf ? 'Generando…' : '📄 Consolidado en PDF'}
         </button>
       </div>
+
+      {/* ── Aviso si hay duplicados detectados ── */}
+      {multiplesActivos.length > 0 && (
+        <div className="aviso aviso-ambar" style={{ marginBottom: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap' }}>
+          <div>
+            <strong>⚠️ Se detectaron {multiplesActivos.length} trabajador(es) con más de un préstamo activo:</strong>
+            <div style={{ fontSize: '.84rem', marginTop: '.2rem' }}>
+              {multiplesActivos.map((d) => `${d.nombre} (${d.cantidad} préstamos · Total ${money(d.total)} · Saldo ${money(d.saldo)})`).join(' · ')}
+            </div>
+          </div>
+          {canWrite && (
+            <button className="btn btn-sm btn-primary" onClick={() => void ejecutarCotejo()} disabled={sincronizando}>
+              {sincronizando ? 'Sincronizando…' : '🔄 Cotejar y consolidar ahora'}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Lista ── */}
       <div className="table-wrap">
@@ -256,18 +303,51 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
             {!loading && !visibles.length && <tr><td colSpan={9}><EmptyState message={nFiltros ? 'Nada coincide con los filtros' : 'Sin anticipos ni préstamos'} icon="💵" /></td></tr>}
             {!loading && visibles.map((a) => {
               const p = personas.get(a.personal_id);
+              const entregas = extraerEntregasPrestamo(a);
+              const fechaReciente = entregas[entregas.length - 1]?.fecha || a.fecha;
+              const otrasEntregas = entregas.slice(0, -1);
               return (
                 <tr key={a.id} style={{ opacity: a.estado === 'saldado' ? 0.65 : 1, cursor: 'pointer' }} onClick={() => abrirDetalle(a.id)} title="Ver detalle y abonos">
-                  <td className="mono">{date(a.fecha)}</td>
+                  <td className="mono">
+                    <div style={{ fontWeight: 600 }}>{date(fechaReciente)}</div>
+                    {otrasEntregas.length > 0 && (
+                      <div className="muted" style={{ fontSize: '.72rem', marginTop: '2px', lineHeight: 1.25 }}>
+                        {otrasEntregas.map((e, idx) => (
+                          <div key={idx} title={`Entrega: ${date(e.fecha)} (${money(e.monto)})`}>
+                            + {date(e.fecha)} ({money(e.monto)})
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td>
-                    {nombreCompleto(p)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                      <span>{nombreCompleto(p)}</span>
+                      {entregas.length > 1 && (
+                        <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', background: 'rgba(255,255,255,0.08)' }} title={`${entregas.length} préstamos acumulados`}>
+                          {entregas.length} préstamos
+                        </span>
+                      )}
+                    </div>
                     {p?.ficha_nro && <div className="muted" style={{ fontSize: '.74rem' }}>Ficha {p.ficha_nro}{p.cargo ? ` · ${p.cargo}` : ''}</div>}
                   </td>
                   <td>
                     <span className="badge">{ETIQUETA_TIPO[a.tipo]}</span>
                     {a.historico && <span className="badge" style={{ marginLeft: '.25rem' }} title="Cargado como histórico (anterior al sistema)">📜</span>}
                   </td>
-                  <td className="muted">{a.motivo || '—'}</td>
+                  <td className="muted" style={{ maxWidth: '320px', whiteSpace: 'normal' }}>
+                    {entregas.length > 1 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {entregas.map((e, idx) => (
+                          <div key={idx} style={{ fontSize: '.78rem', lineHeight: 1.25 }}>
+                            <strong style={{ color: 'var(--text)' }}>{date(e.fecha)}:</strong> {e.motivo || money(e.monto)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      a.motivo || '—'
+                    )}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(pagadoDe(a))}</td>
                   <td className="mono" style={{ textAlign: 'right', color: Number(a.saldo) > 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{money(a.saldo)}</td>
@@ -330,6 +410,29 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
                   onChange={(e) => setAlta((a) => ({ ...a, fecha: e.target.value }))} required />
                 {alta.historico && <small className="muted">El día en que se dio, aunque sea de hace meses.</small>}
               </div>
+
+              {/* Aviso si ya tiene un préstamo activo al que se sumará */}
+              {(() => {
+                const prestamoActivo = (!alta.personal_id || alta.historico) ? null : lista.find((a) => a.personal_id === alta.personal_id && a.tipo === alta.tipo && a.estado === 'activo' && Number(a.saldo) > 0);
+                if (!prestamoActivo) return null;
+                const nuevoTotal = (Number(prestamoActivo.monto_total) || 0) + (Number(alta.monto_total) || 0);
+                const nuevoSaldo = (Number(prestamoActivo.saldo) || 0) + (Number(alta.monto_total) || 0);
+                return (
+                  <div className="aviso info" style={{ gridColumn: '1 / -1', marginBottom: '.35rem', fontSize: '.84rem' }}>
+                    <span className="aviso-icono">💡</span>
+                    <div>
+                      <strong>Este trabajador ya tiene un {ETIQUETA_TIPO[alta.tipo].toLowerCase()} activo debiendo {money(prestamoActivo.saldo)}</strong> (Total prestado anterior: {money(prestamoActivo.monto_total)}, ya pagado: {money(pagadoDe(prestamoActivo))}).
+                      <div style={{ marginTop: '.25rem' }}>
+                        El monto que registres abajo se <strong>sumará al préstamo existente</strong> y se registrarán ambas fechas de entrega.
+                        {alta.monto_total != null && alta.monto_total > 0 && (
+                          <span> Nuevo total acumulado: <strong>{money(nuevoTotal)}</strong> · Nuevo saldo pendiente: <strong>{money(nuevoSaldo)}</strong>.</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="form-row">
                 <label htmlFor="alta-monto">Monto total (USD) *</label>
                 <input id="alta-monto" name="anticipo-monto-total" className="input mono" type="number" min={0} step="any" value={alta.monto_total ?? ''}
