@@ -48,10 +48,21 @@ export interface ReciboMeta {
   cedulas?: Record<string, string | null | undefined>;   // personal_id -> cédula
   /** Cuáles recibos imprimir de cada persona (por defecto, los dos). */
   tipos?: TipoRecibo[];
+  /** Moneda forzada para imprimir el lote (si no se especifica, toma la de cada renglón `r.moneda_pago`). */
+  moneda?: string | null;
 }
 
 /** Dos decimales: así se paga y así se imprime. */
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
+
+function fmtMontoMoneda(n: number | null | undefined, simb: string): string {
+  const num = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (simb === '$') return '$ ' + num;
+  if (simb === 'Bs') return 'Bs ' + num;
+  if (simb === 'USDT') return num + ' USDT';
+  if (simb === '€') return '€ ' + num;
+  return simb + ' ' + num;
+}
 
 export interface MontosRecibo {
   tasa: number;
@@ -73,14 +84,27 @@ export interface MontosRecibo {
   bonoNetoUsd: number;
   /** Lo que la persona cobra en la quincena, en $: sueldo (a la tasa) + bono neto. */
   totalUsd: number;
+  /** Moneda del pago y del recibo. */
+  moneda: string;
+  simbolo: string;
+  esOtraMoneda: boolean;
+  bonoMonto: number;
+  asignacionesMonto: number;
+  prestamosMonto: number;
+  anticiposMonto: number;
+  bonoBrutoMonto: number;
+  bonoNetoMonto: number;
+  equivalenteUsd: number;
 }
 
 /**
  * Los montos de los dos recibos de un renglón. Lógica pura (se prueba sin PDF).
  * La tasa del renglón manda sobre la del período: es la que se congeló al cargar
  * la quincena, y es con la que se firma el recibo.
+ * Si se paga en otra moneda (Bs, USDT, EUR), calcula los importes en esa moneda y
+ * la conversión en $ al cambio.
  */
-export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null): MontosRecibo {
+export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null, monedaOverride?: string | null): MontosRecibo {
   const tasa = Number(r.tasa_bs) || Number(r.tasa_pago) || Number(tasaPeriodo) || 0;
   const enUsd = (bs: number) => (tasa > 0 ? r2(bs / tasa) : 0);
   const diasT = Number(r.dias_trabajados) || 0;
@@ -100,10 +124,52 @@ export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null): Mon
   const bonoBrutoUsd = r2(bonoUsd + asignacionesUsd);
   const bonoNetoUsd = r2(Math.max(0, bonoBrutoUsd - prestamosUsd - anticiposUsd));
   const netoBsEnUsd = enUsd(netoBs);
+
+  const rawMoneda = (monedaOverride || r.moneda_pago || 'USD').trim() || 'USD';
+  const esOtraMoneda = rawMoneda.toUpperCase() !== 'USD';
+  let moneda = 'USD';
+  let simbolo = '$';
+  let bonoMonto = bonoUsd;
+  let asignacionesMonto = asignacionesUsd;
+  let prestamosMonto = prestamosUsd;
+  let anticiposMonto = anticiposUsd;
+  let bonoBrutoMonto = bonoBrutoUsd;
+  let bonoNetoMonto = bonoNetoUsd;
+  const equivalenteUsd = bonoNetoUsd;
+
+  if (rawMoneda.toUpperCase() === 'BS') {
+    moneda = 'Bs';
+    simbolo = 'Bs';
+    if (tasa > 0) {
+      bonoMonto = r2(bonoUsd * tasa);
+      asignacionesMonto = r2(asignacionesUsd * tasa);
+      prestamosMonto = r2(prestamosUsd * tasa);
+      anticiposMonto = r2(anticiposUsd * tasa);
+      bonoBrutoMonto = r2(bonoMonto + asignacionesMonto);
+      bonoNetoMonto = r2(Math.max(0, bonoBrutoMonto - prestamosMonto - anticiposMonto));
+    }
+  } else if (rawMoneda.toUpperCase() === 'USDT') {
+    moneda = 'USDT';
+    simbolo = 'USDT';
+  } else if (rawMoneda.toUpperCase() === 'EUR') {
+    moneda = 'EUR';
+    simbolo = '€';
+  }
+
   return {
     tasa, diasT, diasD, sueldoBs, diarioBs: r2(diarioBs), trabajadosBs, descansoBs, netoBs, netoBsEnUsd,
     bonoUsd, asignacionesUsd, prestamosUsd, anticiposUsd, bonoBrutoUsd, bonoNetoUsd,
     totalUsd: r2(netoBsEnUsd + bonoNetoUsd),
+    moneda,
+    simbolo,
+    esOtraMoneda,
+    bonoMonto,
+    asignacionesMonto,
+    prestamosMonto,
+    anticiposMonto,
+    bonoBrutoMonto,
+    bonoNetoMonto,
+    equivalenteUsd,
   };
 }
 
@@ -144,7 +210,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const fs = (n: number) => (compacto ? n - 1 : n);
     const gap = (n: number) => (compacto ? Math.round(n * 0.5) : n);
     const esBono = tipo === 'bono';
-    const m = montosRecibo(r, meta.periodo.tasa_bcv);
+    const m = montosRecibo(r, meta.periodo.tasa_bcv, meta.moneda);
     let y = MT;
 
     // Encabezado: logo + empresa + título.
@@ -183,7 +249,16 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
     doc.text(esBono ? 'RECIBO DE BONIFICACIÓN Y DESCUENTOS' : 'RECIBO DE PAGO', MARGIN, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    doc.text(esBono ? 'Pago en divisas ($)' : `Motivo: ${labelMotivo(meta.periodo.tipo)}`, PAGE_W - MARGIN, y, { align: 'right' });
+    const labelPago = esBono
+      ? (m.moneda === 'Bs'
+          ? 'Pago en Bolívares (Bs) al cambio'
+          : m.moneda === 'USDT'
+            ? 'Pago en USDT'
+            : m.moneda === 'EUR'
+              ? 'Pago en Euros (€)'
+              : 'Pago en divisas ($)')
+      : `Motivo: ${labelMotivo(meta.periodo.tipo)}`;
+    doc.text(labelPago, PAGE_W - MARGIN, y, { align: 'right' });
     y += compacto ? 9 : 18;
 
     // Datos del trabajador.
@@ -198,10 +273,19 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
         ['Período', periodoStr, 'Fecha de pago', r.pagada_en ? fmtDate(r.pagada_en) : '—'],
         ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', `${m.diasT} trab. + ${m.diasD} desc.`],
-        // Cada recibo en su moneda (15/10/2026): el de Bs no muestra nada en $ y el de
-        // bonificación nada en Bs (ni la tasa).
         esBono
-          ? ['Total acordado / mes', usd(r.sueldo_base_mensual), 'Forma de pago', 'Divisas ($)']
+          ? [
+              'Total acordado / mes',
+              usd(r.sueldo_base_mensual),
+              'Forma de pago',
+              m.moneda === 'Bs'
+                ? `Bolívares (Bs)${m.tasa > 0 ? ` · Tasa: ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : ''}`
+                : m.moneda === 'USDT'
+                  ? 'Criptoactivo (USDT)'
+                  : m.moneda === 'EUR'
+                    ? 'Euros (€)'
+                    : 'Divisas ($)',
+            ]
           : ['Sueldo quincenal', bsStr(m.sueldoBs), 'Sueldo diario', bsStr(m.diarioBs)],
       ],
       margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
@@ -216,12 +300,20 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const der = (texto: string) => ({ content: texto, styles: { halign: 'right' as const } });
     const pctSueldo = Number(r.sueldo_pct);
     const pctBono = Number.isFinite(pctSueldo) && pctSueldo > 0 ? Math.round(100 - pctSueldo) : null;
+    type FootCell = string | { content: string; styles: { halign: 'right' } };
     let conformidad: string;
 
     if (!esBono) {
       // ── Recibo 1: el sueldo en bolívares, como en la planilla (solo Bs) ──
       const linea = (item: number, concepto: string, bs: number, columna: 'devengado' | 'deduccion'): string[] =>
         [String(item), concepto, columna === 'devengado' ? bsStr(bs) : '', columna === 'deduccion' ? bsStr(bs) : ''];
+      const footSueldo: FootCell[][] = [
+        ['', 'TOTALES', der(bsStr(m.netoBs)), der(bsStr(0))],
+        ['', 'NETO A RECIBIR EN BOLÍVARES', der(bsStr(m.netoBs)), ''],
+      ];
+      if (m.esOtraMoneda && m.moneda !== 'Bs' && m.tasa > 0) {
+        footSueldo.push(['', 'CONVERSIÓN EN $ AL CAMBIO', der(usd(m.netoBsEnUsd)), '']);
+      }
       autoTable(doc, {
         startY: y,
         head: [['#', 'CONCEPTO', 'DEVENGADO Bs', 'DEDUCCIÓN Bs']],
@@ -235,10 +327,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
           linea(7, 'Sindicato', 0, 'deduccion'),
           linea(8, 'Otros', 0, 'deduccion'),
         ],
-        foot: [
-          ['', 'TOTALES', der(bsStr(m.netoBs)), der(bsStr(0))],
-          ['', 'NETO A RECIBIR EN BOLÍVARES', der(bsStr(m.netoBs)), ''],
-        ],
+        foot: footSueldo,
         margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
         theme: 'grid',
         styles: { fontSize: fs(8.5), cellPadding: pad(2.5) },
@@ -259,25 +348,30 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       const periodoTexto = desde && hasta ? `al período del ${desde} al ${hasta}` : desde ? `al período del ${desde}` : 'al período indicado';
       conformidad = `Certifico haber recibido la cantidad de ${bsStr(m.netoBs)}, que conforma la totalidad de mi salario correspondiente ${periodoTexto}, y firmo en señal de conformidad.`;
     } else {
-      // ── Recibo 2: bonificación, menos préstamos y anticipos, en dólares ──
+      // ── Recibo 2: bonificación, menos préstamos y anticipos ──
+      const simb = m.simbolo;
       const nPrest = (r.deducciones ?? []).filter((d) => d.tipo === 'prestamo').length;
       const nAnt = (r.deducciones ?? []).filter((d) => d.tipo === 'anticipo').length;
       const fila = (item: number, concepto: string, monto: number, columna: 'asignacion' | 'deduccion'): string[] =>
-        [String(item), concepto, columna === 'asignacion' ? usd(monto) : '', columna === 'deduccion' ? (monto > 0 ? `− ${usd(monto)}` : usd(0)) : ''];
+        [String(item), concepto, columna === 'asignacion' ? fmtMontoMoneda(monto, simb) : '', columna === 'deduccion' ? (monto > 0 ? `− ${fmtMontoMoneda(monto, simb)}` : fmtMontoMoneda(0, simb)) : ''];
+      const footBono: FootCell[][] = [
+        ['', 'TOTALES', der(fmtMontoMoneda(m.bonoBrutoMonto, simb)), der(m.prestamosMonto + m.anticiposMonto > 0 ? `− ${fmtMontoMoneda(m.prestamosMonto + m.anticiposMonto, simb)}` : fmtMontoMoneda(0, simb))],
+        ['', `NETO A RECIBIR EN ${m.moneda === 'Bs' ? 'BOLÍVARES' : m.moneda === 'USD' ? 'DIVISAS' : m.moneda}`, der(fmtMontoMoneda(m.bonoNetoMonto, simb)), ''],
+      ];
+      if (m.esOtraMoneda) {
+        footBono.push(['', 'CONVERSIÓN EN $ AL CAMBIO', der(usd(m.equivalenteUsd)), '']);
+      }
       autoTable(doc, {
         startY: y,
-        head: [['#', 'CONCEPTO', 'ASIGNACIÓN $', 'DESCUENTO $']],
+        head: [['#', 'CONCEPTO', `ASIGNACIÓN ${simb}`, `DESCUENTO ${simb}`]],
         body: [
-          fila(1, pctBono != null ? `Bono de la quincena (${pctBono} % del total acordado)` : 'Bono de la quincena', m.bonoUsd, 'asignacion'),
-          fila(2, 'Asignaciones adicionales', m.asignacionesUsd, 'asignacion'),
-          fila(3, nPrest > 1 ? `Préstamos (${nPrest})` : 'Préstamos', m.prestamosUsd, 'deduccion'),
-          fila(4, nAnt > 1 ? `Anticipos (${nAnt})` : 'Anticipos', m.anticiposUsd, 'deduccion'),
+          fila(1, pctBono != null ? `Bono de la quincena (${pctBono} % del total acordado)` : 'Bono de la quincena', m.bonoMonto, 'asignacion'),
+          fila(2, 'Asignaciones adicionales', m.asignacionesMonto, 'asignacion'),
+          fila(3, nPrest > 1 ? `Préstamos (${nPrest})` : 'Préstamos', m.prestamosMonto, 'deduccion'),
+          fila(4, nAnt > 1 ? `Anticipos (${nAnt})` : 'Anticipos', m.anticiposMonto, 'deduccion'),
           fila(5, 'Otros descuentos', 0, 'deduccion'),
         ],
-        foot: [
-          ['', 'TOTALES', der(usd(m.bonoBrutoUsd)), der(m.prestamosUsd + m.anticiposUsd > 0 ? `− ${usd(m.prestamosUsd + m.anticiposUsd)}` : usd(0))],
-          ['', 'NETO A RECIBIR EN DIVISAS', der(usd(m.bonoNetoUsd)), ''],
-        ],
+        foot: footBono,
         margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
         theme: 'grid',
         styles: { fontSize: fs(8.5), cellPadding: pad(3) },
@@ -291,18 +385,28 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(6);
-      if (m.prestamosUsd + m.anticiposUsd > 0) {
+      if (m.prestamosMonto + m.anticiposMonto > 0) {
         doc.setFont('helvetica', 'italic'); doc.setFontSize(fs(7.5)); doc.setTextColor(100);
-        doc.text('Los préstamos y anticipos se descuentan de la bonificación en divisas, no del pago en bolívares.', MARGIN, y + 4);
+        doc.text(`Los préstamos y anticipos se descuentan de la bonificación en ${m.moneda}, no del pago en bolívares.`, MARGIN, y + 4);
+        doc.setTextColor(0);
+        y += 10;
+      }
+      if (m.esOtraMoneda) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(fs(8)); doc.setTextColor(30, 41, 59);
+        const notaCambio = `Conversión en $ al cambio: Monto equivalente = ${usd(m.equivalenteUsd)}${m.moneda === 'Bs' && m.tasa > 0 ? ` · Tasa de cambio BCV: ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$` : ''}`;
+        doc.text(notaCambio, MARGIN, y + 4);
         doc.setTextColor(0);
         y += 10;
       }
       const descuentos = [
-        m.prestamosUsd > 0 ? `${usd(m.prestamosUsd)} de préstamos` : null,
-        m.anticiposUsd > 0 ? `${usd(m.anticiposUsd)} de anticipos` : null,
+        m.prestamosMonto > 0 ? `${fmtMontoMoneda(m.prestamosMonto, simb)} de préstamos` : null,
+        m.anticiposMonto > 0 ? `${fmtMontoMoneda(m.anticiposMonto, simb)} de anticipos` : null,
       ].filter(Boolean).join(' y ');
-      conformidad = `Certifico haber recibido la cantidad de ${usd(m.bonoNetoUsd)} en divisas por concepto de bonificación`
-        + (m.asignacionesUsd > 0 ? ' y asignaciones' : '')
+      const descMoneda = m.esOtraMoneda
+        ? ` en ${m.moneda === 'Bs' ? 'bolívares' : m.moneda} (conversión al cambio: ${usd(m.equivalenteUsd)}${m.moneda === 'Bs' && m.tasa > 0 ? ` a tasa Bs ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : ''})`
+        : ' en divisas';
+      conformidad = `Certifico haber recibido la cantidad de ${fmtMontoMoneda(m.bonoNetoMonto, simb)}${descMoneda} por concepto de bonificación`
+        + (m.asignacionesMonto > 0 ? ' y asignaciones' : '')
         + ' correspondiente al período que se indica en el mismo'
         + (descuentos ? `, una vez descontados ${descuentos}` : '')
         + ', y firmo en señal de conformidad.';

@@ -21,6 +21,8 @@ interface OcData {
   proveedoresMap: Map<string, Proveedor>;
   /** email (minúsculas) -> "Nombre Apellido" de quienes intervinieron (aprobaron / registraron). */
   personasMap: Map<string, string>;
+  /** email (minúsculas) -> C.I. de quienes intervinieron. */
+  personasCiMap: Map<string, string>;
 }
 
 async function cargarDatosOc(ordenId: string): Promise<OcData> {
@@ -82,20 +84,40 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
   addEmail(o.aprobada_por);
   addEmail(o.oc_aprobada_por);
   addEmail(o.solicitante_email);
+  if (o.solicitante && o.solicitante.includes('@')) addEmail(o.solicitante);
   (o.historial ?? []).forEach((h) => {
     addEmail(h.actor);
     addEmail((h as EventoCambioProveedor).aprobacionAnteriorPor); // aprobación que anuló un cambio de proveedor
   });
   const personasMap = new Map<string, string>();
+  const personasCiMap = new Map<string, string>();
   if (emails.size) {
     const { data: us } = await supabase
       .from('usuarios')
-      .select('email, nombre, apellido')
+      .select('email, nombre, apellido, ci')
       .in('email', Array.from(emails));
-    (us ?? []).forEach((u: { email: string; nombre?: string | null; apellido?: string | null }) => {
+    (us ?? []).forEach((u: { email: string; nombre?: string | null; apellido?: string | null; ci?: string | null }) => {
       const nombre = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
       if (u.email && nombre) personasMap.set(u.email.toLowerCase(), nombre);
+      if (u.email && u.ci) personasCiMap.set(u.email.toLowerCase(), u.ci.trim());
     });
+  }
+
+  // Sincronizar en caliente el nombre y CI del analista solicitante si en la orden venía vacío o era solo correo
+  const emailSol = (o.solicitante_email || (o.solicitante?.includes('@') ? o.solicitante : '') || o.historial?.find((h) => h.evento === 'creada')?.actor || '').toLowerCase();
+  const nomUsuario = emailSol ? personasMap.get(emailSol) : null;
+  const ciUsuario = emailSol ? personasCiMap.get(emailSol) : null;
+  const patchSync: Record<string, string> = {};
+  if (nomUsuario && (!o.solicitante || o.solicitante.includes('@'))) {
+    patchSync.solicitante = nomUsuario;
+    o.solicitante = nomUsuario;
+  }
+  if (ciUsuario && !o.ci_solicitante) {
+    patchSync.ci_solicitante = ciUsuario;
+    o.ci_solicitante = ciUsuario;
+  }
+  if (Object.keys(patchSync).length > 0) {
+    void supabase.from('ordenes').update(patchSync).eq('id', o.id);
   }
 
   return {
@@ -106,12 +128,13 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
     ofertas,
     proveedoresMap,
     personasMap,
+    personasCiMap,
   };
 }
 
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
-  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personasMap }, logoDataUrl, firmaGerente, firmaLeydis, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personasMap, personasCiMap }, logoDataUrl, firmaGerente, firmaLeydis, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoPdfDataUrl().catch(() => null),
     loadFirmaDataUrl().catch(() => null),     // JESUS LOZADA (admin/gerente) · firma.png
@@ -661,7 +684,34 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setTextColor(0);
     doc.setFontSize(9);
   }
-  doc.text('Recibido por proveedor', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
+  // Firma del analista solicitante (reemplaza firma del proveedor en los PDF de compras)
+  const emailSol = (
+    orden.solicitante_email ||
+    (orden.solicitante?.includes('@') ? orden.solicitante : '') ||
+    orden.historial?.find((h) => h.evento === 'creada')?.actor ||
+    ''
+  ).toLowerCase();
+  const nomDePersona = emailSol ? personasMap.get(emailSol) : null;
+  const nombreAnalista = (() => {
+    if (nomDePersona) return nomDePersona;
+    const nomHistorico = emailSol ? quien(emailSol) : '';
+    if (nomHistorico && nomHistorico !== emailSol) return nomHistorico;
+    if (orden.solicitante && !orden.solicitante.includes('@')) return orden.solicitante;
+    return orden.solicitante || emailSol || 'Analista solicitante';
+  })();
+  const ciAnalista = orden.ci_solicitante || (emailSol ? personasCiMap.get(emailSol) : null);
+
+  doc.text('Analista solicitante', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
+  doc.setFontSize(7.5);
+  doc.setTextColor(120);
+  doc.text(
+    `${nombreAnalista}${ciAnalista ? ' · C.I. ' + ciAnalista : ''}`,
+    PAGE_W - MARGIN,
+    pageH - 56,
+    { align: 'right' },
+  );
+  doc.setTextColor(0);
+  doc.setFontSize(9);
 
   // ─── Bloque "Elaborado por": quien preparó la OC (Compras), aparte de la firma del
   // aprobador. Va centrado sobre el pie, con su cargo y CI. ───

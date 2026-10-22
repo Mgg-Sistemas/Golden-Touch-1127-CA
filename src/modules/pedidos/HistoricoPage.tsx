@@ -9,7 +9,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
-import { listOrdenes, listProveedores, eliminarOrdenCompra, listAbonos, urlAdjuntoOc } from './pedidos.repository';
+import { listOrdenes, listProveedores, eliminarOrdenCompra, listAbonos, urlAdjuntoOc, sincronizarOrdenesFinalizadas } from './pedidos.repository';
 import { adjuntosDePago, comprobantesDeLaOrden, type AdjuntoPago } from './adjuntosPago';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
@@ -59,6 +59,7 @@ export function HistoricoPage() {
   // Detalle de una orden del histórico (clic en la fila) + impresión PDF con vista previa.
   const [detalle, setDetalle] = useState<Orden | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
   // Eliminar OC (revierte dinero + stock). Gateado por permiso de escritura de Pedidos.
   const { can, isAdmin } = usePermissions();
   const { user } = useSession();
@@ -122,6 +123,11 @@ export function HistoricoPage() {
 
   const cargar = useCallback(async () => {
     try {
+      // Sincroniza en segundo plano órdenes finalizadas que requieran nombre/CI del analista solicitante
+      sincronizarOrdenesFinalizadas().then(({ actualizadas }) => {
+        if (actualizadas > 0) void listOrdenes().then(setOrdenes);
+      }).catch(() => {});
+
       // Todos los proveedores (también inactivos): una OC vieja tiene que seguir mostrando el suyo.
       const [os, pvs, us] = await Promise.all([listOrdenes(), listProveedores(), listUsuarios().catch(() => [])]);
       setPersonas(new Map(us.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])));
@@ -198,6 +204,26 @@ export function HistoricoPage() {
           </p>
         </div>
         <div className="actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={async () => {
+              setSincronizando(true);
+              try {
+                const res = await sincronizarOrdenesFinalizadas();
+                toast(`Sincronización completada · ${res.actualizadas} orden(es) actualizada(s)`, 'success');
+                await cargar();
+              } catch (e) {
+                toast(e instanceof Error ? e.message : 'Error al sincronizar', 'error');
+              } finally {
+                setSincronizando(false);
+              }
+            }}
+            disabled={sincronizando}
+            title="Sincronizar nombre y apellido del analista solicitante en órdenes finalizadas"
+          >
+            {sincronizando ? '⏳ Sincronizando…' : '🔄 Sincronizar órdenes'}
+          </button>
           <button type="button" className="btn btn-primary" onClick={() => setDemandaOpen(true)}>📊 Materiales con más demanda</button>
           <Link to="/app/pedidos" className="btn btn-ghost">← Volver a Pedidos</Link>
         </div>

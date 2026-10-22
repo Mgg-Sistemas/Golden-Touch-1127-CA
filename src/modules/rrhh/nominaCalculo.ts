@@ -233,3 +233,91 @@ export function descontarDelBono<T extends DeduccionBono>(disponibleUsd: number,
   const total = r2(aplicadas.reduce((a, d) => a + d.monto, 0));
   return { aplicadas, total, sinCubrir: r2(pedido - total), bonoNeto: resta };
 }
+
+/* ───────── Monedas de pago de nómina y conversiones ───────── */
+export const MONEDAS_PAGO_NOMINA = ['USD', 'Bs', 'USDT', 'EUR'] as const;
+export type MonedaPagoNomina = typeof MONEDAS_PAGO_NOMINA[number];
+
+export function simboloMoneda(moneda?: string | null): string {
+  switch ((moneda || '').trim().toUpperCase()) {
+    case 'BS': return 'Bs';
+    case 'USDT': return 'USDT';
+    case 'EUR': return '€';
+    case 'USD':
+    default:
+      return '$';
+  }
+}
+
+export function etiquetaMonedaPago(moneda?: string | null): string {
+  switch ((moneda || '').trim().toUpperCase()) {
+    case 'BS': return 'Bolívares (Bs) al cambio';
+    case 'USDT': return 'USDT (Cripto)';
+    case 'EUR': return 'Euros (€)';
+    case 'USD':
+    default:
+      return 'Divisas ($ USD)';
+  }
+}
+
+export interface ConversionMonedaPago {
+  moneda: string;
+  simbolo: string;
+  monto: number;
+  esOtraMoneda: boolean;
+  tasa: number;
+  equivalenteUsd: number;
+}
+
+/**
+ * Calcula el monto a pagar en la moneda elegida y su conversión/equivalente en $ al cambio.
+ */
+export function calcularConversionMoneda(montoUsd: number, moneda?: string | null, tasaBs?: number | null): ConversionMonedaPago {
+  const usd = r2(Math.max(0, Number(montoUsd) || 0));
+  const m = (moneda || 'USD').trim() || 'USD';
+  const tasa = Math.max(0, Number(tasaBs) || 0);
+  const esOtra = m.toUpperCase() !== 'USD';
+
+  if (m.toUpperCase() === 'BS') {
+    const monto = tasa > 0 ? aBs(usd, tasa) : 0;
+    return {
+      moneda: 'Bs',
+      simbolo: 'Bs',
+      monto,
+      esOtraMoneda: true,
+      tasa,
+      equivalenteUsd: usd,
+    };
+  }
+
+  if (m.toUpperCase() === 'USDT') {
+    return {
+      moneda: 'USDT',
+      simbolo: 'USDT',
+      monto: usd,
+      esOtraMoneda: true,
+      tasa: 1,
+      equivalenteUsd: usd,
+    };
+  }
+
+  if (m.toUpperCase() === 'EUR') {
+    return {
+      moneda: 'EUR',
+      simbolo: '€',
+      monto: usd,
+      esOtraMoneda: true,
+      tasa: 1,
+      equivalenteUsd: usd,
+    };
+  }
+
+  return {
+    moneda: 'USD',
+    simbolo: '$',
+    monto: usd,
+    esOtraMoneda: esOtra,
+    tasa: 1,
+    equivalenteUsd: usd,
+  };
+}
