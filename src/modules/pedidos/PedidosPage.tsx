@@ -74,6 +74,7 @@ import { ReportePendientesPagarModal } from './ReportePendientesPagarModal';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
+import { obtenerInfoModalidadPago } from './modalidadPago';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -1679,6 +1680,27 @@ function MetodoPagoModal({
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       {/* Proveedor de la OC. Cambiarlo NO es editar el nombre: es volver a cotizar (ver abajo). */}
+      {(() => {
+        const modInfo = obtenerInfoModalidadPago(orden);
+        return (
+          <div style={{ margin: '0 0 .75rem', padding: '.6rem .8rem', borderRadius: 8, background: modInfo.esDivisa ? 'rgba(34, 197, 94, 0.1)' : 'rgba(59, 130, 246, 0.1)', border: `1px solid ${modInfo.esDivisa ? 'rgba(34, 197, 94, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: '.86rem', color: modInfo.esDivisa ? 'var(--success, #22c55e)' : 'var(--primary, #3b82f6)' }}>
+                {modInfo.icono} Modalidad elegida por analista: {modInfo.etiqueta}
+              </span>
+              {modInfo.esDivisa && modInfo.precioBcv != null && modInfo.precioBcv > Number(orden.total) && (
+                <div className="muted" style={{ fontSize: '.75rem', marginTop: '.15rem' }}>
+                  Cotización original en Bs a tasa BCV: <strong className="mono">{montoMoneda(modInfo.precioBcv, orden.total_moneda)}</strong> → Se pagará en $: <strong className="mono" style={{ color: '#22c55e' }}>{montoMoneda(orden.total, orden.total_moneda)}</strong>
+                </div>
+              )}
+            </div>
+            <span className="mono" style={{ fontWeight: 800, fontSize: '1.05rem', color: modInfo.esDivisa ? 'var(--success, #22c55e)' : 'var(--primary, #3b82f6)' }}>
+              {montoMoneda(orden.total, orden.total_moneda)}
+            </span>
+          </div>
+        );
+      })()}
+
       <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
         <div className="card-title" style={{ marginBottom: '.45rem' }}>Proveedor</div>
         <div style={{ fontWeight: 700 }}>
@@ -2431,6 +2453,35 @@ const KanbanCard = memo(function KanbanCard({
         <span className="total">{montoMoneda(orden.total, orden.total_moneda)}</span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
+      {orden.proveedor_id && (() => {
+        const modInfo = obtenerInfoModalidadPago(orden);
+        return (
+          <div style={{ marginTop: '.25rem', display: 'flex', flexDirection: 'column', gap: '.1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
+              {modInfo.esDivisa ? (
+                <span className="badge" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', border: '1px solid rgba(34, 197, 94, 0.3)', fontSize: '.64rem', padding: '.05rem .35rem', fontWeight: 700 }}>
+                  💵 Pago en $ (Divisa)
+                </span>
+              ) : (
+                <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)', fontSize: '.64rem', padding: '.05rem .35rem', fontWeight: 700 }}>
+                  🏦 Pago en Bs (BCV)
+                </span>
+              )}
+            </div>
+            {modInfo.esDivisa && modInfo.precioBcv != null && modInfo.precioBcv > Number(orden.total) && (
+              <div className="muted" style={{ fontSize: '.68rem', lineHeight: 1.25 }} title="Cotización original a tasa BCV vs pago en divisa">
+                Cotiz. BCV: <span className="mono">{montoMoneda(modInfo.precioBcv, orden.total_moneda)}</span> → en $: <strong style={{ color: '#22c55e' }}>{montoMoneda(orden.total, orden.total_moneda)}</strong>
+                {modInfo.ahorro != null && modInfo.ahorro > 0 && <span style={{ color: 'var(--success, #22c55e)', marginLeft: '.2rem' }}>(-{montoMoneda(modInfo.ahorro, orden.total_moneda)})</span>}
+              </div>
+            )}
+            {!modInfo.esDivisa && modInfo.precioDivisa != null && modInfo.precioDivisa < Number(orden.total) && (
+              <div className="muted" style={{ fontSize: '.68rem', lineHeight: 1.25 }} title="Opción en divisa si se paga en efectivo/divisa">
+                Opción en $: <span className="mono">{montoMoneda(modInfo.precioDivisa, orden.total_moneda)}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {orden.iva_aplicado && (Number(orden.iva_monto) || 0) > 0 && (
         <div className="muted mono" style={{ fontSize: '.7rem', marginTop: '.15rem' }} title="El total ya incluye el IVA">
           incl. IVA{Number(orden.iva_pct) > 0 ? ` ${Number(orden.iva_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%` : ''} · {montoMoneda(Number(orden.iva_monto), orden.total_moneda)}
@@ -2980,6 +3031,30 @@ function OrdenDetailModal({
           </div>
         </div>
       )}
+      {o.oc_codigo && (() => {
+        const mod = obtenerInfoModalidadPago(o);
+        return (
+          <div className="detail-row">
+            <div className="k">Modalidad elegida por analista</div>
+            <div className="v">
+              <span className="badge" style={{ background: mod.esDivisa ? 'rgba(34, 197, 94, 0.15)' : 'rgba(59, 130, 246, 0.15)', color: mod.esDivisa ? '#22c55e' : '#3b82f6', border: `1px solid ${mod.esDivisa ? 'rgba(34, 197, 94, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`, fontWeight: 700, padding: '.15rem .5rem', fontSize: '.8rem' }}>
+                {mod.icono} {mod.etiqueta}
+              </span>
+              {mod.esDivisa && mod.precioBcv != null && mod.precioBcv > Number(o.total) && (
+                <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
+                  Cotización original a tasa BCV: <strong className="mono">{montoMoneda(mod.precioBcv, o.total_moneda)}</strong> → Total acordado en $: <strong className="mono" style={{ color: '#22c55e' }}>{montoMoneda(o.total, o.total_moneda)}</strong>
+                  {mod.ahorro != null && mod.ahorro > 0 && <span style={{ color: 'var(--success, #22c55e)', marginLeft: '.35rem', fontWeight: 600 }}>(Ahorro: {montoMoneda(mod.ahorro, o.total_moneda)} / {mod.ahorroPct?.toFixed(2)}%)</span>}
+                </div>
+              )}
+              {!mod.esDivisa && mod.precioDivisa != null && mod.precioDivisa < Number(o.total) && (
+                <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
+                  Se pagará en bolívares al cambio oficial BCV. Opción alternativa si se pagara en $: <span className="mono">{montoMoneda(mod.precioDivisa, o.total_moneda)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {o.metodo_pago && o.metodo_pago.length > 0 && (
         <div className="detail-row">
           <div className="k">Método de pago</div>
@@ -3236,7 +3311,9 @@ function OrdenDetailModal({
                 </>
               )}
               <tr>
-                <td colSpan={6} className="num">TOTAL</td>
+                <td colSpan={6} className="num">
+                  TOTAL {o.proveedor_id ? `(${obtenerInfoModalidadPago(o).etiquetaCorta})` : ''}
+                </td>
                 <td className="num">{montoMoneda(o.total, o.total_moneda)}</td>
                 <td></td>
               </tr>

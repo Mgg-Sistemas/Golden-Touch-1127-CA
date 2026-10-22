@@ -20,6 +20,7 @@ import { aprobarOrdenConOferta } from './pedidos.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
+import { calcularDesgloseModalidadesOferta, type ModalidadPagoAnalista } from './modalidadPago';
 
 /** Impuestos absolutos ($) de una oferta (IVA + IGTF) que se SUMAN al total al pasar
  *  a la OC. Se muestran en la comparación para que el total refleje lo que se pagará. */
@@ -86,7 +87,9 @@ export function OfertasComparativa({
   const [obsFiles, setObsFiles] = useState<File[]>([]);
   const [subiendo, setSubiendo] = useState(false);
   // Selección de marca cuando un producto tiene varias alternativas (mismo sku).
-  const [seleccion, setSeleccion] = useState<{ s: ScoredOferta; elecciones: Record<string, number>; observacion: string; adjuntos: AdjuntoOferta[] } | null>(null);
+  const [seleccion, setSeleccion] = useState<{ s: ScoredOferta; elecciones: Record<string, number>; observacion: string; adjuntos: AdjuntoOferta[]; modalidadPago: ModalidadPagoAnalista } | null>(null);
+  // Modalidad de pago elegida por el analista para la oferta que está confirmando.
+  const [modalidadSeleccionada, setModalidadSeleccionada] = useState<ModalidadPagoAnalista>('divisa');
   // Detalle por ítem que se despliega al hacer click en un proveedor.
   const [expandido, setExpandido] = useState<string | null>(null);
   // Oferta a eliminar (confirmación).
@@ -153,7 +156,7 @@ export function OfertasComparativa({
 
   /** Sube los adjuntos de la justificación (si hay) y sigue el flujo: selector de marca
    *  si el proveedor cotizó alternativas, o aceptación directa. */
-  async function confirmarAceptacion(s: ScoredOferta) {
+  async function confirmarAceptacion(s: ScoredOferta, modalidad: ModalidadPagoAnalista) {
     setSubiendo(true);
     let adjuntos: AdjuntoOferta[] = [];
     try {
@@ -184,11 +187,11 @@ export function OfertasComparativa({
         }
       }
       setConfirmando(null);
-      setSeleccion({ s, elecciones: def, observacion, adjuntos });
+      setSeleccion({ s, elecciones: def, observacion, adjuntos, modalidadPago: modalidad });
       return;
     }
     setConfirmando(null);
-    await ejecutarAceptacion(s, null, observacion, adjuntos);
+    await ejecutarAceptacion(s, null, observacion, adjuntos, modalidad);
   }
 
   /** Ejecuta la aceptación real (crea la OC). `override` fija los ítems elegidos. */
@@ -197,6 +200,7 @@ export function OfertasComparativa({
     override: { items: ItemOrden[]; precioTotal: number; precioDivisa: number | null } | null,
     observacion: string,
     adjuntos: AdjuntoOferta[],
+    modalidadPago: ModalidadPagoAnalista,
   ) {
     try {
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
@@ -208,7 +212,7 @@ export function OfertasComparativa({
         s.score.total,
         actorEmail,
         override,
-        { observacion: observacion || null, adjuntos },
+        { observacion: observacion || null, adjuntos, modalidadPago },
       );
       setObs(''); setObsFiles([]);
       notify('Oferta elegida · pendiente por aprobación del Gerente General', 'success', { link: '#/app/pedidos' });
@@ -233,8 +237,9 @@ export function OfertasComparativa({
     const precioDivisa = elegidos.some((it) => Number(it.precio_usd) > 0) ? usd : null;
     const observacion = seleccion.observacion;
     const adjuntos = seleccion.adjuntos;
+    const modalidadPago = seleccion.modalidadPago;
     setSeleccion(null);
-    await ejecutarAceptacion(s, { items: elegidos, precioTotal, precioDivisa }, observacion, adjuntos);
+    await ejecutarAceptacion(s, { items: elegidos, precioTotal, precioDivisa }, observacion, adjuntos, modalidadPago);
   }
 
   async function confirmarEliminar(of: OfertaProveedor) {
@@ -364,7 +369,11 @@ export function OfertasComparativa({
                           >✎</button>
                         )}
                         {recomendada && <span className="badge primary" style={{ marginLeft: '.4rem' }}>★ Recomendada</span>}
-                        {aceptada && <span className="badge success" style={{ marginLeft: '.4rem' }}>Aceptada</span>}
+                        {aceptada && (
+                          <span className="badge success" style={{ marginLeft: '.4rem' }} title={orden.pago_en_divisa ? 'Aceptada para pagar en Divisa ($)' : 'Aceptada para pagar en Bs a tasa BCV'}>
+                            Aceptada · {orden.pago_en_divisa ? '💵 Pago en $' : '🏦 Pago en Bs'}
+                          </span>
+                        )}
                       </div>
                       <div style={{ marginTop: '.2rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
                         {s.mejorPrecio && <span className="badge info">Mejor precio</span>}
@@ -583,13 +592,22 @@ export function OfertasComparativa({
                   {seleccionable && (
                     <tr
                       className="row-selectable"
-                      onClick={() => setConfirmando(s)}
+                      onClick={() => {
+                        const desg = calcularDesgloseModalidadesOferta(s.oferta);
+                        setModalidadSeleccionada(desg.tieneOpcionDivisa && desg.hayDiferencia ? 'divisa' : 'bcv');
+                        setConfirmando(s);
+                      }}
                       style={{ background: rowBg, cursor: 'pointer' }}
                     >
                       <td colSpan={9} style={{ textAlign: 'right', paddingTop: 0, paddingBottom: '.6rem' }}>
                         <button
                           className={recomendada ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-                          onClick={(e) => { e.stopPropagation(); setConfirmando(s); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const desg = calcularDesgloseModalidadesOferta(s.oferta);
+                            setModalidadSeleccionada(desg.tieneOpcionDivisa && desg.hayDiferencia ? 'divisa' : 'bcv');
+                            setConfirmando(s);
+                          }}
                         >
                           {recomendada ? '★ Aceptar oferta recomendada' : 'Aceptar esta oferta'}
                         </button>
@@ -653,15 +671,105 @@ export function OfertasComparativa({
         </p>
       )}
 
-      {confirmando && (
+      {confirmando && (() => {
+        const desglose = calcularDesgloseModalidadesOferta(confirmando.oferta);
+        const montoElegido = modalidadSeleccionada === 'divisa'
+          ? (desglose.totalDivisa ?? desglose.totalBcv)
+          : desglose.totalBcv;
+        return (
         <Modal title="Confirmar oferta ganadora" onClose={() => { if (!subiendo) { setConfirmando(null); setObs(''); setObsFiles([]); } }} size="md">
           <p style={{ marginTop: 0 }}>
-            ¿Elegir la oferta de <strong>{proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}</strong> por{' '}
-            <strong className="mono">{money(totalesRepresentativos(confirmando.oferta.items ?? []).bcv || confirmando.oferta.precio_total)}</strong>?
+            ¿Elegir la oferta de <strong>{proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}</strong>?
             {hayVariantes(confirmando.oferta.items ?? []) && ' Como hay productos con varias marcas, a continuación eliges cuál comprar.'}
           </p>
-          <p className="muted" style={{ marginTop: '-.3rem', fontSize: '.82rem' }}>
-            La orden quedará <strong>Pendiente por aprobación del Gerente General</strong> y las demás ofertas se descartarán.
+
+          {/* Selector de Modalidad de Pago: Divisa ($) vs Bs (tasa BCV) */}
+          <div className="form-row" style={{ marginTop: '.6rem', marginBottom: '.6rem', background: 'var(--surface-2)', padding: '.75rem', borderRadius: 8, border: '1px solid var(--border)' }}>
+            <label style={{ fontWeight: 700, display: 'block', marginBottom: '.4rem', fontSize: '.86rem' }}>
+              Modalidad de pago: ¿Cómo se cancelará esta orden?
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '.6rem' }}>
+              {/* Opción 1: Pago en $ (Divisa) */}
+              <div
+                onClick={() => setModalidadSeleccionada('divisa')}
+                style={{
+                  border: `2px solid ${modalidadSeleccionada === 'divisa' ? 'var(--success, #22c55e)' : 'var(--border)'}`,
+                  background: modalidadSeleccionada === 'divisa' ? 'rgba(34, 197, 94, 0.1)' : 'var(--bg-1, #1e293b)',
+                  borderRadius: '8px',
+                  padding: '.65rem .75rem',
+                  cursor: 'pointer',
+                  transition: 'all .15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.2rem' }}>
+                  <strong style={{ fontSize: '.86rem', display: 'flex', alignItems: 'center', gap: '.3rem', color: modalidadSeleccionada === 'divisa' ? 'var(--success, #22c55e)' : undefined }}>
+                    <span>💵</span> Pago en $ (Divisa)
+                  </strong>
+                  <input
+                    type="radio"
+                    name="modalidad_pago_sel"
+                    checked={modalidadSeleccionada === 'divisa'}
+                    onChange={() => setModalidadSeleccionada('divisa')}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </div>
+                <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--success, #22c55e)', marginBottom: '.15rem' }}>
+                  {money(desglose.totalDivisa ?? desglose.totalBcv)}
+                </div>
+                <div className="muted" style={{ fontSize: '.7rem', lineHeight: 1.25 }}>
+                  Base {money(desglose.baseDivisa ?? desglose.baseBcv)}{desglose.impuestos > 0 ? ` + Imp. ${money(desglose.impuestos)}` : ''}
+                </div>
+                {desglose.hayDiferencia && desglose.ahorroDivisa > 0 && (
+                  <div style={{ marginTop: '.3rem' }}>
+                    <span className="badge success" style={{ fontSize: '.65rem', padding: '.05rem .35rem' }}>
+                      Ahorras {money(desglose.ahorroDivisa)} ({desglose.ahorroPct.toFixed(2)}%)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Opción 2: Pago en Bs al cambio (tasa BCV) */}
+              <div
+                onClick={() => setModalidadSeleccionada('bcv')}
+                style={{
+                  border: `2px solid ${modalidadSeleccionada === 'bcv' ? 'var(--primary, #3b82f6)' : 'var(--border)'}`,
+                  background: modalidadSeleccionada === 'bcv' ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-1, #1e293b)',
+                  borderRadius: '8px',
+                  padding: '.65rem .75rem',
+                  cursor: 'pointer',
+                  transition: 'all .15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.2rem' }}>
+                  <strong style={{ fontSize: '.86rem', display: 'flex', alignItems: 'center', gap: '.3rem', color: modalidadSeleccionada === 'bcv' ? 'var(--primary, #3b82f6)' : undefined }}>
+                    <span>🏦</span> Pago en Bs (tasa BCV)
+                  </strong>
+                  <input
+                    type="radio"
+                    name="modalidad_pago_sel"
+                    checked={modalidadSeleccionada === 'bcv'}
+                    onChange={() => setModalidadSeleccionada('bcv')}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </div>
+                <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--primary, #3b82f6)', marginBottom: '.15rem' }}>
+                  {money(desglose.totalBcv)}
+                </div>
+                <div className="muted" style={{ fontSize: '.7rem', lineHeight: 1.25 }}>
+                  Base {money(desglose.baseBcv)}{desglose.impuestos > 0 ? ` + Imp. ${money(desglose.impuestos)}` : ''}
+                </div>
+                <div className="muted" style={{ fontSize: '.68rem', marginTop: '.3rem' }}>
+                  Al cambio oficial de la tasa BCV
+                </div>
+              </div>
+            </div>
+            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
+              💡 Opción seleccionada: <strong>{modalidadSeleccionada === 'divisa' ? '💵 Pago en $ (Divisa)' : '🏦 Pago en Bs (tasa BCV)'}</strong> por un total de <strong className="mono">{money(montoElegido)}</strong>.
+            </div>
+          </div>
+
+          <p className="muted" style={{ marginTop: '-.1rem', fontSize: '.8rem' }}>
+            La orden quedará <strong>Pendiente por aprobación del Gerente General</strong> con este monto y modalidad.
           </p>
           <div className="form-row" style={{ borderTop: '1px solid var(--border)', paddingTop: '.7rem' }}>
             <label style={{ fontWeight: 700 }}>Observación de la elección <span className="muted" style={{ fontWeight: 400 }}>(por qué eliges este proveedor)</span></label>
@@ -694,12 +802,13 @@ export function OfertasComparativa({
           </div>
           <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '.8rem' }}>
             <button className="btn btn-ghost" disabled={subiendo} onClick={() => { setConfirmando(null); setObs(''); setObsFiles([]); }}>Cancelar</button>
-            <button className="btn btn-primary" disabled={subiendo} onClick={() => confirmarAceptacion(confirmando)}>
+            <button className="btn btn-primary" disabled={subiendo} onClick={() => confirmarAceptacion(confirmando, modalidadSeleccionada)}>
               {subiendo ? 'Subiendo…' : hayVariantes(confirmando.oferta.items ?? []) ? 'Elegir marca…' : 'Elegir oferta'}
             </button>
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {seleccion && (
         <Modal title="Elige la marca/modelo por producto" onClose={() => setSeleccion(null)} size="md">

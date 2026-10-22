@@ -4,12 +4,12 @@
    con espacios entre líneas para facilitar la lectura rápida en el teléfono.
    Se fija con tests: es un acuerdo con quien lo lee en el teléfono.
    ============================================================ */
-import { TITULOS_CIERRE, etiquetaPeriodo, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
+import { TITULOS_CIERRE, etiquetaPeriodo, fechaCaracas, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
 
 export function textoCierreDiarioWhatsapp(r: ResumenCierre, p: PeriodoCierre, ahora: Date = new Date()): string {
   const L: string[] = [];
   L.push('📊 *CIERRE DIARIO · COMPRAS*', '');
-  L.push(`📅 *Período:* ${etiquetaPeriodo(p)}`, '');
+  L.push(`📅 *Período:* ${etiquetaPeriodo(p, fechaCaracas(ahora))}`, '');
   L.push(`🕒 *Impreso:* ${momentoImpresion(ahora)}`, '');
 
   for (const t of TITULOS_CIERRE) {

@@ -696,7 +696,7 @@ export async function aprobarOrdenConOferta(
   override?: { items: ItemOrden[]; precioTotal: number; precioDivisa: number | null } | null,
   /** Justificación del analista (por qué eligió esta oferta) + adjuntos de respaldo.
    *  Se guarda en la OC para que el Gerente General (al aprobar) y Tesorería lo vean. */
-  seleccion?: { observacion: string | null; adjuntos: AdjuntoOferta[] } | null,
+  seleccion?: { observacion: string | null; adjuntos: AdjuntoOferta[]; modalidadPago?: 'divisa' | 'bcv' } | null,
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
@@ -712,14 +712,15 @@ export async function aprobarOrdenConOferta(
     .order('registrada_en', { ascending: false })
     .limit(1)
     .maybeSingle();
-  // Si la oferta trae precio con descuento (divisa), ESE pasa a ser el precio final
-  // de la OC: se fija como total, se escalan los ítems para que cuadren y la OC queda
-  // marcada como pago en divisa desde la creación (se refleja en toda la OC y la trazabilidad).
-  // Si vino una SELECCIÓN de marca (alternativas), esos ítems/totales mandan y NO se
-  // escala por descuento (el precio elegido ya es el concreto de la variante elegida).
+  // Si el analista eligió modalidad o si la oferta trae precio con descuento (divisa),
+  // se respeta la decisión: 'divisa' escala ítems y fija total en USD, 'bcv' mantiene precio BCV.
   const precioDivisaDb = (ofRow?.precio_divisa as number | null) ?? null;
   const precioDivisa = override ? override.precioDivisa : precioDivisaDb;
-  const usaDescuento = !override && precioDivisa != null && precioDivisa > 0 && precioDivisa !== ofertaPrecioTotal;
+  const modalidadPago = seleccion?.modalidadPago;
+  const pagaEnDivisa = modalidadPago != null
+    ? modalidadPago === 'divisa'
+    : (!override && precioDivisa != null && precioDivisa > 0 && precioDivisa !== ofertaPrecioTotal);
+  const usaDescuento = pagaEnDivisa && !override && precioDivisa != null && precioDivisa > 0 && precioDivisa !== ofertaPrecioTotal;
   const itemsFinal = override ? override.items : (usaDescuento ? escalarItemsADescuento(ofertaItems, ofertaPrecioTotal, precioDivisa!) : ofertaItems);
   // DESCUENTO OBTENIDO (monto): se resta del total de la OC y queda registrado para la
   // trazabilidad y el PDF. Se sincroniza con la factura (el total final ya es neto).
@@ -733,8 +734,11 @@ export async function aprobarOrdenConOferta(
   const igtfPct = igtfAplicado ? Math.max(0, Math.min(100, Number((ofRow?.igtf_pct as number | null) ?? 0) || 0)) : 0;
   const igtfMonto = igtfAplicado ? Math.max(0, Math.round((Number((ofRow?.igtf_monto as number | null) ?? 0) || 0) * 100) / 100) : 0;
   const impuestos = ivaMonto + igtfMonto;
-  const totalBruto = override ? override.precioTotal : (usaDescuento ? precioDivisa! : ofertaPrecioTotal);
+  const totalBruto = override
+    ? (pagaEnDivisa && override.precioDivisa != null ? override.precioDivisa : override.precioTotal)
+    : (usaDescuento ? precioDivisa! : ofertaPrecioTotal);
   const totalFinal = Math.round((totalBruto - descuentoObtenido + impuestos) * 100) / 100;
+  const totalDivisaFinal = precioDivisa != null ? Math.round((precioDivisa - descuentoObtenido + impuestos) * 100) / 100 : null;
   // Anticipo parcial (adelanto): solo en órdenes de SERVICIO con condición 'anticipado' y monto > 0.
   // Se aplica DESPUÉS de crear la OC (cuando ya tiene total). Enruta a crédito para que el saldo
   // restante quede como «cuenta abierta» en Tesorería (prepago total, sin monto, sigue como hoy).
@@ -747,8 +751,8 @@ export async function aprobarOrdenConOferta(
     proveedor_id: ofertaProveedorId,
     items: itemsFinal,
     total: totalFinal,
-    total_divisa: precioDivisa != null ? Math.round((precioDivisa - descuentoObtenido + impuestos) * 100) / 100 : null,
-    pago_en_divisa: usaDescuento,
+    total_divisa: totalDivisaFinal,
+    pago_en_divisa: pagaEnDivisa,
     descuento_obtenido: descuentoObtenido,
     iva_aplicado: ivaAplicado,
     iva_pct: ivaPct,
@@ -767,6 +771,8 @@ export async function aprobarOrdenConOferta(
       proveedorId: ofertaProveedorId,
       precio: totalFinal,
       precio_bcv: ofertaPrecioTotal,
+      precio_divisa: precioDivisa,
+      modalidad_pago: pagaEnDivisa ? 'divisa' : 'bcv',
       con_descuento: usaDescuento,
       descuento_obtenido: descuentoObtenido,
       score: scoreCalculado,
