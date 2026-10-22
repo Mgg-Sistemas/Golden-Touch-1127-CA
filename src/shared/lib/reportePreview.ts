@@ -18,10 +18,12 @@ import { dibujarPdfEnCanvas, navegadorSinVisorPdf, paginasPdfComoImagenes, type 
  */
 
 interface OverlayUI {
+  bar: HTMLDivElement;
   body: HTMLDivElement;
   btnDl: HTMLButtonElement;
   /** Oculto por defecto: cada visor lo muestra si sabe imprimir su contenido. */
   btnPrint: HTMLButtonElement;
+  close: () => void;
   onClose: (fn: () => void) => void;
 }
 
@@ -74,7 +76,15 @@ function buildOverlay(filename: string): OverlayUI {
   document.addEventListener('keydown', onKey);
   closers.push(() => document.removeEventListener('keydown', onKey));
 
-  return { body, btnDl, btnPrint, onClose: (fn) => closers.push(fn) };
+  return { bar, body, btnDl, btnPrint, close, onClose: (fn: () => void) => closers.push(fn) };
+}
+
+export interface PreviewPdfOpciones {
+  extraControls?: (ctx: {
+    bar: HTMLElement;
+    updatePdf: (nuevoDoc: JsPDFType) => void;
+    close: () => void;
+  }) => void;
 }
 
 /**
@@ -124,42 +134,61 @@ function htmlHojas(hojas: HojaImagen[], titulo: string): string {
 const MAX_HOJAS_IMAGEN = 60;
 
 /** Muestra el PDF (jsPDF) en un visor embebido; descarga solo si el usuario lo pide. */
-export function previewPdf(doc: JsPDFType, filename: string): void {
-  const blob = doc.output('blob');
-  const url = URL.createObjectURL(blob);
+export function previewPdf(doc: JsPDFType, filename: string, opciones?: PreviewPdfOpciones): void {
+  let currentDoc = doc;
+  let currentBlob = currentDoc.output('blob');
+  let currentUrl = URL.createObjectURL(currentBlob);
   const ui = buildOverlay(filename);
-  if (navegadorSinVisorPdf()) {
-    // Teléfono (Chrome en Android): el iframe queda en blanco; las páginas se dibujan con pdf.js.
-    void dibujarPdfEnCanvas(doc.output('arraybuffer'), ui.body, ui.onClose);
-  } else {
-    const iframe = document.createElement('iframe');
-    iframe.src = url;
-    iframe.title = filename;
-    iframe.style.cssText = 'width:100%;height:100%;border:0;background:#fff;';
-    ui.body.appendChild(iframe);
+
+  const renderPdf = (docARenderizar: JsPDFType, urlARenderizar: string) => {
+    ui.body.innerHTML = '';
+    if (navegadorSinVisorPdf()) {
+      void dibujarPdfEnCanvas(docARenderizar.output('arraybuffer'), ui.body, ui.onClose);
+    } else {
+      const iframe = document.createElement('iframe');
+      iframe.src = urlARenderizar;
+      iframe.title = filename;
+      iframe.style.cssText = 'width:100%;height:100%;border:0;background:#fff;';
+      ui.body.appendChild(iframe);
+    }
+  };
+
+  renderPdf(currentDoc, currentUrl);
+
+  const updatePdf = (nuevoDoc: JsPDFType) => {
+    URL.revokeObjectURL(currentUrl);
+    currentDoc = nuevoDoc;
+    currentBlob = currentDoc.output('blob');
+    currentUrl = URL.createObjectURL(currentBlob);
+    renderPdf(currentDoc, currentUrl);
+  };
+
+  if (opciones?.extraControls) {
+    opciones.extraControls({ bar: ui.bar, updatePdf, close: ui.close });
   }
-  ui.btnDl.onclick = () => doc.save(filename);
+
+  ui.btnDl.onclick = () => currentDoc.save(filename);
   // En el teléfono no se puede imprimir el PDF desde el visor: ahí queda solo ⬇ Descargar.
   if (!navegadorSinVisorPdf()) ui.btnPrint.style.display = '';
   ui.btnPrint.onclick = async () => {
-    if (doc.getNumberOfPages() > MAX_HOJAS_IMAGEN) { imprimirUrlLocal(url, ui); return; }
+    if (currentDoc.getNumberOfPages() > MAX_HOJAS_IMAGEN) { imprimirUrlLocal(currentUrl, ui); return; }
     const texto = ui.btnPrint.textContent;
     ui.btnPrint.disabled = true;
     ui.btnPrint.textContent = '🖨 Preparando…';
     try {
-      const hojas = await paginasPdfComoImagenes(doc.output('arraybuffer'));
+      const hojas = await paginasPdfComoImagenes(currentDoc.output('arraybuffer'));
       const pagina = URL.createObjectURL(new Blob([htmlHojas(hojas, filename)], { type: 'text/html' }));
       ui.onClose(() => { URL.revokeObjectURL(pagina); hojas.forEach((x) => URL.revokeObjectURL(x.url)); });
       imprimirUrlLocal(pagina, ui);
     } catch {
       // Si pdf.js no carga, se imprime el PDF como antes.
-      imprimirUrlLocal(url, ui);
+      imprimirUrlLocal(currentUrl, ui);
     } finally {
       ui.btnPrint.disabled = false;
       ui.btnPrint.textContent = texto;
     }
   };
-  ui.onClose(() => URL.revokeObjectURL(url));
+  ui.onClose(() => URL.revokeObjectURL(currentUrl));
 }
 
 /**

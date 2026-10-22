@@ -37,40 +37,59 @@ async function mapProveedores(): Promise<Map<string, string>> {
   return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
 }
 
+/**
+ * Fecha en que la empresa obtuvo la designación/permiso para retener (Octubre 2026).
+ * Solo se consideran órdenes de compra de este mes en adelante (>= 2026-10-01).
+ */
+export const FECHA_PERMISO_RETENCION = '2026-10-01';
+
+/** Comprueba si una orden corresponde al período con autorización de retención (este mes en adelante). */
+export function ordenAplicaRetencion(o: Orden): boolean {
+  const f = (o.oc_emitida_en || o.oc_creada_en || o.created_at || '').slice(0, 10);
+  return f >= FECHA_PERMISO_RETENCION;
+}
+
 /** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
- *  (al finalizar la OC), aún sin finalizar la retención. */
+ *  (al finalizar la OC), aún sin finalizar la retención. Solo las de este mes en adelante. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
   const [{ data, error }, pm] = await Promise.all([
     supabase.from(TABLE).select('*')
       .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+      .gte('created_at', '2026-09-25T00:00:00Z')
       .order('created_at', { ascending: true }),
     mapProveedores(),
   ]);
   if (error) throw error;
-  return (data ?? []).map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
+  return (data ?? [])
+    .filter((o) => ordenAplicaRetencion(o as Orden))
+    .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
-/** Retenciones ya finalizadas (comprobantes cargados). */
+/** Retenciones ya finalizadas (comprobantes cargados). Solo las de este mes en adelante. */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
   const [{ data, error }, pm] = await Promise.all([
     supabase.from(TABLE).select('*')
       .eq('comprobante_tipo', 'factura')
       .eq('retencion_finalizada', true)
+      .gte('created_at', '2026-09-25T00:00:00Z')
       .order('retencion_finalizada_en', { ascending: false }),
     mapProveedores(),
   ]);
   if (error) throw error;
-  return (data ?? []).map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
+  return (data ?? [])
+    .filter((o) => ordenAplicaRetencion(o as Orden))
+    .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
 export async function contarRetencionesPendientes(): Promise<number> {
-  const { count, error } = await supabase.from(TABLE)
-    .select('id', { count: 'exact', head: true })
+  const { data, error } = await supabase.from(TABLE)
+    .select('id, created_at, oc_creada_en, oc_emitida_en')
     .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
-    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false');
+    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+    .gte('created_at', '2026-09-25T00:00:00Z');
   if (error) throw error;
-  return count ?? 0;
+  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden)).length;
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {

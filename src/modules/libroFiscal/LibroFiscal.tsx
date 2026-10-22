@@ -158,18 +158,26 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const [verFacturas, setVerFacturas] = useState(false);
   const [retenerSobre, setRetenerSobre] = useState<FacturaResumen | null>(null);
 
-  const [imprimirConFirmaSello, setImprimirConFirmaSello] = useState<boolean>(() => {
-    try { return localStorage.getItem('gt_comprobante_con_firma_sello') !== '0'; } catch { return true; }
+  const [dispDigital, setDispDigital] = useState<{ tieneLogo: boolean; tieneFirma: boolean; tieneSello: boolean; tieneAlguno: boolean }>({
+    tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false,
   });
-  const [tieneFirmaOSello, setTieneFirmaOSello] = useState<boolean>(false);
+  const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
+    try { return localStorage.getItem('retenciones:imprimirConLogo') === 'true'; } catch { return false; }
+  });
+  const [imprimirFirma, setImprimirFirma] = useState<boolean>(() => {
+    try { return localStorage.getItem('retenciones:imprimirConFirma') !== 'false'; } catch { return true; }
+  });
+  const [imprimirSello, setImprimirSello] = useState<boolean>(() => {
+    try { return localStorage.getItem('retenciones:imprimirConSello') !== 'false'; } catch { return true; }
+  });
 
   useEffect(() => {
     let vivo = true;
-    import('./comprobanteRetencionPdf').then(({ hayFirmaYSelloCargado }) => {
-      hayFirmaYSelloCargado().then((res) => {
-        if (vivo) setTieneFirmaOSello(res.tieneAlguno);
+    import('./comprobanteRetencionPdf').then(({ consultarElementosDigitales }) => {
+      consultarElementosDigitales().then((res) => {
+        if (vivo) setDispDigital(res);
       }).catch(() => {
-        if (vivo) setTieneFirmaOSello(false);
+        if (vivo) setDispDigital({ tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false });
       });
     });
     return () => { vivo = false; };
@@ -333,9 +341,12 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   async function verComprobante(r: RetencionPracticada) {
     try {
       const { verComprobanteRetencionPdf } = await import('./comprobanteRetencionPdf');
-      // R8: el formato vigente a la fecha de emisión del comprobante (si no hay, el de hoy; sin R8, de fábrica).
       const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyIso());
-      await verComprobanteRetencionPdf(r, config, formato, { incluirFirmaSello: imprimirConFirmaSello && tieneFirmaOSello });
+      await verComprobanteRetencionPdf(r, config, formato, {
+        incluirLogo: imprimirLogo && dispDigital.tieneLogo,
+        incluirFirma: imprimirFirma && dispDigital.tieneFirma,
+        incluirSello: imprimirSello && dispDigital.tieneSello,
+      });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
 
@@ -491,23 +502,50 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         </div>
       </div>
       <div className="lfv8-acciones-libro">
-        <label
-          className={`lfv8-check-firma ${!tieneFirmaOSello ? 'lfv8-check-firma-disabled' : ''}`}
-          title={tieneFirmaOSello
-            ? 'Imprimir los comprobantes con el sello y firma digital'
-            : 'No hay sello ni firma cargados en Parámetros'}
-        >
-          <input
-            type="checkbox"
-            checked={imprimirConFirmaSello && tieneFirmaOSello}
-            disabled={!tieneFirmaOSello}
-            onChange={(e) => {
-              setImprimirConFirmaSello(e.target.checked);
-              try { localStorage.setItem('gt_comprobante_con_firma_sello', e.target.checked ? '1' : '0'); } catch {}
-            }}
-          />
-          <span>Con sello y firma digital</span>
-        </label>
+        {dispDigital.tieneAlguno && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', padding: '.2rem .5rem', background: 'var(--surface-sunken)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+            <span className="muted" style={{ fontSize: '.76rem', fontWeight: 600 }}>Imprimir:</span>
+            {dispDigital.tieneLogo && (
+              <label className="lfv8-check-firma" title="Incluir logo de la empresa">
+                <input
+                  type="checkbox"
+                  checked={imprimirLogo}
+                  onChange={(e) => {
+                    setImprimirLogo(e.target.checked);
+                    try { localStorage.setItem('retenciones:imprimirConLogo', String(e.target.checked)); } catch {}
+                  }}
+                />
+                <span>Logo</span>
+              </label>
+            )}
+            {dispDigital.tieneFirma && (
+              <label className="lfv8-check-firma" title="Incluir firma digital cargada en Parámetros">
+                <input
+                  type="checkbox"
+                  checked={imprimirFirma}
+                  onChange={(e) => {
+                    setImprimirFirma(e.target.checked);
+                    try { localStorage.setItem('retenciones:imprimirConFirma', String(e.target.checked)); } catch {}
+                  }}
+                />
+                <span>Firma</span>
+              </label>
+            )}
+            {dispDigital.tieneSello && (
+              <label className="lfv8-check-firma" title="Incluir sello digital cargado en Parámetros">
+                <input
+                  type="checkbox"
+                  checked={imprimirSello}
+                  onChange={(e) => {
+                    setImprimirSello(e.target.checked);
+                    try { localStorage.setItem('retenciones:imprimirConSello', String(e.target.checked)); } catch {}
+                  }}
+                />
+                <span>Sello</span>
+              </label>
+            )}
+          </div>
+        )}
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
           title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
