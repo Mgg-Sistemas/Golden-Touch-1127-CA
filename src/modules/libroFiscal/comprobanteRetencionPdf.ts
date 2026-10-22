@@ -202,35 +202,67 @@ export async function generarDocComprobanteRetencionPdf(
   const H = doc.internal.pageSize.getHeight();
   const M = MARGEN_PDF;
   const UTIL = W - M * 2;
-  let y = M + 8;
-  // ── Encabezado: Zonas independientes para Logo, Título/Nota legal y Recuadro ──
+  let y = M + 6;
+
+  // 1. Título principal a todo el ancho (sin reducirse, centrado en la página)
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  const lineasEncabezado = doc.splitTextToSize(textoPdf(f.textos.encabezado), UTIL) as string[];
+  doc.text(lineasEncabezado, W / 2, y, { align: 'center' });
+  y += (lineasEncabezado.length * 13) + 3;
+
+  // 2. Subtítulo (nota legal del decreto / gaceta oficial) debajo del título
+  if (f.textos.nota_legal && f.textos.nota_legal.trim()) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(0, 0, 0);
+    const lineasNotaLegal = doc.splitTextToSize(textoPdf(f.textos.nota_legal.trim()), UTIL) as string[];
+    doc.text(lineasNotaLegal, W / 2, y, { align: 'center' });
+    y += (lineasNotaLegal.length * 8.2) + 6;
+  } else {
+    y += 4;
+  }
+
+  // 3. Resto del formato: Logo a la izquierda y Recuadro de Comprobante a la derecha
   const { logoDataUrl, firmaDataUrl, selloDataUrl } = await cargarElementosDigitales(diaVE(r.createdAt) || hoyVenezuela());
   const tieneLogo = opciones.incluirLogo && !!logoDataUrl;
   const logoW = 75;
   const logoH = 34;
 
-  // Recuadro superior derecho: NRO. COMPROBANTE, PERÍODO FISCAL, FECHA
-  const boxW = Math.min(250, UTIL * 0.45);
-  const boxH = 44;
-  const boxX = W - M - boxW;
-  const boxY = M + 2;
+  const restoY = y;
+  if (tieneLogo) {
+    try {
+      doc.addImage(logoDataUrl!, 'PNG', M, restoY, logoW, logoH);
+    } catch { /* noop */ }
+  }
 
-  // Dibujar recuadro superior derecho con cuadrícula interna
+  // Recuadro superior derecho: N° DE COMPROBANTE, PERÍODO FISCAL, FECHA DE EMISIÓN
+  const boxW = Math.min(260, UTIL * 0.46);
+  const boxH = 40;
+  const boxX = W - M - boxW;
+  const boxY = restoY;
+  const colDivX = boxX + 118; // divisor vertical que alinea perfectamente ambas filas
+
+  // Dibujar recuadro con cuadrícula interna
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.6);
   doc.rect(boxX, boxY, boxW, boxH);
-  doc.line(boxX, boxY + 17, boxX + boxW, boxY + 17);
-  doc.line(boxX + 118, boxY + 17, boxX + 118, boxY + boxH); // divisor vertical interno
+  doc.line(boxX, boxY + 18, boxX + boxW, boxY + 18); // divisor horizontal entre filas
+  doc.line(colDivX, boxY, colDivX, boxY + boxH);     // divisor vertical completo
 
-  // Fila superior: N° DE COMPROBANTE
+  // Fila 1 - Columna Izquierda: N° DE COMPROBANTE
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
   doc.setTextColor(0, 0, 0);
-  doc.text(textoPdf(f.rotulos.n_comprobante || 'N° DE COMPROBANTE'), boxX + 6, boxY + 11.5);
-  doc.setFontSize(8.5);
-  doc.text(textoPdf(r.numeroComprobante ?? '—'), boxX + boxW - 6, boxY + 11.5, { align: 'right' });
+  doc.text(textoPdf(f.rotulos.n_comprobante || 'N° DE COMPROBANTE'), boxX + 6, boxY + 12);
 
-  // Fila inferior celda izquierda: PERÍODO FISCAL
+  // Fila 1 - Columna Derecha: Número alineado con la fecha inferior
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text(textoPdf(r.numeroComprobante ?? '—'), colDivX + 6, boxY + 12);
+
+  // Fila 2 - Columna Izquierda: PERÍODO FISCAL
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
   doc.text(textoPdf(f.rotulos.periodo || 'PERÍODO FISCAL'), boxX + 6, boxY + 26);
@@ -239,46 +271,17 @@ export async function generarDocComprobanteRetencionPdf(
   const pDigits = (r.periodo ?? '').replace(/\D/g, '');
   const anioStr = pDigits.length >= 4 ? pDigits.slice(0, 4) : (r.facturaFecha?.slice(0, 4) ?? '');
   const mesStr = pDigits.length >= 6 ? pDigits.slice(4, 6) : (r.facturaFecha?.slice(5, 7) ?? '');
-  doc.text(`AÑO: ${anioStr}   MES: ${mesStr}`, boxX + 6, boxY + 37);
+  doc.text(`AÑO: ${anioStr}   MES: ${mesStr}`, boxX + 6, boxY + 36);
 
-  // Fila inferior celda derecha: FECHA DE EMISIÓN
+  // Fila 2 - Columna Derecha: FECHA DE EMISIÓN
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISIÓN'), boxX + 124, boxY + 26);
+  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISIÓN'), colDivX + 6, boxY + 26);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(fechaPdf(r.facturaFecha || r.createdAt)), boxX + 124, boxY + 37);
+  doc.text(textoPdf(fechaPdf(r.facturaFecha || r.createdAt)), colDivX + 6, boxY + 36);
 
-  // Logo en zona izquierda sin colisionar
-  if (tieneLogo) {
-    try {
-      doc.addImage(logoDataUrl!, 'PNG', M, boxY + 4, logoW, logoH);
-    } catch { /* noop */ }
-  }
-
-  // Zona central: Título y Nota Legal (acotados entre el logo y el recuadro)
-  const centroInicioX = tieneLogo ? M + logoW + 12 : M;
-  const centroFinX = boxX - 10;
-  const centroW = centroFinX - centroInicioX;
-  const centroX = centroInicioX + (centroW / 2);
-
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  const lineasEncabezado = doc.splitTextToSize(textoPdf(f.textos.encabezado), centroW) as string[];
-  doc.text(lineasEncabezado, centroX, boxY + 11, { align: 'center' });
-
-  let curHeaderY = boxY + 11 + (lineasEncabezado.length * 11);
-  if (f.textos.nota_legal && f.textos.nota_legal.trim()) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
-    doc.setTextColor(0, 0, 0);
-    const lineasNotaLegal = doc.splitTextToSize(textoPdf(f.textos.nota_legal.trim()), centroW) as string[];
-    doc.text(lineasNotaLegal, centroX, curHeaderY + 2, { align: 'center' });
-    curHeaderY += 2 + (lineasNotaLegal.length * 8.2);
-  }
-
-  y = Math.max(boxY + boxH, curHeaderY, tieneLogo ? boxY + logoH + 6 : 0) + 10;
+  y = Math.max(boxY + boxH, tieneLogo ? restoY + logoH : 0) + 8;
 
   // ── Determinación de partes (Agente vs Sujeto Retenido) ──
   const esRecibida = r.direccion === 'recibida';

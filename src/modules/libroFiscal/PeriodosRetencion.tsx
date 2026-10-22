@@ -22,6 +22,22 @@ import { rotuloAutor, rotuloMotivo } from './rotulos';
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 type Conteo = { tipoGt: string; periodo: string; quincena: 1 | 2 | null; declarada: boolean };
 
+function diasEntre(desdeIso: string, hastaIso: string): number {
+  const ms = 86400000;
+  const d1 = new Date(desdeIso + 'T00:00:00').getTime();
+  const d2 = new Date(hastaIso + 'T00:00:00').getTime();
+  return Math.round((d2 - d1) / ms);
+}
+
+function textoVencimientoDias(venceIso: string, hoyIso: string): string {
+  const d = diasEntre(hoyIso, venceIso);
+  if (d === 0) return 'vence hoy';
+  if (d === 1) return 'queda 1 día para declarar';
+  if (d > 1) return `quedan ${d} días para declarar`;
+  if (d === -1) return 'venció ayer';
+  return `venció hace ${Math.abs(d)} días`;
+}
+
 const ESTADOS: { key: EstadoPeriodo | ''; label: string }[] = [
   { key: '', label: 'Todos' }, { key: 'abierto', label: 'Abiertos' }, { key: 'vencido', label: 'Vencidos' },
   { key: 'declarado', label: 'Declarados' }, { key: 'otro_sistema', label: 'Del otro sistema' },
@@ -108,6 +124,7 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
       {periodos && periodos.length === 0 && <p className="muted">No hay períodos de {anio}.{puedeEditar ? ' Usa «Generar períodos».' : ''}</p>}
       {periodos && periodos.length > 0 && visibles.length === 0 && <p className="muted">Ningún período con ese filtro.</p>}
 
+
       {/* Un bloque plegado por impuesto, con su resumen: así no son 60 filas de golpe. */}
       {visibles.length > 0 && tiposConPeriodos.filter((t) => !tipo || t === tipo).map((t) => {
         const lista = visibles.filter((p) => p.tipo === t);
@@ -117,33 +134,77 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
         const vencidos = lista.filter((p) => estadoPeriodo(p) === 'vencido').length;
         const abiertos = lista.filter((p) => !p.declaradoEn).length;
         const proximo = lista.filter((p) => !p.declaradoEn && p.vence && p.vence >= hoy).sort((a, b) => String(a.vence).localeCompare(String(b.vence)))[0];
+        const masVencido = lista.filter((p) => !p.declaradoEn && p.vence && p.vence < hoy).sort((a, b) => String(b.vence).localeCompare(String(a.vence)))[0];
+
         return (
           <details key={t} open={!!tipo} className="card" style={{ marginBottom: '.5rem', padding: '.5rem .75rem' }}>
-            <summary style={{ cursor: 'pointer', display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
-              <strong>{nombre(t)}</strong>
-              <span className="muted" style={{ fontSize: '.82rem' }}>
-                {enCurso ? `En curso: ${nombrePeriodo(enCurso)}` : 'Sin período en curso'}
-                {' · '}{abiertos} sin declarar
-                {vencidos > 0 && <> · <b style={{ color: ROTULO.vencido.color }}>{vencidos} vencido{vencidos === 1 ? '' : 's'}</b></>}
-                {proximo ? ` · próximo vencimiento ${fechaCorta(proximo.vence)}` : ''}
-              </span>
+            <summary style={{ cursor: 'pointer', display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <strong style={{ fontSize: '1rem' }}>{nombre(t)}</strong>
+              <div style={{ fontSize: '.82rem', display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                {enCurso ? (
+                  <span style={{ background: 'rgba(34, 197, 94, 0.15)', color: 'var(--success)', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+                    🟢 En curso: {nombrePeriodo(enCurso)}
+                  </span>
+                ) : (
+                  <span style={{ background: 'rgba(239, 68, 68, 0.12)', color: 'var(--danger)', padding: '2px 8px', borderRadius: 4 }}>
+                    ⚠️ Sin período en curso configurado
+                  </span>
+                )}
+                <span className="muted">· {abiertos} sin declarar</span>
+                {vencidos > 0 && <span style={{ color: ROTULO.vencido.color, fontWeight: 700 }}>· {vencidos} vencido{vencidos === 1 ? '' : 's'}</span>}
+                {proximo?.vence && (
+                  <span style={{ background: diasEntre(hoy, proximo.vence) <= 5 ? 'rgba(234, 179, 8, 0.15)' : 'rgba(255, 255, 255, 0.05)', color: diasEntre(hoy, proximo.vence) <= 5 ? 'var(--warning)' : 'var(--text-muted)', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                    ⏰ Próximo a vencer: {nombrePeriodo(proximo)} ({textoVencimientoDias(proximo.vence, hoy)} · vence {fechaCorta(proximo.vence)})
+                  </span>
+                )}
+                {!proximo && masVencido?.vence && (
+                  <span style={{ background: 'rgba(239, 68, 68, 0.12)', color: 'var(--danger)', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                    🚨 {nombrePeriodo(masVencido)} ({textoVencimientoDias(masVencido.vence, hoy)})
+                  </span>
+                )}
+              </div>
             </summary>
-        <div style={{ overflowX: 'auto', marginTop: '.4rem' }}>
+        <div style={{ overflowX: 'auto', marginTop: '.6rem' }}>
           <table className="table" style={{ fontSize: '.82rem', width: '100%' }}>
-            <thead><tr><th>Período</th><th>Del</th><th>Vence</th><th>Retenciones</th><th>Quién declara</th><th>Estado</th><th aria-label="Acciones" /></tr></thead>
+            <thead><tr><th>Período</th><th>Del</th><th>Vencimiento</th><th>Retenciones</th><th>Quién declara</th><th>Estado</th><th aria-label="Acciones" /></tr></thead>
             <tbody>
               {lista.map((p) => {
                 const est = estadoPeriodo(p);
                 const c = conteoDelPeriodo(p, conteos);
+                const esEsteEnCurso = enCurso?.id === p.id;
+                const diasRestantes = p.vence ? diasEntre(hoy, p.vence) : null;
+
                 return (
-                  <tr key={p.id}>
-                    <td><strong>{nombrePeriodo(p)}</strong></td>
+                  <tr key={p.id} style={esEsteEnCurso ? { background: 'rgba(34, 197, 94, 0.05)' } : undefined}>
+                    <td>
+                      <strong>{nombrePeriodo(p)}</strong>
+                      {esEsteEnCurso && (
+                        <span style={{ background: 'rgba(34, 197, 94, 0.2)', color: 'var(--success)', padding: '1px 5px', borderRadius: 3, fontSize: '.7rem', fontWeight: 700, marginLeft: 6 }}>
+                          Actual en curso
+                        </span>
+                      )}
+                    </td>
                     <td>{fechaCorta(p.desde)} – {fechaCorta(p.hasta)}</td>
                     <td>
-                      {puedeEditar && !p.declaradoEn
-                        ? <input className="input" type="date" defaultValue={p.vence ?? ''} style={{ maxWidth: 150 }}
-                            onBlur={(e) => { if ((e.target.value || null) !== p.vence) void guardarVence(p, e.target.value); }} aria-label={`Vencimiento de ${nombrePeriodo(p)}`} />
-                        : fechaCorta(p.vence)}
+                      <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {puedeEditar && !p.declaradoEn
+                          ? <input className="input" type="date" defaultValue={p.vence ?? ''} style={{ maxWidth: 140, padding: '2px 6px', fontSize: '.8rem' }}
+                              onBlur={(e) => { if ((e.target.value || null) !== p.vence) void guardarVence(p, e.target.value); }} aria-label={`Vencimiento de ${nombrePeriodo(p)}`} />
+                          : <span>{fechaCorta(p.vence)}</span>}
+                        {p.vence && !p.declaradoEn && diasRestantes !== null && (
+                          <span style={{
+                            fontSize: '.72rem',
+                            fontWeight: diasRestantes <= 5 ? 700 : 500,
+                            color: diasRestantes < 0 ? 'var(--danger)' : diasRestantes <= 5 ? 'var(--warning)' : 'var(--text-muted)',
+                            background: diasRestantes < 0 ? 'rgba(239, 68, 68, 0.12)' : diasRestantes <= 5 ? 'rgba(234, 179, 8, 0.12)' : 'transparent',
+                            padding: diasRestantes <= 5 ? '1px 5px' : 0,
+                            borderRadius: 3,
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {diasRestantes === 0 ? '¡Vence hoy!' : diasRestantes > 0 ? `Quedan ${diasRestantes} d.` : `Venció hace ${Math.abs(diasRestantes)} d.`}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>{c.total}{c.declaradas ? <span className="muted"> · {c.declaradas} declarada{c.declaradas === 1 ? '' : 's'}</span> : ''}</td>
                     <td>
