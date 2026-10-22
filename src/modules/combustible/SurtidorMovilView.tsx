@@ -33,6 +33,7 @@ import {
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
+import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
 import { mensajeMovimiento } from './mensajeMovimiento';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
@@ -76,6 +77,7 @@ export function SurtidorMovilView() {
   const [tipo, setTipo] = useState<TipoSurtidor>('uso');
   const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
   const [reporte, setReporte] = useState(false);
+  const [calculadoraOpen, setCalculadoraOpen] = useState(false);
 
   const reloadBase = useCallback(async () => {
     const [ts, cat] = await Promise.all([listTanques(), listCatalogos()]);
@@ -124,6 +126,8 @@ export function SurtidorMovilView() {
           <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-ghost" onClick={() => setCalculadoraOpen(true)}
+            title="Calculadora rápida de cubicación por varilla en cm">📐 Calculadora cubicación</button>
           <button type="button" className="btn btn-ghost" onClick={() => setReporte(true)} disabled={!tanques.length}
             title="Movimientos por rango de fechas, agrupados por tipo, con sus fotos">📊 Reporte</button>
           {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost">🖥 Módulo completo</Link>}
@@ -227,6 +231,13 @@ export function SurtidorMovilView() {
       )}
 
       {reporte && <SurtidorReporteMovil tanques={tanques} tanqueInicial={selId} onClose={() => setReporte(false)} />}
+      {calculadoraOpen && (
+        <CalculadoraCubicacionModal
+          tanqueInicial={tanques.find((t) => t.id === selId)?.nombre}
+          tanques={tanques}
+          onClose={() => setCalculadoraOpen(false)}
+        />
+      )}
     </div>
   );
 }
