@@ -43,6 +43,7 @@ import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { useDescartar } from './confirmarDescartar';
 import { urlFacturaDeOrigen } from './documentosOrigen.repository';
+import { nombrePeriodo, periodoEstaCerrado, type PeriodoFiscal } from './periodosRetencion.repository';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva, type TipoDocumento,
@@ -167,6 +168,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [conR10, setConR10] = useState(false);
   const [documento, setDocumento] = useState<FacturaResumen | null>(null);
   const [soloFactura, setSoloFactura] = useState(false);
+  const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
     tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
   })]);
@@ -238,6 +240,20 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     }
     return () => { vivo = false; };
   }, [facturaFecha]);
+
+  useEffect(() => {
+    let vivo = true;
+    const f = facturaFecha || fechaRetencion;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+      const primerTipo = lineas[0]?.tipo ? tipoAGt(lineas[0].tipo) : 'iva';
+      periodoEstaCerrado(primerTipo, f)
+        .then((p) => { if (vivo) setPeriodoCerrado(p); })
+        .catch(() => { if (vivo) setPeriodoCerrado(null); });
+    } else {
+      setPeriodoCerrado(null);
+    }
+    return () => { vivo = false; };
+  }, [facturaFecha, fechaRetencion, lineas]);
 
   const setLinea = useCallback((id: number, patch: Partial<LineaUI>) => {
     marcarSucio();
@@ -340,6 +356,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     // Una factura ya registrada trae sus datos de la base (pueden ser de antes de pedir el control).
     const falta = documento ? null : faltaEnDatosFactura({ nro: facturaNro, control: facturaControl, fecha: facturaFecha }, hoyIso());
     if (falta) return falta;
+    if (periodoCerrado) {
+      return `El período fiscal (${nombrePeriodo(periodoCerrado)}) ya fue declarado ante el SENIAT. No se pueden registrar retenciones en períodos cerrados sin reapertura previa.`;
+    }
     if (soloFactura) {
       if (ilegibles.length) return `No se entiende: ${ilegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`;
       if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
@@ -615,6 +634,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           <input className="input" type="date" value={fechaRetencion} onChange={(e) => { marcarSucio(); setFechaRetencion(e.target.value); }} />
           <small className="hint muted">Emisión del comprobante.</small>
         </div>
+        {periodoCerrado && (
+          <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', margin: '.3rem 0', padding: '.5rem .8rem', width: '100%' }}>
+            <strong>🔒 Período Fiscal Cerrado ({nombrePeriodo(periodoCerrado)})</strong>
+            <p style={{ margin: '.2rem 0 0', fontSize: '.8rem' }}>
+              Este período ya fue declarado y enterado ante el SENIAT el {periodoCerrado.declaradoEn?.slice(0, 10)}.
+              Para registrar operaciones en este lapso, el administrador debe reabrir el período con justificación en la pestaña de Períodos, o registrar la operación en el período corriente.
+            </p>
+          </div>
+        )}
         <div className="form-row" style={{ flex: '1 1 130px' }}>
           <label>Total {tipoDocumento === 'factura' ? 'factura' : 'documento'}</label>
           <input className="input mono" value={facturaTotal} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaTotal(e.target.value); }} inputMode="decimal" />

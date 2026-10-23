@@ -152,3 +152,29 @@ export async function cambiarDeclara(id: string, declara: Declara, motivo: strin
   if (error) throw errorRetencion(error, 'No se pudo cambiar quién declara.');
   if (!data?.length) throw new Error('No se cambió: sin permiso de escritura en Retenciones, o el período ya no existe.');
 }
+
+/**
+ * Comprueba si una fecha y tipo de impuesto caen en un período fiscal ya declarado (cerrado con candado).
+ * Devuelve el PeriodoFiscal si está cerrado, o null si está abierto.
+ */
+export async function periodoEstaCerrado(tipoImpuesto: string, fechaIso: string): Promise<PeriodoFiscal | null> {
+  const d = fechaIso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const disponible = await v3Disponible().catch(() => false);
+  if (!disponible) return null;
+  try {
+    const { data, error } = await supabase
+      .from(T_PERIODOS)
+      .select('*')
+      .eq('tipo', tipoImpuesto)
+      .lte('desde', d)
+      .gte('hasta', d)
+      .not('declarado_en', 'is', null)
+      .limit(1);
+    if (!error && data && data.length > 0) {
+      return aPeriodo(data[0] as Record<string, unknown>);
+    }
+  } catch { /* continuar si no hay acceso */ }
+  return null;
+}
+

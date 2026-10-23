@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const rpc = vi.fn();
 vi.mock('@/shared/lib/supabase', () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a) } }));
 
-import { declararPeriodo, generarPeriodos, reabrirPeriodo } from './periodosRetencion.repository';
+import { declararPeriodo, generarPeriodos, periodoEstaCerrado, reabrirPeriodo } from './periodosRetencion.repository';
 
 beforeEach(() => { rpc.mockReset(); });
 
@@ -54,4 +54,10 @@ describe('períodos (V3): las funciones devuelven cuántas retenciones tocaron',
     rpc.mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'RET_PERIODO_NO_DECLARADO: el período no está declarado.' } });
     await expect(reabrirPeriodo('per-1', 'Revisión')).rejects.toThrow('no está declarado');
   });
+
+  it('periodoEstaCerrado devuelve null ante fechas no válidas', async () => {
+    expect(await periodoEstaCerrado('iva', '')).toBeNull();
+    expect(await periodoEstaCerrado('iva', '2026-99-99')).toBeNull();
+  });
 });
+
