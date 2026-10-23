@@ -651,8 +651,18 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
           </button>
         )}
         {conR10 && <button className="btn btn-ghost" onClick={() => setVerFacturas(true)}>Facturas registradas</button>}
-        {canWrite && conFacturaVarias && <button className="btn btn-ghost" onClick={() => setFacturaVarias(true)}>+ Registrar factura (varios impuestos)</button>}
-        {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
+        {canWrite && conFacturaVarias && (
+          <button className="btn btn-primary" onClick={() => setFacturaVarias(true)}
+            title="Registrar una factura y practicar simultáneamente todas sus retenciones (IVA, ISLR, etc.)">
+            + Registrar factura con retenciones
+          </button>
+        )}
+        {canWrite && (
+          <button className="btn btn-ghost" onClick={() => setRegistrar({})}
+            title="Cargar una retención suelta individual o practicada por un cliente">
+            + Retención individual
+          </button>
+        )}
       </div>
 
       {/* ── Vista ── */}
@@ -727,11 +737,47 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                         role="group" aria-label={`Retenciones de la factura ${f.num}`}>
                         {impuestosTarjeta.map((t) => {
                           const r = f.retenciones.get(t.key as TipoImpuesto);
+                          const aplica = puedePracticar(t.key as TipoImpuesto, config);
                           if (!r) {
+                            if (!aplica) {
+                              return (
+                                <div key={t.key} className="lfv8-casilla nc" style={{ opacity: 0.45 }} title={`La empresa no practica retenciones de ${t.corto} según su configuración fiscal`}>
+                                  <span className="lfv8-imp">{t.corto}</span>
+                                  <span className="lfv8-est muted">— No aplica</span>
+                                </div>
+                              );
+                            }
                             return (
-                              <div key={t.key} className="lfv8-casilla nc">
+                              <div key={t.key} className="lfv8-casilla falta">
                                 <span className="lfv8-imp">{t.corto}</span>
-                                <span className="lfv8-est">— Falta cargar</span>
+                                <span className="lfv8-est" style={{ color: 'var(--warning)' }}>— Falta cargar</span>
+                                {canWrite && (
+                                  <span className="lfv8-acciones" style={{ marginTop: '4px' }}>
+                                    <button type="button" className="lfv8-mini registrar"
+                                      onClick={() => {
+                                        const rExistente = [...f.retenciones.values()][0];
+                                        setRegistrar({
+                                          direccion: 'practicada',
+                                          tipoInicial: t.key as TipoImpuesto,
+                                          contraparteId: f.proveedorId ?? rExistente?.contraparteId,
+                                          contraparteNombre: prov.nombre ?? rExistente?.contraparteNombre,
+                                          contraparteRif: prov.rif ?? rExistente?.contraparteRif,
+                                          total: f.total,
+                                          baseImponible: rExistente?.baseImponible ?? f.total,
+                                          moneda: f.moneda,
+                                          docId: f.docId,
+                                          docKind: f.docKind,
+                                          codigo: f.doc,
+                                          facturaNumero: f.num !== '—' ? f.num : null,
+                                          facturaControl: rExistente?.facturaControl ?? null,
+                                          facturaFecha: f.fecha ?? null,
+                                        });
+                                      }}
+                                      title={`Cargar retención de ${t.corto} para la Factura ${f.num}`}>
+                                      + Retener
+                                    </button>
+                                  </span>
+                                )}
                               </div>
                             );
                           }
@@ -1074,6 +1120,9 @@ export interface SemillaRetencion {
   total?: number;
   iva?: number;
   baseImponible?: number;
+  facturaNumero?: string | null;
+  facturaControl?: string | null;
+  facturaFecha?: string | null;
 }
 
 export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
@@ -1117,9 +1166,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [moneda, setMoneda] = useState(semilla.moneda ?? 'Bs');
   const [tasaStr, setTasaStr] = useState('');
   const [numero, setNumero] = useState('');
-  const [facturaNumero, setFacturaNumero] = useState('');
-  const [facturaControl, setFacturaControl] = useState('');
-  const [facturaFecha, setFacturaFecha] = useState('');
+  const [facturaNumero, setFacturaNumero] = useState(semilla.facturaNumero ?? '');
+  const [facturaControl, setFacturaControl] = useState(semilla.facturaControl ?? '');
+  const [facturaFecha, setFacturaFecha] = useState(semilla.facturaFecha ?? '');
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
   const [baseStr, setBaseStr] = useState(numeroATexto(semilla.baseImponible ?? semilla.total ?? 0));
