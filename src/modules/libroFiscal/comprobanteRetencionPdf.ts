@@ -112,7 +112,10 @@ export function cadenaCanonicoFiscal(r: RetencionPracticada, config: ConfigReten
   const base = Number(r.baseImponible || 0).toFixed(2);
   const monto = Number(r.montoRetenido || 0).toFixed(2);
   const moneda = r.moneda || 'Bs';
-  return `SENIAT|RET|${r.tipo.toUpperCase()}|${rifAgente}|${comp}|${fecha.slice(0, 10)}|${rifSujeto}|${r.facturaNumero || ''}|${moneda}|${base}|${monto}`;
+  const estado = r.anulada ? 'ANULADA' : 'VALIDA';
+  const tipoDoc = r.tipoDocumento === 'nota_credito' ? 'NC' : r.tipoDocumento === 'nota_debito' ? 'ND' : 'FACT';
+  const afectada = r.facturaAfectadaNro ? `:AF:${r.facturaAfectadaNro}` : '';
+  return `SENIAT|RET|${r.tipo.toUpperCase()}|${rifAgente}|${comp}|${fecha.slice(0, 10)}|${rifSujeto}|${tipoDoc}:${r.facturaNumero || ''}${afectada}|${moneda}|${base}|${monto}|${estado}`;
 }
 
 /** Calcula el hash SHA-256 de una cadena en representación hexadecimal minúscula. */
@@ -203,7 +206,7 @@ async function urlADataUrl(url: string): Promise<string> {
 }
 
 /** Carga las imágenes de logo, firma y sello digital de la empresa SOLO si están cargadas en Parámetros del módulo. */
-async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<{
+export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<{
   logoDataUrl: string | null;
   firmaDataUrl: string | null;
   selloDataUrl: string | null;

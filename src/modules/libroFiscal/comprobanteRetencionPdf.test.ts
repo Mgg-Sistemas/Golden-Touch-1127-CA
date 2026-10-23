@@ -104,7 +104,26 @@ describe('verificación digital fiscal (PA 0084 / 0093)', () => {
       montoRetenido: 120,
       contraparteRif: 'J-12345678-9',
     }), empresa);
-    expect(c).toContain('SENIAT|RET|IVA|J-00000000-0|20261000000001|2026-10-05|J-12345678-9|0001|Bs|1000.00|120.00');
+    expect(c).toContain('SENIAT|RET|IVA|J-00000000-0|20261000000001|2026-10-05|J-12345678-9|FACT:0001|Bs|1000.00|120.00|VALIDA');
+  });
+
+  it('refleja notas de crédito con su documento afectado y retenciones anuladas en la cadena canónica', () => {
+    const nc = cadenaCanonicoFiscal(retencion({
+      tipo: 'iva',
+      tipoDocumento: 'nota_credito',
+      facturaNumero: 'NC-005',
+      facturaAfectadaNro: 'FAC-099',
+      baseImponible: 500,
+      montoRetenido: 60,
+    }), empresa);
+    expect(nc).toContain('NC:NC-005:AF:FAC-099');
+    expect(nc).toContain('|VALIDA');
+
+    const anulada = cadenaCanonicoFiscal(retencion({
+      anulada: true,
+      anuladaMotivo: 'Error en cálculo',
+    }), empresa);
+    expect(anulada).toContain('|ANULADA');
   });
 
   it('calcula el hash SHA-256 de forma determinista y con 64 caracteres hex', async () => {

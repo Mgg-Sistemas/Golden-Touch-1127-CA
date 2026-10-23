@@ -386,3 +386,38 @@ describe('fecha de la tasa BCV de una factura', () => {
     expect(fechaTasaBcv('2026-13-40')).toBe('');
   });
 });
+
+describe('compras con devolución · notas de crédito y retenciones anuladas', () => {
+  it('una nota de crédito practicada disminuye el monto por enterar', () => {
+    const filas = [
+      { tipo: 'iva' as const, direccion: 'practicada' as const, estado: 'registrada' as const, monto: 100, tipoDocumento: 'factura' },
+      { tipo: 'iva' as const, direccion: 'practicada' as const, estado: 'registrada' as const, monto: 30, tipoDocumento: 'nota_credito' },
+    ];
+    const r = resumenLibro(filas);
+    expect(r.porEnterar).toBe(70);
+    expect(r.registros).toBe(2);
+  });
+
+  it('una nota de crédito recibida disminuye el crédito a favor', () => {
+    const filas = [
+      { tipo: 'iva' as const, direccion: 'recibida' as const, monto: 200, tipoDocumento: 'factura' },
+      { tipo: 'iva' as const, direccion: 'recibida' as const, monto: 50, tipoDocumento: 'nota_credito' },
+    ];
+    const r = resumenLibro(filas);
+    expect(r.aFavor).toBe(150);
+  });
+
+  it('totalesPorImpuesto y totalRetenido deducen notas de crédito', () => {
+    const filas = [
+      { tipo: 'iva' as const, monto: 500, tipoDocumento: 'factura' },
+      { tipo: 'iva' as const, monto: 120, tipoDocumento: 'nota_credito' },
+      { tipo: 'islr' as const, monto: 80, tipoDocumento: 'factura' },
+      { tipo: 'islr' as const, monto: 200, anulada: true },
+    ];
+    const tot = totalesPorImpuesto(filas);
+    expect(tot.iva).toBe(380);
+    expect(tot.islr).toBe(80);
+    expect(totalRetenido(filas)).toBe(460);
+  });
+});
+

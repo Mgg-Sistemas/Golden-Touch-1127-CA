@@ -11,7 +11,7 @@ import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { diaVE } from '@/modules/tesoreria/tasas.repository';
 import { getConfigRetencion, listRetenciones, type RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import { razonSocialAgente } from '@/modules/libroFiscal/comprobanteRetencionPdf';
-import type { ConfigRetencion } from '@/modules/libroFiscal/retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from '@/modules/libroFiscal/retencionesCalculo';
 import {
   COLUMNAS_POR_DEFECTO, COLUMNAS_REPORTE, IMPUESTOS_REPORTE, borrarPlantilla, filtrarReporte, formatoMonto,
   guardarPlantilla, leerPlantillas, ordenarReporte, rangoDePeriodo, tablaCruzada, tablaDeCruzada, tablaDetalle,
@@ -89,6 +89,10 @@ export function ReportesView({ actor }: { actor: string }) {
   const [verXml, setVerXml] = useState(false);
   const [xmlMes, setXmlMes] = useState('');
 
+  const [verArc, setVerArc] = useState(false);
+  const [arcAnio, setArcAnio] = useState(() => new Date().getFullYear());
+  const [arcProveedorRif, setArcProveedorRif] = useState('');
+
   const cargar = useCallback(async () => {
     try {
       const [filas, cfg] = await Promise.all([listRetenciones({ incluirAnuladas: true }), getConfigRetencion().catch(() => null)]);
@@ -100,6 +104,26 @@ export function ReportesView({ actor }: { actor: string }) {
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['retenciones'], () => { void cargar(); });
   useEffect(() => { setMisPlantillas(leerPlantillas(actor)); }, [actor]);
+
+  const proveedoresIslr = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const r of datos ?? []) {
+      if (r.tipo === 'islr' && r.direccion === 'practicada' && !r.anulada && r.contraparteRif) {
+        mapa.set(r.contraparteRif, r.contraparteNombre || r.contraparteRif);
+      }
+    }
+    return [...mapa.entries()].map(([rif, nombre]) => ({ rif, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [datos]);
+
+  async function descargarArcPdf() {
+    if (!arcProveedorRif) { toast('Selecciona el proveedor para el comprobante ARC', 'error'); return; }
+    try {
+      const { verComprobanteArcPdf } = await import('@/modules/libroFiscal/comprobanteArcPdf');
+      await verComprobanteArcPdf(arcAnio, arcProveedorRif, datos ?? [], config ?? CONFIG_RETENCION_DEFECTO);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante ARC', 'error');
+    }
+  }
 
   const plantilla = PLANTILLAS_SISTEMA.find((p) => p.id === plantillaId) ?? PLANTILLAS_SISTEMA[0];
   const propia = misPlantillas.find((p) => p.id === propiaId) ?? null;
@@ -409,8 +433,10 @@ export function ReportesView({ actor }: { actor: string }) {
           <button className="btn" onClick={() => void exportar('csv')} disabled={!tabla || !!generando}>Descargar CSV</button>
           <button className="btn" onClick={() => void exportar('excel')} disabled={!tabla || !!generando}>{generando === 'excel' ? 'Generando…' : 'Descargar Excel'}</button>
           <button className="btn" onClick={() => void exportar('pdf')} disabled={!tabla || !!generando}>{generando === 'pdf' ? 'Generando…' : 'Imprimir / PDF'}</button>
-          <button className="btn" aria-expanded={verTxt} onClick={() => { setVerTxt((v) => !v); setVerXml(false); }}>TXT para el SENIAT (IVA)</button>
-          <button className="btn" aria-expanded={verXml} onClick={() => { setVerXml((v) => !v); setVerTxt(false); }}>XML para el SENIAT (ISLR)</button>
+          <button className="btn" aria-expanded={verTxt} onClick={() => { setVerTxt((v) => !v); setVerXml(false); setVerArc(false); }}>TXT para el SENIAT (IVA)</button>
+          <button className="btn" aria-expanded={verXml} onClick={() => { setVerXml((v) => !v); setVerTxt(false); setVerArc(false); }}>XML para el SENIAT (ISLR)</button>
+          <button className="btn" aria-expanded={verArc} onClick={() => { setVerArc((v) => !v); setVerTxt(false); setVerXml(false); }}
+            title="Comprobante de Retención de ISLR Anual por Proveedor (Forma ARC - Art. 24 Decreto 1.808)">Comprobante ARC (ISLR)</button>
         </div>
 
         {verTxt && (
@@ -481,6 +507,34 @@ export function ReportesView({ actor }: { actor: string }) {
                 {xml.faltan.length > 20 && <span>…y {xml.faltan.length - 20} más.</span>}
               </div>
             )}
+          </div>
+        )}
+
+        {verArc && (
+          <div className="card" style={{ margin: '.4rem 0', borderColor: 'var(--accent, #6366f1)' }}>
+            <strong style={{ fontSize: '.9rem' }}>Comprobante de Retención Anual ARC (ISLR)</strong>
+            <p className="muted" style={{ fontSize: '.8rem', margin: '.3rem 0' }}>
+              Relación anual acumulada de enero a diciembre por proveedor según el Artículo 24 del Decreto N° 1.808 con verificación digital.
+            </p>
+            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="lfv8-campo">
+                <span>Ejercicio Fiscal (Año)</span>
+                <input className="input" type="number" min={2020} max={2035} value={arcAnio}
+                  onChange={(e) => setArcAnio(Number(e.target.value) || new Date().getFullYear())} />
+              </div>
+              <div className="lfv8-campo" style={{ minWidth: 260 }}>
+                <span>Proveedor (Sujeto Retenido)</span>
+                <select className="lfv8-select" value={arcProveedorRif} onChange={(e) => setArcProveedorRif(e.target.value)}>
+                  <option value="">-- Seleccionar proveedor con ISLR --</option>
+                  {proveedoresIslr.map((p) => (
+                    <option key={p.rif} value={p.rif}>{p.nombre ? `${p.nombre} (${p.rif})` : p.rif}</option>
+                  ))}
+                </select>
+              </div>
+              <button className="btn btn-primary" onClick={descargarArcPdf} disabled={!arcProveedorRif}>
+                Ver / Descargar ARC (PDF)
+              </button>
+            </div>
           </div>
         )}
 

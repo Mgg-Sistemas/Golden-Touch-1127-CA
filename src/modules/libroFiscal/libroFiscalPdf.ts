@@ -79,21 +79,39 @@ export async function verLibroFiscalPdf(
 
   autoTable(doc as any, {
     startY: y,
-    head: [filaPdf(['N° comprobante', 'Fecha', 'Imp.', 'Dirección', 'Contraparte', 'RIF', 'Factura', 'Base', '%', 'Retenido', 'Retenido Bs', 'Estado'])],
-    body: filas.map((r) => filaPdf([
-      r.numeroComprobante ?? '—',
-      fechaPdf(r.facturaFecha),
-      corto(r.tipo),
-      r.direccion === 'recibida' ? 'Recibida' : 'Practicada',
-      r.contraparteNombre ?? '—',
-      r.contraparteRif ?? '—',
-      r.facturaNumero ?? (r.docCodigo ?? '—'),
-      montoPdf(r.baseImponible, r.moneda),
-      `${r.porcentaje}%`,
-      montoPdf(r.montoRetenido, r.moneda),
-      r.montoBs != null ? montoPdf(r.montoBs, 'Bs') : '—',
-      r.anulada ? 'ANULADA' : (r.estado === 'declarada' ? 'Declarada' : 'Registrada'),
-    ])),
+    head: [filaPdf(['N° comprobante', 'Fecha', 'Imp.', 'Dirección', 'Contraparte', 'RIF', 'Documento', 'Base', '%', 'Retenido', 'Retenido Bs', 'Estado'])],
+    body: filas.map((r) => {
+      const esNc = r.tipoDocumento === 'nota_credito';
+      const esNd = r.tipoDocumento === 'nota_debito';
+      const docPrefijo = esNc ? 'NC ' : esNd ? 'ND ' : '';
+      const docAfecta = r.facturaAfectadaNro ? ` (Af: ${r.facturaAfectadaNro})` : '';
+      const docTxt = `${docPrefijo}${r.facturaNumero ?? (r.docCodigo ?? '—')}${docAfecta}`;
+
+      const montoRetenidoBs = r.anulada
+        ? '0,00 Bs'
+        : (r.montoBs != null
+            ? (esNc ? `-${montoPdf(r.montoBs, 'Bs')}` : montoPdf(r.montoBs, 'Bs'))
+            : '—');
+
+      const montoRetenidoOrig = r.anulada
+        ? '0,00'
+        : (esNc ? `-${montoPdf(r.montoRetenido, r.moneda)}` : montoPdf(r.montoRetenido, r.moneda));
+
+      return filaPdf([
+        r.numeroComprobante ?? '—',
+        fechaPdf(r.facturaFecha),
+        corto(r.tipo),
+        r.direccion === 'recibida' ? 'Recibida' : 'Practicada',
+        r.contraparteNombre ?? '—',
+        r.contraparteRif ?? '—',
+        docTxt,
+        montoPdf(r.baseImponible, r.moneda),
+        `${r.porcentaje}%`,
+        montoRetenidoOrig,
+        montoRetenidoBs,
+        r.anulada ? 'ANULADA' : (r.estado === 'declarada' ? 'Declarada' : 'Registrada'),
+      ]);
+    }),
     styles: { fontSize: 7.5, cellPadding: 3 },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

@@ -92,6 +92,14 @@ export async function verRelacionPdf(
   previewPdf(doc, `relacion-${ctx.tipo}-${ctx.desde}-a-${ctx.hasta}.pdf`);
 }
 
+function formatDocRelacion(f: RetencionPracticada): string {
+  const esNc = f.tipoDocumento === 'nota_credito';
+  const esNd = f.tipoDocumento === 'nota_debito';
+  const prefijo = esNc ? 'NC: ' : esNd ? 'ND: ' : '';
+  const afect = f.facturaAfectadaNro ? ` (Af: ${f.facturaAfectadaNro})` : '';
+  return `${prefijo}${f.facturaNumero ?? f.docCodigo ?? '—'}${afect}`;
+}
+
 function dibujarRelacionIva(
   at: AutoTabla, doc: JsPDFLike, proveedores: ProveedorAgrupado[], y: number,
 ): void {
@@ -102,16 +110,21 @@ function dibujarRelacionIva(
 
   for (const p of proveedores) {
     for (const f of p.filas) {
+      const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
+      const esNc = f.tipoDocumento === 'nota_credito';
+      const mBase = esNc ? `-${montoPdf(f.baseImponible, f.moneda)}` : montoPdf(f.baseImponible, f.moneda);
+      const mImp = esNc ? `-${montoPdf(f.impuesto, f.moneda)}` : montoPdf(f.impuesto, f.moneda);
+      const mRet = esNc ? `-${montoPdf(f.montoRetenido, f.moneda)}` : montoPdf(f.montoRetenido, f.moneda);
+
       cuerpo.push([
         textoPdf(p.rif), textoPdf(p.nombre), textoPdf(p.rif),
-        textoPdf(f.numeroComprobante ?? '—'), textoPdf(f.facturaNumero ?? f.docCodigo ?? '—'),
+        textoPdf(f.numeroComprobante ?? '—'), textoPdf(formatDocRelacion(f)),
         textoPdf(f.facturaControl ?? '—'), textoPdf(fechaPdf(f.facturaFecha)),
-        textoPdf(montoPdf(f.baseImponible, f.moneda)), textoPdf(montoPdf(f.impuesto, f.moneda)),
-        textoPdf(montoPdf(f.montoRetenido, f.moneda)),
+        textoPdf(mBase), textoPdf(mImp), textoPdf(mRet),
       ]);
-      totalBase += f.baseImponible;
-      totalImpuesto += f.impuesto;
-      totalRetenido += f.montoRetenido;
+      totalBase += f.baseImponible * factor;
+      totalImpuesto += f.impuesto * factor;
+      totalRetenido += f.montoRetenido * factor;
     }
   }
 
@@ -144,16 +157,20 @@ function dibujarRelacionIslr(
 
   for (const p of proveedores) {
     for (const f of p.filas) {
+      const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
+      const esNc = f.tipoDocumento === 'nota_credito';
+      const mBase = esNc ? `-${montoPdf(f.baseImponible, f.moneda)}` : montoPdf(f.baseImponible, f.moneda);
+      const mRet = esNc ? `-${montoPdf(f.montoRetenido, f.moneda)}` : montoPdf(f.montoRetenido, f.moneda);
+
       cuerpo.push([
         textoPdf(p.rif), textoPdf(p.nombre), textoPdf(fechaPdf(f.facturaFecha)),
-        textoPdf(f.numeroComprobante ?? '—'), textoPdf(f.facturaNumero ?? f.docCodigo ?? '—'),
+        textoPdf(f.numeroComprobante ?? '—'), textoPdf(formatDocRelacion(f)),
         textoPdf(f.facturaControl ?? '—'), textoPdf(f.conceptoNombre ?? '—'),
-        textoPdf(montoPdf(f.baseImponible, f.moneda)),
-        textoPdf(montoPdf(f.montoRetenido, f.moneda)),
+        textoPdf(mBase), textoPdf(mRet),
         textoPdf(`${f.porcentaje}%`),
       ]);
-      totalBase += f.baseImponible;
-      totalRetenido += f.montoRetenido;
+      totalBase += f.baseImponible * factor;
+      totalRetenido += f.montoRetenido * factor;
     }
   }
 
@@ -185,18 +202,24 @@ function dibujarRelacionGeneral(
 
   for (const p of proveedores) {
     for (const f of p.filas) {
+      const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
+      const esNc = f.tipoDocumento === 'nota_credito';
       const operacion = r2(f.baseImponible + f.impuesto);
+      const mBase = esNc ? `-${montoPdf(f.baseImponible, f.moneda)}` : montoPdf(f.baseImponible, f.moneda);
+      const mImp = esNc ? `-${montoPdf(f.impuesto, f.moneda)}` : montoPdf(f.impuesto, f.moneda);
+      const mOp = esNc ? `-${montoPdf(operacion, f.moneda)}` : montoPdf(operacion, f.moneda);
+      const mRet = esNc ? `-${montoPdf(f.montoRetenido, f.moneda)}` : montoPdf(f.montoRetenido, f.moneda);
+
       cuerpo.push([
         textoPdf(p.rif), textoPdf(p.nombre), textoPdf(p.rif),
-        textoPdf(f.numeroComprobante ?? '—'), textoPdf(f.facturaNumero ?? f.docCodigo ?? '—'),
+        textoPdf(f.numeroComprobante ?? '—'), textoPdf(formatDocRelacion(f)),
         textoPdf(f.facturaControl ?? '—'), textoPdf(fechaPdf(f.facturaFecha)),
-        textoPdf(montoPdf(f.baseImponible, f.moneda)), textoPdf(montoPdf(f.impuesto, f.moneda)),
-        textoPdf(montoPdf(operacion, f.moneda)),
-        textoPdf(montoPdf(f.montoRetenido, f.moneda)),
+        textoPdf(mBase), textoPdf(mImp),
+        textoPdf(mOp), textoPdf(mRet),
       ]);
-      totalBase += f.baseImponible;
-      totalImpuesto += f.impuesto;
-      totalRetenido += f.montoRetenido;
+      totalBase += f.baseImponible * factor;
+      totalImpuesto += f.impuesto * factor;
+      totalRetenido += f.montoRetenido * factor;
     }
   }
 

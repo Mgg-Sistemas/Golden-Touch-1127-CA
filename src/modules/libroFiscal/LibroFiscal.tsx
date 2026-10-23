@@ -106,8 +106,11 @@ const primeroDelMes = () => `${hoyVenezuela().slice(0, 7)}-01`;
 /** Practicada sin OC, CS ni compra directa: se registró a mano, sin documento del sistema. */
 const fueraDelSistema = (r: Pick<RetencionPracticada, 'docKind' | 'direccion'>) => r.direccion === 'practicada' && r.docKind === 'manual';
 
-/** Lo retenido en Bs: lo guardado, o el monto si ya está en Bs. Sin tasa no se inventa. */
-const enBs = (r: RetencionPracticada) => r.montoBs ?? (r.moneda === 'Bs' ? r.montoRetenido : 0);
+/** Lo retenido en Bs: lo guardado, o el monto si ya está en Bs. Las notas de crédito restan. */
+const enBs = (r: RetencionPracticada) => {
+  const m = r.montoBs ?? (r.moneda === 'Bs' ? r.montoRetenido : 0);
+  return r.tipoDocumento === 'nota_credito' ? -Math.abs(m) : m;
+};
 
 /* ═══════════════════════ Libro fiscal ═══════════════════════ */
 
@@ -159,6 +162,17 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   useEffect(() => { r10Disponible().then(setConR10).catch(() => setConR10(false)); }, []);
   const [verFacturas, setVerFacturas] = useState(false);
   const [retenerSobre, setRetenerSobre] = useState<FacturaResumen | null>(null);
+  const [modalArc, setModalArc] = useState<{ anio: number; proveedorRif: string } | null>(null);
+
+  const proveedoresConIslr = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const r of filas) {
+      if (r.tipo === 'islr' && r.direccion === 'practicada' && !r.anulada && r.contraparteRif) {
+        mapa.set(r.contraparteRif, r.contraparteNombre || r.contraparteRif);
+      }
+    }
+    return [...mapa.entries()].map(([rif, nombre]) => ({ rif, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [filas]);
 
   const [dispDigital, setDispDigital] = useState<{ tieneLogo: boolean; tieneFirma: boolean; tieneSello: boolean; tieneAlguno: boolean }>({
     tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false,
@@ -236,11 +250,11 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const pagina = useMemo(() => paginar(visibles, pag, tam), [visibles, pag, tam]);
 
   const resumen = useMemo(() => resumenLibro(visibles.map((r) => ({
-    tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada,
+    tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, tipoDocumento: r.tipoDocumento,
   }))), [visibles]);
 
   const totales = useMemo(() => totalesPorMoneda(visibles.map((r) => ({
-    tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, moneda: r.moneda,
+    tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, moneda: r.moneda, tipoDocumento: r.tipoDocumento,
   }))), [visibles]);
 
   const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setTexto(''); };
@@ -279,6 +293,8 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
     key: string; num: string; doc: string | null; docKind: DocKind; docId: string | null;
     documentoId: string | null; proveedorId: string | null;
     fecha: string | null; moneda: string; total: number;
+    tipoDocumento?: string | null;
+    facturaAfectadaNro?: string | null;
     retenciones: Map<TipoImpuesto, RetencionPracticada>;
   };
   type ProveedorAgrupado = {
@@ -319,11 +335,16 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         doc: r.docCodigo, docKind: r.docKind, docId: r.docId,
         documentoId: null, proveedorId: r.contraparteId,
         fecha: r.facturaFecha ?? r.createdAt.slice(0, 10),
-        moneda: r.moneda, total: r.baseImponible, retenciones: new Map(),
+        moneda: r.moneda, total: r.baseImponible,
+        tipoDocumento: r.tipoDocumento,
+        facturaAfectadaNro: r.facturaAfectadaNro,
+        retenciones: new Map(),
       });
       const fa = fMap.get(fk)!;
       fa.retenciones.set(r.tipo, r);
       if (!fa.documentoId && r.documentoId) fa.documentoId = r.documentoId;
+      if (!fa.tipoDocumento && r.tipoDocumento) fa.tipoDocumento = r.tipoDocumento;
+      if (!fa.facturaAfectadaNro && r.facturaAfectadaNro) fa.facturaAfectadaNro = r.facturaAfectadaNro;
     }
     const result: ProveedorAgrupado[] = [];
     for (const [pk, fMap] of provMap) {
@@ -614,6 +635,10 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
           <button className="btn btn-ghost" onClick={() => void exportarSeniatIslr()} disabled={!relacionables.length}
             title="Exportar archivo XML para declaración informativa de retenciones de ISLR ante el SENIAT">↓ XML SENIAT</button>
         )}
+        {tipo === 'islr' && (
+          <button className="btn btn-ghost" onClick={() => setModalArc({ anio: new Date().getFullYear(), proveedorRif: '' })} disabled={!filas.length}
+            title="Generar Comprobante Anual de Retenciones de ISLR (Forma ARC - Art. 24 Decreto 1.808)">↓ Comprobante ARC</button>
+        )}
         {conR10 && <button className="btn btn-ghost" onClick={() => setVerFacturas(true)}>Facturas registradas</button>}
         {canWrite && conFacturaVarias && <button className="btn btn-ghost" onClick={() => setFacturaVarias(true)}>+ Registrar factura (varios impuestos)</button>}
         {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
@@ -642,11 +667,20 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
               <section key={pk} className="lfv8-proveedor">
                 <header>
                   <h3>{prov.nombre ?? 'Sin proveedor'}<span className="lfv8-rif">{prov.rif ?? ''}</span></h3>
-                  <span className="lfv8-resumen">
-                    {prov.facturas.length} factura(s)
-                    {prov.pendientes > 0 && <> · <b>{prov.pendientes} pendiente(s)</b></>}
-                    {!prov.pendientes && ' · sin pendientes'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {prov.rif && prov.facturas.some((f) => f.retenciones.has('islr')) && (
+                      <button className="btn btn-ghost" style={{ fontSize: '0.72rem', padding: '2px 8px', height: 'auto', lineHeight: '1.2' }}
+                        onClick={() => setModalArc({ anio: Number(desde.slice(0, 4)) || new Date().getFullYear(), proveedorRif: prov.rif! })}
+                        title="Generar Comprobante ARC Anual de ISLR para este proveedor (Art. 24 Decreto 1.808)">
+                        ARC ISLR
+                      </button>
+                    )}
+                    <span className="lfv8-resumen">
+                      {prov.facturas.length} factura(s)
+                      {prov.pendientes > 0 && <> · <b>{prov.pendientes} pendiente(s)</b></>}
+                      {!prov.pendientes && ' · sin pendientes'}
+                    </span>
+                  </div>
                 </header>
                 {facturasVis.map((f) => {
                   const nCasillas = impuestosTarjeta.length;
@@ -655,7 +689,18 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                     <Fragment key={f.key}>
                     <article className="lfv8-factura" aria-label={`Factura ${f.num}`}>
                       <div>
-                        <div className="lfv8-num">Factura {f.num}</div>
+                        <div className="lfv8-num">
+                          {f.tipoDocumento === 'nota_credito'
+                            ? `Nota de crédito ${f.num}`
+                            : f.tipoDocumento === 'nota_debito'
+                              ? `Nota de débito ${f.num}`
+                              : `Factura ${f.num}`}
+                          {f.facturaAfectadaNro && (
+                            <span className="lfv8-afectada" style={{ fontSize: '0.78rem', marginLeft: '6px', fontWeight: 'normal', color: 'var(--muted, #666)' }}>
+                              (Afecta Fact. {f.facturaAfectadaNro})
+                            </span>
+                          )}
+                        </div>
                         <div className="lfv8-meta">
                           {f.fecha ? fechaCorta(f.fecha) : '—'}
                           {f.doc && <> · {(() => {
@@ -919,6 +964,52 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
           <div className="form-row" style={{ margin: 0 }}>
             <label>¿Por qué se anula?</label>
             <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: la factura fue sustituida por el proveedor" />
+          </div>
+        </Modal>
+      )}
+
+      {modalArc && (
+        <Modal title="Comprobante Anual ARC de ISLR (Art. 24 Decreto 1.808)" compact onClose={() => setModalArc(null)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setModalArc(null)}>Cancelar</button>
+              <button className="btn btn-primary" disabled={!modalArc.proveedorRif.trim()}
+                onClick={async () => {
+                  try {
+                    const { verComprobanteArcPdf } = await import('./comprobanteArcPdf');
+                    await verComprobanteArcPdf(modalArc.anio, modalArc.proveedorRif, filas, config, {
+                      incluirLogo: imprimirLogo && dispDigital.tieneLogo,
+                      incluirFirma: imprimirFirma && dispDigital.tieneFirma,
+                      incluirSello: imprimirSello && dispDigital.tieneSello,
+                    });
+                    setModalArc(null);
+                  } catch (e) {
+                    toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante ARC', 'error');
+                  }
+                }}>
+                Generar Comprobante ARC
+              </button>
+            </>
+          }>
+          <p style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Genera la relación anual acumulada de retenciones practicadas de ISLR para el contribuyente, desglosada de enero a diciembre según lo dispuesto en el <strong>Artículo 24 del Decreto N° 1.808</strong>.
+          </p>
+          <div className="form-row" style={{ marginBottom: '12px' }}>
+            <label>Ejercicio Fiscal (Año)</label>
+            <input className="input" type="number" min={2020} max={2035} value={modalArc.anio}
+              onChange={(e) => setModalArc({ ...modalArc, anio: Number(e.target.value) || new Date().getFullYear() })} />
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label>Proveedor (Sujeto Retenido)</label>
+            <select className="lfv8-select" value={modalArc.proveedorRif}
+              onChange={(e) => setModalArc({ ...modalArc, proveedorRif: e.target.value })}>
+              <option value="">-- Seleccionar proveedor con retenciones de ISLR --</option>
+              {proveedoresConIslr.map((p) => (
+                <option key={p.rif} value={p.rif}>
+                  {p.nombre ? `${p.nombre} (${p.rif})` : p.rif}
+                </option>
+              ))}
+            </select>
           </div>
         </Modal>
       )}
