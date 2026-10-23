@@ -239,8 +239,7 @@ export function RetencionesPage() {
               Por realizar{porRealizar.length ? ` (${porRealizar.length})` : ''}
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-            <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
-            <button className={vista === 'agrupada' ? 'active' : ''} onClick={() => setVista('agrupada')}>Vista agrupada</button>
+            <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
           </nav>
@@ -249,14 +248,9 @@ export function RetencionesPage() {
 
       {/* El período en curso de cada impuesto se ve en «Períodos» (resumen por impuesto). */}
 
-      {/* ── Vista agrupada (v8): tarjetas, casillas, tira ── */}
-      {vista === 'agrupada' && (
+      {/* ── Libro fiscal consolidado (con switch interno entre vista por factura, lista o por impuesto) ── */}
+      {(vista === 'agrupada' || vista === 'libro') && (
         <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
-      )}
-
-      {/* ── Libro fiscal: una fila por retención ── */}
-      {vista === 'libro' && (
-        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} vistaInicial="lista" />
       )}
 
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}

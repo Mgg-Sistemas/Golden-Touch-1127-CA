@@ -700,6 +700,10 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                       {prov.facturas.length} factura(s)
                       {prov.pendientes > 0 && <> · <b>{prov.pendientes} pendiente(s)</b></>}
                       {!prov.pendientes && ' · sin pendientes'}
+                      {(() => {
+                        const totProv = prov.facturas.reduce((acc, f) => acc + [...f.retenciones.values()].reduce((a, r) => a + (!r.anulada ? enBs(r) : 0), 0), 0);
+                        return totProv !== 0 ? <> · <strong style={{ color: 'var(--text)' }}>Total retenido: {monto(totProv, 'Bs')}</strong></> : null;
+                      })()}
                     </span>
                   </div>
                 </header>
