@@ -1807,7 +1807,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
 
   function resumen(k: SeccionPa): string {
     switch (k) {
-      case 'empresa': return cfg.rif ? `RIF ${cfg.rif}` : 'Sin configurar';
+      case 'empresa': return cfg.rif ? `RIF ${cfg.rif}${cfg.licenciaMunicipal ? ` · RIM ${cfg.licenciaMunicipal}` : ''}` : 'Sin configurar';
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
       case 'impuestos': return r2 ? 'Ficha de cada impuesto y conceptos del ISLR' : `${conceptos.length} conceptos`;
@@ -1920,6 +1920,11 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                   <label>Municipio</label>
                   <input className="input" value={cfg.municipio ?? ''} onChange={(e) => set('municipio', e.target.value)} />
                   <small className="hint muted">Define qué ordenanza de ISAE aplica.</small>
+                </div>
+                <div className="form-row" style={{ flex: '1 1 180px' }}>
+                  <label>N° Licencia Municipal / RIM</label>
+                  <input className="input" value={cfg.licenciaMunicipal ?? ''} onChange={(e) => set('licenciaMunicipal', e.target.value)} placeholder="Ej. 123456 / RIM-001" />
+                  <small className="hint muted">Requerido en comprobantes de retención ISAE.</small>
                 </div>
                 {!r3 && (<>
                 <div className="form-row" style={{ flex: '1 1 140px' }}>

@@ -31,10 +31,12 @@ export interface FacturaResumen {
   documentoId: string;
   direccion: 'practicada' | 'recibida';
   tipoDocumento: string;
+  facturaAfectadaNro?: string | null;
   facturaNro: string | null;
   facturaControl: string | null;
   facturaFecha: string | null;
   facturaTotal: number | null;
+  exento?: number | null;
   ivaMonto: number | null;
   moneda: string;
   tasa: number | null;
@@ -64,8 +66,9 @@ export function aFacturaResumen(r: Record<string, unknown>): FacturaResumen {
   return {
     documentoId: String(r.documento_id), direccion: r.rol === 'practicada' ? 'practicada' : 'recibida',
     tipoDocumento: String(r.tipo_documento ?? 'factura'),
+    facturaAfectadaNro: texto(r.factura_afectada_nro),
     facturaNro: texto(r.factura_nro), facturaControl: texto(r.factura_control), facturaFecha: texto(r.factura_fecha),
-    facturaTotal: num(r.factura_total), ivaMonto: num(r.iva_monto), moneda: String(r.moneda ?? 'Bs'), tasa: num(r.tasa),
+    facturaTotal: num(r.factura_total), exento: num(r.exento), ivaMonto: num(r.iva_monto), moneda: String(r.moneda ?? 'Bs'), tasa: num(r.tasa),
     proveedorId: texto(r.proveedor_id), rif: texto(r.rif), razonSocial: texto(r.razon_social),
     docKind: r.orden_id ? 'oc' : r.compra_directa_id ? 'compra_directa' : r.servicio_directo_id ? 'servicio_directo' : 'manual',
     docId: texto(r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id), createdAt: String(r.created_at ?? ''),

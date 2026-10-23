@@ -45,7 +45,7 @@ import { useDescartar } from './confirmarDescartar';
 import { urlFacturaDeOrigen } from './documentosOrigen.repository';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import {
-  registrarFactura, type FacturaNueva, type LineaFacturaNueva,
+  registrarFactura, type FacturaNueva, type LineaFacturaNueva, type TipoDocumento,
 } from './retencionFacturas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
@@ -63,6 +63,9 @@ const money = (n: number, moneda: string) => {
 /** Con qué datos se abre el registro (desde una OC/compra, o vacío para manual). */
 export interface SemillaFactura {
   direccion?: DireccionRetencion;
+  tipoDocumento?: TipoDocumento;
+  facturaAfectadaNro?: string | null;
+  exento?: number | null;
   docKind?: DocKind;
   docId?: string | null;
   contraparteId?: string | null;
@@ -151,11 +154,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [rif, setRif] = useState(s.contraparteRif ?? '');
   const [moneda, setMoneda] = useState(s.moneda ?? 'Bs');
   const [tasaStr, setTasaStr] = useState('');
+  const [tipoDocumento, setTipoDocumento] = useState<TipoDocumento>(s.tipoDocumento ?? 'factura');
+  const [facturaAfectadaNro, setFacturaAfectadaNro] = useState(s.facturaAfectadaNro ?? '');
   const [facturaNro, setFacturaNro] = useState(s.facturaNro ?? '');
   const [facturaControl, setFacturaControl] = useState(s.facturaControl ?? '');
   const [facturaFecha, setFacturaFecha] = useState(s.facturaFecha ?? '');
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
   const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
+  const [exentoStr, setExentoStr] = useState(s.exento != null ? numeroATexto(s.exento) : '');
   const [nota, setNota] = useState('');
   // R10: la factura sola (sin líneas, queda pendiente) y retener después sobre una ya registrada.
   const [conR10, setConR10] = useState(false);
@@ -315,6 +321,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const ilegibles = [
     ...(moneda !== 'Bs' && leerMonto(tasaStr) == null ? ['Tasa'] : []),
     ...(leerMonto(facturaTotal) == null ? ['Total de la factura'] : []),
+    ...(exentoStr.trim() !== '' && leerMonto(exentoStr) == null ? ['Monto exento'] : []),
     ...lineas.flatMap((l) => ([
       [l.tipo === 'iva' ? 'base imponible' : 'monto del pago', l.baseStr, true],
       ['IVA de la factura', l.ivaStr, l.tipo === 'iva'],
@@ -327,6 +334,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (direccion === 'practicada' && !proveedorId) return 'Elige el proveedor al que se le retiene.';
     if (direccion === 'recibida' && !contraparte.trim()) return 'Indica quién nos retuvo.';
     if (textoRif) return textoRif.error;
+    if (tipoDocumento !== 'factura' && !facturaAfectadaNro.trim()) {
+      return 'Las notas de crédito o débito deben indicar el N° de factura afectada (PA 071, Art. 15).';
+    }
     // Una factura ya registrada trae sus datos de la base (pueden ser de antes de pedir el control).
     const falta = documento ? null : faltaEnDatosFactura({ nro: facturaNro, control: facturaControl, fecha: facturaFecha }, hoyIso());
     if (falta) return falta;
@@ -373,11 +383,16 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   function aplicarDocumento(f: FacturaResumen) {
     marcarSucio();
     setDocumento(f); setSoloFactura(false); setDireccion('practicada');
+    if (f.tipoDocumento && (f.tipoDocumento === 'factura' || f.tipoDocumento === 'nota_credito' || f.tipoDocumento === 'nota_debito')) {
+      setTipoDocumento(f.tipoDocumento as TipoDocumento);
+    }
+    if (f.facturaAfectadaNro) setFacturaAfectadaNro(f.facturaAfectadaNro);
     if (f.proveedorId) setProveedorId(f.proveedorId);
     setContraparte(f.razonSocial ?? ''); setRif(f.rif ?? '');
     setFacturaNro(f.facturaNro ?? ''); setFacturaControl(f.facturaControl ?? ''); setFacturaFecha(f.facturaFecha ?? '');
     setMoneda(f.moneda || 'Bs'); if (f.tasa) setTasaStr(numeroATexto(f.tasa));
     setFacturaTotal(numeroATexto(f.facturaTotal ?? 0));
+    if (f.exento != null) setExentoStr(numeroATexto(f.exento));
     const base = f.facturaTotal != null ? Math.max(0, f.facturaTotal - (f.ivaMonto ?? 0)) : 0;
     const tipos = pendientesComoTipos(f);
     const sujeto = sugerirSujetoPorRif(f.rif ?? '')?.sujeto ?? 'pj_domiciliada';
@@ -401,13 +416,18 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     setError(null); setSaving(true);
     try {
       const periodo = periodoDe(facturaFecha);
+      const exentoNum = exentoStr.trim() ? nDec(exentoStr) : null;
       const facturaNueva: FacturaNueva = {
-        direccion, docKind: s.docKind ?? 'manual', docId: s.docId ?? null, adjuntoId: s.adjuntoId ?? null,
+        direccion,
+        tipoDocumento,
+        facturaAfectadaNro: tipoDocumento !== 'factura' ? facturaAfectadaNro.trim() || null : null,
+        docKind: s.docKind ?? 'manual', docId: s.docId ?? null, adjuntoId: s.adjuntoId ?? null,
         contraparteId: direccion === 'practicada' ? proveedorId || null : null, contraparteRif: rif.trim() || null, contraparteNombre: contraparte.trim() || null,
         // El sujeto del ISLR es del proveedor: va en la cabecera (antes llegaba null).
         contraparteSujeto: sujetoDeLineas(lineas).sujeto,
         facturaNro: facturaNro.trim() || null, facturaControl: facturaControl.trim() || null,
         facturaFecha, facturaTotal: facturaTotal.trim() ? nDec(facturaTotal) : null,
+        exento: exentoNum,
         moneda, tasa: moneda === 'Bs' ? null : tasa, periodo,
         nota: nota.trim() || null, valorUt: config.valorUt, actor, actorName,
       };
@@ -442,16 +462,17 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           regla: !esManual && reglas[l.id] ? columnasDeRegla(reglas[l.id] as CalculoConRegla) : null,
         };
       });
+      const etiquetaDoc = tipoDocumento === 'factura' ? `Factura ${facturaNro}` : tipoDocumento === 'nota_credito' ? `Nota de crédito ${facturaNro}` : `Nota de débito ${facturaNro}`;
       if (soloFactura) {
         const res = await registrarFacturaSola(facturaNueva);
-        notify(`Factura ${facturaNro} registrada: queda pendiente por retener`, 'success', { link: '#/app/retenciones' });
+        notify(`${etiquetaDoc} registrada: queda pendiente por retener`, 'success', { link: '#/app/retenciones' });
         onHecho(res);
         return;
       }
       const res = documento
         ? await retenerDespues(documento, lineasNuevas, { periodo, actorName, valorUt: config.valorUt })
         : await registrarFactura(facturaNueva, lineasNuevas);
-      notify(`Factura ${facturaNro} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
+      notify(`${etiquetaDoc} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
       onHecho(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo registrar la factura.');
@@ -551,36 +572,58 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       </div>
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+        <div className="form-row" style={{ flex: '1 1 150px' }}>
+          <label>Tipo de documento</label>
+          <select className="select" value={tipoDocumento} disabled={!!documento}
+            onChange={(e) => { marcarSucio(); setTipoDocumento(e.target.value as TipoDocumento); }}>
+            <option value="factura">Factura</option>
+            <option value="nota_credito">Nota de crédito</option>
+            <option value="nota_debito">Nota de débito</option>
+          </select>
+        </div>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
-          <label>N° de factura</label>
-          {conR10 && direccion === 'practicada' ? (
+          <label>{tipoDocumento === 'factura' ? 'N° de factura' : tipoDocumento === 'nota_credito' ? 'N° Nota de crédito' : 'N° Nota de débito'}</label>
+          {conR10 && direccion === 'practicada' && tipoDocumento === 'factura' ? (
             <BuscadorFactura valor={facturaNro} onTexto={(t) => { marcarSucio(); setFacturaNro(t); }} proveedorId={proveedorId || null}
               onElegir={aplicarDocumento} elegida={documento} onSoltar={s.documento ? undefined : soltarDocumento} />
           ) : (
             <input className="input mono" value={facturaNro} onChange={(e) => { marcarSucio(); setFacturaNro(e.target.value); }} placeholder="Número fiscal (no el código de la OC)" maxLength={30} />
           )}
-          {conR10 && direccion === 'practicada' && !documento && <small className="hint muted">Si ya está registrada, elígela de la lista para retener sobre ella.</small>}
+          {conR10 && direccion === 'practicada' && tipoDocumento === 'factura' && !documento && <small className="hint muted">Si ya está registrada, elígela de la lista para retener sobre ella.</small>}
         </div>
+        {tipoDocumento !== 'factura' && (
+          <div className="form-row" style={{ flex: '1 1 150px' }}>
+            <label>N° Factura afectada <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <input className="input mono" value={facturaAfectadaNro} readOnly={!!documento}
+              onChange={(e) => { marcarSucio(); setFacturaAfectadaNro(e.target.value); }} placeholder="Factura que modifica" maxLength={30} />
+            <small className="hint muted">Requerido por PA 071, Art. 15.</small>
+          </div>
+        )}
         <div className="form-row" style={{ flex: '1 1 120px' }}>
           <label>N° de control</label>
           <input className="input mono" value={facturaControl} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaControl(e.target.value); }} maxLength={30} />
         </div>
-        <div className="form-row" style={{ flex: '1 1 150px' }}>
-          <label>Fecha de la factura</label>
+        <div className="form-row" style={{ flex: '1 1 140px' }}>
+          <label>Fecha {tipoDocumento === 'factura' ? 'de la factura' : 'del documento'}</label>
           <input className="input" type="date" value={facturaFecha} max={hoyIso()} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaFecha(e.target.value); }} />
           {avisoFecha
             ? <small className="hint" style={{ color: 'var(--danger)' }}>{avisoFecha}</small>
             : <small className="hint muted">Define el período, la quincena y la tasa.</small>}
         </div>
-        <div className="form-row" style={{ flex: '1 1 150px' }}>
+        <div className="form-row" style={{ flex: '1 1 140px' }}>
           <label>Fecha de la retención</label>
           <input className="input" type="date" value={fechaRetencion} onChange={(e) => { marcarSucio(); setFechaRetencion(e.target.value); }} />
-          <small className="hint muted">Emisión del comprobante. No cambia el período.</small>
+          <small className="hint muted">Emisión del comprobante.</small>
         </div>
         <div className="form-row" style={{ flex: '1 1 130px' }}>
-          <label>Total de la factura</label>
+          <label>Total {tipoDocumento === 'factura' ? 'factura' : 'documento'}</label>
           <input className="input mono" value={facturaTotal} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaTotal(e.target.value); }} inputMode="decimal" />
           <SeLeyo texto={facturaTotal} />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 130px' }}>
+          <label>Monto exento</label>
+          <input className="input mono" value={exentoStr} readOnly={!!documento} onChange={(e) => { marcarSucio(); setExentoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
+          <SeLeyo texto={exentoStr} />
         </div>
       </div>
 
