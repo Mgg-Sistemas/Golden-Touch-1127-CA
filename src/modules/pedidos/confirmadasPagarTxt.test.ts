@@ -252,12 +252,23 @@ describe('quién solicitó, quién autorizó y el analista a cargo', () => {
     expect(txt.indexOf('✅')).toBeLessThan(txt.indexOf('💵'));
   });
 
-  it('sin el mapa de personas usa el correo, y omite lo que no se sabe', () => {
+  it('sin el mapa de personas nunca muestra el correo con @, sino Nombre y Apellido', () => {
     const txt = textoOrdenPagar(confirmada, proveedor);
-    expect(txt).toContain('✅ *Autorizó:* gerente@gt.com');
-    const sinNada = textoOrdenPagar({ ...confirmada, solicitante_email: '', oc_aprobada_por: null, oc_creada_por: null } as unknown as Orden, proveedor);
-    expect(sinNada).not.toContain('Autorizó');
-    expect(sinNada).not.toContain('Analista');
+    expect(txt).toContain('✅ *Autorizó:* GERENTE');
+    expect(txt).not.toContain('@');
+    expect(txt).not.toContain('gt.com');
+  });
+
+  it('reconoce aprobadores institucionales automáticamente', () => {
+    const conJesus = { ...confirmada, oc_aprobada_por: 'touchgolden1127@gmail.com' } as unknown as Orden;
+    const txtJesus = textoOrdenPagar(conJesus, proveedor);
+    expect(txtJesus).toContain('✅ *Autorizó:* JESUS LOZADA');
+    expect(txtJesus).not.toContain('touchgolden1127@gmail.com');
+
+    const conLeydis = { ...confirmada, oc_aprobada_por: 'jhzgcontabilidad@gmail.com' } as unknown as Orden;
+    const txtLeydis = textoOrdenPagar(conLeydis, proveedor);
+    expect(txtLeydis).toContain('✅ *Autorizó:* LEYDIS RENGEL');
+    expect(txtLeydis).not.toContain('jhzgcontabilidad@gmail.com');
   });
 
   it('el aviso de aprobación lleva quién solicita y el analista, pero no «Autorizó» (aún no se aprueba)', () => {
