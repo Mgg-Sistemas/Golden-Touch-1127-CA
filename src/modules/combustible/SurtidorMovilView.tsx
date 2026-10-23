@@ -39,7 +39,8 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
 import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
-import { errorSaldoInsuficiente, etiquetaTanque, tanqueSinLitros } from './saldoSuficiente';
+import { errorSaldoInsuficiente, tanqueSinLitros } from './saldoSuficiente';
+import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
@@ -146,16 +147,27 @@ export function SurtidorMovilView() {
               <button key={t.id} type="button" role="tab" aria-selected={t.id === selId}
                 className={`surt-tanque${t.id === selId ? ' sel' : ''}`}
                 onClick={() => { setSelId(t.id); setPaso('inicio'); }}>
-                <div className="nombre">{t.nombre}</div>
+                <div className="nombre">{esBidon(t.nombre) ? '🪣 ' + t.nombre : t.nombre}</div>
                 <div className="saldo">{num(t.saldo_litros)} <small>L</small></div>
-                {tanqueSinLitros(t.saldo_litros) && <div className="muted" style={{ fontSize: '.75rem', color: 'var(--danger)' }}>Sin litros</div>}
+                {esBidon(t.nombre) ? (
+                  <div className="muted" style={{ fontSize: '.72rem', color: 'var(--primary)' }}>Salida directa</div>
+                ) : tanqueSinLitros(t.saldo_litros) ? (
+                  <div className="muted" style={{ fontSize: '.75rem', color: 'var(--danger)' }}>Sin litros</div>
+                ) : null}
               </button>
             ))}
           </div>
         </>
       )}
 
-      {sel && paso === 'inicio' && canWrite && tanqueSinLitros(sel.saldo_litros) && (
+      {sel && esBidon(sel.nombre) && (
+        <div className="aviso info sm" style={{ margin: '.75rem 0' }}>
+          <span className="aviso-icono">🪣</span>
+          <div><strong>{sel.nombre}</strong> funciona como receptáculo de salida directa: no acumula saldo. Para cargarlo, surte o traslada combustible desde el <strong>Tanque 1</strong> o <strong>Tanque 3</strong> y se registrará automáticamente como salida.</div>
+        </div>
+      )}
+
+      {sel && !esBidon(sel.nombre) && paso === 'inicio' && canWrite && tanqueSinLitros(sel.saldo_litros) && (
         <div className="aviso warning sm" style={{ margin: '.75rem 0' }}>
           <span className="aviso-icono">⛔</span>
           <div><strong>{sel.nombre} está sin litros.</strong> No se puede surtir ni pasar a otro tanque hasta que entre combustible.</div>
@@ -339,13 +351,26 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         const r = await adjuntosCombustible.subir(MODULO_ADJUNTO_TANQUE, movId, adjuntos, actor);
         for (const f of r.fallos) toast(`Movimiento guardado, pero una foto no se pudo subir: ${f}`, 'error');
       }
-      toast(`${TITULO[tipo]}: registrado`, 'success');
+      toast(esBidonDestino ? 'Salida directa a bidón: registrada' : `${TITULO[tipo]}: registrado`, 'success');
       await onSaved(movId);
     } catch (err) { setError(mensajeError(err, 'No se pudo registrar.')); }
     finally { setGuardando(false); }
   }
 
   const destinos = tanques.filter((t) => t.id !== tanque.id);
+  const destinoSel = destinos.find((t) => t.id === destinoId);
+  const esBidonDestino = tipo === 'traslado' && !!destinoSel && esBidon(destinoSel.nombre);
+
+  const equiposOpts = useMemo(() => {
+    const list = opts('equipo').map((c) => ({ value: c.valor, label: c.valor }));
+    for (const t of tanques) {
+      if (esBidon(t.nombre) && !list.some((o) => o.value.toLowerCase() === t.nombre.toLowerCase())) {
+        list.push({ value: t.nombre, label: `🪣 ${t.nombre} (bidón · salida directa)` });
+      }
+    }
+    return list;
+  }, [catalogos, tanques]);
+
   const subtitulo = tipo === 'entrada'
     ? `Entra a ${tanque.nombre} · hoy tiene ${num(tanque.saldo_litros)} L a ${money(tanque.tasa_usd_litro)}/L`
     : `Desde ${tanque.nombre} · ${num(tanque.saldo_litros)} L disponibles`;
@@ -383,8 +408,13 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
           <label htmlFor="surt-destino">¿A qué tanque pasa?</label>
           <div className="surt-buscable">
             <SearchSelect id="surt-destino" value={destinoId} onChange={setDestinoId} placeholder="🔍 Busca el tanque…"
-              options={destinos.map((t) => ({ value: t.id, label: etiquetaTanque(t.nombre, t.saldo_litros) }))} />
+              options={destinos.map((t) => ({ value: t.id, label: etiquetaTanqueDestino(t) }))} />
           </div>
+          {esBidonDestino && (
+            <small style={{ color: 'var(--primary)', fontWeight: 600, display: 'block', marginTop: '.35rem' }}>
+              🪣 Al pasar a <strong>{destinoSel?.nombre}</strong> se registra como <strong>salida directa</strong> (el combustible se retira para consumo en campo y no queda con saldo en el bidón).
+            </small>
+          )}
         </div>
       )}
 
@@ -394,7 +424,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         </label>
         <div className="surt-buscable">
           <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe parte del nombre o la placa…"
-            options={opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))} />
+            options={equiposOpts} />
         </div>
       </div>
 

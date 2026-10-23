@@ -46,6 +46,7 @@ import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 import { errorHorometro } from './horometroEquipo';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTanque, tanqueSinLitros } from './saldoSuficiente';
+import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
 import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
 
@@ -156,7 +157,8 @@ function FilaReporteTanque({ r }: { r: ReporteTanque }) {
   return (
     <div style={{ padding: '.55rem 0', borderBottom: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: '.9rem' }}>{r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
+        <strong style={{ fontSize: '.9rem' }}>{esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
+          {esBidon(r.tanque.nombre) && <span className="badge" style={{ marginLeft: '.35rem' }} title="Bidón para consumo en campo (sin saldo)">bidón</span>}
           {r.tanque.estado !== 'activo' && <span className="badge" style={{ marginLeft: '.35rem' }}>inactivo</span>}
         </strong>
         <span className="mono" style={{ fontSize: '1rem', fontWeight: 800 }}>{num(disp)} <span style={{ fontSize: '.72rem', fontWeight: 500 }}>ltrs</span></span>
@@ -550,9 +552,10 @@ function TanqueCard({ r, canWrite, activo, onClick, onEdit }: {
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick!(); } : undefined} className="card"
       style={{ textAlign: 'left', cursor: clickable ? 'pointer' : 'default', borderColor: activo ? 'var(--primary)' : 'var(--border)', borderWidth: activo ? 2 : 1, opacity: r.tanque.estado === 'activo' ? 1 : 0.55 }}>
       <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.4rem' }}>
-        <span>{r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span>
+        <span>{esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span>
         <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
-          {r.tanque.es_movil && <span className="badge" title="Tanque móvil">móvil</span>}
+          {esBidon(r.tanque.nombre) && <span className="badge" title="Bidón para consumo en campo (sin saldo)">bidón</span>}
+          {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" title="Tanque móvil">móvil</span>}
           {r.tanque.estado !== 'activo' && <span className="badge">inactivo</span>}
           {canWrite && onEdit && <button type="button" className="btn btn-sm btn-ghost" title="Editar tanque" onClick={(e) => { e.stopPropagation(); onEdit(); }}>✎</button>}
         </span>
@@ -562,7 +565,11 @@ function TanqueCard({ r, canWrite, activo, onClick, onEdit }: {
         <div style={{ width: `${pct}%`, height: '100%', background: pct < 12 ? 'var(--danger)' : 'var(--primary)' }} />
       </div>
       <div className="muted" style={{ fontSize: '.76rem' }}>
-        Cap. {num(cap)} ltrs{capCalc > 0 ? <> · calc. <span className="mono">{num(capCalc)}</span></> : null} · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/ltrs
+        {esBidon(r.tanque.nombre) ? (
+          <span>Salida directa · Sin saldo en sistema</span>
+        ) : (
+          <>Cap. {num(cap)} ltrs{capCalc > 0 ? <> · calc. <span className="mono">{num(capCalc)}</span></> : null} · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/ltrs</>
+        )}
       </div>
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
         ↓{num(r.entradas)} · ⛽{num(r.uso)} · ↔{num(r.traslados)} ltrs
@@ -837,13 +844,17 @@ function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, rel
                 <div key={r.tanque.id} role="button" tabIndex={0} onClick={() => setTankId(r.tanque.id)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTankId(r.tanque.id); }} className="card"
                   style={{ textAlign: 'left', cursor: 'pointer', opacity: r.tanque.estado === 'activo' ? 1 : 0.55 }}>
-                  <div className="card-title"><span>{r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span></div>
+                  <div className="card-title"><span>{esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span></div>
                   <div style={{ fontSize: '1.5rem', fontWeight: 800 }} className="mono">{num(disp)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>ltrs</span></div>
                   <div style={{ height: 7, borderRadius: 5, background: 'var(--surface-2)', margin: '.5rem 0', overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: pct < 12 ? 'var(--danger)' : 'var(--primary)' }} />
                   </div>
                   <div className="muted" style={{ fontSize: '.76rem' }}>
-                    Cap. {num(cap)} ltrs · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/ltrs
+                    {esBidon(r.tanque.nombre) ? (
+                      <span>Salida directa · Sin saldo</span>
+                    ) : (
+                      <>Cap. {num(cap)} ltrs · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/ltrs</>
+                    )}
                   </div>
                   <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
                     ↓{num(r.entradas)} · ⛽{num(r.uso)} · ↔{num(r.traslados)} ltrs
@@ -859,7 +870,7 @@ function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, rel
           <div className="page-head" style={{ marginBottom: '.6rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
               <button className="btn btn-sm btn-ghost" onClick={() => setTankId('')}>← Tanques</button>
-              <h3 style={{ margin: 0 }}>{tank?.es_movil ? '🚚' : '🛢'} {tank?.nombre}</h3>
+              <h3 style={{ margin: 0 }}>{esBidon(tank?.nombre) ? '🪣' : tank?.es_movil ? '🚚' : '🛢'} {tank?.nombre}</h3>
               {!!meses.length && (
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.82rem' }}>
                   Mes
@@ -925,6 +936,16 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 
+  const equiposOptions = useMemo(() => {
+    const list = [{ value: '', label: '— elige el equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))];
+    for (const t of tanques) {
+      if (esBidon(t.nombre) && !list.some((o) => o.value.toLowerCase() === t.nombre.toLowerCase())) {
+        list.push({ value: t.nombre, label: `🪣 ${t.nombre} (bidón · salida directa)` });
+      }
+    }
+    return list;
+  }, [catalogos, tanques]);
+
   // El HORÓMETRO inicial sí es del vehículo: autocarga con el último HF de ese equipo.
   const cargarHi = useCallback(() => {
     if (!equipo) { setHiAuto(false); return; }
@@ -959,9 +980,12 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // El contador al terminar es donde arranca el siguiente: vacío se guarda inicial + litros.
   const cfPropuesto = pasaPorSurtidor(tipo) ? contadorFinalPropuesto(ci === '' ? null : Number(ci), Number(litros) || 0) : null;
 
-  // Merma de recepción: en una entrada mide el tanque elegido; en un traslado, el que recibe.
+  const destinoSelTanque = tanques.find((t) => t.id === destinoId);
+  const destinoEsBidon = tipo === 'traslado' && !!destinoSelTanque && esBidon(destinoSelTanque.nombre);
+
+  // Merma de recepción: en una entrada mide el tanque elegido; en un traslado, el que recibe (salvo si es bidón).
   const tanqueRecibe = tipo === 'entrada' ? tanques.find((t) => t.id === tanqueId)
-    : tipo === 'traslado' && destinoId && destinoId !== DESTINO_MGG ? tanques.find((t) => t.id === destinoId) : undefined;
+    : tipo === 'traslado' && destinoId && destinoId !== DESTINO_MGG && !destinoEsBidon ? tanques.find((t) => t.id === destinoId) : undefined;
   const margenRecibe = tanqueRecibe?.margen_merma_pct ?? MARGEN_MERMA_DEFECTO;
   const recepcion = tanqueRecibe
     ? mermaDeRecepcion(Number(litros) || 0, recibidos.trim() === '' ? null : Number(recibidos.replace(',', '.')), margenRecibe)
@@ -970,7 +994,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // No se saca más de lo que hay (09/10/2026): uso, merma, traslado y envío a MGG restan
   // del tanque elegido. Se avisa mientras se escribe y el botón no deja guardar.
   const tanqueOrigen = tanques.find((t) => t.id === tanqueId);
-  const origenVacio = !!tanqueOrigen && saleDelTanque(tipo) && tanqueSinLitros(tanqueOrigen.saldo_litros);
+  const origenEsBidon = !!tanqueOrigen && esBidon(tanqueOrigen.nombre);
+  const origenVacio = !!tanqueOrigen && !origenEsBidon && saleDelTanque(tipo) && tanqueSinLitros(tanqueOrigen.saldo_litros);
   const errSaldo = tanqueOrigen && saleDelTanque(tipo)
     ? errorSaldoInsuficiente({ nombre: tanqueOrigen.nombre, saldo: tanqueOrigen.saldo_litros, litros: Number(litros) || 0 })
     : null;
@@ -1004,7 +1029,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
       else if (tipo === 'merma') await registrarMerma({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else if (destinoId === DESTINO_MGG) await registrarTrasladoMGG({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName, recepcion: rec });
-      toast('Movimiento registrado', 'success');
+      toast(destinoEsBidon ? 'Salida directa a bidón registrada' : 'Movimiento registrado', 'success');
       onSaved();
     } catch (err) { setError((err as { message?: string })?.message || 'No se pudo registrar.'); }
     finally { setSaving(false); }
@@ -1026,6 +1051,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             <SearchSelect value={tanqueId} onChange={setTanqueId} placeholder="Buscar tanque…"
               options={tanques.map((t) => ({ value: t.id, label: etiquetaTanque(t.nombre, t.saldo_litros) }))} />
             {origenVacio && <small style={{ color: 'var(--danger)' }}>{tanqueOrigen?.nombre} está sin litros: solo admite entradas y retornos.</small>}
+            {origenEsBidon && <small style={{ color: 'var(--primary)' }}>🪣 Los bidones funcionan como receptáculo de salida directa: se surten desde el Tanque 1 o Tanque 3.</small>}
           </div>
           <div className="form-row">
             <label>Tipo de movimiento</label>
@@ -1073,9 +1099,15 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
                 options={[
                   { value: '', label: '— elige el tanque destino —' },
                   { value: DESTINO_MGG, label: `🌐 ${DESTINO_MGG_LABEL} (otro sistema)` },
-                  ...tanques.filter((t) => t.id !== tanqueId).map((t) => ({ value: t.id, label: t.nombre })),
+                  ...tanques.filter((t) => t.id !== tanqueId).map((t) => ({ value: t.id, label: etiquetaTanqueDestino(t) })),
                 ]} />
-              <small className="muted">Si es a otro tanque, se acredita allí al costo del origen. <strong>{DESTINO_MGG_LABEL}</strong> envía el combustible al otro sistema (MGG lo confirma y entra a su TANQUE MGG).</small>
+              {destinoEsBidon ? (
+                <small style={{ color: 'var(--primary)', fontWeight: 600, display: 'block', marginTop: '.25rem' }}>
+                  🪣 Al trasladar hacia <strong>{destinoSelTanque?.nombre}</strong> se registra como <strong>salida directa</strong> (el combustible se retira para consumo en campo y no queda con saldo en el bidón).
+                </small>
+              ) : (
+                <small className="muted">Si es a otro tanque, se acredita allí al costo del origen. <strong>{DESTINO_MGG_LABEL}</strong> envía el combustible al otro sistema (MGG lo confirma y entra a su TANQUE MGG).</small>
+              )}
             </div>
           )}
         </div>
@@ -1116,7 +1148,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           <div className="form-row">
             <label>Equipo</label>
             <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…"
-              options={[{ value: '', label: '— elige el equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))]} />
+              options={equiposOptions} />
           </div>
           <div className="form-row">
             <label>Autorizado por</label>
