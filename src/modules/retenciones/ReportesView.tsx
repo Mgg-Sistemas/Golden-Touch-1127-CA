@@ -20,6 +20,7 @@ import {
 } from './reportesRetenciones';
 import { descargarCsv, lineaTotales, reporteExcel, reportePdf, type CabeceraReporte } from './reportesRetencionesArchivos';
 import { armarTxtIva, filasTxtIva, type PeriodoCampo2 } from './txtSeniatIva';
+import { armarXmlIslr, filasXmlIslr } from './xmlSeniatIslr';
 
 interface PlantillaReporte { id: string; nombre: string; titulo: string }
 
@@ -84,6 +85,9 @@ export function ReportesView({ actor }: { actor: string }) {
   const [verTxt, setVerTxt] = useState(false);
   const [txtMes, setTxtMes] = useState('');
   const [txtCampo2, setTxtCampo2] = useState<PeriodoCampo2>('operaciones');
+
+  const [verXml, setVerXml] = useState(false);
+  const [xmlMes, setXmlMes] = useState('');
 
   const cargar = useCallback(async () => {
     try {
@@ -208,6 +212,29 @@ export function ReportesView({ actor }: { actor: string }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = txt.nombre;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /* ── XML del SENIAT (ISLR) ── */
+  const mesXml = xmlMes || (rango ? rango.desde.slice(0, 7) : hoy.slice(0, 7));
+  const xml = useMemo(() => {
+    if (!datos) return null;
+    return armarXmlIslr({
+      rifAgente: config?.rif || EMPRESA_RIF,
+      razonSocial: config ? razonSocialAgente(config) : '',
+      periodo: mesXml.replace('-', ''),
+      filas: datos,
+    });
+  }, [datos, config, mesXml]);
+  const xmlFilas = useMemo(() => (datos ? filasXmlIslr(datos, mesXml.replace('-', '')).length : 0), [datos, mesXml]);
+
+  function descargarXml() {
+    if (!xml || xml.faltan.length) return;
+    const blob = new Blob([xml.contenido], { type: 'application/xml;charset=iso-8859-1' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = xml.nombre;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -382,7 +409,8 @@ export function ReportesView({ actor }: { actor: string }) {
           <button className="btn" onClick={() => void exportar('csv')} disabled={!tabla || !!generando}>Descargar CSV</button>
           <button className="btn" onClick={() => void exportar('excel')} disabled={!tabla || !!generando}>{generando === 'excel' ? 'Generando…' : 'Descargar Excel'}</button>
           <button className="btn" onClick={() => void exportar('pdf')} disabled={!tabla || !!generando}>{generando === 'pdf' ? 'Generando…' : 'Imprimir / PDF'}</button>
-          <button className="btn" aria-expanded={verTxt} onClick={() => setVerTxt((v) => !v)}>TXT para el SENIAT (IVA)</button>
+          <button className="btn" aria-expanded={verTxt} onClick={() => { setVerTxt((v) => !v); setVerXml(false); }}>TXT para el SENIAT (IVA)</button>
+          <button className="btn" aria-expanded={verXml} onClick={() => { setVerXml((v) => !v); setVerTxt(false); }}>XML para el SENIAT (ISLR)</button>
         </div>
 
         {verTxt && (
@@ -419,6 +447,38 @@ export function ReportesView({ actor }: { actor: string }) {
                   {txt.faltan.slice(0, 20).map((f, i) => <li key={i}>{f}</li>)}
                 </ul>
                 {txt.faltan.length > 20 && <span>…y {txt.faltan.length - 20} más.</span>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {verXml && (
+          <div className="card" style={{ margin: '.4rem 0', borderColor: 'var(--primary)' }}>
+            <strong style={{ fontSize: '.9rem' }}>XML de retenciones de ISLR para el SENIAT</strong>
+            <p className="muted" style={{ fontSize: '.8rem', margin: '.3rem 0' }}>
+              Formato oficial según Decreto 1.808 para la declaración mensual de retenciones en el portal del SENIAT.
+            </p>
+            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="lfv8-campo">
+                <span>Período de las operaciones</span>
+                <input className="input" type="month" value={mesXml} onChange={(e) => setXmlMes(e.target.value)} />
+              </div>
+              <button className="btn btn-primary" onClick={descargarXml} disabled={!xml || xml.faltan.length > 0}>Descargar XML</button>
+            </div>
+            {xml && (
+              <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+                {xmlFilas
+                  ? `${xmlFilas} retención(es) de ISLR practicadas del período, sin anuladas · ${xml.nombre}`
+                  : `Sin retenciones de ISLR practicadas en el período: archivo vacío de declaración · ${xml.nombre}`}
+              </small>
+            )}
+            {xml && xml.faltan.length > 0 && (
+              <div style={{ marginTop: '.4rem', color: 'var(--danger)', fontSize: '.8rem' }}>
+                <strong>Antes de descargar, falta:</strong>
+                <ul style={{ margin: '.2rem 0 0 1rem', padding: 0 }}>
+                  {xml.faltan.slice(0, 20).map((f, i) => <li key={i}>{f}</li>)}
+                </ul>
+                {xml.faltan.length > 20 && <span>…y {xml.faltan.length - 20} más.</span>}
               </div>
             )}
           </div>

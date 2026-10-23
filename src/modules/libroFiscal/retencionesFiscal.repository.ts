@@ -100,6 +100,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     pctIvaEspecial: n(j.iva_retencion_especial) || 100,
     valorUt: n(j.unidad_tributaria),
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
+    licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
   };
 }
 
@@ -113,6 +114,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     ...(previo ?? {}),
     empresa_rif: c.rif ?? '', empresa_nombre: c.razonSocial ?? '', agente_direccion: c.direccionFiscal ?? '',
     municipio: c.municipio ?? '',
+    licencia_municipal: c.licenciaMunicipal ?? '',
     agente_retencion_iva: c.esAgenteRetencionIva,
     contribuyente_especial: c.esContribuyenteEspecial,
     iva_retencion: c.pctIvaGeneral,
@@ -373,6 +375,16 @@ export interface RetencionPracticada {
   numeroOrigen?: 'sistema' | 'dado' | null;
   /** ISAE: «Operación N°», correlativo del año que pone la base (V2), solo informativo. */
   operacionNumero?: number | null;
+  /** Tipo de documento tributario: factura, nota de débito o nota de crédito (PA 071). */
+  tipoDocumento?: 'factura' | 'nota_debito' | 'nota_credito' | null;
+  /** Factura afectada si es nota de crédito o débito (PA 071 Art. 15). */
+  facturaAfectadaNro?: string | null;
+  /** Monto total de la compra o factura con IVA incluido (PA 049). */
+  facturaTotal?: number | null;
+  /** Compras sin derecho a crédito fiscal o monto exento (PA 049). */
+  exento?: number | null;
+  /** N° de licencia municipal o RIM del sujeto retenido (ISAE). */
+  licenciaSujeto?: string | null;
   conceptoId: string | null;
   conceptoNombre: string | null;
   moneda: string;
@@ -419,6 +431,11 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     facturaNumero: texto(r.factura_nro),
     facturaControl: texto(r.factura_control),
     facturaFecha: texto(r.factura_fecha),
+    tipoDocumento: r.tipo_documento === 'nota_debito' || r.tipo_documento === 'nota_credito' ? r.tipo_documento : (r.tipo_documento === 'factura' ? 'factura' : null),
+    facturaAfectadaNro: texto(r.factura_afectada_nro),
+    facturaTotal: r.factura_total == null ? null : n(r.factura_total),
+    exento: r.exento == null ? null : n(r.exento),
+    licenciaSujeto: texto(r.licencia_numero ?? r.contraparte_licencia),
     periodo: String(r.comprobante_periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
     numeroComprobante: texto(r.comprobante_nro),

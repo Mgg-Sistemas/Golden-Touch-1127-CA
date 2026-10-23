@@ -72,4 +72,24 @@ describe('TXT del SENIAT · IVA', () => {
     expect(r.contenido.split('\t')[6]).toBe('N 12');
     expect([...r.contenido].every((c) => c === '\t' || c === '\r' || c === '\n' || (c >= ' ' && c <= '~'))).toBe(true);
   });
+
+  it('soporta nota de crédito con factura afectada y monto exento', () => {
+    const r = armarTxtIva({
+      ...base,
+      filas: [
+        ret({
+          tipoDocumento: 'nota_credito',
+          facturaAfectadaNro: '000099',
+          exento: 50,
+          facturaTotal: 1210,
+        }),
+      ],
+    });
+    expect(r.faltan).toEqual([]);
+    const campos = r.contenido.replace(/\r\n$/, '').split('\t');
+    expect(campos[4]).toBe('03');
+    expect(campos[8]).toBe('1210.00');
+    expect(campos[11]).toBe('000099');
+    expect(campos[13]).toBe('50.00');
+  });
 });

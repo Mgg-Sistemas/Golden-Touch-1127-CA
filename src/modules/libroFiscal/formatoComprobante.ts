@@ -40,7 +40,19 @@ export interface ColumnaFormato { campo: string; rotulo: string; visible: boolea
 /** Las columnas de fábrica de la tabla del comprobante, por impuesto. */
 export function columnasFabrica(tipo: TipoImpuesto): ColumnaFormato[] {
   const cols: Array<[string, string]> = tipo === 'iva'
-    ? [['factura', 'FACTURA'], ['fecha', 'FECHA'], ['control', 'N° CONTROL'], ['base', 'BASE IMPONIBLE'], ['alicuota', 'ALICUOTA'], ['iva', 'IVA FACTURA'], ['pct', '% RET.'], ['monto', 'IVA RETENIDO']]
+    ? [
+        ['operacion', 'OP. N°'],
+        ['factura', 'FACTURA'],
+        ['fecha', 'FECHA'],
+        ['control', 'N° CONTROL'],
+        ['total_factura', 'TOTAL FACTURA'],
+        ['exento', 'EXENTO'],
+        ['base', 'BASE IMPONIBLE'],
+        ['alicuota', 'ALICUOTA'],
+        ['iva', 'IVA FACTURA'],
+        ['pct', '% RET.'],
+        ['monto', 'IVA RETENIDO'],
+      ]
     : tipo === 'islr'
       ? [['factura', 'DOCUMENTO'], ['fecha', 'FECHA'], ['control', 'N° CONTROL'], ['concepto', 'CONCEPTO'], ['base', 'BASE IMPONIBLE'], ['sustraendo', 'SUSTRAENDO'], ['pct', '% RET.'], ['monto', 'MONTO RETENIDO']]
       : [['factura', 'DOCUMENTO'], ['fecha', 'FECHA'], ['control', 'N° CONTROL'], ['base', 'BASE IMPONIBLE'], ['pct', '% RET.'], ['monto', 'MONTO RETENIDO']];

@@ -93,12 +93,16 @@ export function armarTxtIva(e: EntradaTxtIva): ResultadoTxtIva {
     if (!r.facturaControl?.trim()) faltan.push(`${quien}: falta el N° de control.`);
     if (!/^\d{4}-\d{2}-\d{2}/.test(r.facturaFecha ?? '')) faltan.push(`${quien}: falta la fecha de la factura.`);
     const b = base ?? 0; const i = iva ?? 0;
+    const exentoBs = r.exento != null ? (enBs(r.exento, r) ?? 0) : 0;
+    const totalBs = r.facturaTotal != null ? (enBs(r.facturaTotal, r) ?? (b + i + exentoBs)) : (b + i + exentoBs);
+    const tipoDoc = r.tipoDocumento === 'nota_debito' ? '02' : r.tipoDocumento === 'nota_credito' ? '03' : '01';
+    const docAfectado = r.facturaAfectadaNro ? ascii(r.facturaAfectadaNro) : '0';
     const alicuota = b > 0 ? (i / b) * 100 : r.alicuota;
     return [
-      rifAg, campo2, (r.facturaFecha ?? '').slice(0, 10), 'C', '01',
+      rifAg, campo2, (r.facturaFecha ?? '').slice(0, 10), 'C', tipoDoc,
       rif(r.contraparteRif), ascii(r.facturaNumero), ascii(r.facturaControl),
-      monto(b + i), monto(b), monto(retenido ?? 0), '0',
-      r.numeroComprobante ?? '', monto(0), monto(alicuota), '0',
+      monto(totalBs), monto(b), monto(retenido ?? 0), docAfectado,
+      r.numeroComprobante ?? '', monto(exentoBs), monto(alicuota), '0',
     ].join('\t');
   });
   return { nombre, contenido: `${lineas.join('\r\n')}\r\n`, lineas: lineas.length, faltan };

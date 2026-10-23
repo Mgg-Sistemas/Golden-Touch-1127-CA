@@ -78,6 +78,8 @@ export interface ConfigRetencion {
   pctIvaEspecial: number;   // 100
   valorUt: number;          // define el sustraendo del ISLR
   pctIgtf: number;          // 3
+  /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
+  licenciaMunicipal?: string | null;
 }
 
 /**
@@ -91,6 +93,7 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   esContribuyenteEspecial: false,
   pctIvaGeneral: 75, pctIvaEspecial: 100,
   valorUt: 0, pctIgtf: 3,
+  licenciaMunicipal: null,
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */

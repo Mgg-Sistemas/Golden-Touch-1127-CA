@@ -43,6 +43,8 @@ import { ParametrosPerfiles } from './ParametrosPerfiles';
 import { ParametrosRegimen } from './ParametrosRegimen';
 import { completarRif, formatearRif, rifValido } from '@/shared/lib/rif';
 import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
+import { EMPRESA_RIF } from '@/shared/lib/empresa';
+import { razonSocialAgente } from './comprobanteRetencionPdf';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
@@ -368,6 +370,61 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la relación', 'error'); }
   }
 
+  async function exportarSeniatIva() {
+    if (!relacionables.length) { toast('No hay retenciones de IVA practicadas.', 'error'); return; }
+    try {
+      const { armarTxtIva } = await import('@/modules/retenciones/txtSeniatIva');
+      const periodoRef = (relacionables[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
+      const res = armarTxtIva({
+        rifAgente: config.rif || EMPRESA_RIF,
+        razonSocial: razonSocialAgente(config),
+        periodo: periodoRef,
+        campo2: 'operaciones',
+        filas: relacionables,
+      });
+      if (res.faltan.length) {
+        toast(`Faltan datos fiscales: ${res.faltan[0]}`, 'error');
+        return;
+      }
+      const blob = new Blob([res.contenido], { type: 'text/plain;charset=us-ascii' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = res.nombre;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast(`Archivo TXT generado: ${res.nombre}`, 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Error al exportar TXT', 'error');
+    }
+  }
+
+  async function exportarSeniatIslr() {
+    if (!relacionables.length) { toast('No hay retenciones de ISLR practicadas.', 'error'); return; }
+    try {
+      const { armarXmlIslr } = await import('@/modules/retenciones/xmlSeniatIslr');
+      const periodoRef = (relacionables[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
+      const res = armarXmlIslr({
+        rifAgente: config.rif || EMPRESA_RIF,
+        razonSocial: razonSocialAgente(config),
+        periodo: periodoRef,
+        filas: relacionables,
+      });
+      if (res.faltan.length) {
+        toast(`Faltan datos fiscales: ${res.faltan[0]}`, 'error');
+        return;
+      }
+      const blob = new Blob([res.contenido], { type: 'application/xml;charset=iso-8859-1' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = res.nombre;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast(`Archivo XML generado: ${res.nombre}`, 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Error al exportar XML', 'error');
+    }
+  }
+
   const estadoCasilla = (r: RetencionPracticada) => r.anulada ? 'anulada' : r.estado === 'declarada' ? 'declarada' : r.estado === 'registrada' ? 'ok' : 'falta';
   const signoEstado: Record<string, string> = { ok: '✓', declarada: '◉', falta: '⏳', anulada: '⊘', nc: '—', pd: '?' };
   const textoEstado: Record<string, string> = { ok: 'Registrada', declarada: 'Declarada', falta: 'Pendiente', anulada: 'Anulada', nc: 'No aplica', pd: 'Por definir' };
@@ -549,6 +606,14 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
           title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
+        {tipo === 'iva' && (
+          <button className="btn btn-ghost" onClick={() => void exportarSeniatIva()} disabled={!relacionables.length}
+            title="Exportar archivo TXT para declaración informativa de retenciones de IVA ante el SENIAT">↓ TXT SENIAT</button>
+        )}
+        {tipo === 'islr' && (
+          <button className="btn btn-ghost" onClick={() => void exportarSeniatIslr()} disabled={!relacionables.length}
+            title="Exportar archivo XML para declaración informativa de retenciones de ISLR ante el SENIAT">↓ XML SENIAT</button>
+        )}
         {conR10 && <button className="btn btn-ghost" onClick={() => setVerFacturas(true)}>Facturas registradas</button>}
         {canWrite && conFacturaVarias && <button className="btn btn-ghost" onClick={() => setFacturaVarias(true)}>+ Registrar factura (varios impuestos)</button>}
         {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}

@@ -74,10 +74,22 @@ export function lineaEquivalenteBs(r: Pick<RetencionPracticada, 'moneda' | 'mont
 
 /** El valor de cada columna de la tabla del comprobante (por su campo). */
 export function valoresDeColumnas(r: RetencionPracticada): Record<string, string> {
+  const op = r.operacionNumero != null
+    ? String(r.operacionNumero).padStart(4, '0')
+    : '0001';
+  const exentoMonto = r.exento != null ? r.exento : 0;
+  const totFactura = r.facturaTotal != null
+    ? r.facturaTotal
+    : (r.baseImponible + r.impuesto + exentoMonto);
+
   return {
+    operacion: op,
     factura: r.facturaNumero || r.docCodigo || '—',
     fecha: fechaPdf(r.facturaFecha),
     control: r.facturaControl || '—',
+    afectada: r.facturaAfectadaNro || '—',
+    total_factura: montoPdf(totFactura, r.moneda),
+    exento: montoPdf(exentoMonto, r.moneda),
     concepto: r.conceptoNombre || 'SERVICIOS',
     base: montoPdf(r.baseImponible, r.moneda),
     alicuota: r.alicuota ? `${r.alicuota}%` : '—',
@@ -88,7 +100,7 @@ export function valoresDeColumnas(r: RetencionPracticada): Record<string, string
   };
 }
 
-const COLUMNAS_NUMERICAS = new Set(['base', 'alicuota', 'iva', 'sustraendo', 'pct', 'monto']);
+const COLUMNAS_NUMERICAS = new Set(['total_factura', 'exento', 'base', 'alicuota', 'iva', 'sustraendo', 'pct', 'monto']);
 
 export interface OpcionesComprobantePdf {
   incluirLogo?: boolean;
@@ -192,9 +204,65 @@ export async function generarDocComprobanteRetencionPdf(
     import('jspdf'), import('jspdf-autotable'),
   ]);
 
-  // Si no tenemos la dirección del sujeto en la retención, la consultamos del proveedor
-  const direccionSujeto = await direccionFiscalSujeto(r);
-  const rEnriquecida = { ...r, contraparteDireccion: direccionSujeto };
+  const leerDocCabecera = async () => {
+    if (!r.documentoId) return null;
+    try {
+      const res = await supabase.from('retencion_documentos')
+        .select('tipo_documento, factura_afectada_nro, factura_total, exento')
+        .eq('id', r.documentoId)
+        .maybeSingle();
+      return res.data;
+    } catch {
+      return null;
+    }
+  };
+
+  const leerPerfilesProv = async () => {
+    if (!r.contraparteId) return null;
+    try {
+      const res = await supabase.from('retencion_contraparte_perfiles')
+        .select('licencia_numero, licencia_estado')
+        .eq('proveedor_id', r.contraparteId)
+        .order('desde', { ascending: false });
+      return res.data;
+    } catch {
+      return null;
+    }
+  };
+
+  // Consultas de enriquecimiento: dirección del sujeto, documento fiscal y licencias municipales
+  const [direccionSujeto, docCabecera, perfilesProv] = await Promise.all([
+    direccionFiscalSujeto(r),
+    leerDocCabecera(),
+    leerPerfilesProv(),
+  ]);
+
+  const tipoDocumento = docCabecera?.tipo_documento ?? r.tipoDocumento ?? null;
+  const facturaAfectadaNro = docCabecera?.factura_afectada_nro ?? r.facturaAfectadaNro ?? null;
+  const exentoMonto = docCabecera?.exento != null
+    ? Number(docCabecera.exento)
+    : (r.exento != null ? r.exento : 0);
+  const facturaTotal = docCabecera?.factura_total != null
+    ? Number(docCabecera.factura_total)
+    : (r.facturaTotal != null ? r.facturaTotal : (r.baseImponible + r.impuesto + exentoMonto));
+
+  let licenciaSujeto = r.licenciaSujeto ?? null;
+  if (!licenciaSujeto && perfilesProv && perfilesProv.length > 0) {
+    const pVig = perfilesProv.find((p: any) => p.licencia_numero?.trim());
+    if (pVig?.licencia_numero) licenciaSujeto = pVig.licencia_numero.trim();
+  }
+
+  const licenciaAgente = config.licenciaMunicipal?.trim() || null;
+
+  const rEnriquecida: RetencionPracticada = {
+    ...r,
+    contraparteDireccion: direccionSujeto,
+    tipoDocumento: (tipoDocumento as any),
+    facturaAfectadaNro,
+    facturaTotal,
+    exento: exentoMonto,
+    licenciaSujeto,
+  };
 
   const f = aplicarFormato(r.tipo, formato);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: f.orientacion === 'vertical' ? 'portrait' : 'landscape' });
@@ -331,9 +399,12 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFontSize(7);
   const lineasDirAgente = doc.splitTextToSize(textoPdf(dirAgente), colIzqW - 14) as string[];
 
+  const licenciaAgenteEfectiva = esRecibida ? licenciaSujeto : licenciaAgente;
+  const licenciaSujetoEfectiva = esRecibida ? licenciaAgente : licenciaSujeto;
+
   // Altura requerida con paddings holgados
   const altoIzqAgente = 8 + 8 + (lineasNombreAgente.length * 9.5) + 6 + 8 + (lineasDirAgente.length * 8.5) + 8;
-  const altoDerAgente = 38;
+  const altoDerAgente = licenciaAgenteEfectiva ? 48 : 38;
   const altoAgente = Math.max(altoIzqAgente, altoDerAgente, 50);
 
   // Dibujar recuadro Agente
@@ -370,6 +441,15 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFontSize(7.5);
   doc.text(textoPdf(rifAgente), colDerX + 6, y + 20);
 
+  if (licenciaAgenteEfectiva) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.text('N° LICENCIA MUNICIPAL / RIM:', colDerX + 6, y + 31);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    doc.text(textoPdf(licenciaAgenteEfectiva), colDerX + 6, y + 41);
+  }
+
   y += altoAgente;
 
   // Adaptación dinámica al texto del Sujeto Retenido
@@ -380,7 +460,7 @@ export async function generarDocComprobanteRetencionPdf(
   const lineasDirSujeto = doc.splitTextToSize(textoPdf(dirSujeto), colIzqW - 14) as string[];
 
   const altoIzqSujeto = 8 + 8 + (lineasNombreSujeto.length * 9.5) + 6 + 8 + (lineasDirSujeto.length * 8.5) + 8;
-  const altoDerSujeto = 38;
+  const altoDerSujeto = licenciaSujetoEfectiva ? 48 : 38;
   const altoSujeto = Math.max(altoIzqSujeto, altoDerSujeto, 50);
 
   // Dibujar recuadro Sujeto
@@ -414,34 +494,61 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFontSize(7.5);
   doc.text(textoPdf(rifSujeto), colDerX + 6, y + 20);
 
+  if (licenciaSujetoEfectiva) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.text('N° LICENCIA MUNICIPAL / RIM:', colDerX + 6, y + 31);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    doc.text(textoPdf(licenciaSujetoEfectiva), colDerX + 6, y + 41);
+  }
+
   y += altoSujeto + 10;
 
-  // ── Concepto arriba de la tabla ──
+  // ── Concepto y documento afectado (PA 071 Art. 15) ──
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   const labelImp = r.tipo === 'islr' ? 'I.S.L.R.' : r.tipo === 'iva' ? 'I.V.A.' : r.tipo === 'municipal' ? 'I.S.A.E.' : 'Impuesto';
   const textoConcepto = `Retención de ${labelImp}${r.conceptoNombre ? ` por concepto de: ${textoPdf(r.conceptoNombre)}` : ''}`;
   doc.text(textoConcepto, M, y);
+
+  if (rEnriquecida.facturaAfectadaNro || rEnriquecida.tipoDocumento === 'nota_credito' || rEnriquecida.tipoDocumento === 'nota_debito') {
+    const tipoDoc = rEnriquecida.tipoDocumento === 'nota_credito'
+      ? 'NOTA DE CRÉDITO'
+      : rEnriquecida.tipoDocumento === 'nota_debito'
+        ? 'NOTA DE DÉBITO'
+        : 'DOCUMENTO DE AJUSTE';
+    const textoDocAfectado = `${tipoDoc}${rEnriquecida.facturaAfectadaNro ? ` · FACTURA AFECTADA N°: ${rEnriquecida.facturaAfectadaNro}` : ''}`;
+    doc.setFont('helvetica', 'bold');
+    doc.text(textoDocAfectado, W - M, y, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+  }
   y += 4;
 
   // ── Columnas y tabla de la operación ──
   const valores = valoresDeColumnas(rEnriquecida);
   const cabecera = f.columnas.map((c) => c.rotulo);
   const fila = f.columnas.map((c) => valores[c.campo] ?? '—');
-  const estilosCols: Record<number, { halign?: 'right' | 'left'; cellWidth?: number }> = {};
+  const estilosCols: Record<number, { halign?: 'right' | 'left' | 'center'; cellWidth?: number }> = {};
   f.columnas.forEach((c, i) => {
     estilosCols[i] = {
-      ...(COLUMNAS_NUMERICAS.has(c.campo) ? { halign: 'right' as const } : { halign: 'left' as const }),
+      ...(COLUMNAS_NUMERICAS.has(c.campo) ? { halign: 'right' as const } : c.campo === 'operacion' || c.campo === 'fecha' ? { halign: 'center' as const } : { halign: 'left' as const }),
       ...(c.ancho ? { cellWidth: c.ancho } : {}),
     };
   });
 
   // Fila de totales alineada con las columnas del formato
+  const primerColNumericaIdx = f.columnas.findIndex((col) => COLUMNAS_NUMERICAS.has(col.campo));
+  const idxRotuloTotal = primerColNumericaIdx > 0 ? primerColNumericaIdx - 1 : 0;
+
   const filaTotales = f.columnas.map((c, i) => {
+    if (c.campo === 'total_factura') return montoPdf(rEnriquecida.facturaTotal ?? (r.baseImponible + r.impuesto + (rEnriquecida.exento ?? 0)), r.moneda);
+    if (c.campo === 'exento') return montoPdf(rEnriquecida.exento ?? 0, r.moneda);
     if (c.campo === 'base') return montoPdf(r.baseImponible, r.moneda);
-    if (c.campo === 'monto') return montoPdf(r.montoRetenido, r.moneda);
+    if (c.campo === 'iva') return montoPdf(r.impuesto, r.moneda);
     if (c.campo === 'sustraendo') return r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '0,00';
-    if (i === Math.max(0, f.columnas.findIndex((col) => col.campo === 'base') - 1)) return f.rotulos.total || 'Total...';
+    if (c.campo === 'monto') return montoPdf(r.montoRetenido, r.moneda);
+    if (i === idxRotuloTotal) return f.rotulos.total || 'TOTALES:';
     return '';
   });
 
@@ -452,8 +559,8 @@ export async function generarDocComprobanteRetencionPdf(
     foot: [filaTotales.map((c) => textoPdf(c))],
     theme: 'plain',
     styles: {
-      fontSize: 7.5,
-      cellPadding: { top: 4, bottom: 4, left: 3, right: 3 },
+      fontSize: 7.2,
+      cellPadding: { top: 4, bottom: 4, left: 2.5, right: 2.5 },
       textColor: [0, 0, 0],
       overflow: 'linebreak',
     },
@@ -461,7 +568,7 @@ export async function generarDocComprobanteRetencionPdf(
       fillColor: false,
       textColor: [0, 0, 0],
       fontStyle: 'normal',
-      fontSize: 7.5,
+      fontSize: 7.2,
       lineWidth: { top: 0.6, bottom: 0.6 },
       lineColor: [0, 0, 0],
     },
@@ -469,7 +576,7 @@ export async function generarDocComprobanteRetencionPdf(
       fillColor: false,
       textColor: [0, 0, 0],
       fontStyle: 'normal',
-      fontSize: 7.5,
+      fontSize: 7.2,
       lineWidth: { top: 0.6, bottom: 0.6 },
       lineColor: [0, 0, 0],
       halign: 'right',
@@ -479,14 +586,12 @@ export async function generarDocComprobanteRetencionPdf(
       const col = f.columnas[data.column.index];
       if (!col) return;
       const esNumerica = COLUMNAS_NUMERICAS.has(col.campo);
-      if (esNumerica) {
+      if (data.section === 'head') {
+        data.cell.styles.halign = esNumerica ? 'right' : (col.campo === 'operacion' || col.campo === 'fecha' ? 'center' : 'left');
+      } else if (data.section === 'foot') {
         data.cell.styles.halign = 'right';
       } else {
-        data.cell.styles.halign = 'left';
-      }
-      // En la fila de pie (totales y rótulo de Total Retenido), todo alineado a la derecha
-      if (data.section === 'foot') {
-        data.cell.styles.halign = 'right';
+        data.cell.styles.halign = esNumerica ? 'right' : (col.campo === 'operacion' || col.campo === 'fecha' ? 'center' : 'left');
       }
     },
     margin: { left: M, right: M },
