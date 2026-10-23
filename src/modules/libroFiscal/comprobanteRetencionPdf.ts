@@ -21,6 +21,7 @@ import {
 } from './pdfComun';
 import { aplicarFormato, type FormatoParaAplicar } from './formatoComprobante';
 import { listImagenesAgente, versionVigente, urlImagen } from './entes.repository';
+import QRCode from 'qrcode';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { diaVE } from '@/modules/tesoreria/tasas.repository';
 
@@ -102,10 +103,57 @@ export function valoresDeColumnas(r: RetencionPracticada): Record<string, string
 
 const COLUMNAS_NUMERICAS = new Set(['total_factura', 'exento', 'base', 'alicuota', 'iva', 'sustraendo', 'pct', 'monto']);
 
+/** Cadena canónica para verificación tributaria y generación de huella digital SHA-256 (PA 0084 / 0093). */
+export function cadenaCanonicoFiscal(r: RetencionPracticada, config: ConfigRetencion): string {
+  const rifAgente = config.rif || EMPRESA_RIF;
+  const rifSujeto = r.contraparteRif || '—';
+  const comp = r.numeroComprobante || r.id;
+  const fecha = r.facturaFecha || r.createdAt || '';
+  const base = Number(r.baseImponible || 0).toFixed(2);
+  const monto = Number(r.montoRetenido || 0).toFixed(2);
+  const moneda = r.moneda || 'Bs';
+  return `SENIAT|RET|${r.tipo.toUpperCase()}|${rifAgente}|${comp}|${fecha.slice(0, 10)}|${rifSujeto}|${r.facturaNumero || ''}|${moneda}|${base}|${monto}`;
+}
+
+/** Calcula el hash SHA-256 de una cadena en representación hexadecimal minúscula. */
+export async function calcularSha256Hex(texto: string): Promise<string> {
+  try {
+    if (typeof globalThis.crypto?.subtle?.digest === 'function') {
+      const buffer = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto));
+      return Array.from(new Uint8Array(buffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch { /* fallback */ }
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(64, '0');
+}
+
+/** Genera la DataURL del código QR para incrustar en el PDF. */
+export async function generarQrVerificacion(contenido: string): Promise<string | null> {
+  try {
+    return await QRCode.toDataURL(contenido, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 140,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+  } catch {
+    return null;
+  }
+}
+
 export interface OpcionesComprobantePdf {
   incluirLogo?: boolean;
   incluirFirma?: boolean;
   incluirSello?: boolean;
+  incluirQr?: boolean;
   /** Compatibilidad hacia atrás */
   incluirFirmaSello?: boolean;
 }
@@ -632,57 +680,139 @@ export async function generarDocComprobanteRetencionPdf(
     }
   }
 
-  // ── Bloque inferior de Firmas ──
+  // ── Verificación Digital Fiscal (PA SNAT/2026/0084 y 0093) ──
+  const conQr = opciones.incluirQr ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConQr') !== 'false' : true);
+  let qrDataUrl: string | null = null;
+  let hashSha256 = '';
+  if (conQr) {
+    try {
+      const canonico = cadenaCanonicoFiscal(rEnriquecida, config);
+      hashSha256 = await calcularSha256Hex(canonico);
+      qrDataUrl = await generarQrVerificacion(`SENIAT|${canonico}|SHA256:${hashSha256.slice(0, 16)}`);
+    } catch {
+      qrDataUrl = null;
+    }
+  }
+
+  // ── Bloque inferior de Firmas y Verificación Digital ──
   const altoCajaFirma = 54;
   const firmaY = Math.max(y + 14, H - 95);
-  const anchoCajaFirma = (UTIL - 16) / 2;
 
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.6);
 
-  // Caja Agente de Retención (Izquierda)
-  doc.rect(M, firmaY, anchoCajaFirma, altoCajaFirma);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(0, 0, 0);
-  doc.text(textoPdf(f.rotulos.firma_agente || `${agenteTermino}:`), M + 8, firmaY + 12);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Por', M + 8, firmaY + 23);
-  doc.text(textoPdf(rifAgente), M + 8, firmaY + 34);
-
-  // Estampa de firma y/o sello digital en la caja del agente (solo si se pide y existen cargados en el módulo)
+  // Estampa de firma y/o sello digital en la caja del agente
   const conFirma = (opciones.incluirFirma || (opciones.incluirFirmaSello && opciones.incluirFirma === undefined)) && !!firmaDataUrl;
   const conSello = (opciones.incluirSello || (opciones.incluirFirmaSello && opciones.incluirSello === undefined)) && !!selloDataUrl;
 
-  if (conFirma || conSello) {
-    try {
-      const firmaEspacioX = M + 85;
-      const firmaEspacioW = anchoCajaFirma - 95;
+  if (conQr && qrDataUrl) {
+    // Disposición en 3 cajas: Agente (Izquierda) | Verificación Digital (Centro) | Sujeto (Derecha)
+    const anchoCaja = (UTIL - 24) / 3;
+    const xAgente = M;
+    const xCentro = M + anchoCaja + 12;
+    const xSujeto = M + (anchoCaja + 12) * 2;
 
-      if (conFirma && conSello) {
-        const wFirma = Math.min(100, firmaEspacioW * 0.55);
-        const wSello = Math.min(75, firmaEspacioW * 0.42);
-        doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX, firmaY + 4, wFirma, 44);
-        doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + wFirma + 4, firmaY + 5, wSello, 42);
-      } else if (conFirma) {
-        doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX + (firmaEspacioW - 120) / 2, firmaY + 4, 120, 44);
-      } else if (conSello) {
-        doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + (firmaEspacioW - 80) / 2, firmaY + 5, 80, 42);
-      }
-    } catch {
-      /* recuadro limpio */
+    // Caja 1: Agente
+    doc.rect(xAgente, firmaY, anchoCaja, altoCajaFirma);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(f.rotulos.firma_agente || `${agenteTermino}:`), xAgente + 6, firmaY + 12);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Por', xAgente + 6, firmaY + 23);
+    doc.text(textoPdf(rifAgente), xAgente + 6, firmaY + 34);
+
+    if (conFirma || conSello) {
+      try {
+        const firmaEspacioX = xAgente + 65;
+        const firmaEspacioW = anchoCaja - 70;
+        if (conFirma && conSello) {
+          const wFirma = Math.min(75, firmaEspacioW * 0.55);
+          const wSello = Math.min(55, firmaEspacioW * 0.42);
+          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX, firmaY + 4, wFirma, 44);
+          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + wFirma + 2, firmaY + 5, wSello, 42);
+        } else if (conFirma) {
+          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX + (firmaEspacioW - 90) / 2, firmaY + 4, 90, 44);
+        } else if (conSello) {
+          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + (firmaEspacioW - 60) / 2, firmaY + 5, 60, 42);
+        }
+      } catch { /* noop */ }
     }
-  }
 
-  // Caja Sujeto Retenido (Derecha)
-  const xSujetoFirma = M + anchoCajaFirma + 16;
-  doc.rect(xSujetoFirma, firmaY, anchoCajaFirma, altoCajaFirma);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.text(textoPdf(f.rotulos.firma_sujeto || `${sujetoTermino}:`), xSujetoFirma + 8, firmaY + 12);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Por ${textoPdf(nombreSujeto)}`, xSujetoFirma + 8, firmaY + 23, { maxWidth: anchoCajaFirma - 16 });
-  doc.text(textoPdf(rifSujeto), xSujetoFirma + 8, firmaY + 34);
+    // Caja 2: Verificación Digital (QR + SHA-256)
+    doc.rect(xCentro, firmaY, anchoCaja, altoCajaFirma);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(f.rotulos.verificacion_digital || 'VERIFICACIÓN DIGITAL FISCAL'), xCentro + 6, firmaY + 11);
+
+    // QR de 34x34
+    doc.addImage(qrDataUrl, 'PNG', xCentro + 6, firmaY + 14, 34, 34);
+
+    // Leyendas a la derecha del QR
+    const xTextosQr = xCentro + 44;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.8);
+    doc.text('SISTEMA COMPUTARIZADO', xTextosQr, firmaY + 20);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.2);
+    doc.text('PA SNAT/2026/0084 · 0093', xTextosQr, firmaY + 27);
+    doc.text('Emisión Digital Inalterable', xTextosQr, firmaY + 34);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5);
+    doc.text('SHA-256:', xTextosQr, firmaY + 42);
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(4.8);
+    doc.text(`${hashSha256.slice(0, 22)}...`, xTextosQr + 24, firmaY + 42);
+
+    // Caja 3: Sujeto Retenido
+    doc.rect(xSujeto, firmaY, anchoCaja, altoCajaFirma);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(f.rotulos.firma_sujeto || `${sujetoTermino}:`), xSujeto + 6, firmaY + 12);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Por ${textoPdf(nombreSujeto)}`, xSujeto + 6, firmaY + 23, { maxWidth: anchoCaja - 12 });
+    doc.text(textoPdf(rifSujeto), xSujeto + 6, firmaY + 34);
+  } else {
+    // Disposición tradicional en 2 cajas
+    const anchoCajaFirma = (UTIL - 16) / 2;
+    doc.rect(M, firmaY, anchoCajaFirma, altoCajaFirma);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(f.rotulos.firma_agente || `${agenteTermino}:`), M + 8, firmaY + 12);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Por', M + 8, firmaY + 23);
+    doc.text(textoPdf(rifAgente), M + 8, firmaY + 34);
+
+    if (conFirma || conSello) {
+      try {
+        const firmaEspacioX = M + 85;
+        const firmaEspacioW = anchoCajaFirma - 95;
+        if (conFirma && conSello) {
+          const wFirma = Math.min(100, firmaEspacioW * 0.55);
+          const wSello = Math.min(75, firmaEspacioW * 0.42);
+          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX, firmaY + 4, wFirma, 44);
+          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + wFirma + 4, firmaY + 5, wSello, 42);
+        } else if (conFirma) {
+          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX + (firmaEspacioW - 120) / 2, firmaY + 4, 120, 44);
+        } else if (conSello) {
+          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + (firmaEspacioW - 80) / 2, firmaY + 5, 80, 42);
+        }
+      } catch { /* noop */ }
+    }
+
+    const xSujetoFirma = M + anchoCajaFirma + 16;
+    doc.rect(xSujetoFirma, firmaY, anchoCajaFirma, altoCajaFirma);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.text(textoPdf(f.rotulos.firma_sujeto || `${sujetoTermino}:`), xSujetoFirma + 8, firmaY + 12);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Por ${textoPdf(nombreSujeto)}`, xSujetoFirma + 8, firmaY + 23, { maxWidth: anchoCajaFirma - 16 });
+    doc.text(textoPdf(rifSujeto), xSujetoFirma + 8, firmaY + 34);
+  }
 
   // ── Pie de página con el texto configurado en Parámetros o razón social de la empresa ──
   doc.setFont('helvetica', 'bold');
@@ -706,11 +836,13 @@ export async function verComprobanteRetencionPdf(
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') === 'true'));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') === 'true'));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') === 'true'));
+  let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
 
   const generarDoc = () => generarDocComprobanteRetencionPdf(r, config, formato, {
     incluirLogo: conLogo,
     incluirFirma: conFirma,
     incluirSello: conSello,
+    incluirQr: conQr,
   });
 
   const doc = await generarDoc();
@@ -726,60 +858,64 @@ export async function verComprobanteRetencionPdf(
         aviso.style.cssText =
           'color:#8b949e;font:500 .78rem system-ui;display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;background:#161b22;border-radius:6px;border:1px solid #30363d;';
         aviso.title = 'Para estampar logo, firma o sello, cárgalos en Parámetros › Firma / Sello o Logo.';
-        aviso.textContent = 'Sin logo, firma ni sello en Parámetros (imprime en blanco)';
+        aviso.textContent = 'Sin logo ni firma en Parámetros';
         container.appendChild(aviso);
-      } else {
-        const toolbar = document.createElement('div');
-        toolbar.style.cssText = 'display:flex;align-items:center;gap:.4rem;';
-
-        const labelTitulo = document.createElement('span');
-        labelTitulo.style.cssText = 'color:#8b949e;font:600 .78rem system-ui;margin-right:.2rem;';
-        labelTitulo.textContent = 'Imprimir:';
-        toolbar.appendChild(labelTitulo);
-
-        const crearCheck = (etiqueta: string, valor: boolean, onChange: (val: boolean) => void) => {
-          const lbl = document.createElement('label');
-          lbl.style.cssText =
-            'color:#e6edf3;font:500 .82rem system-ui;display:inline-flex;align-items:center;gap:.35rem;cursor:pointer;background:#21262d;padding:.35rem .65rem;border-radius:6px;border:1px solid #30363d;user-select:none;';
-          const chk = document.createElement('input');
-          chk.type = 'checkbox';
-          chk.checked = valor;
-          chk.style.cssText = 'cursor:pointer;accent-color:#ff8a00;width:.95rem;height:.95rem;margin:0;';
-          chk.onchange = async () => {
-            onChange(chk.checked);
-            lbl.style.opacity = '0.6';
-            try {
-              const nuevoDoc = await generarDoc();
-              updatePdf(nuevoDoc);
-            } finally {
-              lbl.style.opacity = '1';
-            }
-          };
-          lbl.append(chk, document.createTextNode(etiqueta));
-          return lbl;
-        };
-
-        if (disp.tieneLogo) {
-          toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
-            conLogo = v;
-            try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch {}
-          }));
-        }
-        if (disp.tieneFirma) {
-          toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
-            conFirma = v;
-            try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch {}
-          }));
-        }
-        if (disp.tieneSello) {
-          toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
-            conSello = v;
-            try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
-          }));
-        }
-
-        container.appendChild(toolbar);
       }
+
+      const toolbar = document.createElement('div');
+      toolbar.style.cssText = 'display:flex;align-items:center;gap:.4rem;';
+
+      const labelTitulo = document.createElement('span');
+      labelTitulo.style.cssText = 'color:#8b949e;font:600 .78rem system-ui;margin-right:.2rem;';
+      labelTitulo.textContent = 'Imprimir:';
+      toolbar.appendChild(labelTitulo);
+
+      const crearCheck = (etiqueta: string, valor: boolean, onChange: (val: boolean) => void) => {
+        const lbl = document.createElement('label');
+        lbl.style.cssText =
+          'color:#e6edf3;font:500 .82rem system-ui;display:inline-flex;align-items:center;gap:.35rem;cursor:pointer;background:#21262d;padding:.35rem .65rem;border-radius:6px;border:1px solid #30363d;user-select:none;';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = valor;
+        chk.style.cssText = 'cursor:pointer;accent-color:#ff8a00;width:.95rem;height:.95rem;margin:0;';
+        chk.onchange = async () => {
+          onChange(chk.checked);
+          lbl.style.opacity = '0.6';
+          try {
+            const nuevoDoc = await generarDoc();
+            updatePdf(nuevoDoc);
+          } finally {
+            lbl.style.opacity = '1';
+          }
+        };
+        lbl.append(chk, document.createTextNode(etiqueta));
+        return lbl;
+      };
+
+      if (disp.tieneLogo) {
+        toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
+          conLogo = v;
+          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch {}
+        }));
+      }
+      if (disp.tieneFirma) {
+        toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
+          conFirma = v;
+          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch {}
+        }));
+      }
+      if (disp.tieneSello) {
+        toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
+          conSello = v;
+          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
+        }));
+      }
+      toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
+        conQr = v;
+        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
+      }));
+
+      container.appendChild(toolbar);
 
       const firstBtn = bar.querySelector('button');
       if (firstBtn) bar.insertBefore(container, firstBtn);

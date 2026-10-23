@@ -26,6 +26,7 @@ export const ROTULOS_FABRICA: Record<string, string> = {
   total: 'TOTAL RETENIDO',
   firma_agente: 'Firma y sello del agente de retencion',
   firma_sujeto: 'Recibido por el sujeto retenido',
+  verificacion_digital: 'VERIFICACION DIGITAL FISCAL',
 };
 
 /** Cómo se llama cada rótulo en la pantalla de Parámetros. */
@@ -33,6 +34,7 @@ export const NOMBRE_ROTULO: Record<string, string> = {
   n_comprobante: 'Recuadro del N° de comprobante', periodo: 'Recuadro del período', fecha_emision: 'Recuadro de la fecha de emisión',
   agente: 'Columna del agente', sujeto: 'Columna del sujeto retenido', total: 'Total retenido',
   firma_agente: 'Firma del agente', firma_sujeto: 'Firma del sujeto retenido',
+  verificacion_digital: 'Caja de verificación digital (QR y Hash)',
 };
 
 export interface ColumnaFormato { campo: string; rotulo: string; visible: boolean; orden: number; ancho?: number | null }
@@ -75,9 +77,12 @@ export function textosFabrica(tipo: TipoImpuesto): Record<ClaveTexto, string> {
   return { encabezado: base.encabezado, nota_legal: base.nota_legal, pie };
 }
 
+export type SoportePapel = 'hoja_blanca_digital' | 'forma_libre_preimpresa';
+
 /** Lo que una versión guardada trae (todo puede faltar: lo que falta es de fábrica). */
 export interface FormatoParaAplicar {
   orientacion?: Orientacion | null;
+  soportePapel?: SoportePapel | null;
   textos?: Record<string, unknown> | null;
   rotulos?: Record<string, unknown> | null;
   columnas?: unknown[] | null;
@@ -86,6 +91,7 @@ export interface FormatoParaAplicar {
 
 export interface FormatoAplicado {
   orientacion: Orientacion;
+  soportePapel: SoportePapel;
   textos: Record<ClaveTexto, string>;
   rotulos: Record<string, string>;
   /** Solo las visibles, en su orden. */
@@ -99,7 +105,7 @@ export function aplicarFormato(tipo: TipoImpuesto, f: FormatoParaAplicar | null 
   const fabricaCols = columnasFabrica(tipo);
   const fabricaTextos = textosFabrica(tipo);
   if (!f || f.deFabrica) {
-    return { orientacion: 'horizontal', textos: fabricaTextos, rotulos: { ...ROTULOS_FABRICA }, columnas: fabricaCols };
+    return { orientacion: 'horizontal', soportePapel: 'hoja_blanca_digital', textos: fabricaTextos, rotulos: { ...ROTULOS_FABRICA }, columnas: fabricaCols };
   }
   const textos = { ...fabricaTextos };
   for (const k of CLAVES_TEXTO) { const v = textoDe(f.textos?.[k]); if (v != null) textos[k] = v; }
@@ -123,7 +129,13 @@ export function aplicarFormato(tipo: TipoImpuesto, f: FormatoParaAplicar | null 
     })
     .filter((c) => c.visible)
     .sort((a, b) => a.orden - b.orden);
-  return { orientacion: f.orientacion === 'vertical' ? 'vertical' : 'horizontal', textos, rotulos, columnas: columnas.length ? columnas : fabricaCols };
+  return {
+    orientacion: f.orientacion === 'vertical' ? 'vertical' : 'horizontal',
+    soportePapel: f.soportePapel === 'forma_libre_preimpresa' ? 'forma_libre_preimpresa' : 'hoja_blanca_digital',
+    textos,
+    rotulos,
+    columnas: columnas.length ? columnas : fabricaCols,
+  };
 }
 
 /** Lo que falta en una versión antes de guardarla; null si está bien. */

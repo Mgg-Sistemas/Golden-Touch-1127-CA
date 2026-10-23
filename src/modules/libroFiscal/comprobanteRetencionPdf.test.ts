@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
-import { lineaEquivalenteBs, partesComprobante } from './comprobanteRetencionPdf';
+import {
+  cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, lineaEquivalenteBs, partesComprobante,
+} from './comprobanteRetencionPdf';
 
 // Datos inventados: ninguna empresa, proveedor ni cliente real.
 const empresa: ConfigRetencion = {
@@ -92,4 +94,31 @@ describe('dirección fiscal del sujeto retenido', () => {
     expect(p.sujeto).toContain('Zona Industrial 321, Galpón 5, Puerto Ordaz');
   });
 });
+
+describe('verificación digital fiscal (PA 0084 / 0093)', () => {
+  it('genera la cadena canónica con los datos formales de la retención', () => {
+    const c = cadenaCanonicoFiscal(retencion({
+      tipo: 'iva',
+      facturaNumero: '0001',
+      baseImponible: 1000,
+      montoRetenido: 120,
+      contraparteRif: 'J-12345678-9',
+    }), empresa);
+    expect(c).toContain('SENIAT|RET|IVA|J-00000000-0|20261000000001|2026-10-05|J-12345678-9|0001|Bs|1000.00|120.00');
+  });
+
+  it('calcula el hash SHA-256 de forma determinista y con 64 caracteres hex', async () => {
+    const hash = await calcularSha256Hex('SENIAT|PRUEBA');
+    expect(hash).toHaveLength(64);
+    expect(/^[0-9a-f]+$/.test(hash)).toBe(true);
+    const hash2 = await calcularSha256Hex('SENIAT|PRUEBA');
+    expect(hash).toBe(hash2);
+  });
+
+  it('genera un DataURL de código QR válido', async () => {
+    const qr = await generarQrVerificacion('SENIAT|PRUEBA');
+    expect(qr).toMatch(/^data:image\/png;base64,/);
+  });
+});
+
 
