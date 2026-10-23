@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  identidadEmpresa, registrarEmpresas, empresasRrhh, razonSocialTexto, ciudadCorta, claveEmpresaValida, etiquetaNomina, IDENTIDAD_GT,
+  identidadEmpresa, registrarEmpresas, empresasRrhh, razonSocialTexto, ciudadCorta, claveEmpresaValida, etiquetaNomina, IDENTIDAD_GT, monedaPagoValida,
 } from './empresa';
 
 describe('empresas de RRHH creadas por el usuario (14/10/2026)', () => {
@@ -35,5 +35,22 @@ describe('empresas de RRHH creadas por el usuario (14/10/2026)', () => {
     expect(claveEmpresaValida('ABCDEFGHI')).toBe(false);
     expect(etiquetaNomina('SERV')).toBe('Nómina SERV');
     expect(etiquetaNomina(null)).toBe('Nómina GT');
+  });
+});
+
+describe('moneda de pago de la empresa (23/10/2026)', () => {
+  it('GT y MTO pagan en dólares; una empresa con BRL lo dice; lo desconocido es dólares', () => {
+    expect(IDENTIDAD_GT.monedaPago).toBe('USD');
+    registrarEmpresas([
+      { clave: 'GT', nombre: 'GOLDEN TOUCH 1127 C.A.', rif: null, domicilio: null, ciudad: null, email: null, whatsapp: null, logo_path: null, icono: '🏢', activa: true, orden: 1 },
+      { clave: 'BRA', nombre: 'MINERAÇÃO BRASIL', rif: 'J-9', domicilio: null, ciudad: null, email: null, whatsapp: null, logo_path: null, icono: '🏭', activa: true, orden: 4, moneda_pago: 'BRL' },
+      { clave: 'RAR', nombre: 'RARA, C.A.', rif: null, domicilio: null, ciudad: null, email: null, whatsapp: null, logo_path: null, icono: '🏢', activa: true, orden: 5, moneda_pago: 'EUR' },
+    ]);
+    expect(identidadEmpresa('BRA').monedaPago).toBe('BRL');
+    expect(identidadEmpresa('GT').monedaPago).toBe('USD');
+    expect(identidadEmpresa('RAR').monedaPago).toBe('USD');
+    expect(monedaPagoValida('BRL')).toBe('BRL');
+    expect(monedaPagoValida(null)).toBe('USD');
+    expect(monedaPagoValida('USD')).toBe('USD');
   });
 });

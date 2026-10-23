@@ -79,7 +79,7 @@ export type MonedaCaja = 'Bs' | 'USD' | 'USDT' | 'COP';
 export type CuentaCaja = 'general' | 'juridica' | 'personal';
 
 /** Moneda con tasa de cambio referenciada (BCV/Binance/TRM). */
-export type MonedaTasa = 'USD' | 'EUR' | 'USDT' | 'COP';
+export type MonedaTasa = 'USD' | 'EUR' | 'USDT' | 'COP' | 'BRL';
 
 /** Saldo de una caja por (cuenta, moneda) con su tasa promedio ponderada.
  *  `moneda` es texto libre: además de las base (Bs/USD/USDT/COP) admite
@@ -1599,6 +1599,10 @@ export interface NominaPeriodo {
   sueldo_pct?: number | null;
   /** Tasa Bs/$ de CIERRE de la quincena: con esta se arma el recibo en bolívares. */
   tasa_bcv?: number | null;
+  /** R$ por 1 USD usado al cargar la nómina (solo empresas con moneda de pago Real brasileño). */
+  tasa_brl?: number | null;
+  /** Fecha de esa tasa del Real. */
+  tasa_brl_fecha?: string | null;
   estado: 'cargada' | 'en_pago' | 'pagada';
   total_usd: number;
   notas?: string | null;

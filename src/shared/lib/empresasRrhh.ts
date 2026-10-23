@@ -28,7 +28,7 @@ export function cargarEmpresasRrhh(forzar = false): Promise<void> {
   if (cargando && !forzar) return cargando;
   cargando = (async () => {
     const { data, error } = await supabase.from('rrhh_empresas')
-      .select('clave, nombre, rif, domicilio, ciudad, email, whatsapp, logo_path, icono, activa, orden')
+      .select('clave, nombre, rif, domicilio, ciudad, email, whatsapp, logo_path, icono, activa, orden, moneda_pago')
       .order('orden').order('clave');
     if (error) throw error;
     registrarEmpresas(((data ?? []) as FilaEmpresaRrhh[]).map((f) => ({ ...f, logo_url: urlLogoEmpresa(f.logo_path) })));

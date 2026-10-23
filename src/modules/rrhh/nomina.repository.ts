@@ -154,6 +154,9 @@ export interface CargarNominaInput {
   periodo_hasta?: string | null;
   dias_base?: number;            // 15
   tasa_bcv?: number | null;
+  /** R$ por 1 USD (empresas con moneda de pago Real brasileño) y la fecha de esa tasa. */
+  tasa_brl?: number | null;
+  tasa_brl_fecha?: string | null;
   notas?: string | null;
   renglones: RenglonInput[];
   actorEmail: string;
@@ -186,6 +189,8 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
     dias_base: input.dias_base ?? 15,
     sueldo_pct: pctValido(input.sueldo_pct),
     tasa_bcv: input.tasa_bcv ?? null,
+    tasa_brl: input.tasa_brl && input.tasa_brl > 0 ? input.tasa_brl : null,
+    tasa_brl_fecha: input.tasa_brl && input.tasa_brl > 0 ? (input.tasa_brl_fecha ?? null) : null,
     estado: 'cargada',
     total_usd: total,
     notas: input.notas?.trim() || null,

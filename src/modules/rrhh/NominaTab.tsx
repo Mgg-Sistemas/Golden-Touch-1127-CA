@@ -16,11 +16,13 @@ import { notify } from '@/shared/lib/notify';
 import { money, date, dateTime, redondearArriba5 } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal, AnticipoPrestamo, NominaRenglon, NominaPeriodo, DeduccionRef } from '@/shared/lib/types';
-import { getTasaHoy, round2 } from '../tesoreria/tasas.repository';
+import { aReal, getTasaBrl, getTasaHoy, refrescarBrl, round2 } from '../tesoreria/tasas.repository';
+import { identidadEmpresa } from '@/shared/lib/empresa';
+import { ConversorReal } from './ConversorReal';
 import { listPersonal, cambiarEstadoPersonal } from './personal.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { listAnticiposActivos } from './anticipos.repository';
-import { descargarNominaReciboPdf, type TipoRecibo } from './nominaReciboPdf';
+import { descargarNominaReciboPdf, reales, tasaRealTexto, type TipoRecibo } from './nominaReciboPdf';
 
 /** Qué recibos sacar de cada persona: los dos (sueldo en Bs + bonificación) o uno solo. */
 type CualesRecibos = 'ambos' | TipoRecibo;
@@ -608,11 +610,31 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   const [sueldoPct, setSueldoPct] = useState(SUELDO_PCT_DEFECTO);
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
+  // Empresas cuya moneda de pago es el Real brasileño (23/10/2026): se trae la tasa R$/$ del día,
+  // hay un conversor $ ↔ R$ y los recibos de bonificación salen en $ y en R$.
+  const esBrl = identidadEmpresa(empresa).monedaPago === 'BRL';
+  const [tasaBrl, setTasaBrl] = useState(0);
+  const [tasaBrlFecha, setTasaBrlFecha] = useState<string | null>(null);
+  const [actualizandoBrl, setActualizandoBrl] = useState(false);
   const [notas, setNotas] = useState('');
   const [anticipos, setAnticipos] = useState<AnticipoPrestamo[]>([]);
   const [filas, setFilas] = useState<FilaUI[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!esBrl) return;
+    getTasaBrl().then((t) => { if (t.tasa != null) setTasaBrl(t.tasa); setTasaBrlFecha(t.fecha); }).catch(() => {});
+  }, [esBrl]);
+  async function actualizarTasaBrl() {
+    setActualizandoBrl(true);
+    try {
+      const t = await refrescarBrl();
+      setTasaBrl(t.tasa); setTasaBrlFecha(t.fecha);
+      toast(`Tasa del Real actualizada: 1 $ = R$ ${tasaRealTexto(t.tasa)}`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo traer la tasa del Real', 'error'); }
+    finally { setActualizandoBrl(false); }
+  }
 
   useEffect(() => {
     getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); }).catch(() => {});
@@ -728,6 +750,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
     if (!incluidas.length) { setError('Incluye al menos un trabajador.'); return; }
     if (!periodoDesde || !periodoHasta) { setError('Indica el período que cubre la nómina (desde y hasta).'); return; }
     if (diasPeriodo <= 0) { setError('El «hasta» del período es anterior al «desde».'); return; }
+    if (esBrl && !(tasaBrl > 0)) { setError('Indica la tasa del Real brasileño (R$ por $): los recibos de esta empresa salen en $ y en R$.'); return; }
     setSaving(true);
     try {
       const renglones: RenglonInput[] = incluidas.map((f) => {
@@ -750,7 +773,8 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
         nombre,
         sueldo_pct: sueldoPct,
         periodo_desde: periodoDesde, periodo_hasta: periodoHasta, dias_base: diasBase,
-        tasa_bcv: tasa || null, notas: notas || null, renglones, actorEmail: actor, actorName,
+        tasa_bcv: tasa || null, tasa_brl: esBrl ? tasaBrl : null, tasa_brl_fecha: esBrl ? tasaBrlFecha : null,
+        notas: notas || null, renglones, actorEmail: actor, actorName,
       });
       notify(`${per.nombre || 'Nómina'} (${per.codigo}) cargada · ${renglones.length} persona(s) · ${money(per.total_usd)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
@@ -837,11 +861,23 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
               {tasaFecha ? 'Es la del BCV; puedes ajustarla.' : 'No se pudo traer la del BCV: escribila.'} Se aplica a todos.
             </small>
           </div>
+          {esBrl && (
+            <div className="form-row" style={{ minWidth: 190 }}>
+              <label style={{ fontSize: '.72rem' }}>Tasa Real (R$/$){tasaBrlFecha ? ` · ${date(tasaBrlFecha)}` : ''}</label>
+              <input className="input mono" name="cn-tasa-brl" type="number" min={0} step="any" value={tasaBrl || ''} onChange={(e) => setTasaBrl(Number(e.target.value) || 0)} placeholder="R$ por 1 $" />
+              <small className="muted" style={{ fontSize: '.68rem' }}>
+                {tasaBrl > 0 ? 'Del día; puedes ajustarla.' : 'No se pudo traer: escríbela.'} Queda en la nómina y en los recibos.
+              </small>
+            </div>
+          )}
           <div className="form-row" style={{ flex: 1, minWidth: 180 }}>
             <label style={{ fontSize: '.72rem' }}>Notas (opcional)</label>
             <input className="input" name="cn-notas" defaultValue={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Comentario de la nómina" />
           </div>
         </div>
+        {esBrl && (
+          <ConversorReal tasa={tasaBrl} tasaFecha={tasaBrlFecha} onTasa={setTasaBrl} onActualizar={() => void actualizarTasaBrl()} actualizando={actualizandoBrl} />
+        )}
         <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
           Marca los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). <strong>Los préstamos y anticipos se descuentan del bono en $</strong>, no del sueldo del recibo; si el bono no alcanza, se descuenta hasta donde llega y el resto queda en el saldo. No se descuenta seguro social (IVSS/FAOV).
         </small>
@@ -880,10 +916,11 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <th>Deducciones (anticipos/préstamos)</th>
             <th style={{ textAlign: 'right' }}>Neto USD</th>
             <th style={{ textAlign: 'right' }}>≈ Bs</th>
+            {esBrl && <th style={{ textAlign: 'right' }}>≈ R$</th>}
           </tr></thead>
           <tbody>
-            {!filas.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agrega trabajadores en la pestaña Personal.</td></tr>}
-            {filas.length > 0 && !visibles.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Nadie coincide con «{buscar}».</td></tr>}
+            {!filas.length && <tr><td colSpan={esBrl ? 10 : 9} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agrega trabajadores en la pestaña Personal.</td></tr>}
+            {filas.length > 0 && !visibles.length && <tr><td colSpan={esBrl ? 10 : 9} className="muted" style={{ textAlign: 'center' }}>Nadie coincide con «{buscar}».</td></tr>}
             {visibles.map((f) => {
               const { deducciones, salario_bruto, neto_usd, deduc_anticipos, deduc_prestamos, bono_quincena_usd, bono_neto_usd, deduccion_sin_cubrir } = calcFila(f);
               const ants = anticiposDe(f.persona.id);
@@ -945,6 +982,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
                     )}
                   </td>
                   <td className="mono muted" style={{ textAlign: 'right' }}>{tasa > 0 ? bs(round2(neto_usd * tasa)) : '—'}</td>
+                  {esBrl && <td className="mono muted" style={{ textAlign: 'right' }}>{tasaBrl > 0 ? reales(aReal(neto_usd, tasaBrl)) : '—'}</td>}
                 </tr>
               );
             })}
@@ -953,6 +991,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL NETO ({incluidas.length} persona/s{buscar.trim() ? ' · incluye a quienes no se ven con el filtro' : ''})</td>
             <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{money(totalNeto)}</td>
             <td className="mono muted" style={{ textAlign: 'right' }}>{tasa > 0 ? bs(round2(totalNeto * tasa)) : '—'}</td>
+            {esBrl && <td className="mono muted" style={{ textAlign: 'right' }}>{tasaBrl > 0 ? reales(aReal(totalNeto, tasaBrl)) : '—'}</td>}
           </tr></tfoot>
         </table>
       </div>
@@ -1087,6 +1126,7 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
         {periodo.periodo_desde ? `${periodo.periodo_hasta && periodo.periodo_hasta !== periodo.periodo_desde ? `${date(periodo.periodo_desde)} → ${date(periodo.periodo_hasta)}` : date(periodo.periodo_desde)} · ` : ''}
         {periodo.pagados}/{periodo.total_renglones} pagados · Total <strong className="mono">{money(periodo.total_usd)}</strong>
         {periodo.tasa_bcv ? ` · BCV ${bs(periodo.tasa_bcv)}` : ''}
+        {periodo.tasa_brl ? ` · Real: 1 $ = R$ ${tasaRealTexto(periodo.tasa_brl)}` : ''}
       </div>
       <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.8rem' }}>

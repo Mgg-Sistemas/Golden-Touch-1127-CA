@@ -16,6 +16,11 @@
 
    Cada uno SOLO en su moneda (15/10/2026): el 1 sin nada en $, el 2 sin nada en
    Bs (sin tasa ni el cuadro del total de la quincena, que mezclaba las dos).
+
+   EMPRESAS CON MONEDA DE PAGO REAL BRASILEÑO (23/10/2026): si la nómina se cargó
+   con la tasa del Real (`tasa_brl`), el recibo 2 sale en $ Y en R$, con las dos
+   columnas, el neto en las dos monedas y la tasa de cambio usada (1 $ = R$ x).
+   El recibo 1 (Bs) no cambia.
    ============================================================ */
 import { loadLogoPdfEmpresa, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { identidadEmpresa } from '@/shared/lib/empresa';
@@ -28,6 +33,14 @@ function usd(n: number | null | undefined): string {
 }
 function bsStr(n: number | null | undefined): string {
   return 'Bs ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+/** R$ con coma decimal: «R$ 100,86». */
+export function reales(n: number | null | undefined): string {
+  return 'R$ ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+/** La tasa con sus 4 decimales: «5,0428». */
+export function tasaRealTexto(t: number): string {
+  return Number(t).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
 function labelMotivo(tipo?: string | null): string {
   switch (tipo) {
@@ -44,7 +57,7 @@ export const TIPOS_RECIBO: TipoRecibo[] = ['sueldo', 'bono'];
 
 export interface ReciboMeta {
   /** `empresa`: de qué nómina es (GT o MTO) → con qué logo, nombre y RIF sale el recibo. */
-  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'nombre'> & { empresa?: string | null };
+  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'nombre'> & Partial<Pick<NominaPeriodo, 'tasa_brl' | 'tasa_brl_fecha'>> & { empresa?: string | null };
   cedulas?: Record<string, string | null | undefined>;   // personal_id -> cédula
   /** Cuáles recibos imprimir de cada persona (por defecto, los dos). */
   tipos?: TipoRecibo[];
@@ -95,6 +108,16 @@ export interface MontosRecibo {
   bonoBrutoMonto: number;
   bonoNetoMonto: number;
   equivalenteUsd: number;
+  /** Real brasileño: R$ por 1 USD (0 = el recibo no lleva R$). */
+  tasaBrl: number;
+  /** ¿El recibo de bonificación sale también en R$? (pago en $ y la nómina trae tasa del Real) */
+  esReal: boolean;
+  bonoBrl: number;
+  asignacionesBrl: number;
+  prestamosBrl: number;
+  anticiposBrl: number;
+  bonoBrutoBrl: number;
+  bonoNetoBrl: number;
 }
 
 /**
@@ -104,7 +127,7 @@ export interface MontosRecibo {
  * Si se paga en otra moneda (Bs, USDT, EUR), calcula los importes en esa moneda y
  * la conversión en $ al cambio.
  */
-export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null, monedaOverride?: string | null): MontosRecibo {
+export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null, monedaOverride?: string | null, tasaBrlPeriodo?: number | null): MontosRecibo {
   const tasa = Number(r.tasa_bs) || Number(r.tasa_pago) || Number(tasaPeriodo) || 0;
   const enUsd = (bs: number) => (tasa > 0 ? r2(bs / tasa) : 0);
   const diasT = Number(r.dias_trabajados) || 0;
@@ -156,6 +179,18 @@ export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null, mone
     simbolo = '€';
   }
 
+  // Real brasileño: los mismos montos en $ pasados a R$ a la tasa de la nómina. Solo cuando el
+  // pago es en $ (las otras monedas — Bs, USDT, €— no se mezclan con el Real).
+  const tasaBrl = Number(tasaBrlPeriodo) > 0 ? Number(tasaBrlPeriodo) : 0;
+  const esReal = tasaBrl > 0 && !esOtraMoneda;
+  const aBrl = (usdMonto: number) => (esReal ? r2(usdMonto * tasaBrl) : 0);
+  const bonoBrl = aBrl(bonoUsd);
+  const asignacionesBrl = aBrl(asignacionesUsd);
+  const prestamosBrl = aBrl(prestamosUsd);
+  const anticiposBrl = aBrl(anticiposUsd);
+  const bonoBrutoBrl = r2(bonoBrl + asignacionesBrl);
+  const bonoNetoBrl = esReal ? r2(Math.max(0, bonoBrutoBrl - prestamosBrl - anticiposBrl)) : 0;
+
   return {
     tasa, diasT, diasD, sueldoBs, diarioBs: r2(diarioBs), trabajadosBs, descansoBs, netoBs, netoBsEnUsd,
     bonoUsd, asignacionesUsd, prestamosUsd, anticiposUsd, bonoBrutoUsd, bonoNetoUsd,
@@ -170,6 +205,7 @@ export function montosRecibo(r: NominaRenglon, tasaPeriodo?: number | null, mone
     bonoBrutoMonto,
     bonoNetoMonto,
     equivalenteUsd,
+    tasaBrl, esReal, bonoBrl, asignacionesBrl, prestamosBrl, anticiposBrl, bonoBrutoBrl, bonoNetoBrl,
   };
 }
 
@@ -210,7 +246,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const fs = (n: number) => (compacto ? n - 1 : n);
     const gap = (n: number) => (compacto ? Math.round(n * 0.5) : n);
     const esBono = tipo === 'bono';
-    const m = montosRecibo(r, meta.periodo.tasa_bcv, meta.moneda);
+    const m = montosRecibo(r, meta.periodo.tasa_bcv, meta.moneda, meta.periodo.tasa_brl);
     let y = MT;
 
     // Encabezado: logo + empresa + título.
@@ -256,7 +292,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
             ? 'Pago en USDT'
             : m.moneda === 'EUR'
               ? 'Pago en Euros (€)'
-              : 'Pago en divisas ($)')
+              : m.esReal ? 'Pago en divisas ($) y Real brasileño (R$)' : 'Pago en divisas ($)')
       : `Motivo: ${labelMotivo(meta.periodo.tipo)}`;
     doc.text(labelPago, PAGE_W - MARGIN, y, { align: 'right' });
     y += compacto ? 9 : 18;
@@ -284,7 +320,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
                   ? 'Criptoactivo (USDT)'
                   : m.moneda === 'EUR'
                     ? 'Euros (€)'
-                    : 'Divisas ($)',
+                    : m.esReal ? `Divisas ($) · Real brasileño (R$) · 1 $ = R$ ${tasaRealTexto(m.tasaBrl)}` : 'Divisas ($)',
             ]
           : ['Sueldo quincenal', bsStr(m.sueldoBs), 'Sueldo diario', bsStr(m.diarioBs)],
       ],
@@ -300,7 +336,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const der = (texto: string) => ({ content: texto, styles: { halign: 'right' as const } });
     const pctSueldo = Number(r.sueldo_pct);
     const pctBono = Number.isFinite(pctSueldo) && pctSueldo > 0 ? Math.round(100 - pctSueldo) : null;
-    type FootCell = string | { content: string; styles: { halign: 'right' } };
+    type FootCell = string | { content: string; colSpan?: number; styles: { halign: 'right' } };
     let conformidad: string;
 
     if (!esBono) {
@@ -352,8 +388,13 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       const simb = m.simbolo;
       const nPrest = (r.deducciones ?? []).filter((d) => d.tipo === 'prestamo').length;
       const nAnt = (r.deducciones ?? []).filter((d) => d.tipo === 'anticipo').length;
-      const fila = (item: number, concepto: string, monto: number, columna: 'asignacion' | 'deduccion'): string[] =>
-        [String(item), concepto, columna === 'asignacion' ? fmtMontoMoneda(monto, simb) : '', columna === 'deduccion' ? (monto > 0 ? `− ${fmtMontoMoneda(monto, simb)}` : fmtMontoMoneda(0, simb)) : ''];
+      const real = m.esReal;
+      const fila = (item: number, concepto: string, monto: number, columna: 'asignacion' | 'deduccion', montoBrl = 0): string[] => {
+        const base = [String(item), concepto, columna === 'asignacion' ? fmtMontoMoneda(monto, simb) : '', columna === 'deduccion' ? (monto > 0 ? `− ${fmtMontoMoneda(monto, simb)}` : fmtMontoMoneda(0, simb)) : ''];
+        if (!real) return base;
+        return [...base, columna === 'asignacion' ? reales(montoBrl) : '', columna === 'deduccion' ? (montoBrl > 0 ? `− ${reales(montoBrl)}` : reales(0)) : ''];
+      };
+      const descTotalBrl = m.prestamosBrl + m.anticiposBrl;
       const footBono: FootCell[][] = [
         ['', 'TOTALES', der(fmtMontoMoneda(m.bonoBrutoMonto, simb)), der(m.prestamosMonto + m.anticiposMonto > 0 ? `− ${fmtMontoMoneda(m.prestamosMonto + m.anticiposMonto, simb)}` : fmtMontoMoneda(0, simb))],
         ['', `NETO A RECIBIR EN ${m.moneda === 'Bs' ? 'BOLÍVARES' : m.moneda === 'USD' ? 'DIVISAS' : m.moneda}`, der(fmtMontoMoneda(m.bonoNetoMonto, simb)), ''],
@@ -361,27 +402,44 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       if (m.esOtraMoneda) {
         footBono.push(['', 'CONVERSIÓN EN $ AL CAMBIO', der(usd(m.equivalenteUsd)), '']);
       }
+      if (real) {
+        // Las dos monedas en el pie: totales y neto en $ y en R$, y la tasa que los une.
+        footBono[0].push(der(reales(m.bonoBrutoBrl)), der(descTotalBrl > 0 ? `− ${reales(descTotalBrl)}` : reales(0)));
+        footBono[1] = ['', 'NETO A RECIBIR EN DIVISAS ($ y R$)', der(fmtMontoMoneda(m.bonoNetoMonto, simb)), '', der(reales(m.bonoNetoBrl)), ''];
+        const fechaTasa = meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : '';
+        footBono.push(['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(m.tasaBrl)}${fechaTasa}`, colSpan: 4, styles: { halign: 'right' } }]);
+      }
       autoTable(doc, {
         startY: y,
-        head: [['#', 'CONCEPTO', `ASIGNACIÓN ${simb}`, `DESCUENTO ${simb}`]],
+        head: [real
+          ? ['#', 'CONCEPTO', `ASIGNACIÓN ${simb}`, `DESCUENTO ${simb}`, 'ASIGNACIÓN R$', 'DESCUENTO R$']
+          : ['#', 'CONCEPTO', `ASIGNACIÓN ${simb}`, `DESCUENTO ${simb}`]],
         body: [
-          fila(1, pctBono != null ? `Bono de la quincena (${pctBono} % del total acordado)` : 'Bono de la quincena', m.bonoMonto, 'asignacion'),
-          fila(2, 'Asignaciones adicionales', m.asignacionesMonto, 'asignacion'),
-          fila(3, nPrest > 1 ? `Préstamos (${nPrest})` : 'Préstamos', m.prestamosMonto, 'deduccion'),
-          fila(4, nAnt > 1 ? `Anticipos (${nAnt})` : 'Anticipos', m.anticiposMonto, 'deduccion'),
-          fila(5, 'Otros descuentos', 0, 'deduccion'),
+          fila(1, pctBono != null ? `Bono de la quincena (${pctBono} % del total acordado)` : 'Bono de la quincena', m.bonoMonto, 'asignacion', m.bonoBrl),
+          fila(2, 'Asignaciones adicionales', m.asignacionesMonto, 'asignacion', m.asignacionesBrl),
+          fila(3, nPrest > 1 ? `Préstamos (${nPrest})` : 'Préstamos', m.prestamosMonto, 'deduccion', m.prestamosBrl),
+          fila(4, nAnt > 1 ? `Anticipos (${nAnt})` : 'Anticipos', m.anticiposMonto, 'deduccion', m.anticiposBrl),
+          fila(5, 'Otros descuentos', 0, 'deduccion', 0),
         ],
         foot: footBono,
         margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
         theme: 'grid',
-        styles: { fontSize: fs(8.5), cellPadding: pad(3) },
+        styles: { fontSize: fs(real ? 8 : 8.5), cellPadding: pad(3) },
         headStyles: { fillColor: [60, 60, 60], textColor: 255, fontStyle: 'bold', halign: 'center' },
         footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 18, halign: 'center' },
-          2: { halign: 'right', cellWidth: 104 },
-          3: { halign: 'right', cellWidth: 104 },
-        },
+        columnStyles: real
+          ? {
+              0: { cellWidth: 16, halign: 'center' },
+              2: { halign: 'right', cellWidth: 68 },
+              3: { halign: 'right', cellWidth: 68 },
+              4: { halign: 'right', cellWidth: 74 },
+              5: { halign: 'right', cellWidth: 74 },
+            }
+          : {
+              0: { cellWidth: 18, halign: 'center' },
+              2: { halign: 'right', cellWidth: 104 },
+              3: { halign: 'right', cellWidth: 104 },
+            },
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(6);
@@ -402,7 +460,9 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         m.prestamosMonto > 0 ? `${fmtMontoMoneda(m.prestamosMonto, simb)} de préstamos` : null,
         m.anticiposMonto > 0 ? `${fmtMontoMoneda(m.anticiposMonto, simb)} de anticipos` : null,
       ].filter(Boolean).join(' y ');
-      const descMoneda = m.esOtraMoneda
+      const descMoneda = m.esReal
+        ? ` en divisas (equivalente a ${reales(m.bonoNetoBrl)} en Real brasileño, a la tasa de cambio de 1 $ = R$ ${tasaRealTexto(m.tasaBrl)})`
+        : m.esOtraMoneda
         ? ` en ${m.moneda === 'Bs' ? 'bolívares' : m.moneda} (conversión al cambio: ${usd(m.equivalenteUsd)}${m.moneda === 'Bs' && m.tasa > 0 ? ` a tasa Bs ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : ''})`
         : ' en divisas';
       conformidad = `Certifico haber recibido la cantidad de ${fmtMontoMoneda(m.bonoNetoMonto, simb)}${descMoneda} por concepto de bonificación`
