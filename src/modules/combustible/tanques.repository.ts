@@ -14,6 +14,7 @@ import { planCadenaMedidor, type FilaMedidor } from './cadenaMedidor';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
+import { esBidon, prepararCamposSalidaBidon } from './bidonCombustible';
 import { push } from '@/modules/notificaciones/notif.repository';
 import type {
   CatalogoCombustible,
@@ -219,6 +220,8 @@ export async function eliminarCatalogo(id: string): Promise<void> {
 
 /* ───────────── Tanques ───────────── */
 
+export { esBidon };
+
 export async function listTanques(): Promise<TanqueCombustible[]> {
   const { data, error } = await supabase
     .from('combustible_tanques')
@@ -226,7 +229,18 @@ export async function listTanques(): Promise<TanqueCombustible[]> {
     .order('orden', { ascending: true })
     .order('nombre', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as TanqueCombustible[];
+  const tanques = (data ?? []) as TanqueCombustible[];
+  return tanques.map((t) => {
+    if (esBidon(t.nombre)) {
+      // Regla de BIDONES (23/10/2026): el combustible que entra a un bidón se retira para consumo en campo.
+      // Los bidones no acumulan saldo. Si en la base quedó saldo previo, lo sincronizamos a 0.
+      if (num(t.saldo_litros) > 0 || num(t.saldo_usd) > 0) {
+        void supabase.from('combustible_tanques').update({ saldo_litros: 0, saldo_usd: 0 }).eq('id', t.id);
+      }
+      return { ...t, saldo_litros: 0, saldo_usd: 0 };
+    }
+    return t;
+  });
 }
 
 export interface TanqueInput {
@@ -734,6 +748,24 @@ export async function registrarTraslado(input: {
   if (input.tanqueDestinoId && input.tanqueDestinoId === input.tanqueId) throw new Error('El destino debe ser un tanque distinto.');
   const t = await getTanque(input.tanqueId);
   exigirSaldo(t, litros);
+
+  // Si el destino es un BIDÓN (23/10/2026): el combustible que se traslada o surte hacia
+  // un bidón se retira de inmediato para consumo en mina/campo (generadores, máquinas, etc.).
+  // Se marca y registra directamente como SALIDA (uso) del tanque de origen, sin dejar saldo en el bidón.
+  if (input.tanqueDestinoId) {
+    const destino = await getTanque(input.tanqueDestinoId);
+    if (esBidon(destino.nombre)) {
+      const camposBidon = prepararCamposSalidaBidon(t.nombre, destino.nombre, input.campos);
+      return await registrarUso({
+        tanqueId: input.tanqueId,
+        litros,
+        campos: camposBidon,
+        actor: input.actor,
+        actorName: input.actorName,
+      });
+    }
+  }
+
   // El margen es el del tanque que RECIBE. Se revisa antes de mover nada.
   const merma = input.tanqueDestinoId ? await prepararMerma(input.tanqueDestinoId, litros, input.recepcion) : null;
   const tasa = num(t.tasa_usd_litro);
@@ -995,6 +1027,12 @@ export async function recomputarTanque(tanqueId: string): Promise<void> {
   // la tasa de una compra o agregar una nueva promedia entre lo que venía y lo nuevo,
   // ponderado por litros — y el resultado queda entre ambas tasas.
   const t = await getTanque(tanqueId);
+  if (esBidon(t.nombre)) {
+    // Regla de BIDONES (23/10/2026): los bidones no acumulan saldo; el combustible
+    // que se les entrega se retira directamente para consumo en mina / campo.
+    await aplicarSaldoTanque(tanqueId, 0, 0, t.tasa_usd_litro || 0);
+    return;
+  }
   const movs = await listMovimientosTanque(tanqueId); // ya en orden cronológico (fecha + hora)
   let saldoL = num(t.saldo_inicial_litros);
   let saldoU = num(t.saldo_inicial_usd);
