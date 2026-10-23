@@ -54,7 +54,15 @@ export interface IdentidadEmpresa {
   orden: number;
   /** ¿Tiene logo propio? (las empresas nuevas sin logo usan el de Golden Touch). */
   logoPropio: boolean;
+  /** Moneda de los recibos de pago: 'USD' (recibos como siempre) o 'BRL' (en $ y en Real brasileño, con la tasa). */
+  monedaPago: MonedaPagoEmpresa;
 }
+
+/** Monedas de pago que una empresa puede manejar en sus recibos. */
+export type MonedaPagoEmpresa = 'USD' | 'BRL';
+
+/** Lo que viene de la base → una moneda válida (cualquier otra cosa es dólares). */
+export const monedaPagoValida = (v: unknown): MonedaPagoEmpresa => (v === 'BRL' ? 'BRL' : 'USD');
 
 export const IDENTIDAD_GT: IdentidadEmpresa = {
   clave: 'GT',
@@ -71,6 +79,7 @@ export const IDENTIDAD_GT: IdentidadEmpresa = {
   activa: true,
   orden: 1,
   logoPropio: true,
+  monedaPago: 'USD',
 };
 
 /** Datos del RIF de MTO (SENIAT, actualizado el 20/08/2026). El contacto es el del grupo. */
@@ -89,6 +98,7 @@ export const IDENTIDAD_MTO: IdentidadEmpresa = {
   activa: true,
   orden: 2,
   logoPropio: true,
+  monedaPago: 'USD',
 };
 
 /* ───────── Empresas creadas en RRHH (14/10/2026) ─────────
@@ -111,6 +121,8 @@ export interface FilaEmpresaRrhh {
   icono: string | null;
   activa: boolean;
   orden: number;
+  /** 'USD' o 'BRL'. Falta = USD. */
+  moneda_pago?: string | null;
 }
 
 const BASE: Record<string, IdentidadEmpresa> = { GT: IDENTIDAD_GT, MTO: IDENTIDAD_MTO };
@@ -139,6 +151,7 @@ export function identidadDeFila(f: FilaEmpresaRrhh): IdentidadEmpresa {
     activa: f.activa,
     orden: f.orden,
     logoPropio: !!logo || !!base,
+    monedaPago: monedaPagoValida(f.moneda_pago),
   };
 }
 

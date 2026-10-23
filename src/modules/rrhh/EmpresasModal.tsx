@@ -31,13 +31,13 @@ export function EmpresasModal({ conteo, actor, onClose, onElegir }: {
       ) : (
         <div style={{ display: 'grid', gap: '.7rem' }}>
           <p className="muted" style={{ margin: 0, fontSize: '.84rem' }}>
-            Cada empresa es una nómina aparte, con su personal, sus períodos y su tabulador. Sus papeles salen con su razón social, su RIF y su logo.
+            Cada empresa es una nómina aparte, con su personal, sus períodos y su tabulador. Sus papeles salen con su razón social, su RIF y su logo, y cada una maneja su moneda de pago ($ o Real brasileño).
             Con más de dos empresas, el selector del encabezado pasa a ser una lista con buscador.
           </p>
           <div><button className="btn btn-primary" onClick={() => setForm('nueva')}>＋ Nueva empresa</button></div>
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.86rem' }}>
-              <thead><tr><th>Empresa</th><th>RIF</th><th>Ciudad</th><th style={{ textAlign: 'right' }}>Personal activo</th><th>Estado</th><th></th></tr></thead>
+              <thead><tr><th>Empresa</th><th>RIF</th><th>Ciudad</th><th>Moneda de pago</th><th style={{ textAlign: 'right' }}>Personal activo</th><th>Estado</th><th></th></tr></thead>
               <tbody>
                 {empresas.map((e) => (
                   <tr key={e.clave} style={{ opacity: e.activa ? 1 : .6 }}>
@@ -51,6 +51,7 @@ export function EmpresasModal({ conteo, actor, onClose, onElegir }: {
                     </td>
                     <td className="mono">{e.rif || '—'}</td>
                     <td>{e.ciudad || '—'}</td>
+                    <td>{e.monedaPago === 'BRL' ? <span className="badge" title="Los recibos de bonificación salen en $ y en Real brasileño">$ + R$</span> : <span className="muted">$</span>}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{conteo?.[e.clave] ?? 0}</td>
                     <td>{e.activa ? <span className="badge success">Activa</span> : <span className="badge">Inactiva</span>}{!e.logoPropio && <div className="muted" style={{ fontSize: '.7rem' }}>sin logo propio</div>}</td>
                     <td className="actions" style={{ whiteSpace: 'nowrap' }}>
@@ -74,7 +75,7 @@ function EmpresaForm({ inicial, actor, onCancel, onSaved }: {
   const [v, setV] = useState<EmpresaInput>({
     clave: inicial?.clave ?? '', nombre: inicial?.nombre ?? '', rif: inicial?.rif ?? '', domicilio: inicial?.domicilio ?? '',
     ciudad: inicial?.ciudad ?? '', email: inicial?.email ?? '', whatsapp: inicial?.whatsapp ?? '', icono: inicial?.icono ?? '🏢',
-    activa: inicial?.activa ?? true,
+    activa: inicial?.activa ?? true, moneda_pago: inicial?.monedaPago ?? 'USD',
   });
   const [logo, setLogo] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -114,6 +115,16 @@ function EmpresaForm({ inicial, actor, onCancel, onSaved }: {
           <input id="emp-email" className="input" value={v.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="Si se deja vacío, el del grupo" /></div>
         <div className="form-row"><label htmlFor="emp-wa">WhatsApp</label>
           <input id="emp-wa" className="input" value={v.whatsapp ?? ''} onChange={(e) => set('whatsapp', e.target.value)} placeholder="Si se deja vacío, el del grupo" /></div>
+        <div className="form-row"><label htmlFor="emp-moneda">Moneda de pago (recibos)</label>
+          <select id="emp-moneda" className="select" value={v.moneda_pago ?? 'USD'} onChange={(e) => set('moneda_pago', e.target.value === 'BRL' ? 'BRL' : 'USD')}>
+            <option value="USD">Dólares ($): recibos como siempre</option>
+            <option value="BRL">Real brasileño (R$): recibos en $ y en R$</option>
+          </select>
+          <span className="muted" style={{ fontSize: '.75rem' }}>
+            {(v.moneda_pago ?? 'USD') === 'BRL'
+              ? 'El recibo de bonificación sale en $ y en Real, con la tasa de cambio. Al cargar la nómina se trae la tasa del Real y hay un conversor $ ↔ R$.'
+              : 'Los recibos salen como siempre: sueldo en Bs y bonificación en $.'}
+          </span></div>
         <div className="form-row"><label>Ícono</label>
           <div style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
             {ICONOS.map((i) => <button key={i} type="button" className={`btn btn-sm ${v.icono === i ? 'btn-primary' : 'btn-ghost'}`} onClick={() => set('icono', i)} aria-pressed={v.icono === i}>{i}</button>)}

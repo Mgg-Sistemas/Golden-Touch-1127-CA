@@ -7,7 +7,7 @@
    transferir a una persona de una empresa a otra.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { claveEmpresaValida } from '@/shared/lib/empresa';
+import { claveEmpresaValida, monedaPagoValida, type MonedaPagoEmpresa } from '@/shared/lib/empresa';
 import { BUCKET_LOGOS_EMPRESAS, cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import type { EmpresaRrhh } from '@/shared/lib/types';
 
@@ -45,6 +45,8 @@ export interface EmpresaInput {
   whatsapp?: string | null;
   icono?: string | null;
   activa?: boolean;
+  /** Moneda de los recibos: USD (recibos como siempre) o BRL (en $ y en Real brasileño). */
+  moneda_pago?: MonedaPagoEmpresa;
 }
 
 const limpio = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim() || null;
@@ -60,6 +62,7 @@ function filaEmpresa(i: EmpresaInput) {
     email: limpio(i.email)?.toLowerCase() ?? null,
     whatsapp: limpio(i.whatsapp),
     icono: limpio(i.icono) ?? '🏢',
+    moneda_pago: monedaPagoValida(i.moneda_pago),
     ...(i.activa !== undefined ? { activa: i.activa } : {}),
   };
 }
