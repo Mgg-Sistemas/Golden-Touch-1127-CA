@@ -184,7 +184,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
     tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false,
   });
   const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConLogo') === 'true'; } catch { return false; }
+    try { return localStorage.getItem('retenciones:imprimirConLogo') !== 'false'; } catch { return true; }
   });
   const [imprimirFirma, setImprimirFirma] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConFirma') !== 'false'; } catch { return true; }
@@ -376,9 +376,9 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
       const { verComprobanteRetencionPdf } = await import('./comprobanteRetencionPdf');
       const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyIso());
       await verComprobanteRetencionPdf(r, config, formato, {
-        incluirLogo: imprimirLogo && dispDigital.tieneLogo,
-        incluirFirma: imprimirFirma && dispDigital.tieneFirma,
-        incluirSello: imprimirSello && dispDigital.tieneSello,
+        incluirLogo: imprimirLogo,
+        incluirFirma: imprimirFirma,
+        incluirSello: imprimirSello,
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
@@ -392,9 +392,9 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
     try {
       const { verTodosComprobantesFacturaPdf } = await import('./comprobanteRetencionPdf');
       await verTodosComprobantesFacturaPdf(f.num, retenciones, config, {
-        incluirLogo: imprimirLogo && dispDigital.tieneLogo,
-        incluirFirma: imprimirFirma && dispDigital.tieneFirma,
-        incluirSello: imprimirSello && dispDigital.tieneSello,
+        incluirLogo: imprimirLogo,
+        incluirFirma: imprimirFirma,
+        incluirSello: imprimirSello,
       });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron generar los comprobantes', 'error');

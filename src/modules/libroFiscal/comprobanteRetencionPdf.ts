@@ -173,9 +173,12 @@ export interface DisponibilidadElementosDigitales {
 export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promise<DisponibilidadElementosDigitales> {
   try {
     const imagenes = await listImagenesAgente();
-    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha);
-    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha);
-    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha);
+    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'logo' && i.activo);
+    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'firma' && i.activo);
+    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'sello' && i.activo);
     return {
       tieneLogo: !!l?.ruta,
       tieneFirma: !!f?.ruta,
@@ -218,9 +221,12 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
 
   try {
     const imagenes = await listImagenesAgente();
-    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha);
-    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha);
-    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha);
+    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'logo' && i.activo);
+    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'firma' && i.activo);
+    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'sello' && i.activo);
 
     if (l?.ruta) {
       try {
@@ -916,12 +922,14 @@ export async function verComprobanteRetencionPdf(
   formato?: FormatoParaAplicar | null,
   opciones: OpcionesComprobantePdf = {},
 ): Promise<void> {
-  const disp = await consultarElementosDigitales(diaVE(r.createdAt) || hoyVenezuela());
+  const fechaRef = r.facturaFecha || r.createdAt || hoyVenezuela();
+  const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
+  const disp = await consultarElementosDigitales(fechaFiltro);
 
-  // Preferencias iniciales: solo habilitadas si existen cargadas en Parámetros del módulo
-  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') === 'true'));
-  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') === 'true'));
-  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') === 'true'));
+  // Preferencias iniciales: habilitadas por defecto si existen cargadas en Parámetros del módulo
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') !== 'false'));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
   let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
 
   const generarDoc = () => generarDocComprobanteRetencionPdf(r, config, formato, {
@@ -1027,11 +1035,12 @@ export async function verTodosComprobantesFacturaPdf(
   }
 
   const fechaRef = seleccionadas[0]?.facturaFecha || seleccionadas[0]?.createdAt || hoyVenezuela();
-  const disp = await consultarElementosDigitales(diaVE(fechaRef) || hoyVenezuela());
+  const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
+  const disp = await consultarElementosDigitales(fechaFiltro);
 
-  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') === 'true'));
-  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') === 'true'));
-  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') === 'true'));
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') !== 'false'));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
   let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
 
   const generarLote = async () => {
@@ -1061,6 +1070,15 @@ export async function verTodosComprobantesFacturaPdf(
         'color:#f5b133;font:600 .78rem system-ui;display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;background:rgba(245,177,51,0.12);border-radius:6px;border:1px solid rgba(245,177,51,0.3);';
       infoLote.textContent = `Factura ${facturaNumero} · ${seleccionadas.length} comprobante(s)`;
       container.appendChild(infoLote);
+
+      if (!disp.tieneAlguno) {
+        const aviso = document.createElement('span');
+        aviso.style.cssText =
+          'color:#8b949e;font:500 .78rem system-ui;display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;background:#161b22;border-radius:6px;border:1px solid #30363d;';
+        aviso.title = 'Para estampar logo, firma o sello, cárgalos en Parámetros › Firma / Sello o Logo.';
+        aviso.textContent = 'Sin logo ni firma en Parámetros';
+        container.appendChild(aviso);
+      }
 
       const toolbar = document.createElement('div');
       toolbar.style.cssText = 'display:flex;align-items:center;gap:.4rem;';
