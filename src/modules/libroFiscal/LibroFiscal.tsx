@@ -383,6 +383,24 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
 
+  async function verComprobantesFactura(f: { num: string; retenciones: Map<any, RetencionPracticada> }) {
+    const retenciones = [...f.retenciones.values()].filter((r) => !r.anulada && r.numeroComprobante);
+    if (!retenciones.length) {
+      toast('No hay comprobantes emitidos para esta factura', 'error');
+      return;
+    }
+    try {
+      const { verTodosComprobantesFacturaPdf } = await import('./comprobanteRetencionPdf');
+      await verTodosComprobantesFacturaPdf(f.num, retenciones, config, {
+        incluirLogo: imprimirLogo && dispDigital.tieneLogo,
+        incluirFirma: imprimirFirma && dispDigital.tieneFirma,
+        incluirSello: imprimirSello && dispDigital.tieneSello,
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudieron generar los comprobantes', 'error');
+    }
+  }
+
   async function verAdjuntoRespaldo(r: RetencionPracticada) {
     if (!r.comprobantePath) return;
     try {
@@ -859,6 +877,22 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                       <div className="lfv8-tot">
                         <small>Total retenido</small>
                         <span>{totalRet ? monto(totalRet, 'Bs') : '—'}</span>
+                        {(() => {
+                          const conComp = [...f.retenciones.values()].filter((r) => !r.anulada && r.numeroComprobante);
+                          if (!conComp.length) return null;
+                          return (
+                            <div>
+                              <button
+                                type="button"
+                                className="lfv8-btn-imprimir-todos"
+                                onClick={() => void verComprobantesFactura(f)}
+                                title={`Imprimir en 1 solo PDF los ${conComp.length} comprobante(s) de esta factura`}
+                              >
+                                🖨️ {conComp.length > 1 ? `Imprimir todos (${conComp.length})` : 'Imprimir comprobante'}
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </article>
                     {conP03 && f.documentoId && (
@@ -1269,6 +1303,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [otroDetalle, setOtroDetalle] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
+    try { return localStorage.getItem('gt_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
+  });
+  const descartarAvisoSinDoc = () => {
+    setAvisoSinDocDescartado(true);
+    try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch {}
+  };
   const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
   // R10: el N° de factura busca entre las facturas ya registradas; al elegir una, se retiene sobre ella.
   const [conR10, setConR10] = useState(false);
@@ -1617,8 +1658,29 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </div>
       )}
 
-      {sinDocumento && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>
+      {sinDocumento && !avisoSinDocDescartado && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem', position: 'relative', paddingRight: '2rem' }}>
+          <button
+            type="button"
+            onClick={descartarAvisoSinDoc}
+            style={{
+              position: 'absolute',
+              top: '6px',
+              right: '8px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted, #888)',
+              fontSize: '1.1rem',
+              cursor: 'pointer',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              lineHeight: 1,
+            }}
+            title="Descartar este aviso"
+            aria-label="Cerrar aviso"
+          >
+            ✕
+          </button>
           <strong>Sin documento del sistema.</strong>{' '}
           <small>
             Esta retención no viene de una OC, un CS ni una compra directa (por ejemplo, una factura de otra sede). Se registra igual:

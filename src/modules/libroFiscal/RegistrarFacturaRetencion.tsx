@@ -168,6 +168,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [conR10, setConR10] = useState(false);
   const [documento, setDocumento] = useState<FacturaResumen | null>(null);
   const [soloFactura, setSoloFactura] = useState(false);
+  const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
+    try { return localStorage.getItem('gt_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
+  });
+  const descartarAvisoSinDoc = () => {
+    setAvisoSinDocDescartado(true);
+    try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch {}
+  };
   const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
     tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
@@ -531,8 +538,29 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           </small>
         </div>
       )}
-      {sinDocumento && !documento && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem' }}>
+      {sinDocumento && !documento && !avisoSinDocDescartado && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem', position: 'relative', paddingRight: '2rem' }}>
+          <button
+            type="button"
+            onClick={descartarAvisoSinDoc}
+            style={{
+              position: 'absolute',
+              top: '6px',
+              right: '8px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted, #888)',
+              fontSize: '1.1rem',
+              cursor: 'pointer',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              lineHeight: 1,
+            }}
+            title="Descartar este aviso"
+            aria-label="Cerrar aviso"
+          >
+            ✕
+          </button>
           <small>Esta factura no viene de una OC, un CS ni una compra directa. Quedará en el libro marcada «Fuera del sistema» y hay que anotar en la nota de dónde viene.</small>
         </div>
       )}
