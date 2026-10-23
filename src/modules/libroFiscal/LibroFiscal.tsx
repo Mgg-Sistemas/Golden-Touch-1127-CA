@@ -1298,6 +1298,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     semilla.sustituyeAComprobante ? `Sustituye a la retención anulada N° ${semilla.sustituyeAComprobante}` : ''
   );
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [supuestosIvaAbierto, setSupuestosIvaAbierto] = useState<boolean | null>(null);
   // Qué documento se adjunta: en una recibida, el comprobante que entregó el agente; en una practicada, el respaldo.
   const [tipoArchivo, setTipoArchivo] = useState('');
   const [otroDetalle, setOtroDetalle] = useState('');
@@ -1784,36 +1785,109 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </>
       )}
 
-      {direccion === 'practicada' && tipo === 'iva' && (
-        <div className="form-row">
-          {supuestosIva ? (<>
-            <label>¿Aplica un supuesto con su propio porcentaje?</label>
-            {supuestosIva.length === 0 && <small className="hint muted">No hay supuestos vigentes a la fecha de la factura (Parámetros › Supuestos del %).</small>}
-            {supuestosIva.map((s) => (
-              <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.84rem', marginTop: '.2rem' }}>
-                <input type="checkbox" checked={!!(motivos as Record<string, boolean | undefined>)[s.codigo]}
-                  onChange={(e) => setMotivos({ ...motivos, [s.codigo]: e.target.checked } as MotivosIvaCien)} />
-                {s.texto}{s.pct !== 100 ? ` (${s.pct} %)` : ''}
-              </label>
-            ))}
-          </>) : (<>
-          <label>¿Corresponde retener el 100%? (art. 5)</label>
-          {([
+      {direccion === 'practicada' && tipo === 'iva' && (() => {
+        const cantMotivos = Object.values(motivos || {}).filter(Boolean).length;
+        const tieneMotivos = cantMotivos > 0;
+        const estaAbierto = supuestosIvaAbierto ?? tieneMotivos;
+        const listaMotivos = supuestosIva
+          ? supuestosIva.map((s): [string, string] => [s.codigo, `${s.texto}${s.pct !== 100 ? ` (${s.pct} %)` : ''}`])
+          : ([
             ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
             ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
             ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
             ['proveedorNoDomiciliado', 'El proveedor no está domiciliado en el país'],
             ['metalesPreciosos', 'Compra de metales o piedras preciosas'],
-          ] as Array<[keyof MotivosIvaCien, string]>).map(([k, label]) => (
-            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.84rem', marginTop: '.2rem' }}>
-              <input type="checkbox" checked={!!motivos[k]} onChange={(e) => setMotivos({ ...motivos, [k]: e.target.checked })} />
-              {label}
-            </label>
-          ))}
-          </>)}
-          <small className="hint muted">Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.{supuesto ? ` Con lo marcado: ${supuesto.pct} %.` : ''}</small>
-        </div>
-      )}
+          ] as Array<[keyof MotivosIvaCien & string, string]>);
+
+        return (
+          <div
+            style={{
+              margin: '.4rem 0 .2rem',
+              background: 'rgba(255, 255, 255, 0.02)',
+              border: `1px solid ${tieneMotivos ? 'rgba(255, 138, 0, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
+              borderRadius: '6px',
+              overflow: 'hidden',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setSupuestosIvaAbierto(!estaAbierto)}
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                padding: '.4rem .6rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '.5rem',
+                color: 'inherit',
+                textAlign: 'left',
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem', fontWeight: 600 }}>
+                <span style={{ color: tieneMotivos ? 'var(--primary)' : 'var(--text-muted)', fontSize: '.75rem' }}>
+                  {estaAbierto ? '▼' : '▶'}
+                </span>
+                <span>
+                  {supuestosIva
+                    ? '¿Aplica un supuesto con su propio porcentaje? (vigentes a la fecha de la factura)'
+                    : '¿Corresponde retener el 100%? (art. 5)'}
+                </span>
+              </span>
+              <span
+                style={{
+                  fontSize: '.72rem',
+                  fontWeight: 600,
+                  padding: '.15rem .45rem',
+                  borderRadius: '4px',
+                  background: tieneMotivos ? 'rgba(255, 138, 0, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+                  color: tieneMotivos ? 'var(--primary)' : 'var(--text-muted)',
+                  border: `1px solid ${tieneMotivos ? 'rgba(255, 138, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {tieneMotivos ? `${cantMotivos} marcado(s) · 100%` : `Opcional · ${config.pctIvaGeneral}% gen.`}
+              </span>
+            </button>
+
+            {estaAbierto && (
+              <div style={{ padding: '.15rem .6rem .55rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                {supuestosIva && supuestosIva.length === 0 && (
+                  <small className="hint muted" style={{ display: 'block', margin: '.2rem 0' }}>
+                    No hay supuestos vigentes a la fecha de la factura (Parámetros › Supuestos del %).
+                  </small>
+                )}
+                {listaMotivos.map(([k, label]) => (
+                  <label
+                    key={k}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '.45rem',
+                      fontSize: '.82rem',
+                      marginTop: '.3rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!(motivos as Record<string, boolean | undefined>)[k]}
+                      onChange={(e) => setMotivos({ ...motivos, [k]: e.target.checked } as MotivosIvaCien)}
+                      style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+                <small className="hint muted" style={{ display: 'block', marginTop: '.35rem', fontSize: '.75rem' }}>
+                  Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.{supuesto ? ` Con lo marcado: ${supuesto.pct} %.` : ''}
+                </small>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
