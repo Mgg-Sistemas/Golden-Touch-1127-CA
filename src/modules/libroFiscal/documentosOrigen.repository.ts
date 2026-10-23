@@ -57,6 +57,18 @@ export function aFacturaDeOrigen(r: Record<string, unknown>): FacturaDeOrigen {
   };
 }
 
+/** Construye la semilla para abrir el modal de registro de factura desde un archivo de compras. */
+export function semillaDeFacturaOrigen(f: FacturaDeOrigen) {
+  return {
+    direccion: 'practicada' as const,
+    docKind: f.origen.tipo,
+    docId: f.origen.id,
+    adjuntoId: f.adjuntoId,
+    adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
+  };
+}
+
+
 /**
  * Los archivos de factura que todavía no son un documento fiscal (Retenciones · Por realizar).
  * Con `origenIds`, solo los de esos orígenes (OC, compras o servicios).
