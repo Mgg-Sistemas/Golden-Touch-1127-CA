@@ -15,6 +15,8 @@ import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
 import { esBidon, prepararCamposSalidaBidon } from './bidonCombustible';
+import { resolverHorometroVigente } from './horometroEquipo';
+import { norm } from '@/shared/lib/texto';
 import { push } from '@/modules/notificaciones/notif.repository';
 import type {
   CatalogoCombustible,
@@ -1117,15 +1119,42 @@ async function reencadenarContadorTanque(tanqueId: string): Promise<number> {
  * admin) no son anclas. Si la consulta falla, la cadena queda como antes.
  */
 async function anclasHorometroMaquinaria(equipo: string): Promise<FilaMedidor[]> {
-  const { data, error } = await supabase.from('maquinaria_lecturas_unificadas')
-    .select('referencia, fecha, horometro')
-    .eq('equipo_comb', equipo).eq('origen', 'maquinaria').eq('es_correccion', false)
-    .not('horometro', 'is', null);
-  if (error) return [];
-  return ((data ?? []) as Array<{ referencia: string; fecha: string; horometro: number }>).map((r) => ({
-    id: `maq-${r.referencia}`, fecha: (r.fecha ?? '').slice(0, 10) || null, hora: null, created_at: r.fecha,
-    ini: num(r.horometro), fin: num(r.horometro), ancla: true,
-  }));
+  const e = equipo.trim();
+  if (!e) return [];
+
+  // 1. Intento por maquinaria_lecturas_unificadas (vista SQL)
+  try {
+    const { data, error } = await supabase.from('maquinaria_lecturas_unificadas')
+      .select('referencia, fecha, horometro')
+      .eq('equipo_comb', e).eq('origen', 'maquinaria').eq('es_correccion', false)
+      .not('horometro', 'is', null);
+    if (!error && data && data.length > 0) {
+      return ((data ?? []) as Array<{ referencia: string; fecha: string; horometro: number }>).map((r) => ({
+        id: `maq-${r.referencia}`, fecha: (r.fecha ?? '').slice(0, 10) || null, hora: null, created_at: r.fecha,
+        ini: num(r.horometro), fin: num(r.horometro), ancla: true,
+      }));
+    }
+  } catch { /* continuar al fallback */ }
+
+  // 2. Fallback resiliente a maquinaria_equipos + maquinaria_lecturas
+  try {
+    const { data: eqs } = await supabase.from('maquinaria_equipos').select('id, equipo, combustible_equipo');
+    const eqNorm = norm(e);
+    const matched = eqs?.find((m) => norm(m.combustible_equipo) === eqNorm || norm(m.equipo) === eqNorm);
+    if (matched?.id) {
+      const { data: lecs } = await supabase.from('maquinaria_lecturas')
+        .select('id, fecha, horometro')
+        .eq('equipo_id', matched.id).eq('es_correccion', false).not('horometro', 'is', null);
+      if (lecs && lecs.length > 0) {
+        return lecs.map((r) => ({
+          id: `maq-${r.id}`, fecha: (r.fecha ?? '').slice(0, 10) || null, hora: null, created_at: r.fecha,
+          ini: num(r.horometro), fin: num(r.horometro), ancla: true,
+        }));
+      }
+    }
+  } catch { /* ignorar */ }
+
+  return [];
 }
 
 /** Re-encadena el HORÓMETRO (por equipo, puede cruzar tanques) en orden cronológico. */
@@ -1604,23 +1633,86 @@ export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, numbe
   return out;
 }
 
-/** Lectura vigente del equipo para el surtidor: la mayor entre Combustible y las lecturas
- *  registradas en Maquinaria (desde la última corrección). null si la función no responde. */
-async function lecturaVigenteCombustible(equipo: string): Promise<{ horometro: number | null; kilometraje: number | null } | null> {
-  const { data, error } = await supabase.rpc('combustible_lectura_vigente', { p_equipo: equipo });
-  if (error) return null;
-  const r = (Array.isArray(data) ? data[0] : data) as { horometro: number | null; kilometraje: number | null } | null;
-  return r ? { horometro: r.horometro == null ? null : num(r.horometro), kilometraje: r.kilometraje == null ? null : num(r.kilometraje) } : null;
+/**
+ * Lectura vigente de un equipo registrada desde MAQUINARIA (horómetro y/o kilometraje).
+ * Resiliente: primero consulta la RPC; si no responde o viene vacía, busca directamente en
+ * maquinaria_equipos (por combustible_equipo o nombre de equipo con norm()) y lee la última
+ * lectura de maquinaria_lecturas. Si el equipo en maquinaria no tenía el vínculo fijado, lo
+ * enlaza en segundo plano para consolidar la sincronización bidireccional.
+ */
+async function lecturaVigenteCombustible(equipo: string): Promise<{
+  horometro: number | null;
+  kilometraje: number | null;
+  es_correccion?: boolean;
+} | null> {
+  const e = (equipo ?? '').trim();
+  if (!e) return null;
+
+  // 1. Intentar con la RPC existente
+  try {
+    const { data, error } = await supabase.rpc('combustible_lectura_vigente', { p_equipo: e });
+    if (!error && data) {
+      const r = (Array.isArray(data) ? data[0] : data) as { horometro?: number | null; kilometraje?: number | null } | null;
+      if (r && (r.horometro != null || r.kilometraje != null)) {
+        return {
+          horometro: r.horometro == null ? null : num(r.horometro),
+          kilometraje: r.kilometraje == null ? null : num(r.kilometraje),
+        };
+      }
+    }
+  } catch { /* continuar a búsqueda resiliente */ }
+
+  // 2. Búsqueda directa en maquinaria_equipos + maquinaria_lecturas
+  try {
+    const { data: eqs } = await supabase
+      .from('maquinaria_equipos')
+      .select('id, equipo, combustible_equipo, placa');
+    if (eqs && eqs.length > 0) {
+      const eqNorm = norm(e);
+      const matched = eqs.find((m) => norm(m.combustible_equipo) === eqNorm)
+        || eqs.find((m) => norm(m.equipo) === eqNorm)
+        || eqs.find((m) => m.placa && norm(m.placa) === eqNorm)
+        || eqs.find((m) => m.equipo && (norm(m.equipo).includes(eqNorm) || eqNorm.includes(norm(m.equipo))));
+
+      if (matched?.id) {
+        // Enlazar en segundo plano si combustible_equipo estaba vacío o desactualizado
+        if (norm(matched.combustible_equipo) !== eqNorm) {
+          void supabase.from('maquinaria_equipos').update({ combustible_equipo: e }).eq('id', matched.id);
+        }
+
+        const { data: lecs } = await supabase
+          .from('maquinaria_lecturas')
+          .select('horometro, kilometraje, es_correccion, fecha')
+          .eq('equipo_id', matched.id)
+          .order('fecha', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (lecs && lecs.length > 0) {
+          const conH = lecs.find((l) => l.horometro != null);
+          const conK = lecs.find((l) => l.kilometraje != null);
+          if (conH || conK) {
+            return {
+              horometro: conH?.horometro != null ? num(conH.horometro) : null,
+              kilometraje: conK?.kilometraje != null ? num(conK.kilometraje) : null,
+              es_correccion: Boolean(conH?.es_correccion || conK?.es_correccion),
+            };
+          }
+        }
+      }
+    }
+  } catch { /* fallback silencioso */ }
+
+  return null;
 }
 
-/** Último kilometraje (odómetro) registrado para un equipo. Sirve para autocargar la
- *  próxima lectura en el surtidor (el odómetro solo crece). */
+/** Último kilometraje (odómetro) registrado para un equipo. Sincronizado en dos vías con Maquinaria. */
 export async function ultimoKilometrajeEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
-  // Desde el 09/10/2026 cuenta también lo que se registró en Maquinaria.
-  const vig = await lecturaVigenteCombustible(e);
-  if (vig && vig.kilometraje != null) return vig.kilometraje;
+
+  const maq = await lecturaVigenteCombustible(e);
+
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
     .select('kilometraje, created_at')
@@ -1630,8 +1722,10 @@ export async function ultimoKilometrajeEquipo(equipo: string): Promise<number | 
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  const v = (data as { kilometraje?: number | null } | null)?.kilometraje;
-  return v == null ? null : num(v);
+  const combKm = (data as { kilometraje?: number | null } | null)?.kilometraje;
+  const combNum = combKm == null ? null : num(combKm);
+
+  return resolverHorometroVigente(combNum, maq?.kilometraje, maq?.es_correccion);
 }
 
 /* ───────────── Medidores por equipo (horómetro / contador) ───────────── */
@@ -1646,20 +1740,20 @@ export async function listMedidores(): Promise<MedidorCombustible[]> {
   return (data ?? []) as MedidorCombustible[];
 }
 
-/** Último horómetro FINAL registrado para un equipo, leído de los MOVIMIENTOS del tanque
- *  (el medidor ahora se captura en cada movimiento). Sirve para autocargar el HI siguiente. */
+/**
+ * Último horómetro FINAL registrado para un equipo.
+ * SINCRONIZADO EN DOS VÍAS CON MAQUINARIA:
+ * Si en Maquinaria se registró una lectura mayor o una corrección (cambio de horómetro),
+ * Combustible arranca inmediatamente desde esa lectura como HI para el próximo surtido.
+ */
 export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
-  // Desde el 09/10/2026 el HI sale de la lectura vigente unificada: la mayor entre los HF de
-  // Combustible y los horómetros registrados en Maquinaria (sincronización en dos vías).
-  const vig = await lecturaVigenteCombustible(e);
-  if (vig && vig.horometro != null) return vig.horometro;
-  // El HI del próximo surtido del equipo = su MAYOR HF (02/10/2026), como el contador
-  // del surtidor: el horómetro es un totalizador que solo sube, así que la lectura más
-  // alta es la vigente. Antes era el HF del último CARGADO, y cargar tarde un surtido de
-  // un día anterior devolvía el horómetro hacia atrás: el próximo surtido arrancaba mal
-  // y el mantenimiento (que lee de aquí) contaba horas de menos.
+
+  // 1. Lectura registrada desde Maquinaria (RPC + búsqueda tolerante en maquinaria_lecturas)
+  const maq = await lecturaVigenteCombustible(e);
+
+  // 2. Mayor horómetro final registrado en movimientos de Combustible
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
     .select('horometro_fin')
@@ -1669,8 +1763,10 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  const v = (data as { horometro_fin?: number | null } | null)?.horometro_fin;
-  return v == null ? null : num(v);
+  const combHoro = (data as { horometro_fin?: number | null } | null)?.horometro_fin;
+  const combNum = combHoro == null ? null : num(combHoro);
+
+  return resolverHorometroVigente(combNum, maq?.horometro, maq?.es_correccion);
 }
 
 /** Último CONTADOR FINAL de UN TANQUE (su surtidor). El contador no se vincula al equipo

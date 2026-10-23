@@ -58,3 +58,23 @@ export function errorHorometro(hi: number | null | undefined, hf: number | null 
   if (h === null || h >= 0) return null;
   return `El horómetro final (${numero(hf)}) no puede ser menor que el inicial (${numero(hi)}): las horas trabajadas saldrían negativas. Revisa la lectura.`;
 }
+
+/**
+ * Decide la lectura de horómetro/km vigente sincronizando Combustible y Maquinaria:
+ * - Si Maquinaria tiene una corrección explícita hacia abajo (cambio de horómetro), manda Maquinaria.
+ * - Si ambos tienen lecturas válidas, el horómetro es monótono creciente: la lectura mayor es la vigente.
+ * - Si solo uno tiene lectura, se toma esa.
+ */
+export function resolverHorometroVigente(
+  combHoro: number | null | undefined,
+  maqHoro: number | null | undefined,
+  esCorreccion = false,
+): number | null {
+  const c = numero(combHoro);
+  const m = numero(maqHoro);
+  if (esCorreccion && m !== null) return m;
+  if (c !== null && m !== null) return Math.max(c, m);
+  if (m !== null) return m;
+  return c;
+}
+

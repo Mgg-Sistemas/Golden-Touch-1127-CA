@@ -7,17 +7,69 @@
    quien aprueba / autoriza.
    
    BAJO NINGUNA CIRCUNSTANCIA debe mostrarse una dirección de correo
-   electrónico (ej. @gmail.com) en el texto enviado por el chat.
+   electrónico (ej. @gmail.com) ni un identificador genérico (ej. "ANALISTACOMPRAS")
+   en el texto enviado por el chat.
    ============================================================ */
 import type { Usuario } from '@/shared/lib/types';
 import { APROBADOR_JESUS_EMAIL, APROBADOR_LEYDIS_EMAIL, ELABORADOR_OC } from './aprobadoresOc';
 
-/** Nombres canónicos de aprobadores y personal clave de Golden Touch. */
+/** Nombres canónicos de aprobadores, analistas de compras y personal de Golden Touch. */
 export const PERSONAS_CONOCIDAS_COMPRAS: Record<string, string> = {
+  // Aprobadores y directiva
   [APROBADOR_JESUS_EMAIL.toLowerCase()]: 'JESUS LOZADA',
   [APROBADOR_LEYDIS_EMAIL.toLowerCase()]: 'LEYDIS RENGEL',
+  'touchgolden1127@gmail.com': 'JESUS LOZADA',
+  'jhzgcontabilidad@gmail.com': 'LEYDIS RENGEL',
+  'edinsontrabajogt@gmail.com': 'EDINSON ANGULO',
+  'mariana.trabajo.gt@gmail.com': 'MARIANA TOVAR',
   'marianatovar@gmail.com': ELABORADOR_OC.nombre,
   'marianatovar1127@gmail.com': ELABORADOR_OC.nombre,
+
+  // Analistas de compras y adquisiciones
+  'analista1mgg@gmail.com': 'JAVIER LEIVA',
+  'analistaadministrativobra@gmail.com': 'JAVIER LEIVA',
+  'analista1': 'JAVIER LEIVA',
+  'analista1mgg': 'JAVIER LEIVA',
+
+  'comprasanalista9@gmail.com': 'KELVIN PEÑA',
+  'comprasanalista': 'KELVIN PEÑA',
+  'comprasanalista9': 'KELVIN PEÑA',
+
+  'analistadecomprasgt@gmail.com': 'JOSE LIENDRO',
+  'analistadecomprasgt': 'JOSE LIENDRO',
+  'analistadecompras': 'JOSE LIENDRO',
+  'analistacompras': 'JOSE LIENDRO',
+
+  'asistentecomprasgt2@gmail.com': 'NAZARET SALAZAR',
+  'asistentecomprasgt2': 'NAZARET SALAZAR',
+  'asistentecompras': 'NAZARET SALAZAR',
+
+  'admingometales@gmail.com': 'TEODORO GARCIA',
+  'admingometales': 'TEODORO GARCIA',
+
+  'analista4mgg@gmail.com': 'ERICK FLORES',
+  'analista4': 'ERICK FLORES',
+  'analista4mgg': 'ERICK FLORES',
+
+  // Operaciones, almacén y logística
+  'maquinariagt2026@gmail.com': 'KEIMER VALERO',
+  'combustiblegt@gmail.com': 'JESUS CAMPOS',
+  'combustiblegt1@gmail.com': 'ANTHONY CAMPOS',
+  'almacengt710@gmail.com': 'JESUS RAMIREZ',
+  'almacen.pzo.lospinos@gmail.com': 'ISNER ORENCE',
+  'almacenmatanzas2026@gmail.com': 'CARLOS MACHADO',
+  'geodestagt@gmail.com': 'MARCOS ROMERO',
+  'laboratorio.mgg.2024@gmail.com': 'HECTOR MAITA',
+  'mgg.asistente@gmail.com': 'LENISKA LEZAMA',
+  'analistaadministrativo2@gmail.com': 'NILVANA VELASQUEZ',
+  'impuestosmgg2026@gmail.com': 'SUSEJ ROJAS',
+  'lozadawendy2511@gmail.com': 'WENDY LOZADA',
+  'rrhhmgg001@gmail.com': 'ZORYS GRILLET',
+  'cocina1@gmail.com': 'JESUS TORRES',
+  'cocina2@gmail.com': 'ALEXANDER CARREÑO',
+  'sistemamgg2@gmail.com': 'ANTHONY MANSILLA',
+  'sistemamgg3@gmail.com': 'CHRISTOPHER ORTIZ',
+  'kareannysboscan6@gmail.com': 'KAREANNYS BOSCAN',
 };
 
 /**
@@ -43,7 +95,8 @@ export function derivarNombreDesdeCorreo(correo: string): string {
 
 /**
  * Resuelve el Nombre y Apellido de una persona a partir de su correo, ID o nombre libre.
- * Garantiza que el resultado NUNCA contenga una arroba (@) ni dominio de correo.
+ * Garantiza que el resultado NUNCA contenga una arroba (@) ni dominio de correo,
+ * y mapea las cuentas institucionales de compras a su Nombre y Apellido real.
  */
 export function nombrePersonaCompras(
   identificador: string | null | undefined,
@@ -52,7 +105,7 @@ export function nombrePersonaCompras(
   const raw = (identificador ?? '').trim();
   if (!raw) return '';
 
-  const norm = raw.toLowerCase();
+  const norm = raw.toLowerCase().trim();
 
   // 1. Búsqueda en el mapa provisto (usuarios cargados desde la base de datos)
   if (personas) {
@@ -62,10 +115,32 @@ export function nombrePersonaCompras(
     }
   }
 
-  // 2. Aprobadores y personal institucional conocido
+  // 2. Aprobadores, analistas de compras y personal institucional conocido
   if (PERSONAS_CONOCIDAS_COMPRAS[norm]) {
     return PERSONAS_CONOCIDAS_COMPRAS[norm];
   }
+
+  // 3. Reglas de coincidencia para cuentas institucionales de compras
+  if (norm.includes('analistadecompras') || norm.includes('analistacompras')) {
+    return 'JOSE LIENDRO';
+  }
+  if (norm.includes('comprasanalista')) {
+    return 'KELVIN PEÑA';
+  }
+  if (norm.includes('asistentecompras')) {
+    return 'NAZARET SALAZAR';
+  }
+  if (norm.includes('admingometales')) {
+    return 'TEODORO GARCIA';
+  }
+  if (norm.includes('analista1')) {
+    return 'JAVIER LEIVA';
+  }
+  if (norm.includes('analista4')) {
+    return 'ERICK FLORES';
+  }
+
+  // Directiva y otros cargos clave
   if (norm.includes('touchgolden') || (norm.includes('jesus') && norm.includes('lozada'))) {
     return 'JESUS LOZADA';
   }
@@ -75,13 +150,16 @@ export function nombrePersonaCompras(
   if (norm.includes('mariana') && norm.includes('tovar')) {
     return ELABORADOR_OC.nombre;
   }
+  if (norm.includes('edinson') && norm.includes('angulo')) {
+    return 'EDINSON ANGULO';
+  }
 
-  // 3. Si viene con formato de correo electrónico (@...), derivar Nombre y Apellido limpio
+  // 4. Si viene con formato de correo electrónico (@...), derivar Nombre y Apellido limpio
   if (raw.includes('@')) {
     return derivarNombreDesdeCorreo(raw);
   }
 
-  // 4. Si ya es un nombre sin @, devolverlo limpio en mayúsculas
+  // 5. Si ya es un nombre sin @, devolverlo limpio en mayúsculas
   return raw.toUpperCase();
 }
 

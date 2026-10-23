@@ -26,11 +26,29 @@ describe('personasCompras', () => {
       expect(nombrePersonaCompras('TOUCHGOLDEN1127@GMAIL.COM')).toBe('JESUS LOZADA');
       expect(nombrePersonaCompras('jhzgcontabilidad@gmail.com')).toBe('LEYDIS RENGEL');
       expect(nombrePersonaCompras('JHZGCONTABILIDAD@GMAIL.COM')).toBe('LEYDIS RENGEL');
+      expect(nombrePersonaCompras('edinsontrabajogt@gmail.com')).toBe('EDINSON ANGULO');
+    });
+
+    it('reconoce a todos los analistas de compras por su correo o identificador sin mostrar correos ni analistacompras', () => {
+      expect(nombrePersonaCompras('analista1mgg@gmail.com')).toBe('JAVIER LEIVA');
+      expect(nombrePersonaCompras('analistaadministrativobra@gmail.com')).toBe('JAVIER LEIVA');
+      expect(nombrePersonaCompras('comprasanalista9@gmail.com')).toBe('KELVIN PEÑA');
+      expect(nombrePersonaCompras('analistadecomprasgt@gmail.com')).toBe('JOSE LIENDRO');
+      expect(nombrePersonaCompras('asistentecomprasgt2@gmail.com')).toBe('NAZARET SALAZAR');
+      expect(nombrePersonaCompras('admingometales@gmail.com')).toBe('TEODORO GARCIA');
+      expect(nombrePersonaCompras('analista4mgg@gmail.com')).toBe('ERICK FLORES');
+
+      // Alias sin @ o pre-derivados
+      expect(nombrePersonaCompras('analistadecompras')).toBe('JOSE LIENDRO');
+      expect(nombrePersonaCompras('analistacompras')).toBe('JOSE LIENDRO');
+      expect(nombrePersonaCompras('comprasanalista')).toBe('KELVIN PEÑA');
+      expect(nombrePersonaCompras('asistentecompras')).toBe('NAZARET SALAZAR');
     });
 
     it('reconoce a la analista de compras institucional Mariana Tovar', () => {
       expect(nombrePersonaCompras('marianatovar@gmail.com')).toBe('MARIANA TOVAR');
       expect(nombrePersonaCompras('marianatovar1127@gmail.com')).toBe('MARIANA TOVAR');
+      expect(nombrePersonaCompras('mariana.trabajo.gt@gmail.com')).toBe('MARIANA TOVAR');
     });
 
     it('utiliza el mapa de usuarios cuando está disponible', () => {
@@ -76,6 +94,9 @@ describe('personasCompras', () => {
       const mapa = crearMapaPersonasCompras(usuarios);
       expect(mapa.get('touchgolden1127@gmail.com')).toBe('JESUS LOZADA');
       expect(mapa.get('jhzgcontabilidad@gmail.com')).toBe('LEYDIS RENGEL');
+      expect(mapa.get('analista1mgg@gmail.com')).toBe('JAVIER LEIVA');
+      expect(mapa.get('analistadecomprasgt@gmail.com')).toBe('JOSE LIENDRO');
+      expect(mapa.get('comprasanalista9@gmail.com')).toBe('KELVIN PEÑA');
       expect(mapa.get('analista.junior@gt.com')).toBe('ANDRÉS BELLO');
       expect(mapa.get('u-1')).toBe('ANDRÉS BELLO');
     });
