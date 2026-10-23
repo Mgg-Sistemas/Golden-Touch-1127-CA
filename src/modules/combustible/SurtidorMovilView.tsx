@@ -107,7 +107,7 @@ export function SurtidorMovilView() {
     return () => { cancel = true; };
   }, [reloadBase]);
   useEffect(() => { void reloadMovs(selId).catch(() => {}); }, [selId, reloadMovs]);
-  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_adjuntos'], () => {
+  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_adjuntos', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
     void reloadBase().catch(() => {});
     void reloadMovs(selId).catch(() => {});
   });
@@ -300,6 +300,15 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   useEffect(() => {
     ultimoContadorTanque(tanque.id).then((u) => { if (u != null) { setCi(String(u)); setCiAuto(true); } else { setCi(''); setCiAuto(false); } }).catch(() => {});
   }, [tanque.id]);
+
+  // Si en Maquinaria o en la PC actualizan el horómetro del equipo mientras el formulario está abierto,
+  // recargar el HI y KM vigentes automáticamente.
+  useRealtime(['combustible_tanque_movimientos', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
+    if (equipo) {
+      ultimoHorometroEquipo(equipo).then((u) => { if (u != null) { setHi(String(u)); setHiAuto(true); } }).catch(() => {});
+      ultimoKilometrajeEquipo(equipo).then((u) => { if (u != null) setKm(String(u)); }).catch(() => {});
+    }
+  });
 
   const litrosNum = Number(String(litros).replace(',', '.')) || 0;
   const costoNum = Number(String(costo).replace(',', '.')) || 0;

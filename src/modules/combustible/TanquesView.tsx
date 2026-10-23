@@ -310,7 +310,7 @@ export function TanquesView() {
 
   // GT-INT-16 · Faltaban `combustible_cubicaciones` (el modal de cubicación cargaba
   // el historial solo al montarse) y las transferencias con MGG.
-  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_conciliaciones', 'combustible_cubicaciones', 'transferencias_combustible_inter'], () => {
+  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_conciliaciones', 'combustible_cubicaciones', 'transferencias_combustible_inter', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
     void reloadTanques();
     void reloadMovs(selId);
     setReloadKey((k) => k + 1);
@@ -969,9 +969,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   }, [tanqueId]);
   useEffect(() => { cargarCi(); }, [cargarCi]);
 
-  // En vivo: si se elimina/edita/agrega un movimiento (aquí o por otro usuario), el HI del
-  // equipo y el contador del tanque se vuelven a consultar para no quedar desfasados.
-  useRealtime(['combustible_tanque_movimientos'], () => { cargarHi(); cargarCi(); });
+  // En vivo: si se elimina/edita/agrega un movimiento o se actualiza un horómetro en Maquinaria,
+  // el HI del equipo y el contador del tanque se vuelven a consultar para no quedar desfasados.
+  useRealtime(['combustible_tanque_movimientos', 'maquinaria_lecturas', 'maquinaria_equipos'], () => { cargarHi(); cargarCi(); });
 
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
   // Litros usados según el contador del surtidor (final − inicial). No se modifica.

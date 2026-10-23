@@ -43,6 +43,18 @@ export async function listUsuarios(): Promise<Usuario[]> {
     .from(TABLE)
     .select('*')
     .order('created_at', { ascending: false });
+  if (!error && data && data.length > 0) {
+    return data as Usuario[];
+  }
+  // Si RLS restringe la tabla a usuarios no-admin, consultamos la RPC segura de directorio
+  try {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('obtener_directorio_personas');
+    if (!rpcError && rpcData && rpcData.length > 0) {
+      return rpcData as Usuario[];
+    }
+  } catch {
+    // Si la RPC no responde, devolvemos lo que trajo la tabla directa
+  }
   if (error) throw error;
   return (data ?? []) as Usuario[];
 }

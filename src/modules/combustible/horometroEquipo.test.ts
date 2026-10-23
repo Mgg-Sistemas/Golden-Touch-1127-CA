@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
+import { errorHorometro, faltaHorometroFinal, horasTrabajadas, resolverHorometroVigente } from './horometroEquipo';
 
 describe('faltaHorometroFinal · recordatorio (no bloqueo) si el equipo ya trae horómetro', () => {
   it('con inicial y sin final, avisa', () => {
@@ -65,3 +65,24 @@ describe('errorHorometro · el final no puede ser menor que el inicial', () => {
     expect(errorHorometro(null, null)).toBeNull();
   });
 });
+
+describe('resolverHorometroVigente · sincronización Maquinaria vs Combustible', () => {
+  it('toma la lectura mayor si ambos tienen datos (crecimiento normal)', () => {
+    // Maquinaria tiene horómetro más nuevo que el último surtido
+    expect(resolverHorometroVigente(500, 520)).toBe(520);
+    // Combustible tiene surtido con horómetro mayor que la última toma de maquinaria
+    expect(resolverHorometroVigente(550, 520)).toBe(550);
+  });
+
+  it('si maquinaria marca corrección explícita (cambio de horómetro/motor), prevalece maquinaria', () => {
+    // Horómetro reseteado o cambiado de 5000 a 100
+    expect(resolverHorometroVigente(5000, 100, true)).toBe(100);
+  });
+
+  it('si solo uno de los dos tiene lectura, devuelve esa', () => {
+    expect(resolverHorometroVigente(null, 340)).toBe(340);
+    expect(resolverHorometroVigente(250, null)).toBe(250);
+    expect(resolverHorometroVigente(undefined, undefined)).toBeNull();
+  });
+});
+
