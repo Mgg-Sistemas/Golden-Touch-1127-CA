@@ -140,4 +140,27 @@ describe('verificación digital fiscal (PA 0084 / 0093)', () => {
   });
 });
 
+describe('emisión de ejemplares · Original y Copia (Providencia 0049 IVA / Art. 24 D. 1808)', () => {
+  it('modo "ambos" emite 2 páginas consecutivas (Página 1: Original, Página 2: Copia)', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'ambos', incluirLogo: false, incluirQr: false });
+    expect(doc.getNumberOfPages()).toBe(2);
+  });
+
+  it('modo "original" emite exactamente 1 página', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'original', incluirLogo: false, incluirQr: false });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+
+  it('modo "copia" emite exactamente 1 página', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'copia', incluirLogo: false, incluirQr: false });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+});
+
 
