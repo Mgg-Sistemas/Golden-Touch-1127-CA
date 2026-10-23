@@ -5,7 +5,8 @@ import { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl, anchoLogoPdf, 
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { firmaDeAprobador, ELABORADOR_OC } from './aprobadoresOc';
+import { firmaDeAprobador } from './aprobadoresOc';
+import { nombrePersonaCompras } from './personasCompras';
 import { esRecargaAgua } from './servicios.repository';
 import { esCambioProveedor, leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
 import { obtenerInfoModalidadPago } from './modalidadPago';
@@ -84,6 +85,8 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
   addEmail(o.aprobada_por);
   addEmail(o.oc_aprobada_por);
   addEmail(o.solicitante_email);
+  addEmail(o.oc_creada_por);
+  addEmail(o.oc_emitida_por);
   if (o.solicitante && o.solicitante.includes('@')) addEmail(o.solicitante);
   (o.historial ?? []).forEach((h) => {
     addEmail(h.actor);
@@ -713,22 +716,38 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setTextColor(0);
   doc.setFontSize(9);
 
-  // ─── Bloque "Elaborado por": quien preparó la OC (Compras), aparte de la firma del
-  // aprobador. Va centrado sobre el pie, con su cargo y CI. ───
-  doc.setFontSize(8);
-  doc.setTextColor(90);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Elaborado por', PAGE_W / 2, pageH - 46, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(120);
-  doc.text(
-    `${ELABORADOR_OC.nombre} · ${ELABORADOR_OC.cargo} · C.I. ${ELABORADOR_OC.ci}`,
-    PAGE_W / 2,
-    pageH - 37,
-    { align: 'center' },
-  );
-  doc.setTextColor(0);
+  // ─── Bloque "Elaborado por": la persona de Compras que REALMENTE creó/emitió esta OC
+  // (oc_creada_por → oc_emitida_por → evento oc_creada* del historial). Antes era un nombre
+  // fijo y seguía saliendo aunque esa persona ya no estuviera activa. ───
+  const emailElab = (
+    orden.oc_creada_por ||
+    orden.oc_emitida_por ||
+    orden.historial?.find((h) => h.evento?.startsWith('oc_creada'))?.actor ||
+    ''
+  ).trim().toLowerCase();
+  if (emailElab) {
+    const nomHist = quien(emailElab, orden.oc_creada_en);
+    const nombreElab =
+      personasMap.get(emailElab) ||
+      (nomHist && nomHist !== emailElab ? nomHist : '') ||
+      nombrePersonaCompras(emailElab) ||
+      emailElab;
+    const ciElab = personasCiMap.get(emailElab);
+    doc.setFontSize(8);
+    doc.setTextColor(90);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Elaborado por', PAGE_W / 2, pageH - 46, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(120);
+    doc.text(
+      `${nombreElab.toUpperCase()} · Compras${ciElab ? ' · C.I. ' + ciElab : ''}`,
+      PAGE_W / 2,
+      pageH - 37,
+      { align: 'center' },
+    );
+    doc.setTextColor(0);
+  }
 
   doc.setFontSize(8);
   doc.setTextColor(120);
