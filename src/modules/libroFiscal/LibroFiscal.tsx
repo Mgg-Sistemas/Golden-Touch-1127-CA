@@ -75,7 +75,10 @@ import { list as listProveedores } from '@/modules/proveedores/proveedores.repos
 import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
 import { p03Disponible, v2rDisponible } from './disponibilidad';
-import { RegistrarFacturaRetencion } from './RegistrarFacturaRetencion';
+import { RegistrarFacturaRetencion, type SemillaFactura } from './RegistrarFacturaRetencion';
+import { FacturasPorRegistrar } from './FacturasPorRegistrar';
+import { semillaDeFacturaOrigen } from './documentosOrigen.repository';
+import { nombrePeriodo, periodoEstaCerrado, type PeriodoFiscal } from './periodosRetencion.repository';
 import { CubrirOtrasOrdenes } from './CubrirOtrasOrdenes';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
@@ -161,6 +164,8 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const [conR10, setConR10] = useState(false);
   useEffect(() => { r10Disponible().then(setConR10).catch(() => setConR10(false)); }, []);
   const [verFacturas, setVerFacturas] = useState(false);
+  const [verFacturasCompras, setVerFacturasCompras] = useState(false);
+  const [semillaCompra, setSemillaCompra] = useState<SemillaFactura | undefined>(undefined);
   const [retenerSobre, setRetenerSobre] = useState<FacturaResumen | null>(null);
   const [modalArc, setModalArc] = useState<{ anio: number; proveedorRif: string } | null>(null);
 
@@ -639,6 +644,12 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
           <button className="btn btn-ghost" onClick={() => setModalArc({ anio: new Date().getFullYear(), proveedorRif: '' })} disabled={!filas.length}
             title="Generar Comprobante Anual de Retenciones de ISLR (Forma ARC - Art. 24 Decreto 1.808)">↓ Comprobante ARC</button>
         )}
+        {conP03 && canWrite && (
+          <button className="btn btn-ghost" onClick={() => setVerFacturasCompras(true)}
+            title="Facturas y archivos de compras pendientes de registrar en Retenciones">
+            🧾 Facturas de Compras pendientes
+          </button>
+        )}
         {conR10 && <button className="btn btn-ghost" onClick={() => setVerFacturas(true)}>Facturas registradas</button>}
         {canWrite && conFacturaVarias && <button className="btn btn-ghost" onClick={() => setFacturaVarias(true)}>+ Registrar factura (varios impuestos)</button>}
         {canWrite && <button className="btn btn-primary" onClick={() => setRegistrar({})}>+ Registrar retención</button>}
@@ -1021,14 +1032,26 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
       )}
       {facturaVarias && (
         <RegistrarFacturaRetencion actor={actor} actorName={actorName}
-          semilla={retenerSobre ? { documento: retenerSobre } : undefined}
-          onClose={() => { setFacturaVarias(false); setRetenerSobre(null); }}
-          onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
+          semilla={retenerSobre ? { documento: retenerSobre } : semillaCompra}
+          onClose={() => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); }}
+          onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
       {verFacturas && (
         <FacturasRegistradas puedeRetener={canWrite}
           onRetener={(f) => { setVerFacturas(false); setRetenerSobre(f); setFacturaVarias(true); }}
           onClose={() => setVerFacturas(false)} />
+      )}
+      {verFacturasCompras && (
+        <Modal title="Facturas de Compras sin registrar en Retenciones" size="xl" onClose={() => setVerFacturasCompras(false)}>
+          <FacturasPorRegistrar
+            puedeRegistrar={canWrite}
+            onRegistrar={(f) => {
+              setVerFacturasCompras(false);
+              setSemillaCompra(semillaDeFacturaOrigen(f));
+              setFacturaVarias(true);
+            }}
+          />
+        </Modal>
       )}
     </div>
   );
@@ -1117,6 +1140,20 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const precarga = useMemo(() => (elegida ? precargaDeFactura(elegida) : null), [elegida]);
   // La tasa que trae la factura registrada manda sobre la BCV del día.
   const tasaDeFactura = elegida?.tasa != null && elegida.tasa > 0 ? elegida.tasa : null;
+  const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    const f = facturaFecha || fechaRetencion;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+      periodoEstaCerrado(tipoAGt(tipo), f)
+        .then((p) => { if (vivo) setPeriodoCerrado(p); })
+        .catch(() => { if (vivo) setPeriodoCerrado(null); });
+    } else {
+      setPeriodoCerrado(null);
+    }
+    return () => { vivo = false; };
+  }, [facturaFecha, fechaRetencion, tipo]);
 
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
@@ -1310,6 +1347,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   async function emitir() {
     setError(null);
     if (bloqueo) { setError(bloqueo); return; }
+    if (periodoCerrado) {
+      setError(`El período fiscal (${nombrePeriodo(periodoCerrado)}) ya fue declarado ante el SENIAT. No se pueden registrar retenciones en períodos cerrados sin reapertura previa.`);
+      return;
+    }
     if (avisoFecha) { setError(avisoFecha); return; }
     if (avisoRegla) { setError(avisoRegla); return; }
     if (motivoNa?.requiereTexto && !motivoNaDetalle.trim()) { setError(`El motivo «${motivoNa.texto}» pide un detalle.`); return; }
@@ -1587,6 +1628,16 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           <small className="hint muted">Emisión del comprobante. No cambia el período.</small>
         </div>
       </div>
+
+      {periodoCerrado && (
+        <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', margin: '.3rem 0', padding: '.5rem .8rem', width: '100%' }}>
+          <strong>🔒 Período Fiscal Cerrado ({nombrePeriodo(periodoCerrado)})</strong>
+          <p style={{ margin: '.2rem 0 0', fontSize: '.8rem' }}>
+            Este período ya fue declarado y enterado ante el SENIAT el {periodoCerrado.declaradoEn?.slice(0, 10)}.
+            Para registrar retenciones en este lapso, el administrador debe reabrir el período con justificación en la pestaña de Períodos, o registrar la operación en el período corriente.
+          </p>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '0 1 110px' }}>
