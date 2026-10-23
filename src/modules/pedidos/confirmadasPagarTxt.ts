@@ -57,30 +57,35 @@ function banco(codigo: string | null | undefined): string {
   return b ? `${b.nombre} (${b.codigo})` : codigo;
 }
 
-/** Nombre de quien hizo algo: el de la tabla de usuarios si se conoce; si no, el correo tal cual. */
-function nombreDe(email: string | null | undefined, personas?: Map<string, string>): string {
-  const e = (email ?? '').trim();
-  if (!e) return '';
-  return personas?.get(e.toLowerCase()) || e;
+import { nombrePersonaCompras } from './personasCompras';
+
+/** Nombre de quien hizo algo: Nombre y Apellido legible para humanos (nunca correo con @). */
+function nombreDe(identificador: string | null | undefined, personas?: Map<string, string>): string {
+  return nombrePersonaCompras(identificador, personas);
 }
 
 /**
  * Quiénes intervinieron en la orden, uno por renglón y solo los que se conocen:
- * quien hace la solicitud, quien autorizó (el Gerente General al aprobar la OC) y el
- * analista de compras encargado (el que eligió la oferta). Quien paga o aprueba necesita
- * saber con quién hablar si algo no cuadra.
+ * quien hace la solicitud, quien autorizó (el Gerente General o Jefa de administración al aprobar la OC) y el
+ * analista de compras encargado (el que elaboró la OC o indicó el método de pago).
+ * Se muestra siempre Nombre y Apellido, nunca correo electrónico.
  */
 function lineasPersonas(o: Orden, personas: Map<string, string> | undefined, conAutorizo: boolean): string[] {
   const L: string[] = [];
   const unidad = o.unidad_solicitante?.trim();
-  const solicita = [o.solicitante?.trim() || nombreDe(o.solicitante_email, personas), unidad].filter(Boolean).join(' · ');
+  const solRaw = o.solicitante?.trim() || o.solicitante_email?.trim();
+  const solNombre = solRaw ? nombrePersonaCompras(solRaw, personas) : '';
+  const solicita = [solNombre, unidad].filter(Boolean).join(' · ');
   if (solicita) L.push(`👤 *Solicita:* ${solicita}`);
   if (conAutorizo) {
     const autorizo = nombreDe(o.oc_aprobada_por || o.aprobada_por, personas);
     if (autorizo) L.push(`✅ *Autorizó:* ${autorizo}`);
   }
-  const analista = nombreDe(o.oc_creada_por || o.oc_emitida_por || o.metodo_pago_por, personas);
-  if (analista) L.push(`🛒 *Analista de compras:* ${analista}`);
+  const analistaRaw = o.oc_creada_por || o.oc_emitida_por || o.metodo_pago_por;
+  if (analistaRaw) {
+    const analista = nombreDe(analistaRaw, personas);
+    if (analista) L.push(`🛒 *Analista de compras:* ${analista}`);
+  }
   return L;
 }
 

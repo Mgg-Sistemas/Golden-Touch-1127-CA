@@ -23,6 +23,7 @@ import {
 import { descargarCierreDiarioPdf } from './cierreDiarioPdf';
 import { descargarCierreDiarioExcel } from './cierreDiarioExcel';
 import { textoCierreDiarioWhatsapp } from './cierreDiarioWhatsapp';
+import { crearMapaPersonasCompras } from './personasCompras';
 
 type Salida = 'pdf' | 'excel';
 
@@ -57,10 +58,7 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
         if (!vivo) return;
         setFilas(f);
         setCotizaciones(c);
-        const pm = new Map(
-          usrs.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])
-        );
-        setPersonasMap(pm);
+        setPersonasMap(crearMapaPersonasCompras(usrs));
       })
       .catch((e) => {
         if (vivo) setError(e instanceof Error ? e.message : 'No se pudo cargar el cierre');

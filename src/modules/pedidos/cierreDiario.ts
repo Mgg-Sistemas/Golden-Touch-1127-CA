@@ -18,6 +18,7 @@
    Vive aquí, sin pantalla ni base de datos, para poder probarlo.
    ============================================================ */
 import type { Orden } from '@/shared/lib/types';
+import { nombrePersonaCompras } from './personasCompras';
 
 export const ZONA_CIERRE = 'America/Caracas';
 
@@ -217,7 +218,7 @@ export function calcularCierre(
 
   r.analistas = [...analistasMap.entries()]
     .map(([email, stats]) => {
-      const nombre = personas?.get(email) || email;
+      const nombre = nombrePersonaCompras(email, personas);
       return {
         email,
         nombre,

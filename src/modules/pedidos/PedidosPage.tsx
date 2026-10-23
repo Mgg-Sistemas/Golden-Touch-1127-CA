@@ -86,6 +86,7 @@ import { rotuloConversion } from '@/modules/inventario/presentaciones';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
 import { CategoriaProductoSelect, asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { crearMapaPersonasCompras, nombrePersonaCompras } from './personasCompras';
 import { coincideOrden, personasQueRealizaron, realizadaPor } from './buscarOrdenes';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
@@ -401,9 +402,9 @@ export function PedidosPage() {
     () => new Map(proveedoresAll.map((p) => [p.id, p])),
     [proveedoresAll]
   );
-  // email → "Nombre Apellido" para mostrar personas en vez del correo.
+  // email|id → "NOMBRE APELLIDO" para mostrar personas en vez del correo.
   const personaMap = useMemo(
-    () => new Map(usuarios.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])),
+    () => crearMapaPersonasCompras(usuarios),
     [usuarios]
   );
 
@@ -3478,10 +3479,10 @@ function EnviarPorCorreoModal({
   );
 }
 
-/** Muestra el nombre de la persona a partir de su email; si no está, el propio email. */
+/** Muestra el Nombre y Apellido de la persona a partir de su email o ID; nunca el correo plano. */
 function persona(email: string | null | undefined, map: Map<string, string>): string {
   if (!email) return '—';
-  return map.get(email.toLowerCase()) ?? email;
+  return nombrePersonaCompras(email, map) || '—';
 }
 
 function Timeline({
