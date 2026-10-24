@@ -27,7 +27,7 @@ import {
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
-import { getConfigRetencion, listConceptos, sujetoAGt, tipoAGt, type DocKind } from './retencionesFiscal.repository';
+import { adjuntarComprobante, getConfigRetencion, listConceptos, sujetoAGt, tipoAGt, type DocKind } from './retencionesFiscal.repository';
 import { configDeFecha } from './parametros.repository';
 import { supuestoAplicado, supuestosVigentes, type Supuesto } from './motivosSupuestos.repository';
 import { esCeroSinMotivo } from './motivoCero';
@@ -176,6 +176,32 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch {}
   };
   const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
+  const [archivoFactura, setArchivoFactura] = useState<File | null>(null);
+  const [archivoFacturaUrl, setArchivoFacturaUrl] = useState<string | null>(null);
+
+  const onElegirArchivo = (f: File | null) => {
+    marcarSucio();
+    setArchivoFactura(f);
+    if (archivoFacturaUrl) {
+      try { URL.revokeObjectURL(archivoFacturaUrl); } catch {}
+    }
+    setArchivoFacturaUrl(f ? URL.createObjectURL(f) : null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (archivoFacturaUrl) {
+        try { URL.revokeObjectURL(archivoFacturaUrl); } catch {}
+      }
+    };
+  }, [archivoFacturaUrl]);
+
+  const verArchivoLocal = () => {
+    if (archivoFactura && archivoFacturaUrl) {
+      previewArchivo(archivoFacturaUrl, archivoFactura.name);
+    }
+  };
+
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
     tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
   })]);
@@ -499,6 +525,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const res = documento
         ? await retenerDespues(documento, lineasNuevas, { periodo, actorName, valorUt: config.valorUt })
         : await registrarFactura(facturaNueva, lineasNuevas);
+      if (archivoFactura && res.lineas?.length) {
+        for (const l of res.lineas) {
+          try {
+            await adjuntarComprobante(l.id, archivoFactura, 'Factura');
+          } catch {
+            // Continúa sin frenar la notificación
+          }
+        }
+      }
       notify(`${etiquetaDoc} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
       onHecho(res);
     } catch (e) {
@@ -519,14 +554,58 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       )}>
       {dialogo}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      {s.adjunto && (
-        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+      {s.adjunto ? (
+        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', borderColor: 'var(--primary)' }}>
           <span>📄 Factura cargada por Compras: <strong>{s.adjunto.nombre}</strong></span>
           <button type="button" className="btn btn-sm btn-ghost"
             onClick={() => { const a = s.adjunto; if (a) urlFacturaDeOrigen(a).then((u) => previewArchivo(u, a.nombre)).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo abrir el archivo.')); }}>
-            Ver
+            👁 Ver factura
           </button>
-          <small className="muted">Al registrar, el archivo queda enlazado a esta factura.</small>
+          <small className="muted">Enlazada automáticamente al expediente fiscal de la compra.</small>
+        </div>
+      ) : (
+        <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)', borderColor: archivoFactura ? 'var(--primary)' : 'var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.35rem' }}>
+            <label style={{ margin: 0, fontWeight: 600, fontSize: '.85rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              📎 Documento de respaldo (Factura en PDF o imagen)
+            </label>
+            {archivoFactura && (
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={verArchivoLocal}
+                  title="Abrir visor para cotejar datos de la factura"
+                  style={{ color: 'var(--primary)', fontWeight: 600 }}
+                >
+                  👁 Ver factura cargada
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => onElegirArchivo(null)}
+                  title="Quitar archivo seleccionado"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  ✕ Quitar
+                </button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+            <input
+              className="input"
+              type="file"
+              accept="application/pdf,image/*"
+              style={{ flex: 1 }}
+              onChange={(e) => onElegirArchivo(e.target.files?.[0] ?? null)}
+            />
+          </div>
+          <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
+            {archivoFactura
+              ? `Archivo listo: ${archivoFactura.name} (${(archivoFactura.size / 1024).toFixed(1)} KB). Puedes pulsar "Ver factura cargada" para revisar montos y números mientras registras.`
+              : 'Adjunta la imagen o PDF de la factura fiscal para revisarla en pantalla y dejar el respaldo digital auditable (📎) en el Libro Fiscal.'}
+          </small>
         </div>
       )}
       {documento && (
