@@ -37,7 +37,7 @@ import { montoEscrito, municipioDeLinea, sujetoDeLineas } from './lineasRegistro
 import { SeLeyo } from './SeLeyo';
 import { rotuloImpuesto } from './rotulos';
 import { BuscadorFactura } from './BuscadorFactura';
-import { pendientesComoTipos, r10Disponible, registrarFacturaSola, retenerDespues, type FacturaResumen } from './facturasResumen.repository';
+import { pendientesComoTipos, r10Disponible, retenerDespues, type FacturaResumen } from './facturasResumen.repository';
 import { faltaEnDatosFactura } from './facturaDocumento';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
@@ -167,7 +167,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // R10: la factura sola (sin líneas, queda pendiente) y retener después sobre una ya registrada.
   const [conR10, setConR10] = useState(false);
   const [documento, setDocumento] = useState<FacturaResumen | null>(null);
-  const [soloFactura, setSoloFactura] = useState(false);
   const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
     try { return localStorage.getItem('gt_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
   });
@@ -516,12 +515,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         };
       });
       const etiquetaDoc = tipoDocumento === 'factura' ? `Factura ${facturaNro}` : tipoDocumento === 'nota_credito' ? `Nota de crédito ${facturaNro}` : `Nota de débito ${facturaNro}`;
-      if (soloFactura) {
-        const res = await registrarFacturaSola(facturaNueva);
-        notify(`${etiquetaDoc} registrada: queda pendiente por retener`, 'success', { link: '#/app/retenciones' });
-        onHecho(res);
-        return;
-      }
       const res = documento
         ? await retenerDespues(documento, lineasNuevas, { periodo, actorName, valorUt: config.valorUt })
         : await registrarFactura(facturaNueva, lineasNuevas);
@@ -547,8 +540,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || (!soloFactura && !lineas.length)}>
-            {saving ? 'Guardando…' : soloFactura ? 'Registrar la factura' : `${documento ? 'Retener' : 'Registrar'} · ${money(totalRetenido, moneda)}`}
+          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || !lineas.length}>
+            {saving ? 'Guardando…' : `${documento ? 'Retener' : 'Registrar'} · ${money(totalRetenido, moneda)}`}
           </button>
         </>
       )}>
@@ -763,20 +756,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
       </div>
 
-      {conR10 && !documento && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.86rem', margin: '.4rem 0' }}>
-          <input type="checkbox" checked={soloFactura} onChange={(e) => { marcarSucio(); setSoloFactura(e.target.checked); }} />
-          Registrar solo la factura (retener después)
-        </label>
-      )}
-      {soloFactura && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginTop: '.4rem' }}>
-          <small>La factura quedará <strong>pendiente por retener</strong>: aparece en «Facturas registradas» y en el buscador del N° de factura para retener después.</small>
-        </div>
-      )}
-
       {/* Las líneas de impuesto */}
-      {!soloFactura && (
       <div className="card" style={{ marginTop: '.4rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
           <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
@@ -1008,7 +988,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           );
         })}
       </div>
-      )}
 
       <div className="form-row">
         <label>Nota de la factura</label>
