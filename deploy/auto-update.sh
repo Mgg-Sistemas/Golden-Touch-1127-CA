@@ -53,6 +53,31 @@ if [ "$LOCAL" = "$REMOTE" ] && [ "$ULTIMO_OK" = "$REMOTE" ]; then
   exit 0   # sin cambios y ya publicado → no hacemos nada (ni marcamos)
 fi
 
+# TOPE DE REINTENTOS POR COMMIT (25/10/2026). Un commit con un error de tipos (tsc -b) se
+# reintentaba cada 6 min para siempre: el sitio estuvo ~40 h sin publicar y, como el Droplet
+# tiene UN solo procesador, cada intento lo dejaba al 100 % durante minutos (el sistema
+# entero se sentía lento: HTML en 3 s y los JS en más de 10 s). Ahora cada commit se intenta
+# como máximo MAX_FALLOS veces; si falla, se deja de insistir hasta que main cambie (un
+# commit nuevo reinicia la cuenta). El reintento sigue sirviendo para fallos pasajeros
+# (p. ej. Node sin memoria), que se resuelven en el segundo o tercer intento.
+MAX_FALLOS=3
+FALLO_FILE="/var/lib/golden-touch/fallos-build"
+FALLOS=0
+if [ -f "$FALLO_FILE" ] && [ "$(cut -d' ' -f1 "$FALLO_FILE")" = "$REMOTE" ]; then
+  FALLOS="$(cut -d' ' -f2 "$FALLO_FILE")"
+fi
+if [ "$FALLOS" -ge "$MAX_FALLOS" ]; then
+  exit 0   # este commit ya falló MAX_FALLOS veces: no se reintenta hasta que main cambie
+fi
+registrar_fallo() {
+  FALLOS=$((FALLOS + 1))
+  echo "$REMOTE $FALLOS" > "$FALLO_FILE"
+  if [ "$FALLOS" -ge "$MAX_FALLOS" ]; then
+    echo "$(date '+%F %T') · BUILD FALLÓ $FALLOS veces en ${REMOTE:0:7}: se detienen los reintentos hasta que main tenga un commit nuevo (revisar los errores de arriba)" >> "$LOG"
+  fi
+}
+trap registrar_fallo ERR
+
 # Credenciales para la marca de despliegue (de .env.local / .env, gitignored).
 if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
@@ -112,7 +137,7 @@ marcar_despliegue() {
   # lo que pide package-lock.json y reinstalarlo solo alarga el despliegue.
   BASE="${ULTIMO_OK:-$LOCAL}"
   if [ ! -d node_modules ] || ! git diff --quiet "$BASE" "$REMOTE" -- package.json package-lock.json 2>/dev/null; then
-    npm ci
+    nice -n 19 npm ci
   else
     echo "$(date '+%F %T') · npm ci omitido (package.json y package-lock.json sin cambios)"
   fi
@@ -126,13 +151,18 @@ marcar_despliegue() {
   # es decir, cada despliegue tumbaba el sistema un rato. Con el rename, lo publicado
   # pasa de la versión vieja a la nueva en un instante y sin huecos.
   rm -rf dist.new
-  VITE_BASE_PATH=/ VITE_APP_VERSION="$(git rev-parse --short HEAD)" npm run build -- --outDir dist.new
+  # nice/ionice: el build corre con la prioridad más baja para que, mientras compila, el
+  # Droplet (1 procesador) siga sirviendo el sitio a los usuarios sin trabarse.
+  PRIO="nice -n 19"
+  if command -v ionice >/dev/null 2>&1; then PRIO="$PRIO ionice -c3"; fi
+  VITE_BASE_PATH=/ VITE_APP_VERSION="$(git rev-parse --short HEAD)" $PRIO npm run build -- --outDir dist.new
   rm -rf dist.old
   if [ -d dist ]; then mv dist dist.old; fi
   mv dist.new dist
   rm -rf dist.old
   systemctl reload nginx
   echo "$REMOTE" > "$OK_FILE"
+  rm -f "$FALLO_FILE"
   echo "$(date '+%F %T') · deploy OK en ${REMOTE:0:7}"
 } >> "$LOG" 2>&1
 
