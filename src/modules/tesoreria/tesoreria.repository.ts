@@ -175,6 +175,50 @@ export async function registrarGasto(input: {
   return data as MovimientoCaja;
 }
 
+/**
+ * Crédito (ENTRADA) simple a una caja: suma al saldo de (cuenta+moneda) sin tocar la tasa
+ * promedio (no es compra de divisa). Lo usa la devolución de viáticos de un chofer. El saldo
+ * se mueve con las mismas funciones atómicas que `registrarGasto` (lock de la fila).
+ */
+export async function registrarIngresoCaja(input: {
+  cajaId: string; monto: number; concepto: string; categoria?: string;
+  cuenta?: CuentaCaja | null; moneda?: string | null;
+  actor: string; actorName?: string | null;
+}): Promise<MovimientoCaja> {
+  const monto = round2(Number(input.monto) || 0);
+  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+  if (!input.concepto.trim()) throw new Error('Indica el concepto del ingreso.');
+  const caja = await getCaja(input.cajaId);
+  const monedaPago = (input.moneda ?? caja.moneda) as string;
+  const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
+  const { data: saldoRow } = await supabase.from(SALDOS)
+    .select('id').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+  const usaSaldos = !!saldoRow;
+
+  const mover = async (delta: number) => {
+    const { data: r, error: e } = usaSaldos
+      ? await supabase.rpc('aplicar_saldo_divisa', { p_caja_id: input.cajaId, p_cuenta: cuentaSel, p_moneda: monedaPago, p_delta: delta, p_permitir_negativo: true })
+      : await supabase.rpc('aplicar_saldo_caja', { p_caja_id: input.cajaId, p_delta: delta, p_permitir_negativo: true });
+    if (e) throw new Error(e.message || 'No se pudo mover el saldo de la caja.');
+    return r as { saldo_antes: number; saldo_despues: number };
+  };
+
+  const res = await mover(monto);
+  const { data, error } = await supabase.from(LIBRO).insert({
+    caja_id: input.cajaId, tipo: 'ingreso', monto, moneda: monedaPago,
+    saldo_antes: Number(res.saldo_antes) || 0, saldo_despues: Number(res.saldo_despues) || 0,
+    motivo: input.concepto.trim(), categoria: input.categoria ?? 'ingreso',
+    cuenta: usaSaldos ? cuentaSel : null,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) {
+    // El saldo ya subió pero el asiento no se escribió: se deshace para no dejar dinero sin explicación.
+    await mover(-monto).catch(() => undefined);
+    throw error;
+  }
+  return data as MovimientoCaja;
+}
+
 /* ───────────── Pago a personal (multipagos a usuarios del sistema) ───────────── */
 
 export async function pagarPersonal(input: {

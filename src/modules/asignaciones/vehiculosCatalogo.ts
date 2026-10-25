@@ -95,7 +95,7 @@ export function etiquetaVehiculo(v: VehiculoCatalogo): string {
   return [v.placa, v.alias, marcaModelo(v), v.color].filter(Boolean).join(' · ');
 }
 
-export function filtrarVehiculos(lista: VehiculoCatalogo[], q: string): VehiculoCatalogo[] {
+export function filtrarVehiculos<T extends VehiculoCatalogo>(lista: T[], q: string): T[] {
   const n = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
   const t = n(q.trim());
   const orden = [...lista].sort((a, b) => Number(b.activo) - Number(a.activo) || a.placa.localeCompare(b.placa));

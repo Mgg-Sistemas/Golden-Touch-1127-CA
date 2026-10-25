@@ -4,6 +4,10 @@ import { createPortal } from 'react-dom';
 export interface SearchOption {
   value: string;
   label: string;
+  /** Texto secundario a la derecha (código, cantidad…); también se busca. */
+  hint?: string;
+  /** Otras características por las que se puede encontrar la opción (no se muestran, salvo la que coincide). */
+  keywords?: string[];
 }
 
 /** Normaliza para buscar: minúsculas y SIN acentos (así "peramanal" encuentra "Peramanál").
@@ -16,6 +20,27 @@ const normBusqueda = (s: string): string => {
     return (s ?? '').toLowerCase().trim();
   }
 };
+
+/**
+ * Filtra por TODAS las características de la opción (etiqueta, texto secundario y keywords).
+ * Cada palabra escrita tiene que aparecer en alguna de ellas. Devuelve, por opción, la
+ * keyword que coincidió cuando la etiqueta y el texto secundario no alcanzan, para mostrarla.
+ */
+export function filtrarOpciones(options: SearchOption[], query: string): { opcion: SearchOption; por: string | null }[] {
+  const palabras = normBusqueda(query).split(/\s+/).filter(Boolean);
+  if (!palabras.length) return options.map((opcion) => ({ opcion, por: null }));
+  const out: { opcion: SearchOption; por: string | null }[] = [];
+  for (const o of options) {
+    const base = normBusqueda(`${o.label} ${o.hint ?? ''}`);
+    const kws = (o.keywords ?? []).map((k) => ({ k, n: normBusqueda(k) }));
+    const todo = `${base} ${kws.map((x) => x.n).join(' ')}`;
+    if (!palabras.every((p) => todo.includes(p))) continue;
+    const faltan = palabras.filter((p) => !base.includes(p));
+    const por = faltan.length ? kws.find((x) => faltan.every((p) => x.n.includes(p)))?.k ?? kws.find((x) => faltan.some((p) => x.n.includes(p)))?.k ?? null : null;
+    out.push({ opcion: o, por });
+  }
+  return out;
+}
 
 /** Apariencia del panel (colores/borde/sombra). La POSICIÓN se calcula aparte
  *  porque el panel se monta en un portal (position: fixed) para que ningún
@@ -95,6 +120,8 @@ export function SearchSelect({
   style,
   id,
   disabled = false,
+  allowCreate = false,
+  createLabel,
 }: {
   options: SearchOption[];
   value: string;
@@ -104,6 +131,10 @@ export function SearchSelect({
   style?: CSSProperties;
   id?: string;
   disabled?: boolean;
+  /** Si true, permite escribir un valor que no está en la lista y crearlo (combobox creable). */
+  allowCreate?: boolean;
+  /** Cómo se lee la opción de crear (ej. «➕ Registrar vehículo externo»). */
+  createLabel?: (query: string) => string;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -114,13 +145,15 @@ export function SearchSelect({
 
   const selected = options.find((o) => o.value === value) ?? null;
 
-  const filtered = useMemo(() => {
-    const q = normBusqueda(query);
-    if (!q) return options;
-    return options.filter((o) => normBusqueda(o.label).includes(q));
-  }, [options, query]);
+  const coincidencias = useMemo(() => filtrarOpciones(options, query), [options, query]);
+  const filtered = useMemo(() => coincidencias.map((c) => c.opcion), [coincidencias]);
   // Solo se pintan las primeras MAX_OPCIONES (rendimiento con catálogos grandes).
-  const visibles = filtered.length > MAX_OPCIONES ? filtered.slice(0, MAX_OPCIONES) : filtered;
+  const visiblesCo = coincidencias.length > MAX_OPCIONES ? coincidencias.slice(0, MAX_OPCIONES) : coincidencias;
+  const visibles = visiblesCo.map((c) => c.opcion);
+
+  // Opción de «crear» (combobox creable): aparece si lo escrito no calza exacto con una opción.
+  const queryTrim = query.trim();
+  const showCreate = allowCreate && queryTrim !== '' && !options.some((o) => o.label.toLowerCase() === queryTrim.toLowerCase());
 
   // Cerrar al hacer clic afuera (y limpiar el texto tecleado). El panel vive en un
   // portal, así que un clic dentro de él NO se considera «afuera».
@@ -153,6 +186,9 @@ export function SearchSelect({
       if (open && visibles[hi]) {
         e.preventDefault();
         pick(visibles[hi].value);
+      } else if (open && showCreate) {
+        e.preventDefault();
+        pick(queryTrim);
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
@@ -168,17 +204,30 @@ export function SearchSelect({
         className="input"
         autoComplete="off"
         disabled={disabled}
-        value={open ? query : (selected?.label ?? '')}
-        placeholder={selected ? selected.label : placeholder}
+        value={open ? query : (selected?.label ?? (allowCreate ? value : ''))}
+        placeholder={selected ? selected.label : ((allowCreate && value) || placeholder)}
         onFocus={() => { if (disabled) return; setOpen(true); setQuery(''); setHi(0); }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
         onKeyDown={onKeyDown}
       />
       <DropdownPortal anchorRef={inputRef} panelRef={panelRef} open={open && !disabled}>
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !showCreate && (
           <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>
         )}
-        {visibles.map((o, i) => (
+        {showCreate && (
+          <div
+            role="option"
+            onMouseDown={(e) => { e.preventDefault(); pick(queryTrim); }}
+            style={{
+              padding: '.45rem .7rem', cursor: 'pointer', fontSize: '.9rem',
+              color: 'var(--primary-3, #ff8a00)', fontWeight: 600,
+              borderBottom: filtered.length ? '1px solid var(--border, #2a3240)' : undefined,
+            }}
+          >
+            {createLabel ? createLabel(queryTrim) : `➕ Usar «${queryTrim}»`}
+          </div>
+        )}
+        {visiblesCo.map(({ opcion: o, por }, i) => (
           <div
             key={o.value}
             role="option"
@@ -187,7 +236,15 @@ export function SearchSelect({
             onMouseEnter={() => setHi(i)}
             style={optStyle(i === hi, o.value === value)}
           >
-            {o.label}
+            {o.hint || por ? (
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div>{o.label}</div>
+                  {por && <div className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>contiene: {por}</div>}
+                </div>
+                {o.hint && <span className="muted mono" style={{ fontSize: '.72rem', fontWeight: 400, whiteSpace: 'nowrap' }}>{o.hint}</span>}
+              </div>
+            ) : o.label}
           </div>
         ))}
         {filtered.length > visibles.length && (

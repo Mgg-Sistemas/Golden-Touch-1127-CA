@@ -1,18 +1,20 @@
 /* ============================================================
-   Golden Touch · Choferes / Conductores · Tablero (traído de MGG, 13/10/2026)
+   MGG · Choferes / Conductores · Tablero
 
    Lo que hay que saber de un vistazo: cuántos conductores hay, cuántos están
    en la vía, cuántos de descanso y qué documentos están vencidos o por
    vencer. Cada tarjeta lleva a la pestaña donde se resuelve.
    ============================================================ */
 import { useMemo, useState } from 'react';
-import { date as fmtDate } from '@/shared/lib/format';
+import { money, date as fmtDate } from '@/shared/lib/format';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, textoRuta, totalViajes, type EstadoChofer, type EstadoFlota } from './choferes';
-import { fechaHora, nombreConductor, textoVehiculo, type PropsTab, type Vista } from './ChoferesPage';
+import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, liquidarViaticos, textoRuta, totalViajes, type EstadoChofer, type EstadoFlota } from './choferes';
+import { fechaHora, nombreConductor, textoVehiculo, type PropsTab } from './ChoferesPage';
+
+type Vista = 'tablero' | 'expediente' | 'nomina' | 'viaticos' | 'guias' | 'descansos' | 'viajes' | 'pagos';
 
 export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void }) {
-  const { conductores, flota, viajes, descansos, hoy, loading } = datos;
+  const { conductores, flota, viajes, viaticos, pagos, descansos, hoy, loading } = datos;
 
   const activos = useMemo(() => conductores.filter((c) => c.activo), [conductores]);
   const enRutaIds = useMemo(() => new Set(viajes.filter((v) => v.estado === 'en_ruta').map((v) => v.chofer_id)), [viajes]);
@@ -20,7 +22,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
 
   const porEstado = useMemo(() => {
     const m = { en_ruta: 0, descanso: 0, disponible: 0, inactivo: 0 };
-    for (const c of conductores) m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: !!c.personal_id && descansoHoy.has(c.personal_id) })]++;
+    for (const c of conductores) m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id ?? '') })]++;
     return m;
   }, [conductores, enRutaIds, descansoHoy]);
 
@@ -38,11 +40,16 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
 
   const enRuta = useMemo(() => viajes.filter((v) => v.estado === 'en_ruta'), [viajes]);
   const programados = useMemo(() => viajes.filter((v) => v.estado === 'programado').sort((a, b) => a.fecha_salida.localeCompare(b.fecha_salida)).slice(0, 6), [viajes]);
+  const sinLiquidar = useMemo(() => viajes.filter((v) => v.estado === 'finalizado' && !v.liquidado_at && viaticos.some((m) => m.viaje_id === v.id)), [viajes, viaticos]);
+  const anticiposAbiertos = useMemo(() => liquidarViaticos(viaticos.filter((m) => {
+    if (m.tipo !== 'anticipo') return false;
+    const v = m.viaje_id ? viajes.find((x) => x.id === m.viaje_id) : null;
+    return !v || !v.liquidado_at;
+  })).anticipos, [viaticos, viajes]);
+  const pendientes = useMemo(() => pagos.filter((p) => p.estado === 'pendiente'), [pagos]);
+  const porPagar = pendientes.reduce((a, p) => a + p.neto_usd, 0);
   const mes = hoy.slice(0, 7);
-  // Cada registro trae su cantidad de viajes (la volqueta anota «12 viajes» en una fila).
-  const delMes = viajes.filter((v) => v.estado === 'finalizado' && (v.llegada_real_at ?? v.fecha_salida).slice(0, 7) === mes);
-  const viajesMes = totalViajes(delMes);
-  const volquetaMes = totalViajes(delMes.filter((v) => v.tipo_viaje === 'volqueta'));
+  const viajesMes = totalViajes(viajes.filter((v) => v.estado === 'finalizado' && (v.llegada_real_at ?? v.fecha_salida).slice(0, 7) === mes));
 
   const porId = useMemo(() => new Map(conductores.map((c) => [c.id, c])), [conductores]);
   const vehiculoPorId = useMemo(() => new Map(flota.map((v) => [v.id, v])), [flota]);
@@ -60,7 +67,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
     const m: Record<EstadoChofer, typeof activos> = { en_ruta: [], descanso: [], disponible: [], inactivo: [] };
     for (const c of activos) {
       if (q && !nombreConductor(c).toLowerCase().includes(q)) continue;
-      m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: !!c.personal_id && descansoHoy.has(c.personal_id) })].push(c);
+      m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id ?? '') })].push(c);
     }
     for (const k of Object.keys(m) as EstadoChofer[]) m[k].sort((a, b) => nombreConductor(a).localeCompare(nombreConductor(b)));
     return { m, viajeDe };
@@ -78,7 +85,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
           <div className="muted" style={{ fontSize: '.78rem' }}>{porEstado.disponible} disponibles hoy</div>
           <div className="icon" aria-hidden="true">🪪</div>
         </button>
-        <button type="button" className="kpi desc-kpi" onClick={() => irA('viajes')}>
+        <button type="button" className="kpi desc-kpi" onClick={() => irA('nomina')}>
           <div className="label">En ruta ahora</div>
           <div className="value">{porEstado.en_ruta}</div>
           <div className="muted" style={{ fontSize: '.78rem' }}>{programados.length ? `${viajes.filter((v) => v.estado === 'programado').length} viaje(s) programados` : 'Sin viajes programados'}</div>
@@ -105,11 +112,23 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
           <div className="muted" style={{ fontSize: '.78rem' }}>{flotaPorEstado.taller} en taller · {flotaPorEstado.inactivo} inactivos{segurosFlota ? ` · ${segurosFlota} seguro(s) vencido(s)` : ''}</div>
           <div className="icon" aria-hidden="true">🚚</div>
         </button>
-        <button type="button" className="kpi desc-kpi" onClick={() => irA('viajes')}>
+        <button type="button" className="kpi desc-kpi" onClick={() => irA('nomina')}>
           <div className="label">Viajes finalizados este mes</div>
           <div className="value">{viajesMes}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>🚚 {viajesMes - volquetaMes} de camión · 🚛 {volquetaMes} de volqueta</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>{viajes.length} en el histórico</div>
           <div className="icon" aria-hidden="true">🏁</div>
+        </button>
+        <button type="button" className={`kpi desc-kpi${sinLiquidar.length ? ' alerta' : ''}`} onClick={() => irA('viaticos')}>
+          <div className="label">Viáticos por liquidar</div>
+          <div className="value">{sinLiquidar.length}<small> viaje(s)</small></div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>{money(anticiposAbiertos)} en anticipos abiertos</div>
+          <div className="icon" aria-hidden="true">💵</div>
+        </button>
+        <button type="button" className="kpi desc-kpi" onClick={() => irA('nomina')}>
+          <div className="label">Recibos por pagar</div>
+          <div className="value">{pendientes.length}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>{money(porPagar)} pendientes</div>
+          <div className="icon" aria-hidden="true">🧾</div>
         </button>
       </div>
 

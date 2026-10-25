@@ -98,6 +98,7 @@ const TIPO_MOV_LABEL: Record<string, string> = {
 };
 const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
+  viatico_chofer: 'Viático de chofer', pago_viaje_chofer: 'Pago de viajes (chofer)',
   // Ventas: el cobro de una venta es el PRIMER ingreso clasificado del sistema
   // (hasta hoy todas las entradas de dinero venían sin categoría). Que se lea.
   cobro_venta: 'Cobro de venta', reverso_venta: 'Reverso de venta',

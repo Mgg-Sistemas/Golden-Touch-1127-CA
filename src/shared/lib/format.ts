@@ -1,6 +1,11 @@
-export function money(n: number | null | undefined): string {
+export function money(n: number | null | undefined, moneda?: string | null): string {
   if (n == null || isNaN(n as number)) return '—';
-  return '$ ' + Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const monto = Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Sin moneda (o USD): «$ 1.234,56», como siempre. Con otra moneda se escribe en la suya.
+  const m = String(moneda ?? '').trim().toUpperCase();
+  if (m === 'BS' || m === 'BSS' || m === 'BSD') return 'Bs ' + monto;
+  if (m && m !== 'USD' && m !== '$' && m !== 'DIVISA') return `${monto} ${String(moneda).trim()}`;
+  return '$ ' + monto;
 }
 
 /** Formatea un monto en SU moneda: 'Bs' muestra "Bs …"; cualquier otra (o vacío) "$ …". */
@@ -24,6 +29,27 @@ export function redondearArriba5(n: number | null | undefined): number {
 export function num(n: number | null | undefined): string {
   if (n == null || isNaN(n as number)) return '—';
   return Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 });
+}
+
+/**
+ * Formatea una cédula de identidad con puntos separadores de miles (ej.: 7.514.385).
+ * Acepta números, strings con o sin prefijo 'V-', 'E-', 'J-', o con puntos previos.
+ *   7514385 → '7.514.385' · 'V-7514385' → 'V-7.514.385' · 'E12345678' → 'E-12.345.678'
+ */
+export function formatoCI(v: string | number | null | undefined): string {
+  if (v == null || v === '') return '—';
+  const str = String(v).trim();
+  if (!str || str === '—') return '—';
+
+  const match = str.match(/^([VEJPGvejpg]-?)\s*(.+)$/);
+  const prefijo = match ? match[1].toUpperCase().replace('-', '') + '-' : '';
+  const resto = match ? match[2] : str;
+
+  const soloDigitos = resto.replace(/\D/g, '');
+  if (!soloDigitos) return str;
+
+  const conPuntos = Number(soloDigitos).toLocaleString('es-VE');
+  return prefijo ? `${prefijo}${conPuntos}` : conPuntos;
 }
 
 /**
