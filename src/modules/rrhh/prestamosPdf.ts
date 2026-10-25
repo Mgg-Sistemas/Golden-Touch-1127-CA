@@ -5,8 +5,10 @@
    debe. Sirve tanto para UN trabajador (estado de cuenta individual) como
    para el listado filtrado de la pestaña: son los mismos grupos, uno o muchos.
 
-   Debajo de cada préstamo van sus abonos (fecha, origen, monto), así el
-   trabajador puede cotejar quincena por quincena qué se le descontó.
+   Como en MGG, préstamos y abonos van en FILAS SEPARADAS, por fecha: cada entrega
+   de dinero es una fila («Préstamo 1», «Préstamo 2»…) y cada abono, la suya, en el
+   orden en que pasaron, con el saldo que iba quedando después de cada uno. Así el
+   trabajador coteja quincena por quincena qué se le prestó y qué se le descontó.
 
    Diseño ejecutivo corporativo de alta calidad:
    - Tarjetas KPI métricas en cabecera
@@ -28,6 +30,57 @@ const dia = (f: string | null | undefined) => {
   const d = String(f ?? '').slice(0, 10);
   return d.length === 10 ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—';
 };
+
+/** Una fila del estado de cuenta: una entrega de dinero o un abono, con el saldo que queda tras ella. */
+export interface MovimientoCuenta {
+  tipo: 'prestamo' | 'abono';
+  /** AAAA-MM-DD. */
+  fecha: string;
+  /** Texto de las celdas: fecha, tipo / origen, motivo o nota, prestado, pagado, saldo. */
+  celdas: [string, string, string, string, string, string];
+  /** Saldo del préstamo después de este movimiento. */
+  saldo: number;
+}
+
+/**
+ * Los movimientos de UN préstamo ordenados por fecha: cada entrega y cada abono en su
+ * propia fila, con el saldo corrido. El mismo día va primero la entrega y después el abono.
+ * `desde` numera las entregas de forma continua cuando la persona tiene varios préstamos.
+ */
+export function movimientosCuenta(a: AnticipoPrestamo, pagos: AnticipoPago[], numerarDesde = 0, totalEntregas = 0): MovimientoCuenta[] {
+  const etiqueta = ETIQUETA_TIPO[a.tipo] ?? 'Préstamo';
+  const hist = a.historico ? ' (hist.)' : '';
+  const entregas = extraerEntregasPrestamo(a);
+  const numerar = Math.max(totalEntregas, entregas.length) > 1;
+  type Mov = { fecha: string; orden: number; entrega: boolean; monto: number; celdas: (saldo: number) => MovimientoCuenta['celdas'] };
+  const movs: Mov[] = [
+    ...entregas.map((e, i): Mov => {
+      const fecha = String(e.fecha || a.fecha || '').slice(0, 10);
+      return {
+        fecha, orden: 0, entrega: true, monto: Number(e.monto) || 0,
+        celdas: (saldo) => [
+          dia(fecha),
+          (numerar ? `${etiqueta} ${numerarDesde + i + 1}` : etiqueta) + hist,
+          e.motivo || a.motivo || `${etiqueta} autorizado`,
+          usd(e.monto), '—', usd(saldo),
+        ],
+      };
+    }),
+    ...ordenarPagos(pagos.filter((x) => x.anticipo_id === a.id)).map((pg): Mov => ({
+      fecha: String(pg.fecha ?? '').slice(0, 10), orden: 1, entrega: false, monto: Number(pg.monto) || 0,
+      celdas: (saldo) => [
+        `• ${dia(pg.fecha)}`, `• ${ETIQUETA_ORIGEN[pg.origen] ?? pg.origen}`, pg.nota || 'Abono a préstamo',
+        '—', usd(pg.monto), usd(saldo),
+      ],
+    })),
+  ];
+  movs.sort((x, y) => x.fecha.localeCompare(y.fecha) || x.orden - y.orden);
+  let saldo = 0;
+  return movs.map((m) => {
+    saldo = Math.max(0, r2(saldo + (m.entrega ? m.monto : -m.monto)));
+    return { tipo: m.entrega ? 'prestamo' : 'abono', fecha: m.fecha, celdas: m.celdas(saldo), saldo };
+  });
+}
 
 export interface GrupoPrestamosPdf {
   persona: Personal;
@@ -207,49 +260,25 @@ export async function construirPrestamosPdf(op: OpcionesPrestamosPdf): Promise<i
 
     y += bannerH + 6;
 
-    // Filas de préstamos y sus abonos
-    type Fila = { celdas: string[]; abono?: boolean; subtotal?: boolean; debe?: boolean };
+    // Filas: cada entrega de dinero y cada abono en su propia fila, por fecha, con el saldo corrido.
+    type Fila = { celdas: string[]; tipo: 'prestamo' | 'abono' | 'subtotal'; saldo: number };
     const filas: Fila[] = [];
-    const orden = [...g.anticipos].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
-
+    const orden = [...g.anticipos].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || String(a.created_at).localeCompare(String(b.created_at)));
+    const totalEntregas = orden.reduce((n, a) => n + extraerEntregasPrestamo(a).length, 0);
+    let numeradas = 0;
     for (const a of orden) {
-      const saldoNum = Number(a.saldo) || 0;
-      const entregas = extraerEntregasPrestamo(a);
-      const fechasTxt = entregas.length > 1
-        ? entregas.map((e) => dia(e.fecha)).join(' · ')
-        : dia(a.fecha);
-
-      filas.push({
-        debe: saldoNum > 0,
-        celdas: [
-          fechasTxt,
-          ETIQUETA_TIPO[a.tipo] + (a.historico ? ' (hist.)' : '') + (entregas.length > 1 ? ` (${entregas.length} ent.)` : ''),
-          a.motivo || '—',
-          usd(a.monto_total),
-          usd(pagadoDe(a)),
-          usd(a.saldo),
-          a.estado === 'saldado' ? 'Saldado' : 'Activo',
-        ],
+      const movs = movimientosCuenta(a, g.pagos, numeradas, totalEntregas);
+      numeradas += extraerEntregasPrestamo(a).length;
+      movs.forEach((m, i) => {
+        // Con varios préstamos, el estado de cada uno va en su última fila; con uno solo, en el subtotal.
+        const estado = orden.length > 1 && i === movs.length - 1 ? (Number(a.saldo) > 0 ? 'Activo' : 'Saldado') : '';
+        filas.push({ tipo: m.tipo, saldo: m.saldo, celdas: [...m.celdas, estado] });
       });
-      for (const pg of ordenarPagos(g.pagos.filter((x) => x.anticipo_id === a.id))) {
-        filas.push({
-          abono: true,
-          celdas: [
-            `  • ${dia(pg.fecha)}`,
-            `  • ${ETIQUETA_ORIGEN[pg.origen] ?? pg.origen}`,
-            pg.nota || 'Abono a préstamo',
-            '—',
-            usd(pg.monto),
-            '—',
-            '—',
-          ],
-        });
-      }
     }
 
     filas.push({
-      subtotal: true,
-      celdas: ['', '', 'Subtotal del trabajador', usd(gPrestado), usd(gPagado), usd(gSaldo), ''],
+      tipo: 'subtotal', saldo: gSaldo,
+      celdas: ['', '', 'Subtotal del trabajador', usd(gPrestado), usd(gPagado), usd(gSaldo), gSaldo > 0 ? 'Activo' : 'Saldado'],
     });
 
     autoTable(doc, {
@@ -283,45 +312,28 @@ export async function construirPrestamosPdf(op: OpcionesPrestamosPdf): Promise<i
         if (data.section !== 'body') return;
         const f = filas[data.row.index];
         if (!f) return;
+        const colSaldo = data.column.index === 5;
 
-        if (f.abono) {
-          data.cell.styles.textColor = [100, 116, 139];
-          data.cell.styles.fontSize = 7;
-          data.cell.styles.fillColor = [250, 251, 252];
-          if (data.column.index === 4) {
-            data.cell.styles.textColor = [16, 149, 93];
-            data.cell.styles.fontStyle = 'bold';
-          }
-        } else if (f.subtotal) {
+        if (f.tipo === 'abono') {
+          data.cell.styles.textColor = [71, 85, 105];
+          data.cell.styles.fillColor = [250, 252, 254];
+          if (data.column.index === 4) { data.cell.styles.textColor = [16, 149, 93]; data.cell.styles.fontStyle = 'bold'; }
+          if (colSaldo) data.cell.styles.textColor = f.saldo > 0 ? [220, 38, 38] : [16, 149, 93];
+        } else if (f.tipo === 'subtotal') {
           data.cell.styles.fontStyle = 'bold';
           data.cell.styles.fillColor = [255, 247, 237];
           data.cell.styles.textColor = [30, 41, 59];
-          if (data.column.index === 4) {
-            data.cell.styles.textColor = [16, 149, 93];
-          } else if (data.column.index === 5) {
-            data.cell.styles.textColor = gSaldo > 0 ? [220, 38, 38] : [16, 149, 93];
-          }
+          if (data.column.index === 2) data.cell.styles.halign = 'right';
+          if (data.column.index === 4) data.cell.styles.textColor = [16, 149, 93];
+          if (colSaldo || data.column.index === 6) data.cell.styles.textColor = gSaldo > 0 ? [220, 38, 38] : [16, 149, 93];
+          if (data.column.index === 6 && gSaldo > 0) data.cell.styles.textColor = [217, 119, 6];
         } else {
-          // Fila del préstamo principal
-          if (data.column.index === 0 || data.column.index === 1) {
-            data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.textColor = [30, 41, 59];
-          }
-          if (data.column.index === 3) {
-            data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.textColor = [30, 41, 59];
-          }
-          if (data.column.index === 4 && data.cell.raw !== '$ 0,00') {
-            data.cell.styles.textColor = [16, 149, 93];
-          }
-          if (data.column.index === 5) {
-            data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.textColor = f.debe ? [220, 38, 38] : [16, 149, 93];
-          }
-          if (data.column.index === 6) {
-            data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.textColor = f.debe ? [217, 119, 6] : [16, 149, 93];
-          }
+          // Entrega del préstamo: fecha, tipo y cifras en negrita; el motivo, en texto normal.
+          data.cell.styles.fillColor = [244, 245, 247];
+          data.cell.styles.fontStyle = data.column.index === 2 ? 'normal' : 'bold';
+          data.cell.styles.textColor = data.column.index === 2 ? [51, 65, 85] : [30, 41, 59];
+          if (colSaldo) data.cell.styles.textColor = f.saldo > 0 ? [220, 38, 38] : [16, 149, 93];
+          if (data.column.index === 6) data.cell.styles.textColor = [217, 119, 6];
         }
       },
       margin: MARGIN,
@@ -349,7 +361,7 @@ export async function construirPrestamosPdf(op: OpcionesPrestamosPdf): Promise<i
   doc.setTextColor(120, 130, 140);
   doc.text(pdfSafe(
     'Nota: Montos expresados en dólares americanos (USD). PAGADO = suma de abonos registrados (descuentos de nómina, '
-    + 'pagos directos o saldo previo cargado); SALDO = Monto total - Pagado. Los préstamos marcados con (hist.) corresponden a saldos previos.',
+    + 'pagos directos o saldo previo cargado); SALDO = lo que queda debiendo después de cada movimiento (préstamos y abonos van por fecha). Los préstamos marcados con (hist.) corresponden a saldos previos.',
   ), MARGIN, y, { maxWidth: W - MARGIN * 2 });
 
   // ── Pie de página en todas las hojas ──
