@@ -12,6 +12,7 @@ import {
 } from './despieceRes';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
+import { mensajeError } from '@/shared/lib/errores';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { OrdenPagarWhatsappModal } from './OrdenPagarWhatsappModal';
 import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReeleccionPorCambio, type EventoCambioProveedor } from './cambioProveedor';
@@ -312,12 +313,24 @@ export function PedidosPage() {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const [os, pvsAll, pds, usrs] = await Promise.all([
-        listOrdenes(),
-        listProveedores(),
-        listProductosActivos(),
-        listUsuarios().catch(() => [] as Usuario[]),
-      ]);
+      // Un corte momentáneo de red (o un timeout de la base) no debe dejar el tablero
+      // en rojo: se reintenta una vez antes de mostrar el error.
+      let datos: [Orden[], Proveedor[], Producto[], Usuario[]];
+      for (let intento = 0; ; intento++) {
+        try {
+          datos = await Promise.all([
+            listOrdenes(),
+            listProveedores(),
+            listProductosActivos(),
+            listUsuarios().catch(() => [] as Usuario[]),
+          ]);
+          break;
+        } catch (e) {
+          if (intento >= 1) throw e;
+          await new Promise((r) => setTimeout(r, 2500));
+        }
+      }
+      const [os, pvsAll, pds, usrs] = datos;
       setOrdenes(os);
       // Los activos salen de la misma lista (mismo orden por razón social): antes se
       // pedían los proveedores dos veces en cada recarga.
@@ -326,7 +339,8 @@ export function PedidosPage() {
       setProductos(pds);
       setUsuarios(usrs);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar pedidos');
+      // Los errores de Supabase son objetos planos (no `Error`): antes caían siempre al texto genérico.
+      setError(mensajeError(e, 'Error al cargar pedidos'));
     }
   }, []);
 
