@@ -392,11 +392,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (periodoCerrado) {
       return `El período fiscal (${nombrePeriodo(periodoCerrado)}) ya fue declarado ante el SENIAT. No se pueden registrar retenciones en períodos cerrados sin reapertura previa.`;
     }
-    if (soloFactura) {
-      if (ilegibles.length) return `No se entiende: ${ilegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`;
-      if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
-      return null;
-    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) return 'Indica la fecha de la retención (emisión del comprobante).';
     if (fechaRetencion < facturaFecha) return 'La fecha de la retención no puede ser anterior a la de la factura.';
     if (avisoFecha) return avisoFecha;
@@ -434,7 +429,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   /** Elegir una factura ya registrada: se precargan sus datos y se retiene sobre ella lo pendiente. */
   function aplicarDocumento(f: FacturaResumen) {
     marcarSucio();
-    setDocumento(f); setSoloFactura(false); setDireccion('practicada');
+    setDocumento(f); setDireccion('practicada');
     if (f.tipoDocumento && (f.tipoDocumento === 'factura' || f.tipoDocumento === 'nota_credito' || f.tipoDocumento === 'nota_debito')) {
       setTipoDocumento(f.tipoDocumento as TipoDocumento);
     }
