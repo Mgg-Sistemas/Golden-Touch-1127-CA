@@ -7,6 +7,7 @@
    salida) y stock antes/después. Se abre desde el Resumen de
    inventario al tocar cualquier fila (producto o movimiento).
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { supabase } from '@/shared/lib/supabase';
 import type { Existencia, Movimiento, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -108,7 +109,7 @@ export async function cargarTrazabilidadProducto(productoId: string): Promise<Tr
       stockDespues: Number(m.stock_despues) || 0,
       costo,
       valor: r2(abs(delta) * costo),
-      actor: m.actor_name || m.actor || '',
+      actor: quienSync(m.actor_name, m.actor),
       destino: m.destino ?? '',
       solicitante: m.solicitante ?? '',
       ref: refMov(m),
@@ -222,7 +223,7 @@ export async function descargarTrazabilidadPdf(t: TrazabilidadProducto): Promise
       m.almacen,
       `${m.delta > 0 ? '+' : ''}${fmt.num(m.delta)}`,
       `${fmt.num(m.stockAntes)} → ${fmt.num(m.stockDespues)}`,
-      m.actor || '—',
+      quienSync(null, m.actor) || '—',
       m.destino || m.solicitante || '—',
       m.ref || '—',
       m.detalle || '—',

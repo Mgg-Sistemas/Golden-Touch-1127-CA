@@ -1,3 +1,5 @@
+import { quienSync } from '@/shared/lib/directorioUsuarios';
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal as ModalUI } from '@/shared/ui/Modal';
@@ -386,7 +388,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
           at,
           tipo: esTraslado ? 'Traslado' : 'Salida',
           codigo: s.codigo ?? '',
-          solicitante: s.solicitante || s.actor_name || s.actor || '—',
+          solicitante: s.solicitante || quienSync(s.actor_name, s.actor) || '—',
           autorizo: s.aprobada_por ? nombreDe(s.aprobada_por, s.aprobada_en) : '',
           autorizadoEn: s.aprobada_en ?? '',
           ejecutoPor: s.ejecutada_por ? nombreDe(s.ejecutada_por, s.ejecutada_en) : '',
@@ -636,7 +638,7 @@ function Historial({
                   <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(m.at)}</td>
                   <td><strong>{m.producto?.nombre ?? '—'}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.producto?.sku}</div></td>
                   <td>{esTraslado ? <span className="mono">{invLabel(m.almacen)} → {m.destino}</span> : <span className="badge">{invLabel(m.almacen)}</span>}</td>
-                  <td>{m.solicitante || m.actor_name || m.actor || '—'}</td>
+                  <td>{m.solicitante || <Quien nombre={m.actor_name} correo={m.actor} vacio="—" />}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(cant)} {m.producto?.unidad ?? ''}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio * cant) : '—'}</td>

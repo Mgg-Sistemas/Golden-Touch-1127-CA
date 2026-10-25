@@ -5,6 +5,7 @@
    Las categorías son un CATÁLOGO (taxonomias · documento.categoria): la
    que se escribe al cargar queda guardada, y se gestionan con «🏷».
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -117,7 +118,7 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
                         </span>
                       ) : <span className="muted">—</span>}
                     </td>
-                    <td className="muted" style={{ fontSize: '.8rem' }}>{d.created_by_name ?? d.created_by ?? '—'}</td>
+                    <td className="muted" style={{ fontSize: '.8rem' }}><Quien nombre={d.created_by_name} correo={d.created_by} vacio="—" /></td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {d.archivo_path && <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)} title={d.archivo_nombre ?? ''}>📎 Ver</button>}
                       {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setEditar(d)}>✎ Editar</button>}
@@ -150,7 +151,7 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
               <Dato label="Descripción">{borrar.descripcion}</Dato>
               <Dato label="Vence">{borrar.vence ? fechaCarnet(borrar.vence) : null}</Dato>
               <Dato label="Archivo">{borrar.archivo_nombre}</Dato>
-              <Dato label="Cargado por">{borrar.created_by_name ?? borrar.created_by}</Dato>
+              <Dato label="Cargado por">{borrar.created_by_name || borrar.created_by ? <Quien nombre={borrar.created_by_name} correo={borrar.created_by} /> : undefined}</Dato>
             </VistaPrevia>
           }
           onConfirm={() => { void confirmarBorrar(); }} onCancel={() => setBorrar(null)}

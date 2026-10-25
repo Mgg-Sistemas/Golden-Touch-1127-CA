@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -123,7 +124,7 @@ export function OcPorLoteView() {
                   <td><input type="checkbox" checked={sel.has(r.orden.id)} onChange={() => toggle(r.orden.id)} /></td>
                   <td className="mono">{i + 1}</td>
                   <td className="mono">{r.orden.oc_codigo ?? r.orden.codigo}</td>
-                  <td>{r.orden.solicitante || r.orden.solicitante_email}</td>
+                  <td><Quien nombre={r.orden.solicitante} correo={r.orden.solicitante_email} /></td>
                   <td>{r.proveedorNombre}</td>
                   <td style={{ maxWidth: 320 }}>{r.descripcion}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(r.orden.total)}</td>

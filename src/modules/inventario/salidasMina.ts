@@ -11,6 +11,7 @@
    defecto» (ninguno necesita el selector U+FE0F, que WhatsApp pierde).
    ============================================================ */
 
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { norm } from '@/shared/lib/texto';
 
 export const MAX_FOTOS_SALIDA_MINA = 4;
@@ -152,7 +153,7 @@ export function mensajeSalidaMina(s: SalidaMina, quien?: string | null): string 
   if (s.autorizado_por) lineas.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
   lineas.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
   if (s.fotos.length) lineas.push(`📷 *Fotos:* ${s.fotos.length}`);
-  lineas.push('', ...pie(quien ?? s.actor_name ?? s.actor, s.created_at));
+  lineas.push('', ...pie(quien ?? quienSync(s.actor_name, s.actor), s.created_at));
   return lineas.join('\n');
 }
 

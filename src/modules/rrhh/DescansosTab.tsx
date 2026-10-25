@@ -9,6 +9,7 @@
      nunca salgan más del tope, siguiendo el ritmo de cada uno.
    · ⚙ Ajustes → días de trabajo, días de descanso y tope (por nómina).
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -372,7 +373,7 @@ function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, act
         {valido && (
           <div className="muted" style={{ marginTop: '.4rem', fontSize: '.85rem' }}>
             {diasDe({ desde, hasta })} día(s) de descanso · vuelve a trabajar el <strong>{fmtDate(regreso)}</strong>
-            {d0 && <> · {d0.origen === 'plan' ? 'generado por el plan' : 'cargado a mano'}{d0.actor_name ? ` por ${d0.actor_name}` : ''}</>}
+            {d0 && <> · {d0.origen === 'plan' ? 'generado por el plan' : 'cargado a mano'}{d0.actor_name ? <> por <Quien nombre={d0.actor_name} correo={d0.created_by} /></> : ''}</>}
           </div>
         )}
         {propio && (

@@ -5,6 +5,7 @@
    historia completa de movimientos (con actor, destino,
    referencia y stock antes/después). Exporta a PDF.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useEffect, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -131,7 +132,7 @@ export function TrazabilidadProductoModal({ productoId, onClose }: { productoId:
                         {m.delta > 0 ? '+' : ''}{num(m.delta)}
                       </td>
                       <td className="mono muted" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{num(m.stockAntes)} → {num(m.stockDespues)}</td>
-                      <td>{m.actor || '—'}</td>
+                      <td><Quien correo={m.actor} vacio="—" /></td>
                       <td className="muted">{m.destino || m.solicitante || '—'}</td>
                       <td className="mono muted">{m.ref || '—'}</td>
                       <td className="muted">{m.detalle || '—'}</td>

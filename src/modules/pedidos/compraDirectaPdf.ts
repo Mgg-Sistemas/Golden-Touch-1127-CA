@@ -2,6 +2,7 @@
    Golden Touch · Compra Directa · Comprobante PDF
    Se descarga SOLO al hacer clic (regla del sistema).
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { CompraDirecta } from './compras.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { rotuloConversion } from '@/modules/inventario/presentaciones';
@@ -41,7 +42,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     ['Materiales', `${totalItems} renglón(es)`],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
     ['Gasto total', gasto != null ? mon(gasto) : '—'],
-    ['Generó', compra.actor_name || compra.actor || '—'],
+    ['Generó', quienSync(compra.actor_name, compra.actor) || '—'],
     ['Fecha de creación', fmt.dateTime(compra.created_at)],
     ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
     ['Adjunto', compra.adjunto_nombre || '—'],

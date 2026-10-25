@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -150,7 +151,7 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
                 <div><dt>Motivo</dt><dd>{ev.motivo || equipo.estado_nota || 'Sin motivo escrito.'}</dd></div>
                 {ev.material && <div><dt>Falta</dt><dd>{ev.material}</dd></div>}
                 {ev.nota && <div><dt>Nota</dt><dd>{ev.nota}</dd></div>}
-                <div><dt>Registró</dt><dd>{ev.actor_name || ev.actor || '—'} · {dateTime(ev.created_at)}</dd></div>
+                <div><dt>Registró</dt><dd><Quien nombre={ev.actor_name} correo={ev.actor} vacio="—" /> · {dateTime(ev.created_at)}</dd></div>
               </dl>
               {canWrite && (
                 <div className="flo-det-fila">
@@ -185,7 +186,7 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
               {informe && (
                 <div className="flo-det-informe">
                   <span className="ico" aria-hidden="true">📄</span>
-                  <div style={{ minWidth: 0 }}><strong>{informe.nombre}</strong><small>{dateTime(informe.updated_at ?? informe.created_at)}{informe.subido_por_nombre || informe.subido_por ? ` · ${informe.subido_por_nombre || informe.subido_por}` : ''}</small></div>
+                  <div style={{ minWidth: 0 }}><strong>{informe.nombre}</strong><small>{dateTime(informe.updated_at ?? informe.created_at)}{informe.subido_por_nombre || informe.subido_por ? <> · <Quien nombre={informe.subido_por_nombre} correo={informe.subido_por} /></> : ''}</small></div>
                   <button type="button" className="btn btn-primary" onClick={() => void verDocumentoEquipo(informe)}>👁 Ver informe</button>
                 </div>
               )}
@@ -258,7 +259,7 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
           message={esVigente
             ? <>Es el <strong>estado vigente</strong> del equipo: al borrarlo, el equipo vuelve a <strong>«{etiqueta(ev.estado_anterior ?? 'operativa')}»</strong>. No se puede deshacer; queda en la auditoría.</>
             : 'Sale del historial. El estado actual del equipo no cambia. No se puede deshacer; queda en la auditoría.'}
-          preview={<VistaPrevia><Dato label="Equipo">{equipo.equipo}</Dato><Dato label="Cambio">{`${etiqueta(ev.estado_anterior)} → ${etiqueta(ev.estado)}`}</Dato><Dato label="Motivo">{ev.motivo ?? undefined}</Dato><Dato label="Fecha">{dateTime(ev.created_at)}</Dato><Dato label="Registró">{ev.actor_name || ev.actor || undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{equipo.equipo}</Dato><Dato label="Cambio">{`${etiqueta(ev.estado_anterior)} → ${etiqueta(ev.estado)}`}</Dato><Dato label="Motivo">{ev.motivo ?? undefined}</Dato><Dato label="Fecha">{dateTime(ev.created_at)}</Dato><Dato label="Registró">{ev.actor_name || ev.actor ? <Quien nombre={ev.actor_name} correo={ev.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrarEv(false)}
           onConfirm={() => {
             setBorrarEv(false);

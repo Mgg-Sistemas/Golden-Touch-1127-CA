@@ -6,6 +6,7 @@
    dónde a dónde, cuándo, por qué y quién). Lo anterior no se mueve: las
    nóminas ya cargadas y sus recibos siguen en la empresa de antes.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useEffect, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -84,7 +85,7 @@ export function TransferirEmpresaModal({ persona, onClose, onHecho }: {
             <strong style={{ fontSize: '.85rem' }}>Transferencias anteriores</strong>
             <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', fontSize: '.82rem' }}>
               {historial.map((h) => (
-                <li key={h.id}>{fmtDate(h.fecha)} · {h.desde} → {h.hacia}{h.ficha_nueva && h.ficha_nueva !== h.ficha_anterior ? ` · ficha ${h.ficha_anterior ?? '—'} → ${h.ficha_nueva}` : ''}{h.motivo ? ` · ${h.motivo}` : ''}{h.actor_name || h.actor ? ` · ${h.actor_name || h.actor}` : ''}</li>
+                <li key={h.id}>{fmtDate(h.fecha)} · {h.desde} → {h.hacia}{h.ficha_nueva && h.ficha_nueva !== h.ficha_anterior ? ` · ficha ${h.ficha_anterior ?? '—'} → ${h.ficha_nueva}` : ''}{h.motivo ? ` · ${h.motivo}` : ''}{h.actor_name || h.actor ? <> · <Quien nombre={h.actor_name} correo={h.actor} /></> : ''}</li>
               ))}
             </ul>
           </div>

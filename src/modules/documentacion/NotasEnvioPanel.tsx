@@ -5,6 +5,7 @@
    «Recibida conforme» con la copia firmada escaneada, o anular.
    Una nota nunca se borra: el correlativo queda completo.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
@@ -248,9 +249,9 @@ function NotaDetalle({ n, canWrite, actor, pdfBusy, onImprimir, onEditar, onClos
         {n.condicion && fila('Condición', n.condicion)}
         {n.entregado_por && fila('Entregado por', n.entregado_por)}
         {n.notas && fila('Observaciones', n.notas)}
-        {fila('Creada', `${dateTime(n.created_at)} · ${n.created_by_name ?? n.created_by ?? '—'}`)}
+        {fila('Creada', <>{dateTime(n.created_at)} · <Quien nombre={n.created_by_name} correo={n.created_by} vacio="—" /></>)}
         {n.estado === 'recibido' && fila('Recibida', <>
-          {n.recibido_en ? dateTime(n.recibido_en) : '—'}{n.recibido_por ? ` · ${n.recibido_por}` : ''}
+          {n.recibido_en ? dateTime(n.recibido_en) : '—'}{n.recibido_por ? <> · <Quien correo={n.recibido_por} /></> : ''}
           {n.recibido_path && <> <button className="btn btn-sm btn-ghost" onClick={() => void verCopia()}>📎 Ver copia firmada</button></>}
         </>)}
         {n.estado === 'anulado' && fila('Anulada', `${n.anulado_en ? dateTime(n.anulado_en) : '—'} · ${n.anulado_por ?? ''} · ${n.anulado_motivo ?? ''}`)}

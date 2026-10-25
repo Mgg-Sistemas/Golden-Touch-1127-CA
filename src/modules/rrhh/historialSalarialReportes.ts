@@ -10,6 +10,7 @@
    Todo el texto del PDF pasa por `pdfSafe` (la helvetica de jsPDF solo
    escribe Windows-1252).
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { EmpresaRrhh, Personal, PersonalSueldo } from '@/shared/lib/types';
 import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
@@ -98,7 +99,7 @@ export async function descargarHistorialSalarialGeneralPdf(filas: FilaHistorialS
       pdfSafe(variacionTexto(r)),
       pdfSafe(r.motivo),
       pdfSafe(r.nota?.trim() || '-'),
-      pdfSafe(`${dia(r.created_at)}${r.created_by ? `\n${r.created_by}` : ''}`),
+      pdfSafe(`${dia(r.created_at)}${r.created_by ? `\n${quienSync(null, r.created_by)}` : ''}`),
     ];
   });
   const o = conNomina ? 1 : 0;
@@ -245,7 +246,7 @@ export async function descargarHistorialSalarialGeneralExcel(filas: FilaHistoria
         Number(r.sueldo_nuevo),
         r.sueldo_anterior == null ? null : v.monto,
         v.porcentaje == null ? '' : `${v.porcentaje.toLocaleString('es-VE')}%`,
-        r.motivo, r.nota ?? '', cuando(r.created_at), r.created_by ?? '',
+        r.motivo, r.nota ?? '', cuando(r.created_at), quienSync(null, r.created_by),
       ];
     }),
     montos: [7 + o, 8 + o, 9 + o],
@@ -274,7 +275,7 @@ export async function descargarHistorialSueldoExcel(persona: Personal, filas: Pe
         Number(r.sueldo_nuevo),
         r.sueldo_anterior == null ? null : v.monto,
         v.porcentaje == null ? '' : `${v.porcentaje.toLocaleString('es-VE')}%`,
-        r.motivo, r.nota ?? '', cuando(r.created_at), r.created_by ?? '',
+        r.motivo, r.nota ?? '', cuando(r.created_at), quienSync(null, r.created_by),
       ];
     }),
     montos: [1, 2, 3],

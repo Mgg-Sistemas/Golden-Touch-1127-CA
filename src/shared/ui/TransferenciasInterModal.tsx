@@ -18,6 +18,7 @@
        que MGG no lo haya recibido: pudo haber entrado y haberse perdido solo
        el acuse. Por eso revertir pide escribir la palabra completa.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useState } from 'react';
 import { Modal, ConfirmDialog } from './Modal';
 import { EmptyState } from './EmptyState';
@@ -153,7 +154,7 @@ export function TransferenciasInterModal({
                         )}
                       </td>
                       <td>{f.origen ?? '—'}</td>
-                      <td>{f.actor_name || f.actor || '—'}</td>
+                      <td><Quien nombre={f.actor_name} correo={f.actor} vacio="—" /></td>
                       <td><span className={`badge ${et.clase}`}>{et.texto}</span></td>
                       <td style={{ textAlign: 'right' }}>
                         {f.estado === 'error' && puedeOperar ? (

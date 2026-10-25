@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
@@ -39,7 +40,7 @@ export function BorrarOrdenDialog({ orden, equipo, salida, compra, onClose, onDo
           <Dato label="Equipo">{equipo ?? undefined}</Dato>
           <Dato label="Servicio">{s?.label ?? orden.tipo}</Dato>
           <Dato label="Estado">{ORDEN_ESTADOS[orden.estado]?.label ?? orden.estado}</Dato>
-          <Dato label="Abierta">{fmtDate(orden.created_at)}{orden.actor_name ? ` · ${orden.actor_name}` : ''}</Dato>
+          <Dato label="Abierta">{fmtDate(orden.created_at)}{orden.actor_name ? <> · <Quien nombre={orden.actor_name} correo={orden.created_by} /></> : ''}</Dato>
           <Dato label="Repuestos">{orden.repuestos.length ? orden.repuestos.map((r) => `${fmtNum(r.cantidad)} ${r.unidad} ${r.nombre}`).join(' · ') : undefined}</Dato>
         </VistaPrevia>
       }

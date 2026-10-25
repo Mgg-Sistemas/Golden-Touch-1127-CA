@@ -6,6 +6,7 @@
    completa —de cuánto a cuánto, desde cuándo y con qué motivo— y es el ÚNICO
    lugar donde se cambia, justamente para que no haya cambio sin motivo.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -291,7 +292,7 @@ export function HistorialSueldoModal({
                     </td>
                     <td className="muted" style={{ fontSize: '.76rem' }}>
                       {dateTime(r.created_at)}
-                      {r.created_by && <div>{r.created_by}</div>}
+                      {r.created_by && <div><Quien correo={r.created_by} /></div>}
                     </td>
                     {isAdmin && (
                       <td style={{ textAlign: 'center' }}>
@@ -341,7 +342,7 @@ export function HistorialSueldoModal({
               </Dato>
               <Dato label="Nota">{porBorrar.nota || undefined}</Dato>
               <Dato label="Cargado">{dateTime(porBorrar.created_at)}</Dato>
-              <Dato label="Lo registró">{porBorrar.created_by || undefined}</Dato>
+              <Dato label="Lo registró">{porBorrar.created_by ? <Quien correo={porBorrar.created_by} /> : undefined}</Dato>
             </VistaPrevia>
           }
           onConfirm={() => { void borrar(porBorrar); }}

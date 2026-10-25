@@ -1,3 +1,5 @@
+import { useQuien } from '@/shared/lib/directorioUsuarios';
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -438,7 +440,7 @@ export function EquipoExpedientePage() {
       {borrarLectura && (
         <ConfirmDialog title="Borrar lectura" danger confirmText="Borrar"
           message="Se borra esta lectura del contador. El horómetro / km vigente se recalcula con las demás lecturas (también el arranque del próximo surtido en Combustible). No se puede deshacer."
-          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lectura">{[borrarLectura.horometro != null ? `${fmtNum(borrarLectura.horometro)} h` : null, borrarLectura.kilometraje != null ? `${fmtNum(borrarLectura.kilometraje)} km` : null].filter(Boolean).join(' · ')}</Dato><Dato label="Fecha">{dateTime(borrarLectura.fecha)}</Dato><Dato label="Tipo">{borrarLectura.es_correccion ? 'Corrección (solo administrador)' : undefined}</Dato><Dato label="Registró">{borrarLectura.actor ?? undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lectura">{[borrarLectura.horometro != null ? `${fmtNum(borrarLectura.horometro)} h` : null, borrarLectura.kilometraje != null ? `${fmtNum(borrarLectura.kilometraje)} km` : null].filter(Boolean).join(' · ')}</Dato><Dato label="Fecha">{dateTime(borrarLectura.fecha)}</Dato><Dato label="Tipo">{borrarLectura.es_correccion ? 'Corrección (solo administrador)' : undefined}</Dato><Dato label="Registró">{borrarLectura.actor ? <Quien correo={borrarLectura.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrarLectura(null)}
           onConfirm={() => {
             const l = borrarLectura; setBorrarLectura(null);
@@ -460,7 +462,7 @@ export function EquipoExpedientePage() {
       {borrarLavado && (
         <ConfirmDialog title="Borrar lavado" danger confirmText="Borrar"
           message="Se borra este registro de lavado. No se puede deshacer."
-          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lavado">{borrarLavado.tipo}</Dato><Dato label="Fecha">{dateTime(borrarLavado.fecha)}</Dato><Dato label="Lo realizó">{borrarLavado.responsable ?? undefined}</Dato><Dato label="Registró">{borrarLavado.actor_name || borrarLavado.actor || undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lavado">{borrarLavado.tipo}</Dato><Dato label="Fecha">{dateTime(borrarLavado.fecha)}</Dato><Dato label="Lo realizó">{borrarLavado.responsable ?? undefined}</Dato><Dato label="Registró">{borrarLavado.actor_name || borrarLavado.actor ? <Quien nombre={borrarLavado.actor_name} correo={borrarLavado.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrarLavado(null)}
           onConfirm={() => {
             const l = borrarLavado; setBorrarLavado(null);
@@ -556,14 +558,15 @@ function Vitales({ vigente, avisoH, avisoK, equipo, ultimoSurtido, lavado, onLav
 }
 
 function TabResumen({ eq, eventos, ordenes, lavados }: { eq: MaquinariaEquipo; eventos: EventoEstado[]; ordenes: OrdenServicio[]; lavados: LavadoEquipo[] }) {
+  const quien = useQuien();
   const actividad = [
     ...eventos.map((e) => ({
       at: e.created_at, icon: ESTADOS_EQUIPO[e.estado]?.icon ?? '•',
       titulo: `${e.estado_anterior && ESTADOS_EQUIPO[e.estado_anterior as keyof typeof ESTADOS_EQUIPO] ? `${ESTADOS_EQUIPO[e.estado_anterior as keyof typeof ESTADOS_EQUIPO].label} → ` : ''}${ESTADOS_EQUIPO[e.estado]?.label ?? e.estado}`,
-      detalle: [e.motivo, e.material ? `falta ${e.material}` : null, e.nota, e.actor_name || e.actor].filter(Boolean).join(' · '),
+      detalle: [e.motivo, e.material ? `falta ${e.material}` : null, e.nota, quien(e.actor_name, e.actor)].filter(Boolean).join(' · '),
     })),
-    ...ordenes.map((o) => ({ at: o.created_at, icon: servicioPorId(o.tipo)?.icon ?? '🔧', titulo: `${o.codigo} abierta`, detalle: [servicioPorId(o.tipo)?.label, o.actor_name || o.created_by].filter(Boolean).join(' · ') })),
-    ...lavados.map((l) => ({ at: l.fecha, icon: '🚿', titulo: `Lavado ${l.tipo.toLowerCase()}`, detalle: [l.responsable, l.nota, l.actor_name || l.actor].filter(Boolean).join(' · ') })),
+    ...ordenes.map((o) => ({ at: o.created_at, icon: servicioPorId(o.tipo)?.icon ?? '🔧', titulo: `${o.codigo} abierta`, detalle: [servicioPorId(o.tipo)?.label, quien(o.actor_name, o.created_by)].filter(Boolean).join(' · ') })),
+    ...lavados.map((l) => ({ at: l.fecha, icon: '🚿', titulo: `Lavado ${l.tipo.toLowerCase()}`, detalle: [l.responsable, l.nota, quien(l.actor_name, l.actor)].filter(Boolean).join(' · ') })),
   ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
   return (
     <div className="flo-2col">
@@ -774,7 +777,7 @@ function TabContador({ eq, vigente, lecturas, ultimoSurtido, puede, onRegistrar,
                 <span>{l.origen === 'combustible' ? '⛽' : l.origen === 'bitacora' ? '📒' : '🚜'}</span>
                 <div style={{ minWidth: 0 }}>
                   <strong className="mono">{[l.horometro != null ? `${fmtNum(l.horometro)} h` : null, l.kilometraje != null ? `${fmtNum(l.kilometraje)} km` : null].filter(Boolean).join(' · ')}</strong>
-                  <small>{dateTime(l.fecha)} · {etiquetaOrigenLectura(l.origen)}{l.es_correccion ? ' · corrección' : ''}{l.actor ? ` · ${l.actor}` : ''}</small>
+                  <small>{dateTime(l.fecha)} · {etiquetaOrigenLectura(l.origen)}{l.es_correccion ? ' · corrección' : ''}{l.actor ? <> · <Quien correo={l.actor} /></> : ''}</small>
                 </div>
                 {l.origen === 'maquinaria' && puedeEditar && (!l.es_correccion || isAdmin) ? (
                   <span style={{ display: 'flex', gap: '.25rem' }}>

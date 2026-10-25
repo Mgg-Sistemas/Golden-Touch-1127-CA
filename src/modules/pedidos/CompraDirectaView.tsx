@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -234,7 +235,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="mono">{num(c.cantidad)}</td>
                   <td>{esPorRecibir(c) ? '📦 Por recibir' : (ESTADO_LABEL[c.estado] ?? c.estado)}</td>
                   <td className="mono">{c.gasto != null ? montoCD(c.gasto, c.moneda) : '—'}</td>
-                  <td>{c.actor_name || c.actor || '—'}</td>
+                  <td><Quien nombre={c.actor_name} correo={c.actor} vacio="—" /></td>
                   <td className="muted">{dateTime(c.created_at)}</td>
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
@@ -329,7 +330,7 @@ function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer, onRecibir, onF
         </ul>
       )}
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
-        <div>Generó: <strong style={{ color: 'var(--text)' }}>{compra.actor_name || compra.actor || '—'}</strong></div>
+        <div>Generó: <strong style={{ color: 'var(--text)' }}><Quien nombre={compra.actor_name} correo={compra.actor} vacio="—" /></strong></div>
         <div>Creada: {dateTime(compra.created_at)}</div>
         {compra.estado === 'finalizada' && <div>Comprada: {compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'}</div>}
       </div>
@@ -415,7 +416,7 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
         compra.recepcion_pendiente
           ? <span style={{ color: 'var(--warning)' }}>⏳ Pendiente · el almacenista le da entrada (Por recibir / Inventario → Recepciones){compra.estado === 'por_pagar' ? ' · puede recibirse antes de que Tesorería pague' : ''}</span>
           : <span>📦 Recibida en {almacenVisible(compra.recepcion_almacen || compra.almacen)}{compra.recepcionada_por_name ? ` · ${compra.recepcionada_por_name}` : ''}{compra.recepcionada_at ? ` · ${dateTime(compra.recepcionada_at)}` : ''}</span>)}
-      {fila('Generó (analista)', compra.actor_name || compra.actor || '—')}
+      {fila('Generó (analista)', <Quien nombre={compra.actor_name} correo={compra.actor} vacio="—" />)}
       {fila('Creada', dateTime(compra.created_at))}
       {compra.estado === 'finalizada' && fila('Pagada', compra.pagada_at ? dateTime(compra.pagada_at) : (compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'))}
       {compra.estado === 'finalizada' && (compra.pagada_por_name || compra.pagada_por) && fila('Pagó (Tesorería)', compra.pagada_por_name || compra.pagada_por)}

@@ -5,6 +5,7 @@
    a mano o del histórico) y cuánto falta. Desde aquí se abona a mano, se
    corrige el dato mal cargado y se saca el estado de cuenta en PDF.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
@@ -300,7 +301,7 @@ export function AnticipoDetalleModal({
           <Dato label="Fecha del préstamo"><span className="mono">{date(actualAnticipo.fecha)}</span></Dato>
           <Dato label="Cuota sugerida por quincena">{actualAnticipo.cuota_sugerida != null ? <span className="mono">{money(actualAnticipo.cuota_sugerida)}</span> : undefined}</Dato>
           <Dato label="Motivo">{actualAnticipo.motivo || undefined}</Dato>
-          <Dato label="Registrado">{dateTime(actualAnticipo.created_at)}{actualAnticipo.actor_name || actualAnticipo.creado_por ? ` · ${actualAnticipo.actor_name || actualAnticipo.creado_por}` : ''}</Dato>
+          <Dato label="Registrado">{dateTime(actualAnticipo.created_at)}{actualAnticipo.actor_name || actualAnticipo.creado_por ? <> · <Quien nombre={actualAnticipo.actor_name} correo={actualAnticipo.creado_por} /></> : ''}</Dato>
         </VistaPrevia>
       )}
 
@@ -498,7 +499,7 @@ export function AnticipoDetalleModal({
                     <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(p.monto)}</td>
                     <td className="muted" style={{ fontSize: '.76rem' }}>
                       {dateTime(p.created_at)}
-                      {(p.actor_name || p.created_by) && <div>{p.actor_name || p.created_by}</div>}
+                      {(p.actor_name || p.created_by) && <div><Quien nombre={p.actor_name} correo={p.created_by} /></div>}
                     </td>
                     {canWrite && (
                       <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>

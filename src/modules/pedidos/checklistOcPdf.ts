@@ -2,6 +2,7 @@
    Golden Touch · Compras · PDF de la checklist "OC por lote"
    Relación de compras pendientes por pagar. Solo por botón.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { OcLoteRow } from './ocLote.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -29,7 +30,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
   const body = rows.map((r, i) => [
     String(i + 1),
     r.orden.oc_codigo ?? r.orden.codigo,
-    r.orden.solicitante || r.orden.solicitante_email || '—',
+    quienSync(r.orden.solicitante, r.orden.solicitante_email) || '—',
     r.proveedorNombre,
     r.descripcion,
     fmt.money(r.orden.total),

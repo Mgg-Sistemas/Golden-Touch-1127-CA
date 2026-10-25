@@ -4,6 +4,7 @@
    Un solo modal para las tres cosas que se le hacen a una asignación,
    porque siempre se mira el mismo dato: qué se le dio, a quién y si vuelve.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -653,7 +654,7 @@ function VerAsignacion({ a, persona, vehiculo }: { a: Asignacion; persona: Perso
         </div>
       )}
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>
-        Registrado el {fmtDate(a.created_at)}{a.actor_name ? ` por ${a.actor_name}` : ''}.
+        Registrado el {fmtDate(a.created_at)}{a.actor_name ? <> por <Quien nombre={a.actor_name} correo={a.created_by} /></> : ''}.
       </p>
     </>
   );

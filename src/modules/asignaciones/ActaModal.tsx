@@ -5,6 +5,7 @@
    corrige aquí), lo entregado, el anexo fotográfico (hasta 4 fotos) y el
    escaneo del acta ya firmada. Desde aquí se ve la carta en PDF.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -155,7 +156,7 @@ export function ActaModal({ acta: inicial, items, personal, firmantes, canWrite,
         <div className="card" style={{ padding: '.55rem .7rem', margin: 0 }}>
           <div className="muted" style={etiqueta}>FECHA · REGISTRÓ</div>
           <strong>{fmtDate(acta.fecha)}</strong>
-          <div className="muted" style={{ fontSize: '.76rem' }}>{acta.actor_name || acta.creado_por || '—'}</div>
+          <div className="muted" style={{ fontSize: '.76rem' }}><Quien nombre={acta.actor_name} correo={acta.creado_por} vacio="—" /></div>
         </div>
       </div>
 

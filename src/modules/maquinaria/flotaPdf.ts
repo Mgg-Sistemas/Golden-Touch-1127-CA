@@ -7,6 +7,7 @@
      origen (inventario / compra), solicitudes vinculadas y firmas.
    Se abren en la vista previa del sistema (previewPdf).
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { jsPDF as JsPDF } from 'jspdf';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { identidadEmpresa } from '@/shared/lib/empresa';
@@ -323,7 +324,7 @@ export async function ordenServicioPdf(
     doc.text(t, x + fw / 2, y + 4.5, { align: 'center' });
   });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(100, 116, 139);
-  doc.text(`Creada por ${o.actor_name || o.created_by || '—'}`, M, y + 10);
+  doc.text(`Creada por ${quienSync(o.actor_name, o.created_by) || '—'}`, M, y + 10);
 
   pies(doc, `${o.codigo} · ${e.equipo}`);
   previewPdf(doc, `${nombreArchivo(`${o.codigo} ${e.equipo}`)}.pdf`);

@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -354,7 +355,7 @@ function MovimientosFeed({ movimientos, onVerDetalle }: { movimientos: Movimient
                     <span className="mono">{deltaTxt} {unidad}</span>
                     {' · '}
                     {relTime(m.at)}
-                    {m.actor_name ? ` · ${m.actor_name}` : ''}
+                    {m.actor_name ? <> · <Quien nombre={m.actor_name} correo={m.actor} /></> : ''}
                   </div>
                 </div>
               </div>

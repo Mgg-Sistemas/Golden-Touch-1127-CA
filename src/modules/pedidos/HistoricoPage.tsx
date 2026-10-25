@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -365,7 +366,7 @@ export function HistoricoPage() {
                     </td>
                     <td>
                       <div>{o.solicitante ?? '—'}</div>
-                      <div className="muted" style={{ fontSize: '.72rem' }}>{o.solicitante_email}</div>
+                      <div className="muted" style={{ fontSize: '.72rem' }}><Quien correo={o.solicitante_email} /></div>
                     </td>
                     <td>{prov?.razon_social ?? '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(o.total, o.total_moneda)}</td>
@@ -448,7 +449,7 @@ export function HistoricoPage() {
           >
             <div style={{ display: 'grid', gap: '.15rem', marginBottom: '.75rem' }}>
               {fila('Estado', <StatusBadge estado={o.estado} />)}
-              {fila('Solicitante', `${o.solicitante ?? '—'}${o.solicitante_email ? ` · ${o.solicitante_email}` : ''}`)}
+              {fila('Solicitante', <>{o.solicitante ?? '—'}{o.solicitante_email ? <> · <Quien correo={o.solicitante_email} /></> : ''}</>)}
               {o.unidad_solicitante && fila('Unidad', o.unidad_solicitante)}
               {fila('Proveedor', prov?.razon_social ?? '—')}
               {fila('Total', <strong className="mono">{montoMoneda(o.total, o.total_moneda)}</strong>)}

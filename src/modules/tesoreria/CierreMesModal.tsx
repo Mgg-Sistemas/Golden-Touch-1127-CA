@@ -4,6 +4,7 @@
    movimientos del mes, reversible) y lista de cierres con su
    reporte descargable (PDF/Excel). No borra nada ni toca saldos.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -142,7 +143,7 @@ export function CierreMesModal({ canWrite, actor, actorName, onClose }: {
                   <td><strong>{periodoLargo(c.periodo)}</strong></td>
                   <td><span className="badge" style={{ color: c.estado === 'cerrado' ? 'var(--success)' : 'var(--muted)' }}>{c.estado === 'cerrado' ? 'Cerrado' : 'Reabierto'}</span></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{c.movimientos}</td>
-                  <td className="muted" style={{ fontSize: '.78rem' }}>{c.actor_name || c.actor || '—'}<div>{dateTime(c.created_at)}</div></td>
+                  <td className="muted" style={{ fontSize: '.78rem' }}>{<Quien nombre={c.actor_name} correo={c.actor} vacio="—" />}<div>{dateTime(c.created_at)}</div></td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button className="btn btn-sm btn-ghost" title="PDF" onClick={() => void descargarCierrePdf(c.snapshot)}>↓ PDF</button>
                     <button className="btn btn-sm btn-ghost" title="Excel" onClick={() => void descargarCierreExcel(c.snapshot)}>↓ Excel</button>

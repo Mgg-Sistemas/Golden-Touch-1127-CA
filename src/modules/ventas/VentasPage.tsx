@@ -33,6 +33,7 @@
    puros que usan los PDF (`agruparGananciaPor*`, `filasCuentasPorCobrar`): si
    la pantalla y el PDF no coinciden, no hay forma de saber cuál miente.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -753,7 +754,7 @@ function DetalleVentaModal({
 
       {venta.estado === 'borrador' && venta.rechazo_motivo && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.8rem' }}>
-          <strong>Rechazada</strong>{venta.rechazada_por ? ` por ${venta.rechazada_por}` : ''}{venta.rechazada_at ? ` el ${dateTime(venta.rechazada_at)}` : ''}.
+          <strong>Rechazada</strong>{venta.rechazada_por ? <> por <Quien correo={venta.rechazada_por} /></> : ''}{venta.rechazada_at ? ` el ${dateTime(venta.rechazada_at)}` : ''}.
           <div className="muted" style={{ marginTop: '.25rem' }}>Motivo: {venta.rechazo_motivo}. Corrígela y vuelve a enviarla a autorizar.</div>
         </div>
       )}
@@ -921,7 +922,7 @@ function HistorialVenta({ historial, moneda }: { historial: EventoVenta[]; moned
                   <tr key={`${e.at}-${i}`}>
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dateTime(e.at)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{l.icono} {l.texto}</td>
-                    <td>{e.actor_name || e.actor || '—'}</td>
+                    <td><Quien nombre={e.actor_name} correo={e.actor} vacio="—" /></td>
                     <td className="muted">
                       {e.motivo ? <>Motivo: {e.motivo}</> : null}
                       {e.total_antes != null && e.total != null && e.total_antes !== e.total

@@ -6,6 +6,7 @@
    comprobante (nombre del archivo). Reusa la estética del reporte
    (logo + franja naranja). Sirve para descargar o enviar por correo.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
@@ -100,7 +101,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null, dir
   filasMov.push(['Saldo después', montoStr(mov.saldo_despues, mov.moneda)]);
   if (mov.beneficiario) filasMov.push(['Beneficiario', String(mov.beneficiario)]);
   if (mov.destino) filasMov.push(['Destino', String(mov.destino)]);
-  filasMov.push(['Registrado por', mov.actor_name || mov.actor]);
+  filasMov.push(['Registrado por', quienSync(mov.actor_name, mov.actor)]);
   if (mov.motivo) filasMov.push(['Concepto / motivo', String(mov.motivo)]);
 
   autoTable(doc, {
@@ -122,7 +123,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null, dir
       ['Total OC', montoStr(orden.total, 'USD')],
     ];
     if (orden.recibido_total != null) filasOrden.push(['Recibido', montoStr(Number(orden.recibido_total), 'USD')]);
-    filasOrden.push(['Solicitante', orden.solicitante || orden.solicitante_email]);
+    filasOrden.push(['Solicitante', quienSync(orden.solicitante, orden.solicitante_email)]);
     if (orden.condiciones_pago) filasOrden.push(['Condición de pago', labelCondicionPago(orden.condiciones_pago)]);
     if (orden.pagada_en) filasOrden.push(['Pagada', dateTime(orden.pagada_en)]);
     filasOrden.push(['Seriales de billetes', seriales.length ? seriales.join('  ·  ') : 'No se registraron seriales']);

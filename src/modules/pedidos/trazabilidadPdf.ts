@@ -1,3 +1,4 @@
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { jsPDF as jsPDFType } from 'jspdf';
 import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
 import { supabase } from '@/shared/lib/supabase';
@@ -337,7 +338,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       : []),
     ['Almacén destino', orden.almacen_destino ?? '—'],
     ['Fecha de aprobación', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
-    ['Aprobada por', orden.aprobada_por ?? '—'],
+    ['Aprobada por', quienSync(null, orden.aprobada_por) || '—'],
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     [`Documentos de la ${esServicio ? 'OS' : 'OC'}`, documentosOc.length ? documentosOc.join(' · ') : '—'],
@@ -363,7 +364,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   const filasRecepcion: Array<[string, string]> = [
     ['Estado', fueRecibida ? 'Recibida' : 'Aún no recibida'],
     ['Fecha de recepción', recibida ? dateTime(recibida.at) : '—'],
-    ['Recibida por', recibida?.actor ?? '—'],
+    ['Recibida por', quienSync(null, recibida?.actor) || '—'],
     ['Calidad evaluada', evaluacion ? `${evaluacion.calidad} / 5` : '—'],
     ['Puntualidad', evaluacion ? (
       evaluacion.puntualidad_dias === 0

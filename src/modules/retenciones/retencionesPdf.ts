@@ -13,6 +13,7 @@
    Todo pasa por `pdfSafe`: la helvetica de jsPDF solo escribe Windows-1252 y un
    glifo que no existe ahí rompe el renglón entero.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import {
@@ -157,7 +158,7 @@ export async function descargarComprobanteRetencionPdf(
   doc.setFontSize(8); doc.setTextColor(110, 110, 110);
   doc.text(pdfSafe(
     `${ROL_LABEL[r.rol]} · Estado: ${r.estado}${r.anulada_motivo ? ` (${r.anulada_motivo})` : ''} · `
-    + `Registro: ${r.actor_name || r.actor || '—'}`,
+    + `Registro: ${quienSync(r.actor_name, r.actor) || '—'}`,
   ), MARGIN, yy + 6, { maxWidth: W - MARGIN * 2 });
 
   // Firmas: el comprobante se entrega firmado por las dos partes.
