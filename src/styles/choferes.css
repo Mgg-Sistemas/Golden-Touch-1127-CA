@@ -1,4 +1,5 @@
-/* Choferes / Conductores (traído de MGG, 13/10/2026) · paradas de la orden de ruta */
+/* Choferes / Conductores (sincronizado con MGG el 25/10/2026) · el .aviso es el global de theme.css */
+/* Paradas de la orden de ruta */
 .chf-paradas { display: grid; gap: .35rem; }
 .chf-parada {
   display: flex; gap: .5rem; align-items: center; padding: .4rem .6rem;
@@ -8,10 +9,3 @@
 .chf-parada .orden { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .72rem; font-weight: 700; background: var(--primary); color: #1a1205; }
 .chf-parada.hecha .orden { background: var(--success); color: #fff; }
 .chf-parada .lugar { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Switch Camión / Volqueta en Rutas y viajes (14/10/2026) */
-.chf-tipo-viaje { display: inline-flex; gap: .25rem; padding: .25rem; margin-bottom: .7rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); max-width: 100%; overflow-x: auto; }
-.chf-tipo-viaje button { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-weight: 600; font-size: .9rem; padding: .45rem .95rem; border-radius: 999px; cursor: pointer; white-space: nowrap; min-height: 40px; }
-.chf-tipo-viaje button.activo { background: var(--grad-primary, var(--primary)); color: #1a1205; }
-.chf-tipo-viaje button .n { font-size: .74rem; font-weight: 500; opacity: .8; margin-left: .25rem; }
-.chf-tipo-viaje button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

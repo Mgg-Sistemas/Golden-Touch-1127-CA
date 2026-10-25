@@ -1,14 +1,14 @@
 /* ============================================================
-   Golden Touch · Choferes / Conductores · La pantalla
-   (traído de MGG el 13/10/2026; en GT sin pagos ni viáticos)
+   MGG · Choferes / Conductores · La pantalla (12-10-2026)
 
-   Cuatro pestañas sobre los mismos datos, cargados una vez aquí y pasados a
-   cada una (así el tablero y las rutas siempre cuentan lo mismo):
+   Seis pestañas sobre los mismos datos, cargados una vez acá y pasados a
+   cada una (así el tablero, los viajes y los pagos siempre cuentan lo mismo):
      Tablero     → cuántos activos, en ruta, de descanso; alertas de documentos
      Expediente  → licencia, certificado médico y seguro de cada conductor; la flota
      Rutas       → órdenes de ruta con paradas, vehículo y estado
+     Viáticos    → anticipos, gastos en ruta, devoluciones y liquidación por viaje
+     Pagos       → recibo de viaje (tarifas + reembolsos − deducciones)
      Descansos   → la MISMA pestaña de RRHH, solo con los choferes y su propio tope
-     Guías       → guías en PDF, buscables, por fecha y con vista previa (14/10/2026)
 
    El conductor es una ficha de RRHH (`personal`): acá no se crea gente, se le
    abre expediente a quien ya está en la nómina.
@@ -22,22 +22,25 @@ import type { Personal } from '@/shared/lib/types';
 import { listPersonal } from '@/modules/rrhh/personal.repository';
 import { listDescansos, type Descanso } from '@/modules/rrhh/descansos.repository';
 import { DescansosTab } from '@/modules/rrhh/DescansosTab';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
-  TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listViajes,
-  type Conductor, type DocumentoChofer, type VehiculoFlota, type Viaje,
+  TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
+  type Conductor, type DocumentoChofer, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
 } from './choferes.repository';
-import { hoyVE } from './choferes';
+import { hoyVE, nombreDeConductor } from './choferes';
 import { TableroTab } from './TableroTab';
 import { ExpedienteTab } from './ExpedienteTab';
-import { ViajesTab } from './ViajesTab';
+import { ViaticosTab } from './ViaticosTab';
 import { GuiasTab } from './GuiasTab';
+import { NominaViajesTab } from './NominaViajesTab';
 
-export type Vista = 'tablero' | 'expediente' | 'viajes' | 'guias' | 'descansos';
+type Vista = 'tablero' | 'expediente' | 'nomina' | 'viaticos' | 'guias' | 'descansos' | 'viajes' | 'pagos';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'tablero', label: 'Tablero', icon: '📊' },
   { key: 'expediente', label: 'Expediente y flota', icon: '🪪' },
-  { key: 'viajes', label: 'Rutas y viajes', icon: '🗺' },
+  { key: 'nomina', label: 'Nómina y viajes', icon: '📋' },
+  { key: 'viaticos', label: 'Viáticos y caja chica', icon: '💵' },
   { key: 'guias', label: 'Guías', icon: '📑' },
   { key: 'descansos', label: 'Descansos', icon: '🏠' },
 ];
@@ -50,11 +53,14 @@ export interface DatosChoferes {
   personal: Personal[];
   flota: VehiculoFlota[];
   viajes: Viaje[];
+  viaticos: Viatico[];
+  pagos: PagoViaje[];
   descansos: Descanso[];
   /** Documentos de los conductores (vigentes e históricos). */
   documentos: DocumentoChofer[];
-  /** La tabla de documentos todavía no existe en la base. */
+  /** La tabla de documentos todavía no existe en la base (falta correr choferes-documentos.sql). */
   docsSinInstalar: boolean;
+  tasa: number | null;
   hoy: string;
   loading: boolean;
   recargar: () => Promise<void>;
@@ -79,9 +85,12 @@ export function ChoferesPage() {
   const [personal, setPersonal] = useState<Personal[]>([]);
   const [flota, setFlota] = useState<VehiculoFlota[]>([]);
   const [viajes, setViajes] = useState<Viaje[]>([]);
+  const [viaticos, setViaticos] = useState<Viatico[]>([]);
+  const [pagos, setPagos] = useState<PagoViaje[]>([]);
   const [descansos, setDescansos] = useState<Descanso[]>([]);
   const [documentos, setDocumentos] = useState<DocumentoChofer[]>([]);
   const [docsSinInstalar, setDocsSinInstalar] = useState(false);
+  const [tasa, setTasa] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [sinInstalar, setSinInstalar] = useState(false);
   const hoy = useMemo(hoyVE, []);
@@ -90,14 +99,17 @@ export function ChoferesPage() {
     try {
       // Las dos nóminas (GT y MTO): un chofer puede estar en cualquiera.
       const ps = await listPersonal(false).catch(() => [] as Personal[]);
-      const [cs, fl, vj] = await Promise.all([listConductores(), listFlota(), listViajes()]);
+      const [cs, fl, vj, vt, pg, t] = await Promise.all([
+        listConductores(), listFlota(), listViajes(), listViaticos(), listPagos(),
+        getTasaHoy().then((x) => x.usd ?? null).catch(() => null),
+      ]);
       const ds = await listDescansos(cs.map((c) => c.personal_id).filter((x): x is string => !!x)).catch(() => [] as Descanso[]);
       // Los documentos tienen su propio SQL: si falta, el resto del módulo sigue andando.
       const docs = await listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; });
       const porId = new Map(ps.map((p) => [p.id, p]));
       setPersonal(ps);
-      setConductores(cs.map((c) => ({ ...c, personal: c.personal_id ? porId.get(c.personal_id) ?? null : null })));
-      setFlota(fl); setViajes(vj); setDescansos(ds);
+      setConductores(cs.map((c) => ({ ...c, personal: c.personal_id ? (porId.get(c.personal_id) ?? null) : null })));
+      setFlota(fl); setViajes(vj); setViaticos(vt); setPagos(pg); setDescansos(ds); setTasa(t);
       setDocumentos(docs); if (docs.length) setDocsSinInstalar(false);
       setSinInstalar(false);
     } catch (e) {
@@ -107,14 +119,14 @@ export function ChoferesPage() {
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
   // Silencioso: el cambio de otro usuario no deja la pantalla en «Cargando…».
-  useRealtime(TABLAS_CHOFERES, () => { void recargar(); });
+  useRealtime([...TABLAS_CHOFERES, 'cajas', 'caja_saldos'], () => { void recargar(); });
 
   const datos: DatosChoferes = useMemo(() => ({
-    conductores, personal, flota, viajes, descansos, documentos, docsSinInstalar, hoy, loading, recargar,
-  }), [conductores, personal, flota, viajes, descansos, documentos, docsSinInstalar, hoy, loading, recargar]);
+    conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar,
+  }), [conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar]);
 
   // Para la pestaña Descansos: solo las fichas con expediente de conductor activo.
-  const idsConductores = useMemo(() => new Set(conductores.filter((c) => c.activo).map((c) => c.personal_id)), [conductores]);
+  const idsConductores = useMemo(() => new Set(conductores.filter((c) => c.activo && c.personal_id).map((c) => c.personal_id as string)), [conductores]);
   const soloChoferes = useCallback((p: Personal) => idsConductores.has(p.id), [idsConductores]);
 
   const props: PropsTab = { datos, canWrite, actor, actorName };
@@ -124,7 +136,7 @@ export function ChoferesPage() {
       <div style={{ marginBottom: '1rem' }}>
         <h1 style={{ margin: 0 }}>🚛 Choferes / Conductores</h1>
         <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
-          Flota y conductores: expediente con vigencias, órdenes de ruta y descansos. Los conductores son fichas de RRHH.
+          Flota y conductores: expediente con vigencias, órdenes de ruta, viáticos, pagos por viaje y descansos. Los conductores son fichas de RRHH.
         </p>
       </div>
 
@@ -145,7 +157,8 @@ export function ChoferesPage() {
 
       {vista === 'tablero' && <TableroTab {...props} irA={(v) => setVista(v)} />}
       {vista === 'expediente' && <ExpedienteTab {...props} />}
-      {vista === 'viajes' && <ViajesTab {...props} />}
+      {(vista === 'nomina' || vista === 'viajes' || vista === 'pagos') && <NominaViajesTab {...props} />}
+      {vista === 'viaticos' && <ViaticosTab {...props} />}
       {vista === 'guias' && <GuiasTab {...props} />}
       {vista === 'descansos' && (
         <DescansosTab canWrite={canWrite} actor={actor} actorName={actorName} empresa="GT"
@@ -157,11 +170,9 @@ export function ChoferesPage() {
 
 /* ───────────── Ayudantes compartidos por las pestañas ───────────── */
 
+/** Nombre del conductor: de su ficha de RRHH o, si es externo, de su expediente. */
 export function nombreConductor(c: Conductor | undefined | null): string {
-  if (!c) return '—';
-  const p = c.personal;
-  if (p) return `${p.nombre} ${p.apellido ?? ''}`.trim();
-  return c.personal_id ? '(ficha eliminada)' : (c.nombre ?? '(sin nombre)');
+  return nombreDeConductor(c);
 }
 
 export function textoVehiculo(v: VehiculoFlota | undefined | null): string {

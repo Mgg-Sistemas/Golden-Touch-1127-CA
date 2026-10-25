@@ -98,6 +98,8 @@ interface ConfirmDialogProps {
   preview?: ReactNode;
   confirmText?: string;
   danger?: boolean;
+  /** Confirmación positiva (cerrar un período, marcar como pagado…): el botón sale en verde. */
+  success?: boolean;
   /** Si se indica, el usuario debe escribir EXACTAMENTE este texto para habilitar el botón. */
   requireText?: string;
   /** Etiqueta sobre el input de confirmación (por defecto: «Escribe … para confirmar»). */
@@ -106,7 +108,7 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ title = 'Confirmar', message, preview, confirmText = 'Confirmar', danger, requireText, requireLabel, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ title = 'Confirmar', message, preview, confirmText = 'Confirmar', danger, success, requireText, requireLabel, onConfirm, onCancel }: ConfirmDialogProps) {
   const [typed, setTyped] = useState('');
   // Comparación tolerante (sin distinguir may/min ni espacios): evita el "no pasa nada"
   // cuando el usuario escribe la palabra en otra caja.
@@ -124,7 +126,7 @@ export function ConfirmDialog({ title = 'Confirmar', message, preview, confirmTe
           <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
           <button
             type="button"
-            className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
+            className={`btn ${danger ? 'btn-danger' : success ? 'btn-success' : 'btn-primary'}`}
             disabled={!matches}
             style={matches && requireText != null ? { boxShadow: '0 0 0 2px var(--success, #22c55e)' } : undefined}
             onClick={() => { if (matches) onConfirm(); }}
