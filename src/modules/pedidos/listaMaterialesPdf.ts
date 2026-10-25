@@ -18,6 +18,7 @@
  * perezoso (no carga la librería hasta que alguien pide el PDF), logo opcional y
  * `previewPdf`, que abre la vista previa y descarga solo si se presiona Descargar.
  */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { dateTime, num } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -77,7 +78,7 @@ export async function descargarListaMaterialesPdf(orden: Orden): Promise<void> {
 
   const filas: Array<[string, string]> = [
     ['Unidad solicitante', pdfSafe(orden.unidad_solicitante) || '—'],
-    ['Solicitante', pdfSafe(orden.solicitante) || orden.solicitante_email],
+    ['Solicitante', pdfSafe(quienSync(orden.solicitante, orden.solicitante_email))],
     ['Fecha de solicitud', dateTime(orden.created_at)],
     ['Prioridad', orden.urgente ? 'URGENTE' : 'Normal'],
     ['Renglones a cotizar', String(items.length)],

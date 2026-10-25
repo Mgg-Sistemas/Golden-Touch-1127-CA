@@ -3,6 +3,7 @@
    Comprobantes de salida/traslado de material y de salida de
    dinero. Se descargan SOLO al hacer clic (regla del sistema).
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -48,7 +49,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
     ['Fecha de entrega', mov.fecha_entrega ? fmt.date(mov.fecha_entrega) : '—'],
     ['Motivo / detalle', mov.detalle || '—'],
     ...(mov.nota_entrega ? [['Nota de entrega', mov.nota_entrega] as [string, string]] : []),
-    ['Registrado por', mov.actor_name || mov.actor],
+    ['Registrado por', quienSync(mov.actor_name, mov.actor)],
     ['Fecha de registro', fmt.dateTime(mov.at)],
   ];
   autoTable(doc, {
@@ -80,7 +81,7 @@ export async function obtenerSalidaMaterialPdfBase64(
     ['Fecha de entrega', mov.fecha_entrega ? fmt.date(mov.fecha_entrega) : '—'],
     ['Motivo / detalle', mov.detalle || '—'],
     ...(mov.nota_entrega ? [['Nota de entrega', mov.nota_entrega] as [string, string]] : []),
-    ['Registrado por', mov.actor_name || mov.actor],
+    ['Registrado por', quienSync(mov.actor_name, mov.actor)],
     ['Fecha de registro', fmt.dateTime(mov.at)],
   ];
   autoTable(doc, {
@@ -103,7 +104,7 @@ export async function descargarSalidaDineroPdf(mov: MovimientoCaja): Promise<voi
     ['Motivo', mov.motivo || '—'],
     ['Monto', `${fmt.money(Number(mov.monto) || 0)} ${mov.moneda}`],
     ['Estado', mov.estado_mineral === 'conciliada' ? 'Conciliada con mineral' : 'Pendiente de recepción'],
-    ['Registrado por', mov.actor_name || mov.actor],
+    ['Registrado por', quienSync(mov.actor_name, mov.actor)],
     ['Fecha', fmt.dateTime(mov.at)],
   ];
   if (mov.estado_mineral === 'conciliada') {
@@ -133,7 +134,7 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
     ['Monto', `${fmt.money(Number(mov.monto) || 0)} ${mov.moneda}`],
     ['Motivo', mov.motivo || '—'],
     ...(mov.nota_entrega ? [['Nota de entrega', mov.nota_entrega] as [string, string]] : []),
-    ['Registrado por', mov.actor_name || mov.actor],
+    ['Registrado por', quienSync(mov.actor_name, mov.actor)],
     ['Fecha', fmt.dateTime(mov.at)],
   ];
   autoTable(doc, {

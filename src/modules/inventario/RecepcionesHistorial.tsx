@@ -9,6 +9,7 @@
    No hay tabla de recepciones — se reconstruyen agrupando los movimientos, que
    ya traen la asociación (`ref_id`, `ref_codigo`, `proveedor_id`).
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -144,7 +145,7 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
                           {r.ref_tipo === 'compra_directa' && <span className="muted" style={{ fontSize: '.72rem' }}> · directa</span>}
                         </td>
                         <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(r.at)}</td>
-                        <td>{r.actor_name ?? r.actor ?? '—'}</td>
+                        <td><Quien nombre={r.actor_name} correo={r.actor} vacio="—" /></td>
                         {/* Las recepciones anteriores al 08/09/2026 no guardaban el
                             almacén: se dice que falta, no se adivina del detalle. */}
                         <td>{r.almacen ?? <span className="dim">sin registrar</span>}</td>

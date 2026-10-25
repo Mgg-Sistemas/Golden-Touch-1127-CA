@@ -8,6 +8,7 @@
    (vista previa) y por correo (Edge Function `enviar-reporte`).
    El $ de cada movimiento = |delta| × costo_promedio del movimiento.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Almacen, Existencia, Movimiento, Producto } from '@/shared/lib/types';
@@ -93,7 +94,7 @@ function filaDeMov(m: Movimiento): MovResumenRow {
     valor: Math.round(cant * costo * 100) / 100,
     destino: m.destino ?? '',
     solicitante: m.solicitante ?? '',
-    actor: m.actor_name || m.actor || '',
+    actor: quienSync(m.actor_name, m.actor),
     detalle: m.detalle ?? '',
   };
 }

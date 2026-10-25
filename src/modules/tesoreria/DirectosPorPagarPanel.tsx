@@ -6,6 +6,7 @@
    (en compras) entra al inventario, y queda FINALIZADA. Reusa los
    modales de pago de Compra/Servicio Directo.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { money, dateTime } from '@/shared/lib/format';
@@ -94,7 +95,7 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : null}
                     {c.nota?.trim() && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap' }}>📝 {c.nota}</div>}</td>
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
-                  <td className="muted" style={{ fontSize: '.78rem' }}>{c.actor_name || c.actor || '—'}<br />{dateTime(c.updated_at)}</td>
+                  <td className="muted" style={{ fontSize: '.78rem' }}>{<Quien nombre={c.actor_name} correo={c.actor} vacio="—" />}<br />{dateTime(c.updated_at)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{c.gasto != null ? montoMoneda(c.gasto, c.moneda) : '—'}
                     {equivConversion(c.gasto, c.moneda, c.tasa_conversion) && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{equivConversion(c.gasto, c.moneda, c.tasa_conversion)}</div>}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
@@ -118,7 +119,7 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                   <td className="mono">{s.codigo ?? '—'}</td>
                   <td>{s.descripcion}{s.items.length > 1 ? <span className="muted"> · {s.items.length} ítems</span> : null}</td>
                   <td>{s.proveedor_nombre || <span className="muted">—</span>}</td>
-                  <td className="muted" style={{ fontSize: '.78rem' }}>{s.actor_name || s.actor || '—'}<br />{dateTime(s.updated_at)}</td>
+                  <td className="muted" style={{ fontSize: '.78rem' }}>{<Quien nombre={s.actor_name} correo={s.actor} vacio="—" />}<br />{dateTime(s.updated_at)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{s.gasto != null ? montoMoneda(s.gasto, s.moneda) : '—'}
                     {equivConversion(s.gasto, s.moneda, s.tasa_conversion) && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{equivConversion(s.gasto, s.moneda, s.tasa_conversion)}</div>}
                     {s.con_abonos && (
@@ -299,7 +300,7 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
                   <td className="muted">{dateTime(a.at)}</td>
                   <td className="num mono">{montoMoneda(Number(a.monto), a.moneda ?? moneda)}</td>
                   <td className="num mono">{a.saldo_restante != null ? montoMoneda(Number(a.saldo_restante), a.moneda ?? moneda) : '—'}</td>
-                  <td className="muted" style={{ fontSize: '.75rem' }}>{a.actor_name || a.actor || '—'}{a.nota ? ` · ${a.nota}` : ''}</td>
+                  <td className="muted" style={{ fontSize: '.75rem' }}>{<Quien nombre={a.actor_name} correo={a.actor} vacio="—" />}{a.nota ? ` · ${a.nota}` : ''}</td>
                 </tr>
               ))}
             </tbody>

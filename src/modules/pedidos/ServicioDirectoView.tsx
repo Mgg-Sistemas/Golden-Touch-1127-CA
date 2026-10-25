@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -158,7 +159,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                   <td>{s.equipo_nombre || <span className="muted">—</span>}</td>
                   <td>{ESTADO_LABEL[s.estado] ?? s.estado}</td>
                   <td className="mono">{s.gasto != null ? montoMoneda(s.gasto, s.moneda) : '—'}</td>
-                  <td>{s.actor_name || s.actor || '—'}</td>
+                  <td><Quien nombre={s.actor_name} correo={s.actor} vacio="—" /></td>
                   <td className="muted">{dateTime(s.created_at)}</td>
                   <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
@@ -234,7 +235,7 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
         </ul>
       )}
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
-        <div>Generó: <strong style={{ color: 'var(--text)' }}>{servicio.actor_name || servicio.actor || '—'}</strong></div>
+        <div>Generó: <strong style={{ color: 'var(--text)' }}><Quien nombre={servicio.actor_name} correo={servicio.actor} vacio="—" /></strong></div>
         <div>Creado: {dateTime(servicio.created_at)}</div>
         {servicio.estado === 'finalizada' && <div>Pagado: {servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—'}</div>}
       </div>
@@ -302,7 +303,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Proveedor', servicio.proveedor_nombre || '—')}
       {fila('Equipo', servicio.equipo_nombre || '—')}
       {(servicio.solicitante || servicio.unidad_solicitante) && fila('Solicitante', `${servicio.solicitante || '—'}${servicio.unidad_solicitante ? ` · ${servicio.unidad_solicitante}` : ''}`)}
-      {fila('Generó', servicio.actor_name || servicio.actor || '—')}
+      {fila('Generó', <Quien nombre={servicio.actor_name} correo={servicio.actor} vacio="—" />)}
       {fila('Creado', dateTime(servicio.created_at))}
       {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
       {fila('Moneda', servicio.moneda === 'Bs' ? 'Bs' : '$ (USD)')}

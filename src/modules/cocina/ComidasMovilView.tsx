@@ -15,6 +15,8 @@
    puede corregir y lo marca como verificado; si después se corrige desde el
    teléfono, la marca se quita para que lo vuelva a mirar.
    ============================================================ */
+import { useQuien } from '@/shared/lib/directorioUsuarios';
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
@@ -162,7 +164,7 @@ export function ComidasMovilView() {
                   <div className="titulo">{labelTipoComida(m.tipo_comida)} · {etiquetaDia(diaCaracas(m.at), hoy)}</div>
                   <div className="sub">
                     {m.codigo ?? ''}{(m.items ?? []).length ? ` · ${(m.items ?? []).length} productos` : ''}
-                    {m.actor_name ? ` · ${m.actor_name}` : ''}
+                    {m.actor_name ? <> · <Quien nombre={m.actor_name} correo={m.actor} /></> : ''}
                     {n > 0 ? ` · 📎 ${n}` : ''}
                     {m.verificado_at ? ' · ✔ Verificado' : ''}
                   </div>
@@ -436,6 +438,7 @@ function DetalleComida({ mov, unidades, canWrite, actor, actorName, hoy, onClose
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  const quien = useQuien();
   const dia = etiquetaDia(diaCaracas(mov.at), hoy);
   const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
     <div className="surt-fila"><span className="muted">{k}</span><span>{v}</span></div>
@@ -461,15 +464,15 @@ function DetalleComida({ mov, unidades, canWrite, actor, actorName, hoy, onClose
         {canWrite && !confirmando && <button className="btn btn-ghost btn-grande" onClick={onEditar} disabled={borrando}>✏ Corregir</button>}
         <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
-      <CompartirWhatsapp texto={mensajeComida({ mov, unidades, registradoPor: mov.actor_name || mov.actor })} />
+      <CompartirWhatsapp texto={mensajeComida({ mov, unidades, registradoPor: quien(mov.actor_name, mov.actor) })} />
 
       <div className="surt-detalle">
         <Fila k="Día" v={dia} />
         <Fila k="Registro" v={mov.codigo} />
         <Fila k="Personas" v={num(mov.platos)} />
         <Fila k="Nota" v={mov.nota} />
-        <Fila k="Cargado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.actor ? ` · ${mov.actor_name || mov.actor}` : ''}`} />
-        <Fila k="Revisión" v={mov.verificado_at ? `✔ Verificado por ${mov.verificado_por ?? 'la analista'} · ${dateTime(mov.verificado_at)}` : 'Pendiente de que la analista la revise'} />
+        <Fila k="Cargado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.actor ? ` · ${quien(mov.actor_name, mov.actor)}` : ''}`} />
+        <Fila k="Revisión" v={mov.verificado_at ? `✔ Verificado por ${quien(null, mov.verificado_por) || 'la analista'} · ${dateTime(mov.verificado_at)}` : 'Pendiente de que la analista la revise'} />
       </div>
 
       <div className="surt-rotulo">Lo que se consumió</div>

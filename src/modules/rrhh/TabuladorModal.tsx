@@ -13,6 +13,7 @@
        personal y el sueldo nuevo de cada uno, e imprime anterior y nuevo;
        el tabulador vigente también sale en PDF y Excel.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { empresasRrhh } from '@/shared/lib/empresa';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
@@ -200,7 +201,7 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
                           {rango}
                           {distintos > 0 && <span className="badge" style={{ marginLeft: '.4rem', color: 'var(--warning)' }}>{distintos} distinto(s)</span>}
                         </td>
-                        <td className="muted" style={{ fontSize: '.76rem' }}>{dateTime(t.updated_at)}{t.updated_by && <div>{t.updated_by}</div>}</td>
+                        <td className="muted" style={{ fontSize: '.76rem' }}>{dateTime(t.updated_at)}{t.updated_by && <div><Quien correo={t.updated_by} /></div>}</td>
                         {canWrite && (
                           <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                             <button className="btn btn-sm btn-ghost" title="Cambiar monto o cargo" onClick={() => setEditando(t)}>✏️</button>
@@ -239,7 +240,7 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
                     <td className="mono" style={{ textAlign: 'right' }}>{h.monto_anterior == null ? '—' : money(h.monto_anterior)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{h.monto_nuevo == null ? '—' : money(h.monto_nuevo)}</td>
                     <td>{h.motivo || <span className="muted">—</span>}</td>
-                    <td className="muted" style={{ fontSize: '.78rem' }}>{h.created_by || '—'}</td>
+                    <td className="muted" style={{ fontSize: '.78rem' }}><Quien correo={h.created_by} vacio="—" /></td>
                   </tr>
                 ))}
               </tbody>

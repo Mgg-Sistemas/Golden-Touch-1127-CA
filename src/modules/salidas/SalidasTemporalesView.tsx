@@ -6,6 +6,7 @@
    Se EDITA mientras está pendiente o en tránsito (si ya salió, se ajusta la
    diferencia); una finalizada no se edita. Se ELIMINA solo mientras está 'pendiente'.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -357,7 +358,7 @@ function TrazabilidadModal({ s, onClose }: { s: SalidaTemporal; onClose: () => v
           <div className="muted" style={{ fontSize: '.8rem' }}>{s.direccion_despacho || '—'} → {s.direccion_destino || 'MANTENIMIENTO'}</div>
         )}
         {s.motivo && <div className="muted" style={{ fontSize: '.8rem' }}>Motivo: {s.motivo}</div>}
-        {s.aprobada_por && <div className="muted" style={{ fontSize: '.8rem' }}>Aprobó: {s.aprobada_por_nombre || s.aprobada_por}{s.aprobada_en ? ` · ${dateTime(s.aprobada_en)}` : ''}</div>}
+        {s.aprobada_por && <div className="muted" style={{ fontSize: '.8rem' }}>Aprobó: <Quien nombre={s.aprobada_por_nombre} correo={s.aprobada_por} />{s.aprobada_en ? ` · ${dateTime(s.aprobada_en)}` : ''}</div>}
         {s.estado === 'finalizada' && <div className="muted" style={{ fontSize: '.8rem' }}>Tiempo en tránsito/mantenimiento: <strong>{formatDuracion(s.duracion_min)}</strong></div>}
       </div>
 
@@ -397,7 +398,7 @@ function TrazabilidadModal({ s, onClose }: { s: SalidaTemporal; onClose: () => v
                   <span className="muted mono" style={{ fontSize: '.72rem' }}>{dateTime(ev.at)}</span>
                 </div>
                 <div className="muted" style={{ fontSize: '.74rem' }}>
-                  Por: {ev.actor}
+                  Por: <Quien correo={ev.actor} />
                   {meta.firma ? ` · firma: ${meta.firma === 'leydis' ? 'Leydis Rengel' : 'Jesús Lozada'}` : ''}
                   {typeof meta.duracion_min === 'number' ? ` · duración: ${formatDuracion(meta.duracion_min)}` : ''}
                   {typeof (meta as { ajustes?: number }).ajustes === 'number' ? ` · ${(meta as { ajustes?: number }).ajustes} ajuste(s) de inventario` : ''}

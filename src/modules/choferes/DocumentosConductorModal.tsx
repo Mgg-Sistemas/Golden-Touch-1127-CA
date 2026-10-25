@@ -6,6 +6,7 @@
    uno nuevo (el anterior pasa al histórico) y desplegar las versiones
    anteriores. «Otros documentos» admite varios, cada uno con su nombre.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { FechaVe } from '@/shared/ui/FechaVe';
@@ -70,7 +71,7 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', padding: '.35rem .5rem', borderRadius: 6, background: vigente ? 'rgba(41,192,129,.08)' : 'transparent', fontSize: '.84rem' }}>
         <span style={{ flex: '1 1 200px', minWidth: 0 }}>
           <strong style={{ overflowWrap: 'anywhere' }}>{d.nombre}</strong>{d.tamano ? <span className="muted"> · {megas(d.tamano)}</span> : null}
-          <div className="muted" style={{ fontSize: '.74rem' }}>Subido {fechaHora(d.created_at)}{d.subido_por_nombre ? ` por ${d.subido_por_nombre}` : d.subido_por ? ` por ${d.subido_por}` : ''}</div>
+          <div className="muted" style={{ fontSize: '.74rem' }}>Subido {fechaHora(d.created_at)}{d.subido_por_nombre || d.subido_por ? <> por <Quien nombre={d.subido_por_nombre} correo={d.subido_por} /></> : ''}</div>
         </span>
         {d.vence && <BadgeVence vence={d.vence} hoy={hoy} />}
         <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)}>👁 Ver</button>

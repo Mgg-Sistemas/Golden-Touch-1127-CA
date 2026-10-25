@@ -5,6 +5,7 @@
    cisternas/litros en agua — y monto).
    Se abre en vista previa; se descarga solo al presionar Descargar.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { ServicioDirecto } from './serviciosDirectos.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
@@ -42,7 +43,7 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
       ['Pago anticipado', `${fmt.montoMoneda(Number(servicio.anticipo_monto), servicio.anticipo_moneda === 'Bs' ? 'Bs' : 'USD')} (adelanto · no descontó caja)`] as [string, string],
       ['Saldo pendiente', fmt.montoMoneda(Math.max(0, (Number(servicio.gasto) || 0) - (Number(servicio.abonado_total) || 0)), servicio.moneda ?? 'USD')] as [string, string],
     ] : []),
-    ['Generó', pdfSafe(servicio.actor_name || servicio.actor) || '—'],
+    ['Generó', pdfSafe(quienSync(servicio.actor_name, servicio.actor)) || '—'],
     ['Fecha de creación', fmt.dateTime(servicio.created_at)],
     ['Fecha de pago', servicio.finalizada_at ? fmt.dateTime(servicio.finalizada_at) : '—'],
     ['Adjunto (factura)', pdfSafe(servicio.adjunto_nombre) || '—'],

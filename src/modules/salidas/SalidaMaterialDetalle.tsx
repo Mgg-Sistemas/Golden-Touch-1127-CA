@@ -1,3 +1,4 @@
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -58,7 +59,7 @@ export function SalidaMaterialDetalle({
     ['Precio total', precio ? money(precio * cant) : '—'],
     ['Fecha de entrega', mov.fecha_entrega ? date(mov.fecha_entrega) : '—'],
     ['Motivo / detalle', mov.detalle || '—'],
-    ['Registrado por', mov.actor_name || mov.actor],
+    ['Registrado por', quienSync(mov.actor_name, mov.actor)],
     ['Fecha de registro', dateTime(mov.at)],
   ];
 

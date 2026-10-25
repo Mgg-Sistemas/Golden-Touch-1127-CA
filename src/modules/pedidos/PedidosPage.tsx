@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -2492,7 +2493,7 @@ const KanbanCard = memo(function KanbanCard({
         )}
       </div>
       <div className="meta" style={{ fontSize: '.72rem', marginTop: '.15rem' }} title="Solicitante y fecha de creación">
-        <span>👤 {orden.solicitante ?? orden.solicitante_email ?? '—'}</span>
+        <span>👤 <Quien nombre={orden.solicitante} correo={orden.solicitante_email} vacio="—" /></span>
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
       <div className="foot">

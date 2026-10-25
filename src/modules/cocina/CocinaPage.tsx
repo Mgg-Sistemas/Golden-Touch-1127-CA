@@ -1,3 +1,5 @@
+import { quienSync } from '@/shared/lib/directorioUsuarios';
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
@@ -633,11 +635,11 @@ export function CocinaPage() {
                       </td>
                       <td>
                         <span className="badge">{tc?.icono} {labelTipoComida(m.tipo_comida)}</span>
-                        {m.verificado_at && <span className="badge success" style={{ marginLeft: '.3rem' }} title={`Verificada por ${m.verificado_por ?? '—'} · ${dateTime(m.verificado_at)}`}>✔ Verificada</span>}
+                        {m.verificado_at && <span className="badge success" style={{ marginLeft: '.3rem' }} title={`Verificada por ${quienSync(null, m.verificado_por) || '—'} · ${dateTime(m.verificado_at)}`}>✔ Verificada</span>}
                       </td>
                       <td>
                         {dateTime(m.at)}
-                        {m.actor_name ? <div className="muted" style={{ fontSize: '.74rem' }}>{m.actor_name}</div> : null}
+                        {m.actor_name ? <div className="muted" style={{ fontSize: '.74rem' }}><Quien nombre={m.actor_name} correo={m.actor} /></div> : null}
                       </td>
                       <td className="mono" style={{ textAlign: 'right' }}>{num(m.platos)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(Number(m.valor_total))}</td>
@@ -794,7 +796,7 @@ export function CocinaPage() {
                       <span>
                         <span className="badge" style={{ fontSize: '.66rem' }}>{s.tipo}</span>{' '}
                         {s.detalle ?? <span className="muted">sin motivo escrito</span>}
-                        <span className="muted"> · {dateTime(s.fecha)}{s.actor ? ` · ${s.actor}` : ''}</span>
+                        <span className="muted"> · {dateTime(s.fecha)}{s.actor ? <> · <Quien correo={s.actor} /></> : ''}</span>
                       </span>
                       <span className="mono" style={{ color: 'var(--warning)', whiteSpace: 'nowrap' }}>−{num(s.cantidad)} {detalleViver.item.unidad ?? ''}</span>
                     </div>

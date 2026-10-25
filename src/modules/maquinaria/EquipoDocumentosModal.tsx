@@ -1,3 +1,4 @@
+import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -219,7 +220,8 @@ function EspacioDocumento({ espacio, doc, equipoId, canWrite, actor, actorName, 
     }
   }
 
-  const quien = doc ? (doc.subido_por_nombre || doc.subido_por) : null;
+  const nombreQuien = useQuien();
+  const quien = doc ? nombreQuien(doc.subido_por_nombre, doc.subido_por) : null;
 
   return (
     <div className="card" style={{ padding: '.75rem', margin: 0, display: 'grid', gap: '.5rem', alignContent: 'start' }}>

@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '@/modules/auth/authStore';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -114,7 +115,7 @@ export function ChatOrden({ ordenId, ordenLabel, autorNombre }: {
                 }}
               >
                 <div style={{ fontWeight: 700, fontSize: '.72rem', marginBottom: '.15rem' }}>
-                  {m.autor_nombre || m.autor_email}
+                  <Quien nombre={m.autor_nombre} correo={m.autor_email} />
                 </div>
                 <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.mensaje}</div>
                 <div className="muted" style={{ fontSize: '.66rem', marginTop: '.2rem', textAlign: 'right' }}>{dateTime(m.created_at)}</div>

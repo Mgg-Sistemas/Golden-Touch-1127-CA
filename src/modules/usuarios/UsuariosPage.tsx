@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -1334,7 +1335,7 @@ function HistorialNombres({ usuarioId }: { usuarioId: string }) {
                     <td className="muted">{nombreCompleto(c.nombre_anterior, c.apellido_anterior) || '—'}</td>
                     <td><strong>{nombreCompleto(c.nombre_nuevo, c.apellido_nuevo) || '—'}</strong></td>
                     <td>{c.motivo}</td>
-                    <td className="muted">{c.cambiado_por_nombre || c.cambiado_por || '—'}</td>
+                    <td className="muted"><Quien nombre={c.cambiado_por_nombre} correo={c.cambiado_por} vacio="—" /></td>
                   </tr>
                 ))}
               </tbody>

@@ -24,6 +24,7 @@
    `pdfSafe` para el texto y `previewPdf` al final —vista previa, se descarga
    solo si el usuario presiona Descargar.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { jsPDF as JsPdf } from 'jspdf';
 import { dateTime, montoMoneda, num } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -134,7 +135,7 @@ export function fichaCliente(doc: JsPdf, autoTable: AutoTable, y: number, venta:
     ...(venta.tasa_bs
       ? ([['Tasa del día', `Bs ${num(venta.tasa_bs)} / ${pdfSafe(venta.moneda)}`]] as Array<[string, string]>)
       : []),
-    ['Atendió', pdfSafe(venta.actor_name) || pdfSafe(venta.actor) || '—'],
+    ['Atendió', pdfSafe(quienSync(venta.actor_name, venta.actor)) || '—'],
     ...(venta.autorizada_por
       ? ([['Autorizó', `${pdfSafe(venta.autorizada_por)}${venta.autorizada_at ? ` · ${dateTime(venta.autorizada_at)}` : ''}`]] as Array<[string, string]>)
       : []),

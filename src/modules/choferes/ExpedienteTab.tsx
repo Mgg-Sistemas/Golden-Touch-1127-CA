@@ -9,6 +9,7 @@
    La flota es el catálogo de vehículos compartido con Asignaciones, con
    estado operativo (operativo / taller / inactivo), seguro y capacidad.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -411,7 +412,7 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
           <div className="form-row" style={{ gridColumn: '1 / -1' }}><label htmlFor="cond-obs">Observaciones</label>
             <input id="cond-obs" className="input" value={v.observaciones ?? ''} disabled={!canWrite} onChange={(e) => set('observaciones', e.target.value)} placeholder="Restricciones, tipo de vehículo que maneja, etc." /></div>
         </div>
-        {inicial && <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Expediente abierto {fmtDate(inicial.created_at)}{inicial.actor_name ? ` por ${inicial.actor_name}` : ''}. {inicial.externo ? 'Chofer externo: sus datos se editan aquí mismo.' : 'Los datos de la persona (teléfono, cédula, foto) se editan en RRHH.'}</p>}
+        {inicial && <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Expediente abierto {fmtDate(inicial.created_at)}{inicial.actor_name ? <> por <Quien nombre={inicial.actor_name} correo={inicial.created_by} /></> : ''}. {inicial.externo ? 'Chofer externo: sus datos se editan aquí mismo.' : 'Los datos de la persona (teléfono, cédula, foto) se editan en RRHH.'}</p>}
       </form>
     </Modal>
   );

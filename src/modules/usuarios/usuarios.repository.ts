@@ -1,3 +1,4 @@
+import { cargarDirectorioUsuarios } from '@/shared/lib/directorioUsuarios';
 import { supabase } from '@/shared/lib/supabase';
 import type { Role, Usuario } from '@/shared/lib/types';
 import { listRoles, type CustomRole } from './roles.repository';
@@ -163,6 +164,7 @@ export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: stri
   >('crear-usuario', { body: input });
   if (error) throw new Error(await mensajeErrorFuncion(error, 'Error al crear usuario'));
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
+  void cargarDirectorioUsuarios(true);
   return { id: data.id, claveTemporal: data.clave_temporal };
 }
 
@@ -192,6 +194,7 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
   // El error de Supabase no es un Error de JS: se envuelve para que la pantalla muestre
   // el motivo real (p. ej. «Indica el motivo del cambio de nombre.») y no uno genérico.
   if (error) throw new Error(error.message || 'No se pudo actualizar el usuario');
+  void cargarDirectorioUsuarios(true);
 }
 
 /** Cambia el correo del usuario (Auth + tabla) vía Edge Function. Solo admin. */
@@ -211,6 +214,7 @@ export async function cambiarEmailUsuario(userId: string, email: string): Promis
     throw new Error(await mensajeErrorFuncion(error, 'Error al cambiar el correo'));
   }
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
+  void cargarDirectorioUsuarios(true);
   return data.email;
 }
 

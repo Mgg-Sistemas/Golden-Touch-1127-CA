@@ -9,6 +9,7 @@
    Todo pasa por `pdfSafe`: la helvetica de jsPDF solo escribe Windows-1252 y
    un glifo que no existe ahí rompe el renglón entero.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { etiquetaVariacion, variacionSueldo } from './sueldos';
@@ -82,7 +83,7 @@ export async function descargarHistorialSueldoPdf(
         r.sueldo_anterior == null ? '—' : etiquetaVariacion(v),
         pdfSafe(r.motivo),
         pdfSafe(r.nota?.trim() || '—'),
-        pdfSafe(`${dia(r.created_at)}${r.created_by ? `\n${r.created_by}` : ''}`),
+        pdfSafe(`${dia(r.created_at)}${r.created_by ? `\n${quienSync(null, r.created_by)}` : ''}`),
       ];
     }),
     styles: { fontSize: 8, cellPadding: 3.5, overflow: 'linebreak' },

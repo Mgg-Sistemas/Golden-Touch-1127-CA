@@ -15,6 +15,7 @@
    lo que se hace aquí aparece al instante en la PC y viceversa (realtime).
    Corregir litros, equipo u hora es tarea de la PC.
    ============================================================ */
+import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
@@ -590,6 +591,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  const quien = useQuien();
   const destino = mov.tanque_destino_id ? tanques.find((t) => t.id === mov.tanque_destino_id)?.nombre : null;
   const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
     <div className="surt-fila"><span className="muted">{k}</span><span>{v}</span></div>
@@ -615,7 +617,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
       {/* El que surte manda el aviso al grupo apenas carga el surtido. */}
-      <CompartirWhatsapp texto={mensajeMovimiento({ mov, tanque: tanque?.nombre, tanqueDestino: destino, registradoPor: mov.actor_name || mov.created_by })} />
+      <CompartirWhatsapp texto={mensajeMovimiento({ mov, tanque: tanque?.nombre, tanqueDestino: destino, registradoPor: quien(mov.actor_name, mov.created_by) })} />
 
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre} />
@@ -630,7 +632,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
         <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
-        <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${mov.actor_name || mov.created_by}` : ''}`} />
+        <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${quien(mov.actor_name, mov.created_by)}` : ''}`} />
       </div>
 
       {confirmando && (

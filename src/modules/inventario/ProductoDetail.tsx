@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useEffect, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -200,7 +201,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
                     );
                   })()}
                   <div className="tl-meta">
-                    {dateTime(m.at)} · por {m.actor_name || m.actor || '—'}
+                    {dateTime(m.at)} · por <Quien nombre={m.actor_name} correo={m.actor} vacio="—" />
                     {m.almacen && <> · <span className="badge" style={{ fontSize: '.62rem' }}>▣ {m.almacen === 'General' ? 'Inventario General' : m.almacen}</span></>} · saldo{' '}
                     <span className="mono">{num(m.stock_despues)}</span>
                   </div>

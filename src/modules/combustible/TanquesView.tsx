@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -1300,7 +1301,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
 
       <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
       <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
-      {(mov.created_by || mov.actor_name) && <Fila k="Registrado por" v={mov.actor_name || mov.created_by || '—'} />}
+      {(mov.created_by || mov.actor_name) && <Fila k="Registrado por" v={<Quien nombre={mov.actor_name} correo={mov.created_by} vacio="—" />} />}
 
       {/* Las fotos que sacó el surtidor desde el teléfono (o las que se agreguen aquí). */}
       <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} miniaturas />

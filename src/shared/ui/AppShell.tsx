@@ -1,3 +1,4 @@
+import { cargarDirectorioUsuarios } from '@/shared/lib/directorioUsuarios';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -113,6 +114,8 @@ export function AppShell() {
   useEffect(() => { initSound(); }, []);
   // Empresas de RRHH (nombre, RIF, logo) para los papeles de cualquier módulo.
   useEffect(() => { void cargarEmpresasRrhh().catch(() => undefined); }, []);
+  // Nombre y apellido de todas las personas, para mostrarlos en vez del correo en historiales y PDF.
+  useEffect(() => { void cargarDirectorioUsuarios(); }, []);
 
   // Latido de sesión (supervisión de actividad): mientras la app esté abierta y el
   // usuario autenticado, marca presencia cada 60 s. La RPC prolonga la sesión

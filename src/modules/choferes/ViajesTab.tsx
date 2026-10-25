@@ -19,6 +19,7 @@
    vehículo en taller. La base no deja dos rutas EN RUTA del mismo chofer o
    del mismo vehículo.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -646,7 +647,7 @@ export function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onC
       {v.liquidacion && (
         <p className="muted" style={{ fontSize: '.82rem' }}>💵 Viáticos liquidados: anticipos {money(v.liquidacion.anticipos)} · gastos {money(v.liquidacion.gastos)} · devoluciones {money(v.liquidacion.devoluciones)} → {v.liquidacion.reembolso ? `reembolso ${money(v.liquidacion.reembolso)}` : v.liquidacion.deduccion ? `deducción ${money(v.liquidacion.deduccion)}` : 'cuadrado'}.</p>
       )}
-      <p className="muted" style={{ fontSize: '.75rem', marginTop: '.4rem' }}>Creada {fechaHora(v.created_at)}{v.actor_name ? ` por ${v.actor_name}` : ''}.</p>
+      <p className="muted" style={{ fontSize: '.75rem', marginTop: '.4rem' }}>Creada {fechaHora(v.created_at)}{v.actor_name ? <> por <Quien nombre={v.actor_name} correo={v.created_by} /></> : ''}.</p>
     </Modal>
   );
 }

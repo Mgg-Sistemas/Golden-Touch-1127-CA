@@ -1,3 +1,4 @@
+import { Quien } from '@/shared/ui/Quien';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -929,7 +930,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
           <div><span className="muted">Saldo después:</span> <strong className="mono">{monto(mov.saldo_despues, mov.moneda)}</strong></div>
           {mov.beneficiario && <div><span className="muted">Beneficiario:</span> <strong>{mov.beneficiario}</strong></div>}
           {mov.destino && <div><span className="muted">Destino:</span> <strong>{mov.destino}</strong></div>}
-          <div><span className="muted">Registrado por:</span> <strong>{mov.actor_name || mov.actor}</strong></div>
+          <div><span className="muted">Registrado por:</span> <strong><Quien nombre={mov.actor_name} correo={mov.actor} /></strong></div>
         </div>
         {mov.motivo && (
           <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
@@ -990,7 +991,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                 {orden.igtf_aplicado && <div><span className="muted">IGTF:</span> <strong className="mono">{monto(Number(orden.igtf_monto ?? 0), orden.total_moneda ?? 'USD')}</strong> <span className="muted">({Number(orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}% · incluido)</span></div>}
                 {orden.descuento_pago_aplicado && Number(orden.descuento_pago_monto) > 0 && <div><span className="muted">Descuento:</span> <strong className="mono" style={{ color: 'var(--success)' }}>−{monto(Number(orden.descuento_pago_monto ?? 0), orden.total_moneda ?? 'USD')}</strong> <span className="muted">(incluido en el total)</span></div>}
                 {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), orden.total_moneda ?? 'USD')}</strong></div>}
-                <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
+                <div><span className="muted">Solicitante:</span> <strong><Quien nombre={orden.solicitante} correo={orden.solicitante_email} /></strong></div>
                 {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}
                 {orden.pagada_en && <div><span className="muted">Pagada:</span> <strong>{dateTime(orden.pagada_en)}</strong></div>}
               </div>
@@ -1102,7 +1103,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                   <div><span className="muted">Código:</span> <strong className="mono">{compraDir.codigo ?? '—'}</strong></div>
                   <div><span className="muted">Proveedor:</span> <strong>{compraDir.proveedor_nombre || '—'}</strong></div>
                   <div><span className="muted">Destino:</span> <strong>{compraDir.almacen === 'General' ? 'Inventario General' : (compraDir.almacen || '—')}</strong></div>
-                  <div><span className="muted">Solicitó:</span> <strong>{compraDir.actor_name || compraDir.actor || '—'}</strong></div>
+                  <div><span className="muted">Solicitó:</span> <strong><Quien nombre={compraDir.actor_name} correo={compraDir.actor} vacio="—" /></strong></div>
                 </div>
                 {compraDir.nota?.trim() && (
                   <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
@@ -1466,7 +1467,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                     <td className="mono" style={{ textAlign: 'right' }}>{monto(l.monto, lotesDe.moneda)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{l.tasa_bs != null ? Number(l.tasa_bs).toLocaleString('es-VE', { maximumFractionDigits: 2 }) : '—'}</td>
                     <td>{l.origen || '—'}</td>
-                    <td className="muted">{l.actor_name || l.actor || '—'}</td>
+                    <td className="muted"><Quien nombre={l.actor_name} correo={l.actor} vacio="—" /></td>
                   </tr>
                 ))}
               </tbody>
@@ -3704,7 +3705,7 @@ function HistorialConversiones({ filas, cargando, nombreCaja }: {
           <label>Quién lo hizo</label>
           <select className="select" value={quien} onChange={(e) => setQuien(e.target.value)}>
             <option value="">Cualquiera</option>
-            {personas.map((p) => <option key={p} value={p}>{p}</option>)}
+            {personas.map((p) => <option key={p} value={p}><Quien nombre={p} /></option>)}
           </select>
         </div>
         <div className="form-row">
@@ -3767,7 +3768,7 @@ function HistorialConversiones({ filas, cargando, nombreCaja }: {
                     )}
                   </td>
                   <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700 }}>{monto(c.monto_a, c.moneda_a)}</td>
-                  <td>{c.actor_name?.trim() || c.actor}</td>
+                  <td><Quien nombre={c.actor_name} correo={c.actor} /></td>
                 </tr>
               );
             })}
@@ -4171,7 +4172,7 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
                     <tr>
                       <td colSpan={4} style={{ background: 'var(--bg-1)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.3rem .9rem', fontSize: '.8rem', padding: '.3rem .15rem' }}>
-                          <div><span className="muted">Solicitante:</span> {o.solicitante || o.solicitante_email || '—'}</div>
+                          <div><span className="muted">Solicitante:</span> {<Quien nombre={o.solicitante} correo={o.solicitante_email} vacio="—" />}</div>
                           <div><span className="muted">Unidad solicitante:</span> {o.unidad_solicitante?.trim() || '—'}</div>
                           <div><span className="muted">Creada (OP):</span> {dateTime(o.created_at)}</div>
                           <div><span className="muted">Aprobada (OP):</span> {o.aprobada_en ? dateTime(o.aprobada_en) : '—'}</div>
@@ -5977,7 +5978,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <div><span className="muted">OP:</span> <strong className="mono">{o.codigo}</strong></div>
             <div><span className="muted">N°ODC:</span> <strong className="mono">{o.oc_codigo ?? '—'}</strong></div>
             <div><span className="muted">Proveedor:</span> {row.proveedorNombre}</div>
-            <div><span className="muted">Solicitante:</span> {o.solicitante || o.solicitante_email}</div>
+            <div><span className="muted">Solicitante:</span> {<Quien nombre={o.solicitante} correo={o.solicitante_email} />}</div>
             <div><span className="muted">Unidad solicitante:</span> {o.unidad_solicitante?.trim() || <span className="muted">—</span>}</div>
             <div><span className="muted">Creada (OP):</span> {dateTime(o.created_at)}</div>
             <div><span className="muted">Aprobada (OP):</span> {o.aprobada_en ? dateTime(o.aprobada_en) : '—'}</div>

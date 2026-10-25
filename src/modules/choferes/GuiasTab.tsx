@@ -6,6 +6,7 @@
    en vista previa (👁) sin salir del sistema. Al cargar, el PDF elegido se ve
    antes de guardarlo.
    ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
@@ -88,7 +89,7 @@ export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       <button type="button" className="btn btn-sm btn-ghost" style={{ padding: 0, textAlign: 'left' }} onClick={() => void ver(g)} title="Ver en vista previa">📄 {g.nombre}</button>
                       {g.tamano ? <span className="muted"> · {megas(g.tamano)}</span> : null}
                     </td>
-                    <td style={{ fontSize: '.78rem' }}>{g.subido_por_nombre || g.subido_por || '—'}<div className="muted">{fechaHora(g.created_at)}</div></td>
+                    <td style={{ fontSize: '.78rem' }}><Quien nombre={g.subido_por_nombre} correo={g.subido_por} vacio="—" /><div className="muted">{fechaHora(g.created_at)}</div></td>
                     <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => void ver(g)} title="Vista previa">👁</button>
                       {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setForm(g)} title="Corregir datos">✎</button>}

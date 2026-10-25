@@ -5,6 +5,7 @@
    impuestos, quién y cuándo pagó, y los abonos (si fue a crédito).
    Se abre en vista previa; se descarga solo al presionar Descargar.
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, montoMoneda } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, loadFirmaDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -193,7 +194,7 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
         montoMoneda(Number(a.monto), a.moneda === 'Bs' ? 'Bs' : 'USD'),
         a.saldo_restante != null ? montoMoneda(Number(a.saldo_restante), a.moneda === 'Bs' ? 'Bs' : 'USD') : '—',
         a.comision_monto ? montoMoneda(Number(a.comision_monto), a.comision_moneda === 'Bs' ? 'Bs' : 'USD') : '—',
-        pdfSafe(a.actor_name || a.actor) || '—',
+        pdfSafe(quienSync(a.actor_name, a.actor)) || '—',
         pdfSafe(a.nota) || '—',
       ]),
       foot: [[

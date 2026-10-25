@@ -2,6 +2,7 @@
    Golden Touch · Combustible · Reporte PDF de solicitud de salida.
    Se descarga / envía SOLO al hacer clic (regla del sistema).
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { SolicitudCombustible } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -46,9 +47,9 @@ async function construir(s: SolicitudCombustible) {
     ['Estado', ESTADO_LABEL[s.estado] ?? s.estado],
     ['Motivo / detalle', s.motivo || '—'],
     ['Creada', fmt.dateTime(s.created_at)],
-    ['Aprobada', s.aprobada_en ? `${fmt.dateTime(s.aprobada_en)} · ${s.aprobada_por ?? ''}`.trim() : '—'],
-    ['Finalizada', s.finalizada_en ? `${fmt.dateTime(s.finalizada_en)} · ${s.finalizada_por ?? ''}`.trim() : '—'],
-    ['Registró', s.actor_name || s.actor || '—'],
+    ['Aprobada', s.aprobada_en ? `${fmt.dateTime(s.aprobada_en)} · ${quienSync(null, s.aprobada_por)}`.trim() : '—'],
+    ['Finalizada', s.finalizada_en ? `${fmt.dateTime(s.finalizada_en)} · ${quienSync(null, s.finalizada_por)}`.trim() : '—'],
+    ['Registró', quienSync(s.actor_name, s.actor) || '—'],
   ];
   autoTable(doc, {
     startY: y, body: ficha, theme: 'plain',
