@@ -150,11 +150,17 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                     <tr key={c.id} style={{ opacity: c.activo ? 1 : .6 }}>
                       <td>
                         <strong>{nombreConductor(c)}</strong>{c.externo && <span className="badge" style={{ marginLeft: 6, fontSize: '.65rem' }} title="No está en nómina: pago externo por viaje">🧾 Externo</span>}
+                        {c.personal?.empresa && (
+                          <span className="badge" style={{ marginLeft: 6, fontSize: '.65rem', background: 'rgba(255,138,0,0.12)', color: 'var(--primary)', border: '1px solid rgba(255,138,0,0.25)' }} title={`Nómina de RRHH: ${c.personal.empresa}`}>
+                            🏢 {c.personal.empresa}
+                          </span>
+                        )}
                         {(() => {
                           const mVeh = (c.observaciones || '').match(/\[VEHICULO:\s*([^\]]+)\]/i);
                           return mVeh ? <span className="badge" style={{ marginLeft: 6, fontSize: '.68rem', background: 'rgba(255,138,0,0.15)', color: 'var(--primary)', border: '1px solid rgba(255,138,0,0.3)' }} title="Vehículo habitual asignado">🚗 {mVeh[1].trim()}</span> : null;
                         })()}
                         <div className="muted" style={{ fontSize: '.75rem' }}>{[dc.cargo, dc.telefono, c.empresa_externa].filter(Boolean).join(' · ')}</div>
+
                       </td>
                       <td className="mono" style={{ fontSize: '.8rem' }}>{dc.cedula ? formatoCI(dc.cedula) : '—'}<div className="muted">{c.externo ? 'sin ficha' : (etiquetaFicha(c.personal?.ficha_nro) || 'Ficha —')}</div></td>
                       <td>

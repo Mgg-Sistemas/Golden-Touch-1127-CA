@@ -6,9 +6,11 @@ import {
   nombreDeConductor, datosConductor,
   tasasDeConductor, codificarObservacionesConTasas, observacionesSinTagsTasas, clasificarCategoriaPorTasa, categoriaDeViaje,
   calcularSiguientePeriodoCierre,
+  esCargoDeChofer, clasificarDocRrhh, fusionarDocumentosChofer,
 } from './choferes';
 
 const HOY = '2026-10-12';
+
 
 describe('vigencia de documentos del chofer', () => {
   it('vigente, por vencer (≤ 30 días) y vencido', () => {
@@ -237,4 +239,66 @@ describe('cierre consecutivo de nómina de viajes (calcularSiguientePeriodoCierr
     expect(res.desde <= res.hasta).toBe(true);
   });
 });
+
+describe('detección de cargo de chofer y documentos de RRHH', () => {
+  it('esCargoDeChofer detecta chofer, conductor, transporte, gandolero, camionero...', () => {
+    expect(esCargoDeChofer({ cargo: 'Chofer' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'CONDUCTOR DE GANDOLA' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Chófer' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Ayudante General', departamento: 'Transporte' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Transportista' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Gandolero' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Camionero' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Operador de volqueta' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Administrador', departamento: 'Finanzas' })).toBe(false);
+    expect(esCargoDeChofer({ cargo: 'Cocinero' })).toBe(false);
+  });
+
+  it('clasificarDocRrhh clasifica licencias, certificados médicos, seguros y documentos personales', () => {
+    expect(clasificarDocRrhh({ tipo: 'otro', nombre: 'Licencia de conducir de 5ta' })).toEqual({
+      tipo: 'licencia',
+      etiqueta: 'Licencia de conducir de 5ta',
+    });
+    expect(clasificarDocRrhh({ tipo: 'otro', nombre: 'Certificado Médico Vial' })).toEqual({
+      tipo: 'certificado_medico',
+      etiqueta: 'Certificado Médico Vial',
+    });
+    expect(clasificarDocRrhh({ tipo: 'otro', nombre: 'Póliza de seguro vehicular' })).toEqual({
+      tipo: 'seguro',
+      etiqueta: 'Póliza de seguro vehicular',
+    });
+    expect(clasificarDocRrhh({ tipo: 'ci', nombre: 'cedula.pdf' })).toEqual({
+      tipo: 'otro',
+      etiqueta: 'Cédula de identidad (RRHH)',
+    });
+    expect(clasificarDocRrhh({ tipo: 'rif', nombre: 'rif.pdf' })).toEqual({
+      tipo: 'otro',
+      etiqueta: 'RIF personal (RRHH)',
+    });
+  });
+
+  it('fusionarDocumentosChofer unifica los documentos de ambas tablas y asigna chofer_id', () => {
+    const docsChofer = [
+      { id: 'ch-1', chofer_id: 'c-10', tipo: 'licencia' as const, etiqueta: 'Licencia', path: 'p1', nombre: 'lic.pdf', created_at: '2026-10-10', vigente: true },
+    ];
+    const docsPersonal = [
+      { id: 'p-1', personal_id: 'pers-1', tipo: 'otro', path: 'p2', nombre: 'Certificado médico.pdf', created_at: '2026-10-15', created_by: 'admin@gt.com' },
+      { id: 'p-2', personal_id: 'pers-99', tipo: 'ci', path: 'p3', nombre: 'ci.pdf', created_at: '2026-10-12', created_by: 'admin@gt.com' }, // no chofer
+    ];
+    const conductores = [
+      { id: 'c-10', personal_id: 'pers-1' },
+    ];
+    const fusionados = fusionarDocumentosChofer(docsChofer, docsPersonal, conductores);
+    expect(fusionados.length).toBe(2);
+    expect(fusionados[0]).toMatchObject({ id: 'ch-1', chofer_id: 'c-10', origen: 'choferes' });
+    expect(fusionados[1]).toMatchObject({
+      id: 'rrhh-p-1',
+      chofer_id: 'c-10',
+      tipo: 'certificado_medico',
+      etiqueta: 'Certificado médico.pdf',
+      origen: 'rrhh',
+    });
+  });
+});
+
 
