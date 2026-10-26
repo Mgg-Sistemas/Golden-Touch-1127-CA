@@ -2860,6 +2860,51 @@ export async function cancelarOrden(
     .select('*')
     .single();
   if (error) throw error;
+
+  // Sincronizar cancelación con Control de Maquinaria
+  try {
+    const { data: ordServs } = await supabase
+      .from('maquinaria_ordenes_servicio')
+      .select('id, equipo_id, estado_equipo_previo')
+      .eq('orden_compra_id', o.id);
+
+    if (ordServs && ordServs.length > 0) {
+      for (const os of ordServs) {
+        await supabase
+          .from('maquinaria_ordenes_servicio')
+          .update({
+            estado: 'cancelada',
+            nota_cierre: `Cancelada desde Compras (${o.codigo}): ${motivo}`,
+            cerrada_at: new Date().toISOString(),
+          })
+          .eq('id', os.id);
+
+        if (os.equipo_id) {
+          // Si el equipo estaba esperando repuestos, revisar si le quedan otras órdenes activas
+          const { data: otras } = await supabase
+            .from('maquinaria_ordenes_servicio')
+            .select('id')
+            .eq('equipo_id', os.equipo_id)
+            .in('estado', ['abierta', 'repuestos', 'en_proceso'])
+            .neq('id', os.id);
+
+          if (!otras || otras.length === 0) {
+            const estadoRestaurar = os.estado_equipo_previo || 'operativa';
+            await supabase
+              .from('maquinaria_equipos')
+              .update({
+                estado_operativo: estadoRestaurar,
+                status: estadoRestaurar === 'operativa' ? 'ACTIVO' : 'MANTENIMIENTO',
+              })
+              .eq('id', os.equipo_id);
+          }
+        }
+      }
+    }
+  } catch {
+    /* No bloquea la cancelación de la orden en compras */
+  }
+
   return data as Orden;
 }
 

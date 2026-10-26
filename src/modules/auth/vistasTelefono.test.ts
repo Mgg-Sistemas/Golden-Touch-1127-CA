@@ -27,7 +27,7 @@ describe('vistasPermitidas · pantalla dada Y lectura en su módulo', () => {
 
 describe('inicioTelefono · adónde entra un rol solo teléfono', () => {
   it('con una sola pantalla, directo a ella', () => {
-    const [surtidor] = VISTAS_TELEFONO;
+    const surtidor = VISTAS_TELEFONO.find((v) => v.key === 'surtidor')!;
     expect(inicioTelefono([surtidor])).toBe('/app/combustible/surtidor');
   });
 
