@@ -64,25 +64,41 @@ export function estadoExigeMotivo(estado: EstadoEquipo): boolean {
   return estado === 'averiada' || estado === 'parada' || estado === 'espera' || estado === 'retirada';
 }
 
-/* ───────── Clase del equipo (para el filtro Máquinas / Vehículos / Equipos) ───────── */
+/* ───────── Clase del equipo (para el filtro Maquinaria y Equipos / Vehículos / Motos / Lanchas) ───────── */
 
-export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'equipo';
+export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'moto' | 'lancha' | 'equipo';
 
 export const CLASES_EQUIPO: { id: ClaseEquipo; label: string; icon: string }[] = [
-  { id: 'maquinaria', label: 'Máquinas', icon: '🚜' },
+  { id: 'maquinaria', label: 'Maquinaria y Equipos', icon: '🚜' },
   { id: 'vehiculo', label: 'Vehículos', icon: '🚚' },
-  { id: 'equipo', label: 'Equipos', icon: '⚡' },
+  { id: 'moto', label: 'Motos', icon: '🏍️' },
+  { id: 'lancha', label: 'Lanchas', icon: '🚤' },
 ];
 
 /** Deduce la clase del grupo de mantenimiento (si lo tiene) o del tipo del equipo. */
 export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: string | null }): ClaseEquipo {
   const g = norm(e.grupo_mantenimiento);
-  if (g.includes('planta')) return 'equipo';
-  if (g.includes('vehiculo')) return 'vehiculo';
-  if (g.includes('flota')) return 'maquinaria';
   const t = norm(e.tipo);
-  if (/planta|generador|electric|compresor|bomba|soldador/.test(t)) return 'equipo';
-  if (/vehiculo|carro|camion|gandola|camioneta|pickup|\bauto|van\b|autobus|\bbus|encava|jeep|chuto|remolque|moto/.test(t)) return 'vehiculo';
+
+  // 1. Lanchas y embarcaciones
+  if (/lancha|bote|embarca|penero|penyero|yate|canoa|flotante|marino|maritimo|fuera de borda/.test(t) ||
+      /lancha|bote|embarca/.test(g)) {
+    return 'lancha';
+  }
+
+  // 2. Motos y motocicletas (excluye maquinaria pesada con prefijo moto como motoniveladora, motobomba, motosierra)
+  const esEquipoConPrefijoMoto = /motoniveladora|motobomba|motosierra/.test(t);
+  if (!esEquipoConPrefijoMoto && (/\bmoto\b|\bmotos\b|motocicleta|cuatrimoto|fourtrack|trimoto/.test(t) || /\bmoto\b|\bmotos\b|motocicleta/.test(g))) {
+    return 'moto';
+  }
+
+  // 3. Vehículos terrestres (carros, camiones, camionetas, gandolas, buses, etc.)
+  if (g.includes('vehiculo')) return 'vehiculo';
+  if (/vehiculo|carro|camion|gandola|camioneta|pickup|\bauto\b|\bautos\b|van\b|autobus|\bbus\b|encava|jeep|chuto|remolque|volteo|cisterna/.test(t)) {
+    return 'vehiculo';
+  }
+
+  // 4. Maquinaria y Equipos unificados (excavadoras, plantas eléctricas, generadores, compresores, bombas, soldadores, tractores, etc.)
   return 'maquinaria';
 }
 

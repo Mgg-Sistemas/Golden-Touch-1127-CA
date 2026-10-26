@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
-import { listActivosMaquinaria } from './maquinaria.repository';
+import { listActivosMaquinaria, addCatalogoMaquinaria } from './maquinaria.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { addEquipo, updateEquipo, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
+const TIPOS_SUGERIDOS = ['CAMIÓN', 'CAMIONETA', 'EXCAVADORA', 'RETROEXCAVADORA', 'PLANTA ELÉCTRICA', 'GENERADOR', 'MOTO', 'LANCHA'];
 
 export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   equipo: MaquinariaEquipo | null;
@@ -55,7 +56,12 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listActivosMaquinaria('tipo_maquinaria').then(setTipos).catch(() => {});
+    listActivosMaquinaria('tipo_maquinaria').then((t) => {
+      const combinados = Array.from(new Set([...t, ...TIPOS_SUGERIDOS])).sort((a, b) => a.localeCompare(b, 'es'));
+      setTipos(combinados);
+    }).catch(() => {
+      setTipos(TIPOS_SUGERIDOS);
+    });
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
     // Equipos y UBICACIONES se traen del catálogo de Combustible (fuente única).
@@ -99,6 +105,9 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     try {
       if (esNuevo) await addEquipo(f, actor);
       else await updateEquipo(equipo!.id, f);
+      if (f.tipo?.trim()) {
+        addCatalogoMaquinaria('tipo_maquinaria', f.tipo.trim().toUpperCase()).catch(() => {});
+      }
       toast(esNuevo ? 'Equipo creado' : 'Equipo actualizado', 'success');
       onSaved(); onClose();
     } catch (err) {
@@ -130,8 +139,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
             <input name="f-equipo" className="input" defaultValue={f.equipo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('equipo', e.target.value); }} placeholder="Ej. VOLVO A35F 484" required />
           </div>
           <div className="form-row">
-            <label>Tipo de maquinaria</label>
-            <SearchSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', v || null)} options={tipos.map((t) => ({ value: t, label: t }))} placeholder="— elige el tipo —" />
+            <label>Tipo (maquinaria, vehículo, moto, lancha…)</label>
+            <SearchCreateSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', upper(v) || null)} options={tipos} placeholder="Elige o escribe el tipo…" />
           </div>
         </div>
 

@@ -123,7 +123,10 @@ export function MaquinariaPage() {
     if (ignorar !== 'bucket') {
       if (bucket ? b !== bucket : b === 'retiradas') return false;
     }
-    if (clase !== 'todos' && i.clase !== clase) return false;
+    if (clase !== 'todos') {
+      const coincideClase = i.clase === clase || (clase === 'maquinaria' && (i.clase as string) === 'equipo');
+      if (!coincideClase) return false;
+    }
     if (propietario && (e.propietario ?? '') !== propietario) return false;
     if (ignorar !== 'tipo' && tipo && norm(e.tipo) !== norm(tipo)) return false;
     if (soloProximos && !(i.aviso && i.aviso.nivel !== 'ok')) return false;
