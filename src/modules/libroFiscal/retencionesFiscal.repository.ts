@@ -101,6 +101,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     valorUt: n(j.unidad_tributaria),
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
+    imprimirOriginalYCopia: bool('imprimir_original_copia', true),
   };
 }
 
@@ -121,6 +122,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     iva_retencion_especial: c.pctIvaEspecial,
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
+    imprimir_original_copia: c.imprimirOriginalYCopia !== false,
   };
 }
 

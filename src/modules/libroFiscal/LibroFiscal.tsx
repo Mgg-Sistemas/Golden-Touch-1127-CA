@@ -215,6 +215,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO),
     ]);
     setFilas(rs); setConfig(cfg); setErrorCarga(null);
+    if (cfg.imprimirOriginalYCopia !== undefined) {
+      setImprimirOriginalYCopia(cfg.imprimirOriginalYCopia !== false);
+    }
   }, [desde, hasta]);
 
   useEffect(() => {
@@ -686,17 +689,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 <span>Sello</span>
               </label>
             )}
-            <label className="lfv8-check-firma" title="Imprimir Original (Sujeto Retenido) y Copia (Agente de Retención)">
-              <input
-                type="checkbox"
-                checked={imprimirOriginalYCopia}
-                onChange={(e) => {
-                  setImprimirOriginalYCopia(e.target.checked);
-                  try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(e.target.checked)); } catch {}
-                }}
-              />
-              <span>Original y Copia</span>
-            </label>
           </div>
         )}
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
@@ -2192,6 +2184,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
     setSaving(true); setError(null);
     try {
       await guardarConfigRetencion({ ...cfg, rif: rifEmpresa.rif || cfg.rif }, locales, { conservarRegimen: r1, conservarParametros: r3 });
+      try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(cfg.imprimirOriginalYCopia !== false)); } catch {}
       toast('Parámetros fiscales guardados', 'success');
       onClose();
     } catch (e) {
@@ -2207,7 +2200,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
 
   function resumen(k: SeccionPa): string {
     switch (k) {
-      case 'empresa': return cfg.rif ? `RIF ${cfg.rif}${cfg.licenciaMunicipal ? ` · RIM ${cfg.licenciaMunicipal}` : ''}` : 'Sin configurar';
+      case 'empresa': return cfg.rif ? `RIF ${cfg.rif} · ${cfg.imprimirOriginalYCopia !== false ? 'Original y Copia' : 'Solo Original'}` : 'Sin configurar';
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
       case 'impuestos': return r2 ? 'Ficha de cada impuesto y conceptos del ISLR' : `${conceptos.length} conceptos`;
@@ -2337,6 +2330,23 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                 </div>
                 </>)}
               </div>
+
+              {/* D52: Emisión opcional de Original y Copia configurable en Parámetros */}
+              <div className="card" style={{ marginTop: '.8rem', background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                <strong style={{ display: 'block', marginBottom: '.35rem', fontSize: '.88rem' }}>📄 Emisión de Comprobantes de Retención</strong>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer', fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={cfg.imprimirOriginalYCopia !== false}
+                    onChange={(e) => set('imprimirOriginalYCopia', e.target.checked)}
+                  />
+                  <span>Imprimir Original y Copia (Página 1: Sujeto Retenido · Página 2: Agente de Retención)</span>
+                </label>
+                <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
+                  Cumplimiento de Providencias SENIAT (SNAT/2015/0049 IVA y Art. 24 D. 1808 ISLR). Si se desactiva, el comprobante se emitirá en una sola página (Solo Original).
+                </p>
+              </div>
+
               {r3 && <p className="hint muted" style={{ fontSize: '.82rem' }}>Las alícuotas del ISAE y del timbre estadal están en Ajustes avanzados › Valores con vigencia.</p>}
               <p className="hint muted" style={{ fontSize: '.82rem' }}>El régimen fiscal (agente de retención de IVA, contribuyente especial) está en Ajustes avanzados › Régimen fiscal de la empresa.</p>
             </fieldset>
