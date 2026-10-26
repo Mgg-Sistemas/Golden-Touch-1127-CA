@@ -198,40 +198,36 @@ export function AcopioPage() {
       {/* Gastos de Tesorería (Peramanal) pendientes de aceptar en los movimientos */}
       {canWrite && <GastosPorAceptar gastos={gastosPorAceptar} onReload={reload} />}
 
-      {/* Tarjeta protagonista: TASA ACTUAL DEL MATERIAL (varía con los gastos) */}
-      {/* Tarjetas = la cabecera del Excel «CAJA PERAMANAL» (fila 3), columna por columna y en
-          el mismo orden, para cotejar a la vista: D entregado · E kg · F precio · G facturado ·
-          H gastos · I nóminas · J traslado · K inversión · L saldo $ · M kg recibidos · N saldo kg. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '.75rem', marginBottom: '1.25rem' }}>
-        <div className="card" style={{ borderColor: 'var(--success)', cursor: 'pointer' }}
-          onClick={() => navigate('/app/tesoreria?ver=creditos')}
-          title="Ver la deuda a MGG en Cuentas por pagar (créditos)">
-          <div className="card-title"><span>💵 $ Usd entregado</span></div>
-          <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(resumen.usdEntregado)}</div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>columna D · se debe a MGG → clic para ver en Tesorería</div>
-        </div>
-        <div className="card"><div className="card-title"><span>Kg cerrados</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--primary-3)' }} className="mono">{num(resumen.kgCerrados)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>columna E · kg limpios de los contratos cerrados</div></div>
+      {/* Tarjetas del centro (como en MGG): tasa del material, USD entregados, facturados, saldo de
+          caja, saldo en Kg, gastos (con la nómina) y traspaso de caja. El resto de columnas del Excel
+          (Kg cerrados, inversión, Kg recibidos…) sigue en la tabla de movimientos y en el cierre. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="card" style={{ borderColor: 'var(--primary)', background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
-          <div className="card-title"><span>💲 Precio $ Usd por Kg</span></div>
+          <div className="card-title"><span>💲 Tasa actual del material</span></div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(resumen.tasa)}<span style={{ fontSize: '.85rem', fontWeight: 500 }}> /Kg</span></div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(resumen.tasa)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
             {tasaTrend && (
-              <span style={{ fontWeight: 800, fontSize: '.85rem', color: tasaTrend === 'up' ? 'var(--success)' : 'var(--danger)' }}
+              <span style={{ fontWeight: 800, fontSize: '.9rem', color: tasaTrend === 'up' ? 'var(--success)' : 'var(--danger)' }}
                 title={tasaTrend === 'up' ? 'La tasa subió respecto al valor anterior' : 'La tasa bajó respecto al valor anterior'}>
                 {tasaTrend === 'up' ? '▲ SUBIÓ' : '▼ BAJÓ'}
               </span>
             )}
           </div>
-          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>columna F · (Facturado + Gastos + Nóminas) ÷ Kg cerrados · la inversión no entra</div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nómina) ÷ Kg cerrados</div>
         </div>
-        <div className="card"><div className="card-title"><span>$ Usd facturados</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700 }} className="mono">{money(resumen.facturado)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna G · casiterita comprada a mineros (kg × tasa del contrato)</div></div>
-        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna H · solo gastos (sin facturado, nómina ni inversión)</div></div>
-        <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna I</div></div>
-        <div className="card"><div className="card-title"><span>Traslado de caja</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700 }} className="mono">{money(resumen.traslado)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna J</div></div>
-        <div className="card"><div className="card-title"><span>Inversión</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--warning, #f59e0b)' }} className="mono">{money(resumen.inversion)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna K · sale del saldo, no suma a la tasa</div></div>
-        <div className="card" style={{ borderColor: resumen.saldoUsd < 0 ? 'var(--danger)' : 'var(--info, #22d3ee)' }}><div className="card-title"><span>Saldo actual de caja</span></div><div style={{ fontSize: '1.35rem', fontWeight: 800, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna L · entregado − facturado − gastos − nóminas − traslado − inversión</div></div>
-        <div className="card"><div className="card-title"><span>Kg recibidos por MGG</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700 }} className="mono">{num(resumen.kgRecibidos)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>columna M</div></div>
-        <div className="card"><div className="card-title"><span>Saldo en Kg de casiterita</span></div><div style={{ fontSize: '1.35rem', fontWeight: 800, color: resumen.saldoKg < 0 ? 'var(--danger)' : 'var(--primary-3)' }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>columna N · saldo anterior + kg cerrados − kg recibidos</div></div>
+        <div className="card" style={{ borderColor: 'var(--success)', cursor: 'pointer' }}
+          onClick={() => navigate('/app/tesoreria?ver=creditos')}
+          title="Ver la deuda a MGG en Cuentas por pagar (créditos)">
+          <div className="card-title"><span>💵 USD entregados</span></div>
+          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(resumen.usdEntregado)}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>suma de lo que entra (incluye el dinero recibido del otro sistema)</div>
+        </div>
+        <div className="card"><div className="card-title"><span>$USD facturados</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-3)' }} className="mono">{money(resumen.facturado)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de toda la columna $Usd Facturados</div></div>
+        <div className="card" style={{ borderColor: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }}><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
+        <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
+        {/* Gastos = gastos + nómina (tarjeta unificada). */}
+        <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money((Number(resumen.gastos) || 0) + (Number(resumen.nominas) || 0))}</div><div className="muted" style={{ fontSize: '.72rem' }}>incluye la nómina</div></div>
+        <div className="card"><div className="card-title"><span>Traspaso de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-3)' }} className="mono">{money(Number(resumen.traslado) || 0)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de la columna Traspaso de Caja</div></div>
       </div>
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí).
           Se muestra solo con el switch «Listar movimientos»; aun oculta, alimenta las tarjetas. */}
