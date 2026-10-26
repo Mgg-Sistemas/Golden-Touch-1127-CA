@@ -70,15 +70,17 @@ export function crearRepoAdjuntos(bucket: string, tabla: string): RepoAdjuntos {
   }
 
   /** Sube UN archivo y lo registra. Comprueba tipo, peso y cupo antes de tocar el almacén. */
-  async function agregar(modulo: ModuloAdjuntoSalida, refId: string, original: File, actor?: string | null): Promise<AdjuntoSalida> {
+  async function agregar(modulo: ModuloAdjuntoSalida, refId: string, original: File, actor?: string | null, verificarCupo = true): Promise<AdjuntoSalida> {
     // Una foto de celular pesa 3–8 MB y con la señal de la mina tardaba un minuto:
     // se achica a 1600 px en JPEG (≈300 KB) antes de subir. Si no se puede, va la original.
     const file = await comprimirImagen(original);
     const malo = errorArchivoAdjunto(file);
     if (malo) throw new Error(malo);
-    const actuales = await list(modulo, refId);
-    const sinCupo = errorCupo(actuales.length, 1);
-    if (sinCupo) throw new Error(sinCupo);
+    if (verificarCupo) {
+      const actuales = await list(modulo, refId);
+      const sinCupo = errorCupo(actuales.length, 1);
+      if (sinCupo) throw new Error(sinCupo);
+    }
 
     // Prefijo único por archivo: dos fotos con el mismo nombre no se pisan.
     const path = `${refId}/${Date.now().toString(36)}-${nombreSeguroAdjunto(file.name)}`;
@@ -100,7 +102,12 @@ export function crearRepoAdjuntos(bucket: string, tabla: string): RepoAdjuntos {
 
   /** Sube varios A LA VEZ (no de a uno) y con tope de tiempo; no corta en el primer error. */
   async function subir(modulo: ModuloAdjuntoSalida, refId: string, files: File[], actor?: string | null) {
-    const resultados = await Promise.allSettled(files.map((f) => conTope(agregar(modulo, refId, f, actor), TOPE_SUBIDA_MS, f.name)));
+    if (!files.length) return { subidos: 0, fallos: [] };
+    const actuales = await list(modulo, refId).catch(() => [] as AdjuntoSalida[]);
+    const sinCupo = errorCupo(actuales.length, files.length);
+    if (sinCupo) return { subidos: 0, fallos: [sinCupo] };
+
+    const resultados = await Promise.allSettled(files.map((f) => conTope(agregar(modulo, refId, f, actor, false), TOPE_SUBIDA_MS, f.name)));
     let subidos = 0;
     const fallos: string[] = [];
     resultados.forEach((r, i) => {

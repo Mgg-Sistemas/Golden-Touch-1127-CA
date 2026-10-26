@@ -5,6 +5,7 @@ import {
   textoAveriaEstadoWhatsapp,
   textoCompraRepuestosWhatsapp,
   textoFichaFiltrosWhatsapp,
+  textoEstadoEquipoWhatsapp,
 } from './maquinariaWhatsapp';
 
 describe('maquinariaWhatsapp', () => {
@@ -134,6 +135,28 @@ describe('maquinariaWhatsapp', () => {
     expect(txt).toContain('CAT C6.4');
     expect(txt).toContain('Filtro de aceite:* OEM: 1R-0716 (Marcas: DONALDSON P553771 · FLEETGUARD LF3413) [15W-40]');
     expect(txt).toContain('Filtro de combustible:* OEM: 1R-0751 (Marcas: FLEETGUARD FF5320)');
+    expect(txt).not.toContain('\uFE0F');
+  });
+
+  it('textoEstadoEquipoWhatsapp arma reporte de estado y horas de mantenimiento', () => {
+    const txt = textoEstadoEquipoWhatsapp({
+      equipo: 'CAMIÓN DE SERVICIO FK617',
+      tipo: 'CAMIÓN',
+      marca: 'MITSUBISHI',
+      modelo: 'FK617',
+      estado: 'operativa',
+      encargado: 'Juan Pérez',
+      horometro: 1250,
+      horasFaltantes: 45,
+      nivelAviso: 'ok',
+      unidadAviso: 'h',
+    });
+
+    expect(txt).toContain('ESTADO DE MÁQUINA / VEHÍCULO');
+    expect(txt).toContain('CAMIÓN DE SERVICIO FK617');
+    expect(txt).toContain('Juan Pérez');
+    expect(txt).toContain('1.250 h');
+    expect(txt).toContain('Faltan para mantenimiento:* 45 h');
     expect(txt).not.toContain('\uFE0F');
   });
 });

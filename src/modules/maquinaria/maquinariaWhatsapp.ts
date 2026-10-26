@@ -259,3 +259,49 @@ export function textoFichaFiltrosWhatsapp(d: DatosFichaFiltrosWhatsapp): string 
   lineas.push(sinSelector(`_Enviado desde el Sistema Golden Touch_`));
   return lineas.join('\n');
 }
+
+/* ── 6. Reporte de Estado y Mantenimiento de Máquina / Vehículo ── */
+
+export interface DatosEstadoEquipoWhatsapp {
+  equipo: string;
+  tipo?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  estado: string;
+  encargado?: string | null;
+  horometro?: number | null;
+  kilometraje?: number | null;
+  horasFaltantes?: number | null;
+  nivelAviso?: 'ok' | 'proximo' | 'vencido' | string | null;
+  unidadAviso?: 'h' | 'km' | null;
+}
+
+export function textoEstadoEquipoWhatsapp(d: DatosEstadoEquipoWhatsapp): string {
+  const lineas: string[] = [
+    sinSelector(`🚜 *GOLDEN TOUCH 1127 CA*`),
+    sinSelector(`📋 *ESTADO DE MÁQUINA / VEHÍCULO*`),
+    `*Equipo:* *${d.equipo}*`,
+    [d.tipo, d.marca, d.modelo].filter(Boolean).join(' · '),
+    d.encargado ? `*Encargado responsable:* 👤 ${d.encargado}` : '',
+    `*Condición actual:* ${d.estado.toUpperCase()}`,
+    '',
+    sinSelector(`⏱️ *LECTURAS Y HORAS DE SERVICIO:*`),
+  ].filter(Boolean);
+
+  if (d.horometro != null) lineas.push(` • Horómetro: *${fmtNum(d.horometro)} h*`);
+  if (d.kilometraje != null) lineas.push(` • Kilometraje: *${fmtNum(d.kilometraje)} km*`);
+
+  if (d.nivelAviso === 'vencido' && d.horasFaltantes != null) {
+    lineas.push(` • ⛔ *Mantenimiento VENCIDO por:* ${fmtNum(Math.abs(d.horasFaltantes))} ${d.unidadAviso || 'h'}`);
+  } else if (d.nivelAviso === 'proximo' && d.horasFaltantes != null) {
+    lineas.push(` • ⚠️ *Próximo mantenimiento en:* ${fmtNum(d.horasFaltantes)} ${d.unidadAviso || 'h'}`);
+  } else if (d.horasFaltantes != null) {
+    lineas.push(` • 🟢 *Faltan para mantenimiento:* ${fmtNum(d.horasFaltantes)} ${d.unidadAviso || 'h'}`);
+  } else {
+    lineas.push(` • _Sin intervalo de mantenimiento asignado_`);
+  }
+
+  lineas.push('');
+  lineas.push(sinSelector(`_Generado desde la vista móvil de Golden Touch_`));
+  return lineas.join('\n');
+}

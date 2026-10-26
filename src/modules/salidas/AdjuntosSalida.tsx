@@ -23,6 +23,7 @@ import {
   type ModuloAdjuntoSalida, type ReglaAdjuntos,
 } from './adjuntosSalidaReglas';
 import { adjuntosSalidasRepo, type AdjuntoSalida, type RepoAdjuntos } from './adjuntosSalida.repository';
+import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 
 const ACEPTA = 'application/pdf,image/*';
 
@@ -82,12 +83,22 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
       : errorCupo(lista.length, archivos.length);
     if (sinCupo) { toast(sinCupo, 'error'); if (inputRef.current) inputRef.current.value = ''; return; }
     setSubiendo(true);
-    const { subidos, fallos } = await repo.subir(modulo, refId, archivos, actor);
-    if (subidos) toast(subidos > 1 ? `${subidos} archivos cargados` : 'Archivo cargado', 'success');
-    for (const f of fallos) toast(f, 'error');
-    if (inputRef.current) inputRef.current.value = '';
-    await reload();
-    setSubiendo(false);
+    try {
+      // Optimización anticipada antes de subir
+      const optimizados = await Promise.all(archivos.map(async (f) => {
+        if (esImagenAdjunto(f.type, f.name)) {
+          return await comprimirImagen(f, { maximo: 1400, calidad: 0.78 }).catch(() => f);
+        }
+        return f;
+      }));
+      const { subidos, fallos } = await repo.subir(modulo, refId, optimizados, actor);
+      if (subidos) toast(subidos > 1 ? `${subidos} archivos cargados` : 'Archivo cargado', 'success');
+      for (const f of fallos) toast(f, 'error');
+    } finally {
+      if (inputRef.current) inputRef.current.value = '';
+      await reload();
+      setSubiendo(false);
+    }
   }
 
   async function confirmarBorrar() {
@@ -108,7 +119,7 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
         {!soloLectura && (
           <>
             <input ref={inputRef} type="file" accept={ACEPTA} multiple style={{ display: 'none' }}
-              onChange={(e) => onPick(Array.from(e.target.files ?? []))} />
+              onChange={(e) => void onPick(Array.from(e.target.files ?? []))} />
             <button type="button" className={grande ? 'btn btn-primary btn-grande' : 'btn btn-sm btn-primary'} disabled={subiendo || libres === 0}
               title={libres === 0 ? 'Está completo: borra uno para subir otro' : `Puedes subir ${libres} más`}
               onClick={() => inputRef.current?.click()}>
@@ -132,7 +143,7 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
               <button key={a.id} type="button" onClick={() => abrir(a)} title={`Ver «${a.nombre}» en grande`}
                 style={{ padding: 0, aspectRatio: '1 / 1', overflow: 'hidden', cursor: 'zoom-in', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)' }}>
                 {urls.get(a.path)
-                  ? <img src={urls.get(a.path)} alt={a.nombre} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  ? <img src={urls.get(a.path)} alt={a.nombre} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                   : <span className="muted" style={{ fontSize: '.72rem' }}>Cargando…</span>}
               </button>
             ))}
@@ -167,8 +178,8 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
 }
 
 /**
- * Selector para el ALTA: junta hasta 4 archivos en memoria. El formulario los
- * sube al crear la solicitud (`subirAdjuntosSalida`).
+ * Selector para el ALTA: junta hasta 4 archivos en memoria.
+ * Optimiza las fotos de inmediato en el cliente para que al presionar guardar la subida sea instantánea.
  */
 export function SelectorAdjuntos({ archivos, onChange, titulo = '📎 Fotos y documentos', grande = false, regla }: {
   archivos: File[]; onChange: (files: File[]) => void; titulo?: string;
@@ -178,19 +189,49 @@ export function SelectorAdjuntos({ archivos, onChange, titulo = '📎 Fotos y do
   regla?: ReglaAdjuntos;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [optimizando, setOptimizando] = useState(false);
   const comoRegla = (fs: File[]) => fs.map((f) => ({ tipo: f.type, nombre: f.name }));
 
-  function elegir(nuevos: File[]) {
+  // URLs de previsualización para mostrar miniaturas inmediatas
+  const [previas, setPrevias] = useState<Map<number, string>>(new Map());
+  useEffect(() => {
+    const mapa = new Map<number, string>();
+    archivos.forEach((f, i) => {
+      if (esImagenAdjunto(f.type, f.name)) {
+        mapa.set(i, URL.createObjectURL(f));
+      }
+    });
+    setPrevias(mapa);
+    return () => {
+      mapa.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [archivos]);
+
+  async function elegir(nuevos: File[]) {
     if (!nuevos.length) return;
     const sinCupo = regla ? regla.error(comoRegla(archivos), comoRegla(nuevos)) : errorCupo(archivos.length, nuevos.length);
     if (sinCupo) { toast(sinCupo, 'error'); if (inputRef.current) inputRef.current.value = ''; return; }
-    const buenos: File[] = [];
-    for (const f of nuevos) {
-      const malo = errorArchivoAdjunto(f);
-      if (malo) toast(malo, 'error'); else buenos.push(f);
+
+    setOptimizando(true);
+    try {
+      // Optimización anticipada inmediata: comprime en milisegundos en memoria antes de guardar.
+      const optimizados = await Promise.all(nuevos.map(async (f) => {
+        if (esImagenAdjunto(f.type, f.name)) {
+          return await comprimirImagen(f, { maximo: 1400, calidad: 0.78 }).catch(() => f);
+        }
+        return f;
+      }));
+
+      const buenos: File[] = [];
+      for (const f of optimizados) {
+        const malo = errorArchivoAdjunto(f);
+        if (malo) toast(malo, 'error'); else buenos.push(f);
+      }
+      if (buenos.length) onChange([...archivos, ...buenos]);
+    } finally {
+      setOptimizando(false);
+      if (inputRef.current) inputRef.current.value = '';
     }
-    if (buenos.length) onChange([...archivos, ...buenos]);
-    if (inputRef.current) inputRef.current.value = '';
   }
 
   const libres = regla ? regla.libres(comoRegla(archivos)) : cuposLibres(archivos.length);
@@ -203,31 +244,58 @@ export function SelectorAdjuntos({ archivos, onChange, titulo = '📎 Fotos y do
           {titulo} <span className="badge">{archivos.length} de {max}</span>
         </strong>
         <input ref={inputRef} type="file" accept={ACEPTA} multiple style={{ display: 'none' }}
-          onChange={(e) => elegir(Array.from(e.target.files ?? []))} />
-        <button type="button" className={grande ? 'btn btn-primary btn-grande' : 'btn btn-sm btn-ghost'} disabled={libres === 0}
+          onChange={(e) => void elegir(Array.from(e.target.files ?? []))} />
+        <button type="button" className={grande ? 'btn btn-primary btn-grande' : 'btn btn-sm btn-ghost'} disabled={libres === 0 || optimizando}
           title={libres === 0 ? 'Está completo' : `Puedes elegir ${libres} más`}
           onClick={() => inputRef.current?.click()}>
-          {grande ? '📷 Tomar foto o elegir archivo' : '＋ Agregar foto o PDF'}
+          {optimizando ? '⏳ Optimizando…' : grande ? '📷 Tomar foto o elegir archivo' : '＋ Agregar foto o PDF'}
         </button>
       </div>
+
+      {optimizando && (
+        <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.4rem' }}>
+          ⏳ Preparando y optimizando imagen…
+        </div>
+      )}
+
       {!archivos.length ? (
         <div className="muted" style={{ fontSize: '.8rem' }}>
-          {regla ? `Opcional. ${regla.ayuda} Hasta 10 MB cada uno. Se suben al guardar.` : `Opcional. Hasta ${MAX_ADJUNTOS_SALIDA} archivos (imagen o PDF, hasta 10 MB cada uno). Se suben al guardar.`}
+          {regla ? `Opcional. ${regla.ayuda} Se optimizan y suben al guardar.` : `Opcional. Hasta ${MAX_ADJUNTOS_SALIDA} fotos o documentos. Se optimizan automáticamente.`}
         </div>
       ) : (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-          {archivos.map((f, i) => (
-            <li key={`${f.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', justifyContent: 'space-between' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', minWidth: 0 }}>
-                <Icono contentType={f.type} nombre={f.name} />
-                <span style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.name}>{f.name}</span>
-                <small className="muted">{enMegas(f.size)}</small>
-              </span>
-              <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
-                onClick={() => onChange(archivos.filter((_, j) => j !== i))} title="Quitar">🗑</button>
-            </li>
-          ))}
-        </ul>
+        <>
+          {previas.size > 0 && (
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', margin: '.2rem 0 .5rem' }}>
+              {archivos.map((f, i) => {
+                const url = previas.get(i);
+                if (!url) return null;
+                return (
+                  <div key={`${f.name}-${i}`} style={{ position: 'relative', width: 68, height: 68, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                    <img src={url} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <button type="button" onClick={() => onChange(archivos.filter((_, j) => j !== i))}
+                      aria-label="Quitar foto"
+                      style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.65)', color: '#fff', border: 'none', borderRadius: '50%', width: 20, height: 20, fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {archivos.map((f, i) => (
+              <li key={`${f.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', minWidth: 0 }}>
+                  <Icono contentType={f.type} nombre={f.name} />
+                  <span style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.name}>{f.name}</span>
+                  <small className="muted">{enMegas(f.size)}</small>
+                </span>
+                <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+                  onClick={() => onChange(archivos.filter((_, j) => j !== i))} title="Quitar">🗑</button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

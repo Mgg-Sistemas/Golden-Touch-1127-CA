@@ -70,14 +70,14 @@ const seguro = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace
 export async function subirFotosSalidaMina(s: SalidaMina, archivos: File[]): Promise<SalidaMina> {
   const mal = errorFotosSalidaMina(archivos, s.fotos.length);
   if (mal) throw new Error(mal);
-  const nuevas: FotoSalidaMina[] = [];
-  for (const original of archivos.slice(0, MAX_FOTOS_SALIDA_MINA - s.fotos.length)) {
-    const f = await comprimirImagen(original).catch(() => original);
+  const candidatos = archivos.slice(0, MAX_FOTOS_SALIDA_MINA - s.fotos.length);
+  const nuevas = await Promise.all(candidatos.map(async (original) => {
+    const f = await comprimirImagen(original, { maximo: 1400, calidad: 0.78 }).catch(() => original);
     const path = `${s.id}/foto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${seguro(f.name)}`;
     const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert: false, contentType: f.type || 'image/jpeg' });
     if (error) throw new Error(`No se pudo subir «${original.name}»: ${error.message}`);
-    nuevas.push({ path, filename: original.name });
-  }
+    return { path, filename: original.name };
+  }));
   const fotos = [...s.fotos, ...nuevas].slice(0, MAX_FOTOS_SALIDA_MINA);
   const { data, error } = await supabase.from(TABLE).update({ fotos }).eq('id', s.id).select('*').single();
   if (error) throw err(error, 'No se pudieron anotar las fotos.');
