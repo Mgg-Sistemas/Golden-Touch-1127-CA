@@ -480,6 +480,39 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // Desde «Facturas registradas»: se abre ya sobre esa factura.
   useEffect(() => { if (s.documento) aplicarDocumento(s.documento); }, [s.documento]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const desglosarIvaIncluido = () => {
+    const tot = nDec(facturaTotal);
+    if (tot <= 0) {
+      toast('Escribe primero el monto total de la factura para calcular el desglose.', 'warning');
+      return;
+    }
+    marcarSucio();
+    const base = Math.round((tot / 1.16) * 100) / 100;
+    const iva = Math.round((tot - base) * 100) / 100;
+    setLineas((xs) => {
+      const tieneIva = xs.some((l) => l.tipo === 'iva');
+      const actualizadas = xs.map((l) => {
+        if (l.tipo === 'iva') {
+          return { ...l, baseStr: numeroATexto(base), ivaStr: numeroATexto(iva) };
+        }
+        return { ...l, baseStr: numeroATexto(base) };
+      });
+      if (!tieneIva) {
+        return [
+          nuevaLinea({
+            tipo: 'iva',
+            sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada',
+            baseStr: numeroATexto(base),
+            ivaStr: numeroATexto(iva),
+          }),
+          ...actualizadas,
+        ];
+      }
+      return actualizadas;
+    });
+    toast(`Desglose aplicado: Base ${numeroATexto(base)} + IVA ${numeroATexto(iva)} = ${numeroATexto(tot)}`, 'info');
+  };
+
   async function emitir() {
     const falla = validar();
     if (falla) { setError(falla); return; }
@@ -778,8 +811,21 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
       {/* Las líneas de impuesto */}
       <div className="card" style={{ marginTop: '.4rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
-          <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
+            {direccion === 'practicada' && nDec(facturaTotal) > 0 && !documento && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize: '.75rem', padding: '2px 8px', border: '1px dashed var(--primary)', color: 'var(--primary)' }}
+                title="Aplica la regla de precio con IVA incluido: Base = Total ÷ 1,16 e IVA = 16% sobre la base"
+                onClick={desglosarIvaIncluido}
+              >
+                ⚡ Desglosar IVA incluido (÷1,16)
+              </button>
+            )}
+          </div>
           {(() => {
             const tiposUsados = new Set(lineas.map((l) => l.tipo));
             const tiposDisponibles = TIPOS_IMPUESTO.filter((t) => !tiposUsados.has(t.key));

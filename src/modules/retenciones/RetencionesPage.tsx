@@ -14,6 +14,7 @@ import {
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
+import { badgeEstatusKanban, badgeImpuestoOrden } from './retencionesKanban';
 import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { listRetenciones, tipoAGt } from '@/modules/libroFiscal/retencionesFiscal.repository';
@@ -316,10 +317,23 @@ export function RetencionesPage() {
               {!loading && !filas.length && (
                 <tr><td colSpan={9}><EmptyState icon="🧾" message="Sin retenciones en el historial con esos filtros" /></td></tr>
               )}
-              {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => (
-                <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
-                  <td className="mono">{o.oc_codigo ?? '—'}</td>
-                  <td className="mono">{o.codigo}</td>
+              {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => {
+                const kanban = badgeEstatusKanban(o.estado);
+                const impOc = badgeImpuestoOrden(o);
+                return (
+                  <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
+                    <td className="mono">
+                      <div>{o.oc_codigo ?? '—'}</div>
+                      <div style={{ display: 'flex', gap: '.25rem', marginTop: '2px', flexWrap: 'wrap' }}>
+                        <span className={kanban.className} title={kanban.tooltip} style={{ fontSize: '.65rem', padding: '1px 4px' }}>
+                          {kanban.label}
+                        </span>
+                        <span className={impOc.className} title={impOc.tooltip} style={{ fontSize: '.65rem', padding: '1px 4px' }}>
+                          {impOc.label}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="mono">{o.codigo}</td>
                   <td>{proveedorNombre}</td>
                   <td>{labelCondicionPago(o.condiciones_pago)}</td>
                   <td>{labelRetencionModo(o.retencion_modo)}</td>
@@ -330,7 +344,8 @@ export function RetencionesPage() {
                     <button className="btn btn-sm btn-primary" onClick={() => setSel({ orden: o, proveedorNombre })}>Ver</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -707,11 +722,21 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
             : (practica ? IMPUESTOS_PENDIENTES.filter((t) => practica.has(t.key)) : IMPUESTOS_PENDIENTES);
           const total = aplicablesDeOrden.length;
           const regs = Math.max(0, total - pends.length);
+          const kanban = badgeEstatusKanban(o.estado);
+          const impOc = badgeImpuestoOrden(o);
           return (
             <div key={o.id} className="lfv8-sis-fila">
               <span data-l="Compra">
                 <span className="mono">{o.oc_codigo ?? o.codigo}</span>
-                <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
+                  <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
+                  <span className={kanban.className} title={kanban.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
+                    {kanban.label}
+                  </span>
+                  <span className={impOc.className} title={impOc.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
+                    {impOc.label}
+                  </span>
+                </div>
               </span>
               <span data-l="Proveedor">
                 {proveedorNombre}
@@ -722,6 +747,15 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
               </span>
               <span className="n" data-l="Total">
                 {montoMoneda(o.total, o.total_moneda)}
+                {impOc.tieneImpuesto ? (
+                  <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: '.72rem' }}>
+                    IVA: {montoMoneda(Number(o.iva_monto), o.total_moneda)}
+                  </small>
+                ) : (
+                  <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: '.72rem' }}>
+                    Sin IVA en OC
+                  </small>
+                )}
                 {(() => {
                   const eq = equivalente(o, tasasDoc.get(o.id));
                   if (!eq) return <small className="muted" style={{ display: 'block' }}>sin tasa BCV del día</small>;
