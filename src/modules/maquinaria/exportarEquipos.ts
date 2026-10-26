@@ -14,7 +14,7 @@ import { extraerEncargado } from './maquinariaEquipos.repository';
 import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { fotosDeEquipos } from './flota.repository';
-import { ESTADOS_EQUIPO, estadoEfectivo, claseEquipo } from './flota';
+import { ESTADOS_EQUIPO, estadoEfectivo } from './flota';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 
 export interface ContextoEquipoExportar {
@@ -466,7 +466,6 @@ export async function descargarEquiposPdfPersonalizado(
         const specX1 = imgBoxX + imgBoxW + 10;
         const specW1 = (UW - imgBoxW - 24) * 0.52;
         const specX2 = specX1 + specW1 + 8;
-        const specW2 = (UW - imgBoxW - 24) * 0.48;
 
         const ctx = contextoMap?.get(eq.id);
         const horo = ctx?.horometro != null ? `${fmtNum(ctx.horometro)} h` : null;

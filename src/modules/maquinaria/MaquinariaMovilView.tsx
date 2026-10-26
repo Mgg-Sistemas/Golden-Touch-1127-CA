@@ -1647,8 +1647,8 @@ export function MaquinariaMovilView() {
           {(() => {
             const inf = infoEquipos.get(equipoOpciones.id);
             const av = inf?.aviso;
-            const horo = inf?.horometro;
-            const km = inf?.kilometraje;
+            const horo = inf?.horometro ?? null;
+            const km = inf?.kilometraje ?? null;
             const enc = inf?.encargado;
 
             return (
