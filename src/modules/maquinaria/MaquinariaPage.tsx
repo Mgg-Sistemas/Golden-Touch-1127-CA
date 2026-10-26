@@ -12,10 +12,11 @@ import { toast } from '@/shared/ui/Toast';
 import { MaquinariaCatalogoModal } from './MaquinariaCatalogoModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
+import { ExportarEquiposModal } from './ExportarEquiposModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
-import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
+import { enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
   BUCKETS_FLOTA, CLASES_EQUIPO, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo,
   type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo,
@@ -67,6 +68,7 @@ export function MaquinariaPage() {
 
   const [catalogoOpen, setCatalogoOpen] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
+  const [exportarOpen, setExportarOpen] = useState<'pdf' | 'xlsx' | null>(null);
   const [correoOpen, setCorreoOpen] = useState(false);
   const [nuevo, setNuevo] = useState(false);
   const [nuevaOrdenEq, setNuevaOrdenEq] = useState<MaquinariaEquipo | null>(null);
@@ -188,6 +190,14 @@ export function MaquinariaPage() {
     return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'));
   }, [lista]);
 
+  const etiquetaBotonNuevo = useMemo(() => {
+    if (clase === 'moto') return '+ Nueva moto';
+    if (clase === 'lancha') return '+ Nueva lancha';
+    if (clase === 'vehiculo') return '+ Nuevo vehículo';
+    if (clase === 'maquinaria') return '+ Nueva maquinaria';
+    return '+ Nuevo equipo';
+  }, [clase]);
+
   return (
     <div className="flo">
       <FlotaNav />
@@ -197,11 +207,11 @@ export function MaquinariaPage() {
           <p className="flo-sub">{disponibles} equipo(s) en la flota disponible · toca un equipo para abrir su expediente</p>
         </div>
         <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {canWrite && <button className="btn btn-primary" onClick={() => setNuevo(true)}>+ Nuevo equipo</button>}
+          {canWrite && <button className="btn btn-primary" onClick={() => setNuevo(true)}>{etiquetaBotonNuevo}</button>}
           <button className="btn btn-ghost" onClick={() => setResumenOpen(true)}>📊 Resumen</button>
           <button className="btn btn-ghost" onClick={() => setCatalogoOpen(true)}>🏷 Catálogo</button>
-          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposPdf(lista)}>↓ PDF</button>
-          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposExcel(lista)}>↓ Excel</button>
+          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => setExportarOpen('pdf')}>↓ PDF</button>
+          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => setExportarOpen('xlsx')}>↓ Excel</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
         </div>
       </div>
@@ -349,7 +359,39 @@ export function MaquinariaPage() {
 
       {catalogoOpen && <MaquinariaCatalogoModal canWrite={canWrite} onClose={() => setCatalogoOpen(false)} />}
       {resumenOpen && <ResumenMaquinariaModal equipos={equipos.filter((e) => e.activo)} onClose={() => setResumenOpen(false)} />}
-      {nuevo && <EquipoFormModal equipo={null} actor={actor} onClose={() => setNuevo(false)} onSaved={cargar} />}
+      {nuevo && (
+        <EquipoFormModal
+          equipo={null}
+          actor={actor}
+          claseInicial={clase !== 'todos' ? clase : null}
+          tipoInicial={tipo || (clase === 'lancha' ? 'LANCHA' : clase === 'moto' ? 'MOTO' : clase === 'vehiculo' ? 'VEHÍCULO' : null)}
+          onClose={() => setNuevo(false)}
+          onSaved={cargar}
+        />
+      )}
+      {exportarOpen && (
+        <ExportarEquiposModal
+          equipos={lista}
+          total={disponibles}
+          contextoMap={new Map(
+            lista.map((e) => {
+              const inf = info.get(e.id);
+              return [
+                e.id,
+                {
+                  estado: inf?.estado,
+                  horometro: inf?.horometro ?? null,
+                  avisoServicio: inf?.aviso
+                    ? `${inf.aviso.nivel === 'vencido' ? '⛔ Vencido' : inf.aviso.nivel === 'proximo' ? '⚠️ Próximo' : '🟢 Al día'} (${fmtNum(Math.abs(inf.aviso.restante))} ${inf.aviso.unidad})`
+                    : null,
+                },
+              ];
+            })
+          )}
+          formatoInicial={exportarOpen}
+          onClose={() => setExportarOpen(null)}
+        />
+      )}
       {nuevaOrdenEq && (
         <AccionConEquipo accion="orden" equipos={equipos} equipoInicial={nuevaOrdenEq.id} onClose={() => setNuevaOrdenEq(null)} onDone={() => void cargar()} />
       )}

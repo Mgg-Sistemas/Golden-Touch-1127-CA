@@ -5,20 +5,48 @@ import { toast } from '@/shared/ui/Toast';
 import { listActivosMaquinaria, addCatalogoMaquinaria } from './maquinaria.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { addEquipo, updateEquipo, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
+import { CLASES_EQUIPO, claseEquipo, type ClaseEquipo } from './flota';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
-const TIPOS_SUGERIDOS = ['CAMIÓN', 'CAMIONETA', 'EXCAVADORA', 'RETROEXCAVADORA', 'PLANTA ELÉCTRICA', 'GENERADOR', 'MOTO', 'LANCHA'];
+const TIPOS_SUGERIDOS = ['CAMIÓN', 'CAMIONETA', 'EXCAVADORA', 'RETROEXCAVADORA', 'PLANTA ELÉCTRICA', 'GENERADOR', 'MOTO', 'LANCHA', 'BOTE'];
 
-export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
+export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, claseInicial }: {
   equipo: MaquinariaEquipo | null;
   actor: string;
   onClose: () => void;
   onSaved: () => void;
+  tipoInicial?: string | null;
+  claseInicial?: ClaseEquipo | null;
 }) {
   const esNuevo = !equipo;
+
+  const tipoArrancada = useMemo(() => {
+    if (equipo?.tipo) return equipo.tipo;
+    if (tipoInicial?.trim()) return tipoInicial.trim().toUpperCase();
+    if (claseInicial === 'lancha') return 'LANCHA';
+    if (claseInicial === 'moto') return 'MOTO';
+    if (claseInicial === 'vehiculo') return 'VEHÍCULO';
+    if (claseInicial === 'maquinaria') return 'MAQUINARIA PESADA';
+    return null;
+  }, [equipo, tipoInicial, claseInicial]);
+
+  const combustibleArrancada = useMemo(() => {
+    if (equipo?.combustible) return equipo.combustible;
+    if (claseInicial === 'lancha' || tipoInicial?.toUpperCase() === 'LANCHA') return 'GASOLINA';
+    if (claseInicial === 'moto' || tipoInicial?.toUpperCase() === 'MOTO') return 'GASOLINA';
+    return 'GASOIL';
+  }, [equipo, claseInicial, tipoInicial]);
+
+  const [claseSel, setClaseSel] = useState<ClaseEquipo>(() => {
+    if (equipo) return claseEquipo(equipo);
+    if (claseInicial && claseInicial !== 'equipo') return claseInicial;
+    if (tipoInicial) return claseEquipo({ tipo: tipoInicial });
+    return 'maquinaria';
+  });
+
   const [f, setF] = useState<MaquinariaEquipoInput>(() => ({
     equipo: equipo?.equipo ?? '',
-    tipo: equipo?.tipo ?? null,
+    tipo: tipoArrancada,
     propietario: equipo?.propietario ?? null,
     status: equipo?.status ?? 'ACTIVO',
     ubicacion: equipo?.ubicacion ?? null,
@@ -30,7 +58,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     placa: equipo?.placa ?? null,
     motor_modelo: equipo?.motor_modelo ?? null,
     motor_serial: equipo?.motor_serial ?? null,
-    combustible: equipo?.combustible ?? 'GASOIL',
+    combustible: combustibleArrancada,
     litros_consume: equipo?.litros_consume ?? null,
     mantenimiento_cada_hrs: equipo?.mantenimiento_cada_hrs ?? null,
     mantenimiento_cada_km: equipo?.mantenimiento_cada_km ?? null,
@@ -124,7 +152,9 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="equipo-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : (esNuevo ? 'Crear equipo' : 'Guardar')}</button>
+      <button type="submit" form="equipo-form" className="btn btn-primary" disabled={saving}>
+        {saving ? 'Guardando…' : (esNuevo ? (claseSel === 'moto' ? 'Crear moto' : claseSel === 'lancha' ? 'Crear lancha' : claseSel === 'vehiculo' ? 'Crear vehículo' : claseSel === 'maquinaria' ? 'Crear maquinaria' : 'Crear equipo') : 'Guardar')}
+      </button>
     </>
   );
 
@@ -134,19 +164,113 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     </label>
   );
 
+  function handleCambiarClase(c: ClaseEquipo) {
+    setClaseSel(c);
+    if (c === 'lancha') {
+      setF((prev) => ({
+        ...prev,
+        tipo: 'LANCHA',
+        combustible: prev.combustible === 'GASOIL' ? 'GASOLINA' : prev.combustible,
+      }));
+    } else if (c === 'moto') {
+      setF((prev) => ({
+        ...prev,
+        tipo: 'MOTO',
+        combustible: 'GASOLINA',
+      }));
+    } else if (c === 'vehiculo') {
+      setF((prev) => ({
+        ...prev,
+        tipo: prev.tipo && /lancha|moto/i.test(prev.tipo) ? 'VEHÍCULO' : (prev.tipo || 'VEHÍCULO'),
+        combustible: prev.combustible ?? 'GASOIL',
+      }));
+    } else {
+      setF((prev) => ({
+        ...prev,
+        tipo: prev.tipo && /lancha|moto/i.test(prev.tipo) ? 'MAQUINARIA PESADA' : (prev.tipo || 'MAQUINARIA PESADA'),
+        combustible: prev.combustible ?? 'GASOIL',
+      }));
+    }
+  }
+
+  const tituloModal = useMemo(() => {
+    if (!esNuevo) return `Editar · ${equipo?.equipo}`;
+    if (claseSel === 'moto') return '🏍️ Nueva Moto';
+    if (claseSel === 'lancha') return '🚤 Nueva Lancha / Embarcación';
+    if (claseSel === 'vehiculo') return '🚚 Nuevo Vehículo';
+    if (claseSel === 'maquinaria') return '🚜 Nueva Maquinaria / Equipo Pesado';
+    return 'Nuevo equipo / maquinaria';
+  }, [esNuevo, equipo, claseSel]);
+
+  const placeholderEquipo = useMemo(() => {
+    if (claseSel === 'moto') return 'Ej. BERA SBR 150 · MOTO 01';
+    if (claseSel === 'lancha') return 'Ej. LANCHA YAMAHA 200HP · RÍO 01';
+    if (claseSel === 'vehiculo') return 'Ej. TOYOTA HILUX 4X4 · CAMIONETA 05';
+    return 'Ej. VOLVO A35F 484';
+  }, [claseSel]);
+
   return (
-    <Modal title={esNuevo ? 'Nuevo equipo / maquinaria' : `Editar · ${equipo?.equipo}`} size="lg" onClose={onClose} footer={footer}>
+    <Modal title={tituloModal} size="lg" onClose={onClose} footer={footer}>
       <form id="equipo-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* Selector de Categoría / Clase de Flota (permite cambiarlo desde el formulario) */}
+        <div style={{ marginBottom: '.85rem', padding: '.65rem .75rem', background: 'var(--surface-2, rgba(255,255,255,0.04))', borderRadius: '8px', border: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+            <label style={{ fontSize: '.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', margin: 0, color: 'var(--text-secondary, #94a3b8)' }}>
+              Categoría de la unidad (puedes cambiarla aquí)
+            </label>
+            <span style={{ fontSize: '.76rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>
+              {claseSel === 'moto' ? '🏍️ Moto seleccionada' : claseSel === 'lancha' ? '🚤 Lancha seleccionada' : claseSel === 'vehiculo' ? '🚚 Vehículo seleccionado' : '🚜 Maquinaria seleccionada'}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem' }}>
+            {CLASES_EQUIPO.map((c) => {
+              const activa = claseSel === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`btn btn-sm ${activa ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    padding: '.45rem .2rem',
+                    gap: '.2rem',
+                    fontSize: '.76rem',
+                    fontWeight: activa ? 700 : 500,
+                    border: activa ? '2px solid var(--primary, #3b82f6)' : undefined,
+                  }}
+                  onClick={() => handleCambiarClase(c.id)}
+                >
+                  <span style={{ fontSize: '1.25rem' }}>{c.icon}</span>
+                  <span>{c.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="form-grid">
           <div className="form-row">
             <label>Equipo / designación *</label>
-            <input name="f-equipo" className="input" defaultValue={f.equipo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('equipo', e.target.value); }} placeholder="Ej. VOLVO A35F 484" required />
+            <input name="f-equipo" className="input" defaultValue={f.equipo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('equipo', e.target.value); }} placeholder={placeholderEquipo} required />
           </div>
           <div className="form-row">
             <label>Tipo (maquinaria, vehículo, moto, lancha…)</label>
-            <SearchCreateSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', upper(v) || null)} options={tipos} placeholder="Elige o escribe el tipo…" />
+            <SearchCreateSelect
+              value={f.tipo ?? ''}
+              onChange={(v) => {
+                const up = upper(v);
+                set('tipo', up || null);
+                if (up) {
+                  setClaseSel(claseEquipo({ tipo: up }));
+                }
+              }}
+              options={tipos}
+              placeholder="Elige o escribe el tipo…"
+            />
           </div>
         </div>
 
