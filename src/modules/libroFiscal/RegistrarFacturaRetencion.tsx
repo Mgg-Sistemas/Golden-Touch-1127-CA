@@ -25,7 +25,7 @@ import {
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
   labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
-  type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
+  type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import { adjuntarComprobante, getConfigRetencion, listConceptos, sujetoAGt, tipoAGt, type DocKind } from './retencionesFiscal.repository';
 import { configDeFecha } from './parametros.repository';
@@ -43,6 +43,7 @@ import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { useDescartar } from './confirmarDescartar';
 import { urlFacturaDeOrigen } from './documentosOrigen.repository';
+import { SupuestosIvaAcordeon } from './SupuestosIvaAcordeon';
 import { nombrePeriodo, periodoEstaCerrado, type PeriodoFiscal } from './periodosRetencion.repository';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import {
@@ -107,14 +108,6 @@ interface LineaUI {
   descripcion: string;
 }
 
-/** Los supuestos del art. 5 (Providencia SNAT/2015/0049) que llevan la retención de IVA al 100 %. */
-const MOTIVOS_IVA_CIEN: Array<[keyof MotivosIvaCien & string, string]> = [
-  ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
-  ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
-  ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
-  ['proveedorNoDomiciliado', 'El proveedor no está domiciliado en el país'],
-  ['metalesPreciosos', 'Compra de metales o piedras preciosas'],
-];
 
 let semilla = 0;
 const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
@@ -204,7 +197,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
     tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
   })]);
-  const [supuestosAbiertos, setSupuestosAbiertos] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
@@ -629,7 +621,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           >
             ✕
           </button>
-          <small>Esta factura no viene de una OC, un CS ni una compra directa. Quedará en el libro marcada «Fuera del sistema» y hay que anotar en la nota de dónde viene.</small>
+          <small>
+            Esta factura no proviene de una Orden de Compra (OC), un Contrato de Servicio (CS) ni una compra directa. Quedará en el libro fiscal registrada como «Fuera del sistema», por lo que se recomienda indicar en las notas su procedencia u origen.
+          </small>
         </div>
       )}
 
@@ -878,98 +872,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLinea(l.id, { sujeto: sugerido.sujeto })}>Usar la sugerencia</button>
                 </div>
               )}
-              {direccion === 'practicada' && l.tipo === 'iva' && (() => {
-                const cantMotivos = Object.values(l.motivos || {}).filter(Boolean).length;
-                const tieneMotivos = cantMotivos > 0;
-                const estaAbierto = supuestosAbiertos[l.id] ?? tieneMotivos;
-                const listaMotivos: Array<[string, string]> = supuestosIva
-                  ? supuestosIva.map((x): [string, string] => [x.codigo, `${x.texto}${x.pct !== 100 ? ` (${x.pct} %)` : ''}`])
-                  : MOTIVOS_IVA_CIEN;
-
-                return (
-                  <div
-                    style={{
-                      margin: '.35rem 0 .15rem',
-                      background: 'rgba(255, 255, 255, 0.02)',
-                      border: `1px solid ${tieneMotivos ? 'rgba(255, 138, 0, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
-                      borderRadius: '6px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSupuestosAbiertos((prev) => ({ ...prev, [l.id]: !estaAbierto }))}
-                      style={{
-                        width: '100%',
-                        background: 'transparent',
-                        border: 'none',
-                        padding: '.4rem .6rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '.5rem',
-                        color: 'inherit',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem', fontWeight: 600 }}>
-                        <span style={{ color: tieneMotivos ? 'var(--primary)' : 'var(--text-muted)', fontSize: '.75rem' }}>
-                          {estaAbierto ? '▼' : '▶'}
-                        </span>
-                        <span>
-                          {supuestosIva
-                            ? '¿Aplica un supuesto con su propio porcentaje? (vigentes a la fecha de la factura)'
-                            : '¿Corresponde retener el 100%? (Providencia SNAT/2015/0049, art. 5)'}
-                        </span>
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '.72rem',
-                          fontWeight: 600,
-                          padding: '.15rem .45rem',
-                          borderRadius: '4px',
-                          background: tieneMotivos ? 'rgba(255, 138, 0, 0.15)' : 'rgba(255, 255, 255, 0.06)',
-                          color: tieneMotivos ? 'var(--primary)' : 'var(--text-muted)',
-                          border: `1px solid ${tieneMotivos ? 'rgba(255, 138, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {tieneMotivos ? `${cantMotivos} marcado(s) · 100%` : `Opcional · ${config.pctIvaGeneral}% gen.`}
-                      </span>
-                    </button>
-
-                    {estaAbierto && (
-                      <div style={{ padding: '.15rem .6rem .55rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                        {listaMotivos.map(([k, label]) => (
-                          <label
-                            key={k}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '.45rem',
-                              fontSize: '.82rem',
-                              marginTop: '.3rem',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={!!l.motivos[k]}
-                              onChange={(e) => setLinea(l.id, { motivos: { ...l.motivos, [k]: e.target.checked } })}
-                              style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
-                            />
-                            <span>{label}</span>
-                          </label>
-                        ))}
-                        <small className="hint muted" style={{ display: 'block', marginTop: '.35rem', fontSize: '.75rem' }}>
-                          Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.
-                        </small>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              {direccion === 'practicada' && l.tipo === 'iva' && (
+                <SupuestosIvaAcordeon
+                  motivos={l.motivos}
+                  supuestosIva={supuestosIva}
+                  pctGeneral={config.pctIvaGeneral}
+                  pctActual={calc.porcentaje}
+                  onChange={(codigo, valor) => setLinea(l.id, { motivos: { ...l.motivos, [codigo]: valor } })}
+                />
+              )}
               {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{motivoNoPuedePracticar(l.tipo, config)}</small>}
               {!esManual && <small className="hint muted">{calc.explicacion}</small>}
               {monto === 0 && (

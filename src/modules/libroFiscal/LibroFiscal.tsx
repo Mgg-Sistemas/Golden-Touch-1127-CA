@@ -45,6 +45,7 @@ import { completarRif, formatearRif, rifValido } from '@/shared/lib/rif';
 import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { razonSocialAgente } from './comprobanteRetencionPdf';
+import { SupuestosIvaAcordeon } from './SupuestosIvaAcordeon';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
@@ -153,17 +154,17 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
   const [motivo, setMotivo] = useState('');
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
-  // Con V2R: una factura con varias líneas de impuesto en un solo registro.
-  const [conFacturaVarias, setConFacturaVarias] = useState(false);
-  useEffect(() => { v2rDisponible().then(setConFacturaVarias).catch(() => setConFacturaVarias(false)); }, []);
+  // Con V2R o fallback nativo: una factura con varias líneas de impuesto en un solo registro.
+  const [conFacturaVarias, setConFacturaVarias] = useState(true);
+  useEffect(() => { v2rDisponible().then((v) => { if (v) setConFacturaVarias(true); }).catch(() => {}); }, []);
   const [facturaVarias, setFacturaVarias] = useState(false);
   // P03: una factura registrada puede cubrir varias órdenes del mismo proveedor.
-  const [conP03, setConP03] = useState(false);
-  useEffect(() => { p03Disponible().then(setConP03).catch(() => setConP03(false)); }, []);
+  const [conP03, setConP03] = useState(true);
+  useEffect(() => { p03Disponible().then((v) => { if (v) setConP03(true); }).catch(() => {}); }, []);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   // R10: «Facturas registradas», retener después sobre una de ellas y los «no aplica» en «Sin retención».
-  const [conR10, setConR10] = useState(false);
-  useEffect(() => { r10Disponible().then(setConR10).catch(() => setConR10(false)); }, []);
+  const [conR10, setConR10] = useState(true);
+  useEffect(() => { r10Disponible().then((v) => { if (v) setConR10(true); }).catch(() => {}); }, []);
   const [verFacturas, setVerFacturas] = useState(false);
   const [verFacturasCompras, setVerFacturasCompras] = useState(false);
   const [semillaCompra, setSemillaCompra] = useState<SemillaFactura | undefined>(undefined);
@@ -191,6 +192,9 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   });
   const [imprimirSello, setImprimirSello] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConSello') !== 'false'; } catch { return true; }
+  });
+  const [imprimirOriginalYCopia, setImprimirOriginalYCopia] = useState<boolean>(() => {
+    try { return localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false'; } catch { return true; }
   });
 
   useEffect(() => {
@@ -379,6 +383,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
+        imprimirOriginalYCopia,
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
@@ -395,6 +400,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
+        imprimirOriginalYCopia,
       });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron generar los comprobantes', 'error');
@@ -658,6 +664,17 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                 <span>Sello</span>
               </label>
             )}
+            <label className="lfv8-check-firma" title="Imprimir Original (Sujeto Retenido) y Copia (Agente de Retención)">
+              <input
+                type="checkbox"
+                checked={imprimirOriginalYCopia}
+                onChange={(e) => {
+                  setImprimirOriginalYCopia(e.target.checked);
+                  try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(e.target.checked)); } catch {}
+                }}
+              />
+              <span>Original y Copia</span>
+            </label>
           </div>
         )}
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
@@ -1298,7 +1315,6 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     semilla.sustituyeAComprobante ? `Sustituye a la retención anulada N° ${semilla.sustituyeAComprobante}` : ''
   );
   const [archivo, setArchivo] = useState<File | null>(null);
-  const [supuestosIvaAbierto, setSupuestosIvaAbierto] = useState<boolean | null>(null);
   // Qué documento se adjunta: en una recibida, el comprobante que entregó el agente; en una practicada, el respaldo.
   const [tipoArchivo, setTipoArchivo] = useState('');
   const [otroDetalle, setOtroDetalle] = useState('');
@@ -1785,109 +1801,15 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </>
       )}
 
-      {direccion === 'practicada' && tipo === 'iva' && (() => {
-        const cantMotivos = Object.values(motivos || {}).filter(Boolean).length;
-        const tieneMotivos = cantMotivos > 0;
-        const estaAbierto = supuestosIvaAbierto ?? tieneMotivos;
-        const listaMotivos = supuestosIva
-          ? supuestosIva.map((s): [string, string] => [s.codigo, `${s.texto}${s.pct !== 100 ? ` (${s.pct} %)` : ''}`])
-          : ([
-            ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
-            ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
-            ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
-            ['proveedorNoDomiciliado', 'El proveedor no está domiciliado en el país'],
-            ['metalesPreciosos', 'Compra de metales o piedras preciosas'],
-          ] as Array<[keyof MotivosIvaCien & string, string]>);
-
-        return (
-          <div
-            style={{
-              margin: '.4rem 0 .2rem',
-              background: 'rgba(255, 255, 255, 0.02)',
-              border: `1px solid ${tieneMotivos ? 'rgba(255, 138, 0, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
-              borderRadius: '6px',
-              overflow: 'hidden',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setSupuestosIvaAbierto(!estaAbierto)}
-              style={{
-                width: '100%',
-                background: 'transparent',
-                border: 'none',
-                padding: '.4rem .6rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '.5rem',
-                color: 'inherit',
-                textAlign: 'left',
-              }}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem', fontWeight: 600 }}>
-                <span style={{ color: tieneMotivos ? 'var(--primary)' : 'var(--text-muted)', fontSize: '.75rem' }}>
-                  {estaAbierto ? '▼' : '▶'}
-                </span>
-                <span>
-                  {supuestosIva
-                    ? '¿Aplica un supuesto con su propio porcentaje? (vigentes a la fecha de la factura)'
-                    : '¿Corresponde retener el 100%? (art. 5)'}
-                </span>
-              </span>
-              <span
-                style={{
-                  fontSize: '.72rem',
-                  fontWeight: 600,
-                  padding: '.15rem .45rem',
-                  borderRadius: '4px',
-                  background: tieneMotivos ? 'rgba(255, 138, 0, 0.15)' : 'rgba(255, 255, 255, 0.06)',
-                  color: tieneMotivos ? 'var(--primary)' : 'var(--text-muted)',
-                  border: `1px solid ${tieneMotivos ? 'rgba(255, 138, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {tieneMotivos ? `${cantMotivos} marcado(s) · 100%` : `Opcional · ${config.pctIvaGeneral}% gen.`}
-              </span>
-            </button>
-
-            {estaAbierto && (
-              <div style={{ padding: '.15rem .6rem .55rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                {supuestosIva && supuestosIva.length === 0 && (
-                  <small className="hint muted" style={{ display: 'block', margin: '.2rem 0' }}>
-                    No hay supuestos vigentes a la fecha de la factura (Parámetros › Supuestos del %).
-                  </small>
-                )}
-                {listaMotivos.map(([k, label]) => (
-                  <label
-                    key={k}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '.45rem',
-                      fontSize: '.82rem',
-                      marginTop: '.3rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!(motivos as Record<string, boolean | undefined>)[k]}
-                      onChange={(e) => setMotivos({ ...motivos, [k]: e.target.checked } as MotivosIvaCien)}
-                      style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
-                    />
-                    <span>{label}</span>
-                  </label>
-                ))}
-                <small className="hint muted" style={{ display: 'block', marginTop: '.35rem', fontSize: '.75rem' }}>
-                  Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.{supuesto ? ` Con lo marcado: ${supuesto.pct} %.` : ''}
-                </small>
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {direccion === 'practicada' && tipo === 'iva' && (
+        <SupuestosIvaAcordeon
+          motivos={motivos as Record<string, boolean | undefined>}
+          supuestosIva={supuestosIva}
+          pctGeneral={config.pctIvaGeneral}
+          pctActual={calculo.porcentaje}
+          onChange={(codigo, valor) => setMotivos((prev) => ({ ...prev, [codigo]: valor } as MotivosIvaCien))}
+        />
+      )}
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
