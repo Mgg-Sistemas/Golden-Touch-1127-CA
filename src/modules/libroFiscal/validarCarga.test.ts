@@ -83,6 +83,7 @@ describe('números que el sistema pone en un campo', () => {
     expect(textoLeido('36.500')).toBe('36.500,00');
     expect(textoLeido('1234,5')).toBe('1.234,50');
     expect(textoLeido('179,437')).toBe('179,437');
+    expect(textoLeido('')).toBeNull();
     expect(textoLeido('12a')).toBeNull();
   });
 });

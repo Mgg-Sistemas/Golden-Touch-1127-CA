@@ -189,9 +189,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   }, [archivoFacturaUrl]);
 
   const verArchivoLocal = () => {
-    if (archivoFactura && archivoFacturaUrl) {
-      previewArchivo(archivoFacturaUrl, archivoFactura.name);
-    }
+    if (!archivoFactura || !archivoFacturaUrl) return;
+    previewArchivo(archivoFacturaUrl, archivoFactura.name);
   };
 
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({

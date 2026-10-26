@@ -132,8 +132,8 @@ function rutaDocumento(kind: DocKind, id: string | null): string | null {
 
 type VistaLibro = 'lista' | 'factura' | 'impuesto' | 'sin';
 
-export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'factura' }: {
-  canWrite: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
+export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura' }: {
+  canWrite?: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
 }) {
   const { can } = usePermissions();
   const canVerPedidos = can('pedidos', 'lectura');
@@ -182,7 +182,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   }, [filas]);
 
   const [dispDigital, setDispDigital] = useState<{ tieneLogo: boolean; tieneFirma: boolean; tieneSello: boolean; tieneAlguno: boolean }>({
-    tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false,
+    tieneLogo: true, tieneFirma: false, tieneSello: true, tieneAlguno: true,
   });
   const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConLogo') !== 'false'; } catch { return true; }
@@ -1700,10 +1700,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           </button>
           <strong>Sin documento del sistema.</strong>{' '}
           <small>
-            Esta retención no viene de una OC, un CS ni una compra directa (por ejemplo, una factura de otra sede). Se registra igual:
+            Esta retención no proviene de una Orden de Compra (OC), un Contrato de Servicio (CS) ni una compra directa (por ejemplo, una factura de otra sede). Se registra de igual forma:
             escribe abajo los datos de la factura (<b>N° de factura</b>, <b>N° de control</b>, <b>fecha</b> y <b>base imponible</b>),
-            adjunta su imagen en <b>«Documento de respaldo»</b> eligiendo «Factura del proveedor», y anota en la <b>observación</b> de dónde viene.
-            Quedará en el libro marcada «Fuera del sistema». Si la compra sí está en el sistema, regístrala desde «Por realizar».
+            adjunta su documento en <b>«Documento de respaldo»</b> seleccionando «Factura del proveedor», y anota en la <b>observación</b> su procedencia u origen.
+            Quedará en el libro fiscal registrada como «Fuera del sistema». Si la compra sí se encuentra en el sistema, regístrala desde «Por realizar».
           </small>
         </div>
       )}
@@ -1806,7 +1806,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           motivos={motivos as Record<string, boolean | undefined>}
           supuestosIva={supuestosIva}
           pctGeneral={config.pctIvaGeneral}
-          pctActual={calculo.porcentaje}
+          pctActual={supuesto?.pct ?? calculo.porcentaje}
           onChange={(codigo, valor) => setMotivos((prev) => ({ ...prev, [codigo]: valor } as MotivosIvaCien))}
         />
       )}

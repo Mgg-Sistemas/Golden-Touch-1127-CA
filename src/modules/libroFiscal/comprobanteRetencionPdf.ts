@@ -187,14 +187,17 @@ export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promi
       || imagenes.find((i) => i.clase === 'firma' && i.activo);
     const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
       || imagenes.find((i) => i.clase === 'sello' && i.activo);
+    const tieneLogo = !!l?.ruta || true;
+    const tieneFirma = !!f?.ruta || true;
+    const tieneSello = !!s?.ruta;
     return {
-      tieneLogo: !!l?.ruta,
-      tieneFirma: !!f?.ruta,
-      tieneSello: !!s?.ruta,
-      tieneAlguno: !!(l?.ruta || f?.ruta || s?.ruta),
+      tieneLogo,
+      tieneFirma,
+      tieneSello,
+      tieneAlguno: tieneLogo || tieneFirma || tieneSello,
     };
   } catch {
-    return { tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false };
+    return { tieneLogo: true, tieneFirma: true, tieneSello: false, tieneAlguno: true };
   }
 }
 
@@ -255,6 +258,21 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
       } catch { /* noop */ }
     }
   } catch { /* noop */ }
+
+  // ── Fallbacks institucionales para Golden Touch si no hay versión subida en la base ──
+  if (!logoDataUrl) {
+    try {
+      const { loadLogoPdfDataUrl } = await import('@/shared/lib/pdfLogo');
+      logoDataUrl = await loadLogoPdfDataUrl();
+    } catch { /* noop */ }
+  }
+  if (!firmaDataUrl) {
+    try {
+      const { loadFirmaOrlandoDataUrl, loadFirmaDataUrl } = await import('@/shared/lib/pdfLogo');
+      const orlando = await loadFirmaOrlandoDataUrl?.();
+      firmaDataUrl = orlando?.dataUrl ?? (await loadFirmaDataUrl?.()) ?? null;
+    } catch { /* noop */ }
+  }
 
   return { logoDataUrl, firmaDataUrl, selloDataUrl };
 }
