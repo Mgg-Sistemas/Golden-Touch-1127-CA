@@ -373,6 +373,7 @@ export function MaquinariaPage() {
         <ExportarEquiposModal
           equipos={lista}
           total={disponibles}
+          fotosMap={fotos}
           contextoMap={new Map(
             lista.map((e) => {
               const inf = info.get(e.id);

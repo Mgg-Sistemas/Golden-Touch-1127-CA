@@ -20,6 +20,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { num as fmtNum, dateTime } from '@/shared/lib/format';
+import { ExportarEquiposModal } from './ExportarEquiposModal';
 import {
   listEquipos,
   extraerEncargado,
@@ -99,6 +100,7 @@ export function MaquinariaMovilView() {
   const [filtroCatalogo, setFiltroCatalogo] = useState<'todos' | 'alertas' | 'lanchas' | 'pesada' | 'vehiculos' | 'motos'>('todos');
   const [equipoOpciones, setEquipoOpciones] = useState<MaquinariaEquipo | null>(null);
   const [nuevoEquipoMovilOpen, setNuevoEquipoMovilOpen] = useState(false);
+  const [exportarPdfMovilOpen, setExportarPdfMovilOpen] = useState(false);
 
   // Borrado de movimientos
   const [borrandoMov, setBorrandoMov] = useState<{ tipo: 'orden' | 'lavado'; id: string; codigo: string } | null>(null);
@@ -448,15 +450,15 @@ export function MaquinariaMovilView() {
   }
 
   return (
-    <div className="surtidor flo-movil-wrap" style={{ maxWidth: '600px', margin: '0 auto', padding: '.75rem' }}>
+    <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', margin: '0 auto', padding: '.5rem' }}>
       {/* ── Encabezado Móvil ── */}
-      <header className="surt-head" style={{ marginBottom: '.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <header className="surt-head" style={{ marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: '1.25rem', margin: 0 }}>📱 Maquinaria y Equipos</h1>
-          <div className="muted" style={{ fontSize: '.8rem' }}>{actorName}</div>
+          <h1 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 800 }}>📱 Maquinaria y Equipos</h1>
+          <div className="muted" style={{ fontSize: '.74rem' }}>{actorName}</div>
         </div>
         {!soloTelefono && (
-          <Link to="/app/maquinaria" className="btn btn-sm btn-ghost" title="Ir a la vista completa de computadora">
+          <Link to="/app/maquinaria" className="btn btn-sm btn-ghost" style={{ padding: '.2rem .5rem', fontSize: '.74rem', border: '1px solid var(--border)' }} title="Ir a la vista completa de computadora">
             💻 Modo PC
           </Link>
         )}
@@ -484,145 +486,253 @@ export function MaquinariaMovilView() {
       {/* Si hay un mensaje de WhatsApp reciente, banner superior de respaldo */}
       {mensajeWhatsapp && (
         <div className="card" style={{
-          marginBottom: '1rem',
+          marginBottom: '.65rem',
           borderColor: 'var(--success, #22c55e)',
           background: 'rgba(34, 197, 94, 0.08)',
-          padding: '.85rem',
+          padding: '.65rem',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
-            <strong style={{ color: 'var(--success, #22c55e)' }}>✅ Movimiento registrado con éxito</strong>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMensajeWhatsapp(null)}>✕ Cerrar</button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+            <strong style={{ color: 'var(--success, #22c55e)', fontSize: '.82rem' }}>✅ Movimiento registrado con éxito</strong>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.74rem', padding: '.15rem .45rem' }} onClick={() => setMensajeWhatsapp(null)}>✕ Cerrar</button>
           </div>
           <CompartirWhatsapp texto={mensajeWhatsapp} />
         </div>
       )}
 
-      {/* ── Menú de Acciones Rápidas ("Puro botón") ── */}
-      <div className="surt-rotulo" style={{ fontSize: '.88rem', fontWeight: 600, marginBottom: '.5rem' }}>
-        ¿Qué deseas reportar hoy?
+      {/* ── Menú de Acciones Rápidas (Compacto con colores institucionales) ── */}
+      <div className="surt-rotulo" style={{ fontSize: '.72rem', fontWeight: 700, margin: '.15rem 0 .3rem', color: 'var(--text-secondary, #94a3b8)', letterSpacing: '.04em' }}>
+        ¿QUÉ DESEAS REPORTAR HOY?
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', marginBottom: '.6rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', marginBottom: '.45rem' }}>
         <button
           type="button"
-          className={`btn ${modo === 'servicio' ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ height: '70px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '.2rem' }}
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'servicio' ? 'rgba(255, 138, 0, 0.22)' : 'rgba(255, 138, 0, 0.08)',
+            border: modo === 'servicio' ? '2px solid #ff8a00' : '1px solid rgba(255, 138, 0, 0.35)',
+            borderRadius: '7px',
+            color: '#ff9d2b',
+          }}
           onClick={() => { setModo('servicio'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.35rem' }}>🔧</span>
-          <span style={{ fontWeight: 600, fontSize: '.84rem' }}>Solicitar Servicio</span>
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔧</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Solicitar Servicio</span>
         </button>
 
         <button
           type="button"
-          className={`btn ${modo === 'lavado' ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ height: '70px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '.2rem' }}
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'lavado' ? 'rgba(56, 189, 248, 0.22)' : 'rgba(56, 189, 248, 0.08)',
+            border: modo === 'lavado' ? '2px solid #38bdf8' : '1px solid rgba(56, 189, 248, 0.35)',
+            borderRadius: '7px',
+            color: '#38bdf8',
+          }}
           onClick={() => { setModo('lavado'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.35rem' }}>🚿</span>
-          <span style={{ fontWeight: 600, fontSize: '.84rem' }}>Registrar Lavado</span>
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🚿</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Registrar Lavado</span>
         </button>
 
         <button
           type="button"
-          className={`btn ${modo === 'averia' ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ height: '70px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '.2rem' }}
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'averia' ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.08)',
+            border: modo === 'averia' ? '2px solid #ef4444' : '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '7px',
+            color: '#f87171',
+          }}
           onClick={() => { setModo('averia'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.35rem' }}>⚠️</span>
-          <span style={{ fontWeight: 600, fontSize: '.84rem' }}>Reportar Avería</span>
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>⚠️</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Reportar Avería</span>
         </button>
 
         <button
           type="button"
-          className={`btn ${modo === 'filtros' ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ height: '70px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '.2rem' }}
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'filtros' ? 'rgba(168, 85, 247, 0.22)' : 'rgba(168, 85, 247, 0.08)',
+            border: modo === 'filtros' ? '2px solid #a855f7' : '1px solid rgba(168, 85, 247, 0.35)',
+            borderRadius: '7px',
+            color: '#c084fc',
+          }}
           onClick={() => { setModo('filtros'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.35rem' }}>🔍</span>
-          <span style={{ fontWeight: 600, fontSize: '.84rem' }}>Ver Filtros / Rep.</span>
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔍</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Ver Filtros / Rep.</span>
         </button>
       </div>
 
-      {/* Botón de acceso directo a Solicitudes / Órdenes */}
-      <button
-        type="button"
-        className={`btn ${modo === 'solicitudes' ? 'btn-primary' : 'btn-ghost'}`}
-        style={{
-          width: '100%',
-          padding: '.7rem 1rem',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '1rem',
-          borderRadius: '8px',
-          border: modo === 'solicitudes' ? '2px solid var(--primary, #3b82f6)' : '1px solid var(--border-color, rgba(255,255,255,0.12))',
-          background: modo === 'solicitudes' ? 'rgba(59, 130, 246, 0.2)' : 'var(--surface-2, #1e293b)',
-        }}
-        onClick={() => { setModo(modo === 'solicitudes' ? 'menu' : 'solicitudes'); setMensajeWhatsapp(null); }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-          <span style={{ fontSize: '1.25rem' }}>📋</span>
-          <span style={{ fontWeight: 700, fontSize: '.88rem' }}>Mis Solicitudes y Órdenes de Servicio</span>
-        </div>
-        <span className="badge" style={{ fontSize: '.76rem', background: ordenes.length > 0 ? 'var(--primary, #3b82f6)' : undefined, color: '#fff' }}>
-          {ordenes.length} {ordenes.length === 1 ? 'orden' : 'órdenes'}
-        </span>
-      </button>
+      {/* Botón de acceso directo a Solicitudes / Órdenes (Compacto) */}
+      {(() => {
+        const ordenesActivas = ordenes.filter((o) => o.estado !== 'cancelada' && o.estado !== 'anulada' && o.estado !== 'realizada');
+        return (
+          <button
+            type="button"
+            className="btn"
+            style={{
+              width: '100%',
+              padding: '.45rem .75rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '.6rem',
+              borderRadius: '8px',
+              border: modo === 'solicitudes' ? '2px solid #ff8a00' : '1px solid rgba(255, 138, 0, 0.35)',
+              background: modo === 'solicitudes' ? 'rgba(255, 138, 0, 0.16)' : 'var(--surface-2, #182230)',
+              color: '#ffffff',
+            }}
+            onClick={() => { setModo(modo === 'solicitudes' ? 'menu' : 'solicitudes'); setMensajeWhatsapp(null); }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <span style={{ fontSize: '1.15rem' }}>📋</span>
+              <span style={{ fontWeight: 700, fontSize: '.82rem', color: '#ffffff' }}>Mis Solicitudes y Órdenes de Servicio</span>
+            </div>
+            <span
+              className="badge"
+              style={{
+                fontSize: '.72rem',
+                padding: '.15rem .5rem',
+                borderRadius: '999px',
+                background: ordenesActivas.length > 0 ? '#ff8a00' : 'rgba(255,255,255,0.1)',
+                color: ordenesActivas.length > 0 ? '#000000' : '#cbd5e1',
+                fontWeight: 800,
+              }}
+            >
+              {ordenesActivas.length} {ordenesActivas.length === 1 ? 'activa' : 'activas'}
+            </span>
+          </button>
+        );
+      })()}
 
-      {/* ── Vista: Lista de Solicitudes y Órdenes de Servicio ── */}
+      {/* ── Vista: Lista de Solicitudes y Órdenes de Servicio (Compacta) ── */}
       {modo === 'solicitudes' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+        <div className="card" style={{ padding: '.65rem', marginBottom: '.65rem', background: 'var(--surface-2, #182230)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+            <h3 style={{ margin: 0, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: '.35rem', color: '#ffffff' }}>
               <span>📋</span> Solicitudes y Órdenes ({ordenes.length})
             </h3>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              style={{ border: '1px solid var(--border)', color: 'var(--text-secondary, #94a3b8)', padding: '.15rem .45rem', fontSize: '.74rem' }}
+              onClick={() => setModo('menu')}
+            >
+              ✕ Volver
+            </button>
           </div>
 
           {ordenes.length === 0 ? (
-            <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--muted, #94a3b8)' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '.5rem' }}>📭</div>
-              <div>No hay solicitudes registradas todavía.</div>
+            <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--muted, #94a3b8)' }}>
+              <div style={{ fontSize: '1.8rem', marginBottom: '.35rem' }}>📭</div>
+              <div style={{ fontSize: '.82rem' }}>No hay solicitudes registradas todavía.</div>
               <button
                 type="button"
                 className="btn btn-sm btn-primary"
-                style={{ marginTop: '.75rem' }}
+                style={{ marginTop: '.6rem', fontSize: '.76rem', padding: '.25rem .6rem' }}
                 onClick={() => setModo('servicio')}
               >
                 + Crear primera solicitud
               </button>
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: '.6rem' }}>
+            <div style={{ display: 'grid', gap: '.5rem' }}>
               {ordenes.map((o) => {
                 const eq = equipos.find((e) => e.id === o.equipo_id);
                 const foto = eq ? fotos.get(eq.id) : null;
+                const isCancelada = o.estado === 'cancelada';
+                const isRepuestos = o.estado === 'repuestos';
+                const isRealizada = o.estado === 'realizada';
                 return (
                   <div
                     key={o.id}
                     style={{
-                      padding: '.75rem',
-                      background: 'var(--surface-1, #0f172a)',
+                      padding: '.65rem',
+                      background: 'var(--surface-1, #0d141f)',
                       borderRadius: '8px',
-                      border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                      border: isCancelada
+                        ? '1px solid rgba(239, 68, 68, 0.35)'
+                        : isRepuestos
+                        ? '1px solid rgba(245, 158, 11, 0.35)'
+                        : '1px solid rgba(255, 255, 255, 0.08)',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.35rem' }}>
-                      <div>
-                        <span style={{ fontWeight: 800, fontSize: '.92rem', color: 'var(--primary, #38bdf8)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.3rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 800, fontSize: '.88rem', color: '#ff8a00' }}>
                           {o.codigo}
                         </span>
-                        <span className="badge" style={{ marginLeft: '.4rem', fontSize: '.7rem', textTransform: 'uppercase' }}>
-                          {o.estado}
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '.68rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            background: isCancelada
+                              ? 'rgba(239, 68, 68, 0.2)'
+                              : isRepuestos
+                              ? 'rgba(245, 158, 11, 0.2)'
+                              : isRealizada
+                              ? 'rgba(34, 197, 94, 0.2)'
+                              : 'rgba(56, 189, 248, 0.2)',
+                            color: isCancelada
+                              ? '#f87171'
+                              : isRepuestos
+                              ? '#fbbf24'
+                              : isRealizada
+                              ? '#4ade80'
+                              : '#38bdf8',
+                            border: `1px solid ${
+                              isCancelada
+                                ? 'rgba(239, 68, 68, 0.4)'
+                                : isRepuestos
+                                ? 'rgba(245, 158, 11, 0.4)'
+                                : isRealizada
+                                ? 'rgba(34, 197, 94, 0.4)'
+                                : 'rgba(56, 189, 248, 0.4)'
+                            }`,
+                          }}
+                        >
+                          {isCancelada ? '❌ CANCELADA (COMPRAS)' : o.estado}
                         </span>
                         {o.urgencia === 'urgente' && (
-                          <span className="badge" style={{ marginLeft: '.3rem', fontSize: '.7rem', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171' }}>
+                          <span className="badge" style={{ fontSize: '.66rem', background: 'rgba(239, 68, 68, 0.25)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.5)' }}>
                             🚨 URGENTE
                           </span>
                         )}
                       </div>
-                      <div className="muted" style={{ fontSize: '.72rem' }}>
+                      <div className="muted" style={{ fontSize: '.7rem', color: '#94a3b8' }}>
                         {dateTime(o.created_at)}
                       </div>
                     </div>
@@ -669,11 +779,21 @@ export function MaquinariaMovilView() {
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.35rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.45rem' }}>
                       <button
                         type="button"
-                        className="btn btn-sm btn-ghost"
-                        style={{ fontSize: '.76rem', color: '#4ade80', background: 'rgba(34, 197, 94, 0.12)' }}
+                        className="btn btn-sm"
+                        style={{
+                          fontSize: '.78rem',
+                          fontWeight: 700,
+                          color: '#4ade80',
+                          background: 'rgba(34, 197, 94, 0.18)',
+                          border: '1px solid rgba(34, 197, 94, 0.5)',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '.35rem',
+                        }}
                         onClick={() => {
                           const txt = textoServicioWhatsapp({
                             codigo: o.codigo,
@@ -693,13 +813,20 @@ export function MaquinariaMovilView() {
                           mostrarWhatsapp(txt);
                         }}
                       >
-                        📲 Compartir por WhatsApp
+                        <span>📲</span> Compartir por WhatsApp
                       </button>
 
                       <button
                         type="button"
-                        className="btn btn-sm btn-ghost"
-                        style={{ fontSize: '.74rem', color: 'var(--danger, #ef4444)' }}
+                        className="btn btn-sm"
+                        style={{
+                          fontSize: '.75rem',
+                          fontWeight: 600,
+                          color: '#f87171',
+                          background: 'rgba(239, 68, 68, 0.14)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          borderRadius: '6px',
+                        }}
                         title="Eliminar orden"
                         onClick={() => setBorrandoMov({ tipo: 'orden', id: o.id, codigo: o.codigo })}
                       >
@@ -1229,14 +1356,25 @@ export function MaquinariaMovilView() {
             <strong style={{ fontSize: '.95rem' }}>🚜 Catálogo de Equipos y Horas</strong>
             <span className="badge" style={{ marginLeft: '.4rem' }}>{equiposCatalogo.length} de {equipos.length}</span>
           </div>
-          <button
-            type="button"
-            className="btn btn-sm btn-primary"
-            style={{ fontSize: '.78rem', padding: '.25rem .65rem', fontWeight: 700 }}
-            onClick={() => setNuevoEquipoMovilOpen(true)}
-          >
-            {filtroCatalogo === 'motos' ? '+ Nueva moto' : filtroCatalogo === 'lanchas' ? '+ Nueva lancha' : filtroCatalogo === 'vehiculos' ? '+ Nuevo vehículo' : filtroCatalogo === 'pesada' ? '+ Nueva maquinaria' : '+ Nuevo equipo'}
-          </button>
+          <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              style={{ fontSize: '.74rem', padding: '.2rem .5rem', border: '1px solid var(--border)', color: '#38bdf8' }}
+              title="Descargar Catálogo y Fichas Técnicas en PDF"
+              onClick={() => setExportarPdfMovilOpen(true)}
+            >
+              📄 PDF
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              style={{ fontSize: '.76rem', padding: '.22rem .6rem', fontWeight: 700 }}
+              onClick={() => setNuevoEquipoMovilOpen(true)}
+            >
+              {filtroCatalogo === 'motos' ? '+ Nueva moto' : filtroCatalogo === 'lanchas' ? '+ Nueva lancha' : filtroCatalogo === 'vehiculos' ? '+ Nuevo vehículo' : filtroCatalogo === 'pesada' ? '+ Nueva maquinaria' : '+ Nuevo equipo'}
+            </button>
+          </div>
         </div>
 
         {/* Buscador táctil */}
@@ -1635,6 +1773,36 @@ export function MaquinariaMovilView() {
                 <button
                   type="button"
                   className="btn btn-ghost"
+                  style={{ height: '44px', fontSize: '.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.45rem', border: '1px solid rgba(255, 138, 0, 0.4)', color: '#ff9d2b' }}
+                  onClick={async () => {
+                    try {
+                      const fts = await fotosDeEquipos(equipoOpciones.id).catch(() => []);
+                      const { fichaEquipoPdf } = await import('./flotaPdf');
+                      await fichaEquipoPdf(
+                        equipoOpciones,
+                        {
+                          horometro: horo,
+                          km,
+                          restantesHrs: av?.unidad === 'h' ? av.restante : null,
+                          restantesKm: av?.unidad === 'km' ? av.restante : null,
+                          ultimoSurtido: null,
+                        },
+                        ordenes.filter((o) => o.equipo_id === equipoOpciones.id),
+                        fts,
+                        lavados.filter((l) => l.equipo_id === equipoOpciones.id)
+                      );
+                    } catch (err) {
+                      toast(err instanceof Error ? err.message : 'Error al generar ficha técnica', 'error');
+                    }
+                  }}
+                >
+                  <span>📄</span>
+                  <span>Descargar Ficha Técnica Oficial (PDF)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
                   style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80' }}
                   onClick={() => {
                     const txt = textoEstadoEquipoWhatsapp({
@@ -1855,6 +2023,32 @@ export function MaquinariaMovilView() {
           }
           onClose={() => setNuevoEquipoMovilOpen(false)}
           onSaved={cargarDatos}
+        />
+      )}
+
+      {/* Modal para Exportar Catálogo y Fichas Técnicas en PDF desde Móvil */}
+      {exportarPdfMovilOpen && (
+        <ExportarEquiposModal
+          equipos={equiposCatalogo}
+          total={equipos.length}
+          fotosMap={fotos}
+          contextoMap={new Map(
+            equiposCatalogo.map((e) => {
+              const inf = infoEquipos.get(e.id);
+              return [
+                e.id,
+                {
+                  horometro: inf?.horometro ?? null,
+                  kilometraje: inf?.kilometraje ?? null,
+                  encargado: inf?.encargado ?? null,
+                  avisoServicio: inf?.aviso
+                    ? `${inf.aviso.nivel === 'vencido' ? '⛔ Vencido' : inf.aviso.nivel === 'proximo' ? '⚠️ Próximo' : '🟢 Al día'} (${fmtNum(Math.abs(inf.aviso.restante))} ${inf.aviso.unidad})`
+                    : null,
+                },
+              ];
+            })
+          )}
+          onClose={() => setExportarPdfMovilOpen(false)}
         />
       )}
     </div>

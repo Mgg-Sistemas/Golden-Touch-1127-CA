@@ -246,7 +246,7 @@ export function ajustarIntervenciones(tipo: string | null | undefined, actuales:
   return quedan.length ? quedan : opciones.slice(0, 1);
 }
 
-export type EstadoOrdenServicio = 'abierta' | 'repuestos' | 'en_proceso' | 'realizada' | 'anulada';
+export type EstadoOrdenServicio = 'abierta' | 'repuestos' | 'en_proceso' | 'realizada' | 'anulada' | 'cancelada';
 
 export const ORDEN_ESTADOS: Record<EstadoOrdenServicio, { label: string; icon: string; tono: TonoFlota }> = {
   abierta: { label: 'Abierta', icon: '🟠', tono: 'primary' },
@@ -254,6 +254,7 @@ export const ORDEN_ESTADOS: Record<EstadoOrdenServicio, { label: string; icon: s
   en_proceso: { label: 'En proceso', icon: '🔧', tono: 'info' },
   realizada: { label: 'Realizada', icon: '✅', tono: 'success' },
   anulada: { label: 'Anulada', icon: '⛔', tono: 'retired' },
+  cancelada: { label: 'Cancelada en compras', icon: '❌', tono: 'retired' },
 };
 
 export const ORDEN_FLUJO: EstadoOrdenServicio[] = ['abierta', 'repuestos', 'en_proceso', 'realizada'];
