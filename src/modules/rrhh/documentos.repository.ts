@@ -139,7 +139,7 @@ export async function renombrarDocumentoPersonal(doc: PersonalDocumento, nombre:
 }
 
 /** Quita un documento (borra el renglón y el archivo). */
-export async function borrarDocumentoPersonal(doc: PersonalDocumento): Promise<void> {
+export async function borrarDocumentoPersonal(doc: Pick<PersonalDocumento, 'id' | 'path'>): Promise<void> {
   const { data, error } = await supabase.from(TABLE).delete().eq('id', doc.id).select('id');
   if (error) throw error;
   if (!data || data.length === 0) throw new Error('No se pudo quitar: sin permiso o ya no existía.');

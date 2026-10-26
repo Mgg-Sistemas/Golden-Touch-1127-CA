@@ -18,16 +18,18 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { Personal } from '@/shared/lib/types';
+import type { Personal, PersonalDocumento } from '@/shared/lib/types';
 import { listPersonal } from '@/modules/rrhh/personal.repository';
 import { listDescansos, type Descanso } from '@/modules/rrhh/descansos.repository';
+import { listDocumentosDeTodos } from '@/modules/rrhh/documentos.repository';
 import { DescansosTab } from '@/modules/rrhh/DescansosTab';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
+  importarConductoresDesdeRrhh,
   type Conductor, type DocumentoChofer, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
 } from './choferes.repository';
-import { hoyVE, nombreDeConductor } from './choferes';
+import { esCargoDeChofer, fusionarDocumentosChofer, hoyVE, nombreDeConductor } from './choferes';
 import { TableroTab } from './TableroTab';
 import { ExpedienteTab } from './ExpedienteTab';
 import { ViaticosTab } from './ViaticosTab';
@@ -56,7 +58,7 @@ export interface DatosChoferes {
   viaticos: Viatico[];
   pagos: PagoViaje[];
   descansos: Descanso[];
-  /** Documentos de los conductores (vigentes e históricos). */
+  /** Documentos de los conductores (vigentes e históricos, unificados con RRHH). */
   documentos: DocumentoChofer[];
   /** La tabla de documentos todavía no existe en la base (falta correr choferes-documentos.sql). */
   docsSinInstalar: boolean;
@@ -99,13 +101,26 @@ export function ChoferesPage() {
     try {
       // Las dos nóminas (GT y MTO): un chofer puede estar en cualquiera.
       const ps = await listPersonal(false).catch(() => [] as Personal[]);
-      const [cs, fl, vj, vt, pg, t] = await Promise.all([
+      let [cs, fl, vj, vt, pg, t] = await Promise.all([
         listConductores(), listFlota(), listViajes(), listViaticos(), listPagos(),
         getTasaHoy().then((x) => x.usd ?? null).catch(() => null),
       ]);
+      // Sincronización automática de RRHH a Choferes:
+      // Todo personal activo con cargo de chofer/conductor (de cualquier empresa)
+      // debe salir automáticamente en choferes y conductores.
+      const ya = new Set(cs.map((c) => c.personal_id).filter(Boolean));
+      const faltantes = ps.filter((p) => p.activo && esCargoDeChofer(p) && !ya.has(p.id));
+      if (faltantes.length > 0) {
+        await importarConductoresDesdeRrhh(ps, cs, actor, actorName).catch(() => 0);
+        cs = await listConductores();
+      }
       const ds = await listDescansos(cs.map((c) => c.personal_id).filter((x): x is string => !!x)).catch(() => [] as Descanso[]);
-      // Los documentos tienen su propio SQL: si falta, el resto del módulo sigue andando.
-      const docs = await listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; });
+      // Cargar documentos tanto de Choferes como de RRHH (personal_documentos) y unificarlos
+      const [docsChofer, docsPersonal] = await Promise.all([
+        listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; }),
+        listDocumentosDeTodos().catch(() => [] as PersonalDocumento[]),
+      ]);
+      const docs = fusionarDocumentosChofer(docsChofer, docsPersonal, cs);
       const porId = new Map(ps.map((p) => [p.id, p]));
       setPersonal(ps);
       setConductores(cs.map((c) => ({ ...c, personal: c.personal_id ? (porId.get(c.personal_id) ?? null) : null })));
@@ -116,10 +131,11 @@ export function ChoferesPage() {
       if (esTablaFaltante(e)) setSinInstalar(true);
       else toast(e instanceof Error ? e.message : 'No se pudo cargar el módulo de choferes', 'error');
     } finally { setLoading(false); }
-  }, []);
+  }, [actor, actorName]);
   useEffect(() => { void recargar(); }, [recargar]);
-  // Silencioso: el cambio de otro usuario no deja la pantalla en «Cargando…».
-  useRealtime([...TABLAS_CHOFERES, 'cajas', 'caja_saldos'], () => { void recargar(); });
+  // Silencioso: el cambio de otro usuario (incluyendo en personal o personal_documentos) no deja la pantalla en «Cargando…».
+  useRealtime([...TABLAS_CHOFERES, 'cajas', 'caja_saldos', 'personal', 'personal_documentos'], () => { void recargar(); });
+
 
   const datos: DatosChoferes = useMemo(() => ({
     conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar,

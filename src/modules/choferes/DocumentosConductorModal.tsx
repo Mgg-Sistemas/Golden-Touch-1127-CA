@@ -13,6 +13,7 @@ import { FechaVe } from '@/shared/ui/FechaVe';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { megas } from './archivosChofer';
+import { urlDocumentoPersonal, borrarDocumentoPersonal } from '@/modules/rrhh/documentos.repository';
 import {
   TIPOS_DOCUMENTO_CHOFER, eliminarDocumentoChofer, subirDocumentoChofer, urlDocumentoChofer,
   type Conductor, type DocumentoChofer, type TipoDocumentoChofer,
@@ -40,8 +41,14 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
   }, [documentos]);
 
   async function ver(d: DocumentoChofer) {
-    try { previewArchivo(await urlDocumentoChofer(d.path), d.nombre); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir', 'error'); }
+    try {
+      const url = d.origen === 'rrhh'
+        ? await urlDocumentoPersonal(d.path)
+        : await urlDocumentoChofer(d.path);
+      previewArchivo(url, d.nombre);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir', 'error');
+    }
   }
 
   async function subir(tipo: TipoDocumentoChofer) {
@@ -60,18 +67,34 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
   async function confirmarBorrar() {
     const d = borrar; setBorrar(null);
     if (!d) return;
-    try { await eliminarDocumentoChofer(d); toast('Documento eliminado', 'success'); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    try {
+      if (d.origen === 'rrhh') {
+        const idRrhh = d.id.replace(/^rrhh-/, '');
+        await borrarDocumentoPersonal({ id: idRrhh, path: d.path });
+      } else {
+        await eliminarDocumentoChofer(d);
+      }
+      toast('Documento eliminado', 'success');
+      await onChanged();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error');
+    }
   }
 
   const toggleHist = (k: string) => setAbrirHist((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   function Fila({ d, vigente }: { d: DocumentoChofer; vigente: boolean }) {
+    const esRrhh = d.origen === 'rrhh';
     return (
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', padding: '.35rem .5rem', borderRadius: 6, background: vigente ? 'rgba(41,192,129,.08)' : 'transparent', fontSize: '.84rem' }}>
         <span style={{ flex: '1 1 200px', minWidth: 0 }}>
-          <strong style={{ overflowWrap: 'anywhere' }}>{d.nombre}</strong>{d.tamano ? <span className="muted"> · {megas(d.tamano)}</span> : null}
-          <div className="muted" style={{ fontSize: '.74rem' }}>Subido {fechaHora(d.created_at)}{d.subido_por_nombre || d.subido_por ? <> por <Quien nombre={d.subido_por_nombre} correo={d.subido_por} /></> : ''}</div>
+          <strong style={{ overflowWrap: 'anywhere' }}>{d.nombre}</strong>
+          {esRrhh && <span className="badge" style={{ marginLeft: 6, fontSize: '.68rem', background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)' }} title="Documento cargado desde la ficha de RRHH">👥 Desde RRHH</span>}
+          {d.tamano ? <span className="muted"> · {megas(d.tamano)}</span> : null}
+          <div className="muted" style={{ fontSize: '.74rem' }}>
+            Subido {fechaHora(d.created_at)}
+            {d.subido_por_nombre || d.subido_por ? <> por <Quien nombre={d.subido_por_nombre} correo={d.subido_por} /></> : ''}
+          </div>
         </span>
         {d.vence && <BadgeVence vence={d.vence} hoy={hoy} />}
         <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)}>👁 Ver</button>
@@ -79,6 +102,7 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
       </div>
     );
   }
+
 
   function Subida({ tipo, conEtiqueta }: { tipo: TipoDocumentoChofer; conEtiqueta?: boolean }) {
     const v = f(tipo);
@@ -127,8 +151,8 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
               </div>
             );
           }
-          const vigente = lista.find((d) => d.vigente) ?? null;
-          const hist = lista.filter((d) => d.id !== vigente?.id);
+          const vigentes = lista.filter((d) => d.vigente);
+          const hist = lista.filter((d) => !d.vigente);
           const venceExp = conductor[t.campoVence as 'licencia_vence'];
           return (
             <div key={t.key} className="card" style={{ padding: '.6rem .75rem' }}>
@@ -136,9 +160,10 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
                 {t.icon} {t.label}
                 <span style={{ marginLeft: 'auto' }}><BadgeVence vence={venceExp} hoy={hoy} /></span>
               </div>
-              {vigente
-                ? <Fila d={vigente} vigente />
+              {vigentes.length > 0
+                ? vigentes.map((d) => <Fila key={d.id} d={d} vigente />)
                 : <div className="muted" style={{ fontSize: '.82rem' }}>Todavía no se ha subido {t.label.toLowerCase()}.{venceExp ? ' El vencimiento del expediente se cargó a mano.' : ''}</div>}
+
               {!!hist.length && (
                 <div style={{ marginTop: '.3rem' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => toggleHist(t.key)}>🕓 Histórico: {hist.length} versión(es) anterior(es) · última subida {fechaHora(lista[0].created_at)} {abrirHist.has(t.key) ? '▴' : '▾'}</button>

@@ -395,11 +395,21 @@ export function DocumentacionPersona({
             <label>¿Qué documento es? *</label>
             <input className="input" autoFocus value={nuevoNombre} maxLength={80}
               onChange={(e) => setNuevoNombre(e.target.value)}
-              placeholder="Ej. Título universitario, Certificado médico" />
+              placeholder="Ej. Licencia de conducir, Certificado médico" />
+            <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginTop: '.35rem' }}>
+              {['Licencia de conducir', 'Certificado médico', 'Seguro vehicular', 'Carta de antecedentes', 'Título profesional'].map((sug) => (
+                <button key={sug} type="button" className="btn btn-xs btn-ghost"
+                  onClick={() => setNuevoNombre(sug)}
+                  style={{ fontSize: '.72rem', padding: '2px 8px', borderRadius: 4, border: '1px dashed var(--border)' }}>
+                  + {sug}
+                </button>
+              ))}
+            </div>
             {errorNombreDocumento(nuevoNombre)
               ? <small style={{ color: 'var(--danger)' }}>{errorNombreDocumento(nuevoNombre)}</small>
-              : <small className="muted">Es el nombre con el que se va a ver en la lista.</small>}
+              : <small className="muted">Es el nombre con el que se va a ver en la lista y en Choferes / Conductores.</small>}
           </div>
+
           <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
             Archivo: <strong>{nuevoArchivo.name}</strong> · {peso(nuevoArchivo.size)}
           </p>

@@ -74,7 +74,73 @@ export function peorEstadoDocumentos(c: DocumentosChofer, hoy: string): EstadoVe
   return 'vigente';
 }
 
-/* ───────────── Estado operativo ───────────── */
+/* ───────────── Detección de chofer y documentos desde RRHH ───────────── */
+
+/** ¿La ficha de RRHH dice que maneja? (cargo CONDUCTOR, CHOFER, TRANSPORTE, GANDOLERO, CAMIONERO, MOTORIZADO…) */
+export function esCargoDeChofer(p: { cargo?: string | null; departamento?: string | null }): boolean {
+  const t = `${p.cargo ?? ''} ${p.departamento ?? ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /chofer|conductor|transpor|gandol|camioner|motoriz|volquet/.test(t);
+}
+
+export type TipoDocChoferClasificado = 'licencia' | 'certificado_medico' | 'seguro' | 'otro';
+
+/** Clasifica un documento proveniente de RRHH (personal_documentos) dentro de las categorías de Choferes. */
+export function clasificarDocRrhh(pDoc: { tipo?: string | null; nombre?: string | null }): { tipo: TipoDocChoferClasificado; etiqueta: string } {
+  const nombre = (pDoc.nombre || '').trim();
+  const norm = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (pDoc.tipo === 'ci') return { tipo: 'otro', etiqueta: 'Cédula de identidad (RRHH)' };
+  if (pDoc.tipo === 'rif') return { tipo: 'otro', etiqueta: 'RIF personal (RRHH)' };
+  if (pDoc.tipo === 'cv') return { tipo: 'otro', etiqueta: 'Currículum Vitae (RRHH)' };
+  if (/licencia|conducir|brevete/.test(norm)) return { tipo: 'licencia', etiqueta: nombre || 'Licencia de conducir' };
+  if (/certificado.*medic|medico|medica|salud/.test(norm)) return { tipo: 'certificado_medico', etiqueta: nombre || 'Certificado médico' };
+  if (/seguro|poliza/.test(norm)) return { tipo: 'seguro', etiqueta: nombre || 'Seguro' };
+  return { tipo: 'otro', etiqueta: nombre || 'Documento RRHH' };
+}
+
+/**
+ * Fusiona los documentos propios del módulo de Choferes (choferes_documentos) con los documentos
+ * subidos en la ficha de RRHH (personal_documentos) para que aparezcan unificados en el expediente.
+ */
+export function fusionarDocumentosChofer<
+  TDocChofer extends { id: string; chofer_id: string; tipo: TipoDocChoferClasificado; etiqueta: string | null; path: string; nombre: string; created_at: string; vigente: boolean },
+  TDocPersonal extends { id: string; personal_id: string; tipo: string; path: string; nombre: string; mime?: string | null; tamano?: number | null; created_at: string; created_by?: string | null },
+  TCond extends { id: string; personal_id?: string | null }
+>(
+  docsChofer: TDocChofer[],
+  docsPersonal: TDocPersonal[],
+  conductores: TCond[]
+): (TDocChofer & { origen?: 'choferes' | 'rrhh'; subido_por?: string | null; subido_por_nombre?: string | null; mime?: string | null; tamano?: number | null; vence?: string | null })[] {
+  const porPersonalId = new Map(
+    conductores.filter((c) => c.personal_id).map((c) => [c.personal_id as string, c])
+  );
+  const out: (TDocChofer & { origen?: 'choferes' | 'rrhh'; subido_por?: string | null; subido_por_nombre?: string | null; mime?: string | null; tamano?: number | null; vence?: string | null })[] = [
+    ...docsChofer.map((d) => ({ ...d, origen: 'choferes' as const })),
+  ];
+  for (const pDoc of docsPersonal) {
+    const c = porPersonalId.get(pDoc.personal_id);
+    if (!c) continue;
+    const { tipo, etiqueta } = clasificarDocRrhh(pDoc);
+    out.push({
+      ...({} as TDocChofer),
+      id: `rrhh-${pDoc.id}`,
+      chofer_id: c.id,
+      tipo,
+      etiqueta,
+      path: pDoc.path,
+      nombre: pDoc.nombre,
+      mime: pDoc.mime ?? null,
+      tamano: pDoc.tamano ?? null,
+      vence: null,
+      vigente: true,
+      subido_por: pDoc.created_by ?? null,
+      subido_por_nombre: null,
+      created_at: pDoc.created_at,
+      origen: 'rrhh',
+    });
+  }
+  return out;
+}
+
 
 export type EstadoChofer = 'en_ruta' | 'descanso' | 'disponible' | 'inactivo';
 

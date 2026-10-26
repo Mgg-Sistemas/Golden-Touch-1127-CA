@@ -20,7 +20,7 @@ import { registrarGasto, registrarIngresoCaja } from '@/modules/tesoreria/tesore
 import type { CuentaCaja } from '@/shared/lib/types';
 import type { VehiculoCatalogo } from '@/modules/asignaciones/vehiculosCatalogo';
 import {
-  tipoViajeDe, cantidadViajes, tasasDeConductor, codificarObservacionesConTasas,
+  tipoViajeDe, cantidadViajes, tasasDeConductor, codificarObservacionesConTasas, esCargoDeChofer,
   type Liquidacion, type LineaRecibo, type Parada, type ReciboCalculado, type TipoViaje, type TasasChofer,
 } from './choferes';
 import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from './archivosChofer';
@@ -275,10 +275,29 @@ export async function setConductorActivo(id: string, activo: boolean): Promise<v
   if (error) throw err(error, 'No se pudo cambiar el estado del conductor.');
 }
 
-/** ¿La ficha de RRHH dice que maneja? (cargo CONDUCTOR, CHOFER, AYUDANTE GENERAL CONDUCTOR…) */
-export function esCargoDeChofer(p: Pick<Personal, 'cargo' | 'departamento'>): boolean {
-  const t = `${p.cargo ?? ''} ${p.departamento ?? ''}`.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  return /chofer|conductor|transport/.test(t);
+// Detección de cargo de chofer (lógica pura)
+export { esCargoDeChofer } from './choferes';
+
+/** Asegura que una persona con cargo de chofer tenga su expediente en conductores (crea o reactiva). */
+export async function asegurarConductorDesdePersonal(personalId: string, actor: string, actorName: string | null): Promise<void> {
+  const { data: existente } = await supabase.from(T_CONDUCTORES).select('id, activo').eq('personal_id', personalId).maybeSingle();
+  if (!existente) {
+    await supabase.from(T_CONDUCTORES).insert({
+      personal_id: personalId,
+      tarifa_viaje_usd: 0,
+      activo: true,
+      created_by: actor,
+      actor_name: actorName,
+      observaciones: 'Expediente creado automáticamente desde RRHH.',
+    });
+  } else if (!existente.activo) {
+    await supabase.from(T_CONDUCTORES).update({ activo: true }).eq('id', existente.id);
+  }
+}
+
+/** Sincroniza el estado activo/inactivo del conductor cuando cambia en RRHH. */
+export async function sincronizarEstadoConductor(personalId: string, activo: boolean): Promise<void> {
+  await supabase.from(T_CONDUCTORES).update({ activo }).eq('personal_id', personalId);
 }
 
 /** Crea el expediente (vacío) de todo el personal activo con cargo de chofer que todavía no lo tiene. */
@@ -980,6 +999,8 @@ export interface DocumentoChofer {
   subido_por: string | null;
   subido_por_nombre: string | null;
   created_at: string;
+  /** 'choferes' si viene de choferes_documentos o 'rrhh' si viene de personal_documentos */
+  origen?: 'choferes' | 'rrhh';
 }
 
 /** Todos los documentos (vigentes e históricos), del más nuevo al más viejo. */

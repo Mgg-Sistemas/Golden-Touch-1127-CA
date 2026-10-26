@@ -16,6 +16,7 @@ import {
 } from './personal.repository';
 import { DocumentacionPersona, type DocsPendientes } from './DocumentacionPersona';
 import { listDocumentosDeTodos, subirDocumentoPersonal, TIPOS_DOCUMENTO } from './documentos.repository';
+import { asegurarConductorDesdePersonal, esCargoDeChofer, sincronizarEstadoConductor } from '@/modules/choferes/choferes.repository';
 import type { EmpresaRrhh, PersonalDocumento, PersonalFamiliar, TipoDocumento } from '@/shared/lib/types';
 import { CargaFamiliarPersona } from './CargaFamiliarPersona';
 import { FichaTecnicaPersonal } from './FichaTecnicaPersonal';
@@ -120,7 +121,7 @@ function detalleCascada(r: ResumenBorradoPersonal): string[] {
 
 export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh; canWrite: boolean; actor: string }) {
   // Solo un admin puede borrar un renglón del historial de sueldo.
-  const { can } = usePermissions();
+  const { can, appUser } = usePermissions();
   const isAdmin = can('rrhh', 'full'); // Full control de RRHH actúa como el admin en el módulo (17/10/2026).
   const [lista, setLista] = useState<Personal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -466,8 +467,19 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     try {
       if (editId) {
         await actualizarPersonal(editId, datos);
+        if (esCargoDeChofer(datos)) {
+          const actual = lista.find((p) => p.id === editId);
+          if (!actual || actual.activo) {
+            await asegurarConductorDesdePersonal(editId, actor, appUser?.nombre ?? null).catch(() => {});
+          } else {
+            await sincronizarEstadoConductor(editId, false).catch(() => {});
+          }
+        }
       } else {
         const creada = await crearPersonal({ ...datos, empresa }, actor);
+        if (esCargoDeChofer(datos)) {
+          await asegurarConductorDesdePersonal(creada.id, actor, appUser?.nombre ?? null).catch(() => {});
+        }
         // Recién ahora hay un id al que colgarle la foto. Si falla, el registro
         // ya quedó guardado: se avisa y la foto se carga después.
         if (fotoPendiente) {
