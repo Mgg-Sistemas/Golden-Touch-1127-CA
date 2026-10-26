@@ -2304,9 +2304,22 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                   <input className="input mono" value={cfg.rif ?? ''} onChange={(e) => set('rif', e.target.value)} placeholder="J-XXXXXXXX-X" />
                 </div>
               </div>
-              <div className="form-row">
-                <label>Dirección fiscal</label>
-                <input className="input" value={cfg.direccionFiscal ?? ''} onChange={(e) => set('direccionFiscal', e.target.value)} />
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                <div className="form-row" style={{ flex: '1 1 260px' }}>
+                  <label>Dirección fiscal</label>
+                  <input className="input" value={cfg.direccionFiscal ?? ''} onChange={(e) => set('direccionFiscal', e.target.value)} />
+                </div>
+                <div className="form-row" style={{ flex: '1 1 200px' }}>
+                  <label>Correo electrónico institucional</label>
+                  <input
+                    type="email"
+                    className="input"
+                    value={cfg.email ?? ''}
+                    onChange={(e) => set('email', e.target.value)}
+                    placeholder="info@goldentouch1127.com"
+                  />
+                  <small className="hint muted">Se imprime en los comprobantes fiscales de retención.</small>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
                 <div className="form-row" style={{ flex: '1 1 180px' }}>
@@ -2343,7 +2356,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                   <span>Imprimir Original y Copia (Página 1: Sujeto Retenido · Página 2: Agente de Retención)</span>
                 </label>
                 <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
-                  Cumplimiento de Providencias SENIAT (SNAT/2015/0049 IVA y Art. 24 D. 1808 ISLR). Si se desactiva, el comprobante se emitirá en una sola página (Solo Original).
+                  Cumplimiento de Providencias SENIAT (SNAT/2025/000054 IVA y Art. 24 D. 1808 ISLR). Si se desactiva, el comprobante se emitirá en una sola página (Solo Original).
                 </p>
               </div>
 
