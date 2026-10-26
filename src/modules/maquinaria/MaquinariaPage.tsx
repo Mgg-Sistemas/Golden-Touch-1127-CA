@@ -6,11 +6,14 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { useSession } from '@/modules/auth/authStore';
 import { num as fmtNum } from '@/shared/lib/format';
 import { norm } from '@/shared/lib/texto';
+import { ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
+import { toast } from '@/shared/ui/Toast';
 import { MaquinariaCatalogoModal } from './MaquinariaCatalogoModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import { listEquipos, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { listEquipos, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
@@ -19,12 +22,17 @@ import {
 } from './flota';
 import { ordenesAbiertasPorEquipo, fotosDeEquipos, lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
 import { FlotaNav } from './FlotaNav';
+import { BarraServicio } from './ServicioMantenimientoPage';
+import { BitacoraModal } from './BitacoraModal';
+import { AccionConEquipo } from './AccionConEquipo';
 
 interface InfoEquipo {
   estado: EstadoEquipo;
   clase: ClaseEquipo;
   horometro: number | null;
   km: number | null;
+  avisoH: AvisoServicio | null;
+  avisoK: AvisoServicio | null;
   aviso: AvisoServicio | null;
 }
 
@@ -61,6 +69,9 @@ export function MaquinariaPage() {
   const [resumenOpen, setResumenOpen] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
   const [nuevo, setNuevo] = useState(false);
+  const [nuevaOrdenEq, setNuevaOrdenEq] = useState<MaquinariaEquipo | null>(null);
+  const [bitacoraEq, setBitacoraEq] = useState<MaquinariaEquipo | null>(null);
+  const [reiniciarEq, setReiniciarEq] = useState<{ e: MaquinariaEquipo; info: InfoEquipo } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -95,14 +106,24 @@ export function MaquinariaPage() {
       const lec = lecturas.get(e.id);
       const horo = lec?.horometro ?? null;
       const km = lec?.kilometraje ?? null;
-      const aviso = avisoMasUrgente(
-        avisoServicio(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs, 'h'),
-        avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km'),
-      );
-      m.set(e.id, { estado: estadoEfectivo(e), clase: claseEquipo(e), horometro: horo, km, aviso });
+      const avisoH = avisoServicio(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs, 'h');
+      const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
+      const aviso = avisoMasUrgente(avisoH, avisoK);
+      m.set(e.id, { estado: estadoEfectivo(e), clase: claseEquipo(e), horometro: horo, km, avisoH, avisoK, aviso });
     }
     return m;
   }, [equipos, lecturas]);
+
+  async function confirmarReinicio(e: MaquinariaEquipo) {
+    try {
+      const { horas, km } = await reiniciarMantenimientoDeEquipo(e.id);
+      const partes = [horas != null ? `${fmtNum(horas)} h` : null, km != null ? `${fmtNum(km)} km` : null].filter(Boolean);
+      toast(`Mantenimiento registrado para ${e.equipo}: contador reiniciado${partes.length ? ` (${partes.join(' · ')})` : ''}.`, 'success');
+      await cargar();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo reiniciar el mantenimiento', 'error');
+    }
+  }
 
   // GT-INT-15 · Fichas que apuntan a un valor que ya no está en el catálogo de
   // Combustible: no ven su horómetro ni su gasoil, y su alerta NO suena.
@@ -266,27 +287,60 @@ export function MaquinariaPage() {
               const cl = CLASES_EQUIPO.find((c) => c.id === i.clase);
               const alerta = !!i.aviso && i.aviso.nivel !== 'ok' && i.estado !== 'retirada';
               return (
-                <button key={e.id} type="button" className={`flo-row${alerta ? ' alerta' : ''}${e.activo ? '' : ' inactivo'}`}
-                  onClick={() => navigate(`/app/maquinaria/equipo/${e.id}`)} aria-label={`Abrir expediente de ${e.equipo}`}>
-                  <div className="flo-thumb">{foto ? <img src={foto} alt="" loading="lazy" /> : <span aria-hidden="true">{cl?.icon ?? '🚜'}</span>}</div>
+                <div key={e.id} className={`flo-row${alerta ? ' alerta' : ''}${e.activo ? '' : ' inactivo'}`} style={{ cursor: 'default' }}>
+                  <div className="flo-thumb" style={{ cursor: 'pointer' }} onClick={() => navigate(`/app/maquinaria/equipo/${e.id}`)} title="Abrir expediente del equipo">
+                    {foto ? <img src={foto} alt="" loading="lazy" /> : <span aria-hidden="true">{cl?.icon ?? '🚜'}</span>}
+                  </div>
                   <div className="flo-main">
-                    <div className="flo-top"><span className="flo-code">{e.equipo}</span>{e.tipo && <span className="flo-tipo">{e.tipo}</span>}</div>
+                    <div className="flo-top">
+                      <Link to={`/app/maquinaria/equipo/${e.id}`} className="flo-code" title="Abrir expediente del equipo">{e.equipo}</Link>
+                      {e.tipo && <span className="flo-tipo">{e.tipo}</span>}
+                    </div>
                     <div className="flo-subl">{[e.marca, e.modelo, e.placa || e.serial].filter(Boolean).join(' · ') || '—'}</div>
                     {i.estado !== 'operativa' && e.estado_nota && <div className={`flo-nota ${notaClase}`}>{e.estado_nota}</div>}
                     <div className="flo-meta">
                       <span className={`flo-chip tone-${st.tono}`}>{st.icon} {st.label}</span>
+                      {e.encargado_responsable && <span>👤 {e.encargado_responsable}</span>}
                       {e.ubicacion && <span>📍 {e.ubicacion}</span>}
-                      {nOrd > 0 && <span>🧾 {nOrd} orden(es)</span>}
-                      {alerta && i.aviso && (
-                        <span className={i.aviso.nivel === 'vencido' ? 'danger' : 'warn'}>
-                          ⏱️ {i.aviso.nivel === 'vencido' ? `Servicio vencido ${fmtNum(Math.abs(i.aviso.restante))} ${i.aviso.unidad}` : `Servicio en ${fmtNum(i.aviso.restante)} ${i.aviso.unidad}`}
-                        </span>
+                      {nOrd > 0 && <Link to={`/app/maquinaria/equipo/${e.id}?tab=servicios`} style={{ textDecoration: 'none' }}>🧾 {nOrd} orden(es)</Link>}
+                      {(i.horometro != null || i.km != null) && (
+                        <span>⏱️ {[i.horometro != null ? `${fmtNum(i.horometro)} h` : null, i.km != null ? `${fmtNum(i.km)} km` : null].filter(Boolean).join(' · ')}</span>
                       )}
-                      {i.aviso?.nivel === 'ok' && <span>⏱️ faltan {fmtNum(i.aviso.restante)} {i.aviso.unidad}</span>}
-                      {!i.aviso && (i.horometro != null || i.km != null) && <span>{i.horometro != null ? `${fmtNum(i.horometro)} h` : `${fmtNum(i.km)} km`}</span>}
+                    </div>
+
+                    {/* Barra de mantenimiento por horas o km visible directo en el catálogo */}
+                    {(e.mantenimiento_cada_hrs || i.horometro != null || e.mantenimiento_cada_km || i.km != null) && (
+                      <div className="flo-mant-barras" style={{ margin: '.35rem 0' }}>
+                        {(e.mantenimiento_cada_hrs || i.horometro != null) && (
+                          <BarraServicio aviso={i.avisoH} cada={e.mantenimiento_cada_hrs} etiqueta="Horas" />
+                        )}
+                        {(e.mantenimiento_cada_km || i.km != null) && (
+                          <BarraServicio aviso={i.avisoK} cada={e.mantenimiento_cada_km} etiqueta="Kilometraje" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Puro botón: acciones directas y táctiles para operarios y mecánicos */}
+                    <div className="flo-orden-foot" style={{ marginTop: '.35rem' }}>
+                      <button type="button" className="btn btn-sm" onClick={() => setBitacoraEq(e)} title="Ver bitácora de lecturas y mantenimientos">
+                        📒 Bitácora
+                      </button>
+                      <Link className="btn btn-sm" to={`/app/maquinaria/equipo/${e.id}`} title="Abrir expediente completo">
+                        📂 Expediente
+                      </Link>
+                      {canWrite && e.activo && (
+                        <button type="button" className="btn btn-sm btn-primary" onClick={() => setNuevaOrdenEq(e)} title="Crear orden de servicio">
+                          🔧 Nueva orden
+                        </button>
+                      )}
+                      {canWrite && e.activo && alerta && (
+                        <button type="button" className="btn btn-sm btn-success" onClick={() => setReiniciarEq({ e, info: i })} title="Marcar mantenimiento hecho y reiniciar contador">
+                          ✔ Mantt. hecho
+                        </button>
+                      )}
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -296,6 +350,32 @@ export function MaquinariaPage() {
       {catalogoOpen && <MaquinariaCatalogoModal canWrite={canWrite} onClose={() => setCatalogoOpen(false)} />}
       {resumenOpen && <ResumenMaquinariaModal equipos={equipos.filter((e) => e.activo)} onClose={() => setResumenOpen(false)} />}
       {nuevo && <EquipoFormModal equipo={null} actor={actor} onClose={() => setNuevo(false)} onSaved={cargar} />}
+      {nuevaOrdenEq && (
+        <AccionConEquipo accion="orden" equipos={equipos} equipoInicial={nuevaOrdenEq.id} onClose={() => setNuevaOrdenEq(null)} onDone={() => void cargar()} />
+      )}
+      {bitacoraEq && (
+        <BitacoraModal equipo={bitacoraEq} canWrite={canWrite} actor={actor} actorName={user?.email ?? null} onClose={() => setBitacoraEq(null)} />
+      )}
+      {reiniciarEq && (
+        <ConfirmDialog
+          title="Mantenimiento hecho"
+          confirmText="Reiniciar contador"
+          message="Se marca el mantenimiento como realizado: el contador de horas/km vuelve a empezar desde la lectura vigente."
+          preview={
+            <VistaPrevia titulo="Base nueva">
+              <Dato label="Equipo">{reiniciarEq.e.equipo}</Dato>
+              <Dato label="Horómetro">{reiniciarEq.info.horometro != null ? `${fmtNum(reiniciarEq.info.horometro)} h` : undefined}</Dato>
+              <Dato label="Kilometraje">{reiniciarEq.info.km != null ? `${fmtNum(reiniciarEq.info.km)} km` : undefined}</Dato>
+            </VistaPrevia>
+          }
+          onCancel={() => setReiniciarEq(null)}
+          onConfirm={() => {
+            const r = reiniciarEq;
+            setReiniciarEq(null);
+            void confirmarReinicio(r.e);
+          }}
+        />
+      )}
       {correoOpen && (
         <CorreoReporteModal
           titulo="Enviar Control de Maquinaria y Vehículos"

@@ -41,7 +41,7 @@ const GRUPO_ICON: Record<string, string> = {
 type FiltroServicio = EstadoServicio | 'todos';
 
 /** Barra de avance hacia el próximo servicio de una dimensión (horas o km). */
-function BarraServicio({ aviso, cada, etiqueta }: { aviso: AvisoServicio | null; cada: number | null; etiqueta: string }) {
+export function BarraServicio({ aviso, cada, etiqueta }: { aviso: AvisoServicio | null; cada: number | null; etiqueta: string }) {
   if (!aviso) {
     return (
       <div className="flo-mant-barra sin">

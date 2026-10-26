@@ -571,3 +571,13 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 .flo-rep-check { display: grid; gap: .3rem; max-height: 280px; overflow-y: auto; }
 .flo-rep-check label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem; align-items: start; padding: .4rem .5rem; border-radius: var(--r-md); background: var(--bg-1); border: 1px solid var(--border); font-size: .82rem; cursor: pointer; }
 .flo-rep-check input { margin-top: .2rem; }
+
+/* Ficha de equipo en Compras (PC vs Móvil) */
+@media (min-width: 768px) {
+  .compras-ficha-movil { display: none !important; }
+  .compras-ficha-pc { display: block !important; }
+}
+@media (max-width: 767px) {
+  .compras-ficha-pc { display: none !important; }
+  .compras-ficha-movil { display: block !important; }
+}

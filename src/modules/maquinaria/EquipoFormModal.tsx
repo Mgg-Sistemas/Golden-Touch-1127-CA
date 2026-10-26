@@ -44,11 +44,13 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     doc_drive: equipo?.doc_drive ?? false,
     esp_tecnicas: equipo?.esp_tecnicas ?? false,
     revision_mina: equipo?.revision_mina ?? false,
+    encargado_responsable: equipo?.encargado_responsable ?? null,
     notas: equipo?.notas ?? null,
   }));
   const [tipos, setTipos] = useState<string[]>([]);
   const [props, setProps] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
+  const [encargados, setEncargados] = useState<string[]>([]);
   const [combEquipos, setCombEquipos] = useState<string[]>([]);        // solo activos: lo que ofrece el selector
   const [combEquiposTodos, setCombEquiposTodos] = useState<string[]>([]); // todos: para saber si el vinculo existe
   const [ubicaciones, setUbicaciones] = useState<string[]>([]);
@@ -64,6 +66,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     });
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
+    listActivosMaquinaria('encargado_responsable').then(setEncargados).catch(() => {});
     // Equipos y UBICACIONES se traen del catálogo de Combustible (fuente única).
     // Se guardan DOS listas de equipos a propósito: el desplegable solo ofrece los
     // ACTIVOS (no tiene sentido elegir uno dado de baja), pero para decidir si el
@@ -107,6 +110,9 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
       else await updateEquipo(equipo!.id, f);
       if (f.tipo?.trim()) {
         addCatalogoMaquinaria('tipo_maquinaria', f.tipo.trim().toUpperCase()).catch(() => {});
+      }
+      if (f.encargado_responsable?.trim()) {
+        addCatalogoMaquinaria('encargado_responsable', f.encargado_responsable.trim().toUpperCase()).catch(() => {});
       }
       toast(esNuevo ? 'Equipo creado' : 'Equipo actualizado', 'success');
       onSaved(); onClose();
@@ -155,6 +161,17 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
               {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
+        </div>
+
+        <div className="form-row" style={{ marginTop: '.25rem' }}>
+          <label>Encargado responsable (chofer / operador / mecánico)</label>
+          <SearchCreateSelect
+            value={f.encargado_responsable ?? ''}
+            onChange={(v) => set('encargado_responsable', upper(v) || null)}
+            options={encargados}
+            placeholder="Elige o escribe el nombre del encargado…"
+          />
+          <small className="muted">Catálogo de encargados: al escribir un nombre nuevo se guarda para los demás equipos.</small>
         </div>
 
         <div className="form-grid">

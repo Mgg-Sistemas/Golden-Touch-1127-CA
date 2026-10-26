@@ -111,6 +111,8 @@ import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_GERENTE_CANCELA, ESTADOS_FIRM
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
 import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio';
+import { FichaEquipoCompras } from './FichaEquipoCompras';
+import { listEquipos } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { fijarNumeroAdministracion } from '@/modules/proveedores/proveedores.repository';
@@ -480,9 +482,23 @@ export function PedidosPage() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const [equiposMap, setEquiposMap] = useState<Map<string, { equipo: string; marca?: string | null; modelo?: string | null; repuestos?: string[] }>>(new Map());
+  useEffect(() => {
+    listEquipos().then((eqs) => {
+      const m = new Map<string, { equipo: string; marca?: string | null; modelo?: string | null; repuestos?: string[] }>();
+      eqs.forEach((e) => m.set(e.id, { equipo: e.equipo, marca: e.marca, modelo: e.modelo }));
+      setEquiposMap(m);
+    }).catch(() => {});
+  }, []);
+
   // sku → categoría, para que el buscador encuentre por categoría del producto.
   const categoriaPorSku = useMemo(() => new Map(productos.map((p) => [p.sku, p.categoria])), [productos]);
-  const ctxBusqueda = useMemo(() => ({ proveedores: proveedorMap, personas: personaMap, categorias: categoriaPorSku }), [proveedorMap, personaMap, categoriaPorSku]);
+  const ctxBusqueda = useMemo(() => ({
+    proveedores: proveedorMap,
+    personas: personaMap,
+    categorias: categoriaPorSku,
+    equipos: equiposMap,
+  }), [proveedorMap, personaMap, categoriaPorSku, equiposMap]);
   // Quiénes hicieron las órdenes de la pestaña actual (para el select «Realizadas por»).
   const personasRealizaron = useMemo(() => {
     const base = ordenes.filter((o) => (scope === 'servicios' ? o.tipo === 'servicio' : !(o.tipo === 'servicio' && canManageProcurement)));
@@ -3195,6 +3211,13 @@ function OrdenDetailModal({
       {o.tipo === 'servicio' && (
         <AnticipoServicioBloque orden={o} actorEmail={actorEmail || 'sistema'} onSaved={onAcceptedOffer} />
       )}
+      {/* Ficha técnica del equipo y marcas de filtros para compras (PC / Móvil) */}
+      <FichaEquipoCompras
+        equipoId={o.items?.find((it) => it.equipo_id)?.equipo_id}
+        equipoNombre={o.items?.find((it) => it.equipo_nombre)?.equipo_nombre}
+        spId={o.id}
+        ordenCodigo={o.oc_codigo ?? o.codigo}
+      />
       {/* Si la SP nació de una orden de servicio de Maquinaria, sus fotos. */}
       <FotosOrdenServicioDeSp spId={o.id} />
       {conP03 && !isPendiente && (

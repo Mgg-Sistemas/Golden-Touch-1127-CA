@@ -16,6 +16,8 @@ export interface ContextoBusqueda {
   personas?: Map<string, string>;
   /** sku → categoría del producto. */
   categorias?: Map<string, string>;
+  /** equipo_id → nombre, marca, modelo y marcas de repuestos/filtros */
+  equipos?: Map<string, { equipo: string; marca?: string | null; modelo?: string | null; repuestos?: string[] }>;
 }
 
 /** Un monto en todas las grafías con las que alguien lo escribiría. */
@@ -100,11 +102,15 @@ export function textoBuscableOrden(o: Orden, ctx: ContextoBusqueda = {}): string
     ...grafiasFecha(o.created_at), ...grafiasFecha(o.aprobada_en), ...grafiasFecha(o.oc_creada_en),
     ...grafiasFecha(o.oc_aprobada_en), ...grafiasFecha(o.pagada_en), ...grafiasFecha(o.recibida_en),
     ...grafiasFecha(o.finalizada_en),
-    ...items.flatMap((it) => [
-      it.sku, it.nombre, it.marca, it.modelo, it.unidad, it.area, it.finalidad,
-      it.equipo_nombre, it.insumo_nombre, it.categoria_servicio, it.marca_recibida, it.modelo_recibido,
-      ctx.categorias?.get(it.sku), ...grafiasMonto(it.precio), ...grafiasMonto(it.cantidad * it.precio),
-    ]),
+    ...items.flatMap((it) => {
+      const eq = it.equipo_id ? ctx.equipos?.get(it.equipo_id) : undefined;
+      return [
+        it.sku, it.nombre, it.marca, it.modelo, it.unidad, it.area, it.finalidad,
+        it.equipo_nombre, it.insumo_nombre, it.categoria_servicio, it.marca_recibida, it.modelo_recibido,
+        eq?.equipo, eq?.marca, eq?.modelo, ...(eq?.repuestos ?? []),
+        ctx.categorias?.get(it.sku), ...grafiasMonto(it.precio), ...grafiasMonto(it.cantidad * it.precio),
+      ];
+    }),
     ...(o.detalle_servicio ?? []).map((d) => JSON.stringify(d)),
   ];
   return partes.map((v) => norm(v == null ? '' : String(v))).filter(Boolean).join(' | ');

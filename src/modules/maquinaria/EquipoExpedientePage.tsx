@@ -315,6 +315,7 @@ export function EquipoExpedientePage() {
           <div className="pin">
             <small>SERIAL / PIN</small><b>{eq.serial || '—'}</b>
             {eq.placa && <><small>PLACA</small><b>{eq.placa}</b></>}
+            {eq.encargado_responsable && <><small>ENCARGADO</small><b>{eq.encargado_responsable}</b></>}
           </div>
         </div>
       </div>

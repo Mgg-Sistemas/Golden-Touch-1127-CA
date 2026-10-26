@@ -49,6 +49,8 @@ export interface MaquinariaEquipo {
   esp_tecnicas: boolean;
   revision_mina: boolean;
   notas: string | null;
+  /** Encargado responsable del equipo o vehículo (chofer, operador, mecánico). */
+  encargado_responsable?: string | null;
   /** Estado operativo (Flota y Servicio, 09/10/2026). null = se deduce de status/activo
    *  (ver `estadoEfectivo` en flota.ts). Lo cambia el RPC `maquinaria_cambiar_estado`. */
   estado_operativo?: string | null;
@@ -63,6 +65,31 @@ export interface MaquinariaEquipo {
 
 export type MaquinariaEquipoInput = Partial<Omit<MaquinariaEquipo, 'id' | 'created_at' | 'updated_at'>> & { equipo: string };
 
+/** Extrae el encargado responsable del campo directo o del tag [Encargado: Nombre] en notas. */
+export function extraerEncargado(eq: { notas?: string | null; encargado_responsable?: string | null }): string | null {
+  if (eq.encargado_responsable?.trim()) return eq.encargado_responsable.trim();
+  const m = (eq.notas ?? '').match(/\[(?:Encargado|Responsable):\s*([^\]]+)\]/i);
+  return m ? m[1].trim() : null;
+}
+
+/** Inserta o actualiza el tag [Encargado: Nombre] en notas sin perder el resto del texto. */
+export function componerNotasConEncargado(notas?: string | null, encargado?: string | null): string | null {
+  const encLimpio = (encargado ?? '').trim();
+  let base = (notas ?? '').replace(/\[(?:Encargado|Responsable):\s*[^\]]+\]\s*/gi, '').trim();
+  if (encLimpio) {
+    base = base ? `${base}\n[Encargado: ${encLimpio}]` : `[Encargado: ${encLimpio}]`;
+  }
+  return base || null;
+}
+
+function parseEquipo(r: Record<string, unknown>): MaquinariaEquipo {
+  const eq = r as unknown as MaquinariaEquipo;
+  return {
+    ...eq,
+    encargado_responsable: extraerEncargado(eq),
+  };
+}
+
 /** Grupos del submódulo Servicio de Mantenimiento (switches). Orden = orden de los switches. */
 export const GRUPOS_MANTENIMIENTO = ['FLOTA PESADA', 'VEHÍCULOS DE CARGA', 'PLANTAS ELÉCTRICAS'] as const;
 export type GrupoMantenimiento = (typeof GRUPOS_MANTENIMIENTO)[number];
@@ -73,18 +100,19 @@ export async function listEquipos(): Promise<MaquinariaEquipo[]> {
   const { data, error } = await supabase.from(TABLE).select('*')
     .order('equipo', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as MaquinariaEquipo[];
+  return (data ?? []).map((r) => parseEquipo(r as Record<string, unknown>));
 }
 
 export async function getEquipo(id: string): Promise<MaquinariaEquipo | null> {
   const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return (data as MaquinariaEquipo) ?? null;
+  return data ? parseEquipo(data as Record<string, unknown>) : null;
 }
 
 function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
   const v = (s?: string | null) => (s == null ? null : String(s).trim() || null);
   const n = (x?: number | null) => (x == null || Number.isNaN(Number(x)) ? null : Number(x));
+  const notasFinal = componerNotasConEncargado(input.notas, input.encargado_responsable);
   return {
     equipo: input.equipo.trim().toUpperCase(),
     tipo: v(input.tipo), propietario: v(input.propietario),
@@ -103,7 +131,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     grupo_mantenimiento: v(input.grupo_mantenimiento),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
     esp_tecnicas: !!input.esp_tecnicas, revision_mina: !!input.revision_mina,
-    notas: v(input.notas),
+    notas: notasFinal,
   };
 }
 

@@ -16,7 +16,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'deposito_mina';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'deposito_mina' | 'maquinaria';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -29,6 +29,10 @@ export interface VistaTelefono {
 }
 
 export const VISTAS_TELEFONO: VistaTelefono[] = [
+  {
+    key: 'maquinaria', label: 'Maquinaria y Flota', icono: '🚜', modulo: 'maquinaria',
+    ruta: '/app/maquinaria/telefono', descripcion: 'Servicios, lavados, averías y reportes por WhatsApp',
+  },
   {
     key: 'surtidor', label: 'Surtidor de combustible', icono: '⛽', modulo: 'combustible',
     ruta: '/app/combustible/surtidor', descripcion: 'Surtir a un equipo, pasar a otro tanque y entradas',

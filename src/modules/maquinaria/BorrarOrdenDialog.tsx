@@ -23,9 +23,11 @@ export function BorrarOrdenDialog({ orden, equipo, salida, compra, onClose, onDo
   const s = servicioPorId(orden.tipo);
   const enCurso = ordenAbierta(orden.estado);
   const vinculos = [salida ? `la salida ${salida}` : null, compra ? `el pedido ${compra}` : null].filter(Boolean).join(' y ');
+  const exigeTexto = orden.estado === 'realizada';
   return (
-    <ConfirmDialog title={`Borrar orden ${orden.codigo}`} danger confirmText="Borrar orden" requireText={orden.codigo}
-      requireLabel={`Escribe ${orden.codigo} para confirmar`}
+    <ConfirmDialog title={`Borrar orden ${orden.codigo}`} danger confirmText="Borrar orden"
+      requireText={exigeTexto ? orden.codigo : undefined}
+      requireLabel={exigeTexto ? `Escribe ${orden.codigo} para confirmar` : undefined}
       message={
         <div style={{ display: 'grid', gap: '.45rem' }}>
           <span>Se borra la orden con sus fotos. No se puede deshacer; queda registrada en la auditoría.</span>
