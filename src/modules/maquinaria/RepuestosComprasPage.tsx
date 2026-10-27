@@ -14,6 +14,7 @@ import {
 import { listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
 import { listadoFlotaExcel } from './flotaExcel';
 import { ReemplazarPiezaModal } from './ReemplazarPiezaModal';
+import { desenlaceCompra } from './SeguimientoCompraModal';
 import { FlotaNav } from './FlotaNav';
 
 const ESTADO_SALIDA: Record<string, string> = { por_aprobar: 'Por aprobar', aprobada: 'Aprobada', ejecutada: 'Entregada', cancelada: 'Cancelada' };
@@ -63,7 +64,11 @@ export function RepuestosComprasPage() {
   const tableroSalidas = useMemo(() => COLUMNAS_SALIDA.map((c) => ({
     ...c, ordenes: conRepuestos.filter((o) => columnaSalidaDeOrden(o, o.solicitud_salida_id ? salidas.get(o.solicitud_salida_id)?.estado : null) === c.id),
   })), [conRepuestos, salidas]);
-  const columnasCompra = useMemo(() => [{ id: 'por_solicitar', label: 'Por solicitar', icon: '⚠️', tono: 'warning' }, ...COLUMNAS_COMPRA], []);
+  // La última columna junta cancelada, rechazada y desistida: cada tarjeta dice cuál es.
+  const columnasCompra = useMemo(() => [
+    { id: 'por_solicitar', label: 'Por solicitar', icon: '⚠️', tono: 'warning' },
+    ...COLUMNAS_COMPRA.map((c) => (c.id === 'cancelada' ? { ...c, label: 'Cancelada / rechazada / desistida' } : c)),
+  ], []);
   const tableroCompras = useMemo(() => columnasCompra.map((c) => ({
     ...c, ordenes: conRepuestos.filter((o) => columnaCompraDeOrden(o, o.orden_compra_id ? compras.get(o.orden_compra_id)?.estado : null) === c.id),
   })), [conRepuestos, compras, columnasCompra]);
@@ -96,6 +101,7 @@ export function RepuestosComprasPage() {
     const sal = o.solicitud_salida_id ? salidas.get(o.solicitud_salida_id) : null;
     const cmp = o.orden_compra_id ? compras.get(o.orden_compra_id) : null;
     const lineas = o.repuestos.filter((r) => (cual === 'salida' ? r.producto_id && r.desde_inventario > 0 : r.a_comprar > 0));
+    const fin = cual === 'compra' && cmp ? desenlaceCompra(cmp.estado) : null;
     return (
       <Link key={o.id} to={`/app/maquinaria/equipo/${o.equipo_id}?tab=servicios`} className="flo-kcard" style={{ textDecoration: 'none' }}>
         <div className="fila"><strong>{o.codigo}</strong><span>{fmtDate(o.created_at)}</span></div>
@@ -104,6 +110,7 @@ export function RepuestosComprasPage() {
         {lineas.length > 4 && <div>+{lineas.length - 4} más</div>}
         {cual === 'salida' && sal && <div className="fila"><span>📦 {sal.codigo}</span></div>}
         {cual === 'compra' && cmp && <div className="fila"><span>🛒 {cmp.oc_codigo || cmp.codigo}</span><span className="mono">{cmp.total ? `${fmtNum(cmp.total)} ${cmp.total_moneda ?? ''}` : ''}</span></div>}
+        {fin && <div className="fila"><span>{fin.icono} {fin.label}</span><span className="muted">{fin.terminal ? 'no sigue' : 'Compras la retoma'}</span></div>}
       </Link>
     );
   };

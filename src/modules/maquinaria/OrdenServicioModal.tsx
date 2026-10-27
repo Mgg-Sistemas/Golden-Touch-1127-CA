@@ -200,6 +200,15 @@ export function OrdenServicioModal({
         ...(cambiaron ? { repuestos: nuevos } : {}),
       });
       toast(`${orden.codigo} actualizada`, 'success');
+      // Cambiaron las piezas que no están en el inventario: Compras tiene que enterarse de nuevo
+      // (la base lo indica con `notificar`; la orden ya quedó guardada aunque el aviso falle).
+      if (r.notificar) {
+        try {
+          if (await notificarComprasPiezasNuevas({ id: orden.id, repuestos: r.repuestos })) toast('Compras avisada de las piezas nuevas.', 'info');
+        } catch {
+          toast('No se pudo avisar a Compras de las piezas nuevas; vuelve a intentarlo desde la orden.', 'warning');
+        }
+      }
       const o2 = { ...orden, estado: r.estado, repuestos: r.repuestos };
       if (cambiaron && (faltaSalida(o2) || faltaCompra(o2))) toast('Los repuestos cambiaron: pide la salida o la compra desde la orden.', 'info');
       onCreated();
