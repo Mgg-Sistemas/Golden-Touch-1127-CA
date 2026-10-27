@@ -46,6 +46,9 @@ export interface MaquinariaEquipo {
   /** Apartado elegido por el usuario (27/10/2026): maquinaria | vehiculo | moto | lancha | herramienta
    *  o id de apartado personalizado. null = se deduce del tipo (ver `claseEquipo` en flota.ts). */
   clase?: string | null;
+  /** Cómo lo conocen los operadores (27/10/2026): «L220G», «LA AMARILLA»… varios separados por
+   *  coma. Lo usa el buscador de equipos de Combustible (ver `aliasesDeEquipo` en flota.ts). */
+  alias?: string | null;
   doc_fisico: boolean;
   ficha_mantt: boolean;
   doc_drive: boolean;
@@ -133,6 +136,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     combustible_equipo: v(input.combustible_equipo),
     grupo_mantenimiento: v(input.grupo_mantenimiento),
     clase: v(input.clase),
+    alias: v(input.alias),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
     esp_tecnicas: !!input.esp_tecnicas, revision_mina: !!input.revision_mina,
     notas: notasFinal,

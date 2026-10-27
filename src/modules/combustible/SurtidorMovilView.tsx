@@ -43,6 +43,9 @@ import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometr
 import { errorSaldoInsuficiente, tanqueSinLitros } from './saldoSuficiente';
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
+import { useFichasEquipos } from './fichasEquipos';
+import { opcionesEquipos } from './opcionesEquipos';
+import type { MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMOS_EN_TELEFONO = 10;
@@ -80,6 +83,9 @@ export function SurtidorMovilView() {
   const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
   const [reporte, setReporte] = useState(false);
   const [calculadoraOpen, setCalculadoraOpen] = useState(false);
+  // Fichas de Maquinaria (27/10/2026): para que la lista de equipos muestre el alias
+  // (L220G, EC240…) agrupado por apartado, en vez de 164 nombres largos mezclados.
+  const fichas = useFichasEquipos();
 
   const reloadBase = useCallback(async () => {
     const [ts, cat] = await Promise.all([listTanques(), listCatalogos()]);
@@ -196,7 +202,7 @@ export function SurtidorMovilView() {
       {sel && !canWrite && <div className="aviso warning sm" style={{ margin: '.75rem 0' }}><span className="aviso-icono">👁</span><div>Tu rol solo puede ver. Para registrar surtidos hace falta escritura en Combustible.</div></div>}
 
       {sel && paso === 'form' && (
-        <FormularioSurtido key={`${sel.id}-${tipo}`} tipo={tipo} tanque={sel} tanques={tanques} catalogos={catalogos}
+        <FormularioSurtido key={`${sel.id}-${tipo}`} tipo={tipo} tanque={sel} tanques={tanques} catalogos={catalogos} fichas={fichas}
           actor={actor} actorName={actorName}
           onCancel={() => setPaso('inicio')}
           onSaved={async (movId) => {
@@ -256,8 +262,9 @@ export function SurtidorMovilView() {
 }
 
 /* ───────────── Formulario: surtido, traslado o entrada ───────────── */
-function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName, onCancel, onSaved }: {
+function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, actorName, onCancel, onSaved }: {
   tipo: TipoSurtidor; tanque: TanqueCombustible; tanques: TanqueCombustible[]; catalogos: CatalogoCombustible[];
+  fichas: MaquinariaEquipo[];
   actor: string; actorName: string | null; onCancel: () => void; onSaved: (movId?: string) => Promise<void>;
 }) {
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
@@ -371,15 +378,15 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   const destinoSel = destinos.find((t) => t.id === destinoId);
   const esBidonDestino = tipo === 'traslado' && !!destinoSel && esBidon(destinoSel.nombre);
 
-  const equiposOpts = useMemo(() => {
-    const list = opts('equipo').map((c) => ({ value: c.valor, label: c.valor }));
-    for (const t of tanques) {
-      if (esBidon(t.nombre) && !list.some((o) => o.value.toLowerCase() === t.nombre.toLowerCase())) {
-        list.push({ value: t.nombre, label: `🪣 ${t.nombre} (bidón · salida directa)` });
-      }
-    }
-    return list;
-  }, [catalogos, tanques]);
+  // Lista agrupada por apartado (🚜 Maquinaria / 🚚 Vehículos / 🏍️ Motos / 🚤 Lanchas…) y con el
+  // nombre corto que usa el operador (alias de la ficha, o modelo / placa). Se guarda el
+  // nombre del catálogo (`value`), igual que siempre.
+  const equiposOpts = useMemo(() => opcionesEquipos({
+    catalogo: opts('equipo').map((c) => c.valor),
+    fichas,
+    bidones: tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre),
+    modo: 'telefono',
+  }), [catalogos, tanques, fichas]);
 
   const subtitulo = tipo === 'entrada'
     ? `Entra a ${tanque.nombre} · hoy tiene ${num(tanque.saldo_litros)} L a ${money(tanque.tasa_usd_litro)}/L`
@@ -433,7 +440,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
           {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}
         </label>
         <div className="surt-buscable">
-          <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe parte del nombre o la placa…"
+          <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe el alias (L220G), la placa o parte del nombre…"
             options={equiposOpts} />
         </div>
       </div>

@@ -50,6 +50,8 @@ import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTan
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
 import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
+import { useFichasEquipos } from './fichasEquipos';
+import { opcionesEquipos } from './opcionesEquipos';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -937,15 +939,18 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 
-  const equiposOptions = useMemo(() => {
-    const list = [{ value: '', label: '— elige el equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))];
-    for (const t of tanques) {
-      if (esBidon(t.nombre) && !list.some((o) => o.value.toLowerCase() === t.nombre.toLowerCase())) {
-        list.push({ value: t.nombre, label: `🪣 ${t.nombre} (bidón · salida directa)` });
-      }
-    }
-    return list;
-  }, [catalogos, tanques]);
+  // Igual que en el teléfono (27/10/2026): agrupado por apartado de Maquinaria y buscable por el
+  // alias / placa de la ficha. En la PC el nombre oficial queda como label y el alias de hint.
+  const fichas = useFichasEquipos();
+  const equiposOptions = useMemo(() => [
+    { value: '', label: '— elige el equipo —' },
+    ...opcionesEquipos({
+      catalogo: opts('equipo').map((c) => c.valor),
+      fichas,
+      bidones: tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre),
+      modo: 'pc',
+    }),
+  ], [catalogos, tanques, fichas]);
 
   // El HORÓMETRO inicial sí es del vehículo: autocarga con el último HF de ese equipo.
   const cargarHi = useCallback(() => {
@@ -1231,6 +1236,12 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
 }) {
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
   const s = (v: number | null | undefined) => (v == null ? '' : String(v));
+  // Misma lista agrupada y buscable por alias que al registrar (27/10/2026).
+  const fichas = useFichasEquipos();
+  const equiposOptions = useMemo(() => [
+    { value: '', label: '— sin equipo —' },
+    ...opcionesEquipos({ catalogo: opts('equipo').map((c) => c.valor), fichas, modo: 'pc' }),
+  ], [catalogos, fichas]);
 
   const [fecha, setFecha] = useState(mov.fecha);
   const [hora, setHora] = useState(mov.hora ?? '');
@@ -1343,7 +1354,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
         <div className="form-row">
           <label>Equipo</label>
           <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…" disabled={!canWrite}
-            options={[{ value: '', label: '— sin equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))]} />
+            options={equiposOptions} />
         </div>
         <div className="form-row">
           <label>Autorizado por</label>

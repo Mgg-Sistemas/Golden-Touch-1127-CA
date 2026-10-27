@@ -8,6 +8,23 @@ export interface SearchOption {
   hint?: string;
   /** Otras características por las que se puede encontrar la opción (no se muestran, salvo la que coincide). */
   keywords?: string[];
+  /** Grupo al que pertenece (27/10/2026): si alguna opción lo trae, se pinta una cabecera antes de la
+   *  primera opción de cada grupo, en el orden en que vienen las opciones. No se busca por él. */
+  group?: string;
+  /** Ícono de la cabecera del grupo («🚜»). */
+  groupIcon?: string;
+}
+
+/**
+ * Cabecera de grupo que va ANTES de la opción `i` de la lista visible, o null si no lleva:
+ * solo cuando la opción trae `group` y es la primera de su grupo (la anterior es de otro).
+ * Las opciones sin grupo no cortan la lista: no pintan cabecera.
+ */
+export function cabeceraDeGrupo(visibles: SearchOption[], i: number): { group: string; icon?: string } | null {
+  const o = visibles[i];
+  if (!o?.group) return null;
+  if (i > 0 && visibles[i - 1].group === o.group) return null;
+  return { group: o.group, icon: o.groupIcon };
 }
 
 /** Normaliza para buscar: minúsculas y SIN acentos (así "peramanal" encuentra "Peramanál").
@@ -49,6 +66,13 @@ const PANEL_LOOK: CSSProperties = {
   overflowY: 'auto',
   background: 'var(--bg-1, #11151c)', border: '1px solid var(--border, #2a3240)',
   borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)',
+};
+/** Cabecera de grupo del desplegable: pegada arriba mientras se baja por su grupo. */
+const GRUPO_STYLE: CSSProperties = {
+  position: 'sticky', top: 0, zIndex: 1,
+  padding: '.3rem .7rem .2rem', fontSize: '.72rem', fontWeight: 700, letterSpacing: '.04em',
+  textTransform: 'uppercase', color: 'var(--muted, #9aa3ad)',
+  background: 'var(--bg-1, #11151c)', borderBottom: '1px solid var(--border, #2a3240)',
 };
 const optStyle = (activo: boolean, sel: boolean): CSSProperties => ({
   padding: '.45rem .7rem', cursor: 'pointer', fontSize: '.9rem',
@@ -227,26 +251,36 @@ export function SearchSelect({
             {createLabel ? createLabel(queryTrim) : `➕ Usar «${queryTrim}»`}
           </div>
         )}
-        {visiblesCo.map(({ opcion: o, por }, i) => (
-          <div
-            key={o.value}
-            role="option"
-            aria-selected={o.value === value}
-            onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}
-            onMouseEnter={() => setHi(i)}
-            style={optStyle(i === hi, o.value === value)}
-          >
-            {o.hint || por ? (
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div>{o.label}</div>
-                  {por && <div className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>contiene: {por}</div>}
+        {visiblesCo.map(({ opcion: o, por }, i) => {
+          const cab = cabeceraDeGrupo(visibles, i);
+          return (
+            <div key={o.value}>
+              {cab && (
+                <div role="presentation" style={GRUPO_STYLE}>
+                  {cab.icon ? `${cab.icon} ` : ''}{cab.group}
                 </div>
-                {o.hint && <span className="muted mono" style={{ fontSize: '.72rem', fontWeight: 400, whiteSpace: 'nowrap' }}>{o.hint}</span>}
+              )}
+              <div
+                role="option"
+                aria-selected={o.value === value}
+                onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}
+                onMouseEnter={() => setHi(i)}
+                style={optStyle(i === hi, o.value === value)}
+              >
+                {o.hint || por ? (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div>{o.label}</div>
+                      {por && <div className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>contiene: {por}</div>}
+                    </div>
+                    {/* El hint puede ser un nombre largo (teléfono: nombre oficial del equipo): se acota con «…» para no desbordar. */}
+                    {o.hint && <span className="muted mono" title={o.hint} style={{ fontSize: '.72rem', fontWeight: 400, whiteSpace: 'nowrap', maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.hint}</span>}
+                  </div>
+                ) : o.label}
               </div>
-            ) : o.label}
-          </div>
-        ))}
+            </div>
+          );
+        })}
         {filtered.length > visibles.length && (
           <div className="muted" style={{ padding: '.4rem .7rem', fontSize: '.78rem', borderTop: '1px solid var(--border, #2a3240)' }}>
             …y {filtered.length - visibles.length} más · sigue escribiendo para afinar
