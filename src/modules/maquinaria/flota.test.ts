@@ -4,6 +4,7 @@ import {
   avisoMasUrgente, decidirRepuesto, efectoOrden, columnaCompra, compraAbierta, accionesEquipo,
   siguientesEstadosOrden, sugerirServicio, coincideEquipo, ESTADOS_EQUIPO, faltaSalida, faltaCompra, validarLectura, etiquetaOrigenLectura,
   repuestosEditables, puedeBorrarOrden, listarApartados, guardarApartadoCustom, eliminarApartadoCustom, iconoDeClase,
+  aliasesDeEquipo, nombreCortoEquipo,
 } from './flota';
 
 describe('estadoEfectivo (equipos de antes y de ahora)', () => {
@@ -13,6 +14,10 @@ describe('estadoEfectivo (equipos de antes y de ahora)', () => {
     expect(estadoEfectivo({ status: 'FUERA DE SERVICIO', activo: true })).toBe('averiada');
     expect(estadoEfectivo({ status: 'INACTIVO', activo: true })).toBe('retirada');
     expect(estadoEfectivo({ status: 'OTRO VALOR', activo: true })).toBe('operativa');
+    // 27/10/2026: el estatus «POR CONFIRMAR» del Excel no es operativa.
+    expect(estadoEfectivo({ status: 'POR CONFIRMAR', activo: true })).toBe('por_confirmar');
+    expect(estadoEfectivo({ status: 'por confirmar', activo: true })).toBe('por_confirmar');
+    expect(statusDeEstado('por_confirmar')).toBe('POR CONFIRMAR');
   });
   it('inactivo siempre es retirada, aunque tenga estado', () => {
     expect(estadoEfectivo({ estado_operativo: 'taller', status: 'ACTIVO', activo: false })).toBe('retirada');
@@ -318,5 +323,22 @@ describe('lecturas de horómetro / km', () => {
   it('origen legible', () => {
     expect(etiquetaOrigenLectura('combustible')).toMatch(/Combustible/);
     expect(etiquetaOrigenLectura(null)).toBe('—');
+  });
+});
+
+describe('alias: cómo lo conocen los operadores', () => {
+  it('varios alias separados por coma, sin vacíos ni repetidos', () => {
+    expect(aliasesDeEquipo({ alias: 'L220G, la amarilla, , l220g' })).toEqual(['L220G', 'la amarilla']);
+  });
+  it('sin alias cargado valen el modelo y la placa', () => {
+    expect(aliasesDeEquipo({ alias: null, modelo: 'EC240', placa: 'A12BC3D' })).toEqual(['EC240', 'A12BC3D']);
+    expect(aliasesDeEquipo({ alias: '  ', modelo: null, placa: 'A12BC3D' })).toEqual(['A12BC3D']);
+    expect(aliasesDeEquipo({})).toEqual([]);
+  });
+  it('nombre corto: primer alias → modelo → placa → nombre', () => {
+    expect(nombreCortoEquipo({ alias: 'LA AMARILLA, L220G', modelo: 'L220G', equipo: 'PAYLOADER VOLVO' })).toBe('LA AMARILLA');
+    expect(nombreCortoEquipo({ alias: null, modelo: 'L220G', equipo: 'PAYLOADER VOLVO' })).toBe('L220G');
+    expect(nombreCortoEquipo({ alias: null, modelo: null, placa: 'A12BC3D', equipo: 'CAMIÓN 01' })).toBe('A12BC3D');
+    expect(nombreCortoEquipo({ alias: null, modelo: null, placa: null, equipo: 'PLANTA PERKINS' })).toBe('PLANTA PERKINS');
   });
 });

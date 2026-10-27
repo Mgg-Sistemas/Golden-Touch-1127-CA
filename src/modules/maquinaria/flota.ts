@@ -11,7 +11,7 @@ import { norm } from '@/shared/lib/texto';
 
 /* ───────── Estados del equipo ───────── */
 
-export type EstadoEquipo = 'operativa' | 'averiada' | 'parada' | 'taller' | 'repuestos' | 'espera' | 'retirada';
+export type EstadoEquipo = 'operativa' | 'averiada' | 'parada' | 'taller' | 'repuestos' | 'espera' | 'por_confirmar' | 'retirada';
 export type BucketFlota = 'operativas' | 'averiadas' | 'taller' | 'espera' | 'retiradas';
 export type TonoFlota = 'success' | 'danger' | 'warning' | 'primary' | 'wait' | 'retired' | 'info';
 
@@ -22,6 +22,8 @@ export const ESTADOS_EQUIPO: Record<EstadoEquipo, { label: string; icon: string;
   taller: { label: 'En taller', icon: '🔧', tono: 'primary', bucket: 'taller' },
   repuestos: { label: 'Esperando repuestos', icon: '⏸️', tono: 'warning', bucket: 'taller' },
   espera: { label: 'Esperando instrucciones', icon: '⏳', tono: 'wait', bucket: 'espera' },
+  // 27/10/2026: equipos del Excel cuyo estatus real no se ha verificado (status «POR CONFIRMAR»).
+  por_confirmar: { label: 'Por confirmar', icon: '❔', tono: 'wait', bucket: 'espera' },
   retirada: { label: 'Retirada', icon: '⬛', tono: 'retired', bucket: 'retiradas' },
 };
 
@@ -47,6 +49,7 @@ export function estadoEfectivo(e: { estado_operativo?: string | null; status?: s
     case 'MANTENIMIENTO': return 'taller';
     case 'FUERA DE SERVICIO': return 'averiada';
     case 'INACTIVO': return 'retirada';
+    case 'POR CONFIRMAR': return 'por_confirmar';
     default: return 'operativa';
   }
 }
@@ -56,6 +59,7 @@ export function statusDeEstado(estado: EstadoEquipo): string {
   if (estado === 'averiada' || estado === 'parada') return 'FUERA DE SERVICIO';
   if (estado === 'taller' || estado === 'repuestos') return 'MANTENIMIENTO';
   if (estado === 'retirada') return 'INACTIVO';
+  if (estado === 'por_confirmar') return 'POR CONFIRMAR';
   return 'ACTIVO';
 }
 
@@ -690,6 +694,24 @@ export function coincideEquipo(
   if (!t) return true;
   const texto = norm([e.equipo, e.tipo, e.propietario, e.ubicacion, e.serial, e.placa, e.marca, e.modelo, e.status, e.estado_nota].filter(Boolean).join(' '));
   return t.split(/\s+/).every((p) => texto.includes(p));
+}
+
+/* ───────── Alias: cómo lo conocen los operadores (27/10/2026) ─────────
+   «Payloader Volvo L220G 2014» nadie lo busca así en el surtidor: lo llaman L220G. El
+   alias se carga en la ficha (varios separados por coma); si no hay, el modelo y la
+   placa hacen de alias. Lo usa el buscador de equipos de Combustible. */
+
+/** Alias del equipo, sin vacíos ni repetidos. Sin alias cargado: [modelo, placa] (los que haya). */
+export function aliasesDeEquipo(e: { alias?: string | null; modelo?: string | null; placa?: string | null }): string[] {
+  const limpios = (e.alias ?? '').split(',').map((a) => a.trim()).filter(Boolean);
+  const base = limpios.length ? limpios : [e.modelo, e.placa].map((x) => (x ?? '').trim()).filter(Boolean);
+  const vistos = new Set<string>();
+  return base.filter((a) => { const k = norm(a); if (vistos.has(k)) return false; vistos.add(k); return true; });
+}
+
+/** Nombre corto para la lista del surtidor: primer alias; si no, modelo; si no, placa; si no, el nombre. */
+export function nombreCortoEquipo(e: { alias?: string | null; modelo?: string | null; placa?: string | null; equipo?: string | null }): string {
+  return aliasesDeEquipo(e)[0] ?? (e.equipo ?? '').trim();
 }
 
 /* ───────── Contador (horómetro / km) ───────── */

@@ -74,6 +74,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
     grupo_mantenimiento: equipo?.grupo_mantenimiento ?? null,
     // Categoría guardada (27/10/2026): la que eligió el usuario en el bloque de arriba.
     clase: equipo?.clase ?? null,
+    alias: equipo?.alias ?? null,
     documentacion: equipo?.documentacion ?? null,
     ficha_tecnica: equipo?.ficha_tecnica ?? null,
     ficha_mantenimiento: equipo?.ficha_mantenimiento ?? null,
@@ -372,6 +373,13 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
         <div className="form-grid">
           <div className="form-row"><label>Marca</label><input name="f-marca" className="input" defaultValue={f.marca ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('marca', e.target.value); }} /></div>
           <div className="form-row"><label>Modelo</label><input name="f-modelo" className="input" defaultValue={f.modelo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('modelo', e.target.value); }} /></div>
+        </div>
+
+        {/* Alias (27/10/2026): con este nombre lo ve y lo busca el que surte combustible en el teléfono. */}
+        <div className="form-row">
+          <label>Cómo lo conocen (alias)</label>
+          <input name="f-alias" className="input" defaultValue={f.alias ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('alias', e.target.value || null); }} placeholder="L220G, LA AMARILLA…" />
+          <small className="muted">Así aparece en la lista de equipos del <strong>Surtidor</strong> (teléfono) y así se puede buscar. Varios, separados por coma. Si se deja vacío se usa el modelo o la placa.</small>
         </div>
 
         <div className="form-grid">
