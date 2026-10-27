@@ -873,29 +873,25 @@ export function MaquinariaMovilView() {
 
             {/* Opciones de Intervención / Tipo de Falla (Aceite, Pieza, Sistema Hidráulico, etc.) */}
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
-                Sistema / Intervención requerida *
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.35rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, margin: 0 }}>
+                  Sistema / Intervención requerida *
+                </label>
+                {intervencionesServicio.length > 0 && (
+                  <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px' }}>
+                    {intervencionesServicio.length} {intervencionesServicio.length === 1 ? 'seleccionado' : 'seleccionados'}
+                  </span>
+                )}
+              </div>
+
+              <div className="flo-mv-servicios-grid">
                 {SERVICIOS.slice(0, 9).map((s) => {
                   const activa = intervencionesServicio.includes(s.id);
                   return (
                     <button
                       key={s.id}
                       type="button"
-                      className={`btn btn-sm ${activa ? 'btn-primary' : 'btn-ghost'}`}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: '.45rem .2rem',
-                        gap: '.15rem',
-                        fontSize: '.72rem',
-                        height: '52px',
-                        fontWeight: activa ? 700 : 500,
-                        border: activa ? '2px solid var(--primary, #3b82f6)' : undefined,
-                      }}
+                      className={`flo-mv-servicio-btn ${activa ? 'activa' : ''}`}
                       onClick={() => {
                         setTipoServicio(s.id);
                         if (activa) {
@@ -913,15 +909,15 @@ export function MaquinariaMovilView() {
                         }
                       }}
                     >
-                      <span style={{ fontSize: '1.1rem' }}>{s.icon}</span>
-                      <span style={{ textAlign: 'center', lineHeight: 1.1 }}>{s.label.split(' ')[0]} {s.label.split(' ')[1] || ''}</span>
+                      <span className="ico">{s.icon}</span>
+                      <span className="lbl">{s.label}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+            <div className="surt-grid2">
               <div>
                 <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Urgencia</label>
                 <select className="select" value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
@@ -942,7 +938,7 @@ export function MaquinariaMovilView() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+            <div className="surt-grid2">
               <div>
                 <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Horómetro actual</label>
                 <input
