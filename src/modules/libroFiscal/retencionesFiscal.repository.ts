@@ -23,6 +23,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { EMPRESA_DOMICILIO, EMPRESA_EMAIL, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
+import type { EstadoOrden } from '@/shared/lib/types';
 import {
   CONFIG_RETENCION_DEFECTO, enBolivares, formatoComprobante, formatoSerie, labelImpuesto, motivoNoPuedePracticar, numeroConFormato, textoDeFormato,
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
@@ -98,6 +99,9 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     email: texto(j.empresa_email) ?? texto(j.agente_email) ?? EMPRESA_EMAIL,
     esAgenteRetencionIva: bool('agente_retencion_iva', CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva),
     esContribuyenteEspecial: bool('contribuyente_especial', CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial),
+    retieneIslr: bool('retiene_islr', true),
+    retieneMunicipal: bool('retiene_municipal', true),
+    estadosKanbanRetencion: Array.isArray(j.estados_kanban_retencion) ? (j.estados_kanban_retencion as EstadoOrden[]) : CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
     pctIvaGeneral: n(j.iva_retencion) || 75,
     pctIvaEspecial: n(j.iva_retencion_especial) || 100,
     valorUt: n(j.unidad_tributaria),
@@ -121,6 +125,9 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     licencia_municipal: c.licenciaMunicipal ?? '',
     agente_retencion_iva: c.esAgenteRetencionIva,
     contribuyente_especial: c.esContribuyenteEspecial,
+    retiene_islr: c.retieneIslr !== false,
+    retiene_municipal: c.retieneMunicipal !== false,
+    estados_kanban_retencion: c.estadosKanbanRetencion ?? CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
     iva_retencion: c.pctIvaGeneral,
     iva_retencion_especial: c.pctIvaEspecial,
     unidad_tributaria: c.valorUt,

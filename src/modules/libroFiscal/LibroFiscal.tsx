@@ -47,8 +47,10 @@ import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { razonSocialAgente } from './comprobanteRetencionPdf';
 import { SupuestosIvaAcordeon } from './SupuestosIvaAcordeon';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import type { EstadoOrden } from '@/shared/lib/types';
+import { badgeEstatusKanban } from '@/modules/retenciones/retencionesKanban';
 import {
-  CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
+  CONFIG_RETENCION_DEFECTO, ESTADOS_KANBAN_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
@@ -2124,7 +2126,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 /* ═══════════════════ Parámetros fiscales ═══════════════════ */
 
 type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'firma' | 'vencimientos'
-  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores';
+  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores'
+  | 'compras';
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
@@ -2143,6 +2146,11 @@ const AJUSTES_PA: DefSeccionPa[] = [
   { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Los datos del agente de retención que van en cada comprobante.',
     que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
     efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
+  { key: 'compras', capa: 'ajustes', titulo: 'Flujo de compras y kanban', linea: 'Estatus del kanban a abordar e impuestos a practicar.',
+    que: 'Controla qué compras aparecen en «Por realizar» según su estatus en el Kanban y qué impuestos practica la empresa.',
+    ingresa: 'Selección de estatus permitidos (Confirmada pagar, Pagada, etc.) y qué impuestos retiene la empresa (IVA, ISLR, ISAE).',
+    efecto: 'Filtra las órdenes que entran a Retenciones y define si se exigen IVA, ISLR y/o ISAE.',
+    noCambia: 'Las retenciones ya emitidas o registradas en el libro fiscal.' },
   { key: 'firma', capa: 'ajustes', titulo: 'Firma y sello', linea: 'La firma, el sello y el logo de la empresa en los comprobantes.',
     que: 'Las imágenes de la empresa que van en cada comprobante: logo, firma (con su firmante) y sello.', ingresa: 'Una imagen PNG o JPG de hasta 1 MB, vigente desde una fecha.',
     efecto: 'Los comprobantes nuevos llevan la versión vigente a su fecha de emisión. Sin imagen, el recuadro queda en blanco para firmar a mano.', noCambia: 'Los comprobantes emitidos conservan la versión con que salieron.' },
@@ -2174,7 +2182,7 @@ const AVANZADOS_PA: DefSeccionPa[] = [
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
 ];
 /** Solo se muestran las secciones que guardan en la base; las demás vuelven cuando exista su tabla (R1, R2, R3, R6). */
-const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen']);
+const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen', 'compras']);
 /** Las de R1 y R6 aparecen solas cuando sus tablas existen en la base. */
 const CONECTADAS_R1 = new Set<SeccionPa>(['entes', 'firma', 'perfiles']);
 const CONECTADAS_R6 = new Set<SeccionPa>(['motivos', 'supuestos']);
@@ -2263,6 +2271,15 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   function resumen(k: SeccionPa): string {
     switch (k) {
       case 'empresa': return cfg.rif ? `RIF ${cfg.rif} · ${cfg.imprimirOriginalYCopia !== false ? 'Original y Copia' : 'Solo Original'}` : 'Sin configurar';
+      case 'compras': {
+        const nEstados = cfg.estadosKanbanRetencion?.length ?? ESTADOS_KANBAN_RETENCION_DEFECTO.length;
+        const imps = [
+          cfg.esAgenteRetencionIva ? 'IVA' : null,
+          cfg.retieneIslr !== false ? 'ISLR' : null,
+          cfg.retieneMunicipal !== false ? 'ISAE' : null,
+        ].filter(Boolean);
+        return `${nEstados} estatus kanban · Retiene: ${imps.length ? imps.join(', ') : 'ninguno'}`;
+      }
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
       case 'impuestos': return r2 ? 'Ficha de cada impuesto y conceptos del ISLR' : `${conceptos.length} conceptos`;
@@ -2273,7 +2290,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const capaActual = seccion ? TODAS_PA[seccion].capa : capa;
   const tituloModal = capaActual === 'avanzados' ? '⚙ Parámetros · Ajustes avanzados' : '⚙ Parámetros de retenciones';
   // Con R1 y R3, Régimen y Valores guardan desde sus propias pantallas (con fecha), no con el botón general.
-  const seccionGuardable = seccion === 'empresa' || (seccion === 'regimen' && !(r1 && r3)) || (seccion === 'valores' && !r3);
+  const seccionGuardable = seccion === 'empresa' || seccion === 'compras' || (seccion === 'regimen' && !(r1 && r3)) || (seccion === 'valores' && !r3);
 
   return (
     <>
@@ -2424,6 +2441,152 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
 
               {r3 && <p className="hint muted" style={{ fontSize: '.82rem' }}>Las alícuotas del ISAE y del timbre estadal están en Ajustes avanzados › Valores con vigencia.</p>}
               <p className="hint muted" style={{ fontSize: '.82rem' }}>El régimen fiscal (agente de retención de IVA, contribuyente especial) está en Ajustes avanzados › Régimen fiscal de la empresa.</p>
+              <p className="hint muted" style={{ fontSize: '.82rem' }}>Los estatus de órdenes de compra e impuestos retenidos se configuran en Ajustes › Flujo de compras y kanban.</p>
+            </fieldset>
+          )}
+
+          {/* ── Flujo de compras y kanban ── */}
+          {seccion === 'compras' && (
+            <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div className="card" style={{ background: 'var(--bg-2)', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+                <strong style={{ display: 'block', marginBottom: '.35rem', fontSize: '.92rem' }}>
+                  🏛️ Impuestos que practica la empresa en compras
+                </strong>
+                <p className="muted" style={{ margin: '0 0 .75rem', fontSize: '.82rem', lineHeight: 1.4 }}>
+                  Activa los impuestos que Golden Touch retiene como agente. Al activarlos, las órdenes de compra en «Por realizar» exigirán el registro de estos comprobantes y mostrarán sus respectivos botones de registro.
+                </p>
+
+                <div style={{ display: 'grid', gap: '.6rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.6rem', cursor: 'pointer', background: 'var(--bg-1)', padding: '.6rem .75rem', borderRadius: 'var(--r-md)' }}>
+                    <input
+                      type="checkbox"
+                      checked={cfg.esAgenteRetencionIva}
+                      onChange={(e) => set('esAgenteRetencionIva', e.target.checked)}
+                      style={{ marginTop: '.2rem' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '.88rem' }}>Retención de IVA (SNAT/2025/000054)</strong>
+                      <div className="muted" style={{ fontSize: '.78rem' }}>
+                        Designación SENIAT como Agente de Retención de IVA (75% / 100%). Pide y calcula retención sobre el impuesto al valor agregado.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.6rem', cursor: 'pointer', background: 'var(--bg-1)', padding: '.6rem .75rem', borderRadius: 'var(--r-md)' }}>
+                    <input
+                      type="checkbox"
+                      checked={cfg.retieneIslr !== false}
+                      onChange={(e) => set('retieneIslr', e.target.checked)}
+                      style={{ marginTop: '.2rem' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '.88rem' }}>Retención de ISLR (Decreto 1.808)</strong>
+                      <div className="muted" style={{ fontSize: '.78rem' }}>
+                        Obligación legal a toda persona jurídica que pague servicios, fletes, honorarios o compras sujetas a retención del Impuesto Sobre la Renta.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.6rem', cursor: 'pointer', background: 'var(--bg-1)', padding: '.6rem .75rem', borderRadius: 'var(--r-md)' }}>
+                    <input
+                      type="checkbox"
+                      checked={cfg.retieneMunicipal !== false}
+                      onChange={(e) => set('retieneMunicipal', e.target.checked)}
+                      style={{ marginTop: '.2rem' }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '.88rem' }}>Retención de Impuesto Municipal (ISAE)</strong>
+                      <div className="muted" style={{ fontSize: '.78rem' }}>
+                        Impuesto sobre Actividades Económicas según ordenanza de la alcaldía correspondiente. Requiere número de Licencia Municipal / RIM.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="card" style={{ background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.5rem' }}>
+                  <div>
+                    <strong style={{ display: 'block', fontSize: '.92rem' }}>
+                      🏷️ Estatus del Kanban de Compras a abordar en Retenciones
+                    </strong>
+                    <span className="muted" style={{ fontSize: '.8rem' }}>
+                      Solo las órdenes de compra en estos estatus aparecerán en «Por realizar».
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '.4rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => set('estadosKanbanRetencion', ESTADOS_KANBAN_RETENCION_DEFECTO)}
+                    >
+                      Restablecer habituales
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => set('estadosKanbanRetencion', [
+                        'oc_aprobada', 'pagada', 'por_recibir', 'recibida', 'cuenta_abierta', 'finalizada',
+                      ])}
+                    >
+                      Marcar todos
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.5rem', marginTop: '.5rem' }}>
+                  {[
+                    { key: 'oc_aprobada' as EstadoOrden, label: 'Confirmada pagar', desc: 'OC autorizada y lista para pago por Tesorería.' },
+                    { key: 'pagada' as EstadoOrden, label: 'Pagada', desc: 'OC con pago total o abono registrado en Tesorería.' },
+                    { key: 'por_recibir' as EstadoOrden, label: 'Por recibir', desc: 'OC pagada con recepción pendiente en almacén/obra.' },
+                    { key: 'recibida' as EstadoOrden, label: 'Recibida', desc: 'Mercancía o servicio recibido a satisfacción.' },
+                    { key: 'cuenta_abierta' as EstadoOrden, label: 'Crédito', desc: 'Compra a crédito pendiente de saldo.' },
+                    { key: 'finalizada' as EstadoOrden, label: 'Finalizada', desc: 'OC culminada con soporte de factura cargado.' },
+                  ].map((opt) => {
+                    const seleccionados = cfg.estadosKanbanRetencion ?? ESTADOS_KANBAN_RETENCION_DEFECTO;
+                    const checked = seleccionados.includes(opt.key);
+                    const badge = badgeEstatusKanban(opt.key);
+                    return (
+                      <label
+                        key={opt.key}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: '.55rem', padding: '.55rem .7rem',
+                          borderRadius: 'var(--r-md)', background: checked ? 'var(--bg-1)' : 'transparent',
+                          border: `1px solid ${checked ? 'var(--border)' : 'var(--border-subtle, #333)'}`,
+                          cursor: 'pointer', transition: 'all .15s ease',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          style={{ marginTop: '.2rem' }}
+                          onChange={(e) => {
+                            const s = new Set(seleccionados);
+                            if (e.target.checked) s.add(opt.key);
+                            else s.delete(opt.key);
+                            set('estadosKanbanRetencion', Array.from(s));
+                          }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                            <span className={badge.className} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
+                              {badge.label}
+                            </span>
+                            <strong style={{ fontSize: '.84rem' }}>{opt.label}</strong>
+                          </div>
+                          <div className="muted" style={{ fontSize: '.75rem', marginTop: '.2rem', lineHeight: 1.3 }}>
+                            {opt.desc}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.75rem', lineHeight: 1.4 }}>
+                  ℹ️ <strong>Exclusión permanente:</strong> Las órdenes con estatus <em>Cancelada</em>, <em>Desistida por proveedor</em> o <em>Rechazada</em> nunca se abordan para retención por norma contable y tributaria.
+                </p>
+              </div>
             </fieldset>
           )}
 
