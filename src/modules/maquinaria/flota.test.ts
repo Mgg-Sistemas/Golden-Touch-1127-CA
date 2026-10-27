@@ -73,6 +73,50 @@ describe('claseEquipo', () => {
   });
 });
 
+describe('claseEquipo por tipo exacto (reglas del 27/10/2026, flota del Excel)', () => {
+  it('SUV es vehículo', () => {
+    expect(claseEquipo({ equipo: 'CAMIONETA TOYOTA FORTUNER AB123CD', tipo: 'SUV', placa: 'AB123CD' })).toBe('vehiculo');
+  });
+  it('SEDÁN es vehículo', () => {
+    expect(claseEquipo({ equipo: 'TOYOTA COROLLA', tipo: 'SEDÁN' })).toBe('vehiculo');
+  });
+  it('CAMIÓN CAVA es vehículo (y los demás tipos de carro / camión)', () => {
+    expect(claseEquipo({ tipo: 'CAMIÓN CAVA' })).toBe('vehiculo');
+    for (const tipo of ['VEHÍCULO', 'CAMIONETA', 'PICK-UP D/C', 'AUTOMÓVIL', 'RÚSTICO', 'TECHO DURO', 'CAMIÓN', 'CHASIS', 'CHUTO', 'AUTOBÚS', 'GANDOLA']) {
+      expect(claseEquipo({ tipo }), tipo).toBe('vehiculo');
+    }
+  });
+  it('REMOLQUE con placa es vehículo (de carretera)', () => {
+    expect(claseEquipo({ equipo: 'REMOLQUE D INNOCENZO DM10 A97BE9P', tipo: 'REMOLQUE', placa: 'A97BE9P', marca: 'D INNOCENZO' })).toBe('vehiculo');
+    expect(claseEquipo({ equipo: 'REMOLQUE REMYVECA 3SPL A09BH5F', tipo: 'REMOLQUE', placa: 'A09BH5F', marca: 'REMYVECA' })).toBe('vehiculo');
+  });
+  it('REMOLQUE REMEQ sin placa es lancha (náutico)', () => {
+    expect(claseEquipo({ equipo: 'REMOLQUE REMEQ 2160221', tipo: 'REMOLQUE', placa: null, marca: 'REMEQ', notas: 'tipo TRAYLER · sin placa' })).toBe('lancha');
+    expect(claseEquipo({ equipo: 'REMOLQUE X', tipo: 'REMOLQUE', placa: 'N/A' })).toBe('lancha');
+  });
+  it('MOTO ACUÁTICA es moto', () => {
+    expect(claseEquipo({ equipo: 'MOTO ACUÁTICA SEA-DOO GTX LIMITED 325', tipo: 'MOTO ACUÁTICA', marca: 'SEA-DOO' })).toBe('moto');
+  });
+  it('MOTO es moto (incluidos UTV / ATV / Can Am / CFMOTO cargados como MOTO)', () => {
+    expect(claseEquipo({ equipo: 'MOTO KEEWAY HORSE 150 AB2P82F', tipo: 'MOTO', placa: 'AB2P82F' })).toBe('moto');
+    expect(claseEquipo({ equipo: 'MOTO CAN AM MAVERICK X3', tipo: 'MOTO', placa: 'N/A' })).toBe('moto');
+    expect(claseEquipo({ equipo: 'NEW HORSE', tipo: 'MOTO' })).toBe('moto');
+  });
+  it('LANCHA es lancha', () => {
+    expect(claseEquipo({ equipo: 'LANCHA SKYY · LEGACY 36 GEN X', tipo: 'LANCHA', placa: 'AGSP-RE-1.979' })).toBe('lancha');
+  });
+  it('EXCAVADORA y el resto de la flota pesada es maquinaria', () => {
+    expect(claseEquipo({ equipo: 'EXCAVADORA CAT 320', tipo: 'EXCAVADORA', grupo_mantenimiento: 'FLOTA PESADA' })).toBe('maquinaria');
+    for (const tipo of ['PAYLOADER', 'DUMPER', 'TRACTOR', 'RETROEXCAVADORA', 'MINI PALA', 'MONTACARGA', 'GENERADOR ELÉCTRICO', 'PLANTA ELÉCTRICA', 'COMPRESOR', 'PERFORADORA']) {
+      expect(claseEquipo({ tipo }), tipo).toBe('maquinaria');
+    }
+  });
+  it('herramienta se mantiene', () => {
+    expect(claseEquipo({ equipo: 'TALADRO BOSCH', tipo: 'Taladro percutor' })).toBe('herramienta');
+    expect(claseEquipo({ tipo: 'HIDROLAVADORA' })).toBe('herramienta');
+  });
+});
+
 describe('gestión de apartados (listar, guardar, eliminar, icono)', () => {
   it('incluye herramientas en los apartados base', () => {
     const aps = listarApartados();

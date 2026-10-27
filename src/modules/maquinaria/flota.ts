@@ -184,12 +184,50 @@ export function iconoDeClase(clase: ClaseEquipo | string | null | undefined, fal
   return ap?.icon ?? fallback;
 }
 
-/** Deduce la clase del grupo de mantenimiento (si lo tiene) o del tipo del equipo. */
-export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: string | null }): ClaseEquipo {
+/* ───────── Clase por tipo exacto (27/10/2026) ─────────
+   El `tipo` del equipo (el del Excel de flota) manda; las palabras sueltas en tipo /
+   grupo / nombre son solo respaldo para los equipos cargados a mano sin tipo claro. */
+
+/** Vehículos: todo carro, camioneta, camión y afín (tipo sin acentos, en minúsculas). */
+const TIPOS_VEHICULO = new Set([
+  'vehiculo', 'camioneta', 'pick-up d/c', 'pick-up', 'pickup', 'pick up', 'suv', 'sedan', 'automovil', 'rustico', 'techo duro',
+  'camion', 'camion cava', 'camion volteo', 'chasis', 'chuto', 'autobus', 'bus', 'gandola', 'van', 'jeep', 'cisterna',
+]);
+/** Motos: de calle, UTV / ATV / cuatrimotos (Can Am, CFMOTO van como MOTO) y motos acuáticas (Sea-Doo). */
+const TIPOS_MOTO = new Set(['moto', 'moto acuatica', 'motocicleta', 'cuatrimoto', 'trimoto', 'utv', 'atv']);
+/** Lanchas: embarcaciones a motor. */
+const TIPOS_LANCHA = new Set(['lancha', 'bote', 'embarcacion', 'penero', 'yate']);
+
+/** Placa real: algo distinto de vacío, N/A, S/P o «sin placa». */
+function tienePlaca(placa: string | null | undefined): boolean {
+  const p = norm(placa).replace(/[.\s-]/g, '');
+  return p !== '' && p !== 'na' && p !== 'n/a' && p !== 'sp' && p !== 's/p' && p !== 'sinplaca';
+}
+
+/** ¿Es un remolque? Por tipo (REMOLQUE / SEMI REMOLQUE) o porque el nombre empieza por «REMOLQUE». */
+function esRemolque(t: string, nombre: string): boolean {
+  return /^(semi ?)?remolque\b/.test(t) || /^(semi ?)?remolque\b/.test(nombre);
+}
+
+/** Remolque náutico (lleva la lancha): sin placa, marca REMEQ o nota «trayler / trailer». */
+function remolqueNautico(e: { placa?: string | null; marca?: string | null; notas?: string | null }): boolean {
+  return !tienePlaca(e.placa) || /remeq/.test(norm(e.marca)) || /tra[yi]ler/.test(norm(e.notas));
+}
+
+/**
+ * Deduce la clase (apartado) del equipo. Prioridad: apartados registrados → remolques →
+ * tipo exacto (Vehículos / Motos / Lanchas) → herramientas → palabras clave personalizadas →
+ * palabras sueltas de respaldo → Maquinaria y Equipos (todo lo demás).
+ */
+export function claseEquipo(e: {
+  tipo?: string | null; grupo_mantenimiento?: string | null;
+  equipo?: string | null; placa?: string | null; marca?: string | null; notas?: string | null;
+}): ClaseEquipo {
   const g = norm(e.grupo_mantenimiento);
   const t = norm(e.tipo);
+  const nombre = norm(e.equipo);
 
-  // 1. Coincidencia directa con apartados registrados (por id o nombre)
+  // 1. Coincidencia directa con apartados registrados (por id o nombre), salvo el genérico «maquinaria».
   const apartados = listarApartados();
   for (const ap of apartados) {
     if (ap.id === 'maquinaria') continue;
@@ -198,19 +236,19 @@ export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: str
     }
   }
 
-  // 2. Lanchas y embarcaciones
-  if (/lancha|bote|embarca|penero|penyero|yate|canoa|flotante|marino|maritimo|fuera de borda/.test(t) ||
-      /lancha|bote|embarca/.test(g)) {
-    return 'lancha';
-  }
+  // 2. Remolques: con placa van por carretera (Vehículos); sin placa, REMEQ o «trayler» llevan la lancha (Lanchas).
+  if (esRemolque(t, nombre)) return remolqueNautico(e) ? 'lancha' : 'vehiculo';
 
-  // 3. Motos y motocicletas (excluye maquinaria pesada con prefijo moto como motoniveladora, motobomba, motosierra)
-  const esEquipoConPrefijoMoto = /motoniveladora|motobomba/.test(t);
-  if (!esEquipoConPrefijoMoto && (/\bmoto\b|\bmotos\b|motocicleta|cuatrimoto|fourtrack|trimoto/.test(t) || /\bmoto\b|\bmotos\b|motocicleta/.test(g))) {
-    return 'moto';
-  }
+  // 3. Tipo exacto Vehículo: SUV, SEDÁN, PICK-UP D/C, CAMIONETA, CAMIÓN, CAMIÓN CAVA, CHASIS, CHUTO, AUTOBÚS, TECHO DURO…
+  if (TIPOS_VEHICULO.has(t)) return 'vehiculo';
 
-  // 4. Herramientas y equipos de taller
+  // 4. Tipo exacto Moto: MOTO (incluye UTV / ATV / Can Am / CFMOTO) y MOTO ACUÁTICA (Sea-Doo).
+  if (TIPOS_MOTO.has(t)) return 'moto';
+
+  // 5. Tipo exacto Lancha.
+  if (TIPOS_LANCHA.has(t)) return 'lancha';
+
+  // 6. Herramientas y equipos de taller (igual que antes).
   if (
     /herramienta|taladro|esmeril|pulidora|amoladora|sierra|cortadora|tronzadora|pistola|rotomartillo|soldador|soldadora|oxicorte|hidrolavadora|polipasto|tecle|gato hidraulico|torquimetro|multimetro|escalera|sopladora|remachadora/.test(t) ||
     /herramienta|taller/.test(g)
@@ -218,7 +256,7 @@ export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: str
     return 'herramienta';
   }
 
-  // 5. Palabras clave de apartados personalizados
+  // 7. Palabras clave de apartados personalizados (igual que antes).
   for (const ap of apartados) {
     if (ap.esCustom && ap.keywords && ap.keywords.length > 0) {
       for (const kw of ap.keywords) {
@@ -230,13 +268,15 @@ export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: str
     }
   }
 
-  // 6. Vehículos terrestres (carros, camiones, camionetas, gandolas, buses, etc.)
-  if (g.includes('vehiculo')) return 'vehiculo';
-  if (/vehiculo|carro|camion|gandola|camioneta|pickup|\bauto\b|\bautos\b|van\b|autobus|\bbus\b|encava|jeep|chuto|remolque|volteo|cisterna/.test(t)) {
-    return 'vehiculo';
+  // 8. Respaldo por palabras sueltas: primero en tipo + grupo, y si no dicen nada, en el nombre del equipo.
+  const esEquipoConPrefijoMoto = /motoniveladora|motobomba/.test(t) || /motoniveladora|motobomba/.test(nombre);
+  for (const texto of [`${t} ${g}`, nombre]) {
+    if (/lancha|bote\b|embarca|penero|penyero|yate|canoa|flotante|marino|maritimo|fuera de borda/.test(texto)) return 'lancha';
+    if (!esEquipoConPrefijoMoto && /\bmoto\b|\bmotos\b|motocicleta|cuatrimoto|fourtrack|trimoto|\butv\b|\batv\b/.test(texto)) return 'moto';
+    if (/vehiculo|\bcarro\b|camion|gandola|camioneta|pick-?up|\bauto\b|\bautos\b|automovil|\bsedan\b|\bsuv\b|\bvan\b|autobus|\bbus\b|encava|\bjeep\b|chuto|volteo|cisterna|rustico/.test(texto)) return 'vehiculo';
   }
 
-  // 7. Maquinaria y Equipos unificados (excavadoras, plantas eléctricas, generadores, compresores, bombas, soldadores, tractores, etc.)
+  // 9. Maquinaria y Equipos: todo lo demás (excavadoras, payloaders, dumpers, tractores, generadores, plantas, compresores, perforadoras…).
   return 'maquinaria';
 }
 
