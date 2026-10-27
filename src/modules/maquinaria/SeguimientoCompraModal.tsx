@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { supabase } from '@/shared/lib/supabase';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
+import { num as fmtNum, date as fmtDate, statusBadge } from '@/shared/lib/format';
 import { columnaCompra, type ColumnaCompra } from './flota';
 import { FotosOrden } from './FotosOrdenServicio';
 
@@ -54,6 +54,37 @@ function pasoActual(col: ColumnaCompra): number {
   }
 }
 
+/** Cómo terminó (o se desvió) una compra que el tablero agrupa en la columna «cancelada». */
+export interface DesenlaceCompra {
+  /** Etiqueta en español del estado REAL de Pedidos (no «Cancelada» para todo). */
+  label: string;
+  icono: string;
+  /** true = la compra no sigue (la orden de servicio quedó anulada); false = Compras la retoma. */
+  terminal: boolean;
+  /** Qué pasa ahora, en palabras del mecánico. */
+  texto: string;
+}
+
+/**
+ * El tablero junta cancelada, rechazada, desistida y reasignada en una sola columna; aquí se
+ * distingue cada una. Devuelve null si la compra sigue su curso normal.
+ */
+export function desenlaceCompra(estado: string | null | undefined): DesenlaceCompra | null {
+  if (columnaCompra(estado) !== 'cancelada') return null;
+  switch (estado) {
+    case 'cancelada':
+      return { label: 'Cancelada', icono: '⛔', terminal: true, texto: 'Esta compra se canceló en Pedidos. La orden de servicio quedó anulada; si los repuestos siguen haciendo falta, abre una orden nueva.' };
+    case 'rechazada':
+      return { label: 'Rechazada', icono: '⛔', terminal: true, texto: 'Compras rechazó la solicitud. La orden de servicio quedó anulada; si los repuestos siguen haciendo falta, habla con Compras o abre una orden nueva.' };
+    case 'desistida_proveedor':
+      return { label: 'Proveedor desistió', icono: '🔁', terminal: false, texto: 'El proveedor no cumplió: Compras vuelve a cotizar con otros proveedores. La orden de servicio sigue esperando los repuestos.' };
+    case 'reasignada':
+      return { label: 'Reasignada', icono: '🔁', terminal: false, texto: 'Esta compra volvió a su solicitud madre para reelegir proveedor. El avance sigue desde la solicitud de pedido.' };
+    default:
+      return { label: statusBadge(estado).label, icono: '⛔', terminal: true, texto: 'Esta compra no sigue en Pedidos. Habla con Compras o pide la compra de nuevo desde la orden.' };
+  }
+}
+
 export function SeguimientoCompraModal({ compraId, equipoId, ordenServicio, puedePedidos, onClose }: {
   compraId: string; equipoId?: string | null; ordenServicio?: { id: string; codigo: string } | null;
   puedePedidos: boolean; onClose: () => void;
@@ -80,8 +111,11 @@ export function SeguimientoCompraModal({ compraId, equipoId, ordenServicio, pued
   useRealtime(['ordenes'], () => { void cargar(); });
 
   const col = c ? columnaCompra(c.estado) : null;
-  const cancelada = col === 'cancelada';
-  const actual = col && !cancelada ? pasoActual(col) : -1;
+  // Rechazada / desistida / reasignada se muestran con su estado real, no todas como «cancelada».
+  const fin = c ? desenlaceCompra(c.estado) : null;
+  const cancelada = !!fin && fin.terminal;
+  // Proveedor desistió / reasignada: la compra sigue, hay que volver a hacer la orden de compra.
+  const actual = fin ? (fin.terminal ? -1 : pasoActual('aprobada')) : col ? pasoActual(col) : -1;
   const lineas = (c?.items ?? []).filter((i) => !equipoId || !i.equipo_id || i.equipo_id === equipoId);
 
   return (
@@ -95,12 +129,13 @@ export function SeguimientoCompraModal({ compraId, equipoId, ordenServicio, pued
         {!c && !error && <p className="muted">Cargando…</p>}
         {c && col && (
           <>
-            <div className={`aviso ${cancelada ? 'danger' : col === 'recibida' || col === 'finalizada' ? 'success' : 'info'}`}>
-              <span className="aviso-icono">{cancelada ? '⛔' : col === 'recibida' || col === 'finalizada' ? '📦' : '⏳'}</span>
-              <div><strong>¿En qué va?</strong> {QUE_PASA[col]}</div>
+            <div className={`aviso ${cancelada ? 'danger' : fin ? 'warning' : col === 'recibida' || col === 'finalizada' ? 'success' : 'info'}`}>
+              <span className="aviso-icono">{fin ? fin.icono : col === 'recibida' || col === 'finalizada' ? '📦' : '⏳'}</span>
+              <div><strong>¿En qué va?</strong> {fin ? <><strong>{fin.label}.</strong> {fin.texto}</> : QUE_PASA[col]}</div>
             </div>
             <div className="muted" style={{ fontSize: '.82rem' }}>
               Solicitud <strong>{c.codigo}</strong>{c.oc_codigo ? <> · Orden de compra <strong>{c.oc_codigo}</strong></> : null}
+              {fin ? <> · Estado en Pedidos: <strong>{fin.label}</strong></> : null}
               {ordenServicio ? <> · de la <strong>{ordenServicio.codigo}</strong></> : null}
               {proveedor ? <> · Proveedor: <strong>{proveedor}</strong></> : null}
             </div>
