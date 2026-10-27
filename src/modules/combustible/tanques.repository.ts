@@ -1668,9 +1668,8 @@ export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, numbe
 /**
  * Lectura vigente de un equipo registrada desde MAQUINARIA (horómetro y/o kilometraje).
  * Resiliente: primero consulta la RPC; si no responde o viene vacía, busca directamente en
- * maquinaria_equipos (por combustible_equipo o nombre de equipo con norm()) y lee la última
- * lectura de maquinaria_lecturas. Si el equipo en maquinaria no tenía el vínculo fijado, lo
- * enlaza en segundo plano para consolidar la sincronización bidireccional.
+ * maquinaria_equipos (por combustible_equipo, nombre de equipo o placa, con norm() y match
+ * EXACTO) y lee la última lectura de maquinaria_lecturas. Es solo lectura: no escribe nada.
  */
 async function lecturaVigenteCombustible(equipo: string): Promise<{
   horometro: number | null;
@@ -1701,17 +1700,14 @@ async function lecturaVigenteCombustible(equipo: string): Promise<{
       .select('id, equipo, combustible_equipo, placa');
     if (eqs && eqs.length > 0) {
       const eqNorm = norm(e);
+      // Sin emparejamiento difuso (includes) ni update del vínculo (26/10/2026): «CAMION 1» caía
+      // en «CAMION 10» y una lectura escribía en maquinaria_equipos; hoy todos los equipos tienen
+      // combustible_equipo lleno y un trigger de la base lo garantiza para los nuevos.
       const matched = eqs.find((m) => norm(m.combustible_equipo) === eqNorm)
         || eqs.find((m) => norm(m.equipo) === eqNorm)
-        || eqs.find((m) => m.placa && norm(m.placa) === eqNorm)
-        || eqs.find((m) => m.equipo && (norm(m.equipo).includes(eqNorm) || eqNorm.includes(norm(m.equipo))));
+        || eqs.find((m) => m.placa && norm(m.placa) === eqNorm);
 
       if (matched?.id) {
-        // Enlazar en segundo plano si combustible_equipo estaba vacío o desactualizado
-        if (norm(matched.combustible_equipo) !== eqNorm) {
-          void supabase.from('maquinaria_equipos').update({ combustible_equipo: e }).eq('id', matched.id);
-        }
-
         const { data: lecs } = await supabase
           .from('maquinaria_lecturas')
           .select('horometro, kilometraje, es_correccion, fecha')

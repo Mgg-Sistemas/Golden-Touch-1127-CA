@@ -13,6 +13,8 @@ import {
 import { datosCombustibleDeEquipo, type DatosCombustibleEquipo } from './maquinariaEquipos.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { listRespuestasAlerta, TABLAS_ALERTAS_MANT, type RespuestaAlerta } from './alertasMantenimiento.repository';
+import { lecturaVigenteEquipo, type LecturaVigente } from './flota.repository';
+import { avisoDeEquipo, textoAviso, tonoAviso } from './avisoEquipo';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 
@@ -28,6 +30,8 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [servicios, setServicios] = useState<ServicioDeEquipo[]>([]);
   // Respuestas a las alertas de mantenimiento (sí/no se hará + mensaje), más reciente primero.
   const [respuestas, setRespuestas] = useState<RespuestaAlerta[]>([]);
+  // Lectura vigente unificada (Combustible + Maquinaria + bitácora): la misma del catálogo.
+  const [lectura, setLectura] = useState<LecturaVigente | null>(null);
   const [wspAbierto, setWspAbierto] = useState<string | null>(null);
   const quien = useQuien();
   const [loading, setLoading] = useState(true);
@@ -54,25 +58,28 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
   const cargar = useCallback(async () => {
     try {
-      const [m, c, sv, ra] = await Promise.all([
+      const [m, c, sv, ra, lv] = await Promise.all([
         listMantenimientos(equipo.id),
         datosCombustibleDeEquipo(equipo.combustible_equipo).catch(() => null),
         listServiciosDeEquipo(equipo.id).catch(() => [] as ServicioDeEquipo[]),
         listRespuestasAlerta(equipo.id).catch(() => [] as RespuestaAlerta[]),
+        lecturaVigenteEquipo(equipo.id).catch(() => null),
       ]);
-      setRows(m); setComb(c); setServicios(sv); setRespuestas(ra);
+      setRows(m); setComb(c); setServicios(sv); setRespuestas(ra); setLectura(lv);
     } finally { setLoading(false); }
   }, [equipo.id, equipo.combustible_equipo]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes', ...TABLAS_ALERTAS_MANT], () => { void cargar(); });
+  useRealtime(['maquinaria_mantenimientos', 'maquinaria_lecturas', 'combustible_tanque_movimientos', 'ordenes', ...TABLAS_ALERTAS_MANT], () => { void cargar(); });
 
   const res = useMemo(() => resumenHorometro(rows), [rows]);
-  // Mantenimiento preventivo: horas del último período vs frecuencia del equipo.
-  const freq = equipo.mantenimiento_cada_hrs;
-  const horasUlt = res.horasUltimo ?? 0;
-  const alerta = freq != null && freq > 0 && horasUlt >= freq;
-  // Horómetro vigente: prioriza el de Combustible (vínculo), si no el de la bitácora.
-  const horometroVigente = comb?.horometro ?? res.ultimoHorometro;
+  // Mantenimiento preventivo: la MISMA regla del catálogo (avisoServicio con la lectura vigente
+  // unificada y la base del último mantenimiento; 250 h si la ficha no trae frecuencia). Las
+  // horas del último período de la bitácora se muestran solo como información.
+  const av = useMemo(() => avisoDeEquipo(equipo, lectura), [equipo, lectura]);
+  const freq = av.frecuenciaH;
+  const alerta = !!av.aviso && av.aviso.nivel !== 'ok';
+  // Horómetro vigente: el unificado; si aún no respondió, el de Combustible o el de la bitácora.
+  const horometroVigente = lectura?.horometro ?? comb?.horometro ?? res.ultimoHorometro;
 
   function limpiar() {
     setPieza(''); setHorometro(''); setKilometraje(''); setAlertaKm(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
@@ -138,7 +145,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
       {/* KPIs de horómetro */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-          <div className="muted" style={{ fontSize: '.68rem' }}>HORÓMETRO VIGENTE{comb?.horometro != null ? ' (⛽)' : ''}</div>
+          <div className="muted" style={{ fontSize: '.68rem' }}>HORÓMETRO VIGENTE{lectura?.horometro_origen === 'combustible' || (lectura?.horometro == null && comb?.horometro != null) ? ' (⛽)' : ''}</div>
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{horometroVigente != null ? fmtNum(horometroVigente) : '—'}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
@@ -146,8 +153,12 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{res.horasUltimo != null ? fmtNum(res.horasUltimo) : '—'}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-          <div className="muted" style={{ fontSize: '.68rem' }}>MANTENIMIENTO CADA</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{freq != null ? `${fmtNum(freq)} h` : '—'}</div>
+          <div className="muted" style={{ fontSize: '.68rem' }}>MANTENIMIENTO CADA{Number(equipo.mantenimiento_cada_hrs) > 0 ? '' : ' (empresa)'}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{fmtNum(freq)} h{Number(equipo.mantenimiento_cada_km) > 0 ? ` · ${fmtNum(equipo.mantenimiento_cada_km)} km` : ''}</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
+          <div className="muted" style={{ fontSize: '.68rem' }}>SERVICIO</div>
+          <div style={{ marginTop: '.15rem' }}><span className={`badge ${tonoAviso(av.aviso)}`} style={{ fontWeight: 700 }}>{textoAviso(av.aviso)}</span></div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>GASOIL CONSUMIDO (⛽)</div>
@@ -155,9 +166,11 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         </div>
       </div>
 
-      {alerta && (
-        <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.75rem', padding: '.55rem .85rem' }}>
-          ⚠️ <strong>Mantenimiento preventivo:</strong> el último período acumuló <strong>{fmtNum(horasUlt)} h</strong> y supera la frecuencia de <strong>{fmtNum(freq!)} h</strong>. Conviene programar servicio.
+      {alerta && av.aviso && (
+        <div className="card" style={{ borderColor: av.aviso.nivel === 'vencido' ? 'var(--danger)' : 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.75rem', padding: '.55rem .85rem' }}>
+          {av.aviso.nivel === 'vencido' ? '⛔' : '⚠️'} <strong>Mantenimiento preventivo {av.aviso.nivel === 'vencido' ? 'vencido' : 'próximo'}:</strong>{' '}
+          {av.aviso.nivel === 'vencido' ? `pasado por ${fmtNum(Math.abs(av.aviso.restante))} ${av.aviso.unidad}` : `faltan ${fmtNum(av.aviso.restante)} ${av.aviso.unidad}`}
+          {' '}(lectura {fmtNum(av.aviso.unidad === 'h' ? lectura?.horometro ?? null : lectura?.kilometraje ?? null)} {av.aviso.unidad} · cada {fmtNum(av.aviso.unidad === 'h' ? freq : equipo.mantenimiento_cada_km)} {av.aviso.unidad}). Conviene programar servicio.
         </div>
       )}
 
