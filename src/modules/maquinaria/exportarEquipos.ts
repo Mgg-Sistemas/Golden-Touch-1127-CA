@@ -80,18 +80,40 @@ export function orientacionFinal(claves: string[], elegida: OrientacionHoja = 'a
   return anchoTotal > 85 ? 'landscape' : 'portrait';
 }
 
-export function agruparEquiposPorEmpresa(equipos: MaquinariaEquipo[]): Map<string, MaquinariaEquipo[]> {
+export type ModoAgrupacionEquipos = 'empresa' | 'ubicacion' | 'ninguno';
+
+export function agruparEquipos(
+  equipos: MaquinariaEquipo[],
+  modo: ModoAgrupacionEquipos = 'empresa',
+): Map<string, MaquinariaEquipo[]> {
+  if (modo === 'ninguno') {
+    return new Map([['TODOS LOS EQUIPOS', equipos]]);
+  }
   const map = new Map<string, MaquinariaEquipo[]>();
   for (const e of equipos) {
-    const emp = txt(e.propietario) || 'SIN EMPRESA ASIGNADA';
-    const arr = map.get(emp) ?? [];
+    let clave = '';
+    if (modo === 'empresa') {
+      clave = txt(e.propietario) || 'SIN EMPRESA ASIGNADA';
+    } else if (modo === 'ubicacion') {
+      clave = txt(e.ubicacion) || 'SIN UBICACIÓN ASIGNADA';
+    }
+    const arr = map.get(clave) ?? [];
     arr.push(e);
-    map.set(emp, arr);
+    map.set(clave, arr);
   }
   return new Map([...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es')));
 }
 
+export function agruparEquiposPorEmpresa(equipos: MaquinariaEquipo[]): Map<string, MaquinariaEquipo[]> {
+  return agruparEquipos(equipos, 'empresa');
+}
+
 const hoyStr = () => new Date().toISOString().slice(0, 10);
+
+function normalizarModoAgrupacion(agrupacion: ModoAgrupacionEquipos | boolean | undefined): ModoAgrupacionEquipos {
+  if (typeof agrupacion === 'string') return agrupacion;
+  return agrupacion ? 'empresa' : 'ninguno';
+}
 
 /* ─────────────────────────────────────────────────────────────
    EXCEL: Descargar datos de equipos (ExcelJS con estilos)
@@ -99,7 +121,7 @@ const hoyStr = () => new Date().toISOString().slice(0, 10);
 export async function descargarEquiposExcelPersonalizado(
   equipos: MaquinariaEquipo[],
   claves: string[],
-  agruparPorEmpresa: boolean,
+  agrupacion: ModoAgrupacionEquipos | boolean = 'empresa',
   contextoMap?: Map<string, ContextoEquipoExportar>,
   orientacion: OrientacionHoja = 'auto',
   categoria?: string | null,
@@ -108,6 +130,7 @@ export async function descargarEquiposExcelPersonalizado(
   if (!campos.length) throw new Error('Marca al menos un dato para descargar.');
   if (!equipos.length) throw new Error('No hay equipos en la lista.');
 
+  const modoAgrupar = normalizarModoAgrupacion(agrupacion);
   const [{ default: ExcelJS }] = await Promise.all([import('exceljs')]);
   const cat = txt(categoria);
 
@@ -132,14 +155,20 @@ export async function descargarEquiposExcelPersonalizado(
   t.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFF8A00' } };
   t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
+  const textoAgrup = modoAgrupar === 'empresa'
+    ? 'Agrupados por empresa'
+    : modoAgrupar === 'ubicacion'
+    ? 'Agrupados por ubicación'
+    : 'Listado general';
+
   const sub = ws.getCell(2, 1);
-  sub.value = `${equipos.length} equipo(s)${cat ? ` · Categoría: ${cat}` : ''} · ${agruparPorEmpresa ? 'Agrupados por empresa' : 'Listado general'} · ${new Date().toLocaleString('es-VE')}`;
+  sub.value = `${equipos.length} equipo(s)${cat ? ` · Categoría: ${cat}` : ''} · ${textoAgrup} · ${new Date().toLocaleString('es-VE')}`;
   sub.font = { name: 'Arial', size: 10, color: { argb: 'FF5C6673' } };
   sub.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
   let filaActual = 5;
 
-  if (!agruparPorEmpresa) {
+  if (modoAgrupar === 'ninguno') {
     // Encabezados de tabla
     const cab = ws.getRow(filaActual);
     cab.values = ['N°', ...campos.map((c) => c.etiqueta)];
@@ -166,17 +195,18 @@ export async function descargarEquiposExcelPersonalizado(
       filaActual++;
     });
   } else {
-    // Agrupado por empresa / propietario
-    const grupos = agruparEquiposPorEmpresa(equipos);
+    // Agrupado por empresa o por ubicación
+    const grupos = agruparEquipos(equipos, modoAgrupar);
     let contadorGeneral = 1;
 
-    for (const [empresa, listaEmpresa] of grupos.entries()) {
+    for (const [claveGrupo, listaGrupo] of grupos.entries()) {
       // Fila de encabezado de grupo
       const filaGrupo = ws.getRow(filaActual);
       ws.mergeCells(filaActual, 1, filaActual, Math.max(1, ultimaCol));
       filaGrupo.height = 24;
       const cGrupo = ws.getCell(filaActual, 1);
-      cGrupo.value = `🏢 EMPRESA: ${empresa.toUpperCase()} (${listaEmpresa.length} equipos)`;
+      const prefijo = modoAgrupar === 'empresa' ? '🏢 EMPRESA' : '📍 UBICACIÓN';
+      cGrupo.value = `${prefijo}: ${claveGrupo.toUpperCase()} (${listaGrupo.length} equipos)`;
       cGrupo.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
       cGrupo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
       cGrupo.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -194,8 +224,8 @@ export async function descargarEquiposExcelPersonalizado(
       });
       filaActual++;
 
-      // Filas de los equipos de esta empresa
-      listaEmpresa.forEach((eq, idx) => {
+      // Filas de los equipos de este grupo
+      listaGrupo.forEach((eq, idx) => {
         const r = ws.getRow(filaActual);
         const ctx = contextoMap?.get(eq.id);
         r.values = [contadorGeneral++, ...campos.map((c) => c.valor(eq, ctx))];
@@ -209,7 +239,7 @@ export async function descargarEquiposExcelPersonalizado(
         filaActual++;
       });
 
-      // Espacio entre empresas
+      // Espacio entre grupos
       filaActual++;
     }
   }
@@ -263,7 +293,7 @@ async function cargarImagenDataUrl(url: string): Promise<{ data: string; tipo: '
 export async function descargarEquiposPdfPersonalizado(
   equipos: MaquinariaEquipo[],
   claves: string[],
-  agruparPorEmpresa: boolean,
+  agrupacion: ModoAgrupacionEquipos | boolean = 'empresa',
   contextoMap?: Map<string, ContextoEquipoExportar>,
   orientacion: OrientacionHoja = 'auto',
   fotosMap?: Map<string, string>,
@@ -273,13 +303,16 @@ export async function descargarEquiposPdfPersonalizado(
   if (!campos.length) throw new Error('Marca al menos un dato para descargar.');
   if (!equipos.length) throw new Error('No hay equipos en la lista.');
 
+  const modoAgrupar = normalizarModoAgrupacion(agrupacion);
+  const clavesSet = new Set(claves);
+
   const [{ jsPDF }, { loadLogoPdfDataUrl, dibujarLogoPdf, anchoLogoPdf }] = await Promise.all([
     import('jspdf'),
     import('@/shared/lib/pdfLogo'),
   ]);
 
   // La ficha lleva foto solo si el usuario marcó «Foto del equipo»
-  const conFoto = campos.some((c) => c.clave === 'foto');
+  const conFoto = clavesSet.has('foto');
   const cat = txt(categoria);
 
   // Precarga de fotos de los equipos en DataURLs (solo si van a salir)
@@ -334,6 +367,12 @@ export async function descargarEquiposPdfPersonalizado(
     }
   }
 
+  const textoAgrupPdf = modoAgrupar === 'empresa'
+    ? 'Agrupados por Empresa'
+    : modoAgrupar === 'ubicacion'
+    ? 'Agrupados por Ubicación'
+    : 'Listado General';
+
   function dibujarEncabezadoGeneral(titulo: string) {
     if (logo) {
       dibujarLogoPdf(doc, logo, MARGIN, y, 38);
@@ -349,7 +388,7 @@ export async function descargarEquiposPdfPersonalizado(
     doc.setFontSize(8.5);
     doc.setTextColor(80, 80, 80);
     doc.text(
-      `GOLDEN TOUCH 1127 C.A. · RIF ${idEmp.rif} · ${equipos.length} equipo(s)${cat ? ` · ${cat}` : ''} · ${agruparPorEmpresa ? 'Agrupados por Empresa' : 'Listado General'} · ${new Date().toLocaleString('es-VE')}`,
+      `GOLDEN TOUCH 1127 C.A. · RIF ${idEmp.rif} · ${equipos.length} equipo(s)${cat ? ` · ${cat}` : ''} · ${textoAgrupPdf} · ${new Date().toLocaleString('es-VE')}`,
       tx,
       y + 27,
     );
@@ -367,17 +406,17 @@ export async function descargarEquiposPdfPersonalizado(
   {
     dibujarEncabezadoGeneral(cat ? `CATÁLOGO Y FICHAS TÉCNICAS · ${cat.toUpperCase()}` : 'CATÁLOGO Y FICHAS TÉCNICAS DE MAQUINARIA Y EQUIPOS');
 
-    const grupos = agruparPorEmpresa ? agruparEquiposPorEmpresa(equipos) : new Map([['TODOS LOS EQUIPOS', equipos]]);
+    const grupos = agruparEquipos(equipos, modoAgrupar);
     let contadorGeneral = 1;
 
-    for (const [empresa, listaEmpresa] of grupos.entries()) {
-      // Subtítulo con barra naranja corporativa idéntica a la ficha técnica
+    for (const [claveGrupo, listaGrupo] of grupos.entries()) {
+      // Subtítulo con barra naranja corporativa si va agrupado
       if (y > H - 120) {
         doc.addPage();
         y = MARGIN;
       }
 
-      if (agruparPorEmpresa) {
+      if (modoAgrupar !== 'ninguno') {
         doc.setFillColor(241, 245, 249);
         doc.rect(MARGIN, y, UW, 16, 'F');
         doc.setFillColor(255, 138, 0);
@@ -385,12 +424,70 @@ export async function descargarEquiposPdfPersonalizado(
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9.5);
         doc.setTextColor(30, 41, 59);
-        doc.text(pdfSafe(`🏢 EMPRESA / PROPIETARIO: ${empresa.toUpperCase()} (${listaEmpresa.length} equipos)`), MARGIN + 8, y + 11.5);
+        const prefijo = modoAgrupar === 'empresa' ? '🏢 EMPRESA / PROPIETARIO' : '📍 UBICACIÓN / GARAJE';
+        doc.text(pdfSafe(`${prefijo}: ${claveGrupo.toUpperCase()} (${listaGrupo.length} equipos)`), MARGIN + 8, y + 11.5);
         y += 22;
       }
 
-      for (const eq of listaEmpresa) {
-        const cardH = 82;
+      for (const eq of listaGrupo) {
+        const ctx = contextoMap?.get(eq.id);
+
+        // Armamos dinámicamente los campos a mostrar en el cuerpo según lo que el usuario marcó
+        const camposCuerpo: { etiqueta: string; valor: string }[] = [];
+
+        if (clavesSet.has('tipo')) {
+          const extra = [clavesSet.has('anio') && eq.anio ? `Año ${eq.anio}` : null, clavesSet.has('color') && eq.color ? eq.color : null].filter(Boolean);
+          camposCuerpo.push({ etiqueta: 'Tipo / Clase: ', valor: `${eq.tipo || '—'}${extra.length ? ` · ${extra.join(' · ')}` : ''}` });
+        }
+        if (clavesSet.has('propietario')) {
+          camposCuerpo.push({ etiqueta: 'Empresa / Prop.: ', valor: eq.propietario || 'Sin propietario asignado' });
+        }
+        if (clavesSet.has('ubicacion')) {
+          camposCuerpo.push({ etiqueta: 'Ubicación / Garaje: ', valor: eq.ubicacion || 'Sin ubicación registrada' });
+        }
+        if (clavesSet.has('encargado')) {
+          camposCuerpo.push({ etiqueta: 'Encargado: ', valor: ctx?.encargado ?? extraerEncargado(eq) ?? '—' });
+        }
+        if (clavesSet.has('serial')) {
+          camposCuerpo.push({ etiqueta: 'Serial / PIN: ', valor: eq.serial || '—' });
+        }
+        if (clavesSet.has('horometro') || clavesSet.has('kilometraje')) {
+          const lecs: string[] = [];
+          if (clavesSet.has('horometro')) lecs.push(ctx?.horometro != null ? `${fmtNum(ctx.horometro)} h` : '— h');
+          if (clavesSet.has('kilometraje')) lecs.push(ctx?.kilometraje != null ? `${fmtNum(ctx.kilometraje)} km` : '— km');
+          camposCuerpo.push({ etiqueta: 'Lectura vigente: ', valor: lecs.join(' · ') || 'Sin lectura registrada' });
+        }
+        if (clavesSet.has('mantenimiento_cada_hrs') || clavesSet.has('mantenimiento_cada_km')) {
+          const mArr: string[] = [];
+          if (clavesSet.has('mantenimiento_cada_hrs') && eq.mantenimiento_cada_hrs) mArr.push(`Cada ${fmtNum(eq.mantenimiento_cada_hrs)} h`);
+          if (clavesSet.has('mantenimiento_cada_km') && eq.mantenimiento_cada_km) mArr.push(`Cada ${fmtNum(eq.mantenimiento_cada_km)} km`);
+          if (ctx?.avisoServicio) mArr.push(ctx.avisoServicio);
+          camposCuerpo.push({ etiqueta: 'Mantenimiento: ', valor: mArr.join(' · ') || '—' });
+        }
+        if (clavesSet.has('combustible') || clavesSet.has('litros_consume')) {
+          const cParts: string[] = [];
+          if (clavesSet.has('combustible') && eq.combustible) cParts.push(eq.combustible);
+          if (clavesSet.has('litros_consume') && eq.litros_consume) cParts.push(`${fmtNum(eq.litros_consume)} L`);
+          camposCuerpo.push({ etiqueta: 'Combustible: ', valor: cParts.join(' · ') || '—' });
+        }
+        if (clavesSet.has('combustible_equipo') && eq.combustible_equipo) {
+          camposCuerpo.push({ etiqueta: 'Vinc. Combustible: ', valor: eq.combustible_equipo });
+        }
+        if (clavesSet.has('color') && !clavesSet.has('tipo') && eq.color) {
+          camposCuerpo.push({ etiqueta: 'Color: ', valor: eq.color });
+        }
+        if (clavesSet.has('anio') && !clavesSet.has('tipo') && eq.anio) {
+          camposCuerpo.push({ etiqueta: 'Año: ', valor: String(eq.anio) });
+        }
+
+        // Si el usuario no marcó campos de cuerpo, dejamos al menos tipo si existe
+        if (!camposCuerpo.length && eq.tipo) {
+          camposCuerpo.push({ etiqueta: 'Tipo: ', valor: eq.tipo });
+        }
+
+        const numLineas = Math.max(1, Math.ceil(camposCuerpo.length / 2));
+        const cardH = Math.max(conFoto ? 82 : 46, 24 + numLineas * 13 + 6);
+
         if (y + cardH > H - 36) {
           doc.addPage();
           y = MARGIN;
@@ -411,40 +508,47 @@ export async function descargarEquiposPdfPersonalizado(
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9.2);
         doc.setTextColor(30, 41, 59);
-        const nomEq = pdfSafe(`${contadorGeneral++}. ${eq.equipo.toUpperCase()} ${[eq.marca, eq.modelo].filter(Boolean).join(' · ')}`);
+        const subNombre = [clavesSet.has('marca') ? eq.marca : null, clavesSet.has('modelo') ? eq.modelo : null].filter(Boolean).join(' · ');
+        const nomEq = pdfSafe(`${contadorGeneral++}. ${eq.equipo.toUpperCase()}${subNombre ? ` ${subNombre}` : ''}`);
         doc.text(nomEq, MARGIN + 6, y + 12);
 
-        // Badge de Estado Efectivo
-        const st = estadoEfectivo(eq);
-        const stInfo = ESTADOS_EQUIPO[st] ?? { label: eq.status || 'OPERATIVA' };
-        const stColor = st === 'operativa' ? [22, 163, 74] : st === 'taller' || st === 'averiada' ? [220, 38, 38] : [217, 119, 6];
-        const stLabel = pdfSafe(stInfo.label.toUpperCase());
-        doc.setFontSize(7.5);
-        doc.setFont('helvetica', 'bold');
-        const stW = doc.getTextWidth(stLabel) + 10;
-        const stX = W - MARGIN - stW - 6;
-        doc.setFillColor(stColor[0], stColor[1], stColor[2]);
-        doc.roundedRect(stX, y + 3.5, stW, 11, 2, 2, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.text(stLabel, stX + stW / 2, y + 11.5, { align: 'center' });
+        let nextBadgeRight = W - MARGIN - 6;
 
-        // Badge de Placa
-        if (eq.placa) {
+        // Badge de Estado Efectivo (siempre o si status está marcado)
+        if (clavesSet.has('status')) {
+          const st = estadoEfectivo(eq);
+          const stInfo = ESTADOS_EQUIPO[st] ?? { label: eq.status || 'OPERATIVA' };
+          const stColor = st === 'operativa' ? [22, 163, 74] : st === 'taller' || st === 'averiada' ? [220, 38, 38] : [217, 119, 6];
+          const stLabel = pdfSafe(stInfo.label.toUpperCase());
+          doc.setFontSize(7.5);
+          doc.setFont('helvetica', 'bold');
+          const stW = doc.getTextWidth(stLabel) + 10;
+          const stX = nextBadgeRight - stW;
+          doc.setFillColor(stColor[0], stColor[1], stColor[2]);
+          doc.roundedRect(stX, y + 3.5, stW, 11, 2, 2, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.text(stLabel, stX + stW / 2, y + 11.5, { align: 'center' });
+          nextBadgeRight = stX - 6;
+        }
+
+        // Badge de Placa (si está marcada)
+        if (clavesSet.has('placa') && eq.placa) {
           const plLabel = pdfSafe(`PLACA: ${eq.placa}`);
+          doc.setFontSize(7.5);
+          doc.setFont('helvetica', 'bold');
           const plW = doc.getTextWidth(plLabel) + 8;
-          const plX = stX - plW - 6;
+          const plX = nextBadgeRight - plW;
           doc.setFillColor(224, 242, 254);
           doc.roundedRect(plX, y + 3.5, plW, 11, 2, 2, 'F');
           doc.setTextColor(2, 132, 199);
           doc.text(plLabel, plX + plW / 2, y + 11.5, { align: 'center' });
         }
 
-        // Recuadro de Foto a la izquierda (solo si está marcada «Foto del equipo»;
-        // si no, el texto ocupa ese ancho)
+        // Recuadro de Foto a la izquierda (solo si está marcada «Foto del equipo»)
         const imgBoxX = MARGIN + 6;
         const imgBoxY = y + 22;
         const imgBoxW = conFoto ? 68 : 0;
-        const imgBoxH = 54;
+        const imgBoxH = Math.min(cardH - 26, 56);
         if (conFoto) {
           doc.setFillColor(241, 245, 249);
           doc.setDrawColor(226, 232, 240);
@@ -477,13 +581,8 @@ export async function descargarEquiposPdfPersonalizado(
 
         // Especificaciones técnicas a la derecha (2 columnas bien proporcionadas)
         const specX1 = conFoto ? imgBoxX + imgBoxW + 10 : imgBoxX;
-        const specW1 = (UW - imgBoxW - 24) * 0.52;
+        const specW1 = (UW - imgBoxW - 24) * 0.50;
         const specX2 = specX1 + specW1 + 8;
-
-        const ctx = contextoMap?.get(eq.id);
-        const horo = ctx?.horometro != null ? `${fmtNum(ctx.horometro)} h` : null;
-        const km = ctx?.kilometraje != null ? `${fmtNum(ctx.kilometraje)} km` : null;
-        const aviso = ctx?.avisoServicio || (eq.mantenimiento_cada_hrs ? `Cada ${fmtNum(eq.mantenimiento_cada_hrs)} h` : eq.mantenimiento_cada_km ? `Cada ${fmtNum(eq.mantenimiento_cada_km)} km` : '—');
 
         const drawField = (label: string, val: string, x: number, lineY: number) => {
           doc.setFont('helvetica', 'bold');
@@ -497,21 +596,14 @@ export async function descargarEquiposPdfPersonalizado(
           doc.text(pdfSafe(val), x + lw, lineY);
         };
 
-        let ly = y + 32;
-        drawField('Tipo / Clase: ', `${eq.tipo || '—'}${eq.anio ? ` · Año ${eq.anio}` : ''}${eq.color ? ` · ${eq.color}` : ''}`, specX1, ly);
-        drawField('Empresa: ', eq.propietario || 'Sin propietario asignado', specX2, ly);
-
-        ly += 12;
-        drawField('Serial / PIN: ', eq.serial || '—', specX1, ly);
-        drawField('Encargado: ', ctx?.encargado ?? extraerEncargado(eq) ?? '—', specX2, ly);
-
-        ly += 12;
-        drawField('Lectura vigente: ', [horo, km].filter(Boolean).join(' · ') || 'Sin lectura registrada', specX1, ly);
-        drawField('Motor: ', [eq.motor_modelo, eq.motor_serial].filter(Boolean).join(' / ') || '—', specX2, ly);
-
-        ly += 12;
-        drawField('Mantenimiento: ', aviso, specX1, ly);
-        drawField('Combustible: ', `${eq.combustible || '—'}${eq.litros_consume ? ` · ${fmtNum(eq.litros_consume)} L` : ''}`, specX2, ly);
+        let ly = y + 31;
+        for (let li = 0; li < numLineas; li++) {
+          const c1 = camposCuerpo[li * 2];
+          const c2 = camposCuerpo[li * 2 + 1];
+          if (c1) drawField(c1.etiqueta, c1.valor, specX1, ly);
+          if (c2) drawField(c2.etiqueta, c2.valor, specX2, ly);
+          ly += 13;
+        }
 
         y += cardH + 7;
       }
@@ -523,3 +615,4 @@ export async function descargarEquiposPdfPersonalizado(
     previewPdf(doc, `fichas-tecnicas-maquinaria-${hoyStr()}.pdf`);
   }
 }
+

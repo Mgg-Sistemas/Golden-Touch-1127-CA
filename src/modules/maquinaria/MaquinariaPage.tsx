@@ -14,7 +14,7 @@ import { EquipoFormModal } from './EquipoFormModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { ExportarEquiposModal } from './ExportarEquiposModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import { listEquipos, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { listEquipos, reiniciarMantenimientoDeEquipo, extraerEncargado, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
@@ -374,17 +374,19 @@ export function MaquinariaPage() {
       )}
       {exportarOpen && (
         <ExportarEquiposModal
-          equipos={lista}
+          equipos={equipos.filter((e) => e.activo)}
           total={disponibles}
           fotosMap={fotos}
           contextoMap={new Map(
-            lista.map((e) => {
+            equipos.filter((e) => e.activo).map((e) => {
               const inf = info.get(e.id);
               return [
                 e.id,
                 {
                   estado: inf?.estado,
                   horometro: inf?.horometro ?? null,
+                  kilometraje: inf?.km ?? null,
+                  encargado: extraerEncargado(e) || null,
                   avisoServicio: inf?.aviso
                     ? `${inf.aviso.nivel === 'vencido' ? '⛔ Vencido' : inf.aviso.nivel === 'proximo' ? '⚠️ Próximo' : '🟢 Al día'} (${fmtNum(Math.abs(inf.aviso.restante))} ${inf.aviso.unidad})`
                     : null,
