@@ -20,13 +20,15 @@
    21/09/2026 el ciclo cuenta el consumo por el movimiento de inventario, ver
    `sumarConsumoCocina`). Lo que sigue en pie es el riesgo del doble descuento,
    que es un problema de inventario, no de la cuenta del ciclo.
+
+   SIN FIN PREVISTO (27/10/2026). Antes el ciclo «terminaba» a los 21 días de la
+   apertura y una comida posterior a ese día se avisaba como «despues». El cierre
+   del mercado es MANUAL: un mercado abierto no tiene fecha de fin, llega hasta
+   hoy. Solo queda el aviso de «antes».
    ============================================================ */
 
-/** Días que dura un ciclo de mercado (el mismo de `CICLO_DIAS`). */
-const DIAS_CICLO = 21;
-
 /** Qué tiene de raro la fecha elegida, si es que tiene algo. */
-export type FueraDelCiclo = 'antes' | 'despues' | null;
+export type FueraDelCiclo = 'antes' | null;
 
 /** El mercado abierto, con lo poco que hace falta para ubicar la fecha. */
 export interface VentanaMercado {
@@ -38,20 +40,11 @@ export interface VentanaMercado {
 
 const soloDia = (v: string | null | undefined) => String(v ?? '').slice(0, 10);
 
-/** El último día que cubre el ciclo: el de apertura más 21 días. */
-export function finDelCiclo(inicioAt: string): string {
-  const d = new Date(`${soloDia(inicioAt)}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return '';
-  d.setUTCDate(d.getUTCDate() + DIAS_CICLO);
-  return d.toISOString().slice(0, 10);
-}
-
 /**
  * ¿La fecha de la comida cae fuera del ciclo del mercado abierto?
  *
- * 'antes'   → es de un mercado anterior: el riesgo del doble descuento.
- * 'despues' → es posterior al cierre previsto del ciclo.
- * null      → está dentro, o no hay mercado con qué comparar.
+ * 'antes' → es de un mercado anterior: el riesgo del doble descuento.
+ * null    → está dentro (el mercado abierto llega hasta hoy), o no hay mercado con qué comparar.
  */
 export function fueraDelCiclo(fecha: string, mercado: VentanaMercado | null | undefined): FueraDelCiclo {
   const f = soloDia(fecha);
@@ -59,8 +52,6 @@ export function fueraDelCiclo(fecha: string, mercado: VentanaMercado | null | un
   const desde = soloDia(mercado.inicio_at);
   if (!desde) return null;
   if (f < desde) return 'antes';
-  const hasta = finDelCiclo(mercado.inicio_at);
-  if (hasta && f > hasta) return 'despues';
   return null;
 }
 
@@ -73,10 +64,7 @@ function dia(iso: string): string {
 export function avisoFueraDelCiclo(caso: FueraDelCiclo, mercado: VentanaMercado | null | undefined): string {
   if (!caso || !mercado) return '';
   const n = mercado.numero ?? 'abierto';
-  if (caso === 'antes') {
-    return `Esa fecha es anterior al mercado ${n}, que arrancó el ${dia(mercado.inicio_at)}. `
-      + 'La comida va a descontar el inventario HOY. Si esos víveres ya se contaron en un '
-      + 'CONTEO REAL, van a salir dos veces del inventario: revisa el stock después de guardar.';
-  }
-  return `Esa fecha es posterior al cierre previsto del mercado ${n} (${dia(finDelCiclo(mercado.inicio_at))}).`;
+  return `Esa fecha es anterior al mercado ${n}, que arrancó el ${dia(mercado.inicio_at)}. `
+    + 'La comida va a descontar el inventario HOY. Si esos víveres ya se contaron en un '
+    + 'CONTEO REAL, van a salir dos veces del inventario: revisa el stock después de guardar.';
 }

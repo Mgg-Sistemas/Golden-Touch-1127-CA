@@ -14,7 +14,7 @@
    ============================================================ */
 import { Fragment, useMemo, useRef, useState } from 'react';
 import { dateTime, money, num } from '@/shared/lib/format';
-import { CICLO_DIAS, type Mercado, type ResumenViver } from './cocinaMercado.repository';
+import type { Mercado, ResumenViver } from './cocinaMercado.repository';
 import { esDescartado } from './mercadoDescarte';
 import { diaCaracas } from './mercadoInicio';
 import { Modal } from '@/shared/ui/Modal';
@@ -36,8 +36,8 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
   /** Platos servidos en el ciclo. `null` si el mercado es anterior a que se guardaran. */
   platos: number | null;
   consumoValor: number;
-  /** Contador del ciclo abierto. `null` para uno cerrado. */
-  ciclo: { dia: number; faltan: number; vencido: boolean } | null;
+  /** Contador del ciclo abierto (qué día va). `null` para uno cerrado. */
+  ciclo: { dia: number } | null;
   soloDif: boolean;
   onSoloDif: (activar: boolean) => void;
 }) {
@@ -54,11 +54,9 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
         <span className="muted" style={{ fontSize: '.78rem' }} title={`Inició ${dateTime(mercado.inicio_at)}`}>
           {dmy(mercado.inicio_at)} → {mercado.cierre_at ? dmy(mercado.cierre_at) : 'en curso'}
           {!abierto && (esDescartado(mercado) ? ' · descartado' : ' · cerrado')}
-          {/* El contador que antes iba en la cabecera. Pasado el día 21 se dice con
-              palabras además del rojo: en una captura en blanco y negro el color no está. */}
-          {abierto && ciclo && (ciclo.vencido
-            ? <strong style={{ color: 'var(--danger)' }}> · día {ciclo.dia} de {CICLO_DIAS} · ¡toca cerrar!</strong>
-            : ` · día ${ciclo.dia} de ${CICLO_DIAS} · faltan ${ciclo.faltan}`)}
+          {/* El contador dice qué día va. Ya no hay «de 21» ni «¡toca cerrar!»: el mercado
+              no tiene fin hasta que una persona lo cierra (27/10/2026). */}
+          {abierto && ciclo && ` · día ${ciclo.dia} · hasta hoy`}
         </span>
       </div>
 

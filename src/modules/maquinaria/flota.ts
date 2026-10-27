@@ -215,17 +215,21 @@ function remolqueNautico(e: { placa?: string | null; marca?: string | null; nota
 }
 
 /**
- * Deduce la clase (apartado) del equipo. Prioridad: apartados registrados → remolques →
+ * Deduce la clase (apartado) del equipo. Prioridad: clase guardada → apartados registrados → remolques →
  * tipo exacto (Vehículos / Motos / Lanchas) → herramientas → palabras clave personalizadas →
  * palabras sueltas de respaldo → Maquinaria y Equipos (todo lo demás).
  */
 export function claseEquipo(e: {
-  tipo?: string | null; grupo_mantenimiento?: string | null;
+  tipo?: string | null; grupo_mantenimiento?: string | null; clase?: string | null;
   equipo?: string | null; placa?: string | null; marca?: string | null; notas?: string | null;
 }): ClaseEquipo {
   const g = norm(e.grupo_mantenimiento);
   const t = norm(e.tipo);
   const nombre = norm(e.equipo);
+
+  // 0. Apartado guardado en la ficha (27/10/2026): la categoría que eligió el usuario manda sobre el tipo.
+  const guardada = (e.clase ?? '').trim();
+  if (guardada && listarApartados().some((ap) => ap.id === guardada)) return guardada;
 
   // 1. Coincidencia directa con apartados registrados (por id o nombre), salvo el genérico «maquinaria».
   const apartados = listarApartados();

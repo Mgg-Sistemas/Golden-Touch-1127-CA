@@ -23,10 +23,11 @@ import { crearAlertaMercado } from './alertasMercado.repository';
 import {
   getMercadoActivo, iniciarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
   listMercadosCerrados, listRecepcionesDelCiclo, listRecepcionesEntre, previaCorte, reanclarCorte,
-  CICLO_DIAS, type Mercado, type ResumenViver, type TotalesMercado, type DetalleViverCiclo, type PreviaCorte,
+  type Mercado, type ResumenViver, type TotalesMercado, type DetalleViverCiclo, type PreviaCorte,
 } from './cocinaMercado.repository';
 import { LeyendaCocina } from './LeyendaCocina';
-import { avanceCierre } from './mercadoCierre';
+import { avanceCierre, validarCierre } from './mercadoCierre';
+import { diaCaracas } from './comidaMovil';
 import {
   claveRecepcion, comidasDelCiclo, cortePrevio, instanteAntesDe, motivoCorteValido, MOTIVO_CORTE_MIN, MOTIVO_CORTE_SUGERIDO,
   type RecepcionCiclo,
@@ -95,7 +96,7 @@ export function CocinaPage() {
   const [fotos, setFotos] = useState<Map<string, number>>(new Map());
   const [notaAlerta, setNotaAlerta] = useState('');
   const [enviandoAlerta, setEnviandoAlerta] = useState(false);
-  // Ciclo de mercado (21 días): mercado abierto + su resumen (disponible/consumo/queda).
+  // Ciclo de mercado (cierre manual): mercado abierto + su resumen (disponible/consumo/queda).
   const [mercado, setMercado] = useState<Mercado | null>(null);
   const [resMercado, setResMercado] = useState<ResumenViver[]>([]);
   const [totMercado, setTotMercado] = useState<TotalesMercado | null>(null);
@@ -105,6 +106,9 @@ export function CocinaPage() {
   // persona lo cierra o descarta mientras tanto, no reaparece para el mercado siguiente.
   const [cerrandoId, setCerrandoId] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
+  // La fecha del cierre (27/10/2026): por defecto hoy. Es el fin del mercado que cierra y
+  // el inicio del siguiente. El mercado no tiene fin hasta que se cierra.
+  const [fechaCierre, setFechaCierre] = useState(hoyISO);
   const [emailCierre, setEmailCierre] = useState('');
   // Lista física (en papel) del mercado nuevo: hasta 4 fotos o 1 PDF, se sube al abrirlo.
   const [listaNueva, setListaNueva] = useState<File[]>([]);
@@ -274,8 +278,14 @@ export function CocinaPage() {
   }
 
 
-  // Contador del ciclo (día X de 21, cuántos faltan, si ya venció).
+  // Contador del ciclo (qué día va). Sin plazo: el mercado llega hasta hoy mientras no se cierre.
   const ciclo = useMemo(() => (mercado ? diasDelCiclo(mercado) : null), [mercado]);
+  // Qué dice la fecha de cierre elegida, antes de confirmar.
+  const errorFechaCierre = useMemo(() => {
+    if (!mercado || !cerrandoId) return null;
+    const v = validarCierre(fechaCierre, mercado.inicio_at);
+    return 'error' in v ? v.error : null;
+  }, [mercado, cerrandoId, fechaCierre]);
   // Qué se lleva el ciclo nuevo: es la cifra que hace entendible que no se descarta nada.
   const avance = useMemo(() => avanceCierre(resMercado), [resMercado]);
 
@@ -310,13 +320,15 @@ export function CocinaPage() {
     } finally { setCargandoDetalle(false); }
   }
 
-  // Cierre del mercado: cierra el ciclo, genera el PDF (siempre) y abre el siguiente con el
-  // saldo. El correo es OPCIONAL: solo se envía si se cargó al menos un destinatario.
+  // Cierre del mercado: cierra el ciclo EN LA FECHA ELEGIDA (por defecto hoy), genera el PDF
+  // (siempre) y abre el siguiente con el saldo, arrancando en esa misma fecha. El correo es
+  // OPCIONAL: solo se envía si se cargó al menos un destinatario.
   async function ejecutarCierre() {
     if (!mercado) return;
+    if (errorFechaCierre) { toast(errorFechaCierre, 'error'); return; }
     setCerrando(true);
     try {
-      const cerrado = await cerrarMercado(mercado, actor);
+      const cerrado = await cerrarMercado(mercado, actor, null, null, fechaCierre);
       // La lista física va al mercado que se acaba de abrir. Si falla, el cierre ya está
       // hecho: se avisa y se puede subir después desde el panel del mercado.
       if (listaNueva.length) {
@@ -442,11 +454,11 @@ export function CocinaPage() {
           desmontaba y plegaba la leyenda. */}
       {mercadoLeido && !mercado && !errorMercado && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
-          <div className="card-title"><span>🛒 Iniciar mercado (ciclo de {CICLO_DIAS} días)</span></div>
+          <div className="card-title"><span>🛒 Iniciar mercado</span></div>
           <p className="hint muted" style={{ marginTop: 0 }}>
             Todavía no hay un mercado activo. El mercado empieza en el <strong>instante exacto en que presiones «Iniciar mercado ahora»</strong>:
-            el <strong>stock de víveres de ese momento</strong> es el saldo inicial, y solo cuentan las entradas y comidas registradas desde ahí. Ahí arranca el conteo de {CICLO_DIAS} días.
-            Desde el día {CICLO_DIAS + 1} toca <strong>cerrarlo</strong> (se puede cerrar antes si hace falta), con PDF y el stock de ese momento como saldo del siguiente.
+            el <strong>stock de víveres de ese momento</strong> es el saldo inicial, y solo cuentan las entradas y comidas registradas desde ahí.
+            <strong>No tiene fecha de fin</strong>: sigue abierto, y su libro llega hasta hoy, hasta que alguien lo <strong>cierre</strong> con «Cerrar mercado» (se elige la fecha del cierre), con PDF y el stock de ese momento como saldo del siguiente.
           </p>
           {/* Sin fecha para elegir (decisión del usuario, 14/09/2026 16:54): el inicio es el
               instante del clic, y lo movido antes queda dentro del saldo inicial. */}
@@ -507,17 +519,16 @@ export function CocinaPage() {
           onAbrirDetalle={() => setModal('control')} />
       )}
 
-      {/* Cerrar, al lado del panel. Se resalta pasado el día 21; antes queda punteado.
-          Descartar se quitó el 28/09/2026: el cierre NO descarta lo que hay, lo pasa al
-          ciclo siguiente. */}
+      {/* Cerrar, al lado del panel. El cierre es MANUAL (27/10/2026): el mercado no tiene
+          fin hasta que una persona lo cierra, eligiendo la fecha (por defecto hoy). Ya no hay
+          «día 21» ni cierre anticipado. Descartar se quitó el 28/09/2026: el cierre NO
+          descarta lo que hay, lo pasa al ciclo siguiente. */}
       {canWrite && mercado && (
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.8rem' }}>
-          <button className={`btn ${ciclo?.vencido ? 'btn-primary' : 'btn-ghost'}`} style={ciclo?.vencido ? undefined : { borderStyle: 'dashed' }}
-            onClick={() => setCerrandoId(mercado.id)}
-            title={ciclo?.vencido
-              ? 'Cerrar el ciclo: guarda sus movimientos en el histórico, genera el reporte y arranca el siguiente con lo que quedó en la despensa'
-              : `Todavía no llega el día ${CICLO_DIAS + 1}; se puede cerrar igual si hace falta`}>
-            {ciclo?.vencido ? `🧾 Cerrar mercado (día ${ciclo.dia}) — el saldo pasa al siguiente` : '🧾 Cerrar mercado anticipadamente'}
+          <button className="btn btn-primary"
+            onClick={() => { setFechaCierre(hoyISO()); setCerrandoId(mercado.id); }}
+            title="Cerrar el mercado en la fecha que elijas (por defecto hoy): guarda sus movimientos en el histórico, genera el reporte y arranca el siguiente en esa fecha con lo que quedó en la despensa">
+            🧾 Cerrar mercado{ciclo ? ` (día ${ciclo.dia})` : ''} — el saldo pasa al siguiente
           </button>
           {/* Corte de inventario (01/10/2026): partir del stock real y dejar lo anterior en
               el histórico mostrando solo las entradas. */}
@@ -887,13 +898,24 @@ export function CocinaPage() {
         <Modal title="🧾 Cerrar mercado" size="md" onClose={() => { if (!cerrando) { setCerrandoId(null); setListaNueva([]); } }} footer={
           <>
             <button className="btn btn-ghost" onClick={() => { setCerrandoId(null); setListaNueva([]); }} disabled={cerrando}>Cancelar</button>
-            <button className="btn btn-primary" onClick={() => void ejecutarCierre()} disabled={cerrando}>{cerrando ? 'Cerrando…' : '🧾 Cerrar mercado'}</button>
+            <button className="btn btn-primary" onClick={() => void ejecutarCierre()} disabled={cerrando || !!errorFechaCierre}>{cerrando ? 'Cerrando…' : '🧾 Cerrar mercado'}</button>
           </>
         }>
           <p style={{ marginTop: 0 }}>
-            Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> ({ciclo ? `día ${ciclo.dia} de ${CICLO_DIAS}` : ''}): <strong>todos sus movimientos</strong> (entradas, comidas y mermas) pasan al <strong>histórico</strong> y quedan congelados, y se genera el <strong>reporte del ciclo en PDF</strong>.
+            Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> ({ciclo ? `día ${ciclo.dia}, abierto desde el ${dateTime(mercado.inicio_at)}` : ''}): <strong>todos sus movimientos</strong> (entradas, comidas y mermas) pasan al <strong>histórico</strong> y quedan congelados, y se genera el <strong>reporte del ciclo en PDF</strong>.
             <br /><strong>No se descarta nada de la despensa:</strong> lo que quedó es el <strong>saldo inicial del mercado nuevo</strong>, y sobre eso se van sumando las entradas que lleguen.
           </p>
+          <div className="form-row">
+            <label>Fecha de cierre <span className="muted">(por defecto hoy)</span></label>
+            <FechaInput value={fechaCierre} onChange={setFechaCierre} min={diaCaracas(mercado.inicio_at)} max={hoyISO()} style={{ maxWidth: 190 }} />
+            <small className="muted">
+              Es el <strong>fin</strong> del mercado {mercado.numero ?? ''} y el <strong>inicio</strong> del siguiente.
+              {fechaCierre === hoyISO()
+                ? ' Con la fecha de hoy se cierra en este momento: lo que se cargue después ya es del mercado nuevo.'
+                : ' Con una fecha anterior, el mercado se lleva las comidas de ese día completo y el nuevo arranca ahí, con el saldo que había entonces.'}
+            </small>
+            {errorFechaCierre && <small style={{ color: 'var(--danger)' }}>{errorFechaCierre}</small>}
+          </div>
           <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
             <div><div className="muted" style={{ fontSize: '.72rem' }}>Víveres</div><div className="mono" style={{ fontWeight: 700 }}>{num(totMercado?.viveres ?? resMercado.length)}</div></div>
             <div><div className="muted" style={{ fontSize: '.72rem' }}>Consumo total</div><div className="mono" style={{ fontWeight: 700 }}>{money(totMercado?.consumo_valor ?? 0)}</div></div>

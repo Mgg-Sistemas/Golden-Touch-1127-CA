@@ -72,6 +72,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
     mantenimiento_cada_km: equipo?.mantenimiento_cada_km ?? null,
     combustible_equipo: equipo?.combustible_equipo ?? null,
     grupo_mantenimiento: equipo?.grupo_mantenimiento ?? null,
+    // Categoría guardada (27/10/2026): la que eligió el usuario en el bloque de arriba.
+    clase: equipo?.clase ?? null,
     documentacion: equipo?.documentacion ?? null,
     ficha_tecnica: equipo?.ficha_tecnica ?? null,
     ficha_mantenimiento: equipo?.ficha_mantenimiento ?? null,
@@ -167,8 +169,11 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
     if (!f.equipo?.trim()) { setError('Indica el nombre del equipo.'); return; }
     setSaving(true);
     try {
-      if (esNuevo) await addEquipo(f, actor);
-      else await updateEquipo(equipo!.id, f);
+      // La categoría elegida en el bloque superior se guarda en la ficha (27/10/2026): así el
+      // equipo queda en ese apartado aunque su tipo diga otra cosa.
+      const datos: MaquinariaEquipoInput = { ...f, clase: claseSel || null };
+      if (esNuevo) await addEquipo(datos, actor);
+      else await updateEquipo(equipo!.id, datos);
       if (f.tipo?.trim()) {
         addCatalogoMaquinaria('tipo_maquinaria', f.tipo.trim().toUpperCase()).catch(() => {});
       }
@@ -199,6 +204,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
 
   function handleCambiarClase(c: ClaseEquipo) {
     setClaseSel(c);
+    // La categoría se guarda en la ficha (campo `clase`) y manda sobre el tipo.
+    setF((prev) => ({ ...prev, clase: c }));
     if (c === 'lancha') {
       setF((prev) => ({
         ...prev,
@@ -314,7 +321,10 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
                 const up = upper(v);
                 set('tipo', up || null);
                 if (up) {
-                  setClaseSel(claseEquipo({ tipo: up }));
+                  // Escribir el tipo re-propone la categoría; los botones de arriba la corrigen.
+                  const c = claseEquipo({ tipo: up });
+                  setClaseSel(c);
+                  setF((prev) => ({ ...prev, clase: c }));
                 }
               }}
               options={tipos}

@@ -1,15 +1,19 @@
 /* ============================================================
-   Golden Touch · Cocina · Ciclo de mercado (21 días)
-   El mercado dura 21 días. Al llegar el día 22 se hace un CIERRE:
-   se saca la foto de lo que queda (stock actual de cada víver), se
-   arma el reporte (saldo inicial + entradas del mercado − consumo =
-   lo que queda) y el siguiente ciclo arranca con ese saldo. El
-   contador y el cierre son manuales (Cocina presiona «Cerrar mercado»).
+   Golden Touch · Cocina · Ciclo de mercado (cierre manual)
+   Un mercado abierto arranca en su `inicio_at` y NO tiene fin hasta que
+   una persona lo cierra (27/10/2026; antes se hablaba de 21 días, y ese
+   plazo ya no existe). Mientras está abierto, el libro, la Distribución y
+   el stock llegan hasta HOY. Al cerrar se elige la fecha de cierre (por
+   defecto hoy): se saca la foto de lo que queda, se arma el reporte
+   (saldo inicial + entradas del mercado − consumo = lo que queda) y el
+   siguiente ciclo arranca en esa misma fecha con ese saldo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
-import { movimientosDeViver, saldoParaElNuevo, tieneCongelados, type MovimientosCiclo } from './mercadoCierre';
+import {
+  movimientosDeViver, saldoParaElNuevo, tieneCongelados, validarCierre, type MovimientosCiclo,
+} from './mercadoCierre';
 import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
 import {
   agruparRecepciones, esCorteRehacible, marcaCorte, validarInicioNuevo,
@@ -22,9 +26,6 @@ import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 
 const TABLE = 'cocina_mercados';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
-
-/** Días que dura un ciclo de mercado. Al día 22 toca cerrar. */
-export const CICLO_DIAS = 21;
 
 /** Foto de un víver en un momento (inicio o cierre del ciclo). */
 export interface SaldoViver {
@@ -204,14 +205,13 @@ export async function iniciarMercado(): Promise<Mercado> {
   return normalizar(data as Record<string, unknown>);
 }
 
-/** Estado del contador del ciclo: día actual, días que faltan y si ya venció (día 22+). */
-export function diasDelCiclo(m: Mercado): { transcurridos: number; dia: number; faltan: number; vencido: boolean } {
+/** El contador del ciclo: qué día va. Ya no hay plazo ni vencimiento (cierre manual, 27/10/2026). */
+export function diasDelCiclo(m: Mercado): { transcurridos: number; dia: number } {
   const ini = new Date(m.inicio_at).getTime();
   const ahora = Date.now();
   const transcurridos = Math.max(0, Math.floor((ahora - ini) / 86_400_000));
   const dia = transcurridos + 1;                 // día 1 = el día que arrancó
-  const faltan = Math.max(0, CICLO_DIAS - dia);
-  return { transcurridos, dia, faltan, vencido: dia > CICLO_DIAS };
+  return { transcurridos, dia };
 }
 
 /** Entradas de inventario (nuevo mercado) por víver dentro de la ventana [desde, hasta].
@@ -430,17 +430,29 @@ export async function computeResumen(
  * instante en que entró la compra nueva, y el mercado nuevo abre ahí con el saldo de ese
  * instante: la compra y todo lo movido después (comidas, salidas, ajustes) cuentan dentro
  * del ciclo nuevo, y su cuenta da el stock real.
+ *
+ * CIERRE MANUAL CON FECHA (27/10/2026). El mercado no tiene fin hasta que se cierra. Con
+ * `fechaCierre` (AAAA-MM-DD, por defecto hoy) el cierre fija el fin: hoy = este instante; un
+ * día anterior = el final de ese día. El mercado siguiente arranca en ese mismo instante con
+ * el saldo que había entonces (el stock de hoy menos lo movido después), así «saldo que
+ * estaba = inicio del mercado nuevo + lo nuevo» se cumple también cuando se cierra atrasado.
  */
 export async function cerrarMercado(
   m: Mercado, actorEmail: string, nota?: string | null, corte?: CorteInventario | null,
+  fechaCierre?: string | null,
 ): Promise<Mercado> {
   if (m.estado !== 'abierto') throw new Error('El mercado ya está cerrado.');
-  const ahora = new Date().toISOString();
+  const ahoraDate = new Date();
+  const ahora = ahoraDate.toISOString();
   let cierre = ahora;
   if (corte?.inicioNuevo) {
     const v = validarInicioNuevo(corte.inicioNuevo, m.inicio_at, ahora);
     if ('error' in v) throw new Error(v.error);
     cierre = v.inicio;
+  } else if (fechaCierre) {
+    const v = validarCierre(fechaCierre, m.inicio_at, ahoraDate);
+    if ('error' in v) throw new Error(v.error);
+    cierre = v.cierre;
   }
   const conMercadoNuevo = cierre !== ahora;
 

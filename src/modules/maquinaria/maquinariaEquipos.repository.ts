@@ -43,6 +43,9 @@ export interface MaquinariaEquipo {
   combustible_equipo: string | null;
   /** Grupo del submódulo Servicio de Mantenimiento (ver GRUPOS_MANTENIMIENTO). */
   grupo_mantenimiento: string | null;
+  /** Apartado elegido por el usuario (27/10/2026): maquinaria | vehiculo | moto | lancha | herramienta
+   *  o id de apartado personalizado. null = se deduce del tipo (ver `claseEquipo` en flota.ts). */
+  clase?: string | null;
   doc_fisico: boolean;
   ficha_mantt: boolean;
   doc_drive: boolean;
@@ -129,6 +132,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     // que escribe directo). Así editar la ficha del equipo no borra el contador.
     combustible_equipo: v(input.combustible_equipo),
     grupo_mantenimiento: v(input.grupo_mantenimiento),
+    clase: v(input.clase),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
     esp_tecnicas: !!input.esp_tecnicas, revision_mina: !!input.revision_mina,
     notas: notasFinal,

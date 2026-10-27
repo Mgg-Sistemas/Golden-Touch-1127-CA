@@ -74,6 +74,16 @@ describe('claseEquipo', () => {
 });
 
 describe('claseEquipo por tipo exacto (reglas del 27/10/2026, flota del Excel)', () => {
+  it('la categoría guardada en la ficha (clase) manda sobre el tipo', () => {
+    expect(claseEquipo({ tipo: 'SUV', clase: 'maquinaria' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'EXCAVADORA', clase: 'vehiculo' })).toBe('vehiculo');
+    expect(claseEquipo({ tipo: 'MOTO', clase: 'lancha' })).toBe('lancha');
+  });
+  it('una clase guardada que no es un apartado se ignora y se deduce del tipo', () => {
+    expect(claseEquipo({ tipo: 'SUV', clase: 'lo-que-sea' })).toBe('vehiculo');
+    expect(claseEquipo({ tipo: 'SUV', clase: '' })).toBe('vehiculo');
+    expect(claseEquipo({ tipo: 'SUV', clase: null })).toBe('vehiculo');
+  });
   it('SUV es vehículo', () => {
     expect(claseEquipo({ equipo: 'CAMIONETA TOYOTA FORTUNER AB123CD', tipo: 'SUV', placa: 'AB123CD' })).toBe('vehiculo');
   });
