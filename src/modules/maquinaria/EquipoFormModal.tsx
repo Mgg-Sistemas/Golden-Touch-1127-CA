@@ -6,10 +6,10 @@ import { listActivosMaquinaria, addCatalogoMaquinaria } from './maquinaria.repos
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { addEquipo, updateEquipo, vincularEquipoEnCombustible, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
 import { norm } from '@/shared/lib/texto';
-import { CLASES_EQUIPO, claseEquipo, type ClaseEquipo } from './flota';
+import { claseEquipo, listarApartados, type ClaseEquipo } from './flota';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
-const TIPOS_SUGERIDOS = ['CAMIÓN', 'CAMIONETA', 'EXCAVADORA', 'RETROEXCAVADORA', 'PLANTA ELÉCTRICA', 'GENERADOR', 'MOTO', 'LANCHA', 'BOTE'];
+const TIPOS_SUGERIDOS = ['CAMIÓN', 'CAMIONETA', 'EXCAVADORA', 'RETROEXCAVADORA', 'PLANTA ELÉCTRICA', 'GENERADOR', 'MOTO', 'LANCHA', 'BOTE', 'HERRAMIENTA'];
 
 export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, claseInicial }: {
   equipo: MaquinariaEquipo | null;
@@ -20,21 +20,28 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
   claseInicial?: ClaseEquipo | null;
 }) {
   const esNuevo = !equipo;
+  const apartados = useMemo(() => listarApartados(), []);
 
   const tipoArrancada = useMemo(() => {
     if (equipo?.tipo) return equipo.tipo;
     if (tipoInicial?.trim()) return tipoInicial.trim().toUpperCase();
     if (claseInicial === 'lancha') return 'LANCHA';
     if (claseInicial === 'moto') return 'MOTO';
+    if (claseInicial === 'herramienta') return 'HERRAMIENTA';
     if (claseInicial === 'vehiculo') return 'VEHÍCULO';
     if (claseInicial === 'maquinaria') return 'MAQUINARIA PESADA';
+    if (claseInicial) {
+      const ap = apartados.find((a) => a.id === claseInicial);
+      if (ap) return ap.label.toUpperCase();
+    }
     return null;
-  }, [equipo, tipoInicial, claseInicial]);
+  }, [equipo, tipoInicial, claseInicial, apartados]);
 
   const combustibleArrancada = useMemo(() => {
     if (equipo?.combustible) return equipo.combustible;
     if (claseInicial === 'lancha' || tipoInicial?.toUpperCase() === 'LANCHA') return 'GASOLINA';
     if (claseInicial === 'moto' || tipoInicial?.toUpperCase() === 'MOTO') return 'GASOLINA';
+    if (claseInicial === 'herramienta' || tipoInicial?.toUpperCase() === 'HERRAMIENTA') return 'N/A';
     return 'GASOIL';
   }, [equipo, claseInicial, tipoInicial]);
 
@@ -179,7 +186,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="equipo-form" className="btn btn-primary" disabled={saving}>
-        {saving ? 'Guardando…' : (esNuevo ? (claseSel === 'moto' ? 'Crear moto' : claseSel === 'lancha' ? 'Crear lancha' : claseSel === 'vehiculo' ? 'Crear vehículo' : claseSel === 'maquinaria' ? 'Crear maquinaria' : 'Crear equipo') : 'Guardar')}
+        {saving ? 'Guardando…' : (esNuevo ? (claseSel === 'moto' ? 'Crear moto' : claseSel === 'lancha' ? 'Crear lancha' : claseSel === 'vehiculo' ? 'Crear vehículo' : claseSel === 'herramienta' ? 'Crear herramienta' : claseSel === 'maquinaria' ? 'Crear maquinaria' : `Crear ${apartados.find((a) => a.id === claseSel)?.label ?? 'equipo'}`) : 'Guardar')}
       </button>
     </>
   );
@@ -204,17 +211,30 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
         tipo: 'MOTO',
         combustible: 'GASOLINA',
       }));
+    } else if (c === 'herramienta') {
+      setF((prev) => ({
+        ...prev,
+        tipo: prev.tipo && /herramienta|taladro|esmeril|sierra|pulidora|soldador|llave|bomba/i.test(prev.tipo) ? prev.tipo : 'HERRAMIENTA',
+        combustible: 'N/A',
+      }));
     } else if (c === 'vehiculo') {
       setF((prev) => ({
         ...prev,
-        tipo: prev.tipo && /lancha|moto/i.test(prev.tipo) ? 'VEHÍCULO' : (prev.tipo || 'VEHÍCULO'),
+        tipo: prev.tipo && /lancha|moto|herramienta/i.test(prev.tipo) ? 'VEHÍCULO' : (prev.tipo || 'VEHÍCULO'),
+        combustible: prev.combustible ?? 'GASOIL',
+      }));
+    } else if (c === 'maquinaria') {
+      setF((prev) => ({
+        ...prev,
+        tipo: prev.tipo && /lancha|moto|herramienta/i.test(prev.tipo) ? 'MAQUINARIA PESADA' : (prev.tipo || 'MAQUINARIA PESADA'),
         combustible: prev.combustible ?? 'GASOIL',
       }));
     } else {
+      const ap = apartados.find((a) => a.id === c);
       setF((prev) => ({
         ...prev,
-        tipo: prev.tipo && /lancha|moto/i.test(prev.tipo) ? 'MAQUINARIA PESADA' : (prev.tipo || 'MAQUINARIA PESADA'),
-        combustible: prev.combustible ?? 'GASOIL',
+        tipo: ap ? ap.label.toUpperCase() : prev.tipo,
+        combustible: prev.combustible ?? 'N/A',
       }));
     }
   }
@@ -224,14 +244,17 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
     if (claseSel === 'moto') return '🏍️ Nueva Moto';
     if (claseSel === 'lancha') return '🚤 Nueva Lancha / Embarcación';
     if (claseSel === 'vehiculo') return '🚚 Nuevo Vehículo';
+    if (claseSel === 'herramienta') return '🛠️ Nueva Herramienta';
     if (claseSel === 'maquinaria') return '🚜 Nueva Maquinaria / Equipo Pesado';
-    return 'Nuevo equipo / maquinaria';
-  }, [esNuevo, equipo, claseSel]);
+    const ap = apartados.find((a) => a.id === claseSel);
+    return `${ap?.icon ?? '📦'} Nuevo/a ${ap?.label ?? 'Equipo'}`;
+  }, [esNuevo, equipo, claseSel, apartados]);
 
   const placeholderEquipo = useMemo(() => {
     if (claseSel === 'moto') return 'Ej. BERA SBR 150 · MOTO 01';
     if (claseSel === 'lancha') return 'Ej. LANCHA YAMAHA 200HP · RÍO 01';
     if (claseSel === 'vehiculo') return 'Ej. TOYOTA HILUX 4X4 · CAMIONETA 05';
+    if (claseSel === 'herramienta') return 'Ej. TALADRO PERCUTOR BOSCH · TALLER 01';
     return 'Ej. VOLVO A35F 484';
   }, [claseSel]);
 
@@ -247,11 +270,11 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
               Categoría de la unidad (puedes cambiarla aquí)
             </label>
             <span style={{ fontSize: '.76rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>
-              {claseSel === 'moto' ? '🏍️ Moto seleccionada' : claseSel === 'lancha' ? '🚤 Lancha seleccionada' : claseSel === 'vehiculo' ? '🚚 Vehículo seleccionado' : '🚜 Maquinaria seleccionada'}
+              {claseSel === 'moto' ? '🏍️ Moto seleccionada' : claseSel === 'lancha' ? '🚤 Lancha seleccionada' : claseSel === 'vehiculo' ? '🚚 Vehículo seleccionado' : claseSel === 'herramienta' ? '🛠️ Herramienta seleccionada' : `${apartados.find((a) => a.id === claseSel)?.icon ?? '🚜'} ${apartados.find((a) => a.id === claseSel)?.label ?? 'Maquinaria'} seleccionada`}
             </span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem' }}>
-            {CLASES_EQUIPO.map((c) => {
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '.4rem' }}>
+            {apartados.map((c) => {
               const activa = claseSel === c.id;
               return (
                 <button

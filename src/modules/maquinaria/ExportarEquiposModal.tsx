@@ -23,8 +23,8 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import {
-  CLASES_EQUIPO,
   claseEquipo,
+  listarApartados,
   type ClaseEquipo,
   ESTADOS_EQUIPO,
   estadoEfectivo,
@@ -272,7 +272,9 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     return { mapa: m, total: base.length };
   }, [equipos, propietarioSel, ubicacionesSel, estatusSel]);
 
-  const categoriaLabel = categoriaSel === 'todas' ? null : (CLASES_EQUIPO.find((c) => c.id === categoriaSel)?.label ?? null);
+  const apartados = useMemo(() => listarApartados(), []);
+
+  const categoriaLabel = categoriaSel === 'todas' ? null : (apartados.find((c) => c.id === categoriaSel)?.label ?? null);
   const propietarioLabel = propietarioSel === 'todos' ? null : propietarioSel === '__sin__' ? 'Sin propietario' : propietarioSel;
   const ubicacionesLabel = ubicacionesSel.length === 0 ? null : ubicacionesSel.includes('__ninguna__') ? 'Ninguna ubicación' : ubicacionesSel.length === 1 ? (ubicacionesSel[0] === '__sin__' ? 'Sin ubicación' : ubicacionesSel[0]) : `${ubicacionesSel.length} ubicaciones`;
   const estatusLabel = estatusSel === 'todos' ? null : (ESTADOS_EQUIPO[estatusSel as EstadoEquipo]?.label ?? estatusSel);
@@ -664,7 +666,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
           <button type="button" className="flo-pill" aria-pressed={categoriaSel === 'todas'} onClick={() => setCategoriaSel('todas')}>
             Todas<span className="n">{conteoCategorias.total}</span>
           </button>
-          {CLASES_EQUIPO.map((c) => (
+          {apartados.map((c) => (
             <button key={c.id} type="button" className="flo-pill" aria-pressed={categoriaSel === c.id} onClick={() => setCategoriaSel(c.id)}>
               {c.icon} {c.label}<span className="n">{conteoCategorias.mapa.get(c.id) ?? 0}</span>
             </button>

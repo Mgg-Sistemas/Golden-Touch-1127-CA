@@ -18,9 +18,10 @@ import { listEquipos, reiniciarMantenimientoDeEquipo, extraerEncargado, type Maq
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
-  BUCKETS_FLOTA, CLASES_EQUIPO, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo, frecuenciaHrs,
-  type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo,
+  BUCKETS_FLOTA, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo, frecuenciaHrs,
+  listarApartados, type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo, type ApartadoEquipo,
 } from './flota';
+import { GestionarApartadosModal } from './GestionarApartadosModal';
 import { AlertasMantenimientoBanner, type EquipoConAviso } from './AlertasMantenimiento';
 import { ordenesAbiertasPorEquipo, fotosDeEquipos, lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
 import { FlotaNav } from './FlotaNav';
@@ -64,8 +65,16 @@ export function MaquinariaPage() {
   const [filtro, setFiltro] = useState('');
   const [bucket, setBucket] = useState<BucketFlota | null>(null);
   const [clase, setClase] = useState<ClaseEquipo | 'todos'>('todos');
+  const [apartados, setApartados] = useState<ApartadoEquipo[]>(() => listarApartados());
+  const [gestionarApartadosOpen, setGestionarApartadosOpen] = useState(false);
   const [propietario, setPropietario] = useState('');
   const [tipo, setTipo] = useState('');
+
+  useEffect(() => {
+    const handler = () => setApartados(listarApartados());
+    window.addEventListener('maquinaria:apartados-changed', handler);
+    return () => window.removeEventListener('maquinaria:apartados-changed', handler);
+  }, []);
 
   const [catalogoOpen, setCatalogoOpen] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
@@ -262,9 +271,20 @@ export function MaquinariaPage() {
         <div className="fila">
           <input className="input flo-buscar" type="search" value={filtro} onChange={(e) => setFiltro(e.target.value)}
             placeholder="🔍 Buscar equipo, marca, serial, placa, ubicación…" aria-label="Buscar equipo" />
-          <div className="flo-seg" role="group" aria-label="Clase de equipo">
-            <button type="button" aria-pressed={clase === 'todos'} onClick={() => setClase('todos')}>Todos</button>
-            {CLASES_EQUIPO.map((c) => <button key={c.id} type="button" aria-pressed={clase === c.id} onClick={() => setClase(c.id)}>{c.icon} {c.label}</button>)}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+            <div className="flo-seg" role="group" aria-label="Clase de equipo">
+              <button type="button" aria-pressed={clase === 'todos'} onClick={() => setClase('todos')}>Todos</button>
+              {apartados.map((c) => <button key={c.id} type="button" aria-pressed={clase === c.id} onClick={() => setClase(c.id)}>{c.icon} {c.label}</button>)}
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={() => setGestionarApartadosOpen(true)}
+              title="Administrar o agregar apartados de la flota"
+              style={{ padding: '.35rem .65rem', fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem', whiteSpace: 'nowrap' }}
+            >
+              ➕ Apartados
+            </button>
           </div>
           {propietarios.length > 1 && (
             <select className="select" value={propietario} onChange={(e) => setPropietario(e.target.value)} aria-label="Propietario" style={{ maxWidth: '100%' }}>
@@ -297,7 +317,7 @@ export function MaquinariaPage() {
               const foto = fotos.get(e.id);
               const nOrd = ordenesAbiertas.get(e.id) ?? 0;
               const notaClase = i.estado === 'averiada' ? '' : i.estado === 'espera' ? 'wait' : 'warn';
-              const cl = CLASES_EQUIPO.find((c) => c.id === i.clase);
+              const cl = apartados.find((c) => c.id === i.clase);
               const alerta = !!i.aviso && i.aviso.nivel !== 'ok' && i.estado !== 'retirada';
               return (
                 <div key={e.id} className={`flo-row${alerta ? ' alerta' : ''}${e.activo ? '' : ' inactivo'}`} style={{ cursor: 'default' }}>
@@ -431,6 +451,12 @@ export function MaquinariaPage() {
           defaultEmail={actor}
           onEnviar={async (emails) => (await enviarEquiposPorCorreo(lista, emails)).destinatarios}
           onClose={() => setCorreoOpen(false)}
+        />
+      )}
+      {gestionarApartadosOpen && (
+        <GestionarApartadosModal
+          onClose={() => setGestionarApartadosOpen(false)}
+          onChanged={() => setApartados(listarApartados())}
         />
       )}
     </div>

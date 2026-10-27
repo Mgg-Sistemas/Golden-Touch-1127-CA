@@ -3,7 +3,7 @@ import {
   estadoEfectivo, statusDeEstado, estadoExigeMotivo, claseEquipo, restantesServicio, avisoServicio,
   avisoMasUrgente, decidirRepuesto, efectoOrden, columnaCompra, compraAbierta, accionesEquipo,
   siguientesEstadosOrden, sugerirServicio, coincideEquipo, ESTADOS_EQUIPO, faltaSalida, faltaCompra, validarLectura, etiquetaOrigenLectura,
-  repuestosEditables, puedeBorrarOrden,
+  repuestosEditables, puedeBorrarOrden, listarApartados, guardarApartadoCustom, eliminarApartadoCustom, iconoDeClase,
 } from './flota';
 
 describe('estadoEfectivo (equipos de antes y de ahora)', () => {
@@ -62,6 +62,38 @@ describe('claseEquipo', () => {
     expect(claseEquipo({ tipo: 'Lancha rápida' })).toBe('lancha');
     expect(claseEquipo({ tipo: 'Bote peñero' })).toBe('lancha');
     expect(claseEquipo({ tipo: 'Embarcación' })).toBe('lancha');
+  });
+
+  it('clasifica herramientas y equipos menores correctamente', () => {
+    expect(claseEquipo({ tipo: 'Taladro percutor' })).toBe('herramienta');
+    expect(claseEquipo({ tipo: 'Esmeril angular' })).toBe('herramienta');
+    expect(claseEquipo({ tipo: 'Soldadora eléctrica' })).toBe('herramienta');
+    expect(claseEquipo({ tipo: 'Herramienta de taller' })).toBe('herramienta');
+    expect(claseEquipo({ grupo_mantenimiento: 'HERRAMIENTAS' })).toBe('herramienta');
+  });
+});
+
+describe('gestión de apartados (listar, guardar, eliminar, icono)', () => {
+  it('incluye herramientas en los apartados base', () => {
+    const aps = listarApartados();
+    expect(aps.some((a) => a.id === 'herramienta' && a.icon === '🛠️')).toBe(true);
+    expect(iconoDeClase('herramienta')).toBe('🛠️');
+    expect(iconoDeClase('maquinaria')).toBe('🚜');
+    expect(iconoDeClase('vehiculo')).toBe('🚚');
+  });
+
+  it('permite guardar y eliminar apartados personalizados', () => {
+    const ap = guardarApartadoCustom({ label: 'Generadores Menores', icon: '⚡', keywords: ['generador menor', 'alternador'] });
+    expect(ap.id).toContain('generadores');
+    expect(ap.icon).toBe('⚡');
+
+    const lista = listarApartados();
+    expect(lista.some((a) => a.id === ap.id)).toBe(true);
+    expect(claseEquipo({ tipo: 'Alternador portátil' })).toBe(ap.id);
+
+    eliminarApartadoCustom(ap.id);
+    const listaPost = listarApartados();
+    expect(listaPost.some((a) => a.id === ap.id)).toBe(false);
   });
 });
 
