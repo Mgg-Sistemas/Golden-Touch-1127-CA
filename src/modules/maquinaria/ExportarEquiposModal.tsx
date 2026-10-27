@@ -16,6 +16,11 @@
      * 📄 Sin agrupar (listado continuo)
    - Exportación fiel a Excel (ExcelJS con estilos) y a PDF (fichas técnicas
      con foto y columnas dinámicas que reflejan las casillas marcadas).
+   - Resumen de flota en tarjetas (check arriba del todo de la ventana): sale
+     como lo primero del PDF (parte de arriba de la página 1) y como hoja
+     «Resumen» del Excel, con una tarjeta por grupo (tipo de equipo, marca,
+     apartado, estado o empresa) y su cantidad; «Solo el resumen» imprime
+     únicamente esa página.
    - Recuerda las preferencias del usuario en localStorage.
    ============================================================ */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -38,13 +43,31 @@ import {
   orientacionFinal,
   normalizarUbicacion,
   UBICACION_UNIFICADA_GT,
+  type AgrupacionResumen,
   type ContextoEquipoExportar,
   type ModoAgrupacionEquipos,
+  type OpcionesResumenFlota,
   type OrientacionHoja,
 } from './exportarEquipos';
 
 const CLAVE_LOCAL_CAMPOS = 'maquinaria.exportar-equipos.campos.v2';
 const CLAVE_LOCAL_AGRUPACION = 'maquinaria.exportar-equipos.agrupacion.v3';
+const CLAVE_LOCAL_RESUMEN = 'maquinaria.exportar-equipos.resumen.v1';
+
+/** Cómo se agrupan los conteos del resumen en tarjetas (una tarjeta por grupo). */
+const OPCIONES_RESUMEN: { id: AgrupacionResumen; icon: string; label: string; etiqueta: string }[] = [
+  { id: 'tipo', icon: '🚜', label: 'Tipo de equipo', etiqueta: 'tipo de equipo' },
+  { id: 'marca', icon: '🏷️', label: 'Marca', etiqueta: 'marca' },
+  { id: 'apartado', icon: '🗂️', label: 'Apartado', etiqueta: 'apartado' },
+  { id: 'estado', icon: '🔧', label: 'Estado', etiqueta: 'estado' },
+  { id: 'propietario', icon: '🏢', label: 'Empresa / Propietario', etiqueta: 'empresa / propietario' },
+];
+
+const RESUMEN_POR_DEFECTO: OpcionesResumenFlota = { activo: false, agruparPor: 'tipo', soloResumen: false };
+
+function esAgrupacionResumen(v: unknown): v is AgrupacionResumen {
+  return typeof v === 'string' && OPCIONES_RESUMEN.some((o) => o.id === v);
+}
 
 function seleccionGuardada(): string[] {
   try {
@@ -62,10 +85,31 @@ function agrupacionGuardada(): ModoAgrupacionEquipos {
   return 'empresa'; // Por defecto agrupado por empresa
 }
 
-function guardarPreferencias(claves: string[], modo: ModoAgrupacionEquipos) {
+/** Lee `{ activo, agruparPor, soloResumen }`; cualquier basura guardada vuelve al valor por defecto. */
+function resumenGuardado(): OpcionesResumenFlota {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(CLAVE_LOCAL_RESUMEN) ?? 'null');
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      return {
+        activo: o.activo === true,
+        agruparPor: esAgrupacionResumen(o.agruparPor) ? o.agruparPor : RESUMEN_POR_DEFECTO.agruparPor,
+        soloResumen: o.soloResumen === true,
+      };
+    }
+  } catch { /* usa valor por defecto */ }
+  return RESUMEN_POR_DEFECTO;
+}
+
+function guardarPreferencias(claves: string[], modo: ModoAgrupacionEquipos, resumen: OpcionesResumenFlota) {
   try {
     localStorage.setItem(CLAVE_LOCAL_CAMPOS, JSON.stringify(claves));
     localStorage.setItem(CLAVE_LOCAL_AGRUPACION, modo);
+    localStorage.setItem(CLAVE_LOCAL_RESUMEN, JSON.stringify({
+      activo: resumen.activo,
+      agruparPor: resumen.agruparPor,
+      soloResumen: resumen.soloResumen === true,
+    }));
   } catch { /* no crítico */ }
 }
 
@@ -90,6 +134,10 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
   const [estatusSel, setEstatusSel] = useState<string>('todos');
   const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | null>(null);
   const [orientacion, setOrientacion] = useState<OrientacionHoja>('auto');
+  // Resumen de flota en tarjetas (sale como lo primero del PDF / hoja «Resumen» del Excel)
+  const [resumenActivo, setResumenActivo] = useState<boolean>(() => resumenGuardado().activo);
+  const [resumenAgrupar, setResumenAgrupar] = useState<AgrupacionResumen>(() => resumenGuardado().agruparPor);
+  const [resumenSolo, setResumenSolo] = useState<boolean>(() => resumenGuardado().soloResumen === true);
 
   // Cerrar menú flotante al hacer clic afuera
   useEffect(() => {
@@ -291,28 +339,36 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
   const alternar = (clave: string) =>
     setMarcados((m) => (m.includes(clave) ? m.filter((x) => x !== clave) : [...m, clave]));
 
+  const soloResumen = resumenActivo && resumenSolo;
+  const etiquetaResumen = OPCIONES_RESUMEN.find((o) => o.id === resumenAgrupar)?.etiqueta ?? 'grupo';
+
   async function descargar(formato: 'xlsx' | 'pdf') {
     setOcupado(formato);
     try {
-      guardarPreferencias(marcados, modoAgrupacion);
+      const resumen: OpcionesResumenFlota = { activo: resumenActivo, agruparPor: resumenAgrupar, soloResumen: resumenSolo };
+      guardarPreferencias(marcados, modoAgrupacion, resumen);
+      // Con «Solo el resumen» no hace falta marcar datos: se pasa una clave para que el motor no rechace la lista vacía.
+      const claves = marcados.length === 0 && soloResumen ? ['equipo'] : marcados;
       if (formato === 'xlsx') {
         await descargarEquiposExcelPersonalizado(
           equiposAExportar,
-          marcados,
+          claves,
           modoAgrupacion,
           contextoMap,
           orientacion,
           categoriaLabel,
+          resumen,
         );
       } else {
         await descargarEquiposPdfPersonalizado(
           equiposAExportar,
-          marcados,
+          claves,
           modoAgrupacion,
           contextoMap,
           orientacion,
           fotosMap,
           categoriaLabel,
+          resumen,
         );
       }
     } catch (e) {
@@ -322,7 +378,8 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     }
   }
 
-  const nada = marcados.length === 0;
+  // Con «Solo el resumen» se puede descargar aunque no haya datos marcados.
+  const nada = marcados.length === 0 && !soloResumen;
 
   return (
     <Modal
@@ -344,7 +401,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
             onClick={() => void descargar('pdf')}
             disabled={nada || !!ocupado || !equiposAExportar.length}
           >
-            {ocupado === 'pdf' ? 'Generando…' : '📄 PDF (imprimir)'}
+            {ocupado === 'pdf' ? 'Generando…' : soloResumen ? '📄 PDF (resumen)' : '📄 PDF (imprimir)'}
           </button>
         </>
       }
@@ -365,6 +422,56 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
           >
             ↺ Restablecer filtros
           </button>
+        )}
+      </div>
+
+      {/* Resumen de flota en tarjetas: va arriba del todo; sale como lo primero del PDF (hoja «Resumen» en Excel) */}
+      <div style={{
+        background: 'var(--surface-2, #182230)',
+        border: '1px solid var(--border)',
+        borderRadius: '8px',
+        padding: '.6rem .75rem',
+        marginBottom: '.5rem',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
+          <span style={{ fontSize: '.84rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '.4rem', color: 'var(--text, #f1f5f9)' }}>
+            📊 Resumen en tarjetas
+          </span>
+          <span className="muted" style={{ fontSize: '.76rem' }}>
+            {resumenActivo
+              ? `Sale primero: una tarjeta por ${etiquetaResumen} con su cantidad (ej. RETROEXCAVADORA · 5 · CAT 3 · VOLVO 2)`
+              : 'Marca el check para añadir una página de resumen con el conteo por grupo'}
+          </span>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontSize: '.84rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            id="exp-resumen-activo"
+            checked={resumenActivo}
+            onChange={(e) => setResumenActivo(e.target.checked)}
+          />
+          Incluir resumen en tarjetas
+        </label>
+        {resumenActivo && (
+          <div style={{ marginTop: '.5rem', paddingTop: '.5rem', borderTop: '1px dashed var(--border)' }}>
+            <div style={{ fontSize: '.82rem', fontWeight: 600, marginBottom: '.35rem' }}>Agrupar el resumen por:</div>
+            <div className="flo-pills solido" role="group" aria-label="Agrupar el resumen por" style={{ marginBottom: '.5rem', flexWrap: 'wrap' }}>
+              {OPCIONES_RESUMEN.map((o) => (
+                <button key={o.id} type="button" className="flo-pill" aria-pressed={resumenAgrupar === o.id} onClick={() => setResumenAgrupar(o.id)}>
+                  {o.icon} {o.label}
+                </button>
+              ))}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontSize: '.84rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                id="exp-resumen-solo"
+                checked={resumenSolo}
+                onChange={(e) => setResumenSolo(e.target.checked)}
+              />
+              Solo el resumen (sin las fichas)
+            </label>
+          </div>
         )}
       </div>
 
