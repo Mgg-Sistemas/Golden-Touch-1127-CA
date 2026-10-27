@@ -11,6 +11,10 @@
    - Generación de PDF institucional en fichas con foto (logo, naranja, membrete,
      orientación; la foto solo si está marcada «Foto del equipo») y Excel
      profesional con bordes y estilos (ExcelJS).
+   - Resumen de flota en tarjetas (27/10/2026, opción `resumen`): va arriba del
+     PDF (franja de totales por apartado y estado + tarjetas «RETROEXCAVADORA 5 ·
+     CAT 3 · VOLVO 2») y como primera hoja «Resumen» del Excel; `soloResumen`
+     deja únicamente el resumen. Los conteos salen de resumenFlota.ts.
    ============================================================ */
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { extraerEncargado } from './maquinariaEquipos.repository';
@@ -19,6 +23,27 @@ import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { fotosDeEquipos } from './flota.repository';
 import { ESTADOS_EQUIPO, estadoEfectivo } from './flota';
 import { identidadEmpresa } from '@/shared/lib/empresa';
+import { resumenFlota, textoDesglose, type AgrupacionResumen, type GrupoResumen, type ResumenFlota } from './resumenFlota';
+import type { Workbook } from 'exceljs';
+
+export type { AgrupacionResumen } from './resumenFlota';
+export { AGRUPACIONES_RESUMEN } from './resumenFlota';
+
+/** Resumen de flota en tarjetas (27/10/2026): opción extra del PDF y del Excel de equipos. */
+export interface OpcionesResumenFlota {
+  /** Incluir la página de resumen en tarjetas. */
+  activo: boolean;
+  /** Por qué se agrupan las tarjetas (default 'tipo'). */
+  agruparPor: AgrupacionResumen;
+  /** true = solo el resumen, sin las fichas/tabla de equipos. */
+  soloResumen?: boolean;
+}
+
+/** Color del circulito de cada estado en el PDF (mismos tonos que flotaPdf.ts). */
+const TONO_RGB_ESTADO: Record<string, [number, number, number]> = {
+  success: [22, 163, 74], danger: [220, 38, 38], warning: [217, 119, 6], primary: [234, 88, 12],
+  info: [37, 99, 235], wait: [124, 58, 237], retired: [100, 116, 139],
+};
 
 export interface ContextoEquipoExportar {
   horometro?: number | null;
@@ -143,9 +168,13 @@ export async function descargarEquiposExcelPersonalizado(
   contextoMap?: Map<string, ContextoEquipoExportar>,
   orientacion: OrientacionHoja = 'auto',
   categoria?: string | null,
+  resumen?: OpcionesResumenFlota,
 ): Promise<void> {
   const campos = camposElegidos(claves);
-  if (!campos.length) throw new Error('Marca al menos un dato para descargar.');
+  // Resumen de flota (27/10/2026): si viene activo se arma la hoja «Resumen»; con soloResumen no hacen falta columnas.
+  const datosResumen = resumen?.activo ? resumenFlota(equipos, resumen.agruparPor || 'tipo') : null;
+  const soloResumen = !!datosResumen && !!resumen?.soloResumen;
+  if (!campos.length && !soloResumen) throw new Error('Marca al menos un dato para descargar.');
   if (!equipos.length) throw new Error('No hay equipos en la lista.');
 
   const modoAgrupar = normalizarModoAgrupacion(agrupacion);
@@ -153,6 +182,15 @@ export async function descargarEquiposExcelPersonalizado(
   const cat = txt(categoria);
 
   const wb = new ExcelJS.Workbook();
+  if (datosResumen) {
+    // La hoja «Resumen» va PRIMERA, antes de los datos; con soloResumen es la única.
+    agregarHojaResumenExcel(wb, datosResumen, cat);
+    if (soloResumen) {
+      const bytes = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+      await previewExcelArchivo(bytes, `resumen-flota-${datosResumen.agruparPor}-${hoyStr()}.xlsx`);
+      return;
+    }
+  }
   const ws = wb.addWorksheet('Equipos', {
     pageSetup: { orientation: orientacionFinal(claves, orientacion), fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
     views: [{ state: 'frozen', ySplit: 5 }],
@@ -266,6 +304,74 @@ export async function descargarEquiposExcelPersonalizado(
   await previewExcelArchivo(bytes, `control-maquinaria-${hoyStr()}.xlsx`);
 }
 
+/* ─────────────────────────────────────────────────────────────
+   EXCEL · hoja «Resumen» (27/10/2026): una fila por grupo con su desglose
+   («CAT 3 · VOLVO 2») y, debajo, los totales por apartado y por estado.
+   ───────────────────────────────────────────────────────────── */
+function agregarHojaResumenExcel(wb: Workbook, r: ResumenFlota, cat: string): void {
+  const ws = wb.addWorksheet('Resumen', {
+    pageSetup: { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
+  ws.columns = [{ width: 36 }, { width: 12 }, { width: 10 }, { width: 70 }];
+  const borde = { style: 'thin' as const, color: { argb: 'FFBFC5CC' } };
+  const bordes = { top: borde, left: borde, bottom: borde, right: borde };
+
+  // Encabezado institucional (mismo estilo que la hoja de datos)
+  ws.getRow(1).height = 26; ws.getRow(2).height = 20; ws.getRow(3).height = 12;
+  ws.mergeCells(1, 1, 1, 4);
+  ws.mergeCells(2, 1, 2, 4);
+  const t = ws.getCell(1, 1);
+  t.value = `RESUMEN DE FLOTA · ${r.etiquetaAgrupacion.toUpperCase()} · GOLDEN TOUCH 1127 C.A.`;
+  t.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFF8A00' } };
+  t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  const sub = ws.getCell(2, 1);
+  sub.value = `${r.total} equipo(s)${cat ? ` · Categoría: ${cat}` : ''} · ${r.grupos.length} grupo(s) por ${r.etiquetaAgrupacion.toLowerCase()} · ${new Date().toLocaleString('es-VE')}`;
+  sub.font = { name: 'Arial', size: 10, color: { argb: 'FF5C6673' } };
+  sub.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+  let fila = 4;
+  const cabecera = (titulos: string[]) => {
+    const cab = ws.getRow(fila);
+    cab.values = titulos;
+    cab.height = 22;
+    cab.eachCell((c) => {
+      c.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } };
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.border = bordes;
+    });
+    fila++;
+  };
+  const filaDatos = (valores: (string | number)[], opts?: { negrita?: boolean; sombreada?: boolean }) => {
+    const row = ws.getRow(fila);
+    row.values = valores;
+    row.height = 20;
+    row.eachCell({ includeEmpty: true }, (c, col) => {
+      const texto = col === 1 || col === 4;
+      c.font = { name: 'Arial', size: 9.5, bold: !!opts?.negrita };
+      c.border = bordes;
+      c.alignment = { vertical: 'middle', horizontal: texto ? 'left' : 'center', indent: texto ? 1 : 0, wrapText: true };
+      if (col === 3 && typeof c.value === 'number') c.numFmt = '0%';
+      if (opts?.sombreada) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAF6F0' } };
+    });
+    fila++;
+  };
+
+  cabecera([r.etiquetaAgrupacion, 'Cantidad', '%', 'Desglose']);
+  r.grupos.forEach((g, idx) => {
+    filaDatos([`${g.icono} ${g.etiqueta}`, g.cantidad, g.porcentaje / 100, textoDesglose(g.desglose)], { sombreada: idx % 2 === 1 });
+  });
+  filaDatos(['TOTAL', r.total, r.total ? 1 : 0, ''], { negrita: true });
+  fila++;
+
+  cabecera(['Apartado', 'Cantidad']);
+  r.porApartado.forEach((a, idx) => filaDatos([`${a.icono} ${a.etiqueta}`, a.cantidad], { sombreada: idx % 2 === 1 }));
+  fila++;
+
+  cabecera(['Estado', 'Cantidad']);
+  r.porEstado.forEach((s, idx) => filaDatos([`${s.icono} ${s.etiqueta}`, s.cantidad], { sombreada: idx % 2 === 1 }));
+}
+
 async function cargarImagenDataUrl(url: string): Promise<{ data: string; tipo: 'JPEG' | 'PNG' } | null> {
   try {
     const res = await fetch(url);
@@ -316,9 +422,13 @@ export async function descargarEquiposPdfPersonalizado(
   orientacion: OrientacionHoja = 'auto',
   fotosMap?: Map<string, string>,
   categoria?: string | null,
+  resumen?: OpcionesResumenFlota,
 ): Promise<void> {
   const campos = camposElegidos(claves);
-  if (!campos.length) throw new Error('Marca al menos un dato para descargar.');
+  // Resumen de flota en tarjetas (27/10/2026): va arriba, en la página 1; con soloResumen no hay fichas.
+  const datosResumen = resumen?.activo ? resumenFlota(equipos, resumen.agruparPor || 'tipo') : null;
+  const soloResumen = !!datosResumen && !!resumen?.soloResumen;
+  if (!campos.length && !soloResumen) throw new Error('Marca al menos un dato para descargar.');
   if (!equipos.length) throw new Error('No hay equipos en la lista.');
 
   const modoAgrupar = normalizarModoAgrupacion(agrupacion);
@@ -329,8 +439,8 @@ export async function descargarEquiposPdfPersonalizado(
     import('@/shared/lib/pdfLogo'),
   ]);
 
-  // La ficha lleva foto solo si el usuario marcó «Foto del equipo»
-  const conFoto = clavesSet.has('foto');
+  // La ficha lleva foto solo si el usuario marcó «Foto del equipo» (y no se cargan si solo va el resumen)
+  const conFoto = clavesSet.has('foto') && !soloResumen;
   const cat = txt(categoria);
 
   // Precarga de fotos de los equipos en DataURLs (solo si van a salir)
@@ -391,7 +501,7 @@ export async function descargarEquiposPdfPersonalizado(
     ? 'Agrupados por Ubicación'
     : 'Listado General';
 
-  function dibujarEncabezadoGeneral(titulo: string) {
+  function dibujarEncabezadoGeneral(titulo: string, modo: string = textoAgrupPdf) {
     if (logo) {
       dibujarLogoPdf(doc, logo, MARGIN, y, 38);
     }
@@ -412,7 +522,7 @@ export async function descargarEquiposPdfPersonalizado(
     doc.setFontSize(8.5);
     doc.setTextColor(80, 80, 80);
     const lineasSub = doc.splitTextToSize(
-      `GOLDEN TOUCH 1127 C.A. · RIF ${idEmp.rif} · ${equipos.length} equipo(s)${cat ? ` · ${cat}` : ''} · ${textoAgrupPdf} · ${new Date().toLocaleString('es-VE')}`,
+      `GOLDEN TOUCH 1127 C.A. · RIF ${idEmp.rif} · ${equipos.length} equipo(s)${cat ? ` · ${cat}` : ''} · ${modo} · ${new Date().toLocaleString('es-VE')}`,
       anchoTexto,
     ) as string[];
     doc.text(lineasSub, tx, yy + 13);
@@ -426,10 +536,245 @@ export async function descargarEquiposPdfPersonalizado(
   }
 
   /* ──────────────────────────────────────────────────────────
+     RESUMEN DE FLOTA EN TARJETAS (27/10/2026)
+     a) Franja de totales: TOTAL de equipos + chips por apartado y por estado.
+     b) Grilla de tarjetas por grupo (3 por fila en vertical, 4 en horizontal):
+        etiqueta, cantidad grande con «N % del total» y el desglose
+        («CAT 3 · VOLVO 2», máximo 4 renglones).
+     Sin emojis: helvetica no los dibuja; cada chip lleva un circulito de color.
+     ────────────────────────────────────────────────────────── */
+  function dibujarResumenFlota(r: ResumenFlota) {
+    const NARANJA: [number, number, number] = [255, 138, 0];
+    const TINTA: [number, number, number] = [30, 41, 59];
+    const GRIS_TEXTO: [number, number, number] = [80, 80, 80];
+    const GRIS_SUAVE: [number, number, number] = [100, 116, 139];
+    const BORDE: [number, number, number] = [203, 213, 225];
+    const CHIP_H = 14;
+    const CHIP_GAP = 4;
+
+    interface Chip { etiqueta: string; cantidad: number; color: [number, number, number] }
+
+    /** Pinta (o solo mide, con pintar=false) una fila de chips con su rótulo; devuelve la Y de abajo. */
+    function filaChips(rotulo: string, chips: Chip[], x0: number, yTop: number, xMax: number, pintar: boolean): number {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      const xIni = x0 + doc.getTextWidth(rotulo) + 6;
+      if (pintar) {
+        doc.setTextColor(...GRIS_SUAVE);
+        doc.text(rotulo, x0, yTop + 9.5);
+      }
+      let x = xIni;
+      let yy = yTop;
+      for (const ch of chips) {
+        const label = pdfSafe(ch.etiqueta);
+        const num = String(ch.cantidad);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        const lw = doc.getTextWidth(label);
+        doc.setFont('helvetica', 'bold');
+        const nw = doc.getTextWidth(num);
+        const w = 15 + lw + 3 + nw + 7;
+        if (x + w > xMax && x > xIni) {
+          x = xIni;
+          yy += CHIP_H + CHIP_GAP;
+        }
+        if (pintar) {
+          doc.setFillColor(255, 255, 255);
+          doc.setDrawColor(...BORDE);
+          doc.setLineWidth(0.5);
+          doc.roundedRect(x, yy, w, CHIP_H, 7, 7, 'FD');
+          doc.setFillColor(...ch.color);
+          doc.circle(x + 8.5, yy + CHIP_H / 2, 2.6, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(...TINTA);
+          doc.text(label, x + 15, yy + 9.5);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(...ch.color);
+          doc.text(num, x + 15 + lw + 3, yy + 9.5);
+        }
+        x += w + CHIP_GAP;
+      }
+      return yy + CHIP_H;
+    }
+
+    /** Renglones del desglose («CAT 3 · VOLVO 2»), máximo `maxLineas`; si no caben, «… y X más». */
+    function lineasDesglose(desglose: GrupoResumen['desglose'], ancho: number, maxLineas: number): string[] {
+      const partes = desglose.map((d) => pdfSafe(`${d.etiqueta} ${d.cantidad}`));
+      if (!partes.length) return [];
+      const partir = (texto: string) => doc.splitTextToSize(texto, ancho) as string[];
+      let lineas = partir(partes.join(' · '));
+      if (lineas.length <= maxLineas) return lineas;
+      for (let n = partes.length - 1; n >= 1; n--) {
+        lineas = partir(`${partes.slice(0, n).join(' · ')} … y ${partes.length - n} más`);
+        if (lineas.length <= maxLineas) return lineas;
+      }
+      return partir(`… y ${partes.length} más`).slice(0, maxLineas);
+    }
+
+    // a) Franja de totales
+    const chipsApartado: Chip[] = r.porApartado.map((a) => ({ etiqueta: a.etiqueta, cantidad: a.cantidad, color: NARANJA }));
+    const chipsEstado: Chip[] = r.porEstado.map((s) => ({
+      etiqueta: s.etiqueta,
+      cantidad: s.cantidad,
+      color: TONO_RGB_ESTADO[ESTADOS_EQUIPO[s.clave].tono] ?? TONO_RGB_ESTADO.info,
+    }));
+    const xChips = MARGIN + 118;
+    const xMax = W - MARGIN - 8;
+
+    // Primero se mide (sin pintar) para saber la altura de la franja
+    let yMed = y + 8;
+    yMed = filaChips('POR APARTADO', chipsApartado, xChips, yMed, xMax, false) + 5;
+    yMed = filaChips('POR ESTADO', chipsEstado, xChips, yMed, xMax, false);
+    const franjaH = Math.max(52, yMed + 8 - y);
+    if (y + franjaH > H - MARGIN) {
+      doc.addPage();
+      y = MARGIN;
+    }
+
+    doc.setFillColor(241, 245, 249);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(MARGIN, y, UW, franjaH, 4, 4, 'FD');
+    doc.setFillColor(...NARANJA);
+    doc.rect(MARGIN, y, 3.5, franjaH, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...GRIS_SUAVE);
+    doc.text('TOTAL DE EQUIPOS', MARGIN + 12, y + 14);
+    doc.setFontSize(22);
+    doc.setTextColor(...NARANJA);
+    const totalTxt = String(r.total);
+    doc.text(totalTxt, MARGIN + 12, y + 38);
+    const totalW = doc.getTextWidth(totalTxt);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(r.total === 1 ? 'equipo' : 'equipos', MARGIN + 12 + totalW + 4, y + 38);
+
+    let yc = y + 8;
+    yc = filaChips('POR APARTADO', chipsApartado, xChips, yc, xMax, true) + 5;
+    filaChips('POR ESTADO', chipsEstado, xChips, yc, xMax, true);
+    y += franjaH + 12;
+
+    // b) Grilla de tarjetas
+    const cols = orient === 'landscape' ? 4 : 3;
+    const GAP = 8;
+    const cardW = (UW - GAP * (cols - 1)) / cols;
+    const sangria = 10;
+    const anchoTexto = cardW - sangria - 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...GRIS_SUAVE);
+    doc.text(pdfSafe(`EQUIPOS POR ${r.etiquetaAgrupacion.toUpperCase()} · ${r.grupos.length} grupo(s)`), MARGIN, y + 8);
+    y += 16;
+
+    interface Tarjeta { titulo: string[]; cantidad: string; pct: string; desglose: string[]; alto: number }
+    const medir = (g: GrupoResumen): Tarjeta => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      let titulo = doc.splitTextToSize(pdfSafe(g.etiqueta.toUpperCase()), anchoTexto) as string[];
+      if (titulo.length > 2) {
+        titulo = titulo.slice(0, 2);
+        titulo[1] = `${titulo[1].slice(0, -2)}…`;
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const desglose = lineasDesglose(g.desglose, anchoTexto, 4);
+      const alto = 8 + titulo.length * 11 + 20 + (desglose.length ? 4 + desglose.length * 10 : 0) + 8;
+      return { titulo, cantidad: String(g.cantidad), pct: `${g.porcentaje} % del total`, desglose, alto };
+    };
+
+    for (let i = 0; i < r.grupos.length; i += cols) {
+      const fila = r.grupos.slice(i, i + cols).map(medir);
+      const altoFila = Math.max(...fila.map((tj) => tj.alto));
+      if (y + altoFila > H - MARGIN) {
+        doc.addPage();
+        y = MARGIN;
+      }
+      fila.forEach((tj, j) => {
+        const x = MARGIN + j * (cardW + GAP);
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(...BORDE);
+        doc.setLineWidth(0.6);
+        doc.roundedRect(x, y, cardW, altoFila, 4, 4, 'FD');
+        doc.setFillColor(...NARANJA);
+        doc.rect(x, y + 1, 3, altoFila - 2, 'F');
+
+        // Etiqueta del grupo (máximo 2 líneas)
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(...TINTA);
+        let ty = y + 17;
+        for (const l of tj.titulo) {
+          doc.text(l, x + sangria, ty);
+          ty += 11;
+        }
+
+        // Cantidad grande + «N % del total»
+        const ny = y + 8 + tj.titulo.length * 11 + 20;
+        doc.setFontSize(20);
+        doc.setTextColor(...NARANJA);
+        doc.text(tj.cantidad, x + sangria, ny);
+        const nw = doc.getTextWidth(tj.cantidad);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...GRIS_SUAVE);
+        doc.text(tj.pct, x + sangria + nw + 6, ny);
+
+        // Desglose («CAT 3 · VOLVO 2»)
+        doc.setFontSize(8);
+        doc.setTextColor(...GRIS_TEXTO);
+        let dy = ny + 14;
+        for (const l of tj.desglose) {
+          doc.text(l, x + sangria, dy);
+          dy += 10;
+        }
+      });
+      y += altoFila + GAP;
+    }
+    y += 4;
+  }
+
+  /* ──────────────────────────────────────────────────────────
      FICHAS TÉCNICAS CON FOTO (Estilo Ficha Técnica elegante)
      ────────────────────────────────────────────────────────── */
   {
-    dibujarEncabezadoGeneral(cat ? `CATÁLOGO Y FICHAS TÉCNICAS · ${cat.toUpperCase()}` : 'CATÁLOGO Y FICHAS TÉCNICAS DE MAQUINARIA Y EQUIPOS');
+    const tituloFichas = cat ? `CATÁLOGO Y FICHAS TÉCNICAS · ${cat.toUpperCase()}` : 'CATÁLOGO Y FICHAS TÉCNICAS DE MAQUINARIA Y EQUIPOS';
+
+    if (datosResumen) {
+      // El resumen es lo primero (27/10/2026): página 1, debajo del encabezado general.
+      dibujarEncabezadoGeneral(
+        `RESUMEN DE FLOTA · ${datosResumen.etiquetaAgrupacion.toUpperCase()}`,
+        soloResumen ? `Resumen por ${datosResumen.etiquetaAgrupacion.toLowerCase()}` : textoAgrupPdf,
+      );
+      dibujarResumenFlota(datosResumen);
+
+      if (soloResumen) {
+        pies('Resumen de Flota');
+        previewPdf(doc, `resumen-flota-${datosResumen.agruparPor}-${hoyStr()}.pdf`);
+        return;
+      }
+
+      // Las fichas siguen debajo en la misma página si caben; solo se salta cuando no entra
+      // el título de la sección con al menos una ficha (el bucle de abajo pide y <= H - 120).
+      if (y > H - 150) {
+        doc.addPage();
+        y = MARGIN;
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(255, 138, 0);
+      doc.text(pdfSafe(tituloFichas), MARGIN, y + 12);
+      doc.setDrawColor(255, 138, 0);
+      doc.setLineWidth(0.8);
+      doc.line(MARGIN, y + 18, W - MARGIN, y + 18);
+      y += 28;
+    } else {
+      dibujarEncabezadoGeneral(tituloFichas);
+    }
 
     const grupos = agruparEquipos(equipos, modoAgrupar);
     let contadorGeneral = 1;
