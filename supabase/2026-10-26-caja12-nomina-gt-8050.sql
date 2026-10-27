@@ -8,3 +8,11 @@
 update public.acopio_caja_movimientos set nominas = 8050, updated_at = now()
  where id = 'ab16a64e-3bba-4784-a86b-2b57710c4a68' and nominas = 7730;
 -- (la foto se reescribió con un bloque DO equivalente: ver el respaldo para volver atrás)
+
+-- 26/10/2026 (2.ª parte) · La entrega del mismo día «CAJA MULTIMONEDAS MGG / CAJA GT PERAMANAL» también era 8.050
+-- (confirmado por la usuaria). Se corrigió usd_entregado 7.730 → 8.050 y la foto del cierre (fila, saldo corrido
+-- de las filas siguientes +320, resumen.usdEntregado +320, resumen.saldoUsd +320): el cierre vuelve a 0,000843 = saldo_final.
+-- La deuda a MGG (cuentas_por_pagar, trigger sync_deuda_mgg_acopio) subió 320 por el mismo motivo.
+-- Respaldo previo: public._bkp_caja12_entrega_20261026.
+update public.acopio_caja_movimientos set usd_entregado = 8050, updated_at = now()
+ where id = '8cf651ae-6220-4094-b1e4-90d1e9738485' and usd_entregado = 7730;
