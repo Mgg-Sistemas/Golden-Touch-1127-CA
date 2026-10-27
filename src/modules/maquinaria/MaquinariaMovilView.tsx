@@ -15,6 +15,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -36,6 +37,7 @@ import {
   eliminarLavado,
   lecturasVigentesPorEquipo,
   solicitarCompraDeOrden,
+  notificarComprasPiezasNuevas,
   fotosDeEquipos,
   type OrdenServicio,
   type LavadoEquipo,
@@ -45,12 +47,15 @@ import {
 import {
   avisoServicio,
   avisoMasUrgente,
+  frecuenciaHrs,
   estadoEfectivo,
   claseEquipo,
   SERVICIOS,
   type EstadoEquipo,
   type AvisoServicio,
 } from './flota';
+import { AlertasMantenimientoBanner, type EquipoConAviso } from './AlertasMantenimiento';
+import { TABLAS_ALERTAS_MANT } from './alertasMantenimiento.repository';
 import { listRepuestosEquipo } from './repuestosEquipo.repository';
 import { sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
 import { EquipoFormModal } from './EquipoFormModal';
@@ -90,9 +95,11 @@ interface InfoMantenimientoMovil {
 
 export function MaquinariaMovilView() {
   const { user } = useSession();
-  const { appUser, soloTelefono } = usePermissions();
+  const { appUser, soloTelefono, can } = usePermissions();
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || 'Operador';
+  // Permiso de escritura del módulo: habilita responder las alertas de mantenimiento desde el teléfono.
+  const canWrite = can('maquinaria', 'escritura');
 
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
@@ -181,7 +188,12 @@ export function MaquinariaMovilView() {
     void cargarDatos();
   }, []);
 
-  useRealtime(['maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_lavados', 'maquinaria_lecturas'], () => {
+  // Un surtido de combustible (horómetro/km), una anotación en la bitácora o una respuesta a la
+  // alerta deben refrescar el aviso de mantenimiento sin recargar la página.
+  useRealtime([
+    'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_lavados', 'maquinaria_lecturas',
+    'combustible_tanque_movimientos', 'maquinaria_mantenimientos', ...TABLAS_ALERTAS_MANT,
+  ], () => {
     void cargarDatos();
   });
 
@@ -192,7 +204,8 @@ export function MaquinariaMovilView() {
       const lec = lecturas.get(e.id);
       const horo = lec?.horometro ?? null;
       const km = lec?.kilometraje ?? null;
-      const avisoH = avisoServicio(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs, 'h');
+      // Horas: la frecuencia del equipo o 250 h por defecto (igual que la vista de PC y el banner).
+      const avisoH = avisoServicio(frecuenciaHrs(e), horo, e.mantenimiento_base_hrs, 'h');
       const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
       const aviso = avisoMasUrgente(avisoH, avisoK);
       const est = estadoEfectivo(e);
@@ -201,6 +214,19 @@ export function MaquinariaMovilView() {
     }
     return map;
   }, [equipos, lecturas]);
+
+  // Equipos activos (no retirados) con el servicio PRÓXIMO o VENCIDO para el banner de alertas
+  // (26/10/2026). La lectura va en la unidad del aviso más urgente (horas o km).
+  const alertasMant = useMemo<EquipoConAviso[]>(() => {
+    const out: EquipoConAviso[] = [];
+    for (const e of equipos) {
+      if (!e.activo) continue;
+      const inf = infoEquipos.get(e.id);
+      if (!inf || inf.estado === 'retirada' || !inf.aviso || inf.aviso.nivel === 'ok') continue;
+      out.push({ equipo: e, aviso: inf.aviso, lectura: inf.aviso.unidad === 'h' ? inf.horometro : inf.kilometraje });
+    }
+    return out;
+  }, [equipos, infoEquipos]);
 
   // Al elegir equipo, cargar sus repuestos/filtros
   useEffect(() => {
@@ -333,7 +359,18 @@ export function MaquinariaMovilView() {
           }));
           spCodigo = await solicitarCompraDeOrden(res, nuevas);
         } catch (errCompras) {
-          console.warn('Solicitud de compra se procesará manualmente:', errCompras);
+          // Mismo respaldo que la PC (OrdenServicioModal): si no se pudo abrir la solicitud de
+          // pedido, al menos Compras se entera de las piezas nuevas y se avisa que queda pendiente.
+          const motivo = errCompras instanceof Error ? errCompras.message : (errCompras as { message?: string })?.message || 'error';
+          let avisada = false;
+          if (res.repuestos.some((x) => !x.producto_id)) {
+            try { avisada = await notificarComprasPiezasNuevas(res); } catch { /* queda por solicitar */ }
+          }
+          notify(`🔧 ${res.codigo} creada${avisada ? ' · Compras notificada de las piezas nuevas' : ''} — ${equipoActual.equipo}`, 'warning', {
+            link: `#/app/maquinaria/equipo/${equipoActual.id}?tab=servicios`,
+            detail: `Queda por solicitar la solicitud de pedido (${motivo})`,
+          });
+          toast(`Queda por solicitar la solicitud de pedido (${motivo}). Se puede generar después desde la orden.`, 'warning');
         }
       }
 
@@ -475,6 +512,10 @@ export function MaquinariaMovilView() {
           </Link>
         )}
       </header>
+
+      {/* ── Alertas de mantenimiento (como el «Dinero por entrar» de Acopio): equipos con servicio
+          próximo o vencido; al tocarlo se ven y se responden (26/10/2026). Arriba de todo. ── */}
+      <AlertasMantenimientoBanner compacto items={alertasMant} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargarDatos()} />
 
       {/* ── Modal flotante de WhatsApp: aparece al instante centrado en pantalla ── */}
       {mensajeWhatsapp && (
