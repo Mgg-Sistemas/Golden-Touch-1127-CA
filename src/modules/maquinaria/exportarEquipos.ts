@@ -38,6 +38,24 @@ export interface CampoEquipo {
 const txt = (v: string | null | undefined) => (v ?? '').trim();
 const fmtNum = (v: number | null | undefined) => (v == null ? '' : Number(v).toLocaleString('es-VE', { maximumFractionDigits: 2 }));
 
+export const UBICACION_UNIFICADA_GT = 'MINA GOLDEN TOUCH / PERAMANAL';
+
+/**
+ * Normaliza y unifica ubicaciones/garajes:
+ * - Unifica Peramanal y Mina Golden Touch («GT Peramanal», «GT PERAMANAL», «MINA GOLDEN TOUCH»)
+ *   bajo la denominación única 'MINA GOLDEN TOUCH / PERAMANAL'.
+ * - Limpia y pone en mayúsculas el resto para evitar duplicados por mayúsculas/minúsculas.
+ */
+export function normalizarUbicacion(ubicacion: string | null | undefined): string {
+  const u = (ubicacion ?? '').trim();
+  if (!u) return '';
+  const up = u.toUpperCase();
+  if (up.includes('PERAMANAL') || up.includes('GOLDEN TOUCH')) {
+    return UBICACION_UNIFICADA_GT;
+  }
+  return up;
+}
+
 export const CAMPOS_EQUIPO: CampoEquipo[] = [
   { clave: 'foto', etiqueta: 'Foto del equipo', ancho: 14, valor: () => ' ' },
   { clave: 'equipo', etiqueta: 'Equipo / Máquina', ancho: 22, valor: (e) => txt(e.equipo) },
@@ -51,7 +69,7 @@ export const CAMPOS_EQUIPO: CampoEquipo[] = [
   { clave: 'serial', etiqueta: 'Serial / Chasis', ancho: 16, valor: (e) => txt(e.serial) || '—' },
   { clave: 'placa', etiqueta: 'Placa', ancho: 10, valor: (e) => txt(e.placa) || '—' },
   { clave: 'color', etiqueta: 'Color', ancho: 10, valor: (e) => txt(e.color) || '—' },
-  { clave: 'ubicacion', etiqueta: 'Ubicación / Garaje', ancho: 16, valor: (e) => txt(e.ubicacion) || '—' },
+  { clave: 'ubicacion', etiqueta: 'Ubicación / Garaje', ancho: 16, valor: (e) => normalizarUbicacion(e.ubicacion) || txt(e.ubicacion) || '—' },
   { clave: 'combustible', etiqueta: 'Combustible', ancho: 12, valor: (e) => txt(e.combustible) || '—' },
   { clave: 'litros_consume', etiqueta: 'Consumo (L)', ancho: 11, valor: (e) => fmtNum(e.litros_consume) },
   { clave: 'horometro', etiqueta: 'Horómetro actual (h)', ancho: 14, valor: (_e, ctx) => (ctx?.horometro != null ? fmtNum(ctx.horometro) : '—') },
@@ -95,7 +113,7 @@ export function agruparEquipos(
     if (modo === 'empresa') {
       clave = txt(e.propietario) || 'SIN EMPRESA ASIGNADA';
     } else if (modo === 'ubicacion') {
-      clave = txt(e.ubicacion) || 'SIN UBICACIÓN ASIGNADA';
+      clave = normalizarUbicacion(e.ubicacion) || 'SIN UBICACIÓN ASIGNADA';
     }
     const arr = map.get(clave) ?? [];
     arr.push(e);
