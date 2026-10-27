@@ -29,12 +29,14 @@ import {
 } from './controlDistribucion.repository';
 import { descargarControlDistribucionPdf } from './controlDistribucionPdf';
 import { DetalleMovimientosReporte } from './DetalleMovimientosReporte';
-import { filtrarViveres, rangoValido } from './detalleDistribucion';
+import { filtrarViveres, ventanaDelReporte } from './detalleDistribucion';
+import { hoyCaracas } from './comidaMovil';
 
 const num = (v: number, dec = 2) =>
   Number(v ?? 0).toLocaleString('es-VE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+/** Sin rango elegido: «desde» es el inicio del ciclo y «hasta» es hoy, resueltos en cada lectura. */
+const SIN_ELEGIR = { desde: '', hasta: '' };
 
 export function DistribucionPanel({ inicioCiclo, saldoCiclo, onAbrirDetalle }: {
   /** Inicio del mercado abierto (ISO). La vista arranca en ese ciclo. */
@@ -51,21 +53,32 @@ export function DistribucionPanel({ inicioCiclo, saldoCiclo, onAbrirDetalle }: {
 }) {
   // El rango arranca en el ciclo abierto, que es lo que se mira todos los días, y
   // se puede mover: el reporte sirve igual para un mes cerrado o para una semana.
-  const delCiclo = useMemo(
-    () => ({ desde: (inicioCiclo ?? '').slice(0, 10), hasta: hoyISO() }),
-    [inicioCiclo],
-  );
-  const [rango, setRango] = useState(delCiclo);
+  //
+  // «HASTA» ES HOY, Y HOY SE CALCULA EN CADA LECTURA (27/10/2026). Antes el «hasta»
+  // se tomaba UNA sola vez al montar el panel. Esta pantalla queda abierta días en la
+  // PC y se refresca sola con Realtime, así que cada refresco volvía a leer con el
+  // tope del día en que se abrió: las comidas cargadas desde el teléfono del 19 al
+  // 27/10 estaban en la base, pero el libro de la PC terminaba el 18 (el día del
+  // corte) y «Queda» era el stock reconstruido a esa fecha. Ahora un campo vacío
+  // significa «el inicio del ciclo» / «hoy», y se resuelve al leer (ventanaDelReporte).
+  const [rango, setRango] = useState(SIN_ELEGIR);
   // Si se abre otro mercado, el rango vuelve al ciclo nuevo: dejarlo en el viejo
   // mostraría un reporte de otro ciclo sin avisar.
-  const cicloVisto = useRef(delCiclo.desde);
+  const cicloDesde = (inicioCiclo ?? '').slice(0, 10);
+  const cicloVisto = useRef(cicloDesde);
   useEffect(() => {
-    if (cicloVisto.current === delCiclo.desde) return;
-    cicloVisto.current = delCiclo.desde;
-    setRango(delCiclo);
-  }, [delCiclo]);
-  const { desde, hasta } = rangoValido(rango.desde, rango.hasta, delCiclo);
-  const esDelCiclo = desde === delCiclo.desde && hasta === delCiclo.hasta;
+    if (cicloVisto.current === cicloDesde) return;
+    cicloVisto.current = cicloDesde;
+    setRango(SIN_ELEGIR);
+  }, [cicloDesde]);
+  // Un tic por minuto para enterarse de que cambió el día (en Caracas) aunque no
+  // llegue ningún evento: a medianoche el libro pasa solo al día nuevo.
+  const [hoy, setHoy] = useState(hoyCaracas);
+  useEffect(() => {
+    const t = setInterval(() => setHoy((h) => { const n = hoyCaracas(); return n === h ? h : n; }), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const { desde, hasta, esDelCiclo } = ventanaDelReporte(inicioCiclo, rango, hoy);
   const [control, setControl] = useState<Control | null>(null);
   const [loading, setLoading] = useState(true);
   const [buscar, setBuscar] = useState('');
@@ -75,18 +88,23 @@ export function DistribucionPanel({ inicioCiclo, saldoCiclo, onAbrirDetalle }: {
   // El saldo guardado solo vale si el reporte arranca donde arrancó el ciclo: en un
   // rango elegido a mano ese saldo es de otro día y hay que deducirlo del kardex.
   const aperturas = useMemo(() => {
-    if (desde !== delCiclo.desde || !saldoCiclo?.length) return null;
+    if (desde !== cicloDesde || !saldoCiclo?.length) return null;
     return new Map(saldoCiclo.map((s) => [s.producto_id, Number(s.cantidad) || 0]));
-  }, [desde, delCiclo.desde, saldoCiclo]);
+  }, [desde, cicloDesde, saldoCiclo]);
 
   const recargar = useCallback(async () => {
     try {
       // Con el saldo guardado, el kardex cuenta desde el instante del ciclo: lo de antes ya está en el saldo.
-      setControl(await cargarControl(desde, hasta, { aperturas, desdeInstante: aperturas ? inicioCiclo : null }));
+      // El tope se vuelve a resolver aquí: un refresco de Realtime que llega después de
+      // medianoche lee hasta el día nuevo, no hasta el día en que se pintó la pantalla.
+      const v = ventanaDelReporte(inicioCiclo, rango, hoyCaracas());
+      setControl(await cargarControl(v.desde, v.hasta, { aperturas, desdeInstante: aperturas ? inicioCiclo : null }));
     } catch (e) {
       toast(mensajeError(e, 'No se pudo cargar la distribución'), 'error');
     }
-  }, [desde, hasta, aperturas, inicioCiclo]);
+    // `desde`/`hasta` van en las dependencias para releer cuando cambian (rango o día nuevo).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desde, hasta, rango, aperturas, inicioCiclo]);
 
   useEffect(() => {
     setLoading(true);
@@ -205,19 +223,19 @@ export function DistribucionPanel({ inicioCiclo, saldoCiclo, onAbrirDetalle }: {
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.5rem', flexWrap: 'wrap' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '.3rem' }}>
           <span className="muted" style={{ fontSize: '.75rem' }}>Desde</span>
-          <input className="input" type="date" style={{ maxWidth: 150 }} value={rango.desde}
-            max={rango.hasta || undefined}
+          <input className="input" type="date" style={{ maxWidth: 150 }} value={desde}
+            max={hasta}
             onChange={(e) => setRango((r) => ({ ...r, desde: e.target.value }))} />
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '.3rem' }}>
           <span className="muted" style={{ fontSize: '.75rem' }}>Hasta</span>
-          <input className="input" type="date" style={{ maxWidth: 150 }} value={rango.hasta}
-            min={rango.desde || undefined} max={hoyISO()}
+          <input className="input" type="date" style={{ maxWidth: 150 }} value={hasta}
+            min={desde} max={hoy}
             onChange={(e) => setRango((r) => ({ ...r, hasta: e.target.value }))} />
         </label>
         {!esDelCiclo && (
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRango(delCiclo)}
-            title="Volver al mercado abierto">↺ Al ciclo</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRango(SIN_ELEGIR)}
+            title="Volver al mercado abierto: desde su inicio hasta hoy">↺ Al ciclo</button>
         )}
         <input className="input" style={{ maxWidth: 260 }} placeholder="Buscar víver por nombre o código"
           value={buscar} onChange={(e) => setBuscar(e.target.value)} />
@@ -234,7 +252,7 @@ export function DistribucionPanel({ inicioCiclo, saldoCiclo, onAbrirDetalle }: {
           <option value="con-merma">Con merma</option>
         </select>
         <span className="muted" style={{ fontSize: '.78rem' }}>
-          Del {fmtDate(desde)} al {fmtDate(hasta)} · {esDelCiclo ? 'el ciclo abierto' : 'rango elegido'}
+          Del {fmtDate(desde)} al {fmtDate(hasta)} · {esDelCiclo ? 'el ciclo abierto, hasta hoy' : 'rango elegido'}
           {fEstado !== 'todos' && ` · ${productos.length} de ${totales.viveres}`}
         </span>
       </div>

@@ -86,3 +86,28 @@ export function rangoValido(desde: string, hasta: string, porDefecto: { desde: s
   const h = (hasta ?? '').slice(0, 10) || porDefecto.hasta;
   return d > h ? { desde: h, hasta: d } : { desde: d, hasta: h };
 }
+
+/**
+ * La ventana que mira la vista Distribución del mercado ABIERTO.
+ *
+ * Arranca donde arrancó el ciclo y, mientras el mercado siga abierto, llega hasta HOY:
+ * el mercado no tiene fin hasta que una persona lo cierra (27/10/2026). `hoy` se pasa
+ * de afuera y se calcula EN CADA LECTURA, nunca una sola vez al abrir la pantalla.
+ *
+ * POR QUÉ (incidente del 18 al 27/10/2026). La pantalla de Cocina queda abierta días
+ * enteros en la PC (es multiusuario, se refresca sola con Realtime). El «hasta» del
+ * reporte se tomaba una sola vez al montar el panel —el 18/10, el día del corte— y
+ * cada refresco volvía a leer con ese mismo tope: las comidas cargadas desde el
+ * teléfono del 19 al 27 estaban en la base, pero el libro de la PC terminaba el 18 y
+ * «Queda» era el stock reconstruido a esa fecha. Un campo vacío significa «el del
+ * ciclo» (desde) o «hoy» (hasta), y nunca se mira más allá de hoy.
+ */
+export function ventanaDelReporte(
+  inicioCiclo: string | null | undefined, elegido: { desde: string; hasta: string }, hoy: string,
+): { desde: string; hasta: string; esDelCiclo: boolean } {
+  const delCiclo = { desde: (inicioCiclo ?? '').slice(0, 10) || hoy, hasta: hoy };
+  const r = rangoValido(elegido.desde, elegido.hasta, delCiclo);
+  const hasta = r.hasta > hoy ? hoy : r.hasta;
+  const desde = r.desde > hasta ? hasta : r.desde;
+  return { desde, hasta, esDelCiclo: desde === delCiclo.desde && hasta === hoy };
+}

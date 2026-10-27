@@ -13,11 +13,62 @@
      · Lo que queda en la despensa NO se descarta: es el saldo inicial del
        mercado nuevo. Durante el ciclo nuevo se le suman las entradas.
 
+   CIERRE MANUAL (27/10/2026, decisión del usuario). El mercado ya no dura
+   21 días: un mercado abierto arranca en su `inicio_at` y NO tiene fin hasta
+   que una persona lo cierra. Mientras esté abierto, el libro, la Distribución
+   y el stock llegan hasta HOY. Al cerrar se elige la fecha de cierre (por
+   defecto hoy): esa fecha es el fin del ciclo y el inicio del siguiente.
+
    Aquí viven las piezas que se prueban sin base ni React.
    ============================================================ */
 import type { ResumenViver, SaldoViver } from './cocinaMercado.repository';
+import { diaCaracas, hoyCaracas } from './comidaMovil';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+/* ───────── La fecha del cierre ───────── */
+
+const soloDia = (v: string | null | undefined) => String(v ?? '').slice(0, 10);
+const ES_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+function dmy(iso: string): string {
+  const [y, m, d] = soloDia(iso).split('-');
+  return y && m && d ? `${d}/${m}/${y}` : String(iso ?? '');
+}
+
+/**
+ * El instante en que cierra el mercado para la fecha elegida (AAAA-MM-DD, día de Caracas):
+ *   · hoy (o una fecha posterior) → AHORA MISMO: lo cargado después de este instante ya es
+ *     del mercado siguiente;
+ *   · un día anterior → el FINAL de ese día en Caracas (23:59:59.999): el ciclo que cierra se
+ *     lleva las comidas de ese día completo y el siguiente arranca ahí.
+ * Devuelve '' si la fecha no se puede leer.
+ */
+export function instanteDeCierre(fecha: string, ahora: Date = new Date()): string {
+  const f = soloDia(fecha);
+  if (!ES_DIA.test(f)) return '';
+  if (f >= hoyCaracas(ahora)) return ahora.toISOString();
+  return new Date(`${f}T23:59:59.999-04:00`).toISOString();
+}
+
+/**
+ * ¿Sirve esa fecha para cerrar el mercado? Tiene que caer dentro del ciclo: no antes del día
+ * en que arrancó y no en el futuro. Devuelve el instante del cierre ya resuelto.
+ */
+export function validarCierre(
+  fecha: string, inicioAt: string, ahora: Date = new Date(),
+): { cierre: string } | { error: string } {
+  const f = soloDia(fecha);
+  if (!ES_DIA.test(f)) return { error: 'Elige la fecha de cierre del mercado.' };
+  if (f > hoyCaracas(ahora)) return { error: 'El cierre no puede ser una fecha futura: el mercado llega hasta hoy.' };
+  const inicioDia = diaCaracas(inicioAt);
+  if (inicioDia && f < inicioDia) return { error: `El cierre no puede ser anterior al inicio del mercado (${dmy(inicioDia)}).` };
+  const cierre = instanteDeCierre(f, ahora);
+  if (!cierre || Date.parse(cierre) <= Date.parse(inicioAt)) {
+    return { error: 'El cierre tiene que ser posterior al instante en que arrancó el mercado.' };
+  }
+  return { cierre };
+}
 
 /** Un movimiento del ciclo, ya congelado en el histórico. */
 export interface MovimientoCongelado {

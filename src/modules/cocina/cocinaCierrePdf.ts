@@ -1,5 +1,5 @@
 /* ============================================================
-   Golden Touch · Cocina · Cierre de mercado (21 días) · PDF
+   Golden Touch · Cocina · Cierre de mercado (cierre manual) · PDF
    Reporte del ciclo: por cada víver, saldo inicial (del mercado
    anterior) + entradas (nuevo mercado) = disponible, consumo del
    ciclo y LO QUE QUEDA (pasa al próximo mercado como saldo inicial).

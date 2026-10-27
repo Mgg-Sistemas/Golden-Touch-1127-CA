@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buscarDetalle, filtrarClase, filtrarViveres, rangoValido, totalesDetalle,
+  buscarDetalle, filtrarClase, filtrarViveres, rangoValido, totalesDetalle, ventanaDelReporte,
 } from './detalleDistribucion';
 import type { MovimientoDetalle } from './controlDistribucion.repository';
 
@@ -79,5 +79,38 @@ describe('el rango de fechas del reporte', () => {
 
   it('recorta la hora si viene con ella', () => {
     expect(rangoValido('2026-09-05T13:20:00Z', '2026-09-20', ciclo)).toEqual({ desde: '2026-09-05', hasta: '2026-09-20' });
+  });
+});
+
+describe('la ventana del mercado abierto llega hasta HOY (cierre manual, 27/10/2026)', () => {
+  // El mercado real MK-2026-0004: arrancó el 14/10/2026 y sigue abierto.
+  const inicio = '2026-10-14T18:41:56.338Z';
+  const sinElegir = { desde: '', hasta: '' };
+
+  it('sin rango elegido va del inicio del ciclo hasta hoy', () => {
+    expect(ventanaDelReporte(inicio, sinElegir, '2026-10-27'))
+      .toEqual({ desde: '2026-10-14', hasta: '2026-10-27', esDelCiclo: true });
+  });
+
+  it('el caso del incidente: al día siguiente, el mismo panel ya llega hasta el día nuevo (no se queda en el día que se abrió)', () => {
+    expect(ventanaDelReporte(inicio, sinElegir, '2026-10-18').hasta).toBe('2026-10-18');
+    expect(ventanaDelReporte(inicio, sinElegir, '2026-10-19').hasta).toBe('2026-10-19');
+    expect(ventanaDelReporte(inicio, sinElegir, '2026-10-27').hasta).toBe('2026-10-27');
+  });
+
+  it('pasados los 21 días sigue llegando hasta hoy: el mercado no tiene fin hasta que se cierra', () => {
+    expect(ventanaDelReporte(inicio, sinElegir, '2026-11-20'))
+      .toEqual({ desde: '2026-10-14', hasta: '2026-11-20', esDelCiclo: true });
+  });
+
+  it('un rango elegido a mano se respeta, pero nunca más allá de hoy', () => {
+    expect(ventanaDelReporte(inicio, { desde: '2026-10-20', hasta: '2026-10-22' }, '2026-10-27'))
+      .toEqual({ desde: '2026-10-20', hasta: '2026-10-22', esDelCiclo: false });
+    expect(ventanaDelReporte(inicio, { desde: '', hasta: '2026-11-05' }, '2026-10-27'))
+      .toEqual({ desde: '2026-10-14', hasta: '2026-10-27', esDelCiclo: true });
+  });
+
+  it('sin inicio de ciclo mira solo hoy', () => {
+    expect(ventanaDelReporte(null, sinElegir, '2026-10-27')).toEqual({ desde: '2026-10-27', hasta: '2026-10-27', esDelCiclo: true });
   });
 });
