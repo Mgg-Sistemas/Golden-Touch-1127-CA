@@ -114,6 +114,38 @@ export async function addCatalogo(tipo: TipoCatalogoCombustible, valor: string):
   return data as CatalogoCombustible;
 }
 
+/**
+ * Garantiza que un valor exista en el catálogo (26/10/2026) y devuelve la fila. Si ya hay uno
+ * con el mismo nombre —sin que importen mayúsculas ni acentos— se reutiliza ESE (con su
+ * escritura original) y, si estaba dado de baja, se reactiva: alguien lo está vinculando, así
+ * que tiene que volver a salir en los desplegables. Si no existe, se crea activo. Lo usa
+ * Maquinaria para que una máquina nueva quede vinculada a sí misma en Combustible.
+ */
+export async function asegurarCatalogo(tipo: TipoCatalogoCombustible, valor: string): Promise<CatalogoCombustible> {
+  const v = valor.trim();
+  if (!v) throw new Error('Indica el valor.');
+  const { data: filas, error } = await supabase.from('combustible_catalogos').select('*').eq('tipo', tipo);
+  if (error) throw error;
+  const existente = ((filas ?? []) as CatalogoCombustible[]).find((c) => norm(c.valor) === norm(v));
+  if (existente) {
+    if (!existente.activo) {
+      await setCatalogoActivo(existente.id, true);
+      return { ...existente, activo: true };
+    }
+    return existente;
+  }
+  try {
+    return await addCatalogo(tipo, v);
+  } catch (e) {
+    // Dos personas creándolo a la vez: el segundo pierde la carrera (índice único sin acentos)
+    // y se queda con el que ganó.
+    const { data: otra } = await supabase.from('combustible_catalogos').select('*').eq('tipo', tipo);
+    const ganador = ((otra ?? []) as CatalogoCombustible[]).find((c) => norm(c.valor) === norm(v));
+    if (ganador) return ganador;
+    throw e;
+  }
+}
+
 export async function setCatalogoActivo(id: string, activo: boolean): Promise<void> {
   const { error } = await supabase.from('combustible_catalogos').update({ activo }).eq('id', id);
   if (error) throw error;
