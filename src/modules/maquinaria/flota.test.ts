@@ -161,8 +161,25 @@ describe('aviso de servicio por horas/km', () => {
     expect(restantesServicio(250, 1200, 1000)).toBe(50);
     expect(restantesServicio(250, 1300, 1000)).toBe(-50);
   });
-  it('sin base: siguiente múltiplo', () => {
+  it('sin base: próximo dentro del margen del siguiente múltiplo', () => {
     expect(restantesServicio(250, 1240, null)).toBe(10);
+    expect(restantesServicio(250, 1498.4, null)).toBe(1.6); // la Yamagro el 26/10: «faltan 1,6 h»
+  });
+  it('sin base: al pasar el múltiplo queda VENCIDO hasta registrar el mantenimiento (27/10/2026)', () => {
+    // La Yamagro cargó 1.509,35 h el 27/10 sin hacer el servicio de las 1.500 h: antes salía «OK».
+    expect(restantesServicio(250, 1509.35, null)).toBe(-9.35);
+    expect(restantesServicio(250, 1500, null)).toBe(0);
+    expect(restantesServicio(250, 1600, null)).toBe(-100);
+    expect(avisoServicio(250, 1509.35, null, 'h')?.nivel).toBe('vencido');
+    expect(avisoServicio(250, 1600, null, 'h')?.nivel).toBe('vencido');
+    // Solo vuelve a «próximo» cuando se acerca el siguiente múltiplo.
+    expect(avisoServicio(250, 1740, null, 'h')?.nivel).toBe('proximo');
+    expect(restantesServicio(250, 1740, null)).toBe(10);
+  });
+  it('sin base, en el primer intervalo todavía no tocó ningún servicio', () => {
+    expect(restantesServicio(250, 93.1, null)).toBe(156.9);
+    expect(avisoServicio(250, 93.1, null, 'h')?.nivel).toBe('ok');
+    expect(avisoServicio(250, 240, null, 'h')?.nivel).toBe('proximo');
   });
   it('null si falta el dato', () => {
     expect(restantesServicio(null, 100, null)).toBeNull();

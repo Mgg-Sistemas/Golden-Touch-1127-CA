@@ -305,11 +305,26 @@ export function frecuenciaHrs(e: { mantenimiento_cada_hrs?: number | null }): nu
   return Number(e.mantenimiento_cada_hrs) > 0 ? Number(e.mantenimiento_cada_hrs) : FRECUENCIA_HRS_DEFAULT;
 }
 
-/** Unidades restantes hasta el próximo servicio. Con base: N − (lectura − base); sin base: siguiente múltiplo de N. */
+const r2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * Unidades restantes hasta el próximo servicio (negativo = ya pasó).
+ * - Con base («✔ Mantt. hecho»): N − (lectura − base).
+ * - Sin base (27/10/2026): el servicio toca en cada múltiplo de N y, una vez pasado, QUEDA
+ *   VENCIDO («pasado por X») hasta que alguien registre el mantenimiento. Antes el contador
+ *   saltaba solo al siguiente múltiplo: la Yamagro 60KVA pasó de «faltan 1,6 h» a «OK» al
+ *   cargar 1.509 h sin que nadie hiciera el servicio de las 1.500 h. Solo se vuelve a
+ *   «próximo» dentro del margen de aviso del siguiente múltiplo (y a vencido al pasarlo).
+ *   En el primer intervalo (lectura < N) todavía no tocó ningún servicio: N − lectura.
+ */
 export function restantesServicio(frecuencia: number | null | undefined, lectura: number | null | undefined, base: number | null | undefined): number | null {
   if (!frecuencia || frecuencia <= 0 || lectura == null) return null;
-  if (base != null) return Math.round((frecuencia - (lectura - base)) * 100) / 100;
-  return (frecuencia - (lectura % frecuencia)) % frecuencia;
+  if (base != null) return r2(frecuencia - (lectura - base));
+  if (lectura < frecuencia) return r2(frecuencia - lectura);
+  const pasado = r2(lectura % frecuencia);   // unidades desde el último múltiplo (el servicio que tocaba)
+  const faltan = r2(frecuencia - pasado);    // unidades hasta el siguiente
+  if (faltan <= frecuencia * MARGEN_ALERTA_PCT) return faltan;
+  return pasado === 0 ? 0 : -pasado;
 }
 
 export interface AvisoServicio {
