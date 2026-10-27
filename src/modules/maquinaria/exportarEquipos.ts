@@ -397,21 +397,28 @@ export async function descargarEquiposPdfPersonalizado(
     }
     const tx = logo ? MARGIN + anchoLogoPdf(38) + 12 : MARGIN;
 
+    // Ancho útil a la derecha del logo: el título y el subtítulo se parten en líneas
+    // (27/10/2026: el subtítulo se salía del borde derecho y la fecha quedaba cortada).
+    const anchoTexto = W - MARGIN - tx;
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.setTextColor(255, 138, 0);
-    doc.text(titulo, tx, y + 14);
+    const lineasTitulo = doc.splitTextToSize(titulo, anchoTexto) as string[];
+    doc.text(lineasTitulo, tx, y + 14);
+    let yy = y + 14 + (lineasTitulo.length - 1) * 15;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(80, 80, 80);
-    doc.text(
+    const lineasSub = doc.splitTextToSize(
       `GOLDEN TOUCH 1127 C.A. · RIF ${idEmp.rif} · ${equipos.length} equipo(s)${cat ? ` · ${cat}` : ''} · ${textoAgrupPdf} · ${new Date().toLocaleString('es-VE')}`,
-      tx,
-      y + 27,
-    );
+      anchoTexto,
+    ) as string[];
+    doc.text(lineasSub, tx, yy + 13);
+    yy += 13 + (lineasSub.length - 1) * 11;
 
-    y += 44;
+    y = Math.max(y + 44, yy + 17);
     doc.setDrawColor(255, 138, 0);
     doc.setLineWidth(1.4);
     doc.line(MARGIN, y, W - MARGIN, y);
