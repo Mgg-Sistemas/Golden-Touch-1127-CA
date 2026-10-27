@@ -37,6 +37,8 @@ export interface MovInventario {
   comprobante: string | null;
   detalle: string | null;
   responsable: string | null;
+  /** true = la movió la cocina al servir (o deshacer) una comida (27/10/2026). */
+  comida: boolean;
 }
 
 /** La fila cruda del kardex, tal como sale de `movimientos`. */
@@ -64,6 +66,7 @@ export const ROTULO_ORIGEN: Record<string, string> = {
   recepcion: 'Recepción',
   devolucion: 'Devolución',
   cocina: 'Comida',
+  cocina_sync: 'Comida (sincronizada)',
 };
 
 export function rotuloOrigen(origen: string | null | undefined, tipo: string): string {
@@ -82,13 +85,17 @@ export function rotuloOrigen(origen: string | null | undefined, tipo: string): s
 export function filasInventario(
   filas: FilaKardex[],
   viveres: { id: string; nombre: string; unidad: string | null; categoria?: string | null }[],
+  /** `conComidas`: también las filas que movió la cocina al servir (27/10/2026: la usuaria
+   *  quiere ver TODOS los movimientos del ciclo en la misma tabla, comidas incluidas). */
+  opciones: { conComidas?: boolean } = {},
 ): MovInventario[] {
   const porId = new Map(viveres.map((p) => [p.id, p]));
   return filas
-    .filter((r) => porId.has(r.producto_id) && !esDeCocina(r.ref_tipo) && (Number(r.delta) || 0) !== 0)
+    .filter((r) => porId.has(r.producto_id) && (opciones.conComidas || !esDeCocina(r.ref_tipo)) && (Number(r.delta) || 0) !== 0)
     .map((r, i) => {
       const p = porId.get(r.producto_id)!;
       return {
+        comida: esDeCocina(r.ref_tipo),
         id: String(r.id ?? `${r.producto_id}-${r.at}-${i}`),
         producto_id: r.producto_id,
         nombre: p.nombre,
@@ -111,17 +118,21 @@ export interface TotalesInventario {
   entradas: number;
   /** Lo que salió sin ser comida. Es el «− Mermas / salidas» del panel. */
   salidas: number;
+  /** Lo que se fue en comidas (un reverso de comida resta). Es el «Consumo» del panel. */
+  comidas: number;
   filas: number;
 }
 
-/** Los dos totales que tienen que dar lo mismo que las tarjetas del panel. */
+/** Los totales que tienen que dar lo mismo que las tarjetas del panel. Las comidas van
+ *  en su propio número: «+ Entradas» y «− Mermas / salidas» siguen sin contarlas. */
 export function totalesInventario(filas: MovInventario[]): TotalesInventario {
-  let entradas = 0, salidas = 0;
+  let entradas = 0, salidas = 0, comidas = 0;
   for (const f of filas) {
-    if (f.delta > 0) entradas = round2(entradas + f.delta);
+    if (f.comida) comidas = round2(comidas - f.delta);
+    else if (f.delta > 0) entradas = round2(entradas + f.delta);
     else salidas = round2(salidas + Math.abs(f.delta));
   }
-  return { entradas, salidas, filas: filas.length };
+  return { entradas, salidas, comidas, filas: filas.length };
 }
 
 /**
@@ -137,7 +148,7 @@ export function buscarInventario(filas: MovInventario[], texto: string): MovInve
     const cant = String(Math.abs(f.delta));
     const t = norm([
       f.nombre, f.categoria, f.unidad, f.comprobante, f.detalle, f.responsable, rotuloOrigen(f.origen, f.tipo),
-      f.tipo, f.delta > 0 ? 'entrada entro' : 'salida salio', f.fecha, cant, cant.replace('.', ','),
+      f.tipo, f.delta > 0 ? 'entrada entro' : 'salida salio', f.comida ? 'comida consumo' : '', f.fecha, cant, cant.replace('.', ','),
     ].filter(Boolean).join(' '));
     return palabras.every((p) => t.includes(p));
   });

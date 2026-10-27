@@ -844,14 +844,22 @@ export async function listMovInventarioCiclo(
         // En la foto, `ref` guarda el tipo del kardex y `detalle` el motivo.
         tipo: x.ref ?? 'salida', detalle: x.detalle ?? null,
       })),
+      // Las comidas también (27/10/2026): en la foto `cantidad` es lo consumido (positivo;
+      // un reverso queda negativo), `ref` el código de la comida y `detalle` el tipo.
+      ...mv.consumos.map((x, i) => ({
+        id: `c${i}`, producto_id: x.producto_id, delta: -x.cantidad, at: x.fecha,
+        tipo: 'consumo', ref_tipo: 'cocina', ref_codigo: x.ref ?? null, detalle: x.detalle ?? null,
+      })),
     ];
-    return filasInventario(crudas, secos);
+    return filasInventario(crudas, secos, { conComidas: true });
   }
 
+  // Ciclo abierto: TODO el kardex del ciclo, comidas incluidas (27/10/2026: la usuaria no veía
+  // los movimientos de cocina en la tabla, que antes excluía `ref_tipo` cocina).
   const hasta = hastaISO ?? m.cierre_at ?? new Date().toISOString();
   const filas = await todasLasFilas<FilaKardex>((a, b) =>
     supabase.from('movimientos').select('id, producto_id, delta, at, tipo, ref_tipo, ref_codigo, detalle, actor_name, actor')
-      .or(NO_COCINA).gte('at', m.inicio_at).lte('at', hasta)
+      .gte('at', m.inicio_at).lte('at', hasta)
       .order('at', { ascending: false }).order('id').range(a, b));
-  return filasInventario(filas, secos);
+  return filasInventario(filas, secos, { conComidas: true });
 }

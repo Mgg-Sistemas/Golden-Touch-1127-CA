@@ -23,6 +23,18 @@ describe('filasInventario', () => {
     expect(filas.map((f) => f.producto_id)).toEqual(['a']);
   });
 
+  it('con `conComidas` también salen las comidas, marcadas (27/10/2026: la usuaria no las veía)', () => {
+    const filas = filasInventario([
+      k({ producto_id: 'a', delta: 10, at: '2026-10-27T10:00:00Z', ref_tipo: 'orden', ref_codigo: 'SP-2026-0258' }),
+      k({ producto_id: 'b', delta: -3, at: '2026-10-27T12:00:00Z', ref_tipo: 'cocina', ref_codigo: 'CK-2026-0261', tipo: 'consumo' }),
+      k({ producto_id: 'b', delta: 1, at: '2026-10-27T13:00:00Z', ref_tipo: 'cocina', ref_codigo: 'CK-2026-0261', tipo: 'consumo' }), // reverso
+    ], viveres, { conComidas: true });
+    expect(filas.map((f) => [f.comprobante, f.comida])).toEqual([
+      ['CK-2026-0261', true], ['CK-2026-0261', true], ['SP-2026-0258', false],
+    ]);
+    expect(rotuloOrigen('cocina', 'consumo')).toBe('Comida');
+  });
+
   it('sale de lo más nuevo a lo más viejo', () => {
     const filas = filasInventario([
       k({ producto_id: 'a', delta: 1, at: '2026-09-20T10:00:00Z' }),
@@ -63,11 +75,22 @@ describe('totalesInventario', () => {
       k({ producto_id: 'b', delta: -88.4, at: '2026-09-23T10:00:00Z', ref_tipo: 'salida_modulo' }),
       k({ producto_id: 'b', delta: -25, at: '2026-09-24T10:00:00Z', ref_tipo: 'manual' }),
     ], viveres);
-    expect(totalesInventario(filas)).toEqual({ entradas: 154, salidas: 113.4, filas: 5 });
+    expect(totalesInventario(filas)).toEqual({ entradas: 154, salidas: 113.4, comidas: 0, filas: 5 });
+  });
+
+  it('las comidas van en su propio total y no mueven entradas ni salidas; un reverso resta', () => {
+    const filas = filasInventario([
+      k({ producto_id: 'a', delta: 100, at: '2026-10-20T10:00:00Z', ref_tipo: 'orden' }),
+      k({ producto_id: 'a', delta: -4, at: '2026-10-27T08:00:00Z', ref_tipo: 'cocina', tipo: 'consumo' }),
+      k({ producto_id: 'b', delta: -10, at: '2026-10-27T08:00:00Z', ref_tipo: 'cocina', tipo: 'consumo' }),
+      k({ producto_id: 'b', delta: 2, at: '2026-10-27T09:00:00Z', ref_tipo: 'cocina', tipo: 'consumo' }),
+      k({ producto_id: 'b', delta: -5, at: '2026-10-27T10:00:00Z', ref_tipo: 'salida_modulo' }),
+    ], viveres, { conComidas: true });
+    expect(totalesInventario(filas)).toEqual({ entradas: 100, salidas: 5, comidas: 12, filas: 5 });
   });
 
   it('sin filas, todo en cero', () => {
-    expect(totalesInventario([])).toEqual({ entradas: 0, salidas: 0, filas: 0 });
+    expect(totalesInventario([])).toEqual({ entradas: 0, salidas: 0, comidas: 0, filas: 0 });
   });
 });
 

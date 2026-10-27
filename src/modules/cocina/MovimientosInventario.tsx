@@ -59,9 +59,9 @@ export function MovimientosInventario({ mercado, viveres, recargar }: {
   return (
     <div className="card" style={{ marginBottom: '1rem' }}>
       <div className="card-title">
-        <span>📦 Entradas y salidas del inventario <span className="muted" style={{ fontWeight: 400 }}>· este ciclo, sin las comidas</span></span>
+        <span>📦 Movimientos del inventario <span className="muted" style={{ fontWeight: 400 }}>· este ciclo: entradas, salidas y comidas</span></span>
         <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>
-          Lo mismo que muestra Inventario para estos víveres
+          Lo mismo que muestra Inventario para estos víveres, con lo que se fue en cada comida
         </span>
       </div>
 
@@ -76,6 +76,11 @@ export function MovimientosInventario({ mercado, viveres, recargar }: {
           <div className="coc-kpi-rotulo">− Mermas / salidas</div>
           <div className="mono coc-kpi-valor" style={{ fontSize: '1.3rem', color: 'var(--warning)' }}>{num(tot.salidas)}</div>
           <div className="muted coc-kpi-nota">salidas de material y ajustes a la baja</div>
+        </div>
+        <div className="card" style={{ padding: '.55rem .75rem' }}>
+          <div className="coc-kpi-rotulo">− Comidas</div>
+          <div className="mono coc-kpi-valor" style={{ fontSize: '1.3rem', color: 'var(--danger)' }}>{num(tot.comidas)}</div>
+          <div className="muted coc-kpi-nota">lo que se fue en cada comida servida (el «Consumo» del panel)</div>
         </div>
         <div className="card" style={{ padding: '.55rem .75rem' }}>
           <div className="coc-kpi-rotulo">Movimientos</div>
@@ -127,7 +132,7 @@ export function MovimientosInventario({ mercado, viveres, recargar }: {
                   return (
                     <tr key={f.id}>
                       <td style={{ whiteSpace: 'nowrap' }}>{dateTime(f.fecha)}</td>
-                      <td><span className="badge">{entro ? '⬆' : '⬇'} {rotuloOrigen(f.origen, f.tipo)}</span></td>
+                      <td><span className={f.comida ? 'badge warning' : 'badge'}>{f.comida ? '🍽' : entro ? '⬆' : '⬇'} {rotuloOrigen(f.origen, f.tipo)}</span></td>
                       <td className="mono">{f.comprobante ?? '—'}</td>
                       <td>{f.nombre} {f.unidad && <span className="muted">· {f.unidad}</span>}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: entro ? 'var(--primary-3, #2ecc71)' : 'var(--danger)' }}>
