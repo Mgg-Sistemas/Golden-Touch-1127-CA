@@ -64,41 +64,179 @@ export function estadoExigeMotivo(estado: EstadoEquipo): boolean {
   return estado === 'averiada' || estado === 'parada' || estado === 'espera' || estado === 'retirada';
 }
 
-/* ───────── Clase del equipo (para el filtro Maquinaria y Equipos / Vehículos / Motos / Lanchas) ───────── */
+/* ───────── Clase del equipo (para el filtro Maquinaria y Equipos / Vehículos / Motos / Lanchas / Herramientas / etc.) ───────── */
 
-export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'moto' | 'lancha' | 'equipo';
+export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'moto' | 'lancha' | 'herramienta' | 'equipo' | string;
 
-export const CLASES_EQUIPO: { id: ClaseEquipo; label: string; icon: string }[] = [
+export interface ApartadoEquipo {
+  id: ClaseEquipo;
+  label: string;
+  icon: string;
+  keywords?: string[];
+  esCustom?: boolean;
+}
+
+export const CLASES_EQUIPO_BASE: ApartadoEquipo[] = [
   { id: 'maquinaria', label: 'Maquinaria y Equipos', icon: '🚜' },
   { id: 'vehiculo', label: 'Vehículos', icon: '🚚' },
   { id: 'moto', label: 'Motos', icon: '🏍️' },
   { id: 'lancha', label: 'Lanchas', icon: '🚤' },
+  {
+    id: 'herramienta',
+    label: 'Herramientas',
+    icon: '🛠️',
+    keywords: [
+      'herramienta', 'taladro', 'esmeril', 'pulidora', 'amoladora', 'sierra',
+      'cortadora', 'tronzadora', 'pistola', 'rotomartillo',
+      'soldador', 'soldadora', 'oxicorte', 'hidrolavadora', 'polipasto', 'tecle',
+      'gato hidraulico', 'torquimetro', 'multimetro', 'escalera', 'sopladora', 'remachadora',
+      'bomba manual', 'bomba achique portatil'
+    ],
+  },
 ];
+
+export const CLASES_EQUIPO: { id: ClaseEquipo; label: string; icon: string }[] = CLASES_EQUIPO_BASE;
+
+export const STORAGE_KEY_APARTADOS = 'maquinaria:apartados:v1';
+
+let memoriaCustomApartados: ApartadoEquipo[] = [];
+
+export function listarApartados(): ApartadoEquipo[] {
+  let custom: ApartadoEquipo[] = memoriaCustomApartados;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_KEY_APARTADOS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          custom = parsed.filter((p) => p && typeof p.id === 'string' && typeof p.label === 'string');
+          memoriaCustomApartados = custom;
+        }
+      }
+    }
+  } catch {
+    // ignorar en entornos sin localStorage
+  }
+
+  const baseIds = new Set(CLASES_EQUIPO_BASE.map((b) => b.id));
+  const validCustom = custom.filter((c) => !baseIds.has(c.id)).map((c) => ({ ...c, esCustom: true }));
+  return [...CLASES_EQUIPO_BASE, ...validCustom];
+}
+
+export function guardarApartadoCustom(nuevo: { label: string; icon?: string; keywords?: string[] }): ApartadoEquipo {
+  const label = nuevo.label.trim();
+  if (!label) throw new Error('El nombre del apartado es obligatorio.');
+
+  const id = norm(label).replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || `apartado_${Date.now()}`;
+
+  const apartados = listarApartados();
+  if (apartados.some((a) => a.id === id || norm(a.label) === norm(label))) {
+    throw new Error(`Ya existe un apartado con el nombre «${label}».`);
+  }
+
+  const icon = nuevo.icon?.trim() || '📦';
+  const item: ApartadoEquipo = {
+    id,
+    label,
+    icon,
+    keywords: nuevo.keywords && nuevo.keywords.length > 0 ? nuevo.keywords : [label.toLowerCase()],
+    esCustom: true,
+  };
+
+  const soloCustom = apartados.filter((a) => a.esCustom);
+  soloCustom.push(item);
+  memoriaCustomApartados = soloCustom;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_APARTADOS, JSON.stringify(soloCustom));
+    }
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('maquinaria:apartados-changed', { detail: item }));
+    }
+  } catch {
+    // ignorar
+  }
+  return item;
+}
+
+export function eliminarApartadoCustom(id: string): void {
+  memoriaCustomApartados = memoriaCustomApartados.filter((a) => a.id !== id);
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_KEY_APARTADOS);
+      if (raw) {
+        const parsed: ApartadoEquipo[] = JSON.parse(raw);
+        const filtrados = parsed.filter((a) => a.id !== id);
+        localStorage.setItem(STORAGE_KEY_APARTADOS, JSON.stringify(filtrados));
+      }
+    }
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('maquinaria:apartados-changed', { detail: { id, eliminado: true } }));
+    }
+  } catch {
+    // ignorar
+  }
+}
+
+export function iconoDeClase(clase: ClaseEquipo | string | null | undefined, fallback = '🚜'): string {
+  if (!clase) return fallback;
+  const ap = listarApartados().find((a) => a.id === clase);
+  return ap?.icon ?? fallback;
+}
 
 /** Deduce la clase del grupo de mantenimiento (si lo tiene) o del tipo del equipo. */
 export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: string | null }): ClaseEquipo {
   const g = norm(e.grupo_mantenimiento);
   const t = norm(e.tipo);
 
-  // 1. Lanchas y embarcaciones
+  // 1. Coincidencia directa con apartados registrados (por id o nombre)
+  const apartados = listarApartados();
+  for (const ap of apartados) {
+    if (ap.id === 'maquinaria') continue;
+    if (g === ap.id || t === ap.id || g === norm(ap.label) || t === norm(ap.label)) {
+      return ap.id;
+    }
+  }
+
+  // 2. Lanchas y embarcaciones
   if (/lancha|bote|embarca|penero|penyero|yate|canoa|flotante|marino|maritimo|fuera de borda/.test(t) ||
       /lancha|bote|embarca/.test(g)) {
     return 'lancha';
   }
 
-  // 2. Motos y motocicletas (excluye maquinaria pesada con prefijo moto como motoniveladora, motobomba, motosierra)
-  const esEquipoConPrefijoMoto = /motoniveladora|motobomba|motosierra/.test(t);
+  // 3. Motos y motocicletas (excluye maquinaria pesada con prefijo moto como motoniveladora, motobomba, motosierra)
+  const esEquipoConPrefijoMoto = /motoniveladora|motobomba/.test(t);
   if (!esEquipoConPrefijoMoto && (/\bmoto\b|\bmotos\b|motocicleta|cuatrimoto|fourtrack|trimoto/.test(t) || /\bmoto\b|\bmotos\b|motocicleta/.test(g))) {
     return 'moto';
   }
 
-  // 3. Vehículos terrestres (carros, camiones, camionetas, gandolas, buses, etc.)
+  // 4. Herramientas y equipos de taller
+  if (
+    /herramienta|taladro|esmeril|pulidora|amoladora|sierra|cortadora|tronzadora|pistola|rotomartillo|soldador|soldadora|oxicorte|hidrolavadora|polipasto|tecle|gato hidraulico|torquimetro|multimetro|escalera|sopladora|remachadora/.test(t) ||
+    /herramienta|taller/.test(g)
+  ) {
+    return 'herramienta';
+  }
+
+  // 5. Palabras clave de apartados personalizados
+  for (const ap of apartados) {
+    if (ap.esCustom && ap.keywords && ap.keywords.length > 0) {
+      for (const kw of ap.keywords) {
+        const nkw = norm(kw);
+        if (nkw && (t.includes(nkw) || g.includes(nkw))) {
+          return ap.id;
+        }
+      }
+    }
+  }
+
+  // 6. Vehículos terrestres (carros, camiones, camionetas, gandolas, buses, etc.)
   if (g.includes('vehiculo')) return 'vehiculo';
   if (/vehiculo|carro|camion|gandola|camioneta|pickup|\bauto\b|\bautos\b|van\b|autobus|\bbus\b|encava|jeep|chuto|remolque|volteo|cisterna/.test(t)) {
     return 'vehiculo';
   }
 
-  // 4. Maquinaria y Equipos unificados (excavadoras, plantas eléctricas, generadores, compresores, bombas, soldadores, tractores, etc.)
+  // 7. Maquinaria y Equipos unificados (excavadoras, plantas eléctricas, generadores, compresores, bombas, soldadores, tractores, etc.)
   return 'maquinaria';
 }
 

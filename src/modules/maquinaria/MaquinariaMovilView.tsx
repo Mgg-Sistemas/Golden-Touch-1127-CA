@@ -50,6 +50,7 @@ import {
   frecuenciaHrs,
   estadoEfectivo,
   claseEquipo,
+  iconoDeClase,
   SERVICIOS,
   type EstadoEquipo,
   type AvisoServicio,
@@ -116,7 +117,7 @@ export function MaquinariaMovilView() {
 
   // Estados de catálogo y opciones táctiles
   const [busquedaCatalogo, setBusquedaCatalogo] = useState('');
-  const [filtroCatalogo, setFiltroCatalogo] = useState<'todos' | 'alertas' | 'lanchas' | 'pesada' | 'vehiculos' | 'motos'>('todos');
+  const [filtroCatalogo, setFiltroCatalogo] = useState<'todos' | 'alertas' | 'lanchas' | 'pesada' | 'vehiculos' | 'motos' | 'herramientas'>('todos');
   const [equipoOpciones, setEquipoOpciones] = useState<MaquinariaEquipo | null>(null);
   const [nuevoEquipoMovilOpen, setNuevoEquipoMovilOpen] = useState(false);
   const [exportarPdfMovilOpen, setExportarPdfMovilOpen] = useState(false);
@@ -274,6 +275,8 @@ export function MaquinariaMovilView() {
       lista = lista.filter((e) => claseEquipo(e) === 'vehiculo');
     } else if (filtroCatalogo === 'motos') {
       lista = lista.filter((e) => claseEquipo(e) === 'moto');
+    } else if (filtroCatalogo === 'herramientas') {
+      lista = lista.filter((e) => claseEquipo(e) === 'herramienta');
     }
 
     if (busquedaCatalogo.trim()) {
@@ -299,6 +302,7 @@ export function MaquinariaMovilView() {
     let pesada = 0;
     let vehiculos = 0;
     let motos = 0;
+    let herramientas = 0;
     let alertas = 0;
 
     for (const e of equipos) {
@@ -307,12 +311,13 @@ export function MaquinariaMovilView() {
       else if (c === 'maquinaria') pesada++;
       else if (c === 'vehiculo') vehiculos++;
       else if (c === 'moto') motos++;
+      else if (c === 'herramienta') herramientas++;
 
       const inf = infoEquipos.get(e.id);
       if (inf?.aviso && inf.aviso.nivel !== 'ok') alertas++;
     }
 
-    return { lanchas, pesada, vehiculos, motos, alertas, total: equipos.length };
+    return { lanchas, pesada, vehiculos, motos, herramientas, alertas, total: equipos.length };
   }, [equipos, infoEquipos]);
 
   // Abrir opciones de una máquina desde el catálogo
@@ -726,7 +731,7 @@ export function MaquinariaMovilView() {
                         <img src={foto} alt={eq?.equipo ?? 'Equipo'} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover' }} />
                       ) : (
                         <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
-                          {eq ? (claseEquipo(eq) === 'lancha' ? '🚤' : claseEquipo(eq) === 'moto' ? '🏍️' : claseEquipo(eq) === 'vehiculo' ? '🚚' : '🚜') : '🚜'}
+                          {eq ? iconoDeClase(claseEquipo(eq)) : '🚜'}
                         </div>
                       )}
                       <div>
@@ -852,7 +857,7 @@ export function MaquinariaMovilView() {
                   <img src={fotos.get(equipoActual.id)} alt={equipoActual.equipo} style={{ width: 46, height: 46, borderRadius: 6, objectFit: 'cover' }} />
                 ) : (
                   <div style={{ width: 46, height: 46, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
-                    {claseEquipo(equipoActual) === 'lancha' ? '🚤' : claseEquipo(equipoActual) === 'moto' ? '🏍️' : claseEquipo(equipoActual) === 'vehiculo' ? '🚚' : '🚜'}
+                    {iconoDeClase(claseEquipo(equipoActual))}
                   </div>
                 )}
                 <div style={{ flex: 1 }}>
@@ -1380,6 +1385,9 @@ export function MaquinariaMovilView() {
           <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'motos'} onClick={() => setFiltroCatalogo('motos')}>
             🏍️ Motos<span className="n">{conteosCatalogo.motos}</span>
           </button>
+          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'herramientas'} onClick={() => setFiltroCatalogo('herramientas')}>
+            🛠️ Herramientas<span className="n">{conteosCatalogo.herramientas}</span>
+          </button>
           <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'alertas'} onClick={() => setFiltroCatalogo('alertas')}>
             ⚠️ Próx. / Vencidos<span className="n">{conteosCatalogo.alertas}</span>
           </button>
@@ -1412,7 +1420,7 @@ export function MaquinariaMovilView() {
                       {foto ? (
                         <img src={foto} alt={eq.equipo} />
                       ) : (
-                        claseEquipo(eq) === 'lancha' ? '🚤' : claseEquipo(eq) === 'moto' ? '🏍️' : claseEquipo(eq) === 'vehiculo' ? '🚚' : '🚜'
+                        iconoDeClase(claseEquipo(eq))
                       )}
                     </div>
                     <button
@@ -1525,7 +1533,7 @@ export function MaquinariaMovilView() {
                       {fotos.has(equipoOpciones.id) ? (
                         <img src={fotos.get(equipoOpciones.id)} alt={equipoOpciones.equipo} />
                       ) : (
-                        claseEquipo(equipoOpciones) === 'lancha' ? '🚤' : claseEquipo(equipoOpciones) === 'moto' ? '🏍️' : claseEquipo(equipoOpciones) === 'vehiculo' ? '🚚' : '🚜'
+                        iconoDeClase(claseEquipo(equipoOpciones))
                       )}
                     </div>
                     <div className="flo-mv-datos">
