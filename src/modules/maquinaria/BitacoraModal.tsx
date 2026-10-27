@@ -3,7 +3,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { date as fmtDate, num as fmtNum, money } from '@/shared/lib/format';
+import { date as fmtDate, dateTime, num as fmtNum, money } from '@/shared/lib/format';
 import { listServiciosDeEquipo, type ServicioDeEquipo } from '@/modules/pedidos/servicios.repository';
 import {
   listMantenimientos, addMantenimiento, updateMantenimiento, eliminarMantenimiento, resumenHorometro,
@@ -12,6 +12,9 @@ import {
 } from './maquinariaMant.repository';
 import { datosCombustibleDeEquipo, type DatosCombustibleEquipo } from './maquinariaEquipos.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { listRespuestasAlerta, TABLAS_ALERTAS_MANT, type RespuestaAlerta } from './alertasMantenimiento.repository';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
 
 export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   equipo: MaquinariaEquipo;
@@ -23,6 +26,10 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [rows, setRows] = useState<MantenimientoCalc[]>([]);
   const [comb, setComb] = useState<DatosCombustibleEquipo | null>(null);
   const [servicios, setServicios] = useState<ServicioDeEquipo[]>([]);
+  // Respuestas a las alertas de mantenimiento (sí/no se hará + mensaje), más reciente primero.
+  const [respuestas, setRespuestas] = useState<RespuestaAlerta[]>([]);
+  const [wspAbierto, setWspAbierto] = useState<string | null>(null);
+  const quien = useQuien();
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [borrarId, setBorrarId] = useState<string | null>(null);
@@ -47,16 +54,17 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
   const cargar = useCallback(async () => {
     try {
-      const [m, c, sv] = await Promise.all([
+      const [m, c, sv, ra] = await Promise.all([
         listMantenimientos(equipo.id),
         datosCombustibleDeEquipo(equipo.combustible_equipo).catch(() => null),
         listServiciosDeEquipo(equipo.id).catch(() => [] as ServicioDeEquipo[]),
+        listRespuestasAlerta(equipo.id).catch(() => [] as RespuestaAlerta[]),
       ]);
-      setRows(m); setComb(c); setServicios(sv);
+      setRows(m); setComb(c); setServicios(sv); setRespuestas(ra);
     } finally { setLoading(false); }
   }, [equipo.id, equipo.combustible_equipo]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
+  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes', ...TABLAS_ALERTAS_MANT], () => { void cargar(); });
 
   const res = useMemo(() => resumenHorometro(rows), [rows]);
   // Mantenimiento preventivo: horas del último período vs frecuencia del equipo.
@@ -150,6 +158,44 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
       {alerta && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.75rem', padding: '.55rem .85rem' }}>
           ⚠️ <strong>Mantenimiento preventivo:</strong> el último período acumuló <strong>{fmtNum(horasUlt)} h</strong> y supera la frecuencia de <strong>{fmtNum(freq!)} h</strong>. Conviene programar servicio.
+        </div>
+      )}
+
+      {/* Respuestas del encargado a las alertas de mantenimiento próximo / vencido (26/10/2026). */}
+      {respuestas.length > 0 && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.6rem .8rem', background: 'var(--bg-1)' }}>
+          <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: '.4rem' }}>🚨 Respuestas a alertas de mantenimiento <span className="badge" style={{ marginLeft: '.3rem' }}>{respuestas.length}</span></div>
+          <div style={{ display: 'grid', gap: '.3rem' }}>
+            {respuestas.map((r) => (
+              <div key={r.id} style={{ borderTop: '1px dashed var(--border, #334)', paddingTop: '.3rem', fontSize: '.8rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                  <span className="muted" style={{ whiteSpace: 'nowrap' }}>{dateTime(r.created_at)}</span>
+                  <span className="badge" style={{ background: r.nivel === 'vencido' ? 'var(--danger)' : 'var(--warning, #f59e0b)', color: r.nivel === 'vencido' ? '#fff' : '#1f1300', fontWeight: 700 }}>
+                    {r.nivel === 'vencido' ? 'VENCIDO' : 'PRÓXIMO'}
+                  </span>
+                  <span style={{ color: r.decision === 'hara' ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>
+                    {r.decision === 'hara' ? '✅ Sí hará' : '❌ No hará'}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 140 }}>{r.mensaje}</span>
+                  <span className="muted">{quien(r.actor_name, r.actor) || '—'}</span>
+                  {r.lectura != null && r.frecuencia != null && (
+                    <span className="muted mono" style={{ fontSize: '.72rem' }}>
+                      {fmtNum(r.lectura)} {r.unidad} · cada {fmtNum(r.frecuencia)} {r.unidad}
+                      {r.restante != null ? (r.restante <= 0 ? ` · pasado por ${fmtNum(Math.abs(r.restante))} ${r.unidad}` : ` · faltaban ${fmtNum(r.restante)} ${r.unidad}`) : ''}
+                    </span>
+                  )}
+                  {r.texto_whatsapp && (
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setWspAbierto(wspAbierto === r.id ? null : r.id)}>
+                      {wspAbierto === r.id ? '✕ Ocultar' : '📲 WhatsApp'}
+                    </button>
+                  )}
+                </div>
+                {wspAbierto === r.id && r.texto_whatsapp && (
+                  <div style={{ marginTop: '.45rem' }}><CompartirWhatsapp texto={r.texto_whatsapp} /></div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
