@@ -503,6 +503,27 @@ export function MaquinariaMovilView() {
     }
   }
 
+  const agregarPiezaLibre = () => {
+    if (!nombrePiezaLibre.trim()) return;
+    setPiezasSeleccionadas((prev) => [
+      ...prev,
+      {
+        nombre: nombrePiezaLibre.trim().toUpperCase(),
+        cantidad: Number(cantPiezaLibre) || 1,
+        unidad: unidadPiezaLibre,
+      },
+    ]);
+    setNombrePiezaLibre('');
+    setCantPiezaLibre('1');
+  };
+
+  const formatoEtiquetaServicio = (label: string): string => {
+    return label
+      .replace('Cambio de piezas', 'Cambio de\u00A0piezas')
+      .replace('Cauchos / neumáticos', 'Cauchos\u00A0/ neumáticos')
+      .replace('Aceite y filtros', 'Aceite\u00A0y filtros');
+  };
+
   return (
     <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', margin: '0 auto' }}>
       {/* ── Encabezado Móvil ── */}
@@ -832,17 +853,17 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Solicitar Servicio (Solicitud a Compras) ── */}
       {modo === 'servicio' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
               <span>🛒</span> Solicitud de Servicio / Pedido a Compras
             </h3>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>
 
-          <div style={{ display: 'grid', gap: '.75rem' }}>
+          <div style={{ display: 'grid', gap: '.85rem' }}>
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Máquina / Vehículo *</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Máquina / Vehículo *</label>
               <SearchSelect
                 value={equipoSelId}
                 onChange={setEquipoSelId}
@@ -852,23 +873,23 @@ export function MaquinariaMovilView() {
             </div>
 
             {equipoActual && (
-              <div style={{ padding: '.5rem .65rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', fontSize: '.78rem', display: 'flex', gap: '.6rem', alignItems: 'center' }}>
+              <div style={{ padding: '.55rem .75rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', fontSize: '.86rem', display: 'flex', gap: '.65rem', alignItems: 'center' }}>
                 {fotos.has(equipoActual.id) ? (
-                  <img src={fotos.get(equipoActual.id)} alt={equipoActual.equipo} style={{ width: 46, height: 46, borderRadius: 6, objectFit: 'cover' }} />
+                  <img src={fotos.get(equipoActual.id)} alt={equipoActual.equipo} style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover' }} />
                 ) : (
-                  <div style={{ width: 46, height: 46, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
                     {iconoDeClase(claseEquipo(equipoActual))}
                   </div>
                 )}
                 <div style={{ flex: 1 }}>
                   <div><strong>{equipoActual.equipo}</strong> · {[equipoActual.marca, equipoActual.modelo].filter(Boolean).join(' ')}</div>
-                  {equipoActual.placa && <div><span className="badge" style={{ fontSize: '.7rem', padding: '1px 5px' }}>🚗 Placa: {equipoActual.placa}</span></div>}
-                  {extraerEncargado(equipoActual) && <div className="muted" style={{ fontSize: '.73rem' }}>👤 Encargado: {extraerEncargado(equipoActual)}</div>}
+                  {equipoActual.placa && <div><span className="badge" style={{ fontSize: '.75rem', padding: '2px 6px' }}>🚗 Placa: {equipoActual.placa}</span></div>}
+                  {extraerEncargado(equipoActual) && <div className="muted" style={{ fontSize: '.8rem' }}>👤 Encargado: {extraerEncargado(equipoActual)}</div>}
                 </div>
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost"
-                  style={{ fontSize: '.72rem', padding: '.25rem .45rem' }}
+                  style={{ fontSize: '.78rem', padding: '.3rem .55rem' }}
                   onClick={() => setSubirFotoEq(equipoActual)}
                 >
                   📷 Foto
@@ -878,12 +899,12 @@ export function MaquinariaMovilView() {
 
             {/* Opciones de Intervención / Tipo de Falla (Aceite, Pieza, Sistema Hidráulico, etc.) */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
-                <label style={{ fontSize: '.82rem', fontWeight: 600, margin: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, margin: 0 }}>
                   Sistema / Intervención requerida *
                 </label>
                 {intervencionesServicio.length > 0 && (
-                  <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px' }}>
+                  <span className="badge" style={{ fontSize: '.78rem', padding: '2px 8px' }}>
                     {intervencionesServicio.length} {intervencionesServicio.length === 1 ? 'seleccionado' : 'seleccionados'}
                   </span>
                 )}
@@ -915,7 +936,7 @@ export function MaquinariaMovilView() {
                       }}
                     >
                       <span className="ico">{s.icon}</span>
-                      <span className="lbl">{s.label}</span>
+                      <span className="lbl">{formatoEtiquetaServicio(s.label)}</span>
                     </button>
                   );
                 })}
@@ -924,18 +945,19 @@ export function MaquinariaMovilView() {
 
             <div className="surt-grid2">
               <div>
-                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Urgencia</label>
-                <select className="select" value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Urgencia</label>
+                <select className="select" style={{ fontSize: '.92rem' }} value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
                   <option value="normal">NORMAL</option>
                   <option value="urgente">🚨 URGENTE</option>
                 </select>
               </div>
 
               <div>
-                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Responsable / Mecánico</label>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Responsable / Mecánico</label>
                 <input
                   type="text"
                   className="input"
+                  style={{ fontSize: '.92rem' }}
                   value={responsableServicio}
                   onChange={(e) => setResponsableServicio(e.target.value)}
                   placeholder="Nombre de quien revisa…"
@@ -945,10 +967,11 @@ export function MaquinariaMovilView() {
 
             <div className="surt-grid2">
               <div>
-                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Horómetro actual</label>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Horómetro actual</label>
                 <input
                   type="number"
                   className="input mono"
+                  style={{ fontSize: '.92rem' }}
                   value={horasServicio}
                   onChange={(e) => setHorasServicio(e.target.value)}
                   placeholder="Ej. 4500"
@@ -956,10 +979,11 @@ export function MaquinariaMovilView() {
               </div>
 
               <div>
-                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Kilometraje actual</label>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Kilometraje actual</label>
                 <input
                   type="number"
                   className="input mono"
+                  style={{ fontSize: '.92rem' }}
                   value={kmServicio}
                   onChange={(e) => setKmServicio(e.target.value)}
                   placeholder="Ej. 120000"
@@ -968,10 +992,11 @@ export function MaquinariaMovilView() {
             </div>
 
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Trabajo o falla a reparar *</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Trabajo o falla a reparar *</label>
               <textarea
                 className="input"
-                rows={2}
+                rows={3}
+                style={{ fontSize: '.92rem' }}
                 value={descripcionServicio}
                 onChange={(e) => setDescripcionServicio(e.target.value)}
                 placeholder="Describe qué trabajo necesita la máquina o qué repuesto hace falta…"
@@ -981,16 +1006,16 @@ export function MaquinariaMovilView() {
             {/* Repuestos de la ficha para añadir con un toque */}
             {repuestosEquipo.length > 0 && (
               <div>
-                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
                   🔩 Agregar repuestos de la ficha ({repuestosEquipo.length})
                 </label>
-                <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', maxHeight: '100px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto' }}>
                   {repuestosEquipo.map((r) => (
                     <button
                       key={r.id}
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      style={{ fontSize: '.72rem', padding: '.2rem .4rem' }}
+                      style={{ fontSize: '.82rem', padding: '.25rem .55rem' }}
                       onClick={() => {
                         const ya = piezasSeleccionadas.some((p) => p.nombre === r.tipo);
                         if (!ya) {
@@ -1006,77 +1031,93 @@ export function MaquinariaMovilView() {
             )}
 
             {/* Agregar pieza libre con nombre general (Compras formalizará con N° de parte) */}
-            <div style={{ padding: '.65rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', border: '1px dashed var(--border-color, rgba(255,255,255,0.15))' }}>
-              <label style={{ fontSize: '.8rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
+            <div style={{ padding: '.85rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', border: '1px dashed var(--border-color, rgba(255,255,255,0.22))' }}>
+              <label style={{ fontSize: '.92rem', fontWeight: 700, display: 'block', marginBottom: '.5rem', color: 'var(--text, #f1f5f9)' }}>
                 🛒 Pedir pieza o repuesto a Compras (nombre general):
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '.35rem', alignItems: 'center' }}>
+
+              {/* Fila 1: Campo de texto con ancho completo para el nombre o descripción */}
+              <div style={{ marginBottom: '.55rem' }}>
                 <input
                   type="text"
                   className="input"
-                  style={{ fontSize: '.78rem', padding: '.35rem .5rem' }}
-                  placeholder="Ej. Filtro de aceite, Manguera 1/2…"
+                  style={{ fontSize: '.92rem', padding: '.6rem .75rem', width: '100%', boxSizing: 'border-box' }}
+                  placeholder="Ej. Filtro de aceite, Manguera 1/2, Correa…"
                   value={nombrePiezaLibre}
                   onChange={(e) => setNombrePiezaLibre(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      agregarPiezaLibre();
+                    }
+                  }}
                 />
-                <input
-                  type="number"
-                  className="input mono"
-                  style={{ fontSize: '.78rem', padding: '.35rem .5rem' }}
-                  placeholder="Cant"
-                  value={cantPiezaLibre}
-                  onChange={(e) => setCantPiezaLibre(e.target.value)}
-                />
-                <select
-                  className="select"
-                  style={{ fontSize: '.78rem', padding: '.35rem .4rem' }}
-                  value={unidadPiezaLibre}
-                  onChange={(e) => setUnidadPiezaLibre(e.target.value)}
-                >
-                  <option value="und">und</option>
-                  <option value="lts">lts</option>
-                  <option value="jgo">jgo</option>
-                  <option value="mts">mts</option>
-                </select>
+              </div>
+
+              {/* Fila 2: Cantidad, unidad y botón Agregar espacioso y táctil */}
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flex: '0 0 auto' }}>
+                  <span style={{ fontSize: '.85rem', color: 'var(--text-muted, #94a3b8)', fontWeight: 600 }}>Cant:</span>
+                  <input
+                    type="number"
+                    className="input mono"
+                    style={{ fontSize: '.92rem', padding: '.5rem .4rem', width: '65px', textAlign: 'center', boxSizing: 'border-box' }}
+                    placeholder="1"
+                    value={cantPiezaLibre}
+                    onChange={(e) => setCantPiezaLibre(e.target.value)}
+                  />
+                </div>
+                <div style={{ flex: '0 0 auto' }}>
+                  <select
+                    className="select"
+                    style={{ fontSize: '.88rem', padding: '.5rem .5rem', minWidth: '78px' }}
+                    value={unidadPiezaLibre}
+                    onChange={(e) => setUnidadPiezaLibre(e.target.value)}
+                  >
+                    <option value="und">und</option>
+                    <option value="lts">lts</option>
+                    <option value="jgo">jgo</option>
+                    <option value="mts">mts</option>
+                  </select>
+                </div>
                 <button
                   type="button"
-                  className="btn btn-sm btn-primary"
-                  style={{ fontSize: '.75rem', padding: '.35rem .6rem' }}
-                  onClick={() => {
-                    if (!nombrePiezaLibre.trim()) return;
-                    setPiezasSeleccionadas((prev) => [
-                      ...prev,
-                      {
-                        nombre: nombrePiezaLibre.trim().toUpperCase(),
-                        cantidad: Number(cantPiezaLibre) || 1,
-                        unidad: unidadPiezaLibre,
-                      },
-                    ]);
-                    setNombrePiezaLibre('');
-                    setCantPiezaLibre('1');
+                  className="btn btn-primary"
+                  style={{
+                    flex: 1,
+                    fontSize: '.9rem',
+                    fontWeight: 700,
+                    padding: '.55rem .75rem',
+                    minHeight: '42px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '.35rem',
                   }}
+                  onClick={agregarPiezaLibre}
                 >
                   + Agregar
                 </button>
               </div>
-              <small className="muted" style={{ fontSize: '.7rem', display: 'block', marginTop: '.35rem' }}>
+
+              <small className="muted" style={{ fontSize: '.78rem', display: 'block', marginTop: '.5rem', lineHeight: 1.35 }}>
                 💡 Escribe nombres generales. Compras recibirá la solicitud directa para cotizar y asignar el N° de parte oficial.
               </small>
             </div>
 
             {/* Piezas agregadas */}
             {piezasSeleccionadas.length > 0 && (
-              <div style={{ padding: '.5rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px' }}>
-                <small style={{ fontWeight: 600, display: 'block', marginBottom: '.25rem', color: 'var(--warning, #f59e0b)' }}>
+              <div style={{ padding: '.65rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px' }}>
+                <small style={{ fontWeight: 700, fontSize: '.88rem', display: 'block', marginBottom: '.35rem', color: 'var(--warning, #f59e0b)' }}>
                   Piezas que se enviarán a Compras ({piezasSeleccionadas.length}):
                 </small>
                 {piezasSeleccionadas.map((p, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.78rem', marginBottom: '.2rem' }}>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.86rem', marginBottom: '.3rem' }}>
                     <span>• {p.nombre} ({fmtNum(p.cantidad)} {p.unidad})</span>
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      style={{ padding: '0 .3rem', color: 'var(--danger, #ef4444)' }}
+                      style={{ padding: '0 .4rem', color: 'var(--danger, #ef4444)' }}
                       onClick={() => setPiezasSeleccionadas((prev) => prev.filter((_, idx) => idx !== i))}
                     >
                       ✕
@@ -1089,7 +1130,7 @@ export function MaquinariaMovilView() {
             <button
               type="button"
               className="btn btn-primary"
-              style={{ padding: '.75rem', fontWeight: 700, fontSize: '.92rem' }}
+              style={{ padding: '.85rem', fontWeight: 700, fontSize: '1rem' }}
               disabled={saving}
               onClick={() => void guardarServicio()}
             >
@@ -1101,15 +1142,15 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Registrar Lavado ── */}
       {modo === 'lavado' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>🚿 Registrar Lavado de Equipo</h3>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.15rem' }}>🚿 Registrar Lavado de Equipo</h3>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>
 
-          <div style={{ display: 'grid', gap: '.75rem' }}>
+          <div style={{ display: 'grid', gap: '.85rem' }}>
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Máquina / Vehículo *</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Máquina / Vehículo *</label>
               <SearchSelect
                 value={equipoSelId}
                 onChange={setEquipoSelId}
@@ -1119,13 +1160,14 @@ export function MaquinariaMovilView() {
             </div>
 
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Tipo de lavado</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem' }}>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Tipo de lavado</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.45rem' }}>
                 {TIPOS_LAVADO.map((t) => (
                   <button
                     key={t}
                     type="button"
-                    className={`btn btn-sm ${tipoLavado === t ? 'btn-primary' : 'btn-ghost'}`}
+                    className={`btn ${tipoLavado === t ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontSize: '.9rem', minHeight: '44px', fontWeight: 600 }}
                     onClick={() => setTipoLavado(t)}
                   >
                     {t}
@@ -1135,9 +1177,10 @@ export function MaquinariaMovilView() {
             </div>
 
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Lavador / Responsable</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Lavador / Responsable</label>
               <input
                 className="input"
+                style={{ fontSize: '.92rem' }}
                 value={lavador}
                 onChange={(e) => setLavador(e.target.value)}
                 placeholder="Nombre de quien realizó el lavado…"
@@ -1145,9 +1188,10 @@ export function MaquinariaMovilView() {
             </div>
 
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Observaciones (opcional)</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Observaciones (opcional)</label>
               <input
                 className="input"
+                style={{ fontSize: '.92rem' }}
                 value={notasLavado}
                 onChange={(e) => setNotasLavado(e.target.value)}
                 placeholder="Ej. Lavado con desengrasante, chasis limpio"
@@ -1157,7 +1201,7 @@ export function MaquinariaMovilView() {
             <button
               type="button"
               className="btn btn-primary"
-              style={{ padding: '.75rem', fontWeight: 700 }}
+              style={{ padding: '.85rem', fontWeight: 700, fontSize: '1rem' }}
               disabled={saving}
               onClick={() => void guardarLavado()}
             >
@@ -1169,15 +1213,15 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Reportar Avería / Estado ── */}
       {modo === 'averia' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>⚠️ Reportar Avería / Parada</h3>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.15rem' }}>⚠️ Reportar Avería / Parada</h3>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>
 
-          <div style={{ display: 'grid', gap: '.75rem' }}>
+          <div style={{ display: 'grid', gap: '.85rem' }}>
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Máquina / Vehículo *</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Máquina / Vehículo *</label>
               <SearchSelect
                 value={equipoSelId}
                 onChange={setEquipoSelId}
@@ -1187,40 +1231,44 @@ export function MaquinariaMovilView() {
             </div>
 
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Nuevo estado del equipo</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem' }}>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Nuevo estado del equipo</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.45rem' }}>
                 <button
                   type="button"
-                  className={`btn btn-sm ${estadoAveria === 'averiada' ? 'btn-danger' : 'btn-ghost'}`}
+                  className={`btn ${estadoAveria === 'averiada' ? 'btn-danger' : 'btn-ghost'}`}
+                  style={{ minHeight: '44px', fontSize: '.88rem', fontWeight: 600 }}
                   onClick={() => setEstadoAveria('averiada')}
                 >
                   🚨 AVERIADA
                 </button>
                 <button
                   type="button"
-                  className={`btn btn-sm ${estadoAveria === 'parada' ? 'btn-danger' : 'btn-ghost'}`}
+                  className={`btn ${estadoAveria === 'parada' ? 'btn-danger' : 'btn-ghost'}`}
+                  style={{ minHeight: '44px', fontSize: '.88rem', fontWeight: 600 }}
                   onClick={() => setEstadoAveria('parada')}
                 >
                   🛑 PARADA
                 </button>
                 <button
                   type="button"
-                  className={`btn btn-sm ${estadoAveria === 'taller' ? 'btn-primary' : 'btn-ghost'}`}
+                  className={`btn ${estadoAveria === 'taller' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ minHeight: '44px', fontSize: '.88rem', fontWeight: 600 }}
                   onClick={() => setEstadoAveria('taller')}
                 >
                   🛠️ EN TALLER
                 </button>
                 <button
                   type="button"
-                  className={`btn btn-sm ${estadoAveria === 'espera' ? 'btn-primary' : 'btn-ghost'}`}
+                  className={`btn ${estadoAveria === 'espera' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ minHeight: '44px', fontSize: '.88rem', fontWeight: 600 }}
                   onClick={() => setEstadoAveria('espera')}
                 >
                   ⏳ ESPERANDO REP.
                 </button>
                 <button
                   type="button"
-                  className={`btn btn-sm ${estadoAveria === 'operativa' ? 'btn-success' : 'btn-ghost'}`}
-                  style={{ gridColumn: '1 / -1' }}
+                  className={`btn ${estadoAveria === 'operativa' ? 'btn-success' : 'btn-ghost'}`}
+                  style={{ gridColumn: '1 / -1', minHeight: '44px', fontSize: '.92rem', fontWeight: 700 }}
                   onClick={() => setEstadoAveria('operativa')}
                 >
                   ✅ OPERATIVA
@@ -1229,10 +1277,11 @@ export function MaquinariaMovilView() {
             </div>
 
             <div>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Motivo / Falla detectada *</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Motivo / Falla detectada *</label>
               <textarea
                 className="input"
-                rows={2}
+                rows={3}
+                style={{ fontSize: '.92rem' }}
                 value={motivoAveria}
                 onChange={(e) => setMotivoAveria(e.target.value)}
                 placeholder="Explica qué daño tiene o por qué se paró el equipo…"
@@ -1242,7 +1291,7 @@ export function MaquinariaMovilView() {
             <button
               type="button"
               className="btn btn-primary"
-              style={{ padding: '.75rem', fontWeight: 700 }}
+              style={{ padding: '.85rem', fontWeight: 700, fontSize: '1rem' }}
               disabled={saving}
               onClick={() => void guardarAveria()}
             >
@@ -1254,10 +1303,10 @@ export function MaquinariaMovilView() {
 
       {/* ── Consulta de Filtros / Repuestos ── */}
       {modo === 'filtros' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>🔍 Filtros y Marcas de la Máquina</h3>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.15rem' }}>🔍 Filtros y Marcas de la Máquina</h3>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>
 
           <div style={{ marginBottom: '.75rem' }}>
@@ -1271,31 +1320,31 @@ export function MaquinariaMovilView() {
 
           {equipoActual ? (
             <div>
-              <div style={{ padding: '.5rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', fontSize: '.8rem', marginBottom: '.75rem' }}>
+              <div style={{ padding: '.65rem .75rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', fontSize: '.86rem', marginBottom: '.75rem' }}>
                 <div><strong>{equipoActual.equipo}</strong> · {[equipoActual.marca, equipoActual.modelo].filter(Boolean).join(' ')}</div>
-                {extraerEncargado(equipoActual) && <div className="muted">👤 Encargado: {extraerEncargado(equipoActual)}</div>}
+                {extraerEncargado(equipoActual) && <div className="muted" style={{ fontSize: '.8rem' }}>👤 Encargado: {extraerEncargado(equipoActual)}</div>}
                 {(equipoActual.motor_modelo || equipoActual.motor_serial) && (
-                  <div className="muted" style={{ fontSize: '.75rem' }}>⚙️ Motor: {[equipoActual.motor_modelo, equipoActual.motor_serial].filter(Boolean).join(' · ')}</div>
+                  <div className="muted" style={{ fontSize: '.8rem' }}>⚙️ Motor: {[equipoActual.motor_modelo, equipoActual.motor_serial].filter(Boolean).join(' · ')}</div>
                 )}
               </div>
 
               {repuestosEquipo.length === 0 ? (
-                <div className="muted" style={{ fontSize: '.78rem' }}>Sin ficha de repuestos cargada aún.</div>
+                <div className="muted" style={{ fontSize: '.84rem' }}>Sin ficha de repuestos cargada aún.</div>
               ) : (
-                <div style={{ display: 'grid', gap: '.4rem', marginBottom: '.75rem' }}>
+                <div style={{ display: 'grid', gap: '.45rem', marginBottom: '.75rem' }}>
                   {repuestosEquipo.map((r) => {
                     const sis = sistemaDe(r.sistema);
                     return (
-                      <div key={r.id} style={{ padding: '.5rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', fontSize: '.78rem' }}>
+                      <div key={r.id} style={{ padding: '.6rem .75rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', fontSize: '.86rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <strong>{sis.icon} {r.tipo}</strong>
                           <span className="muted">{fmtNum(r.cantidad)} {r.unidad}</span>
                         </div>
-                        {r.numero_parte && <div className="mono" style={{ color: 'var(--brand, #ff8a00)', marginTop: '.1rem' }}>OEM: {r.numero_parte}</div>}
+                        {r.numero_parte && <div className="mono" style={{ color: 'var(--brand, #ff8a00)', marginTop: '.15rem', fontSize: '.84rem' }}>OEM: {r.numero_parte}</div>}
                         {r.equivalencias && r.equivalencias.length > 0 && (
-                          <div style={{ color: '#38bdf8', marginTop: '.1rem' }}>Marcas: {r.equivalencias.join(' · ')}</div>
+                          <div style={{ color: '#38bdf8', marginTop: '.15rem', fontSize: '.82rem' }}>Marcas: {r.equivalencias.join(' · ')}</div>
                         )}
-                        {r.especificacion && <div className="muted" style={{ fontSize: '.72rem' }}>Esp: {r.especificacion}</div>}
+                        {r.especificacion && <div className="muted" style={{ fontSize: '.78rem' }}>Esp: {r.especificacion}</div>}
                       </div>
                     );
                   })}
