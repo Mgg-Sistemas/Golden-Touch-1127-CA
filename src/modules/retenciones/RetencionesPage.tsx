@@ -168,7 +168,9 @@ export function RetencionesPage() {
     return {
       ...s, contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
       moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-      facturaTotal: o.total, baseImponible: o.total - (o.iva_monto ?? 0), iva: o.iva_monto ?? 0,
+      facturaTotal: o.total,
+      baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
+      iva: o.iva_monto ?? 0,
     };
   }
 
@@ -815,7 +817,9 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                       docId: o.id, codigo: o.oc_codigo ?? o.codigo,
                       contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
                       moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-                      total: o.total, baseImponible: o.total - (o.iva_monto ?? 0), iva: o.iva_monto ?? 0,
+                      total: o.total,
+                      baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
+                      iva: o.iva_monto ?? 0,
                     })}>
                       Registrar {lbl}
                     </button>
@@ -840,6 +844,13 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                 {o.oc_codigo && (
                   <a className="btn btn-sm btn-ghost" href={`#/app/pedidos?detalle=${encodeURIComponent(o.id)}`}>Ver OC</a>
                 )}
+                <button
+                  className={`btn btn-sm ${pends.length === 0 ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => onVer({ orden: o, proveedorNombre })}
+                  title={pends.length === 0 ? 'Subir comprobantes y finalizar retención' : 'Ver retenciones y comprobantes de la orden'}
+                >
+                  {pends.length === 0 ? '✓ Finalizar retención' : 'Ver detalle'}
+                </button>
                 <button className="btn btn-sm btn-ghost" onClick={onVista}>Ver en vista agrupada</button>
               </span>
             </div>
