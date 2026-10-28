@@ -203,7 +203,7 @@ export async function generarNominaViajesPdf(opts: {
     doc.setFontSize(7.2);
     doc.setTextColor(...GRIS);
     const datosConductor = [
-      `Nómina Fija: ${g.nominaFija || 'MGG'}`,
+      `Nómina Fija: ${g.nominaFija || 'GT'}`,
       `Vehículo(s): ${vehTxt}`,
       `Registros: ${g.filas.length}`,
       `Total viajes: ${totalViajesChofer}`,

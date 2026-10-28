@@ -231,7 +231,7 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(70, 80, 95);
-    const detalleLinea = `C.I. / RIF: ${cedula}   ·   Nómina: ${g.nominaFija || 'MGG'}   ·   Teléfono: ${tlf}   ·   Vehículo(s): ${textoVehiculo}`;
+    const detalleLinea = `C.I. / RIF: ${cedula}   ·   Nómina: ${g.nominaFija || 'GT'}   ·   Teléfono: ${tlf}   ·   Vehículo(s): ${textoVehiculo}`;
     const detalleCorto = doc.splitTextToSize(detalleLinea, CONTENT_W - 24)[0];
     doc.text(textoPdf(detalleCorto), MARGIN + 12, y + 28);
 

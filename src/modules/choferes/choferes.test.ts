@@ -6,7 +6,7 @@ import {
   nombreDeConductor, datosConductor,
   tasasDeConductor, codificarObservacionesConTasas, observacionesSinTagsTasas, clasificarCategoriaPorTasa, categoriaDeViaje,
   calcularSiguientePeriodoCierre,
-  esCargoDeChofer, clasificarDocRrhh, fusionarDocumentosChofer,
+  esCargoDeChofer, clasificarDocRrhh, fusionarDocumentosChofer, nominaFijaDe,
 } from './choferes';
 
 const HOY = '2026-10-12';
@@ -277,6 +277,17 @@ describe('detección de cargo de chofer y documentos de RRHH', () => {
     });
   });
 
+  it('casos traídos de MGG (28/10/2026): motorizado, sin cargo, permiso de manejo y RCV', () => {
+    expect(esCargoDeChofer({ cargo: 'Chófer de gandola' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Conductor de carga pesada' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Motorizado' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Mecánico', departamento: 'Mantenimiento' })).toBe(false);
+    expect(esCargoDeChofer({ cargo: null, departamento: null })).toBe(false);
+    expect(clasificarDocRrhh({ tipo: 'otro', nombre: 'Permiso de manejo' }).tipo).toBe('licencia');
+    expect(clasificarDocRrhh({ tipo: 'otro', nombre: 'RCV camión 2026' }).tipo).toBe('seguro');
+    expect(clasificarDocRrhh({ tipo: 'otro', nombre: 'Carta de buena conducta' })).toEqual({ tipo: 'otro', etiqueta: 'Carta de buena conducta' });
+  });
+
   it('fusionarDocumentosChofer unifica los documentos de ambas tablas y asigna chofer_id', () => {
     const docsChofer = [
       { id: 'ch-1', chofer_id: 'c-10', tipo: 'licencia' as const, etiqueta: 'Licencia', path: 'p1', nombre: 'lic.pdf', created_at: '2026-10-10', vigente: true },
@@ -302,3 +313,17 @@ describe('detección de cargo de chofer y documentos de RRHH', () => {
 });
 
 
+describe('nómina fija del conductor (nominaFijaDe)', () => {
+  const nombres: Record<string, string> = { GT: 'GOLDEN TOUCH 1127 C.A.', GTLG: 'GOLDEN TOUCH', MTO: 'MINERÍA TIN OXIDE, C.A.' };
+  const buscar = (k: string) => nombres[k];
+  it('usa el nombre real de la empresa de RRHH con su clave, no «MGG» fijo', () => {
+    expect(nominaFijaDe({ personal: { empresa: 'GTLG' } }, buscar)).toBe('GOLDEN TOUCH (GTLG)');
+    expect(nominaFijaDe({ personal: { empresa: 'MTO' } }, buscar)).toBe('MINERÍA TIN OXIDE, C.A. (MTO)');
+    expect(nominaFijaDe({ personal: { empresa: 'XYZ' } }, buscar)).toBe('XYZ');
+  });
+  it('externos: su empresa o «EXTERNO»; sin dato, GT', () => {
+    expect(nominaFijaDe({ externo: true, empresa_externa: 'Transporte Pérez' }, buscar)).toBe('Transporte Pérez');
+    expect(nominaFijaDe({ externo: true }, buscar)).toBe('EXTERNO');
+    expect(nominaFijaDe(null, buscar)).toBe('GT');
+  });
+});
