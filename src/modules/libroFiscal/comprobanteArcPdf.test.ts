@@ -124,4 +124,26 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
     });
     expect(docCopia.getNumberOfPages()).toBe(1);
   });
+
+  it('anexarPaginasArcPdf genera 1 página en modo "estandar" o con imprimirOriginalYCopia false', async () => {
+    const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');
+    const { CONFIG_RETENCION_DEFECTO } = await import('./retencionesCalculo');
+    const filas: RetencionPracticada[] = [
+      retencion({ facturaFecha: '2026-01-10', baseImponible: 5000, montoRetenido: 100, montoBs: 100 }),
+    ];
+    const datos = compilarDatosArc(2026, 'J-12345678-0', filas);
+    const docEstandar = await anexarPaginasArcPdf(datos, CONFIG_RETENCION_DEFECTO, {
+      modoEjemplar: 'estandar',
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(docEstandar.getNumberOfPages()).toBe(1);
+
+    const docSinDoble = await anexarPaginasArcPdf(datos, CONFIG_RETENCION_DEFECTO, {
+      imprimirOriginalYCopia: false,
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(docSinDoble.getNumberOfPages()).toBe(1);
+  });
 });

@@ -152,6 +152,7 @@ export interface OpcionesArcPdf {
   incluirQr?: boolean;
   ejemplar?: EjemplarPdf | null;
   modoEjemplar?: ModoEjemplar;
+  imprimirOriginalYCopia?: boolean;
 }
 
 /**
@@ -457,7 +458,8 @@ export async function anexarPaginasArcPdf(
   opciones: OpcionesArcPdf = {},
   docExistente?: any,
 ): Promise<any> {
-  const modo: ModoEjemplar = opciones.modoEjemplar || 'ambos';
+  const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
+  const modo: ModoEjemplar = opciones.modoEjemplar || (!permitirDoble ? 'estandar' : 'ambos');
   let doc = docExistente;
 
   if (modo === 'ambos') {
@@ -465,8 +467,11 @@ export async function anexarPaginasArcPdf(
     doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: 'copia' }, doc);
   } else if (modo === 'copia') {
     doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: 'copia' }, doc);
-  } else {
+  } else if (modo === 'original') {
     doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: 'original' }, doc);
+  } else {
+    // Formato estándar ARC sin badge de ejemplar
+    doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: null }, doc);
   }
 
   return doc;
@@ -486,8 +491,9 @@ export async function verComprobanteArcPdf(
   const datos = compilarDatosArc(anio, proveedorRif, filas);
   const disp = await consultarElementosDigitales();
 
+  const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
-    ?? ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+    ?? (!permitirDoble ? 'estandar' : ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos'));
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true));
@@ -499,6 +505,7 @@ export async function verComprobanteArcPdf(
     incluirFirma: conFirma,
     incluirSello: conSello,
     incluirQr: conQr,
+    imprimirOriginalYCopia: permitirDoble,
   });
 
   const doc = await generarDoc();
@@ -509,11 +516,15 @@ export async function verComprobanteArcPdf(
       const container = document.createElement('div');
       container.style.cssText = 'display:flex;align-items:center;gap:.5rem;margin-left:auto;margin-right:.5rem;flex-wrap:wrap;';
 
-      // Selector de Ejemplar (Original y Copia / Solo Original / Solo Copia)
+      // Selector de Ejemplar (Estándar / Original y Copia / Solo Original / Solo Copia)
       const selEjemplar = document.createElement('select');
       selEjemplar.style.cssText =
         'background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.35rem .6rem;font:600 .82rem system-ui;cursor:pointer;outline:none;';
-      selEjemplar.title = 'Seleccionar ejemplares a emitir (Original y Copia)';
+      selEjemplar.title = 'Seleccionar modo de emisión del comprobante ARC';
+
+      const optEstandar = document.createElement('option');
+      optEstandar.value = 'estandar';
+      optEstandar.textContent = '📄 Formato Estándar (1 pág)';
 
       const optAmbos = document.createElement('option');
       optAmbos.value = 'ambos';
@@ -527,7 +538,11 @@ export async function verComprobanteArcPdf(
       optCopia.value = 'copia';
       optCopia.textContent = '📄 Solo Copia (1 pág)';
 
-      selEjemplar.append(optAmbos, optOriginal, optCopia);
+      if (!permitirDoble) {
+        selEjemplar.append(optEstandar, optAmbos, optOriginal, optCopia);
+      } else {
+        selEjemplar.append(optAmbos, optOriginal, optCopia, optEstandar);
+      }
       selEjemplar.value = modoEjemplar;
 
       selEjemplar.onchange = async () => {
