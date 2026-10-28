@@ -6,6 +6,7 @@ import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { firmaDeAprobador } from './aprobadoresOc';
+import { firmaCargadaDe } from '@/modules/usuarios/autorizados.repository';
 import { nombrePersonaCompras } from './personasCompras';
 import { esRecargaAgua } from './servicios.repository';
 import { esCambioProveedor, leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
@@ -156,6 +157,8 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   // La firma que se estampa depende de QUIÉN aprobó la OC: LEYDIS RENGEL usa su
   // firma (firma2.jpeg); JESUS LOZADA / cualquier otro admin usa firma.png.
   const quienFirma = firmaDeAprobador(ocAprobPor);
+  // Si quien aprobó tiene su firma cargada en «Usuarios autorizados», se estampa esa.
+  const firmaCargada = ocAprobada ? await firmaCargadaDe(ocAprobPor).catch(() => null) : null;
 
   const esConsolidada = ordenes.length > 1;
   const totalGeneral = ordenes.reduce((a, o) => a + Number(o.total ?? 0), 0);
@@ -659,7 +662,10 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   if (ocAprobada) {
     try {
       const SIG_W = 150;
-      if (quienFirma === 'leydis' && firmaLeydis) {
+      if (firmaCargada) {
+        const SIG_H = Math.min(80, (SIG_W * firmaCargada.h) / (firmaCargada.w || 1));
+        doc.addImage(firmaCargada.dataUrl, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
+      } else if (quienFirma === 'leydis' && firmaLeydis) {
         const SIG_H = Math.min(80, (SIG_W * firmaLeydis.h) / (firmaLeydis.w || 1)); // conserva proporción real
         doc.addImage(firmaLeydis.dataUrl, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
       } else if (firmaGerente) {

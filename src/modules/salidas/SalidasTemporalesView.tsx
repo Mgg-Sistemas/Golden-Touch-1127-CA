@@ -18,7 +18,8 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Existencia, Producto, SalidaTemporal, EstadoSalidaTemporal, EventoHistorial } from '@/shared/lib/types';
 import { getCategorias, getUnidades } from '@/modules/inventario/inventario.repository';
 import { esCategoriaReal } from '@/modules/inventario/categoriaReal';
-import { puedeAprobarOc } from '@/modules/pedidos/aprobadoresOc';
+import { puedeAprobarSalidas } from '@/modules/pedidos/aprobadoresOc';
+import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 import { AdjuntosSalida, SelectorAdjuntos } from './AdjuntosSalida';
 import { subirAdjuntosSalida } from './adjuntosSalida.repository';
@@ -73,7 +74,9 @@ export function SalidasTemporalesView({
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
 
-  const puedeAprobar = puedeAprobarOc(userRole, userEmail);
+  // Aprueban el admin y los usuarios autorizados para «Aprobar órdenes de salida».
+  useAutorizados();
+  const puedeAprobar = puedeAprobarSalidas(userRole, userEmail);
 
   const reload = useCallback(async () => {
     setLoading(true);

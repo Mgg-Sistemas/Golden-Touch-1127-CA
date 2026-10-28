@@ -47,6 +47,8 @@ import {
 } from './historicoSolicitudes';
 import { FechaInput } from '@/shared/ui/FechaInput';
 import { listCambiosNombre, nombreEnFecha, type CambioNombre } from '@/shared/lib/nombresHistoricos';
+import { puedeAprobarSalidas } from '@/modules/pedidos/aprobadoresOc';
+import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
 
 type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
@@ -81,19 +83,13 @@ const SOL_ESTADO_CLASS: Record<EstadoSolicitudSalida, string> = {
 };
 
 export function SalidasPage() {
-  const { can, appUser, isAdmin, role } = usePermissions();
+  const { can, appUser, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
-  // Aprueban y ejecutan: admin, quien tenga FULL en salidas, cualquier ANALISTA
-  // (analista_de_*) y cualquier JEFE/JEFA (jefe_*, jefa_*). El obrero solo crea solicitudes.
-  // EXCEPCIÓN: el «Analista» base y el «Analista de Compras» NO pueden aprobar ni ejecutar
-  // órdenes de salida ni traslados (aunque su rol empiece por «analista»). La lista manda
-  // por encima del FULL: solo el admin queda exento del bloqueo.
-  const ROLES_SIN_APROBAR_SALIDAS = ['analista', 'analista_de_compras'];
-  const rol = role ?? '';
-  const puedeAprobar = isAdmin || (
-    !ROLES_SIN_APROBAR_SALIDAS.includes(rol) &&
-    (can('salidas', 'full') || /^(analista|jef[ae])/.test(rol))
-  );
+  // Aprueban (desde el 28/10/2026): el admin y los usuarios de Roles y Permisos ›
+  // «Usuarios autorizados para:» con la opción «Aprobar órdenes de salida». Ya no
+  // depende del rol (analista/jefe/full). Lo ya aprobado queda como está.
+  useAutorizados(); // vuelve a pintar cuando cambia la lista
+  const puedeAprobar = puedeAprobarSalidas(role, appUser?.email);
   const actor = appUser?.email ?? 'sistema';
   // Nombre COMPLETO (nombre + apellido) de la persona logueada, para que las
   // solicitudes/movimientos muestren "Nombre Apellido" y no solo el nombre.
@@ -1409,7 +1405,7 @@ function SolicitudDetalleModal({
 
       {puedeEjecutar && !puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-          Vas a poder <strong>ejecutar</strong> esta solicitud una vez que un usuario con <strong>control full</strong> la <strong>apruebe</strong>.
+          Vas a poder <strong>ejecutar</strong> esta solicitud una vez que un <strong>usuario autorizado</strong> la <strong>apruebe</strong>.
         </div>
       )}
       {!puedeEjecutar && sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
