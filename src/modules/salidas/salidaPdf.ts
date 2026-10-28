@@ -176,10 +176,13 @@ export async function descargarOrdenSalidaPdf(
     return r && r !== email ? r : email;
   };
   // Autorizador de salidas/traslados: LEYDIS RENGEL (con su firma) cuando ya fue aprobada/ejecutada.
+  // Si quien la aprobó es un usuario autorizado con firma cargada, va su nombre y su firma.
   const AUTORIZADOR_SALIDAS = 'LEYDIS RENGEL';
   const aprobada = !!(sol.aprobada_en || sol.aprobada_por || sol.ejecutada_en || sol.ejecutada_por);
-  const autorizo = aprobada ? AUTORIZADOR_SALIDAS : null;
-  const firma2 = aprobada ? await loadFirma2DataUrl().catch(() => null) : null;
+  const { firmaCargadaDe } = await import('@/modules/usuarios/autorizados.repository');
+  const firmaPropia = (aprobada && sol.aprobada_por) ? await firmaCargadaDe(sol.aprobada_por).catch(() => null) : null;
+  const autorizo = !aprobada ? null : firmaPropia ? (nombre(sol.aprobada_por, sol.aprobada_en) || AUTORIZADOR_SALIDAS) : AUTORIZADOR_SALIDAS;
+  const firma2 = firmaPropia ?? (aprobada ? await loadFirma2DataUrl().catch(() => null) : null);
   // Solicitante: el nombre COMPLETO del usuario (no el texto guardado, que puede venir cortado).
   // Con la fecha de la solicitud: el nombre que tenía entonces (historial de nombres).
   const creoResuelto = nombre(sol.actor, sol.created_at);

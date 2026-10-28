@@ -33,6 +33,7 @@ import {
 import { setRolesCache } from './usuarios.repository';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
 import { VISTAS_TELEFONO } from '@/modules/auth/vistasTelefono';
+import { UsuariosAutorizadosPanel } from './UsuariosAutorizadosPanel';
 
 function normalize(stored: Partial<AllPermisos>, roles: CustomRole[]): AllPermisos {
   return roles.reduce<AllPermisos>((acc, r) => {
@@ -236,6 +237,8 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
           </div>
         )}
       </div>
+
+      <UsuariosAutorizadosPanel readOnly={readOnly} />
 
       {!loading && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.9rem' }}>

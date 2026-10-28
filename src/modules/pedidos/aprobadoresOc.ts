@@ -9,6 +9,8 @@
    quién lo genere o descargue.
    ============================================================ */
 
+import { autorizadoPara } from '@/modules/usuarios/autorizados';
+
 /** MARIANA TOVAR — Analista de Compras: ELABORA las Órdenes de Compra. Se estampa como
  *  «Elaborado por» en el PDF de la OC, aparte de la firma de quien la aprueba. Igual que los
  *  aprobadores, va fijo aquí: si cambia la persona/cargo/CI se edita este único lugar. */
@@ -27,14 +29,26 @@ const norm = (e?: string | null) => (e ?? '').trim().toLowerCase();
 
 /**
  * ¿Este usuario puede autorizar/aprobar Órdenes de Compra?
- * Lo pueden hacer el admin (JESUS LOZADA) y la Jefa de administración
- * (LEYDIS RENGEL). Se acepta tanto por rol como por su correo, para que
- * siga funcionando aunque cambie la asignación de rol.
+ * Desde el 28/10/2026 lo decide la lista «Usuarios autorizados para:» de Roles y
+ * Permisos (opción «Aprobar órdenes de compra»). El admin siempre puede.
+ * Mientras la lista no se haya cargado se usa la regla anterior (admin, Jefa de
+ * administración o LEYDIS RENGEL por correo), para no dejar a nadie sin botón.
  */
 export function puedeAprobarOc(role?: string | null, email?: string | null): boolean {
   if (role === 'admin') return true;
+  const lista = autorizadoPara(email, 'oc');
+  if (lista !== null) return lista;
   if (role === 'jefa_de_administracion') return true;
   return norm(email) === APROBADOR_LEYDIS_EMAIL;
+}
+
+/**
+ * ¿Este usuario puede aprobar Órdenes de Salida / Traslados / Salidas temporales?
+ * Solo el admin y los usuarios autorizados con «Aprobar órdenes de salida».
+ */
+export function puedeAprobarSalidas(role?: string | null, email?: string | null): boolean {
+  if (role === 'admin') return true;
+  return autorizadoPara(email, 'salidas') === true;
 }
 
 /**

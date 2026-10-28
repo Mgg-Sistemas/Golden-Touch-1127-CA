@@ -39,14 +39,18 @@ export async function descargarSalidaTemporalPdf(
   const estadoTxt = s.estado === 'finalizada' ? 'Finalizada'
     : s.estado === 'en_transito' ? 'En tránsito' : 'Pendiente';
 
-  // Autorizador según la firma estampada al aprobar.
+  // Autorizador según la firma estampada al aprobar. Si quien aprobó es un usuario
+  // autorizado con firma cargada, va su nombre y su firma.
   const aprobada = !!(s.aprobada_en || s.firma);
-  const autorizo = s.firma === 'leydis' ? 'LEYDIS RENGEL'
+  const { firmaCargadaDe } = await import('@/modules/usuarios/autorizados.repository');
+  const firmaPropia = (aprobada && s.aprobada_por) ? await firmaCargadaDe(s.aprobada_por).catch(() => null) : null;
+  const autorizo = firmaPropia ? (s.aprobada_por_nombre || nombre(s.aprobada_por))
+    : s.firma === 'leydis' ? 'LEYDIS RENGEL'
     : s.firma === 'gerente' ? 'JESÚS LOZADA'
       : '— (pendiente) —';
   // Firmas (solo si ya fue aprobada).
-  const firma2 = (aprobada && s.firma === 'leydis') ? await loadFirma2DataUrl().catch(() => null) : null;
-  const firmaGerente = (aprobada && s.firma === 'gerente') ? await loadFirmaDataUrl().catch(() => null) : null;
+  const firma2 = firmaPropia ?? ((aprobada && s.firma === 'leydis') ? await loadFirma2DataUrl().catch(() => null) : null);
+  const firmaGerente = (!firmaPropia && aprobada && s.firma === 'gerente') ? await loadFirmaDataUrl().catch(() => null) : null;
 
   // Solicitante / creador: nombre completo cuando se pueda resolver.
   const creoResuelto = nombre(s.actor);

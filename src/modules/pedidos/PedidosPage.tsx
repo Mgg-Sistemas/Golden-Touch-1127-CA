@@ -108,6 +108,7 @@ import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_GERENTE_CANCELA, ESTADOS_FIRMADOS_GG } from './aprobadoresOc';
+import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
 import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio';
@@ -434,12 +435,13 @@ export function PedidosPage() {
   const canWrite = isAdmin || can('pedidos', 'escritura');
   const canManageProcurement = canWrite;
   // APROBAR la Solicitud de Pedido (pendiente → aprobada) la hace COMPRAS
-  // (analista). La firma final de la OC (oc_creada → oc_aprobada) la pueden hacer
-  // el Administrador (JESUS LOZADA) y la Jefa de administración (LEYDIS RENGEL),
-  // según aprobadoresOc.ts. Reforzado en la base por el trigger enforce_admin_aprueba_orden,
-  // que ahora gatea oc_aprobada_por con puede_aprobar_oc() (admin o jefa_de_administracion).
+  // (analista). La firma final de la OC (oc_creada → oc_aprobada) la hacen el admin y
+  // los usuarios de Roles y Permisos › «Usuarios autorizados para:» con «Aprobar órdenes
+  // de compra» (aprobadoresOc.ts). Reforzado en la base por el trigger enforce_admin_aprueba_orden,
+  // que gatea oc_aprobada_por con puede_aprobar_oc() (admin o usuarios_autorizados.aprobar_oc).
+  useAutorizados(); // vuelve a pintar cuando cambia la lista de autorizados
   const puedeAprobarSolicitud = canManageProcurement; // SP: Compras (analista/admin)
-  const puedeAprobarPedidos = puedeAprobarOc(usuario?.role, usuario?.email); // OC: admin o Jefa de administración
+  const puedeAprobarPedidos = puedeAprobarOc(usuario?.role, usuario?.email); // OC: admin o usuario autorizado
 
   // Quien no gestiona compras solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
   useEffect(() => {

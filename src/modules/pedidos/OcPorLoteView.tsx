@@ -11,6 +11,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { listOcPorLote, nextCodigoChecklist, type OcLoteRow } from './ocLote.repository';
 import { aprobarOcsEnLote } from './pedidos.repository';
 import { puedeAprobarOc } from './aprobadoresOc';
+import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
 import { descargarChecklistOcPdf } from './checklistOcPdf';
 import { enviarChecklistAMultiples } from './enviarChecklist';
 
@@ -18,7 +19,8 @@ import { enviarChecklistAMultiples } from './enviarChecklist';
 export function OcPorLoteView() {
   const { user } = useSession();
   const { role, appUser } = usePermissions();
-  // Autorizan OC el admin (JESUS LOZADA) y la Jefa de administración (LEYDIS RENGEL).
+  // Autorizan OC el admin y los usuarios autorizados para «Aprobar órdenes de compra».
+  useAutorizados();
   const puedeAprobar = puedeAprobarOc(role, appUser?.email ?? user?.email);
   const [rows, setRows] = useState<OcLoteRow[]>([]);
   const [incluirPagadas, setIncluirPagadas] = useState(false);
