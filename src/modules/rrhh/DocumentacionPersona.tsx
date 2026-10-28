@@ -49,7 +49,7 @@ async function verDocumento(doc: PersonalDocumento): Promise<void> {
 }
 
 export function DocumentacionPersona({
-  personalId, canWrite, pendientes, onPendiente, onCambio, compacto,
+  personalId, canWrite, pendientes, onPendiente, onCambio, compacto, esChofer,
 }: {
   /** `null` = la persona todavía no existe (alta). */
   personalId: string | null;
@@ -59,6 +59,8 @@ export function DocumentacionPersona({
   onCambio?: () => void;
   /** Dentro del formulario se muestra más apretado. */
   compacto?: boolean;
+  /** La ficha tiene cargo de chofer/conductor: se avisa que sus papeles salen en Choferes. */
+  esChofer?: boolean;
 }) {
   const [docs, setDocs] = useState<PersonalDocumento[]>([]);
   const [cargando, setCargando] = useState(!!personalId);
@@ -217,6 +219,17 @@ export function DocumentacionPersona({
       {error && (
         <div className="aviso danger sm" style={{ marginBottom: '.5rem' }}>
           <span className="aviso-icono">⛔</span><div>{error}</div>
+        </div>
+      )}
+
+      {esChofer && (
+        // Traído de MGG (26/10/2026): la ficha de un conductor alimenta su expediente en Choferes.
+        <div className="aviso info sm" style={{ marginBottom: '.5rem', fontSize: '.8rem' }}>
+          <span className="aviso-icono">🚛</span>
+          <div>
+            <strong>Ficha de conductor / chofer:</strong> la <strong>licencia de conducir</strong>, el <strong>certificado médico</strong> y
+            el <strong>seguro</strong> que cargues acá se ven también en Choferes / Conductores, en su expediente.
+          </div>
         </div>
       )}
 

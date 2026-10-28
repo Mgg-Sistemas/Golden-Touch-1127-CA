@@ -14,8 +14,9 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import {
-  categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre, datosConductor,
+  categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre, datosConductor, nominaFijaDe,
 } from './choferes';
+import { useEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import {
   eliminarViaje, marcarViajesPagadosConCantidades, revertirCierreNomina, type Conductor, type Viaje,
 } from './choferes.repository';
@@ -74,15 +75,24 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
   const vehPorId = useMemo(() => new Map(flota.map((v) => [v.id, v])), [flota]);
   const pagosMap = useMemo(() => new Map(pagos.map((p) => [p.id, p])), [pagos]);
 
+  // Nómina fija = nombre real de la empresa de RRHH (GT, GTLG, MTO…), no «MGG» fijo.
+  const empresasRrhh = useEmpresasRrhh();
+  const claveEmpresas = empresasRrhh.map((e) => `${e.clave}=${e.nombre}`).join('|');
+  const nominaDe = useMemo(() => {
+    const nombres = new Map(empresasRrhh.map((e) => [e.clave, e.nombre]));
+    return (c: Conductor | null | undefined) => nominaFijaDe(c, (k) => nombres.get(k));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveEmpresas]);
+
   // Empresas disponibles en nómina fija
   const empresasDisponibles = useMemo(() => {
     const s = new Set<string>();
+    // Mismo texto que la columna «Nómina fija», para que el filtro coincida.
     for (const c of conductores) {
-      if (c.personal?.empresa) s.add(c.personal.empresa);
-      else if (c.empresa_externa) s.add(c.empresa_externa);
+      if (c.personal?.empresa || c.empresa_externa) s.add(nominaDe(c));
     }
     return Array.from(s).sort();
-  }, [conductores]);
+  }, [conductores, nominaDe]);
 
   // Conductores que tienen al menos un viaje registrado en el sistema
   const conductoresConViajes = useMemo(() => {
@@ -97,7 +107,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
     return viajes.map((v) => {
       const c = porId.get(v.chofer_id);
       const veh = vehPorId.get(v.vehiculo_id ?? '');
-      const nominaFija = c?.personal?.empresa || c?.empresa_externa || (c?.externo ? 'EXTERNO' : 'MGG');
+      const nominaFija = nominaDe(c);
       const vehiculoTxt = veh?.placa || (veh ? `${veh.marca || ''} ${veh.modelo || ''}`.trim() : '—');
       const obs = categoriaDeViaje(v, c);
       const infoPago = infoPagoViaje(v, pagosMap);
@@ -126,7 +136,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         fechaCorteHasta: infoPago.fechaCorteHasta,
       };
     });
-  }, [viajes, porId, vehPorId, pagosMap]);
+  }, [viajes, porId, vehPorId, pagosMap, nominaDe]);
 
   // Filtrado
   const filasFiltradas = useMemo(() => {
@@ -203,7 +213,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       out.push({
         choferId: cId,
         nombre: nombreConductor(c),
-        nominaFija: c?.personal?.empresa || c?.empresa_externa || (c?.externo ? 'EXTERNO' : 'MGG'),
+        nominaFija: nominaDe(c),
         filas: rows.sort((a, b) => a.fecha.localeCompare(b.fecha)),
         totalGeneral,
         totalPagado,
@@ -214,7 +224,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       });
     }
     return out.sort((a, b) => a.nombre.localeCompare(b.nombre));
-  }, [filasFiltradas, porId]);
+  }, [filasFiltradas, porId, nominaDe]);
 
   // Totales generales
   const resumenGeneral = useMemo(() => {
@@ -340,14 +350,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         cedula: dc.cedula,
         cedulaFmt: dc.cedula ? formatoCI(dc.cedula) : '',
         telefono: dc.telefono,
-        nominaFija: c?.personal?.empresa || c?.empresa_externa || (c?.externo ? 'EXTERNO' : 'MGG'),
+        nominaFija: nominaDe(c),
         filas,
         totalViajes: filas.reduce((a, f) => a + f.viajes, 0),
         totalMonto: filas.reduce((a, f) => a + f.totalPagar, 0),
       });
     }
     return res.sort((a, b) => a.nombre.localeCompare(b.nombre));
-  }, [modalPagarLote, viajesCandidatosCierre, porId]);
+  }, [modalPagarLote, viajesCandidatosCierre, porId, nominaDe]);
 
   // Filtro de búsqueda omni-campo dentro del modal de cierre (busca por todas las características)
   const choferesEnCorteFiltrados = useMemo(() => {
@@ -581,7 +591,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
           gruposRecibo.push({
             choferId: cId,
             nombre: nombreConductor(c),
-            nominaFija: c?.personal?.empresa || c?.empresa_externa || 'MGG',
+            nominaFija: nominaDe(c),
             filas: rows,
             totalGeneral: totalPagadoChofer,
             totalPagado: totalPagadoChofer,

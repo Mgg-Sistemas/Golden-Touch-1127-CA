@@ -91,9 +91,10 @@ export function clasificarDocRrhh(pDoc: { tipo?: string | null; nombre?: string 
   if (pDoc.tipo === 'ci') return { tipo: 'otro', etiqueta: 'Cédula de identidad (RRHH)' };
   if (pDoc.tipo === 'rif') return { tipo: 'otro', etiqueta: 'RIF personal (RRHH)' };
   if (pDoc.tipo === 'cv') return { tipo: 'otro', etiqueta: 'Currículum Vitae (RRHH)' };
-  if (/licencia|conducir|brevete/.test(norm)) return { tipo: 'licencia', etiqueta: nombre || 'Licencia de conducir' };
+  // Patrones ampliados con los de MGG (28/10/2026): «permiso de manejo», «médico vial», «RCV».
+  if (/licencia|conducir|brevete|manejo/.test(norm)) return { tipo: 'licencia', etiqueta: nombre || 'Licencia de conducir' };
   if (/certificado.*medic|medico|medica|salud/.test(norm)) return { tipo: 'certificado_medico', etiqueta: nombre || 'Certificado médico' };
-  if (/seguro|poliza/.test(norm)) return { tipo: 'seguro', etiqueta: nombre || 'Seguro' };
+  if (/seguro|poliza|\brcv\b|\brsv\b/.test(norm)) return { tipo: 'seguro', etiqueta: nombre || 'Seguro' };
   return { tipo: 'otro', etiqueta: nombre || 'Documento RRHH' };
 }
 
@@ -671,3 +672,21 @@ export function calcularSiguientePeriodoCierre(ultimoCorteIso?: string | null): 
   return { desde, hasta };
 }
 
+/**
+ * «Nómina fija» del conductor en la nómina de viajes, recibos, PDF y Excel (28/10/2026):
+ * el nombre real de su empresa en RRHH (`rrhh_empresas`) con la clave entre paréntesis
+ * —«GOLDEN TOUCH (GTLG)»—, la empresa del chofer externo, o «EXTERNO». Ya no sale «MGG» fijo.
+ */
+export function nominaFijaDe(
+  c: { externo?: boolean | null; empresa_externa?: string | null; personal?: { empresa?: string | null } | null } | null | undefined,
+  nombreEmpresa: (clave: string) => string | null | undefined,
+): string {
+  const clave = c?.personal?.empresa?.trim();
+  if (clave) {
+    const nombre = nombreEmpresa(clave)?.trim();
+    return nombre && nombre.toUpperCase() !== clave.toUpperCase() ? `${nombre} (${clave})` : clave;
+  }
+  const externa = c?.empresa_externa?.trim();
+  if (externa) return externa;
+  return c?.externo ? 'EXTERNO' : 'GT';
+}

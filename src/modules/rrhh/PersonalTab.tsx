@@ -1141,6 +1141,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
               onPendiente={elegirDocPendiente}
               onCambio={cargarDocs}
               compacto
+              esChofer={esCargoDeChofer(form)}
             />
             <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. Cada cambio posterior <strong>lleva motivo</strong> y queda en el <strong>historial de sueldo</strong> (botón 💵 en la lista).</small>
           </form>
@@ -1158,7 +1159,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
         <Modal title={`Documentación · ${docsPersona.nombre} ${docsPersona.apellido ?? ''}`.trim()} size="md"
           onClose={() => setDocsPersona(null)}
           footer={<button className="btn btn-ghost" onClick={() => setDocsPersona(null)}>Cerrar</button>}>
-          <DocumentacionPersona personalId={docsPersona.id} canWrite={canWrite} onCambio={cargarDocs} />
+          <DocumentacionPersona personalId={docsPersona.id} canWrite={canWrite} onCambio={cargarDocs} esChofer={esCargoDeChofer(docsPersona)} />
         </Modal>
       )}
       {sueldoPersona && (
