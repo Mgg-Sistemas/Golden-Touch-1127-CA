@@ -1,4 +1,4 @@
--- *** PENDIENTE DE APLICAR en Supabase (27/10/2026 21:40): el MCP no conectaba. Ejecutar completo en el SQL Editor y revisar la verificación final. ***
+-- APLICADO en Supabase por la usuaria el 27/10/2026 22:07 (SQL Editor). Resultado: YAMAGRO 60KVA base 1.128 h → 392 h acumuladas → VENCIDO; el resto OK (Komatsu 119, CAT428E 100, Perkins 69, L220G 60, XCMG 47, EC240 40, A35F 484 36; los demás 0).
 -- 27/10/2026 · Maquinaria: el contador de mantenimiento (cada 250 h / cada N km) arranca
 -- desde los movimientos cargados en Combustible ESTE MES (octubre 2026).
 --
