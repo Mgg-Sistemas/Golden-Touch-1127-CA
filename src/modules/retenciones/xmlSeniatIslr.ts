@@ -4,7 +4,7 @@
    Estructura oficial exigida por el portal fiscal del SENIAT para la
    declaración de retenciones de ISLR (Decreto 1.808):
    <?xml version="1.0" encoding="ISO-8859-1"?>
-   <RelacionRetencionesISLR RIF="J123456780" Periodo="AAAAMM">
+   <RelacionRetencionesISLR RifAgente="J123456780" Periodo="AAAAMM">
      <DetalleRetencion>
        <RifRetenido>J000000000</RifRetenido>
        <NumeroFactura>000123</NumeroFactura>
@@ -42,7 +42,8 @@ const monto = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toFixed(
 
 /** Filtra las retenciones que aplican para el XML de ISLR del período: practicadas, ISLR, no anuladas. */
 export function filasXmlIslr(filas: RetencionPracticada[], periodo: string): RetencionPracticada[] {
-  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'islr' && !r.anulada && r.periodo === periodo)
+  const p = periodo.replace(/\D/g, '').slice(0, 6);
+  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'islr' && !r.anulada && (r.periodo ?? '').replace(/\D/g, '').slice(0, 6) === p)
     .sort((a, b) => (a.numeroComprobante ?? '').localeCompare(b.numeroComprobante ?? ''));
 }
 

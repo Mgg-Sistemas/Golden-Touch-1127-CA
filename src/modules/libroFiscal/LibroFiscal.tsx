@@ -447,16 +447,17 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   }
 
   async function exportarSeniatIva() {
-    if (!relacionables.length) { toast('No hay retenciones de IVA practicadas.', 'error'); return; }
+    const ivaRows = relacionables.filter((r) => r.tipo === 'iva');
+    if (!ivaRows.length) { toast('No hay retenciones de IVA practicadas.', 'error'); return; }
     try {
       const { armarTxtIva } = await import('@/modules/retenciones/txtSeniatIva');
-      const periodoRef = (relacionables[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
+      const periodoRef = (ivaRows[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
       const res = armarTxtIva({
         rifAgente: config.rif || EMPRESA_RIF,
         razonSocial: razonSocialAgente(config),
         periodo: periodoRef,
         campo2: 'operaciones',
-        filas: relacionables,
+        filas: ivaRows,
       });
       if (res.faltan.length) {
         toast(`Faltan datos fiscales: ${res.faltan[0]}`, 'error');
@@ -475,15 +476,16 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   }
 
   async function exportarSeniatIslr() {
-    if (!relacionables.length) { toast('No hay retenciones de ISLR practicadas.', 'error'); return; }
+    const islrRows = relacionables.filter((r) => r.tipo === 'islr');
+    if (!islrRows.length) { toast('No hay retenciones de ISLR practicadas.', 'error'); return; }
     try {
       const { armarXmlIslr } = await import('@/modules/retenciones/xmlSeniatIslr');
-      const periodoRef = (relacionables[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
+      const periodoRef = (islrRows[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
       const res = armarXmlIslr({
         rifAgente: config.rif || EMPRESA_RIF,
         razonSocial: razonSocialAgente(config),
         periodo: periodoRef,
-        filas: relacionables,
+        filas: islrRows,
       });
       if (res.faltan.length) {
         toast(`Faltan datos fiscales: ${res.faltan[0]}`, 'error');

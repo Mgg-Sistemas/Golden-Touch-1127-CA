@@ -58,7 +58,8 @@ export function mesSiguiente(p: string): string {
 
 /** Lo que entra al TXT: practicadas de IVA del período, no anuladas. */
 export function filasTxtIva(filas: RetencionPracticada[], periodo: string): RetencionPracticada[] {
-  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'iva' && !r.anulada && r.periodo === periodo)
+  const p = periodo.replace(/\D/g, '').slice(0, 6);
+  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'iva' && !r.anulada && (r.periodo ?? '').replace(/\D/g, '').slice(0, 6) === p)
     .sort((a, b) => (a.numeroComprobante ?? '').localeCompare(b.numeroComprobante ?? ''));
 }
 

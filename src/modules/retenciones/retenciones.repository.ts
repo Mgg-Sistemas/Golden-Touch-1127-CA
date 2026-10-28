@@ -90,7 +90,7 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
   const [desdeAgente, { data, error }, pm] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     supabase.from(TABLE).select('*')
-      .eq('comprobante_tipo', 'factura')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .eq('retencion_finalizada', true)
       .gte('created_at', '2026-09-25T00:00:00Z')
       .order('retencion_finalizada_en', { ascending: false }),
