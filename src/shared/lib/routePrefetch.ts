@@ -20,6 +20,7 @@ const LOADERS: Record<string, Loader> = {
   '/app/proveedores': () => import('@/modules/proveedores/ProveedoresPage'),
   '/app/inventario': () => import('@/modules/inventario/InventarioPage'),
   '/app/inventario/deposito-mina': () => import('@/modules/inventario/InventarioPage'),
+  '/app/solicitudes': () => import('@/modules/solicitudesAlmacen/SolicitudesAlmacenPage'),
   '/app/produccion': () => import('@/modules/produccion/ProduccionPage'),
   '/app/salidas': () => import('@/modules/salidas/SalidasPage'),
   '/app/combustible': () => import('@/modules/combustible/CombustiblePage'),

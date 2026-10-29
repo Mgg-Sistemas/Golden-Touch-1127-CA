@@ -16,7 +16,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'deposito_mina' | 'maquinaria' | 'retenciones';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -48,6 +48,11 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
   {
     key: 'retenciones', label: 'Buzón de Facturas', icono: '🧾', modulo: 'retenciones',
     ruta: '/app/retenciones/telefono', descripcion: 'Carga rápida de facturas externas y soportes',
+  },
+  {
+    // 29/10/2026 · Almacén revisa las SP antes de Compras (se activa con el interruptor compras_revision_almacen).
+    key: 'solicitudes', label: 'Solicitudes de Pedido', icono: '📋', modulo: 'inventario',
+    ruta: '/app/solicitudes/telefono', descripcion: 'Validar si Almacén tiene lo que piden y avisar por WhatsApp',
   },
 ];
 

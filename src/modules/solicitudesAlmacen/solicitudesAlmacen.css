@@ -1,0 +1,64 @@
+/* ============================================================
+   Solicitudes de Pedido · revisión de Almacén (29/10/2026)
+   Mismo tema del sistema (carbón + naranja). Lo propio de esta pantalla es
+   la barra de cobertura: verde = lo que entrega Almacén, naranja = lo que
+   sigue a Compras. Se lee de un vistazo cuánto de la SP se resuelve en casa.
+   ============================================================ */
+
+/* Pestañas «Por revisar» / «Revisadas» */
+.spa-tabs { display: inline-flex; gap: .25rem; padding: .25rem; margin: .25rem 0 1rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.spa-tab { border: 0; background: none; color: var(--text-muted); font: inherit; font-weight: 700; padding: .5rem .95rem; border-radius: var(--r-sm); cursor: pointer; }
+.spa-tab[aria-selected="true"] { background: var(--surface-3); color: var(--text); box-shadow: inset 0 -2px 0 var(--primary); }
+.spa-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Tarjeta de una SP */
+.spa-sp { padding: 0; overflow: hidden; margin-bottom: 1rem; border-left: 4px solid var(--primary); }
+.spa-sp.urgente { border-left-color: var(--danger); }
+.spa-sp.revisada { border-left-color: var(--success); }
+.spa-sp-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; flex-wrap: wrap; padding: .9rem 1.1rem .7rem; }
+.spa-codigo { font-family: var(--font-mono); font-size: 1.25rem; font-weight: 800; letter-spacing: .01em; color: var(--primary-3); margin: 0; }
+.spa-datos { display: flex; gap: .35rem 1rem; flex-wrap: wrap; margin-top: .25rem; font-size: .85rem; color: var(--text-muted); }
+.spa-datos strong { color: var(--text); font-weight: 600; }
+.spa-cab-acciones { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+
+.spa-lote { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; padding: .55rem 1.1rem; border-top: 1px solid var(--border); background: var(--bg-2); }
+.spa-lote > span { font-size: .8rem; color: var(--text-muted); margin-right: .25rem; }
+
+.spa-tabla td.num, .spa-tabla th.num { text-align: right; }
+.spa-tabla .spa-input { width: 7.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700; }
+.spa-compras { font-family: var(--font-mono); font-weight: 800; color: var(--primary-2); }
+.spa-compras.cero { color: var(--text-dim); font-weight: 600; }
+.spa-sugerido { display: block; font-size: .75rem; color: var(--text-muted); margin-top: .15rem; }
+
+/* Barra de cobertura: lo que tiene Almacén sobre lo solicitado */
+.spa-barra { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--primary) 55%, var(--surface-3)); margin-top: .35rem; min-width: 80px; }
+.spa-barra > i { display: block; height: 100%; background: var(--success); transition: width .2s ease; }
+@media (prefers-reduced-motion: reduce) { .spa-barra > i { transition: none; } }
+
+.spa-pie { display: flex; gap: .75rem; align-items: flex-end; flex-wrap: wrap; padding: .8rem 1.1rem 1rem; border-top: 1px solid var(--border); }
+.spa-pie .spa-nota { flex: 1 1 260px; }
+.spa-pie .spa-nota label { display: block; font-size: .75rem; color: var(--text-muted); font-weight: 600; margin-bottom: .25rem; }
+.spa-pie .spa-nota .input { width: 100%; }
+.spa-cuenta { font-size: .85rem; color: var(--text-muted); }
+.spa-cuenta b { color: var(--text); font-family: var(--font-mono); }
+
+.spa-resumen { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; padding: .2rem 1.1rem 1rem; }
+.spa-resumen h3 { font-size: .85rem; margin: 0 0 .35rem; }
+.spa-resumen ul { margin: 0; padding-left: 1.1rem; font-size: .85rem; }
+.spa-resumen .vacio { font-size: .85rem; color: var(--text-muted); }
+@media (max-width: 640px) { .spa-resumen { grid-template-columns: 1fr; } }
+
+/* ── Teléfono ── */
+.spa-movil-sp { display: grid; grid-template-columns: 1fr auto; gap: .5rem; align-items: center; }
+.spa-movil-sp .codigo { font-family: var(--font-mono); font-weight: 800; font-size: 1.15rem; color: var(--primary-3); }
+.spa-renglon { padding: .8rem .9rem; margin-bottom: .6rem; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2); }
+.spa-renglon .nombre { font-weight: 700; font-size: 1.05rem; line-height: 1.3; }
+.spa-renglon .sub { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-top: .3rem; font-size: .85rem; color: var(--text-muted); }
+.spa-stepper { display: grid; grid-template-columns: 60px 1fr 60px; gap: .45rem; margin-top: .6rem; }
+.spa-stepper .btn { min-height: 60px; font-size: 1.6rem; font-weight: 800; padding: 0; justify-content: center; }
+.surtidor .spa-stepper .input { min-height: 60px; font-size: 1.6rem; text-align: center; font-family: var(--font-mono); font-weight: 800; width: 100%; }
+.spa-renglon .compras { margin-top: .45rem; font-size: .9rem; }
+.spa-renglon .compras b { font-family: var(--font-mono); color: var(--primary-2); }
+.spa-lote-movil { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .4rem; margin: .5rem 0 .9rem; }
+.spa-lote-movil .btn { min-height: 56px; font-size: .85rem; line-height: 1.2; white-space: normal; justify-content: center; text-align: center; }
+@media (max-width: 400px) { .spa-lote-movil { grid-template-columns: 1fr; } }
