@@ -329,7 +329,7 @@ export function AppShell() {
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
           {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
-          {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario" />}
+          {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
           {can('inventario') && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}
           {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Producción" />}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
