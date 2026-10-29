@@ -882,8 +882,7 @@ function FormularioCargaFactura({
       tasa: tasaNum,
       descripcion: descripcion.trim(),
       observaciones: observaciones.trim() || null,
-      // El autor (created_by) lo pone la base; el nombre se manda para mostrarlo.
-      createdByName: actorName,
+      // El autor (correo y nombre) lo pone la base: el teléfono no decide quién la cargó.
     };
 
     const falta = faltaEnFacturaBuzon(input);
