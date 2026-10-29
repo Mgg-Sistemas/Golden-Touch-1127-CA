@@ -48,25 +48,26 @@ export async function descargarReporteExistenciasPdf({
   const tx = logo ? MARGIN + anchoLogoPdf(42) + 12 : MARGIN;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(13);
+  doc.setTextColor(30, 41, 59);
   doc.text('GOLDEN TOUCH 1127 C.A. · REPORTE DE COMBUSTIBLE', tx, y + 14);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(80, 80, 80);
-  doc.text(`Existencias y Movimientos de Surtidos / Traslados · ${periodoLabel}`, tx, y + 28);
+  doc.setFontSize(9.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Existencias y Movimientos de Surtidos / Traslados · ${periodoLabel}`, tx, y + 27);
 
   const ahora = dateTime(new Date().toISOString());
   doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105);
   doc.text(`Emitido: ${ahora}`, PAGE_W - MARGIN, y + 14, { align: 'right' });
-  doc.text(`${reportes.length} tanque(s) en total`, PAGE_W - MARGIN, y + 28, { align: 'right' });
+  doc.text(`${reportes.length} tanque(s) en reporte`, PAGE_W - MARGIN, y + 27, { align: 'right' });
 
-  y += 48;
-  doc.setDrawColor(255, 138, 0);
+  y += 44;
+  doc.setDrawColor(234, 88, 12); // Naranja primario elegante
   doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 10;
+  y += 12;
 
   // 2. Tabla de Existencias Actuales ("Lo que queda")
   const totalLitros = reportes.reduce((acc, r) => acc + (Number(r.disponible) || 0), 0);
@@ -77,8 +78,8 @@ export async function descargarReporteExistenciasPdf({
   const tasaProm = totalLitros > 0 ? totalValor / totalLitros : 0;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(20, 20, 20);
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 41, 59);
   doc.text('1. Existencias Actuales por Tanque (Saldos vigentes)', MARGIN, y + 2);
   y += 8;
 
@@ -88,17 +89,17 @@ export async function descargarReporteExistenciasPdf({
     const tasa = Number(r.tanque.tasa_usd_litro) || 0;
     const pct = cap > 0 ? Math.min(100, Math.max(0, (disp / cap) * 100)) : 0;
     const tipoLabel = esBidon(r.tanque.nombre)
-      ? 'Bidón'
+      ? 'Bidon'
       : r.tanque.es_movil
-        ? 'Móvil'
+        ? 'Movil'
         : 'Estacionario';
 
     return [
       r.tanque.nombre,
       tipoLabel,
       `${num(disp)} L`,
-      `${num(cap)} L`,
-      `${pct.toFixed(0)}%`,
+      cap > 0 ? `${num(cap)} L` : '—',
+      cap > 0 ? `${pct.toFixed(0)}%` : '—',
       money(tasa),
       money(disp * tasa),
       r.tanque.estado === 'activo' ? 'Activo' : 'Inactivo',
@@ -108,7 +109,7 @@ export async function descargarReporteExistenciasPdf({
   // Fila resumen de totales
   filasExistencias.push([
     'TOTAL DISPONIBLE',
-    `${reportes.length} tanques`,
+    `${reportes.length} tanque(s)`,
     `${num(totalLitros)} L`,
     '—',
     '—',
@@ -122,71 +123,86 @@ export async function descargarReporteExistenciasPdf({
     head: [['Tanque', 'Tipo', 'Disponible', 'Capacidad', '% Lleno', 'Tasa $/L', 'Valor Total ($)', 'Estado']],
     body: filasExistencias,
     margin: MARGIN,
-    styles: { fontSize: 8, cellPadding: 3.5 },
-    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+    styles: { fontSize: 8, cellPadding: 3.5, textColor: [30, 41, 59] },
+    headStyles: { fillColor: [234, 88, 12], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 140, fontStyle: 'bold' },
-      1: { cellWidth: 70 },
-      2: { cellWidth: 80, halign: 'right', fontStyle: 'bold' },
-      3: { cellWidth: 70, halign: 'right' },
-      4: { cellWidth: 50, halign: 'center' },
-      5: { cellWidth: 60, halign: 'right' },
-      6: { cellWidth: 80, halign: 'right', fontStyle: 'bold' },
-      7: { cellWidth: 50, halign: 'center' },
+      0: { cellWidth: 150, fontStyle: 'bold' },
+      1: { cellWidth: 65 },
+      2: { cellWidth: 75, halign: 'right', fontStyle: 'bold' },
+      3: { cellWidth: 75, halign: 'right' },
+      4: { cellWidth: 55, halign: 'center' },
+      5: { cellWidth: 65, halign: 'right' },
+      6: { cellWidth: 85, halign: 'right', fontStyle: 'bold' },
+      7: { cellWidth: 'auto', halign: 'center' },
     },
     didParseCell: (data) => {
-      // Fila de totales en negrita y fondo sutil
       if (data.row.index === filasExistencias.length - 1) {
         data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.fillColor = [245, 245, 245];
+        data.cell.styles.fillColor = [241, 245, 249];
+        data.cell.styles.textColor = [15, 23, 42];
       }
     },
   });
 
   const lastTable = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-  y = (lastTable?.finalY ?? y) + 16;
+  y = (lastTable?.finalY ?? y) + 18;
 
   // 3. Detalle de Movimientos de Surtidos y Traslados por Tanque
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(20, 20, 20);
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 41, 59);
   doc.text(`2. Detalle de Movimientos (Surtidos y Traslados) · ${periodoLabel}`, MARGIN, y + 2);
   y += 10;
 
   // Recorrer cada tanque
   for (const item of detallePorTanque) {
-    // Si no hay espacio suficiente en la página para el bloque del tanque, agregar página
-    if (y > PAGE_H - 120) {
+    // Si no hay espacio suficiente para la cabecera y un par de líneas, saltar de página
+    if (y > PAGE_H - 100) {
       doc.addPage();
       y = MARGIN;
     }
 
-    // Cabecera del tanque
+    // Banda informativa del tanque (sin emojis corruptos)
+    doc.setFillColor(241, 245, 249);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.8);
+    doc.roundedRect(MARGIN, y, PAGE_W - 2 * MARGIN, 20, 2, 2, 'FD');
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(30, 30, 30);
-    const subHeader = `🛢 ${item.tanque.nombre} · Saldo actual: ${num(item.disponible)} L · Surtido en periodo: ${num(item.surtidosLitros)} L · Trasladado: ${num(item.trasladosLitros)} L`;
-    doc.text(subHeader, MARGIN, y + 2);
-    y += 8;
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`TANQUE: ${item.tanque.nombre.toUpperCase()}`, MARGIN + 8, y + 13.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    const statsLine = `Saldo actual: ${num(item.disponible)} L   |   Surtido periodo: ${num(item.surtidosLitros)} L   |   Trasladado: ${num(item.trasladosLitros)} L`;
+    doc.text(statsLine, PAGE_W - MARGIN - 8, y + 13.5, { align: 'right' });
+    y += 24;
 
     if (!item.movimientos.length) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(8);
-      doc.setTextColor(110, 110, 110);
-      doc.text('Sin movimientos de surtido o traslado en este período.', MARGIN + 10, y + 4);
-      y += 18;
+      doc.setTextColor(148, 163, 184);
+      doc.text('Sin movimientos registrados en este periodo.', MARGIN + 8, y + 4);
+      y += 16;
       continue;
     }
 
     const filasMovs = item.movimientos.map((m) => {
+      // Texto limpio sin emojis Unicode para evitar distorsión en Helvetica
       const tipoTxt =
         m.tipo === 'uso'
-          ? '⛽ Surtido'
+          ? 'Surtido'
           : m.tipo === 'traslado'
-            ? '↔ Traslado'
+            ? 'Traslado'
             : m.tipo === 'entrada'
-              ? '⬇ Entrada'
-              : m.tipo;
+              ? 'Entrada'
+              : m.tipo === 'retorno'
+                ? 'Retorno'
+                : m.tipo === 'merma'
+                  ? 'Merma'
+                  : m.tipo;
 
       const destinoTxt =
         m.tipo === 'uso'
@@ -196,9 +212,10 @@ export async function descargarReporteExistenciasPdf({
       const esSalida = m.tipo === 'uso' || m.tipo === 'traslado' || m.tipo === 'merma';
       const litrosTxt = `${esSalida ? '-' : '+'}${num(m.litros)} L`;
       const saldoTxt = m.saldo_litros != null ? `${num(m.saldo_litros)} L` : '—';
+      const fechaHoraTxt = `${isoAVe(m.fecha)}${m.hora ? ` ${m.hora}` : ''}`;
 
       return [
-        `${isoAVe(m.fecha)}${m.hora ? ` ${m.hora}` : ''}`,
+        fechaHoraTxt,
         tipoTxt,
         destinoTxt,
         litrosTxt,
@@ -209,25 +226,50 @@ export async function descargarReporteExistenciasPdf({
     });
 
     autoTable(doc, {
-      startY: y + 2,
-      head: [['Fecha / Hora', 'Tipo', 'Equipo / Destino', 'Litros', 'Saldo Tanque', 'Autorizado / Desp.', 'Observación']],
+      startY: y,
+      head: [['Fecha / Hora', 'Tipo', 'Equipo / Destino', 'Litros', 'Saldo Tanque', 'Autorizado / Desp.', 'Observacion']],
       body: filasMovs,
       margin: MARGIN,
-      styles: { fontSize: 7.5, cellPadding: 2.5 },
-      headStyles: { fillColor: [60, 64, 67], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 7.5, cellPadding: 3, textColor: [30, 41, 59] },
+      headStyles: { fillColor: [51, 65, 85], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
       columnStyles: {
-        0: { cellWidth: 80 },
-        1: { cellWidth: 70, fontStyle: 'bold' },
-        2: { cellWidth: 150 },
-        3: { cellWidth: 70, halign: 'right', fontStyle: 'bold' },
-        4: { cellWidth: 70, halign: 'right' },
-        5: { cellWidth: 110 },
+        0: { cellWidth: 95 },
+        1: { cellWidth: 55, fontStyle: 'bold' },
+        2: { cellWidth: 145 },
+        3: { cellWidth: 65, halign: 'right', fontStyle: 'bold' },
+        4: { cellWidth: 65, halign: 'right' },
+        5: { cellWidth: 105 },
         6: { cellWidth: 'auto' },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 3) {
+          const val = String(data.cell.raw ?? '');
+          if (val.startsWith('-')) {
+            data.cell.styles.textColor = [185, 28, 28]; // Rojo suave para salidas
+          } else if (val.startsWith('+')) {
+            data.cell.styles.textColor = [21, 128, 61]; // Verde para entradas
+          }
+        }
       },
     });
 
     const currentTable = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
     y = (currentTable?.finalY ?? y) + 14;
+  }
+
+  // Pie de página con numeración en todas las páginas
+  const totalPaginas = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPaginas; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `Golden Touch 1127 C.A. · Control de Combustible · Pagina ${i} de ${totalPaginas}`,
+      PAGE_W / 2,
+      PAGE_H - 20,
+      { align: 'center' },
+    );
   }
 
   // Vista previa e impresión

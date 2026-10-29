@@ -45,11 +45,56 @@ function restarDias(iso: string, dias: number): string {
 }
 
 export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
-  // 1. Filtros de periodo y tipo de movimiento
+  // 1. Selección de qué tanques incluir en el reporte (por defecto todos)
+  const [tanquesSeleccionados, setTanquesSeleccionados] = useState<Set<string>>(
+    () => new Set(reporte.map((r) => r.tanque.id)),
+  );
+
+  // Sincronizar si cambian los tanques de la prop
+  useEffect(() => {
+    setTanquesSeleccionados((prev) => {
+      const next = new Set<string>();
+      for (const r of reporte) {
+        if (prev.size === 0 || prev.has(r.tanque.id)) {
+          next.add(r.tanque.id);
+        }
+      }
+      return next.size > 0 ? next : new Set(reporte.map((r) => r.tanque.id));
+    });
+  }, [reporte]);
+
+  const toggleTanque = (id: string) => {
+    setTanquesSeleccionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const seleccionarTodos = () => {
+    setTanquesSeleccionados(new Set(reporte.map((r) => r.tanque.id)));
+  };
+
+  const seleccionarSoloConStock = () => {
+    const conStock = reporte
+      .filter((r) => (Number(r.disponible) || 0) > 0)
+      .map((r) => r.tanque.id);
+    setTanquesSeleccionados(new Set(conStock));
+  };
+
+  const seleccionarNinguno = () => {
+    setTanquesSeleccionados(new Set());
+  };
+
+  // 2. Filtros de periodo y tipo de movimiento
   const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes_actual');
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>('uso_traslado');
 
-  // 2. Cache de movimientos por tanque
+  // 3. Cache de movimientos por tanque
   const [movsMap, setMovsMap] = useState<Record<string, MovimientoTanque[]>>({});
   const [cargandoMovs, setCargandoMovs] = useState<boolean>(false);
   const [generandoPdf, setGenerandoPdf] = useState<boolean>(false);
@@ -82,7 +127,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     return map;
   }, [tanques]);
 
-  // Cargar movimientos para todos los tanques de una vez
+  // Cargar movimientos para los tanques
   useEffect(() => {
     const todosIds = reporte.map((r) => r.tanque.id);
     const faltantes = todosIds.filter((id) => !movsMap[id]);
@@ -120,10 +165,15 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     };
   }, [reporte, movsMap]);
 
-  // Totales acumulados de todos los tanques
+  // Subconjunto de reporte solo con los tanques seleccionados
+  const reporteSeleccionado = useMemo(() => {
+    return reporte.filter((r) => tanquesSeleccionados.has(r.tanque.id));
+  }, [reporte, tanquesSeleccionados]);
+
+  // Totales acumulados calculados exclusivamente sobre los tanques seleccionados
   const totales = useMemo(() => {
-    const totalLitros = reporte.reduce((acc, r) => acc + (Number(r.disponible) || 0), 0);
-    const totalValor = reporte.reduce(
+    const totalLitros = reporteSeleccionado.reduce((acc, r) => acc + (Number(r.disponible) || 0), 0);
+    const totalValor = reporteSeleccionado.reduce(
       (acc, r) => acc + (Number(r.disponible) || 0) * (Number(r.tanque.tasa_usd_litro) || 0),
       0,
     );
@@ -132,13 +182,14 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
       litros: totalLitros,
       valor: totalValor,
       tasaProm,
-      count: reporte.length,
+      count: reporteSeleccionado.length,
+      totalTanques: reporte.length,
     };
-  }, [reporte]);
+  }, [reporteSeleccionado, reporte.length]);
 
-  // Movimientos filtrados por cada tanque según periodo y tipo
+  // Movimientos filtrados por cada tanque según periodo y tipo (solo tanques seleccionados)
   const detallePorTanque = useMemo(() => {
-    return reporte.map((rep) => {
+    return reporteSeleccionado.map((rep) => {
       const todosMovs = movsMap[rep.tanque.id] ?? [];
       const filtrados = todosMovs.filter((m) => {
         // Filtro de periodo
@@ -178,16 +229,17 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         entradasLitros,
       };
     });
-  }, [reporte, movsMap, fechaDesdeFiltro, tipoFiltro]);
+  }, [reporteSeleccionado, movsMap, fechaDesdeFiltro, tipoFiltro]);
 
   const emitido = useMemo(() => fechaHoraActualVE(), []);
 
-  // Exportar a PDF
+  // Exportar a PDF (solo tanques seleccionados)
   async function handleExportPdf() {
+    if (!reporteSeleccionado.length) return;
     setGenerandoPdf(true);
     try {
       await descargarReporteExistenciasPdf({
-        reportes: reporte,
+        reportes: reporteSeleccionado,
         detallePorTanque,
         periodoLabel,
       });
@@ -196,12 +248,13 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     }
   }
 
-  // Exportar a Excel
+  // Exportar a Excel (solo tanques seleccionados)
   async function handleExportExcel() {
+    if (!reporteSeleccionado.length) return;
     setGenerandoExcel(true);
     try {
       await descargarReporteExistenciasExcel({
-        reportes: reporte,
+        reportes: reporteSeleccionado,
         detallePorTanque,
         periodoLabel,
       });
@@ -209,6 +262,8 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
       setGenerandoExcel(false);
     }
   }
+
+  const ningunTanqueSeleccionado = tanquesSeleccionados.size === 0;
 
   const footer = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '.5rem' }}>
@@ -220,8 +275,8 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         <button
           className="btn btn-ghost"
           onClick={handleExportExcel}
-          disabled={generandoExcel || cargandoMovs}
-          title="Generar y previsualizar reporte en Excel (.xlsx) con hojas de existencias y movimientos"
+          disabled={generandoExcel || cargandoMovs || ningunTanqueSeleccionado}
+          title={ningunTanqueSeleccionado ? 'Selecciona al menos un tanque' : 'Generar y previsualizar reporte en Excel (.xlsx)'}
         >
           {generandoExcel ? 'Generando Excel…' : '📊 Descargar Excel'}
         </button>
@@ -229,8 +284,8 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         <button
           className="btn btn-ghost"
           onClick={handleExportPdf}
-          disabled={generandoPdf || cargandoMovs}
-          title="Generar y previsualizar reporte oficial en PDF con membrete formal"
+          disabled={generandoPdf || cargandoMovs || ningunTanqueSeleccionado}
+          title={ningunTanqueSeleccionado ? 'Selecciona al menos un tanque' : 'Generar y previsualizar reporte en PDF con membrete'}
         >
           {generandoPdf ? 'Generando PDF…' : '📄 Descargar PDF'}
         </button>
@@ -238,7 +293,8 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         <button
           className="btn btn-primary"
           onClick={() => window.print()}
-          title="Imprimir vista previa"
+          disabled={ningunTanqueSeleccionado}
+          title="Imprimir reporte de tanques seleccionados"
         >
           🖨 Imprimir
         </button>
@@ -254,7 +310,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
       footer={footer}
     >
       <div style={{ color: 'var(--text)' }}>
-        {/* Cabecera / Barra de herramientas superior con los estilos nativos del sistema */}
+        {/* Cabecera / Barra de herramientas superior */}
         <div
           className="no-print"
           style={{
@@ -267,7 +323,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
             background: 'var(--surface-2)',
             borderRadius: 'var(--r-md)',
             border: '1px solid var(--border)',
-            marginBottom: '1.25rem',
+            marginBottom: '.75rem',
           }}
         >
           {/* Selector de periodo estilizado */}
@@ -333,6 +389,56 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
           </div>
         </div>
 
+        {/* Barra selectora de tanques con estilos nativos del sistema */}
+        <div
+          className="no-print"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '.6rem',
+            background: 'var(--surface-hover, rgba(255, 255, 255, 0.03))',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--r-md)',
+            padding: '.55rem .9rem',
+            marginBottom: '1.25rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text)' }}>
+              🛢️ Tanques a incluir ({tanquesSeleccionados.size} de {reporte.length}):
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={seleccionarTodos}
+              style={{ fontSize: '.75rem', padding: '.2rem .55rem' }}
+            >
+              ✓ Todos
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={seleccionarSoloConStock}
+              style={{ fontSize: '.75rem', padding: '.2rem .55rem' }}
+            >
+              Solo con combustible ({reporte.filter((r) => (Number(r.disponible) || 0) > 0).length})
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={seleccionarNinguno}
+              style={{ fontSize: '.75rem', padding: '.2rem .55rem' }}
+            >
+              ✕ Desmarcar todos
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: '.74rem' }}>
+            💡 Haz clic en cualquier tarjeta de tanque para incluirlo o excluirlo del reporte
+          </div>
+        </div>
+
         {/* Encabezado del documento para vista previa y para impresión */}
         <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
           <div style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--primary)' }}>
@@ -362,47 +468,56 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
               alignItems: 'center',
               flexWrap: 'wrap',
               gap: '1.25rem',
-              textAlign: 'center',
             }}
           >
-            <div>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                Total Disponible en Tanques
+            {/* Total Litros */}
+            <div style={{ textAlign: 'center', minWidth: 150 }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                Total disponible en tanques
               </div>
-              <div className="mono" style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--primary)' }}>
-                {num(totales.litros)} <span style={{ fontSize: '1rem', fontWeight: 500 }} className="muted">ltrs</span>
+              <div className="mono" style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--primary)', marginTop: '.15rem' }}>
+                {num(totales.litros)} <span style={{ fontSize: '.85rem', fontWeight: 500 }} className="muted">ltrs</span>
               </div>
             </div>
 
-            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem' }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                Valor Total Disponible
+            <div style={{ width: 1, height: 42, background: 'var(--border)' }} className="hide-sm" />
+
+            {/* Total Valor USD */}
+            <div style={{ textAlign: 'center', minWidth: 150 }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                Valor total disponible
               </div>
-              <div className="mono" style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--success)' }}>
+              <div className="mono" style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--success)', marginTop: '.15rem' }}>
                 {money(totales.valor)}
               </div>
             </div>
 
-            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem' }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                Tasa Ponderada Promedio
+            <div style={{ width: 1, height: 42, background: 'var(--border)' }} className="hide-sm" />
+
+            {/* Tasa Ponderada Promedio */}
+            <div style={{ textAlign: 'center', minWidth: 130 }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                Tasa ponderada promedio
               </div>
-              <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 600 }}>
-                {money(totales.tasaProm)} / ltr
+              <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--text)', marginTop: '.25rem' }}>
+                {money(totales.tasaProm)} <span style={{ fontSize: '.75rem' }} className="muted">/ ltr</span>
               </div>
             </div>
 
-            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem' }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                Tanques Activos
+            <div style={{ width: 1, height: 42, background: 'var(--border)' }} className="hide-sm" />
+
+            {/* Tanques seleccionados */}
+            <div style={{ textAlign: 'center', minWidth: 110 }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                Tanques en reporte
               </div>
-              <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 600 }}>
-                {totales.count}
+              <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 700, color: 'var(--text)', marginTop: '.25rem' }}>
+                {totales.count} <span style={{ fontSize: '.75rem' }} className="muted">de {totales.totalTanques}</span>
               </div>
             </div>
           </div>
 
-          {/* Grid de tarjetas individuales por tanque */}
+          {/* Grid de tarjetas individuales por tanque (con selección interactiva) */}
           <div
             style={{
               display: 'grid',
@@ -416,32 +531,74 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
               const tasa = Number(r.tanque.tasa_usd_litro) || 0;
               const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
               const colorBarra = pct < 12 ? 'var(--danger)' : pct < 30 ? 'var(--warning)' : 'var(--primary)';
+              const seleccionado = tanquesSeleccionados.has(r.tanque.id);
 
               return (
                 <div
                   key={r.tanque.id}
-                  className="card"
+                  onClick={() => toggleTanque(r.tanque.id)}
+                  className={`card ${!seleccionado ? 'no-print' : ''}`}
                   style={{
                     margin: 0,
                     padding: '.85rem',
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface)',
+                    border: seleccionado ? '2px solid var(--primary)' : '1px dashed var(--border)',
+                    background: seleccionado ? 'var(--surface)' : 'rgba(255, 255, 255, 0.02)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                     pageBreakInside: 'avoid',
+                    opacity: seleccionado ? 1 : 0.45,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    position: 'relative',
+                    userSelect: 'none',
+                    boxShadow: seleccionado ? '0 0 0 1px rgba(255, 138, 0, 0.2)' : 'none',
                   }}
+                  title={seleccionado ? 'Clic para excluir del reporte' : 'Clic para incluir en el reporte'}
                 >
+                  {/* Badge superior derecho de estado en reporte */}
+                  <div style={{ position: 'absolute', top: '.5rem', right: '.5rem' }} className="no-print">
+                    {seleccionado ? (
+                      <span
+                        className="badge"
+                        style={{
+                          background: 'rgba(16, 185, 129, 0.2)',
+                          color: 'var(--success)',
+                          borderColor: 'var(--success)',
+                          fontSize: '.68rem',
+                          fontWeight: 700,
+                          padding: '.15rem .45rem',
+                        }}
+                      >
+                        ✓ Incluido
+                      </span>
+                    ) : (
+                      <span
+                        className="badge"
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          color: 'var(--text-muted)',
+                          borderColor: 'var(--border)',
+                          fontSize: '.68rem',
+                          padding: '.15rem .45rem',
+                        }}
+                      >
+                        ✕ Excluido
+                      </span>
+                    )}
+                  </div>
+
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.4rem', marginBottom: '.35rem' }}>
-                      <strong style={{ fontSize: '.9rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.4rem', marginBottom: '.35rem', paddingRight: '4.5rem' }}>
+                      <strong style={{ fontSize: '.9rem', color: seleccionado ? 'var(--text)' : 'var(--text-muted)' }}>
                         {esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
                       </strong>
-                      <div style={{ display: 'inline-flex', gap: '.25rem' }}>
-                        {esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>bidón</span>}
-                        {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>móvil</span>}
-                        {r.tanque.estado !== 'activo' && <span className="badge" style={{ fontSize: '.68rem' }}>inactivo</span>}
-                      </div>
+                    </div>
+
+                    <div style={{ display: 'inline-flex', gap: '.25rem', marginBottom: '.35rem' }}>
+                      {esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>bidón</span>}
+                      {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>móvil</span>}
+                      {r.tanque.estado !== 'activo' && <span className="badge" style={{ fontSize: '.68rem' }}>inactivo</span>}
                     </div>
 
                     {/* Litros disponibles */}
@@ -492,6 +649,10 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
                     : 'Todos los movimientos registrados'}
               {' · '}
               <span>{periodoLabel}</span>
+              {' · '}
+              <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
+                {reporteSeleccionado.length} tanque(s) en reporte
+              </span>
             </div>
           </div>
 
@@ -501,198 +662,220 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
             </p>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {detallePorTanque.map((item) => {
-              return (
-                <div
-                  key={item.tanque.id}
-                  style={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--r-md)',
-                    overflow: 'hidden',
-                    pageBreakInside: 'avoid',
-                  }}
-                >
-                  {/* Cabecera del tanque */}
+          {ningunTanqueSeleccionado ? (
+            <div
+              className="card"
+              style={{
+                padding: '2rem',
+                textAlign: 'center',
+                borderColor: 'var(--warning)',
+                background: 'rgba(255, 138, 0, 0.05)',
+                margin: '1.5rem 0',
+              }}
+            >
+              <div style={{ fontSize: '1.5rem', marginBottom: '.5rem' }}>⚠️</div>
+              <strong style={{ fontSize: '1rem' }}>No hay tanques seleccionados</strong>
+              <p className="muted" style={{ fontSize: '.85rem', margin: '.5rem 0 1rem 0' }}>
+                Haz clic en las tarjetas de arriba o pulsa el botón «✓ Todos» para incluir tanques en el reporte.
+              </p>
+              <button type="button" className="btn btn-primary btn-sm" onClick={seleccionarTodos}>
+                ✓ Seleccionar todos los tanques
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {detallePorTanque.map((item) => {
+                return (
                   <div
+                    key={item.tanque.id}
                     style={{
-                      background: 'var(--surface-2)',
-                      padding: '.7rem .95rem',
-                      borderBottom: '1px solid var(--border)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: '.6rem',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r-md)',
+                      overflow: 'hidden',
+                      pageBreakInside: 'avoid',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                      <span style={{ fontSize: '1.2rem' }}>
-                        {esBidon(item.tanque.nombre) ? '🪣' : item.tanque.es_movil ? '🚚' : '🛢'}
-                      </span>
-                      <div>
-                        <strong style={{ fontSize: '.95rem' }}>{item.tanque.nombre}</strong>
-                        <div className="muted" style={{ fontSize: '.75rem' }}>
-                          Capacidad: {num(item.tanque.capacidad_litros)} ltrs · Saldo disponible: <strong className="mono" style={{ color: 'var(--primary)' }}>{num(item.disponible)} ltrs</strong>
+                    {/* Cabecera del tanque */}
+                    <div
+                      style={{
+                        background: 'var(--surface-2)',
+                        padding: '.7rem .95rem',
+                        borderBottom: '1px solid var(--border)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '.6rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                        <span style={{ fontSize: '1.2rem' }}>
+                          {esBidon(item.tanque.nombre) ? '🪣' : item.tanque.es_movil ? '🚚' : '🛢'}
+                        </span>
+                        <div>
+                          <strong style={{ fontSize: '.95rem' }}>{item.tanque.nombre}</strong>
+                          <div className="muted" style={{ fontSize: '.75rem' }}>
+                            Capacidad: {num(item.tanque.capacidad_litros)} ltrs · Saldo disponible: <strong className="mono" style={{ color: 'var(--primary)' }}>{num(item.disponible)} ltrs</strong>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Resumen del periodo en chips */}
-                    <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', fontSize: '.78rem' }}>
-                      <span
-                        className="badge"
-                        style={{
-                          background: 'rgba(255, 138, 0, 0.15)',
-                          color: 'var(--primary)',
-                          borderColor: 'var(--primary)',
-                          padding: '.25rem .55rem',
-                        }}
-                      >
-                        ⛽ Surtidos: <strong>{num(item.surtidosLitros)} ltrs</strong> ({item.surtidosCount})
-                      </span>
-                      <span
-                        className="badge"
-                        style={{
-                          background: 'rgba(59, 130, 246, 0.15)',
-                          color: '#3b82f6',
-                          borderColor: '#3b82f6',
-                          padding: '.25rem .55rem',
-                        }}
-                      >
-                        ↔ Traslados: <strong>{num(item.trasladosLitros)} ltrs</strong> ({item.trasladosCount})
-                      </span>
-                      {item.entradasLitros > 0 && (
+                      {/* Resumen del periodo en chips */}
+                      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', fontSize: '.78rem' }}>
                         <span
                           className="badge"
                           style={{
-                            background: 'rgba(16, 185, 129, 0.15)',
-                            color: 'var(--success)',
-                            borderColor: 'var(--success)',
+                            background: 'rgba(255, 138, 0, 0.15)',
+                            color: 'var(--primary)',
+                            borderColor: 'var(--primary)',
                             padding: '.25rem .55rem',
                           }}
                         >
-                          ⬇ Entradas: <strong>{num(item.entradasLitros)} ltrs</strong>
+                          ⛽ Surtidos: <strong>{num(item.surtidosLitros)} ltrs</strong> ({item.surtidosCount})
                         </span>
-                      )}
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(59, 130, 246, 0.15)',
+                            color: '#3b82f6',
+                            borderColor: '#3b82f6',
+                            padding: '.25rem .55rem',
+                          }}
+                        >
+                          ↔ Traslados: <strong>{num(item.trasladosLitros)} ltrs</strong> ({item.trasladosCount})
+                        </span>
+                        {item.entradasLitros > 0 && (
+                          <span
+                            className="badge"
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: 'var(--success)',
+                              borderColor: 'var(--success)',
+                              padding: '.25rem .55rem',
+                            }}
+                          >
+                            ⬇ Entradas: <strong>{num(item.entradasLitros)} ltrs</strong>
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Tabla de movimientos del tanque */}
-                  {item.movimientos.length === 0 ? (
-                    <div style={{ padding: '1rem', textAlign: 'center' }} className="muted">
-                      Sin movimientos registrados en este período.
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table className="table" style={{ width: '100%', fontSize: '.8rem', margin: 0 }}>
-                        <thead>
-                          <tr style={{ background: 'var(--bg-1)', borderBottom: '1px solid var(--border)' }}>
-                            <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '100px' }}>Fecha</th>
-                            <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '115px' }}>Tipo</th>
-                            <th style={{ padding: '.5rem .7rem', textAlign: 'left' }}>Equipo / Destino</th>
-                            <th style={{ padding: '.5rem .7rem', textAlign: 'right', width: '105px' }}>Litros</th>
-                            <th style={{ padding: '.5rem .7rem', textAlign: 'right', width: '105px' }}>Saldo Tank</th>
-                            <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '130px' }}>Autorizado / Chofer</th>
-                            <th style={{ padding: '.5rem .7rem', textAlign: 'left' }}>Observaciones</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {item.movimientos.map((m) => {
-                            const esSalida = m.tipo === 'uso' || m.tipo === 'traslado' || m.tipo === 'merma';
-                            const tanqueDestino = m.tanque_destino_id ? tanqueById.get(m.tanque_destino_id) : null;
+                    {/* Tabla de movimientos del tanque */}
+                    {item.movimientos.length === 0 ? (
+                      <div style={{ padding: '1rem', textAlign: 'center' }} className="muted">
+                        Sin movimientos registrados en este período.
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table className="table" style={{ width: '100%', fontSize: '.8rem', margin: 0 }}>
+                          <thead>
+                            <tr style={{ background: 'var(--bg-1)', borderBottom: '1px solid var(--border)' }}>
+                              <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '100px' }}>Fecha</th>
+                              <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '115px' }}>Tipo</th>
+                              <th style={{ padding: '.5rem .7rem', textAlign: 'left' }}>Equipo / Destino</th>
+                              <th style={{ padding: '.5rem .7rem', textAlign: 'right', width: '105px' }}>Litros</th>
+                              <th style={{ padding: '.5rem .7rem', textAlign: 'right', width: '105px' }}>Saldo Tank</th>
+                              <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '130px' }}>Autorizado / Chofer</th>
+                              <th style={{ padding: '.5rem .7rem', textAlign: 'left' }}>Observaciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {item.movimientos.map((m) => {
+                              const esSalida = m.tipo === 'uso' || m.tipo === 'traslado' || m.tipo === 'merma';
+                              const tanqueDestino = m.tanque_destino_id ? tanqueById.get(m.tanque_destino_id) : null;
 
-                            return (
-                              <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
-                                  <div className="mono" style={{ fontWeight: 600 }}>{isoAVe(m.fecha)}</div>
-                                  {m.hora && <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div>}
-                                </td>
+                              return (
+                                <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                    <div className="mono" style={{ fontWeight: 600 }}>{isoAVe(m.fecha)}</div>
+                                    {m.hora && <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div>}
+                                  </td>
 
-                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
-                                  {m.tipo === 'uso' ? (
-                                    <span className="badge" style={{ background: 'rgba(255, 138, 0, 0.15)', color: 'var(--primary)', borderColor: 'var(--primary)', fontSize: '.7rem' }}>
-                                      ⛽ Surtido
-                                    </span>
-                                  ) : m.tipo === 'traslado' ? (
-                                    <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', borderColor: '#3b82f6', fontSize: '.7rem' }}>
-                                      ↔ Traslado
-                                    </span>
-                                  ) : m.tipo === 'entrada' ? (
-                                    <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', borderColor: 'var(--success)', fontSize: '.7rem' }}>
-                                      ⬇ Entrada
-                                    </span>
-                                  ) : m.tipo === 'retorno' ? (
-                                    <span className="badge" style={{ fontSize: '.7rem' }}>↩ Retorno</span>
-                                  ) : (
-                                    <span className="badge" style={{ fontSize: '.7rem', color: 'var(--danger)' }}>🔻 Merma</span>
-                                  )}
-                                </td>
+                                  <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                    {m.tipo === 'uso' ? (
+                                      <span className="badge" style={{ background: 'rgba(255, 138, 0, 0.15)', color: 'var(--primary)', borderColor: 'var(--primary)', fontSize: '.7rem' }}>
+                                        ⛽ Surtido
+                                      </span>
+                                    ) : m.tipo === 'traslado' ? (
+                                      <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', borderColor: '#3b82f6', fontSize: '.7rem' }}>
+                                        ↔ Traslado
+                                      </span>
+                                    ) : m.tipo === 'entrada' ? (
+                                      <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', borderColor: 'var(--success)', fontSize: '.7rem' }}>
+                                        ⬇ Entrada
+                                      </span>
+                                    ) : m.tipo === 'retorno' ? (
+                                      <span className="badge" style={{ fontSize: '.7rem' }}>↩ Retorno</span>
+                                    ) : (
+                                      <span className="badge" style={{ fontSize: '.7rem', color: 'var(--danger)' }}>🔻 Merma</span>
+                                    )}
+                                  </td>
 
-                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
-                                  {m.tipo === 'uso' ? (
-                                    <div>
-                                      <strong style={{ color: 'var(--text)' }}>{m.equipo || '—'}</strong>
-                                      <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem' }}>
-                                        {m.horometro_fin != null ? (
-                                          <span>Horómetro: <strong className="mono">{num(m.horometro_fin)} h</strong></span>
-                                        ) : m.kilometraje != null ? (
-                                          <span>Km: <strong className="mono">{num(m.kilometraje)}</strong></span>
-                                        ) : null}
-                                        {m.ubicacion ? ` · ${m.ubicacion}` : ''}
+                                  <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                    {m.tipo === 'uso' ? (
+                                      <div>
+                                        <strong style={{ color: 'var(--text)' }}>{m.equipo || '—'}</strong>
+                                        <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem' }}>
+                                          {m.horometro_fin != null ? (
+                                            <span>Horómetro: <strong className="mono">{num(m.horometro_fin)} h</strong></span>
+                                          ) : m.kilometraje != null ? (
+                                            <span>Km: <strong className="mono">{num(m.kilometraje)}</strong></span>
+                                          ) : null}
+                                          {m.ubicacion ? ` · ${m.ubicacion}` : ''}
+                                        </div>
                                       </div>
-                                    </div>
-                                  ) : m.tipo === 'traslado' ? (
-                                    <div>
-                                      <strong>{tanqueDestino ? `Hacia: ${tanqueDestino.nombre}` : m.ubicacion ? `Hacia: ${m.ubicacion}` : 'Traslado'}</strong>
-                                      {m.ubicacion && tanqueDestino && (
-                                        <div className="muted" style={{ fontSize: '.7rem' }}>Lugar: {m.ubicacion}</div>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div>
-                                      <span>{m.ubicacion || 'Recepción'}</span>
-                                    </div>
-                                  )}
-                                </td>
+                                    ) : m.tipo === 'traslado' ? (
+                                      <div>
+                                        <strong>{tanqueDestino ? `Hacia: ${tanqueDestino.nombre}` : m.ubicacion ? `Hacia: ${m.ubicacion}` : 'Traslado'}</strong>
+                                        {m.ubicacion && tanqueDestino && (
+                                          <div className="muted" style={{ fontSize: '.7rem' }}>Lugar: {m.ubicacion}</div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <span>{m.ubicacion || 'Recepción'}</span>
+                                      </div>
+                                    )}
+                                  </td>
 
-                                <td style={{ padding: '.45rem .7rem', textAlign: 'right', verticalAlign: 'top' }}>
-                                  <span
-                                    className="mono"
-                                    style={{
-                                      fontWeight: 700,
-                                      color: esSalida ? 'var(--danger)' : 'var(--success)',
-                                    }}
-                                  >
-                                    {esSalida ? `-${num(m.litros)}` : `+${num(m.litros)}`}
-                                  </span>
-                                </td>
+                                  <td style={{ padding: '.45rem .7rem', textAlign: 'right', verticalAlign: 'top' }}>
+                                    <span
+                                      className="mono"
+                                      style={{
+                                        fontWeight: 700,
+                                        color: esSalida ? 'var(--danger)' : 'var(--success)',
+                                      }}
+                                    >
+                                      {esSalida ? `-${num(m.litros)}` : `+${num(m.litros)}`}
+                                    </span>
+                                  </td>
 
-                                <td style={{ padding: '.45rem .7rem', textAlign: 'right', verticalAlign: 'top' }}>
-                                  <span className="mono muted" style={{ fontWeight: 600 }}>
-                                    {m.saldo_litros != null ? `${num(m.saldo_litros)} l` : '—'}
-                                  </span>
-                                </td>
+                                  <td style={{ padding: '.45rem .7rem', textAlign: 'right', verticalAlign: 'top' }}>
+                                    <span className="mono muted" style={{ fontWeight: 600 }}>
+                                      {m.saldo_litros != null ? `${num(m.saldo_litros)} l` : '—'}
+                                    </span>
+                                  </td>
 
-                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
-                                  <div>{m.autorizado_por || m.actor_name || m.created_by || '—'}</div>
-                                </td>
+                                  <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                    <div>{m.autorizado_por || m.actor_name || m.created_by || '—'}</div>
+                                  </td>
 
-                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top', color: 'var(--text-muted)' }}>
-                                  {m.observacion || '—'}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                                  <td style={{ padding: '.45rem .7rem', verticalAlign: 'top', color: 'var(--text-muted)' }}>
+                                    {m.observacion || '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Pie de página */}
