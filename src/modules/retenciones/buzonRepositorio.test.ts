@@ -29,8 +29,8 @@ vi.mock('@/shared/lib/supabase', () => {
             return r.error ? { data: null, error: r.error } : { data: { path: r.path }, error: null };
           },
           remove: async (paths: string[]) => { llamadas.push({ que: 'storage.remove', args: [paths] }); return { data: [], error: null }; },
-          createSignedUrl: async (path: string) => {
-            llamadas.push({ que: 'storage.createSignedUrl', args: [path] });
+          createSignedUrl: async (path: string, expiraEn: number) => {
+            llamadas.push({ que: 'storage.createSignedUrl', args: [path, expiraEn] });
             return path === 'falta/x.pdf' ? { data: null, error: { message: 'Object not found' } } : { data: { signedUrl: `https://firmado/${path}` }, error: null };
           },
           getPublicUrl: () => { throw new Error('nunca se pide un enlace público'); },
@@ -47,6 +47,7 @@ import { obtenerUrlAdjunto, prepararImagenesParaSubida } from './adjuntosBuzon';
 const FACTURA: NuevaFacturaBuzonInput = {
   empresaId: 'empresa-prueba-uno',
   empresaNombre: 'Empresa de Prueba Uno C.A.',
+  tipoDocumento: 'factura',
   proveedorNombre: 'Proveedor de Prueba C.A.',
   proveedorRif: 'J-12345678',        // sin dígito verificador: se completa
   facturaNumero: '000123',
@@ -59,7 +60,7 @@ const FACTURA: NuevaFacturaBuzonInput = {
 };
 
 const filaDe = (extra: Record<string, unknown> = {}) => ({
-  id: 'id-prueba', empresa_id: 'empresa-prueba-uno', empresa_nombre: 'Empresa de Prueba Uno C.A.', proveedor_nombre: 'Proveedor de Prueba C.A.',
+  id: 'id-prueba', empresa_id: 'empresa-prueba-uno', empresa_nombre: 'Empresa de Prueba Uno C.A.', tipo_documento: 'factura', proveedor_nombre: 'Proveedor de Prueba C.A.',
   proveedor_rif: 'J-12345678-4', factura_numero: '000123', factura_fecha: '2026-10-20', monto_total: 100, moneda: 'USD', tasa: 50,
   monto_bs: 5000, monto_usd: 100, descripcion: 'Repuestos de prueba', estatus: 'recibida', adjuntos: [], created_at: '2026-10-20T10:00:00Z', ...extra,
 });
@@ -68,24 +69,36 @@ const insertado = () => llamadas.find((l) => l.que === 'retencion_facturas_exter
 
 beforeEach(() => { cola.length = 0; llamadas.length = 0; subidas.length = 0; });
 
-describe('Buzón · validar la factura', () => {
+describe('Buzón · validar la factura (D53: solo 4 obligatorios)', () => {
   const hoy = '2026-10-29';
+  // El cuarto obligatorio, ≥1 soporte, lo exige la carga (ve los archivos); aquí van los otros tres.
+  const MINIMO: NuevaFacturaBuzonInput = {
+    empresaId: 'empresa-prueba-uno', empresaNombre: 'Empresa de Prueba Uno C.A.', tipoDocumento: 'factura',
+    proveedorNombre: 'Proveedor de Prueba C.A.', moneda: 'Bs',
+  };
   it('pasa con los datos completos', () => { expect(faltaEnFacturaBuzon(FACTURA, hoy)).toBeNull(); });
-  it('pide la empresa, el proveedor, el RIF, el número y la descripción', () => {
-    expect(faltaEnFacturaBuzon({ ...FACTURA, empresaId: '' }, hoy)).toMatch(/empresa/);
-    expect(faltaEnFacturaBuzon({ ...FACTURA, proveedorNombre: ' ' }, hoy)).toMatch(/proveedor/);
-    expect(faltaEnFacturaBuzon({ ...FACTURA, proveedorRif: '' }, hoy)).toMatch(/RIF/);
-    expect(faltaEnFacturaBuzon({ ...FACTURA, facturaNumero: '' }, hoy)).toMatch(/número/);
-    expect(faltaEnFacturaBuzon({ ...FACTURA, descripcion: '' }, hoy)).toMatch(/descripción/);
+  it('pasa solo con empresa, proveedor y tipo de documento (lo demás es opcional)', () => {
+    expect(faltaEnFacturaBuzon(MINIMO, hoy)).toBeNull();
   });
-  it('rechaza un RIF sin arreglo y uno que empieza por C (la base no lo acepta)', () => {
-    expect(faltaEnFacturaBuzon({ ...FACTURA, proveedorRif: 'S/R' }, hoy)).toMatch(/no es válido/);
-    expect(faltaEnFacturaBuzon({ ...FACTURA, proveedorRif: 'C-12345678' }, hoy)).toMatch(/no es válido/);
+  it('pide empresa, proveedor y tipo de documento', () => {
+    expect(faltaEnFacturaBuzon({ ...MINIMO, empresaId: '' }, hoy)).toMatch(/empresa/);
+    expect(faltaEnFacturaBuzon({ ...MINIMO, proveedorNombre: ' ' }, hoy)).toMatch(/proveedor/);
+    expect(faltaEnFacturaBuzon({ ...MINIMO, tipoDocumento: 'x' as never }, hoy)).toMatch(/tipo de documento/);
   });
-  it('no acepta fecha futura (hora de Venezuela), monto 0 ni dólares sin tasa', () => {
-    expect(faltaEnFacturaBuzon({ ...FACTURA, facturaFecha: '2026-10-30' }, hoy)).toMatch(/posterior a hoy/);
-    expect(faltaEnFacturaBuzon({ ...FACTURA, montoTotal: 0 }, hoy)).toMatch(/mayor que 0/);
-    expect(faltaEnFacturaBuzon({ ...FACTURA, tasa: null }, hoy)).toMatch(/tasa/);
+  it('el RIF ya no es obligatorio ni se valida aquí (la validación fiscal es después)', () => {
+    expect(faltaEnFacturaBuzon({ ...MINIMO, proveedorRif: null }, hoy)).toBeNull();
+    expect(faltaEnFacturaBuzon({ ...MINIMO, proveedorRif: 'cualquier cosa' }, hoy)).toBeNull();
+    expect(faltaEnFacturaBuzon({ ...MINIMO, proveedorRif: 'C-12345678' }, hoy)).toBeNull();
+  });
+  it('número, fecha, monto y descripción son opcionales', () => {
+    expect(faltaEnFacturaBuzon({ ...MINIMO, facturaNumero: null, facturaFecha: null, montoTotal: null, descripcion: null }, hoy)).toBeNull();
+    expect(faltaEnFacturaBuzon({ ...MINIMO, montoTotal: 0 }, hoy)).toBeNull();     // vacío = 0, no bloquea
+  });
+  it('si vienen escritos, cuida la forma: fecha no futura, monto no negativo, tasa positiva, topes de largo', () => {
+    expect(faltaEnFacturaBuzon({ ...MINIMO, facturaFecha: '2026-10-30' }, hoy)).toMatch(/posterior a hoy/);
+    expect(faltaEnFacturaBuzon({ ...MINIMO, montoTotal: -1 }, hoy)).toMatch(/negativo/);
+    expect(faltaEnFacturaBuzon({ ...MINIMO, tasa: 0 }, hoy)).toMatch(/tasa/);
+    expect(faltaEnFacturaBuzon({ ...MINIMO, facturaNumero: 'x'.repeat(41) }, hoy)).toMatch(/hasta 40/);
   });
 });
 
@@ -95,10 +108,44 @@ describe('Buzón · guardar en la base, sin copia en el navegador', () => {
     const f = await crearFacturaBuzon(FACTURA, { id: 'id-prueba' });
     expect(f.montoBs).toBe(5000);
     const ins = insertado();
-    expect(ins).toMatchObject({ id: 'id-prueba', proveedor_rif: 'J-12345678-4', monto_total: 100, monto_usd: 100, monto_bs: 5000, estatus: 'recibida' });
+    expect(ins).toMatchObject({ id: 'id-prueba', tipo_documento: 'factura', proveedor_rif: 'J-12345678-4', monto_total: 100, monto_usd: 100, monto_bs: 5000, estatus: 'recibida' });
     expect(ins).not.toHaveProperty('created_by');        // el correo del autor lo pone la base
     expect(ins).not.toHaveProperty('created_by_name');   // el nombre también (no un nombre falsificable del cliente)
     expect(llamadas.some((l) => l.que === 'retencion_facturas_externas.select')).toBe(true);
+  });
+
+  it('D53: manda el tipo de documento elegido y pone en null los campos vacíos (nada de «S/RIF» ni cadenas vacías)', async () => {
+    cola.push({ data: [filaDe({ tipo_documento: 'nota_credito', proveedor_rif: null, factura_numero: null, factura_fecha: null, monto_total: 0, monto_bs: 0, monto_usd: null, descripcion: null, moneda: 'Bs', tasa: null })] });
+    await crearFacturaBuzon({
+      empresaId: 'empresa-prueba-uno', empresaNombre: 'Empresa de Prueba Uno C.A.', tipoDocumento: 'nota_credito',
+      proveedorNombre: 'Proveedor de Prueba C.A.', moneda: 'Bs',
+    }, { id: 'id-prueba' });
+    const ins = insertado();
+    expect(ins.tipo_documento).toBe('nota_credito');
+    expect(ins.proveedor_rif).toBeNull();
+    expect(ins.factura_numero).toBeNull();
+    expect(ins.factura_fecha).toBeNull();
+    expect(ins.descripcion).toBeNull();
+    expect(ins.monto_total).toBe(0);     // vacío = 0
+  });
+
+  it('D53: un RIF escrito pero sin arreglo no bloquea; va en null (no rompe el CHECK de la base)', async () => {
+    cola.push({ data: [filaDe({ proveedor_rif: null })] });
+    await crearFacturaBuzon({
+      empresaId: 'empresa-prueba-uno', empresaNombre: 'Empresa de Prueba Uno C.A.', tipoDocumento: 'factura',
+      proveedorNombre: 'Proveedor de Prueba C.A.', moneda: 'Bs', proveedorRif: 'no es un rif',
+    }, { id: 'id-prueba' });
+    expect(insertado().proveedor_rif).toBeNull();
+  });
+
+  it('D53: sin soportes no se guarda (el ≥1 adjunto es obligatorio)', async () => {
+    await expect(cargarFacturaBuzon(FACTURA, [])).rejects.toThrow(/al menos un soporte/);
+    expect(llamadas.some((l) => l.que === 'retencion_facturas_externas.insert')).toBe(false);
+  });
+
+  it('D53: el CHECK del tipo de documento sale en español, por su nombre', async () => {
+    cola.push({ error: { code: '23514', message: 'violates check constraint "retencion_facturas_externas_tipo_documento_lista"' } });
+    await expect(crearFacturaBuzon(FACTURA)).rejects.toThrow(/tipo de documento no es válido/);
   });
 
   it('si la base no devuelve la fila, avisa en vez de darla por cargada', async () => {
@@ -108,7 +155,7 @@ describe('Buzón · guardar en la base, sin copia en el navegador', () => {
 
   it('un rechazo de la base sale en español, por el nombre de la restricción', async () => {
     cola.push({ error: { code: '23514', message: 'new row violates check constraint "retencion_facturas_externas_rif_forma"' } });
-    await expect(crearFacturaBuzon(FACTURA)).rejects.toThrow(/RIF del proveedor no es válido/);
+    await expect(crearFacturaBuzon(FACTURA)).rejects.toThrow(/El RIF no tiene forma válida/);
   });
 
   it('sube primero los soportes a «<id>/…» (sin reemplazar) y después inserta la factura con ellos', async () => {
@@ -158,8 +205,9 @@ describe('Buzón · guardar en la base, sin copia en el navegador', () => {
 });
 
 describe('Buzón · soportes', () => {
-  it('se abren con enlace firmado; si no se puede, avisa', async () => {
+  it('se abren con enlace firmado de 10 minutos; si no se puede, avisa', async () => {
     expect(await obtenerUrlAdjunto('id-prueba/f.pdf')).toBe('https://firmado/id-prueba/f.pdf');
+    expect(llamadas.find((l) => l.que === 'storage.createSignedUrl')?.args[1]).toBe(600);   // 10 min
     await expect(obtenerUrlAdjunto('falta/x.pdf')).rejects.toThrow(/No se pudo abrir el archivo/);
   });
 

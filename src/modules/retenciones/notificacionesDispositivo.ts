@@ -140,8 +140,9 @@ export function lanzarAvisoFactura(
   const monto = (enBs && fac.moneda === 'USD' ? fac.montoBs : fac.montoTotal) ?? 0;
   const montoFmt = Number(monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  const numero = fac.facturaNumero?.trim() || '—';
   const titulo = `🧾 Factura recibida · ${empresa}`;
-  const cuerpo = `${proveedor}\nMonto: ${enBs ? 'Bs' : '$'} ${montoFmt}`;
+  const cuerpo = `${proveedor}\nFactura: ${numero} · ${enBs ? 'Bs' : '$'} ${montoFmt}`;
 
   // 4. Parpadeo en el título de la pestaña (visible aun con la pestaña en segundo plano)
   activarAlertaTitulo(`(1) 🧾 ${empresa}: ${proveedor}`);

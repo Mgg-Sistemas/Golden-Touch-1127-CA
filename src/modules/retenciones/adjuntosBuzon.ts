@@ -190,12 +190,15 @@ export async function borrarArchivosBuzon(paths: readonly string[]): Promise<voi
   if (error) throw new Error('No se pudieron borrar los archivos de la factura. Vuelve a intentarlo.');
 }
 
+/** Minutos que vale el enlace firmado de un soporte (el mismo que usa el diseño aprobado). */
+export const MINUTOS_ENLACE_ADJUNTO = 10;
+
 /**
- * Enlace firmado de un adjunto, válido una hora. Los soportes de las facturas
+ * Enlace firmado de un adjunto, válido diez minutos. Los soportes de las facturas
  * nunca se sirven con enlace público.
  */
 export async function obtenerUrlAdjunto(path: string): Promise<string> {
-  const { data, error } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, 3600);
+  const { data, error } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, MINUTOS_ENLACE_ADJUNTO * 60);
   if (error || !data?.signedUrl) throw new Error('No se pudo abrir el archivo: sin permiso, o ya no está guardado.');
   return data.signedUrl;
 }
