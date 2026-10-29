@@ -162,6 +162,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     (orden.solicitante?.includes('@') ? orden.solicitante : '') ||
     orden.historial?.find((h) => h.evento === 'creada')?.actor ||
     ''
+  ).toLowerCase();
   const [firmaCargada, firmaSol] = await Promise.all([
     ocAprobada ? firmaCargadaDe(ocAprobPor).catch(() => null) : null,
     emailSol ? firmaCargadaDe(emailSol).catch(() => null) : null,
