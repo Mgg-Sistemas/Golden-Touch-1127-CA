@@ -7,7 +7,6 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { firmaDeAprobador } from './aprobadoresOc';
 import { firmaCargadaDe } from '@/modules/usuarios/autorizados.repository';
-import { nombrePersonaCompras } from './personasCompras';
 import { esRecargaAgua } from './servicios.repository';
 import { esCambioProveedor, leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
 import { obtenerInfoModalidadPago } from './modalidadPago';
@@ -164,17 +163,9 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     orden.historial?.find((h) => h.evento === 'creada')?.actor ||
     ''
   ).toLowerCase();
-  const emailElab = (
-    orden.oc_creada_por ||
-    orden.oc_emitida_por ||
-    orden.historial?.find((h) => h.evento?.startsWith('oc_creada'))?.actor ||
-    ''
-  ).trim().toLowerCase();
-
-  const [firmaCargada, firmaSol, firmaElab] = await Promise.all([
+  const [firmaCargada, firmaSol] = await Promise.all([
     ocAprobada ? firmaCargadaDe(ocAprobPor).catch(() => null) : null,
     emailSol ? firmaCargadaDe(emailSol).catch(() => null) : null,
-    emailElab ? firmaCargadaDe(emailElab).catch(() => null) : null,
   ]);
 
   const esConsolidada = ordenes.length > 1;
@@ -676,8 +667,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   // ─── Firmas al pie de la OC ───
   // Roles:
   // 1. Firma autorizada (Aprobador de la OC / Gerencia / Jefa de Administración)
-  // 2. Elaborado por (Compras: quien creó / emitió la orden)
-  // 3. Analista solicitante (quien realizó la solicitud)
+  // 2. Analista solicitante (quien realizó la solicitud)
   const nomDePersona = emailSol ? personasMap.get(emailSol) : null;
   const nombreAnalista = (() => {
     if (nomDePersona) return nomDePersona;
@@ -688,36 +678,17 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   })();
   const ciAnalista = orden.ci_solicitante || (emailSol ? personasCiMap.get(emailSol) : null);
 
-  let nombreElab = '';
-  let ciElab: string | undefined;
-  if (emailElab) {
-    const nomHist = quien(emailElab, orden.oc_creada_en);
-    nombreElab =
-      personasMap.get(emailElab) ||
-      (nomHist && nomHist !== emailElab ? nomHist : '') ||
-      nombrePersonaCompras(emailElab) ||
-      emailElab;
-    ciElab = personasCiMap.get(emailElab);
-  }
-
-  const tieneElaborador = Boolean(emailElab && nombreElab);
   const yLine = pageH - 74;
 
-  // Distribución simétrica de columnas:
-  // Con elaborador (3 columnas equilibradas): Autorizada | Elaborado | Solicitante
-  // Sin elaborador (2 columnas equilibradas): Autorizada | Solicitante
-  const colW = tieneElaborador ? 145 : 185;
+  // Distribución simétrica de 2 columnas: Autorizada (izquierda) | Solicitante (derecha)
+  const colW = 195;
   const col1_x0 = MARGIN;
   const col1_x1 = MARGIN + colW;
   const col1_cx = (col1_x0 + col1_x1) / 2;
 
-  const col2_cx = PAGE_W / 2;
-  const col2_x0 = col2_cx - colW / 2;
-  const col2_x1 = col2_cx + colW / 2;
-
-  const col3_x1 = PAGE_W - MARGIN;
-  const col3_x0 = col3_x1 - colW;
-  const col3_cx = (col3_x0 + col3_x1) / 2;
+  const col2_x1 = PAGE_W - MARGIN;
+  const col2_x0 = col2_x1 - colW;
+  const col2_cx = (col2_x0 + col2_x1) / 2;
 
   // Firma sobre la columna de "Firma autorizada", centrada y sin fondo
   if (ocAprobada) {
@@ -752,23 +723,6 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     }
   }
 
-  // Firma sobre la columna de "Elaborado por", centrada y sin fondo
-  if (tieneElaborador && firmaElab) {
-    try {
-      const maxSigW = colW - 10;
-      const maxSigH = 50;
-      const ratio = (firmaElab.w || 1) / (firmaElab.h || 1);
-      let sw = Math.min(maxSigW, maxSigH * ratio);
-      let sh = sw / ratio;
-      if (sh > maxSigH) { sh = maxSigH; sw = sh * ratio; }
-      const sx = col2_cx - sw / 2;
-      const sy = yLine - sh + 4;
-      doc.addImage(firmaElab.dataUrl, 'PNG', sx, sy, sw, sh);
-    } catch {
-      /* firma elaborador opcional */
-    }
-  }
-
   // Firma sobre la columna de "Analista solicitante", centrada y sin fondo
   if (firmaSol) {
     try {
@@ -778,7 +732,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       let sw = Math.min(maxSigW, maxSigH * ratio);
       let sh = sw / ratio;
       if (sh > maxSigH) { sh = maxSigH; sw = sh * ratio; }
-      const sx = col3_cx - sw / 2;
+      const sx = col2_cx - sw / 2;
       const sy = yLine - sh + 4;
       doc.addImage(firmaSol.dataUrl, 'PNG', sx, sy, sw, sh);
     } catch {
@@ -790,20 +744,14 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setDrawColor(180);
   doc.setLineWidth(0.7);
   doc.line(col1_x0, yLine, col1_x1, yLine);
-  if (tieneElaborador) {
-    doc.line(col2_x0, yLine, col2_x1, yLine);
-  }
-  doc.line(col3_x0, yLine, col3_x1, yLine);
+  doc.line(col2_x0, yLine, col2_x1, yLine);
 
   // Títulos de columnas (Fila 1 bajo la línea)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(40);
   doc.text('Firma autorizada · GOLDEN TOUCH 1127 C.A.', col1_cx, yLine + 13, { align: 'center' });
-  if (tieneElaborador) {
-    doc.text('Elaborado por', col2_cx, yLine + 13, { align: 'center' });
-  }
-  doc.text('Analista solicitante', col3_cx, yLine + 13, { align: 'center' });
+  doc.text('Analista solicitante', col2_cx, yLine + 13, { align: 'center' });
 
   // Detalles de personas (Fila 2 bajo la línea)
   doc.setFont('helvetica', 'normal');
@@ -813,12 +761,8 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     const txtAprob = `Aprobada por ${quien(ocAprobPor, ocAprobEn)}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`;
     doc.text(txtAprob, col1_cx, yLine + 23, { align: 'center' });
   }
-  if (tieneElaborador) {
-    const txtElab = `${nombreElab.toUpperCase()} · Compras${ciElab ? ' · C.I. ' + ciElab : ''}`;
-    doc.text(txtElab, col2_cx, yLine + 23, { align: 'center' });
-  }
   const txtSol = `${nombreAnalista}${ciAnalista ? ' · C.I. ' + ciAnalista : ''}`;
-  doc.text(txtSol, col3_cx, yLine + 23, { align: 'center' });
+  doc.text(txtSol, col2_cx, yLine + 23, { align: 'center' });
   doc.setTextColor(0);
 
   // Pie de página con código y fecha
