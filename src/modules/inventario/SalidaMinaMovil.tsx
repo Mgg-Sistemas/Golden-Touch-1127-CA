@@ -22,7 +22,7 @@ import { registrarSalidaMina, retornarSalidaMina, subirFotosSalidaMina, urlFotoS
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
 /** Aviso ya guardado: el texto para WhatsApp y el botón para seguir. */
-function Listo({ titulo, texto, onListo }: { titulo: string; texto: string; onListo: () => void }) {
+export function Listo({ titulo, texto, onListo }: { titulo: string; texto: string; onListo: () => void }) {
   return (
     <div className="surt-form">
       <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>

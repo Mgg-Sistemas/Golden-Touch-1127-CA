@@ -16,7 +16,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'inventario' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -42,8 +42,13 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     ruta: '/app/cocina/telefono', descripcion: 'Desayuno, almuerzo y cena, con lo consumido y las personas',
   },
   {
+    // 29/10/2026 · la misma pantalla del Depósito Mina, para el Inventario General.
+    key: 'inventario', label: 'Inventario General', icono: '📦', modulo: 'inventario',
+    ruta: '/app/inventario/telefono', descripcion: 'Productos nuevos, entradas, traslados al Depósito Mina y reporte de stock',
+  },
+  {
     key: 'deposito_mina', label: 'Depósito Mina', icono: '⛏', modulo: 'inventario',
-    ruta: '/app/inventario/deposito-mina/telefono', descripcion: 'Cargar productos nuevos y entradas al Depósito Mina',
+    ruta: '/app/inventario/deposito-mina/telefono', descripcion: 'Productos nuevos, entradas, salidas, traslados y reporte de stock',
   },
   {
     key: 'retenciones', label: 'Buzón de Facturas', icono: '🧾', modulo: 'retenciones',

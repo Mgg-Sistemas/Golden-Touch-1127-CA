@@ -436,6 +436,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
             </>
           ) : (
             <>
+              {puedeVista('inventario') && <Link className="btn btn-ghost" to="/app/inventario/telefono" title="La pantalla del inventario con botones grandes para el teléfono: producto nuevo, entrada, traslado y reporte de stock">📱 Vista teléfono</Link>}
               <button
                 className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}

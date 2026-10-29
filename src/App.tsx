@@ -34,6 +34,7 @@ const RecepcionesPage = lazy(() => import('./modules/recepciones/RecepcionesPage
 const UsuariosPage = lazy(() => import('./modules/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 const CarnetPublicoPage = lazy(() => import('./modules/rrhh/CarnetPublicoPage').then((m) => ({ default: m.CarnetPublicoPage })));
 const DepositoMinaMovilView = lazy(() => import('./modules/inventario/DepositoMinaMovilView').then((m) => ({ default: m.DepositoMinaMovilView })));
+const InventarioMovilView = lazy(() => import('./modules/inventario/DepositoMinaMovilView').then((m) => ({ default: m.InventarioMovilView })));
 const SolicitudesAlmacenMovilView = lazy(() => import('./modules/solicitudesAlmacen/SolicitudesAlmacenMovilView').then((m) => ({ default: m.SolicitudesAlmacenMovilView })));
 const AjustesPage = lazy(() => import('./modules/ajustes/AjustesPage').then((m) => ({ default: m.AjustesPage })));
 const AuditoriaPage = lazy(() => import('./modules/auditoria/AuditoriaPage').then((m) => ({ default: m.AuditoriaPage })));
@@ -103,6 +104,7 @@ export function App() {
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
           {/* Depósito Mina: submódulo de Inventario, catálogo independiente (misma pantalla, otro depósito). */}
           <Route path="inventario/deposito-mina" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage deposito="mina" key="mina" /></Suspense></RequireModule>} />
+          <Route path="inventario/telefono" element={<RequireVistaTelefono vista="inventario"><Suspense fallback={<PageLoader />}><InventarioMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="inventario/deposito-mina/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoMinaMovilView /></Suspense></RequireVistaTelefono>} />
           {/* Solicitudes de Pedido: Almacén las revisa antes de Compras. Vive DENTRO de Pedidos / Compras (pestaña «Revisión de Almacén»); /app/solicitudes queda como atajo a esa pestaña. */}
           <Route path="solicitudes" element={<Navigate to="/app/pedidos?tab=almacen" replace />} />

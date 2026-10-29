@@ -1,5 +1,6 @@
 /* ============================================================
-   Golden Touch · Depósito Mina · Reporte de stock por WhatsApp (29/10/2026)
+   Golden Touch · Inventario · Reporte de stock por WhatsApp (29/10/2026)
+   (Depósito Mina e Inventario General: el nombre llega en opts.deposito)
 
    Desde la vista de teléfono se elige un período (desde / hasta) y sale un
    mensaje con lo que hay en el depósito AL CIERRE del período, por categoría,
@@ -100,10 +101,11 @@ export function stockPorPeriodo(
 /** El reporte de stock listo para WhatsApp. */
 export function mensajeStockMina(
   filas: FilaStockPeriodo[], desde: string, hasta: string,
-  opts: { quien?: string | null; cuando?: string | null } = {},
+  opts: { quien?: string | null; cuando?: string | null; deposito?: string } = {},
 ): string {
+  const deposito = opts.deposito ?? 'Depósito Mina';
   const lineas = [
-    '📦 *STOCK · DEPÓSITO MINA*',
+    `📦 *STOCK · ${deposito.toUpperCase()}*`,
     desde === hasta
       ? `📅 *Fecha:* ${fechaCortaVE(hasta)}`
       : `📅 *Período:* ${fechaCortaVE(desde)} al ${fechaCortaVE(hasta)}`,
@@ -133,6 +135,6 @@ export function mensajeStockMina(
   if (opts.quien) lineas.push(`👷 *Generado por:* ${opts.quien}`);
   const f = fechaHoraVE(opts.cuando ?? new Date().toISOString());
   if (f) lineas.push(`🕒 ${f}`);
-  lineas.push('', '🏢 GOLDEN TOUCH 1127 C.A. · Depósito Mina');
+  lineas.push('', `🏢 GOLDEN TOUCH 1127 C.A. · ${deposito}`);
   return lineas.join('\n');
 }
