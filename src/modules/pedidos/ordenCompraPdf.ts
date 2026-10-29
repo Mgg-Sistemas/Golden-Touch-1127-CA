@@ -156,6 +156,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const ocAprobEn = orden.oc_aprobada_en ?? orden.aprobada_en ?? null;
   // La firma que se estampa depende de QUIÉN aprobó la OC: LEYDIS RENGEL usa su
   // firma (firma2.jpeg); JESUS LOZADA / cualquier otro admin usa firma.png.
+  const quienFirma = firmaDeAprobador(ocAprobPor);
   // Si quien aprobó, creó o solicitó tiene su firma cargada en «Usuarios autorizados», se estampa esa.
   const emailSol = (
     orden.solicitante_email ||
@@ -677,12 +678,6 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   // 1. Firma autorizada (Aprobador de la OC / Gerencia / Jefa de Administración)
   // 2. Elaborado por (Compras: quien creó / emitió la orden)
   // 3. Analista solicitante (quien realizó la solicitud)
-  const emailSol = (
-    orden.solicitante_email ||
-    (orden.solicitante?.includes('@') ? orden.solicitante : '') ||
-    orden.historial?.find((h) => h.evento === 'creada')?.actor ||
-    ''
-  ).toLowerCase();
   const nomDePersona = emailSol ? personasMap.get(emailSol) : null;
   const nombreAnalista = (() => {
     if (nomDePersona) return nomDePersona;
@@ -692,13 +687,6 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     return orden.solicitante || emailSol || 'Analista solicitante';
   })();
   const ciAnalista = orden.ci_solicitante || (emailSol ? personasCiMap.get(emailSol) : null);
-
-  const emailElab = (
-    orden.oc_creada_por ||
-    orden.oc_emitida_por ||
-    orden.historial?.find((h) => h.evento?.startsWith('oc_creada'))?.actor ||
-    ''
-  ).trim().toLowerCase();
 
   let nombreElab = '';
   let ciElab: string | undefined;
