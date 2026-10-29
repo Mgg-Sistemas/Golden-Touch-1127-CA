@@ -70,7 +70,7 @@ export function OcPorLoteView() {
   // Aprobar en lote: solo las seleccionadas que estén "por confirmar" (oc_creada).
   const porConfirmar = (list: OcLoteRow[]) => seleccionadas(list).filter((r) => r.orden.estado === 'oc_creada');
   async function aprobar() {
-    if (!puedeAprobar) { toast('Solo un administrador o usuario autorizado puede aprobar las órdenes de compra.', 'error'); return; }
+    if (!puedeAprobar) { toast('Solo un usuario autorizado puede aprobar las órdenes de compra.', 'error'); return; }
     const elegidas = porConfirmar(rows);
     if (!elegidas.length) { toast('No hay órdenes por confirmar seleccionadas', 'error'); return; }
     setAprobando(true);

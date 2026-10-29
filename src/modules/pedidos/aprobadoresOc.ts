@@ -29,30 +29,23 @@ const norm = (e?: string | null) => (e ?? '').trim().toLowerCase();
 
 /**
  * ¿Este usuario puede autorizar/aprobar Órdenes de Compra?
- * Desde el 28/10/2026 lo decide la lista «Usuarios autorizados para:» de Roles y
- * Permisos (opción «Aprobar órdenes de compra»). El admin siempre puede.
- * Mientras la lista no se haya cargado se usa la regla anterior (admin, Jefa de
- * administración o LEYDIS RENGEL por correo), para no dejar a nadie sin botón.
+ * Lo decide SOLO la lista «Usuarios autorizados para:» de Roles y Permisos (opción
+ * «Aprobar órdenes de compra»). Desde el 29/10/2026 el rol admin ya no aprueba por sí
+ * solo: un administrador que no esté en la lista no ve el botón. Mientras la lista no
+ * se haya cargado nadie aprueba (las pantallas se repintan cuando llega).
+ * La misma regla vive en la base: `puede_aprobar_oc()`.
  */
-export function puedeAprobarOc(role?: string | null, email?: string | null): boolean {
-  const r = (role ?? '').trim().toLowerCase();
-  const e = norm(email);
-  if (r === 'admin' || r === 'administrador') return true;
-  const lista = autorizadoPara(e, 'oc');
-  if (lista !== null) return lista;
-  if (r === 'jefa_de_administracion') return true;
-  return e === APROBADOR_LEYDIS_EMAIL;
+export function puedeAprobarOc(_role?: string | null, email?: string | null): boolean {
+  return autorizadoPara(norm(email), 'oc') === true;
 }
 
 /**
  * ¿Este usuario puede aprobar Órdenes de Salida / Traslados / Salidas temporales?
- * Solo el admin y los usuarios autorizados con «Aprobar órdenes de salida».
+ * Solo los usuarios autorizados con «Aprobar órdenes de salida» (el admin también
+ * tiene que estar en la lista).
  */
-export function puedeAprobarSalidas(role?: string | null, email?: string | null): boolean {
-  const r = (role ?? '').trim().toLowerCase();
-  const e = norm(email);
-  if (r === 'admin' || r === 'administrador') return true;
-  return autorizadoPara(e, 'salidas') === true;
+export function puedeAprobarSalidas(_role?: string | null, email?: string | null): boolean {
+  return autorizadoPara(norm(email), 'salidas') === true;
 }
 
 /**
@@ -71,7 +64,7 @@ export const ESTADOS_FIRMADOS_GG = ['confirmada_metodo', 'oc_aprobada'] as const
 /**
  * ¿Este usuario puede cancelar/anular la orden en su etapa actual?
  *  · Antes de la firma del GG (pendiente, aprobada, oc_creada, proveedor desistido): Compras.
- *  · Ya aprobada por el GG: SOLO quien aprueba OC (gerente/admin o Jefa de administración).
+ *  · Ya aprobada por el GG: SOLO quien aprueba OC (usuarios autorizados de la lista).
  *  · Pagada, recibida o finalizada: nadie (cancelar tras el pago sería un reembolso).
  * La misma regla vive en la base (trigger `oc_aprobada_solo_gerente_cancela`).
  */
@@ -83,4 +76,4 @@ export function puedeCancelarOc(estado: string | null | undefined, role?: string
 }
 
 export const MSG_SOLO_GERENTE_CANCELA =
-  'Esta OC ya fue aprobada por el Gerente General: solo el gerente (o la Jefa de administración) puede cancelarla o anularla.';
+  'Esta OC ya fue aprobada por el Gerente General: solo un usuario autorizado para aprobar órdenes de compra puede cancelarla o anularla.';

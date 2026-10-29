@@ -114,7 +114,7 @@ export function UsuariosAutorizadosPanel({ readOnly = false }: { readOnly?: bool
         <div>
           <h3 id="autorizados-titulo" style={{ margin: 0 }}>✅ Usuarios autorizados para:</h3>
           <p className="muted" style={{ margin: '.25rem 0 0', fontSize: '.84rem', maxWidth: 720 }}>
-            Solo estos usuarios (y el administrador) pueden <strong>aprobar órdenes de compra</strong> y/o
+            Solo estos usuarios pueden <strong>aprobar órdenes de compra</strong> y/o
             <strong> órdenes de salida</strong>. Su firma cargada se estampa en las órdenes que aprueben.
             Las aprobaciones ya realizadas no cambian.
           </p>
@@ -135,7 +135,7 @@ export function UsuariosAutorizadosPanel({ readOnly = false }: { readOnly?: bool
         <p className="muted" style={{ margin: 0 }}>Cargando usuarios autorizados…</p>
       ) : !lista.length ? (
         <p className="muted" style={{ margin: 0 }}>
-          Aún no hay usuarios autorizados: solo el administrador puede aprobar. Usa «+ Agregar usuario autorizado».
+          Aún no hay usuarios autorizados: nadie puede aprobar (tampoco el administrador). Usa «+ Agregar usuario autorizado».
         </p>
       ) : (
         <div className="table-wrap">

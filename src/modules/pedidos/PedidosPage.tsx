@@ -903,7 +903,7 @@ export function PedidosPage() {
           proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
           personaMap={personaMap}
-          isAdmin={isAdmin || puedeAprobarPedidos}
+          isAdmin={puedeAprobarPedidos}
           canManageProcurement={canManageProcurement}
           enOc={scope === 'oc' || scope === 'servicios'}
           actorEmail={user?.email ?? ''}
