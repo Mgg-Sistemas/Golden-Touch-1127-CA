@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
-import { EmptyState } from '@/shared/ui/EmptyState';
 import { money, num } from '@/shared/lib/format';
 import { isoAVe } from '@/shared/lib/fechaVE';
 import { esBidon } from './bidonCombustible';
 import { listMovimientosTanque, type ReporteTanque } from './tanques.repository';
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
+import { descargarReporteExistenciasPdf } from './reporteExistenciasPdf';
+import { descargarReporteExistenciasExcel } from './reporteExistenciasExcel';
 
 interface Props {
   tanques: TanqueCombustible[];
@@ -44,18 +45,15 @@ function restarDias(iso: string, dias: number): string {
 }
 
 export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
-  // 1. Selección de tanques: por defecto todos los tanques activos
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
-    return new Set(reporte.map((r) => r.tanque.id));
-  });
-
-  // 2. Filtros de periodo y tipo de movimiento
+  // 1. Filtros de periodo y tipo de movimiento
   const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes_actual');
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>('uso_traslado');
 
-  // 3. Cache de movimientos por tanque
+  // 2. Cache de movimientos por tanque
   const [movsMap, setMovsMap] = useState<Record<string, MovimientoTanque[]>>({});
   const [cargandoMovs, setCargandoMovs] = useState<boolean>(false);
+  const [generandoPdf, setGenerandoPdf] = useState<boolean>(false);
+  const [generandoExcel, setGenerandoExcel] = useState<boolean>(false);
 
   const hoy = useMemo(() => hoyIso(), []);
   const mesActual = useMemo(() => hoy.slice(0, 7), [hoy]);
@@ -67,6 +65,16 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     return '';
   }, [periodo, mesActual, hoy]);
 
+  const periodoLabel = useMemo(() => {
+    switch (periodo) {
+      case 'mes_actual': return 'Mes en curso';
+      case '7dias': return 'Últimos 7 días';
+      case '15dias': return 'Últimos 15 días';
+      case '30dias': return 'Últimos 30 días';
+      case 'todos': return 'Historial completo';
+    }
+  }, [periodo]);
+
   // Mapa rápido de id -> TanqueCombustible
   const tanqueById = useMemo(() => {
     const map = new Map<string, TanqueCombustible>();
@@ -74,9 +82,10 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     return map;
   }, [tanques]);
 
-  // Cargar movimientos para los tanques seleccionados que aún no estén en caché
+  // Cargar movimientos para todos los tanques de una vez
   useEffect(() => {
-    const faltantes = Array.from(selectedIds).filter((id) => !movsMap[id]);
+    const todosIds = reporte.map((r) => r.tanque.id);
+    const faltantes = todosIds.filter((id) => !movsMap[id]);
     if (!faltantes.length) return;
 
     let cancel = false;
@@ -109,39 +118,12 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     return () => {
       cancel = true;
     };
-  }, [selectedIds, movsMap]);
+  }, [reporte, movsMap]);
 
-  // Toggle de tanque individual
-  const toggleTanque = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const seleccionarTodos = useCallback(() => {
-    setSelectedIds(new Set(reporte.map((r) => r.tanque.id)));
-  }, [reporte]);
-
-  const deseleccionarTodos = useCallback(() => {
-    setSelectedIds(new Set());
-  }, []);
-
-  const seleccionarSoloActivos = useCallback(() => {
-    setSelectedIds(new Set(reporte.filter((r) => r.tanque.estado === 'activo').map((r) => r.tanque.id)));
-  }, [reporte]);
-
-  // Tanques seleccionados con sus datos de existencia actual
-  const reportesSeleccionados = useMemo(() => {
-    return reporte.filter((r) => selectedIds.has(r.tanque.id));
-  }, [reporte, selectedIds]);
-
-  // Totales acumulados de los tanques seleccionados
+  // Totales acumulados de todos los tanques
   const totales = useMemo(() => {
-    const totalLitros = reportesSeleccionados.reduce((acc, r) => acc + (Number(r.disponible) || 0), 0);
-    const totalValor = reportesSeleccionados.reduce(
+    const totalLitros = reporte.reduce((acc, r) => acc + (Number(r.disponible) || 0), 0);
+    const totalValor = reporte.reduce(
       (acc, r) => acc + (Number(r.disponible) || 0) * (Number(r.tanque.tasa_usd_litro) || 0),
       0,
     );
@@ -150,13 +132,13 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
       litros: totalLitros,
       valor: totalValor,
       tasaProm,
-      count: reportesSeleccionados.length,
+      count: reporte.length,
     };
-  }, [reportesSeleccionados]);
+  }, [reporte]);
 
   // Movimientos filtrados por cada tanque según periodo y tipo
   const detallePorTanque = useMemo(() => {
-    return reportesSeleccionados.map((rep) => {
+    return reporte.map((rep) => {
       const todosMovs = movsMap[rep.tanque.id] ?? [];
       const filtrados = todosMovs.filter((m) => {
         // Filtro de periodo
@@ -196,24 +178,72 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         entradasLitros,
       };
     });
-  }, [reportesSeleccionados, movsMap, fechaDesdeFiltro, tipoFiltro]);
+  }, [reporte, movsMap, fechaDesdeFiltro, tipoFiltro]);
 
   const emitido = useMemo(() => fechaHoraActualVE(), []);
 
+  // Exportar a PDF
+  async function handleExportPdf() {
+    setGenerandoPdf(true);
+    try {
+      await descargarReporteExistenciasPdf({
+        reportes: reporte,
+        detallePorTanque,
+        periodoLabel,
+      });
+    } finally {
+      setGenerandoPdf(false);
+    }
+  }
+
+  // Exportar a Excel
+  async function handleExportExcel() {
+    setGenerandoExcel(true);
+    try {
+      await descargarReporteExistenciasExcel({
+        reportes: reporte,
+        detallePorTanque,
+        periodoLabel,
+      });
+    } finally {
+      setGenerandoExcel(false);
+    }
+  }
+
   const footer = (
-    <>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '.5rem' }}>
       <button className="btn btn-ghost" onClick={onClose}>
         Cerrar
       </button>
-      <button
-        className="btn btn-primary"
-        onClick={() => window.print()}
-        disabled={!reportesSeleccionados.length}
-        title="Imprimir o exportar como PDF este reporte con tarjetas y movimientos"
-      >
-        🖨 Imprimir / PDF
-      </button>
-    </>
+
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+        <button
+          className="btn btn-ghost"
+          onClick={handleExportExcel}
+          disabled={generandoExcel || cargandoMovs}
+          title="Generar y previsualizar reporte en Excel (.xlsx) con hojas de existencias y movimientos"
+        >
+          {generandoExcel ? 'Generando Excel…' : '📊 Descargar Excel'}
+        </button>
+
+        <button
+          className="btn btn-ghost"
+          onClick={handleExportPdf}
+          disabled={generandoPdf || cargandoMovs}
+          title="Generar y previsualizar reporte oficial en PDF con membrete formal"
+        >
+          {generandoPdf ? 'Generando PDF…' : '📄 Descargar PDF'}
+        </button>
+
+        <button
+          className="btn btn-primary"
+          onClick={() => window.print()}
+          title="Imprimir vista previa"
+        >
+          🖨 Imprimir
+        </button>
+      </div>
+    </div>
   );
 
   return (
@@ -223,538 +253,452 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
       onClose={onClose}
       footer={footer}
     >
-      <div className="reporte-print" style={{ color: 'var(--text)' }}>
-        {/* Encabezado formal del reporte */}
-        <div style={{ textAlign: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '.75rem' }}>
-          <div style={{ fontSize: '.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--primary)' }}>
-            Golden Touch 1127 C.A. · Control de Combustible
-          </div>
-          <h2 style={{ margin: '.3rem 0 .2rem 0', fontSize: '1.45rem' }}>
-            Reporte de Existencias y Movimientos
-          </h2>
-          <div className="muted" style={{ fontSize: '.82rem', textTransform: 'capitalize' }}>
-            Emitido el {emitido}
-          </div>
-        </div>
-
-        {/* ================= CONTROLES NO IMPRIMIBLES ================= */}
+      <div style={{ color: 'var(--text)' }}>
+        {/* Cabecera / Barra de herramientas superior con los estilos nativos del sistema */}
         <div
           className="no-print"
           style={{
-            background: 'var(--surface-2)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--r-md)',
-            padding: '.9rem 1rem',
-            marginBottom: '1.25rem',
             display: 'flex',
-            flexDirection: 'column',
-            gap: '.85rem',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '.75rem',
+            padding: '.75rem 1rem',
+            background: 'var(--surface-2)',
+            borderRadius: 'var(--r-md)',
+            border: '1px solid var(--border)',
+            marginBottom: '1.25rem',
           }}
         >
-          {/* Selector de tanques */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.4rem' }}>
-              <strong style={{ fontSize: '.88rem' }}>
-                🛢 Seleccionar tanques a incluir ({selectedIds.size} de {reporte.length}):
-              </strong>
-              <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
-                <button type="button" className="btn btn-xs btn-ghost" onClick={seleccionarTodos}>
-                  ✓ Todos
-                </button>
-                <button type="button" className="btn btn-xs btn-ghost" onClick={seleccionarSoloActivos}>
-                  Solo activos
-                </button>
-                <button type="button" className="btn btn-xs btn-ghost" onClick={deseleccionarTodos}>
-                  ✗ Ninguno
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', maxHeight: '130px', overflowY: 'auto', padding: '.25rem 0' }}>
-              {reporte.map((r) => {
-                const isSelected = selectedIds.has(r.tanque.id);
-                return (
-                  <button
-                    key={r.tanque.id}
-                    type="button"
-                    onClick={() => toggleTanque(r.tanque.id)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '.4rem',
-                      padding: '.35rem .65rem',
-                      borderRadius: 'var(--r-sm, 6px)',
-                      fontSize: '.8rem',
-                      border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border)',
-                      background: isSelected ? 'var(--primary-subtle, rgba(255, 138, 0, 0.12))' : 'var(--surface)',
-                      color: isSelected ? 'var(--text)' : 'var(--text-muted)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      fontWeight: isSelected ? 600 : 400,
-                    }}
-                  >
-                    <span>{isSelected ? '☑' : '☐'}</span>
-                    <span>{esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'}</span>
-                    <span>{r.tanque.nombre}</span>
-                    <span className="mono" style={{ fontSize: '.72rem', opacity: 0.85 }}>({num(r.disponible)} l)</span>
-                  </button>
-                );
-              })}
+          {/* Selector de periodo estilizado */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>
+              📅 Movimientos:
+            </span>
+            <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+              <button
+                type="button"
+                className={`btn btn-xs ${periodo === 'mes_actual' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setPeriodo('mes_actual')}
+              >
+                Mes actual
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${periodo === '7dias' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setPeriodo('7dias')}
+              >
+                7 días
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${periodo === '15dias' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setPeriodo('15dias')}
+              >
+                15 días
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${periodo === '30dias' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setPeriodo('30dias')}
+              >
+                30 días
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${periodo === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setPeriodo('todos')}
+              >
+                Todos
+              </button>
             </div>
           </div>
 
-          {/* Filtros de periodo y tipo */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderTop: '1px solid var(--border)', paddingTop: '.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-              <span className="muted" style={{ fontSize: '.82rem', fontWeight: 600 }}>
-                📅 Período de movimientos:
-              </span>
-              <div style={{ display: 'inline-flex', gap: '.3rem' }}>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${periodo === 'mes_actual' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setPeriodo('mes_actual')}
-                >
-                  Mes actual
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${periodo === '7dias' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setPeriodo('7dias')}
-                >
-                  Últimos 7 días
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${periodo === '15dias' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setPeriodo('15dias')}
-                >
-                  Últimos 15 días
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${periodo === '30dias' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setPeriodo('30dias')}
-                >
-                  Últimos 30 días
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${periodo === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setPeriodo('todos')}
-                >
-                  Todo el historial
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-              <span className="muted" style={{ fontSize: '.82rem', fontWeight: 600 }}>
-                ⚡ Mostrar:
-              </span>
-              <select
-                className="input input-sm"
-                value={tipoFiltro}
-                onChange={(e) => setTipoFiltro(e.target.value as TipoFiltro)}
-                style={{ minWidth: 170 }}
-              >
-                <option value="uso_traslado">⛽ Surtidos y ↔ Traslados</option>
-                <option value="uso">Solo Surtidos (Uso)</option>
-                <option value="traslado">Solo Traslados</option>
-                <option value="todos">Todos los movimientos</option>
-              </select>
-            </div>
+          {/* Filtro de tipo de movimiento */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+            <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>
+              Filtrar:
+            </span>
+            <select
+              className="input input-sm"
+              value={tipoFiltro}
+              onChange={(e) => setTipoFiltro(e.target.value as TipoFiltro)}
+              style={{ minWidth: 180, fontSize: '.8rem' }}
+            >
+              <option value="uso_traslado">⛽ Surtidos y ↔ Traslados</option>
+              <option value="uso">Solo Surtidos (Equipos)</option>
+              <option value="traslado">Solo Traslados</option>
+              <option value="todos">Todos los movimientos</option>
+            </select>
           </div>
         </div>
 
-        {/* ================= ESTADO VACÍO ================= */}
-        {!reportesSeleccionados.length ? (
-          <EmptyState message="No has seleccionado ningún tanque. Marca al menos un tanque arriba para generar el reporte." />
-        ) : (
-          <>
-            {/* ================= SECCIÓN 1: TARJETAS DE LO QUE QUEDA ================= */}
-            <div style={{ marginBottom: '1.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '.65rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--primary)' }}>
-                  📊 Existencias Actuales ({reportesSeleccionados.length} {reportesSeleccionados.length === 1 ? 'tanque seleccionado' : 'tanques seleccionados'})
-                </h3>
-                <span className="muted" style={{ fontSize: '.78rem' }}>
-                  Saldo vigente a la fecha en cada tanque
-                </span>
+        {/* Encabezado del documento para vista previa y para impresión */}
+        <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--primary)' }}>
+            Golden Touch 1127 C.A. · Control de Combustible
+          </div>
+          <h2 style={{ margin: '.25rem 0 .2rem 0', fontSize: '1.4rem' }}>
+            Reporte de Existencias y Movimientos
+          </h2>
+          <div className="muted" style={{ fontSize: '.8rem', textTransform: 'capitalize' }}>
+            {emitido} · {periodoLabel}
+          </div>
+        </div>
+
+        {/* ================= BLOQUE 1: TARJETAS DE LO QUE QUEDA ================= */}
+        <div style={{ marginBottom: '1.75rem' }}>
+          {/* Tarjeta Hero Resumen Consolidado */}
+          <div
+            className="card"
+            style={{
+              margin: '0 0 1rem 0',
+              borderColor: 'var(--primary)',
+              borderWidth: 2,
+              background: 'linear-gradient(135deg, var(--surface-2), var(--surface))',
+              padding: '1.1rem',
+              display: 'flex',
+              justifyContent: 'space-around',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1.25rem',
+              textAlign: 'center',
+            }}
+          >
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                Total Disponible en Tanques
               </div>
-
-              {/* Tarjeta destacada resumen global */}
-              <div
-                className="card"
-                style={{
-                  margin: '0 0 1rem 0',
-                  borderColor: 'var(--primary)',
-                  borderWidth: 2,
-                  background: 'linear-gradient(135deg, var(--surface-2), var(--surface))',
-                  padding: '1rem',
-                  display: 'flex',
-                  justifyContent: 'space-around',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '1rem',
-                  textAlign: 'center',
-                }}
-              >
-                <div>
-                  <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                    Total Disponible
-                  </div>
-                  <div className="mono" style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--primary)' }}>
-                    {num(totales.litros)} <span style={{ fontSize: '1rem', fontWeight: 500 }}>ltrs</span>
-                  </div>
-                </div>
-
-                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.25rem' }}>
-                  <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                    Valor Total
-                  </div>
-                  <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)' }}>
-                    {money(totales.valor)}
-                  </div>
-                </div>
-
-                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.25rem' }}>
-                  <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                    Tasa Promedio
-                  </div>
-                  <div className="mono" style={{ fontSize: '1.2rem', fontWeight: 600 }}>
-                    {money(totales.tasaProm)} / ltr
-                  </div>
-                </div>
-
-                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.25rem' }}>
-                  <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                    Tanques Incluidos
-                  </div>
-                  <div className="mono" style={{ fontSize: '1.2rem', fontWeight: 600 }}>
-                    {totales.count}
-                  </div>
-                </div>
-              </div>
-
-              {/* Grid de tarjetas individuales por tanque */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                  gap: '.75rem',
-                }}
-              >
-                {reportesSeleccionados.map((r) => {
-                  const cap = Number(r.tanque.capacidad_litros) || 0;
-                  const disp = Number(r.disponible) || 0;
-                  const tasa = Number(r.tanque.tasa_usd_litro) || 0;
-                  const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
-                  const colorBarra = pct < 12 ? 'var(--danger)' : pct < 30 ? 'var(--warning)' : 'var(--primary)';
-
-                  return (
-                    <div
-                      key={r.tanque.id}
-                      className="card"
-                      style={{
-                        margin: 0,
-                        padding: '.85rem',
-                        border: '1px solid var(--border)',
-                        background: 'var(--surface)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        pageBreakInside: 'avoid',
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.4rem', marginBottom: '.35rem' }}>
-                          <strong style={{ fontSize: '.92rem' }}>
-                            {esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
-                          </strong>
-                          <div style={{ display: 'inline-flex', gap: '.25rem' }}>
-                            {esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>bidón</span>}
-                            {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>móvil</span>}
-                            {r.tanque.estado !== 'activo' && <span className="badge" style={{ fontSize: '.68rem' }}>inactivo</span>}
-                          </div>
-                        </div>
-
-                        {/* Litros disponibles */}
-                        <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text)' }}>
-                          {num(disp)} <span style={{ fontSize: '.78rem', fontWeight: 500 }} className="muted">ltrs</span>
-                        </div>
-
-                        {/* Barra de llenado */}
-                        <div
-                          style={{
-                            height: 8,
-                            borderRadius: 4,
-                            background: 'var(--surface-2)',
-                            margin: '.45rem 0',
-                            overflow: 'hidden',
-                            border: '1px solid var(--border)',
-                          }}
-                        >
-                          <div style={{ width: `${pct}%`, height: '100%', background: colorBarra }} />
-                        </div>
-                      </div>
-
-                      {/* Métricas secundarias */}
-                      <div className="muted" style={{ fontSize: '.73rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.35rem', marginTop: '.2rem' }}>
-                        <span>Cap. <strong className="mono">{num(cap)}</strong> ltrs ({pct.toFixed(0)}%)</span>
-                        <span>Tasa <strong className="mono">{money(tasa)}</strong></span>
-                        <span style={{ color: 'var(--success)' }}>Valor <strong className="mono">{money(disp * tasa)}</strong></span>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="mono" style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--primary)' }}>
+                {num(totales.litros)} <span style={{ fontSize: '1rem', fontWeight: 500 }} className="muted">ltrs</span>
               </div>
             </div>
 
-            {/* ================= SECCIÓN 2: DETALLE POR TANQUE DE SURTIDOS Y TRASLADOS ================= */}
-            <div style={{ marginTop: '2rem' }}>
-              <div style={{ borderBottom: '2px solid var(--primary)', paddingBottom: '.4rem', marginBottom: '1.25rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1.15rem' }}>
-                  📋 Detalle de Movimientos por Tanque
-                </h3>
-                <div className="muted" style={{ fontSize: '.8rem', marginTop: '.2rem' }}>
-                  {tipoFiltro === 'uso_traslado'
-                    ? 'Surtidos a equipos y traslados entre tanques/minas'
-                    : tipoFiltro === 'uso'
-                      ? 'Despachos y consumo por equipo (surtidos)'
-                      : tipoFiltro === 'traslado'
-                        ? 'Traslados de combustible entre tanques o minas'
-                        : 'Todos los movimientos registrados'}
-                  {' · '}
-                  <span style={{ textTransform: 'capitalize' }}>
-                    {periodo === 'mes_actual'
-                      ? 'Mes actual'
-                      : periodo === '7dias'
-                        ? 'Últimos 7 días'
-                        : periodo === '15dias'
-                          ? 'Últimos 15 días'
-                          : periodo === '30dias'
-                            ? 'Últimos 30 días'
-                            : 'Historial completo'}
-                  </span>
-                </div>
+            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem' }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                Valor Total Disponible
               </div>
+              <div className="mono" style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--success)' }}>
+                {money(totales.valor)}
+              </div>
+            </div>
 
-              {cargandoMovs && (
-                <p className="muted" style={{ fontSize: '.85rem', fontStyle: 'italic' }}>
-                  Cargando movimientos de los tanques seleccionados…
-                </p>
-              )}
+            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem' }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                Tasa Ponderada Promedio
+              </div>
+              <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 600 }}>
+                {money(totales.tasaProm)} / ltr
+              </div>
+            </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-                {detallePorTanque.map((item) => {
-                  return (
+            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem' }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                Tanques Activos
+              </div>
+              <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 600 }}>
+                {totales.count}
+              </div>
+            </div>
+          </div>
+
+          {/* Grid de tarjetas individuales por tanque */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+              gap: '.75rem',
+            }}
+          >
+            {reporte.map((r) => {
+              const cap = Number(r.tanque.capacidad_litros) || 0;
+              const disp = Number(r.disponible) || 0;
+              const tasa = Number(r.tanque.tasa_usd_litro) || 0;
+              const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
+              const colorBarra = pct < 12 ? 'var(--danger)' : pct < 30 ? 'var(--warning)' : 'var(--primary)';
+
+              return (
+                <div
+                  key={r.tanque.id}
+                  className="card"
+                  style={{
+                    margin: 0,
+                    padding: '.85rem',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    pageBreakInside: 'avoid',
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.4rem', marginBottom: '.35rem' }}>
+                      <strong style={{ fontSize: '.9rem' }}>
+                        {esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
+                      </strong>
+                      <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+                        {esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>bidón</span>}
+                        {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>móvil</span>}
+                        {r.tanque.estado !== 'activo' && <span className="badge" style={{ fontSize: '.68rem' }}>inactivo</span>}
+                      </div>
+                    </div>
+
+                    {/* Litros disponibles */}
+                    <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text)' }}>
+                      {num(disp)} <span style={{ fontSize: '.78rem', fontWeight: 500 }} className="muted">ltrs</span>
+                    </div>
+
+                    {/* Barra de progreso de llenado */}
                     <div
-                      key={item.tanque.id}
                       style={{
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--r-md)',
+                        height: 7,
+                        borderRadius: 4,
+                        background: 'var(--surface-2)',
+                        margin: '.45rem 0',
                         overflow: 'hidden',
-                        pageBreakInside: 'avoid',
+                        border: '1px solid var(--border)',
                       }}
                     >
-                      {/* Cabecera del tanque */}
-                      <div
+                      <div style={{ width: `${pct}%`, height: '100%', background: colorBarra }} />
+                    </div>
+                  </div>
+
+                  {/* Capacidad y métricas monetarias */}
+                  <div className="muted" style={{ fontSize: '.74rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.35rem', marginTop: '.2rem' }}>
+                    <span>Cap. <strong className="mono">{num(cap)}</strong> l ({pct.toFixed(0)}%)</span>
+                    <span>Tasa <strong className="mono">{money(tasa)}</strong></span>
+                    <span style={{ color: 'var(--success)' }}>Valor <strong className="mono">{money(disp * tasa)}</strong></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ================= BLOQUE 2: DETALLE POR TANQUE DE SURTIDOS Y TRASLADOS ================= */}
+        <div style={{ marginTop: '2rem' }}>
+          <div style={{ borderBottom: '2px solid var(--primary)', paddingBottom: '.4rem', marginBottom: '1.25rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.15rem' }}>
+              📋 Detalle de Movimientos por Tanque
+            </h3>
+            <div className="muted" style={{ fontSize: '.8rem', marginTop: '.2rem' }}>
+              {tipoFiltro === 'uso_traslado'
+                ? 'Surtidos (consumo de equipos) y Traslados (hacia/desde minas)'
+                : tipoFiltro === 'uso'
+                  ? 'Despachos de combustible a equipos'
+                  : tipoFiltro === 'traslado'
+                    ? 'Traslados entre tanques o minas'
+                    : 'Todos los movimientos registrados'}
+              {' · '}
+              <span>{periodoLabel}</span>
+            </div>
+          </div>
+
+          {cargandoMovs && (
+            <p className="muted" style={{ fontSize: '.85rem', fontStyle: 'italic', margin: '1rem 0' }}>
+              Cargando movimientos…
+            </p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {detallePorTanque.map((item) => {
+              return (
+                <div
+                  key={item.tanque.id}
+                  style={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r-md)',
+                    overflow: 'hidden',
+                    pageBreakInside: 'avoid',
+                  }}
+                >
+                  {/* Cabecera del tanque */}
+                  <div
+                    style={{
+                      background: 'var(--surface-2)',
+                      padding: '.7rem .95rem',
+                      borderBottom: '1px solid var(--border)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '.6rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                      <span style={{ fontSize: '1.2rem' }}>
+                        {esBidon(item.tanque.nombre) ? '🪣' : item.tanque.es_movil ? '🚚' : '🛢'}
+                      </span>
+                      <div>
+                        <strong style={{ fontSize: '.95rem' }}>{item.tanque.nombre}</strong>
+                        <div className="muted" style={{ fontSize: '.75rem' }}>
+                          Capacidad: {num(item.tanque.capacidad_litros)} ltrs · Saldo disponible: <strong className="mono" style={{ color: 'var(--primary)' }}>{num(item.disponible)} ltrs</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Resumen del periodo en chips */}
+                    <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', fontSize: '.78rem' }}>
+                      <span
+                        className="badge"
                         style={{
-                          background: 'var(--surface-2)',
-                          padding: '.75rem 1rem',
-                          borderBottom: '1px solid var(--border)',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: '.75rem',
+                          background: 'rgba(255, 138, 0, 0.15)',
+                          color: 'var(--primary)',
+                          borderColor: 'var(--primary)',
+                          padding: '.25rem .55rem',
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                          <span style={{ fontSize: '1.25rem' }}>
-                            {esBidon(item.tanque.nombre) ? '🪣' : item.tanque.es_movil ? '🚚' : '🛢'}
-                          </span>
-                          <div>
-                            <strong style={{ fontSize: '1rem' }}>{item.tanque.nombre}</strong>
-                            <div className="muted" style={{ fontSize: '.75rem' }}>
-                              Capacidad: {num(item.tanque.capacidad_litros)} ltrs · Saldo disponible actual: <strong className="mono" style={{ color: 'var(--primary)' }}>{num(item.disponible)} ltrs</strong>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Chips de resumen del periodo */}
-                        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', fontSize: '.8rem' }}>
-                          <span
-                            className="badge"
-                            style={{
-                              background: 'rgba(255, 138, 0, 0.15)',
-                              color: 'var(--primary)',
-                              borderColor: 'var(--primary)',
-                              padding: '.3rem .6rem',
-                            }}
-                            title="Total surtido a equipos en este periodo"
-                          >
-                            ⛽ Surtidos: <strong>{num(item.surtidosLitros)} ltrs</strong> ({item.surtidosCount})
-                          </span>
-                          <span
-                            className="badge"
-                            style={{
-                              background: 'rgba(59, 130, 246, 0.15)',
-                              color: '#3b82f6',
-                              borderColor: '#3b82f6',
-                              padding: '.3rem .6rem',
-                            }}
-                            title="Total transferido a otras minas o tanques en este periodo"
-                          >
-                            ↔ Traslados: <strong>{num(item.trasladosLitros)} ltrs</strong> ({item.trasladosCount})
-                          </span>
-                          {item.entradasLitros > 0 && (
-                            <span
-                              className="badge"
-                              style={{
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: 'var(--success)',
-                                borderColor: 'var(--success)',
-                                padding: '.3rem .6rem',
-                              }}
-                            >
-                              ⬇ Entradas: <strong>{num(item.entradasLitros)} ltrs</strong>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Tabla de movimientos del tanque */}
-                      {item.movimientos.length === 0 ? (
-                        <div style={{ padding: '1.25rem', textAlign: 'center' }} className="muted">
-                          Sin movimientos de {tipoFiltro === 'uso_traslado' ? 'surtido o traslado' : tipoFiltro} en este período.
-                        </div>
-                      ) : (
-                        <div style={{ overflowX: 'auto' }}>
-                          <table className="table" style={{ width: '100%', fontSize: '.82rem', margin: 0 }}>
-                            <thead>
-                              <tr style={{ background: 'var(--bg-1)', borderBottom: '1px solid var(--border)' }}>
-                                <th style={{ padding: '.55rem .75rem', textAlign: 'left', width: '105px' }}>Fecha</th>
-                                <th style={{ padding: '.55rem .75rem', textAlign: 'left', width: '120px' }}>Tipo</th>
-                                <th style={{ padding: '.55rem .75rem', textAlign: 'left' }}>Equipo / Destino</th>
-                                <th style={{ padding: '.55rem .75rem', textAlign: 'right', width: '110px' }}>Litros</th>
-                                <th style={{ padding: '.55rem .75rem', textAlign: 'right', width: '110px' }}>Saldo Tank</th>
-                                <th style={{ padding: '.55rem .75rem', textAlign: 'left', width: '140px' }}>Autorizado / Chofer</th>
-                                <th style={{ padding: '.55rem .75rem', textAlign: 'left' }}>Observaciones</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {item.movimientos.map((m) => {
-                                const esSalida = m.tipo === 'uso' || m.tipo === 'traslado' || m.tipo === 'merma';
-                                const tanqueDestino = m.tanque_destino_id ? tanqueById.get(m.tanque_destino_id) : null;
-
-                                return (
-                                  <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    {/* Fecha y hora */}
-                                    <td style={{ padding: '.5rem .75rem', verticalAlign: 'top' }}>
-                                      <div className="mono" style={{ fontWeight: 600 }}>{isoAVe(m.fecha)}</div>
-                                      {m.hora && <div className="muted" style={{ fontSize: '.72rem' }}>{m.hora}</div>}
-                                    </td>
-
-                                    {/* Tipo */}
-                                    <td style={{ padding: '.5rem .75rem', verticalAlign: 'top' }}>
-                                      {m.tipo === 'uso' ? (
-                                        <span className="badge" style={{ background: 'rgba(255, 138, 0, 0.15)', color: 'var(--primary)', borderColor: 'var(--primary)', fontSize: '.72rem' }}>
-                                          ⛽ Surtido
-                                        </span>
-                                      ) : m.tipo === 'traslado' ? (
-                                        <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', borderColor: '#3b82f6', fontSize: '.72rem' }}>
-                                          ↔ Traslado
-                                        </span>
-                                      ) : m.tipo === 'entrada' ? (
-                                        <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', borderColor: 'var(--success)', fontSize: '.72rem' }}>
-                                          ⬇ Entrada
-                                        </span>
-                                      ) : m.tipo === 'retorno' ? (
-                                        <span className="badge" style={{ fontSize: '.72rem' }}>↩ Retorno</span>
-                                      ) : (
-                                        <span className="badge" style={{ fontSize: '.72rem', color: 'var(--danger)' }}>🔻 Merma</span>
-                                      )}
-                                    </td>
-
-                                    {/* Equipo / Destino */}
-                                    <td style={{ padding: '.5rem .75rem', verticalAlign: 'top' }}>
-                                      {m.tipo === 'uso' ? (
-                                        <div>
-                                          <strong style={{ color: 'var(--text)' }}>{m.equipo || '—'}</strong>
-                                          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.1rem' }}>
-                                            {m.horometro_fin != null ? (
-                                              <span>Horómetro: <strong className="mono">{num(m.horometro_fin)} h</strong></span>
-                                            ) : m.kilometraje != null ? (
-                                              <span>Km: <strong className="mono">{num(m.kilometraje)}</strong></span>
-                                            ) : null}
-                                            {m.ubicacion ? ` · ${m.ubicacion}` : ''}
-                                          </div>
-                                        </div>
-                                      ) : m.tipo === 'traslado' ? (
-                                        <div>
-                                          <strong>{tanqueDestino ? `Hacia: ${tanqueDestino.nombre}` : m.ubicacion ? `Hacia: ${m.ubicacion}` : 'Traslado'}</strong>
-                                          {m.ubicacion && tanqueDestino && (
-                                            <div className="muted" style={{ fontSize: '.72rem' }}>Lugar: {m.ubicacion}</div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <div>
-                                          <span>{m.ubicacion || 'Recepción'}</span>
-                                        </div>
-                                      )}
-                                    </td>
-
-                                    {/* Litros */}
-                                    <td style={{ padding: '.5rem .75rem', textAlign: 'right', verticalAlign: 'top' }}>
-                                      <span
-                                        className="mono"
-                                        style={{
-                                          fontWeight: 700,
-                                          color: esSalida ? 'var(--danger)' : 'var(--success)',
-                                        }}
-                                      >
-                                        {esSalida ? `-${num(m.litros)}` : `+${num(m.litros)}`}
-                                      </span>
-                                    </td>
-
-                                    {/* Saldo corrido */}
-                                    <td style={{ padding: '.5rem .75rem', textAlign: 'right', verticalAlign: 'top' }}>
-                                      <span className="mono muted" style={{ fontWeight: 600 }}>
-                                        {m.saldo_litros != null ? `${num(m.saldo_litros)} l` : '—'}
-                                      </span>
-                                    </td>
-
-                                    {/* Despachador / Autorizado */}
-                                    <td style={{ padding: '.5rem .75rem', verticalAlign: 'top' }}>
-                                      <div>{m.autorizado_por || m.actor_name || m.created_by || '—'}</div>
-                                    </td>
-
-                                    {/* Observaciones */}
-                                    <td style={{ padding: '.5rem .75rem', verticalAlign: 'top', color: 'var(--text-muted)' }}>
-                                      {m.observacion || '—'}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                        ⛽ Surtidos: <strong>{num(item.surtidosLitros)} ltrs</strong> ({item.surtidosCount})
+                      </span>
+                      <span
+                        className="badge"
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.15)',
+                          color: '#3b82f6',
+                          borderColor: '#3b82f6',
+                          padding: '.25rem .55rem',
+                        }}
+                      >
+                        ↔ Traslados: <strong>{num(item.trasladosLitros)} ltrs</strong> ({item.trasladosCount})
+                      </span>
+                      {item.entradasLitros > 0 && (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            color: 'var(--success)',
+                            borderColor: 'var(--success)',
+                            padding: '.25rem .55rem',
+                          }}
+                        >
+                          ⬇ Entradas: <strong>{num(item.entradasLitros)} ltrs</strong>
+                        </span>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
+                  </div>
 
-        {/* Pie de página del reporte */}
+                  {/* Tabla de movimientos del tanque */}
+                  {item.movimientos.length === 0 ? (
+                    <div style={{ padding: '1rem', textAlign: 'center' }} className="muted">
+                      Sin movimientos registrados en este período.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="table" style={{ width: '100%', fontSize: '.8rem', margin: 0 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--bg-1)', borderBottom: '1px solid var(--border)' }}>
+                            <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '100px' }}>Fecha</th>
+                            <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '115px' }}>Tipo</th>
+                            <th style={{ padding: '.5rem .7rem', textAlign: 'left' }}>Equipo / Destino</th>
+                            <th style={{ padding: '.5rem .7rem', textAlign: 'right', width: '105px' }}>Litros</th>
+                            <th style={{ padding: '.5rem .7rem', textAlign: 'right', width: '105px' }}>Saldo Tank</th>
+                            <th style={{ padding: '.5rem .7rem', textAlign: 'left', width: '130px' }}>Autorizado / Chofer</th>
+                            <th style={{ padding: '.5rem .7rem', textAlign: 'left' }}>Observaciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {item.movimientos.map((m) => {
+                            const esSalida = m.tipo === 'uso' || m.tipo === 'traslado' || m.tipo === 'merma';
+                            const tanqueDestino = m.tanque_destino_id ? tanqueById.get(m.tanque_destino_id) : null;
+
+                            return (
+                              <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                  <div className="mono" style={{ fontWeight: 600 }}>{isoAVe(m.fecha)}</div>
+                                  {m.hora && <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div>}
+                                </td>
+
+                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                  {m.tipo === 'uso' ? (
+                                    <span className="badge" style={{ background: 'rgba(255, 138, 0, 0.15)', color: 'var(--primary)', borderColor: 'var(--primary)', fontSize: '.7rem' }}>
+                                      ⛽ Surtido
+                                    </span>
+                                  ) : m.tipo === 'traslado' ? (
+                                    <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', borderColor: '#3b82f6', fontSize: '.7rem' }}>
+                                      ↔ Traslado
+                                    </span>
+                                  ) : m.tipo === 'entrada' ? (
+                                    <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', borderColor: 'var(--success)', fontSize: '.7rem' }}>
+                                      ⬇ Entrada
+                                    </span>
+                                  ) : m.tipo === 'retorno' ? (
+                                    <span className="badge" style={{ fontSize: '.7rem' }}>↩ Retorno</span>
+                                  ) : (
+                                    <span className="badge" style={{ fontSize: '.7rem', color: 'var(--danger)' }}>🔻 Merma</span>
+                                  )}
+                                </td>
+
+                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                  {m.tipo === 'uso' ? (
+                                    <div>
+                                      <strong style={{ color: 'var(--text)' }}>{m.equipo || '—'}</strong>
+                                      <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem' }}>
+                                        {m.horometro_fin != null ? (
+                                          <span>Horómetro: <strong className="mono">{num(m.horometro_fin)} h</strong></span>
+                                        ) : m.kilometraje != null ? (
+                                          <span>Km: <strong className="mono">{num(m.kilometraje)}</strong></span>
+                                        ) : null}
+                                        {m.ubicacion ? ` · ${m.ubicacion}` : ''}
+                                      </div>
+                                    </div>
+                                  ) : m.tipo === 'traslado' ? (
+                                    <div>
+                                      <strong>{tanqueDestino ? `Hacia: ${tanqueDestino.nombre}` : m.ubicacion ? `Hacia: ${m.ubicacion}` : 'Traslado'}</strong>
+                                      {m.ubicacion && tanqueDestino && (
+                                        <div className="muted" style={{ fontSize: '.7rem' }}>Lugar: {m.ubicacion}</div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <span>{m.ubicacion || 'Recepción'}</span>
+                                    </div>
+                                  )}
+                                </td>
+
+                                <td style={{ padding: '.45rem .7rem', textAlign: 'right', verticalAlign: 'top' }}>
+                                  <span
+                                    className="mono"
+                                    style={{
+                                      fontWeight: 700,
+                                      color: esSalida ? 'var(--danger)' : 'var(--success)',
+                                    }}
+                                  >
+                                    {esSalida ? `-${num(m.litros)}` : `+${num(m.litros)}`}
+                                  </span>
+                                </td>
+
+                                <td style={{ padding: '.45rem .7rem', textAlign: 'right', verticalAlign: 'top' }}>
+                                  <span className="mono muted" style={{ fontWeight: 600 }}>
+                                    {m.saldo_litros != null ? `${num(m.saldo_litros)} l` : '—'}
+                                  </span>
+                                </td>
+
+                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top' }}>
+                                  <div>{m.autorizado_por || m.actor_name || m.created_by || '—'}</div>
+                                </td>
+
+                                <td style={{ padding: '.45rem .7rem', verticalAlign: 'top', color: 'var(--text-muted)' }}>
+                                  {m.observacion || '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Pie de página */}
         <div style={{ marginTop: '2.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem', textAlign: 'center', fontSize: '.75rem' }} className="muted">
-          <div>Golden Touch 1127 C.A. · Sistema de Gestión de Combustible · Reporte generado automáticamente</div>
-          <div style={{ marginTop: '.2rem' }}>Valores calculados en base a la tasa de costo promedio ponderado ($/ltr) de cada tanque.</div>
+          <div>Golden Touch 1127 C.A. · Sistema de Gestión de Combustible</div>
+          <div style={{ marginTop: '.2rem' }}>Valores calculados con la tasa promedio ponderada ($/L) vigente de cada tanque.</div>
         </div>
       </div>
     </Modal>
