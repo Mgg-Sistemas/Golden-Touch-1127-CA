@@ -30,6 +30,7 @@ describe('textoOrdenPagar', () => {
         '',
         '🔹 *ORDEN:* OC-2026-0130',
         '🏭 *Proveedor:* MAXI SHOES',
+        '🟢 *Requerimiento:* Normal',
         '📝 *Detalle:* Dotación de calzado para motorizado (delivery). Para: Héctor Alagal.',
         '💵 *Total:* $79,00',
         '💳 *Pago móvil:*',
@@ -40,6 +41,24 @@ describe('textoOrdenPagar', () => {
         '🏢 GOLDEN TOUCH 1127 C.A.',
       ].join('\n'),
     );
+  });
+
+  it('urgente y monto en Bs a la tasa del día (29/10/2026)', () => {
+    const urgente = { ...ordenBase, urgente: true } as unknown as Orden;
+    const t = textoOrdenPagar(urgente, proveedor, undefined, 36.5);
+    expect(t).toContain('🔹 *ORDEN:* OC-2026-0130\n🏭 *Proveedor:* MAXI SHOES\n🚨 *Requerimiento:* URGENTE\n');
+    expect(t).toContain('💵 *Total:* $79,00\n💱 *Monto en Bs:* Bs 2.883,50 (tasa BCV 36,50)\n');
+  });
+
+  it('sin tasa o con la orden en Bs no sale el monto en Bs', () => {
+    expect(textoOrdenPagar(ordenBase, proveedor)).not.toContain('Monto en Bs');
+    const enBs = { ...ordenBase, total_moneda: 'Bs' } as unknown as Orden;
+    expect(textoOrdenPagar(enBs, proveedor, undefined, 36.5)).not.toContain('Monto en Bs');
+  });
+
+  it('a crédito con abonos convierte el saldo, no el total', () => {
+    const credito = { ...ordenBase, estado: 'cuenta_abierta', abonado_total: 29 } as unknown as Orden;
+    expect(textoOrdenPagar(credito, proveedor, undefined, 40)).toContain('💱 *Monto en Bs:* Bs 2.000,00 (tasa BCV 40,00)');
   });
 
   it('una compra a crédito lleva su propio título', () => {

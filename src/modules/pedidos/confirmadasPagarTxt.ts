@@ -137,6 +137,22 @@ function lineasDatosPago(metodo: string, d: Record<string, string> | undefined):
   return [];
 }
 
+/** Tasa como la publica el BCV: al menos 2 decimales, hasta 4. */
+function numTasa(t: number): string {
+  return t.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+/**
+ * «💱 Monto en Bs: Bs 2.883,50 (tasa BCV 36,50)». Solo para montos en dólares
+ * (USD/USDT) y con tasa conocida; si la orden ya es en Bs no hay nada que convertir.
+ */
+export function lineaMontoBs(montoUsd: number, moneda: string, tasaUsd?: number | null): string | null {
+  const t = Number(tasaUsd) || 0;
+  if (t <= 0 || !(moneda === 'USD' || moneda === 'USDT')) return null;
+  const bs = Math.round((Number(montoUsd) || 0) * t * 100) / 100;
+  return `💱 *Monto en Bs:* Bs ${num(bs)} (tasa BCV ${numTasa(t)})`;
+}
+
 /**
  * Determina si la orden corresponde a una cuenta a crédito (abonos abiertos).
  * En estas órdenes no se muestra método de pago: se pagan mediante abonos en Tesorería.
@@ -153,7 +169,9 @@ export function esCuentaCredito(orden: Partial<Pick<Orden, 'condiciones_pago' | 
  * lo lee del otro lado del chat, así que un cambio accidental se tiene que
  * notar aquí y no en el teléfono de alguien.
  */
-export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>): string {
+export function textoOrdenPagar(
+  o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>, tasaUsd?: number | null,
+): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
   const esCredito = esCuentaCredito(o);
@@ -164,6 +182,8 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null, personas?
   L.push(`🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`);
   L.push(`🏭 *Proveedor:* ${proveedor?.razon_social?.trim() || '—'}`);
   L.push(...lineasPersonas(o, personas, true));
+  // Tipo de requerimiento, siempre (29/10/2026): quien paga ordena por urgencia.
+  L.push(o.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal');
   // El detalle solo si existe: un «Detalle: —» no informa nada y aleja el
   // método de pago, que es lo que se busca en este papel.
   const descripcion = descripcionDe(o);
@@ -178,6 +198,13 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null, personas?
   // IGTF o un descuento por encima de las líneas.
   const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
   L.push(`💵 *Total:* ${monto(totalOrden, moneda)}`);
+  // Lo que se paga en bolívares a la tasa BCV del día (29/10/2026). En crédito con
+  // abonos se convierte el saldo, que es lo que de verdad se manda a pagar.
+  const aPagar = esCredito && (Number(o.abonado_total) || 0) > 0
+    ? Math.max(0, totalOrden - (Number(o.abonado_total) || 0))
+    : totalOrden;
+  const lineaBs = lineaMontoBs(aPagar, moneda, tasaUsd);
+  if (lineaBs) L.push(lineaBs);
 
   // A CRÉDITO: el total no es lo que hay que pagar hoy. Una cuenta abierta se salda
   // por abonos, así que mandar solo el total es mandar el número equivocado: quien

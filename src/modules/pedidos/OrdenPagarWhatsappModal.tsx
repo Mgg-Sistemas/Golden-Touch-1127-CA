@@ -5,11 +5,12 @@
    pegar en el chat. Ahora abre el mensaje ya armado —con sus emojis— y se manda
    o se copia de una vez, igual que el aviso de Combustible.
    ============================================================ */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import type { Orden, Proveedor } from '@/shared/lib/types';
 import { textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 
 export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', personas, onClose }: {
   orden: Orden;
@@ -20,9 +21,17 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
   personas?: Map<string, string>;
   onClose: () => void;
 }) {
+  // Tasa BCV del día para el «Monto en Bs» del mensaje de pago (sin tasa, la línea no sale).
+  const [tasaUsd, setTasaUsd] = useState<number | null>(null);
+  useEffect(() => {
+    if (modo !== 'pagar') return;
+    let cancel = false;
+    getTasaHoy().then((t) => { if (!cancel) setTasaUsd(t.usd ?? null); }).catch(() => { /* sin tasa */ });
+    return () => { cancel = true; };
+  }, [modo]);
   const texto = useMemo(
-    () => (modo === 'aprobacion' ? textoOrdenAprobacion(orden, proveedor, personas) : textoOrdenPagar(orden, proveedor, personas)),
-    [orden, proveedor, modo, personas],
+    () => (modo === 'aprobacion' ? textoOrdenAprobacion(orden, proveedor, personas) : textoOrdenPagar(orden, proveedor, personas, tasaUsd)),
+    [orden, proveedor, modo, personas, tasaUsd],
   );
   return (
     <Modal
