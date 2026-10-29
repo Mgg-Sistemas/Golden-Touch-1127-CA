@@ -157,8 +157,25 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   // La firma que se estampa depende de QUIÉN aprobó la OC: LEYDIS RENGEL usa su
   // firma (firma2.jpeg); JESUS LOZADA / cualquier otro admin usa firma.png.
   const quienFirma = firmaDeAprobador(ocAprobPor);
-  // Si quien aprobó tiene su firma cargada en «Usuarios autorizados», se estampa esa.
-  const firmaCargada = ocAprobada ? await firmaCargadaDe(ocAprobPor).catch(() => null) : null;
+  // Si quien aprobó, creó o solicitó tiene su firma cargada en «Usuarios autorizados», se estampa esa.
+  const emailSol = (
+    orden.solicitante_email ||
+    (orden.solicitante?.includes('@') ? orden.solicitante : '') ||
+    orden.historial?.find((h) => h.evento === 'creada')?.actor ||
+    ''
+  ).toLowerCase();
+  const emailElab = (
+    orden.oc_creada_por ||
+    orden.oc_emitida_por ||
+    orden.historial?.find((h) => h.evento?.startsWith('oc_creada'))?.actor ||
+    ''
+  ).trim().toLowerCase();
+
+  const [firmaCargada, firmaSol, firmaElab] = await Promise.all([
+    ocAprobada ? firmaCargadaDe(ocAprobPor).catch(() => null) : null,
+    emailSol ? firmaCargadaDe(emailSol).catch(() => null) : null,
+    emailElab ? firmaCargadaDe(emailElab).catch(() => null) : null,
+  ]);
 
   const esConsolidada = ordenes.length > 1;
   const totalGeneral = ordenes.reduce((a, o) => a + Number(o.total ?? 0), 0);
@@ -656,50 +673,11 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y = MARGIN;
   }
 
-  // Firma del autorizador sobre la línea de "Firma autorizada" (abajo a la
-  // izquierda), únicamente si la OC ya está aprobada. LEYDIS RENGEL estampa su
-  // firma (firma2.jpeg); JESUS LOZADA / admin estampan firma.png.
-  if (ocAprobada) {
-    try {
-      const SIG_W = 150;
-      if (firmaCargada) {
-        const SIG_H = Math.min(80, (SIG_W * firmaCargada.h) / (firmaCargada.w || 1));
-        doc.addImage(firmaCargada.dataUrl, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
-      } else if (quienFirma === 'leydis' && firmaLeydis) {
-        const SIG_H = Math.min(80, (SIG_W * firmaLeydis.h) / (firmaLeydis.w || 1)); // conserva proporción real
-        doc.addImage(firmaLeydis.dataUrl, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
-      } else if (firmaGerente) {
-        const SIG_H = 67; // conserva el aspecto real de firma.png (707×317 ≈ 2.23)
-        doc.addImage(firmaGerente, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
-      }
-    } catch {
-      /* firma opcional */
-    }
-  }
-
-  doc.setDrawColor(180);
-  doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
-  doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
-  doc.setFontSize(9);
-  doc.text('Firma autorizada · GOLDEN TOUCH 1127 C.A.', MARGIN, pageH - 66);
-  if (ocAprobada && ocAprobPor) {
-    doc.setFontSize(7.5);
-    doc.setTextColor(120);
-    doc.text(
-      `Aprobada por ${quien(ocAprobPor, ocAprobEn)}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`,
-      MARGIN,
-      pageH - 56,
-    );
-    doc.setTextColor(0);
-    doc.setFontSize(9);
-  }
-  // Firma del analista solicitante (reemplaza firma del proveedor en los PDF de compras)
-  const emailSol = (
-    orden.solicitante_email ||
-    (orden.solicitante?.includes('@') ? orden.solicitante : '') ||
-    orden.historial?.find((h) => h.evento === 'creada')?.actor ||
-    ''
-  ).toLowerCase();
+  // ─── Firmas al pie de la OC ───
+  // Roles:
+  // 1. Firma autorizada (Aprobador de la OC / Gerencia / Jefa de Administración)
+  // 2. Elaborado por (Compras: quien creó / emitió la orden)
+  // 3. Analista solicitante (quien realizó la solicitud)
   const nomDePersona = emailSol ? personasMap.get(emailSol) : null;
   const nombreAnalista = (() => {
     if (nomDePersona) return nomDePersona;
@@ -710,57 +688,146 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   })();
   const ciAnalista = orden.ci_solicitante || (emailSol ? personasCiMap.get(emailSol) : null);
 
-  doc.text('Analista solicitante', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
-  doc.setFontSize(7.5);
-  doc.setTextColor(120);
-  doc.text(
-    `${nombreAnalista}${ciAnalista ? ' · C.I. ' + ciAnalista : ''}`,
-    PAGE_W - MARGIN,
-    pageH - 56,
-    { align: 'right' },
-  );
-  doc.setTextColor(0);
-  doc.setFontSize(9);
-
-  // ─── Bloque "Elaborado por": la persona de Compras que REALMENTE creó/emitió esta OC
-  // (oc_creada_por → oc_emitida_por → evento oc_creada* del historial). Antes era un nombre
-  // fijo y seguía saliendo aunque esa persona ya no estuviera activa. ───
-  const emailElab = (
-    orden.oc_creada_por ||
-    orden.oc_emitida_por ||
-    orden.historial?.find((h) => h.evento?.startsWith('oc_creada'))?.actor ||
-    ''
-  ).trim().toLowerCase();
+  let nombreElab = '';
+  let ciElab: string | undefined;
   if (emailElab) {
     const nomHist = quien(emailElab, orden.oc_creada_en);
-    const nombreElab =
+    nombreElab =
       personasMap.get(emailElab) ||
       (nomHist && nomHist !== emailElab ? nomHist : '') ||
       nombrePersonaCompras(emailElab) ||
       emailElab;
-    const ciElab = personasCiMap.get(emailElab);
-    doc.setFontSize(8);
-    doc.setTextColor(90);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Elaborado por', PAGE_W / 2, pageH - 46, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(120);
-    doc.text(
-      `${nombreElab.toUpperCase()} · Compras${ciElab ? ' · C.I. ' + ciElab : ''}`,
-      PAGE_W / 2,
-      pageH - 37,
-      { align: 'center' },
-    );
-    doc.setTextColor(0);
+    ciElab = personasCiMap.get(emailElab);
   }
 
+  const tieneElaborador = Boolean(emailElab && nombreElab);
+  const yLine = pageH - 74;
+
+  // Distribución simétrica de columnas:
+  // Con elaborador (3 columnas equilibradas): Autorizada | Elaborado | Solicitante
+  // Sin elaborador (2 columnas equilibradas): Autorizada | Solicitante
+  const colW = tieneElaborador ? 145 : 185;
+  const col1_x0 = MARGIN;
+  const col1_x1 = MARGIN + colW;
+  const col1_cx = (col1_x0 + col1_x1) / 2;
+
+  const col2_cx = PAGE_W / 2;
+  const col2_x0 = col2_cx - colW / 2;
+  const col2_x1 = col2_cx + colW / 2;
+
+  const col3_x1 = PAGE_W - MARGIN;
+  const col3_x0 = col3_x1 - colW;
+  const col3_cx = (col3_x0 + col3_x1) / 2;
+
+  // Firma sobre la columna de "Firma autorizada", centrada y sin fondo
+  if (ocAprobada) {
+    try {
+      const maxSigW = colW - 10;
+      const maxSigH = 50;
+      if (firmaCargada) {
+        const ratio = (firmaCargada.w || 1) / (firmaCargada.h || 1);
+        let sw = Math.min(maxSigW, maxSigH * ratio);
+        let sh = sw / ratio;
+        if (sh > maxSigH) { sh = maxSigH; sw = sh * ratio; }
+        const sx = col1_cx - sw / 2;
+        const sy = yLine - sh + 4;
+        doc.addImage(firmaCargada.dataUrl, 'PNG', sx, sy, sw, sh);
+      } else if (quienFirma === 'leydis' && firmaLeydis) {
+        const ratio = (firmaLeydis.w || 1) / (firmaLeydis.h || 1);
+        let sw = Math.min(maxSigW, maxSigH * ratio);
+        let sh = sw / ratio;
+        if (sh > maxSigH) { sh = maxSigH; sw = sh * ratio; }
+        const sx = col1_cx - sw / 2;
+        const sy = yLine - sh + 4;
+        doc.addImage(firmaLeydis.dataUrl, 'PNG', sx, sy, sw, sh);
+      } else if (firmaGerente) {
+        const sw = Math.min(maxSigW, 110);
+        const sh = Math.min(maxSigH, (sw * 317) / 707);
+        const sx = col1_cx - sw / 2;
+        const sy = yLine - sh + 4;
+        doc.addImage(firmaGerente, 'PNG', sx, sy, sw, sh);
+      }
+    } catch {
+      /* firma autorizada opcional */
+    }
+  }
+
+  // Firma sobre la columna de "Elaborado por", centrada y sin fondo
+  if (tieneElaborador && firmaElab) {
+    try {
+      const maxSigW = colW - 10;
+      const maxSigH = 50;
+      const ratio = (firmaElab.w || 1) / (firmaElab.h || 1);
+      let sw = Math.min(maxSigW, maxSigH * ratio);
+      let sh = sw / ratio;
+      if (sh > maxSigH) { sh = maxSigH; sw = sh * ratio; }
+      const sx = col2_cx - sw / 2;
+      const sy = yLine - sh + 4;
+      doc.addImage(firmaElab.dataUrl, 'PNG', sx, sy, sw, sh);
+    } catch {
+      /* firma elaborador opcional */
+    }
+  }
+
+  // Firma sobre la columna de "Analista solicitante", centrada y sin fondo
+  if (firmaSol) {
+    try {
+      const maxSigW = colW - 10;
+      const maxSigH = 50;
+      const ratio = (firmaSol.w || 1) / (firmaSol.h || 1);
+      let sw = Math.min(maxSigW, maxSigH * ratio);
+      let sh = sw / ratio;
+      if (sh > maxSigH) { sh = maxSigH; sw = sh * ratio; }
+      const sx = col3_cx - sw / 2;
+      const sy = yLine - sh + 4;
+      doc.addImage(firmaSol.dataUrl, 'PNG', sx, sy, sw, sh);
+    } catch {
+      /* firma solicitante opcional */
+    }
+  }
+
+  // Líneas de firma alineadas y al mismo nivel
+  doc.setDrawColor(180);
+  doc.setLineWidth(0.7);
+  doc.line(col1_x0, yLine, col1_x1, yLine);
+  if (tieneElaborador) {
+    doc.line(col2_x0, yLine, col2_x1, yLine);
+  }
+  doc.line(col3_x0, yLine, col3_x1, yLine);
+
+  // Títulos de columnas (Fila 1 bajo la línea)
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
-  doc.setTextColor(120);
+  doc.setTextColor(40);
+  doc.text('Firma autorizada · GOLDEN TOUCH 1127 C.A.', col1_cx, yLine + 13, { align: 'center' });
+  if (tieneElaborador) {
+    doc.text('Elaborado por', col2_cx, yLine + 13, { align: 'center' });
+  }
+  doc.text('Analista solicitante', col3_cx, yLine + 13, { align: 'center' });
+
+  // Detalles de personas (Fila 2 bajo la línea)
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100);
+  if (ocAprobada && ocAprobPor) {
+    const txtAprob = `Aprobada por ${quien(ocAprobPor, ocAprobEn)}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`;
+    doc.text(txtAprob, col1_cx, yLine + 23, { align: 'center' });
+  }
+  if (tieneElaborador) {
+    const txtElab = `${nombreElab.toUpperCase()} · Compras${ciElab ? ' · C.I. ' + ciElab : ''}`;
+    doc.text(txtElab, col2_cx, yLine + 23, { align: 'center' });
+  }
+  const txtSol = `${nombreAnalista}${ciAnalista ? ' · C.I. ' + ciAnalista : ''}`;
+  doc.text(txtSol, col3_cx, yLine + 23, { align: 'center' });
+  doc.setTextColor(0);
+
+  // Pie de página con código y fecha
+  doc.setFontSize(7.5);
+  doc.setTextColor(130);
   doc.text(
     `Documento auto-generado · ${orden.codigo} · ${dateTime(new Date().toISOString())}`,
     MARGIN,
-    pageH - 24,
+    pageH - 22,
   );
 
   previewPdf(doc, `${ocLabel}.pdf`);

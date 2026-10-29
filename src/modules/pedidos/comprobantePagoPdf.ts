@@ -14,6 +14,7 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
 import { labelMetodoPago, listAbonos } from './pedidos.repository';
+import { firmaCargadaDe } from '@/modules/usuarios/autorizados.repository';
 
 export async function descargarComprobantePagoPdf(ordenId: string): Promise<void> {
   const { data: ordenRow, error: oe } = await supabase.from('ordenes').select('*').eq('id', ordenId).single();
@@ -214,13 +215,7 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
 
   // ─── Firma (Tesorería) + pie ───
   if (y > pageH - 110) { doc.addPage(); y = MARGIN; }
-  try {
-    if (firmaGerente) {
-      const SIG_W = 150, SIG_H = 67;
-      doc.addImage(firmaGerente, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
-    }
-  } catch { /* firma opcional */ }
-  // Firma del analista solicitante (reemplaza firma del proveedor en los PDF de compras)
+
   const emailSol = (
     orden.solicitante_email ||
     (orden.solicitante?.includes('@') ? orden.solicitante : '') ||
@@ -237,21 +232,70 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
   })();
   const ciAnalista = orden.ci_solicitante || (emailSol ? personasCiMap.get(emailSol) : null);
 
+  const colW = 185;
+  const col1_x0 = MARGIN;
+  const col1_x1 = MARGIN + colW;
+  const col1_cx = (col1_x0 + col1_x1) / 2;
+
+  const col2_x1 = PAGE_W - MARGIN;
+  const col2_x0 = col2_x1 - colW;
+  const col2_cx = (col2_x0 + col2_x1) / 2;
+  const yLine = pageH - 74;
+
+  const [firmaPagador, firmaSol] = await Promise.all([
+    firmaCargadaDe(orden.pagada_por || orden.finalizada_por).catch(() => null),
+    emailSol ? firmaCargadaDe(emailSol).catch(() => null) : null,
+  ]);
+
+  try {
+    const fTes = firmaPagador || (firmaGerente ? { dataUrl: firmaGerente, w: 707, h: 317 } : null);
+    if (fTes) {
+      const ratio = (fTes.w || 1) / (fTes.h || 1);
+      let sw = Math.min(colW - 10, 50 * ratio);
+      let sh = sw / ratio;
+      if (sh > 50) { sh = 50; sw = sh * ratio; }
+      const sx = col1_cx - sw / 2;
+      const sy = yLine - sh + 4;
+      doc.addImage(fTes.dataUrl, 'PNG', sx, sy, sw, sh);
+    }
+  } catch { /* firma tesorería opcional */ }
+
+  try {
+    if (firmaSol) {
+      const ratio = (firmaSol.w || 1) / (firmaSol.h || 1);
+      let sw = Math.min(colW - 10, 50 * ratio);
+      let sh = sw / ratio;
+      if (sh > 50) { sh = 50; sw = sh * ratio; }
+      const sx = col2_cx - sw / 2;
+      const sy = yLine - sh + 4;
+      doc.addImage(firmaSol.dataUrl, 'PNG', sx, sy, sw, sh);
+    }
+  } catch { /* firma solicitante opcional */ }
+
   doc.setDrawColor(180);
-  doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
-  doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
-  doc.setFontSize(9); doc.setTextColor(0);
-  doc.text('Firma autorizada · Tesorería', MARGIN, pageH - 66);
-  doc.text('Analista solicitante', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
-  doc.setFontSize(7.5); doc.setTextColor(120);
+  doc.setLineWidth(0.7);
+  doc.line(col1_x0, yLine, col1_x1, yLine);
+  doc.line(col2_x0, yLine, col2_x1, yLine);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(40);
+  doc.text('Firma autorizada · Tesorería', col1_cx, yLine + 13, { align: 'center' });
+  doc.text('Analista solicitante', col2_cx, yLine + 13, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100);
   doc.text(
     `${nombreAnalista}${ciAnalista ? ' · C.I. ' + ciAnalista : ''}`,
-    PAGE_W - MARGIN,
-    pageH - 56,
-    { align: 'right' },
+    col2_cx,
+    yLine + 23,
+    { align: 'center' },
   );
-  doc.setFontSize(8); doc.setTextColor(120);
-  doc.text(`Documento auto-generado · GOLDEN TOUCH 1127 C.A. · ${ocLabel} · ${dateTime(new Date().toISOString())}`, MARGIN, pageH - 24);
+
+  doc.setFontSize(7.5);
+  doc.setTextColor(130);
+  doc.text(`Documento auto-generado · GOLDEN TOUCH 1127 C.A. · ${ocLabel} · ${dateTime(new Date().toISOString())}`, MARGIN, pageH - 22);
 
   previewPdf(doc, `comprobante-pago-${ocLabel}.pdf`);
 }

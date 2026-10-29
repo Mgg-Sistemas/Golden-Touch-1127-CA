@@ -35,11 +35,13 @@ const norm = (e?: string | null) => (e ?? '').trim().toLowerCase();
  * administración o LEYDIS RENGEL por correo), para no dejar a nadie sin botón.
  */
 export function puedeAprobarOc(role?: string | null, email?: string | null): boolean {
-  if (role === 'admin') return true;
-  const lista = autorizadoPara(email, 'oc');
+  const r = (role ?? '').trim().toLowerCase();
+  const e = norm(email);
+  if (r === 'admin' || r === 'administrador') return true;
+  const lista = autorizadoPara(e, 'oc');
   if (lista !== null) return lista;
-  if (role === 'jefa_de_administracion') return true;
-  return norm(email) === APROBADOR_LEYDIS_EMAIL;
+  if (r === 'jefa_de_administracion') return true;
+  return e === APROBADOR_LEYDIS_EMAIL;
 }
 
 /**
@@ -47,8 +49,10 @@ export function puedeAprobarOc(role?: string | null, email?: string | null): boo
  * Solo el admin y los usuarios autorizados con «Aprobar órdenes de salida».
  */
 export function puedeAprobarSalidas(role?: string | null, email?: string | null): boolean {
-  if (role === 'admin') return true;
-  return autorizadoPara(email, 'salidas') === true;
+  const r = (role ?? '').trim().toLowerCase();
+  const e = norm(email);
+  if (r === 'admin' || r === 'administrador') return true;
+  return autorizadoPara(e, 'salidas') === true;
 }
 
 /**

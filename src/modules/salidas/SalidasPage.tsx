@@ -7,6 +7,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
   Almacen, Caja, Existencia, Movimiento, MovimientoCaja, Producto,
@@ -83,14 +84,16 @@ const SOL_ESTADO_CLASS: Record<EstadoSolicitudSalida, string> = {
 };
 
 export function SalidasPage() {
-  const { can, appUser, role } = usePermissions();
-  const canWrite = can('salidas', 'escritura');
+  const { user } = useSession();
+  const { can, appUser, role, isAdmin } = usePermissions();
+  const actorEmail = appUser?.email ?? user?.email ?? '';
+  const actorRole = appUser?.role ?? role ?? (isAdmin ? 'admin' : '');
   // Aprueban (desde el 28/10/2026): el admin y los usuarios de Roles y Permisos ›
-  // «Usuarios autorizados para:» con la opción «Aprobar órdenes de salida». Ya no
-  // depende del rol (analista/jefe/full). Lo ya aprobado queda como está.
+  // «Usuarios autorizados para:» con la opción «Aprobar órdenes de salida».
   useAutorizados(); // vuelve a pintar cuando cambia la lista
-  const puedeAprobar = puedeAprobarSalidas(role, appUser?.email);
-  const actor = appUser?.email ?? 'sistema';
+  const puedeAprobar = puedeAprobarSalidas(actorRole, actorEmail);
+  const canWrite = isAdmin || puedeAprobar || can('salidas', 'escritura');
+  const actor = actorEmail || 'sistema';
   // Nombre COMPLETO (nombre + apellido) de la persona logueada, para que las
   // solicitudes/movimientos muestren "Nombre Apellido" y no solo el nombre.
   const actorName = [appUser?.nombre, appUser?.apellido].map((v) => (v ?? '').trim()).filter(Boolean).join(' ') || null;

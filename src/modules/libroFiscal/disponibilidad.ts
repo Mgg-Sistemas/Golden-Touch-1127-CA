@@ -66,10 +66,49 @@ export function p03Disponible(): Promise<boolean> {
   return tablaDisponible('retencion_documento_origenes');
 }
 
-/** R11 aplicado: el buzón de facturas del teléfono y las empresas que las reciben. */
+/** ¿El error dice que la columna no existe o no está expuesta? */
+function esColumnaInexistente(e: { code?: string; message?: string } | null | undefined): boolean {
+  if (!e) return false;
+  if (e.code === '42703' || e.code === 'PGRST204') return true;
+  return /column .* does not exist|could not find the .* column/i.test(e.message ?? '');
+}
+
+/**
+ * ¿Existe la columna (y, por lo tanto, su tabla)? Un GET de 0 filas pidiendo solo
+ * esa columna: si la columna no está, PostgREST responde 42703; si falta la tabla,
+ * 42P01/PGRST205. Sirve para distinguir un paquete de base de su versión siguiente.
+ */
+export function columnaDisponible(tabla: string, columna: string): Promise<boolean> {
+  const clave = `${tabla}.${columna}`;
+  const previa = cache.get(clave);
+  if (previa) return previa;
+  const consulta = (async () => {
+    try {
+      const { error } = await supabase.from(tabla).select(columna).limit(0);
+      if (!error) return true;
+      if (esColumnaInexistente(error) || esTablaInexistente(error)) return false;
+      if (esRespuestaDeLaBase(error)) return true;   // existe: otro rechazo (permiso, RLS…)
+      cache.delete(clave);
+      return false;
+    } catch {
+      cache.delete(clave);
+      return false;
+    }
+  })();
+  cache.set(clave, consulta);
+  return consulta;
+}
+
+/**
+ * R11 + R12 aplicados: el buzón de facturas del teléfono y las empresas que las
+ * reciben. R12 agrega la columna tipo_documento y ablanda los campos; por eso se
+ * pide esa columna (que ya implica que la tabla existe), para que el teléfono no
+ * intente cargar contra una base a medias.
+ */
 export async function buzonDisponible(): Promise<boolean> {
   const [facturas, empresas] = await Promise.all([
-    tablaDisponible('retencion_facturas_externas'), tablaDisponible('retencion_empresas_receptoras'),
+    columnaDisponible('retencion_facturas_externas', 'tipo_documento'),
+    tablaDisponible('retencion_empresas_receptoras'),
   ]);
   return facturas && empresas;
 }

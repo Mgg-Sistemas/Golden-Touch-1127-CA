@@ -146,7 +146,7 @@ const KANBAN_COLS_PEDIDOS: KanbanCol[] = [
 
 const KANBAN_COLS_OC: KanbanCol[] = [
   { key: 'aprobada', label: 'Pendiente (cargar ofertas)', sinLimite: true }, // OP aprobada → cargar cotizaciones
-  { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' }, // oferta elegida → espera aprobación
+  { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' }, // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
   { key: 'oc_aprobada', label: 'Confirmada pagar' },                     // método indicado → Tesorería
@@ -164,7 +164,7 @@ const KANBAN_COLS_OC: KanbanCol[] = [
 const KANBAN_COLS_SERVICIOS: KanbanCol[] = [
   { key: 'pendiente', label: 'Solicitado', sinLimite: true },                 // SS creada → espera aprobación para cotizar
   { key: 'aprobada', label: 'Aprobado (cotizar)', sinLimite: true },          // aprobada → cargar cotizaciones
-  { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' },  // oferta elegida → espera aprobación
+  { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' },  // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },             // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmado (indicar método de pago)' }, // gerente confirmó → falta método
   { key: 'oc_aprobada', label: 'Confirmado pagar' },                          // método indicado → Tesorería
@@ -278,7 +278,7 @@ type ModalKind =
 
 export function PedidosPage() {
   const { user } = useSession();
-  const { can } = usePermissions();
+  const { can, role, appUser, isAdmin: isPermAdmin } = usePermissions();
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -427,11 +427,11 @@ export function PedidosPage() {
     [usuarios]
   );
 
-  const isAdmin = usuario?.role === 'admin';
+  const isAdmin = isPermAdmin || usuario?.role === 'admin' || role === 'admin';
   // La matriz de permisos gobierna el acceso (no el rol hardcodeado): quien tiene
   // 'escritura' sobre Pedidos trabaja el módulo completo (crear solicitudes y
   // gestionar Compras: ofertas, emitir/confirmar OC, recibir). El "aprobar" final
-  // de la OC sigue reservado al admin (regla de negocio).
+  // de la OC lo hacen el admin o los usuarios autorizados (regla de negocio).
   const canWrite = isAdmin || can('pedidos', 'escritura');
   const canManageProcurement = canWrite;
   // APROBAR la Solicitud de Pedido (pendiente → aprobada) la hace COMPRAS
@@ -440,13 +440,16 @@ export function PedidosPage() {
   // de compra» (aprobadoresOc.ts). Reforzado en la base por el trigger enforce_admin_aprueba_orden,
   // que gatea oc_aprobada_por con puede_aprobar_oc() (admin o usuarios_autorizados.aprobar_oc).
   useAutorizados(); // vuelve a pintar cuando cambia la lista de autorizados
+  const userEmail = appUser?.email ?? usuario?.email ?? user?.email ?? '';
+  const userRole = usuario?.role ?? role;
   const puedeAprobarSolicitud = canManageProcurement; // SP: Compras (analista/admin)
-  const puedeAprobarPedidos = puedeAprobarOc(usuario?.role, usuario?.email); // OC: admin o usuario autorizado
+  const puedeAprobarPedidos = puedeAprobarOc(userRole, userEmail); // OC: admin o usuario autorizado
+  const canVerCompras = canManageProcurement || puedeAprobarPedidos;
 
-  // Quien no gestiona compras solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
+  // Quien no gestiona compras ni aprueba OC solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
   useEffect(() => {
-    if (!canManageProcurement && scope !== 'pedidos') setScope('pedidos');
-  }, [canManageProcurement, scope]);
+    if (!canVerCompras && scope !== 'pedidos') setScope('pedidos');
+  }, [canVerCompras, scope]);
 
   // Alertas de Cocina (restablecer el mercado): solo le importan a Compras.
   const refreshAlertas = useCallback(async () => {
@@ -462,15 +465,15 @@ export function PedidosPage() {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo marcar', 'error'); }
   }
 
-  // El admin arranca directo en Órdenes de Compra (una sola vez, al cargar su perfil).
+  // El admin o quien aprueba OC arranca directo en Órdenes de Compra (una sola vez, al cargar su perfil).
   const scopeDefaulted = useRef(false);
   useEffect(() => {
-    if (!usuario || scopeDefaulted.current) return;
+    if ((!usuario && !appUser) || scopeDefaulted.current) return;
     scopeDefaulted.current = true;
     // Si venimos con ?tab=… (p. ej. desde la tarjeta del Dashboard), respetarlo.
     if (searchParams.get('tab')) return;
-    if (usuario.role === 'admin') setScope('oc');
-  }, [usuario, searchParams]);
+    if (isAdmin || puedeAprobarPedidos) setScope('oc');
+  }, [usuario, appUser, isAdmin, puedeAprobarPedidos, searchParams]);
 
   // Abrir un tab directo desde la URL (?tab=oc_lote), p. ej. desde la tarjeta
   // "Órdenes pendientes" del Dashboard → "OC por lote".
@@ -503,9 +506,9 @@ export function PedidosPage() {
   }), [proveedorMap, personaMap, categoriaPorSku, equiposMap]);
   // Quiénes hicieron las órdenes de la pestaña actual (para el select «Realizadas por»).
   const personasRealizaron = useMemo(() => {
-    const base = ordenes.filter((o) => (scope === 'servicios' ? o.tipo === 'servicio' : !(o.tipo === 'servicio' && canManageProcurement)));
+    const base = ordenes.filter((o) => (scope === 'servicios' ? o.tipo === 'servicio' : !(o.tipo === 'servicio' && canVerCompras)));
     return personasQueRealizaron(base, personaMap);
-  }, [ordenes, scope, canManageProcurement, personaMap]);
+  }, [ordenes, scope, canVerCompras, personaMap]);
 
   const filteredOrdenes = useMemo(() => {
     return ordenes.filter((o) => {
@@ -515,14 +518,14 @@ export function PedidosPage() {
       // mostrando en su vista para no perder visibilidad.
       const esServicio = o.tipo === 'servicio';
       if (scope === 'servicios') { if (!esServicio) return false; }
-      else if (esServicio && canManageProcurement) return false;
+      else if (esServicio && canVerCompras) return false;
       if (filterEstado && o.estado !== filterEstado) return false;
       if (filterPersona && realizadaPor(o) !== filterPersona) return false;
       // Busca por TODAS las características de la orden (código, proveedor, quién la hizo,
       // productos, montos, fechas, estado, método de pago…). 17/10/2026.
       return coincideOrden(o, filterText, ctxBusqueda);
     });
-  }, [ordenes, filterText, filterEstado, filterPersona, viewMode, ctxBusqueda, scope, canManageProcurement]);
+  }, [ordenes, filterText, filterEstado, filterPersona, viewMode, ctxBusqueda, scope, canVerCompras]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -737,8 +740,8 @@ export function PedidosPage() {
         </div>
       )}
 
-      {/* Solo quien gestiona compras ve las pestañas de OC / lote / compra directa. */}
-      {canManageProcurement && (
+      {/* Solo quien gestiona compras o aprueba OC ve las pestañas de OC / lote / compra directa. */}
+      {canVerCompras && (
         <div
           className="view-toggle"
           role="tablist"
@@ -766,13 +769,15 @@ export function PedidosPage() {
           >
             📋 OC por lote
           </button>
-          <button
-            className={scope === 'compra_directa' ? 'active' : ''}
-            onClick={() => switchScope('compra_directa')}
-            title="Compras sin proveedor"
-          >
-            🛒 Compra Directa
-          </button>
+          {canManageProcurement && (
+            <button
+              className={scope === 'compra_directa' ? 'active' : ''}
+              onClick={() => switchScope('compra_directa')}
+              title="Compras sin proveedor"
+            >
+              🛒 Compra Directa
+            </button>
+          )}
           <button
             className={scope === 'servicios' ? 'active' : ''}
             onClick={() => switchScope('servicios')}
@@ -780,13 +785,15 @@ export function PedidosPage() {
           >
             🔧 Servicios
           </button>
-          <button
-            className={scope === 'servicio_directo' ? 'active' : ''}
-            onClick={() => switchScope('servicio_directo')}
-            title="Servicios sin trámite · igual que Compra Directa pero como servicio"
-          >
-            🔧 Servicio Directo
-          </button>
+          {canManageProcurement && (
+            <button
+              className={scope === 'servicio_directo' ? 'active' : ''}
+              onClick={() => switchScope('servicio_directo')}
+              title="Servicios sin trámite · igual que Compra Directa pero como servicio"
+            >
+              🔧 Servicio Directo
+            </button>
+          )}
         </div>
       )}
 
@@ -896,7 +903,7 @@ export function PedidosPage() {
           proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
           personaMap={personaMap}
-          isAdmin={puedeAprobarPedidos}
+          isAdmin={isAdmin || puedeAprobarPedidos}
           canManageProcurement={canManageProcurement}
           enOc={scope === 'oc' || scope === 'servicios'}
           actorEmail={user?.email ?? ''}
@@ -2855,12 +2862,14 @@ function OrdenDetailModal({
         </button>
       )}
       {/* Confirmada por el gerente: falta indicar el método de pago y enviar a pagar. */}
-      {isConfirmadaMetodo && canManageProcurement && (
+      {isConfirmadaMetodo && (canManageProcurement || isAdmin) && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
-          <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
-            💳 Indicar método de pago / Enviar para Pagar
-          </button>
+          {canManageProcurement && (
+            <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
+              💳 Indicar método de pago / Enviar para Pagar
+            </button>
+          )}
         </>
       )}
       {puedeEditarPreciosPago && (
