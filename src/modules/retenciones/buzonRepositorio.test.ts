@@ -96,7 +96,8 @@ describe('Buzón · guardar en la base, sin copia en el navegador', () => {
     expect(f.montoBs).toBe(5000);
     const ins = insertado();
     expect(ins).toMatchObject({ id: 'id-prueba', proveedor_rif: 'J-12345678-4', monto_total: 100, monto_usd: 100, monto_bs: 5000, estatus: 'recibida' });
-    expect(ins).not.toHaveProperty('created_by');   // el autor lo pone la base
+    expect(ins).not.toHaveProperty('created_by');        // el correo del autor lo pone la base
+    expect(ins).not.toHaveProperty('created_by_name');   // el nombre también (no un nombre falsificable del cliente)
     expect(llamadas.some((l) => l.que === 'retencion_facturas_externas.select')).toBe(true);
   });
 

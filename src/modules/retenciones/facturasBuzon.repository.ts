@@ -57,7 +57,6 @@ export interface NuevaFacturaBuzonInput {
   tasa?: number | null;
   descripcion: string;
   observaciones?: string | null;
-  createdByName?: string | null;
 }
 
 const TABLA = 'retencion_facturas_externas';
@@ -185,7 +184,7 @@ export async function crearFacturaBuzon(
     observaciones: input.observaciones?.trim() || null,
     estatus: 'recibida',
     adjuntos,
-    created_by_name: input.createdByName ?? null,
+    // El autor (correo y nombre) lo pone la base; el cliente no manda un nombre falsificable.
   }).select('*');
   if (error) throw errorRetencion(error, 'No se pudo guardar la factura.', { unico: 'Esa factura ya está cargada en el buzón.' });
   const fila = (data ?? [])[0] as Record<string, unknown> | undefined;
