@@ -118,6 +118,7 @@ export default defineConfig(({ command }) => ({
           if (id.includes('/fflate/')) return 'fflate';
           if (id.includes('jspdf') || id.includes('/canvg/') || id.includes('dompurify')) return 'pdf';
           if (id.includes('xlsx')) return 'xlsx';
+          if (id.includes('exceljs')) return 'exceljs';
           if (id.includes('html2canvas')) return 'html2canvas';
         },
       },
