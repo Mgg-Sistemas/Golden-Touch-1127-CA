@@ -33,6 +33,7 @@ import {
 } from './empresasReceptoras.repository';
 import {
   listFacturasBuzon, cargarFacturaBuzon, eliminarFacturaBuzon, faltaEnFacturaBuzon,
+  TIPOS_DOCUMENTO_BUZON, type TipoDocumentoBuzon,
   type FacturaExternaBuzon, type EstatusFacturaBuzon, type NuevaFacturaBuzonInput,
 } from './facturasBuzon.repository';
 import {
@@ -42,6 +43,7 @@ import {
 import {
   reproducirSonidoFacturaNueva, isSonidoRetencionesHabilitado, toggleSonidoRetenciones,
 } from './soundRetenciones';
+import { lanzarAvisoFactura } from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
 
 const ESTATUS_CONFIG: Record<EstatusFacturaBuzon, { label: string; icono: string; clase: string }> = {
@@ -748,6 +750,7 @@ function FormularioCargaFactura({
   const [proveedorNombre, setProveedorNombre] = useState('');
   const [proveedorRif, setProveedorRif] = useState('');
   const [rifAviso, setRifAviso] = useState<string | null>(null);
+  const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoBuzon>('factura');
   const [numeroFactura, setNumeroFactura] = useState('');
   const [numeroControl, setNumeroControl] = useState('');
   const [fechaFactura, setFechaFactura] = useState(hoy);
@@ -858,8 +861,9 @@ function FormularioCargaFactura({
     e.preventDefault();
     if (guardando) return;
 
-    const monto = montoTotal.trim() ? leerMonto(montoTotal) : 0;
-    if (monto == null) {
+    // El monto es opcional: si está vacío, se guarda sin monto (0). Si se escribió, tiene que entenderse.
+    const monto = montoTotal.trim() ? leerMonto(montoTotal) : undefined;
+    if (monto == null && montoTotal.trim()) {
       toast('No se entiende el monto total: escribe 1.234,56 o 1234,56.', 'warning');
       return;
     }
@@ -872,15 +876,16 @@ function FormularioCargaFactura({
     const input: NuevaFacturaBuzonInput = {
       empresaId,
       empresaNombre: empresaSeleccionada?.nombre ?? '',
+      tipoDocumento,
       proveedorNombre: proveedorNombre.trim(),
-      proveedorRif: proveedorRif.trim(),
-      facturaNumero: numeroFactura.trim(),
+      proveedorRif: proveedorRif.trim() || null,
+      facturaNumero: numeroFactura.trim() || null,
       facturaControl: numeroControl.trim() || null,
-      facturaFecha: fechaFactura,
-      montoTotal: monto,
+      facturaFecha: fechaFactura || null,
+      montoTotal: monto ?? undefined,
       moneda,
       tasa: tasaNum,
-      descripcion: descripcion.trim(),
+      descripcion: descripcion.trim() || null,
       observaciones: observaciones.trim() || null,
       // El autor (correo y nombre) lo pone la base: el teléfono no decide quién la cargó.
     };
@@ -891,6 +896,10 @@ function FormularioCargaFactura({
       return;
     }
 
+    if (archivos.length === 0) {
+      toast('Agrega al menos un soporte: una foto o un PDF de la factura.', 'warning');
+      return;
+    }
     const val = validarAdjuntosBuzon(archivos);
     if (!val.valido) {
       toast(val.error || 'Revisa los soportes adjuntos.', 'warning');
@@ -910,8 +919,11 @@ function FormularioCargaFactura({
       // Guarda la factura, sube los soportes y los registra; si algo falla no queda nada a medias
       const fac = await cargarFacturaBuzon(input, preparados, setProgresoMsg);
 
-      // Notificación sonora distintiva
+      // Al guardar: el sonido distintivo y, además, el aviso nativo del dispositivo
+      // (con permiso y avisos activos). El sonido ya lo pone reproducirSonidoFacturaNueva,
+      // así que el aviso se lanza sin sonido para no repetirlo.
       reproducirSonidoFacturaNueva();
+      lanzarAvisoFactura(fac, { conSonido: false });
 
       toast('Factura cargada', 'success');
       onGuardada(fac);
@@ -943,7 +955,7 @@ function FormularioCargaFactura({
       {/* Empresa Receptora - Selector Táctil + Botón Escribir Otra */}
       <div className="surt-campo">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
-          <label style={{ margin: 0 }}>1. Empresa que recibe la factura *</label>
+          <label style={{ margin: 0 }}>Empresa que recibe la factura *</label>
           {empresaSeleccionada && (
             <span style={{ fontSize: '0.78rem', color: 'var(--primary-2)', fontWeight: 700 }}>
               {empresaSeleccionada.nombreCorto || empresaSeleccionada.nombre}
@@ -990,7 +1002,7 @@ function FormularioCargaFactura({
       {/* Proveedor y RIF */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>2. Nombre del proveedor *</label>
+          <label>Nombre del proveedor *</label>
           <input
             type="text"
             className="input surt-input"
@@ -1001,7 +1013,7 @@ function FormularioCargaFactura({
           />
         </div>
         <div className="surt-campo">
-          <label>RIF del proveedor *</label>
+          <label>RIF del proveedor</label>
           <input
             type="text"
             className="input surt-input"
@@ -1010,23 +1022,39 @@ function FormularioCargaFactura({
             onChange={(e) => { setProveedorRif(e.target.value); setRifAviso(null); }}
             onBlur={revisarRif}
             autoCapitalize="characters"
-            required
           />
           {rifAviso && <small className="hint" style={{ color: 'var(--danger)' }}>{rifAviso}</small>}
+        </div>
+      </div>
+
+      {/* Tipo de documento: Factura por defecto */}
+      <div className="surt-campo">
+        <label>Tipo de documento *</label>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${TIPOS_DOCUMENTO_BUZON.length}, 1fr)`, gap: '0.4rem' }}>
+          {TIPOS_DOCUMENTO_BUZON.map((t) => (
+            <button
+              key={t.valor}
+              type="button"
+              className={`btn ${tipoDocumento === t.valor ? 'primario' : ''}`}
+              style={{ minHeight: '48px', fontSize: '0.92rem', fontWeight: 700 }}
+              onClick={() => setTipoDocumento(t.valor)}
+            >
+              {t.etiqueta}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Número de Factura y Control */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>3. Número de factura *</label>
+          <label>Número de factura</label>
           <input
             type="text"
             className="input surt-input"
             placeholder="Ej. 00045812"
             value={numeroFactura}
             onChange={(e) => setNumeroFactura(e.target.value)}
-            required
           />
         </div>
         <div className="surt-campo">
@@ -1044,14 +1072,13 @@ function FormularioCargaFactura({
       {/* Fecha y Moneda/Monto */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>4. Fecha de la factura *</label>
+          <label>Fecha de la factura</label>
           <input
             type="date"
             className="input surt-input"
             value={fechaFactura}
             max={hoy}
             onChange={(e) => setFechaFactura(e.target.value)}
-            required
           />
         </div>
         <div className="surt-campo">
@@ -1080,7 +1107,7 @@ function FormularioCargaFactura({
       {/* Monto y Tasa */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>5. Monto total ({moneda === 'USD' ? '$' : 'Bs'}) *</label>
+          <label>Monto total ({moneda === 'USD' ? '$' : 'Bs'})</label>
           <input
             type="text"
             inputMode="decimal"
@@ -1088,7 +1115,6 @@ function FormularioCargaFactura({
             placeholder="Ej. 1.234,56"
             value={montoTotal}
             onChange={(e) => setMontoTotal(e.target.value)}
-            required
           />
           <SeLeyo texto={montoTotal} />
           {equivalenteBs != null && (
@@ -1096,7 +1122,7 @@ function FormularioCargaFactura({
           )}
         </div>
         <div className="surt-campo">
-          <label>Tasa del día (Bs por $){moneda === 'USD' ? ' *' : ''}</label>
+          <label>Tasa del día (Bs por $)</label>
           <input
             type="text"
             inputMode="decimal"
@@ -1104,7 +1130,6 @@ function FormularioCargaFactura({
             placeholder="Ej. 36,50"
             value={tasa}
             onChange={(e) => setTasa(e.target.value)}
-            required={moneda === 'USD'}
           />
           <SeLeyo texto={tasa} decimales={4} />
         </div>
@@ -1112,19 +1137,18 @@ function FormularioCargaFactura({
 
       {/* Descripción y Notas */}
       <div className="surt-campo">
-        <label>6. Descripción / Concepto de la compra *</label>
+        <label>Descripción / Concepto de la compra</label>
         <textarea
           className="input surt-input"
           style={{ minHeight: '80px', paddingTop: '0.5rem' }}
           placeholder="Ej. Compra de repuestos para el tractor D8K, lubricantes y filtros..."
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
-          required
         />
       </div>
 
       <div className="surt-campo">
-        <label>7. Notas</label>
+        <label>Notas</label>
         <input
           type="text"
           className="input surt-input"
@@ -1137,7 +1161,7 @@ function FormularioCargaFactura({
       {/* Soportes y Adjuntos: Máximo 4 imágenes y 2 PDFs */}
       <div className="buzon-adjuntos-cont">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-          <strong style={{ fontSize: '0.95rem' }}>📎 Soportes y Adjuntos</strong>
+          <strong style={{ fontSize: '0.95rem' }}>📎 Soportes y Adjuntos *</strong>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             Máx {REGLA_BUZON.maxImagenes} fotos y {REGLA_BUZON.maxPdfs} PDFs
           </span>
@@ -1231,7 +1255,8 @@ function FormularioCargaFactura({
         <button
           type="submit"
           className="btn primario surt-guardar"
-          disabled={guardando}
+          disabled={guardando || archivos.length === 0}
+          title={archivos.length === 0 ? 'Agrega al menos un soporte (foto o PDF)' : undefined}
         >
           {guardando ? progresoMsg || 'Guardando…' : '💾 Guardar y Enviar'}
         </button>

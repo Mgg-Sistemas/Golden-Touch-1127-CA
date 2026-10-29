@@ -18,10 +18,23 @@ import { borrarArchivosBuzon, subirArchivoBuzon, type AdjuntoFacturaItem } from 
 
 export type EstatusFacturaBuzon = 'recibida' | 'en_revision' | 'retenida' | 'descartada';
 
+export type TipoDocumentoBuzon = 'factura' | 'nota_debito' | 'nota_credito';
+
+/** El tipo de documento, con la palabra que ve el usuario. Factura es lo habitual. */
+export const TIPOS_DOCUMENTO_BUZON: { valor: TipoDocumentoBuzon; etiqueta: string }[] = [
+  { valor: 'factura', etiqueta: 'Factura' },
+  { valor: 'nota_debito', etiqueta: 'Nota de débito' },
+  { valor: 'nota_credito', etiqueta: 'Nota de crédito' },
+];
+
+export const rotuloTipoDocumento = (t: TipoDocumentoBuzon | string): string =>
+  TIPOS_DOCUMENTO_BUZON.find((x) => x.valor === t)?.etiqueta ?? 'Factura';
+
 export interface FacturaExternaBuzon {
   id: string;
   empresaId: string;
   empresaNombre: string;
+  tipoDocumento: TipoDocumentoBuzon;
   proveedorNombre: string;
   proveedorRif: string;
   facturaNumero: string;
@@ -47,15 +60,19 @@ export type FacturaBuzon = FacturaExternaBuzon;
 export interface NuevaFacturaBuzonInput {
   empresaId: string;
   empresaNombre: string;
+  tipoDocumento: TipoDocumentoBuzon;
   proveedorNombre: string;
-  proveedorRif: string;
-  facturaNumero: string;
+  /** Opcional en el buzón: la validación fiscal del RIF es después, al volverse retención. */
+  proveedorRif?: string | null;
+  facturaNumero?: string | null;
   facturaControl?: string | null;
-  facturaFecha: string;
-  montoTotal: number;
+  /** Opcional; si no viene, el teléfono manda la fecha de hoy (hora de Venezuela). */
+  facturaFecha?: string | null;
+  /** Opcional; vacío cuenta como 0. */
+  montoTotal?: number | null;
   moneda: 'Bs' | 'USD';
   tasa?: number | null;
-  descripcion: string;
+  descripcion?: string | null;
   observaciones?: string | null;
 }
 
@@ -76,6 +93,7 @@ function mapearFilaFactura(r: Record<string, unknown>): FacturaExternaBuzon {
     id: String(r.id),
     empresaId: String(r.empresa_id ?? ''),
     empresaNombre: String(r.empresa_nombre ?? ''),
+    tipoDocumento: (r.tipo_documento as TipoDocumentoBuzon) || 'factura',
     proveedorNombre: String(r.proveedor_nombre ?? ''),
     proveedorRif: String(r.proveedor_rif ?? ''),
     facturaNumero: String(r.factura_numero ?? ''),
@@ -126,25 +144,29 @@ function filtrarPorTexto(xs: FacturaExternaBuzon[], q?: string): FacturaExternaB
   );
 }
 
-/** Qué falta o está mal en la factura; null si se puede guardar. */
+/**
+ * Qué falta o está mal en la factura; null si se puede guardar.
+ *
+ * En el buzón del teléfono solo son obligatorios la empresa, el proveedor y el
+ * tipo de documento (el ≥1 soporte lo exige la carga, que ve los archivos).
+ * El resto es opcional: el RIF no se valida aquí (la validación fiscal es
+ * después, al volverse retención), la fecha trae hoy por defecto y el monto
+ * vacío cuenta como 0. Solo se cuidan los topes de largo y que lo escrito tenga
+ * forma (fecha no futura, tasa positiva).
+ */
 export function faltaEnFacturaBuzon(input: NuevaFacturaBuzonInput, hoy: string = hoyVenezuela()): string | null {
   if (!input.empresaId) return 'Elige la empresa que recibe la factura.';
   if (!input.proveedorNombre?.trim()) return 'Indica el nombre del proveedor.';
-  if (!String(input.proveedorRif ?? '').trim()) return 'Indica el RIF del proveedor (sale impreso en la factura).';
-  const rif = completarRif(input.proveedorRif);
-  if (!rif || rif.startsWith('C')) {
-    return `El RIF del proveedor «${input.proveedorRif.trim()}» no es válido: letra (J, G, V, E o P), 8 dígitos y el verificador.`;
-  }
   if (input.proveedorNombre.trim().length > 200) return 'El nombre del proveedor va hasta 200 caracteres.';
-  if (!input.facturaNumero?.trim()) return 'Indica el número de la factura.';
-  if (input.facturaNumero.trim().length > 40 || (input.facturaControl?.trim().length ?? 0) > 40) return 'El número y el control de la factura van hasta 40 caracteres.';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.facturaFecha ?? '')) return 'Indica la fecha de la factura.';
-  if (input.facturaFecha > hoy) return 'La fecha de la factura no puede ser posterior a hoy.';
-  if (!Number.isFinite(input.montoTotal) || input.montoTotal <= 0) return 'El monto total tiene que ser mayor que 0.';
-  if (input.moneda === 'USD' && !(input.tasa != null && input.tasa > 0)) return 'Para una factura en dólares, indica la tasa del día para pasarla a bolívares.';
+  if (!TIPOS_DOCUMENTO_BUZON.some((t) => t.valor === input.tipoDocumento)) return 'Elige el tipo de documento.';
+  if ((input.facturaNumero?.trim().length ?? 0) > 40 || (input.facturaControl?.trim().length ?? 0) > 40) return 'El número y el control de la factura van hasta 40 caracteres.';
+  if (input.facturaFecha) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.facturaFecha)) return 'La fecha de la factura no es válida.';
+    if (input.facturaFecha > hoy) return 'La fecha de la factura no puede ser posterior a hoy.';
+  }
+  if (input.montoTotal != null && (!Number.isFinite(input.montoTotal) || input.montoTotal < 0)) return 'El monto no puede ser negativo.';
   if (input.tasa != null && !(input.tasa > 0)) return 'La tasa tiene que ser mayor que 0.';
-  if (!input.descripcion?.trim()) return 'Indica qué se compró (descripción).';
-  if (input.descripcion.trim().length > 1000) return 'La descripción va hasta 1000 caracteres.';
+  if ((input.descripcion?.trim().length ?? 0) > 1000) return 'La descripción va hasta 1000 caracteres.';
   if ((input.observaciones?.trim().length ?? 0) > 2000) return 'Las observaciones van hasta 2000 caracteres.';
   return null;
 }
@@ -161,26 +183,30 @@ export async function crearFacturaBuzon(
   const falta = faltaEnFacturaBuzon(input);
   if (falta) throw new Error(falta);
 
-  const montoTotal = redondear(input.montoTotal);
+  const montoTotal = redondear(input.montoTotal ?? 0);
   const tasa = input.tasa != null ? input.tasa : null;
   const montoBs = input.moneda === 'Bs' ? montoTotal : redondear(montoTotal * (tasa ?? 0));
   const montoUsd = input.moneda === 'USD' ? montoTotal : (tasa && tasa > 0 ? redondear(montoTotal / tasa) : null);
+
+  // RIF opcional: si se escribió y tiene arreglo, se guarda completo; si no, va sin RIF (null).
+  const rifCompleto = input.proveedorRif?.trim() ? completarRif(input.proveedorRif) : null;
 
   const { data, error } = await supabase.from(TABLA).insert({
     id,
     empresa_id: input.empresaId,
     empresa_nombre: input.empresaNombre,
+    tipo_documento: input.tipoDocumento,
     proveedor_nombre: input.proveedorNombre.trim(),
-    proveedor_rif: formatearRif(completarRif(input.proveedorRif)),
-    factura_numero: input.facturaNumero.trim(),
+    proveedor_rif: rifCompleto ? formatearRif(rifCompleto) : null,
+    factura_numero: input.facturaNumero?.trim() || null,
     factura_control: input.facturaControl?.trim() || null,
-    factura_fecha: input.facturaFecha,
+    factura_fecha: input.facturaFecha || null,
     monto_total: montoTotal,
     moneda: input.moneda,
     tasa,
     monto_bs: montoBs,
     monto_usd: montoUsd,
-    descripcion: input.descripcion.trim(),
+    descripcion: input.descripcion?.trim() || null,
     observaciones: input.observaciones?.trim() || null,
     estatus: 'recibida',
     adjuntos,
@@ -205,6 +231,8 @@ export async function cargarFacturaBuzon(
 ): Promise<FacturaExternaBuzon> {
   const falta = faltaEnFacturaBuzon(input);
   if (falta) throw new Error(falta);
+  // El soporte es obligatorio: una factura del buzón entra con al menos una foto o un PDF.
+  if (!archivos.length) throw new Error('Agrega al menos un soporte de la factura (una foto o un PDF).');
 
   const id = crypto.randomUUID();
   const subidos: AdjuntoFacturaItem[] = [];

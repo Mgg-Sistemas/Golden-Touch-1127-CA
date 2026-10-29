@@ -110,12 +110,13 @@ const RESTRICCIONES: Record<string, string> = {
   retencion_facturas_externas_id_forma: 'El identificador de la factura no es válido. Vuelve a intentarlo.',
   retencion_facturas_externas_moneda_lista: 'La moneda de la factura es Bs o USD.',
   retencion_facturas_externas_estatus_lista: 'Ese estado de la factura no existe.',
-  retencion_facturas_externas_montos_rango: 'Los montos de la factura no pueden ser negativos.',
-  retencion_facturas_externas_monto_moneda: 'El monto en la moneda de la factura no cuadra con el total. Vuelve a escribirlo.',
+  retencion_facturas_externas_tipo_documento_lista: 'El tipo de documento no es válido.',
+  retencion_facturas_externas_montos_rango: 'El monto no puede ser negativo.',
+  retencion_facturas_externas_monto_moneda: 'El monto en bolívares no cuadra con la moneda.',
   retencion_facturas_externas_tasa_rango: 'La tasa de cambio tiene que ser mayor que 0.',
-  retencion_facturas_externas_fecha_rango: 'La fecha de la factura va entre 2000 y 2100.',
-  retencion_facturas_externas_rif_forma: 'El RIF del proveedor no es válido: letra V, E, J, P o G y 9 números (los guiones no cuentan).',
-  retencion_facturas_externas_textos_largo: 'Un dato de la factura es demasiado largo: proveedor hasta 200, número y control hasta 40, descripción hasta 1000 y observaciones hasta 2000 caracteres.',
+  retencion_facturas_externas_fecha_rango: 'La fecha de la factura no es válida.',
+  retencion_facturas_externas_rif_forma: 'El RIF no tiene forma válida (letra y 8 dígitos y el verificador), o déjalo vacío.',
+  retencion_facturas_externas_textos_largo: 'Algún texto supera el largo permitido.',
   retencion_facturas_externas_adjuntos_tope: 'Los soportes no cumplen las reglas: hasta 4 fotos y 2 PDF de 12 MB como máximo cada uno.',
 };
 
