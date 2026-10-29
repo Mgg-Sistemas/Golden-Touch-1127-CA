@@ -58,58 +58,79 @@ export async function quitarAutorizado(email: string): Promise<void> {
   await recargarAutorizados();
 }
 
+import {
+  limpiarFirmaDataUrl as limpiarFirmaDataUrlLib,
+  procesarArchivoFirma,
+  recortarYLimpiarCanvas,
+  type ResultadoFirma,
+} from '@/shared/lib/limpiarFirma';
+
+const cacheFirmasLimpias = new Map<string, ResultadoFirma>();
+
+/**
+ * Limpia y transparenta cualquier imagen de firma:
+ * - Reduce al tamaño óptimo manteniendo la proporción
+ * - Detecta adaptativamente el fondo del papel (incluso fotos con sombras o fondo gris)
+ * - Vuelve 100% transparente el fondo y resalta el trazo de la tinta en negro carbón
+ * - Recorta los márgenes vacíos para que la firma calce perfectamente sobre la línea
+ */
+export function procesarFirmaTransparente(
+  img: HTMLImageElement | HTMLCanvasElement,
+  maxW = 700,
+): ResultadoFirma {
+  const origW = 'naturalWidth' in img ? (img.naturalWidth || img.width) : img.width;
+  const origH = 'naturalHeight' in img ? (img.naturalHeight || img.height) : img.height;
+  if (!origW || !origH) throw new Error('Dimensiones de firma no disponibles.');
+
+  const escala = Math.min(1, maxW / origW);
+  const w = Math.max(1, Math.round(origW * escala));
+  const h = Math.max(1, Math.round(origH * escala));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('El navegador no permite procesar canvas 2D.');
+
+  ctx.drawImage(img, 0, 0, w, h);
+  return recortarYLimpiarCanvas(canvas, ctx);
+}
+
+/** Limpia cualquier firma en dataUrl para asegurar fondo transparente */
+export async function limpiarFirmaDataUrl(dataUrl: string, maxW = 700): Promise<ResultadoFirma> {
+  return limpiarFirmaDataUrlLib(dataUrl, maxW);
+}
+
 /**
  * Firma cargada del usuario que aprobó (para los PDF). Busca en memoria y, si
  * la lista no está cargada (PDF abierto desde otra pantalla), la consulta.
  * `null` si ese usuario no tiene firma cargada: el PDF usa la firma de siempre.
+ * Garantiza fondo transparente incluso si se guardó previamente con fondo de papel.
  */
-export async function firmaCargadaDe(email?: string | null): Promise<{ dataUrl: string; w: number; h: number } | null> {
+export async function firmaCargadaDe(email?: string | null): Promise<ResultadoFirma | null> {
   const e = (email ?? '').trim().toLowerCase();
   if (!e) return null;
+  const enCache = cacheFirmasLimpias.get(e);
+  if (enCache) return enCache;
   let a = autorizadoDe(e);
   if (!a && getAutorizados() === null) {
     const { data } = await supabase.from(TABLE).select(COLS).eq('email', e).maybeSingle();
     a = (data as UsuarioAutorizado | null) ?? null;
   }
   if (!a?.firma) return null;
-  return { dataUrl: a.firma, w: a.firma_w || 600, h: a.firma_h || 250 };
+  const limpia = await limpiarFirmaDataUrlLib(a.firma).catch(() => null);
+  const resultado = limpia || { dataUrl: a.firma, w: a.firma_w || 600, h: a.firma_h || 250 };
+  cacheFirmasLimpias.set(e, resultado);
+  if (limpia && limpia.dataUrl !== a.firma) {
+    void supabase.from(TABLE).update({ firma: limpia.dataUrl, firma_w: limpia.w, firma_h: limpia.h }).eq('email', e);
+  }
+  return resultado;
 }
 
 /**
  * Prepara la imagen de firma que sube el usuario: la reduce (máx. 700 px de ancho),
- * vuelve TRANSPARENTE el fondo blanco/claro y la exporta como PNG. Así se estampa
- * limpia sobre la línea de firma de los PDF, igual que las firmas de siempre.
+ * vuelve TRANSPARENTE el fondo blanco/grisáceo y la exporta como PNG sin bordes vacíos.
  */
-export async function prepararFirma(file: File): Promise<{ dataUrl: string; w: number; h: number }> {
-  if (!file.type.startsWith('image/')) throw new Error('La firma debe ser una imagen (PNG o JPG).');
-  if (file.size > 8 * 1024 * 1024) throw new Error('La imagen es muy grande (máx. 8 MB).');
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('No se pudo leer la imagen de la firma.'));
-      el.src = objectUrl;
-    });
-    const MAX_W = 700;
-    const escala = Math.min(1, MAX_W / (img.naturalWidth || MAX_W));
-    const w = Math.max(1, Math.round((img.naturalWidth || 600) * escala));
-    const h = Math.max(1, Math.round((img.naturalHeight || 250) * escala));
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('El navegador no permite procesar la imagen.');
-    ctx.drawImage(img, 0, 0, w, h);
-    const px = ctx.getImageData(0, 0, w, h);
-    const d = px.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const min = Math.min(d[i], d[i + 1], d[i + 2]);
-      if (min >= 235) d[i + 3] = 0;
-      else if (min >= 200) d[i + 3] = Math.min(d[i + 3], Math.round(((235 - min) / 35) * 255));
-    }
-    ctx.putImageData(px, 0, 0);
-    return { dataUrl: canvas.toDataURL('image/png'), w, h };
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+export async function prepararFirma(file: File): Promise<ResultadoFirma> {
+  return procesarArchivoFirma(file, 700);
 }

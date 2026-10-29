@@ -146,7 +146,7 @@ const KANBAN_COLS_PEDIDOS: KanbanCol[] = [
 
 const KANBAN_COLS_OC: KanbanCol[] = [
   { key: 'aprobada', label: 'Pendiente (cargar ofertas)', sinLimite: true }, // OP aprobada → cargar cotizaciones
-  { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' }, // oferta elegida → espera aprobación
+  { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' }, // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
   { key: 'oc_aprobada', label: 'Confirmada pagar' },                     // método indicado → Tesorería
@@ -164,7 +164,7 @@ const KANBAN_COLS_OC: KanbanCol[] = [
 const KANBAN_COLS_SERVICIOS: KanbanCol[] = [
   { key: 'pendiente', label: 'Solicitado', sinLimite: true },                 // SS creada → espera aprobación para cotizar
   { key: 'aprobada', label: 'Aprobado (cotizar)', sinLimite: true },          // aprobada → cargar cotizaciones
-  { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' },  // oferta elegida → espera aprobación
+  { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' },  // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },             // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmado (indicar método de pago)' }, // gerente confirmó → falta método
   { key: 'oc_aprobada', label: 'Confirmado pagar' },                          // método indicado → Tesorería
