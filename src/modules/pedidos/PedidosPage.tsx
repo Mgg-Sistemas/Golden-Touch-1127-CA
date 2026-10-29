@@ -107,7 +107,7 @@ import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
-import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_GERENTE_CANCELA, ESTADOS_FIRMADOS_GG } from './aprobadoresOc';
+import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_AUTORIZADOS_CANCELA, ESTADOS_FIRMADOS_GG } from './aprobadoresOc';
 import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
@@ -660,6 +660,7 @@ export function PedidosPage() {
               📊 Cierre diario
             </button>
           )}
+          {/* Reporte Pendientes por pagar ocultado a petición
           {canManageProcurement && (
             <button
               className="btn btn-ghost"
@@ -679,6 +680,7 @@ export function PedidosPage() {
               )}
             </button>
           )}
+          */}
           {canWrite && scope === 'pedidos' && (
             <button className="btn btn-ghost" onClick={() => setCategoriasOpen(true)} title="Gestionar clasificaciones y unidades solicitantes">
               🗂 Categorías
@@ -2653,10 +2655,10 @@ function OrdenDetailModal({
   // Ya firmada por el GG (espera método / confirmada pagar): solo quien aprueba OC la cancela.
   const firmadaGG = (ESTADOS_FIRMADOS_GG as readonly string[]).includes(o.estado);
   const canCancelOc =
-    canManageProcurement &&
+    (canManageProcurement || puedeAprobarOc(usuarioRole, actorEmail)) &&
     ['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'desistida_proveedor'].includes(o.estado) &&
     puedeCancelarOc(o.estado, usuarioRole, actorEmail);
-  const soloGerenteCancela = canManageProcurement && firmadaGG && !puedeCancelarOc(o.estado, usuarioRole, actorEmail);
+  const soloAutorizadoCancela = (canManageProcurement || puedeAprobarOc(usuarioRole, actorEmail)) && firmadaGG && !puedeCancelarOc(o.estado, usuarioRole, actorEmail);
   const isCancelada = o.estado === 'cancelada';
   // ¿La orden llegó a etapa de OC? (para ofrecer el PDF de la OC aun cancelada).
   const tuvoOc =
@@ -2819,12 +2821,12 @@ function OrdenDetailModal({
         <button className="btn btn-danger" onClick={onCancel}>Cancelar orden</button>
       )}
       {canCancelOc && (
-        <button className="btn btn-danger" onClick={onCancel} title={`Cancelar ${esServicioOrd ? 'el Control de Servicio' : 'la OC'} (indicando el motivo, que aparecerá en el PDF)${firmadaGG ? ' · ya aprobada por el GG: decisión del gerente' : ''}`}>
+        <button className="btn btn-danger" onClick={onCancel} title={`Cancelar ${esServicioOrd ? 'el Control de Servicio' : 'la OC'} (indicando el motivo, que aparecerá en el PDF)${firmadaGG ? ' · ya aprobada por el GG: decisión de usuario autorizado' : ''}`}>
           ✖ Cancelar {ocLbl}
         </button>
       )}
-      {soloGerenteCancela && (
-        <span className="muted" style={{ fontSize: '.78rem', alignSelf: 'center' }} title={MSG_SOLO_GERENTE_CANCELA}>🔒 Aprobada por el GG · solo el gerente puede cancelarla</span>
+      {soloAutorizadoCancela && (
+        <span className="muted" style={{ fontSize: '.78rem', alignSelf: 'center' }} title={MSG_SOLO_AUTORIZADOS_CANCELA}>🔒 Aprobada por el GG · solo los usuarios autorizados pueden anularla</span>
       )}
       {/* OC cancelada: el PDF queda disponible con el motivo de cancelación. */}
       {isCancelada && tuvoOc && (

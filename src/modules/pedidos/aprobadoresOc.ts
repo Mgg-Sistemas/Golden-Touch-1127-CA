@@ -57,8 +57,8 @@ export function firmaDeAprobador(email?: string | null): 'leydis' | 'gerente' {
   return norm(email) === APROBADOR_LEYDIS_EMAIL ? 'leydis' : 'gerente';
 }
 
-/** Etapas en las que la OC ya lleva la firma del Gerente General (espera método de pago o
- *  confirmada para pagar). Desde aquí, cancelarla o anularla es decisión del gerente. */
+/** Etapas en las que la OC ya lleva la firma (espera método de pago o
+ *  confirmada para pagar). Desde aquí, cancelarla o anularla es decisión de usuarios autorizados. */
 export const ESTADOS_FIRMADOS_GG = ['confirmada_metodo', 'oc_aprobada'] as const;
 
 /**
@@ -75,5 +75,6 @@ export function puedeCancelarOc(estado: string | null | undefined, role?: string
   return false;
 }
 
-export const MSG_SOLO_GERENTE_CANCELA =
-  'Esta OC ya fue aprobada por el Gerente General: solo un usuario autorizado para aprobar órdenes de compra puede cancelarla o anularla.';
+export const MSG_SOLO_AUTORIZADOS_CANCELA =
+  'Esta OC ya fue aprobada por el Gerente General: solo los usuarios autorizados pueden anularla.';
+export const MSG_SOLO_GERENTE_CANCELA = MSG_SOLO_AUTORIZADOS_CANCELA;
