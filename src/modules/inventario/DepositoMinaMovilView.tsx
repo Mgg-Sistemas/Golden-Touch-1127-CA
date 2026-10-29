@@ -11,6 +11,9 @@
    · «Salida» (13/10/2026): material, cantidad, motivo, ¿retorna? SÍ/NO y
      hasta 4 fotos, con aviso para WhatsApp. Lo que retorna queda en «Por
      retornar» y desde ahí vuelve al inventario (todo o por partes).
+   · «Reporte de stock» (29/10/2026): mensaje de WhatsApp con lo que hay en
+     el depósito al cierre de un período (desde / hasta), con lo que entró y
+     salió en esas fechas (stockMinaWhatsapp.ts). Lo ve también quien solo lee.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
@@ -27,6 +30,10 @@ import { DEPOSITOS } from './depositos';
 import { FormSalidaMina, PorRetornarMina } from './SalidaMinaMovil';
 import { listPorRetornarMina } from './salidasMina.repository';
 import type { SalidaMina } from './salidasMina';
+import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stockMinaWhatsapp';
+import { listMovimientosDepositoDesde } from './stockMina.repository';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
 
 const DEP = DEPOSITOS.mina;
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el inventario entero. */
@@ -34,7 +41,7 @@ const SIN_BUSCAR = 15;
 
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte';
 
 export function DepositoMinaMovilView() {
   const { user } = useSession();
@@ -125,6 +132,18 @@ export function DepositoMinaMovilView() {
         </div>
       )}
 
+      {!loading && paso === 'inicio' && (
+        <button type="button" className="surt-btn" style={{ width: '100%', minHeight: 84, marginTop: '.75rem', borderColor: '#25d366' }}
+          onClick={() => setPaso('reporte')}>
+          <span>📲 Reporte de stock (WhatsApp)</span>
+          <small>Lo que hay en el depósito, filtrado por fechas</small>
+        </button>
+      )}
+
+      {paso === 'reporte' && (
+        <ReporteStockMina productos={productos} quien={actorName ?? actor} onVolver={volver} />
+      )}
+
       {paso === 'nuevo' && (
         <FormNuevo categorias={categorias} unidades={unidades} actor={actor} actorName={actorName}
           onCancel={volver}
@@ -180,6 +199,69 @@ export function DepositoMinaMovilView() {
           ))}
         </section>
       )}
+    </div>
+  );
+}
+
+function ReporteStockMina({ productos, quien, onVolver }: {
+  productos: Producto[]; quien: string; onVolver: () => void;
+}) {
+  const hoy = hoyVenezuela();
+  const [desde, setDesde] = useState(() => rangoRapido('mes', hoy).desde);
+  const [hasta, setHasta] = useState(hoy);
+  const [movs, setMovs] = useState<MovimientoStock[] | null>(null);
+
+  const rangoMalo = !desde || !hasta || desde > hasta || hasta > hoy;
+  const cargar = useCallback(async () => {
+    if (!desde || desde > hoy) return;
+    try { setMovs(await listMovimientosDepositoDesde(DEP.almacen, desde)); }
+    catch (e) { setMovs([]); toast(e instanceof Error ? e.message : 'No se pudieron cargar los movimientos', 'error'); }
+  }, [desde, hoy]);
+  useEffect(() => { setMovs(null); void cargar(); }, [cargar]);
+  useRealtime(['movimientos'], () => { void cargar(); });
+
+  const filas = useMemo(
+    () => (movs && !rangoMalo ? stockPorPeriodo(productos, movs, desde, hasta) : []),
+    [movs, productos, desde, hasta, rangoMalo],
+  );
+  const texto = useMemo(() => mensajeStockMina(filas, desde, hasta, { quien }), [filas, desde, hasta, quien]);
+
+  function atajo(r: 'hoy' | 'mes' | 'mesPasado') {
+    const x = r === 'hoy' ? { desde: hoy, hasta: hoy } : rangoRapido(r, hoy);
+    setDesde(x.desde); setHasta(x.hasta);
+  }
+
+  return (
+    <div className="surt-form">
+      <div className="surt-form-titulo"><span className="icono" aria-hidden>📲</span><strong>Reporte de stock · {DEP.nombre}</strong></div>
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('hoy')}>Hoy</button>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('mes')}>Este mes</button>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('mesPasado')}>Mes pasado</button>
+      </div>
+      <div className="surt-grid2">
+        <div className="surt-campo">
+          <label htmlFor="mina-rep-desde">Desde</label>
+          <input id="mina-rep-desde" type="date" className="input surt-input" value={desde} max={hoy}
+            onChange={(e) => setDesde(e.target.value)} />
+        </div>
+        <div className="surt-campo">
+          <label htmlFor="mina-rep-hasta">Hasta</label>
+          <input id="mina-rep-hasta" type="date" className="input surt-input" value={hasta} max={hoy}
+            onChange={(e) => setHasta(e.target.value)} />
+        </div>
+      </div>
+      <small className="muted">
+        Muestra lo que había al cierre del «hasta» y lo que entró (📥) y salió (📤) en esas fechas.
+      </small>
+      {rangoMalo ? (
+        <div className="aviso warning sm"><span className="aviso-icono">⚠</span><div>Revisa las fechas: «desde» no puede ir después de «hasta» ni pasar de hoy.</div></div>
+      ) : movs === null ? (
+        <p className="muted">Armando el reporte…</p>
+      ) : (
+        <CompartirWhatsapp texto={texto} />
+      )}
+      <button type="button" className="btn btn-ghost btn-grande" onClick={onVolver}>← Volver</button>
     </div>
   );
 }
