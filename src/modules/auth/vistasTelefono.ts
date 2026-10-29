@@ -16,7 +16,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'deposito_mina' | 'maquinaria';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'deposito_mina' | 'maquinaria' | 'solicitudes';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -44,6 +44,11 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
   {
     key: 'deposito_mina', label: 'Depósito Mina', icono: '⛏', modulo: 'inventario',
     ruta: '/app/inventario/deposito-mina/telefono', descripcion: 'Cargar productos nuevos y entradas al Depósito Mina',
+  },
+  {
+    // 29/10/2026 · Almacén revisa las SP antes de Compras (se activa con el interruptor compras_revision_almacen).
+    key: 'solicitudes', label: 'Solicitudes de Pedido', icono: '📋', modulo: 'inventario',
+    ruta: '/app/solicitudes/telefono', descripcion: 'Validar si Almacén tiene lo que piden y avisar por WhatsApp',
   },
 ];
 
