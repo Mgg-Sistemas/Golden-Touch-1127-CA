@@ -19,11 +19,16 @@ const V_POR_ORIGEN = 'retencion_documentos_por_origen';
 /** R10 aplicado: factura sola y buscador (la vista de resumen solo existe desde R10). */
 export const noAplicaDisponible = () => tablaDisponible('retencion_facturas_resumen');
 
-/** Los impuestos marcados «no aplica», por id de la orden: se suman a lo ya cargado en «Por realizar». */
-export async function noAplicaPorOrden(ordenIds: string[]): Promise<Map<string, Set<TipoImpuesto>>> {
+/** Los impuestos marcados «no aplica», por id de la orden o compra: se suman a lo ya cargado en «Por realizar». */
+export async function noAplicaPorOrden(
+  ordenIds: string[],
+  origenTipo?: 'oc' | 'compra_directa' | 'servicio_directo',
+): Promise<Map<string, Set<TipoImpuesto>>> {
   const out = new Map<string, Set<TipoImpuesto>>();
   if (!ordenIds.length || !(await noAplicaDisponible())) return out;
-  const { data, error } = await supabase.from(V_POR_ORIGEN).select('origen_id, decisiones').eq('origen_tipo', 'oc').in('origen_id', ordenIds);
+  let q = supabase.from(V_POR_ORIGEN).select('origen_id, decisiones').in('origen_id', ordenIds);
+  if (origenTipo) q = q.eq('origen_tipo', origenTipo);
+  const { data, error } = await q;
   if (error) throw errorRetencion(error, 'No se pudieron leer las decisiones de «no aplica».');
   for (const r of (data ?? []) as { origen_id: string; decisiones: Record<string, string> | null }[]) {
     for (const [clave, decision] of Object.entries(r.decisiones ?? {})) {
@@ -52,6 +57,7 @@ export async function impuestosQuePractica(claves: string[], fecha: string): Pro
 
 export interface NoAplicaNuevo {
   ordenId: string;
+  origenTipo?: 'oc' | 'compra_directa' | 'servicio_directo';
   proveedorId: string | null;
   proveedorNombre: string | null;
   moneda: string;
@@ -66,24 +72,28 @@ export interface NoAplicaNuevo {
   actorName?: string | null;
 }
 
-/** El documento fiscal practicado de la orden, si ya existe. */
-async function documentoDeOrden(ordenId: string): Promise<string | null> {
+/** El documento fiscal practicado de la orden o compra, si ya existe. */
+async function documentoDeOrden(
+  ordenId: string,
+  origenTipo: 'oc' | 'compra_directa' | 'servicio_directo' = 'oc',
+): Promise<string | null> {
   const { data, error } = await supabase.from(V_POR_ORIGEN).select('documento_id')
-    .eq('origen_tipo', 'oc').eq('origen_id', ordenId).eq('rol', 'practicada').limit(1);
+    .eq('origen_tipo', origenTipo).eq('origen_id', ordenId).eq('rol', 'practicada').limit(1);
   if (error) throw errorRetencion(error, 'No se pudo leer el documento de la compra.');
   return (data?.[0] as { documento_id?: string } | undefined)?.documento_id ?? null;
 }
 
-/** Marca «no aplica» un impuesto de una orden. Devuelve el id del documento. */
+/** Marca «no aplica» un impuesto de una orden o compra. Devuelve el id del documento. */
 export async function marcarNoAplica(n: NoAplicaNuevo): Promise<string> {
   if (!n.motivoId && !n.motivoTexto?.trim()) throw new Error('Indica el motivo: por qué no corresponde retener.');
-  let documentoId = await documentoDeOrden(n.ordenId);
+  const origenTipo = n.origenTipo ?? 'oc';
+  let documentoId = await documentoDeOrden(n.ordenId, origenTipo);
   if (!documentoId) {
     // Sin factura registrada: se registra solo el documento (sin número de comprobante ni N° de factura).
     const { data, error } = await supabase.rpc('retencion_factura_registrar', {
       p_factura: {
         ...pFacturaDe({
-          direccion: 'practicada', docKind: 'oc', docId: n.ordenId,
+          direccion: 'practicada', docKind: origenTipo, docId: n.ordenId,
           contraparteId: n.proveedorId, contraparteNombre: n.proveedorNombre,
           moneda: n.moneda, facturaTotal: n.total, actor: n.actor, actorName: n.actorName,
         }),

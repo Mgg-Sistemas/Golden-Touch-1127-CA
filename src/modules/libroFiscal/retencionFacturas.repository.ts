@@ -58,6 +58,8 @@ export interface LineaFacturaNueva {
   quincena?: 1 | 2 | null;
   /** La fecha de la retención (emisión del comprobante). El período sale de la factura. */
   fecha?: string | null;
+  /** La UT con la que se calculó la línea (VU). */
+  valorUt?: number | null;
   /** R7: la regla vigente con que se calculó y la foto del cálculo (columnasDeRegla). Sin R7F la base lo ignora. */
   regla?: { regla_id: string; foto: Record<string, unknown> } | null;
 }
@@ -163,6 +165,7 @@ export function pLineaDe(l: LineaFacturaNueva): Record<string, unknown> {
     comprobante_periodo: l.comprobantePeriodo ?? null,
     quincena: l.quincena ?? null,
     fecha: l.fecha ?? null,
+    ...(utValida(l.valorUt) != null ? { valor_ut: utValida(l.valorUt) } : {}),
     ...(l.regla ? { regla_id: l.regla.regla_id, foto: l.regla.foto } : {}),
   };
 }
@@ -239,13 +242,13 @@ export async function numerarSinV2R(factura: Pick<FacturaNueva, 'direccion' | 'p
   if (factura.direccion !== 'practicada' || (await v2rDisponible())) return lineas;
   const salida: LineaFacturaNueva[] = [];
   for (const l of lineas) {
-    if (l.tipo === 'igtf' || l.comprobanteNro?.trim()) { salida.push(l); continue; }
+    if (l.tipo === 'igtf' || (Number(l.monto) || 0) <= 0 || l.comprobanteNro?.trim()) { salida.push(l); continue; }
     const periodo = l.comprobantePeriodo || factura.periodo || (factura.facturaFecha ?? '').slice(0, 7).replace('-', '');
     const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(l.tipo), p_periodo: periodo });
     if (error) throw errorLegibleFactura(error);
     const entero = Number(data);
     if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
-    salida.push({ ...l, comprobanteNro: formatoComprobante(periodo, entero), comprobantePeriodo: periodo });
+    salida.push({ ...l, comprobanteNro: formatoComprobante(periodo, entero, l.tipo), comprobantePeriodo: periodo });
   }
   return salida;
 }

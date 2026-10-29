@@ -1,8 +1,9 @@
 /* ============================================================
    Golden Touch · Retenciones · Facturas registradas y retener después (R10)
 
-   · La factura se puede registrar SOLA (solo_documento), sin líneas: queda
-     pendiente por retener.
+   · La factura no se registra sola (D52, para no duplicar documentos): una
+     factura sin líneas solo existe cuando «No aplica» guarda su decisión
+     (solo_documento, en noAplica.repository.ts).
    · El buscador del N° de factura y la lista «Facturas registradas» leen la
      vista retencion_facturas_resumen: por factura, lo retenido por impuesto,
      las decisiones («no aplica»), los impuestos pendientes y si es retenible.
@@ -16,8 +17,8 @@ import { tablaDisponible } from './disponibilidad';
 import { configDeFecha } from './parametros.repository';
 import { aRetencion, tipoDeGt } from './retencionesFiscal.repository';
 import {
-  aFacturaCabecera, numerarSinV2R, pFacturaDe, pLineaDe,
-  type FacturaConLineas, type FacturaNueva, type LineaFacturaNueva,
+  aFacturaCabecera, numerarSinV2R, pLineaDe,
+  type FacturaConLineas, type LineaFacturaNueva,
 } from './retencionFacturas.repository';
 import { CONFIG_RETENCION_DEFECTO, type TipoImpuesto } from './retencionesCalculo';
 
@@ -109,18 +110,6 @@ export async function listFacturasResumen(f: FiltroFacturas = {}): Promise<Factu
 /** El buscador del N° de factura: solo las que todavía tienen algo por retener. */
 export const buscarFacturasRetenibles = (texto: string, proveedorId?: string | null) =>
   listFacturasResumen({ texto, proveedorId, soloRetenibles: true, limite: 15 });
-
-/** Registra la factura SOLA (sin líneas): queda pendiente por retener. */
-export async function registrarFacturaSola(factura: FacturaNueva): Promise<FacturaConLineas> {
-  const { data, error } = await supabase.rpc('retencion_factura_registrar', {
-    p_factura: { ...pFacturaDe(factura), solo_documento: true },
-    p_lineas: [],
-  });
-  if (error) throw errorRetencion(error, 'No se pudo registrar la factura.');
-  const res = (data ?? {}) as { factura?: Record<string, unknown> };
-  if (!res.factura) throw new Error('La base no devolvió la factura registrada.');
-  return { factura: aFacturaCabecera({ ...res.factura, retenciones: [] }), lineas: [] };
-}
 
 /**
  * Retiene después contra una factura ya registrada: las líneas van con la UT

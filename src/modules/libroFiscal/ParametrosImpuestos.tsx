@@ -118,11 +118,11 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
   const [modoVersion, setModoVersion] = useState<'nueva' | 'corregir' | null>(null);
   const [historial, setHistorial] = useState<CambioHistorial[] | null>(null);
 
-  // Si otro usuario cambia la ficha, se toma lo nuevo (salvo que se esté editando con motivo escrito).
+  // Si otro usuario cambia la ficha, se toma lo nuevo (salvo que se esté editando).
   const firma = JSON.stringify(fichaDe(impuesto));
-  useEffect(() => { if (!motivo) setFicha(JSON.parse(firma) as FichaImpuesto); }, [firma]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const cambio = JSON.stringify(ficha) !== firma;
+  useEffect(() => { if (!cambio && !motivo) setFicha(JSON.parse(firma) as FichaImpuesto); }, [firma]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const falta = faltaEnEnteros(ficha) ?? faltaEnImpuesto(ficha);
 
   async function guardar() {

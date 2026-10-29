@@ -52,6 +52,7 @@ describe('TXT del SENIAT · IVA', () => {
       ret({ id: 'rec', direccion: 'recibida' }),
       ret({ id: 'islr', tipo: 'islr' }),
       ret({ id: 'anu', anulada: true }),
+      ret({ id: 'cero', montoRetenido: 0, porcentaje: 0 }),
       ret({ id: 'sep', periodo: '202609' }),
     ], '202610');
     expect(xs.map((r) => r.id)).toEqual(['a', 'b']);
@@ -91,5 +92,16 @@ describe('TXT del SENIAT · IVA', () => {
     expect(campos[8]).toBe('1210.00');
     expect(campos[11]).toBe('000099');
     expect(campos[13]).toBe('50.00');
+  });
+
+  it('exige RIF válido del proveedor y factura afectada en notas de crédito o débito', () => {
+    const r = armarTxtIva({
+      ...base,
+      filas: [
+        ret({ contraparteRif: 'J-123', tipoDocumento: 'nota_credito', facturaAfectadaNro: null }),
+      ],
+    });
+    expect(r.faltan.join(' | ')).toMatch(/RIF del proveedor no es válido/);
+    expect(r.faltan.join(' | ')).toMatch(/factura afectada/);
   });
 });

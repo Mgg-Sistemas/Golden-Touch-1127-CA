@@ -161,6 +161,34 @@ describe('emisión de ejemplares · Original y Copia (Providencia SNAT/2025/0000
     const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'copia', incluirLogo: false, incluirQr: false });
     expect(doc.getNumberOfPages()).toBe(1);
   });
+
+  it('cuando imprimirOriginalYCopia es false, emite exactamente 1 página en formato estándar sin badge', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, {
+      imprimirOriginalYCopia: false,
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+
+  it('modo "estandar" emite 1 página única', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, {
+      modoEjemplar: 'estandar',
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+
+  it('consultarElementosDigitales reporta tieneFirma false cuando no hay firma cargada', async () => {
+    const { consultarElementosDigitales } = await import('./comprobanteRetencionPdf');
+    const disp = await consultarElementosDigitales();
+    expect(disp.tieneFirma).toBe(false);
+  });
 });
 
 describe('correos en comprobante · empresa (configurable) y proveedor (si existe)', () => {

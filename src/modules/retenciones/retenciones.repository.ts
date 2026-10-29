@@ -9,7 +9,7 @@
    Archivos en el bucket `compras-oc` (mismo de factura/retención de OC).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Orden } from '@/shared/lib/types';
+import type { EstadoOrden, Orden } from '@/shared/lib/types';
 import { fechaDesdeAgenteRetencion } from '@/modules/libroFiscal/agenteCondiciones.repository';
 
 const TABLE = 'ordenes';
@@ -33,8 +33,11 @@ export interface RetencionItem {
   proveedorNombre: string;
 }
 
-async function mapProveedores(): Promise<Map<string, string>> {
-  const { data } = await supabase.from('proveedores').select('id, razon_social');
+async function mapProveedores(ids?: string[]): Promise<Map<string, string>> {
+  const unicos = ids ? Array.from(new Set(ids.filter(Boolean))) : [];
+  if (ids && unicos.length === 0) return new Map();
+  const q = supabase.from('proveedores').select('id, razon_social');
+  const { data } = unicos.length > 0 ? await q.in('id', unicos) : await q;
   return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
 }
 
@@ -44,58 +47,76 @@ async function mapProveedores(): Promise<Map<string, string>> {
  */
 export const FECHA_PERMISO_RETENCION = '2026-10-01';
 
-/** Comprueba si una orden corresponde al período con autorización de retención (a partir de la fecha de designación). */
-export function ordenAplicaRetencion(o: Orden, fechaCorte: string = FECHA_PERMISO_RETENCION): boolean {
+/**
+ * Estatus de compras que por definición contable y tributaria nunca deben retenerse:
+ * Órdenes canceladas, desistidas por proveedor o rechazadas.
+ */
+export const ESTADOS_NUNCA_RETENCION: readonly EstadoOrden[] = ['cancelada', 'desistida_proveedor', 'rechazada'];
+
+/** Comprueba si una orden corresponde al período con autorización de retención (a partir de la fecha de designación)
+ *  y si su estado de compras es válido para gestionar retención. */
+export function ordenAplicaRetencion(
+  o: Orden,
+  fechaCorte: string = FECHA_PERMISO_RETENCION,
+  estadosPermitidos?: EstadoOrden[],
+): boolean {
+  if (ESTADOS_NUNCA_RETENCION.includes(o.estado)) return false;
+  if (estadosPermitidos && estadosPermitidos.length > 0 && !estadosPermitidos.includes(o.estado)) {
+    return false;
+  }
   const f = (o.oc_emitida_en || o.oc_creada_en || o.created_at || '').slice(0, 10);
   return f >= fechaCorte;
 }
 
 /** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
- *  (al finalizar la OC), aún sin finalizar la retención. Solo a partir de la vigencia del régimen. */
-export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
-  const [desdeAgente, { data, error }, pm] = await Promise.all([
+ *  (al finalizar la OC), aún sin finalizar la retención. Excluye órdenes canceladas/desistidas
+ *  y filtra por los estados del Kanban configurados. */
+export async function listRetencionesPendientes(estadosPermitidos?: EstadoOrden[]): Promise<RetencionItem[]> {
+  const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     supabase.from(TABLE).select('*')
       .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+      .not('estado', 'in', `(${ESTADOS_NUNCA_RETENCION.join(',')})`)
       .gte('created_at', '2026-09-25T00:00:00Z')
       .order('created_at', { ascending: true }),
-    mapProveedores(),
   ]);
   if (error) throw error;
-  return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
+  const filtradas = (data ?? []).filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente, estadosPermitidos));
+  const pm = await mapProveedores(filtradas.map((o) => (o as Orden).proveedor_id as string));
+  return filtradas
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
 /** Retenciones ya finalizadas (comprobantes cargados). Solo a partir de la vigencia del régimen. */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
-  const [desdeAgente, { data, error }, pm] = await Promise.all([
+  const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     supabase.from(TABLE).select('*')
-      .eq('comprobante_tipo', 'factura')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .eq('retencion_finalizada', true)
       .gte('created_at', '2026-09-25T00:00:00Z')
       .order('retencion_finalizada_en', { ascending: false }),
-    mapProveedores(),
   ]);
   if (error) throw error;
-  return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
+  const filtradas = (data ?? []).filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente));
+  const pm = await mapProveedores(filtradas.map((o) => (o as Orden).proveedor_id as string));
+  return filtradas
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
-export async function contarRetencionesPendientes(): Promise<number> {
+export async function contarRetencionesPendientes(estadosPermitidos?: EstadoOrden[]): Promise<number> {
   const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     supabase.from(TABLE)
-      .select('id, created_at, oc_creada_en, oc_emitida_en')
+      .select('id, created_at, oc_creada_en, oc_emitida_en, estado')
       .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+      .not('estado', 'in', `(${ESTADOS_NUNCA_RETENCION.join(',')})`)
       .gte('created_at', '2026-09-25T00:00:00Z'),
   ]);
   if (error) throw error;
-  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente)).length;
+  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente, estadosPermitidos)).length;
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {
@@ -123,9 +144,11 @@ export async function finalizarRetencion(input: {
   orden: Orden;
   archivos: Partial<Record<TipoRetencion, File>>;
   actor: string;
+  /** Permite finalizar sin adjuntar archivos nuevos cuando las retenciones ya constan en el Libro Fiscal o como «no aplica». */
+  permitirSinArchivo?: boolean;
 }): Promise<void> {
   const entries = (Object.entries(input.archivos) as [TipoRetencion, File | undefined][]).filter(([, f]) => !!f);
-  if (!entries.length) throw new Error('Carga al menos un comprobante de retención (IVA, ISLR o Municipal).');
+  if (!entries.length && !input.permitirSinArchivo) throw new Error('Carga al menos un comprobante de retención (IVA, ISLR o Municipal).');
   for (const [, f] of entries) {
     const file = f as File;
     if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {

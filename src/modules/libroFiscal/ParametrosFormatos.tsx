@@ -86,8 +86,8 @@ export function ParametrosFormatos({ puedeEditar }: { puedeEditar: boolean }) {
                     {h.length > 0 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHistorial(historial === imp.clave ? null : imp.clave)}>Historial</button>}
                     {puedeEditar && (
                       <>
-                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditar({ modo: 'nueva', imp, base: abierta, abierta })}>Versión nueva</button>
-                        {abierta && !abierta.deFabrica && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditar({ modo: 'corregir', imp, base: abierta, abierta })}>Corregir</button>}
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditar({ modo: 'nueva', imp, base: vigente ?? abierta, abierta })}>Versión nueva</button>
+                        {vigente && !vigente.deFabrica && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditar({ modo: 'corregir', imp, base: vigente, abierta: vigente })}>Corregir</button>}
                         {abierta && !abierta.deFabrica && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditar({ modo: 'fabrica', imp, base: null, abierta })}>Volver a fábrica</button>}
                       </>
                     )}

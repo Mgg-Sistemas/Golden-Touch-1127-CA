@@ -188,6 +188,7 @@ describe('la fila que se escribe en el libro', () => {
 
   it('numera toda practicada menos el IGTF; las recibidas no', () => {
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr' })).toBe(true);
+    expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr', montoRetenido: 0 })).toBe(false);
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'igtf' })).toBe(false);
     expect(llevaNumeroPropio({ direccion: 'recibida', tipo: 'iva' })).toBe(false);
   });
@@ -400,6 +401,17 @@ describe('consultarCorrelativoEstimado: previsualización del correlativo según
     const res = await consultarCorrelativoEstimado('islr', '202610');
     expect(res.numero).toBe(4);
     expect(res.comprobante).toBe('0000000004');
+    expect(res.comprobante).toHaveLength(10);
+  });
+
+  it('para ISLR con comprobante histórico de 14 dígitos extrae los últimos 8 dígitos sin desbordar a 14', async () => {
+    cola.push({
+      data: [{ numero: null, comprobante_nro: '20261000000005' }],
+      error: null,
+    });
+    const res = await consultarCorrelativoEstimado('islr', '202610');
+    expect(res.numero).toBe(6);
+    expect(res.comprobante).toBe('0000000006');
     expect(res.comprobante).toHaveLength(10);
   });
 });

@@ -178,7 +178,10 @@ export function aPerfil(r: Record<string, unknown>): PerfilFiscal {
 
 /** La versión vigente en una fecha, de una lista de versiones. */
 export function perfilVigente(versiones: PerfilFiscal[], fecha: string = hoyIso()): PerfilFiscal | null {
-  return versiones.find((v) => v.desde <= fecha && (!v.hasta || v.hasta >= fecha)) ?? null;
+  const f = String(fecha ?? '').slice(0, 10);
+  return [...versiones]
+    .sort((a, b) => b.desde.localeCompare(a.desde))
+    .find((v) => v.desde <= f && (!v.hasta || v.hasta >= f)) ?? null;
 }
 
 /** Todas las versiones del perfil de un proveedor, la más nueva primero. */
@@ -220,6 +223,8 @@ export function faltaEnTipoLicencia(tipo: string | null | undefined, activos: st
 /** Lo que falta para guardar una versión, o null. Las mismas reglas que la tabla. */
 export function faltaEnPerfil(p: PerfilNuevo, desde: string, motivo: string, tiposLicencia?: string[] | null): string | null {
   if (!FECHA.test(desde)) return 'Indica desde qué fecha vale el perfil.';
+  const faltaDesde = faltaEnFechaRango(desde, 'la fecha «desde» del perfil');
+  if (faltaDesde) return faltaDesde;
   if (!motivo.trim()) return 'Indica el motivo del cambio: queda en el historial del perfil.';
   if (p.licenciaEstado === 'vigente' && !p.licenciaNumero?.trim()) return 'Una licencia vigente lleva su número.';
   if (p.licenciaVence && !FECHA.test(p.licenciaVence)) return 'La fecha de vencimiento de la licencia no es válida.';
@@ -326,7 +331,7 @@ export function faltaEnActividad(a: ActividadNueva): string | null {
 export async function agregarActividad(proveedorId: string, a: ActividadNueva): Promise<string> {
   const falta = faltaEnActividad(a);
   if (falta) throw new Error(falta);
-  if (a.principal) await quitarPrincipal(proveedorId);
+  const prevPrincipales = a.principal ? await quitarPrincipal(proveedorId) : [];
   // En MAYÚSCULAS y sin espacios al borde, como el catálogo de la alcaldía: así el enlace por igualdad coincide.
   const ordenanza = normalizarCodigo(a.ordenanzaCodigo) || null;
   const { data, error } = await supabase.from(T_ACTIVIDADES).insert({
@@ -340,28 +345,48 @@ export async function agregarActividad(proveedorId: string, a: ActividadNueva): 
     nota: a.nota?.trim() || null,
   }).select('id');
   if (error) {
+    if (prevPrincipales.length) await restaurarPrincipal(prevPrincipales);
     throw errorRetencion(error, 'No se pudo agregar la actividad.', {
       unico: 'Esa actividad ya está cargada y activa para este proveedor.',
       regla: 'Revisa la actividad: lleva un código CIIU o el código de la ordenanza con su alcaldía.',
     });
   }
   const id = (data as { id: string }[] | null)?.[0]?.id;
-  if (!id) throw new Error('No se agregó la actividad: sin permiso de escritura en Retenciones.');
+  if (!id) {
+    if (prevPrincipales.length) await restaurarPrincipal(prevPrincipales);
+    throw new Error('No se agregó la actividad: sin permiso de escritura en Retenciones.');
+  }
   return id;
 }
 
-async function quitarPrincipal(proveedorId: string): Promise<void> {
-  const { error } = await supabase.from(T_ACTIVIDADES).update({ principal: false })
+async function quitarPrincipal(proveedorId: string): Promise<string[]> {
+  const { data, error } = await supabase.from(T_ACTIVIDADES).update({ principal: false })
     .eq('proveedor_id', proveedorId).eq('activa', true).eq('principal', true).select('id');
   if (error) throw errorRetencion(error, 'No se pudo cambiar la actividad principal.');
+  return ((data ?? []) as { id: string }[]).map((x) => String(x.id));
+}
+
+async function restaurarPrincipal(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  try {
+    await supabase.from(T_ACTIVIDADES).update({ principal: true }).in('id', ids);
+  } catch {
+    /* rollback best-effort */
+  }
 }
 
 /** Marca una actividad como la principal del proveedor. */
 export async function marcarPrincipal(proveedorId: string, actividadId: string): Promise<void> {
-  await quitarPrincipal(proveedorId);
+  const prevPrincipales = await quitarPrincipal(proveedorId);
   const { data, error } = await supabase.from(T_ACTIVIDADES).update({ principal: true }).eq('id', actividadId).eq('activa', true).select('id');
-  if (error) throw errorRetencion(error, 'No se pudo marcar la actividad principal.');
-  if (!data?.length) throw new Error('No se marcó la actividad: sin permiso de escritura en Retenciones, o la actividad ya no está activa.');
+  if (error) {
+    if (prevPrincipales.length) await restaurarPrincipal(prevPrincipales);
+    throw errorRetencion(error, 'No se pudo marcar la actividad principal.');
+  }
+  if (!data?.length) {
+    if (prevPrincipales.length) await restaurarPrincipal(prevPrincipales);
+    throw new Error('No se marcó la actividad: sin permiso de escritura en Retenciones, o la actividad ya no está activa.');
+  }
 }
 
 /** Da de baja una actividad desde una fecha (no se borra: queda en el historial). */

@@ -29,6 +29,7 @@ const ChoferesPage = lazy(() => import('./modules/choferes/ChoferesPage').then((
 const VentasPage = lazy(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const DocumentacionPage = lazy(() => import('./modules/documentacion/DocumentacionPage').then((m) => ({ default: m.DocumentacionPage })));
 const RetencionesPage = lazy(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
+const RetencionesMovilView = lazy(() => import('./modules/retenciones/RetencionesMovilView').then((m) => ({ default: m.RetencionesMovilView })));
 const RecepcionesPage = lazy(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const UsuariosPage = lazy(() => import('./modules/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 const CarnetPublicoPage = lazy(() => import('./modules/rrhh/CarnetPublicoPage').then((m) => ({ default: m.CarnetPublicoPage })));
@@ -131,6 +132,7 @@ export function App() {
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="documentacion" element={<RequireModule module="documentacion"><Suspense fallback={<PageLoader />}><DocumentacionPage /></Suspense></RequireModule>} />
           <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />
+          <Route path="retenciones/telefono" element={<RequireVistaTelefono vista="retenciones"><Suspense fallback={<PageLoader />}><RetencionesMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
           <Route path="usuarios" element={<RequireModule module="usuarios"><Suspense fallback={<PageLoader />}><UsuariosPage /></Suspense></RequireModule>} />
           <Route path="ajustes" element={<RequireModule module="ajustes"><Suspense fallback={<PageLoader />}><AjustesPage /></Suspense></RequireModule>} />

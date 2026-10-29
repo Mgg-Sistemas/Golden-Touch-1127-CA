@@ -16,7 +16,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
-import { faltaEnClaveMinusculas, faltaEnCodigo, leerOpcional, normalizarCodigo } from './parametrosNumeros';
+import { faltaEnClaveMinusculas, faltaEnCodigo, faltaEnFechaRango, leerOpcional, normalizarCodigo } from './parametrosNumeros';
 
 const T_CLASIFICACIONES = 'retencion_clasificaciones';
 const T_CODIGOS = 'retencion_clasificacion_codigos';
@@ -155,6 +155,8 @@ export function faltaEnValorCodigo(v: DatosValorCodigo, desde: string, motivo: s
   if (v.minimo != null && v.minimo < 0) return 'El mínimo no puede ser negativo.';
   if (v.sustraendoFactor != null && v.sustraendoFactor < 0) return 'El factor del sustraendo no puede ser negativo.';
   if (!FECHA.test(desde)) return 'Indica desde qué fecha vale.';
+  const faltaDesde = faltaEnFechaRango(desde, 'la fecha «desde»');
+  if (faltaDesde) return faltaDesde;
   if (!motivo.trim()) return 'Indica el motivo: queda en el historial.';
   return null;
 }
@@ -267,7 +269,7 @@ export async function codigosDeEnte(enteId: string): Promise<CodigoClasificacion
   if (error) throw errorRetencion(error, 'No se pudo leer la clasificación del municipio.');
   const ids = ((ks ?? []) as { id: string }[]).map((k) => k.id);
   if (!ids.length) return [];
-  const { data, error: e2 } = await supabase.from(T_CODIGOS).select('*').in('clasificacion_id', ids).eq('activo', true).order('orden').order('codigo');
+  const { data, error: e2 } = await supabase.from(T_CODIGOS).select(`*, ${T_VALORES}(*)`).in('clasificacion_id', ids).eq('activo', true).order('orden').order('codigo');
   if (e2) throw errorRetencion(e2, 'No se pudieron leer las actividades del municipio.');
   return (data ?? []).map((r) => aCodigo(r as Record<string, unknown>));
 }

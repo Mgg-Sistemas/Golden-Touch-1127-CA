@@ -38,6 +38,8 @@ import { rotuloImpuesto } from './rotulos';
 import { EMPRESA_EMAIL } from '@/shared/lib/empresa';
 export { EMPRESA_EMAIL };
 
+import type { EstadoOrden } from '@/shared/lib/types';
+
 export type TipoImpuesto = 'iva' | 'islr' | 'municipal' | 'regional' | 'igtf';
 
 /** A quién se le retiene. El ISLR cambia el porcentaje según esto. */
@@ -80,6 +82,12 @@ export interface ConfigRetencion {
   esAgenteRetencionIva: boolean;
   /** Contribuyente especial: retiene IVA y además percibe el IGTF. */
   esContribuyenteEspecial: boolean;
+  /** Si la empresa retiene ISLR a sus proveedores (Decreto 1.808). Por defecto true. */
+  retieneIslr?: boolean;
+  /** Si la empresa retiene Impuesto Municipal (ISAE). Por defecto true. */
+  retieneMunicipal?: boolean;
+  /** Estatus del Kanban de compras que se procesan en el módulo de Retenciones. */
+  estadosKanbanRetencion?: EstadoOrden[];
   pctIvaGeneral: number;    // 75
   pctIvaEspecial: number;   // 100
   valorUt: number;          // define el sustraendo del ISLR
@@ -89,6 +97,11 @@ export interface ConfigRetencion {
   /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
   imprimirOriginalYCopia?: boolean;
 }
+
+/** Estatus del Kanban de compras que por defecto son abordables en Retenciones. */
+export const ESTADOS_KANBAN_RETENCION_DEFECTO: EstadoOrden[] = [
+  'oc_aprobada', 'pagada', 'por_recibir', 'recibida', 'cuenta_abierta', 'finalizada',
+];
 
 /**
  * Los valores con los que arranca la pantalla mientras se lee la configuración.
@@ -100,6 +113,9 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   email: 'info@goldentouch1127.com',
   esAgenteRetencionIva: true,
   esContribuyenteEspecial: false,
+  retieneIslr: true,
+  retieneMunicipal: true,
+  estadosKanbanRetencion: ESTADOS_KANBAN_RETENCION_DEFECTO,
   pctIvaGeneral: 75, pctIvaEspecial: 100,
   valorUt: 0, pctIgtf: 3,
   licenciaMunicipal: null,

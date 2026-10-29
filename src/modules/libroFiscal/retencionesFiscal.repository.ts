@@ -23,6 +23,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { EMPRESA_DOMICILIO, EMPRESA_EMAIL, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
+import type { EstadoOrden } from '@/shared/lib/types';
 import {
   CONFIG_RETENCION_DEFECTO, enBolivares, formatoComprobante, formatoSerie, labelImpuesto, motivoNoPuedePracticar, numeroConFormato, textoDeFormato,
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
@@ -98,6 +99,9 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     email: texto(j.empresa_email) ?? texto(j.agente_email) ?? EMPRESA_EMAIL,
     esAgenteRetencionIva: bool('agente_retencion_iva', CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva),
     esContribuyenteEspecial: bool('contribuyente_especial', CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial),
+    retieneIslr: bool('retiene_islr', true),
+    retieneMunicipal: bool('retiene_municipal', true),
+    estadosKanbanRetencion: Array.isArray(j.estados_kanban_retencion) ? (j.estados_kanban_retencion as EstadoOrden[]) : CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
     pctIvaGeneral: n(j.iva_retencion) || 75,
     pctIvaEspecial: n(j.iva_retencion_especial) || 100,
     valorUt: n(j.unidad_tributaria),
@@ -121,6 +125,9 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     licencia_municipal: c.licenciaMunicipal ?? '',
     agente_retencion_iva: c.esAgenteRetencionIva,
     contribuyente_especial: c.esContribuyenteEspecial,
+    retiene_islr: c.retieneIslr !== false,
+    retiene_municipal: c.retieneMunicipal !== false,
+    estados_kanban_retencion: c.estadosKanbanRetencion ?? CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
     iva_retencion: c.pctIvaGeneral,
     iva_retencion_especial: c.pctIvaEspecial,
     unidad_tributaria: c.valorUt,
@@ -374,6 +381,8 @@ export interface RetencionPracticada {
   facturaNumero: string | null;
   facturaControl: string | null;
   facturaFecha: string | null;
+  /** Fecha de emisión del comprobante (columna `retenciones.fecha`). */
+  fecha?: string | null;
   periodo: string;
   quincena: 1 | 2 | null;
   numeroComprobante: string | null;
@@ -396,6 +405,8 @@ export interface RetencionPracticada {
   moneda: string;
   tasa: number | null;
   baseImponible: number;
+  /** Base imponible expresada en bolívares (null si no hay tasa). */
+  baseBs?: number | null;
   alicuota: number;
   impuesto: number;
   porcentaje: number;
@@ -403,6 +414,8 @@ export interface RetencionPracticada {
   montoRetenido: number;
   /** Lo retenido en bolívares, que es como se declara (null si no hay tasa). */
   montoBs: number | null;
+  /** Valor de la Unidad Tributaria vigente con que se calculó (VU). */
+  valorUt?: number | null;
   comprobantePath: string | null;
   comprobanteNombre: string | null;
   observacion: string | null;
@@ -419,41 +432,59 @@ export interface RetencionPracticada {
 
 /** Una fila de la tabla de GT → una retención del módulo. */
 export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
-  const docKind: DocKind = r.orden_id ? 'oc' : r.compra_directa_id ? 'compra_directa' : r.servicio_directo_id ? 'servicio_directo' : 'manual';
-  const sujeto = sujetoDeGt(r.sujeto);
-  const fechaRef = String(r.factura_fecha ?? r.fecha ?? '');
+  const doc = (r.retencion_documentos && typeof r.retencion_documentos === 'object' && !Array.isArray(r.retencion_documentos))
+    ? (r.retencion_documentos as Record<string, unknown>)
+    : (Array.isArray(r.retencion_documentos) && r.retencion_documentos[0] && typeof r.retencion_documentos[0] === 'object'
+      ? (r.retencion_documentos[0] as Record<string, unknown>)
+      : null);
+  const ordenId = r.orden_id ?? doc?.orden_id;
+  const compraDirectaId = r.compra_directa_id ?? doc?.compra_directa_id;
+  const servicioDirectoId = r.servicio_directo_id ?? doc?.servicio_directo_id;
+  const docKind: DocKind = ordenId ? 'oc' : compraDirectaId ? 'compra_directa' : servicioDirectoId ? 'servicio_directo' : 'manual';
+  const sujeto = sujetoDeGt(r.sujeto ?? doc?.sujeto);
+  const fechaFactura = texto(r.factura_fecha ?? doc?.factura_fecha);
+  const fechaEmision = texto(r.fecha);
+  const fechaRef = String(fechaFactura ?? fechaEmision ?? '');
+  const tipoDocRaw = r.tipo_documento ?? doc?.tipo_documento;
+  const facturaAfectadaRaw = r.factura_afectada_nro ?? doc?.factura_afectada_nro;
+  const facturaTotalRaw = r.factura_total ?? doc?.factura_total;
+  const exentoRaw = r.exento ?? doc?.exento;
   return {
     id: String(r.id), documentoId: texto(r.documento_id), tipo: tipoDeGt(r.tipo),
-    direccion: direccionDeGt(r.rol),
+    direccion: direccionDeGt(r.rol ?? doc?.rol),
     estado: r.declarada_at || r.estado === 'declarada' ? 'declarada' : 'registrada',
     docKind,
-    docId: texto(r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id),
+    docId: texto(ordenId ?? compraDirectaId ?? servicioDirectoId),
     docCodigo: null,
-    contraparteId: texto(r.proveedor_id),
-    contraparteRif: texto(r.rif),
-    contraparteNombre: texto(r.razon_social),
+    contraparteId: texto(r.proveedor_id ?? doc?.proveedor_id),
+    contraparteRif: texto(r.rif ?? doc?.rif),
+    contraparteNombre: texto(r.razon_social ?? doc?.razon_social),
     contraparteSujeto: sujeto,
     contraparteDireccion: texto(r.direccion ?? r.proveedor_direccion ?? r.contraparte_direccion),
     contraparteEmail: texto(r.email ?? r.proveedor_email ?? r.contraparte_email),
-    facturaNumero: texto(r.factura_nro),
-    facturaControl: texto(r.factura_control),
-    facturaFecha: texto(r.factura_fecha),
-    tipoDocumento: r.tipo_documento === 'nota_debito' || r.tipo_documento === 'nota_credito' ? r.tipo_documento : (r.tipo_documento === 'factura' ? 'factura' : null),
-    facturaAfectadaNro: texto(r.factura_afectada_nro),
-    facturaTotal: r.factura_total == null ? null : n(r.factura_total),
-    exento: r.exento == null ? null : n(r.exento),
+    facturaNumero: texto(r.factura_nro ?? doc?.factura_nro),
+    facturaControl: texto(r.factura_control ?? doc?.factura_control),
+    facturaFecha: fechaFactura,
+    fecha: fechaEmision,
+    tipoDocumento: tipoDocRaw === 'nota_debito' || tipoDocRaw === 'nota_credito' ? tipoDocRaw : (tipoDocRaw === 'factura' ? 'factura' : null),
+    facturaAfectadaNro: texto(facturaAfectadaRaw),
+    facturaTotal: facturaTotalRaw == null ? null : n(facturaTotalRaw),
+    exento: exentoRaw == null ? null : n(exentoRaw),
     licenciaSujeto: texto(r.licencia_numero ?? r.contraparte_licencia),
     periodo: String(r.comprobante_periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
     numeroComprobante: texto(r.comprobante_nro),
     numeroOrigen: r.numero_origen === 'sistema' || r.numero_origen === 'dado' ? r.numero_origen : null,
     operacionNumero: r.operacion_numero == null ? null : n(r.operacion_numero),
-    conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${r.sujeto ? `:${r.sujeto}` : ''}` : null,
+    conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${(r.sujeto ?? doc?.sujeto) ? `:${r.sujeto ?? doc?.sujeto}` : ''}` : null,
     conceptoNombre: texto(r.concepto),
-    moneda: String(r.moneda ?? 'Bs'), tasa: r.tasa == null ? null : n(r.tasa),
-    baseImponible: n(r.base), alicuota: n(r.iva_alicuota), impuesto: n(r.iva_monto),
+    moneda: String(r.moneda ?? doc?.moneda ?? 'Bs'), tasa: (r.tasa ?? doc?.tasa) == null ? null : n(r.tasa ?? doc?.tasa),
+    baseImponible: n(r.base),
+    baseBs: r.base_bs == null ? null : n(r.base_bs),
+    alicuota: n(r.iva_alicuota ?? doc?.iva_alicuota), impuesto: n(r.iva_monto ?? doc?.iva_monto),
     porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido: n(r.monto),
     montoBs: r.monto_bs == null ? null : n(r.monto_bs),
+    valorUt: r.valor_ut == null ? null : n(r.valor_ut),
     comprobantePath: texto(r.comprobante_path),
     comprobanteNombre: texto(r.comprobante_nombre),
     observacion: texto(r.descripcion),
@@ -484,8 +515,12 @@ export interface FiltroRetenciones {
  * así que se pagina (un año de retenciones pasa ese tope sin esfuerzo).
  */
 export async function listRetenciones(f: FiltroRetenciones = {}): Promise<RetencionPracticada[]> {
+  const conDocumentos = await tablaDisponible('retencion_documentos');
+  const columnas = conDocumentos
+    ? '*, retencion_documentos(tipo_documento, factura_afectada_nro, factura_total, exento)'
+    : '*';
   const filas = await todasLasFilas<Record<string, unknown>>((desde, hasta) => {
-    let q = supabase.from(T_RETENCIONES).select('*')
+    let q = (supabase.from(T_RETENCIONES).select(columnas) as any)
       .order('factura_fecha', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })   // desempate estable: sin esto las páginas se solapan
@@ -567,8 +602,8 @@ async function retencionVigenteDeLaFactura(input: NuevaRetencion): Promise<Reten
 }
 
 /** ¿Lleva número propio? Toda practicada lo lleva, menos el IGTF (es una percepción). */
-export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'>) =>
-  i.direccion === 'practicada' && i.tipo !== 'igtf';
+export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'> & { montoRetenido?: number }) =>
+  i.direccion === 'practicada' && i.tipo !== 'igtf' && (i.montoRetenido == null || i.montoRetenido > 0);
 
 /** La fila de GT de una retención nueva (sin el número propio, que se pide aparte). */
 export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
@@ -655,7 +690,7 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
       if (error) throw error;
       const entero = Number(data);
       if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
-      numero = { entero, texto: formatoComprobante(input.periodo, entero) };
+      numero = { entero, texto: formatoComprobante(input.periodo, entero, input.tipo) };
     }
   } else if (numero.texto && input.direccion === 'practicada') {
     // V2R: la serie (si numera y su formato) sale de retencion_impuestos; sin R2, las reglas fijas.
@@ -788,7 +823,7 @@ export async function consultarCorrelativoEstimado(
             const sec = Number(digitos.slice(6));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
           } else if (!esIva && digitos.length >= 1) {
-            const sec = Number(digitos);
+            const sec = Number(digitos.length === 14 ? digitos.slice(6) : digitos.slice(-10));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
           }
         }

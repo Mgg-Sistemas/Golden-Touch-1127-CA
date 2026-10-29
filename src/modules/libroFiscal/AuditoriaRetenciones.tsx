@@ -104,17 +104,13 @@ export function AuditoriaRetenciones() {
     void cargar();
   });
 
-  const resumen: ResumenAuditoria = useMemo(() => {
-    return calcularResumenAuditoria(eventos ?? []);
-  }, [eventos]);
-
   const filtrados = useMemo(() => {
     if (!eventos) return [];
     const txt = norm(filtroTexto);
 
     return eventos.filter((e) => {
       if (filtroTipo && e.tipo !== filtroTipo) return false;
-      if (filtroImpuesto && e.impuesto && !e.impuesto.toUpperCase().includes(filtroImpuesto.toUpperCase())) return false;
+      if (filtroImpuesto && (!e.impuesto || !e.impuesto.toUpperCase().includes(filtroImpuesto.toUpperCase()))) return false;
 
       const fDate = e.fechaIso.slice(0, 10);
       if (filtroDesde && fDate && fDate < filtroDesde) return false;
@@ -131,6 +127,10 @@ export function AuditoriaRetenciones() {
       return true;
     });
   }, [eventos, filtroTipo, filtroImpuesto, filtroDesde, filtroHasta, filtroTexto]);
+
+  const resumen: ResumenAuditoria = useMemo(() => {
+    return calcularResumenAuditoria(filtrados);
+  }, [filtrados]);
 
   useEffect(() => {
     setPag(1);

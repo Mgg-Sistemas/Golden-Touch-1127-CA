@@ -14,6 +14,7 @@ import { marcarNoAplica } from './noAplica.repository';
 
 export interface ObjetivoNoAplica {
   ordenId: string;
+  origenTipo?: 'oc' | 'compra_directa' | 'servicio_directo';
   codigo: string;
   proveedorId: string | null;
   proveedorNombre: string | null;
@@ -22,6 +23,8 @@ export interface ObjetivoNoAplica {
   impuestoClave: string;
   /** Cómo se llama el impuesto para el usuario (IVA, ISLR, ISAE…). */
   impuestoNombre: string;
+  /** Fecha del documento u orden para consultar motivos vigentes en esa fecha. */
+  fechaDocumento?: string | null;
 }
 
 export function NoAplicaModal({ objetivo: o, actor, actorName, onClose, onHecho }: {
@@ -35,13 +38,14 @@ export function NoAplicaModal({ objetivo: o, actor, actorName, onClose, onHecho 
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
+  const fechaConsulta = (o.fechaDocumento || hoyVE()).slice(0, 10);
   useEffect(() => {
     let vivo = true;
-    motivosVigentes(o.impuestoClave, hoyVE())
+    motivosVigentes(o.impuestoClave, fechaConsulta)
       .then((m) => { if (vivo) setMotivos(m); })
       .catch(() => { if (vivo) setMotivos([]); });
     return () => { vivo = false; };
-  }, [o.impuestoClave]);
+  }, [o.impuestoClave, fechaConsulta]);
 
   const elegido = motivos?.find((m) => m.id === motivoId) ?? null;
 
@@ -52,7 +56,7 @@ export function NoAplicaModal({ objetivo: o, actor, actorName, onClose, onHecho 
     setGuardando(true);
     try {
       await marcarNoAplica({
-        ordenId: o.ordenId, proveedorId: o.proveedorId, proveedorNombre: o.proveedorNombre,
+        ordenId: o.ordenId, origenTipo: o.origenTipo, proveedorId: o.proveedorId, proveedorNombre: o.proveedorNombre,
         moneda: o.moneda, total: o.total, impuestoClave: o.impuestoClave,
         motivoId: motivoId || null, motivoTexto: motivoId ? null : motivoTexto, detalle, actor, actorName,
       });

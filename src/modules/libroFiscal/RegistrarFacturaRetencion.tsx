@@ -168,7 +168,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   });
   const descartarAvisoSinDoc = () => {
     setAvisoSinDocDescartado(true);
-    try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch {}
+    try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch { /* ignorar */ }
   };
   const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
   const [archivoFactura, setArchivoFactura] = useState<File | null>(null);
@@ -178,7 +178,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     marcarSucio();
     setArchivoFactura(f);
     if (archivoFacturaUrl) {
-      try { URL.revokeObjectURL(archivoFacturaUrl); } catch {}
+      try { URL.revokeObjectURL(archivoFacturaUrl); } catch { /* ignorar */ }
     }
     setArchivoFacturaUrl(f ? URL.createObjectURL(f) : null);
   };
@@ -186,7 +186,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   useEffect(() => {
     return () => {
       if (archivoFacturaUrl) {
-        try { URL.revokeObjectURL(archivoFacturaUrl); } catch {}
+        try { URL.revokeObjectURL(archivoFacturaUrl); } catch { /* ignorar */ }
       }
     };
   }, [archivoFacturaUrl]);
@@ -301,9 +301,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     let vivo = true;
     const f = facturaFecha || fechaRetencion;
     if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
-      const primerTipo = lineas[0]?.tipo ? tipoAGt(lineas[0].tipo) : 'iva';
-      periodoEstaCerrado(primerTipo, f)
-        .then((p) => { if (vivo) setPeriodoCerrado(p); })
+      const tiposUnicos = [...new Set(lineas.filter((l) => l.tipo !== 'igtf').map((l) => tipoAGt(l.tipo)))];
+      const aConsultar = tiposUnicos.length ? tiposUnicos : ['iva' as const];
+      Promise.all(aConsultar.map((t) => periodoEstaCerrado(t, f)))
+        .then((ps) => { if (vivo) setPeriodoCerrado(ps.find((p) => p != null) ?? null); })
         .catch(() => { if (vivo) setPeriodoCerrado(null); });
     } else {
       setPeriodoCerrado(null);
@@ -342,9 +343,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         const supuesto = l.tipo === 'iva' && (supuestosIva ? !!supuestoAplicado(l.motivos, supuestosIva) : Object.values(l.motivos).some(Boolean));
         const c = await calcularConReglaVigente(tipoAGt(l.tipo), {
           fecha: facturaFecha, direccion: 'practicada',
+          tipoDocumento,
           sujeto: l.tipo === 'iva' || l.tipo === 'igtf' ? null : sujetoAGt(l.sujeto),
           moneda, tasa: moneda === 'Bs' ? null : (tasa || null),
           pago: base, baseImponible: base, iva: nDec(l.ivaStr),
+          exento: exentoStr.trim() ? nDec(exentoStr) : 0,
+          subtotal: base,
+          total: nDec(facturaTotal),
           supuesto, codigo: conceptos.find((x) => x.id === l.conceptoId)?.codigo ?? null,
         });
         return [l.id, c];
@@ -386,7 +391,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const conceptosDeLinea = (l: LineaUI) => conceptos.filter((c) => c.tipo === l.tipo && (c.sujeto === l.sujeto || c.sujeto === 'todos'));
 
   // Una practicada sin OC, CS ni compra directa queda «fuera del sistema»: se dice y se anota de dónde viene.
-  const sinDocumento = direccion === 'practicada' && !s.docId;
+  const sinDocumento = direccion === 'practicada' && !s.docId && !documento;
   const rifMal = rif.trim() !== '' && !rifValido(rif);
   // D43: el mensaje dice cuál RIF y dónde se corrige (practicada: en la ficha del proveedor).
   const textoRif = rifMal ? textoRifInvalido({ direccion, rif, nombre: contraparte }) : null;
@@ -463,7 +468,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     setMoneda(f.moneda || 'Bs'); if (f.tasa) setTasaStr(numeroATexto(f.tasa));
     setFacturaTotal(numeroATexto(f.facturaTotal ?? 0));
     if (f.exento != null) setExentoStr(numeroATexto(f.exento));
-    const base = f.facturaTotal != null ? Math.max(0, f.facturaTotal - (f.ivaMonto ?? 0)) : 0;
+    const base = f.facturaTotal != null ? Math.max(0, f.facturaTotal - (f.ivaMonto ?? 0) - (f.exento ?? 0)) : 0;
     const tipos = pendientesComoTipos(f);
     const sujeto = sugerirSujetoPorRif(f.rif ?? '')?.sujeto ?? 'pj_domiciliada';
     setLineas((tipos.length ? tipos : ['iva' as TipoImpuesto]).map((t) => nuevaLinea({
@@ -479,6 +484,41 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   }, []);
   // Desde «Facturas registradas»: se abre ya sobre esa factura.
   useEffect(() => { if (s.documento) aplicarDocumento(s.documento); }, [s.documento]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const desglosarIvaIncluido = () => {
+    const tot = nDec(facturaTotal);
+    if (tot <= 0) {
+      toast('Escribe primero el monto total de la factura para calcular el desglose.', 'warning');
+      return;
+    }
+    const exento = Math.max(0, nDec(exentoStr));
+    const gravableConIva = Math.max(0, tot - exento);
+    marcarSucio();
+    const base = Math.round((gravableConIva / 1.16) * 100) / 100;
+    const iva = Math.round((gravableConIva - base) * 100) / 100;
+    setLineas((xs) => {
+      const tieneIva = xs.some((l) => l.tipo === 'iva');
+      const actualizadas = xs.map((l) => {
+        if (l.tipo === 'iva') {
+          return { ...l, baseStr: numeroATexto(base), ivaStr: numeroATexto(iva) };
+        }
+        return { ...l, baseStr: numeroATexto(base) };
+      });
+      if (!tieneIva) {
+        return [
+          nuevaLinea({
+            tipo: 'iva',
+            sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada',
+            baseStr: numeroATexto(base),
+            ivaStr: numeroATexto(iva),
+          }),
+          ...actualizadas,
+        ];
+      }
+      return actualizadas;
+    });
+    toast(`Desglose aplicado: Base ${numeroATexto(base)} + IVA ${numeroATexto(iva)} = ${numeroATexto(tot)}`, 'info');
+  };
 
   async function emitir() {
     const falla = validar();
@@ -778,8 +818,21 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
       {/* Las líneas de impuesto */}
       <div className="card" style={{ marginTop: '.4rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
-          <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
+            {direccion === 'practicada' && nDec(facturaTotal) > 0 && !documento && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize: '.75rem', padding: '2px 8px', border: '1px dashed var(--primary)', color: 'var(--primary)' }}
+                title="Aplica la regla de precio con IVA incluido: Base = Total ÷ 1,16 e IVA = 16% sobre la base"
+                onClick={desglosarIvaIncluido}
+              >
+                ⚡ Desglosar IVA incluido (÷1,16)
+              </button>
+            )}
+          </div>
           {(() => {
             const tiposUsados = new Set(lineas.map((l) => l.tipo));
             const tiposDisponibles = TIPOS_IMPUESTO.filter((t) => !tiposUsados.has(t.key));
@@ -794,7 +847,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   if (!puedeAgregar) return;
                   marcarSucio();
                   const proximoTipo = tiposDisponibles[0].key;
-                  const baseSugerida = facturaTotal.trim() ? facturaTotal : '0';
+                  const lineaIva = lineas.find((x) => x.tipo === 'iva');
+                  const baseDeIva = lineaIva && nDec(lineaIva.baseStr) > 0 ? lineaIva.baseStr : null;
+                  const baseCalculada = Math.max(0, nDec(facturaTotal) - nDec(exentoStr) - (lineaIva ? nDec(lineaIva.ivaStr) : 0));
+                  const baseSugerida = baseDeIva ?? (baseCalculada > 0 ? numeroATexto(baseCalculada) : (lineas[0]?.baseStr || '0'));
                   setLineas((xs) => [...xs, nuevaLinea({
                     tipo: proximoTipo,
                     sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada',
@@ -829,7 +885,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   <strong style={{ fontSize: '.86rem', color: 'var(--text)' }}>
                     {rotuloImpuesto(l.tipo)}
                   </strong>
-                  {direccion === 'practicada' && l.tipo !== 'igtf' && (
+                  {direccion === 'practicada' && l.tipo !== 'igtf' && monto > 0 && (
                     <span
                       style={{
                         display: 'inline-flex',

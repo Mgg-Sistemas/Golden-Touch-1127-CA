@@ -43,7 +43,7 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 export function aFormato(r: Record<string, unknown>): FormatoGuardado {
   return {
     id: String(r.id), impuestoClave: texto(r.impuesto_clave), documento: String(r.documento ?? DOCUMENTO_COMPROBANTE),
-    desde: String(r.desde ?? ''), hasta: texto(r.hasta), orientacion: r.orientacion === 'horizontal' ? 'horizontal' : 'vertical',
+    desde: String(r.desde ?? ''), hasta: texto(r.hasta), orientacion: r.orientacion === 'vertical' ? 'vertical' : 'horizontal',
     textos: (r.textos as Record<string, string> | null) ?? null, rotulos: (r.rotulos as Record<string, string> | null) ?? null,
     columnas: Array.isArray(r.columnas) ? (r.columnas as ColumnaFormato[]) : null,
     deFabrica: r.de_fabrica === true, motivo: String(r.motivo ?? ''), fuente: texto(r.fuente),

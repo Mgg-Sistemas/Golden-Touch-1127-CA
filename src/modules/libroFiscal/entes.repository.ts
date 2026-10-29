@@ -279,6 +279,12 @@ export async function editarEnte(id: string, cambios: Partial<Pick<EnteNuevo, 'n
   if (cambios.tipo !== undefined) patch.tipo = cambios.tipo;
   if (cambios.estado !== undefined) patch.estado = cambios.estado?.trim() || null;
   if (cambios.municipio !== undefined) patch.municipio = cambios.municipio?.trim() || null;
+  if (cambios.tipo === 'nacional') {
+    patch.estado = null;
+    patch.municipio = null;
+  } else if (cambios.tipo === 'estadal') {
+    patch.municipio = null;
+  }
   if (cambios.rif !== undefined) {
     const rif = leerRifEnte(cambios.rif);
     if ('error' in rif) throw new Error(rif.error);
