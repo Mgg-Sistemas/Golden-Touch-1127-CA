@@ -108,7 +108,7 @@ function MotivoModal({ motivo, impuestos, onClose, onHecho }: {
               {impuestos.map((i) => <option key={i.clave} value={i.clave}>{i.nombre ?? labelClave(i.clave)}</option>)}
             </select>
           </div>
-          <div className="form-row" style={{ flex: '1 1 180px' }}><label>{ROTULO_ORDEN}</label><input className="input mono" inputMode="numeric" value={String(m.orden)} onChange={(e) => { const l = leerEntero(e.target.value, { min: 0, max: 9999, rotulo: ROTULO_ORDEN }); set({ orden: l.numero ?? 0 }); }} /><small className="hint muted">{AYUDA_ORDEN}</small></div>
+          <div className="form-row" style={{ flex: '1 1 180px' }}><label>{ROTULO_ORDEN}</label><input className="input mono" inputMode="numeric" value={String(m.orden)} onChange={(e) => { const l = leerEntero(e.target.value, ROTULO_ORDEN, 0); if ('valor' in l) set({ orden: l.valor }); }} /><small className="hint muted">{AYUDA_ORDEN}</small></div>
           <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: '.86rem' }}><input type="checkbox" checked={m.requiereTexto} onChange={(e) => set({ requiereTexto: e.target.checked })} /> Pide un detalle escrito</label>
         </div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>

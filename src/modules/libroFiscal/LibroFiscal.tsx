@@ -531,7 +531,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         toast(`Faltan datos fiscales: ${res.faltan[0]}`, 'error');
         return;
       }
-      const blob = new Blob([bytesIso88591(res.contenido)], { type: 'application/xml;charset=iso-8859-1' });
+      const blob = new Blob([bytesIso88591(res.contenido) as unknown as BlobPart], { type: 'application/xml;charset=iso-8859-1' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = res.nombre;

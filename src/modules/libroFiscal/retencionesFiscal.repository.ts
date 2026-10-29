@@ -520,7 +520,7 @@ export async function listRetenciones(f: FiltroRetenciones = {}): Promise<Retenc
     ? '*, retencion_documentos(tipo_documento, factura_afectada_nro, factura_total, exento)'
     : '*';
   const filas = await todasLasFilas<Record<string, unknown>>((desde, hasta) => {
-    let q = supabase.from(T_RETENCIONES).select(columnas)
+    let q = (supabase.from(T_RETENCIONES).select(columnas) as any)
       .order('factura_fecha', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })   // desempate estable: sin esto las páginas se solapan

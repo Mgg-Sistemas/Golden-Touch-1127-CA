@@ -175,19 +175,19 @@ describe('tarifa por tramos', () => {
   });
 
   it('detiene el cálculo en divisas cuando falta la tasa BCV y respeta el techo finito de tramos', () => {
-    const r: ReglaDefinicion = {
-      condiciones: [],
-      pasos: [
+    const r = regla('TEST', 'Test', [], [
+
+
         { paso: 1, operacion: 'tomar_campo', valores: { campo: 'base_imponible' } },
         { paso: 4, operacion: 'aplicar_tramos', valores: { tarifa: 't_tope', modo: 'directo' } },
         { paso: 6, operacion: 'retener_todo', valores: {} },
-      ],
-    };
+
+    ]);
     const sinTasa = calcularConRegla(r, ctx({ moneda: 'USD', tasa: null, montos: { base_imponible: 500 } }));
     expect(sinTasa.aplica).toBe(false);
     expect(sinTasa.baseBs).toBe(0);
 
-    const tramosFinitos: TramoRegla[] = [{ desde: 0, hasta: 100, pct: 5, sustraendo: 0 }];
+    const tramosFinitos = [{ desdeMonto: 0, hastaMonto: 100, pct: 5, sustraendo: 0 }];
     const excedeTope = calcularConRegla(r, ctx({
       montos: { base_imponible: 250 },
       tarifa: () => ({ tramos: tramosFinitos, unidad: 'Bs' }),
@@ -196,15 +196,15 @@ describe('tarifa por tramos', () => {
   });
 
   it('detiene el Paso 5 (restar_sustraendo) cuando la unidad es UT y falta el valor de la UT', () => {
-    const r: ReglaDefinicion = {
-      condiciones: [],
-      pasos: [
+    const r = regla('TEST', 'Test', [], [
+
+
         { paso: 1, operacion: 'tomar_campo', valores: { campo: 'pago' } },
         { paso: 4, operacion: 'aplicar_alicuota', valores: { pct: 3 } },
         { paso: 5, operacion: 'restar_sustraendo', valores: { de: 'fijo', monto: 25, unidad: 'UT' } },
         { paso: 6, operacion: 'retener_todo', valores: {} },
-      ],
-    };
+
+    ]);
     const sinUt = calcularConRegla(r, ctx({ ut: null, montos: { pago: 10000 } }));
     expect(sinUt.aplica).toBe(false);
     expect(sinUt.monto).toBe(0);

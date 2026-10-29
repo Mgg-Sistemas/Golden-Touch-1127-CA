@@ -255,7 +255,7 @@ export function ReportesView({ actor }: { actor: string }) {
 
   function descargarXml() {
     if (!xml || xml.faltan.length) return;
-    const blob = new Blob([bytesIso88591(xml.contenido)], { type: 'application/xml;charset=iso-8859-1' });
+    const blob = new Blob([bytesIso88591(xml.contenido) as unknown as BlobPart], { type: 'application/xml;charset=iso-8859-1' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = xml.nombre;
