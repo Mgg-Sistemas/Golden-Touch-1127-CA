@@ -4,7 +4,9 @@ import { intentarSalir } from '@/shared/lib/minimizadas';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { relTime } from '@/shared/lib/format';
-import { listLatest, markAllRead, markRead, pruneOld } from './notif.repository';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { notificacionPermitidaParaUsuario } from './notifPermisos';
+import { listLatest, markAllRead, markManyRead, markRead, pruneOld } from './notif.repository';
 import type { Notificacion } from '@/shared/lib/types';
 
 interface Props {
@@ -21,6 +23,7 @@ const KIND_ICON: Record<string, string> = {
 };
 
 export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
+  const { can, isAdmin } = usePermissions();
   const [items, setItems] = useState<Notificacion[]>([]);
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
@@ -43,20 +46,30 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    // Mostramos solo las 10 más recientes y, en segundo plano, borramos las viejas
+    // Traemos un lote reciente y filtramos en memoria por los módulos permitidos para el usuario.
     // (DELETE es admin-only: si no eres admin simplemente no borra nada).
-    listLatest(10)
-      .then((data) => { if (!cancelled) setItems(data); })
+    listLatest(50)
+      .then((data) => {
+        if (!cancelled) {
+          const permitidas = data.filter((n) => notificacionPermitidaParaUsuario(n, can, isAdmin));
+          setItems(permitidas.slice(0, 15));
+        }
+      })
       .catch(() => { if (!cancelled) setItems([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    pruneOld(10).catch(() => { /* sin permiso (no-admin) o sin red: se ignora */ });
+    pruneOld(15).catch(() => { /* sin permiso (no-admin) o sin red: se ignora */ });
     return () => { cancelled = true; };
-  }, [open]);
+  }, [open, can, isAdmin]);
 
   async function handleMarkAll() {
     setMarking(true);
     try {
-      await markAllRead();
+      if (isAdmin) {
+        await markAllRead();
+      } else {
+        const idsNoLeidos = items.filter((n) => !n.read).map((n) => n.id);
+        await markManyRead(idsNoLeidos);
+      }
       setItems((prev) => prev.map((n) => ({ ...n, read: true })));
       onAllRead();
     } finally {

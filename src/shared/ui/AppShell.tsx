@@ -16,7 +16,7 @@ import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
 import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
 import { mensajeError } from '@/shared/lib/errores';
 import { Modal } from '@/shared/ui/Modal';
-import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
+import { scanStockAndNotify, unreadCountParaUsuario } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
 import { supabase } from '@/shared/lib/supabase';
@@ -92,7 +92,7 @@ export function AppShell() {
 
   async function refreshUnread() {
     try {
-      setUnread(await unreadCount());
+      setUnread(await unreadCountParaUsuario(can, isAdmin));
     } catch {
       setUnread(0);
     }
@@ -108,7 +108,7 @@ export function AppShell() {
       .then(() => { if (!cancelled) void refreshUnread(); })
       .catch(() => {/* RLS u offline: el contador inicial sigue válido */});
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, can, isAdmin]);
 
   // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).
   useEffect(() => { initSound(); }, []);
@@ -179,7 +179,7 @@ export function AppShell() {
   }, [user?.id, role]);
 
   // Cuando cualquier `notify()` persista en BD, refresca el contador de la campana.
-  useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
+  useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), [can, isAdmin]);
 
   async function handleLogout() {
     vaciarMinimizadas();

@@ -44,11 +44,43 @@ export async function unreadCount(): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * Cuenta notificaciones no leídas que el usuario tiene permitido ver según sus permisos de módulo.
+ * Si es admin, realiza la consulta directa y rápida a BD. Si no es admin, filtra en memoria.
+ */
+export async function unreadCountParaUsuario(
+  can: (module: import('@/modules/usuarios/permisos.repository').ModuleKey) => boolean,
+  isAdmin: boolean,
+): Promise<number> {
+  if (isAdmin) return unreadCount();
+  const { data, error } = await supabase
+    .from('notificaciones')
+    .select('id, destino, kind, title, message, link, read')
+    .eq('read', false)
+    .limit(200);
+  if (error) throw error;
+  const { notificacionPermitidaParaUsuario } = await import('./notifPermisos');
+  const permitidas = (data ?? []).filter((n) =>
+    notificacionPermitidaParaUsuario(n as Notificacion, can, isAdmin)
+  );
+  return permitidas.length;
+}
+
 export async function markAllRead(): Promise<void> {
   const { error } = await supabase
     .from('notificaciones')
     .update({ read: true })
     .eq('read', false);
+  if (error) throw error;
+}
+
+/** Marca múltiples notificaciones como leídas por ID. */
+export async function markManyRead(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase
+    .from('notificaciones')
+    .update({ read: true })
+    .in('id', ids);
   if (error) throw error;
 }
 
