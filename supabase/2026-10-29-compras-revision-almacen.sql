@@ -221,7 +221,7 @@ begin
       'Nueva solicitud ' || new.codigo || ' para revisar en Almacén'
         || coalesce(' · ' || nullif(btrim(new.unidad_solicitante), ''), '')
         || ' (' || jsonb_array_length(coalesce(new.items, '[]'::jsonb)) || ' renglón(es)).',
-      '#/app/solicitudes',
+      '#/app/pedidos?tab=almacen',
       v_dedup);
   end if;
   return null;
@@ -504,7 +504,7 @@ begin
     values ('almacenista', 'warning',
       '↩️ Solicitud ' || v_o.codigo || ' devuelta a Almacén',
       'La solicitud ' || v_o.codigo || ' volvió a revisión de Almacén. Revísala de nuevo.',
-      '#/app/solicitudes', v_dedup);
+      '#/app/pedidos?tab=almacen', v_dedup);
   end if;
 
   return jsonb_build_object('estado_orden', 'revision_almacen', 'codigo', v_o.codigo);
@@ -514,3 +514,25 @@ grant execute on function public.almacen_devolver_a_revision(uuid) to authentica
 
 -- 6) (aplicado 29/10/2026, migración compras_revision_almacen_6_enlace_avisos) La ruta de la pantalla
 --    quedó /app/solicitudes: los avisos a Almacén se corrigieron arriba (antes #/app/solicitudes-almacen).
+
+-- 7) (aplicado 29/10/2026, migración compras_revision_almacen_7_mercado_directo_compras)
+--    La solicitud de MERCADO entra directo por Compras (no pasa por Almacén):
+create or replace function public.orden_es_solicitud_mercado(p_items jsonb)
+returns boolean language sql stable set search_path = public as $$
+  select exists (
+    select 1
+      from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) it
+      left join public.productos p
+        on p.id::text = nullif(it ->> 'productoId', '')
+        or (nullif(it ->> 'productoId', '') is null and p.sku = nullif(it ->> 'sku', ''))
+     where public.es_categoria_comida_cocina(p.categoria)
+        or upper(coalesce(it ->> 'finalidad', '')) like '%MERCADO%'
+  );
+$$;
+--    y en ordenes_a_revision_almacen() se agregó a las exclusiones:
+--      or public.orden_es_solicitud_mercado(new.items)
+--    Probado (begin/rollback, interruptor encendido): SP de COCINA con salchichas → 'pendiente';
+--    SP de MINA PERAMANAL con clavos → 'revision_almacen'.
+
+-- 8) (aplicado 29/10/2026, migración compras_revision_almacen_8_enlace_pestana_pedidos)
+--    La pantalla vive DENTRO de Pedidos / Compras: los avisos a Almacén abren '#/app/pedidos?tab=almacen'.

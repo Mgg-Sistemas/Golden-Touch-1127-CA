@@ -115,6 +115,7 @@ import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio'
 import { FichaEquipoCompras } from './FichaEquipoCompras';
 import { listEquipos } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
+import { SolicitudesAlmacenPage } from '@/modules/solicitudesAlmacen/SolicitudesAlmacenPage';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { fijarNumeroAdministracion } from '@/modules/proveedores/proveedores.repository';
 import { rotuloMarcaModelo, tieneMarcaModelo } from '@/shared/lib/marcaModelo';
@@ -128,7 +129,7 @@ import { rotuloMarcaModelo, tieneMarcaModelo } from '@/shared/lib/marcaModelo';
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
-type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicios' | 'servicio_directo';
+type Scope = 'pedidos' | 'almacen' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicios' | 'servicio_directo';
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 // Cada columna del Kanban muestra solo las 10 más recientes; el resto queda
@@ -307,7 +308,8 @@ export function PedidosPage() {
   // Alertas de Cocina: "hay que restablecer el mercado" (tarjeta para Compras).
   const [alertasMercado, setAlertasMercado] = useState<AlertaMercado[]>([]);
   // Contador liviano de pendientes por pagar (para el badge del botón, en vivo).
-  const [pendPagar, setPendPagar] = useState<{ porPagar: number; credito: number }>({ porPagar: 0, credito: 0 });
+  // El botón «Pendientes por pagar» está oculto (29/10/2026): se sigue cargando el conteo para cuando vuelva.
+  const [, setPendPagar] = useState<{ porPagar: number; credito: number }>({ porPagar: 0, credito: 0 });
   // Modal del reporte «Pendientes por pagar» (PDF · Excel · WhatsApp viven ahí adentro).
   const [pendientesPagarOpen, setPendientesPagarOpen] = useState(false);
   // Modal del reporte «Compras por estado» (las tres salidas viven ahí adentro).
@@ -449,7 +451,9 @@ export function PedidosPage() {
   // Quien no gestiona compras ni aprueba OC solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
   useEffect(() => {
     if (!canVerCompras && scope !== 'pedidos') setScope('pedidos');
-  }, [canVerCompras, scope]);
+    // La pestaña «Revisión de Almacén» es de quien tiene Inventario (Almacén, Compras, admin).
+    else if (scope === 'almacen' && !can('inventario')) setScope('pedidos');
+  }, [canVerCompras, scope, can]);
 
   // Alertas de Cocina (restablecer el mercado): solo le importan a Compras.
   const refreshAlertas = useCallback(async () => {
@@ -621,9 +625,11 @@ export function PedidosPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicios' ? 'Servicios' : 'Órdenes'}</h1>
+          <h1>{scope === 'almacen' ? 'Revisión de Almacén' : scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicios' ? 'Servicios' : 'Órdenes'}</h1>
           <p className="muted hint">
-            {scope === 'oc'
+            {scope === 'almacen'
+              ? 'Almacén revisa cada Solicitud de Pedido antes de Compras: lo que hay en inventario lo entrega Almacén y solo lo que falta pasa a cotizar. Las solicitudes de mercado (comida) van directo a Compras.'
+              : scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
               : scope === 'oc_lote'
                 ? 'Checklist de órdenes de compra pendientes por confirmar. Aprueba en lote, imprime o envía por correo.'
@@ -695,7 +701,7 @@ export function PedidosPage() {
               🔧 Nuevo servicio
             </button>
           )}
-          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && (
+          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
             <button
               className="btn"
               style={{ background: 'var(--brand, #ff8a00)', color: '#111', fontWeight: 700 }}
@@ -705,7 +711,7 @@ export function PedidosPage() {
               🛒 Solicitud de mercado
             </button>
           )}
-          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && (
+          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
             <button
               className="btn btn-primary"
               onClick={() => setModal({ kind: 'create' })}
@@ -757,6 +763,15 @@ export function PedidosPage() {
           >
             ✉ Solicitud de Pedido
           </button>
+          {can('inventario') && (
+            <button
+              className={scope === 'almacen' ? 'active' : ''}
+              onClick={() => switchScope('almacen')}
+              title="Almacén valida si tiene lo solicitado; lo que falta pasa a Compras"
+            >
+              🏬 Revisión de Almacén
+            </button>
+          )}
           <button
             className={scope === 'oc' ? 'active' : ''}
             onClick={() => switchScope('oc')}
@@ -805,7 +820,9 @@ export function PedidosPage() {
         </div>
       )}
 
-      {scope === 'oc_lote' ? (
+      {scope === 'almacen' ? (
+        <SolicitudesAlmacenPage />
+      ) : scope === 'oc_lote' ? (
         <OcPorLoteView />
       ) : scope === 'compra_directa' ? (
         <CompraDirectaView

@@ -35,6 +35,7 @@ import {
 
 type Pestana = 'por_revisar' | 'revisadas';
 
+/** Pestaña «Revisión de Almacén» de Pedidos / Compras (el encabezado lo pone PedidosPage). */
 export function SolicitudesAlmacenPage() {
   const { user } = useSession();
   const { isAdmin, can, appUser, puedeVista } = usePermissions();
@@ -63,19 +64,11 @@ export function SolicitudesAlmacenPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <div>
-          <h1>📋 Solicitudes de Pedido</h1>
-          <p className="muted">
-            Almacén revisa cada solicitud antes de Compras: lo que hay en inventario se entrega, lo que falta pasa a cotizar.
-          </p>
+      {datos.activo && puedeVista('solicitudes') && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '.6rem' }}>
+          <Link to="/app/solicitudes/telefono" className="btn btn-ghost">📱 Vista de teléfono</Link>
         </div>
-        {datos.activo && puedeVista('solicitudes') && (
-          <div className="actions">
-            <Link to="/app/solicitudes/telefono" className="btn btn-ghost">📱 Vista de teléfono</Link>
-          </div>
-        )}
-      </div>
+      )}
 
       {datos.loading && datos.activo === null && <p className="muted">Cargando…</p>}
       {!datos.loading && datos.activo === false && <AvisoApagado isAdmin={isAdmin} />}

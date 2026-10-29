@@ -42,7 +42,7 @@ export function SolicitudesAlmacenMovilView() {
           <div className="muted" style={{ fontSize: '.85rem' }}>{quien}</div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {!soloTelefono && <Link to="/app/solicitudes" className="btn btn-ghost">🖥 Módulo completo</Link>}
+          {!soloTelefono && <Link to="/app/pedidos?tab=almacen" className="btn btn-ghost">🖥 Módulo completo</Link>}
           {soloTelefono && vistasTelefono.length > 1 && <Link to="/app/telefono" className="btn btn-ghost">📱 Mis pantallas</Link>}
         </div>
       </header>
