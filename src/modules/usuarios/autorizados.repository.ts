@@ -24,7 +24,9 @@ let cargando: Promise<void> | null = null;
 export function recargarAutorizados(): Promise<void> {
   cargando ??= listAutorizados()
     .then((l) => setAutorizados(l))
-    .catch(() => undefined) // si falla, queda la lista anterior (o null: reglas de respaldo)
+    .catch((err) => {
+      console.warn('Error al cargar lista de usuarios autorizados:', err);
+    }) // si falla, queda la lista anterior (o null: reglas de respaldo)
     .finally(() => { cargando = null; });
   return cargando;
 }
