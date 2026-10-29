@@ -133,14 +133,15 @@ export function lanzarAvisoFactura(
   // 3. Si no están habilitados los avisos en pantalla, detener aquí
   if (!isAvisosPantallaHabilitados()) return;
 
-  const empresa = fac.empresaNombre || (fac as any).empresa_nombre || 'Empresa';
-  const proveedor = fac.proveedorNombre || (fac as any).proveedor_nombre || 'Proveedor';
-  const moneda = fac.moneda || 'Bs';
-  const monto = fac.montoTotal ?? (fac as any).monto_total ?? 0;
+  const empresa = fac.empresaNombre || 'Empresa';
+  const proveedor = fac.proveedorNombre || 'Proveedor';
+  // En bolívares si se puede (es lo que se informa); si no, en dólares.
+  const enBs = fac.moneda !== 'USD' || (fac.montoBs ?? 0) > 0;
+  const monto = (enBs && fac.moneda === 'USD' ? fac.montoBs : fac.montoTotal) ?? 0;
   const montoFmt = Number(monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const titulo = `🧾 Factura Recibida · ${empresa}`;
-  const cuerpo = `${proveedor}\nMonto: ${moneda === 'USD' ? '$' : 'Bs'} ${montoFmt}`;
+  const titulo = `🧾 Factura recibida · ${empresa}`;
+  const cuerpo = `${proveedor}\nMonto: ${enBs ? 'Bs' : '$'} ${montoFmt}`;
 
   // 4. Parpadeo en el título de la pestaña (visible aun con la pestaña en segundo plano)
   activarAlertaTitulo(`(1) 🧾 ${empresa}: ${proveedor}`);

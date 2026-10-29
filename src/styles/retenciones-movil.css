@@ -294,6 +294,10 @@
   border: 1px solid var(--border);
   background: var(--surface-3);
   aspect-ratio: 1;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
 }
 
 .buzon-thumb-item img {

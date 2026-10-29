@@ -2,14 +2,19 @@
    Golden Touch · Retenciones · Repositorio de Facturas Externas
    (Buzón Móvil de Compras y Soportes Fuera del Flujo)
 
-   Almacena facturas que personas fuera del edificio o del flujo
-   cargan desde el teléfono, clasificadas por empresa (Golden,
-   Minería TS / MTO, MGG, etc.).
+   Facturas que cargan desde el teléfono las personas que están fuera
+   de la oficina o del flujo de compras, clasificadas por la empresa
+   que las recibe.
+
+   Todo se lee y se guarda en la base (retencion_facturas_externas):
+   una factura no queda «cargada» en un solo equipo. Si la base no
+   guarda, se avisa con el motivo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { urlPublicaAdjunto, type AdjuntoFacturaItem } from './adjuntosBuzon';
-
-export { urlPublicaAdjunto };
+import { completarRif, formatearRif } from '@/shared/lib/rif';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { errorRetencion } from '@/modules/libroFiscal/erroresRetencion';
+import { borrarArchivosBuzon, subirArchivoBuzon, type AdjuntoFacturaItem } from './adjuntosBuzon';
 
 export type EstatusFacturaBuzon = 'recibida' | 'en_revision' | 'retenida' | 'descartada';
 
@@ -35,130 +40,61 @@ export interface FacturaExternaBuzon {
   createdByName?: string | null;
   createdAt: string;
   updatedAt: string | null;
-
-  // Propiedades espejo para compatibilidad con vistas existentes
-  empresa_receptora_id?: string;
-  empresa_nombre?: string;
-  proveedor_nombre?: string;
-  proveedor_rif?: string;
-  numero_factura?: string;
-  numero_control?: string | null;
-  fecha_factura?: string;
-  monto_total?: number;
-  monto_bs?: number;
-  monto_usd?: number | null;
 }
 
 export type FacturaBuzon = FacturaExternaBuzon;
 
 export interface NuevaFacturaBuzonInput {
-  empresaId?: string;
-  empresa_receptora_id?: string;
-  empresaNombre?: string;
-  empresa_nombre?: string;
-  proveedorNombre?: string;
-  proveedor_nombre?: string;
-  proveedorRif?: string;
-  proveedor_rif?: string;
-  facturaNumero?: string;
-  numero_factura?: string;
+  empresaId: string;
+  empresaNombre: string;
+  proveedorNombre: string;
+  proveedorRif: string;
+  facturaNumero: string;
   facturaControl?: string | null;
-  numero_control?: string | null;
-  facturaFecha?: string;
-  fecha_factura?: string;
-  montoTotal?: number;
-  monto_total?: number;
+  facturaFecha: string;
+  montoTotal: number;
   moneda: 'Bs' | 'USD';
   tasa?: number | null;
-  descripcion?: string;
+  descripcion: string;
   observaciones?: string | null;
-  adjuntos?: AdjuntoFacturaItem[];
-  createdBy?: string | null;
-  creado_por?: string | null;
   createdByName?: string | null;
 }
 
-const TABLE_BUZON = 'retencion_facturas_externas';
-const LOCAL_STORAGE_KEY = 'gt.retenciones.facturas_buzon_cache';
-let _memoriaFacturas: FacturaExternaBuzon[] = [];
+const TABLA = 'retencion_facturas_externas';
 
-function leerCacheLocal(): FacturaExternaBuzon[] {
-  if (typeof window === 'undefined') return _memoriaFacturas;
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as FacturaExternaBuzon[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function guardarCacheLocal(facturas: FacturaExternaBuzon[]): void {
-  _memoriaFacturas = facturas;
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(facturas));
-  } catch {
-    /* ignore */
-  }
-}
+const redondear = (n: number) => Math.round(n * 100) / 100;
 
 function mapearFilaFactura(r: Record<string, unknown>): FacturaExternaBuzon {
-  const montoTotal = Number(r.monto_total || r.montoTotal || 0);
-  const moneda = ((r.moneda as string) || 'Bs') as 'Bs' | 'USD';
+  const montoTotal = Number(r.monto_total ?? 0);
+  const moneda = (r.moneda === 'USD' ? 'USD' : 'Bs') as 'Bs' | 'USD';
   const tasa = r.tasa != null ? Number(r.tasa) : null;
-  const montoBs = Number(r.monto_bs ?? (moneda === 'Bs' ? montoTotal : (tasa ? montoTotal * tasa : 0)));
-  const montoUsd = moneda === 'USD' ? montoTotal : (tasa && tasa > 0 ? Math.round((montoTotal / tasa) * 100) / 100 : null);
-
-  const empresaId = String(r.empresa_id || r.empresaId || r.empresa_receptora_id || '');
-  const empresaNombre = String(r.empresa_nombre || r.empresaNombre || '');
-  const proveedorNombre = String(r.proveedor_nombre || r.proveedorNombre || '');
-  const proveedorRif = String(r.proveedor_rif || r.proveedorRif || '');
-  const facturaNumero = String(r.factura_numero || r.facturaNumero || r.numero_factura || '');
-  const facturaControl = r.factura_control ? String(r.factura_control) : (r.numero_control ? String(r.numero_control) : null);
-  const facturaFecha = String(r.factura_fecha || r.fecha_factura || r.facturaFecha || '').slice(0, 10);
-  const descripcion = String(r.descripcion || '');
-  const observaciones = r.observaciones ? String(r.observaciones) : null;
-  const estatus = (r.estatus as EstatusFacturaBuzon) || 'recibida';
-  const adjuntos = Array.isArray(r.adjuntos) ? (r.adjuntos as AdjuntoFacturaItem[]) : [];
-  const createdBy = r.created_by ? String(r.created_by) : (r.createdBy ? String(r.createdBy) : null);
-  const createdByName = r.created_by_name ? String(r.created_by_name) : (r.createdByName ? String(r.createdByName) : null);
-  const createdAt = String(r.created_at || r.createdAt || new Date().toISOString());
-  const updatedAt = r.updated_at ? String(r.updated_at) : null;
+  const montoBs = r.monto_bs != null ? Number(r.monto_bs) : (moneda === 'Bs' ? montoTotal : (tasa ? redondear(montoTotal * tasa) : 0));
+  const montoUsd = r.monto_usd != null
+    ? Number(r.monto_usd)
+    : moneda === 'USD' ? montoTotal : (tasa && tasa > 0 ? redondear(montoTotal / tasa) : null);
 
   return {
     id: String(r.id),
-    empresaId,
-    empresaNombre,
-    proveedorNombre,
-    proveedorRif,
-    facturaNumero,
-    facturaControl,
-    facturaFecha,
+    empresaId: String(r.empresa_id ?? ''),
+    empresaNombre: String(r.empresa_nombre ?? ''),
+    proveedorNombre: String(r.proveedor_nombre ?? ''),
+    proveedorRif: String(r.proveedor_rif ?? ''),
+    facturaNumero: String(r.factura_numero ?? ''),
+    facturaControl: r.factura_control ? String(r.factura_control) : null,
+    facturaFecha: String(r.factura_fecha ?? '').slice(0, 10),
     montoTotal,
     moneda,
     tasa,
     montoBs,
     montoUsd,
-    descripcion,
-    observaciones,
-    estatus,
-    adjuntos,
-    createdBy,
-    createdByName,
-    createdAt,
-    updatedAt,
-
-    // Espejos
-    empresa_receptora_id: empresaId,
-    empresa_nombre: empresaNombre,
-    proveedor_nombre: proveedorNombre,
-    proveedor_rif: proveedorRif,
-    numero_factura: facturaNumero,
-    numero_control: facturaControl,
-    fecha_factura: facturaFecha,
-    monto_total: montoTotal,
-    monto_bs: montoBs,
-    monto_usd: montoUsd,
+    descripcion: String(r.descripcion ?? ''),
+    observaciones: r.observaciones ? String(r.observaciones) : null,
+    estatus: (r.estatus as EstatusFacturaBuzon) || 'recibida',
+    adjuntos: Array.isArray(r.adjuntos) ? (r.adjuntos as AdjuntoFacturaItem[]) : [],
+    createdBy: r.created_by ? String(r.created_by) : null,
+    createdByName: r.created_by_name ? String(r.created_by_name) : null,
+    createdAt: String(r.created_at ?? ''),
+    updatedAt: r.updated_at ? String(r.updated_at) : null,
   };
 }
 
@@ -167,29 +103,17 @@ export async function listFacturasBuzon(filtro?: {
   estatus?: string;
   busqueda?: string;
 }): Promise<FacturaExternaBuzon[]> {
-  try {
-    let q = supabase.from(TABLE_BUZON).select('*').order('created_at', { ascending: false });
+  let q = supabase.from(TABLA).select('*').order('created_at', { ascending: false });
+  if (filtro?.empresaId) q = q.eq('empresa_id', filtro.empresaId);
+  if (filtro?.estatus) q = q.eq('estatus', filtro.estatus);
 
-    if (filtro?.empresaId) q = q.eq('empresa_id', filtro.empresaId);
-    if (filtro?.estatus) q = q.eq('estatus', filtro.estatus);
-
-    const { data, error } = await q;
-    if (!error && data) {
-      const items: FacturaExternaBuzon[] = data.map((r) => mapearFilaFactura(r as Record<string, unknown>));
-      guardarCacheLocal(items);
-      return filtrarMemoria(items, filtro?.busqueda);
-    }
-  } catch {
-    /* fallback cache local */
-  }
-
-  let items = leerCacheLocal();
-  if (filtro?.empresaId) items = items.filter((f) => f.empresaId === filtro.empresaId || f.empresa_receptora_id === filtro.empresaId);
-  if (filtro?.estatus) items = items.filter((f) => f.estatus === filtro.estatus);
-  return filtrarMemoria(items, filtro?.busqueda);
+  const { data, error } = await q;
+  if (error) throw errorRetencion(error, 'No se pudieron leer las facturas del buzón.');
+  const items = (data ?? []).map((r) => mapearFilaFactura(r as Record<string, unknown>));
+  return filtrarPorTexto(items, filtro?.busqueda);
 }
 
-function filtrarMemoria(xs: FacturaExternaBuzon[], q?: string): FacturaExternaBuzon[] {
+function filtrarPorTexto(xs: FacturaExternaBuzon[], q?: string): FacturaExternaBuzon[] {
   if (!q?.trim()) return xs;
   const s = q.trim().toLowerCase();
   return xs.filter(
@@ -203,136 +127,119 @@ function filtrarMemoria(xs: FacturaExternaBuzon[], q?: string): FacturaExternaBu
   );
 }
 
-export async function crearFacturaBuzon(input: NuevaFacturaBuzonInput): Promise<FacturaExternaBuzon> {
-  const id = `fac-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const now = new Date().toISOString();
+/** Qué falta o está mal en la factura; null si se puede guardar. */
+export function faltaEnFacturaBuzon(input: NuevaFacturaBuzonInput, hoy: string = hoyVenezuela()): string | null {
+  if (!input.empresaId) return 'Elige la empresa que recibe la factura.';
+  if (!input.proveedorNombre?.trim()) return 'Indica el nombre del proveedor.';
+  if (!String(input.proveedorRif ?? '').trim()) return 'Indica el RIF del proveedor (sale impreso en la factura).';
+  const rif = completarRif(input.proveedorRif);
+  if (!rif || rif.startsWith('C')) {
+    return `El RIF del proveedor «${input.proveedorRif.trim()}» no es válido: letra (J, G, V, E o P), 8 dígitos y el verificador.`;
+  }
+  if (input.proveedorNombre.trim().length > 200) return 'El nombre del proveedor va hasta 200 caracteres.';
+  if (!input.facturaNumero?.trim()) return 'Indica el número de la factura.';
+  if (input.facturaNumero.trim().length > 40 || (input.facturaControl?.trim().length ?? 0) > 40) return 'El número y el control de la factura van hasta 40 caracteres.';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.facturaFecha ?? '')) return 'Indica la fecha de la factura.';
+  if (input.facturaFecha > hoy) return 'La fecha de la factura no puede ser posterior a hoy.';
+  if (!Number.isFinite(input.montoTotal) || input.montoTotal <= 0) return 'El monto total tiene que ser mayor que 0.';
+  if (input.moneda === 'USD' && !(input.tasa != null && input.tasa > 0)) return 'Para una factura en dólares, indica la tasa del día para pasarla a bolívares.';
+  if (input.tasa != null && !(input.tasa > 0)) return 'La tasa tiene que ser mayor que 0.';
+  if (!input.descripcion?.trim()) return 'Indica qué se compró (descripción).';
+  if (input.descripcion.trim().length > 1000) return 'La descripción va hasta 1000 caracteres.';
+  if ((input.observaciones?.trim().length ?? 0) > 2000) return 'Las observaciones van hasta 2000 caracteres.';
+  return null;
+}
 
-  const empresaId = input.empresaId || input.empresa_receptora_id || '';
-  const empresaNombre = input.empresaNombre || input.empresa_nombre || 'Empresa Receptora';
-  const proveedorNombre = (input.proveedorNombre || input.proveedor_nombre || '').trim();
-  const proveedorRif = (input.proveedorRif || input.proveedor_rif || 'S/RIF').trim().toUpperCase();
-  const facturaNumero = (input.facturaNumero || input.numero_factura || '').trim();
-  const facturaControl = (input.facturaControl || input.numero_control || '').trim() || null;
-  const facturaFecha = (input.facturaFecha || input.fecha_factura || now).slice(0, 10);
-  const montoTotal = Number(input.montoTotal ?? input.monto_total ?? 0);
-  const tasa = input.tasa != null ? Number(input.tasa) : null;
+/**
+ * Registra la factura con sus soportes ya subidos (el id lo pone el cliente
+ * para que los archivos vayan antes a «<id>/…»). Devuelve lo que quedó en la base.
+ * El autor, las fechas y el nombre de la empresa los pone la base.
+ */
+export async function crearFacturaBuzon(
+  input: NuevaFacturaBuzonInput,
+  { id = crypto.randomUUID(), adjuntos = [] }: { id?: string; adjuntos?: AdjuntoFacturaItem[] } = {},
+): Promise<FacturaExternaBuzon> {
+  const falta = faltaEnFacturaBuzon(input);
+  if (falta) throw new Error(falta);
 
-  const montoBs = input.moneda === 'Bs'
-    ? montoTotal
-    : tasa && tasa > 0
-      ? Math.round(montoTotal * tasa * 100) / 100
-      : 0;
+  const montoTotal = redondear(input.montoTotal);
+  const tasa = input.tasa != null ? input.tasa : null;
+  const montoBs = input.moneda === 'Bs' ? montoTotal : redondear(montoTotal * (tasa ?? 0));
+  const montoUsd = input.moneda === 'USD' ? montoTotal : (tasa && tasa > 0 ? redondear(montoTotal / tasa) : null);
 
-  const montoUsd = input.moneda === 'USD'
-    ? montoTotal
-    : tasa && tasa > 0
-      ? Math.round((montoTotal / tasa) * 100) / 100
-      : null;
-
-  const item: FacturaExternaBuzon = {
+  const { data, error } = await supabase.from(TABLA).insert({
     id,
-    empresaId,
-    empresaNombre,
-    proveedorNombre,
-    proveedorRif,
-    facturaNumero,
-    facturaControl,
-    facturaFecha,
-    montoTotal,
+    empresa_id: input.empresaId,
+    empresa_nombre: input.empresaNombre,
+    proveedor_nombre: input.proveedorNombre.trim(),
+    proveedor_rif: formatearRif(completarRif(input.proveedorRif)),
+    factura_numero: input.facturaNumero.trim(),
+    factura_control: input.facturaControl?.trim() || null,
+    factura_fecha: input.facturaFecha,
+    monto_total: montoTotal,
     moneda: input.moneda,
     tasa,
-    montoBs,
-    montoUsd,
-    descripcion: (input.descripcion || '').trim(),
-    observaciones: (input.observaciones || '').trim() || null,
-    estatus: 'recibida',
-    adjuntos: input.adjuntos || [],
-    createdBy: input.createdBy || input.creado_por || null,
-    createdByName: input.createdByName || null,
-    createdAt: now,
-    updatedAt: now,
-
-    // Espejos
-    empresa_receptora_id: empresaId,
-    empresa_nombre: empresaNombre,
-    proveedor_nombre: proveedorNombre,
-    proveedor_rif: proveedorRif,
-    numero_factura: facturaNumero,
-    numero_control: facturaControl,
-    fecha_factura: facturaFecha,
-    monto_total: montoTotal,
     monto_bs: montoBs,
     monto_usd: montoUsd,
-  };
+    descripcion: input.descripcion.trim(),
+    observaciones: input.observaciones?.trim() || null,
+    estatus: 'recibida',
+    adjuntos,
+    created_by_name: input.createdByName ?? null,
+  }).select('*');
+  if (error) throw errorRetencion(error, 'No se pudo guardar la factura.', { unico: 'Esa factura ya está cargada en el buzón.' });
+  const fila = (data ?? [])[0] as Record<string, unknown> | undefined;
+  if (!fila) throw new Error('No se guardó la factura: sin permiso para cargar facturas en el buzón.');
+  return mapearFilaFactura(fila);
+}
 
+/**
+ * Sube los soportes y después registra la factura con ellos. Si algo falla, la
+ * factura no se guarda y se avisa el motivo; los archivos ya subidos se
+ * intentan quitar (quien solo tiene lectura no puede borrarlos: quedan sueltos,
+ * sin factura que los nombre).
+ */
+export async function cargarFacturaBuzon(
+  input: NuevaFacturaBuzonInput,
+  archivos: readonly File[],
+  alAvanzar?: (mensaje: string) => void,
+): Promise<FacturaExternaBuzon> {
+  const falta = faltaEnFacturaBuzon(input);
+  if (falta) throw new Error(falta);
+
+  const id = crypto.randomUUID();
+  const subidos: AdjuntoFacturaItem[] = [];
   try {
-    const { error } = await supabase.from(TABLE_BUZON).insert({
-      id: item.id,
-      empresa_id: item.empresaId,
-      empresa_nombre: item.empresaNombre,
-      proveedor_nombre: item.proveedorNombre,
-      proveedor_rif: item.proveedorRif,
-      factura_numero: item.facturaNumero,
-      factura_control: item.facturaControl,
-      factura_fecha: item.facturaFecha,
-      monto_total: item.montoTotal,
-      moneda: item.moneda,
-      tasa: item.tasa,
-      monto_bs: item.montoBs,
-      monto_usd: item.montoUsd,
-      descripcion: item.descripcion,
-      observaciones: item.observaciones,
-      estatus: item.estatus,
-      adjuntos: item.adjuntos,
-      created_by: item.createdBy,
-      created_by_name: item.createdByName,
-      created_at: item.createdAt,
-      updated_at: item.updatedAt,
-    });
-    if (error) {
-      console.warn('Inserción en Supabase falló, usando cache local:', error.message);
+    for (let i = 0; i < archivos.length; i += 1) {
+      alAvanzar?.(`Subiendo el soporte ${i + 1} de ${archivos.length}…`);
+      subidos.push(await subirArchivoBuzon(id, archivos[i]));
     }
-  } catch {
-    /* Fallback en caso de que la tabla aún no exista */
-  }
-
-  const actuales = leerCacheLocal();
-  actuales.unshift(item);
-  guardarCacheLocal(actuales);
-
-  return item;
-}
-
-export async function actualizarEstatusFacturaBuzon(
-  id: string,
-  nuevoEstatus: EstatusFacturaBuzon,
-): Promise<void> {
-  const now = new Date().toISOString();
-  try {
-    await supabase.from(TABLE_BUZON).update({
-      estatus: nuevoEstatus,
-      updated_at: now,
-    }).eq('id', id);
-  } catch {
-    /* ignore */
-  }
-
-  const actuales = leerCacheLocal();
-  const idx = actuales.findIndex((f) => f.id === id);
-  if (idx >= 0) {
-    actuales[idx].estatus = nuevoEstatus;
-    actuales[idx].updatedAt = now;
-    guardarCacheLocal(actuales);
+    alAvanzar?.('Guardando los datos de la factura…');
+    return await crearFacturaBuzon(input, { id, adjuntos: subidos });
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : String(e);
+    try { await borrarArchivosBuzon(subidos.map((a) => a.path)); } catch { /* sin permiso de borrar: quedan sueltos */ }
+    throw new Error(`No se guardó la factura. ${motivo}`);
   }
 }
 
-export async function eliminarFacturaBuzon(id: string): Promise<void> {
-  try {
-    await supabase.from(TABLE_BUZON).delete().eq('id', id);
-  } catch {
-    /* ignore */
-  }
+export async function actualizarEstatusFacturaBuzon(id: string, nuevoEstatus: EstatusFacturaBuzon): Promise<void> {
+  const { data, error } = await supabase.from(TABLA)
+    .update({ estatus: nuevoEstatus })
+    .eq('id', id)
+    .select('id');
+  if (error) throw errorRetencion(error, 'No se pudo cambiar el estado de la factura.');
+  if (!data?.length) throw new Error('No se cambió el estado: sin permiso para modificar la factura, o ya no existe.');
+}
 
-  const actuales = leerCacheLocal().filter((f) => f.id !== id);
-  guardarCacheLocal(actuales);
+/** Borra la factura y después sus soportes del almacenamiento. */
+export async function eliminarFacturaBuzon(factura: Pick<FacturaExternaBuzon, 'id' | 'adjuntos'>): Promise<void> {
+  const { data, error } = await supabase.from(TABLA).delete().eq('id', factura.id).select('id');
+  if (error) throw errorRetencion(error, 'No se pudo borrar la factura.');
+  if (!data?.length) throw new Error('No se borró la factura: sin permiso para borrarla, o ya no existe.');
+  try {
+    await borrarArchivosBuzon(factura.adjuntos.map((a) => a.path).filter(Boolean));
+  } catch {
+    throw new Error('La factura se borró, pero sus soportes no se pudieron quitar del almacenamiento.');
+  }
 }

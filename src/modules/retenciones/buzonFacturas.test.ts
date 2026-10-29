@@ -6,16 +6,7 @@ import {
   MAX_PDFS_FACTURA,
 } from './adjuntosBuzon';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
-import {
-  listEmpresasReceptoras,
-  guardarEmpresaReceptora,
-} from './empresasReceptoras.repository';
-import {
-  crearFacturaBuzon,
-  listFacturasBuzon,
-  actualizarEstatusFacturaBuzon,
-  type FacturaExternaBuzon,
-} from './facturasBuzon.repository';
+import type { FacturaExternaBuzon } from './facturasBuzon.repository';
 import {
   isSonidoRetencionesHabilitado,
   toggleSonidoRetenciones,
@@ -96,8 +87,8 @@ describe('Buzón móvil de facturas · Reglas de adjuntos y formato WhatsApp', (
   it('genera un mensaje estructurado para WhatsApp con todos los datos clave en USD', () => {
     const fac: FacturaExternaBuzon = {
       id: 'fac-1',
-      empresaId: 'mineria_ts',
-      empresaNombre: 'Minería TS C.A.',
+      empresaId: 'empresa-prueba-uno',
+      empresaNombre: 'Empresa de Prueba Uno C.A.',
       proveedorNombre: 'Suministros Industriales 2020 C.A.',
       proveedorRif: 'J-12345678-9',
       facturaNumero: '000845',
@@ -114,32 +105,33 @@ describe('Buzón móvil de facturas · Reglas de adjuntos y formato WhatsApp', (
         { id: '1', facturaId: 'fac-1', tipo: 'imagen', path: '1.jpg', nombreOriginal: '1.jpg', tamanoBytes: 100, mimeType: 'image/jpeg', createdAt: '' },
         { id: '2', facturaId: 'fac-1', tipo: 'pdf', path: 'fac.pdf', nombreOriginal: 'fac.pdf', tamanoBytes: 500, mimeType: 'application/pdf', createdAt: '' },
       ],
-      createdBy: 'campo@goldentouch.com',
-      createdByName: 'Carlos Pérez',
+      createdBy: 'campo@ejemplo.com',
+      createdByName: 'Persona de Prueba',
       createdAt: '2026-10-28T10:00:00Z',
       updatedAt: null,
     };
 
     const txt = mensajeFacturaExterna(fac);
     expect(txt).toContain('FACTURA EXTERNA REGISTRADA');
-    expect(txt).toContain('Minería TS C.A.');
+    expect(txt).toContain('Empresa de Prueba Uno C.A.');
     expect(txt).toContain('Suministros Industriales 2020 C.A.');
     expect(txt).toContain('J-12345678-9');
     expect(txt).toContain('000845');
     expect(txt).toContain('00-112');
     expect(txt).toContain('28/10/2026');
     expect(txt).toContain('1.500,00');
-    expect(txt).toContain('68.250,00');
-    expect(txt).toContain('Recibida (Pendiente por procesar)');
+    expect(txt).toContain('Monto:* Bs 68.250,00');   // el monto que se informa va en Bs
+    expect(txt).toContain('En dólares:* $ 1.500,00');
+    expect(txt).toContain('Estado:* Recibida');
     expect(txt).toContain('1 foto y 1 PDF');
-    expect(txt).toContain('Carlos Pérez');
+    expect(txt).toContain('Persona de Prueba');
   });
 
   it('genera un mensaje estructurado para facturas en Bolívares (Bs)', () => {
     const fac: FacturaExternaBuzon = {
       id: 'fac-2',
-      empresaId: 'empresa-mgg',
-      empresaNombre: 'MGG Inversiones Mineras C.A.',
+      empresaId: 'empresa-prueba-dos',
+      empresaNombre: 'Empresa de Prueba Dos C.A.',
       proveedorNombre: 'Ferretería El Tornillo C.A.',
       proveedorRif: 'J-98765432-1',
       facturaNumero: '1234',
@@ -159,106 +151,10 @@ describe('Buzón móvil de facturas · Reglas de adjuntos y formato WhatsApp', (
     };
 
     const txt = mensajeFacturaExterna(fac);
-    expect(txt).toContain('MGG Inversiones Mineras C.A.');
+    expect(txt).toContain('Empresa de Prueba Dos C.A.');
     expect(txt).toContain('Bs 5.000,00');
-    expect(txt).toContain('Retención practicada / Lista');
+    expect(txt).toContain('Estado:* Retención hecha');
     expect(txt).toContain('Sin soportes adjuntos');
-  });
-});
-
-describe('Empresas Receptoras · Multi-Empresa & Ficha Fiscal', () => {
-  it('retorna las empresas predeterminadas si no hay nada guardado', async () => {
-    const lista = await listEmpresasReceptoras();
-    expect(lista.length).toBeGreaterThanOrEqual(2);
-    expect(lista.some((e) => e.nombre.toUpperCase().includes('GOLDEN TOUCH'))).toBe(true);
-    expect(lista.some((e) => e.nombre.toUpperCase().includes('MINERÍA TS'))).toBe(true);
-  });
-
-  it('permite registrar una nueva empresa con ficha fiscal completa', async () => {
-    const nueva = await guardarEmpresaReceptora({
-      nombre: 'MGG Inversiones Mineras C.A.',
-      nombreCorto: 'MGG',
-      rif: 'J-50284711-2',
-      colorBadge: '#2563eb',
-      activo: true,
-      direccionFiscal: 'Guasipati, Estado Bolívar',
-      municipio: 'Roscio',
-      estado: 'Bolívar',
-      esAgenteRetencionIva: true,
-      retieneIslr: true,
-      pctIvaGeneral: 75,
-    });
-
-    expect(nueva.id).toBeDefined();
-    expect(nueva.clave).toBe('mgg');
-    expect(nueva.rif).toBe('J-50284711-2');
-    expect(nueva.municipio).toBe('Roscio');
-
-    const lista = await listEmpresasReceptoras();
-    const encontrada = lista.find((e) => e.id === nueva.id);
-    expect(encontrada).toBeDefined();
-    expect(encontrada?.nombre).toBe('MGG Inversiones Mineras C.A.');
-  });
-});
-
-describe('Facturas de Buzón · Repositorio y Cálculos', () => {
-  it('calcula equivalencias en Bs y USD según la moneda y tasa', async () => {
-    const facUsd = await crearFacturaBuzon({
-      empresaId: 'mineria_ts',
-      empresaNombre: 'Minería TS C.A.',
-      proveedorNombre: 'Repuestos Caterpillar C.A.',
-      proveedorRif: 'J-11223344-5',
-      facturaNumero: '9988',
-      facturaFecha: '2026-10-29',
-      montoTotal: 100,
-      moneda: 'USD',
-      tasa: 50,
-      descripcion: 'Filtros de aceite',
-    });
-
-    expect(facUsd.montoTotal).toBe(100);
-    expect(facUsd.moneda).toBe('USD');
-    expect(facUsd.montoBs).toBe(5000); // 100 * 50
-
-    const facBs = await crearFacturaBuzon({
-      empresaId: 'golden_touch',
-      empresaNombre: 'Golden Touch 1127 C.A.',
-      proveedorNombre: 'Papelería Central',
-      proveedorRif: 'J-33445566-7',
-      facturaNumero: '1122',
-      facturaFecha: '2026-10-29',
-      montoTotal: 2500,
-      moneda: 'Bs',
-      tasa: 50,
-      descripcion: 'Resmas de papel',
-    });
-
-    expect(facBs.montoTotal).toBe(2500);
-    expect(facBs.moneda).toBe('Bs');
-    expect(facBs.montoBs).toBe(2500);
-    expect(facBs.montoUsd).toBe(50); // 2500 / 50
-  });
-
-  it('permite actualizar el estatus de una factura del buzón', async () => {
-    const fac = await crearFacturaBuzon({
-      empresaId: 'mineria_ts',
-      empresaNombre: 'Minería TS C.A.',
-      proveedorNombre: 'Proveedor Prueba',
-      proveedorRif: 'J-00000000-0',
-      facturaNumero: '5566',
-      facturaFecha: '2026-10-29',
-      montoTotal: 300,
-      moneda: 'USD',
-      descripcion: 'Prueba de estatus',
-    });
-
-    expect(fac.estatus).toBe('recibida');
-
-    await actualizarEstatusFacturaBuzon(fac.id, 'retenida');
-
-    const lista = await listFacturasBuzon();
-    const actualizada = lista.find((x) => x.id === fac.id);
-    expect(actualizada?.estatus).toBe('retenida');
   });
 });
 
@@ -294,7 +190,7 @@ describe('Avisos en Pantalla / Móvil (Sin instalación)', () => {
   it('ejecuta lanzarAvisoFactura y detenerAlertaTitulo sin arrojar excepciones', () => {
     expect(() => {
       lanzarAvisoFactura({
-        empresaNombre: 'MGG Inversiones',
+        empresaNombre: 'Empresa de Prueba',
         proveedorNombre: 'Proveedor Test',
         moneda: 'USD',
         montoTotal: 150,

@@ -2,30 +2,41 @@
    Golden Touch · Retenciones · Buzón Móvil de Facturas
    Vista de teléfono optimizada para cargar y gestionar facturas
    externas y sus soportes (máx 4 imágenes, 1 o 2 PDFs).
-   Incluye selector táctil de empresas (Golden Touch, Minería TS / MTO, MGG),
-   botón táctil "✏ Escribir otra", resumen para WhatsApp y alertas de sonido.
+   Incluye selector táctil de las empresas que reciben facturas (las
+   guardadas en la base), botón táctil "✏ Escribir otra", resumen para
+   WhatsApp y alertas de sonido.
+
+   Si las tablas del buzón todavía no están en la base, la pantalla solo
+   lo dice: no muestra formularios ni consulta nada.
    ============================================================ */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { num, date, money } from '@/shared/lib/format';
-import { hoyVE, getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { completarRif, formatearRif } from '@/shared/lib/rif';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { buzonDisponible } from '@/modules/libroFiscal/disponibilidad';
+import { leerMonto, numeroATexto } from '@/modules/libroFiscal/validarCarga';
+import { SeLeyo } from '@/modules/libroFiscal/SeLeyo';
 
 import {
-  listEmpresasReceptoras, guardarEmpresaReceptora, type EmpresaReceptora,
+  listEmpresasReceptoras, guardarEmpresaReceptora, faltaEnEmpresa,
+  type EmpresaReceptora, type EmpresaReceptoraInput,
 } from './empresasReceptoras.repository';
 import {
-  listFacturasBuzon, crearFacturaBuzon, eliminarFacturaBuzon,
-  urlPublicaAdjunto, type FacturaExternaBuzon, type EstatusFacturaBuzon,
+  listFacturasBuzon, cargarFacturaBuzon, eliminarFacturaBuzon, faltaEnFacturaBuzon,
+  type FacturaExternaBuzon, type EstatusFacturaBuzon, type NuevaFacturaBuzonInput,
 } from './facturasBuzon.repository';
 import {
-  REGLA_BUZON, clasificarArchivos, validarAdjuntosBuzon, prepararAdjuntosBuzon, subirArchivoBuzon,
+  REGLA_BUZON, clasificarArchivos, validarAdjuntosBuzon, prepararAdjuntosBuzon, obtenerUrlAdjunto,
   type AdjuntoFacturaItem,
 } from './adjuntosBuzon';
 import {
@@ -35,53 +46,91 @@ import { mensajeFacturaExterna } from './mensajeFacturaExterna';
 
 const ESTATUS_CONFIG: Record<EstatusFacturaBuzon, { label: string; icono: string; clase: string }> = {
   recibida: { label: 'Recibida', icono: '📥', clase: 'buzon-estatus-recibida' },
-  en_revision: { label: 'En Revisión', icono: '⏳', clase: 'buzon-estatus-en_revision' },
-  retenida: { label: 'Retenida', icono: '✅', clase: 'buzon-estatus-retenida' },
+  en_revision: { label: 'En revisión', icono: '⏳', clase: 'buzon-estatus-en_revision' },
+  retenida: { label: 'Retención hecha', icono: '✅', clase: 'buzon-estatus-retenida' },
   descartada: { label: 'Descartada', icono: '✖', clase: 'buzon-estatus-descartada' },
 };
+
+const estatusDe = (f: FacturaExternaBuzon) => ESTATUS_CONFIG[f.estatus] ?? ESTATUS_CONFIG.recibida;
+
+/** El texto de un error, para mostrarlo tal cual (los repositorios ya lo dan en español). */
+const motivoDe = (e: unknown, porDefecto: string) => (e instanceof Error && e.message ? e.message : porDefecto);
+
+/**
+ * El monto que se muestra primero es en bolívares: es como se informa a los entes
+ * fiscales. Si la factura es en dólares, el monto en dólares y la tasa van debajo.
+ */
+function montosDeFactura(f: FacturaExternaBuzon): { principal: string; alterno: string | null } {
+  if (f.moneda === 'Bs') {
+    return {
+      principal: money(f.montoTotal, 'Bs'),
+      alterno: f.montoUsd != null && f.tasa ? `≈ ${money(f.montoUsd, 'USD')} (tasa ${num(f.tasa)} Bs por $)` : null,
+    };
+  }
+  if (f.tasa && f.tasa > 0) {
+    return { principal: money(f.montoBs, 'Bs'), alterno: `${money(f.montoTotal, 'USD')} a ${num(f.tasa)} Bs por $` };
+  }
+  return { principal: money(f.montoTotal, 'USD'), alterno: 'Sin tasa para pasarla a bolívares' };
+}
 
 export function RetencionesMovilView() {
   const { user } = useSession();
   const { can, soloTelefono, appUser } = usePermissions();
+  // Cargar facturas: basta con lectura en Retenciones (la base lo permite).
+  // Empresas, cambios de estado y borrar: solo con escritura (o administrador).
+  const canCargar = can('retenciones', 'lectura');
   const canWrite = can('retenciones', 'escritura');
-  const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || 'Usuario';
+
+  // ¿Están las tablas del buzón en la base? null = preguntando.
+  const [disponible, setDisponible] = useState<boolean | null>(null);
 
   const [empresas, setEmpresas] = useState<EmpresaReceptora[]>([]);
   const [empresaFiltro, setEmpresaFiltro] = useState<string>('todas');
   const [facturas, setFacturas] = useState<FacturaExternaBuzon[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [paso, setPaso] = useState<'lista' | 'cargar'>('lista');
 
   const [detalle, setDetalle] = useState<FacturaExternaBuzon | null>(null);
   const [facturaWhatsApp, setFacturaWhatsApp] = useState<FacturaExternaBuzon | null>(null);
   const [facturaABorrar, setFacturaABorrar] = useState<FacturaExternaBuzon | null>(null);
   const [modalEmpresa, setModalEmpresa] = useState(false);
+  const [empresaRecienCreada, setEmpresaRecienCreada] = useState<string | null>(null);
   const [sonidoHabilitado, setSonidoHabilitado] = useState(isSonidoRetencionesHabilitado());
 
+  // Detector: sin las tablas del buzón no se consulta ni se suscribe a nada.
+  useEffect(() => {
+    let cancel = false;
+    buzonDisponible()
+      .then((ok) => { if (!cancel) setDisponible(ok); })
+      .catch(() => { if (!cancel) setDisponible(false); });
+    return () => { cancel = true; };
+  }, []);
+
+  // Se traen todas las facturas y se filtra por empresa en pantalla: así los
+  // contadores de cada empresa son los de verdad.
   const cargarDatos = useCallback(async () => {
     try {
-      const [empr, facs] = await Promise.all([
-        listEmpresasReceptoras(),
-        listFacturasBuzon(empresaFiltro !== 'todas' ? { empresaId: empresaFiltro } : {}),
-      ]);
+      const [empr, facs] = await Promise.all([listEmpresasReceptoras(), listFacturasBuzon()]);
       setEmpresas(empr);
       setFacturas(facs);
+      setErrorCarga(null);
     } catch (e) {
-      console.warn('Error al cargar datos del buzón de facturas:', e);
+      setErrorCarga(motivoDe(e, 'No se pudieron leer las facturas del buzón.'));
     } finally {
       setLoading(false);
     }
-  }, [empresaFiltro]);
+  }, []);
 
   useEffect(() => {
-    void cargarDatos();
-  }, [cargarDatos]);
+    if (disponible) void cargarDatos();
+  }, [disponible, cargarDatos]);
 
-  // Realtime para cambios en facturas externas
+  // Realtime para cambios en facturas externas (solo si las tablas existen)
   useRealtime(['retencion_facturas_externas', 'retencion_empresas_receptoras'], () => {
     void cargarDatos();
-  });
+  }, { enabled: disponible === true });
 
   const toggleSonido = () => {
     const nuevo = toggleSonidoRetenciones();
@@ -91,26 +140,27 @@ export function RetencionesMovilView() {
 
   const facturasFiltradas = useMemo(() => {
     if (empresaFiltro === 'todas') return facturas;
-    return facturas.filter((f) => f.empresaId === empresaFiltro || f.empresa_receptora_id === empresaFiltro);
+    return facturas.filter((f) => f.empresaId === empresaFiltro);
   }, [facturas, empresaFiltro]);
 
   const empresaSeleccionadaNombre = useMemo(() => {
-    if (empresaFiltro === 'todas') return 'Todas las empresas';
+    if (empresaFiltro === 'todas') return 'todas las empresas';
     const e = empresas.find((x) => x.id === empresaFiltro);
-    return e?.nombreCorto || e?.nombre || 'Empresa';
+    return e?.nombreCorto || e?.nombre || 'esta empresa';
   }, [empresas, empresaFiltro]);
 
-  return (
-    <div className="buzon-movil">
-      {/* Cabecera Móvil */}
-      <div className="buzon-head">
-        <div>
-          <h1>🧾 Buzón de Facturas</h1>
-          <small className="muted" style={{ fontSize: '0.8rem' }}>
-            Recepción externa y soportes fiscales
-          </small>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+  const rutaVolver = soloTelefono ? RUTA_TELEFONO : '/app/retenciones';
+
+  const cabecera = (
+    <div className="buzon-head">
+      <div>
+        <h1>🧾 Buzón de Facturas</h1>
+        <small className="muted" style={{ fontSize: '0.8rem' }}>
+          Recepción externa y soportes fiscales
+        </small>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        {disponible && (
           <button
             type="button"
             className={`buzon-audio-toggle ${sonidoHabilitado ? 'activo' : ''}`}
@@ -119,17 +169,69 @@ export function RetencionesMovilView() {
           >
             {sonidoHabilitado ? '🔔 Con sonido' : '🔕 Silencio'}
           </button>
-          {!soloTelefono && (
-            <Link
-              to="/app/retenciones"
-              className="btn sm"
-              style={{ textDecoration: 'none', fontSize: '0.78rem' }}
-            >
-              💻 Vista PC
-            </Link>
-          )}
+        )}
+        {!soloTelefono && (
+          <Link
+            to="/app/retenciones"
+            className="btn sm"
+            style={{ textDecoration: 'none', fontSize: '0.78rem' }}
+          >
+            💻 Vista PC
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+
+  // Preguntando a la base si el buzón está activo
+  if (disponible === null) {
+    return (
+      <div className="buzon-movil">
+        {cabecera}
+        <div className="p-8 muted text-center">Cargando…</div>
+      </div>
+    );
+  }
+
+  // El buzón todavía no está en la base: solo el aviso y el enlace para volver
+  if (!disponible) {
+    return (
+      <div className="buzon-movil">
+        {cabecera}
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '2.5rem 1rem',
+            background: 'var(--surface-1)',
+            borderRadius: 'var(--r-lg)',
+            border: '1px dashed var(--border)',
+          }}
+        >
+          <div style={{ fontSize: '2.2rem', marginBottom: '0.5rem' }}>🧾</div>
+          <p style={{ fontWeight: 700, margin: '0 0 0.3rem' }}>
+            El buzón de facturas todavía no está activo en la base.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 1rem' }}>
+            Cuando esté listo, aquí podrás cargar las facturas desde el teléfono.
+          </p>
+          <Link
+            to={rutaVolver}
+            className="btn primario"
+            style={{ minHeight: '48px', padding: '0 1.25rem', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+          >
+            ← Volver
+          </Link>
         </div>
       </div>
+    );
+  }
+
+  const sinEmpresas = !loading && !errorCarga && empresas.length === 0;
+
+  return (
+    <div className="buzon-movil">
+      {/* Cabecera Móvil */}
+      {cabecera}
 
       {/* Tabs principales de la vista teléfono */}
       <div className="buzon-tabs-top">
@@ -140,26 +242,23 @@ export function RetencionesMovilView() {
         >
           📋 Facturas ({facturasFiltradas.length})
         </button>
-        <button
-          type="button"
-          className={`buzon-tab-btn ${paso === 'cargar' ? 'activo' : ''}`}
-          onClick={() => {
-            if (!canWrite) {
-              toast('Tu rol no tiene permiso para cargar facturas', 'warning');
-              return;
-            }
-            setPaso('cargar');
-          }}
-        >
-          ➕ Cargar Factura
-        </button>
+        {canCargar && (
+          <button
+            type="button"
+            className={`buzon-tab-btn ${paso === 'cargar' ? 'activo' : ''}`}
+            onClick={() => setPaso('cargar')}
+          >
+            ➕ Cargar Factura
+          </button>
+        )}
       </div>
 
-      {/* Pestaña: Formulario de Carga */}
-      {paso === 'cargar' && (
+      {/* Pestaña: Formulario de Carga (con lectura en Retenciones) */}
+      {paso === 'cargar' && canCargar && (
         <FormularioCargaFactura
           empresas={empresas}
-          actor={actor}
+          empresaRecienCreada={empresaRecienCreada}
+          canWrite={canWrite}
           actorName={actorName}
           onCancelar={() => setPaso('lista')}
           onGuardada={(nuevaFac) => {
@@ -174,259 +273,171 @@ export function RetencionesMovilView() {
       {/* Pestaña: Lista de Facturas */}
       {paso === 'lista' && (
         <>
-          {/* Selector horizontal de empresas */}
-          <div className="buzon-empresas-scroll">
-            <button
-              type="button"
-              className={`buzon-empresa-chip ${empresaFiltro === 'todas' ? 'sel' : ''}`}
-              onClick={() => setEmpresaFiltro('todas')}
-            >
-              🏢 Todas ({facturas.length})
-            </button>
-            {empresas.map((emp) => {
-              const cant = facturas.filter((f) => f.empresaId === emp.id || f.empresa_receptora_id === emp.id).length;
-              return (
-                <button
-                  key={emp.id}
-                  type="button"
-                  className={`buzon-empresa-chip ${empresaFiltro === emp.id ? 'sel' : ''}`}
-                  onClick={() => setEmpresaFiltro(emp.id)}
-                >
-                  <span style={{ color: emp.colorBadge }}>●</span> {emp.nombreCorto || emp.nombre} ({cant})
-                </button>
-              );
-            })}
-          </div>
-
-          {loading ? (
-            <div className="p-8 muted text-center">Cargando facturas...</div>
-          ) : facturasFiltradas.length === 0 ? (
+          {errorCarga && (
             <div
               style={{
-                textAlign: 'center',
-                padding: '2.5rem 1rem',
+                padding: '0.75rem 1rem',
+                marginBottom: '0.75rem',
                 background: 'var(--surface-1)',
-                borderRadius: 'var(--r-lg)',
-                border: '1px dashed var(--border)',
+                borderRadius: 'var(--r-md)',
+                border: '1px solid var(--danger)',
+                color: 'var(--danger)',
+                fontSize: '0.88rem',
               }}
             >
-              <div style={{ fontSize: '2.2rem', marginBottom: '0.5rem' }}>📭</div>
-              <p style={{ fontWeight: 700, margin: '0 0 0.3rem' }}>
-                No hay facturas cargadas para {empresaSeleccionadaNombre}
-              </p>
-              <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 1rem' }}>
-                Las facturas cargadas desde el teléfono o la PC aparecerán aquí al instante.
-              </p>
-              {canWrite && (
+              {errorCarga}
+              <div style={{ marginTop: '0.5rem' }}>
+                <button type="button" className="btn sm" onClick={() => { setLoading(true); void cargarDatos(); }}>
+                  Volver a intentar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {sinEmpresas ? (
+            <AvisoSinEmpresas canWrite={canWrite} onAgregar={() => setModalEmpresa(true)} />
+          ) : (
+            <>
+              {/* Selector horizontal de empresas */}
+              <div className="buzon-empresas-scroll">
                 <button
                   type="button"
-                  className="btn primario"
-                  style={{ minHeight: '48px', padding: '0 1.25rem' }}
-                  onClick={() => setPaso('cargar')}
+                  className={`buzon-empresa-chip ${empresaFiltro === 'todas' ? 'sel' : ''}`}
+                  onClick={() => setEmpresaFiltro('todas')}
                 >
-                  ➕ Cargar primera factura
+                  🏢 Todas ({facturas.length})
                 </button>
+                {empresas.map((emp) => {
+                  const cant = facturas.filter((f) => f.empresaId === emp.id).length;
+                  return (
+                    <button
+                      key={emp.id}
+                      type="button"
+                      className={`buzon-empresa-chip ${empresaFiltro === emp.id ? 'sel' : ''}`}
+                      onClick={() => setEmpresaFiltro(emp.id)}
+                    >
+                      <span style={{ color: emp.colorBadge }}>●</span> {emp.nombreCorto || emp.nombre} ({cant})
+                    </button>
+                  );
+                })}
+              </div>
+
+              {loading ? (
+                <div className="p-8 muted text-center">Cargando facturas…</div>
+              ) : errorCarga ? null : facturasFiltradas.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    padding: '2.5rem 1rem',
+                    background: 'var(--surface-1)',
+                    borderRadius: 'var(--r-lg)',
+                    border: '1px dashed var(--border)',
+                  }}
+                >
+                  <div style={{ fontSize: '2.2rem', marginBottom: '0.5rem' }}>📭</div>
+                  <p style={{ fontWeight: 700, margin: '0 0 0.3rem' }}>
+                    No hay facturas cargadas para {empresaSeleccionadaNombre}
+                  </p>
+                  <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 1rem' }}>
+                    Las facturas cargadas desde el teléfono o la PC aparecerán aquí al instante.
+                  </p>
+                  {canCargar && (
+                    <button
+                      type="button"
+                      className="btn primario"
+                      style={{ minHeight: '48px', padding: '0 1.25rem' }}
+                      onClick={() => setPaso('cargar')}
+                    >
+                      ➕ Cargar primera factura
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {facturasFiltradas.map((fac) => {
+                    const estConfig = estatusDe(fac);
+                    const fotosCount = fac.adjuntos.filter((a) => a.tipo === 'imagen').length;
+                    const pdfsCount = fac.adjuntos.filter((a) => a.tipo === 'pdf').length;
+                    const montos = montosDeFactura(fac);
+
+                    return (
+                      <div key={fac.id} className="buzon-card">
+                        <div className="buzon-card-header">
+                          <span className="buzon-card-empresa">
+                            🏢 {fac.empresaNombre || 'Empresa'}
+                          </span>
+                          <span className={`buzon-estatus-pill ${estConfig.clase}`}>
+                            {estConfig.icono} {estConfig.label}
+                          </span>
+                        </div>
+
+                        <div>
+                          <div className="buzon-card-prov">{fac.proveedorNombre}</div>
+                          <div className="buzon-card-rif">
+                            {fac.proveedorRif ? `RIF: ${fac.proveedorRif}` : 'Sin RIF'} · Factura N° {fac.facturaNumero}
+                          </div>
+                        </div>
+
+                        {fac.descripcion && (
+                          <p style={{ margin: '0', fontSize: '0.88rem', color: 'var(--text)' }}>
+                            {fac.descripcion}
+                          </p>
+                        )}
+
+                        <div className="buzon-card-montos">
+                          <div>
+                            <div className="buzon-card-monto-principal">{montos.principal}</div>
+                            {montos.alterno && <div className="buzon-card-monto-alt">{montos.alterno}</div>}
+                          </div>
+                          <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            <div>📅 {date(fac.facturaFecha)}</div>
+                            <div className="buzon-card-adjuntos-info" style={{ justifyContent: 'flex-end', marginTop: '0.2rem' }}>
+                              {fotosCount > 0 && <span>🖼 {fotosCount}</span>}
+                              {pdfsCount > 0 && <span>📄 {pdfsCount}</span>}
+                              {fotosCount === 0 && pdfsCount === 0 && <span>📎 Sin soportes</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="buzon-card-acciones">
+                          <button
+                            type="button"
+                            className="btn sm"
+                            style={{ background: '#25D366', color: '#fff', border: 'none', fontWeight: 700 }}
+                            onClick={() => setFacturaWhatsApp(fac)}
+                          >
+                            💬 WhatsApp
+                          </button>
+                          <button
+                            type="button"
+                            className="btn sm"
+                            onClick={() => setDetalle(fac)}
+                          >
+                            👁 Detalle
+                          </button>
+                          {canWrite && (
+                            <button
+                              type="button"
+                              className="btn sm danger"
+                              onClick={() => setFacturaABorrar(fac)}
+                              title="Eliminar factura y soportes"
+                            >
+                              🗑
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
-            </div>
-          ) : (
-            <div>
-              {facturasFiltradas.map((fac) => {
-                const estatusClave: EstatusFacturaBuzon = fac.estatus || 'recibida';
-                const estConfig = ESTATUS_CONFIG[estatusClave] || ESTATUS_CONFIG.recibida;
-                const fotosCount = (fac.adjuntos || []).filter((a: AdjuntoFacturaItem) => a.tipo === 'imagen').length;
-                const pdfsCount = (fac.adjuntos || []).filter((a: AdjuntoFacturaItem) => a.tipo === 'pdf').length;
-
-                return (
-                  <div key={fac.id} className="buzon-card">
-                    <div className="buzon-card-header">
-                      <span className="buzon-card-empresa">
-                        🏢 {fac.empresaNombre || fac.empresa_nombre || 'Empresa'}
-                      </span>
-                      <span className={`buzon-estatus-pill ${estConfig.clase}`}>
-                        {estConfig.icono} {estConfig.label}
-                      </span>
-                    </div>
-
-                    <div>
-                      <div className="buzon-card-prov">{fac.proveedorNombre || fac.proveedor_nombre}</div>
-                      <div className="buzon-card-rif">
-                        {(fac.proveedorRif || fac.proveedor_rif) ? `RIF: ${fac.proveedorRif || fac.proveedor_rif}` : 'Sin RIF'} · Fac #{fac.facturaNumero || fac.numero_factura}
-                      </div>
-                    </div>
-
-                    {fac.descripcion && (
-                      <p style={{ margin: '0', fontSize: '0.88rem', color: 'var(--text)' }}>
-                        {fac.descripcion}
-                      </p>
-                    )}
-
-                    <div className="buzon-card-montos">
-                      <div>
-                        <div className="buzon-card-monto-principal">
-                          {money(fac.montoTotal || fac.monto_total || 0, fac.moneda)}
-                        </div>
-                        {fac.montoBs != null && fac.moneda === 'USD' && (
-                          <div className="buzon-card-monto-alt">
-                            ≈ {money(fac.montoBs, 'Bs')} {fac.tasa ? `(tasa ${num(fac.tasa)})` : ''}
-                          </div>
-                        )}
-                        {fac.montoUsd != null && fac.moneda === 'Bs' && (
-                          <div className="buzon-card-monto-alt">
-                            ≈ {money(fac.montoUsd, 'USD')} {fac.tasa ? `(tasa ${num(fac.tasa)})` : ''}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        <div>📅 {date(fac.facturaFecha || fac.fecha_factura || '')}</div>
-                        <div className="buzon-card-adjuntos-info" style={{ justifyContent: 'flex-end', marginTop: '0.2rem' }}>
-                          {fotosCount > 0 && <span>🖼 {fotosCount}</span>}
-                          {pdfsCount > 0 && <span>📄 {pdfsCount}</span>}
-                          {fotosCount === 0 && pdfsCount === 0 && <span>📎 Sin soportes</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="buzon-card-acciones">
-                      <button
-                        type="button"
-                        className="btn sm"
-                        style={{ background: '#25D366', color: '#fff', border: 'none', fontWeight: 700 }}
-                        onClick={() => setFacturaWhatsApp(fac)}
-                      >
-                        💬 WhatsApp
-                      </button>
-                      <button
-                        type="button"
-                        className="btn sm"
-                        onClick={() => setDetalle(fac)}
-                      >
-                        👁 Detalle
-                      </button>
-                      {canWrite && (
-                        <button
-                          type="button"
-                          className="btn sm danger"
-                          onClick={() => setFacturaABorrar(fac)}
-                          title="Eliminar factura y soportes"
-                        >
-                          🗑
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            </>
           )}
         </>
       )}
 
       {/* Modal: Detalle de Factura */}
-      {detalle && (
-        <Modal
-          title={`Factura #${detalle.facturaNumero || detalle.numero_factura} · ${detalle.proveedorNombre || detalle.proveedor_nombre}`}
-          onClose={() => setDetalle(null)}
-          size="lg"
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="buzon-card-empresa">
-                🏢 {detalle.empresaNombre || detalle.empresa_nombre || 'Empresa receptora'}
-              </span>
-              <span className={`buzon-estatus-pill ${ESTATUS_CONFIG[detalle.estatus]?.clase || ''}`}>
-                {ESTATUS_CONFIG[detalle.estatus]?.icono} {ESTATUS_CONFIG[detalle.estatus]?.label}
-              </span>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', background: 'var(--surface-2)', padding: '0.75rem', borderRadius: 'var(--r-md)' }}>
-              <div>
-                <small className="muted" style={{ display: 'block' }}>PROVEEDOR</small>
-                <strong>{detalle.proveedorNombre || detalle.proveedor_nombre}</strong>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{detalle.proveedorRif || detalle.proveedor_rif || 'Sin RIF'}</div>
-              </div>
-              <div>
-                <small className="muted" style={{ display: 'block' }}>NÚMERO / CONTROL</small>
-                <strong>Fac #{detalle.facturaNumero || detalle.numero_factura}</strong>
-                {(detalle.facturaControl || detalle.numero_control) && (
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Control: {detalle.facturaControl || detalle.numero_control}</div>
-                )}
-              </div>
-              <div>
-                <small className="muted" style={{ display: 'block' }}>FECHA FACTURA</small>
-                <strong>{date(detalle.facturaFecha || detalle.fecha_factura || '')}</strong>
-              </div>
-              <div>
-                <small className="muted" style={{ display: 'block' }}>MONTO TOTAL</small>
-                <strong style={{ fontSize: '1.1rem' }}>{money(detalle.montoTotal || detalle.monto_total || 0, detalle.moneda)}</strong>
-                {detalle.tasa && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Tasa: {num(detalle.tasa)} Bs/$</div>
-                )}
-              </div>
-            </div>
-
-            {detalle.descripcion && (
-              <div>
-                <small className="muted" style={{ display: 'block', fontWeight: 700 }}>DESCRIPCIÓN / CONCEPTO</small>
-                <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
-                  {detalle.descripcion}
-                </p>
-              </div>
-            )}
-
-            {detalle.observaciones && (
-              <div>
-                <small className="muted" style={{ display: 'block', fontWeight: 700 }}>NOTAS / OTRO</small>
-                <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
-                  {detalle.observaciones}
-                </p>
-              </div>
-            )}
-
-            <div>
-              <small className="muted" style={{ display: 'block', fontWeight: 700, marginBottom: '0.4rem' }}>
-                SOPORTES ADJUNTOS ({(detalle.adjuntos || []).length} de {REGLA_BUZON.maxTotal})
-              </small>
-              {(detalle.adjuntos || []).length === 0 ? (
-                <p className="muted" style={{ fontStyle: 'italic', fontSize: '0.85rem' }}>No se subieron soportes adjuntos.</p>
-              ) : (
-                <div className="buzon-thumbs-grid">
-                  {(detalle.adjuntos || []).map((adj: AdjuntoFacturaItem) => {
-                    const url = urlPublicaAdjunto(adj.path);
-                    const esImg = adj.tipo === 'imagen';
-                    return (
-                      <a
-                        key={adj.id}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="buzon-thumb-item"
-                        title={adj.nombreOriginal || adj.nombre}
-                        style={{ textDecoration: 'none' }}
-                      >
-                        {esImg ? (
-                          <img src={url} alt={adj.nombreOriginal || adj.nombre} />
-                        ) : (
-                          <div className="buzon-thumb-pdf">
-                            <span aria-hidden>📄</span>
-                            <small>{adj.nombreOriginal || adj.nombre}</small>
-                          </div>
-                        )}
-                      </a>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.4rem' }}>
-                📱 Resumen para WhatsApp:
-              </div>
-              <CompartirWhatsapp texto={mensajeFacturaExterna(detalle)} />
-            </div>
-          </div>
-        </Modal>
-      )}
+      {detalle && <DetalleFactura factura={detalle} onClose={() => setDetalle(null)} />}
 
       {/* Modal: Resumen WhatsApp post-carga */}
       {facturaWhatsApp && (
@@ -439,13 +450,13 @@ export function RetencionesMovilView() {
             <div className="buzon-aviso-exito">
               <span style={{ fontSize: '1.4rem' }}>✅</span>
               <div>
-                <div>¡Factura registrada exitosamente!</div>
-                <small style={{ fontWeight: 400 }}>Ya está disponible en la bandeja de Retenciones.</small>
+                <div>¡Factura registrada!</div>
+                <small style={{ fontWeight: 400 }}>Ya está disponible en el buzón de Retenciones.</small>
               </div>
             </div>
 
             <p style={{ margin: '0 0 0.75rem', fontSize: '0.9rem' }}>
-              Puedes pasar el resumen formateado por WhatsApp a los grupos o al personal de contabilidad:
+              Puedes pasar el resumen por WhatsApp a los grupos o al personal de contabilidad:
             </p>
 
             <CompartirWhatsapp texto={mensajeFacturaExterna(facturaWhatsApp)} />
@@ -465,36 +476,35 @@ export function RetencionesMovilView() {
       )}
 
       {/* ConfirmDialog de Borrado */}
-      {facturaABorrar && (
+      {facturaABorrar && canWrite && (
         <ConfirmDialog
           title="¿Eliminar esta factura?"
-          message={`Se eliminará permanentemente la factura #${facturaABorrar.facturaNumero || facturaABorrar.numero_factura} de ${facturaABorrar.proveedorNombre || facturaABorrar.proveedor_nombre} y sus soportes adjuntos.`}
+          message={`Se eliminará permanentemente la factura N° ${facturaABorrar.facturaNumero} de ${facturaABorrar.proveedorNombre} y sus soportes adjuntos.`}
           confirmText="Sí, eliminar factura"
           danger
           onCancel={() => setFacturaABorrar(null)}
           onConfirm={async () => {
             try {
-              await eliminarFacturaBuzon(facturaABorrar.id);
+              await eliminarFacturaBuzon(facturaABorrar);
               toast('Factura eliminada del buzón', 'info');
               setFacturaABorrar(null);
-              void cargarDatos();
             } catch (e) {
-              toast('Error al eliminar factura: ' + String(e), 'error');
+              toast(motivoDe(e, 'No se pudo borrar la factura.'), 'error');
+            } finally {
+              void cargarDatos();
             }
           }}
         />
       )}
 
       {/* Modal: Crear o Escribir Nueva Empresa Receptora (Móvil) */}
-      {modalEmpresa && (
+      {modalEmpresa && canWrite && (
         <ModalNuevaEmpresa
           onClose={() => setModalEmpresa(false)}
           onCreada={(nueva) => {
-            setEmpresas((prev) => {
-              const existe = prev.some((x) => x.id === nueva.id || x.clave === nueva.clave);
-              return existe ? prev : [...prev, nueva];
-            });
+            setEmpresas((prev) => (prev.some((x) => x.id === nueva.id) ? prev : [...prev, nueva]));
             setEmpresaFiltro(nueva.id);
+            setEmpresaRecienCreada(nueva.id);
             setModalEmpresa(false);
             toast(`Empresa ${nueva.nombreCorto || nueva.nombre} lista para usar`, 'success');
           }}
@@ -505,24 +515,242 @@ export function RetencionesMovilView() {
 }
 
 /* ────────────────────────────────────────────────────────────
+   Aviso: todavía no hay empresas que reciban facturas
+   ──────────────────────────────────────────────────────────── */
+function AvisoSinEmpresas({ canWrite, onAgregar, onCancelar }: {
+  canWrite: boolean;
+  onAgregar: () => void;
+  onCancelar?: () => void;
+}) {
+  return (
+    <div
+      style={{
+        textAlign: 'center',
+        padding: '2.5rem 1rem',
+        background: 'var(--surface-1)',
+        borderRadius: 'var(--r-lg)',
+        border: '1px dashed var(--border)',
+        marginTop: '0.5rem',
+      }}
+    >
+      <div style={{ fontSize: '2.2rem', marginBottom: '0.5rem' }}>🏢</div>
+      <p style={{ fontWeight: 700, margin: '0 0 0.3rem' }}>
+        Todavía no hay empresas que reciban facturas
+      </p>
+      <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 1rem' }}>
+        Primero hay que cargar las empresas que reciben facturas; después podrás cargar las facturas de cada una.
+        {!canWrite && ' Pídele a quien administra Retenciones que las cargue.'}
+      </p>
+      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+        {onCancelar && (
+          <button type="button" className="btn" style={{ minHeight: '48px', padding: '0 1.25rem' }} onClick={onCancelar}>
+            Volver a la lista
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            className="btn primario"
+            style={{ minHeight: '48px', padding: '0 1.25rem' }}
+            onClick={onAgregar}
+          >
+            ➕ Agregar empresa
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
+   Detalle de una factura del buzón. Los soportes se ven con
+   enlaces firmados (de una hora) que se piden al abrirlo.
+   ──────────────────────────────────────────────────────────── */
+function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; onClose: () => void }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const estConfig = estatusDe(factura);
+  const montos = montosDeFactura(factura);
+
+  useEffect(() => {
+    let cancel = false;
+    const paths = factura.adjuntos.map((a) => a.path).filter(Boolean);
+    setUrls({});
+    if (!paths.length) return;
+    void Promise.all(
+      paths.map(async (path) => {
+        try {
+          return { path, url: await obtenerUrlAdjunto(path), error: null };
+        } catch (e) {
+          return { path, url: null, error: motivoDe(e, 'No se pudo abrir el archivo.') };
+        }
+      }),
+    ).then((resultados) => {
+      if (cancel) return;
+      const mapa: Record<string, string> = {};
+      for (const r of resultados) if (r.url) mapa[r.path] = r.url;
+      setUrls(mapa);
+      const fallo = resultados.find((r) => r.error);
+      if (fallo?.error) toast(fallo.error, 'error');
+    });
+    return () => { cancel = true; };
+  }, [factura]);
+
+  // Si el enlace no llegó al abrir, se vuelve a pedir al tocar el soporte.
+  const abrirSoporte = async (path: string) => {
+    try {
+      const url = await obtenerUrlAdjunto(path);
+      setUrls((prev) => ({ ...prev, [path]: url }));
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      toast(motivoDe(e, 'No se pudo abrir el archivo.'), 'error');
+    }
+  };
+
+  return (
+    <Modal
+      title={`Factura N° ${factura.facturaNumero} · ${factura.proveedorNombre}`}
+      onClose={onClose}
+      size="lg"
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="buzon-card-empresa">
+            🏢 {factura.empresaNombre || 'Empresa receptora'}
+          </span>
+          <span className={`buzon-estatus-pill ${estConfig.clase}`}>
+            {estConfig.icono} {estConfig.label}
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', background: 'var(--surface-2)', padding: '0.75rem', borderRadius: 'var(--r-md)' }}>
+          <div>
+            <small className="muted" style={{ display: 'block' }}>PROVEEDOR</small>
+            <strong>{factura.proveedorNombre}</strong>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{factura.proveedorRif || 'Sin RIF'}</div>
+          </div>
+          <div>
+            <small className="muted" style={{ display: 'block' }}>NÚMERO / CONTROL</small>
+            <strong>Factura N° {factura.facturaNumero}</strong>
+            {factura.facturaControl && (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Control: {factura.facturaControl}</div>
+            )}
+          </div>
+          <div>
+            <small className="muted" style={{ display: 'block' }}>FECHA FACTURA</small>
+            <strong>{date(factura.facturaFecha)}</strong>
+          </div>
+          <div>
+            <small className="muted" style={{ display: 'block' }}>MONTO TOTAL</small>
+            <strong style={{ fontSize: '1.1rem' }}>{montos.principal}</strong>
+            {montos.alterno && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{montos.alterno}</div>
+            )}
+          </div>
+        </div>
+
+        {factura.descripcion && (
+          <div>
+            <small className="muted" style={{ display: 'block', fontWeight: 700 }}>DESCRIPCIÓN / CONCEPTO</small>
+            <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+              {factura.descripcion}
+            </p>
+          </div>
+        )}
+
+        {factura.observaciones && (
+          <div>
+            <small className="muted" style={{ display: 'block', fontWeight: 700 }}>NOTAS</small>
+            <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+              {factura.observaciones}
+            </p>
+          </div>
+        )}
+
+        <div>
+          <small className="muted" style={{ display: 'block', fontWeight: 700, marginBottom: '0.4rem' }}>
+            SOPORTES ADJUNTOS ({factura.adjuntos.length} de {REGLA_BUZON.maxTotal})
+          </small>
+          {factura.adjuntos.length === 0 ? (
+            <p className="muted" style={{ fontStyle: 'italic', fontSize: '0.85rem' }}>No se subieron soportes adjuntos.</p>
+          ) : (
+            <div className="buzon-thumbs-grid">
+              {factura.adjuntos.map((adj: AdjuntoFacturaItem) => {
+                const url = urls[adj.path];
+                const nombre = adj.nombreOriginal || adj.nombre || 'Soporte';
+                const esImg = adj.tipo === 'imagen';
+                const contenido = esImg && url ? (
+                  <img src={url} alt={nombre} />
+                ) : (
+                  <div className="buzon-thumb-pdf">
+                    <span aria-hidden>{esImg ? '🖼' : '📄'}</span>
+                    <small>{nombre}</small>
+                  </div>
+                );
+                return url ? (
+                  <a
+                    key={adj.id}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="buzon-thumb-item"
+                    title={nombre}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    {contenido}
+                  </a>
+                ) : (
+                  <button
+                    key={adj.id}
+                    type="button"
+                    className="buzon-thumb-item"
+                    title={nombre}
+                    style={{ border: 'none', padding: 0, cursor: 'pointer', background: 'none' }}
+                    onClick={() => void abrirSoporte(adj.path)}
+                  >
+                    {contenido}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.4rem' }}>
+            📱 Resumen para WhatsApp:
+          </div>
+          <CompartirWhatsapp texto={mensajeFacturaExterna(factura)} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
    Formulario de Carga de Factura Externa (Móvil)
    ──────────────────────────────────────────────────────────── */
 function FormularioCargaFactura({
-  empresas, actor, actorName, onCancelar, onGuardada, onAbrirNuevaEmpresa,
+  empresas, empresaRecienCreada, canWrite, actorName, onCancelar, onGuardada, onAbrirNuevaEmpresa,
 }: {
   empresas: EmpresaReceptora[];
-  actor: string;
+  empresaRecienCreada: string | null;
+  /** Con escritura en Retenciones se pueden agregar empresas desde aquí. */
+  canWrite: boolean;
   actorName: string;
   onCancelar: () => void;
   onGuardada: (fac: FacturaExternaBuzon) => void;
   onAbrirNuevaEmpresa: () => void;
 }) {
-  const [empresaId, setEmpresaId] = useState(empresas[0]?.id ?? '');
+  const empresasActivas = useMemo(() => empresas.filter((e) => e.activo), [empresas]);
+  const hoy = hoyVenezuela();
+
+  const [empresaId, setEmpresaId] = useState(empresasActivas[0]?.id ?? '');
   const [proveedorNombre, setProveedorNombre] = useState('');
   const [proveedorRif, setProveedorRif] = useState('');
+  const [rifAviso, setRifAviso] = useState<string | null>(null);
   const [numeroFactura, setNumeroFactura] = useState('');
   const [numeroControl, setNumeroControl] = useState('');
-  const [fechaFactura, setFechaFactura] = useState(hoyVE());
+  const [fechaFactura, setFechaFactura] = useState(hoy);
   const [moneda, setMoneda] = useState<'USD' | 'Bs'>('USD');
   const [montoTotal, setMontoTotal] = useState('');
   const [tasa, setTasa] = useState('');
@@ -538,23 +766,31 @@ function FormularioCargaFactura({
   const inputFotosRef = useRef<HTMLInputElement>(null);
   const inputPdfsRef = useRef<HTMLInputElement>(null);
 
-  // Cargar tasa BCV del día si está disponible
+  // Precargar la tasa del día (Banco Central) si está disponible; no pisa lo escrito.
   useEffect(() => {
     let cancel = false;
     getTasaHoy().then((th) => {
-      if (!cancel && th?.usd && !tasa) {
-        setTasa(String(th.usd));
+      if (!cancel && th?.usd) {
+        const texto = numeroATexto(th.usd);
+        setTasa((actual) => actual || texto);
       }
-    }).catch(() => {});
+    }).catch(() => { /* sin tasa del día: se escribe a mano */ });
     return () => { cancel = true; };
-  }, [tasa]);
+  }, []);
 
-  // Si empresas cambia y empresaId no está en lista, ajustar
+  // Si la empresa elegida ya no está entre las activas, tomar la primera
   useEffect(() => {
-    if (!empresaId && empresas.length > 0) {
-      setEmpresaId(empresas[0].id);
+    if (!empresasActivas.some((e) => e.id === empresaId) && empresasActivas.length > 0) {
+      setEmpresaId(empresasActivas[0].id);
     }
-  }, [empresas, empresaId]);
+  }, [empresasActivas, empresaId]);
+
+  // La empresa recién creada desde el teléfono queda elegida
+  useEffect(() => {
+    if (empresaRecienCreada && empresasActivas.some((e) => e.id === empresaRecienCreada)) {
+      setEmpresaId(empresaRecienCreada);
+    }
+  }, [empresaRecienCreada, empresasActivas]);
 
   // Actualizar previews al cambiar archivos
   useEffect(() => {
@@ -577,7 +813,14 @@ function FormularioCargaFactura({
   }, [archivos]);
 
   const { imagenes, pdfs } = clasificarArchivos(archivos);
-  const empresaSeleccionada = empresas.find((e) => e.id === empresaId);
+  const empresaSeleccionada = empresasActivas.find((e) => e.id === empresaId);
+
+  // Lo que equivale en bolívares, mientras se escribe (es el monto que se informa)
+  const montoLeido = montoTotal.trim() ? leerMonto(montoTotal) : null;
+  const tasaLeida = tasa.trim() ? leerMonto(tasa) : null;
+  const equivalenteBs = moneda === 'USD' && montoLeido != null && montoLeido > 0 && tasaLeida != null && tasaLeida > 0
+    ? Math.round(montoLeido * tasaLeida * 100) / 100
+    : null;
 
   const handleSeleccionarArchivos = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -586,7 +829,7 @@ function FormularioCargaFactura({
     const candidatas = [...archivos, ...files];
     const val = validarAdjuntosBuzon(candidatas);
     if (!val.valido) {
-      toast(val.error || 'Límite de archivos excedido', 'warning');
+      toast(val.error || 'Revisa los soportes: hay más archivos de los que se admiten.', 'warning');
       e.target.value = '';
       return;
     }
@@ -598,84 +841,93 @@ function FormularioCargaFactura({
     setArchivos((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Al salir del campo RIF: se completa el dígito verificador y se muestra con guiones
+  const revisarRif = () => {
+    const escrito = proveedorRif.trim();
+    if (!escrito) { setRifAviso(null); return; }
+    const completo = completarRif(escrito);
+    if (!completo || completo.startsWith('C')) {
+      setRifAviso('Ese RIF no es válido: letra (J, G, V, E o P), 8 dígitos y el verificador.');
+      return;
+    }
+    setRifAviso(null);
+    setProveedorRif(formatearRif(completo));
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (guardando) return;
 
-    if (!empresaId) {
-      toast('Selecciona la empresa receptora', 'warning');
+    const monto = montoTotal.trim() ? leerMonto(montoTotal) : 0;
+    if (monto == null) {
+      toast('No se entiende el monto total: escribe 1.234,56 o 1234,56.', 'warning');
       return;
     }
-    if (!proveedorNombre.trim()) {
-      toast('Ingresa el nombre del proveedor', 'warning');
+    const tasaNum = tasa.trim() ? leerMonto(tasa) : null;
+    if (tasa.trim() && tasaNum == null) {
+      toast('No se entiende la tasa: escribe 36,50 o 36.5.', 'warning');
       return;
     }
-    if (!numeroFactura.trim()) {
-      toast('Ingresa el número de factura', 'warning');
-      return;
-    }
-    const monto = parseFloat(montoTotal);
-    if (isNaN(monto) || monto <= 0) {
-      toast('Ingresa un monto válido mayor a 0', 'warning');
+
+    const input: NuevaFacturaBuzonInput = {
+      empresaId,
+      empresaNombre: empresaSeleccionada?.nombre ?? '',
+      proveedorNombre: proveedorNombre.trim(),
+      proveedorRif: proveedorRif.trim(),
+      facturaNumero: numeroFactura.trim(),
+      facturaControl: numeroControl.trim() || null,
+      facturaFecha: fechaFactura,
+      montoTotal: monto,
+      moneda,
+      tasa: tasaNum,
+      descripcion: descripcion.trim(),
+      observaciones: observaciones.trim() || null,
+      // El autor (created_by) lo pone la base; el nombre se manda para mostrarlo.
+      createdByName: actorName,
+    };
+
+    const falta = faltaEnFacturaBuzon(input);
+    if (falta) {
+      toast(falta, 'warning');
       return;
     }
 
     const val = validarAdjuntosBuzon(archivos);
     if (!val.valido) {
-      toast(val.error || 'Revisa los adjuntos', 'warning');
+      toast(val.error || 'Revisa los soportes adjuntos.', 'warning');
       return;
     }
 
     setGuardando(true);
-    setProgresoMsg('Guardando datos de factura...');
-
     try {
-      const tasaNum = tasa ? parseFloat(tasa) : undefined;
-      const empresa = empresas.find((x) => x.id === empresaId);
-
-      // 1. Crear registro de factura
-      const fac = await crearFacturaBuzon({
-        empresa_receptora_id: empresaId,
-        empresa_nombre: empresa?.nombre,
-        proveedor_nombre: proveedorNombre.trim(),
-        proveedor_rif: proveedorRif.trim() || undefined,
-        numero_factura: numeroFactura.trim(),
-        numero_control: numeroControl.trim() || undefined,
-        fecha_factura: fechaFactura,
-        moneda,
-        monto_total: monto,
-        tasa: tasaNum,
-        descripcion: descripcion.trim() || 'Factura externa cargada desde móvil',
-        observaciones: observaciones.trim() || undefined,
-        creado_por: actor,
-      });
-
-      // 2. Subir adjuntos comprimiendo imágenes si las hay
+      // Las imágenes se comprimen antes de subirlas; si una foto no se puede
+      // convertir (p. ej. HEIC), se avisa el motivo y no se guarda nada.
+      let preparados: File[] = [];
       if (archivos.length > 0) {
-        setProgresoMsg(`Procesando y subiendo ${archivos.length} soporte(s)...`);
-        const preparados = await prepararAdjuntosBuzon(archivos);
-        const adjuntosSubidos: AdjuntoFacturaItem[] = [];
-
-        for (let i = 0; i < preparados.length; i++) {
-          setProgresoMsg(`Subiendo archivo ${i + 1} de ${preparados.length}...`);
-          const res = await subirArchivoBuzon(fac.id, preparados[i]);
-          adjuntosSubidos.push(res);
-        }
-        fac.adjuntos = adjuntosSubidos;
+        setProgresoMsg(`Preparando ${archivos.length} soporte(s)…`);
+        preparados = await prepararAdjuntosBuzon(archivos);
       }
 
-      // 3. Notificación sonora distintiva
+      // Guarda la factura, sube los soportes y los registra; si algo falla no queda nada a medias
+      const fac = await cargarFacturaBuzon(input, preparados, setProgresoMsg);
+
+      // Notificación sonora distintiva
       reproducirSonidoFacturaNueva();
 
-      toast('Factura cargada con éxito', 'success');
+      toast('Factura cargada', 'success');
       onGuardada(fac);
     } catch (err) {
-      console.error('Error al guardar factura:', err);
-      toast('Error al guardar: ' + String(err), 'error');
+      toast(motivoDe(err, 'No se pudo guardar la factura.'), 'error');
     } finally {
       setGuardando(false);
       setProgresoMsg('');
     }
   };
+
+  // Sin empresas activas no se puede cargar una factura
+  if (empresasActivas.length === 0) {
+    return <AvisoSinEmpresas canWrite={canWrite} onAgregar={onAbrirNuevaEmpresa} onCancelar={onCancelar} />;
+  }
 
   return (
     <form onSubmit={handleSubmit} className="surt-form" style={{ marginTop: '0.5rem' }}>
@@ -692,7 +944,7 @@ function FormularioCargaFactura({
       {/* Empresa Receptora - Selector Táctil + Botón Escribir Otra */}
       <div className="surt-campo">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
-          <label style={{ margin: 0 }}>1. Empresa receptora de la compra *</label>
+          <label style={{ margin: 0 }}>1. Empresa que recibe la factura *</label>
           {empresaSeleccionada && (
             <span style={{ fontSize: '0.78rem', color: 'var(--primary-2)', fontWeight: 700 }}>
               {empresaSeleccionada.nombreCorto || empresaSeleccionada.nombre}
@@ -702,7 +954,7 @@ function FormularioCargaFactura({
 
         {/* Botones táctiles grandes para selección rápida */}
         <div className="buzon-selector-tactil">
-          {empresas.map((emp) => {
+          {empresasActivas.map((emp) => {
             const esSel = emp.id === empresaId;
             return (
               <button
@@ -722,22 +974,24 @@ function FormularioCargaFactura({
             );
           })}
 
-          <button
-            type="button"
-            className="buzon-tactil-btn-otra"
-            onClick={onAbrirNuevaEmpresa}
-            title="Escribir nombre o código de otra empresa"
-          >
-            <span style={{ fontSize: '1.2rem', marginBottom: '0.1rem' }}>✏️</span>
-            <span>Escribir otra</span>
-          </button>
+          {canWrite && (
+            <button
+              type="button"
+              className="buzon-tactil-btn-otra"
+              onClick={onAbrirNuevaEmpresa}
+              title="Agregar otra empresa que recibe facturas"
+            >
+              <span style={{ fontSize: '1.2rem', marginBottom: '0.1rem' }}>✏️</span>
+              <span>Escribir otra</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Proveedor y RIF */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>2. Nombre del Proveedor *</label>
+          <label>2. Nombre del proveedor *</label>
           <input
             type="text"
             className="input surt-input"
@@ -748,21 +1002,25 @@ function FormularioCargaFactura({
           />
         </div>
         <div className="surt-campo">
-          <label>RIF del Proveedor (opcional)</label>
+          <label>RIF del proveedor *</label>
           <input
             type="text"
             className="input surt-input"
             placeholder="Ej. J-12345678-9"
             value={proveedorRif}
-            onChange={(e) => setProveedorRif(e.target.value)}
+            onChange={(e) => { setProveedorRif(e.target.value); setRifAviso(null); }}
+            onBlur={revisarRif}
+            autoCapitalize="characters"
+            required
           />
+          {rifAviso && <small className="hint" style={{ color: 'var(--danger)' }}>{rifAviso}</small>}
         </div>
       </div>
 
       {/* Número de Factura y Control */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>3. Número de Factura *</label>
+          <label>3. Número de factura *</label>
           <input
             type="text"
             className="input surt-input"
@@ -773,7 +1031,7 @@ function FormularioCargaFactura({
           />
         </div>
         <div className="surt-campo">
-          <label>N° Control (opcional)</label>
+          <label>Número de control</label>
           <input
             type="text"
             className="input surt-input"
@@ -787,11 +1045,12 @@ function FormularioCargaFactura({
       {/* Fecha y Moneda/Monto */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>4. Fecha de Factura *</label>
+          <label>4. Fecha de la factura *</label>
           <input
             type="date"
             className="input surt-input"
             value={fechaFactura}
+            max={hoy}
             onChange={(e) => setFechaFactura(e.target.value)}
             required
           />
@@ -805,7 +1064,7 @@ function FormularioCargaFactura({
               style={{ minHeight: '56px', fontSize: '1.05rem', fontWeight: 800 }}
               onClick={() => setMoneda('USD')}
             >
-              💵 USD ($)
+              💵 Dólares ($)
             </button>
             <button
               type="button"
@@ -813,7 +1072,7 @@ function FormularioCargaFactura({
               style={{ minHeight: '56px', fontSize: '1.05rem', fontWeight: 800 }}
               onClick={() => setMoneda('Bs')}
             >
-              🇻🇪 Bs.
+              🇻🇪 Bolívares (Bs)
             </button>
           </div>
         </div>
@@ -822,44 +1081,51 @@ function FormularioCargaFactura({
       {/* Monto y Tasa */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>5. Monto Total ({moneda}) *</label>
+          <label>5. Monto total ({moneda === 'USD' ? '$' : 'Bs'}) *</label>
           <input
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             className="input surt-input"
-            placeholder="0.00"
+            placeholder="Ej. 1.234,56"
             value={montoTotal}
             onChange={(e) => setMontoTotal(e.target.value)}
             required
           />
+          <SeLeyo texto={montoTotal} />
+          {equivalenteBs != null && (
+            <small className="hint muted">Equivale a {money(equivalenteBs, 'Bs')}</small>
+          )}
         </div>
         <div className="surt-campo">
-          <label>Tasa BCV (Bs/$)</label>
+          <label>Tasa del día (Bs por $){moneda === 'USD' ? ' *' : ''}</label>
           <input
-            type="number"
-            step="0.0001"
+            type="text"
+            inputMode="decimal"
             className="input surt-input"
-            placeholder="Tasa de cambio"
+            placeholder="Ej. 36,50"
             value={tasa}
             onChange={(e) => setTasa(e.target.value)}
+            required={moneda === 'USD'}
           />
+          <SeLeyo texto={tasa} decimales={4} />
         </div>
       </div>
 
       {/* Descripción y Notas */}
       <div className="surt-campo">
-        <label>6. Descripción / Concepto de la compra</label>
+        <label>6. Descripción / Concepto de la compra *</label>
         <textarea
           className="input surt-input"
           style={{ minHeight: '80px', paddingTop: '0.5rem' }}
           placeholder="Ej. Compra de repuestos para el tractor D8K, lubricantes y filtros..."
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
+          required
         />
       </div>
 
       <div className="surt-campo">
-        <label>7. Observaciones / Otro</label>
+        <label>7. Notas</label>
         <input
           type="text"
           className="input surt-input"
@@ -942,6 +1208,7 @@ function FormularioCargaFactura({
                   className="buzon-thumb-del"
                   onClick={() => quitarArchivo(idx)}
                   title="Quitar soporte"
+                  disabled={guardando}
                 >
                   ✕
                 </button>
@@ -967,7 +1234,7 @@ function FormularioCargaFactura({
           className="btn primario surt-guardar"
           disabled={guardando}
         >
-          {guardando ? progresoMsg || 'Guardando...' : '💾 Guardar y Enviar'}
+          {guardando ? progresoMsg || 'Guardando…' : '💾 Guardar y Enviar'}
         </button>
       </div>
     </form>
@@ -976,7 +1243,8 @@ function FormularioCargaFactura({
 
 /* ────────────────────────────────────────────────────────────
    Modal para Escribir / Añadir Empresa Receptora (Móvil)
-   Ágil y directo para el personal en campo (Rol Facturas)
+   Ágil y directo para el personal en campo. Se guarda en la
+   base; Impuestos completa la ficha fiscal desde la PC.
    ──────────────────────────────────────────────────────────── */
 function ModalNuevaEmpresa({
   onClose, onCreada,
@@ -985,50 +1253,52 @@ function ModalNuevaEmpresa({
   onCreada: (emp: EmpresaReceptora) => void;
 }) {
   const [nombre, setNombre] = useState('');
+  const [nombreCorto, setNombreCorto] = useState('');
   const [rif, setRif] = useState('');
   const [guardando, setGuardando] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const texto = nombre.trim();
-    if (!texto) {
-      toast('Ingresa el nombre o código de la empresa', 'warning');
+    if (guardando) return;
+    const input: EmpresaReceptoraInput = {
+      nombre: nombre.trim(),
+      nombreCorto: nombreCorto.trim() || undefined,
+      rif: rif.trim(),
+      colorBadge: '#2563eb',
+      activo: true,
+    };
+    const falta = faltaEnEmpresa(input);
+    if (falta) {
+      toast(falta, 'warning');
       return;
     }
     setGuardando(true);
     try {
-      const emp = await guardarEmpresaReceptora({
-        nombre: texto,
-        nombreCorto: texto.length <= 15 ? texto : texto.slice(0, 15),
-        rif: rif.trim() || 'S/RIF',
-        colorBadge: '#2563eb',
-        activo: true,
-        orden: 10,
-      });
+      const emp = await guardarEmpresaReceptora(input);
       onCreada(emp);
     } catch (err) {
-      toast('Error al registrar empresa: ' + String(err), 'error');
+      toast(motivoDe(err, 'No se pudo guardar la empresa.'), 'error');
     } finally {
       setGuardando(false);
     }
   };
 
   return (
-    <Modal title="✏️ Escribir otra empresa" onClose={onClose} size="md">
+    <Modal title="✏️ Agregar empresa que recibe facturas" onClose={onClose} size="md">
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-          Indica a qué empresa o proyecto corresponde la compra. El departamento de Impuestos completará la ficha fiscal posteriormente en oficina.
+          Indica a qué empresa corresponde la compra. El departamento de Impuestos completa el resto de la ficha fiscal desde la PC.
         </p>
 
         <div>
           <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            Nombre o Código de la Empresa *
+            Razón social de la empresa *
           </label>
           <input
             type="text"
             className="input"
             style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
-            placeholder="Ej. MGG, Minería TS, Inversiones..."
+            placeholder="Ej. Inversiones El Roble C.A."
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
             required
@@ -1038,7 +1308,22 @@ function ModalNuevaEmpresa({
 
         <div>
           <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            RIF de la Empresa (opcional si lo tienes)
+            Nombre corto (el que se ve en los botones)
+          </label>
+          <input
+            type="text"
+            className="input"
+            style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
+            placeholder="Ej. El Roble"
+            maxLength={30}
+            value={nombreCorto}
+            onChange={(e) => setNombreCorto(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+            RIF de la empresa *
           </label>
           <input
             type="text"
@@ -1047,6 +1332,8 @@ function ModalNuevaEmpresa({
             placeholder="Ej. J-12345678-9"
             value={rif}
             onChange={(e) => setRif(e.target.value)}
+            autoCapitalize="characters"
+            required
           />
         </div>
 
@@ -1055,7 +1342,7 @@ function ModalNuevaEmpresa({
             Cancelar
           </button>
           <button type="submit" className="btn primario" style={{ minHeight: '52px', fontWeight: 800 }} disabled={guardando}>
-            {guardando ? 'Guardando...' : 'Aceptar'}
+            {guardando ? 'Guardando…' : 'Aceptar'}
           </button>
         </div>
       </form>

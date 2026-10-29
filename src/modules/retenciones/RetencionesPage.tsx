@@ -28,6 +28,7 @@ import { FacturasPorRegistrar } from '@/modules/libroFiscal/FacturasPorRegistrar
 import { AvisoSinFactura } from '@/modules/libroFiscal/AvisoSinFactura';
 import { cargarSemillaDeFacturaOrigen, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
+import { buzonDisponible } from '@/modules/libroFiscal/disponibilidad';
 import { CONFIG_RETENCION_DEFECTO, fechaTasaBcv, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import { diaVE, getTasasUsdDeFechas, hoyVE } from '@/modules/tesoreria/tasas.repository';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
@@ -67,6 +68,9 @@ export function RetencionesPage() {
   const [tasasDoc, setTasasDoc] = useState<TasasDoc>(new Map());
   const [conV3, setConV3] = useState(false);
   useEffect(() => { v3Disponible().then(setConV3).catch(() => setConV3(false)); }, []);
+  // R11: el buzón de facturas del teléfono, solo con sus tablas en la base.
+  const [conBuzon, setConBuzon] = useState(false);
+  useEffect(() => { buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false)); }, []);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
@@ -249,7 +253,7 @@ export function RetencionesPage() {
         </p>
         <div className="lfv8-cabeza-acciones">
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
-          {puedeVista('retenciones') && (
+          {conBuzon && puedeVista('retenciones') && (
             <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none' }} title="Abrir vista móvil de facturas">
               📱 Teléfono
             </Link>
@@ -260,7 +264,7 @@ export function RetencionesPage() {
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
-            <button className={vista === 'buzon' ? 'active' : ''} onClick={() => setVista('buzon')}>📥 Buzón Móvil</button>
+            {conBuzon && <button className={vista === 'buzon' ? 'active' : ''} onClick={() => setVista('buzon')}>📥 Buzón Móvil</button>}
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
             <button className={vista === 'auditoria' ? 'active' : ''} onClick={() => setVista('auditoria')}>🛡️ Auditoría</button>
@@ -286,7 +290,7 @@ export function RetencionesPage() {
       {vista === 'auditoria' && <AuditoriaRetenciones />}
 
       {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
-      {vista === 'buzon' && <BuzonFacturasExternasView />}
+      {vista === 'buzon' && conBuzon && <BuzonFacturasExternasView />}
 
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}

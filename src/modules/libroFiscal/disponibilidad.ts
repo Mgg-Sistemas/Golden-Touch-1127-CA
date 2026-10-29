@@ -66,6 +66,14 @@ export function p03Disponible(): Promise<boolean> {
   return tablaDisponible('retencion_documento_origenes');
 }
 
+/** R11 aplicado: el buzón de facturas del teléfono y las empresas que las reciben. */
+export async function buzonDisponible(): Promise<boolean> {
+  const [facturas, empresas] = await Promise.all([
+    tablaDisponible('retencion_facturas_externas'), tablaDisponible('retencion_empresas_receptoras'),
+  ]);
+  return facturas && empresas;
+}
+
 /** Olvida lo preguntado (al cambiar de sesión, o en las pruebas). */
 export function olvidarDisponibilidad(): void {
   cache.clear();

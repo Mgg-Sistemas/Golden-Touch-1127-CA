@@ -10,6 +10,7 @@
 
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
+import { errorStorage } from '@/modules/libroFiscal/erroresRetencion';
 
 export const MAX_IMAGENES_FACTURA = 4;
 export const MAX_PDFS_FACTURA = 2;
@@ -120,18 +121,29 @@ export function validarArchivosFactura(
 export const validarAdjuntosBuzon = (archivos: readonly File[], imgExist = 0, pdfExist = 0) =>
   validarArchivosFactura(archivos, imgExist, pdfExist);
 
-/** Prepara y comprime imágenes antes de subirlas */
+/** Los tipos que acepta el almacenamiento del buzón (el resto se rechaza al subir). */
+export const TIPOS_GUARDABLES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
+/**
+ * Achica las fotos antes de subirlas (salen en JPEG). Una foto que el navegador
+ * no puede convertir (p. ej. HEIC del iPhone) no se puede guardar: se avisa
+ * antes de subir nada.
+ */
 export async function prepararImagenesParaSubida(imagenes: readonly File[]): Promise<File[]> {
-  const comprimidas: File[] = [];
+  const listas: File[] = [];
   for (const img of imagenes) {
+    let lista = img;
     try {
-      const c = await comprimirImagen(img, { maximo: 1920, calidad: 0.82 });
-      comprimidas.push(c);
+      lista = await comprimirImagen(img, { maximo: 1920, calidad: 0.82 });
     } catch {
-      comprimidas.push(img);
+      /* se queda la original; abajo se ve si se puede guardar */
     }
+    if (!TIPOS_GUARDABLES.includes(lista.type)) {
+      throw new Error(`La foto «${img.name}» está en un formato que no se puede guardar (solo JPG, PNG o WEBP). Tómala de nuevo con la cámara en formato JPG o haz una captura de pantalla de ella.`);
+    }
+    listas.push(lista);
   }
-  return comprimidas;
+  return listas;
 }
 
 export async function prepararAdjuntosBuzon(archivos: readonly File[]): Promise<File[]> {
@@ -140,37 +152,28 @@ export async function prepararAdjuntosBuzon(archivos: readonly File[]): Promise<
   return [...imgsListas, ...pdfs];
 }
 
-/** Sube un archivo al bucket de Supabase con fallback seguro */
-export async function subirArchivoBuzon(
-  archivoOId: File | string,
-  facturaIdOArchivo: string | File,
-  tipoOpcional?: 'imagen' | 'pdf',
-): Promise<AdjuntoFacturaItem> {
-  const archivo = archivoOId instanceof File ? archivoOId : (facturaIdOArchivo as File);
-  const facturaId = typeof archivoOId === 'string' ? archivoOId : (facturaIdOArchivo as string);
-  const tipo = tipoOpcional || (archivo.type.startsWith('image/') ? 'imagen' : 'pdf');
+/**
+ * Sube un archivo de una factura del buzón, antes de guardar la factura (quien
+ * solo tiene lectura carga facturas, pero no puede modificarlas después). Si no
+ * se sube, se avisa: un soporte que no está en el almacenamiento no se registra.
+ */
+export async function subirArchivoBuzon(facturaId: string, archivo: File): Promise<AdjuntoFacturaItem> {
+  const tipo = archivo.type.startsWith('image/') ? 'imagen' : 'pdf';
+  // La base acepta «<id de la factura>/<nombre>», con el nombre de hasta 200 caracteres.
+  const safeName = archivo.name.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\.{2,}/g, '.').slice(-150);
+  const path = `${facturaId}/${Date.now()}_${safeName}`;
 
-  const timestamp = Date.now();
-  const safeName = archivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${facturaId}/${timestamp}_${safeName}`;
-
-  let uploadedPath = path;
-  try {
-    const { data, error } = await supabase.storage.from(BUCKET_BUZON).upload(path, archivo, {
-      upsert: true,
-      contentType: archivo.type,
-    });
-    if (error) throw error;
-    if (data?.path) uploadedPath = data.path;
-  } catch {
-    /* Fallback en caso de que storage no esté configurado */
-  }
+  const { data, error } = await supabase.storage.from(BUCKET_BUZON).upload(path, archivo, {
+    upsert: false,
+    contentType: archivo.type,
+  });
+  if (error) throw errorStorage(error, `el archivo «${archivo.name}»`);
 
   return {
-    id: `adj-${timestamp}-${Math.random().toString(36).slice(2, 6)}`,
+    id: crypto.randomUUID(),
     facturaId,
     tipo,
-    path: uploadedPath,
+    path: data?.path ?? path,
     nombreOriginal: archivo.name,
     nombre: archivo.name,
     tamanoBytes: archivo.size,
@@ -180,23 +183,19 @@ export async function subirArchivoBuzon(
   };
 }
 
-/** Obtiene la URL pública o firmada de un adjunto */
-export function urlPublicaAdjunto(path: string): string {
-  if (!path) return '';
-  try {
-    const { data } = supabase.storage.from(BUCKET_BUZON).getPublicUrl(path);
-    return data?.publicUrl || '';
-  } catch {
-    return path;
-  }
+/** Borra archivos ya subidos (cuando la factura no se llegó a guardar o se borra). */
+export async function borrarArchivosBuzon(paths: readonly string[]): Promise<void> {
+  if (!paths.length) return;
+  const { error } = await supabase.storage.from(BUCKET_BUZON).remove([...paths]);
+  if (error) throw new Error('No se pudieron borrar los archivos de la factura. Vuelve a intentarlo.');
 }
 
+/**
+ * Enlace firmado de un adjunto, válido una hora. Los soportes de las facturas
+ * nunca se sirven con enlace público.
+ */
 export async function obtenerUrlAdjunto(path: string): Promise<string> {
-  try {
-    const { data } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, 3600);
-    if (data?.signedUrl) return data.signedUrl;
-  } catch {
-    /* ignore */
-  }
-  return urlPublicaAdjunto(path);
+  const { data, error } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, 3600);
+  if (error || !data?.signedUrl) throw new Error('No se pudo abrir el archivo: sin permiso, o ya no está guardado.');
+  return data.signedUrl;
 }
