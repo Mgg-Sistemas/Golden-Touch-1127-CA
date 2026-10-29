@@ -80,6 +80,9 @@ describe('montos en Bs y totales', () => {
 
   it('totales: Bs primero, una entrada por moneda, sin anuladas; cuenta las que no tienen tasa', () => {
     const t = totalesReporte([ret(), ret({ moneda: 'USD', tasa: 40, montoBs: null, montoRetenido: 3 }), ret({ anulada: true }), ret({ moneda: 'USD', tasa: null, montoBs: null, montoRetenido: 1 })]);
+    const tNc = totalesReporte([ret({ baseImponible: 1000, montoRetenido: 120, montoBs: 120 }), ret({ tipoDocumento: 'nota_credito', baseImponible: 200, montoRetenido: 30, montoBs: 30 })]);
+    expect(tNc.retenidoBs).toBe(90);
+    expect(tNc.porMoneda).toEqual([{ moneda: 'Bs', registros: 2, base: 800, retenido: 90 }]);
     expect(t.retenidoBs).toBe(240);
     expect(t.sinTasa).toBe(1);
     expect(t.porMoneda).toEqual([
@@ -109,6 +112,20 @@ describe('tabla del detalle', () => {
 
   it('sin columnas no se arma', () => {
     expect(() => tablaDetalle([ret()], [], 'ninguno', 'factura')).toThrow('al menos una columna');
+  });
+
+  it('las filas anuladas muestran 0 en monto retenido y retenido (Bs) para coincidir con el subtotal', () => {
+    const t = tablaDetalle(
+      [ret({ id: 'ok', montoRetenido: 120, montoBs: 120 }), ret({ id: 'anu', anulada: true, montoRetenido: 120, montoBs: 120 })],
+      ['factura', 'retenido', 'retenido_bs', 'estado'],
+      'ninguno',
+      'factura',
+    );
+    expect(t.filas).toEqual([
+      ['000123', 120, 120, 'Registrada'],
+      ['000123', 0, 0, 'Anulada'],
+      ['Total', null, 120, null],
+    ]);
   });
 });
 

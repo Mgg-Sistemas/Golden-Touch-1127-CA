@@ -74,24 +74,42 @@ async function leerDecisionesNoAplica(): Promise<EventoAuditoriaFiscal[]> {
   try {
     const { data, error } = await supabase
       .from('retencion_decisiones')
-      .select('id, documento_id, impuesto_clave, decision, motivo_texto, detalle, actualizado_por, created_at')
+      .select('id, documento_id, impuesto_clave, decision, motivo_texto, detalle, actualizado_por, created_at, retencion_documentos(factura_nro, factura_control, factura_fecha, razon_social, rif), retencion_motivos_no_aplica(texto)')
+      .eq('decision', 'no_aplica')
       .order('created_at', { ascending: false })
       .limit(300);
 
     if (error || !data) return [];
 
-    return data.map((d: Record<string, unknown>): EventoAuditoriaFiscal => ({
-      id: `decision-${d.id}`,
-      tipo: 'no_aplica',
-      fechaIso: String(d.created_at ?? ''),
-      usuario: rotuloAutor(d.actualizado_por as string | null),
-      impuesto: String(d.impuesto_clave ?? ''),
-      titulo: `Exención «No aplica» retención de ${rotuloImpuesto(d.impuesto_clave)}`,
-      referencia: `Documento Fiscal #${String(d.documento_id ?? '').slice(0, 8)}`,
-      motivo: (d.motivo_texto as string | null) || (d.detalle as string | null) || 'Exento / Sin retención aplicable',
-      detalle: d.detalle && d.motivo_texto ? `Detalle adicional: ${d.detalle}` : null,
-      severidad: 'aviso',
-    }));
+    return data.map((d: Record<string, unknown>): EventoAuditoriaFiscal => {
+      const docRaw = Array.isArray(d.retencion_documentos) ? d.retencion_documentos[0] : d.retencion_documentos;
+      const doc = docRaw && typeof docRaw === 'object' ? (docRaw as Record<string, unknown>) : null;
+      const motRaw = Array.isArray(d.retencion_motivos_no_aplica) ? d.retencion_motivos_no_aplica[0] : d.retencion_motivos_no_aplica;
+      const motCat = motRaw && typeof motRaw === 'object' ? String((motRaw as Record<string, unknown>).texto ?? '') : '';
+      const motivoFinal = (d.motivo_texto as string | null) || motCat || (d.detalle as string | null) || 'Exento / Sin retención aplicable';
+      const facNro = doc?.factura_nro ? String(doc.factura_nro) : null;
+      return {
+        id: `decision-${d.id}`,
+        tipo: 'no_aplica',
+        fechaIso: String(d.created_at ?? ''),
+        usuario: rotuloAutor(d.actualizado_por as string | null),
+        impuesto: String(d.impuesto_clave ?? ''),
+        titulo: `Exención «No aplica» retención de ${rotuloImpuesto(d.impuesto_clave)}`,
+        referencia: facNro ? `Factura #${facNro}` : `Documento Fiscal #${String(d.documento_id ?? '').slice(0, 8)}`,
+        contraparte: doc && (doc.razon_social || doc.rif) ? {
+          nombre: String(doc.razon_social ?? 'Sin razón social'),
+          rif: String(doc.rif ?? 'S/RIF'),
+        } : undefined,
+        documentoFiscal: doc && facNro ? {
+          factura: facNro,
+          control: doc.factura_control ? String(doc.factura_control) : null,
+          fecha: doc.factura_fecha ? String(doc.factura_fecha) : null,
+        } : undefined,
+        motivo: motivoFinal,
+        detalle: d.detalle && (d.motivo_texto || motCat) ? `Detalle adicional: ${d.detalle}` : null,
+        severidad: 'aviso',
+      };
+    });
   } catch {
     return [];
   }

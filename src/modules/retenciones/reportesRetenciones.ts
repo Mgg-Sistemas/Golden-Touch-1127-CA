@@ -176,10 +176,10 @@ export function totalesReporte(filas: RetencionPracticada[]): Totales {
   let bs = 0; let sinTasa = 0;
   for (const r of filas) {
     if (r.anulada) continue;
-    const b = retenidoBs(r);
-    if (b == null) sinTasa += 1; else bs += b;
+    const factor = r.tipoDocumento === 'nota_credito' ? -1 : 1; const b = retenidoBs(r);
+    if (b == null) sinTasa += 1; else bs += b * factor;
     const t = porMoneda.get(r.moneda) ?? { moneda: r.moneda, registros: 0, base: 0, retenido: 0 };
-    t.registros += 1; t.base = r2(t.base + r.baseImponible); t.retenido = r2(t.retenido + r.montoRetenido);
+    t.registros += 1; t.base = r2(t.base + r.baseImponible * factor); t.retenido = r2(t.retenido + r.montoRetenido * factor);
     porMoneda.set(r.moneda, t);
   }
   return { retenidoBs: r2(bs), sinTasa, porMoneda: [...porMoneda.values()].sort((a, b) => a.moneda.localeCompare(b.moneda)) };
@@ -211,10 +211,10 @@ export const COLUMNAS_REPORTE: ColumnaReporte[] = [
   { id: 'factura', label: 'N° factura', valor: (r) => r.facturaNumero },
   { id: 'control', label: 'N° control', valor: (r) => r.facturaControl },
   { id: 'moneda', label: 'Moneda', valor: (r) => r.moneda },
-  { id: 'base', label: 'Base imponible', numerica: true, valor: (r) => r2(r.baseImponible) },
+  { id: 'base', label: 'Base imponible', numerica: true, valor: (r) => r.anulada ? 0 : r2(r.baseImponible * (r.tipoDocumento === 'nota_credito' ? -1 : 1)) },
   { id: 'pct', label: '% retención', numerica: true, valor: (r) => r.porcentaje },
-  { id: 'retenido', label: 'Monto retenido', numerica: true, valor: (r) => r2(r.montoRetenido) },
-  { id: 'retenido_bs', label: 'Retenido (Bs)', numerica: true, valor: (r) => retenidoBs(r) },
+  { id: 'retenido', label: 'Monto retenido', numerica: true, valor: (r) => r.anulada ? 0 : r2(r.montoRetenido * (r.tipoDocumento === 'nota_credito' ? -1 : 1)) },
+  { id: 'retenido_bs', label: 'Retenido (Bs)', numerica: true, valor: (r) => { if (r.anulada) return 0; const b = retenidoBs(r); return b == null ? null : r2(b * (r.tipoDocumento === 'nota_credito' ? -1 : 1)); } },
   { id: 'estado', label: 'Estado', valor: (r) => estadoDe(r) },
 ];
 
@@ -316,7 +316,7 @@ export function tablaCruzada(filas: RetencionPracticada[]): TablaCruzada {
   let total = 0;
   for (const r of filas) {
     if (r.anulada) continue;
-    const bs = retenidoBs(r) ?? 0;
+    const bs = (retenidoBs(r) ?? 0) * (r.tipoDocumento === 'nota_credito' ? -1 : 1);
     const per = r.periodo || 'Sin período';
     periodos.add(per);
     const { clave } = corteDe(r, 'proveedor', 'factura');

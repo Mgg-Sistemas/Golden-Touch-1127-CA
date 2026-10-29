@@ -26,18 +26,20 @@ import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
 import { FacturasPorRegistrar } from '@/modules/libroFiscal/FacturasPorRegistrar';
 import { AvisoSinFactura } from '@/modules/libroFiscal/AvisoSinFactura';
-import type { FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
+import { cargarSemillaDeFacturaOrigen, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
 import { CONFIG_RETENCION_DEFECTO, fechaTasaBcv, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import { diaVE, getTasasUsdDeFechas, hoyVE } from '@/modules/tesoreria/tasas.repository';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import { ReportesView } from './ReportesView';
+import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
+import { Link } from 'react-router-dom';
 import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon';
 
 /** Qué documento es un código, en palabras: el personal no tiene por qué saber las siglas. */
 function nombreDocumento(codigo: string | null | undefined): string {
@@ -51,7 +53,7 @@ function nombreDocumento(codigo: string | null | undefined): string {
 
 export function RetencionesPage() {
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, puedeVista } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -117,7 +119,7 @@ export function RetencionesPage() {
       reg.set(r.docId, s);
     }
     // Lo marcado «no aplica» cuenta como resuelto para ese impuesto.
-    const na = await noAplicaPorOrden(p.map((i) => i.orden.id)).catch(() => new Map<string, Set<TipoImpuesto>>());
+    const na = await noAplicaPorOrden([...p, ...h].map((i) => i.orden.id)).catch(() => new Map<string, Set<TipoImpuesto>>());
     for (const [id, tipos] of na) {
       const s = reg.get(id) ?? new Set<TipoImpuesto>();
       for (const t of tipos) s.add(t);
@@ -150,28 +152,33 @@ export function RetencionesPage() {
     cargarCondiciones();
   });
 
-  // Una OC sigue «por realizar» mientras le quede un impuesto sin registrar en el libro.
+  // Una OC sigue «por realizar» mientras tenga impuestos pendientes o ya tenga impuestos cargados en el libro pero aún falte marcarla como finalizada.
   const porRealizar = useMemo(
-    () => pendientes.filter((i) => impuestosPendientesDeOrden(i.orden, registradas, practica, condiciones, configFiscal).length > 0),
+    () => pendientes.filter((i) =>
+      impuestosPendientesDeOrden(i.orden, registradas, practica, condiciones, configFiscal).length > 0
+      || Boolean(registradas.get(i.orden.id)?.size),
+    ),
     [pendientes, registradas, practica, condiciones, configFiscal],
   );
 
   // La semilla del registro sale del archivo: su orden y, si es una OC que ya está en la lista, proveedor y montos.
-  function semillaDeFactura(f: FacturaDeOrigen): SemillaFactura {
-    const s: SemillaFactura = {
-      direccion: 'practicada', docKind: f.origen.tipo, docId: f.origen.id,
-      adjuntoId: f.adjuntoId, adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
-    };
+  async function abrirDesdeFactura(f: FacturaDeOrigen) {
     const item = f.origen.tipo === 'oc' ? [...pendientes, ...hechas].find((i) => i.orden.id === f.origen.id) : undefined;
-    if (!item) return s;
-    const o = item.orden;
-    return {
-      ...s, contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
-      moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-      facturaTotal: o.total,
-      baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
-      iva: o.iva_monto ?? 0,
-    };
+    if (item) {
+      const o = item.orden;
+      setRegistrarFactura({
+        direccion: 'practicada', docKind: f.origen.tipo, docId: f.origen.id,
+        adjuntoId: f.adjuntoId, adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
+        contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
+        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
+        facturaTotal: o.total,
+        baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
+        iva: o.iva_monto ?? 0,
+      });
+      return;
+    }
+    const semilla = await cargarSemillaDeFacturaOrigen(f);
+    setRegistrarFactura(semilla);
   }
 
   const proveedorIdsPendientes = useMemo(
@@ -207,9 +214,10 @@ export function RetencionesPage() {
     ...(vista === 'hechas' ? [{
       campo: 'tipo', etiqueta: 'Tipo de retención', valor: fTipo,
       opciones: TIPOS_RETENCION.map((t): [string, string] => [t.key, t.label]),
-      pasa: ({ orden: o }: RetencionItem, v: string) => comprobantesDeOrden(o).some((c) => c.tipo === v),
+      pasa: ({ orden: o }: RetencionItem, v: string) =>
+        comprobantesDeOrden(o).some((c) => c.tipo === v) || Boolean(registradas.get(o.id)?.has(v as TipoImpuesto)),
     }] : []),
-  ], [vista, fTesoreria, fTipo]);
+  ], [vista, fTesoreria, fTipo, registradas]);
 
   const filas = useMemo(() => {
     const fecha = ({ orden: o }: RetencionItem) => String((vista === 'hechas' ? o.retencion_finalizada_en : o.metodo_pago_en) ?? '');
@@ -241,12 +249,18 @@ export function RetencionesPage() {
         </p>
         <div className="lfv8-cabeza-acciones">
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
+          {puedeVista('retenciones') && (
+            <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none' }} title="Abrir vista móvil de facturas">
+              📱 Teléfono
+            </Link>
+          )}
           <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
             <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
               Por realizar{porRealizar.length ? ` (${porRealizar.length})` : ''}
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
+            <button className={vista === 'buzon' ? 'active' : ''} onClick={() => setVista('buzon')}>📥 Buzón Móvil</button>
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
             <button className={vista === 'auditoria' ? 'active' : ''} onClick={() => setVista('auditoria')}>🛡️ Auditoría</button>
@@ -271,12 +285,15 @@ export function RetencionesPage() {
       {/* ── Auditoría Fiscal (concisa y explícita) ── */}
       {vista === 'auditoria' && <AuditoriaRetenciones />}
 
+      {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
+      {vista === 'buzon' && <BuzonFacturasExternasView />}
+
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}
       {vista === 'pendientes' && (
         <>
           <AvisoSinFactura rutaDe={(o) => `/app/pedidos?detalle=${encodeURIComponent(o.origen.id)}`} />
-          <FacturasPorRegistrar puedeRegistrar={canWrite} onRegistrar={(f) => setRegistrarFactura(semillaDeFactura(f))} />
+          <FacturasPorRegistrar puedeRegistrar={canWrite} onRegistrar={(f) => { void abrirDesdeFactura(f); }} />
         </>
       )}
       {vista === 'pendientes' && (
@@ -364,7 +381,8 @@ export function RetencionesPage() {
 
       {sel && (
         <RetencionModal
-          item={sel} canWrite={canWrite} actor={actor} actorName={actorName}
+          item={sel} canWrite={canWrite} actor={actor}
+          tieneResueltosEnLibro={Boolean(registradas.get(sel.orden.id)?.size) || impuestosPendientesDeOrden(sel.orden, registradas, practica, condiciones, configFiscal).length === 0}
           onClose={() => setSel(null)}
           onSaved={async () => { setSel(null); await reload(); }}
         />
@@ -402,8 +420,8 @@ export function RetencionesPage() {
   );
 }
 
-function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: {
-  item: RetencionItem; canWrite: boolean; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function RetencionModal({ item, canWrite, actor, tieneResueltosEnLibro, onClose, onSaved }: {
+  item: RetencionItem; canWrite: boolean; actor: string; tieneResueltosEnLibro?: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const o = item.orden;
   const yaFinalizada = !!o.retencion_finalizada;
@@ -413,6 +431,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
   const [error, setError] = useState<string | null>(null);
 
   const algunArchivo = (Object.values(archivos) as (File | undefined)[]).some(Boolean);
+  const puedeSinArchivo = Boolean(tieneResueltosEnLibro || comprobantes.length > 0);
 
   function setArchivo(tipo: TipoRetencion, file: File | null) {
     setArchivos((m) => ({ ...m, [tipo]: file ?? undefined }));
@@ -425,11 +444,10 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
 
   async function handleFinalizar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!algunArchivo) { setError('Carga al menos un comprobante (IVA, ISLR o Municipal).'); return; }
+    if (!algunArchivo && !puedeSinArchivo) { setError('Carga al menos un comprobante (IVA, ISLR o Municipal) o registra los impuestos en el Libro Fiscal.'); return; }
     setSaving(true);
     try {
-      void actorName;
-      await finalizarRetencion({ orden: o, archivos, actor });
+      await finalizarRetencion({ orden: o, archivos, actor, permitirSinArchivo: puedeSinArchivo });
       notify(`Retención registrada · OC ${o.oc_codigo ?? o.codigo}`, 'success', { link: '#/app/retenciones' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar la retención.'); setSaving(false); }
@@ -569,14 +587,14 @@ function impuestosPendientesDeOrden(
   let retieneIva = true;
   if (condiciones && condiciones.length > 0) {
     retieneIva = empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA');
-  } else if (config) {
-    retieneIva = config.esAgenteRetencionIva !== false;
   } else if (practica) {
     retieneIva = practica.has('iva');
+  } else if (config) {
+    retieneIva = config.esAgenteRetencionIva !== false;
   }
 
-  const retieneIslr = config ? config.retieneIslr !== false : (!practica || practica.has('islr'));
-  const retieneMunicipal = config ? config.retieneMunicipal !== false : (!practica || practica.has('municipal'));
+  const retieneIslr = practica ? practica.has('islr') : (config ? config.retieneIslr !== false : true);
+  const retieneMunicipal = practica ? practica.has('municipal') : (config ? config.retieneMunicipal !== false : true);
 
   if (retieneIva && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
   if (retieneIslr && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
@@ -668,7 +686,20 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                 </span>
                 {canWrite && (
                   <span className="lfv8-pagar-acc">
-                    <button className="btn btn-sm lfv8-btn-reg" onClick={() => onVer({ orden: o, proveedorNombre })}>Registrar</button>
+                    <button className="btn btn-sm lfv8-btn-reg" onClick={() => {
+                      const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones, config);
+                      onRegistrar({
+                        direccion: 'practicada',
+                        tipoInicial: pends[0] ?? 'iva',
+                        docKind: 'oc',
+                        docId: o.id, codigo: o.oc_codigo ?? o.codigo,
+                        contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
+                        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
+                        total: o.total,
+                        baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
+                        iva: o.iva_monto ?? 0,
+                      });
+                    }}>Registrar</button>
                   </span>
                 )}
               </div>
@@ -739,13 +770,13 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
           let retieneIva = true;
           if (condiciones && condiciones.length > 0) {
             retieneIva = empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA');
-          } else if (config) {
-            retieneIva = config.esAgenteRetencionIva !== false;
           } else if (practica) {
             retieneIva = practica.has('iva');
+          } else if (config) {
+            retieneIva = config.esAgenteRetencionIva !== false;
           }
-          const retieneIslr = config ? config.retieneIslr !== false : (!practica || practica.has('islr'));
-          const retieneMunicipal = config ? config.retieneMunicipal !== false : (!practica || practica.has('municipal'));
+          const retieneIslr = practica ? practica.has('islr') : (config ? config.retieneIslr !== false : true);
+          const retieneMunicipal = practica ? practica.has('municipal') : (config ? config.retieneMunicipal !== false : true);
 
           const aplicablesDeOrden = IMPUESTOS_PENDIENTES.filter((t) => {
             if (t.key === 'iva') return retieneIva;
@@ -833,6 +864,7 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                         ordenId: o.id, codigo: o.oc_codigo ?? o.codigo, proveedorId: o.proveedor_id ?? null, proveedorNombre,
                         moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD', total: o.total ?? null,
                         impuestoClave: tipoAGt(k), impuestoNombre: lbl,
+                        fechaDocumento: fechaDoc,
                       })}>
                       {lbl}: no aplica
                     </button>

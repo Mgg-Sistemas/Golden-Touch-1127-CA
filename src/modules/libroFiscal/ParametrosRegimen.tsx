@@ -28,6 +28,10 @@ const RENGLONES: { impuesto: ClaveImpuesto | null; condicion: CondicionAgente; t
     impuesto: null, condicion: 'contribuyente_especial', titulo: 'Contribuyente especial',
     ayuda: 'El especial también retiene IVA y percibe el IGTF.',
   },
+  {
+    impuesto: 'IGTF', condicion: 'agente_percepcion', titulo: 'Agente de percepción de IGTF',
+    ayuda: 'Condición específica de percepción de IGTF sobre pagos en divisas o criptoactivos.',
+  },
 ];
 
 export function ParametrosRegimen({ puedeEditar }: { puedeEditar: boolean }) {
@@ -52,7 +56,7 @@ export function ParametrosRegimen({ puedeEditar }: { puedeEditar: boolean }) {
       )}
       {!historial && !error && <p className="muted">Leyendo el régimen…</p>}
       {historial && RENGLONES.map((r) => (
-        <RenglonRegimen key={r.condicion} {...r} historial={historial.filter((h) => h.condicion === r.condicion && h.impuestoClave === r.impuesto)}
+        <RenglonRegimen key={`${r.condicion}:${r.impuesto ?? '*'}`} {...r} historial={historial.filter((h) => h.condicion === r.condicion && h.impuestoClave === r.impuesto)}
           puedeEditar={puedeEditar} onCambio={() => void cargar()} />
       ))}
     </div>
@@ -91,10 +95,20 @@ function RenglonRegimen({ impuesto, condicion, titulo, ayuda, historial, puedeEd
   async function guardarFila(id: string) {
     if (!editDesde) { toast('Indica la fecha desde.', 'error'); return; }
     if (!editMotivo.trim()) { toast('Indica el motivo del cambio.', 'error'); return; }
+    const actualFila = historial.find((x) => x.id === id);
+    if (actualFila?.hasta && editDesde > actualFila.hasta) {
+      toast('La fecha «desde» no puede ser posterior a la fecha «hasta» de ese período.', 'error');
+      return;
+    }
+    if (historial.some((x) => x.id !== id && x.desde === editDesde)) {
+      toast('Ya existe otro registro en el historial que inicia en esa misma fecha.', 'error');
+      return;
+    }
     setGuardandoFila(true);
     try {
       await actualizarCondicion(id, {
         desde: editDesde,
+        hasta: actualFila?.hasta ?? undefined,
         valor: editValor === 'si',
         motivo: editMotivo.trim(),
         fuente: editFuente.trim() || null,

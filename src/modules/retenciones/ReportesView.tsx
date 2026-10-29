@@ -20,7 +20,7 @@ import {
 } from './reportesRetenciones';
 import { descargarCsv, lineaTotales, reporteExcel, reportePdf, type CabeceraReporte } from './reportesRetencionesArchivos';
 import { armarTxtIva, filasTxtIva, type PeriodoCampo2 } from './txtSeniatIva';
-import { armarXmlIslr, filasXmlIslr } from './xmlSeniatIslr';
+import { armarXmlIslr, bytesIso88591, filasXmlIslr } from './xmlSeniatIslr';
 
 interface PlantillaReporte { id: string; nombre: string; titulo: string }
 
@@ -255,7 +255,7 @@ export function ReportesView({ actor }: { actor: string }) {
 
   function descargarXml() {
     if (!xml || xml.faltan.length) return;
-    const blob = new Blob([xml.contenido], { type: 'application/xml;charset=iso-8859-1' });
+    const blob = new Blob([bytesIso88591(xml.contenido)], { type: 'application/xml;charset=iso-8859-1' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = xml.nombre;

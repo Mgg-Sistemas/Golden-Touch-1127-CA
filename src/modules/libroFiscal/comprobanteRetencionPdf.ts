@@ -102,6 +102,7 @@ export function valoresDeColumnas(r: RetencionPracticada): Record<string, string
   const op = r.operacionNumero != null
     ? String(r.operacionNumero).padStart(4, '0')
     : '0001';
+  const signo = r.tipoDocumento === 'nota_credito' ? -1 : 1;
   const exentoMonto = r.exento != null ? r.exento : 0;
   const totFactura = r.facturaTotal != null
     ? r.facturaTotal
@@ -113,15 +114,15 @@ export function valoresDeColumnas(r: RetencionPracticada): Record<string, string
     fecha: fechaPdf(r.facturaFecha),
     control: r.facturaControl || '—',
     afectada: r.facturaAfectadaNro || '—',
-    total_factura: montoPdf(totFactura, r.moneda),
-    exento: montoPdf(exentoMonto, r.moneda),
+    total_factura: montoPdf(totFactura * signo, r.moneda),
+    exento: montoPdf(exentoMonto * signo, r.moneda),
     concepto: r.conceptoNombre || 'SERVICIOS',
-    base: montoPdf(r.baseImponible, r.moneda),
+    base: montoPdf(r.baseImponible * signo, r.moneda),
     alicuota: r.alicuota ? `${r.alicuota}%` : '—',
-    iva: montoPdf(r.impuesto, r.moneda),
+    iva: montoPdf(r.impuesto * signo, r.moneda),
     sustraendo: r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '0,00',
     pct: `${r.porcentaje}%`,
-    monto: montoPdf(r.montoRetenido, r.moneda),
+    monto: montoPdf(r.montoRetenido * signo, r.moneda),
   };
 }
 
@@ -184,6 +185,9 @@ export interface OpcionesComprobantePdf {
   incluirFirma?: boolean;
   incluirSello?: boolean;
   incluirQr?: boolean;
+  logoDataUrl?: string | null;
+  firmaDataUrl?: string | null;
+  selloDataUrl?: string | null;
   /** Compatibilidad hacia atrás */
   incluirFirmaSello?: boolean;
   /** Ejemplar que se imprime en esta página concreta ('original' o 'copia') */
@@ -191,6 +195,10 @@ export interface OpcionesComprobantePdf {
   /** Modo de emisión del documento: ambos (Original + Copia), solo original o solo copia */
   modoEjemplar?: ModoEjemplar;
   imprimirOriginalYCopia?: boolean;
+}
+
+function formatoImagenDataUrl(dataUrl: string): 'PNG' | 'JPEG' {
+  return /^data:image\/jpe?g/i.test(dataUrl) ? 'JPEG' : 'PNG';
 }
 
 export interface DisponibilidadElementosDigitales {
@@ -406,15 +414,19 @@ export async function generarDocComprobanteRetencionPdf(
   }
 
   // 3. Resto del formato: Logo a la izquierda y Recuadro de Comprobante a la derecha
-  const { logoDataUrl, firmaDataUrl, selloDataUrl } = await cargarElementosDigitales(diaVE(r.createdAt) || hoyVenezuela());
-  const tieneLogo = opciones.incluirLogo && !!logoDataUrl;
+  const fechaEmisionRef = r.fecha || r.facturaFecha || diaVE(r.createdAt) || hoyVenezuela();
+  const cargados = await cargarElementosDigitales(fechaEmisionRef);
+  const logoDataUrl = opciones.logoDataUrl !== undefined ? opciones.logoDataUrl : cargados.logoDataUrl;
+  const firmaDataUrl = opciones.firmaDataUrl !== undefined ? opciones.firmaDataUrl : cargados.firmaDataUrl;
+  const selloDataUrl = opciones.selloDataUrl !== undefined ? opciones.selloDataUrl : cargados.selloDataUrl;
+  const tieneLogo = (opciones.incluirLogo ?? Boolean(opciones.logoDataUrl)) && !!logoDataUrl;
   const logoW = 75;
   const logoH = 34;
 
   const restoY = y;
   if (tieneLogo) {
     try {
-      doc.addImage(logoDataUrl!, 'PNG', M, restoY, logoW, logoH);
+      doc.addImage(logoDataUrl!, formatoImagenDataUrl(logoDataUrl!), M, restoY, logoW, logoH);
     } catch { /* noop */ }
   }
 
@@ -481,7 +493,7 @@ export async function generarDocComprobanteRetencionPdf(
   doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISIÓN'), colDivX + 6, boxY + 26);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(fechaPdf(r.facturaFecha || r.createdAt)), colDivX + 6, boxY + 36);
+  doc.text(textoPdf(fechaPdf(r.fecha || r.facturaFecha || r.createdAt)), colDivX + 6, boxY + 36);
 
   y = Math.max(boxY + boxH, tieneLogo ? restoY + logoH : 0) + 8;
 
@@ -714,13 +726,14 @@ export async function generarDocComprobanteRetencionPdf(
   const primerColNumericaIdx = f.columnas.findIndex((col) => COLUMNAS_NUMERICAS.has(col.campo));
   const idxRotuloTotal = primerColNumericaIdx > 0 ? primerColNumericaIdx - 1 : 0;
 
+  const signoTabla = rEnriquecida.tipoDocumento === 'nota_credito' ? -1 : 1;
   const filaTotales = f.columnas.map((c, i) => {
-    if (c.campo === 'total_factura') return montoPdf(rEnriquecida.facturaTotal ?? (r.baseImponible + r.impuesto + (rEnriquecida.exento ?? 0)), r.moneda);
-    if (c.campo === 'exento') return montoPdf(rEnriquecida.exento ?? 0, r.moneda);
-    if (c.campo === 'base') return montoPdf(r.baseImponible, r.moneda);
-    if (c.campo === 'iva') return montoPdf(r.impuesto, r.moneda);
+    if (c.campo === 'total_factura') return montoPdf((rEnriquecida.facturaTotal ?? (r.baseImponible + r.impuesto + (rEnriquecida.exento ?? 0))) * signoTabla, r.moneda);
+    if (c.campo === 'exento') return montoPdf((rEnriquecida.exento ?? 0) * signoTabla, r.moneda);
+    if (c.campo === 'base') return montoPdf(r.baseImponible * signoTabla, r.moneda);
+    if (c.campo === 'iva') return montoPdf(r.impuesto * signoTabla, r.moneda);
     if (c.campo === 'sustraendo') return r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '0,00';
-    if (c.campo === 'monto') return montoPdf(r.montoRetenido, r.moneda);
+    if (c.campo === 'monto') return montoPdf(r.montoRetenido * signoTabla, r.moneda);
     if (i === idxRotuloTotal) return f.rotulos.total || 'TOTALES:';
     return '';
   });
@@ -827,8 +840,8 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setLineWidth(0.6);
 
   // Estampa de firma y/o sello digital en la caja del agente
-  const conFirma = (opciones.incluirFirma || (opciones.incluirFirmaSello && opciones.incluirFirma === undefined)) && !!firmaDataUrl;
-  const conSello = (opciones.incluirSello || (opciones.incluirFirmaSello && opciones.incluirSello === undefined)) && !!selloDataUrl;
+  const conFirma = ((opciones.incluirFirma ?? Boolean(opciones.firmaDataUrl)) || (opciones.incluirFirmaSello && opciones.incluirFirma === undefined)) && !!firmaDataUrl;
+  const conSello = ((opciones.incluirSello ?? Boolean(opciones.selloDataUrl)) || (opciones.incluirFirmaSello && opciones.incluirSello === undefined)) && !!selloDataUrl;
 
   if (conQr && qrDataUrl) {
     // Disposición en 3 cajas: Agente (Izquierda) | Verificación Digital (Centro) | Sujeto (Derecha)
@@ -855,20 +868,20 @@ export async function generarDocComprobanteRetencionPdf(
       const wSello = 40;
       xEstampasInicio = xFinAgente - (wFirma + wSello + 6) - 6;
       try {
-        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
-        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio + wFirma + 6, firmaY + 5, wSello, 42);
+        doc.addImage(firmaDataUrl!, formatoImagenDataUrl(firmaDataUrl!), xEstampasInicio, firmaY + 4, wFirma, 44);
+        doc.addImage(selloDataUrl!, formatoImagenDataUrl(selloDataUrl!), xEstampasInicio + wFirma + 6, firmaY + 5, wSello, 42);
       } catch { /* noop */ }
     } else if (conFirma) {
       const wFirma = 75;
       xEstampasInicio = xFinAgente - wFirma - 8;
       try {
-        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
+        doc.addImage(firmaDataUrl!, formatoImagenDataUrl(firmaDataUrl!), xEstampasInicio, firmaY + 4, wFirma, 44);
       } catch { /* noop */ }
     } else if (conSello) {
       const wSello = 50;
       xEstampasInicio = xFinAgente - wSello - 8;
       try {
-        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio, firmaY + 5, wSello, 42);
+        doc.addImage(selloDataUrl!, formatoImagenDataUrl(selloDataUrl!), xEstampasInicio, firmaY + 5, wSello, 42);
       } catch { /* noop */ }
     }
 
@@ -957,20 +970,20 @@ export async function generarDocComprobanteRetencionPdf(
       const wSello = 60;
       xEstampasInicio = xFinAgente - (wFirma + wSello + 8) - 8;
       try {
-        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
-        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio + wFirma + 8, firmaY + 5, wSello, 42);
+        doc.addImage(firmaDataUrl!, formatoImagenDataUrl(firmaDataUrl!), xEstampasInicio, firmaY + 4, wFirma, 44);
+        doc.addImage(selloDataUrl!, formatoImagenDataUrl(selloDataUrl!), xEstampasInicio + wFirma + 8, firmaY + 5, wSello, 42);
       } catch { /* noop */ }
     } else if (conFirma) {
       const wFirma = 110;
       xEstampasInicio = xFinAgente - wFirma - 12;
       try {
-        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
+        doc.addImage(firmaDataUrl!, formatoImagenDataUrl(firmaDataUrl!), xEstampasInicio, firmaY + 4, wFirma, 44);
       } catch { /* noop */ }
     } else if (conSello) {
       const wSello = 70;
       xEstampasInicio = xFinAgente - wSello - 14;
       try {
-        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio, firmaY + 5, wSello, 42);
+        doc.addImage(selloDataUrl!, formatoImagenDataUrl(selloDataUrl!), xEstampasInicio, firmaY + 5, wSello, 42);
       } catch { /* noop */ }
     }
 
@@ -1133,7 +1146,7 @@ export async function verComprobanteRetencionPdf(
 
       selEjemplar.onchange = async () => {
         modoEjemplar = selEjemplar.value as ModoEjemplar;
-        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch {}
+        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch { /* ignorar */ }
         selEjemplar.style.opacity = '0.6';
         try {
           const nuevoDoc = await generarDoc();
@@ -1187,24 +1200,24 @@ export async function verComprobanteRetencionPdf(
       if (disp.tieneLogo) {
         toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
           conLogo = v;
-          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneFirma) {
         toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
           conFirma = v;
-          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneSello) {
         toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
           conSello = v;
-          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch { /* ignorar */ }
         }));
       }
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
-        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
+        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch { /* ignorar */ }
       }));
 
       container.appendChild(toolbar);
@@ -1306,7 +1319,7 @@ export async function verTodosComprobantesFacturaPdf(
 
       selEjemplar.onchange = async () => {
         modoEjemplar = selEjemplar.value as ModoEjemplar;
-        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch {}
+        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch { /* ignorar */ }
         selEjemplar.style.opacity = '0.6';
         try {
           const nuevoDoc = await generarLote();
@@ -1362,24 +1375,24 @@ export async function verTodosComprobantesFacturaPdf(
       if (disp.tieneLogo) {
         toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
           conLogo = v;
-          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneFirma) {
         toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
           conFirma = v;
-          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneSello) {
         toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
           conSello = v;
-          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch { /* ignorar */ }
         }));
       }
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
-        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
+        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch { /* ignorar */ }
       }));
 
       container.appendChild(toolbar);

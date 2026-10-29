@@ -50,7 +50,7 @@ const ROTULO: Record<EstadoPeriodo, { texto: string; color: string }> = {
 };
 
 export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
-  const [anio, setAnio] = useState(new Date().getFullYear());
+  const [anio, setAnio] = useState(() => Number(hoyVE().slice(0, 4)) || new Date().getFullYear());
   const [tipo, setTipo] = useState('');
   const [estado, setEstado] = useState<EstadoPeriodo | ''>('');
   const [periodos, setPeriodos] = useState<PeriodoFiscal[] | null>(null);
@@ -64,13 +64,18 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
 
   const cargar = useCallback(async () => {
     try {
+      const prefijoAnio = `${anio}-`;
       const [ps, rs, imps] = await Promise.all([
         listPeriodos(anio),
         listRetenciones({ direccion: 'practicada' }),
         opcionesImpuestoEnte().catch(() => []),
       ]);
       setPeriodos(ps);
-      setConteos(rs.map((r) => ({ tipoGt: tipoAGt(r.tipo), periodo: r.periodo, quincena: r.quincena, declarada: r.estado === 'declarada' })));
+      setConteos(
+        rs
+          .filter((r) => !r.anulada && r.porcentaje > 0 && r.periodo.startsWith(prefijoAnio))
+          .map((r) => ({ tipoGt: tipoAGt(r.tipo), periodo: r.periodo, quincena: r.quincena, declarada: r.estado === 'declarada' }))
+      );
       setImpuestos(imps); setError(null);
     } catch (e) { setError(mensaje(e, 'No se pudieron leer los períodos.')); }
   }, [anio]);
@@ -188,7 +193,7 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
                     <td>
                       <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
                         {puedeEditar && !p.declaradoEn
-                          ? <input className="input" type="date" defaultValue={p.vence ?? ''} style={{ maxWidth: 140, padding: '2px 6px', fontSize: '.8rem' }}
+                          ? <input key={p.vence ?? 'sin-vence'} className="input" type="date" defaultValue={p.vence ?? ''} style={{ maxWidth: 140, padding: '2px 6px', fontSize: '.8rem' }}
                               onBlur={(e) => { if ((e.target.value || null) !== p.vence) void guardarVence(p, e.target.value); }} aria-label={`Vencimiento de ${nombrePeriodo(p)}`} />
                           : <span>{fechaCorta(p.vence)}</span>}
                         {p.vence && !p.declaradoEn && diasRestantes !== null && (

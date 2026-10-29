@@ -17,6 +17,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { faltaEnFechaRango } from './parametrosNumeros';
 
 const T_IMPUESTOS = 'retencion_impuestos';
 const T_VERSIONES = 'retencion_impuesto_versiones';
@@ -131,8 +132,12 @@ export function aImpuesto(r: Record<string, unknown>): Impuesto {
 
 /** La versión que vale en una fecha; si la fecha es anterior a la primera, la primera. Igual que retencion_impuesto_version. */
 export function versionDeFecha(versiones: VersionImpuesto[], fecha: string = hoyIso()): VersionImpuesto | null {
+  const f = String(fecha ?? '').slice(0, 10);
   const orden = [...versiones].sort((a, b) => b.desde.localeCompare(a.desde));
-  return orden.find((v) => v.desde <= fecha) ?? orden[orden.length - 1] ?? null;
+  return orden.find((v) => v.desde <= f && (!v.hasta || v.hasta >= f))
+    ?? orden.find((v) => v.desde <= f)
+    ?? orden[orden.length - 1]
+    ?? null;
 }
 
 /** Suma días hábiles (lunes a viernes, sin feriados). Igual que retencion_dias_habiles_sumar. */
@@ -176,6 +181,8 @@ export type DatosVersion = Omit<VersionImpuesto, 'id' | 'impuestoClave' | 'desde
 
 export function faltaEnVersion(v: DatosVersion, desde: string, motivo: string): string | null {
   if (!FECHA.test(desde)) return 'Indica desde qué fecha vale la versión.';
+  const faltaDesde = faltaEnFechaRango(desde, 'la fecha «desde» de la versión');
+  if (faltaDesde) return faltaDesde;
   if (!motivo.trim()) return 'Indica el motivo: queda en el historial.';
   if (v.venceDia != null && (!Number.isInteger(v.venceDia) || v.venceDia < 1 || v.venceDia > 31)) return 'El día de vencimiento va del 1 al 31.';
   if (!Number.isInteger(v.plazoEntregaDias) || v.plazoEntregaDias < 0 || v.plazoEntregaDias > 60) return 'El plazo de entrega va de 0 a 60 días.';
@@ -268,10 +275,8 @@ export async function consultarPlazoEntrega(clave: string, fecha: string): Promi
 /** Cambia la ficha de un impuesto, con el motivo de este cambio. */
 export async function guardarImpuesto(clave: string, cambios: Partial<FichaImpuesto>, motivo: string): Promise<void> {
   if (!motivo.trim()) throw new Error('Indica el motivo del cambio: queda en el historial.');
-  if (cambios.nombre !== undefined) {
-    const falta = faltaEnImpuesto({ clave, nombre: cambios.nombre, ...cambios });
-    if (falta) throw new Error(falta);
-  }
+  const falta = faltaEnImpuesto({ clave, nombre: cambios.nombre ?? 'Impuesto', ...cambios });
+  if (falta) throw new Error(falta);
   const { data, error } = await supabase.from(T_IMPUESTOS)
     .update({ ...filaFicha(cambios), motivo_cambio: motivo.trim() }).eq('clave', clave).select('clave');
   if (error) throw errorRetencion(error, 'No se pudo guardar el impuesto.', TEXTOS_FICHA);

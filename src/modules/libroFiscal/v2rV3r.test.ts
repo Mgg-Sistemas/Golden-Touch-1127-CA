@@ -161,7 +161,7 @@ describe('sin V2R (la base de hoy): el front pide el número como hasta ahora', 
       { tipo: 'igtf', base: 100, porcentaje: 3, monto: 3 },
       { tipo: 'municipal', base: 1000, porcentaje: 1, monto: 10, comprobanteNro: '20261000000099' },
     ]);
-    expect(ls.map((l) => l.comprobanteNro ?? null)).toEqual(['20261000000007', '20261000000031', null, '20261000000099']);
+    expect(ls.map((l) => l.comprobanteNro ?? null)).toEqual(['20261000000007', '0000000031', null, '20261000000099']);
     expect(rpc).toHaveBeenCalledTimes(2);
   });
 

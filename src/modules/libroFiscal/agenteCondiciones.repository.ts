@@ -11,6 +11,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ClaveImpuesto } from './entes.repository';
 import { errorRetencion } from './erroresRetencion';
+import { faltaEnFechaRango } from './parametrosNumeros';
 
 const T_CONDICIONES = 'retencion_agente_condiciones';
 
@@ -86,7 +87,14 @@ export function faltaEnCondicion(c: CondicionNueva): string | null {
   if (porImpuesto && !c.impuestoClave) return 'Indica el impuesto de esa condición.';
   if (!porImpuesto && c.impuestoClave) return 'Contribuyente especial es de la empresa, no de un impuesto.';
   if (!FECHA.test(c.desde)) return 'Indica desde qué fecha vale.';
-  if (c.hasta && (!FECHA.test(c.hasta) || c.hasta < c.desde)) return 'La fecha «hasta» no puede ser anterior a «desde».';
+  const faltaDesde = faltaEnFechaRango(c.desde, 'la fecha «desde»');
+  if (faltaDesde) return faltaDesde;
+  if (c.hasta) {
+    if (!FECHA.test(c.hasta)) return 'La fecha «hasta» no es válida.';
+    const faltaHasta = faltaEnFechaRango(c.hasta, 'la fecha «hasta»');
+    if (faltaHasta) return faltaHasta;
+    if (c.hasta < c.desde) return 'La fecha «hasta» no puede ser anterior a «desde».';
+  }
   if (!c.motivo.trim()) return 'Indica el motivo: queda en el historial del régimen.';
   return null;
 }
@@ -144,25 +152,40 @@ export async function actualizarCondicion(id: string, c: Partial<CondicionNueva>
   const updateData: Record<string, unknown> = {};
   if (c.desde !== undefined) {
     if (!FECHA.test(c.desde)) throw new Error('Indica una fecha válida (AAAA-MM-DD).');
+    const faltaDesde = faltaEnFechaRango(c.desde, 'la fecha «desde»');
+    if (faltaDesde) throw new Error(faltaDesde);
     updateData.desde = c.desde;
   }
-  if (c.hasta !== undefined) updateData.hasta = c.hasta || null;
+  if (c.hasta !== undefined) {
+    if (c.hasta) {
+      if (!FECHA.test(c.hasta)) throw new Error('La fecha «hasta» no es válida.');
+      const faltaHasta = faltaEnFechaRango(c.hasta, 'la fecha «hasta»');
+      if (faltaHasta) throw new Error(faltaHasta);
+      if (c.desde && c.hasta < c.desde) throw new Error('La fecha «hasta» no puede ser anterior a «desde».');
+    }
+    updateData.hasta = c.hasta || null;
+  }
   if (c.valor !== undefined) updateData.valor = c.valor;
-  if (c.motivo !== undefined) updateData.motivo = c.motivo.trim();
+  if (c.motivo !== undefined) {
+    if (!c.motivo.trim()) throw new Error('Indica el motivo: queda en el historial del régimen.');
+    updateData.motivo = c.motivo.trim();
+  }
   if (c.fuente !== undefined) updateData.fuente = c.fuente?.trim() || null;
   if (c.impuestoClave !== undefined) updateData.impuesto_clave = c.impuestoClave;
   if (c.condicion !== undefined) updateData.condicion = c.condicion;
 
-  const { error } = await supabase.from(T_CONDICIONES).update(updateData).eq('id', id);
+  const { data, error } = await supabase.from(T_CONDICIONES).update(updateData).eq('id', id).select('id');
   if (error) {
     throw errorRetencion(error, 'No se pudo actualizar el registro del régimen.', {
       unico: 'Ya hay un registro con esa misma fecha de inicio.',
     });
   }
+  if (!data?.length) throw new Error('No se actualizó el régimen: sin permiso de escritura en Retenciones, o el registro ya no existe.');
 }
 
 /** Elimina un registro del régimen. */
 export async function eliminarCondicion(id: string): Promise<void> {
-  const { error } = await supabase.from(T_CONDICIONES).delete().eq('id', id);
+  const { data, error } = await supabase.from(T_CONDICIONES).delete().eq('id', id).select('id');
   if (error) throw errorRetencion(error, 'No se pudo eliminar el registro del régimen.');
+  if (!data?.length) throw new Error('No se eliminó el registro del régimen: sin permiso de escritura en Retenciones, o ya no existe.');
 }

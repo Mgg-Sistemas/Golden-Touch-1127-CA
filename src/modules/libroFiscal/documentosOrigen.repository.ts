@@ -58,14 +58,88 @@ export function aFacturaDeOrigen(r: Record<string, unknown>): FacturaDeOrigen {
 }
 
 /** Construye la semilla para abrir el modal de registro de factura desde un archivo de compras. */
-export function semillaDeFacturaOrigen(f: FacturaDeOrigen) {
+export function semillaDeFacturaOrigen(
+  f: FacturaDeOrigen,
+  datosOrigen?: {
+    contraparteId?: string | null;
+    contraparteNombre?: string | null;
+    contraparteRif?: string | null;
+    moneda?: 'Bs' | 'USD';
+    facturaTotal?: number | null;
+    baseImponible?: number | null;
+    iva?: number | null;
+  },
+) {
   return {
     direccion: 'practicada' as const,
     docKind: f.origen.tipo,
     docId: f.origen.id,
     adjuntoId: f.adjuntoId,
     adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
+    ...(datosOrigen ?? {}),
   };
+}
+
+/** Carga los datos del origen (OC, compra directa o servicio directo) para prellenar la semilla de factura. */
+export async function cargarSemillaDeFacturaOrigen(f: FacturaDeOrigen) {
+  const base = semillaDeFacturaOrigen(f);
+  if (!f.origen.id) return base;
+  try {
+    if (f.origen.tipo === 'oc') {
+      const { data: o } = await supabase
+        .from('ordenes')
+        .select('proveedor_id, total_moneda, total, iva_monto, igtf_monto')
+        .eq('id', f.origen.id)
+        .maybeSingle();
+      if (!o) return base;
+      const provId = texto(o.proveedor_id);
+      let nombre: string | null = null;
+      let rif: string | null = null;
+      if (provId) {
+        const { data: p } = await supabase.from('proveedores').select('razon_social, rif').eq('id', provId).maybeSingle();
+        nombre = texto(p?.razon_social);
+        rif = texto(p?.rif);
+      }
+      const total = Number(o.total) || 0;
+      const iva = Number(o.iva_monto) || 0;
+      const igtf = Number(o.igtf_monto) || 0;
+      return semillaDeFacturaOrigen(f, {
+        contraparteId: provId,
+        contraparteNombre: nombre,
+        contraparteRif: rif,
+        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
+        facturaTotal: total,
+        baseImponible: Math.max(0, total - iva - igtf),
+        iva,
+      });
+    }
+    const tabla = f.origen.tipo === 'compra_directa' ? 'compras_directas' : 'servicios_directos';
+    const { data: d } = await supabase
+      .from(tabla)
+      .select('proveedor_id, proveedor_nombre, moneda, gasto')
+      .eq('id', f.origen.id)
+      .maybeSingle();
+    if (!d) return base;
+    const provId = texto(d.proveedor_id);
+    let nombre = texto(d.proveedor_nombre);
+    let rif: string | null = null;
+    if (provId) {
+      const { data: p } = await supabase.from('proveedores').select('razon_social, rif').eq('id', provId).maybeSingle();
+      nombre = nombre ?? texto(p?.razon_social);
+      rif = texto(p?.rif);
+    }
+    const total = Number(d.gasto) || 0;
+    return semillaDeFacturaOrigen(f, {
+      contraparteId: provId,
+      contraparteNombre: nombre,
+      contraparteRif: rif,
+      moneda: d.moneda === 'Bs' ? 'Bs' : 'USD',
+      facturaTotal: total > 0 ? total : null,
+      baseImponible: total > 0 ? total : null,
+    });
+  } catch {
+    return base;
+  }
 }
 
 

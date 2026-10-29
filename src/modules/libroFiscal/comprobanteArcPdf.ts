@@ -22,11 +22,14 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, montoPdf, textoPdf } from './pdfComun';
 import {
-  calcularSha256Hex, cargarElementosDigitales, consultarElementosDigitales, generarQrVerificacion, razonSocialAgente,
-  type ModoEjemplar, type EjemplarPdf,
+  calcularSha256Hex, cargarElementosDigitales, consultarElementosDigitales, direccionFiscalSujeto, emailSujetoRetenido,
+  generarQrVerificacion, razonSocialAgente, type ModoEjemplar, type EjemplarPdf,
 } from './comprobanteRetencionPdf';
 import { EMPRESA_EMAIL, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
+
+const esRetencionCero = (r: Pick<RetencionPracticada, 'porcentaje' | 'montoRetenido'>) =>
+  !(r.porcentaje > 0) || !(r.montoRetenido > 0);
 
 export const MESES_ANIO = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -57,12 +60,18 @@ export interface DatosArc {
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 const enBs = (n: number, r: RetencionPracticada): number => {
-  if (r.montoBs != null && r.montoRetenido && r.montoRetenido > 0) {
+  if (String(r.moneda || '').toUpperCase() === 'BS') return r2(n);
+  if (r.tasa && r.tasa > 0) return r2(n * r.tasa);
+  if (r.montoBs != null && r.montoRetenido && r.montoRetenido > 0 && !(r.sustraendo && r.sustraendo > 0)) {
     const factorBs = r.montoBs / r.montoRetenido;
     return r2(n * factorBs);
   }
-  if (String(r.moneda || '').toUpperCase() === 'BS') return r2(n);
-  return r.tasa && r.tasa > 0 ? r2(n * r.tasa) : 0;
+  return 0;
+};
+
+const baseEnBs = (r: RetencionPracticada): number => {
+  if (r.baseBs != null && r.baseBs > 0) return r2(r.baseBs);
+  return enBs(r.baseImponible, r);
 };
 
 /**
@@ -78,31 +87,39 @@ export function compilarDatosArc(
   const anioStr = String(anio);
 
   const anioDe = (r: RetencionPracticada): string => {
-    const f = (r.facturaFecha || r.createdAt || '').slice(0, 4);
-    if (/^\d{4}$/.test(f)) return f;
-    if (r.periodo && r.periodo.length >= 4) return r.periodo.slice(0, 4);
+    const fFact = (r.facturaFecha || '').slice(0, 4);
+    if (/^\d{4}$/.test(fFact)) return fFact;
+    const pDig = (r.periodo ?? '').replace(/\D/g, '');
+    if (pDig.length >= 4) return pDig.slice(0, 4);
+    const fRef = (r.fecha || r.createdAt || '').slice(0, 4);
+    if (/^\d{4}$/.test(fRef)) return fRef;
     return '';
   };
 
   const mesIdxDe = (r: RetencionPracticada): number => {
-    const f = (r.facturaFecha || r.createdAt || '').slice(5, 7);
-    if (/^\d{2}$/.test(f)) return Number(f) - 1;
-    if (r.periodo && r.periodo.length >= 6) return Number(r.periodo.slice(4, 6)) - 1;
+    const fFact = (r.facturaFecha || '').slice(5, 7);
+    if (/^\d{2}$/.test(fFact)) return Number(fFact) - 1;
+    const pDig = (r.periodo ?? '').replace(/\D/g, '');
+    if (pDig.length >= 6) return Number(pDig.slice(4, 6)) - 1;
+    const fRef = (r.fecha || r.createdAt || '').slice(5, 7);
+    if (/^\d{2}$/.test(fRef)) return Number(fRef) - 1;
     return -1;
   };
 
-  // Filtrar: practicadas de ISLR, del año dado, del proveedor, no anuladas
+  // Filtrar: practicadas de ISLR, del año dado, del proveedor, no anuladas y con retención efectiva (> 0)
   const filasProv = todasLasFilas.filter((r) => {
-    if (r.direccion !== 'practicada' || r.tipo !== 'islr' || r.anulada) return false;
+    if (r.direccion !== 'practicada' || r.tipo !== 'islr' || r.anulada || esRetencionCero(r)) return false;
     const rRif = (r.contraparteRif ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (rRif !== rifNorm) return false;
     return anioDe(r) === anioStr;
   });
 
   const primerFila = filasProv[0];
+  const filaConDir = filasProv.find((f) => f.contraparteDireccion?.trim());
+  const filaConEmail = filasProv.find((f) => f.contraparteEmail?.trim());
   const proveedorNombre = primerFila?.contraparteNombre || 'Proveedor sin nombre';
-  const proveedorDireccion = primerFila?.contraparteDireccion || '—';
-  const proveedorEmail = primerFila?.contraparteEmail || null;
+  const proveedorDireccion = filaConDir?.contraparteDireccion?.trim() || '—';
+  const proveedorEmail = filaConEmail?.contraparteEmail?.trim() || null;
 
   const acumuladoMeses: RenglonMesArc[] = MESES_ANIO.map((mesNombre, idx) => ({
     mesNumero: idx + 1,
@@ -118,14 +135,18 @@ export function compilarDatosArc(
     if (mesIdx < 0 || mesIdx > 11) continue;
 
     const factor = r.tipoDocumento === 'nota_credito' ? -1 : 1;
-    const baseBs = enBs(r.baseImponible, r) * factor;
+    const baseBs = baseEnBs(r) * factor;
     const retBs = (r.montoBs ?? enBs(r.montoRetenido, r)) * factor;
 
     const item = acumuladoMeses[mesIdx];
     item.baseImponibleBs = r2(item.baseImponibleBs + baseBs);
     item.impuestoRetenidoBs = r2(item.impuestoRetenidoBs + retBs);
     item.operaciones += 1;
-    if (r.porcentaje > 0) item.porcentaje = r.porcentaje;
+    if (r.porcentaje > 0) {
+      item.porcentaje = item.porcentaje > 0 && item.porcentaje !== r.porcentaje
+        ? r2((Math.abs(item.impuestoRetenidoBs) / Math.max(0.01, Math.abs(item.baseImponibleBs))) * 100)
+        : r.porcentaje;
+    }
   }
 
   const totalBaseBs = r2(acumuladoMeses.reduce((a, m) => a + m.baseImponibleBs, 0));
@@ -382,10 +403,10 @@ export async function generarDocComprobanteArcPdf(
   const xFirma = M + 8;
   const yFirma = finY + 14;
   if (opciones.incluirFirma && firmaDataUrl) {
-    try { doc.addImage(firmaDataUrl, 'PNG', xFirma, yFirma, 65, 34); } catch {}
+    try { doc.addImage(firmaDataUrl, 'PNG', xFirma, yFirma, 65, 34); } catch { /* ignorar */ }
   }
   if (opciones.incluirSello && selloDataUrl) {
-    try { doc.addImage(selloDataUrl, 'PNG', xFirma + 50, yFirma - 2, 40, 40); } catch {}
+    try { doc.addImage(selloDataUrl, 'PNG', xFirma + 50, yFirma - 2, 40, 40); } catch { /* ignorar */ }
   }
 
   doc.setDrawColor(180, 180, 180);
@@ -489,6 +510,17 @@ export async function verComprobanteArcPdf(
   opciones: OpcionesArcPdf = {},
 ): Promise<void> {
   const datos = compilarDatosArc(anio, proveedorRif, filas);
+  const rifNorm = proveedorRif.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const filaMuestra = filas.find((r) => (r.contraparteRif ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '') === rifNorm);
+  if (datos.proveedorDireccion === '—' || !datos.proveedorEmail) {
+    const ref: RetencionPracticada = filaMuestra ?? ({ contraparteRif: proveedorRif, contraparteId: null } as unknown as RetencionPracticada);
+    const [dir, mail] = await Promise.all([
+      datos.proveedorDireccion === '—' ? direccionFiscalSujeto(ref) : Promise.resolve(datos.proveedorDireccion),
+      !datos.proveedorEmail ? emailSujetoRetenido(ref) : Promise.resolve(datos.proveedorEmail),
+    ]);
+    datos.proveedorDireccion = dir || '—';
+    datos.proveedorEmail = mail || null;
+  }
   const disp = await consultarElementosDigitales();
 
   const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
@@ -547,7 +579,7 @@ export async function verComprobanteArcPdf(
 
       selEjemplar.onchange = async () => {
         modoEjemplar = selEjemplar.value as ModoEjemplar;
-        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch {}
+        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch { /* ignorar */ }
         selEjemplar.style.opacity = '0.6';
         try {
           const nuevoDoc = await generarDoc();
@@ -601,24 +633,24 @@ export async function verComprobanteArcPdf(
       if (disp.tieneLogo) {
         toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
           conLogo = v;
-          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneFirma) {
         toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
           conFirma = v;
-          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneSello) {
         toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
           conSello = v;
-          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
+          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch { /* ignorar */ }
         }));
       }
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
-        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
+        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch { /* ignorar */ }
       }));
 
       container.appendChild(toolbar);
