@@ -4,6 +4,7 @@ export type RoleKey = string;
 export type ModuleKey =
   | 'dashboard'
   | 'pedidos'
+  | 'delivery'
   | 'proveedores'
   | 'inventario'
   | 'produccion'
@@ -37,6 +38,7 @@ export type AllPermisos = Record<RoleKey, RolePermisos>;
 export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'dashboard',   label: 'Dashboard' },
   { key: 'pedidos',     label: 'Pedidos / Compras' },
+  { key: 'delivery',    label: 'Delivery' },
   { key: 'proveedores', label: 'Proveedores' },
   { key: 'inventario',  label: 'Inventario' },
   { key: 'produccion',  label: 'Producción' },

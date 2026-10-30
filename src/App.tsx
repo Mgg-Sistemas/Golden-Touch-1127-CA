@@ -12,6 +12,8 @@ import { PasswordChangeGate } from './modules/usuarios/PasswordChangeGate';
 const DashboardPage = lazy(() => import('./modules/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 const PedidosPage = lazy(() => import('./modules/pedidos/PedidosPage').then((m) => ({ default: m.PedidosPage })));
 const HistoricoPage = lazy(() => import('./modules/pedidos/HistoricoPage').then((m) => ({ default: m.HistoricoPage })));
+const DeliveryPage = lazy(() => import('./modules/delivery/DeliveryPage').then((m) => ({ default: m.DeliveryPage })));
+const DeliveryMovilView = lazy(() => import('./modules/delivery/DeliveryMovilView').then((m) => ({ default: m.DeliveryMovilView })));
 const ProveedoresPage = lazy(() => import('./modules/proveedores/ProveedoresPage').then((m) => ({ default: m.ProveedoresPage })));
 const InventarioPage = lazy(() => import('./modules/inventario/InventarioPage').then((m) => ({ default: m.InventarioPage })));
 const ProduccionPage = lazy(() => import('./modules/produccion/ProduccionPage').then((m) => ({ default: m.ProduccionPage })));
@@ -101,6 +103,9 @@ export function App() {
           <Route path="dashboard" element={<RequireModule module="dashboard"><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></RequireModule>} />
           <Route path="pedidos" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><PedidosPage /></Suspense></RequireModule>} />
           <Route path="pedidos/historico" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
+          {/* Delivery (30/10/2026): el motorizado busca las OC pagadas y las entrega en el almacén. Interruptor compras_delivery. */}
+          <Route path="delivery" element={<RequireModule module="delivery"><Suspense fallback={<PageLoader />}><DeliveryPage /></Suspense></RequireModule>} />
+          <Route path="delivery/telefono" element={<RequireVistaTelefono vista="delivery"><Suspense fallback={<PageLoader />}><DeliveryMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
           {/* Depósito Mina y Depósito Reutilizables: submódulos de Inventario, catálogos independientes (misma pantalla, otro depósito). */}

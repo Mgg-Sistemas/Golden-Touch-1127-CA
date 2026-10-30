@@ -16,7 +16,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'inventario' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'inventario' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes' | 'delivery';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -58,6 +58,11 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     // 29/10/2026 · Almacén revisa las SP antes de Compras (se activa con el interruptor compras_revision_almacen).
     key: 'solicitudes', label: 'Solicitudes de Pedido', icono: '📋', modulo: 'inventario',
     ruta: '/app/solicitudes/telefono', descripcion: 'Validar si Almacén tiene lo que piden y avisar por WhatsApp',
+  },
+  {
+    // 30/10/2026 · el motorizado acepta, busca y entrega las OC pagadas (interruptor compras_delivery).
+    key: 'delivery', label: 'Delivery', icono: '🛵', modulo: 'delivery',
+    ruta: '/app/delivery/telefono', descripcion: 'Aceptar, ir a buscar y entregar pedidos pagados',
   },
 ];
 
