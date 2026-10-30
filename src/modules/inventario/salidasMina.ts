@@ -9,6 +9,9 @@
    Aquí vive lo que se calcula sin tocar la base: validar, cuánto falta por
    retornar y el aviso para WhatsApp. Todos los emojis son «emoji por
    defecto» (ninguno necesita el selector U+FE0F, que WhatsApp pierde).
+
+   30/10/2026: lo mismo sirve para el Inventario General (columna `almacen`,
+   correlativo SIG-####). Los avisos dicen de qué depósito salió.
    ============================================================ */
 
 import { quienSync } from '@/shared/lib/directorioUsuarios';
@@ -31,6 +34,8 @@ export interface RetornoSalidaMina {
 export interface SalidaMina {
   id: string;
   codigo: string;
+  /** 'Depósito Mina' o 'General' (las viejas, sin dato, son de la Mina). */
+  almacen?: string | null;
   producto_id: string;
   producto_nombre: string;
   unidad: string | null;
@@ -130,20 +135,24 @@ export function fechaHoraVE(iso: string | null | undefined): string {
   return `${v('day')}/${v('month')}/${v('year')} ${v('hour')}:${v('minute')}`;
 }
 
-const pie = (quien: string | null | undefined, cuando: string | null | undefined) => {
+/** ¿La salida es del Inventario General? (sin dato = Depósito Mina). */
+export const esSalidaGeneral = (s: Pick<SalidaMina, 'almacen'>) => s.almacen === 'General';
+
+const pie = (quien: string | null | undefined, cuando: string | null | undefined, general = false) => {
   const l: string[] = [];
   if (quien) l.push(`👷 *Registrado por:* ${quien}`);
   const f = fechaHoraVE(cuando);
   if (f) l.push(`🕒 ${f}`);
-  l.push('', '🏢 GOLDEN TOUCH 1127 C.A. · Depósito Mina');
+  l.push('', `🏢 GOLDEN TOUCH 1127 C.A. · ${general ? 'Inventario General' : 'Depósito Mina'}`);
   return l;
 };
 
 /** El aviso de la salida, listo para WhatsApp. */
 export function mensajeSalidaMina(s: SalidaMina, quien?: string | null): string {
   const u = s.unidad ? ` ${s.unidad}` : '';
+  const general = esSalidaGeneral(s);
   const lineas = [
-    '📤 *SALIDA DE DEPÓSITO*',
+    general ? '📤 *SALIDA DE INVENTARIO GENERAL*' : '📤 *SALIDA DE DEPÓSITO*',
     `🔖 *N°:* ${s.codigo}`,
     '',
     `📦 *Material:* ${s.producto_nombre}`,
@@ -153,7 +162,7 @@ export function mensajeSalidaMina(s: SalidaMina, quien?: string | null): string 
   if (s.autorizado_por) lineas.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
   lineas.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
   if (s.fotos.length) lineas.push(`📷 *Fotos:* ${s.fotos.length}`);
-  lineas.push('', ...pie(quien ?? quienSync(s.actor_name, s.actor), s.created_at));
+  lineas.push('', ...pie(quien ?? quienSync(s.actor_name, s.actor), s.created_at, general));
   return lineas.join('\n');
 }
 
@@ -161,8 +170,9 @@ export function mensajeSalidaMina(s: SalidaMina, quien?: string | null): string 
 export function mensajeRetornoMina(s: SalidaMina, cantidad: number, nota?: string | null, quien?: string | null, cuando?: string | null): string {
   const u = s.unidad ? ` ${s.unidad}` : '';
   const falta = pendienteRetorno(s);
+  const general = esSalidaGeneral(s);
   const lineas = [
-    '📥 *RETORNO AL DEPÓSITO*',
+    general ? '📥 *RETORNO AL INVENTARIO GENERAL*' : '📥 *RETORNO AL DEPÓSITO*',
     `🔖 *Salida:* ${s.codigo}`,
     '',
     `📦 *Material:* ${s.producto_nombre}`,
@@ -170,6 +180,6 @@ export function mensajeRetornoMina(s: SalidaMina, cantidad: number, nota?: strin
     falta > 0 ? `⏳ *Falta por retornar:* ${num(falta)}${u}` : '✅ *Retornó completo*',
   ];
   if (nota?.trim()) lineas.push(`📝 *Nota:* ${nota.trim()}`);
-  lineas.push('', ...pie(quien, cuando ?? new Date().toISOString()));
+  lineas.push('', ...pie(quien, cuando ?? new Date().toISOString(), general));
   return lineas.join('\n');
 }

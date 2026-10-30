@@ -32,10 +32,11 @@ export function Listo({ titulo, texto, onListo }: { titulo: string; texto: strin
   );
 }
 
-export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }: {
-  producto: Producto; actor: string; actorName: string | null;
+export function FormSalidaMina({ producto, almacen, actor, actorName, onCancel, onSaved }: {
+  producto: Producto; almacen: string; actor: string; actorName: string | null;
   onCancel: () => void; onSaved: () => void;
 }) {
+  const lugar = almacen === 'General' ? 'el inventario' : 'el depósito';
   const [cantidad, setCantidad] = useState('');
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
@@ -69,7 +70,7 @@ export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }
     if (problema) return toast(problema, 'error');
     setGuardando(true);
     try {
-      let s = await registrarSalidaMina({ productoId: producto.id, cantidad: cant, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName });
+      let s = await registrarSalidaMina({ productoId: producto.id, cantidad: cant, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName, almacen });
       if (fotos.length) {
         try { s = await subirFotosSalidaMina(s, fotos); }
         catch (err) { toast(`La salida quedó registrada, pero las fotos no subieron: ${errMsg(err, 'error')}`, 'warning'); }
@@ -86,7 +87,7 @@ export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
       <div className="surt-form-titulo"><span className="icono" aria-hidden>⬆</span><strong>Salida · {producto.nombre}</strong></div>
-      <div className="muted">{producto.sku} · hay {num(stock)} {producto.unidad} en el depósito</div>
+      <div className="muted">{producto.sku} · hay {num(stock)} {producto.unidad} en {lugar}</div>
       <div className="surt-campo">
         <label htmlFor="mina-salida-cant">Cantidad ({producto.unidad})</label>
         <input id="mina-salida-cant" className="input surt-litros" inputMode="decimal" value={cantidad}
@@ -112,7 +113,7 @@ export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }
         <span className="surt-rotulo" id="mina-salida-retorna">¿Retorna?</span>
         <div className="surt-sino" role="group" aria-labelledby="mina-salida-retorna">
           <button type="button" className={`surt-btn si${retorna === true ? ' sel' : ''}`} aria-pressed={retorna === true} onClick={() => setRetorna(true)}>
-            <span className="icono" aria-hidden>🔄</span><span>SÍ</span><small>Vuelve al depósito</small>
+            <span className="icono" aria-hidden>🔄</span><span>SÍ</span><small>Vuelve a {lugar}</small>
           </button>
           <button type="button" className={`surt-btn no${retorna === false ? ' sel' : ''}`} aria-pressed={retorna === false} onClick={() => setRetorna(false)}>
             <span className="icono" aria-hidden>❌</span><span>NO</span><small>Se consume / se queda</small>
