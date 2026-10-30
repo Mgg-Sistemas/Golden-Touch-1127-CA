@@ -1,17 +1,17 @@
 /* ============================================================
-   Golden Touch · Combustible · Diálogo «Reporte Moldeable»
-   (29/10/2026)
+   Golden Touch · Combustible · Diálogo de Reporte y Exportación
+   (30/10/2026)
 
-   Modal interactivo con controles de casillas (checks) para:
+   Modal interactivo con controles de casillas (checks) y pills para:
    - Seleccionar columnas/datos a mostrar.
    - Elegir la dimensión principal (por Equipo, Empresa, Ubicación, Tipo,
      Tanque, Mes o Detallado).
    - Valuación USD: Tasa histórica vs Tasa actual del tanque.
-   - Filtros multi-selección con checks (Empresas, Tipos de máquina,
-     Tanques, Ubicaciones).
+   - Filtros multi-selección con checks y pills (Empresas, Tipos de máquina,
+     Equipos específicos, Ubicaciones y Tanques).
+   - Formato de orientación con checks/pills (Horizontal vs Vertical).
    - Rango de fechas con atajos rápidos.
    - Exportación a Excel (ExcelJS con estilos), PDF (look Maquinaria GT) y CSV.
-   - Persistencia de preferencias en localStorage.
    ============================================================ */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -134,28 +134,31 @@ function guardarPreferencias(
 interface Props {
   tanques: TanqueCombustible[];
   tanqueInicialId?: string;
+  rangoInicial?: { desde: string; hasta: string };
   onClose: () => void;
 }
 
-export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: Props) {
+export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicial, onClose }: Props) {
   const prefs = useMemo(() => preferenciasGuardadas(), []);
 
-  const [desde, setDesde] = useState<string>(primerDiaMesActual);
-  const [hasta, setHasta] = useState<string>(hoyVE);
+  const [desde, setDesde] = useState<string>(() => rangoInicial?.desde || primerDiaMesActual());
+  const [hasta, setHasta] = useState<string>(() => rangoInicial?.hasta || hoyVE());
   const [agrupacion, setAgrupacion] = useState<ModoAgrupacionCombustible>(prefs.agrupacion);
   const [baseTasa, setBaseTasa] = useState<BaseTasaUsd>(prefs.baseTasa);
   const [marcados, setMarcados] = useState<string[]>(prefs.campos);
   const [incluirResumen, setIncluirResumen] = useState<boolean>(prefs.incluirResumen);
-  const [orientacion, setOrientacion] = useState<'auto' | 'portrait' | 'landscape'>('auto');
+  const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
 
-  // Filtros de inclusión (vacío = todos)
+  // Filtros de inclusión mediante checks y pills (vacío = todos)
   const [empresasSel, setEmpresasSel] = useState<string[]>([]);
   const [tiposSel, setTiposSel] = useState<string[]>([]);
+  const [equiposSel, setEquiposSel] = useState<string[]>([]);
   const [tanquesSel, setTanquesSel] = useState<string[]>(() => (tanqueInicialId ? [tanques.find((t) => t.id === tanqueInicialId)?.nombre || tanqueInicialId] : []));
   const [ubicacionesSel, setUbicacionesSel] = useState<string[]>([]);
 
-  // Pestaña o acordeón de filtro abierto
-  const [seccionFiltro, setSeccionFiltro] = useState<'ninguno' | 'empresas' | 'tipos' | 'tanques' | 'ubicaciones'>('ninguno');
+  // Pestaña activa de filtros
+  const [seccionFiltro, setSeccionFiltro] = useState<'empresas' | 'tipos' | 'equipos' | 'ubicaciones' | 'tanques'>('empresas');
+  const [qEquipos, setQEquipos] = useState<string>('');
 
   // Estados de carga y acción
   const [cargando, setCargando] = useState<boolean>(true);
@@ -200,25 +203,51 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
     return enriquecerMovimientos(movimientos, fichas, tanques, baseTasa);
   }, [movimientos, fichas, tanques, baseTasa]);
 
-  // 3. Catálogos disponibles detectados en los movimientos actuales
+  // 3. Catálogos disponibles detectados en los movimientos actuales con métricas
   const catalogosDetectados = useMemo(() => {
-    const empSet = new Set<string>();
-    const tipSet = new Set<string>();
-    const tkeSet = new Set<string>();
-    const ubiSet = new Set<string>();
+    const empMap = new Map<string, { count: number; litros: number }>();
+    const tipMap = new Map<string, { count: number; litros: number }>();
+    const eqMap = new Map<string, { count: number; litros: number; tipo: string; empresa: string }>();
+    const tkeMap = new Map<string, { count: number; litros: number }>();
+    const ubiMap = new Map<string, { count: number; litros: number }>();
 
     for (const item of enriquecidos) {
-      if (item.empresa) empSet.add(item.empresa);
-      if (item.tipoMaquina) tipSet.add(item.tipoMaquina);
-      if (item.tanqueNombre) tkeSet.add(item.tanqueNombre);
-      if (item.ubicacionNormalizada) ubiSet.add(item.ubicacionNormalizada);
+      const l = item.litros;
+      // Empresa
+      const e = item.empresa || 'Sin empresa asignada';
+      const prevE = empMap.get(e) || { count: 0, litros: 0 };
+      empMap.set(e, { count: prevE.count + 1, litros: prevE.litros + l });
+
+      // Tipo
+      const tp = item.tipoMaquina || 'Otros / No clasificado';
+      const prevTp = tipMap.get(tp) || { count: 0, litros: 0 };
+      tipMap.set(tp, { count: prevTp.count + 1, litros: prevTp.litros + l });
+
+      // Equipo
+      const eq = item.equipoNombre || 'Sin equipo';
+      const prevEq = eqMap.get(eq) || { count: 0, litros: 0, tipo: tp, empresa: e };
+      eqMap.set(eq, { count: prevEq.count + 1, litros: prevEq.litros + l, tipo: tp, empresa: e });
+
+      // Tanque
+      const tk = item.tanqueNombre || 'Tanque desconocido';
+      const prevTk = tkeMap.get(tk) || { count: 0, litros: 0 };
+      tkeMap.set(tk, { count: prevTk.count + 1, litros: prevTk.litros + l });
+
+      // Ubicación
+      const ub = item.ubicacionNormalizada || 'Sin ubicación';
+      const prevUb = ubiMap.get(ub) || { count: 0, litros: 0 };
+      ubiMap.set(ub, { count: prevUb.count + 1, litros: prevUb.litros + l });
     }
 
+    const sortAlfa = (a: { nombre: string }, b: { nombre: string }) =>
+      a.nombre.localeCompare(b.nombre, 'es');
+
     return {
-      empresas: Array.from(empSet).sort((a, b) => a.localeCompare(b, 'es')),
-      tipos: Array.from(tipSet).sort((a, b) => a.localeCompare(b, 'es')),
-      tanques: Array.from(tkeSet).sort((a, b) => a.localeCompare(b, 'es')),
-      ubicaciones: Array.from(ubiSet).sort((a, b) => a.localeCompare(b, 'es')),
+      empresas: Array.from(empMap.entries()).map(([nombre, d]) => ({ nombre, ...d })).sort(sortAlfa),
+      tipos: Array.from(tipMap.entries()).map(([nombre, d]) => ({ nombre, ...d })).sort(sortAlfa),
+      equipos: Array.from(eqMap.entries()).map(([nombre, d]) => ({ nombre, ...d })).sort(sortAlfa),
+      tanques: Array.from(tkeMap.entries()).map(([nombre, d]) => ({ nombre, ...d })).sort(sortAlfa),
+      ubicaciones: Array.from(ubiMap.entries()).map(([nombre, d]) => ({ nombre, ...d })).sort(sortAlfa),
     };
   }, [enriquecidos]);
 
@@ -227,10 +256,11 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
     return filtrarMovimientos(enriquecidos, {
       empresasSel: empresasSel.length ? empresasSel : undefined,
       tiposSel: tiposSel.length ? tiposSel : undefined,
+      equiposSel: equiposSel.length ? equiposSel : undefined,
       tanquesSel: tanquesSel.length ? tanquesSel : undefined,
       ubicacionesSel: ubicacionesSel.length ? ubicacionesSel : undefined,
     });
-  }, [enriquecidos, empresasSel, tiposSel, tanquesSel, ubicacionesSel]);
+  }, [enriquecidos, empresasSel, tiposSel, equiposSel, tanquesSel, ubicacionesSel]);
 
   // 5. Procesar filas y resumen
   const { filas, resumen } = useMemo(() => {
@@ -254,20 +284,46 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
     setMarcados([]);
   };
 
-  // Manejadores de filtros de inclusión
-  const alternarFiltro = (
+  // Manejadores de filtros de inclusión (Pills y Checks)
+  const alternarPillFiltro = (
+    actual: string[],
     setLista: React.Dispatch<React.SetStateAction<string[]>>,
-    valor: string
+    todosNombres: string[],
+    item: string
   ) => {
-    setLista((prev) => (prev.includes(valor) ? prev.filter((v) => v !== valor) : [...prev, valor]));
+    if (actual.includes('__ninguno__')) {
+      setLista([item]);
+      return;
+    }
+    if (actual.length === 0 || actual.length === todosNombres.length) {
+      setLista(todosNombres.filter((x) => x !== item));
+      return;
+    }
+    if (actual.includes(item)) {
+      const sig = actual.filter((x) => x !== item);
+      setLista(sig.length === 0 ? ['__ninguno__'] : sig);
+    } else {
+      const sig = [...actual, item];
+      setLista(sig.length === todosNombres.length ? [] : sig);
+    }
+  };
+
+  const estaActivoFiltro = (actual: string[], item: string) => {
+    if (actual.includes('__ninguno__')) return false;
+    return actual.length === 0 || actual.includes(item);
   };
 
   const hayFiltrosActivos =
-    empresasSel.length > 0 || tiposSel.length > 0 || tanquesSel.length > 0 || ubicacionesSel.length > 0;
+    empresasSel.length > 0 ||
+    tiposSel.length > 0 ||
+    equiposSel.length > 0 ||
+    tanquesSel.length > 0 ||
+    ubicacionesSel.length > 0;
 
   const limpiarFiltros = () => {
     setEmpresasSel([]);
     setTiposSel([]);
+    setEquiposSel([]);
     setTanquesSel([]);
     setUbicacionesSel([]);
   };
@@ -287,21 +343,30 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
     guardarPreferencias(marcados, agrupacion, baseTasa, incluirResumen);
 
     try {
-      const subFiltros = [
-        empresasSel.length ? `${empresasSel.length} emp.` : null,
-        tiposSel.length ? `${tiposSel.length} tipos` : null,
-        tanquesSel.length ? `${tanquesSel.length} tanques` : null,
-        ubicacionesSel.length ? `${ubicacionesSel.length} ubic.` : null,
-      ]
-        .filter(Boolean)
-        .join(' · ');
+      const partesSub: string[] = [];
+      if (empresasSel.length > 0 && !empresasSel.includes('__ninguno__')) {
+        partesSub.push(empresasSel.length === 1 ? empresasSel[0] : `${empresasSel.length} emp.`);
+      }
+      if (tiposSel.length > 0 && !tiposSel.includes('__ninguno__')) {
+        partesSub.push(tiposSel.length === 1 ? tiposSel[0] : `${tiposSel.length} tipos`);
+      }
+      if (equiposSel.length > 0 && !equiposSel.includes('__ninguno__')) {
+        partesSub.push(equiposSel.length === 1 ? equiposSel[0] : `${equiposSel.length} eq.`);
+      }
+      if (tanquesSel.length > 0 && !tanquesSel.includes('__ninguno__')) {
+        partesSub.push(tanquesSel.length === 1 ? tanquesSel[0] : `${tanquesSel.length} tanques`);
+      }
+      if (ubicacionesSel.length > 0 && !ubicacionesSel.includes('__ninguno__')) {
+        partesSub.push(ubicacionesSel.length === 1 ? ubicacionesSel[0] : `${ubicacionesSel.length} ubic.`);
+      }
+      const subFiltros = partesSub.length > 0 ? `Filtros: ${partesSub.join(' · ')}` : undefined;
 
       const meta: MetadatosExportacion = {
         desde,
         hasta,
         agrupacion,
         baseTasa,
-        subtituloFiltros: subFiltros ? `Filtros: ${subFiltros}` : undefined,
+        subtituloFiltros: subFiltros,
         incluirResumen,
         orientacion,
       };
@@ -322,7 +387,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
 
   return (
     <Modal
-      title="📋 Reporte Moldeable de Combustible"
+      title="📄 Descargar Reporte de Combustible"
       size="lg"
       onClose={onClose}
       footer={
@@ -354,7 +419,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
               className="btn btn-primary"
               onClick={() => void descargar('pdf')}
               disabled={!!ocupado || cargando || filas.length === 0 || marcados.length === 0}
-              title="Vista previa e impresión de PDF institucional estilo Maquinaria GT"
+              title="Descargar PDF institucional estilo Maquinaria GT"
             >
               {ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}
             </button>
@@ -451,11 +516,11 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
           </div>
         </div>
 
-        {/* 3. SECCIÓN: Filtros de Inclusión / Exclusión con Checks */}
+        {/* 3. SECCIÓN: Filtros de Inclusión mediante Checks y Pills */}
         <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.45rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.5rem' }}>
             <span style={{ fontSize: '.84rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' }}>
-              🔍 Filtros de Inclusión (Checks)
+              🔍 Filtros por Empresa, Tipo, Equipo y Ubicación
             </span>
             {hayFiltrosActivos && (
               <button type="button" className="btn btn-ghost btn-xs" onClick={limpiarFiltros} style={{ color: 'var(--primary, #f97316)' }}>
@@ -464,136 +529,361 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
             )}
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.5rem' }}>
+          {/* Pills de Categorías de Filtro */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', marginBottom: '.6rem' }}>
             <button
               type="button"
               className={`btn btn-xs ${seccionFiltro === 'empresas' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setSeccionFiltro(seccionFiltro === 'empresas' ? 'ninguno' : 'empresas')}
+              style={{ borderRadius: '999px', padding: '.25rem .65rem' }}
+              onClick={() => setSeccionFiltro('empresas')}
             >
-              🏢 Empresas {empresasSel.length > 0 && `(${empresasSel.length})`}
+              🏢 Empresas
+              {empresasSel.length > 0 && !empresasSel.includes('__ninguno__') && (
+                <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--primary, #f97316)', color: '#000', fontSize: '.68rem', padding: '1px 5px', borderRadius: '999px', fontWeight: 700 }}>
+                  {empresasSel.length}
+                </span>
+              )}
             </button>
             <button
               type="button"
               className={`btn btn-xs ${seccionFiltro === 'tipos' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setSeccionFiltro(seccionFiltro === 'tipos' ? 'ninguno' : 'tipos')}
+              style={{ borderRadius: '999px', padding: '.25rem .65rem' }}
+              onClick={() => setSeccionFiltro('tipos')}
             >
-              🏷️ Tipos de Máquina {tiposSel.length > 0 && `(${tiposSel.length})`}
+              🏷️ Tipos de Máquina
+              {tiposSel.length > 0 && !tiposSel.includes('__ninguno__') && (
+                <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--primary, #f97316)', color: '#000', fontSize: '.68rem', padding: '1px 5px', borderRadius: '999px', fontWeight: 700 }}>
+                  {tiposSel.length}
+                </span>
+              )}
             </button>
             <button
               type="button"
-              className={`btn btn-xs ${seccionFiltro === 'tanques' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setSeccionFiltro(seccionFiltro === 'tanques' ? 'ninguno' : 'tanques')}
+              className={`btn btn-xs ${seccionFiltro === 'equipos' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '999px', padding: '.25rem .65rem' }}
+              onClick={() => setSeccionFiltro('equipos')}
             >
-              ⛽ Tanques {tanquesSel.length > 0 && `(${tanquesSel.length})`}
+              🚜 Equipos Específicos
+              {equiposSel.length > 0 && !equiposSel.includes('__ninguno__') && (
+                <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--primary, #f97316)', color: '#000', fontSize: '.68rem', padding: '1px 5px', borderRadius: '999px', fontWeight: 700 }}>
+                  {equiposSel.length}
+                </span>
+              )}
             </button>
             <button
               type="button"
               className={`btn btn-xs ${seccionFiltro === 'ubicaciones' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setSeccionFiltro(seccionFiltro === 'ubicaciones' ? 'ninguno' : 'ubicaciones')}
+              style={{ borderRadius: '999px', padding: '.25rem .65rem' }}
+              onClick={() => setSeccionFiltro('ubicaciones')}
             >
-              📍 Ubicaciones {ubicacionesSel.length > 0 && `(${ubicacionesSel.length})`}
+              📍 Ubicaciones
+              {ubicacionesSel.length > 0 && !ubicacionesSel.includes('__ninguno__') && (
+                <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--primary, #f97316)', color: '#000', fontSize: '.68rem', padding: '1px 5px', borderRadius: '999px', fontWeight: 700 }}>
+                  {ubicacionesSel.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-xs ${seccionFiltro === 'tanques' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '999px', padding: '.25rem .65rem' }}
+              onClick={() => setSeccionFiltro('tanques')}
+            >
+              ⛽ Tanques
+              {tanquesSel.length > 0 && !tanquesSel.includes('__ninguno__') && (
+                <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--primary, #f97316)', color: '#000', fontSize: '.68rem', padding: '1px 5px', borderRadius: '999px', fontWeight: 700 }}>
+                  {tanquesSel.length}
+                </span>
+              )}
             </button>
           </div>
 
-          {/* Desplegable de Empresas */}
-          {seccionFiltro === 'empresas' && (
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
-                <span className="muted" style={{ fontSize: '.76rem' }}>Marca las empresas a incluir (vacío = todas):</span>
-                <div style={{ display: 'flex', gap: '.3rem' }}>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEmpresasSel(catalogosDetectados.empresas)}>Todas</button>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEmpresasSel([])}>Ninguna (Todas)</button>
+          {/* Panel con Checks y Pills según la categoría activa */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.5rem' }}>
+            {/* EMPRESAS */}
+            {seccionFiltro === 'empresas' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.3rem' }}>
+                  <span className="muted" style={{ fontSize: '.76rem' }}>
+                    Marca las empresas a incluir ({empresasSel.length === 0 ? 'Todas incluidas' : `${empresasSel.includes('__ninguno__') ? 0 : empresasSel.length} de ${catalogosDetectados.empresas.length}`}):
+                  </span>
+                  <div style={{ display: 'flex', gap: '.3rem' }}>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEmpresasSel([])}>Todas</button>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEmpresasSel(['__ninguno__'])}>Ninguna</button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: '150px', overflowY: 'auto', padding: '.2rem 0' }}>
+                  {!catalogosDetectados.empresas.length && <span className="muted" style={{ fontSize: '.76rem' }}>Sin empresas en el período.</span>}
+                  {catalogosDetectados.empresas.map((it) => {
+                    const activo = estaActivoFiltro(empresasSel, it.nombre);
+                    const todosNombres = catalogosDetectados.empresas.map((x) => x.nombre);
+                    return (
+                      <button
+                        key={it.nombre}
+                        type="button"
+                        onClick={() => alternarPillFiltro(empresasSel, setEmpresasSel, todosNombres, it.nombre)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '.35rem',
+                          padding: '.25rem .65rem',
+                          borderRadius: '999px',
+                          fontSize: '.78rem',
+                          border: '1px solid',
+                          borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)',
+                          background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)',
+                          color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                          cursor: 'pointer',
+                          transition: 'all .12s ease',
+                        }}
+                        title={`${it.nombre}: ${Math.round(it.litros).toLocaleString('es-VE')} L (${it.count} despachos)`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={activo}
+                          readOnly
+                          style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                        />
+                        <span>{it.nombre}</span>
+                        <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({Math.round(it.litros)} L)</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '.3rem', maxHeight: '140px', overflowY: 'auto' }}>
-                {catalogosDetectados.empresas.map((emp) => (
-                  <label key={emp} style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={empresasSel.length === 0 || empresasSel.includes(emp)}
-                      onChange={() => alternarFiltro(setEmpresasSel, emp)}
-                    />
-                    <span>{emp}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Desplegable de Tipos de Máquina */}
-          {seccionFiltro === 'tipos' && (
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
-                <span className="muted" style={{ fontSize: '.76rem' }}>Marca los tipos de máquina a incluir:</span>
-                <div style={{ display: 'flex', gap: '.3rem' }}>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTiposSel(catalogosDetectados.tipos)}>Todos</button>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTiposSel([])}>Ninguno (Todos)</button>
+            {/* TIPOS DE MÁQUINA */}
+            {seccionFiltro === 'tipos' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.3rem' }}>
+                  <span className="muted" style={{ fontSize: '.76rem' }}>
+                    Marca los tipos de máquina a incluir ({tiposSel.length === 0 ? 'Todos incluidos' : `${tiposSel.includes('__ninguno__') ? 0 : tiposSel.length} de ${catalogosDetectados.tipos.length}`}):
+                  </span>
+                  <div style={{ display: 'flex', gap: '.3rem' }}>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTiposSel([])}>Todos</button>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTiposSel(['__ninguno__'])}>Ninguno</button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: '150px', overflowY: 'auto', padding: '.2rem 0' }}>
+                  {!catalogosDetectados.tipos.length && <span className="muted" style={{ fontSize: '.76rem' }}>Sin tipos de máquina en el período.</span>}
+                  {catalogosDetectados.tipos.map((it) => {
+                    const activo = estaActivoFiltro(tiposSel, it.nombre);
+                    const todosNombres = catalogosDetectados.tipos.map((x) => x.nombre);
+                    return (
+                      <button
+                        key={it.nombre}
+                        type="button"
+                        onClick={() => alternarPillFiltro(tiposSel, setTiposSel, todosNombres, it.nombre)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '.35rem',
+                          padding: '.25rem .65rem',
+                          borderRadius: '999px',
+                          fontSize: '.78rem',
+                          border: '1px solid',
+                          borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)',
+                          background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)',
+                          color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                          cursor: 'pointer',
+                          transition: 'all .12s ease',
+                        }}
+                        title={`${it.nombre}: ${Math.round(it.litros).toLocaleString('es-VE')} L (${it.count} despachos)`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={activo}
+                          readOnly
+                          style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                        />
+                        <span>{it.nombre}</span>
+                        <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({Math.round(it.litros)} L)</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '.3rem', maxHeight: '140px', overflowY: 'auto' }}>
-                {catalogosDetectados.tipos.map((tip) => (
-                  <label key={tip} style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={tiposSel.length === 0 || tiposSel.includes(tip)}
-                      onChange={() => alternarFiltro(setTiposSel, tip)}
-                    />
-                    <span>{tip}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Desplegable de Tanques */}
-          {seccionFiltro === 'tanques' && (
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
-                <span className="muted" style={{ fontSize: '.76rem' }}>Marca los tanques o bidones de origen:</span>
-                <div style={{ display: 'flex', gap: '.3rem' }}>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTanquesSel(catalogosDetectados.tanques)}>Todos</button>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTanquesSel([])}>Ninguno (Todos)</button>
+            {/* EQUIPOS ESPECÍFICOS */}
+            {seccionFiltro === 'equipos' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flex: 1, minWidth: '220px' }}>
+                    <input
+                      type="search"
+                      className="form-control form-control-sm"
+                      placeholder="🔍 Buscar equipo específico..."
+                      value={qEquipos}
+                      onChange={(e) => setQEquipos(e.target.value)}
+                      style={{ fontSize: '.78rem', padding: '.2rem .5rem', maxWidth: '280px' }}
+                    />
+                    {qEquipos && (
+                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => setQEquipos('')}>✕</button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '.3rem' }}>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEquiposSel([])}>Todos</button>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEquiposSel(['__ninguno__'])}>Ninguno</button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: '160px', overflowY: 'auto', padding: '.2rem 0' }}>
+                  {catalogosDetectados.equipos
+                    .filter((it) => {
+                      if (!qEquipos.trim()) return true;
+                      const q = qEquipos.trim().toLowerCase();
+                      return (
+                        it.nombre.toLowerCase().includes(q) ||
+                        it.tipo.toLowerCase().includes(q) ||
+                        it.empresa.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((it) => {
+                      const activo = estaActivoFiltro(equiposSel, it.nombre);
+                      const todosNombres = catalogosDetectados.equipos.map((x) => x.nombre);
+                      return (
+                        <button
+                          key={it.nombre}
+                          type="button"
+                          onClick={() => alternarPillFiltro(equiposSel, setEquiposSel, todosNombres, it.nombre)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '.35rem',
+                            padding: '.25rem .65rem',
+                            borderRadius: '999px',
+                            fontSize: '.78rem',
+                            border: '1px solid',
+                            borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)',
+                            background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)',
+                            color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                            cursor: 'pointer',
+                            transition: 'all .12s ease',
+                          }}
+                          title={`${it.nombre} · ${it.tipo} · ${it.empresa} (${Math.round(it.litros).toLocaleString('es-VE')} L)`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={activo}
+                            readOnly
+                            style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                          />
+                          <span>{it.nombre}</span>
+                          <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({Math.round(it.litros)} L)</span>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '.3rem', maxHeight: '140px', overflowY: 'auto' }}>
-                {catalogosDetectados.tanques.map((tk) => (
-                  <label key={tk} style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={tanquesSel.length === 0 || tanquesSel.includes(tk)}
-                      onChange={() => alternarFiltro(setTanquesSel, tk)}
-                    />
-                    <span>{tk}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Desplegable de Ubicaciones */}
-          {seccionFiltro === 'ubicaciones' && (
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
-                <span className="muted" style={{ fontSize: '.76rem' }}>Marca las ubicaciones o minas a incluir:</span>
-                <div style={{ display: 'flex', gap: '.3rem' }}>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setUbicacionesSel(catalogosDetectados.ubicaciones)}>Todas</button>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setUbicacionesSel([])}>Ninguna (Todas)</button>
+            {/* UBICACIONES */}
+            {seccionFiltro === 'ubicaciones' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.3rem' }}>
+                  <span className="muted" style={{ fontSize: '.76rem' }}>
+                    Marca las ubicaciones a incluir ({ubicacionesSel.length === 0 ? 'Todas incluidas' : `${ubicacionesSel.includes('__ninguno__') ? 0 : ubicacionesSel.length} de ${catalogosDetectados.ubicaciones.length}`}):
+                  </span>
+                  <div style={{ display: 'flex', gap: '.3rem' }}>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setUbicacionesSel([])}>Todas</button>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setUbicacionesSel(['__ninguno__'])}>Ninguna</button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: '150px', overflowY: 'auto', padding: '.2rem 0' }}>
+                  {!catalogosDetectados.ubicaciones.length && <span className="muted" style={{ fontSize: '.76rem' }}>Sin ubicaciones registradas en el período.</span>}
+                  {catalogosDetectados.ubicaciones.map((it) => {
+                    const activo = estaActivoFiltro(ubicacionesSel, it.nombre);
+                    const todosNombres = catalogosDetectados.ubicaciones.map((x) => x.nombre);
+                    return (
+                      <button
+                        key={it.nombre}
+                        type="button"
+                        onClick={() => alternarPillFiltro(ubicacionesSel, setUbicacionesSel, todosNombres, it.nombre)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '.35rem',
+                          padding: '.25rem .65rem',
+                          borderRadius: '999px',
+                          fontSize: '.78rem',
+                          border: '1px solid',
+                          borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)',
+                          background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)',
+                          color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                          cursor: 'pointer',
+                          transition: 'all .12s ease',
+                        }}
+                        title={`${it.nombre}: ${Math.round(it.litros).toLocaleString('es-VE')} L (${it.count} despachos)`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={activo}
+                          readOnly
+                          style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                        />
+                        <span>{it.nombre}</span>
+                        <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({Math.round(it.litros)} L)</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '.3rem', maxHeight: '140px', overflowY: 'auto' }}>
-                {catalogosDetectados.ubicaciones.map((ubi) => (
-                  <label key={ubi} style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={ubicacionesSel.length === 0 || ubicacionesSel.includes(ubi)}
-                      onChange={() => alternarFiltro(setUbicacionesSel, ubi)}
-                    />
-                    <span>{ubi}</span>
-                  </label>
-                ))}
+            )}
+
+            {/* TANQUES */}
+            {seccionFiltro === 'tanques' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.3rem' }}>
+                  <span className="muted" style={{ fontSize: '.76rem' }}>
+                    Marca los tanques o bidones de origen ({tanquesSel.length === 0 ? 'Todos incluidos' : `${tanquesSel.includes('__ninguno__') ? 0 : tanquesSel.length} de ${catalogosDetectados.tanques.length}`}):
+                  </span>
+                  <div style={{ display: 'flex', gap: '.3rem' }}>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTanquesSel([])}>Todos</button>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTanquesSel(['__ninguno__'])}>Ninguno</button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: '150px', overflowY: 'auto', padding: '.2rem 0' }}>
+                  {!catalogosDetectados.tanques.length && <span className="muted" style={{ fontSize: '.76rem' }}>Sin tanques registrados en el período.</span>}
+                  {catalogosDetectados.tanques.map((it) => {
+                    const activo = estaActivoFiltro(tanquesSel, it.nombre);
+                    const todosNombres = catalogosDetectados.tanques.map((x) => x.nombre);
+                    return (
+                      <button
+                        key={it.nombre}
+                        type="button"
+                        onClick={() => alternarPillFiltro(tanquesSel, setTanquesSel, todosNombres, it.nombre)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '.35rem',
+                          padding: '.25rem .65rem',
+                          borderRadius: '999px',
+                          fontSize: '.78rem',
+                          border: '1px solid',
+                          borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)',
+                          background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)',
+                          color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                          cursor: 'pointer',
+                          transition: 'all .12s ease',
+                        }}
+                        title={`${it.nombre}: ${Math.round(it.litros).toLocaleString('es-VE')} L (${it.count} despachos)`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={activo}
+                          readOnly
+                          style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                        />
+                        <span>{it.nombre}</span>
+                        <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({Math.round(it.litros)} L)</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* 4. SECCIÓN: Selección de Columnas (con checks) */}
@@ -636,30 +926,80 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, onClose }: 
           </div>
         </div>
 
-        {/* 5. SECCIÓN: Opciones de Formato y Resumen en Tarjetas */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem', fontSize: '.8rem' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={incluirResumen}
-              onChange={(e) => setIncluirResumen(e.target.checked)}
-            />
-            <span><strong>Incluir resumen en tarjetas (KPIs)</strong> en cabecera del PDF y hoja Resumen de Excel</span>
-          </label>
+        {/* 5. SECCIÓN: Opciones de Formato, Orientación con Checks/Pills y Resumen */}
+        <div style={{
+          background: 'var(--surface-2, #182230)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          padding: '.65rem .8rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '.6rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem' }}>
+            {/* Orientación con pills y checks interactivos */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' }}>
+                📐 Orientación:
+              </span>
+              <div style={{ display: 'inline-flex', gap: '.4rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${orientacion === 'landscape' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    borderRadius: '999px',
+                    padding: '.25rem .75rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '.35rem',
+                    fontWeight: orientacion === 'landscape' ? 600 : 400,
+                  }}
+                  onClick={() => setOrientacion('landscape')}
+                  title="Formato horizontal (apaisado), recomendado para tablas con múltiples columnas"
+                >
+                  <input
+                    type="checkbox"
+                    checked={orientacion === 'landscape'}
+                    readOnly
+                    style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                  />
+                  <span>Horizontal (Apaisado)</span>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${orientacion === 'portrait' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    borderRadius: '999px',
+                    padding: '.25rem .75rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '.35rem',
+                    fontWeight: orientacion === 'portrait' ? 600 : 400,
+                  }}
+                  onClick={() => setOrientacion('portrait')}
+                  title="Formato vertical (carta estándar)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={orientacion === 'portrait'}
+                    readOnly
+                    style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                  />
+                  <span>Vertical (Carta)</span>
+                </button>
+              </div>
+            </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
-            <span>Orientación:</span>
-            <select
-              className="form-control form-control-sm"
-              value={orientacion}
-              onChange={(e) => setOrientacion(e.target.value as 'auto' | 'portrait' | 'landscape')}
-              style={{ fontSize: '.76rem', padding: '.15rem .4rem', height: 'auto' }}
-            >
-              <option value="auto">Auto ({marcados.length > 6 ? 'Horizontal' : 'Vertical'})</option>
-              <option value="portrait">Vertical (Carta)</option>
-              <option value="landscape">Horizontal (Apaisado)</option>
-            </select>
-          </label>
+            {/* Check Resumen KPIs */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.8rem' }}>
+              <input
+                type="checkbox"
+                checked={incluirResumen}
+                onChange={(e) => setIncluirResumen(e.target.checked)}
+              />
+              <span><strong>Incluir resumen en tarjetas (KPIs)</strong> en cabecera</span>
+            </label>
+          </div>
         </div>
 
         {/* 6. Previsualización de Totales y KPIs */}

@@ -166,7 +166,8 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias' | 'reporteMoldeable'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias' | 'exportarReporte'>('none');
+  const [rangoReporte, setRangoReporte] = useState<{ desde: string; hasta: string } | undefined>(undefined);
   // GT-INT-11 · Envíos a MGG. Se cargan siempre (no solo al abrir el modal) para poder
   // avisar en la barra cuando alguno quedó sin llegar: el combustible ya salió del
   // tanque, así que enterarse tarde es justamente el problema.
@@ -246,7 +247,6 @@ export function TanquesView() {
           <button className="btn btn-ghost btn-sm" onClick={() => setHistorico(true)} disabled={!tanques.length} title="Movimientos de meses anteriores, por mes">📚 Histórico de Movimientos</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('reporte')} disabled={!reporte.length} title="Vista previa del resumen de existencias por tanque a la fecha (imprimible)">📄 Reporte de existencias</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
-          <button className="btn btn-primary btn-sm" onClick={() => setModal('reporteMoldeable')} disabled={!tanques.length} title="Generar reporte moldeable de combustible (PDF, Excel, CSV) con casillas y filtros">📋 Reporte moldeable</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('calculadora')} title="Calculadora rápida de cubicación (seleccionar tanque y altura en cm)">📐 Calculadora cubicación</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
@@ -348,8 +348,8 @@ export function TanquesView() {
           onClose={() => setModal('none')}
         />
       )}
-      {modal === 'reporteMoldeable' && (
-        <ExportarCombustibleModal tanques={tanques} tanqueInicialId={sel?.id} onClose={() => setModal('none')} />
+      {modal === 'exportarReporte' && (
+        <ExportarCombustibleModal tanques={tanques} tanqueInicialId={sel?.id} rangoInicial={rangoReporte} onClose={() => setModal('consumo')} />
       )}
       {modal === 'reporte' && (
         <ReporteExistenciasModal
@@ -425,9 +425,24 @@ export function TanquesView() {
         <ConsumoChartModal
           title="Consumo de combustible por equipo"
           subtitle="Litros consumidos (movimientos de USO) por equipo. El valor en $ usa la tasa del tanque."
+          permitirHoras
+          onAbrirReporte={({ desde, hasta }) => {
+            setRangoReporte({
+              desde: desde.toISOString().slice(0, 10),
+              hasta: hasta.toISOString().slice(0, 10),
+            });
+            setModal('exportarReporte');
+          }}
           cargar={async (desde, hasta) => {
             const items = await consumoUso(desde, hasta, 'equipo');
-            return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'Lt', cantidad: x.cantidad, valor: x.valor }));
+            return items.map((x) => ({
+              id: x.id,
+              label: x.nombre,
+              unidad: 'Lt',
+              cantidad: x.cantidad,
+              valor: x.valor,
+              horas: x.horas,
+            }));
           }}
           realtimeTables={['combustible_tanque_movimientos', 'combustible_tanques']}
           onClose={() => setModal('none')}

@@ -1574,6 +1574,7 @@ export interface ConsumoEquipoItem {
   nombre: string;
   cantidad: number;
   valor: number;
+  horas?: number;
 }
 
 export type AgrupacionConsumo = 'equipo' | 'mina' | 'mes';
@@ -1585,7 +1586,7 @@ const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep',
 export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsumo = 'equipo'): Promise<ConsumoEquipoItem[]> {
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo, tanque_id')
+    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo, tanque_id, horas_utilizadas, horometro_ini, horometro_fin')
     .eq('tipo', 'uso')
     .gte('fecha', desde.toISOString().slice(0, 10))
     .lte('fecha', hasta.toISOString().slice(0, 10));
@@ -1610,14 +1611,21 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
       const [y, m] = f.split('-');
       clave = m ? `${MESES_ES[(Number(m) - 1 + 12) % 12]} ${y}` : '— sin fecha —';
     } else clave = (row.equipo as string)?.trim() || '— sin equipo —';
-    const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0 };
+    const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0, horas: 0 };
     cur.cantidad += litros;
     // Valor = litros × tasa vigente del tanque. Si no se conoce el tanque/tasa, cae al monto guardado.
     const tasa = row.tanque_id ? tasaPorTanque.get(row.tanque_id as string) ?? 0 : 0;
     cur.valor += tasa > 0 ? litros * tasa : num(row.monto_usd);
+    let h = 0;
+    if (row.horas_utilizadas != null && num(row.horas_utilizadas) > 0) {
+      h = num(row.horas_utilizadas);
+    } else if (row.horometro_fin != null && row.horometro_ini != null && num(row.horometro_fin) >= num(row.horometro_ini)) {
+      h = num(row.horometro_fin) - num(row.horometro_ini);
+    }
+    cur.horas = (cur.horas ?? 0) + h;
     acc.set(clave, cur);
   }
-  const arr = Array.from(acc.values()).map((x) => ({ ...x, cantidad: round(x.cantidad, 2), valor: round(x.valor, 2) }));
+  const arr = Array.from(acc.values()).map((x) => ({ ...x, cantidad: round(x.cantidad, 2), valor: round(x.valor, 2), horas: round(x.horas ?? 0, 1) }));
   // Por mes: orden cronológico; el resto, por mayor consumo.
   return por === 'mes' ? arr : arr.sort((a, b) => b.cantidad - a.cantidad);
 }
