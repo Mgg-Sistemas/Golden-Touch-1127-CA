@@ -92,6 +92,9 @@ import { listOfertasByOrden, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofe
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { norm } from '@/shared/lib/texto';
 import { mensajeError } from '@/shared/lib/errores';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { enviarMensaje } from '@/modules/pedidos/ordenChat.repository';
+import { construirTextoMotivoPagoWhatsapp, MOTIVOS_NO_PAGO, type MotivoNoPagoTipo } from './motivoPagoWhatsapp';
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -5783,6 +5786,81 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const excedenteEnMoneda = excedeTotalSimple ? round2(montoNum - debidoEnMoneda) : 0;
   const etiquetaOc = o.oc_codigo ?? o.codigo;
 
+  // Motivo de Pago (SÍ / NO y opciones de no pago)
+  const [sePagara, setSePagara] = useState<'si' | 'no'>('si');
+  const [motivoNoPago, setMotivoNoPago] = useState<MotivoNoPagoTipo>('Sin fondos en estos momentos.');
+  const [motivoDetalle, setMotivoDetalle] = useState('');
+  const [notificandoAnalista, setNotificandoAnalista] = useState(false);
+  const [whatsappModal, setWhatsappModal] = useState<{ open: boolean; titulo: string; texto: string; alCerrar?: () => void } | null>(null);
+
+  async function notificarAnalistaNoProcede() {
+    const just = motivoDetalle.trim();
+    if (!just) {
+      toast('Escribe la justificación de por qué no procede la compra.', 'warning');
+      return;
+    }
+    setNotificandoAnalista(true);
+    try {
+      await enviarMensaje({
+        ordenId: o.id,
+        ordenLabel: o.oc_codigo ?? o.codigo,
+        mensaje: `🚨 NO PROCEDE ESTA COMPRA: ${just}. Por favor cancelar la orden o buscar otra cotización.`,
+        autorEmail: actor,
+        autorNombre: actorName ?? actor,
+      }).catch(() => {});
+
+      notify(
+        `OC ${etiquetaOc}: No procede la compra`,
+        'warning',
+        {
+          detail: `Tesorería notificó: "${just}". Por favor cancelar la orden o buscar otra cotización.`,
+          link: '#/app/pedidos',
+          dedup_key: `no-procede-${o.id}`,
+        }
+      );
+
+      const txt = construirTextoMotivoPagoWhatsapp({
+        orden: o,
+        proveedorNombre: row.proveedorNombre,
+        tasaUsd: tasa,
+        pagada: false,
+        motivoTipo: 'No procede esta compra',
+        motivoDetalle: just,
+      });
+
+      toast('Se notificó al analista encargado', 'success');
+      setWhatsappModal({
+        open: true,
+        titulo: `📢 Notificación a Analista · ${etiquetaOc}`,
+        texto: txt,
+      });
+    } catch {
+      toast('No se pudo notificar al analista', 'error');
+    } finally {
+      setNotificandoAnalista(false);
+    }
+  }
+
+  function abrirWhatsappNoPago() {
+    if (motivoNoPago === 'Otro' && !motivoDetalle.trim()) {
+      toast('Especifica el motivo en el campo de texto.', 'warning');
+      return;
+    }
+    const txt = construirTextoMotivoPagoWhatsapp({
+      orden: o,
+      proveedorNombre: row.proveedorNombre,
+      tasaUsd: tasa,
+      pagada: false,
+      motivoTipo: motivoNoPago,
+      motivoDetalle: motivoDetalle.trim() || null,
+    });
+    setWhatsappModal({
+      open: true,
+      titulo: `💬 Motivo de Pago · ${etiquetaOc}`,
+      texto: txt,
+    });
+  }
+
   // Al elegir una caja multimoneda, prellenar cuánto sale de cada cuenta para
   // cubrir el total automáticamente (de mayor a menor saldo en USD), así el
   // usuario ve de una vez lo que debe pagar sin teclear el monto en Bs a mano.
@@ -5928,7 +6006,18 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs: legsPago, reembolsoLegs: legsReembolso, reembolsoUsd, retencionMonto: retencionNum, retencionMontoBs: conRetencion ? retConv.enBs : null, retencionTasa: conRetencion ? tasaRetNum : null, comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
         avisarComprobantesFaltantes(comprobantes, pagada);
         notify(`OC ${etiquetaOc} pagada · multipago ${monto(round2(sumUsdMulti - reembolsoUsd), 'USD')}${reembolsoUsd > 0 ? ` · reembolso ${monto(reembolsoUsd, 'USD')}` : ''}`, 'success', { link: '#/app/tesoreria' });
-        onPaid();
+        const txt = construirTextoMotivoPagoWhatsapp({
+          orden: o,
+          proveedorNombre: row.proveedorNombre,
+          tasaUsd: tasa,
+          pagada: true,
+        });
+        setWhatsappModal({
+          open: true,
+          titulo: `✅ OC ${etiquetaOc} pagada por Tesorería`,
+          texto: txt,
+          alCerrar: () => onPaid(),
+        });
         return;
       }
       const pagoSimple = excedeTotalSimple ? debidoEnMoneda : (Number(montoStr) || 0);
@@ -5940,29 +6029,64 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       });
       avisarComprobantesFaltantes(comprobantes, pagada);
       notify(`OC ${etiquetaOc} pagada · ${monto(pagoSimple, moneda)}${excedenteEnMoneda > 0 ? ` · reembolso ${monto(excedenteEnMoneda, moneda)}` : ''}`, 'success', { link: '#/app/tesoreria' });
-      onPaid();
+      const txt = construirTextoMotivoPagoWhatsapp({
+        orden: o,
+        proveedorNombre: row.proveedorNombre,
+        tasaUsd: tasa,
+        pagada: true,
+      });
+      setWhatsappModal({
+        open: true,
+        titulo: `✅ OC ${etiquetaOc} pagada por Tesorería`,
+        texto: txt,
+        alCerrar: () => onPaid(),
+      });
     } catch (err) {
       // El pago YA se hizo y solo falló guardar sus datos: tratarlo como error
       // llevaba a pagar dos veces. Se avisa, se cierra y se recarga como pagada.
       if (esPagoRegistradoSinDatos(err)) {
         notify(`OC ${etiquetaOc} pagada · faltó guardar el comprobante: vuelve a subirlo desde el detalle`, 'warning', { link: '#/app/tesoreria' });
         toast(mensajeError(err, MENSAJE_PAGO_REGISTRADO_SIN_DATOS), 'warning');
-        onPaid();
+        const txt = construirTextoMotivoPagoWhatsapp({
+          orden: o,
+          proveedorNombre: row.proveedorNombre,
+          tasaUsd: tasa,
+          pagada: true,
+        });
+        setWhatsappModal({
+          open: true,
+          titulo: `✅ OC ${etiquetaOc} pagada por Tesorería`,
+          texto: txt,
+          alCerrar: () => onPaid(),
+        });
         return;
       }
       setError(mensajeError(err, 'No se pudo pagar.')); setSaving(false);
     }
   }
 
+  const noProcedeCompra = sePagara === 'no' && motivoNoPago === 'No procede esta compra';
+
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={() => descargarOrdenCompraPdf(o.id).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || retencionInvalida}>{saving
-        ? 'Pagando…'
-        : excedeTotal
-          ? `PAGAR ${monto(totalUsd, 'USD')} · REEMBOLSO ${monto(excedenteUsd, 'USD')}`
-          : `PAGAR ORDEN · ${esMultimoneda ? monto(sumUsdMulti, 'USD') : monto(Number(montoStr) || 0, moneda)}`}</button>
+      {noProcedeCompra ? (
+        <button
+          type="button"
+          className="btn btn-warning"
+          disabled={saving || !motivoDetalle.trim() || notificandoAnalista}
+          onClick={() => void notificarAnalistaNoProcede()}
+        >
+          {notificandoAnalista ? 'Notificando…' : '📢 Notificar No Procede (Analista + WhatsApp)'}
+        </button>
+      ) : (
+        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || retencionInvalida}>{saving
+          ? 'Pagando…'
+          : excedeTotal
+            ? `PAGAR ${monto(totalUsd, 'USD')} · REEMBOLSO ${monto(excedenteUsd, 'USD')}`
+            : `PAGAR ORDEN · ${esMultimoneda ? monto(sumUsdMulti, 'USD') : monto(Number(montoStr) || 0, moneda)}`}</button>
+      )}
     </>
   );
 
@@ -6026,7 +6150,133 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           </div>
         </div>
 
-        {pagoParcial && (
+        {/* Apartado: Motivo de Pago */}
+        <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+          <div className="card-title" style={{ marginBottom: '.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem' }}>
+            <span>💼 Motivo de Pago</span>
+            {sePagara === 'si' ? (
+              <span className="badge" style={{ background: 'var(--success, #16a34a)', color: '#fff' }}>✓ Se pagará esta OC</span>
+            ) : (
+              <span className="badge" style={{ background: 'var(--warning, #f59e0b)', color: '#000' }}>⚠️ No se pagará por ahora</span>
+            )}
+          </div>
+
+          <div style={{ marginBottom: '.6rem' }}>
+            <span className="muted" style={{ fontSize: '.84rem', display: 'block', marginBottom: '.3rem' }}>
+              ¿Se pagará esta OC?
+            </span>
+            <div style={{ display: 'inline-flex', gap: '.5rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className={`btn ${sePagara === 'si' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ minWidth: 90, fontWeight: 700 }}
+                onClick={() => setSePagara('si')}
+              >
+                ✅ SÍ
+              </button>
+              <button
+                type="button"
+                className={`btn ${sePagara === 'no' ? 'btn-danger' : 'btn-ghost'}`}
+                style={{ minWidth: 90, fontWeight: 700 }}
+                onClick={() => setSePagara('no')}
+              >
+                ❌ NO
+              </button>
+            </div>
+          </div>
+
+          {sePagara === 'si' && (
+            <div style={{ fontSize: '.84rem', color: 'var(--success, #16a34a)' }}>
+              ✓ Se procede con el pago de la OC. Al pagar se enviará el mensaje de WhatsApp con estado <strong>PAGADA POR TESORERIA</strong>.
+            </div>
+          )}
+
+          {sePagara === 'no' && (
+            <div style={{ marginTop: '.6rem', borderTop: '1px solid var(--border)', paddingTop: '.6rem' }}>
+              <label style={{ fontSize: '.84rem', fontWeight: 600, display: 'block', marginBottom: '.4rem' }}>
+                Selecciona el motivo por el cual no se pagará:
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginBottom: '.6rem' }}>
+                {MOTIVOS_NO_PAGO.map((m) => (
+                  <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.88rem', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="motivo_no_pago"
+                      checked={motivoNoPago === m}
+                      onChange={() => setMotivoNoPago(m)}
+                    />
+                    <span>{m}</span>
+                  </label>
+                ))}
+              </div>
+
+              {motivoNoPago === 'No procede esta compra' && (
+                <div className="card" style={{ marginBottom: '.6rem', background: 'var(--bg-1)', padding: '.6rem', borderRadius: 6, borderLeft: '3px solid var(--danger)' }}>
+                  <label style={{ fontSize: '.84rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
+                    Justifica por qué no se hará la compra: <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={motivoDetalle}
+                    onChange={(e) => setMotivoDetalle(e.target.value)}
+                    placeholder="Escribe la justificación detallada..."
+                    style={{ width: '100%', resize: 'vertical' }}
+                    required
+                  />
+                  <div style={{ fontSize: '.8rem', color: 'var(--danger)', marginTop: '.3rem' }}>
+                    🚨 Se le notificará al analista encargado para que cancele la orden o busque otra cotización.
+                  </div>
+                  <div style={{ marginTop: '.5rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-warning"
+                      disabled={notificandoAnalista || !motivoDetalle.trim()}
+                      onClick={() => void notificarAnalistaNoProcede()}
+                    >
+                      {notificandoAnalista ? 'Notificando…' : '📢 Notificar al analista y enviar por WhatsApp'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {motivoNoPago === 'Otro' && (
+                <div style={{ marginBottom: '.6rem', background: 'var(--bg-1)', padding: '.6rem', borderRadius: 6 }}>
+                  <label style={{ fontSize: '.84rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
+                    Especifica el motivo: <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={motivoDetalle}
+                    onChange={(e) => setMotivoDetalle(e.target.value)}
+                    placeholder="Escribe el motivo..."
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              )}
+
+              {motivoNoPago !== 'No procede esta compra' && (
+                <div style={{ marginTop: '.4rem', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ borderColor: '#25d366', color: '#25d366' }}
+                    onClick={abrirWhatsappNoPago}
+                  >
+                    💬 Enviar estado por WhatsApp
+                  </button>
+                  <span className="muted" style={{ fontSize: '.8rem' }}>
+                    Puedes notificar el motivo por WhatsApp y aún así proceder con el pago si lo deseas abajo.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {!noProcedeCompra ? (
+          <>
+            {pagoParcial && (
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
             <div style={{ fontSize: '.84rem' }}>
               <strong>Pago por monto recibido (recepción parcial).</strong> De {monto(o.total, 'USD')} pedidos
@@ -6418,6 +6668,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         </div>
 
         <AnclarGastoFields categoria={gastoCat} subcategoria={gastoSub} onChange={(c, s) => { setGastoCat(c); setGastoSub(s); }} />
+          </>
+        ) : (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--danger)', background: 'var(--bg-1)' }}>
+            <strong style={{ color: 'var(--danger)' }}>⛔ No se procederá con el pago de esta compra.</strong>
+            <p className="muted" style={{ margin: '.3rem 0 0', fontSize: '.88rem' }}>
+              Se debe notificar al analista encargado con el botón <strong>«📢 Notificar No Procede»</strong> para que proceda a cancelar la orden o buscar otra cotización.
+            </p>
+          </div>
+        )}
       </form>
 
       {confirmarReembolso && (
@@ -6433,6 +6692,37 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       {/* Chat interno con Compras (mismo hilo que la OC en Pedidos): coordinar el método
           de pago / aclarar la orden sin salir de Tesorería. */}
       <ChatOrden ordenId={o.id} ordenLabel={o.oc_codigo ?? o.codigo} autorNombre={actorName ?? actor} />
+
+      {whatsappModal && (
+        <Modal
+          title={whatsappModal.titulo}
+          onClose={() => {
+            const cb = whatsappModal.alCerrar;
+            setWhatsappModal(null);
+            cb?.();
+          }}
+          footer={
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                const cb = whatsappModal.alCerrar;
+                setWhatsappModal(null);
+                cb?.();
+              }}
+            >
+              Listo / Cerrar
+            </button>
+          }
+        >
+          <div style={{ marginBottom: '.75rem' }}>
+            <p style={{ marginTop: 0, fontSize: '.88rem' }} className="muted">
+              Copia o envía el mensaje directamente por WhatsApp con el formato y emojis listos:
+            </p>
+            <CompartirWhatsapp texto={whatsappModal.texto} />
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
