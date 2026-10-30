@@ -576,7 +576,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
             {kpis.criticos > 0 ? 'requieren atención' : 'todo en orden'}
           </div>
         </div>
-        {!esMina && <a
+        {!esMina && !esReutilizables && <a
           className="kpi"
           href="#/app/produccion"
           style={{ cursor: 'pointer', textDecoration: 'none', color: 'inherit' }}
@@ -595,7 +595,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
 
       <AlertasStock productos={decorated} onVerProducto={openVer} />
 
-      {ui.view === 'recepciones' && !esMina ? (
+      {ui.view === 'recepciones' && !esMina && !esReutilizables ? (
         <RecepcionesPendientes
           ordenes={recepciones}
           pendientes={recepcionesPendientes}
