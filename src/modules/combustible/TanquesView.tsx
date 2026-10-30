@@ -44,6 +44,7 @@ import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { norm } from '@/shared/lib/texto';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
+import { ExportarCombustibleModal } from './ExportarCombustibleModal';
 import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 import { errorHorometro } from './horometroEquipo';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
@@ -165,7 +166,7 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias' | 'reporteMoldeable'>('none');
   // GT-INT-11 · Envíos a MGG. Se cargan siempre (no solo al abrir el modal) para poder
   // avisar en la barra cuando alguno quedó sin llegar: el combustible ya salió del
   // tanque, así que enterarse tarde es justamente el problema.
@@ -245,6 +246,7 @@ export function TanquesView() {
           <button className="btn btn-ghost btn-sm" onClick={() => setHistorico(true)} disabled={!tanques.length} title="Movimientos de meses anteriores, por mes">📚 Histórico de Movimientos</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('reporte')} disabled={!reporte.length} title="Vista previa del resumen de existencias por tanque a la fecha (imprimible)">📄 Reporte de existencias</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setModal('reporteMoldeable')} disabled={!tanques.length} title="Generar reporte moldeable de combustible (PDF, Excel, CSV) con casillas y filtros">📋 Reporte moldeable</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('calculadora')} title="Calculadora rápida de cubicación (seleccionar tanque y altura en cm)">📐 Calculadora cubicación</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
@@ -345,6 +347,9 @@ export function TanquesView() {
           onRevertir={async (id) => { await revertirTrasladoMGG({ id, actor, actorName }); await recargarTodo(); }}
           onClose={() => setModal('none')}
         />
+      )}
+      {modal === 'reporteMoldeable' && (
+        <ExportarCombustibleModal tanques={tanques} tanqueInicialId={sel?.id} onClose={() => setModal('none')} />
       )}
       {modal === 'reporte' && (
         <ReporteExistenciasModal

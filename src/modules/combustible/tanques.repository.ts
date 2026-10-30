@@ -1627,6 +1627,43 @@ export function consumoPorEquipo(desde: Date, hasta: Date): Promise<ConsumoEquip
   return consumoUso(desde, hasta, 'equipo');
 }
 
+export interface ParametrosConsultaReporteCombustible {
+  desde: string;
+  hasta: string;
+  tipos?: TipoMovTanque[];
+  tanqueIds?: string[];
+}
+
+/**
+ * Consulta los movimientos para el reporte moldeable de combustible (29/10/2026).
+ * Por defecto solo movimientos de tipo 'uso' en el rango de fechas indicado.
+ */
+export async function consultarMovimientosReporteCombustible(
+  params: ParametrosConsultaReporteCombustible
+): Promise<MovimientoTanque[]> {
+  let q = supabase
+    .from('combustible_tanque_movimientos')
+    .select('*')
+    .gte('fecha', params.desde)
+    .lte('fecha', params.hasta);
+
+  if (params.tipos && params.tipos.length > 0) {
+    q = q.in('tipo', params.tipos);
+  } else {
+    q = q.eq('tipo', 'uso');
+  }
+
+  if (params.tanqueIds && params.tanqueIds.length > 0) {
+    q = q.in('tanque_id', params.tanqueIds);
+  }
+
+  q = q.order('fecha', { ascending: true }).order('created_at', { ascending: true });
+
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as MovimientoTanque[];
+}
+
 /** Horómetro vigente (último HF registrado) de TODOS los equipos, en una sola consulta.
  *  Devuelve Map<nombreEquipo, horómetro>. Lo usa Maquinaria para calcular las HRS
  *  restantes hasta el próximo mantenimiento sin pegarle N veces a la base. */
