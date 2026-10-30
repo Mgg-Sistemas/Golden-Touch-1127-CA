@@ -543,7 +543,6 @@ function FormTraslado({ dep, depositoActual, producto, actor, actorName, onCance
         <label style={{ fontWeight: 600, marginBottom: '.35rem', display: 'block' }}>¿A cuál depósito se traslada?</label>
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${otros.length}, 1fr)`, gap: '.5rem' }}>
           {otros.map((dKey) => {
-            const d = DEPOSITOS[dKey];
             const activo = destinoKey === dKey;
             const icono = dKey === 'reutilizables' ? '♻️ ' : dKey === 'mina' ? '⛏ ' : '📦 ';
             const label = dKey === 'reutilizables' ? 'Reutilizables' : dKey === 'mina' ? 'Depósito Mina' : 'General';
