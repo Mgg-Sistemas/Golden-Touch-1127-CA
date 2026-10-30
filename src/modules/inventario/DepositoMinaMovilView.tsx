@@ -55,10 +55,16 @@ export function InventarioMovilView() {
   return <DepositoMinaMovilView deposito="general" key="general" />;
 }
 
+/** Vista de teléfono del Depósito Reutilizables (dentro de Depósito Mina). */
+export function DepositoReutilizablesMovilView() {
+  return <DepositoMinaMovilView deposito="reutilizables" key="reutilizables" />;
+}
+
 export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposito }) {
   const DEP = DEPOSITOS[deposito];
-  const OTRO = DEPOSITOS[deposito === 'mina' ? 'general' : 'mina'];
+  const OTRO = DEPOSITOS[deposito === 'reutilizables' ? 'mina' : deposito === 'mina' ? 'general' : 'mina'];
   const esMina = deposito === 'mina';
+  const esReutilizables = deposito === 'reutilizables';
   const { user } = useSession();
   const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const canWrite = can('inventario', 'escritura');
@@ -106,10 +112,20 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
     <div className="surtidor">
       <header className="surt-head">
         <div>
-          <h1>{esMina ? '⛏ Depósito Mina' : '📦 Inventario General'}</h1>
+          <h1>{esReutilizables ? '♻️ Depósito Reutilizables' : esMina ? '⛏ Depósito Mina' : '📦 Inventario General'}</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
         </div>
-        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {esReutilizables && (
+            <Link to="/app/inventario/deposito-mina/telefono" className="btn btn-ghost" style={{ fontWeight: 600 }}>
+              ← Volver
+            </Link>
+          )}
+          {esMina && (
+            <Link to="/app/inventario/deposito-reutilizables/telefono" className="btn btn-ghost" style={{ borderColor: '#10b981', color: '#10b981', fontWeight: 600 }}>
+              ♻️ Depósito Reutilizables
+            </Link>
+          )}
           {!soloTelefono && <Link to={DEP.ruta} className="btn btn-ghost">🖥 Módulo completo</Link>}
           {soloTelefono && vistasTelefono.length > 1 && <Link to="/app/telefono" className="btn btn-ghost">📱 Mis pantallas</Link>}
         </div>
@@ -125,10 +141,32 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
 
       {!loading && paso === 'inicio' && canWrite && (
         <div className="surt-acciones">
+          {esMina && (
+            <Link
+              to="/app/inventario/deposito-reutilizables/telefono"
+              className="surt-btn"
+              style={{ gridColumn: '1 / -1', minHeight: 70, borderColor: '#10b981', textDecoration: 'none' }}
+            >
+              <span className="icono" aria-hidden>♻️</span>
+              <span style={{ color: '#10b981' }}>Depósito Reutilizables</span>
+              <small>Ver inventario, salidas y retornos de materiales reutilizables</small>
+            </Link>
+          )}
+          {esReutilizables && (
+            <Link
+              to="/app/inventario/deposito-mina/telefono"
+              className="surt-btn"
+              style={{ gridColumn: '1 / -1', minHeight: 70, textDecoration: 'none' }}
+            >
+              <span className="icono" aria-hidden>←</span>
+              <span>Volver a Depósito Mina</span>
+              <small>Regresar a la pantalla principal de la mina</small>
+            </Link>
+          )}
           <button type="button" className="surt-btn primario" onClick={() => setPaso('nuevo')}>
             <span className="icono" aria-hidden>＋</span>
             <span>Producto nuevo</span>
-            <small>Algo que todavía no está en {esMina ? 'el depósito' : 'el inventario'}</small>
+            <small>Algo que todavía no está en {esReutilizables ? 'reutilizables' : esMina ? 'el depósito' : 'el inventario'}</small>
           </button>
           <button type="button" className="surt-btn entrada"
             onClick={() => { setElegido(null); setPaso('entrada'); }}>
@@ -140,7 +178,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
             onClick={() => { setElegido(null); setPaso('salida'); }}>
             <span className="icono" aria-hidden>⬆</span>
             <span>Salida</span>
-            <small>Sale material {esMina ? 'del depósito' : 'del inventario'}</small>
+            <small>Sale material {esReutilizables ? 'de reutilizables' : esMina ? 'del depósito' : 'del inventario'}</small>
           </button>
           <button type="button" className="surt-btn" style={{ borderColor: '#a855f7', gridColumn: '1 / -1', minHeight: 84 }}
             onClick={() => { setElegido(null); setPaso('traslado'); }}>
@@ -160,7 +198,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
         <button type="button" className="surt-btn" style={{ width: '100%', minHeight: 84, marginTop: '.75rem', borderColor: '#25d366' }}
           onClick={() => setPaso('reporte')}>
           <span>📲 Reporte de stock (WhatsApp)</span>
-          <small>Lo que hay en {esMina ? 'el depósito' : 'el inventario'}, filtrado por fechas</small>
+          <small>Lo que hay en {esReutilizables ? 'reutilizables' : esMina ? 'el depósito' : 'el inventario'}, filtrado por fechas</small>
         </button>
       )}
 
