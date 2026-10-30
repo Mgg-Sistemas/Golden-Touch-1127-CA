@@ -77,3 +77,18 @@ describe('pantalla de Solicitudes de Pedido (Almacén)', () => {
     expect(inicioTelefono(vs)).toBe('/app/solicitudes/telefono');
   });
 });
+
+describe('pantalla de Delivery (motorizado)', () => {
+  it('se abre con la pantalla dada y lectura en Delivery', () => {
+    expect(claves(vistasPermitidas(['delivery'], conModulos('delivery'), false))).toEqual(['delivery']);
+    expect(claves(vistasPermitidas(['delivery'], conModulos('pedidos'), false))).toEqual([]);
+  });
+  it('se guarda como clave conocida', () => {
+    expect(normalizarVistas(['delivery', 'delivery'])).toEqual(['delivery']);
+  });
+  it('un rol «solo teléfono» con esa sola pantalla entra directo a ella', () => {
+    const vs = vistasPermitidas(['delivery'], conModulos('delivery'), false);
+    expect(inicioTelefono(vs)).toBe('/app/delivery/telefono');
+    expect(vs[0].icono).toBe('🛵');
+  });
+});

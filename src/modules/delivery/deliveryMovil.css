@@ -1,0 +1,109 @@
+/* ============================================================
+   Delivery · Vista de teléfono del motorizado (30/10/2026)
+   Reutiliza la base del surtidor (.surtidor, .surt-*): botones y campos
+   GRANDES para usar con una mano en la moto. Aquí solo lo propio:
+   pestañas, tarjeta de pedido, motivos de cancelación, GPS y la barra de abajo.
+   ============================================================ */
+.delivery-movil { padding-bottom: 5.5rem; }
+
+/* Estado del motorizado en el encabezado */
+.dlv-estado { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; font-weight: 700; color: var(--text-muted); }
+.dlv-estado.activo { color: var(--success); }
+
+/* Pestañas Por tomar | Mis pedidos | Entregados */
+.dlv-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: .5rem 0 .75rem; }
+.dlv-tab {
+  min-height: 56px; padding: .4rem .3rem;
+  border: 2px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-3);
+  color: var(--text); font: inherit; font-size: .95rem; font-weight: 700; cursor: pointer; line-height: 1.15;
+}
+.dlv-tab.sel { border-color: var(--primary); background: var(--grad-primary-soft); }
+.dlv-tab small { display: block; font-size: .72rem; font-weight: 600; color: var(--text-muted); }
+
+/* Tarjeta de pedido */
+.dlv-card {
+  display: flex; flex-direction: column; gap: .55rem;
+  padding: .85rem .9rem; margin-bottom: .75rem;
+  border: 1px solid var(--border); border-left: 4px solid var(--border-strong);
+  border-radius: var(--r-md); background: var(--surface-2);
+}
+.dlv-card.por_tomar { border-left-color: var(--primary); }
+.dlv-card.aceptado { border-left-color: var(--warning); }
+.dlv-card.en_ruta { border-left-color: var(--info, var(--primary)); }
+.dlv-card.entregado { border-left-color: var(--success); }
+.dlv-card.urgente { border-color: var(--danger); border-left-color: var(--danger); }
+.dlv-card.ajeno { opacity: .6; }
+.dlv-card-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
+.dlv-card-cab .codigo { font-family: var(--font-mono); font-weight: 800; font-size: 1.1rem; color: var(--primary-3); }
+.dlv-card-cab .oc { font-size: .8rem; color: var(--text-muted); }
+.dlv-card .sub { font-size: .8rem; color: var(--text-muted); }
+.dlv-prov { padding: .55rem .65rem; border-radius: var(--r-md); background: var(--surface-3); }
+.dlv-prov .nombre { font-weight: 700; overflow-wrap: anywhere; }
+.dlv-prov .dir { font-size: .85rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.dlv-items { list-style: none; margin: 0; padding: 0; }
+.dlv-items li { display: flex; justify-content: space-between; gap: .8rem; padding: .3rem 0; border-bottom: 1px solid var(--border); font-size: .92rem; }
+.dlv-items li:last-child { border-bottom: 0; }
+.dlv-items li span:first-child { overflow-wrap: anywhere; }
+.dlv-items li strong { white-space: nowrap; font-family: var(--font-mono); }
+
+/* Pago de la OC: que el motorizado vea que Tesorería pagó de verdad */
+.dlv-pago { display: flex; flex-direction: column; gap: .4rem; }
+.dlv-btn-pago { min-height: 52px; width: 100%; justify-content: center; font-weight: 700; }
+.dlv-sin-comprobante {
+  padding: .5rem .65rem; border-radius: var(--r-md); font-size: .88rem; font-weight: 700;
+  color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+}
+
+/* Botones de la tarjeta: grandes, a dedo */
+.dlv-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.dlv-acciones .btn { min-height: 56px; font-size: 1rem; font-weight: 700; justify-content: center; text-align: center; white-space: normal; text-decoration: none; }
+.dlv-acciones .ancho { grid-column: 1 / -1; min-height: 64px; font-size: 1.15rem; font-weight: 800; }
+.dlv-acciones .btn[aria-disabled='true'] { opacity: .5; pointer-events: none; }
+.dlv-nota-tel { grid-column: 1 / -1; font-size: .78rem; color: var(--text-muted); text-align: center; margin-top: -.25rem; }
+
+/* Motivos de cancelación (uno obligatorio) */
+.dlv-motivos { display: flex; flex-direction: column; gap: .45rem; }
+.dlv-motivo {
+  min-height: 56px; padding: .6rem .8rem; text-align: left;
+  border: 2px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-3);
+  color: var(--text); font: inherit; font-size: 1.02rem; font-weight: 600; cursor: pointer;
+}
+.dlv-motivo.sel { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface-3)); }
+.surtidor textarea.surt-input { min-height: 96px; resize: vertical; }
+
+/* Ruta GPS */
+.dlv-gps-btn { width: 100%; min-height: 96px; }
+.dlv-gps-estado { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.05rem; }
+.dlv-gps-punto { width: 14px; height: 14px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+.dlv-gps-punto.compartiendo { background: var(--success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 30%, transparent); }
+.dlv-gps-punto.pidiendo { background: var(--warning); }
+.dlv-gps-punto.sin_permiso, .dlv-gps-punto.error, .dlv-gps-punto.no_soportado { background: var(--danger); }
+
+/* Mi perfil */
+.dlv-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: .5rem 0 1rem; }
+.dlv-stat { padding: .75rem .4rem; text-align: center; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.dlv-stat .valor { font-family: var(--font-mono); font-size: 1.8rem; font-weight: 800; }
+.dlv-stat .rotulo { font-size: .75rem; color: var(--text-muted); font-weight: 600; }
+
+/* Barra de abajo: Pedidos / Ruta GPS / Mi perfil */
+.dlv-nav {
+  position: sticky; bottom: 0; z-index: 5;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: .3rem;
+  margin-top: 1rem; padding: .4rem .3rem calc(.4rem + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--border); border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--bg-1, var(--surface)); box-shadow: var(--shadow-lg);
+}
+.dlv-nav button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  min-height: 58px; border: 0; border-radius: var(--r-md); background: transparent;
+  color: var(--text-muted); font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; position: relative;
+}
+.dlv-nav button .icono { font-size: 1.4rem; line-height: 1; }
+.dlv-nav button.sel { color: var(--primary-3); background: var(--grad-primary-soft); }
+.dlv-nav .punto { position: absolute; top: .4rem; right: 28%; width: 9px; height: 9px; border-radius: 50%; background: var(--success); }
+
+@media (max-width: 380px) {
+  .dlv-acciones { grid-template-columns: 1fr; }
+  .dlv-stats .valor { font-size: 1.4rem; }
+}
