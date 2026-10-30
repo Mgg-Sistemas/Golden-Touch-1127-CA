@@ -11,11 +11,12 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { mensajeError } from '@/shared/lib/errores';
 import type { ProductoParecido } from '@/modules/inventario/inventario.repository';
 import {
-  buscarProductoPorNombre, existenciasDe, interruptorRevisionAlmacen, listRevisadasRecientes,
+  buscarProductoPorNombre, existenciasDe, existenciasMinaPorNombre, interruptorRevisionAlmacen, listRevisadasRecientes,
   listSolicitudesPorRevisar, stockPlano, type ExistenciaProducto, type SolicitudConRevision,
 } from './solicitudesAlmacen.repository';
 import {
-  acotarDisponible, aplicarLote, propuestaDesdeExistencias, type ModoLote, type RevisionRenglon, type StockPorProducto,
+  acotarDisponible, aplicarLote, porAlmacenDe, propuestaDesdeExistencias,
+  type AlmacenRevision, type ModoLote, type PorAlmacen, type RevisionRenglon, type StockMinaPorNombre, type StockPorProducto,
 } from './revisionAlmacen';
 
 const claveNombre = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -25,6 +26,8 @@ export function useSolicitudesAlmacen() {
   const [porRevisar, setPorRevisar] = useState<SolicitudConRevision[]>([]);
   const [revisadas, setRevisadas] = useState<SolicitudConRevision[]>([]);
   const [existencias, setExistencias] = useState<Record<string, ExistenciaProducto>>({});
+  // 30/10/2026 · lo que hay en el Depósito Mina (por nombre), para que Los Pinos lo vea al confirmar.
+  const [stockMina, setStockMina] = useState<StockMinaPorNombre>({});
   const [sugeridos, setSugeridos] = useState<Record<string, ProductoParecido | null>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +40,9 @@ export function useSolicitudesAlmacen() {
       if (!on) { setPorRevisar([]); setRevisadas([]); setError(null); return; }
       const [pr, rv] = await Promise.all([listSolicitudesPorRevisar(), listRevisadasRecientes(7)]);
       const ids = pr.flatMap((s) => s.orden.items.map((i) => i.productoId ?? '')).filter(Boolean);
-      setExistencias(await existenciasDe(ids));
+      const [ex, mina] = await Promise.all([existenciasDe(ids), existenciasMinaPorNombre().catch(() => ({} as StockMinaPorNombre))]);
+      setExistencias(ex);
+      setStockMina(mina);
       setPorRevisar(pr);
       setRevisadas(rv);
       setError(null);
@@ -62,30 +67,47 @@ export function useSolicitudesAlmacen() {
   const stock: StockPorProducto = useMemo(() => stockPlano(existencias), [existencias]);
   const sugerido = useCallback((nombre: string) => sugeridos[claveNombre(nombre ?? '')] ?? null, [sugeridos]);
 
-  return { activo, porRevisar, revisadas, existencias, stock, sugerido, loading, error, reload };
+  return { activo, porRevisar, revisadas, existencias, stock, stockMina, sugerido, loading, error, reload };
 }
 
-/** Lo que Almacén va marcando en cada SP, por orden y renglón. Arranca con la propuesta según existencias. */
-export function useBorradores(stock: StockPorProducto) {
-  const [borradores, setBorradores] = useState<Record<string, Record<number, number>>>({});
+/**
+ * Lo que Almacén va marcando en cada SP, por orden, renglón y almacén (Los Pinos / Depósito Mina).
+ * Arranca con la propuesta según existencias: primero Los Pinos y lo que falte, de la Mina.
+ */
+export function useBorradores(stock: StockPorProducto, stockMina: StockMinaPorNombre = {}) {
+  const [borradores, setBorradores] = useState<Record<string, Record<number, PorAlmacen>>>({});
   const [notas, setNotas] = useState<Record<string, string>>({});
 
   const revisionDe = useCallback((s: SolicitudConRevision): RevisionRenglon[] => {
-    const propuesta = propuestaDesdeExistencias(s.orden.items, stock);
+    const propuesta = propuestaDesdeExistencias(s.orden.items, stock, stockMina);
     const b = borradores[s.orden.id];
     if (!b) return propuesta;
-    return propuesta.map((r) => (r.idx in b ? { idx: r.idx, cantidad_disponible: b[r.idx] } : r));
-  }, [borradores, stock]);
+    return propuesta.map((r) => {
+      const pa = b[r.idx];
+      return pa ? { idx: r.idx, cantidad_disponible: pa.los_pinos + pa.mina, por_almacen: pa } : r;
+    });
+  }, [borradores, stock, stockMina]);
 
-  const fijar = useCallback((s: SolicitudConRevision, idx: number, valor: number | null) => {
+  /** Fija lo que sale de UN almacén; el otro se recorta si entre los dos pasan de lo solicitado. */
+  const fijar = useCallback((s: SolicitudConRevision, idx: number, valor: number | null, almacen: AlmacenRevision = 'los_pinos') => {
     const sol = Number(s.orden.items[idx]?.cantidad) || 0;
-    setBorradores((prev) => ({ ...prev, [s.orden.id]: { ...prev[s.orden.id], [idx]: acotarDisponible(valor, sol) } }));
-  }, []);
+    setBorradores((prev) => {
+      const actual = prev[s.orden.id]?.[idx]
+        ?? porAlmacenDe(propuestaDesdeExistencias(s.orden.items, stock, stockMina)[idx]);
+      // Lo que se acaba de escribir manda: si no cabe junto con el otro almacén, se recorta el otro.
+      const fijo = acotarDisponible(valor, sol);
+      const resto = Math.max(0, sol - fijo);
+      const res: PorAlmacen = almacen === 'los_pinos'
+        ? { los_pinos: fijo, mina: Math.min(actual.mina, resto) }
+        : { los_pinos: Math.min(actual.los_pinos, resto), mina: fijo };
+      return { ...prev, [s.orden.id]: { ...prev[s.orden.id], [idx]: res } };
+    });
+  }, [stock, stockMina]);
 
   const lote = useCallback((s: SolicitudConRevision, modo: ModoLote) => {
-    const r = aplicarLote(s.orden.items, modo, stock);
-    setBorradores((prev) => ({ ...prev, [s.orden.id]: Object.fromEntries(r.map((x) => [x.idx, x.cantidad_disponible])) }));
-  }, [stock]);
+    const r = aplicarLote(s.orden.items, modo, stock, stockMina);
+    setBorradores((prev) => ({ ...prev, [s.orden.id]: Object.fromEntries(r.map((x) => [x.idx, porAlmacenDe(x)])) }));
+  }, [stock, stockMina]);
 
   const olvidar = useCallback((ordenId: string) => {
     setBorradores((prev) => { const n = { ...prev }; delete n[ordenId]; return n; });

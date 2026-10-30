@@ -12,7 +12,7 @@ import { num } from '@/shared/lib/format';
 import { mensajeError } from '@/shared/lib/errores';
 import { revisarSolicitud, CLAVE_INTERRUPTOR, type SolicitudConRevision } from './solicitudesAlmacen.repository';
 import {
-  estadoExistencia, resumenRevision, textoWhatsappRevision, type RenglonSP, type ResumenRevision, type RevisionRenglon,
+  ALMACENES_REVISION, estadoExistencia, resumenRevision, textoWhatsappRevision, type RenglonSP, type ResumenRevision, type RevisionRenglon,
 } from './revisionAlmacen';
 import './solicitudesAlmacen.css';
 
@@ -68,7 +68,11 @@ export function ModalWhatsapp({ titulo, texto, onClose }: { titulo: string; text
 
 export function ResumenListas({ resumen }: { resumen: ResumenRevision }) {
   const lista = (ls: ResumenRevision['disponibles']) => (
-    <ul>{ls.map((l, i) => <li key={i}><b className="mono">{num(l.cantidad)} {l.unidad.toUpperCase()}</b> · {l.nombre}</li>)}</ul>
+    <ul>{ls.map((l, i) => (
+      <li key={i}><b className="mono">{num(l.cantidad)} {l.unidad.toUpperCase()}</b> · {l.nombre}
+        {l.almacen && <span className="muted" style={{ fontSize: '.78rem' }}> · {ALMACENES_REVISION.find((a) => a.key === l.almacen)?.icono} {ALMACENES_REVISION.find((a) => a.key === l.almacen)?.label}</span>}
+      </li>
+    ))}</ul>
   );
   return (
     <div className="spa-resumen" style={{ padding: '.4rem 0 0' }}>
