@@ -5637,7 +5637,11 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const baseFactura = Number(row.montoAPagar ?? o.total) || 0;
   // Retención: si la factura la tiene, se marca y se escribe el monto (en la moneda de
   // la OC). Se RESTA del total antes de pagar: todo lo de abajo trabaja con el neto.
-  const [conRetencion, setConRetencion] = useState(false);
+  // Nuevo flujo: si Compras marcó «retener ANTES de pagar», la retención ya está hecha y
+  // arranca marcada (el monto BAJA); «DESPUÉS de pagar» se paga completo (el monto SUBE).
+  const retieneAntes = o.retencion_momento === 'antes_de_pagar';
+  const retieneDespues = o.retencion_momento === 'despues_de_pagar';
+  const [conRetencion, setConRetencion] = useState(retieneAntes);
   const [retencionStr, setRetencionStr] = useState('');
   // Se carga en Bs (como sale el comprobante) o en $, y se convierte con SU tasa:
   // arranca en la BCV del día y se puede cambiar por la del comprobante.
@@ -6358,8 +6362,20 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
 
         {/* Retención: se descuenta del total de la factura antes de pagar. */}
         <div className="card" style={{ marginBottom: '.75rem', borderColor: conRetencion ? 'var(--brand, #ff8a00)' : undefined }}>
+          {retieneAntes && (
+            <div className="aviso warning sm" style={{ marginBottom: '.5rem' }}>
+              <span className="aviso-icono">🔻</span>
+              <div>Compras marcó <strong>retener ANTES de pagar</strong> y Retenciones ya la hizo: se paga el total <strong>menos la retención (el monto BAJA)</strong>. Coloca el monto del comprobante de retención.</div>
+            </div>
+          )}
+          {retieneDespues && (
+            <div className="aviso info sm" style={{ marginBottom: '.5rem' }}>
+              <span className="aviso-icono">🔺</span>
+              <div>Compras marcó <strong>retener DESPUÉS de pagar</strong>: se paga el <strong>total completo (el monto SUBE)</strong>. Al pagarla, pasa a Retenciones.</div>
+            </div>
+          )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontWeight: 600 }}>
-            <input type="checkbox" checked={conRetencion}
+            <input type="checkbox" checked={conRetencion} disabled={retieneAntes || retieneDespues}
               onChange={(e) => { setConRetencion(e.target.checked); if (!e.target.checked) setRetencionStr(''); }} />
             Tiene retención
           </label>

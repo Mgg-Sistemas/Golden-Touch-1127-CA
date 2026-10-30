@@ -84,7 +84,7 @@ function lineasPersonas(o: Orden, personas: Map<string, string> | undefined, con
   const analistaRaw = o.oc_creada_por || o.oc_emitida_por || o.metodo_pago_por;
   if (analistaRaw) {
     const analista = nombreDe(analistaRaw, personas);
-    if (analista) L.push(`🛒 *Analista de compras:* ${analista}`);
+    if (analista) L.push(`🛒 *Analista encargado:* ${analista}`);
   }
   return L;
 }
@@ -184,6 +184,8 @@ export function textoOrdenPagar(
   L.push(...lineasPersonas(o, personas, true));
   // Tipo de requerimiento, siempre (29/10/2026): quien paga ordena por urgencia.
   L.push(o.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal');
+  if (o.retencion_momento === 'antes_de_pagar') L.push('🔻 *Retención:* ANTES de pagar (se paga el neto)');
+  else if (o.retencion_momento === 'despues_de_pagar') L.push('🔺 *Retención:* DESPUÉS de pagar (se paga completo)');
   // El detalle solo si existe: un «Detalle: —» no informa nada y aleja el
   // método de pago, que es lo que se busca en este papel.
   const descripcion = descripcionDe(o);
