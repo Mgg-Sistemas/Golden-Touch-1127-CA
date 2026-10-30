@@ -17,6 +17,7 @@ import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
 import { esBidon, prepararCamposSalidaBidon } from './bidonCombustible';
 import { resolverHorometroVigente } from './horometroEquipo';
 import { norm } from '@/shared/lib/texto';
+import { esUnaDeLas16MaquinasAutorizadas } from './maquinasAutorizadas';
 import { push } from '@/modules/notificaciones/notif.repository';
 import type {
   CatalogoCombustible,
@@ -180,6 +181,50 @@ export async function setMultipleTanquesPermitidos(
   for (const item of items) {
     await setEquipoTanquesPermitidos(item.id, item.valor, tanques);
   }
+}
+
+/**
+ * Pone en activo = true las 16 máquinas operativas autorizadas
+ * y en activo = false todos los demás equipos del catálogo de combustible.
+ */
+export async function aplicarSolo16MaquinasAutorizadas(
+  catalogosActuales?: CatalogoCombustible[],
+): Promise<{ activados: number; desactivados: number }> {
+  let cats = catalogosActuales;
+  if (!cats || cats.length === 0) {
+    const { data, error } = await supabase.from('combustible_catalogos').select('*').eq('tipo', 'equipo');
+    if (error) throw error;
+    cats = (data ?? []) as CatalogoCombustible[];
+  }
+
+  const equipos = cats.filter((c) => c.tipo === 'equipo');
+  const idsDesactivar: string[] = [];
+  const idsActivar: string[] = [];
+
+  for (const eq of equipos) {
+    const esAutorizada = esUnaDeLas16MaquinasAutorizadas(eq.valor);
+    if (esAutorizada && !eq.activo) {
+      idsActivar.push(eq.id);
+    } else if (!esAutorizada && eq.activo) {
+      idsDesactivar.push(eq.id);
+    }
+  }
+
+  if (idsDesactivar.length > 0) {
+    for (let i = 0; i < idsDesactivar.length; i += 100) {
+      const lote = idsDesactivar.slice(i, i + 100);
+      await supabase.from('combustible_catalogos').update({ activo: false }).in('id', lote);
+    }
+  }
+
+  if (idsActivar.length > 0) {
+    for (let i = 0; i < idsActivar.length; i += 100) {
+      const lote = idsActivar.slice(i, i + 100);
+      await supabase.from('combustible_catalogos').update({ activo: true }).in('id', lote);
+    }
+  }
+
+  return { activados: idsActivar.length, desactivados: idsDesactivar.length };
 }
 
 

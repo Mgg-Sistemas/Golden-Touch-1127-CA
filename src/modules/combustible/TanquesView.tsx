@@ -30,7 +30,7 @@ import {
   registrarTrasladoMGG, reintentarTrasladoMGG, revertirTrasladoMGG, listTransferenciasCombustible,
   DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoKilometrajeEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
-  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, setEquipoTanquesPermitidos, setMultipleCatalogosActivo, crearConciliacion,
+  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, setEquipoTanquesPermitidos, setMultipleCatalogosActivo, aplicarSolo16MaquinasAutorizadas, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, esBrasileros, postearConsumoCombustibleSemana,
   previewConsumoCombustibleSemana, type PreviewConsumoSemana, type ReporteTanque, type ResumenTanquePeriodo,
@@ -43,6 +43,7 @@ import { descargarConciliacionesExcel } from './conciliacionExcel';
 import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { norm } from '@/shared/lib/texto';
+import { esUnaDeLas16MaquinasAutorizadas } from './maquinasAutorizadas';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { ExportarCombustibleModal } from './ExportarCombustibleModal';
 import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
@@ -219,6 +220,29 @@ export function TanquesView() {
     void reloadMovs(selId);
     setReloadKey((k) => k + 1);
   });
+
+  // Sincronización automática de las 16 máquinas operativas autorizadas para surtir
+  useEffect(() => {
+    const SYNC_KEY = 'gt_combustible_16_maquinas_sync_v1';
+    if (!canWrite || !catalogos.length) return;
+    const yaSync = typeof localStorage !== 'undefined' ? localStorage.getItem(SYNC_KEY) : null;
+    if (yaSync) return;
+
+    const equipos = catalogos.filter((c) => c.tipo === 'equipo');
+    const hayDesactivar = equipos.some((c) => c.activo && !esUnaDeLas16MaquinasAutorizadas(c.valor));
+    if (hayDesactivar) {
+      aplicarSolo16MaquinasAutorizadas(catalogos)
+        .then((res) => {
+          if (typeof localStorage !== 'undefined') localStorage.setItem(SYNC_KEY, 'done');
+          if (res.activados > 0 || res.desactivados > 0) {
+            void reloadTanques();
+          }
+        })
+        .catch(() => {});
+    } else {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(SYNC_KEY, 'done');
+    }
+  }, [canWrite, catalogos, reloadTanques]);
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);
   // El total de combustible se divide en DOS grupos: «Los Brasileros» (Tanque #2
@@ -1488,7 +1512,7 @@ function CatalogosModal({
 
   // Filtros específicos para equipos
   const [searchEquipo, setSearchEquipo] = useState('');
-  const [filtroSurtido, setFiltroSurtido] = useState<'todos' | 'activos' | 'inactivos'>('todos');
+  const [filtroSurtido, setFiltroSurtido] = useState<'todos' | 'activos' | 'inactivos' | '16operativas'>('todos');
   const [filtroTanque, setFiltroTanque] = useState<string>('');
 
   // Modal para configurar tanques permitidos de un equipo
@@ -1521,6 +1545,7 @@ function CatalogosModal({
 
     if (filtroSurtido === 'activos') list = list.filter((c) => c.activo);
     if (filtroSurtido === 'inactivos') list = list.filter((c) => !c.activo);
+    if (filtroSurtido === '16operativas') list = list.filter((c) => esUnaDeLas16MaquinasAutorizadas(c.valor));
 
     if (filtroTanque) {
       list = list.filter((c) => esTanquePermitidoParaEquipo(filtroTanque, c.tanques_permitidos));
@@ -1548,6 +1573,23 @@ function CatalogosModal({
   const totalEquipos = useMemo(() => catalogos.filter((c) => c.tipo === 'equipo').length, [catalogos]);
   const equiposPuedenSurtir = useMemo(() => catalogos.filter((c) => c.tipo === 'equipo' && c.activo).length, [catalogos]);
   const equiposBloqueados = totalEquipos - equiposPuedenSurtir;
+  const equipos16Activos = useMemo(
+    () => catalogos.filter((c) => c.tipo === 'equipo' && c.activo && esUnaDeLas16MaquinasAutorizadas(c.valor)).length,
+    [catalogos],
+  );
+
+  async function handleActivarSolo16Operativas() {
+    setBusy(true);
+    try {
+      const res = await aplicarSolo16MaquinasAutorizadas(catalogos);
+      await onChanged();
+      toast(`Configuración aplicada: 16 máquinas operativas autorizadas (${res.desactivados} bloqueadas)`, 'success');
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo aplicar la configuración'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function agregar() {
     if (!valor.trim()) { toast('Indica el valor', 'error'); return; }
@@ -1681,7 +1723,39 @@ function CatalogosModal({
               <div style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 600, color: '#f87171' }}>⚪ Bloqueados / No surten</div>
               <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ef4444' }}>{equiposBloqueados}</div>
             </div>
+            <div style={{ background: '#182230', padding: '.5rem .75rem', borderRadius: '6px', border: '1px solid rgba(255, 138, 0, 0.4)' }}>
+              <div style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 600, color: '#FF8A00' }}>⭐ 16 Operativas</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffedd5' }}>{equipos16Activos} <span style={{ fontSize: '.8rem', color: '#94a3b8' }}>/ 16</span></div>
+            </div>
           </div>
+
+          {equiposPuedenSurtir > 16 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '.75rem',
+              background: 'rgba(255, 138, 0, 0.12)',
+              border: '1px solid rgba(255, 138, 0, 0.4)',
+              borderRadius: '8px',
+              padding: '.6rem .85rem',
+              color: '#ffedd5',
+              fontSize: '.82rem',
+            }}>
+              <div>
+                <strong>⚠️ Control de flota operativo:</strong> Hay {equiposPuedenSurtir} equipos habilitados para surtir. La gerencia requiere que únicamente las 16 máquinas operativas puedan surtir combustible.
+              </div>
+              <button
+                type="button"
+                className="btn btn-warning btn-sm"
+                onClick={handleActivarSolo16Operativas}
+                disabled={busy}
+                style={{ whiteSpace: 'nowrap', fontWeight: 700, background: '#FF8A00', color: '#182230' }}
+              >
+                ⚡ Activar solo 16 autorizadas
+              </button>
+            </div>
+          )}
 
           {/* Formulario para agregar nuevo equipo */}
           <div style={{ display: 'flex', gap: '.5rem' }}>
@@ -1744,6 +1818,14 @@ function CatalogosModal({
               >
                 ⚪ Bloqueados ({equiposBloqueados})
               </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${filtroSurtido === '16operativas' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setFiltroSurtido('16operativas')}
+                style={filtroSurtido === '16operativas' ? { background: '#FF8A00', borderColor: '#FF8A00', color: '#182230', fontWeight: 700 } : { color: '#FF8A00' }}
+              >
+                ⭐ 16 Operativas
+              </button>
             </div>
 
             {/* Selector de tanque */}
@@ -1762,7 +1844,17 @@ function CatalogosModal({
             </select>
 
             {/* Botones de acción rápida */}
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: '.35rem' }}>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-xs"
+                onClick={handleActivarSolo16Operativas}
+                disabled={busy}
+                title="Deja activas únicamente las 16 máquinas operativas autorizadas y bloquea todos los demás equipos"
+                style={{ background: '#FF8A00', color: '#182230', fontWeight: 700, borderColor: '#FF8A00' }}
+              >
+                ⚡ Dejar solo 16 autorizadas
+              </button>
               <button
                 type="button"
                 className="btn btn-ghost btn-xs"
@@ -1825,6 +1917,22 @@ function CatalogosModal({
                         ) : (
                           <div>
                             <strong style={{ color: c.activo ? '#f8fafc' : '#94a3b8' }}>{c.valor}</strong>
+                            {esUnaDeLas16MaquinasAutorizadas(c.valor) && (
+                              <span
+                                style={{
+                                  background: 'rgba(255, 138, 0, 0.18)',
+                                  color: '#FF8A00',
+                                  border: '1px solid rgba(255, 138, 0, 0.45)',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '.7rem',
+                                  fontWeight: 700,
+                                  marginLeft: '.4rem',
+                                }}
+                              >
+                                ⭐ Autorizada
+                              </span>
+                            )}
                             {f && (
                               <div className="muted" style={{ fontSize: '.74rem', marginTop: '2px', display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
                                 {f.alias && <span style={{ color: '#FF8A00' }}>🏷️ {f.alias}</span>}
