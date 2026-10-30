@@ -30,7 +30,7 @@ import {
   registrarTrasladoMGG, reintentarTrasladoMGG, revertirTrasladoMGG, listTransferenciasCombustible,
   DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoKilometrajeEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
-  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, setEquipoTanquesPermitidos, setMultipleCatalogosActivo, crearConciliacion, setMovimientoCuaderno,
+  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, setEquipoTanquesPermitidos, setMultipleCatalogosActivo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, esBrasileros, postearConsumoCombustibleSemana,
   previewConsumoCombustibleSemana, type PreviewConsumoSemana, type ReporteTanque, type ResumenTanquePeriodo,
