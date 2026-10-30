@@ -161,6 +161,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
   // Pestaña activa de filtros
   const [seccionFiltro, setSeccionFiltro] = useState<'empresas' | 'tipos' | 'equipos' | 'ubicaciones' | 'tanques'>('empresas');
   const [qEquipos, setQEquipos] = useState<string>('');
+  const [soloConConsumoEnFiltro, setSoloConConsumoEnFiltro] = useState(false);
 
   // Estados de carga y acción
   const [cargando, setCargando] = useState<boolean>(true);
@@ -252,6 +253,45 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
       ubicaciones: Array.from(ubiMap.entries()).map(([nombre, d]) => ({ nombre, ...d })).sort(sortAlfa),
     };
   }, [enriquecidos]);
+
+  // Movimientos filtrados por las demás dimensiones (excepto equipos) para saber con exactitud
+  // cuántos litros y despachos tiene cada equipo bajo los filtros activos (ej. Tanque #1)
+  const movimientosFiltrosCruzadosEquipos = useMemo(() => {
+    return filtrarMovimientos(enriquecidos, {
+      empresasSel: empresasSel.length ? empresasSel : undefined,
+      tiposSel: tiposSel.length ? tiposSel : undefined,
+      tanquesSel: tanquesSel.length ? tanquesSel : undefined,
+      ubicacionesSel: ubicacionesSel.length ? ubicacionesSel : undefined,
+    });
+  }, [enriquecidos, empresasSel, tiposSel, tanquesSel, ubicacionesSel]);
+
+  const statsEquiposEnFiltrosCruzados = useMemo(() => {
+    const map = new Map<string, { litros: number; count: number }>();
+    for (const mov of movimientosFiltrosCruzadosEquipos) {
+      const eq = mov.equipoNombre || 'Sin equipo';
+      const prev = map.get(eq) || { litros: 0, count: 0 };
+      map.set(eq, { litros: prev.litros + mov.litros, count: prev.count + 1 });
+    }
+    return map;
+  }, [movimientosFiltrosCruzadosEquipos]);
+
+  const hayFiltrosCruzadosActivos = useMemo(() => {
+    return (
+      (tanquesSel.length > 0 && !tanquesSel.includes('__ninguno__')) ||
+      (empresasSel.length > 0 && !empresasSel.includes('__ninguno__')) ||
+      (tiposSel.length > 0 && !tiposSel.includes('__ninguno__')) ||
+      (ubicacionesSel.length > 0 && !ubicacionesSel.includes('__ninguno__'))
+    );
+  }, [tanquesSel, empresasSel, tiposSel, ubicacionesSel]);
+
+  const equiposConMovimientoEnFiltroCount = useMemo(() => {
+    let count = 0;
+    for (const eq of catalogosDetectados.equipos) {
+      const s = statsEquiposEnFiltrosCruzados.get(eq.nombre);
+      if (s && s.litros > 0) count++;
+    }
+    return count;
+  }, [catalogosDetectados.equipos, statsEquiposEnFiltrosCruzados]);
 
   // 4. Filtrar movimientos según las selecciones de inclusión
   const filtrados = useMemo(() => {
@@ -604,6 +644,38 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
 
           {/* Panel con Checks y Pills según la categoría activa */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.5rem' }}>
+            {/* Aviso informativo de criterio de inclusión y filtros activos */}
+            <div style={{
+              background: 'rgba(56, 189, 248, 0.08)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              borderRadius: '8px',
+              padding: '.55rem .85rem',
+              marginBottom: '.65rem',
+              fontSize: '.8rem',
+              color: '#e2e8f0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '.25rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontWeight: 600, color: '#38bdf8' }}>
+                <span>ℹ️</span>
+                <span>Criterio del reporte: Solo equipos con movimientos registrados en el período</span>
+              </div>
+              <div style={{ fontSize: '.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                Se muestran únicamente las máquinas que registraron <strong>despachos o consumos</strong> entre el <strong>{desde}</strong> y el <strong>{hasta}</strong>. Los equipos del catálogo general sin movimientos en este rango se omiten automáticamente del reporte.
+              </div>
+              {hayFiltrosCruzadosActivos && (
+                <div style={{ fontSize: '.76rem', color: '#FF8A00', fontWeight: 500, borderTop: '1px solid rgba(255, 138, 0, 0.2)', paddingTop: '.3rem', marginTop: '.2rem' }}>
+                  ⚠️ <strong>Filtros activos ({[
+                    tanquesSel.length && !tanquesSel.includes('__ninguno__') ? `Tanques: ${tanquesSel.join(', ')}` : '',
+                    empresasSel.length && !empresasSel.includes('__ninguno__') ? `Empresas: ${empresasSel.join(', ')}` : '',
+                    tiposSel.length && !tiposSel.includes('__ninguno__') ? `Tipos: ${tiposSel.join(', ')}` : '',
+                    ubicacionesSel.length && !ubicacionesSel.includes('__ninguno__') ? `Ubicaciones: ${ubicacionesSel.join(', ')}` : '',
+                  ].filter(Boolean).join(' · ')}):</strong> Solo <strong>{equiposConMovimientoEnFiltroCount} de {catalogosDetectados.equipos.length} equipos</strong> tienen despachos con estos filtros. Los marcados con <em>(0 L en filtro)</em> no aparecerán en el PDF generado.
+                </div>
+              )}
+            </div>
+
             {/* EMPRESAS */}
             {seccionFiltro === 'empresas' && (
               <div>
@@ -714,7 +786,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
             {seccionFiltro === 'equipos' && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: '240px', maxWidth: '320px' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: '220px', maxWidth: '300px', flex: 1 }}>
                     <input
                       type="search"
                       className="input"
@@ -742,11 +814,26 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                       </button>
                     )}
                   </div>
+
+                  {/* Toggle para mostrar solo equipos con consumo bajo el filtro activo */}
+                  {hayFiltrosCruzadosActivos && (
+                    <button
+                      type="button"
+                      className={`btn btn-xs ${soloConConsumoEnFiltro ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={() => setSoloConConsumoEnFiltro((prev) => !prev)}
+                      style={{ whiteSpace: 'nowrap', fontSize: '.74rem' }}
+                      title="Oculta los equipos que tienen 0 L bajo los tanques/filtros seleccionados actualmente"
+                    >
+                      {soloConConsumoEnFiltro ? `✓ Solo con consumo (${equiposConMovimientoEnFiltroCount})` : `Mostrar solo con consumo (${equiposConMovimientoEnFiltroCount})`}
+                    </button>
+                  )}
+
                   <div style={{ display: 'flex', gap: '.3rem' }}>
                     <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEquiposSel([])}>Todos</button>
                     <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEquiposSel(['__ninguno__'])}>Ninguno</button>
                   </div>
                 </div>
+
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: '160px', overflowY: 'auto', padding: '.2rem 0' }}>
                   {catalogosDetectados.equipos
                     .filter((it) => {
@@ -758,9 +845,18 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                         it.empresa.toLowerCase().includes(q)
                       );
                     })
+                    .filter((it) => {
+                      if (!soloConConsumoEnFiltro || !hayFiltrosCruzadosActivos) return true;
+                      const statsCruzadas = statsEquiposEnFiltrosCruzados.get(it.nombre);
+                      return statsCruzadas && statsCruzadas.litros > 0;
+                    })
                     .map((it) => {
                       const activo = estaActivoFiltro(equiposSel, it.nombre);
                       const todosNombres = catalogosDetectados.equipos.map((x) => x.nombre);
+                      const statsCruzadas = statsEquiposEnFiltrosCruzados.get(it.nombre);
+                      const tieneMovEnFiltro = statsCruzadas && statsCruzadas.litros > 0;
+                      const litrosMostrar = hayFiltrosCruzadosActivos && statsCruzadas ? statsCruzadas.litros : it.litros;
+
                       return (
                         <button
                           key={it.nombre}
@@ -774,13 +870,24 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                             borderRadius: '999px',
                             fontSize: '.78rem',
                             border: '1px solid',
-                            borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)',
-                            background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)',
-                            color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                            borderColor: activo
+                              ? (hayFiltrosCruzadosActivos && !tieneMovEnFiltro ? 'rgba(249, 115, 22, 0.4)' : 'var(--primary, #f97316)')
+                              : 'var(--border, #334155)',
+                            background: activo
+                              ? (hayFiltrosCruzadosActivos && !tieneMovEnFiltro ? 'rgba(249, 115, 22, 0.08)' : 'rgba(249, 115, 22, 0.15)')
+                              : 'var(--surface-1, #0f172a)',
+                            color: activo
+                              ? (hayFiltrosCruzadosActivos && !tieneMovEnFiltro ? '#94a3b8' : 'var(--text, #f1f5f9)')
+                              : 'var(--text-muted, #94a3b8)',
+                            opacity: hayFiltrosCruzadosActivos && !tieneMovEnFiltro ? 0.6 : 1,
                             cursor: 'pointer',
                             transition: 'all .12s ease',
                           }}
-                          title={`${it.nombre} · ${it.tipo} · ${it.empresa} (${Math.round(it.litros).toLocaleString('es-VE')} L)`}
+                          title={
+                            hayFiltrosCruzadosActivos && !tieneMovEnFiltro
+                              ? `${it.nombre}: tiene ${Math.round(it.litros).toLocaleString('es-VE')} L en total en el período, pero 0 L en los filtros activos (ej. Tanque seleccionado). No aparecerá en el PDF.`
+                              : `${it.nombre} · ${it.tipo} · ${it.empresa} (${Math.round(litrosMostrar).toLocaleString('es-VE')} L)`
+                          }
                         >
                           <input
                             type="checkbox"
@@ -789,7 +896,15 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                             style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
                           />
                           <span>{it.nombre}</span>
-                          <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({Math.round(it.litros)} L)</span>
+                          {hayFiltrosCruzadosActivos ? (
+                            tieneMovEnFiltro ? (
+                              <span style={{ fontSize: '.7rem', color: '#10b981', fontWeight: 600 }}>({Math.round(litrosMostrar)} L)</span>
+                            ) : (
+                              <span className="muted" style={{ fontSize: '.68rem', fontStyle: 'italic', opacity: 0.8 }}>(0 L en filtro)</span>
+                            )
+                          ) : (
+                            <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({Math.round(it.litros)} L)</span>
+                          )}
                         </button>
                       );
                     })}
@@ -1124,6 +1239,12 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
           gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
           gap: '.5rem',
         }}>
+          <div>
+            <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>EQUIPOS EN REPORTE</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b' }}>
+              {resumen.totalEquipos} <span style={{ fontSize: '.72rem', fontWeight: 500, color: '#94a3b8' }}>({filas.length} {agrupacion === 'equipo' ? 'reg.' : 'filas'})</span>
+            </div>
+          </div>
           <div>
             <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>CONSUMO TOTAL</div>
             <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--primary, #f97316)' }}>

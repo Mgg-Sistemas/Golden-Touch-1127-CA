@@ -370,7 +370,7 @@ export async function descargarCombustiblePdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   doc.setTextColor(...NARANJA);
-  const tituloDoc = esFichas ? 'INFORME EJECUTIVO DE COMBUSTIBLE Y CONSUMO' : 'REPORTE DE COMBUSTIBLE Y CONSUMO';
+  const tituloDoc = 'Reporte de consumo de Combustible';
   const titLineas = doc.splitTextToSize(tituloDoc, anchoTexto) as string[];
   doc.text(titLineas, tx, y + 14);
 
