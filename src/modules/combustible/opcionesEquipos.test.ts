@@ -21,10 +21,11 @@ const fichas = [payloader, excavadora, hilux, moto];
 describe('opciones del buscador de equipos (teléfono)', () => {
   const ops = opcionesEquipos({ catalogo, fichas, bidones: ['BIDÓN 200 L'], modo: 'telefono', apartados: CLASES_EQUIPO_BASE });
 
-  it('L220G sale por el modelo aunque no tenga alias, con el nombre oficial de hint', () => {
+  it('sin alias el label es el NOMBRE principal (no el modelo); el modelo sigue sirviendo para buscar', () => {
     const o = ops.find((x) => x.value === 'PAYLOADER VOLVO L220G 2014')!;
-    expect(o.label).toBe('L220G');
-    expect(o.hint).toBe('PAYLOADER VOLVO L220G 2014');
+    expect(o.label).toBe('PAYLOADER VOLVO L220G 2014');
+    expect(o.hint).toBeUndefined(); // el corto ya es el nombre oficial, no hace falta repetirlo
+    expect(o.keywords).toEqual(expect.arrayContaining(['L220G', 'VOLVO']));
     expect(o.group).toBe('Maquinaria y Equipos');
     expect(o.groupIcon).toBe('🚜');
   });
@@ -51,12 +52,12 @@ describe('opciones del buscador de equipos (teléfono)', () => {
   it('orden de grupos: Maquinaria, Vehículos, Motos… luego Otros y Bidones; dentro por label', () => {
     const grupos = ops.map((o) => o.group);
     expect(grupos).toEqual(['Maquinaria y Equipos', 'Maquinaria y Equipos', 'Vehículos', 'Motos', GRUPO_OTROS, GRUPO_BIDONES]);
-    expect(ops.slice(0, 2).map((o) => o.label)).toEqual(['EC240', 'L220G']);
+    expect(ops.slice(0, 2).map((o) => o.label)).toEqual(['EC240', 'PAYLOADER VOLVO L220G 2014']);
   });
 
-  it('la placa sirve para encontrar la camioneta', () => {
+  it('la placa sirve para encontrar la camioneta (aunque el label sea el nombre principal)', () => {
     const o = ops.find((x) => x.value === 'TOYOTA HILUX 05')!;
-    expect(o.label).toBe('HILUX');
+    expect(o.label).toBe('TOYOTA HILUX 05');
     expect(o.keywords).toContain('A12BC3D');
   });
 });
