@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -60,11 +60,20 @@ import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { norm } from '@/shared/lib/texto';
-import { DEPOSITOS, type Deposito } from './depositos';
+import {
+  ALMACEN_GENERAL,
+  ALMACEN_MINA,
+  ALMACEN_REUTILIZABLES,
+  ALMACEN_DANADOS,
+  resolverDeposito,
+  DEPOSITOS,
+  type Deposito,
+} from './depositos';
 import {
   listAlmacenes,
   listExistencias,
 } from './almacenes.repository';
+import { CrearDepositoModal } from './CrearDepositoModal';
 
 interface UiState extends FilterValues {
   view: 'productos' | 'recepciones';
@@ -127,6 +136,7 @@ type ModalState =
   | { kind: 'recepciones' }
   | { kind: 'costos' }
   | { kind: 'transferencias' }
+  | { kind: 'nuevo-deposito' }
   | { kind: 'import'; analisis: AnalisisImport };
 
 /**
@@ -135,10 +145,15 @@ type ModalState =
  * que se agrega (botón «+ Nuevo producto», importación de Excel). Lo que es propio del
  * General (recepciones de compras, casiterita a MGG) no aparece en la Mina.
  */
-export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito } = {}) {
-  const dep = DEPOSITOS[deposito];
-  const esMina = deposito === 'mina';
-  const esReutilizables = deposito === 'reutilizables';
+export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito } = {}) {
+  const params = useParams<{ slug?: string }>();
+  const depKey = propDeposito ?? params.slug ?? 'general';
+  const dep = resolverDeposito(depKey);
+  const deposito = dep.almacen;
+  const esGeneral = dep.almacen === ALMACEN_GENERAL;
+  const esMina = dep.almacen === ALMACEN_MINA;
+  const esReutilizables = dep.almacen === ALMACEN_REUTILIZABLES;
+  const esDanados = dep.almacen === ALMACEN_DANADOS;
   const { user } = useSession();
   const { can, appUser, puedeVista } = usePermissions();
   const canWrite = can('inventario', 'escritura');
@@ -421,31 +436,18 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
     <div>
       <div className="page-head">
         <div>
-          <h1>{esReutilizables ? '♻️ Depósito Reutilizables' : esMina ? '⛏ Depósito Mina' : 'Inventario'}</h1>
+          <h1>{dep.icono} {dep.nombre}</h1>
           <p className="hint">
-            {esReutilizables ? (
-              <>Catálogo del <strong>Depósito Reutilizables</strong>: materiales reutilizables de la Mina, con su propio stock, kardex y reportes.</>
-            ) : esMina ? (
-              <>Catálogo del <strong>Depósito Mina</strong>: independiente del Inventario General, con su propio stock y kardex.</>
+            {esGeneral ? (
+              <>Catálogo de productos del <strong>Inventario Los Pinos (General)</strong>.</>
             ) : (
-              <>Catálogo de productos del <strong>Inventario General</strong>.</>
+              <>Catálogo del <strong>{dep.nombre}</strong>: independiente del Inventario General, con su propio stock, kardex y reportes.</>
             )}
             {' '}<span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
           </p>
         </div>
         <div className="actions">
-          {esReutilizables ? (
-            <>
-              <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Volver al Depósito Mina">← Volver</Link>
-              {puedeVista('deposito_mina') && <Link className="btn btn-ghost" to="/app/inventario/deposito-reutilizables/telefono" title="La pantalla del depósito reutilizables con botones grandes para el teléfono">📱 Vista teléfono</Link>}
-            </>
-          ) : esMina ? (
-            <>
-              <Link className="btn btn-ghost" to={DEPOSITOS.general.ruta}>← Inventario General</Link>
-              <Link className="btn btn-ghost" to={DEPOSITOS.reutilizables.ruta} style={{ borderColor: '#10b981', color: '#10b981' }} title="Depósito de materiales reutilizables">♻️ Depósito Reutilizables</Link>
-              {puedeVista('deposito_mina') && <Link className="btn btn-ghost" to="/app/inventario/deposito-mina/telefono" title="La pantalla del depósito con botones grandes para el teléfono">📱 Vista teléfono</Link>}
-            </>
-          ) : (
+          {esGeneral ? (
             <>
               {puedeVista('inventario') && <Link className="btn btn-ghost" to="/app/inventario/telefono" title="La pantalla del inventario con botones grandes para el teléfono: producto nuevo, entrada, traslado y reporte de stock">📱 Vista teléfono</Link>}
               <button
@@ -461,6 +463,41 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
                 Recepciones {(recepcionesPorMarcar + comprasRecep.length) > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepcionesPorMarcar + comprasRecep.length}</span>}
               </button>
               <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Depósito independiente de la mina">⛏ Depósito Mina</Link>
+              <Link className="btn btn-ghost" to={DEPOSITOS.reutilizables.ruta} style={{ borderColor: '#10b981', color: '#10b981' }} title="Depósito de materiales reutilizables">♻️ Depósito Reutilizables</Link>
+              <Link className="btn btn-ghost" to={DEPOSITOS.danados.ruta} style={{ borderColor: '#f59e0b', color: '#f59e0b' }} title="Depósito de items y materiales dañados">⚠️ Depósito Items Dañados</Link>
+              {almacenes
+                .filter((a) => a.nombre !== 'General' && a.nombre !== ALMACEN_MINA && a.nombre !== ALMACEN_REUTILIZABLES && a.nombre !== ALMACEN_DANADOS)
+                .map((a) => {
+                  const d = resolverDeposito(a.nombre);
+                  return (
+                    <Link key={a.id} className="btn btn-ghost" to={d.ruta} title={`Depósito: ${a.nombre}`}>
+                      {d.icono} {a.nombre}
+                    </Link>
+                  );
+                })}
+              {canWrite && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setModal({ kind: 'nuevo-deposito' })}
+                  title="Crear un nuevo depósito independiente con catálogo propio y vista móvil"
+                  style={{ fontWeight: 700 }}
+                >
+                  ➕ Crear depósito
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <Link className="btn btn-ghost" to="/app/inventario" title="Volver al Inventario Los Pinos">← Inventario Los Pinos</Link>
+              {(esReutilizables || esDanados) && (
+                <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Ir a Depósito Mina">⛏ Depósito Mina</Link>
+              )}
+              {puedeVista('deposito_mina') && (
+                <Link className="btn btn-ghost" to={dep.rutaTelefono} title={`La pantalla de ${dep.nombre} con botones grandes para el teléfono`}>
+                  📱 Vista teléfono
+                </Link>
+              )}
             </>
           )}
           {canWrite && (
@@ -738,6 +775,17 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}
           onImportado={() => { void reload(); }}
+        />
+      )}
+      {modal.kind === 'nuevo-deposito' && (
+        <CrearDepositoModal
+          open
+          onClose={() => setModal({ kind: 'none' })}
+          existentes={almacenes}
+          actorEmail={user?.email}
+          onCreated={() => {
+            void reload();
+          }}
         />
       )}
 

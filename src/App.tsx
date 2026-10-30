@@ -37,6 +37,7 @@ const UsuariosPage = lazy(() => import('./modules/usuarios/UsuariosPage').then((
 const CarnetPublicoPage = lazy(() => import('./modules/rrhh/CarnetPublicoPage').then((m) => ({ default: m.CarnetPublicoPage })));
 const DepositoMinaMovilView = lazy(() => import('./modules/inventario/DepositoMinaMovilView').then((m) => ({ default: m.DepositoMinaMovilView })));
 const DepositoReutilizablesMovilView = lazy(() => import('./modules/inventario/DepositoMinaMovilView').then((m) => ({ default: m.DepositoReutilizablesMovilView })));
+const DepositoDanadosMovilView = lazy(() => import('./modules/inventario/DepositoMinaMovilView').then((m) => ({ default: m.DepositoDanadosMovilView })));
 const InventarioMovilView = lazy(() => import('./modules/inventario/DepositoMinaMovilView').then((m) => ({ default: m.InventarioMovilView })));
 const SolicitudesAlmacenMovilView = lazy(() => import('./modules/solicitudesAlmacen/SolicitudesAlmacenMovilView').then((m) => ({ default: m.SolicitudesAlmacenMovilView })));
 const AjustesPage = lazy(() => import('./modules/ajustes/AjustesPage').then((m) => ({ default: m.AjustesPage })));
@@ -108,12 +109,16 @@ export function App() {
           <Route path="delivery/telefono" element={<RequireVistaTelefono vista="delivery"><Suspense fallback={<PageLoader />}><DeliveryMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
-          {/* Depósito Mina y Depósito Reutilizables: submódulos de Inventario, catálogos independientes (misma pantalla, otro depósito). */}
+          {/* Depósitos independientes: catálogo propio, misma funcionalidad */}
           <Route path="inventario/deposito-mina" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage deposito="mina" key="mina" /></Suspense></RequireModule>} />
           <Route path="inventario/deposito-reutilizables" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage deposito="reutilizables" key="reutilizables" /></Suspense></RequireModule>} />
+          <Route path="inventario/deposito-danados" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage deposito="danados" key="danados" /></Suspense></RequireModule>} />
+          <Route path="inventario/deposito/:slug" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
           <Route path="inventario/telefono" element={<RequireVistaTelefono vista="inventario"><Suspense fallback={<PageLoader />}><InventarioMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="inventario/deposito-mina/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoMinaMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="inventario/deposito-reutilizables/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoReutilizablesMovilView /></Suspense></RequireVistaTelefono>} />
+          <Route path="inventario/deposito-danados/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoDanadosMovilView /></Suspense></RequireVistaTelefono>} />
+          <Route path="inventario/deposito/:slug/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoMinaMovilView /></Suspense></RequireVistaTelefono>} />
           {/* Solicitudes de Pedido: Almacén las revisa antes de Compras. Vive DENTRO de Pedidos / Compras (pestaña «Revisión de Almacén»); /app/solicitudes queda como atajo a esa pestaña. */}
           <Route path="solicitudes" element={<Navigate to="/app/pedidos?tab=almacen" replace />} />
           <Route path="solicitudes/telefono" element={<RequireVistaTelefono vista="solicitudes"><Suspense fallback={<PageLoader />}><SolicitudesAlmacenMovilView /></Suspense></RequireVistaTelefono>} />
