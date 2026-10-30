@@ -30,7 +30,7 @@ import {
   registrarTrasladoMGG, reintentarTrasladoMGG, revertirTrasladoMGG, listTransferenciasCombustible,
   DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoKilometrajeEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
-  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, setEquipoTanquesPermitidos, setMultipleCatalogosActivo, crearConciliacion,
+  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, setEquipoTanquesPermitidos, setMultipleCatalogosActivo, crearConciliacion, setMovimientoCuaderno,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, esBrasileros, postearConsumoCombustibleSemana,
   previewConsumoCombustibleSemana, type PreviewConsumoSemana, type ReporteTanque, type ResumenTanquePeriodo,
@@ -52,6 +52,7 @@ import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTan
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
 import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
+import { calcularMermaImplicitaTanque, DEFAULT_MERMA_IMPLICITA_PCT, generarObservacionMermaImplicita } from './mermaImplicita';
 import { useFichasEquipos } from './fichasEquipos';
 import { opcionesEquipos, esTanquePermitidoParaEquipo, type FichaEquipoOpcion } from './opcionesEquipos';
 
@@ -854,8 +855,29 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // Merma de recepción (02/10/2026): lo que llegó de verdad en una entrada o un traslado.
   const [recibidos, setRecibidos] = useState('');
   const [motivoMerma, setMotivoMerma] = useState('');
+  const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(false);
+  const [movsTanque, setMovsTanque] = useState<MovimientoTanque[]>([]);
+  const [pctMermaImplicita, setPctMermaImplicita] = useState<number>(() => {
+    const t = tanques.find((x) => x.id === tanqueId);
+    return t?.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT;
+  });
+  const [verRespaldoMovs, setVerRespaldoMovs] = useState(false);
   const { can } = usePermissions();
   const isAdmin = can('combustible', 'full'); // Full control de Combustible guarda mermas fuera de margen (17/10/2026).
+
+  useEffect(() => {
+    if (tipo === 'merma' && tanqueId) {
+      listMovimientosTanque(tanqueId).then(setMovsTanque).catch(() => {});
+    }
+  }, [tipo, tanqueId]);
+
+  const resumenMerma = useMemo(() => {
+    if (tipo !== 'merma') return null;
+    return calcularMermaImplicitaTanque({
+      movimientos: movsTanque,
+      porcentaje: pctMermaImplicita,
+    });
+  }, [tipo, movsTanque, pctMermaImplicita]);
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 
@@ -949,6 +971,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
       horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
       kilometraje: km === '' ? null : Number(km),
       contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
+      registrado_en_cuaderno: registradoEnCuaderno,
     };
     setSaving(true);
     try {
@@ -1146,6 +1169,138 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
               style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
           </div>
         </div>
+
+        {/* Merma implícita sugerida por movimiento con lista de respaldo (pedido 30/10/2026) */}
+        {tipo === 'merma' && resumenMerma && (
+          <div style={{
+            background: 'linear-gradient(145deg, #182230 0%, #0f172a 100%)',
+            border: '1.5px solid rgba(255, 138, 0, 0.45)',
+            borderRadius: '12px',
+            padding: '1rem',
+            marginTop: '1rem',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem' }}>
+              <div>
+                <div style={{ fontSize: '.76rem', textTransform: 'uppercase', fontWeight: 700, color: '#FF8A00', letterSpacing: '0.04em' }}>
+                  💡 Merma Implícita Sugerida
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', marginTop: '3px' }}>
+                  <span style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ffedd5', fontFamily: 'monospace' }}>
+                    {num(resumenMerma.totalSugerido)} L
+                  </span>
+                  <span style={{ fontSize: '.82rem', color: '#94a3b8' }}>
+                    sobre {num(resumenMerma.totalLitrosBase)} L en {resumenMerma.cantidadMovimientos} movimientos
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', background: '#0b1120', padding: '.25rem .5rem', borderRadius: '6px', border: '1px solid #334155' }}>
+                  <span style={{ fontSize: '.75rem', color: '#94a3b8' }}>Margen:</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0.01"
+                    max="10"
+                    value={pctMermaImplicita}
+                    onChange={(e) => setPctMermaImplicita(Math.max(0.01, Number(e.target.value) || DEFAULT_MERMA_IMPLICITA_PCT))}
+                    style={{ width: '56px', background: 'transparent', border: 'none', color: '#FF8A00', fontWeight: 700, fontSize: '.88rem', textAlign: 'right', outline: 'none' }}
+                  />
+                  <span style={{ fontSize: '.78rem', color: '#FF8A00', fontWeight: 700 }}>%</span>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-warning btn-sm"
+                  onClick={() => {
+                    setLitros(String(resumenMerma.totalSugerido));
+                    setObservacion(generarObservacionMermaImplicita(resumenMerma));
+                  }}
+                  style={{ background: '#FF8A00', color: '#182230', fontWeight: 700, border: 'none' }}
+                  title="Aplica este volumen sugerido y redacta la justificación en la observación"
+                >
+                  ⚡ Usar sugerida ({num(resumenMerma.totalSugerido)} L)
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '.75rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '.6rem' }}>
+              <button
+                type="button"
+                onClick={() => setVerRespaldoMovs((v) => !v)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#38bdf8',
+                  cursor: 'pointer',
+                  fontSize: '.82rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '.35rem',
+                  padding: 0,
+                  fontWeight: 600,
+                }}
+              >
+                {verRespaldoMovs ? '▾ Ocultar respaldo de movimientos' : `▸ Ver respaldo: ${resumenMerma.cantidadMovimientos} movimientos causantes`}
+                {resumenMerma.fechaUltimaMermaPrevia && (
+                  <span style={{ color: '#94a3b8', fontWeight: 400 }}>
+                    (desde último corte: {resumenMerma.fechaUltimaMermaPrevia})
+                  </span>
+                )}
+              </button>
+
+              {verRespaldoMovs && (
+                <div style={{ marginTop: '.6rem', maxHeight: 220, overflowY: 'auto', border: '1px solid #1e293b', borderRadius: '8px', background: '#0b1120' }}>
+                  <table className="table" style={{ fontSize: '.78rem', width: '100%' }}>
+                    <thead>
+                      <tr style={{ background: '#0f172a' }}>
+                        <th>Fecha / Hora</th>
+                        <th>Tipo / Equipo</th>
+                        <th style={{ textAlign: 'right' }}>Litros</th>
+                        <th style={{ textAlign: 'right' }}>% Implícito</th>
+                        <th style={{ textAlign: 'right' }}>Merma</th>
+                        <th style={{ textAlign: 'right' }}>Acumulado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!resumenMerma.items.length && (
+                        <tr><td colSpan={6} style={{ textAlign: 'center', color: '#94a3b8', padding: '1rem' }}>No hay movimientos registrados desde la última merma.</td></tr>
+                      )}
+                      {resumenMerma.items.map((it) => (
+                        <tr key={it.id}>
+                          <td>{it.fecha} {it.hora ? `· ${it.hora}` : ''}</td>
+                          <td>
+                            <strong>{it.tipo === 'traslado' ? '🔁 Traslado' : '⛽ Surtido'}</strong>
+                            {it.equipo ? ` → ${it.equipo}` : ''}
+                          </td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{num(it.litros)} L</td>
+                          <td className="mono" style={{ textAlign: 'right', color: '#94a3b8' }}>{it.pctAplicado}%</td>
+                          <td className="mono" style={{ textAlign: 'right', color: '#FF8A00', fontWeight: 700 }}>+{num(it.mermaLitros)} L</td>
+                          <td className="mono" style={{ textAlign: 'right', color: '#f8fafc' }}>{num(it.acumulado)} L</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Check de cuaderno físico (pedido 30/10/2026) */}
+        <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginTop: '.75rem', padding: '.4rem 0' }}>
+          <input
+            id="mov-cuaderno"
+            type="checkbox"
+            checked={registradoEnCuaderno}
+            onChange={(e) => setRegistradoEnCuaderno(e.target.checked)}
+            style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+          />
+          <label htmlFor="mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
+            📖 Registrado en cuaderno físico de control
+          </label>
+        </div>
       </form>
     </Modal>
   );
@@ -1186,6 +1341,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const [km, setKm] = useState(s(mov.kilometraje));
   const [ci, setCi] = useState(s(mov.contador_global_ini));
   const [cf, setCf] = useState(s(mov.contador_global_fin));
+  const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1214,6 +1370,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
         horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
         kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
+        registrado_en_cuaderno: registradoEnCuaderno,
       });
       toast('Movimiento actualizado', 'success');
       onSaved();
@@ -1318,6 +1475,20 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
         <input className="input mono" value={litrosContador == null ? '' : num(litrosContador)} readOnly placeholder="se calcula automáticamente"
           style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
       </div>
+
+      <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginTop: '.75rem', padding: '.4rem 0' }}>
+        <input
+          id="det-mov-cuaderno"
+          type="checkbox"
+          checked={registradoEnCuaderno}
+          onChange={(e) => setRegistradoEnCuaderno(e.target.checked)}
+          disabled={!canWrite}
+          style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+        />
+        <label htmlFor="det-mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
+          📖 Registrado en cuaderno físico de control
+        </label>
+      </div>
     </Modal>
   );
 }
@@ -1341,6 +1512,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
   const [tasa, setTasa] = useState(tanque?.tasa_usd_litro != null ? String(tanque.tasa_usd_litro) : '');
   const [ubicacion, setUbicacion] = useState(tanque?.ubicacion ?? '');
   const [margen, setMargen] = useState(String(tanque?.margen_merma_pct ?? MARGEN_MERMA_DEFECTO));
+  const [mermaImplicita, setMermaImplicita] = useState(String(tanque?.merma_implicita_pct ?? 0.5));
   const [saving, setSaving] = useState(false);
 
   // Capacidad calculada por fórmula con las dimensiones actuales (preview en vivo).
@@ -1363,6 +1535,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
       capacidadLitros: Number(capacidad) || 0,
       ubicacion: ubicacion || null,
       margenMermaPct: margen.trim() === '' ? MARGEN_MERMA_DEFECTO : Number(margen.replace(',', '.')),
+      mermaImplicitaPct: mermaImplicita.trim() === '' ? 0.5 : Number(mermaImplicita.replace(',', '.')),
     };
   }
 
@@ -1460,6 +1633,12 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
           <label>Margen de merma al recibir (%)</label>
           <input className="input mono" type="number" min={0} max={100} step="any" name="tnk-margen" value={margen} onChange={(e) => setMargen(e.target.value)} />
           <small className="muted">En una entrada o un traslado a este tanque, si llega menos de lo enviado la diferencia es merma. Hasta este % se guarda normal; más, pide motivo y solo un administrador la guarda.</small>
+        </div>
+        <div className="form-row">
+          <label>Margen de merma implícita sugerida por movimiento (%)</label>
+          <input className="input mono" type="number" min={0} max={10} step="0.05" name="tnk-merma-implicita"
+            value={mermaImplicita} onChange={(e) => setMermaImplicita(e.target.value)} />
+          <small className="muted">Porcentaje técnico sugerido al registrar una merma en este tanque (por defecto 0.5%). Respalda el cálculo con la lista de despachos.</small>
         </div>
       </form>
     </Modal>

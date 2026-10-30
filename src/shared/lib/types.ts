@@ -343,6 +343,8 @@ export interface TanqueCombustible {
   ubicacion?: string | null;
   /** Merma máxima admitida al recibir una entrada o un traslado, en % de lo enviado (10 por defecto). */
   margen_merma_pct?: number | null;
+  /** Margen de merma técnica/implícita sugerida por movimiento, en % (0.5 por defecto). */
+  merma_implicita_pct?: number | null;
   estado: 'activo' | 'inactivo';
   orden: number;
   created_by?: string | null;
@@ -442,6 +444,8 @@ export interface MovimientoTanque {
   horas_utilizadas?: number | null;
   /** Kilometraje (odómetro) del vehículo al momento del movimiento. Lectura absoluta. */
   kilometraje?: number | null;
+  /** Indica si el movimiento fue asentado en el cuaderno físico de campo. */
+  registrado_en_cuaderno?: boolean | null;
   tasa_usd_litro: number;
   monto_usd?: number | null;
   orden: number;

@@ -437,6 +437,8 @@ export interface TanqueInput {
   ubicacion?: string | null;
   /** Margen de merma al recibir (en %). Vacío = se queda como está (10 al crear). */
   margenMermaPct?: number | null;
+  /** Margen de merma técnica/implícita sugerida por movimiento (en %). */
+  mermaImplicitaPct?: number | null;
 }
 
 /** Geometría a partir del input del formulario (para cubicar/capacidad). */
@@ -504,6 +506,7 @@ export async function actualizarTanque(id: string, input: TanqueInput): Promise<
     updated_at: new Date().toISOString(),
   };
   if (input.margenMermaPct != null) patch.margen_merma_pct = Math.min(100, Math.max(0, num(input.margenMermaPct)));
+  if (input.mermaImplicitaPct != null) patch.merma_implicita_pct = Math.min(100, Math.max(0, num(input.mermaImplicitaPct)));
   // Tasa USD/L editable: OVERRIDE MANUAL. Normalmente la tasa es el PMP (se deriva sola de
   // las compras), pero editar la tasa del tanque permite "aplanar" todo a un valor puntual
   // (corrección). Al hacerlo, se re-valoriza el saldo y la APERTURA a esa tasa, y todos los
@@ -640,7 +643,8 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   return rows.map((m) => {
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
-    return { ...m, saldo_litros: round(saldoL, 2), saldo_usd: round(saldoU, 2) };
+    const regCuaderno = m.registrado_en_cuaderno ?? (m.observacion && /\[Cuaderno:\s*(Sí|Registrado)\]/i.test(m.observacion) ? true : false);
+    return { ...m, registrado_en_cuaderno: regCuaderno, saldo_litros: round(saldoL, 2), saldo_usd: round(saldoU, 2) };
   });
 }
 
@@ -658,10 +662,28 @@ export interface MovimientoTanqueCampos {
   horometroFin?: number | null;
   /** Kilometraje (odómetro) del vehículo: lectura absoluta del momento. */
   kilometraje?: number | null;
+  /** ¿Fue asentado en el cuaderno físico de campo? */
+  registrado_en_cuaderno?: boolean | null;
 }
 
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
-  const { data, error } = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
+  let data: unknown;
+  let error: unknown;
+  const res = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
+  data = res.data;
+  error = res.error;
+  if (error && (error as { code?: string }).code === '42703' && 'registrado_en_cuaderno' in payload) {
+    const fallbackPayload = { ...payload };
+    const reg = fallbackPayload.registrado_en_cuaderno;
+    delete fallbackPayload.registrado_en_cuaderno;
+    if (reg) {
+      const obs = String(fallbackPayload.observacion || '').trim();
+      fallbackPayload.observacion = obs ? `${obs} [Cuaderno: Registrado]` : '[Cuaderno: Registrado]';
+    }
+    const res2 = await supabase.from('combustible_tanque_movimientos').insert(fallbackPayload).select('*').single();
+    data = res2.data;
+    error = res2.error;
+  }
   if (error) throw error;
   const mov = data as MovimientoTanque;
   // Re-encadena los medidores CONTINUOS tras insertar (igual que al editar/borrar): el
@@ -690,6 +712,7 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
     // («column "horas_utilizadas" can only be updated to DEFAULT»). Lo mismo monto_usd y
     // contador_global_dif. Basta con guardar HI y HF.
     kilometraje: c.kilometraje ?? null,
+    ...(c.registrado_en_cuaderno !== undefined ? { registrado_en_cuaderno: c.registrado_en_cuaderno } : {}),
   };
 }
 
@@ -1355,6 +1378,28 @@ async function reencadenarHorometroEquipo(equipo: string | null | undefined): Pr
  *  Como la fecha/hora puede cambiar la posición cronológica del movimiento, tras guardar se
  *  RE-ENCADENAN los medidores continuos: el contador del surtidor (por tanque) y el horómetro
  *  (por equipo) — el inicial de cada movimiento vuelve a colgar del final del anterior. */
+
+/**
+ * Actualiza el estado de asentado en cuaderno físico de un movimiento.
+ */
+export async function setMovimientoCuaderno(movId: string, registrado_en_cuaderno: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .update({ registrado_en_cuaderno })
+    .eq('id', movId);
+  if (error) {
+    if ((error as { code?: string }).code === '42703') {
+      const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion').eq('id', movId).maybeSingle();
+      const obs = (data as { observacion?: string | null })?.observacion || '';
+      const limpio = obs.replace(/\[Cuaderno:\s*(Sí|No|Registrado|No registrado)\]/gi, '').trim();
+      const nuevoObs = `${limpio} [Cuaderno: ${registrado_en_cuaderno ? 'Registrado' : 'No registrado'}]`.trim();
+      await supabase.from('combustible_tanque_movimientos').update({ observacion: nuevoObs }).eq('id', movId);
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function actualizarMovimientoTanque(
   id: string,
   patch: MovimientoTanqueCampos & { tipo?: TipoMovTanque; litros?: number; tasaUsdLitro?: number },

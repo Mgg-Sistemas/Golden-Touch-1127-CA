@@ -44,6 +44,24 @@ describe('mensajeMovimiento', () => {
     expect(t).toContain('👉 *Pasa al tanque:* Tanque #3');
   });
 
+  it('incluye estado de cuaderno físico según corresponda', () => {
+    const tRegistrado = mensajeMovimiento({
+      mov: mov({ registrado_en_cuaderno: true }),
+    });
+    expect(tRegistrado).toContain('📖 *Registrado en cuaderno:* Registrado');
+
+    const tNoRegistrado = mensajeMovimiento({
+      mov: mov({ registrado_en_cuaderno: false }),
+    });
+    expect(tNoRegistrado).toContain('📖 *Registrado en cuaderno:* No registrado');
+
+    const tOverride = mensajeMovimiento({
+      mov: mov({ registrado_en_cuaderno: false }),
+      registradoEnCuaderno: true,
+    });
+    expect(tOverride).toContain('📖 *Registrado en cuaderno:* Registrado');
+  });
+
   it('no escribe los renglones de lo que no hay', () => {
     const t = mensajeMovimiento({ mov: mov({}) });
     expect(t).not.toContain('Equipo');

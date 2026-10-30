@@ -58,6 +58,8 @@ export interface DatosMensaje {
   tanqueDestino?: string | null;
   /** Quién lo cargó (va al pie). */
   registradoPor?: string | null;
+  /** Forzar o indicar explícitamente el estado de cuaderno si no viene en mov */
+  registradoEnCuaderno?: boolean | null;
 }
 
 /**
@@ -86,6 +88,11 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   if (m.contador_global_fin != null) lineas.push(`🔢 *Contador:* ${num(m.contador_global_fin)}`);
   if (m.horometro_fin != null) lineas.push(`⏳ *Horómetro:* ${num(m.horometro_fin)}`);
   if (m.kilometraje != null) lineas.push(`📏 *Kilometraje:* ${num(m.kilometraje)}`);
+
+  const regCuaderno = d.registradoEnCuaderno !== undefined ? d.registradoEnCuaderno : m.registrado_en_cuaderno;
+  if (regCuaderno !== undefined && regCuaderno !== null) {
+    lineas.push(`📖 *Registrado en cuaderno:* ${regCuaderno ? 'Registrado' : 'No registrado'}`);
+  }
   if (m.observacion) lineas.push(`📝 *Nota:* ${m.observacion}`);
 
   lineas.push('', `🏢 GOLDEN TOUCH 1127 C.A.${d.registradoPor ? ` · Cargado por ${d.registradoPor}` : ''}`);

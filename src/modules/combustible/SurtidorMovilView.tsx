@@ -30,6 +30,7 @@ import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCata
 import {
   listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada,
   eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
+  setMovimientoCuaderno,
 } from './tanques.repository';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
@@ -283,6 +284,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   const [km, setKm] = useState('');
   const [ci, setCi] = useState(''); const [ciAuto, setCiAuto] = useState(false);
   const [cf, setCf] = useState('');
+  const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(false);
   const [masDatos, setMasDatos] = useState(false);
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
@@ -357,6 +359,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
         horometroIni: hiNum, horometroFin: hfNum,
         kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
+        registrado_en_cuaderno: registradoEnCuaderno,
       };
       let movId: string;
       if (tipo === 'uso') movId = (await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
@@ -532,6 +535,48 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
         </div>
       )}
 
+      {/* Check de asentado en cuaderno físico (pedido 30/10/2026) */}
+      <div className="surt-campo" style={{ margin: '.6rem 0' }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '.75rem',
+            background: registradoEnCuaderno ? 'rgba(16, 185, 129, 0.14)' : 'rgba(30, 41, 59, 0.7)',
+            border: registradoEnCuaderno ? '1.5px solid rgba(16, 185, 129, 0.5)' : '1px solid #334155',
+            borderRadius: '12px',
+            padding: '.75rem 1rem',
+            cursor: 'pointer',
+            userSelect: 'none',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
+            <span style={{ fontSize: '1.35rem' }}>📖</span>
+            <div>
+              <div style={{ fontWeight: 700, color: registradoEnCuaderno ? '#34d399' : '#f1f5f9', fontSize: '.95rem' }}>
+                ¿Registrado en cuaderno?
+              </div>
+              <div style={{ fontSize: '.75rem', color: registradoEnCuaderno ? '#6ee7b7' : '#94a3b8' }}>
+                {registradoEnCuaderno ? '✓ Asentado en el cuaderno físico' : 'Pendiente por asentar en cuaderno'}
+              </div>
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={registradoEnCuaderno}
+            onChange={(e) => setRegistradoEnCuaderno(e.target.checked)}
+            style={{
+              width: '22px',
+              height: '22px',
+              accentColor: '#10b981',
+              cursor: 'pointer',
+            }}
+          />
+        </label>
+      </div>
+
       <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos}
         titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : '📷 Fotos (contador, equipo, vale)'} grande />
 
@@ -623,6 +668,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  const [enCuaderno, setEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
   const quien = useQuien();
   const destino = mov.tanque_destino_id ? tanques.find((t) => t.id === mov.tanque_destino_id)?.nombre : null;
   const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
@@ -649,7 +695,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
       {/* El que surte manda el aviso al grupo apenas carga el surtido. */}
-      <CompartirWhatsapp texto={mensajeMovimiento({ mov, tanque: tanque?.nombre, tanqueDestino: destino, registradoPor: quien(mov.actor_name, mov.created_by) })} />
+      <CompartirWhatsapp texto={mensajeMovimiento({ mov, tanque: tanque?.nombre, tanqueDestino: destino, registradoPor: quien(mov.actor_name, mov.created_by), registradoEnCuaderno: enCuaderno })} />
 
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre} />
@@ -664,6 +710,38 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
         <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.45rem 0', borderBottom: '1px solid #1e293b' }}>
+          <span className="muted" style={{ fontSize: '.84rem' }}>📖 Cuaderno físico</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+            <span style={{
+              fontWeight: 700,
+              color: enCuaderno ? '#34d399' : '#f87171',
+              fontSize: '.88rem',
+            }}>
+              {enCuaderno ? '✓ Registrado' : '✕ No registrado'}
+            </span>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={async () => {
+                  try {
+                    const nuevo = !enCuaderno;
+                    await setMovimientoCuaderno(mov.id, nuevo);
+                    mov.registrado_en_cuaderno = nuevo;
+                    setEnCuaderno(nuevo);
+                    toast(nuevo ? 'Marcado como asentado en cuaderno' : 'Marcado como no asentado', 'success');
+                  } catch (e) {
+                    toast(mensajeError(e, 'No se pudo actualizar'), 'error');
+                  }
+                }}
+                style={{ fontSize: '.72rem', padding: '2px 6px', background: 'rgba(255,255,255,0.06)' }}
+              >
+                Cambiar
+              </button>
+            )}
+          </div>
+        </div>
         <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${quien(mov.actor_name, mov.created_by)}` : ''}`} />
       </div>
 
