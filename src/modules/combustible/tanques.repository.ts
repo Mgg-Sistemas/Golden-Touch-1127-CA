@@ -88,6 +88,101 @@ export function capacidadCalculada(g: GeometriaTanque): number {
 
 /* ───────────── Catálogos ───────────── */
 
+const CLAVE_TANQUES_PERMITIDOS = 'combustible_tanques_permitidos';
+let memoriaPermisosTanques: Record<string, string[]> | null = null;
+
+export async function obtenerPermisosTanquesFallback(): Promise<Record<string, string[]>> {
+  if (memoriaPermisosTanques) return memoriaPermisosTanques;
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(CLAVE_TANQUES_PERMITIDOS) : null;
+    if (raw) memoriaPermisosTanques = JSON.parse(raw);
+  } catch {}
+
+  try {
+    const { data } = await supabase
+      .from('sistema_interruptores')
+      .select('descripcion')
+      .eq('clave', CLAVE_TANQUES_PERMITIDOS)
+      .maybeSingle();
+    if (data?.descripcion) {
+      const parsed = JSON.parse(data.descripcion);
+      if (parsed && typeof parsed === 'object') {
+        memoriaPermisosTanques = { ...(memoriaPermisosTanques ?? {}), ...parsed };
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(CLAVE_TANQUES_PERMITIDOS, JSON.stringify(memoriaPermisosTanques));
+        }
+      }
+    }
+  } catch {}
+
+  return memoriaPermisosTanques ?? {};
+}
+
+export async function guardarPermisoTanqueFallback(
+  id: string,
+  valor: string,
+  tanques: string[] | null,
+): Promise<void> {
+  const actual = await obtenerPermisosTanquesFallback();
+  const siguiente: Record<string, string[]> = { ...actual };
+  const kId = (id ?? '').trim();
+  const kNombre = norm(valor);
+
+  if (tanques && tanques.length > 0) {
+    if (kId) siguiente[kId] = tanques;
+    if (kNombre) siguiente[kNombre] = tanques;
+  } else {
+    if (kId) delete siguiente[kId];
+    if (kNombre) delete siguiente[kNombre];
+  }
+  memoriaPermisosTanques = siguiente;
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(CLAVE_TANQUES_PERMITIDOS, JSON.stringify(siguiente));
+    }
+  } catch {}
+
+  try {
+    await supabase.from('sistema_interruptores').upsert({
+      clave: CLAVE_TANQUES_PERMITIDOS,
+      activo: true,
+      descripcion: JSON.stringify(siguiente),
+    });
+  } catch {}
+}
+
+export async function setEquipoTanquesPermitidos(
+  id: string,
+  valor: string,
+  tanques: string[] | null,
+): Promise<void> {
+  await guardarPermisoTanqueFallback(id, valor, tanques);
+  try {
+    await supabase
+      .from('combustible_catalogos')
+      .update({ tanques_permitidos: tanques && tanques.length > 0 ? tanques : null })
+      .eq('id', id);
+  } catch {}
+}
+
+export async function setMultipleCatalogosActivo(ids: string[], activo: boolean): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase.from('combustible_catalogos').update({ activo }).in('id', ids);
+  if (error) throw error;
+}
+
+export async function setMultipleTanquesPermitidos(
+  items: { id: string; valor: string }[],
+  tanques: string[] | null,
+): Promise<void> {
+  if (!items.length) return;
+  for (const item of items) {
+    await setEquipoTanquesPermitidos(item.id, item.valor, tanques);
+  }
+}
+
+
 export async function listCatalogos(): Promise<CatalogoCombustible[]> {
   const { data, error } = await supabase
     .from('combustible_catalogos')
@@ -96,7 +191,13 @@ export async function listCatalogos(): Promise<CatalogoCombustible[]> {
     .order('orden', { ascending: true })
     .order('valor', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as CatalogoCombustible[];
+  const rows = (data ?? []) as CatalogoCombustible[];
+  const permisosExtra = await obtenerPermisosTanquesFallback();
+  return rows.map((r) => {
+    if (r.tanques_permitidos && r.tanques_permitidos.length > 0) return r;
+    const fallback = permisosExtra[r.id] ?? permisosExtra[norm(r.valor)];
+    return fallback ? { ...r, tanques_permitidos: fallback } : r;
+  });
 }
 
 export async function addCatalogo(tipo: TipoCatalogoCombustible, valor: string): Promise<CatalogoCombustible> {

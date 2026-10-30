@@ -30,7 +30,7 @@ import {
   registrarTrasladoMGG, reintentarTrasladoMGG, revertirTrasladoMGG, listTransferenciasCombustible,
   DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoKilometrajeEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
-  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
+  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, setEquipoTanquesPermitidos, setMultipleCatalogosActivo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, esBrasileros, postearConsumoCombustibleSemana,
   previewConsumoCombustibleSemana, type PreviewConsumoSemana, type ReporteTanque, type ResumenTanquePeriodo,
@@ -53,7 +53,7 @@ import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
 import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
 import { useFichasEquipos } from './fichasEquipos';
-import { opcionesEquipos } from './opcionesEquipos';
+import { opcionesEquipos, esTanquePermitidoParaEquipo, type FichaEquipoOpcion } from './opcionesEquipos';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -323,7 +323,7 @@ export function TanquesView() {
           onSaved={async () => { setModal('none'); setEditTanque(null); await reloadTanques(); }} />
       )}
       {modal === 'catalogos' && (
-        <CatalogosModal catalogos={catalogos} onClose={() => setModal('none')} onChanged={reloadTanques} />
+        <CatalogosModal catalogos={catalogos} tanques={tanques.filter((t) => t.estado === 'activo')} onClose={() => setModal('none')} onChanged={reloadTanques} />
       )}
       {modal === 'conciliacion' && (
         <ConciliacionModal tanques={tanques} actor={actor} defaultEmail={user?.email ?? ''} onClose={() => setModal('none')} />
@@ -861,15 +861,18 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // Igual que en el teléfono (27/10/2026): agrupado por apartado de Maquinaria y buscable por el
   // alias / placa de la ficha. En la PC el nombre oficial queda como label y el alias de hint.
   const fichas = useFichasEquipos();
+  const tanqueActualObj = useMemo(() => tanques.find((t) => t.id === tanqueId) ?? tanqueSel, [tanques, tanqueId, tanqueSel]);
   const equiposOptions = useMemo(() => [
     { value: '', label: '— elige el equipo —' },
     ...opcionesEquipos({
-      catalogo: opts('equipo').map((c) => c.valor),
+      catalogo: catalogos.filter((c) => c.tipo === 'equipo'),
       fichas,
       bidones: tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre),
       modo: 'pc',
+      tanqueActual: tanqueActualObj,
+      incluirValor: equipo,
     }),
-  ], [catalogos, tanques, fichas]);
+  ], [catalogos, tanques, fichas, tanqueActualObj, equipo]);
 
   // El HORÓMETRO inicial sí es del vehículo: autocarga con el último HF de ese equipo.
   const cargarHi = useCallback(() => {
@@ -1159,8 +1162,14 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const fichas = useFichasEquipos();
   const equiposOptions = useMemo(() => [
     { value: '', label: '— sin equipo —' },
-    ...opcionesEquipos({ catalogo: opts('equipo').map((c) => c.valor), fichas, modo: 'pc' }),
-  ], [catalogos, fichas]);
+    ...opcionesEquipos({
+      catalogo: catalogos.filter((c) => c.tipo === 'equipo'),
+      fichas,
+      modo: 'pc',
+      tanqueActual: tanque,
+      incluirValor: mov.equipo,
+    }),
+  ], [catalogos, fichas, tanque, mov.equipo]);
 
   const [fecha, setFecha] = useState(mov.fecha);
   const [hora, setHora] = useState(mov.hora ?? '');
@@ -1456,86 +1465,633 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
   );
 }
 
-/* ───────────── Modal: catálogos ───────────── */
+/* ───────────── Modal: catálogos y autorización de equipos ───────────── */
 
-function CatalogosModal({ catalogos, onClose, onChanged }: {
-  catalogos: CatalogoCombustible[]; onClose: () => void; onChanged: () => Promise<void>;
+function CatalogosModal({
+  catalogos,
+  tanques,
+  onClose,
+  onChanged,
+}: {
+  catalogos: CatalogoCombustible[];
+  tanques: TanqueCombustible[];
+  onClose: () => void;
+  onChanged: () => Promise<void>;
 }) {
   const [tab, setTab] = useState<TipoCatalogoCombustible>('equipo');
   const [valor, setValor] = useState('');
-  // Con el input no-controlado, al limpiar por estado hay que remontarlo para vaciar el DOM.
   const [valorKey, setValorKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
   const [borrarItem, setBorrarItem] = useState<CatalogoCombustible | null>(null);
-  const items = useMemo(() => catalogos.filter((c) => c.tipo === tab), [catalogos, tab]);
+
+  // Filtros específicos para equipos
+  const [searchEquipo, setSearchEquipo] = useState('');
+  const [filtroSurtido, setFiltroSurtido] = useState<'todos' | 'activos' | 'inactivos'>('todos');
+  const [filtroTanque, setFiltroTanque] = useState<string>('');
+
+  // Modal para configurar tanques permitidos de un equipo
+  const [tanqueEditItem, setTanqueEditItem] = useState<CatalogoCombustible | null>(null);
+  const [todosTanquesChecked, setTodosTanquesChecked] = useState(true);
+  const [tanquesSeleccionados, setTanquesSeleccionados] = useState<string[]>([]);
+
+  const fichas = useFichasEquipos();
+  const fichasPorNombre = useMemo(() => {
+    const map = new Map<string, FichaEquipoOpcion>();
+    for (const f of fichas) {
+      if (f.combustible_equipo) map.set(norm(f.combustible_equipo), f);
+      if (f.equipo) map.set(norm(f.equipo), f);
+    }
+    return map;
+  }, [fichas]);
+
   const TABS: { key: TipoCatalogoCombustible; label: string }[] = [
-    { key: 'equipo', label: 'Equipos' }, { key: 'autorizado', label: 'Autorizados' }, { key: 'ubicacion', label: 'Ubicaciones' },
+    { key: 'equipo', label: 'Equipos y Permisos de Surtido' },
+    { key: 'autorizado', label: 'Autorizados' },
+    { key: 'ubicacion', label: 'Ubicaciones' },
   ];
+
+  const itemsTab = useMemo(() => catalogos.filter((c) => c.tipo === tab), [catalogos, tab]);
+
+  // Lista filtrada para la pestaña de equipos
+  const equiposFiltrados = useMemo(() => {
+    if (tab !== 'equipo') return itemsTab;
+    let list = itemsTab;
+
+    if (filtroSurtido === 'activos') list = list.filter((c) => c.activo);
+    if (filtroSurtido === 'inactivos') list = list.filter((c) => !c.activo);
+
+    if (filtroTanque) {
+      list = list.filter((c) => esTanquePermitidoParaEquipo(filtroTanque, c.tanques_permitidos));
+    }
+
+    if (searchEquipo.trim()) {
+      const q = norm(searchEquipo);
+      list = list.filter((c) => {
+        if (norm(c.valor).includes(q)) return true;
+        const f = fichasPorNombre.get(norm(c.valor));
+        if (!f) return false;
+        return (
+          norm(f.alias ?? '').includes(q) ||
+          norm(f.modelo ?? '').includes(q) ||
+          norm(f.placa ?? '').includes(q) ||
+          norm(f.marca ?? '').includes(q) ||
+          norm(f.tipo ?? '').includes(q)
+        );
+      });
+    }
+
+    return list;
+  }, [itemsTab, tab, filtroSurtido, filtroTanque, searchEquipo, fichasPorNombre]);
+
+  const totalEquipos = useMemo(() => catalogos.filter((c) => c.tipo === 'equipo').length, [catalogos]);
+  const equiposPuedenSurtir = useMemo(() => catalogos.filter((c) => c.tipo === 'equipo' && c.activo).length, [catalogos]);
+  const equiposBloqueados = totalEquipos - equiposPuedenSurtir;
 
   async function agregar() {
     if (!valor.trim()) { toast('Indica el valor', 'error'); return; }
     setBusy(true);
-    try { await addCatalogo(tab, valor); setValor(''); setValorKey((k) => k + 1); await onChanged(); }
-    catch (e) { toast(mensajeError(e, 'No se pudo agregar'), 'error'); }
-    finally { setBusy(false); }
+    try {
+      await addCatalogo(tab, valor);
+      setValor('');
+      setValorKey((k) => k + 1);
+      await onChanged();
+      toast(`${tab === 'equipo' ? 'Equipo' : tab} agregado al catálogo`, 'success');
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo agregar'), 'error');
+    } finally {
+      setBusy(false);
+    }
   }
+
   async function guardarEdicion(id: string) {
-    try { await updateCatalogo(id, editValor); setEditId(null); await onChanged(); toast('Actualizado', 'success'); }
-    catch (e) { toast(mensajeError(e, 'No se pudo editar'), 'error'); }
+    try {
+      await updateCatalogo(id, editValor);
+      setEditId(null);
+      await onChanged();
+      toast('Actualizado', 'success');
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo editar'), 'error');
+    }
   }
+
   async function toggle(id: string, activo: boolean) {
-    try { await setCatalogoActivo(id, !activo); await onChanged(); }
-    catch (e) { toast(mensajeError(e, 'No se pudo cambiar'), 'error'); }
+    try {
+      await setCatalogoActivo(id, !activo);
+      await onChanged();
+      toast(activo ? 'Equipo deshabilitado para surtir' : 'Equipo habilitado para surtir', 'info');
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo cambiar'), 'error');
+    }
   }
+
   async function borrar(id: string) {
-    try { await eliminarCatalogo(id); await onChanged(); toast('Eliminado', 'success'); }
-    catch (e) { toast(mensajeError(e, 'No se pudo eliminar'), 'error'); }
+    try {
+      await eliminarCatalogo(id);
+      await onChanged();
+      toast('Eliminado', 'success');
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo eliminar'), 'error');
+    }
+  }
+
+  function abrirConfigTanques(item: CatalogoCombustible) {
+    setTanqueEditItem(item);
+    const permitidos = item.tanques_permitidos;
+    const esTodos = !permitidos || permitidos.length === 0 || permitidos.includes('*');
+    setTodosTanquesChecked(esTodos);
+    setTanquesSeleccionados(esTodos ? [] : [...permitidos]);
+  }
+
+  async function guardarConfigTanques() {
+    if (!tanqueEditItem) return;
+    setBusy(true);
+    try {
+      const tanquesFinales = todosTanquesChecked ? null : tanquesSeleccionados;
+      await setEquipoTanquesPermitidos(tanqueEditItem.id, tanqueEditItem.valor, tanquesFinales);
+      await onChanged();
+      setTanqueEditItem(null);
+      toast('Tanques autorizados actualizados', 'success');
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo guardar la autorización de tanques'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function habilitarTodosFiltrados() {
+    const ids = equiposFiltrados.filter((c) => !c.activo).map((c) => c.id);
+    if (!ids.length) { toast('No hay equipos para habilitar en el filtro actual', 'info'); return; }
+    setBusy(true);
+    try {
+      await setMultipleCatalogosActivo(ids, true);
+      await onChanged();
+      toast(`${ids.length} equipos habilitados para surtir`, 'success');
+    } catch (e) {
+      toast(mensajeError(e, 'Error al habilitar equipos'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deshabilitarTodosFiltrados() {
+    const ids = equiposFiltrados.filter((c) => c.activo).map((c) => c.id);
+    if (!ids.length) { toast('No hay equipos para deshabilitar en el filtro actual', 'info'); return; }
+    setBusy(true);
+    try {
+      await setMultipleCatalogosActivo(ids, false);
+      await onChanged();
+      toast(`${ids.length} equipos deshabilitados para surtir`, 'success');
+    } catch (e) {
+      toast(mensajeError(e, 'Error al deshabilitar equipos'), 'error');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <Modal title="Catálogos de combustible" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal
+      title="Catálogos y Permisos de Combustible"
+      size="xl"
+      onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
+    >
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
-        {TABS.map((t) => <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>{t.label}</button>)}
+        {TABS.map((t) => (
+          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
       </div>
-      <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.75rem' }}>
-        <input key={valorKey} className="input" name="cat-valor" defaultValue={valor} onChange={(e) => setValor(e.target.value)} placeholder={`Nuevo ${tab}…`} onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} />
-        <button className="btn btn-primary" onClick={agregar} disabled={busy}>+ Agregar</button>
-      </div>
-      <div className="table-wrap" style={{ maxHeight: 340, overflow: 'auto' }}>
-        <table className="table" style={{ fontSize: '.84rem' }}>
-          <thead><tr><th>Valor</th><th>Estado</th><th></th></tr></thead>
-          <tbody>
-            {!items.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin elementos.</td></tr>}
-            {items.map((c) => (
-              <tr key={c.id} style={{ opacity: c.activo ? 1 : 0.5 }}>
-                <td>
-                  {editId === c.id ? (
-                    <input className="input" value={editValor} autoFocus onChange={(e) => setEditValor(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(c.id); if (e.key === 'Escape') setEditId(null); }} />
-                  ) : c.valor}
-                </td>
-                <td>{c.activo ? '🟢 Activo' : '⚪ Inactivo'}</td>
-                <td style={{ whiteSpace: 'nowrap' }}>
-                  {editId === c.id ? (
-                    <>
-                      <button className="btn btn-sm btn-primary" onClick={() => void guardarEdicion(c.id)}>Guardar</button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => setEditId(null)}>Cancelar</button>
-                    </>
-                  ) : (
-                    <>
-                      <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => { setEditId(c.id); setEditValor(c.valor); }}>✎</button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => toggle(c.id, c.activo)}>{c.activo ? 'Desactivar' : 'Activar'}</button>
-                      <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrarItem(c)}>🗑</button>
-                    </>
+
+      {tab === 'equipo' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
+          {/* Tarjetas resumen */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.5rem' }}>
+            <div style={{ background: '#182230', padding: '.5rem .75rem', borderRadius: '6px', border: '1px solid #334155' }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 600 }}>Total en catálogo</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc' }}>{totalEquipos}</div>
+            </div>
+            <div style={{ background: '#182230', padding: '.5rem .75rem', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
+              <div style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 600, color: '#34d399' }}>🟢 Pueden surtir</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#10b981' }}>{equiposPuedenSurtir}</div>
+            </div>
+            <div style={{ background: '#182230', padding: '.5rem .75rem', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+              <div style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 600, color: '#f87171' }}>⚪ Bloqueados / No surten</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ef4444' }}>{equiposBloqueados}</div>
+            </div>
+          </div>
+
+          {/* Formulario para agregar nuevo equipo */}
+          <div style={{ display: 'flex', gap: '.5rem' }}>
+            <input
+              key={valorKey}
+              className="input"
+              name="cat-valor"
+              defaultValue={valor}
+              onChange={(e) => setValor(e.target.value)}
+              placeholder="Agregar nuevo equipo al catálogo…"
+              onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }}
+              style={{ flex: 1 }}
+            />
+            <button className="btn btn-primary" onClick={agregar} disabled={busy}>+ Agregar equipo</button>
+          </div>
+
+          {/* Barra de filtros y búsqueda */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center', background: '#0f172a', padding: '.5rem .75rem', borderRadius: '8px', border: '1px solid #1e293b' }}>
+            <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 180 }}>
+              <input
+                className="input input-sm"
+                value={searchEquipo}
+                onChange={(e) => setSearchEquipo(e.target.value)}
+                placeholder="🔍 Buscar por nombre, alias (L220G), marca, placa..."
+                style={{ width: '100%', background: '#182230' }}
+              />
+              {searchEquipo && (
+                <button
+                  type="button"
+                  onClick={() => setSearchEquipo('')}
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '.8rem' }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Pills de estado de surtido */}
+            <div style={{ display: 'flex', gap: '.25rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className={`btn btn-xs ${filtroSurtido === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setFiltroSurtido('todos')}
+              >
+                Todos ({totalEquipos})
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${filtroSurtido === 'activos' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setFiltroSurtido('activos')}
+                style={filtroSurtido === 'activos' ? { background: '#10b981', borderColor: '#10b981' } : { color: '#34d399' }}
+              >
+                🟢 Pueden surtir ({equiposPuedenSurtir})
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${filtroSurtido === 'inactivos' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setFiltroSurtido('inactivos')}
+                style={filtroSurtido === 'inactivos' ? { background: '#ef4444', borderColor: '#ef4444' } : { color: '#f87171' }}
+              >
+                ⚪ Bloqueados ({equiposBloqueados})
+              </button>
+            </div>
+
+            {/* Selector de tanque */}
+            <select
+              className="select select-sm"
+              value={filtroTanque}
+              onChange={(e) => setFiltroTanque(e.target.value)}
+              style={{ background: '#182230', borderColor: '#334155', fontSize: '.78rem' }}
+            >
+              <option value="">⛽ Todos los tanques</option>
+              {tanques.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre} {t.es_movil ? '(Móvil)' : ''}
+                </option>
+              ))}
+            </select>
+
+            {/* Botones de acción rápida */}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '.35rem' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={habilitarTodosFiltrados}
+                disabled={busy || !equiposFiltrados.length}
+                title="Habilita todos los equipos mostrados actualmente"
+              >
+                ✓ Habilitar {equiposFiltrados.length}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={deshabilitarTodosFiltrados}
+                disabled={busy || !equiposFiltrados.length}
+                title="Bloquea todos los equipos mostrados actualmente"
+              >
+                ✕ Bloquear {equiposFiltrados.length}
+              </button>
+            </div>
+          </div>
+
+          {/* Tabla de equipos y permisos */}
+          <div className="table-wrap" style={{ maxHeight: 380, overflow: 'auto', border: '1px solid #1e293b', borderRadius: '8px' }}>
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: '38%' }}>Equipo / Identificación</th>
+                  <th style={{ width: '18%', textAlign: 'center' }}>¿Puede surtir?</th>
+                  <th style={{ width: '32%' }}>Tanques autorizados</th>
+                  <th style={{ width: '12%', textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!equiposFiltrados.length && (
+                  <tr>
+                    <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+                      No se encontraron equipos con los filtros seleccionados.
+                    </td>
+                  </tr>
+                )}
+                {equiposFiltrados.map((c) => {
+                  const f = fichasPorNombre.get(norm(c.valor));
+                  const permitidos = c.tanques_permitidos;
+                  const esTodosTanques = !permitidos || permitidos.length === 0 || permitidos.includes('*');
+
+                  return (
+                    <tr key={c.id} style={{ opacity: c.activo ? 1 : 0.6, background: c.activo ? 'transparent' : 'rgba(15, 23, 42, 0.4)' }}>
+                      <td>
+                        {editId === c.id ? (
+                          <input
+                            className="input"
+                            value={editValor}
+                            autoFocus
+                            onChange={(e) => setEditValor(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void guardarEdicion(c.id);
+                              if (e.key === 'Escape') setEditId(null);
+                            }}
+                          />
+                        ) : (
+                          <div>
+                            <strong style={{ color: c.activo ? '#f8fafc' : '#94a3b8' }}>{c.valor}</strong>
+                            {f && (
+                              <div className="muted" style={{ fontSize: '.74rem', marginTop: '2px', display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
+                                {f.alias && <span style={{ color: '#FF8A00' }}>🏷️ {f.alias}</span>}
+                                {f.tipo && <span>· {f.tipo}</span>}
+                                {f.marca && <span>· {f.marca}</span>}
+                                {f.modelo && <span>{f.modelo}</span>}
+                                {f.placa && <span style={{ fontFamily: 'monospace' }}>[{f.placa}]</span>}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Check de Puede surtir */}
+                      <td style={{ textAlign: 'center' }}>
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '.4rem',
+                            cursor: 'pointer',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            background: c.activo ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.1)',
+                            border: `1px solid ${c.activo ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
+                            userSelect: 'none',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={c.activo}
+                            onChange={() => toggle(c.id, c.activo)}
+                            style={{ accentColor: '#10b981', width: 16, height: 16, cursor: 'pointer' }}
+                          />
+                          <span style={{ fontWeight: 600, fontSize: '.78rem', color: c.activo ? '#10b981' : '#f87171' }}>
+                            {c.activo ? 'Sí (Habilitado)' : 'No (Bloqueado)'}
+                          </span>
+                        </label>
+                      </td>
+
+                      {/* Tanques autorizados */}
+                      <td>
+                        {!c.activo ? (
+                          <span className="muted" style={{ fontSize: '.76rem', fontStyle: 'italic' }}>— Deshabilitado para surtir —</span>
+                        ) : esTodosTanques ? (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+                            <span
+                              style={{
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#34d399',
+                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontSize: '.76rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              🌐 Todos los tanques
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-xs"
+                              onClick={() => abrirConfigTanques(c)}
+                              title="Restringir a tanques específicos"
+                              style={{ padding: '1px 6px', fontSize: '.72rem', color: '#94a3b8' }}
+                            >
+                              ✎ Asignar tanques
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem', alignItems: 'center' }}>
+                            {tanques.filter((t) => esTanquePermitidoParaEquipo(t, permitidos)).map((t) => (
+                              <span
+                                key={t.id}
+                                style={{
+                                  background: '#1e293b',
+                                  border: '1px solid #FF8A00',
+                                  color: '#ffedd5',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '.72rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                ⛽ {t.nombre}
+                              </span>
+                            ))}
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-xs"
+                              onClick={() => abrirConfigTanques(c)}
+                              title="Modificar tanques autorizados"
+                              style={{ padding: '1px 5px', fontSize: '.72rem', color: '#FF8A00' }}
+                            >
+                              ✎
+                            </button>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Acciones */}
+                      <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                        {editId === c.id ? (
+                          <>
+                            <button className="btn btn-sm btn-primary" onClick={() => void guardarEdicion(c.id)}>Guardar</button>
+                            <button className="btn btn-sm btn-ghost" onClick={() => setEditId(null)}>Cancelar</button>
+                          </>
+                        ) : (
+                          <>
+                            <button className="btn btn-sm btn-ghost" title="Editar nombre" onClick={() => { setEditId(c.id); setEditValor(c.valor); }}>✎</button>
+                            <button className="btn btn-sm btn-ghost" title="Eliminar del catálogo" onClick={() => setBorrarItem(c)}>🗑</button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* Pestañas de Autorizados y Ubicaciones (vista estándar) */
+        <>
+          <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.75rem' }}>
+            <input
+              key={valorKey}
+              className="input"
+              name="cat-valor"
+              defaultValue={valor}
+              onChange={(e) => setValor(e.target.value)}
+              placeholder={`Nuevo ${tab}…`}
+              onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }}
+            />
+            <button className="btn btn-primary" onClick={agregar} disabled={busy}>+ Agregar</button>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 340, overflow: 'auto' }}>
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead><tr><th>Valor</th><th>Estado</th><th></th></tr></thead>
+              <tbody>
+                {!itemsTab.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin elementos.</td></tr>}
+                {itemsTab.map((c) => (
+                  <tr key={c.id} style={{ opacity: c.activo ? 1 : 0.5 }}>
+                    <td>
+                      {editId === c.id ? (
+                        <input className="input" value={editValor} autoFocus onChange={(e) => setEditValor(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(c.id); if (e.key === 'Escape') setEditId(null); }} />
+                      ) : c.valor}
+                    </td>
+                    <td>{c.activo ? '🟢 Activo' : '⚪ Inactivo'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {editId === c.id ? (
+                        <>
+                          <button className="btn btn-sm btn-primary" onClick={() => void guardarEdicion(c.id)}>Guardar</button>
+                          <button className="btn btn-sm btn-ghost" onClick={() => setEditId(null)}>Cancelar</button>
+                        </>
+                      ) : (
+                        <>
+                          <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => { setEditId(c.id); setEditValor(c.valor); }}>✎</button>
+                          <button className="btn btn-sm btn-ghost" onClick={() => toggle(c.id, c.activo)}>{c.activo ? 'Desactivar' : 'Activar'}</button>
+                          <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrarItem(c)}>🗑</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Modal para configurar tanques autorizados de un equipo */}
+      {tanqueEditItem && (
+        <Modal
+          title={`Tanques autorizados · ${tanqueEditItem.valor}`}
+          size="md"
+          onClose={() => setTanqueEditItem(null)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.5rem', width: '100%' }}>
+              <button className="btn btn-ghost" onClick={() => setTanqueEditItem(null)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={guardarConfigTanques} disabled={busy || (!todosTanquesChecked && tanquesSeleccionados.length === 0)}>
+                Guardar autorización
+              </button>
+            </div>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '.25rem 0' }}>
+            <p className="muted" style={{ margin: 0, fontSize: '.88rem' }}>
+              Define desde qué tanques puede abastecerse <strong>{tanqueEditItem.valor}</strong>. Al surtir desde un tanque no seleccionado, la máquina quedará excluida de la lista.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem', background: '#0f172a', padding: '.85rem 1rem', borderRadius: '8px', border: '1px solid #334155' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '.9rem' }}>
+                <input
+                  type="radio"
+                  name="modo-tanques-perm"
+                  checked={todosTanquesChecked}
+                  onChange={() => setTodosTanquesChecked(true)}
+                  style={{ accentColor: '#FF8A00', width: 17, height: 17 }}
+                />
+                🌐 Permitir surtido desde TODOS los tanques (sin restricción)
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '.9rem' }}>
+                <input
+                  type="radio"
+                  name="modo-tanques-perm"
+                  checked={!todosTanquesChecked}
+                  onChange={() => setTodosTanquesChecked(false)}
+                  style={{ accentColor: '#FF8A00', width: 17, height: 17 }}
+                />
+                🎯 Restringir solo a tanques específicos:
+              </label>
+
+              {!todosTanquesChecked && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', paddingLeft: '1.75rem', marginTop: '.25rem' }}>
+                  {tanques.map((t) => {
+                    const sel = tanquesSeleccionados.includes(t.id) || tanquesSeleccionados.some((p) => norm(p) === norm(t.nombre));
+                    return (
+                      <label
+                        key={t.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '.5rem',
+                          cursor: 'pointer',
+                          fontSize: '.86rem',
+                          padding: '.4rem .6rem',
+                          background: sel ? 'rgba(255, 138, 0, 0.12)' : 'transparent',
+                          borderRadius: '6px',
+                          border: sel ? '1px solid rgba(255, 138, 0, 0.3)' : '1px solid transparent',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={sel}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setTanquesSeleccionados((prev) => [...prev.filter((x) => x !== t.id && norm(x) !== norm(t.nombre)), t.id]);
+                            } else {
+                              setTanquesSeleccionados((prev) => prev.filter((x) => x !== t.id && norm(x) !== norm(t.nombre)));
+                            }
+                          }}
+                          style={{ accentColor: '#FF8A00', width: 16, height: 16 }}
+                        />
+                        <span>
+                          <strong>{t.nombre}</strong>
+                          <span className="muted" style={{ marginLeft: '.5rem', fontSize: '.78rem' }}>
+                            {t.es_movil ? '🚚 Móvil · ' : ''}{num(t.saldo_litros)} L disponibles
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {tanquesSeleccionados.length === 0 && (
+                    <small style={{ color: '#f59e0b', fontStyle: 'italic', marginTop: '.25rem' }}>
+                      ⚠️ Selecciona al menos un tanque o marca "Todos los tanques".
+                    </small>
                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {borrarItem && (
         <ConfirmDialog
           title="Eliminar del catálogo"

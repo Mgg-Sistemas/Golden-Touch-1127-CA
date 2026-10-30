@@ -382,11 +382,13 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   // nombre corto que usa el operador (alias de la ficha, o modelo / placa). Se guarda el
   // nombre del catálogo (`value`), igual que siempre.
   const equiposOpts = useMemo(() => opcionesEquipos({
-    catalogo: opts('equipo').map((c) => c.valor),
+    catalogo: catalogos.filter((c) => c.tipo === 'equipo'),
     fichas,
     bidones: tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre),
     modo: 'telefono',
-  }), [catalogos, tanques, fichas]);
+    tanqueActual: tanque,
+    incluirValor: equipo,
+  }), [catalogos, tanques, fichas, tanque, equipo]);
 
   const subtitulo = tipo === 'entrada'
     ? `Entra a ${tanque.nombre} · hoy tiene ${num(tanque.saldo_litros)} L a ${money(tanque.tasa_usd_litro)}/L`

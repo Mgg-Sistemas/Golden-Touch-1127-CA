@@ -94,3 +94,64 @@ describe('cruce catálogo ↔ ficha', () => {
     expect(ops[ops.length - 1].group).toBe(GRUPO_BIDONES);
   });
 });
+
+describe('filtrado por activo y tanques permitidos (control de surtido)', () => {
+  const catalogoConPermisos = [
+    { valor: 'PAYLOADER VOLVO L220G 2014', activo: true, tanques_permitidos: null }, // todos los tanques
+    { valor: 'EXCAVADORA VOLVO EC240', activo: true, tanques_permitidos: ['tanque-1', 'Tanque #3'] }, // solo tanque 1 y 3
+    { valor: 'TOYOTA HILUX 05', activo: false, tanques_permitidos: null }, // inactivo / no puede surtir
+    { valor: 'MOTO BERA 01', activo: true, tanques_permitidos: ['tanque-brasileros'] }, // solo brasileros
+  ];
+
+  it('excluye los equipos con activo === false (desmarcados del surtido)', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+    });
+    expect(ops.some((o) => o.value === 'TOYOTA HILUX 05')).toBe(false);
+    expect(ops.some((o) => o.value === 'PAYLOADER VOLVO L220G 2014')).toBe(true);
+  });
+
+  it('si se indica tanqueActual, solo muestra equipos autorizados para ese tanque o para todos', () => {
+    // Tanque 1: debe mostrar payloader (todos) y excavadora (tanque-1), pero no moto (solo brasileros) ni hilux (inactivo)
+    const opsT1 = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-1', nombre: 'Tanque #1' },
+    });
+    const valsT1 = opsT1.map((o) => o.value);
+    expect(valsT1).toContain('PAYLOADER VOLVO L220G 2014');
+    expect(valsT1).toContain('EXCAVADORA VOLVO EC240');
+    expect(valsT1).not.toContain('MOTO BERA 01');
+    expect(valsT1).not.toContain('TOYOTA HILUX 05');
+
+    // Tanque Brasileros: debe mostrar payloader (todos) y moto (brasileros), pero no excavadora
+    const opsBras = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-brasileros', nombre: 'Tanque #2 Brasileros' },
+    });
+    const valsBras = opsBras.map((o) => o.value);
+    expect(valsBras).toContain('PAYLOADER VOLVO L220G 2014');
+    expect(valsBras).toContain('MOTO BERA 01');
+    expect(valsBras).not.toContain('EXCAVADORA VOLVO EC240');
+  });
+
+  it('incluirValor preserva el equipo seleccionado aunque esté inactivo o restringido', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-1', nombre: 'Tanque #1' },
+      incluirValor: 'TOYOTA HILUX 05', // inactivo, pero en edición
+    });
+    expect(ops.some((o) => o.value === 'TOYOTA HILUX 05')).toBe(true);
+  });
+});

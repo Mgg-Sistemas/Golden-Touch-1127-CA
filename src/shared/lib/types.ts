@@ -312,6 +312,7 @@ export interface CatalogoCombustible {
   activo: boolean;
   orden: number;
   created_at: string;
+  tanques_permitidos?: string[] | null;
 }
 
 export type TipoTanque = 'cilindrico_horizontal' | 'rectangular';
