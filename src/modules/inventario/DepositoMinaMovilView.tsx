@@ -180,16 +180,17 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
             <span>Salida</span>
             <small>Sale material {esReutilizables ? 'de reutilizables' : esMina ? 'del depósito' : 'del inventario'}</small>
           </button>
-          <button type="button" className="surt-btn" style={{ borderColor: '#a855f7', gridColumn: '1 / -1', minHeight: 84 }}
+          <button type="button" className="surt-btn traslado"
             onClick={() => { setElegido(null); setPaso('traslado'); }}>
             <span className="icono" aria-hidden>🔁</span>
-            <span>Traslado entre almacenes</span>
-            <small>Pasar material directo a otro depósito</small>
+            <span>Traslado</span>
+            <small>Entre almacenes</small>
           </button>
-          <button type="button" className="surt-btn retorno" style={{ gridColumn: '1 / -1', minHeight: 84 }}
+          <button type="button" className="surt-btn retorno"
             onClick={() => setPaso('retornos')}>
-            <span>🔄 Por retornar ({porRetornar.length})</span>
-            <small>{porRetornar.length ? 'Dar retorno al inventario de lo que salió y vuelve' : 'No hay nada pendiente por retornar'}</small>
+            <span className="icono" aria-hidden>🔄</span>
+            <span>Por retornar ({porRetornar.length})</span>
+            <small>{porRetornar.length ? 'Pendientes por volver' : 'Sin pendientes'}</small>
           </button>
         </div>
       )}
