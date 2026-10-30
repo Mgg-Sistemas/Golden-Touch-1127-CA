@@ -111,6 +111,7 @@
 
 /* ── Depósito Mina: salida con ¿retorna? SÍ / NO y fotos (13/10/2026) ── */
 .surt-btn.salida { border-color: var(--warning); }
+.surt-btn.traslado { border-color: #a855f7; font-size: 1.1rem; }
 .surt-btn.retorno { border-color: var(--info, var(--primary)); font-size: 1.1rem; }
 .surt-sino { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .surt-sino .surt-btn { min-height: 96px; }
