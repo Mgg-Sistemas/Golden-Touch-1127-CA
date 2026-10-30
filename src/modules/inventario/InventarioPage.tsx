@@ -138,6 +138,7 @@ type ModalState =
 export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito } = {}) {
   const dep = DEPOSITOS[deposito];
   const esMina = deposito === 'mina';
+  const esReutilizables = deposito === 'reutilizables';
   const { user } = useSession();
   const { can, appUser, puedeVista } = usePermissions();
   const canWrite = can('inventario', 'escritura');
@@ -420,18 +421,28 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
     <div>
       <div className="page-head">
         <div>
-          <h1>{esMina ? '⛏ Depósito Mina' : 'Inventario'}</h1>
+          <h1>{esReutilizables ? '♻️ Depósito Reutilizables' : esMina ? '⛏ Depósito Mina' : 'Inventario'}</h1>
           <p className="hint">
-            {esMina
-              ? <>Catálogo del <strong>Depósito Mina</strong>: independiente del Inventario General, con su propio stock y kardex.</>
-              : <>Catálogo de productos del <strong>Inventario General</strong>.</>}
+            {esReutilizables ? (
+              <>Catálogo del <strong>Depósito Reutilizables</strong>: materiales reutilizables de la Mina, con su propio stock, kardex y reportes.</>
+            ) : esMina ? (
+              <>Catálogo del <strong>Depósito Mina</strong>: independiente del Inventario General, con su propio stock y kardex.</>
+            ) : (
+              <>Catálogo de productos del <strong>Inventario General</strong>.</>
+            )}
             {' '}<span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
           </p>
         </div>
         <div className="actions">
-          {esMina ? (
+          {esReutilizables ? (
+            <>
+              <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Volver al Depósito Mina">← Volver</Link>
+              {puedeVista('deposito_mina') && <Link className="btn btn-ghost" to="/app/inventario/deposito-reutilizables/telefono" title="La pantalla del depósito reutilizables con botones grandes para el teléfono">📱 Vista teléfono</Link>}
+            </>
+          ) : esMina ? (
             <>
               <Link className="btn btn-ghost" to={DEPOSITOS.general.ruta}>← Inventario General</Link>
+              <Link className="btn btn-ghost" to={DEPOSITOS.reutilizables.ruta} style={{ borderColor: '#10b981', color: '#10b981' }} title="Depósito de materiales reutilizables">♻️ Depósito Reutilizables</Link>
               {puedeVista('deposito_mina') && <Link className="btn btn-ghost" to="/app/inventario/deposito-mina/telefono" title="La pantalla del depósito con botones grandes para el teléfono">📱 Vista teléfono</Link>}
             </>
           ) : (
@@ -504,7 +515,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
           {/* Qué entró, quién lo recibió y a qué almacén. El kardex del producto muestra
               la entrada pero no lleva a la orden, y el histórico de pedidos lista órdenes,
               no recepciones. */}
-          {!esMina && <button
+          {!esMina && !esReutilizables && <button
             className="btn btn-ghost"
             onClick={() => setModal({ kind: 'recepciones' })}
             title="Histórico de recepciones: qué se recibió, cuándo, quién lo recibió y a qué almacén entró"
@@ -520,7 +531,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
           >
             🗄 Productos inactivos{inactivosCount ? ` · ${inactivosCount}` : ''}
           </button>
-          {!esMina && <button
+          {!esMina && !esReutilizables && <button
             className={`btn ${casiteritaEnError ? 'btn-danger' : 'btn-ghost'}`}
             onClick={() => setModal({ kind: 'transferencias' })}
             title={casiteritaEnError
@@ -532,7 +543,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
           {canWrite && (
             <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'crear' })}
               title={`El producto se agrega al ${dep.nombre}`}>
-              + Nuevo producto{esMina ? ' (Mina)' : ''}
+              + Nuevo producto{esReutilizables ? ' (Reutilizables)' : esMina ? ' (Mina)' : ''}
             </button>
           )}
         </div>
