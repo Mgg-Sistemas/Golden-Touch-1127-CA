@@ -15,18 +15,19 @@ import { Quien } from '@/shared/ui/Quien';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { dateTime, num, relTime } from '@/shared/lib/format';
-import { faltante, resumenRevision, stockDe, textoWhatsappSolicitud } from './revisionAlmacen';
+import { ALMACENES_REVISION, faltante, porAlmacenDe, resumenRevision, stockDe, stockMinaDe, textoWhatsappSolicitud } from './revisionAlmacen';
 import { useBorradores, useSolicitudesAlmacen } from './useSolicitudesAlmacen';
 import { AvisoApagado, BadgeExistencia, BarraCobertura, useMarcarRevisada } from './SolicitudesComun';
 
 export function SolicitudesAlmacenMovilView() {
   const { user } = useSession();
-  const { isAdmin, can, appUser, soloTelefono, vistasTelefono } = usePermissions();
-  const puedeRevisar = isAdmin || can('inventario', 'escritura');
+  const { isAdmin, can, role, appUser, soloTelefono, vistasTelefono } = usePermissions();
+  // 30/10/2026 · Confirma el ALMACENISTA de Los Pinos (y el admin).
+  const puedeRevisar = isAdmin || (role === 'almacenista' && can('inventario', 'escritura'));
   const quien = nombreYApellido(appUser?.nombre, appUser?.apellido) || user?.email || '';
 
   const datos = useSolicitudesAlmacen();
-  const bor = useBorradores(datos.stock);
+  const bor = useBorradores(datos.stock, datos.stockMina);
   const [abiertaId, setAbiertaId] = useState<string | null>(null);
   const [verWsp, setVerWsp] = useState(false);
   const marcar = useMarcarRevisada(quien, (id) => { bor.olvidar(id); setAbiertaId(null); void datos.reload(); });
@@ -54,7 +55,7 @@ export function SolicitudesAlmacenMovilView() {
       {datos.activo && !puedeRevisar && (
         <div className="aviso warning sm" style={{ margin: '.75rem 0' }}>
           <span className="aviso-icono">👁</span>
-          <div>Tu rol solo puede ver. Para marcar solicitudes como revisadas hace falta escritura en Inventario.</div>
+          <div>Tu rol solo puede ver. Las solicitudes las confirma el almacenista de Los Pinos (rol almacenista).</div>
         </div>
       )}
 
@@ -99,7 +100,7 @@ export function SolicitudesAlmacenMovilView() {
       {datos.activo && s && (() => {
         const items = s.orden.items;
         const revision = bor.revisionDe(s);
-        const porIdx = new Map(revision.map((r) => [r.idx, r.cantidad_disponible]));
+        const porIdx = new Map(revision.map((r) => [r.idx, porAlmacenDe(r)]));
         const resumen = resumenRevision(items, revision);
         return (
           <div className="surt-form">
@@ -128,8 +129,10 @@ export function SolicitudesAlmacenMovilView() {
 
             {items.map((it, idx) => {
               const sol = Number(it.cantidad) || 0;
-              const tiene = porIdx.get(idx) ?? 0;
+              const pa = porIdx.get(idx) ?? { los_pinos: 0, mina: 0 };
+              const tiene = pa.los_pinos + pa.mina;
               const falta = faltante(sol, tiene);
+              const stMina = stockMinaDe(it, datos.stockMina);
               const sug = !it.productoId ? datos.sugerido(it.nombre) : null;
               const paso = sol >= 1 ? 1 : sol;
               return (
@@ -137,19 +140,31 @@ export function SolicitudesAlmacenMovilView() {
                   <div className="nombre">{it.nombre}</div>
                   <div className="sub">
                     <span>Piden <b className="mono" style={{ color: 'var(--text)' }}>{num(sol)} {it.unidad || 'und'}</b></span>
-                    <span>· Hay</span>
+                  </div>
+                  <div className="sub">
+                    <span>📍 Los Pinos</span>
                     <BadgeExistencia solicitada={sol} stock={stockDe(it, datos.stock)} unidad={it.unidad} />
+                    <span>· ⛏ Mina</span>
+                    {stMina == null ? <span className="muted">no está</span> : <BadgeExistencia solicitada={sol} stock={stMina} unidad={it.unidad} />}
                   </div>
                   {sug && <div className="sub">Parecido: {sug.nombre} · hay {num(sug.stock)} {sug.unidad}</div>}
                   <BarraCobertura solicitada={sol} disponible={tiene} />
-                  <div className="spa-stepper">
-                    <button type="button" className="btn btn-ghost" disabled={!puedeRevisar || tiene <= 0}
-                      aria-label="Menos" onClick={() => bor.fijar(s, idx, Math.max(0, tiene - paso))}>−</button>
-                    <DecimalInput className="input" value={tiene} disabled={!puedeRevisar}
-                      aria-label={`Lo tiene Almacén de ${it.nombre}`} onChange={(v) => bor.fijar(s, idx, v)} />
-                    <button type="button" className="btn btn-ghost" disabled={!puedeRevisar || tiene >= sol}
-                      aria-label="Más" onClick={() => bor.fijar(s, idx, Math.min(sol, tiene + paso))}>＋</button>
-                  </div>
+                  {ALMACENES_REVISION.filter((a) => a.key === 'los_pinos' || stMina != null).map((a) => {
+                    const v = pa[a.key];
+                    return (
+                      <div key={a.key}>
+                        <div className="sub" style={{ marginTop: '.3rem' }}>{a.icono} Sale de {a.label}</div>
+                        <div className="spa-stepper">
+                          <button type="button" className="btn btn-ghost" disabled={!puedeRevisar || v <= 0}
+                            aria-label={`Menos de ${a.label}`} onClick={() => bor.fijar(s, idx, Math.max(0, v - paso), a.key)}>−</button>
+                          <DecimalInput className="input" value={v} disabled={!puedeRevisar}
+                            aria-label={`Sale de ${a.label}: ${it.nombre}`} onChange={(x) => bor.fijar(s, idx, x, a.key)} />
+                          <button type="button" className="btn btn-ghost" disabled={!puedeRevisar || tiene >= sol}
+                            aria-label={`Más de ${a.label}`} onClick={() => bor.fijar(s, idx, Math.min(sol, v + paso), a.key)}>＋</button>
+                        </div>
+                      </div>
+                    );
+                  })}
                   <div className="compras">{falta > 0 ? <>🛒 A Compras: <b>{num(falta)} {it.unidad || 'und'}</b></> : <span className="muted">Almacén lo cubre completo</span>}</div>
                 </div>
               );

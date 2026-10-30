@@ -536,3 +536,13 @@ $$;
 
 -- 8) (aplicado 29/10/2026, migración compras_revision_almacen_8_enlace_pestana_pedidos)
 --    La pantalla vive DENTRO de Pedidos / Compras: los avisos a Almacén abren '#/app/pedidos?tab=almacen'.
+
+-- 9) (aplicado 30/10/2026, migración compras_revision_almacen_9_por_almacen) Bosquejo del nuevo flujo:
+--    el almacenista de LOS PINOS confirma y ve también el DEPÓSITO MINA (Matanza se suma cuando exista).
+--    almacen_revisar_solicitud acepta en cada renglón un desglose opcional
+--      {"idx": 0, "cantidad_disponible": 40, "por_almacen": {"los_pinos": 10, "mina": 30}}
+--    (la suma debe ser cantidad_disponible; sin desglose, todo es de Los Pinos, como antes) y guarda en
+--    items_revision 'por_almacen' + 'stock_mina_al_revisar' (el mismo producto por nombre en la Mina);
+--    en los renglones que pasan a Compras queda 'cubierto_por_almacen'.
+-- 10) (aplicado 30/10/2026, migración compras_revision_almacen_10_solo_almacenista) Solo el rol
+--    'almacenista' (con escritura en Inventario) o el admin marcan la revisión; antes bastaba puede('inventario').

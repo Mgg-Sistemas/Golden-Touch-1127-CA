@@ -41,14 +41,35 @@ export interface OrdenSP {
   items: RenglonSP[];
 }
 
+/**
+ * De dónde sale lo que tiene Almacén (30/10/2026, bosquejo del nuevo flujo): el almacenista
+ * de LOS PINOS confirma, y ve también lo que hay en el DEPÓSITO MINA. Matanza se suma
+ * cuando exista ese almacén.
+ */
+export type AlmacenRevision = 'los_pinos' | 'mina';
+export const ALMACENES_REVISION: { key: AlmacenRevision; label: string; icono: string }[] = [
+  { key: 'los_pinos', label: 'Los Pinos', icono: '📍' },
+  { key: 'mina', label: 'Depósito Mina', icono: '⛏' },
+];
+export type PorAlmacen = Record<AlmacenRevision, number>;
+
 /** Lo que Almacén dice de un renglón: cuánto de lo pedido TIENE. `idx` = posición en `items`. */
 export interface RevisionRenglon {
   idx: number;
   cantidad_disponible: number;
+  /** Cuánto de lo disponible sale de cada almacén (suma = cantidad_disponible). Sin él, todo es de Los Pinos. */
+  por_almacen?: PorAlmacen;
 }
 
-/** Existencia actual por id de producto (Inventario General). */
+/** Existencia actual por id de producto (Los Pinos, el inventario de siempre). */
 export type StockPorProducto = Record<string, number>;
+
+/** Existencia del Depósito Mina por NOMBRE de producto (clave de `claveNombreProducto`): son catálogos aparte. */
+export type StockMinaPorNombre = Record<string, number>;
+
+/** Mismo criterio que la base (sin acentos, minúsculas, espacios simples) para hallar el producto en la Mina. */
+export const claveNombreProducto = (s: string): string =>
+  (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 export type ModoLote = 'todo_disponible_segun_stock' | 'todo_a_compras' | 'todo_disponible';
 
@@ -56,6 +77,8 @@ export interface LineaResumen {
   nombre: string;
   unidad: string;
   cantidad: number;
+  /** Solo en lo que TIENE Almacén: de qué almacén sale. */
+  almacen?: AlmacenRevision;
 }
 
 export interface ResumenRevision {
@@ -96,33 +119,63 @@ export function estadoExistencia(solicitada: number, stock: number | null): Esta
   return stock >= solicitada ? 'alcanza' : 'parcial';
 }
 
-/** Propuesta inicial: de cada renglón, lo que alcance la existencia (0 si no tiene producto vinculado). */
-export function propuestaDesdeExistencias(items: readonly RenglonSP[], stockPorProducto: StockPorProducto): RevisionRenglon[] {
+/** Existencia del mismo producto (por nombre) en el Depósito Mina; `null` si allá no existe. */
+export function stockMinaDe(it: RenglonSP, stockMina: StockMinaPorNombre): number | null {
+  const k = claveNombreProducto(it.nombre ?? '');
+  if (!k || !(k in stockMina)) return null;
+  return Math.max(0, Number(stockMina[k]) || 0);
+}
+
+/** Lo de cada almacén, acotado: cada parte ≥ 0 y la suma nunca pasa de lo solicitado. */
+export function acotarPorAlmacen(pa: Partial<PorAlmacen>, solicitada: number): PorAlmacen {
+  const los = acotarDisponible(pa.los_pinos ?? 0, solicitada);
+  const mina = acotarDisponible(pa.mina ?? 0, Math.max(0, redondear(solicitada - los)));
+  return { los_pinos: los, mina };
+}
+
+/** Desglose de un renglón revisado: sin `por_almacen`, todo lo disponible es de Los Pinos. */
+export function porAlmacenDe(r: RevisionRenglon | undefined): PorAlmacen {
+  if (!r) return { los_pinos: 0, mina: 0 };
+  return r.por_almacen ?? { los_pinos: r.cantidad_disponible, mina: 0 };
+}
+
+const renglonDesde = (idx: number, pa: PorAlmacen): RevisionRenglon =>
+  ({ idx, cantidad_disponible: redondear(pa.los_pinos + pa.mina), por_almacen: pa });
+
+/**
+ * Propuesta inicial: de cada renglón, primero lo que alcance en Los Pinos y lo que falte,
+ * lo que haya en el Depósito Mina (0 donde no hay producto).
+ */
+export function propuestaDesdeExistencias(
+  items: readonly RenglonSP[], stockPorProducto: StockPorProducto, stockMina: StockMinaPorNombre = {},
+): RevisionRenglon[] {
   return items.map((it, idx) => {
-    const s = stockDe(it, stockPorProducto);
-    return { idx, cantidad_disponible: s == null ? 0 : acotarDisponible(s, cantidadDe(it)) };
+    const sol = cantidadDe(it);
+    const pinos = stockDe(it, stockPorProducto) ?? 0;
+    const mina = stockMinaDe(it, stockMina) ?? 0;
+    return renglonDesde(idx, acotarPorAlmacen({ los_pinos: pinos, mina }, sol));
   });
 }
 
-/** Botones de lote: aplican lo mismo a todos los renglones. */
+/** Botones de lote: aplican lo mismo a todos los renglones («todo disponible» lo pone en Los Pinos). */
 export function aplicarLote(
-  items: readonly RenglonSP[], modo: ModoLote, stockPorProducto: StockPorProducto = {},
+  items: readonly RenglonSP[], modo: ModoLote, stockPorProducto: StockPorProducto = {}, stockMina: StockMinaPorNombre = {},
 ): RevisionRenglon[] {
-  if (modo === 'todo_disponible_segun_stock') return propuestaDesdeExistencias(items, stockPorProducto);
-  return items.map((it, idx) => ({ idx, cantidad_disponible: modo === 'todo_disponible' ? cantidadDe(it) : 0 }));
+  if (modo === 'todo_disponible_segun_stock') return propuestaDesdeExistencias(items, stockPorProducto, stockMina);
+  return items.map((it, idx) => renglonDesde(idx, { los_pinos: modo === 'todo_disponible' ? cantidadDe(it) : 0, mina: 0 }));
 }
 
-/** Lo que tiene Almacén y lo que va a Compras. Un renglón puede salir en las dos listas (parcial). */
+/** Lo que tiene Almacén (por almacén) y lo que va a Compras. Un renglón puede salir en las dos listas (parcial). */
 export function resumenRevision(items: readonly RenglonSP[], revision: readonly RevisionRenglon[]): ResumenRevision {
-  const porIdx = new Map(revision.map((r) => [r.idx, r.cantidad_disponible]));
+  const porIdx = new Map(revision.map((r) => [r.idx, r]));
   const disponibles: LineaResumen[] = [];
   const aCompras: LineaResumen[] = [];
   items.forEach((it, idx) => {
     const sol = cantidadDe(it);
-    const tiene = acotarDisponible(porIdx.get(idx) ?? 0, sol);
-    const falta = faltante(sol, tiene);
+    const pa = acotarPorAlmacen(porAlmacenDe(porIdx.get(idx)), sol);
+    const falta = faltante(sol, pa.los_pinos + pa.mina);
     const base = { nombre: (it.nombre ?? '').trim() || 'SIN NOMBRE', unidad: (it.unidad ?? '').trim() || 'und' };
-    if (tiene > 0) disponibles.push({ ...base, cantidad: tiene });
+    for (const a of ALMACENES_REVISION) if (pa[a.key] > 0) disponibles.push({ ...base, cantidad: pa[a.key], almacen: a.key });
     if (falta > 0) aCompras.push({ ...base, cantidad: falta });
   });
   return { disponibles, aCompras };
@@ -141,7 +194,12 @@ export function revisionGuardada(v: unknown): RevisionRenglon[] {
     const idx = Number(o.idx);
     const cant = Number(o.cantidad_disponible ?? o.disponible);
     if (!Number.isInteger(idx) || idx < 0 || !Number.isFinite(cant)) continue;
-    out.push({ idx, cantidad_disponible: Math.max(0, redondear(cant)) });
+    const r: RevisionRenglon = { idx, cantidad_disponible: Math.max(0, redondear(cant)) };
+    const pa = o.por_almacen as Record<string, unknown> | null | undefined;
+    if (pa && typeof pa === 'object') {
+      r.por_almacen = { los_pinos: Math.max(0, redondear(Number(pa.los_pinos) || 0)), mina: Math.max(0, redondear(Number(pa.mina) || 0)) };
+    }
+    out.push(r);
   }
   return out;
 }
@@ -170,7 +228,11 @@ export function textoWhatsappRevision(
   const q = lineaQuien(orden);
   if (q) lineas.push(q);
   if (resumen.disponibles.length) {
-    lineas.push('✅ *TIENE:*', ...resumen.disponibles.map(linea));
+    lineas.push('✅ *TIENE:*');
+    for (const a of ALMACENES_REVISION) {
+      const de = resumen.disponibles.filter((l) => (l.almacen ?? 'los_pinos') === a.key);
+      if (de.length) lineas.push(`${a.icono} _${a.label}:_`, ...de.map(linea));
+    }
   } else {
     lineas.push('✅ *TIENE:* nada de lo solicitado');
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  acotarDisponible, aplicarLote, estadoExistencia, estadoSolicitudTexto, faltante, propuestaDesdeExistencias,
+  acotarDisponible, acotarPorAlmacen, aplicarLote, claveNombreProducto, estadoExistencia, porAlmacenDe, stockMinaDe, estadoSolicitudTexto, faltante, propuestaDesdeExistencias,
   resumenRevision, revisionGuardada, textoWhatsappRevision, textoWhatsappSolicitud,
   type OrdenSP, type RenglonSP,
 } from './revisionAlmacen';
@@ -41,17 +41,17 @@ describe('estadoExistencia', () => {
 describe('propuestaDesdeExistencias', () => {
   it('por renglón, el mínimo entre lo solicitado y la existencia', () => {
     const r = propuestaDesdeExistencias([CANDADOS, LENTES], { 'p-candado': 4, 'p-lente': 25 });
-    expect(r).toEqual([{ idx: 0, cantidad_disponible: 4 }, { idx: 1, cantidad_disponible: 10 }]);
+    expect(r).toMatchObject([{ idx: 0, cantidad_disponible: 4 }, { idx: 1, cantidad_disponible: 10 }]);
   });
   it('renglón sin producto vinculado: 0', () => {
-    expect(propuestaDesdeExistencias([SIN_VINCULO], { x: 100 })).toEqual([{ idx: 0, cantidad_disponible: 0 }]);
+    expect(propuestaDesdeExistencias([SIN_VINCULO], { x: 100 })).toMatchObject([{ idx: 0, cantidad_disponible: 0 }]);
   });
   it('producto que no apareció en el inventario: 0', () => {
-    expect(propuestaDesdeExistencias([CANDADOS], {})).toEqual([{ idx: 0, cantidad_disponible: 0 }]);
+    expect(propuestaDesdeExistencias([CANDADOS], {})).toMatchObject([{ idx: 0, cantidad_disponible: 0 }]);
   });
   it('cantidades decimales', () => {
-    expect(propuestaDesdeExistencias([CAL], { 'p-cal': 1.75 })).toEqual([{ idx: 0, cantidad_disponible: 1.75 }]);
-    expect(propuestaDesdeExistencias([CAL], { 'p-cal': 40 })).toEqual([{ idx: 0, cantidad_disponible: 2.5 }]);
+    expect(propuestaDesdeExistencias([CAL], { 'p-cal': 1.75 })).toMatchObject([{ idx: 0, cantidad_disponible: 1.75 }]);
+    expect(propuestaDesdeExistencias([CAL], { 'p-cal': 40 })).toMatchObject([{ idx: 0, cantidad_disponible: 2.5 }]);
   });
 });
 
@@ -73,8 +73,8 @@ describe('resumenRevision', () => {
   it('un renglón parcial sale en las dos listas', () => {
     const r = resumenRevision([CANDADOS, LENTES], [{ idx: 0, cantidad_disponible: 4 }, { idx: 1, cantidad_disponible: 10 }]);
     expect(r.disponibles).toEqual([
-      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 4 },
-      { nombre: 'LENTE DE SEGURIDAD', unidad: 'UND', cantidad: 10 },
+      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 4, almacen: 'los_pinos' },
+      { nombre: 'LENTE DE SEGURIDAD', unidad: 'UND', cantidad: 10, almacen: 'los_pinos' },
     ]);
     expect(r.aCompras).toEqual([{ nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 44 }]);
   });
@@ -96,6 +96,38 @@ describe('resumenRevision', () => {
   });
 });
 
+describe('Los Pinos + Depósito Mina (30/10/2026)', () => {
+  const MINA = { [claveNombreProducto('Candados de Seguridad')]: 30 };
+  it('la propuesta toma primero Los Pinos y lo que falta de la Mina (por nombre, sin acentos ni mayúsculas)', () => {
+    const [r] = propuestaDesdeExistencias([CANDADOS], { 'p-candado': 10 }, MINA);
+    expect(r).toEqual({ idx: 0, cantidad_disponible: 40, por_almacen: { los_pinos: 10, mina: 30 } });
+    expect(stockMinaDe(CANDADOS, MINA)).toBe(30);
+    expect(stockMinaDe(LENTES, MINA)).toBeNull();
+  });
+  it('lo de cada almacén nunca pasa de lo solicitado', () => {
+    expect(acotarPorAlmacen({ los_pinos: 40, mina: 30 }, 48)).toEqual({ los_pinos: 40, mina: 8 });
+    expect(acotarPorAlmacen({ los_pinos: -2, mina: 5 }, 48)).toEqual({ los_pinos: 0, mina: 5 });
+  });
+  it('sin desglose guardado, todo es de Los Pinos', () => {
+    expect(porAlmacenDe({ idx: 0, cantidad_disponible: 7 })).toEqual({ los_pinos: 7, mina: 0 });
+  });
+  it('resumen y WhatsApp separan lo que sale de cada almacén', () => {
+    const rev = [{ idx: 0, cantidad_disponible: 40, por_almacen: { los_pinos: 10, mina: 30 } }];
+    const res = resumenRevision([CANDADOS], rev);
+    expect(res.disponibles).toEqual([
+      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 10, almacen: 'los_pinos' },
+      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 30, almacen: 'mina' },
+    ]);
+    expect(res.aCompras).toEqual([{ nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 8 }]);
+    const t = textoWhatsappRevision(orden, res, 'X');
+    expect(t).toContain('✅ *TIENE:*\n📍 _Los Pinos:_\n🔸 10 UND · CANDADOS DE SEGURIDAD\n⛏ _Depósito Mina:_\n🔸 30 UND · CANDADOS DE SEGURIDAD');
+  });
+  it('lee el desglose guardado', () => {
+    expect(revisionGuardada([{ idx: 0, cantidad_disponible: 5, por_almacen: { los_pinos: 2, mina: 3 } }]))
+      .toEqual([{ idx: 0, cantidad_disponible: 5, por_almacen: { los_pinos: 2, mina: 3 } }]);
+  });
+});
+
 describe('revisionGuardada', () => {
   it('lee idx + cantidad_disponible y descarta lo raro', () => {
     expect(revisionGuardada([{ idx: 0, cantidad_disponible: 4 }, { idx: 1, disponible: '2.5' }, { idx: -1, cantidad_disponible: 1 }, null, 'x']))
@@ -111,6 +143,7 @@ describe('textoWhatsappRevision', () => {
       '📦 *ALMACÉN HA REVISADO LA ORDEN SP-2026-0261*',
       '👤 Solicitante: EDINSON ANGULO · 🏢 Unidad: PRODUCCION',
       '✅ *TIENE:*',
+      '📍 _Los Pinos:_',
       '🔸 4 UND · CANDADOS DE SEGURIDAD',
       '🛒 *VA A SOLICITAR A COMPRAS:*',
       '🔸 44 UND · CANDADOS DE SEGURIDAD',

@@ -6,14 +6,14 @@
      encendido. Si la tabla todavía no existe o falla la lectura, se toma APAGADO
      y Compras sigue como siempre.
    · `ordenes` en estado `revision_almacen` + su fila en `solicitudes_revision_almacen`.
-   · Existencias del Inventario General (`productos.stock`; la Mina no cuenta).
+   · Existencias de Los Pinos (`productos.stock` del General) y, por nombre, del Depósito Mina.
    · RPC `almacen_revisar_solicitud` / `almacen_devolver_a_revision`.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { mensajeError } from '@/shared/lib/errores';
 import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
-import { esDelDeposito } from '@/modules/inventario/depositos';
-import type { RenglonSP, RevisionRenglon, StockPorProducto } from './revisionAlmacen';
+import { ALMACEN_MINA, esDelDeposito } from '@/modules/inventario/depositos';
+import { claveNombreProducto, type RenglonSP, type RevisionRenglon, type StockMinaPorNombre, type StockPorProducto } from './revisionAlmacen';
 
 export const CLAVE_INTERRUPTOR = 'compras_revision_almacen';
 export const ESTADO_REVISION = 'revision_almacen';
@@ -158,6 +158,25 @@ export async function existenciasDe(productoIds: string[]): Promise<Record<strin
   return out;
 }
 
+/**
+ * Existencia del Depósito Mina por nombre de producto (30/10/2026): el almacenista de
+ * Los Pinos ve también lo que hay allá. La Mina tiene catálogo propio, así que el
+ * mismo producto se reconoce por el nombre (como el traslado entre almacenes).
+ */
+export async function existenciasMinaPorNombre(): Promise<StockMinaPorNombre> {
+  const { data, error } = await supabase
+    .from('productos')
+    .select('nombre, stock')
+    .eq('almacen', ALMACEN_MINA)
+    .eq('estado', 'activo');
+  if (error) throw new Error(mensajeError(error, 'No se pudieron leer las existencias del Depósito Mina.'));
+  const out: StockMinaPorNombre = {};
+  for (const p of (data ?? []) as { nombre: string; stock: number | null }[]) {
+    out[claveNombreProducto(p.nombre)] = Math.max(0, Number(p.stock) || 0);
+  }
+  return out;
+}
+
 /** Solo los números, para la parte pura. */
 export const stockPlano = (ex: Record<string, ExistenciaProducto>): StockPorProducto =>
   Object.fromEntries(Object.values(ex).map((p) => [p.id, p.stock]));
@@ -183,7 +202,10 @@ export async function revisarSolicitud(
 ): Promise<ResultadoRevision> {
   const { data, error } = await supabase.rpc('almacen_revisar_solicitud', {
     p_orden_id: ordenId,
-    p_items: items.map((r) => ({ idx: r.idx, cantidad_disponible: r.cantidad_disponible })),
+    p_items: items.map((r) => ({
+      idx: r.idx, cantidad_disponible: r.cantidad_disponible,
+      ...(r.por_almacen ? { por_almacen: r.por_almacen } : {}),
+    })),
     p_nota: nota.trim() || null,
     p_texto_whatsapp: textoWhatsapp,
   });

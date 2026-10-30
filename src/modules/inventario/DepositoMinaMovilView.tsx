@@ -184,7 +184,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
             onClick={() => { setElegido(null); setPaso('traslado'); }}>
             <span className="icono" aria-hidden>🔁</span>
             <span>Traslado entre almacenes</span>
-            <small>Pasar material directo a {OTRO.nombre}</small>
+            <small>Pasar material directo a otro depósito</small>
           </button>
           <button type="button" className="surt-btn retorno" style={{ gridColumn: '1 / -1', minHeight: 84 }}
             onClick={() => setPaso('retornos')}>
@@ -223,7 +223,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
       )}
 
       {paso === 'traslado' && elegido && (
-        <FormTraslado dep={DEP} otro={OTRO} producto={elegido} actor={actor} actorName={actorName}
+        <FormTraslado dep={DEP} depositoActual={deposito} producto={elegido} actor={actor} actorName={actorName}
           onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
@@ -493,16 +493,22 @@ function FormEntrada({ dep, producto, actor, actorName, onCancel, onSaved }: {
   );
 }
 
-function FormTraslado({ dep, otro, producto, actor, actorName, onCancel, onSaved }: {
-  dep: Dep; otro: Dep; producto: Producto; actor: string; actorName: string | null;
+function FormTraslado({ dep, depositoActual, producto, actor, actorName, onCancel, onSaved }: {
+  dep: Dep; depositoActual: Deposito; producto: Producto; actor: string; actorName: string | null;
   onCancel: () => void; onSaved: () => Promise<void>;
 }) {
+  const otros = useMemo(
+    () => (Object.keys(DEPOSITOS) as Deposito[]).filter((d) => d !== depositoActual),
+    [depositoActual],
+  );
+  const [destinoKey, setDestinoKey] = useState<Deposito>(otros[0] ?? 'general');
   const [cantidad, setCantidad] = useState('');
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; texto: string } | null>(null);
   const cant = Number(cantidad.replace(',', '.')) || 0;
   const hay = Number(producto.stock) || 0;
+  const destinoDep = DEPOSITOS[destinoKey] ?? DEPOSITOS.general;
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -510,7 +516,14 @@ function FormTraslado({ dep, otro, producto, actor, actorName, onCancel, onSaved
     if (cant > hay) return toast(`No alcanza: hay ${num(hay)} ${producto.unidad}.`, 'error');
     setGuardando(true);
     try {
-      const t = await trasladarEntreAlmacenes({ producto_id: producto.id, cantidad: cant, nota: nota.trim() || null, actor, actor_name: actorName });
+      const t = await trasladarEntreAlmacenes({
+        producto_id: producto.id,
+        cantidad: cant,
+        destino: destinoDep.almacen,
+        nota: nota.trim() || null,
+        actor,
+        actor_name: actorName,
+      });
       setAviso({ titulo: `Traslado ${t.codigo} registrado`, texto: mensajeTraslado(t, actorName ?? actor) });
     } catch (err) {
       toast(errMsg(err, 'No se pudo trasladar'), 'error');
@@ -525,9 +538,33 @@ function FormTraslado({ dep, otro, producto, actor, actorName, onCancel, onSaved
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
       <div className="surt-form-titulo"><span className="icono" aria-hidden>🔁</span><strong>Traslado · {producto.nombre}</strong></div>
       <div className="muted">{producto.sku} · hay {num(hay)} {producto.unidad} en {dep.nombre}</div>
+
+      <div className="surt-campo">
+        <label style={{ fontWeight: 600, marginBottom: '.35rem', display: 'block' }}>¿A cuál depósito se traslada?</label>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${otros.length}, 1fr)`, gap: '.5rem' }}>
+          {otros.map((dKey) => {
+            const d = DEPOSITOS[dKey];
+            const activo = destinoKey === dKey;
+            const icono = dKey === 'reutilizables' ? '♻️ ' : dKey === 'mina' ? '⛏ ' : '📦 ';
+            const label = dKey === 'reutilizables' ? 'Reutilizables' : dKey === 'mina' ? 'Depósito Mina' : 'General';
+            return (
+              <button
+                key={dKey}
+                type="button"
+                className={`btn ${activo ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ fontWeight: 600, minHeight: 46, padding: '.4rem .5rem', textAlign: 'center', fontSize: '.88rem' }}
+                onClick={() => setDestinoKey(dKey)}
+              >
+                {icono}{label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="aviso info sm">
         <span className="aviso-icono">🔁</span>
-        <div>De <strong>{dep.nombre}</strong> a <strong>{otro.nombre}</strong>. Si allá no existe este producto, se crea con el mismo nombre, categoría y unidad.</div>
+        <div>De <strong>{dep.nombre}</strong> a <strong>{destinoDep.nombre}</strong>. Si allá no existe este producto, se crea con el mismo nombre, categoría y unidad.</div>
       </div>
       <div className="surt-campo">
         <label htmlFor="inv-traslado-cant">¿Cuánto se traslada? ({producto.unidad})</label>
@@ -542,7 +579,7 @@ function FormTraslado({ dep, otro, producto, actor, actorName, onCancel, onSaved
           placeholder="Opcional: para qué, quién lo lleva…" autoComplete="off" />
       </div>
       <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || cant <= 0 || cant > hay}>
-        {guardando ? 'Trasladando…' : `🔁 Trasladar a ${otro.nombre}`}
+        {guardando ? 'Trasladando…' : `🔁 Trasladar a ${destinoDep.nombre}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro producto</button>
     </form>
