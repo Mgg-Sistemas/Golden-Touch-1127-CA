@@ -384,15 +384,12 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   const equiposOpts = useMemo(() => opcionesEquipos({
     catalogo: catalogos.filter((c) => c.tipo === 'equipo'),
     fichas,
-    bidones: tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre),
+    bidones: esBidon(tanque.nombre) ? tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre) : [],
     modo: 'telefono',
     tanqueActual: tanque,
     incluirValor: equipo,
   }), [catalogos, tanques, fichas, tanque, equipo]);
 
-  const subtitulo = tipo === 'entrada'
-    ? `Entra a ${tanque.nombre} · hoy tiene ${num(tanque.saldo_litros)} L a ${money(tanque.tasa_usd_litro)}/L`
-    : `Desde ${tanque.nombre} · ${num(tanque.saldo_litros)} L disponibles`;
 
   return (
     <form className="surt-form card" onSubmit={guardar}>
@@ -400,16 +397,42 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
         <span className="icono" aria-hidden>{ICONO[tipo]}</span>
         <div>
           <strong>{TITULO[tipo]}</strong>
-          <div className="muted" style={{ fontSize: '.85rem' }}>{subtitulo}</div>
+          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '3px' }}>
+            <span style={{
+              background: 'rgba(255, 138, 0, 0.15)',
+              color: '#FF8A00',
+              padding: '1px 8px',
+              borderRadius: '6px',
+              fontSize: '.76rem',
+              fontWeight: 700,
+              border: '1px solid rgba(255, 138, 0, 0.3)',
+            }}>
+              ⛽ {tanque.nombre}
+            </span>
+            <span style={{ color: '#94a3b8', fontSize: '.8rem' }}>
+              {tipo === 'entrada' ? `hoy ${num(tanque.saldo_litros)} L` : `${num(tanque.saldo_litros)} L disponibles`}
+            </span>
+          </div>
         </div>
       </div>
 
       {error && <div className="aviso danger"><span className="aviso-icono">⛔</span><div>{error}</div></div>}
 
       <div className="surt-campo">
-        <label htmlFor="surt-litros">Litros</label>
-        <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
-          value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
+        <label htmlFor="surt-litros">
+          <span>⛽ Litros {tipo === 'entrada' ? 'que entraron' : 'a despachar'}</span>
+        </label>
+        <div style={{ position: 'relative' }}>
+          <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
+            value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
+          <span style={{
+            position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)',
+            fontWeight: 800, color: 'var(--primary-2, #ffa733)', fontSize: '1.15rem',
+            userSelect: 'none', pointerEvents: 'none', opacity: 0.85,
+          }}>
+            Ltrs
+          </span>
+        </div>
         {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}
       </div>
 
@@ -439,7 +462,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
 
       <div className="surt-campo">
         <label htmlFor="surt-equipo">
-          {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}
+          <span>🚜 {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}</span>
         </label>
         <div className="surt-buscable">
           <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe el alias (L220G), la placa o parte del nombre…"
@@ -481,7 +504,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
       )}
 
       <div className="surt-campo">
-        <label htmlFor="surt-autorizado">Autorizado por</label>
+        <label htmlFor="surt-autorizado"><span>👤 Autorizado por</span></label>
         <div className="surt-buscable">
           <SearchSelect id="surt-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Busca quién autorizó…"
             options={opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))} />
@@ -490,7 +513,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
 
       {(tipo === 'uso' || tipo === 'traslado') && (
         <div className="surt-campo">
-          <label htmlFor="surt-cf">Contador del surtidor al terminar</label>
+          <label htmlFor="surt-cf"><span>🔢 Contador del surtidor al terminar</span></label>
           <input id="surt-cf" className="input surt-input" type="number" inputMode="decimal" step="any" value={cf} onChange={(e) => setCf(e.target.value)}
             placeholder={cfPropuesto != null ? `${cfPropuesto} (se pone solo)` : ciAuto ? `arrancó en ${ci}` : 'lectura final del contador'} />
           {cf === '' && ci !== '' && (

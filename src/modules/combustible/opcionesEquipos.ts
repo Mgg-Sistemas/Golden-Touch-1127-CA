@@ -16,6 +16,7 @@
    ============================================================ */
 import type { SearchOption } from '@/shared/ui/SearchSelect';
 import { norm } from '@/shared/lib/texto';
+import { esBidon } from './bidonCombustible';
 import { aliasesDeEquipo, claseEquipo, listarApartados, nombreCortoEquipo, type ApartadoEquipo } from '@/modules/maquinaria/flota';
 
 /** Lo que hace falta de la ficha de Maquinaria para armar la opción (subconjunto de MaquinariaEquipo). */
@@ -191,10 +192,19 @@ export function opcionesEquipos(args: {
     });
   }
 
+  const tNombre = args.tanqueActual
+    ? typeof args.tanqueActual === 'string' ? args.tanqueActual : args.tanqueActual.nombre
+    : null;
+  const origenEsBidon = tNombre ? esBidon(tNombre) : true;
+
   for (const nombre of unicos(args.bidones ?? [])) {
+    const esSeleccionActual = !!args.incluirValor && norm(args.incluirValor) === norm(nombre);
+    if (!origenEsBidon && !esSeleccionActual) {
+      continue;
+    }
     opciones.push({
       value: nombre, label: `${ICONO_BIDON} ${nombre}`, hint: 'bidón · salida directa',
-      keywords: ['bidon', nombre], group: GRUPO_BIDONES, groupIcon: ICONO_BIDON, _orden: ordenGrupo(GRUPO_BIDONES),
+      keywords: ['bidon', 'bidones', nombre], group: GRUPO_BIDONES, groupIcon: ICONO_BIDON, _orden: ordenGrupo(GRUPO_BIDONES),
     });
   }
 

@@ -233,3 +233,4 @@ export function esUnaDeLas16MaquinasAutorizadas(nombre: string | null | undefine
 
   return false;
 }
+

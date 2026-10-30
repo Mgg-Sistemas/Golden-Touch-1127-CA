@@ -154,4 +154,31 @@ describe('filtrado por activo y tanques permitidos (control de surtido)', () => 
     });
     expect(ops.some((o) => o.value === 'TOYOTA HILUX 05')).toBe(true);
   });
+
+  it('NO permite dar salida directa a bidones desde otro tanque convencional (ej. Tanque #1)', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      bidones: ['Bidones 20 Litros (2)', 'BIDÓN 200 L'],
+      modo: 'telefono',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-1', nombre: 'Tanque #1' },
+    });
+    // Desde Tanque #1 NO deben aparecer los bidones
+    expect(ops.some((o) => o.value === 'Bidones 20 Litros (2)')).toBe(false);
+    expect(ops.some((o) => o.value === 'BIDÓN 200 L')).toBe(false);
+    expect(ops.some((o) => o.group === GRUPO_BIDONES)).toBe(false);
+  });
+
+  it('SÍ permite bidones cuando el tanque actual es el propio almacenamiento de bidones', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      bidones: ['Bidones 20 Litros (2)'],
+      modo: 'telefono',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-bidon', nombre: 'Bidones 20 Litros (2)' },
+    });
+    expect(ops.some((o) => o.value === 'Bidones 20 Litros (2)')).toBe(true);
+  });
 });

@@ -75,3 +75,4 @@ select id, valor, activo, tanques_permitidos
   from public.combustible_catalogos
  where tipo = 'equipo' and activo = true
  order by valor;
+

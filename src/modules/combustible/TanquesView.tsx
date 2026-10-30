@@ -891,7 +891,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     ...opcionesEquipos({
       catalogo: catalogos.filter((c) => c.tipo === 'equipo'),
       fichas,
-      bidones: tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre),
+      bidones: esBidon(tanqueActualObj?.nombre ?? '') ? tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre) : [],
       modo: 'pc',
       tanqueActual: tanqueActualObj,
       incluirValor: equipo,
