@@ -327,7 +327,8 @@ export function filtrarMovimientos(
  */
 export function procesarFilasReporte(
   movs: MovimientoEnriquecido[],
-  agrupacion: ModoAgrupacionCombustible
+  agrupacion: ModoAgrupacionCombustible,
+  ordenarPor: 'usd' | 'litros' | 'horas' = 'usd'
 ): { filas: FilaReporteCombustible[]; resumen: ResumenReporteCombustible } {
   const totalLitros = movs.reduce((acc, m) => acc + m.litros, 0);
   const totalUsd = movs.reduce((acc, m) => acc + m.usd, 0);
@@ -513,9 +514,13 @@ export function procesarFilasReporte(
     };
   });
 
-  // Ordenar: por mes cronológico, el resto por mayor consumo de litros
+  // Ordenar: por mes cronológico, o según el criterio principal (costo/USD, consumo/litros, horas)
   if (agrupacion === 'mes') {
     filas.sort((a, b) => a.id.localeCompare(b.id));
+  } else if (ordenarPor === 'usd') {
+    filas.sort((a, b) => b.usd - a.usd);
+  } else if (ordenarPor === 'horas') {
+    filas.sort((a, b) => (b.horas ?? 0) - (a.horas ?? 0));
   } else {
     filas.sort((a, b) => b.litros - a.litros);
   }

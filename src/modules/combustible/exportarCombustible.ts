@@ -58,6 +58,8 @@ export interface MetadatosExportacion {
   subtituloFiltros?: string;
   incluirResumen: boolean;
   orientacion?: 'auto' | 'portrait' | 'landscape';
+  formatoPresentacion?: 'fichas' | 'tabla';
+  ordenarPor?: 'usd' | 'litros' | 'horas';
 }
 
 function formatearValorCelda(fila: FilaReporteCombustible, col: CampoColumnaCombustible): string {
@@ -337,7 +339,15 @@ export async function descargarCombustiblePdf(
   if (!columnas.length) throw new Error('Selecciona al menos una columna.');
   if (!filas.length) throw new Error('No hay datos de combustible para el período seleccionado.');
 
-  const orient = meta.orientacion === 'portrait' ? 'portrait' : meta.orientacion === 'landscape' ? 'landscape' : columnas.length > 6 ? 'landscape' : 'portrait';
+  const esFichas = meta.formatoPresentacion !== 'tabla';
+  const orient = meta.orientacion === 'portrait'
+    ? 'portrait'
+    : meta.orientacion === 'landscape'
+      ? 'landscape'
+      : esFichas || columnas.length > 6
+        ? 'landscape'
+        : 'portrait';
+
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orient });
 
   const W = doc.internal.pageSize.getWidth();
@@ -360,7 +370,8 @@ export async function descargarCombustiblePdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   doc.setTextColor(...NARANJA);
-  const titLineas = doc.splitTextToSize('REPORTE DE COMBUSTIBLE Y CONSUMO', anchoTexto) as string[];
+  const tituloDoc = esFichas ? 'INFORME EJECUTIVO DE COMBUSTIBLE Y CONSUMO' : 'REPORTE DE COMBUSTIBLE Y CONSUMO';
+  const titLineas = doc.splitTextToSize(tituloDoc, anchoTexto) as string[];
   doc.text(titLineas, tx, y + 14);
 
   let yy = y + 14 + (titLineas.length - 1) * 14;
@@ -428,60 +439,191 @@ export async function descargarCombustiblePdf(
     y += cardH + 12;
   }
 
-  // 3. Tabla con AutoTable
-  const headCols = columnas.map((c) => pdfSafe(c.etiqueta));
-  const bodyRows = filas.map((f) => columnas.map((c) => pdfSafe(formatearValorCelda(f, c))));
+  // 3. Contenido: FICHAS EJECUTIVAS vs TABLA TABULAR
+  if (esFichas) {
+    const cols = orient === 'landscape' ? 2 : 1;
+    const cardGap = 10;
+    const cardW = (UW - (cols - 1) * cardGap) / cols;
+    const cardH = orient === 'landscape' ? 76 : 68;
 
-  // Fila de Totales para el Pie de Tabla
-  const footRow = columnas.map((col, idx) => {
-    if (idx === 0) return 'TOTALES';
-    if (col.clave === 'litros') return `${fmtNum(resumen.totalLitros, 2)} L`;
-    if (col.clave === 'usd') return fmtUsd(resumen.totalUsd);
-    if (col.clave === 'horas') return `${fmtNum(resumen.totalHoras, 1)} h`;
-    if (col.clave === 'surtidos') return String(resumen.totalSurtidos);
-    if (col.clave === 'pct_total') return '100.0 %';
-    if (col.clave === 'rendimiento') return resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '-';
-    if (col.clave === 'tasa_promedio') return `${fmtUsd(resumen.tasaPromedio)}/L`;
-    return '';
-  });
+    for (let i = 0; i < filas.length; i += cols) {
+      if (y + cardH > H - 36) {
+        doc.addPage();
+        y = 36;
+      }
 
-  const columnStyles: Record<number, { halign: 'left' | 'right' | 'center' }> = {};
-  columnas.forEach((col, idx) => {
-    columnStyles[idx] = { halign: col.alineacion };
-  });
+      for (let c = 0; c < cols; c++) {
+        const f = filas[i + c];
+        if (!f) break;
+        const cx = M + c * (cardW + cardGap);
+        const cy = y;
 
-  autoTable(doc, {
-    startY: y,
-    margin: { left: M, right: M, bottom: 24 },
-    head: [headCols],
-    body: bodyRows,
-    foot: [footRow],
-    theme: 'grid',
-    styles: {
-      fontSize: orient === 'landscape' ? 7.8 : 7.2,
-      cellPadding: 2.2,
-      lineColor: BORDE,
-      lineWidth: 0.3,
-      textColor: TINTA,
-      overflow: 'linebreak',
-      valign: 'middle',
-    },
-    headStyles: {
-      fillColor: NARANJA,
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      halign: 'center',
-    },
-    footStyles: {
-      fillColor: [241, 245, 249],
-      textColor: [30, 41, 59],
-      fontStyle: 'bold',
-    },
-    alternateRowStyles: {
-      fillColor: FONDO_ALT,
-    },
-    columnStyles,
-  });
+        // Tarjeta contenedora
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(...BORDE);
+        doc.setLineWidth(0.6);
+        doc.roundedRect(cx, cy, cardW, cardH, 4, 4, 'FD');
+
+        // Borde izquierdo naranja
+        doc.setFillColor(...NARANJA);
+        doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
+
+        // Nombre de Equipo
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(...TINTA);
+        const eqNombre = pdfSafe(f.equipo || 'Sin equipo');
+        const eqTrunc = doc.splitTextToSize(eqNombre, cardW - 55) as string[];
+        doc.text(eqTrunc[0] || eqNombre, cx + 10, cy + 13);
+
+        // Badge % Consumo
+        const badgeW = 42;
+        const badgeH = 12;
+        const bx = cx + cardW - badgeW - 6;
+        const by = cy + 4;
+        doc.setFillColor(254, 243, 199);
+        doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(217, 119, 6);
+        doc.text(`${f.pct_total.toFixed(1)}%`, bx + badgeW / 2, by + 8.5, { align: 'center' });
+
+        // Subtítulo con Empresa / Tipo / Ubicación
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.2);
+        doc.setTextColor(100, 116, 139);
+        const metaTxt = pdfSafe(`${f.empresa || 'Sin empresa'} · ${f.tipo || 'Sin tipo'}${f.ubicacion ? ` · ${f.ubicacion}` : ''}`);
+        const metaTrunc = doc.splitTextToSize(metaTxt, cardW - 20) as string[];
+        doc.text(metaTrunc[0] || metaTxt, cx + 10, cy + 24);
+
+        // Divisor interior
+        doc.setDrawColor(241, 245, 249);
+        doc.setLineWidth(0.5);
+        doc.line(cx + 8, cy + 29, cx + cardW - 8, cy + 29);
+
+        // 4 Columnas de Métricas
+        const innerW = cardW - 16;
+        const colW = innerW / 4;
+        const my = cy + 39;
+
+        // Métrica 1: Consumo
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(71, 85, 105);
+        doc.text('CONSUMO (L)', cx + 8, my);
+        doc.setFontSize(10);
+        doc.setTextColor(...NARANJA);
+        doc.text(`${fmtNum(f.litros, 2)} L`, cx + 8, my + 13);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`Tasa: $${f.tasa_promedio.toFixed(2)}/L`, cx + 8, my + 23);
+
+        // Métrica 2: Inversión USD
+        const m2x = cx + 8 + colW;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(71, 85, 105);
+        doc.text('VALOR ($ USD)', m2x, my);
+        doc.setFontSize(10);
+        doc.setTextColor(22, 163, 74);
+        doc.text(fmtUsd(f.usd), m2x, my + 13);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`${f.surtidos} despacho(s)`, m2x, my + 23);
+
+        // Métrica 3: Horas Trabajadas
+        const m3x = cx + 8 + colW * 2;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(71, 85, 105);
+        doc.text('HORAS TRAB.', m3x, my);
+        doc.setFontSize(10);
+        doc.setTextColor(2, 132, 199);
+        doc.text(f.horas > 0 ? `${fmtNum(f.horas, 1)} h` : '—', m3x, my + 13);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.setTextColor(148, 163, 184);
+        doc.text(f.rendimiento ? `${fmtNum(f.rendimiento, 2)} L/h` : 'Sin rend.', m3x, my + 23);
+
+        // Métrica 4: Horómetros / Tanque
+        const m4x = cx + 8 + colW * 3;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(71, 85, 105);
+        doc.text('HORÓMETROS', m4x, my);
+        doc.setFontSize(7.5);
+        doc.setTextColor(51, 65, 85);
+        const horomTxt = f.horometro_ini != null && f.horometro_fin != null
+          ? `${fmtNum(f.horometro_ini)} → ${fmtNum(f.horometro_fin)}`
+          : f.tanque || '—';
+        doc.text(pdfSafe(horomTxt), m4x, my + 11);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.setTextColor(148, 163, 184);
+        doc.text(pdfSafe(f.tanque ? `Tanque: ${f.tanque}` : ''), m4x, my + 23);
+      }
+
+      y += cardH + cardGap;
+    }
+  } else {
+    // 3b. Tabla con AutoTable optimizada
+    const headCols = columnas.map((c) => pdfSafe(c.etiqueta));
+    const bodyRows = filas.map((f) => columnas.map((c) => pdfSafe(formatearValorCelda(f, c))));
+
+    const footRow = columnas.map((col, idx) => {
+      if (idx === 0) return 'TOTALES';
+      if (col.clave === 'litros') return `${fmtNum(resumen.totalLitros, 2)} L`;
+      if (col.clave === 'usd') return fmtUsd(resumen.totalUsd);
+      if (col.clave === 'horas') return `${fmtNum(resumen.totalHoras, 1)} h`;
+      if (col.clave === 'surtidos') return String(resumen.totalSurtidos);
+      if (col.clave === 'pct_total') return '100.0 %';
+      if (col.clave === 'rendimiento') return resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '-';
+      if (col.clave === 'tasa_promedio') return `${fmtUsd(resumen.tasaPromedio)}/L`;
+      return '';
+    });
+
+    const columnStyles: Record<number, { halign: 'left' | 'right' | 'center'; cellWidth?: number }> = {};
+    columnas.forEach((col, idx) => {
+      columnStyles[idx] = { halign: col.alineacion };
+    });
+
+    const esMuchosCampos = columnas.length >= 10;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: M, right: M, bottom: 24 },
+      head: [headCols],
+      body: bodyRows,
+      foot: [footRow],
+      theme: 'grid',
+      styles: {
+        fontSize: esMuchosCampos ? 6.5 : orient === 'landscape' ? 7.6 : 7.0,
+        cellPadding: esMuchosCampos ? 1.6 : 2.2,
+        lineColor: BORDE,
+        lineWidth: 0.3,
+        textColor: TINTA,
+        overflow: 'linebreak',
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: NARANJA,
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center',
+      },
+      footStyles: {
+        fillColor: [241, 245, 249],
+        textColor: [30, 41, 59],
+        fontStyle: 'bold',
+      },
+      alternateRowStyles: {
+        fillColor: FONDO_ALT,
+      },
+      columnStyles,
+    });
+  }
 
   // 4. Pies de página en todas las hojas
   const numPaginas = doc.getNumberOfPages();

@@ -148,6 +148,8 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
   const [marcados, setMarcados] = useState<string[]>(prefs.campos);
   const [incluirResumen, setIncluirResumen] = useState<boolean>(prefs.incluirResumen);
   const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
+  const [formatoPresentacion, setFormatoPresentacion] = useState<'fichas' | 'tabla'>('fichas');
+  const [ordenarPor, setOrdenarPor] = useState<'usd' | 'litros' | 'horas'>('usd');
 
   // Filtros de inclusión mediante checks y pills (vacío = todos)
   const [empresasSel, setEmpresasSel] = useState<string[]>([]);
@@ -264,8 +266,8 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
 
   // 5. Procesar filas y resumen
   const { filas, resumen } = useMemo(() => {
-    return procesarFilasReporte(filtrados, agrupacion);
-  }, [filtrados, agrupacion]);
+    return procesarFilasReporte(filtrados, agrupacion, ordenarPor);
+  }, [filtrados, agrupacion, ordenarPor]);
 
   // Manejadores de columnas (checks)
   const alternarColumna = (clave: string) => {
@@ -369,6 +371,8 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
         subtituloFiltros: subFiltros,
         incluirResumen,
         orientacion,
+        formatoPresentacion,
+        ordenarPor,
       };
 
       if (formato === 'pdf') {
@@ -710,17 +714,32 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
             {seccionFiltro === 'equipos' && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flex: 1, minWidth: '220px' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: '240px', maxWidth: '320px' }}>
                     <input
                       type="search"
-                      className="form-control form-control-sm"
+                      className="input"
                       placeholder="🔍 Buscar equipo específico..."
                       value={qEquipos}
                       onChange={(e) => setQEquipos(e.target.value)}
-                      style={{ fontSize: '.78rem', padding: '.2rem .5rem', maxWidth: '280px' }}
+                      style={{
+                        fontSize: '.78rem',
+                        padding: '.3rem .6rem',
+                        width: '100%',
+                        background: 'var(--surface-1, #0f172a)',
+                        borderColor: 'var(--border, #334155)',
+                        color: 'var(--text, #f1f5f9)',
+                        borderRadius: '6px',
+                      }}
                     />
                     {qEquipos && (
-                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => setQEquipos('')}>✕</button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => setQEquipos('')}
+                        style={{ position: 'absolute', right: '6px', padding: '0 4px', lineHeight: 1 }}
+                      >
+                        ✕
+                      </button>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '.3rem' }}>
@@ -926,7 +945,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
           </div>
         </div>
 
-        {/* 5. SECCIÓN: Opciones de Formato, Orientación con Checks/Pills y Resumen */}
+        {/* 5. SECCIÓN: Opciones de Formato, Presentación y Orientación */}
         <div style={{
           background: 'var(--surface-2, #182230)',
           border: '1px solid var(--border)',
@@ -936,6 +955,99 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
           flexDirection: 'column',
           gap: '.6rem',
         }}>
+          {/* Fila 1: Formato de presentación y Criterio de ordenamiento principal */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>
+            {/* Formato de presentación: Fichas Ejecutivas vs Tabla Tabular */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' }}>
+                🎨 Formato de Presentación:
+              </span>
+              <div style={{ display: 'inline-flex', gap: '.4rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${formatoPresentacion === 'fichas' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    borderRadius: '999px',
+                    padding: '.25rem .75rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '.35rem',
+                    fontWeight: formatoPresentacion === 'fichas' ? 600 : 400,
+                  }}
+                  onClick={() => setFormatoPresentacion('fichas')}
+                  title="Diseño visual en tarjetas/fichas por equipo con métricas claras y legibles, sin columnas apretadas"
+                >
+                  <input
+                    type="checkbox"
+                    checked={formatoPresentacion === 'fichas'}
+                    readOnly
+                    style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                  />
+                  <span>🏢 Fichas Ejecutivas</span>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${formatoPresentacion === 'tabla' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    borderRadius: '999px',
+                    padding: '.25rem .75rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '.35rem',
+                    fontWeight: formatoPresentacion === 'tabla' ? 600 : 400,
+                  }}
+                  onClick={() => setFormatoPresentacion('tabla')}
+                  title="Diseño clásico en cuadrícula y tabla de datos"
+                >
+                  <input
+                    type="checkbox"
+                    checked={formatoPresentacion === 'tabla'}
+                    readOnly
+                    style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }}
+                  />
+                  <span>📊 Tabla Tabular</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Ordenamiento principal: por Costo, Consumo u Horas */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' }}>
+                🎯 Principal por:
+              </span>
+              <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${ordenarPor === 'usd' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+                  onClick={() => setOrdenarPor('usd')}
+                  title="Ordenar resultados por mayor costo/inversión en dólares ($ USD)"
+                >
+                  💵 Costo ($)
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${ordenarPor === 'litros' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+                  onClick={() => setOrdenarPor('litros')}
+                  title="Ordenar resultados por mayor volumen de litros consumidos"
+                >
+                  ⛽ Litros
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${ordenarPor === 'horas' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+                  onClick={() => setOrdenarPor('horas')}
+                  title="Ordenar resultados por cantidad de horas trabajadas"
+                >
+                  ⏱️ Horas
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Fila 2: Orientación y Resumen */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem' }}>
             {/* Orientación con pills y checks interactivos */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -955,7 +1067,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                     fontWeight: orientacion === 'landscape' ? 600 : 400,
                   }}
                   onClick={() => setOrientacion('landscape')}
-                  title="Formato horizontal (apaisado), recomendado para tablas con múltiples columnas"
+                  title="Formato horizontal (apaisado), recomendado para fichas ejecutivas y tablas anchas"
                 >
                   <input
                     type="checkbox"
