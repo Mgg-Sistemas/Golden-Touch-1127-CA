@@ -266,7 +266,7 @@ describe('quién solicitó, quién autorizó y el analista a cargo', () => {
     const txt = textoOrdenPagar(confirmada, proveedor, personas);
     expect(txt).toContain('👤 *Solicita:* JAIME CAMPO · COCINA');
     expect(txt).toContain('✅ *Autorizó:* JESUS LOZADA');
-    expect(txt).toContain('🛒 *Analista de compras:* MARIA PEREZ');
+    expect(txt).toContain('🛒 *Analista encargado:* MARIA PEREZ');
     expect(txt.indexOf('🏭')).toBeLessThan(txt.indexOf('👤'));
     expect(txt.indexOf('✅')).toBeLessThan(txt.indexOf('💵'));
   });
@@ -293,7 +293,7 @@ describe('quién solicitó, quién autorizó y el analista a cargo', () => {
   it('el aviso de aprobación lleva quién solicita y el analista, pero no «Autorizó» (aún no se aprueba)', () => {
     const txt = textoOrdenAprobacion({ ...confirmada, estado: 'oc_creada' } as unknown as Orden, proveedor, personas);
     expect(txt).toContain('👤 *Solicita:* JAIME CAMPO · COCINA');
-    expect(txt).toContain('🛒 *Analista de compras:* MARIA PEREZ');
+    expect(txt).toContain('🛒 *Analista encargado:* MARIA PEREZ');
     expect(txt).not.toContain('Autorizó');
   });
 });

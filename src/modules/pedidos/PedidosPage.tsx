@@ -30,8 +30,11 @@ import type {
   PagoMetodo,
   Producto,
   Proveedor,
+  RetencionMomento,
   Usuario,
 } from '@/shared/lib/types';
+import { INTERRUPTOR_RETENCION_MOMENTO } from '@/shared/lib/types';
+import { useInterruptor } from '@/shared/lib/interruptores';
 import {
   aprobarOrden,
   aprobarOcsEnLote,
@@ -1142,8 +1145,15 @@ export function PedidosPage() {
             try {
               const actorMp = usuario?.email ?? user?.email ?? 'sistema';
               await indicarMetodoPago(modal.orden, metodos, actorMp, soporte, imagenPath);
-              const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
-              notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
+              const cod = modal.orden.oc_codigo ?? modal.orden.codigo;
+              if (soporte.retencionMomento === 'antes_de_pagar') {
+                notify(`OC ${cod} enviada a Retenciones (se retiene ANTES de pagar) · Tesorería la verá cuando la retención esté hecha`, 'success', { link: '#/app/retenciones' });
+              } else if (soporte.retencionMomento === 'despues_de_pagar') {
+                notify(`OC ${cod} enviada a Tesorería para pagar completa · pasa a Retenciones después del pago`, 'success', { link: '#/app/tesoreria' });
+              } else {
+                const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
+                notify(`OC ${cod} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
+              }
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
@@ -1542,7 +1552,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null }, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null }, imagenPath?: string | null) => Promise<void> | void;
   /** Cambiar de proveedor: reabre la elección de oferta (volver a cotizar). Lleva el motivo. */
   onCambiarProveedor: (motivo: string) => Promise<void>;
 }) {
@@ -1576,6 +1586,11 @@ function MetodoPagoModal({
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>(orden.comprobante_tipo ?? 'nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>(orden.retencion_modo ?? 'se_paga_despues');
+  // Nuevo flujo (interruptor compras_retencion_momento): con factura se marca si se retiene
+  // ANTES de pagar (va primero a Retenciones; Tesorería paga el neto → el monto BAJA) o
+  // DESPUÉS (va a Tesorería y se paga completo → el monto SUBE; luego Retenciones).
+  const momentoActivo = useInterruptor(INTERRUPTOR_RETENCION_MOMENTO);
+  const [retencionMomento, setRetencionMomento] = useState<RetencionMomento | null>(orden.retencion_momento ?? null);
   // OC por factura: con IVA (suma al total) o sin IVA. El % arranca en 16 (general) pero
   // es EDITABLE, y el MONTO también se puede poner a mano (se sincronizan entre sí).
   const [conIva, setConIva] = useState(!!orden.iva_aplicado);
@@ -1716,6 +1731,9 @@ function MetodoPagoModal({
       setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(totalFinal)}).`); return;
     }
     if (esContraEntrega && !notaEntrega) { setError('Confirma la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+    if (momentoActivo && comprobanteTipo === 'factura' && !retencionMomento) {
+      setError('Indica si se retiene ANTES o DESPUÉS de pagar: de eso depende si la OC va a Retenciones o a Tesorería.'); return;
+    }
     // Validar datos del proveedor en los métodos que los requieren.
     for (const l of validos) {
       if (requiereDatos(l.metodo)) {
@@ -1738,7 +1756,12 @@ function MetodoPagoModal({
       if (orden.proveedor_id && numeroAdmLimpio !== numeroAdmFicha) await fijarNumeroAdministracion(orden.proveedor_id, numeroAdmLimpio);
       await onSent(validos, {
         comprobanteTipo,
-        retencionModo: comprobanteTipo === 'factura' ? retencionModo : null,
+        // Con el flujo nuevo, el modo sale del momento: antes = se paga el neto y la
+        // retención después al SENIAT; después = se paga completo y el proveedor reembolsa.
+        retencionModo: comprobanteTipo !== 'factura' ? null
+          : momentoActivo && retencionMomento ? (retencionMomento === 'antes_de_pagar' ? 'se_paga_despues' : 'completo_reembolso')
+          : retencionModo,
+        retencionMomento: momentoActivo && comprobanteTipo === 'factura' ? retencionMomento : null,
         conIva: ivaActivo, ivaPct: ivaPctNum, ivaMonto,
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
         conDescuento, descuentoMonto,
@@ -1913,7 +1936,19 @@ function MetodoPagoModal({
         </div>
         {comprobanteTipo === 'factura' && (
           <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
-            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
+            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención{momentoActivo && <> · <strong style={{ color: 'var(--danger)' }}>¿cuándo se retiene? (obligatorio)</strong></>}</div>
+            {momentoActivo ? (
+            <div style={{ display: 'grid', gap: '.35rem' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+                <input type="radio" name="ret-momento" checked={retencionMomento === 'antes_de_pagar'} onChange={() => setRetencionMomento('antes_de_pagar')} />
+                <span><strong>🔻 Retener ANTES de pagar</strong> → va primero a <strong>Retenciones</strong>. Tesorería la paga cuando la retención esté hecha, por el total <strong>menos la retención (el monto BAJA)</strong>.</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+                <input type="radio" name="ret-momento" checked={retencionMomento === 'despues_de_pagar'} onChange={() => setRetencionMomento('despues_de_pagar')} />
+                <span><strong>🔺 Retener DESPUÉS de pagar</strong> → va directo a <strong>Tesorería</strong>, que paga el <strong>total completo (el monto SUBE)</strong>. Ya pagada, pasa a Retenciones.</span>
+              </label>
+            </div>
+            ) : (
             <div style={{ display: 'grid', gap: '.35rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
                 <input type="radio" name="ret-modo" checked={retencionModo === 'se_paga_despues'} onChange={() => setRetencionModo('se_paga_despues')} />
@@ -1924,6 +1959,7 @@ function MetodoPagoModal({
                 Se paga completo y luego se reembolsa
               </label>
             </div>
+            )}
           </div>
         )}
       </div>

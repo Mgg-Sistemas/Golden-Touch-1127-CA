@@ -29,6 +29,7 @@ import type {
   PagoMetodo,
   Producto,
   Proveedor,
+  RetencionMomento,
   Usuario,
 } from '@/shared/lib/types';
 
@@ -1137,6 +1138,8 @@ export async function indicarMetodoPago(
   soporte?: {
     comprobanteTipo: 'nota_entrega' | 'factura';
     retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null;
+    /** Nuevo flujo: retener antes de pagar (Retenciones primero) o después (Tesorería primero). */
+    retencionMomento?: RetencionMomento | null;
     conIva?: boolean; ivaPct?: number; ivaMonto?: number;
     conIgtf?: boolean; igtfPct?: number; igtfMonto?: number;
     conDescuento?: boolean; descuentoMonto?: number;
@@ -1174,6 +1177,7 @@ export async function indicarMetodoPago(
   // la OC queda "Confirmada pagar" (oc_aprobada) para que Tesorería pague.
   const comprobanteTipo = soporte?.comprobanteTipo ?? null;
   const retencionModo = comprobanteTipo === 'factura' ? (soporte?.retencionModo ?? null) : null;
+  const retencionMomento = comprobanteTipo === 'factura' ? (soporte?.retencionMomento ?? null) : null;
   // Pago en divisa/efectivo: si el proveedor ofreció un precio menor en divisa
   // (`total_divisa`) y se paga con un método/moneda en divisa, el monto a pagar (y la
   // cuenta por pagar en Tesorería) usa ese precio con descuento, no el general (BCV).
@@ -1225,6 +1229,7 @@ export async function indicarMetodoPago(
     ...(imagenPath !== undefined ? { metodo_pago_imagen_path: imagenPath } : {}),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
+    retencion_momento: retencionMomento,
     numero_administracion: numeroAdministracion,
     iva_aplicado: aplicaIva,
     iva_pct: ivaPct,
@@ -1238,7 +1243,7 @@ export async function indicarMetodoPago(
     // El `total` SIEMPRE se reescribe con base + IVA + IGTF − descuento: si solo se escribiera
     // al aplicar algo, quitar un impuesto dejaba el total viejo con el impuesto adentro.
     total: totalFinal,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa }),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, retencion_momento: retencionMomento, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1610,6 +1615,10 @@ let ultimaReconciliacionOc = 0;
 /** Cada cuánto, como máximo, se vuelve a reconciliar al listar (ver `listOrdenesPorPagar`). */
 const RECONCILIAR_CADA_MS = 5 * 60_000;
 
+/** Nuevo flujo (30/10/2026): una OC que se retiene ANTES de pagar no llega a Tesorería
+ *  hasta que Retenciones finaliza la retención (la base tampoco deja pagarla antes). */
+const LISTA_PARA_TESORERIA = 'retencion_momento.is.null,retencion_momento.neq.antes_de_pagar,retencion_finalizada.is.true';
+
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   // Antes de listar, reconciliamos pagos huérfanos (caja descontada pero OC sin cerrar)
   // para que no aparezcan como pendientes cuando ya se pagaron. Best-effort.
@@ -1623,7 +1632,8 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
     await reconciliarPagosOcHuerfanos().catch(() => 0);
   }
   const [{ data: os, error }, { data: provs }] = await Promise.all([
-    supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada']).order('oc_aprobada_en', { ascending: true }),
+    supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada'])
+      .or(LISTA_PARA_TESORERIA).order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('*'),
   ]);
   if (error) throw error;
@@ -1638,7 +1648,7 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
 export async function resumenPendientesPorPagar(): Promise<{ porPagar: number; credito: number }> {
   const head = { count: 'exact' as const, head: true };
   const [oc, cd, sd, cr] = await Promise.all([
-    supabase.from(TABLE).select('id', head).in('estado', ['confirmada_metodo', 'oc_aprobada']),
+    supabase.from(TABLE).select('id', head).in('estado', ['confirmada_metodo', 'oc_aprobada']).or(LISTA_PARA_TESORERIA),
     supabase.from('compras_directas').select('id', head).eq('estado', 'por_pagar'),
     supabase.from('servicios_directos').select('id', head).eq('estado', 'por_pagar'),
     supabase.from(TABLE).select('id', head).eq('estado', 'cuenta_abierta'),

@@ -11,7 +11,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import {
   listRetencionesPendientes, listRetencionesHechas, finalizarRetencion,
-  urlRetencion, comprobantesDeOrden, labelRetencionModo,
+  urlRetencion, comprobantesDeOrden, labelRetencionModo, labelRetencionMomento,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import { badgeEstatusKanban, badgeImpuestoOrden } from './retencionesKanban';
@@ -363,7 +363,7 @@ export function RetencionesPage() {
                     <td className="mono">{o.codigo}</td>
                   <td>{proveedorNombre}</td>
                   <td>{labelCondicionPago(o.condiciones_pago)}</td>
-                  <td>{labelRetencionModo(o.retencion_modo)}</td>
+                  <td>{labelRetencionModo(o.retencion_modo)}{o.retencion_momento && <div className="muted" style={{ fontSize: '.74rem' }}>{labelRetencionMomento(o.retencion_momento)}</div>}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
                   <td>{o.retencion_pagada ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span> : <span className="muted">Por pagar</span>}</td>
                   <td className="muted">{o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</td>
@@ -478,6 +478,7 @@ function RetencionModal({ item, canWrite, actor, tieneResueltosEnLibro, onClose,
           <div><span className="muted">Tlf. de administración del proveedor:</span> <strong className="mono">{o.numero_administracion || '—'}</strong></div>
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
           <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
+          {o.retencion_momento && <div><span className="muted">Cuándo se retiene:</span> {labelRetencionMomento(o.retencion_momento)}</div>}
           <div><span className="muted">Total:</span> <strong className="mono">{money(o.total)}</strong></div>
           <div><span className="muted">Tesorería:</span> {o.retencion_pagada ? <strong style={{ color: 'var(--success)' }}>✓ Pagada{o.retencion_pagada_en ? ` · ${dateTime(o.retencion_pagada_en)}` : ''}</strong> : 'Por pagar'}</div>
         </div>

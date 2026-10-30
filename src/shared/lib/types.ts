@@ -4,6 +4,10 @@
  */
 export type Role = string;
 export type EstadoGenerico = 'activo' | 'inactivo';
+/** Retener antes o después de pagar (OC con factura · nuevo flujo de Compras). */
+export type RetencionMomento = 'antes_de_pagar' | 'despues_de_pagar';
+export const INTERRUPTOR_RETENCION_MOMENTO = 'compras_retencion_momento';
+
 export type EstadoOrden = 'revision_almacen' | 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta';
 
 /** Condiciones de pago de una oferta. */
@@ -1326,6 +1330,9 @@ export interface Orden {
    *  Retenciones y Tesorería). 14/10/2026. */
   numero_administracion?: string | null;
   retencion_modo?: 'se_paga_despues' | 'completo_reembolso' | null;
+  /** Cuándo se retiene (nuevo flujo de Compras, 30/10/2026): antes de pagar → Retenciones
+   *  primero y Tesorería paga el neto (BAJA); después → Tesorería paga completo (SUBE). */
+  retencion_momento?: RetencionMomento | null;
   retencion_iva_path?: string | null;
   retencion_iva_nombre?: string | null;
   retencion_islr_path?: string | null;
