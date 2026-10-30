@@ -12,7 +12,8 @@ import { fechaHoraVE } from './salidasMina';
 
 /** Nombre del depósito como se lee en el chat. */
 export function nombreDepositoChat(almacen: string): string {
-  return almacen === 'Depósito Mina' ? 'Depósito Mina' : 'Inventario General';
+  if (!almacen || almacen === 'General') return 'Inventario General';
+  return almacen;
 }
 
 const pie = (deposito: string, quien: string | null | undefined, cuando: string | null | undefined) => {

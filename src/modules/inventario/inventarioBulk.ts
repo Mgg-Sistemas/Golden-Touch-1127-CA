@@ -3,7 +3,7 @@ import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import { getCategorias, getUnidades, nextSku } from './inventario.repository';
 import { esCategoriaReal } from './categoriaReal';
-import { DEPOSITOS, esDelDeposito, type Deposito } from './depositos';
+import { resolverDeposito, esDelDeposito, type Deposito } from './depositos';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 import { norm } from '@/shared/lib/texto';
 import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -375,7 +375,7 @@ export async function aplicarImportacion(analisis: AnalisisImport, actor = 'impo
     // No forzar mayúsculas: los nombres de almacén deben respetar la forma
     // canónica de la tabla `almacenes` (ej. "General", "Almacén 1") para que
     // coincidan con las existencias y la vista de producción.
-    const almacen = DEPOSITOS[deposito].almacen;
+    const almacen = resolverDeposito(deposito).almacen;
     const categoria = canon(canonCat, toStr(r.categoria).toUpperCase());
     // SKU: incremental por categoría desde el sistema (o el del Excel si viene).
     const sku = await resolverSku(f.nombre, categoria, toStr(r.sku).toUpperCase());

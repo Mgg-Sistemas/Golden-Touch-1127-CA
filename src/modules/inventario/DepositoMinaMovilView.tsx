@@ -20,17 +20,25 @@
    en Inventario (realtime). Editar o desactivar productos es tarea de la PC.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
-import type { Producto } from '@/shared/lib/types';
+import type { Almacen, Producto } from '@/shared/lib/types';
 import { createProducto, findBySku, getCategorias, getUnidades, listProductos, nextSku } from './inventario.repository';
 import { registrarMovimiento } from './movimientos.repository';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
-import { DEPOSITOS, type Deposito } from './depositos';
+import {
+  ALMACEN_DANADOS,
+  ALMACEN_MINA,
+  ALMACEN_REUTILIZABLES,
+  DEPOSITOS_FIJOS,
+  resolverDeposito,
+  type InfoDeposito,
+} from './depositos';
+import { listAlmacenes } from './almacenes.repository';
 import { FormSalidaMina, Listo, PorRetornarMina } from './SalidaMinaMovil';
 import { listPorRetornarMina } from './salidasMina.repository';
 import type { SalidaMina } from './salidasMina';
@@ -41,7 +49,7 @@ import { trasladarEntreAlmacenes } from './trasladoAlmacen.repository';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
 
-type Dep = (typeof DEPOSITOS)[Deposito];
+type Dep = InfoDeposito;
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el inventario entero. */
 const SIN_BUSCAR = 15;
 
@@ -60,11 +68,18 @@ export function DepositoReutilizablesMovilView() {
   return <DepositoMinaMovilView deposito="reutilizables" key="reutilizables" />;
 }
 
-export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposito }) {
-  const DEP = DEPOSITOS[deposito];
-  const OTRO = DEPOSITOS[deposito === 'reutilizables' ? 'mina' : deposito === 'mina' ? 'general' : 'mina'];
-  const esMina = deposito === 'mina';
-  const esReutilizables = deposito === 'reutilizables';
+/** Vista de teléfono del Depósito Items Dañados. */
+export function DepositoDanadosMovilView() {
+  return <DepositoMinaMovilView deposito="danados" key="danados" />;
+}
+
+export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: string } = {}) {
+  const params = useParams<{ slug?: string }>();
+  const depKey = propDeposito ?? params.slug ?? 'mina';
+  const DEP = resolverDeposito(depKey);
+  const deposito = DEP.almacen;
+  const esMina = DEP.almacen === ALMACEN_MINA;
+  const esReutilizables = DEP.almacen === ALMACEN_REUTILIZABLES;
   const { user } = useSession();
   const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const canWrite = can('inventario', 'escritura');
@@ -74,6 +89,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
+  const [almacenesList, setAlmacenesList] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [paso, setPaso] = useState<Paso>('inicio');
   const [elegido, setElegido] = useState<Producto | null>(null);
@@ -83,11 +99,16 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
   const reload = useCallback(async () => {
     const ps = await listProductos(deposito);
     setProductos(ps.filter((p) => p.estado === 'activo'));
-    const [cats, uds] = await Promise.all([getCategorias(ps), getUnidades(ps)]);
+    const [cats, uds, alms] = await Promise.all([
+      getCategorias(ps),
+      getUnidades(ps),
+      listAlmacenes().catch(() => [] as Almacen[]),
+    ]);
     setCategorias(cats);
     setUnidades(uds);
-    setPorRetornar(await listPorRetornarMina(DEPOSITOS[deposito].almacen).catch(() => [] as SalidaMina[]));
-  }, [deposito]);
+    setAlmacenesList(alms);
+    setPorRetornar(await listPorRetornarMina(DEP.almacen).catch(() => [] as SalidaMina[]));
+  }, [deposito, DEP.almacen]);
 
   useEffect(() => {
     let cancel = false;
@@ -95,7 +116,16 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['productos', 'movimientos', 'taxonomias', 'deposito_mina_salidas'], () => { void reload().catch(() => {}); });
+  const depositosDisponibles = useMemo(() => {
+    const map = new Map<string, InfoDeposito>();
+    Object.values(DEPOSITOS_FIJOS).forEach((d) => map.set(d.almacen, d));
+    almacenesList.forEach((a) => {
+      if (!map.has(a.nombre)) {
+        map.set(a.nombre, resolverDeposito(a.nombre));
+      }
+    });
+    return Array.from(map.values());
+  }, [almacenesList]);
 
   const lista = useMemo(() => {
     const q = sinAcentos(busca.trim());
@@ -112,24 +142,39 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
     <div className="surtidor">
       <header className="surt-head">
         <div>
-          <h1>{esReutilizables ? '♻️ Depósito Reutilizables' : esMina ? '⛏ Depósito Mina' : '📦 Inventario General'}</h1>
+          <h1>{DEP.icono} {DEP.nombre}</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {esReutilizables && (
-            <Link to="/app/inventario/deposito-mina/telefono" className="btn btn-ghost" style={{ fontWeight: 600 }}>
-              ← Volver
-            </Link>
-          )}
-          {esMina && (
-            <Link to="/app/inventario/deposito-reutilizables/telefono" className="btn btn-ghost" style={{ borderColor: '#10b981', color: '#10b981', fontWeight: 600 }}>
-              ♻️ Depósito Reutilizables
-            </Link>
-          )}
           {!soloTelefono && <Link to={DEP.ruta} className="btn btn-ghost">🖥 Módulo completo</Link>}
           {soloTelefono && vistasTelefono.length > 1 && <Link to="/app/telefono" className="btn btn-ghost">📱 Mis pantallas</Link>}
         </div>
       </header>
+
+      {/* Selector rápido entre TODOS los depósitos: visible en cualquier vista teléfono de depósito */}
+      <div style={{ display: 'flex', gap: '.4rem', overflowX: 'auto', padding: '.4rem 0 .6rem', WebkitOverflowScrolling: 'touch', margin: '.2rem 0' }}>
+        {depositosDisponibles.map((d) => {
+          const esActivo = d.almacen.toLowerCase() === DEP.almacen.toLowerCase();
+          return (
+            <Link
+              key={d.almacen}
+              to={d.rutaTelefono}
+              className={`btn btn-sm ${esActivo ? 'btn-primary' : 'btn-ghost'}`}
+              style={{
+                whiteSpace: 'nowrap',
+                fontWeight: esActivo ? 700 : 500,
+                fontSize: '.85rem',
+                borderRadius: '999px',
+                padding: '.35rem .75rem',
+                border: esActivo ? 'none' : '1px solid var(--border)',
+                textDecoration: 'none',
+              }}
+            >
+              {d.icono} {d.nombre.replace(/^Depósito\s+/i, '')}
+            </Link>
+          );
+        })}
+      </div>
 
       {loading && <p className="muted">Cargando…</p>}
       {!loading && !canWrite && (
@@ -141,32 +186,10 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
 
       {!loading && paso === 'inicio' && canWrite && (
         <div className="surt-acciones">
-          {esMina && (
-            <Link
-              to="/app/inventario/deposito-reutilizables/telefono"
-              className="surt-btn"
-              style={{ gridColumn: '1 / -1', minHeight: 70, borderColor: '#10b981', textDecoration: 'none' }}
-            >
-              <span className="icono" aria-hidden>♻️</span>
-              <span style={{ color: '#10b981' }}>Depósito Reutilizables</span>
-              <small>Ver inventario, salidas y retornos de materiales reutilizables</small>
-            </Link>
-          )}
-          {esReutilizables && (
-            <Link
-              to="/app/inventario/deposito-mina/telefono"
-              className="surt-btn"
-              style={{ gridColumn: '1 / -1', minHeight: 70, textDecoration: 'none' }}
-            >
-              <span className="icono" aria-hidden>←</span>
-              <span>Volver a Depósito Mina</span>
-              <small>Regresar a la pantalla principal de la mina</small>
-            </Link>
-          )}
           <button type="button" className="surt-btn primario" onClick={() => setPaso('nuevo')}>
             <span className="icono" aria-hidden>＋</span>
             <span>Producto nuevo</span>
-            <small>Algo que todavía no está en {esReutilizables ? 'reutilizables' : esMina ? 'el depósito' : 'el inventario'}</small>
+            <small>Algo que todavía no está en {DEP.nombre}</small>
           </button>
           <button type="button" className="surt-btn entrada"
             onClick={() => { setElegido(null); setPaso('entrada'); }}>
@@ -196,11 +219,43 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
       )}
 
       {!loading && paso === 'inicio' && (
-        <button type="button" className="surt-btn" style={{ width: '100%', minHeight: 84, marginTop: '.75rem', borderColor: '#25d366' }}
-          onClick={() => setPaso('reporte')}>
-          <span>📲 Reporte de stock (WhatsApp)</span>
-          <small>Lo que hay en {esReutilizables ? 'reutilizables' : esMina ? 'el depósito' : 'el inventario'}, filtrado por fechas</small>
-        </button>
+        <>
+          <button type="button" className="surt-btn" style={{ width: '100%', minHeight: 84, marginTop: '.75rem', borderColor: '#25d366' }}
+            onClick={() => setPaso('reporte')}>
+            <span>📲 Reporte de stock (WhatsApp)</span>
+            <small>Lo que hay en {DEP.nombre}, filtrado por fechas</small>
+          </button>
+
+          {/* Enlaces a los demás depósitos */}
+          {depositosDisponibles.filter((d) => d.almacen.toLowerCase() !== DEP.almacen.toLowerCase()).length > 0 && (
+            <div style={{ marginTop: '1.25rem' }}>
+              <div style={{ fontSize: '.8rem', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '.5rem' }}>
+                Otros depósitos y almacenes:
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.6rem' }}>
+                {depositosDisponibles
+                  .filter((d) => d.almacen.toLowerCase() !== DEP.almacen.toLowerCase())
+                  .map((d) => (
+                    <Link
+                      key={d.almacen}
+                      to={d.rutaTelefono}
+                      className="surt-btn"
+                      style={{
+                        minHeight: 68,
+                        padding: '.5rem',
+                        fontSize: '1rem',
+                        textDecoration: 'none',
+                        borderColor: d.almacen === ALMACEN_DANADOS ? '#f59e0b' : d.almacen === ALMACEN_REUTILIZABLES ? '#10b981' : d.almacen === ALMACEN_MINA ? '#3b82f6' : 'var(--border-strong)',
+                      }}
+                    >
+                      <span className="icono" aria-hidden style={{ fontSize: '1.5rem' }}>{d.icono}</span>
+                      <span style={{ fontSize: '.92rem' }}>{d.nombre}</span>
+                    </Link>
+                  ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {paso === 'reporte' && (
@@ -225,7 +280,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
 
       {paso === 'traslado' && elegido && (
         <FormTraslado dep={DEP} depositoActual={deposito} producto={elegido} actor={actor} actorName={actorName}
-          onCancel={() => setElegido(null)} onSaved={guardado} />
+          depositos={depositosDisponibles} onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
       {paso === 'retornos' && (
@@ -239,7 +294,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '.5rem 0' }}>
               <strong style={{ fontSize: '1.1rem' }}>
                 {paso === 'salida' ? '⬆ ¿Qué material sale?'
-                  : paso === 'traslado' ? `🔁 ¿Qué se traslada a ${OTRO.nombre}?`
+                  : paso === 'traslado' ? '🔁 ¿Qué material se traslada?'
                   : '⬇ ¿A qué producto le llegó?'}
               </strong>
               <button type="button" className="btn btn-ghost" onClick={volver}>Cancelar</button>
@@ -494,22 +549,36 @@ function FormEntrada({ dep, producto, actor, actorName, onCancel, onSaved }: {
   );
 }
 
-function FormTraslado({ dep, depositoActual, producto, actor, actorName, onCancel, onSaved }: {
-  dep: Dep; depositoActual: Deposito; producto: Producto; actor: string; actorName: string | null;
-  onCancel: () => void; onSaved: () => Promise<void>;
+function FormTraslado({
+  dep,
+  producto,
+  actor,
+  actorName,
+  depositos,
+  onCancel,
+  onSaved,
+}: {
+  dep: Dep;
+  depositoActual: string;
+  producto: Producto;
+  actor: string;
+  actorName: string | null;
+  depositos: InfoDeposito[];
+  onCancel: () => void;
+  onSaved: () => void | Promise<void>;
 }) {
   const otros = useMemo(
-    () => (Object.keys(DEPOSITOS) as Deposito[]).filter((d) => d !== depositoActual),
-    [depositoActual],
+    () => depositos.filter((d) => d.almacen.toLowerCase() !== dep.almacen.toLowerCase()),
+    [depositos, dep.almacen],
   );
-  const [destinoKey, setDestinoKey] = useState<Deposito>(otros[0] ?? 'general');
+  const [destinoAlmacen, setDestinoAlmacen] = useState<string>(otros[0]?.almacen ?? 'General');
   const [cantidad, setCantidad] = useState('');
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; texto: string } | null>(null);
   const cant = Number(cantidad.replace(',', '.')) || 0;
   const hay = Number(producto.stock) || 0;
-  const destinoDep = DEPOSITOS[destinoKey] ?? DEPOSITOS.general;
+  const destinoDep = otros.find((d) => d.almacen === destinoAlmacen) ?? otros[0] ?? resolverDeposito('general');
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -542,20 +611,18 @@ function FormTraslado({ dep, depositoActual, producto, actor, actorName, onCance
 
       <div className="surt-campo">
         <label style={{ fontWeight: 600, marginBottom: '.35rem', display: 'block' }}>¿A cuál depósito se traslada?</label>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${otros.length}, 1fr)`, gap: '.5rem' }}>
-          {otros.map((dKey) => {
-            const activo = destinoKey === dKey;
-            const icono = dKey === 'reutilizables' ? '♻️ ' : dKey === 'mina' ? '⛏ ' : '📦 ';
-            const label = dKey === 'reutilizables' ? 'Reutilizables' : dKey === 'mina' ? 'Depósito Mina' : 'General';
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(110px, 1fr))`, gap: '.5rem' }}>
+          {otros.map((d) => {
+            const activo = destinoAlmacen === d.almacen;
             return (
               <button
-                key={dKey}
+                key={d.almacen}
                 type="button"
                 className={`btn ${activo ? 'btn-primary' : 'btn-ghost'}`}
                 style={{ fontWeight: 600, minHeight: 46, padding: '.4rem .5rem', textAlign: 'center', fontSize: '.88rem' }}
-                onClick={() => setDestinoKey(dKey)}
+                onClick={() => setDestinoAlmacen(d.almacen)}
               >
-                {icono}{label}
+                {d.icono} {d.nombre.replace(/^Depósito\s+/i, '')}
               </button>
             );
           })}
