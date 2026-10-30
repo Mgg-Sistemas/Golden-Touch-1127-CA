@@ -39,18 +39,21 @@ export async function listSalidasMina(limite = 60): Promise<SalidaMina[]> {
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
-/** Las que retornan y todavía no volvieron completas (todas, no solo las últimas). */
-export async function listPorRetornarMina(): Promise<SalidaMina[]> {
-  const { data, error } = await supabase.from(TABLE).select('*').eq('estado', 'por_retornar').order('created_at', { ascending: true });
+/** Las que retornan y todavía no volvieron completas (todas, no solo las últimas) de ese almacén. */
+export async function listPorRetornarMina(almacen = 'Depósito Mina'): Promise<SalidaMina[]> {
+  const { data, error } = await supabase.from(TABLE).select('*').eq('estado', 'por_retornar').eq('almacen', almacen)
+    .order('created_at', { ascending: true });
   if (error) throw err(error, 'No se pudieron leer las salidas por retornar.');
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
 export async function registrarSalidaMina(d: {
   productoId: string; cantidad: number; motivo: string; autorizadoPor: string; retorna: boolean; actor: string; actorName: string | null;
+  /** 'Depósito Mina' o 'General': el material tiene que ser de ese depósito. */
+  almacen: string;
 }): Promise<SalidaMina> {
   const { data, error } = await supabase.rpc('deposito_mina_registrar_salida', {
-    p: { producto_id: d.productoId, cantidad: d.cantidad, motivo: d.motivo.trim(), autorizado_por: d.autorizadoPor.trim(), retorna: d.retorna, actor: d.actor, actor_name: d.actorName },
+    p: { producto_id: d.productoId, cantidad: d.cantidad, motivo: d.motivo.trim(), autorizado_por: d.autorizadoPor.trim(), retorna: d.retorna, actor: d.actor, actor_name: d.actorName, almacen: d.almacen },
   });
   if (error) throw err(error, 'No se pudo registrar la salida.');
   return normalizar(data as Record<string, unknown>);

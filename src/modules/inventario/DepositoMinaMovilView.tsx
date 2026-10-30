@@ -7,8 +7,10 @@
    · «Producto nuevo»: nombre, categoría, unidad y cuánto llegó. El SKU lo
      pone el sistema y el producto nace en ese depósito.
    · «Entrada»: busca un producto que ya está y le suma lo que llegó.
-   · «Salida» y «Por retornar» (13/10/2026): SOLO en la Mina. En el General la
-     salida va por Órdenes de Salida (con aprobación de los autorizados).
+   · «Salida» y «Por retornar» (13/10/2026 en la Mina; 30/10/2026 también en el
+     General, pedido de la administradora): cantidad, motivo, quién autorizó,
+     ¿retorna? y fotos, con su aviso de WhatsApp. Cada depósito ve solo sus
+     pendientes. En la PC el General sigue teniendo Órdenes de Salida.
    · «Traslado entre almacenes» (29/10/2026): pasa material directo al otro
      depósito; si allá no existe el producto, la base lo crea
      (inventario_trasladar_deposito, todo o nada).
@@ -78,7 +80,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
     const [cats, uds] = await Promise.all([getCategorias(ps), getUnidades(ps)]);
     setCategorias(cats);
     setUnidades(uds);
-    if (deposito === 'mina') setPorRetornar(await listPorRetornarMina().catch(() => [] as SalidaMina[]));
+    setPorRetornar(await listPorRetornarMina(DEPOSITOS[deposito].almacen).catch(() => [] as SalidaMina[]));
   }, [deposito]);
 
   useEffect(() => {
@@ -134,27 +136,23 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
             <span>Entrada</span>
             <small>Llegó más de un producto que ya está</small>
           </button>
-          {esMina && (
-            <button type="button" className="surt-btn salida"
-              onClick={() => { setElegido(null); setPaso('salida'); }}>
-              <span className="icono" aria-hidden>⬆</span>
-              <span>Salida</span>
-              <small>Sale material del depósito</small>
-            </button>
-          )}
-          <button type="button" className="surt-btn" style={{ borderColor: '#a855f7', ...(esMina ? { gridColumn: '1 / -1', minHeight: 84 } : {}) }}
+          <button type="button" className="surt-btn salida"
+            onClick={() => { setElegido(null); setPaso('salida'); }}>
+            <span className="icono" aria-hidden>⬆</span>
+            <span>Salida</span>
+            <small>Sale material {esMina ? 'del depósito' : 'del inventario'}</small>
+          </button>
+          <button type="button" className="surt-btn" style={{ borderColor: '#a855f7', gridColumn: '1 / -1', minHeight: 84 }}
             onClick={() => { setElegido(null); setPaso('traslado'); }}>
             <span className="icono" aria-hidden>🔁</span>
             <span>Traslado entre almacenes</span>
             <small>Pasar material directo a {OTRO.nombre}</small>
           </button>
-          {esMina && (
-            <button type="button" className="surt-btn retorno" style={{ gridColumn: '1 / -1', minHeight: 84 }}
-              onClick={() => setPaso('retornos')}>
-              <span>🔄 Por retornar ({porRetornar.length})</span>
-              <small>{porRetornar.length ? 'Dar retorno al inventario de lo que salió y vuelve' : 'No hay nada pendiente por retornar'}</small>
-            </button>
-          )}
+          <button type="button" className="surt-btn retorno" style={{ gridColumn: '1 / -1', minHeight: 84 }}
+            onClick={() => setPaso('retornos')}>
+            <span>🔄 Por retornar ({porRetornar.length})</span>
+            <small>{porRetornar.length ? 'Dar retorno al inventario de lo que salió y vuelve' : 'No hay nada pendiente por retornar'}</small>
+          </button>
         </div>
       )}
 
@@ -180,8 +178,8 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
           onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
-      {paso === 'salida' && elegido && esMina && (
-        <FormSalidaMina producto={elegido} actor={actor} actorName={actorName}
+      {paso === 'salida' && elegido && (
+        <FormSalidaMina producto={elegido} almacen={DEP.almacen} actor={actor} actorName={actorName}
           onCancel={() => setElegido(null)}
           onSaved={() => { volver(); void reload().catch(() => {}); }} />
       )}
@@ -191,7 +189,7 @@ export function DepositoMinaMovilView({ deposito = 'mina' }: { deposito?: Deposi
           onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
-      {paso === 'retornos' && esMina && (
+      {paso === 'retornos' && (
         <PorRetornarMina salidas={porRetornar} actor={actor} actorName={actorName} canWrite={canWrite}
           onVolver={volver} onSaved={() => { void reload().catch(() => {}); }} />
       )}
