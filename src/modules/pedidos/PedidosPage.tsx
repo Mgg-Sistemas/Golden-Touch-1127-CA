@@ -34,7 +34,9 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { INTERRUPTOR_RETENCION_MOMENTO } from '@/shared/lib/types';
-import { useInterruptor } from '@/shared/lib/interruptores';
+import { useInterruptor, interruptorActivo } from '@/shared/lib/interruptores';
+import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
+import { agregarNombreGenerico, itemsParaSpGenerica, normalizarNombreGenerico, spConNombresGenericos } from './nombresGenericos';
 import {
   aprobarOrden,
   aprobarOcsEnLote,
@@ -968,6 +970,7 @@ export function PedidosPage() {
           usuario={usuario}
           authEmail={user?.email ?? ''}
           mercadoInicial={modal.mercado}
+          rol={userRole}
           onClose={() => setModal({ kind: 'none' })}
           onCreated={async () => {
             setModal({ kind: 'none' });
@@ -3740,6 +3743,8 @@ interface CrearOrdenModalProps {
   /** Si viene true, abre en modo MERCADO (botón «Solicitud de mercado»): precarga
    *  víveres + limpieza como checklist, unidad/solicitante COCINA y orden URGENTE. */
   mercadoInicial?: boolean;
+  /** Rol de quien crea (si `usuario` todavía no cargó). Decide los nombres genéricos. */
+  rol?: string | null;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -3748,10 +3753,39 @@ function CrearOrdenModal({
   usuario,
   authEmail,
   mercadoInicial,
+  rol,
   onClose,
   onCreated,
 }: CrearOrdenModalProps) {
   const [items, setItems] = useState<ItemOrden[]>([]);
+  // NOMBRES GENÉRICOS (31/10/2026 · flujo nuevo): con la revisión de Almacén encendida, quien
+  // NO es analista de compras (ni admin) escribe lo que necesita con un nombre general, sin
+  // elegir ni crear productos del inventario. El analista le pone el producto al cotizar.
+  // `null` mientras se lee el interruptor: no se muestra ningún buscador hasta saberlo.
+  const [revisionAlmacenActiva, setRevisionAlmacenActiva] = useState<boolean | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    void interruptorActivo(CLAVE_INTERRUPTOR_REVISION_ALMACEN).then((v) => { if (vivo) setRevisionAlmacenActiva(v); });
+    return () => { vivo = false; };
+  }, []);
+  const rolCreador = usuario?.role ?? rol ?? null;
+  const modoGenerico = spConNombresGenericos({ revisionAlmacenActiva: revisionAlmacenActiva === true, rol: rolCreador, mercado: !!mercadoInicial });
+  const cargandoModo = revisionAlmacenActiva === null && !mercadoInicial;
+  // Alta de un nombre genérico (inputs NO controlados: un re-render no corta lo tecleado).
+  const genNombreRef = useRef<HTMLInputElement>(null);
+  const genCantRef = useRef<HTMLInputElement>(null);
+  const [genUnidad, setGenUnidad] = useState('und');
+  function agregarGenerico() {
+    const nombre = normalizarNombreGenerico(genNombreRef.current?.value);
+    if (nombre.length < 3) { toast('Escribe qué necesitas (nombre general, mínimo 3 letras)', 'error'); genNombreRef.current?.focus(); return; }
+    const cant = Number((genCantRef.current?.value ?? '1').replace(',', '.'));
+    const r = agregarNombreGenerico(items, { nombre, cantidad: Number.isFinite(cant) && cant > 0 ? cant : 1, unidad: genUnidad });
+    setItems(r.items);
+    if (r.repetido) setCantEdit({}); // el número manda tras sumar: se olvida el texto crudo
+    toast(r.repetido ? `«${nombre}» ya estaba en la solicitud: se sumó la cantidad` : `«${nombre}» agregado a la solicitud`, r.repetido ? 'info' : 'success');
+    if (genNombreRef.current) { genNombreRef.current.value = ''; genNombreRef.current.focus(); }
+    if (genCantRef.current) genCantRef.current.value = '1';
+  }
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
   // Buscador DENTRO de la lista ya cargada. La Solicitud de mercado pasa de 60
@@ -3919,6 +3953,8 @@ function CrearOrdenModal({
 
   /** El alta de verdad. Se llama sin parecidos, o tras confirmarlos. */
   async function crearProductoAhora(nombre: string, categoria: string) {
+    // Nombres genéricos: desde la SP no se dan de alta productos (los crea el analista al cotizar).
+    if (modoGenerico) return;
     setCreandoNuevo(true);
     try {
       // SKU correlativo por categoría: prefijo de 3 letras + Nº incremental (p. ej.
@@ -4022,6 +4058,7 @@ function CrearOrdenModal({
 
   /** Agrega un producto del inventario a la solicitud (o le suma 1 si ya estaba). */
   function agregarProducto(p: Producto) {
+    if (modoGenerico) return; // SP con nombres genéricos: no se casa a productos del inventario
     // El número manda tras (re)agregar: olvidamos el texto crudo de esa cantidad.
     setCantEdit((m) => { const n = { ...m }; delete n[p.id]; return n; });
     // Confirmación en pantalla: antes el producto entraba a la lista en silencio y,
@@ -4106,7 +4143,7 @@ function CrearOrdenModal({
       notaDom?.focus();
       return;
     }
-    const itemsFinal = items.map((it, idx) => {
+    const itemsLeidos = items.map((it, idx) => {
       const dom = finDoms.find((d) => d.dataset.finIdx === String(idx));
       const base = dom ? { ...it, finalidad: dom.value } : it;
       // En MERCADO, si no se escribió finalidad puntual, se hereda la general.
@@ -4115,6 +4152,13 @@ function CrearOrdenModal({
     });
     setSubmitting(true);
     try {
+      // Nombres genéricos: se vuelve a leer el interruptor al guardar (pudo cambiar con el
+      // modal abierto). Si toca genérica, ningún renglón sale casado a un producto.
+      const genericaAhora = spConNombresGenericos({
+        revisionAlmacenActiva: mercado ? false : await interruptorActivo(CLAVE_INTERRUPTOR_REVISION_ALMACEN),
+        rol: rolCreador, mercado,
+      });
+      const itemsFinal = genericaAhora ? itemsParaSpGenerica(itemsLeidos) : itemsLeidos;
       const email = usuario?.email ?? authEmail;
       // Si la unidad solicitante es nueva, la guardamos en el catálogo para reusarla.
       const unidad = unidadSolicitante.trim();
@@ -4305,7 +4349,7 @@ function CrearOrdenModal({
               Ningún producto de la lista coincide con «{filtroItems.trim()}».
             </div>
           )}
-          {sugeridosInventario.length > 0 && (
+          {!modoGenerico && !cargandoModo && sugeridosInventario.length > 0 && (
             <div className="card" style={{ padding: '.5rem .6rem', marginBottom: '.5rem', background: 'var(--bg-2)' }}>
               <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.35rem' }}>
                 No están en esta solicitud, pero sí en el inventario:
@@ -4340,7 +4384,9 @@ function CrearOrdenModal({
               />
               <div>
                 <div>{it.nombre}</div>
-                <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                {it.nombre_generico
+                  ? <div className="muted" style={{ fontSize: '.72rem' }} title="El analista de compras le pone el producto del inventario al cotizar">📝 Nombre genérico</div>
+                  : <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>}
               </div>
               {/* Cantidad + unidad de medida del producto (KG, L, und…). */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
@@ -4410,6 +4456,48 @@ function CrearOrdenModal({
             );
           })}
         </div>
+        {cargandoModo && (
+          <div className="muted" style={{ fontSize: '.8rem', marginTop: '.5rem' }}>Cargando…</div>
+        )}
+        {/* Flujo nuevo: nombres genéricos (sin inventario). El producto lo pone el analista al cotizar. */}
+        {modoGenerico && (
+          <div className="card" style={{ padding: '.6rem .7rem', marginTop: '.5rem', display: 'grid', gap: '.45rem' }}>
+            <div className="muted" style={{ fontSize: '.76rem' }}>
+              📝 Escribe lo que necesitas con un <strong>nombre general</strong> (p. ej. «FILTRO DE ACEITE PARA PLANTA»).
+              No se busca ni se crea nada en el inventario: Almacén revisa si lo tiene y el analista de compras
+              le pone el producto correcto al cotizar.
+            </div>
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                ref={genNombreRef}
+                className="input"
+                style={{ flex: 2, minWidth: 180, textTransform: 'uppercase' }}
+                name="op-generico-nombre"
+                autoComplete="off"
+                aria-label="Nombre general de lo que se necesita"
+                placeholder="¿Qué necesitas? *"
+                defaultValue=""
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarGenerico(); } }}
+              />
+              <input
+                ref={genCantRef}
+                className="input mono"
+                style={{ width: 80 }}
+                type="number"
+                min={0}
+                step="any"
+                aria-label="Cantidad"
+                defaultValue="1"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarGenerico(); } }}
+              />
+              <select className="input" style={{ width: 110 }} aria-label="Unidad" value={genUnidad} onChange={(e) => setGenUnidad(e.target.value)}>
+                {[...new Set(['und', ...unidadesList])].filter(Boolean).map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+              <button type="button" className="btn btn-primary btn-sm" onClick={agregarGenerico}>+ Añadir</button>
+            </div>
+          </div>
+        )}
+        {!modoGenerico && !cargandoModo && (<>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
           <SearchSelect
             style={{ flex: 1 }}
@@ -4469,6 +4557,7 @@ function CrearOrdenModal({
             </div>
           )}
         </div>
+        </>)}
       </div>
 
       <div className="form-row">

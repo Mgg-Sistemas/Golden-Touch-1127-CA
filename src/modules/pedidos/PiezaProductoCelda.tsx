@@ -13,10 +13,11 @@ import type { ProductoAsignable } from './piezasMaquinaria';
  * la pieza llega con un nombre general y el analista le pone el producto del inventario
  * (buscador) o da de alta uno nuevo con el nombre que corresponde (stock 0, Inventario
  * General). Devuelve el producto con `onAsignar`; la regla de no repetir producto la
- * decide quien llama.
+ * decide quien llama. Desde el 31/10/2026 también se usa para los renglones de una
+ * Solicitud de Pedido con nombres genéricos (`etiqueta` lo distingue).
  */
 export function PiezaProductoCelda({ item, opciones, porId, unidades, actorEmail, onAsignar, etiqueta }: {
-  item: Pick<ItemOrden, 'nombre' | 'productoId' | 'nombre_solicitado' | 'unidad' | 'orden_servicio'>;
+  item: Pick<ItemOrden, 'nombre' | 'productoId' | 'nombre_solicitado' | 'unidad' | 'orden_servicio' | 'pieza_maquinaria'>;
   /** Rótulo de origen del renglón (por defecto «🚜 Repuesto de Maquinaria»). Sirve para
    *  reusar la celda en otras solicitudes con nombres generales (p. ej. SP de productos). */
   etiqueta?: string;
@@ -30,7 +31,9 @@ export function PiezaProductoCelda({ item, opciones, porId, unidades, actorEmail
   const sinProducto = !item.productoId;
   const [abierto, setAbierto] = useState(sinProducto);
   const [nuevo, setNuevo] = useState(false);
-  const [categoria, setCategoria] = useState('REPUESTOS');
+  // Un repuesto de Maquinaria arranca en REPUESTOS; un nombre genérico de una SP puede
+  // ser cualquier cosa: la categoría se elige (no se adivina).
+  const [categoria, setCategoria] = useState(item.pieza_maquinaria === true ? 'REPUESTOS' : '');
   const [unidad, setUnidad] = useState((item.unidad ?? '').trim() || 'und');
   const [creando, setCreando] = useState(false);
   const [parecidos, setParecidos] = useState<{ nombre: string; categoria: string; lista: ProductoParecido[] } | null>(null);

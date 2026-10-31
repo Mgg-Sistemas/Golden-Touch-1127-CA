@@ -1216,9 +1216,15 @@ export interface ItemOrden {
    *  Servicio con un NOMBRE GENERAL y el analista, al cotizar, le pone el producto del
    *  inventario (o da de alta uno nuevo). Ver `piezasMaquinaria.ts`. */
   pieza_maquinaria?: boolean | null;
+  /** Renglón de una Solicitud de Pedido escrito con un NOMBRE GENÉRICO (31/10/2026, flujo
+   *  nuevo con revisión de Almacén): la montó alguien que no es analista de compras, no
+   *  está casado a ningún producto del inventario y el analista le pone el producto al
+   *  cotizar. Ver `nombresGenericos.ts` y `piezasMaquinaria.ts`. */
+  nombre_generico?: boolean | null;
   /** Orden de servicio de Maquinaria (OS-…) de la que salió el renglón. */
   orden_servicio?: string | null;
-  /** Nombre general con que lo pidió Maquinaria, si el analista lo cambió por un producto. */
+  /** Nombre general con que se pidió (Maquinaria o SP con nombres genéricos), si el
+   *  analista lo cambió por un producto. */
   nombre_solicitado?: string | null;
 }
 
