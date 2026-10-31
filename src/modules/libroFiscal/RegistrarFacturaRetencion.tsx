@@ -972,7 +972,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   </div>
                 )}
                 <div className="form-row" style={{ margin: 0, flex: '1 1 120px' }}>
-                  <label>{l.tipo === 'iva' ? 'Base imponible' : 'Monto del pago'}</label>
+                  <label>Base imponible</label>
                   <input className="input mono" value={l.baseStr} onChange={(e) => setLinea(l.id, { baseStr: e.target.value })} inputMode="decimal" />
                   <SeLeyo texto={l.baseStr} />
                 </div>
