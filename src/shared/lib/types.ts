@@ -1207,6 +1207,14 @@ export interface ItemOrden {
    *  decisión: o va `insumo_producto_id`, o va esto. Dejarlo en blanco no se
    *  puede — lo impide `mantenimiento_declara_insumo` en la base. */
   sin_insumo?: boolean | null;
+  /** Repuesto pedido desde Control de Maquinaria (30/10/2026): llega a la Solicitud de
+   *  Servicio con un NOMBRE GENERAL y el analista, al cotizar, le pone el producto del
+   *  inventario (o da de alta uno nuevo). Ver `piezasMaquinaria.ts`. */
+  pieza_maquinaria?: boolean | null;
+  /** Orden de servicio de Maquinaria (OS-…) de la que salió el renglón. */
+  orden_servicio?: string | null;
+  /** Nombre general con que lo pidió Maquinaria, si el analista lo cambió por un producto. */
+  nombre_solicitado?: string | null;
 }
 
 export interface EventoHistorial {

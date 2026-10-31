@@ -252,7 +252,7 @@ export function EquipoExpedientePage() {
       const codigo = que === 'salida'
         ? await solicitarSalidaDeOrden(o, eq.equipo, { email: actor, nombre: actorName })
         : await solicitarCompraDeOrden(o);
-      toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'solicitud de pedido'} ${codigo} creada.`, 'success');
+      toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'Solicitud de Servicio'} ${codigo} creada.`, 'success');
       await cargar();
     } catch (e) { toast(errMsg(e, 'No se pudo crear la solicitud'), 'error'); }
     finally { setTrabajando(null); }

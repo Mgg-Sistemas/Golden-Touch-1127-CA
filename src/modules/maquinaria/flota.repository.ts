@@ -6,11 +6,12 @@
    La orden de servicio NO mueve stock ni compra por su cuenta:
      · lo que sale del inventario se pide con una SOLICITUD DE SALIDA
        (Salidas, queda «por aprobar» y descuenta al ejecutarse);
-     · lo que falta se pide con una SOLICITUD DE PEDIDO (Pedidos, SP).
+     · lo que falta se pide con una SOLICITUD DE SERVICIO (Pedidos → 🔧 Servicios, SS).
    La salida se crea con el permiso de Salidas; si el usuario no lo tiene,
-   queda «por solicitar». La SP la crea la base (maquinaria_pedir_compra_orden)
-   con el permiso de Maquinaria, y da de alta las piezas que no estaban en el
-   inventario (12/10/2026).
+   queda «por solicitar». La SS la crea la base (maquinaria_pedir_compra_orden)
+   con el permiso de Maquinaria. Desde el 30/10/2026 ya NO da de alta productos:
+   las piezas que no estaban en el inventario viajan con su nombre general y el
+   analista de compras les pone el producto al cotizar.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { ItemSalida } from '@/shared/lib/types';
@@ -183,13 +184,14 @@ export async function solicitarSalidaDeOrden(o: OrdenServicio, equipoNombre: str
   return sol.codigo;
 }
 
-/** Datos de una pieza nueva para darla de alta al pedir la compra. */
+/** Datos de una pieza nueva. Desde el 30/10/2026 la base ya no la da de alta: se ignora. */
 export interface PiezaNuevaAlta { nombre: string; categoria: string; unidad?: string }
 
 /**
- * Pide la compra de lo que falta: la base crea la SOLICITUD DE PEDIDO (Pedidos, «pendiente»)
- * y da de alta como producto (stock 0) las piezas que no estaban en el inventario, con la
- * categoría elegida. Basta el permiso de Maquinaria. Devuelve el código de la SP.
+ * Pide la compra de lo que falta: la base crea la SOLICITUD DE SERVICIO (SS-…, Pedidos →
+ * 🔧 Servicios, «pendiente») con los nombres generales de las piezas; el analista les pone el
+ * producto del inventario al cotizar. Basta el permiso de Maquinaria. Devuelve el código SS.
+ * `nuevas` queda por compatibilidad (la base ya no crea productos).
  */
 export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nuevas: PiezaNuevaAlta[] = []): Promise<string> {
   const { data, error } = await supabase.rpc('maquinaria_pedir_compra_orden', { p_id: o.id, p_nuevas: nuevas });

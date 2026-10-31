@@ -19,18 +19,19 @@ const orden = {
 
 describe('datosWhatsappPedirCompra', () => {
   it('el equipo es el nombre del equipo, no «Orden OS-…»; la orden va como referencia', () => {
-    const d = datosWhatsappPedirCompra(orden, 'EXCAVADORA VOLVO EC240', 'SP-2026-0300');
+    const d = datosWhatsappPedirCompra(orden, 'EXCAVADORA VOLVO EC240', 'SS-2026-0300');
     expect(d.equipo).toBe('EXCAVADORA VOLVO EC240');
     expect(d.ordenServicio).toBe('OS-2026-0012');
-    expect(d.solicitudPedido).toBe('SP-2026-0300');
+    expect(d.solicitudServicio).toBe('SS-2026-0300');
     const txt = textoCompraRepuestosWhatsapp({ ...d, fecha: '2026-10-26T13:00:00Z' });
     expect(txt).toContain('EQUIPO DESTINO:* EXCAVADORA VOLVO EC240');
     expect(txt).toContain('*Orden de Servicio:* OS-2026-0012');
+    expect(txt).toContain('*Solicitud de Servicio:* SS-2026-0300');
     expect(txt).not.toContain('Orden OS-2026-0012');
   });
 
   it('lista lo que realmente va a Compras: todo lo que tenga algo a comprar, con esa cantidad', () => {
-    const d = datosWhatsappPedirCompra(orden, 'CAM-05', 'SP-1');
+    const d = datosWhatsappPedirCompra(orden, 'CAM-05', 'SS-1');
     expect(d.piezas).toEqual([
       { nombre: 'MANGUERA HIDRAULICA 3/4', cantidad: 2, unidad: 'und' },
       { nombre: 'FILTRO DE ACEITE', cantidad: 1, unidad: 'und' },
@@ -38,7 +39,7 @@ describe('datosWhatsappPedirCompra', () => {
   });
 
   it('sin nombre de equipo cae a «Equipo de la orden …» (nunca manda vacío)', () => {
-    expect(datosWhatsappPedirCompra(orden, null, 'SP-1').equipo).toBe('Equipo de la orden OS-2026-0012');
-    expect(datosWhatsappPedirCompra(orden, '   ', 'SP-1').equipo).toBe('Equipo de la orden OS-2026-0012');
+    expect(datosWhatsappPedirCompra(orden, null, 'SS-1').equipo).toBe('Equipo de la orden OS-2026-0012');
+    expect(datosWhatsappPedirCompra(orden, '   ', 'SS-1').equipo).toBe('Equipo de la orden OS-2026-0012');
   });
 });

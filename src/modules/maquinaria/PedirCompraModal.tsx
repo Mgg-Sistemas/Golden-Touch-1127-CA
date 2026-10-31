@@ -17,21 +17,22 @@ import { textoCompraRepuestosWhatsapp, type DatosCompraRepuestosWhatsapp } from 
 export function datosWhatsappPedirCompra(
   orden: Pick<OrdenServicio, 'codigo' | 'repuestos'>,
   equipo: string | null | undefined,
-  solicitudPedido: string,
+  solicitudServicio: string,
 ): DatosCompraRepuestosWhatsapp {
   const nombre = (equipo ?? '').trim();
   return {
     ordenServicio: orden.codigo,
-    solicitudPedido,
+    solicitudServicio,
     equipo: nombre || `Equipo de la orden ${orden.codigo}`,
     piezas: orden.repuestos.filter((r) => r.a_comprar > 0).map((r) => ({ nombre: r.nombre, cantidad: r.a_comprar, unidad: r.unidad })),
   };
 }
 
 /**
- * «🛒 Pedir compra»: los repuestos pasan directamente al equipo de Compras con su nombre general.
- * NO se guardan en inventario desde maquinaria porque el usuario de taller no conoce el nombre técnico exacto.
- * El analista de compras le asigna el nombre real y se sincroniza para el próximo servicio.
+ * «🛒 Pedir compra»: los repuestos entran a Compras como SOLICITUD DE SERVICIO (SS-…, Pedidos →
+ * 🔧 Servicios) con su nombre general (30/10/2026). Maquinaria NO da de alta productos: el
+ * analista de compras, al cargar la cotización, le pone a cada pieza el producto del inventario
+ * o crea uno nuevo con el nombre que corresponde.
  */
 export function PedirCompraModal({ orden, equipo, onClose, onDone }: {
   orden: OrdenServicio;
@@ -39,7 +40,8 @@ export function PedirCompraModal({ orden, equipo, onClose, onDone }: {
   equipo?: string | null;
   onClose: () => void; onDone: () => void;
 }) {
-  const nuevas = orden.repuestos.filter((r) => !r.producto_id && r.a_comprar > 0);
+  // Todo lo que tenga algo a comprar va a la solicitud (con producto o con nombre general).
+  const porComprar = orden.repuestos.filter((r) => r.a_comprar > 0);
   const [saving, setSaving] = useState(false);
   const [whatsappTexto, setWhatsappTexto] = useState<string | null>(null);
   const [nombreEquipo, setNombreEquipo] = useState<string | null>(equipo ?? null);
@@ -54,11 +56,8 @@ export function PedirCompraModal({ orden, equipo, onClose, onDone }: {
   async function pedir() {
     setSaving(true);
     try {
-      const codigo = await solicitarCompraDeOrden(
-        orden,
-        nuevas.map((n) => ({ nombre: n.nombre, categoria: 'REPUESTOS', unidad: n.unidad })),
-      );
-      toast(`${orden.codigo}: solicitud enviada a Compras (${codigo}).`, 'success');
+      const codigo = await solicitarCompraDeOrden(orden);
+      toast(`${orden.codigo}: Solicitud de Servicio ${codigo} enviada a Compras.`, 'success');
       setWhatsappTexto(textoCompraRepuestosWhatsapp(datosWhatsappPedirCompra(orden, nombreEquipo, codigo)));
       onDone();
     } catch (e) {
@@ -73,7 +72,7 @@ export function PedirCompraModal({ orden, equipo, onClose, onDone }: {
         <div style={{ display: 'grid', gap: '.75rem' }}>
           <div className="aviso success sm">
             <span className="aviso-icono">✅</span>
-            <div>Solicitud enviada a Compras. Comparte el reporte con el grupo o comprador por WhatsApp:</div>
+            <div>Solicitud de Servicio enviada a Compras. Comparte el reporte con el grupo o comprador por WhatsApp:</div>
           </div>
           <CompartirWhatsapp texto={whatsappTexto} />
         </div>
@@ -85,27 +84,27 @@ export function PedirCompraModal({ orden, equipo, onClose, onDone }: {
     <Modal title={`🛒 Enviar a Compras · ${orden.codigo}`} size="md" onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => void pedir()} disabled={saving || !nuevas.length}>
-          {saving ? 'Enviando…' : '🛒 Enviar solicitud a Compras'}
+        <button className="btn btn-primary" onClick={() => void pedir()} disabled={saving || !porComprar.length}>
+          {saving ? 'Enviando…' : '🔧 Enviar Solicitud de Servicio'}
         </button>
       </>}>
       <div className="flo" style={{ display: 'grid', gap: '.75rem' }}>
         <div className="aviso info sm">
           <span className="aviso-icono">💡</span>
           <div>
-            Las piezas se enviarán a <strong>Compras (Pedidos)</strong> con el nombre general que indicaste.
-            El analista de compras verificará las especificaciones exactas, asignará el nombre comercial y
-            se sincronizará automáticamente para el próximo servicio de la máquina.
+            Las piezas entran a <strong>Compras (Pedidos → 🔧 Servicios)</strong> como <strong>Solicitud de Servicio</strong> con
+            el nombre general que indicaste. El analista de compras, al cargar la cotización, le pone a cada una
+            el producto del inventario (o crea uno nuevo con el nombre que corresponde).
           </div>
         </div>
 
         <div style={{ display: 'grid', gap: '.5rem' }}>
-          {nuevas.map((n) => (
-            <div key={n.nombre} className="flo-linea" style={{ padding: '.65rem .85rem', background: 'var(--surface-2)', borderRadius: 'var(--r-md)' }}>
+          {porComprar.map((n, i) => (
+            <div key={`${n.producto_id ?? n.nombre}-${i}`} className="flo-linea" style={{ padding: '.65rem .85rem', background: 'var(--surface-2)', borderRadius: 'var(--r-md)' }}>
               <div className="flo-linea-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <strong>{n.nombre}</strong>
-                  <div className="muted" style={{ fontSize: '.76rem' }}>{nombreEquipo ? `${nombreEquipo} · ` : ''}Para orden {orden.codigo}</div>
+                  <div className="muted" style={{ fontSize: '.76rem' }}>{nombreEquipo ? `${nombreEquipo} · ` : ''}Para orden {orden.codigo}{n.producto_id ? '' : ' · nombre general'}</div>
                 </div>
                 <span className="flo-chip tone-primary">
                   {fmtNum(n.a_comprar)} {n.unidad} a comprar

@@ -353,19 +353,15 @@ export function MaquinariaMovilView() {
         })),
       });
 
-      // 2. Si hay piezas/repuestos o solicitud de trabajo, enviar DIRECTAMENTE a Compras
+      // 2. Si hay piezas/repuestos, entran a Compras como SOLICITUD DE SERVICIO (SS-…) con sus
+      //    nombres generales: el analista les pone el producto del inventario al cotizar.
       let spCodigo: string | null = null;
       if (piezasSeleccionadas.length > 0) {
         try {
-          const nuevas = piezasSeleccionadas.map((p) => ({
-            nombre: p.nombre.trim().toUpperCase(),
-            categoria: 'REPUESTOS MAQUINARIA',
-            unidad: p.unidad || 'UND',
-          }));
-          spCodigo = await solicitarCompraDeOrden(res, nuevas);
+          spCodigo = await solicitarCompraDeOrden(res);
         } catch (errCompras) {
           // Mismo respaldo que la PC (OrdenServicioModal): si no se pudo abrir la solicitud de
-          // pedido, al menos Compras se entera de las piezas nuevas y se avisa que queda pendiente.
+          // servicio, al menos Compras se entera de las piezas nuevas y se avisa que queda pendiente.
           const motivo = errCompras instanceof Error ? errCompras.message : (errCompras as { message?: string })?.message || 'error';
           let avisada = false;
           if (res.repuestos.some((x) => !x.producto_id)) {
@@ -373,9 +369,9 @@ export function MaquinariaMovilView() {
           }
           notify(`🔧 ${res.codigo} creada${avisada ? ' · Compras notificada de las piezas nuevas' : ''} — ${equipoActual.equipo}`, 'warning', {
             link: `#/app/maquinaria/equipo/${equipoActual.id}?tab=servicios`,
-            detail: `Queda por solicitar la solicitud de pedido (${motivo})`,
+            detail: `Queda por pedir la Solicitud de Servicio (${motivo})`,
           });
-          toast(`Queda por solicitar la solicitud de pedido (${motivo}). Se puede generar después desde la orden.`, 'warning');
+          toast(`Queda por pedir la Solicitud de Servicio (${motivo}). Se puede generar después desde la orden.`, 'warning');
         }
       }
 
@@ -389,7 +385,7 @@ export function MaquinariaMovilView() {
           horometro: horasServicio ? Number(horasServicio) : null,
           kilometraje: kmServicio ? Number(kmServicio) : null,
           trabajo: descripcionServicio.trim(),
-          observacion: `Orden de servicio ${res.codigo}${spCodigo ? ` · Solicitud a Compras ${spCodigo}` : ''}. Piezas solicitadas con nombres generales para cotización y número de parte en Compras.`,
+          observacion: `Orden de servicio ${res.codigo}${spCodigo ? ` · Solicitud de Servicio ${spCodigo}` : ''}. Piezas solicitadas con nombres generales: Compras les pone el producto del inventario al cotizar.`,
           mecanico: responsableServicio.trim() || actorName,
         }, actor, actorName);
       } catch (errBit) {
@@ -405,7 +401,7 @@ export function MaquinariaMovilView() {
 
       // 5. Mensaje formateado para WhatsApp
       const txt = textoServicioWhatsapp({
-        codigo: `${res.codigo}${spCodigo ? ` (Compras: ${spCodigo})` : ''}`,
+        codigo: `${res.codigo}${spCodigo ? ` (Solicitud de Servicio ${spCodigo})` : ''}`,
         equipo: equipoActual.equipo,
         tipoEquipo: equipoActual.tipo,
         marca: equipoActual.marca,
@@ -425,7 +421,7 @@ export function MaquinariaMovilView() {
         })),
       });
 
-      toast(`Orden ${res.codigo} creada ${spCodigo ? `· Solicitud a Compras ${spCodigo}` : ''}`, 'success');
+      toast(`Orden ${res.codigo} creada ${spCodigo ? `· Solicitud de Servicio ${spCodigo}` : ''}`, 'success');
       mostrarWhatsapp(txt);
       setDescripcionServicio('');
       setPiezasSeleccionadas([]);
@@ -856,7 +852,7 @@ export function MaquinariaMovilView() {
         <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              <span>🛒</span> Solicitud de Servicio / Pedido a Compras
+              <span>🔧</span> Solicitud de Servicio a Compras
             </h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>
