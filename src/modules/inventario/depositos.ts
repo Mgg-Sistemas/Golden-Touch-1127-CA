@@ -49,7 +49,7 @@ export function iconoDeposito(almacenOrSlug: string): string {
 export const DEPOSITOS_FIJOS: Record<string, InfoDeposito> = {
   general: {
     almacen: ALMACEN_GENERAL,
-    nombre: 'Inventario General',
+    nombre: 'Inventario Los Pinos',
     ruta: '/app/inventario',
     rutaTelefono: '/app/inventario/telefono',
     hash: '#/app/inventario',

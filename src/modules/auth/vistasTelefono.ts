@@ -49,8 +49,8 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     ruta: '/app/cocina/telefono', descripcion: 'Desayuno, almuerzo y cena, con lo consumido y las personas',
   },
   {
-    // 29/10/2026 · la misma pantalla del Depósito Mina, para el Inventario General.
-    key: 'inventario', label: 'Inventario General', icono: '📦', modulo: 'inventario',
+    // 29/10/2026 · la misma pantalla del Depósito Mina, para el Inventario Los Pinos.
+    key: 'inventario', label: 'Inventario Los Pinos', icono: '📦', modulo: 'inventario',
     ruta: '/app/inventario/telefono', descripcion: 'Productos nuevos, entradas, traslados al Depósito Mina y reporte de stock',
   },
   {

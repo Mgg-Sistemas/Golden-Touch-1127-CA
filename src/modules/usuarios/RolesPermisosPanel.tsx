@@ -429,7 +429,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                 {rc.key !== 'admin' && (
                   <div style={{ marginTop: '.9rem', paddingTop: '.75rem', borderTop: '1px solid var(--border)', display: 'grid', gap: '.4rem' }}>
                     <div style={{ fontWeight: 700, fontSize: '.85rem' }}>⛏ Depósitos</div>
-                    {!depositos.length && <small className="muted">No hay depósitos creados además del Inventario General.</small>}
+                    {!depositos.length && <small className="muted">No hay depósitos creados además del Inventario Los Pinos.</small>}
                     {depositos.map((d) => {
                       const nivel: NivelEditor = almacenesRol[rc.key]?.[d.nombre] ?? 'sin';
                       const id = `dep-${rc.key}-${d.id}`;
