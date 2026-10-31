@@ -18,15 +18,30 @@ import {
   mensajeRetornoMina, mensajeSalidaMina, num, pendienteRetorno, type FotoSalidaMina, type SalidaMina,
 } from './salidasMina';
 import { registrarSalidaMina, retornarSalidaMina, subirFotosSalidaMina, urlFotoSalidaMina } from './salidasMina.repository';
+import { docRetornoMovil, docSalidaMovil, verDocMovilPdf, type DocMovilPdf } from './inventarioMovilPdf';
 
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-/** Aviso ya guardado: el texto para WhatsApp y el botón para seguir. */
-export function Listo({ titulo, texto, onListo }: { titulo: string; texto: string; onListo: () => void }) {
+/** Aviso ya guardado: el texto para WhatsApp, el PDF en vista previa (30/10/2026,
+ *  mismo formato que Salidas y Traslados) y el botón para seguir. */
+export function Listo({ titulo, texto, onListo, pdf }: { titulo: string; texto: string; onListo: () => void; pdf?: DocMovilPdf | null }) {
+  const [abriendo, setAbriendo] = useState(false);
+  async function verPdf() {
+    if (!pdf) return;
+    setAbriendo(true);
+    try { await verDocMovilPdf(pdf); }
+    catch (err) { toast(errMsg(err, 'No se pudo generar el PDF'), 'error'); }
+    finally { setAbriendo(false); }
+  }
   return (
     <div className="surt-form">
       <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>
       <CompartirWhatsapp texto={texto} />
+      {pdf && (
+        <button type="button" className="btn btn-ghost btn-grande" onClick={() => void verPdf()} disabled={abriendo}>
+          {abriendo ? 'Armando el PDF…' : '📄 Ver PDF'}
+        </button>
+      )}
       <button type="button" className="btn btn-primary surt-guardar" onClick={onListo}>Listo</button>
     </div>
   );
@@ -82,7 +97,10 @@ export function FormSalidaMina({ producto, almacen, actor, actorName, onCancel, 
     } finally { setGuardando(false); }
   }
 
-  if (hecha) return <Listo titulo={`Salida ${hecha.codigo} registrada`} texto={mensajeSalidaMina(hecha, actorName ?? actor)} onListo={onSaved} />;
+  if (hecha) {
+    return <Listo titulo={`Salida ${hecha.codigo} registrada`} texto={mensajeSalidaMina(hecha, actorName ?? actor)} onListo={onSaved}
+      pdf={docSalidaMovil(hecha, producto, almacen, { actor, nombre: actorName })} />;
+  }
 
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
@@ -176,6 +194,7 @@ export function PorRetornarMina({ salidas, actor, actorName, canWrite, onVolver,
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [pdf, setPdf] = useState<DocMovilPdf | null>(null);
   // Buscador (19/10/2026): material, código, motivo, quién autorizó, fecha… ver filtrarPorRetornar.
   const [busca, setBusca] = useState('');
   const lista = useMemo(() => filtrarPorRetornar(salidas, busca), [salidas, busca]);
@@ -193,12 +212,13 @@ export function PorRetornarMina({ salidas, actor, actorName, canWrite, onVolver,
       const s = await retornarSalidaMina(elegida.id, cant, nota, actorName);
       toast(`Retorno: +${num(cant)} ${s.unidad ?? ''} de ${s.producto_nombre}`, 'success');
       setAviso(mensajeRetornoMina(s, cant, nota, actorName ?? actor));
+      setPdf(docRetornoMovil(s, cant, nota, new Date().toISOString(), { actor, nombre: actorName }));
     } catch (err) {
       toast(errMsg(err, 'No se pudo registrar el retorno'), 'error');
     } finally { setGuardando(false); }
   }
 
-  if (aviso) return <Listo titulo="Retorno registrado" texto={aviso} onListo={() => { setAviso(null); setElegida(null); onSaved(); }} />;
+  if (aviso) return <Listo titulo="Retorno registrado" texto={aviso} pdf={pdf} onListo={() => { setAviso(null); setPdf(null); setElegida(null); onSaved(); }} />;
 
   if (elegida) {
     const falta = pendienteRetorno(elegida);
