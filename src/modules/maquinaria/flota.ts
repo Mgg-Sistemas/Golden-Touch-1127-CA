@@ -540,23 +540,6 @@ export function faltaCompra(o: { estado: string; orden_compra_id: string | null;
     && o.repuestos.some((r) => r.a_comprar > 0);
 }
 
-/* ───────── Piezas que no existen en el inventario ───────── */
-
-/** Repuestos de la orden que todavía no existen en el inventario (los da de alta Compras). */
-export function piezasNuevas<T extends Pick<RepuestoOrden, 'producto_id'>>(repuestos: T[]): T[] {
-  return repuestos.filter((r) => !r.producto_id);
-}
-
-/**
- * ¿Se puede cambiar esta pieza nueva por el producto que Compras dio de alta? Solo una
- * pieza nueva, con la orden abierta y sin solicitud de pedido vinculada (si ya hay SP, la
- * pieza se corrige allí, en Pedidos). Es la misma regla de `maquinaria_reemplazar_pieza_orden`.
- */
-export function puedeReemplazarPieza(o: { estado: string; orden_compra_id: string | null; repuestos: Pick<RepuestoOrden, 'producto_id'>[] }, indice: number): boolean {
-  const r = o.repuestos[indice];
-  return !!r && !r.producto_id && ordenAbierta(o.estado) && !o.orden_compra_id;
-}
-
 /**
  * Los repuestos de una orden se pueden editar mientras no empezó el trabajo (abierta o
  * esperando repuestos) y no tiene salida ni pedido vinculados: después se corrigen allá.
@@ -573,20 +556,6 @@ export function repuestosEditables(o: { estado: string; solicitud_salida_id: str
 export function puedeBorrarOrden(o: { estado: string }, perm: { maquinaria: boolean; admin: boolean }): boolean {
   if (perm.admin) return true;
   return perm.maquinaria && o.estado !== 'realizada';
-}
-
-/** Solo hay piezas nuevas por comprar: no se puede armar la SP (Pedidos necesita el producto). */
-/** Categoría del inventario de las piezas nuevas que da de alta Maquinaria (12/10/2026). */
-export const CATEGORIA_REPUESTOS = 'REPUESTOS';
-
-/** En el teléfono la categoría de una pieza nueva es fija (REPUESTOS): sin selector, sin errores. */
-export function categoriaFijaEnTelefono(): boolean {
-  return typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches;
-}
-
-export function soloPiezasNuevasPorComprar(repuestos: Pick<RepuestoOrden, 'producto_id' | 'a_comprar'>[]): boolean {
-  const porComprar = repuestos.filter((r) => r.a_comprar > 0);
-  return porComprar.length > 0 && porComprar.every((r) => !r.producto_id);
 }
 
 /* ───────── Lavados ───────── */

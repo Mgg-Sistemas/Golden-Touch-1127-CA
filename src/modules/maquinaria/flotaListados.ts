@@ -150,18 +150,8 @@ export function equiposSinLavar<T extends EquipoRef & { estado_operativo?: strin
 
 export interface OrdenConRepuestos {
   id: string; codigo: string; equipo_id: string; estado: string; created_at: string;
-  solicitud_salida_id: string | null; orden_compra_id: string | null; compras_notificada_at: string | null;
+  solicitud_salida_id: string | null; orden_compra_id: string | null;
   repuestos: Pick<RepuestoOrden, 'producto_id' | 'nombre' | 'unidad' | 'cantidad' | 'desde_inventario' | 'a_comprar'>[];
-}
-
-/** Piezas nuevas (sin producto en el inventario) de órdenes abiertas: lo que Compras tiene pendiente de dar de alta. */
-export function piezasNuevasPendientes<T extends OrdenConRepuestos>(ordenes: T[]): { orden: T; pieza: T['repuestos'][number]; indice: number }[] {
-  const out: { orden: T; pieza: T['repuestos'][number]; indice: number }[] = [];
-  for (const o of ordenes) {
-    if (!ordenAbierta(o.estado)) continue;
-    o.repuestos.forEach((r, i) => { if (!r.producto_id) out.push({ orden: o, pieza: r, indice: i }); });
-  }
-  return out.sort((a, b) => a.orden.created_at.localeCompare(b.orden.created_at));
 }
 
 /** Órdenes que pidieron algo al inventario o a compras (las que tienen repuestos). */

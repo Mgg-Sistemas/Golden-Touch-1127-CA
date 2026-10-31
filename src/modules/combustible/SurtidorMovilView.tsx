@@ -497,7 +497,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
           <div className="surt-campo">
             <label htmlFor="surt-hrs">Horas trabajadas (HF − HI)</label>
             <input id="surt-hrs" className="input surt-input" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula sola"
-              style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+              style={{ background: 'color-mix(in srgb, var(--warning) 12%, var(--bg-1))', borderColor: 'var(--warning)', fontWeight: 700 }} />
             <small className="muted">
               {hiAuto ? 'El inicial es el último final de este equipo. ' : 'Este equipo no tiene horómetro cargado: si lo tiene, escribe las dos lecturas. '}
               En vehículos va el kilometraje del tablero. Las horas van al mantenimiento y el final es donde arranca el próximo surtido.

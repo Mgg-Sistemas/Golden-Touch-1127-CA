@@ -699,10 +699,10 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
   padding: .5rem .25rem !important;
   gap: .25rem !important;
   min-height: 72px !important;
-  border-radius: var(--r-md, 8px) !important;
-  border: 1px solid var(--border-strong, #334155) !important;
-  background: var(--surface-1, #0f172a) !important;
-  color: var(--text, #f1f5f9) !important;
+  border-radius: var(--r-md) !important;
+  border: 1px solid var(--border-strong) !important;
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
   cursor: pointer;
   text-align: center;
   transition: all var(--t-fast, .15s ease);
@@ -712,7 +712,7 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 }
 
 .flo-mv-servicio-btn:hover {
-  border-color: var(--primary, #eab308) !important;
+  border-color: var(--primary) !important;
   color: #fff !important;
   transform: translateY(-1px);
 }
@@ -722,10 +722,10 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 }
 
 .flo-mv-servicio-btn.activa {
-  background: var(--grad-primary-soft, rgba(234, 179, 8, 0.16)) !important;
-  border: 2px solid var(--primary, #eab308) !important;
-  color: #fff !important;
-  box-shadow: 0 0 10px rgba(234, 179, 8, 0.3) !important;
+  background: var(--grad-primary-soft) !important;
+  border: 2px solid var(--primary) !important;
+  color: var(--primary-3) !important;
+  box-shadow: var(--glow-primary) !important;
   font-weight: 700 !important;
 }
 

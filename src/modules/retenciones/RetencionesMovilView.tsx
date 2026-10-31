@@ -175,8 +175,8 @@ export function RetencionesMovilView() {
         {!soloTelefono && (
           <Link
             to="/app/retenciones"
-            className="btn sm"
-            style={{ textDecoration: 'none', fontSize: '0.78rem' }}
+            className="btn btn-ghost"
+            style={{ textDecoration: 'none' }}
           >
             💻 Vista PC
           </Link>
@@ -204,7 +204,7 @@ export function RetencionesMovilView() {
           style={{
             textAlign: 'center',
             padding: '2.5rem 1rem',
-            background: 'var(--surface-1)',
+            background: 'var(--bg-1)',
             borderRadius: 'var(--r-lg)',
             border: '1px dashed var(--border)',
           }}
@@ -280,7 +280,7 @@ export function RetencionesMovilView() {
               style={{
                 padding: '0.75rem 1rem',
                 marginBottom: '0.75rem',
-                background: 'var(--surface-1)',
+                background: 'var(--bg-1)',
                 borderRadius: 'var(--r-md)',
                 border: '1px solid var(--danger)',
                 color: 'var(--danger)',
@@ -289,7 +289,7 @@ export function RetencionesMovilView() {
             >
               {errorCarga}
               <div style={{ marginTop: '0.5rem' }}>
-                <button type="button" className="btn sm" onClick={() => { setLoading(true); void cargarDatos(); }}>
+                <button type="button" className="btn" onClick={() => { setLoading(true); void cargarDatos(); }}>
                   Volver a intentar
                 </button>
               </div>
@@ -331,7 +331,7 @@ export function RetencionesMovilView() {
                   style={{
                     textAlign: 'center',
                     padding: '2.5rem 1rem',
-                    background: 'var(--surface-1)',
+                    background: 'var(--bg-1)',
                     borderRadius: 'var(--r-lg)',
                     border: '1px dashed var(--border)',
                   }}
@@ -404,15 +404,14 @@ export function RetencionesMovilView() {
                         <div className="buzon-card-acciones">
                           <button
                             type="button"
-                            className="btn sm"
-                            style={{ background: '#25D366', color: '#fff', border: 'none', fontWeight: 700 }}
+                            className="btn btn-wsp"
                             onClick={() => setFacturaWhatsApp(fac)}
                           >
                             💬 WhatsApp
                           </button>
                           <button
                             type="button"
-                            className="btn sm"
+                            className="btn btn-ghost"
                             onClick={() => setDetalle(fac)}
                           >
                             👁 Detalle
@@ -420,7 +419,7 @@ export function RetencionesMovilView() {
                           {canWrite && (
                             <button
                               type="button"
-                              className="btn sm danger"
+                              className="btn btn-danger"
                               onClick={() => setFacturaABorrar(fac)}
                               title="Eliminar factura y soportes"
                             >
@@ -529,7 +528,7 @@ function AvisoSinEmpresas({ canWrite, onAgregar, onCancelar }: {
       style={{
         textAlign: 'center',
         padding: '2.5rem 1rem',
-        background: 'var(--surface-1)',
+        background: 'var(--bg-1)',
         borderRadius: 'var(--r-lg)',
         border: '1px dashed var(--border)',
         marginTop: '0.5rem',
@@ -653,7 +652,7 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
         {factura.descripcion && (
           <div>
             <small className="muted" style={{ display: 'block', fontWeight: 700 }}>DESCRIPCIÓN / CONCEPTO</small>
-            <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+            <p style={{ margin: '0.2rem 0', background: 'var(--bg-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
               {factura.descripcion}
             </p>
           </div>
@@ -662,7 +661,7 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
         {factura.observaciones && (
           <div>
             <small className="muted" style={{ display: 'block', fontWeight: 700 }}>NOTAS</small>
-            <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+            <p style={{ margin: '0.2rem 0', background: 'var(--bg-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
               {factura.observaciones}
             </p>
           </div>
@@ -975,7 +974,7 @@ function FormularioCargaFactura({
                 onClick={() => setEmpresaId(emp.id)}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', width: '100%' }}>
-                  <span style={{ color: emp.colorBadge || '#2563eb', fontSize: '0.9rem' }}>●</span>
+                  <span style={{ color: emp.colorBadge || 'var(--info)', fontSize: '0.9rem' }}>●</span>
                   <div className="emp-nom" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {emp.nombreCorto || emp.nombre}
                   </div>

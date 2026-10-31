@@ -152,11 +152,26 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
    solicitante, el motivo, quién autorizó, y deja las líneas de
    firma de "Solicitado/Creado por" y "Autorizado por".
    ============================================================ */
+/** Ajustes del MISMO formato para otros documentos (vista de teléfono de Inventario,
+ *  30/10/2026: salida, traslado, entrada y retorno). Sin opciones, todo queda como siempre. */
+export interface OpcionesOrdenPdf {
+  /** Título grande (por defecto ORDEN DE SALIDA / ORDEN DE TRASLADO). */
+  titulo?: string;
+  /** Texto tras el N° (por defecto «Salida de material» / «Traslado de material»). */
+  subtitulo?: string;
+  /** Rótulo del almacén (por defecto «Almacén de salida» / «Almacén origen»). */
+  rotuloAlmacen?: string;
+  /** Quién autorizó, tal cual se eligió. Si viene (aunque sea null) reemplaza la regla de
+   *  usuarios autorizados y NO se estampa ninguna firma. */
+  autorizadoPor?: string | null;
+}
+
 export async function descargarOrdenSalidaPdf(
   sol: SolicitudSalida,
   /** Resuelve email → "Nombre Apellido" (del directorio de usuarios). Sin resolver,
    *  o si el email no se encuentra, se usa el valor tal cual. */
   resolverNombre?: (email?: string | null, fecha?: string | null) => string,
+  opciones?: OpcionesOrdenPdf,
 ): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl, loadFirma2DataUrl }] = await Promise.all([
     import('jspdf'),
@@ -179,10 +194,13 @@ export async function descargarOrdenSalidaPdf(
   // Si quien la aprobó es un usuario autorizado con firma cargada, va su nombre y su firma.
   const AUTORIZADOR_SALIDAS = 'LEYDIS RENGEL';
   const aprobada = !!(sol.aprobada_en || sol.aprobada_por || sol.ejecutada_en || sol.ejecutada_por);
+  // Autorizador dado por quien llama (teléfono): su nombre, sin firma de nadie.
+  const autorizoDado = opciones?.autorizadoPor !== undefined;
   const { firmaCargadaDe } = await import('@/modules/usuarios/autorizados.repository');
-  const firmaPropia = (aprobada && sol.aprobada_por) ? await firmaCargadaDe(sol.aprobada_por).catch(() => null) : null;
-  const autorizo = !aprobada ? null : firmaPropia ? (nombre(sol.aprobada_por, sol.aprobada_en) || AUTORIZADOR_SALIDAS) : AUTORIZADOR_SALIDAS;
-  const firma2 = firmaPropia ?? (aprobada ? await loadFirma2DataUrl().catch(() => null) : null);
+  const firmaPropia = (!autorizoDado && aprobada && sol.aprobada_por) ? await firmaCargadaDe(sol.aprobada_por).catch(() => null) : null;
+  const autorizo = autorizoDado ? (opciones?.autorizadoPor?.trim() || null)
+    : !aprobada ? null : firmaPropia ? (nombre(sol.aprobada_por, sol.aprobada_en) || AUTORIZADOR_SALIDAS) : AUTORIZADOR_SALIDAS;
+  const firma2 = autorizoDado ? null : firmaPropia ?? (aprobada ? await loadFirma2DataUrl().catch(() => null) : null);
   // Solicitante: el nombre COMPLETO del usuario (no el texto guardado, que puede venir cortado).
   // Con la fecha de la solicitud: el nombre que tenía entonces (historial de nombres).
   const creoResuelto = nombre(sol.actor, sol.created_at);
@@ -209,9 +227,9 @@ export async function descargarOrdenSalidaPdf(
   const TX = logo ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
   if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, LOGO); }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
-  doc.text(esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA', TX, y + 20);
+  doc.text(opciones?.titulo || (esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA'), TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : (conVale ? 'Salida de material · Vale de entrega a Cocina' : 'Salida de material')}`, TX, y + 38);
+  doc.text(`N° ${sol.codigo}  ·  ${opciones?.subtitulo || (esTraslado ? 'Traslado de material' : (conVale ? 'Salida de material · Vale de entrega a Cocina' : 'Salida de material'))}`, TX, y + 38);
   doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
   y += Math.max(LOGO, 42) + 8;
 
@@ -232,7 +250,7 @@ export async function descargarOrdenSalidaPdf(
     ['Sistema de Gestión de Inventarios', ''],
     ['Solicitado por', sol.solicitante || creo || '—'],
     ...(sol.unidad_solicitante ? [['Unidad solicitante', sol.unidad_solicitante] as [string, string]] : []),
-    [esTraslado ? 'Almacén origen' : 'Almacén de salida', invLabel(sol.almacen_origen)],
+    [opciones?.rotuloAlmacen || (esTraslado ? 'Almacén origen' : 'Almacén de salida'), invLabel(sol.almacen_origen)],
     ...(esTraslado ? [['Almacén destino', sol.almacen_destino || '—'] as [string, string]] : []),
     ...(sol.consumo_interno ? [['Tipo', 'CONSUMO INTERNO'] as [string, string]] : []),
     ...(chofer ? [['Chofer / responsable', chofer] as [string, string]] : []),
