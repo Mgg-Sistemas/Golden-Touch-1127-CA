@@ -510,6 +510,7 @@ type ColId =
   | 'observacion'
   | 'cuaderno'
   | 'saldoDrive'
+  | 'diferencia'
   | 'hi'
   | 'hf'
   | 'hrs'
@@ -533,6 +534,7 @@ const COLUMNAS_TABLA: { id: ColId; label: string }[] = [
   { id: 'observacion', label: 'Observación' },
   { id: 'cuaderno', label: 'Cuaderno' },
   { id: 'saldoDrive', label: 'Saldo Drive' },
+  { id: 'diferencia', label: 'Diferencia' },
   { id: 'hi', label: 'HI' },
   { id: 'hf', label: 'HF' },
   { id: 'hrs', label: 'Hrs' },
@@ -577,7 +579,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
   const [correoOpen, setCorreoOpen] = useState(false);
   const [colsVisibles, setColsVisibles] = useState<Record<ColId, boolean>>(() => ({
     fecha: true, equipo: true, autorizado: true, destino: true, observacion: true,
-    cuaderno: true, saldoDrive: true, hi: true, hf: true, hrs: true,
+    cuaderno: true, saldoDrive: true, diferencia: true, hi: true, hf: true, hrs: true,
     contFin: true, ltUsados: true, entrada: true, uso: true, traslado: true,
     retorno: true, merma: true, saldoLtrs: true, montoMov: true, saldoUsd: true,
     acciones: true,
@@ -806,6 +808,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
                 {colsVisibles.observacion && <th>Observación</th>}
                 {colsVisibles.cuaderno && <th title="Registro en cuaderno físico">Cuaderno</th>}
                 {colsVisibles.saldoDrive && <th title="Saldo reportado en Google Drive">Saldo Drive</th>}
+                {colsVisibles.diferencia && <th title="Diferencia positiva (+) o negativa (-) entre Drive, Cuaderno y Sistema">Diferencia</th>}
                 {colsVisibles.hi && <th>HI</th>}
                 {colsVisibles.hf && <th>HF</th>}
                 {colsVisibles.hrs && <th>Hrs</th>}
@@ -893,6 +896,107 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
                       ) : (
                         <span className="muted">—</span>
                       )}
+                    </td>
+                  )}
+                  {colsVisibles.diferencia && (
+                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>
+                      {(() => {
+                        // 1. Diferencia entre Saldo Drive y Saldo Sistema
+                        if (m.saldo_drive != null && m.saldo_litros != null) {
+                          const d = Number((m.saldo_drive - m.saldo_litros).toFixed(2));
+                          if (d === 0) {
+                            return (
+                              <span
+                                title={`Conciliado exacto: Drive (${num(m.saldo_drive)} L) = Sistema (${num(m.saldo_litros)} L)`}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  fontSize: '.74rem',
+                                  fontWeight: 700,
+                                  color: '#10b981',
+                                  background: 'rgba(16, 185, 129, 0.12)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                                }}
+                              >
+                                ✓ 0 L
+                              </span>
+                            );
+                          }
+                          const esPositivo = d > 0;
+                          return (
+                            <span
+                              title={`Diferencia Drive vs. Sistema: Drive (${num(m.saldo_drive)} L) − Sistema (${num(m.saldo_litros)} L)`}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                fontSize: '.74rem',
+                                fontWeight: 700,
+                                color: esPositivo ? '#38bdf8' : '#f87171',
+                                background: esPositivo ? 'rgba(56, 189, 248, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: `1px solid ${esPositivo ? 'rgba(56, 189, 248, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                              }}
+                            >
+                              {esPositivo ? `+${num(d)} L` : `${num(d)} L`}
+                            </span>
+                          );
+                        }
+
+                        // 2. Si hay Cuaderno y Litros del movimiento (diferencia física vs sistema)
+                        if (m.cuaderno_litros != null && m.litros != null && m.cuaderno_litros !== m.litros) {
+                          const d = Number((m.cuaderno_litros - m.litros).toFixed(2));
+                          const esPositivo = d > 0;
+                          return (
+                            <span
+                              title={`Diferencia Cuaderno vs. Despacho: Cuaderno (${num(m.cuaderno_litros)} L) − Despacho (${num(m.litros)} L)`}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                fontSize: '.74rem',
+                                fontWeight: 700,
+                                color: esPositivo ? '#fbbf24' : '#f87171',
+                                background: esPositivo ? 'rgba(251, 191, 36, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: `1px solid ${esPositivo ? 'rgba(251, 191, 36, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                              }}
+                            >
+                              {esPositivo ? `+${num(d)} L` : `${num(d)} L`}
+                            </span>
+                          );
+                        }
+
+                        // 3. Si hay Contador y Litros del movimiento (diferencia del surtidor)
+                        if (m.contador_global_dif != null && m.litros != null && (m.tipo === 'uso' || m.tipo === 'traslado')) {
+                          const d = Number((m.contador_global_dif - m.litros).toFixed(2));
+                          if (d !== 0) {
+                            const esPositivo = d > 0;
+                            return (
+                              <span
+                                title={`Diferencia Contador vs. Despacho: Contador (${num(m.contador_global_dif)} L) − Despacho (${num(m.litros)} L)`}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  fontSize: '.74rem',
+                                  fontWeight: 700,
+                                  color: esPositivo ? '#a855f7' : '#f87171',
+                                  background: esPositivo ? 'rgba(168, 85, 247, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  border: `1px solid ${esPositivo ? 'rgba(168, 85, 247, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                }}
+                              >
+                                {esPositivo ? `+${num(d)} L` : `${num(d)} L`}
+                              </span>
+                            );
+                          }
+                        }
+
+                        return <span className="muted">—</span>;
+                      })()}
                     </td>
                   )}
                   {colsVisibles.hi && <td className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>}

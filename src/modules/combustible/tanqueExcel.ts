@@ -47,7 +47,7 @@ export async function descargarMovimientosTanqueExcel(tanque: TanqueCombustible,
     writeFile: (wb: unknown, name: string) => void;
   };
 
-  const head = ['#', 'Fecha', 'Hora', 'Tipo', 'Equipo', 'Autorizado', 'Ubicación', 'Observación', 'Cuaderno', 'Saldo Drive', 'HI', 'HF', 'Hrs', 'Entrada', 'Uso', 'Traslado', 'Retorno', 'Saldo L', 'Tasa $/L', '$ Mov.', 'Saldo $'];
+  const head = ['#', 'Fecha', 'Hora', 'Tipo', 'Equipo', 'Autorizado', 'Ubicación', 'Observación', 'Cuaderno', 'Saldo Drive', 'Diferencia', 'HI', 'HF', 'Hrs', 'Entrada', 'Uso', 'Traslado', 'Retorno', 'Saldo L', 'Tasa $/L', '$ Mov.', 'Saldo $'];
   /** La columna de la fecha, para darle formato de fecha a sus celdas. */
   const COL_FECHA = 1;
   const TIPO_LABEL: Record<string, string> = { entrada: 'Entrada', uso: 'Uso', traslado: 'Traslado', retorno: 'Retorno' };
@@ -56,6 +56,21 @@ export async function descargarMovimientosTanqueExcel(tanque: TanqueCombustible,
     i + 1, fechaParaExcel(m.fecha) ?? m.fecha, m.hora || '', TIPO_LABEL[m.tipo] ?? m.tipo, m.equipo || '', m.autorizado_por || '', m.ubicacion || '', m.observacion || '',
     m.registrado_en_cuaderno ? (m.cuaderno_litros != null ? `${n(m.cuaderno_litros)} L` : 'Sí') : (m.registrado_en_cuaderno === false ? 'No' : ''),
     m.saldo_drive != null ? n(m.saldo_drive) : (m.registrado_en_drive ? 'Sí' : ''),
+    (() => {
+      if (m.saldo_drive != null && m.saldo_litros != null) {
+        const d = Number((m.saldo_drive - m.saldo_litros).toFixed(2));
+        return d > 0 ? `+${n(d)}` : d < 0 ? `${n(d)}` : '0';
+      }
+      if (m.cuaderno_litros != null && m.litros != null && m.cuaderno_litros !== m.litros) {
+        const d = Number((m.cuaderno_litros - m.litros).toFixed(2));
+        return d > 0 ? `+${n(d)}` : `${n(d)}`;
+      }
+      if (m.contador_global_dif != null && m.litros != null && m.contador_global_dif !== m.litros) {
+        const d = Number((m.contador_global_dif - m.litros).toFixed(2));
+        return d > 0 ? `+${n(d)}` : `${n(d)}`;
+      }
+      return '';
+    })(),
     m.horometro_ini != null ? n(m.horometro_ini) : '', m.horometro_fin != null ? n(m.horometro_fin) : '', m.horas_utilizadas ? n(m.horas_utilizadas) : '',
     litrosDe(m, 'entrada'), litrosDe(m, 'uso'), litrosDe(m, 'traslado'), litrosDe(m, 'retorno'),
     n(m.saldo_litros), n(m.tasa_usd_litro), n(m.monto_usd), n(m.saldo_usd),
