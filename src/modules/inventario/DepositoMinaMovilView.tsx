@@ -81,8 +81,9 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const esMina = DEP.almacen === ALMACEN_MINA;
   const esReutilizables = DEP.almacen === ALMACEN_REUTILIZABLES;
   const { user } = useSession();
-  const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
-  const canWrite = can('inventario', 'escritura');
+  const { appUser, soloTelefono, vistasTelefono, puedeVerAlmacen, puedeEscribirAlmacen } = usePermissions();
+  // Cada depósito con su permiso (30/10/2026); el General, con el del módulo Inventario.
+  const canWrite = puedeEscribirAlmacen(DEP.almacen);
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
@@ -116,6 +117,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
+  // Solo los depósitos que el rol puede ver: los demás no aparecen (y la base tampoco los deja leer).
   const depositosDisponibles = useMemo(() => {
     const map = new Map<string, InfoDeposito>();
     Object.values(DEPOSITOS_FIJOS).forEach((d) => map.set(d.almacen, d));
@@ -124,8 +126,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
         map.set(a.nombre, resolverDeposito(a.nombre));
       }
     });
-    return Array.from(map.values());
-  }, [almacenesList]);
+    return Array.from(map.values()).filter((d) => puedeVerAlmacen(d.almacen));
+  }, [almacenesList, puedeVerAlmacen]);
+  // Traslados: solo a depósitos donde el rol puede cargar.
+  const destinosTraslado = useMemo(
+    () => depositosDisponibles.filter((d) => puedeEscribirAlmacen(d.almacen)),
+    [depositosDisponibles, puedeEscribirAlmacen],
+  );
 
   const lista = useMemo(() => {
     const q = sinAcentos(busca.trim());
@@ -151,8 +158,8 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
         </div>
       </header>
 
-      {/* Selector rápido entre TODOS los depósitos: visible en cualquier vista teléfono de depósito */}
-      <div style={{ display: 'flex', gap: '.4rem', overflowX: 'auto', padding: '.4rem 0 .6rem', WebkitOverflowScrolling: 'touch', margin: '.2rem 0' }}>
+      {/* Selector rápido entre los depósitos que el rol puede ver (con uno solo, no hace falta) */}
+      {depositosDisponibles.length > 1 && <div style={{ display: 'flex', gap: '.4rem', overflowX: 'auto', padding: '.4rem 0 .6rem', WebkitOverflowScrolling: 'touch', margin: '.2rem 0' }}>
         {depositosDisponibles.map((d) => {
           const esActivo = d.almacen.toLowerCase() === DEP.almacen.toLowerCase();
           return (
@@ -174,18 +181,19 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             </Link>
           );
         })}
-      </div>
+      </div>}
 
       {loading && <p className="muted">Cargando…</p>}
       {!loading && !canWrite && (
         <div className="aviso warning sm" style={{ margin: '.75rem 0' }}>
           <span className="aviso-icono">👁</span>
-          <div>Tu rol solo puede ver. Para cargar productos hace falta escritura en Inventario.</div>
+          <div>Tu rol solo puede ver {DEP.nombre}. Para cargar productos hace falta escritura en {DEP.almacen === DEPOSITOS_FIJOS.general.almacen ? 'Inventario' : 'este depósito'}.</div>
         </div>
       )}
 
-      {!loading && paso === 'inicio' && canWrite && (
+      {!loading && paso === 'inicio' && (
         <div className="surt-acciones">
+          {canWrite && <>
           <button type="button" className="surt-btn primario" onClick={() => setPaso('nuevo')}>
             <span className="icono" aria-hidden>＋</span>
             <span>Producto nuevo</span>
@@ -203,12 +211,15 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             <span>Salida</span>
             <small>Sale material {esReutilizables ? 'de reutilizables' : esMina ? 'del depósito' : 'del inventario'}</small>
           </button>
+          {destinosTraslado.some((d) => d.almacen.toLowerCase() !== DEP.almacen.toLowerCase()) && (
           <button type="button" className="surt-btn traslado"
             onClick={() => { setElegido(null); setPaso('traslado'); }}>
             <span className="icono" aria-hidden>🔁</span>
             <span>Traslado</span>
             <small>Entre almacenes</small>
           </button>
+          )}
+          </>}
           <button type="button" className="surt-btn retorno"
             onClick={() => setPaso('retornos')}>
             <span className="icono" aria-hidden>🔄</span>
@@ -280,7 +291,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
 
       {paso === 'traslado' && elegido && (
         <FormTraslado dep={DEP} depositoActual={deposito} producto={elegido} actor={actor} actorName={actorName}
-          depositos={depositosDisponibles} onCancel={() => setElegido(null)} onSaved={guardado} />
+          depositos={destinosTraslado} onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
       {paso === 'retornos' && (
@@ -645,7 +656,7 @@ function FormTraslado({
         <input id="inv-traslado-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Opcional: para qué, quién lo lleva…" autoComplete="off" />
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || cant <= 0 || cant > hay}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || cant <= 0 || cant > hay || !otros.length}>
         {guardando ? 'Trasladando…' : `🔁 Trasladar a ${destinoDep.nombre}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro producto</button>

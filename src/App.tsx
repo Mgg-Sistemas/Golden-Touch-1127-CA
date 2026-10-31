@@ -4,7 +4,7 @@ import { LandingPage } from './modules/landing/LandingPage';
 import { LoginPage } from './modules/auth/LoginPage';
 import { AppShell } from './shared/ui/AppShell';
 import { ProtectedRoute } from './modules/auth/ProtectedRoute';
-import { PermissionsProvider, RequireModule, RequireAdmin, RequireVistaTelefono, HomeRedirect } from './modules/auth/PermissionsContext';
+import { PermissionsProvider, RequireModule, RequireAdmin, RequireVistaTelefono, RequireDeposito, HomeRedirect } from './modules/auth/PermissionsContext';
 import { ToastHost } from './shared/ui/Toast';
 import { PasswordChangeGate } from './modules/usuarios/PasswordChangeGate';
 
@@ -109,16 +109,17 @@ export function App() {
           <Route path="delivery/telefono" element={<RequireVistaTelefono vista="delivery"><Suspense fallback={<PageLoader />}><DeliveryMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
-          {/* Depósitos independientes: catálogo propio, misma funcionalidad */}
-          <Route path="inventario/deposito-mina" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage deposito="mina" key="mina" /></Suspense></RequireModule>} />
-          <Route path="inventario/deposito-reutilizables" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage deposito="reutilizables" key="reutilizables" /></Suspense></RequireModule>} />
-          <Route path="inventario/deposito-danados" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage deposito="danados" key="danados" /></Suspense></RequireModule>} />
-          <Route path="inventario/deposito/:slug" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
+          {/* Depósitos independientes: catálogo propio, misma funcionalidad. Cada uno se da
+              por rol (Usuarios → Roles → Depósitos), no por el módulo Inventario. */}
+          <Route path="inventario/deposito-mina" element={<RequireDeposito deposito="mina"><Suspense fallback={<PageLoader />}><InventarioPage deposito="mina" key="mina" /></Suspense></RequireDeposito>} />
+          <Route path="inventario/deposito-reutilizables" element={<RequireDeposito deposito="reutilizables"><Suspense fallback={<PageLoader />}><InventarioPage deposito="reutilizables" key="reutilizables" /></Suspense></RequireDeposito>} />
+          <Route path="inventario/deposito-danados" element={<RequireDeposito deposito="danados"><Suspense fallback={<PageLoader />}><InventarioPage deposito="danados" key="danados" /></Suspense></RequireDeposito>} />
+          <Route path="inventario/deposito/:slug" element={<RequireDeposito><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireDeposito>} />
           <Route path="inventario/telefono" element={<RequireVistaTelefono vista="inventario"><Suspense fallback={<PageLoader />}><InventarioMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="inventario/deposito-mina/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoMinaMovilView /></Suspense></RequireVistaTelefono>} />
-          <Route path="inventario/deposito-reutilizables/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoReutilizablesMovilView /></Suspense></RequireVistaTelefono>} />
-          <Route path="inventario/deposito-danados/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoDanadosMovilView /></Suspense></RequireVistaTelefono>} />
-          <Route path="inventario/deposito/:slug/telefono" element={<RequireVistaTelefono vista="deposito_mina"><Suspense fallback={<PageLoader />}><DepositoMinaMovilView /></Suspense></RequireVistaTelefono>} />
+          <Route path="inventario/deposito-reutilizables/telefono" element={<RequireDeposito deposito="reutilizables" telefono><Suspense fallback={<PageLoader />}><DepositoReutilizablesMovilView /></Suspense></RequireDeposito>} />
+          <Route path="inventario/deposito-danados/telefono" element={<RequireDeposito deposito="danados" telefono><Suspense fallback={<PageLoader />}><DepositoDanadosMovilView /></Suspense></RequireDeposito>} />
+          <Route path="inventario/deposito/:slug/telefono" element={<RequireDeposito telefono><Suspense fallback={<PageLoader />}><DepositoMinaMovilView /></Suspense></RequireDeposito>} />
           {/* Solicitudes de Pedido: Almacén las revisa antes de Compras. Vive DENTRO de Pedidos / Compras (pestaña «Revisión de Almacén»); /app/solicitudes queda como atajo a esa pestaña. */}
           <Route path="solicitudes" element={<Navigate to="/app/pedidos?tab=almacen" replace />} />
           <Route path="solicitudes/telefono" element={<RequireVistaTelefono vista="solicitudes"><Suspense fallback={<PageLoader />}><SolicitudesAlmacenMovilView /></Suspense></RequireVistaTelefono>} />

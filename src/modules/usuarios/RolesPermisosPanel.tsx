@@ -16,6 +16,8 @@ import {
   defaultsFor,
   loadTelefonoRoles,
   saveTelefonoRol,
+  loadAlmacenesRoles,
+  saveAlmacenesRol,
   SIN_TELEFONO,
   type AccesoTelefonoRol,
   type AllPermisos,
@@ -33,6 +35,10 @@ import {
 import { setRolesCache } from './usuarios.repository';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
 import { VISTAS_TELEFONO } from '@/modules/auth/vistasTelefono';
+import { conNivelAlmacen, esAlmacenGeneral, type NivelEditor, type PermisosAlmacenes } from '@/modules/auth/permisosAlmacen';
+import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { iconoDeposito } from '@/modules/inventario/depositos';
+import type { Almacen } from '@/shared/lib/types';
 import { UsuariosAutorizadosPanel } from './UsuariosAutorizadosPanel';
 
 function normalize(stored: Partial<AllPermisos>, roles: CustomRole[]): AllPermisos {
@@ -59,6 +65,9 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [permisos, setPermisos] = useState<AllPermisos>({} as AllPermisos);
   const [telefono, setTelefono] = useState<Record<RoleKey, AccesoTelefonoRol>>({});
+  // Depósitos por rol (30/10/2026): cada uno sin acceso / lectura / escritura. El General es el módulo Inventario.
+  const [almacenesRol, setAlmacenesRol] = useState<Record<RoleKey, PermisosAlmacenes>>({});
+  const [depositos, setDepositos] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [autoEstado, setAutoEstado] = useState<'idle' | 'guardando' | 'guardado' | 'error'>('idle');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
@@ -75,16 +84,20 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   async function refresh(silencioso = false) {
     if (!silencioso) setLoading(true);
     try {
-      const [rolesList, remote, c, tel] = await Promise.all([
+      const [rolesList, remote, c, tel, alms, deps] = await Promise.all([
         listRoles(),
         loadPermisos(),
         contarUsuariosPorRol(),
         loadTelefonoRoles().catch(() => ({} as Record<RoleKey, AccesoTelefonoRol>)),
+        loadAlmacenesRoles().catch(() => ({} as Record<RoleKey, PermisosAlmacenes>)),
+        listAlmacenes().catch(() => [] as Almacen[]),
       ]);
       setRolesCache(rolesList);
       setRoles(rolesList);
       setCounts(c);
       setTelefono(tel);
+      setAlmacenesRol(alms);
+      setDepositos(deps.filter((a) => !esAlmacenGeneral(a.nombre) && a.estado !== 'inactivo'));
       if (remote) {
         setPermisos(normalize(remote, rolesList));
       } else {
@@ -107,7 +120,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     return () => { cancelled = true; };
   }, []);
   // En vivo (multiusuario): cambios de roles o de la matriz de permisos se reflejan solos.
-  useRealtime(['custom_roles', 'roles_permisos', 'taxonomias'], () => {
+  useRealtime(['custom_roles', 'roles_permisos', 'taxonomias', 'almacenes'], () => {
     if (guardandoRef.current > 0) { refrescarAlTerminar.current = true; return; }
     void refresh(true);
   });
@@ -177,6 +190,28 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     } catch (e) {
       setAutoEstado('error');
       toast(e instanceof Error ? e.message : 'No se pudo guardar la pantalla de teléfono', 'error');
+      refrescarAlTerminar.current = true;
+    } finally {
+      terminarGuardado();
+    }
+  }
+
+  // Depósitos del rol: autoguardado, solo toca roles_permisos.almacenes.
+  function cambiarDeposito(role: RoleKey, almacen: string, nivel: NivelEditor) {
+    const next = conNivelAlmacen(almacenesRol[role] ?? {}, almacen, nivel);
+    setAlmacenesRol((prev) => ({ ...prev, [role]: next }));
+    void persistirDepositos(role, next);
+  }
+
+  async function persistirDepositos(role: RoleKey, almacenes: PermisosAlmacenes) {
+    setAutoEstado('guardando');
+    guardandoRef.current += 1;
+    try {
+      await saveAlmacenesRol(role, almacenes, user?.email ?? 'sistema', permisos[role] ?? defaultsFor(role));
+      setAutoEstado('guardado');
+    } catch (e) {
+      setAutoEstado('error');
+      toast(e instanceof Error ? e.message : 'No se pudo guardar el permiso del depósito', 'error');
       refrescarAlTerminar.current = true;
     } finally {
       terminarGuardado();
@@ -353,8 +388,9 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                       {VISTAS_TELEFONO.map((v) => {
                         const marcada = t.vistas.includes(v.key);
                         const mod = permisos[rc.key]?.[v.modulo];
-                        const sinModulo = !(mod?.lectura || mod?.full);
-                        const modLabel = MODULES.find((m) => m.key === v.modulo)?.label ?? v.modulo;
+                        // La pantalla de un depósito pide ese depósito, no el módulo.
+                        const sinModulo = v.almacen ? !almacenesRol[rc.key]?.[v.almacen] : !(mod?.lectura || mod?.full);
+                        const modLabel = v.almacen ?? MODULES.find((m) => m.key === v.modulo)?.label ?? v.modulo;
                         return (
                           <label key={v.key} htmlFor={`tel-${rc.key}-${v.key}`} style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: '.82rem', cursor: readOnly ? 'default' : 'pointer' }}>
                             <input id={`tel-${rc.key}-${v.key}`} type="checkbox" disabled={readOnly} checked={marcada}
@@ -363,7 +399,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                               {v.icono} {v.label}
                               {marcada && sinModulo && (
                                 <small style={{ display: 'block', color: 'var(--warning, #b8860b)' }}>
-                                  No se abre: falta lectura en {modLabel}.
+                                  No se abre: falta {v.almacen ? 'permiso en' : 'lectura en'} {modLabel}.
                                 </small>
                               )}
                             </span>
@@ -386,6 +422,35 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                     </div>
                   );
                 })()}
+
+                {/* Depósitos (30/10/2026): cada uno es independiente. Sin acceso = no aparece
+                    y la base no lo deja leer. El General es el módulo «Inventario» de arriba.
+                    El administrador los ve todos: no hay nada que elegir. */}
+                {rc.key !== 'admin' && (
+                  <div style={{ marginTop: '.9rem', paddingTop: '.75rem', borderTop: '1px solid var(--border)', display: 'grid', gap: '.4rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '.85rem' }}>⛏ Depósitos</div>
+                    {!depositos.length && <small className="muted">No hay depósitos creados además del Inventario General.</small>}
+                    {depositos.map((d) => {
+                      const nivel: NivelEditor = almacenesRol[rc.key]?.[d.nombre] ?? 'sin';
+                      const id = `dep-${rc.key}-${d.id}`;
+                      return (
+                        <div key={d.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'center', justifyContent: 'space-between', fontSize: '.82rem' }}>
+                          <label htmlFor={id}>{iconoDeposito(d.nombre)} {d.nombre}</label>
+                          <select id={id} className="input" style={{ maxWidth: 150, padding: '.2rem .4rem', fontSize: '.8rem' }}
+                            disabled={readOnly} value={nivel}
+                            onChange={(e) => cambiarDeposito(rc.key, d.nombre, e.target.value as NivelEditor)}>
+                            <option value="sin">Sin acceso</option>
+                            <option value="lectura">Lectura</option>
+                            <option value="escritura">Escritura</option>
+                          </select>
+                        </div>
+                      );
+                    })}
+                    {depositos.length > 0 && (
+                      <small className="muted">Lectura: ve el depósito y su reporte. Escritura: además carga productos, entradas, salidas y traslados.</small>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

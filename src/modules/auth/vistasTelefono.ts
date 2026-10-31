@@ -26,6 +26,13 @@ export interface VistaTelefono {
   modulo: ModuleKey;
   ruta: string;
   icono: string;
+  /**
+   * Pantalla de un depósito (30/10/2026): en vez de lectura en el módulo hace falta
+   * ver ESE depósito (roles_permisos.almacenes, ver permisosAlmacen.ts).
+   */
+  almacen?: string;
+  /** Su pantalla de PC, para quien tiene el depósito pero no la pantalla de teléfono. */
+  rutaPc?: string;
 }
 
 export const VISTAS_TELEFONO: VistaTelefono[] = [
@@ -47,8 +54,9 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     ruta: '/app/inventario/telefono', descripcion: 'Productos nuevos, entradas, traslados al Depósito Mina y reporte de stock',
   },
   {
-    key: 'deposito_mina', label: 'Depósito Mina', icono: '⛏', modulo: 'inventario',
-    ruta: '/app/inventario/deposito-mina/telefono', descripcion: 'Productos nuevos, entradas, salidas, traslados y reporte de stock',
+    // 30/10/2026 · depósito independiente: hace falta el permiso del Depósito Mina, no el de Inventario.
+    key: 'deposito_mina', label: 'Depósito Mina', icono: '⛏', modulo: 'inventario', almacen: 'Depósito Mina',
+    ruta: '/app/inventario/deposito-mina/telefono', rutaPc: '/app/inventario/deposito-mina', descripcion: 'Productos nuevos, entradas, salidas, traslados y reporte de stock',
   },
   {
     key: 'retenciones', label: 'Buzón de Facturas', icono: '🧾', modulo: 'retenciones',
@@ -79,12 +87,16 @@ export function normalizarVistas(v: unknown): VistaTelefonoKey[] {
 
 /**
  * Las pantallas que el usuario puede abrir: las de su rol que además tengan lectura
- * en su módulo. El administrador las tiene todas.
+ * en su módulo (o, si es la pantalla de un depósito, permiso para ver ese depósito).
+ * El administrador las tiene todas.
  */
 export function vistasPermitidas(
   vistasDelRol: readonly string[], can: (m: ModuleKey) => boolean, isAdmin: boolean,
+  puedeVerAlmacen: (almacen: string) => boolean = () => false,
 ): VistaTelefono[] {
-  return VISTAS_TELEFONO.filter((v) => isAdmin || (vistasDelRol.includes(v.key) && can(v.modulo)));
+  return VISTAS_TELEFONO.filter((v) => isAdmin || (
+    vistasDelRol.includes(v.key) && (v.almacen ? puedeVerAlmacen(v.almacen) : can(v.modulo))
+  ));
 }
 
 /** Adónde entra un rol «solo teléfono»: directo a su pantalla si tiene una, o al menú si tiene varias. */

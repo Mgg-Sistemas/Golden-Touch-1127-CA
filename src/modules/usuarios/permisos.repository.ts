@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { normalizarPermisosAlmacenes, type PermisosAlmacenes } from '@/modules/auth/permisosAlmacen';
 
 export type RoleKey = string;
 export type ModuleKey =
@@ -156,12 +157,62 @@ function aAccesoTelefono(r: FilaTelefono): AccesoTelefonoRol {
   };
 }
 
-/** Lo que la sesión necesita de su rol: la matriz y sus pantallas de teléfono. `null` si no hay fila. */
-export async function loadAccesoRol(role: RoleKey): Promise<{ permisos: RolePermisos | null; telefono: AccesoTelefonoRol } | null> {
-  const { data, error } = await supabase.from(TABLE).select('permisos, vistas_telefono, solo_telefono').eq('role', role).maybeSingle();
+/** ¿El error es porque la columna `almacenes` todavía no existe en la base? */
+function faltaColumnaAlmacenes(e: { code?: string; message?: string } | null): boolean {
+  if (!e) return false;
+  return e.code === '42703' || e.code === 'PGRST204' || /almacenes/i.test(e.message ?? '');
+}
+
+/**
+ * Lo que la sesión necesita de su rol: la matriz, sus pantallas de teléfono y
+ * sus depósitos (`almacenes`, ver auth/permisosAlmacen.ts). `null` si no hay fila.
+ * Si la columna `almacenes` aún no existe, sigue sin ella (= ningún depósito).
+ */
+export async function loadAccesoRol(role: RoleKey): Promise<{ permisos: RolePermisos | null; telefono: AccesoTelefonoRol; almacenes: PermisosAlmacenes } | null> {
+  let res = await supabase.from(TABLE).select('permisos, vistas_telefono, solo_telefono, almacenes').eq('role', role).maybeSingle();
+  if (res.error && faltaColumnaAlmacenes(res.error)) {
+    res = await supabase.from(TABLE).select('permisos, vistas_telefono, solo_telefono').eq('role', role).maybeSingle();
+  }
+  const { data, error } = res;
   if (error) throw error;
   if (!data) return null;
-  return { permisos: ((data as { permisos?: RolePermisos }).permisos) ?? null, telefono: aAccesoTelefono(data as FilaTelefono) };
+  return {
+    permisos: ((data as { permisos?: RolePermisos }).permisos) ?? null,
+    telefono: aAccesoTelefono(data as FilaTelefono),
+    almacenes: normalizarPermisosAlmacenes((data as { almacenes?: unknown }).almacenes),
+  };
+}
+
+/** Los depósitos de todos los roles, para la sección «Depósitos» del panel de Roles. */
+export async function loadAlmacenesRoles(): Promise<Record<RoleKey, PermisosAlmacenes>> {
+  const { data, error } = await supabase.from(TABLE).select('role, almacenes');
+  if (error) {
+    if (faltaColumnaAlmacenes(error)) return {};
+    throw error;
+  }
+  const out: Record<RoleKey, PermisosAlmacenes> = {};
+  for (const r of (data ?? []) as Array<{ role?: RoleKey; almacenes?: unknown }>) {
+    if (r.role) out[r.role] = normalizarPermisosAlmacenes(r.almacenes);
+  }
+  return out;
+}
+
+/**
+ * Guarda los depósitos de UN rol (autoguardado). Solo toca la columna `almacenes`;
+ * si el rol todavía no tiene fila, se crea con `permisosSiFalta`.
+ */
+export async function saveAlmacenesRol(
+  role: RoleKey, almacenes: PermisosAlmacenes, actorEmail: string, permisosSiFalta: RolePermisos,
+): Promise<void> {
+  const cambios = { almacenes: normalizarPermisosAlmacenes(almacenes), updated_at: new Date().toISOString(), updated_by: actorEmail };
+  const { data, error } = await supabase.from(TABLE).update(cambios).eq('role', role).select('role');
+  if (error) {
+    if (faltaColumnaAlmacenes(error)) throw new Error('La base todavía no tiene los permisos por depósito (columna roles_permisos.almacenes).');
+    throw error;
+  }
+  if (data?.length) return;
+  const { error: eIns } = await supabase.from(TABLE).insert({ role, permisos: permisosSiFalta, ...cambios });
+  if (eIns) throw eIns;
 }
 
 /** Las pantallas de teléfono de todos los roles, para el panel de Roles y Permisos. */
