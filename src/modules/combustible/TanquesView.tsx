@@ -502,6 +502,53 @@ function TanqueCard({ r, canWrite, activo, onClick, onEdit }: {
   );
 }
 
+type ColId =
+  | 'fecha'
+  | 'equipo'
+  | 'autorizado'
+  | 'destino'
+  | 'observacion'
+  | 'cuaderno'
+  | 'saldoDrive'
+  | 'hi'
+  | 'hf'
+  | 'hrs'
+  | 'contFin'
+  | 'ltUsados'
+  | 'entrada'
+  | 'uso'
+  | 'traslado'
+  | 'retorno'
+  | 'merma'
+  | 'saldoLtrs'
+  | 'montoMov'
+  | 'saldoUsd'
+  | 'acciones';
+
+const COLUMNAS_TABLA: { id: ColId; label: string }[] = [
+  { id: 'fecha', label: 'Fecha' },
+  { id: 'equipo', label: 'Equipo' },
+  { id: 'autorizado', label: 'Autorizado' },
+  { id: 'destino', label: 'Destino' },
+  { id: 'observacion', label: 'Observación' },
+  { id: 'cuaderno', label: 'Cuaderno' },
+  { id: 'saldoDrive', label: 'Saldo Drive' },
+  { id: 'hi', label: 'HI' },
+  { id: 'hf', label: 'HF' },
+  { id: 'hrs', label: 'Hrs' },
+  { id: 'contFin', label: 'Cont. fin' },
+  { id: 'ltUsados', label: 'Lt usados (cont.)' },
+  { id: 'entrada', label: 'Entrada' },
+  { id: 'uso', label: 'Uso' },
+  { id: 'traslado', label: 'Traslado' },
+  { id: 'retorno', label: 'Retorno' },
+  { id: 'merma', label: 'Merma' },
+  { id: 'saldoLtrs', label: 'Saldo ltrs' },
+  { id: 'montoMov', label: '$ Mov.' },
+  { id: 'saldoUsd', label: 'Saldo $' },
+  { id: 'acciones', label: 'Acciones' },
+];
+
 /* ───────────── Registro de movimientos (filtros + tabla) reutilizable ─────────────
    Se usa tanto para la LISTA ACTUAL (mes en curso) como para cada mes del HISTÓRICO.
    La tabla NO muestra Tanque, HI (horómetro inicial), Cont. ini ni Tasa: esos datos
@@ -528,6 +575,15 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
   const [ordenDesc, setOrdenDesc] = useState(true);
   const [ordenCampo, setOrdenCampo] = useState<'fecha' | 'contIni' | 'contFin'>('fecha');
   const [correoOpen, setCorreoOpen] = useState(false);
+  const [colsVisibles, setColsVisibles] = useState<Record<ColId, boolean>>(() => ({
+    fecha: true, equipo: true, autorizado: true, destino: true, observacion: true,
+    cuaderno: true, saldoDrive: true, hi: true, hf: true, hrs: true,
+    contFin: true, ltUsados: true, entrada: true, uso: true, traslado: true,
+    retorno: true, merma: true, saldoLtrs: true, montoMov: true, saldoUsd: true,
+    acciones: true,
+  }));
+  const [menuColsOpen, setMenuColsOpen] = useState(false);
+  const numColsVisibles = useMemo(() => Object.values(colsVisibles).filter(Boolean).length, [colsVisibles]);
   // Cuántas fotos tiene cada movimiento (el 📎 n de la lista). Se pide por tandas para no armar una URL enorme.
   const [conteoFotos, setConteoFotos] = useState<Map<string, number>>(new Map());
   const idsMovs = useMemo(() => movs.map((m) => m.id), [movs]);
@@ -634,6 +690,102 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
             <button className={`btn btn-sm ${ordenCampo === 'contFin' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('contFin')} title="Ordenar por el contador final del surtidor">
               Cont. F {ordenCampo === 'contFin' ? (ordenDesc ? '↓' : '↑') : ''}
             </button>
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${numColsVisibles < COLUMNAS_TABLA.length ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setMenuColsOpen((v) => !v)}
+                title="Elegir qué columnas ver u ocultar en la tabla"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}
+              >
+                👁 Columnas {numColsVisibles < COLUMNAS_TABLA.length ? `(${numColsVisibles}/${COLUMNAS_TABLA.length})` : ''} ▾
+              </button>
+              {menuColsOpen && (
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                    onClick={() => setMenuColsOpen(false)}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      right: 0,
+                      width: '240px',
+                      maxHeight: '380px',
+                      overflowY: 'auto',
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      borderRadius: '8px',
+                      boxShadow: '0 12px 28px rgba(0,0,0,0.6)',
+                      padding: '.6rem .75rem',
+                      zIndex: 999,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', borderBottom: '1px solid #1e293b', paddingBottom: '.4rem' }}>
+                      <span style={{ fontWeight: 700, fontSize: '.78rem', color: '#f1f5f9' }}>Columnas visibles</span>
+                      <div style={{ display: 'flex', gap: '.3rem' }}>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-ghost"
+                          onClick={() => {
+                            const all = {} as Record<ColId, boolean>;
+                            COLUMNAS_TABLA.forEach((c) => { all[c.id] = true; });
+                            setColsVisibles(all);
+                          }}
+                          style={{ fontSize: '.7rem', padding: '1px 5px' }}
+                        >
+                          Todas
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-ghost"
+                          onClick={() => {
+                            const minCols = {} as Record<ColId, boolean>;
+                            COLUMNAS_TABLA.forEach((c) => {
+                              minCols[c.id] = c.id === 'fecha' || c.id === 'equipo' || c.id === 'uso' || c.id === 'saldoLtrs' || c.id === 'acciones';
+                            });
+                            setColsVisibles(minCols);
+                          }}
+                          style={{ fontSize: '.7rem', padding: '1px 5px' }}
+                        >
+                          Mínimo
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                      {COLUMNAS_TABLA.map((col) => (
+                        <label
+                          key={col.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '.5rem',
+                            fontSize: '.78rem',
+                            color: colsVisibles[col.id] ? '#f8fafc' : '#64748b',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '4px',
+                            userSelect: 'none',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={colsVisibles[col.id]}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setColsVisibles((prev) => ({ ...prev, [col.id]: checked }));
+                            }}
+                            style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                          />
+                          <span>{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>✕ Limpiar</button>}
             <span className="muted" style={{ fontSize: '.8rem' }}>{movsFiltrados.length}/{movs.length}</span>
           </div>
@@ -647,47 +799,126 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
           <table className="table" style={{ fontSize: '.8rem' }}>
             <thead>
               <tr>
-                <th>Fecha</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
-                <th>HI</th><th>HF</th><th>Hrs</th>
-                <th>Cont. fin</th><th>Lt usados (cont.)</th>
-                <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Merma</th><th>Saldo ltrs</th>
-                <th>$ Mov.</th><th>Saldo $</th><th></th>
+                {colsVisibles.fecha && <th>Fecha</th>}
+                {colsVisibles.equipo && <th>Equipo</th>}
+                {colsVisibles.autorizado && <th>Autorizado</th>}
+                {colsVisibles.destino && <th>Destino</th>}
+                {colsVisibles.observacion && <th>Observación</th>}
+                {colsVisibles.cuaderno && <th title="Registro en cuaderno físico">Cuaderno</th>}
+                {colsVisibles.saldoDrive && <th title="Saldo reportado en Google Drive">Saldo Drive</th>}
+                {colsVisibles.hi && <th>HI</th>}
+                {colsVisibles.hf && <th>HF</th>}
+                {colsVisibles.hrs && <th>Hrs</th>}
+                {colsVisibles.contFin && <th>Cont. fin</th>}
+                {colsVisibles.ltUsados && <th>Lt usados (cont.)</th>}
+                {colsVisibles.entrada && <th>Entrada</th>}
+                {colsVisibles.uso && <th>Uso</th>}
+                {colsVisibles.traslado && <th>Traslado</th>}
+                {colsVisibles.retorno && <th>Retorno</th>}
+                {colsVisibles.merma && <th>Merma</th>}
+                {colsVisibles.saldoLtrs && <th>Saldo ltrs</th>}
+                {colsVisibles.montoMov && <th>$ Mov.</th>}
+                {colsVisibles.saldoUsd && <th>Saldo $</th>}
+                {colsVisibles.acciones && <th></th>}
               </tr>
             </thead>
             <tbody>
               {!movsFiltrados.length && (
-                <tr><td colSpan={19} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={Math.max(1, numColsVisibles)} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {movsFiltrados.map((m) => (
                 <tr key={m.id}>
-                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{m.fecha}{m.hora ? <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div> : null}</td>
-                  <td>{m.equipo || '—'}</td>
-                  <td className="muted">{m.autorizado_por || '—'}</td>
-                  <td className="muted">{m.ubicacion || '—'}</td>
-                  <td className="muted" style={{ maxWidth: 180 }}>{m.observacion || '—'}</td>
-                  {/* HI a la vista para cotejar: es el HF del surtido anterior del mismo equipo. */}
-                  <td className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>
-                  <td className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>
-                  <td className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>
-                  <td className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>
-                  <td className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>
-                  <td className="mono" style={{ color: 'var(--primary-3)' }}>{m.tipo === 'entrada' ? num(m.litros) : ''}</td>
-                  <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>
-                  <td className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>
-                  <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{m.tipo === 'retorno' ? num(m.litros) : ''}</td>
-                  <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'merma' ? num(m.litros) : ''}</td>
-                  <td className="mono"><strong>{num(m.saldo_litros)}</strong></td>
-                  <td className="mono">{money(m.monto_usd)}</td>
-                  <td className="mono"><strong>{money(m.saldo_usd)}</strong></td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => onVerDetalle(m)}>👁 Ver</button>
-                    {(conteoFotos.get(m.id) ?? 0) > 0 && (
-                      <button className="btn btn-sm btn-ghost" title="Ver las fotos cargadas de este movimiento" onClick={() => onVerDetalle(m)}>
-                        📷 {conteoFotos.get(m.id)}
-                      </button>
-                    )}
-                    {canWrite && allowDelete && onBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>🗑</button>}
-                  </td>
+                  {colsVisibles.fecha && (
+                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>
+                      {m.fecha}{m.hora ? <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div> : null}
+                    </td>
+                  )}
+                  {colsVisibles.equipo && <td>{m.equipo || '—'}</td>}
+                  {colsVisibles.autorizado && <td className="muted">{m.autorizado_por || '—'}</td>}
+                  {colsVisibles.destino && <td className="muted">{m.ubicacion || '—'}</td>}
+                  {colsVisibles.observacion && <td className="muted" style={{ maxWidth: 180 }}>{m.observacion || '—'}</td>}
+                  {colsVisibles.cuaderno && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {m.registrado_en_cuaderno ? (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          fontSize: '.72rem',
+                          fontWeight: 700,
+                          color: '#34d399',
+                          background: 'rgba(16, 185, 129, 0.12)',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid rgba(16, 185, 129, 0.3)',
+                        }}>
+                          ✓ {m.cuaderno_litros != null ? `${num(m.cuaderno_litros)} L` : 'Sí'}
+                        </span>
+                      ) : m.registrado_en_cuaderno === false ? (
+                        <span style={{
+                          fontSize: '.72rem',
+                          color: '#94a3b8',
+                          background: 'rgba(255,255,255,0.04)',
+                          padding: '2px 5px',
+                          borderRadius: '4px',
+                        }}>
+                          ✕ No
+                        </span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                  )}
+                  {colsVisibles.saldoDrive && (
+                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>
+                      {m.saldo_drive != null ? (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          fontSize: '.74rem',
+                          fontWeight: 700,
+                          color: '#38bdf8',
+                          background: 'rgba(56, 189, 248, 0.1)',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid rgba(56, 189, 248, 0.25)',
+                        }}>
+                          {num(m.saldo_drive)} L
+                        </span>
+                      ) : m.registrado_en_drive ? (
+                        <span style={{ fontSize: '.72rem', color: '#38bdf8' }}>✓ Reg.</span>
+                      ) : m.registrado_en_drive === false ? (
+                        <span style={{ fontSize: '.72rem', color: '#94a3b8' }}>✕ No</span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                  )}
+                  {colsVisibles.hi && <td className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>}
+                  {colsVisibles.hf && <td className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>}
+                  {colsVisibles.hrs && <td className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>}
+                  {colsVisibles.contFin && <td className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>}
+                  {colsVisibles.ltUsados && <td className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>}
+                  {colsVisibles.entrada && <td className="mono" style={{ color: 'var(--primary-3)' }}>{m.tipo === 'entrada' ? num(m.litros) : ''}</td>}
+                  {colsVisibles.uso && <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>}
+                  {colsVisibles.traslado && <td className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>}
+                  {colsVisibles.retorno && <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{m.tipo === 'retorno' ? num(m.litros) : ''}</td>}
+                  {colsVisibles.merma && <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'merma' ? num(m.litros) : ''}</td>}
+                  {colsVisibles.saldoLtrs && <td className="mono"><strong>{num(m.saldo_litros)}</strong></td>}
+                  {colsVisibles.montoMov && <td className="mono">{money(m.monto_usd)}</td>}
+                  {colsVisibles.saldoUsd && <td className="mono"><strong>{money(m.saldo_usd)}</strong></td>}
+                  {colsVisibles.acciones && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => onVerDetalle(m)}>👁 Ver</button>
+                      {(conteoFotos.get(m.id) ?? 0) > 0 && (
+                        <button className="btn btn-sm btn-ghost" title="Ver las fotos cargadas de este movimiento" onClick={() => onVerDetalle(m)}>
+                          📷 {conteoFotos.get(m.id)}
+                        </button>
+                      )}
+                      {canWrite && allowDelete && onBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>🗑</button>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -857,6 +1088,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const [motivoMerma, setMotivoMerma] = useState('');
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(false);
   const [cuadernoLitros, setCuadernoLitros] = useState('');
+  const [registradoEnDrive, setRegistradoEnDrive] = useState(false);
+  const [saldoDrive, setSaldoDrive] = useState('');
   const [movsTanque, setMovsTanque] = useState<MovimientoTanque[]>([]);
   const [pctMermaImplicita, setPctMermaImplicita] = useState<number>(() => {
     const t = tanques.find((x) => x.id === tanqueId);
@@ -970,6 +1203,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
       const cLitrosNum = registradoEnCuaderno
         ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : litrosNum)
         : null;
+      const sDriveNum = registradoEnDrive
+        ? (saldoDrive.trim() !== '' ? Number(saldoDrive.replace(',', '.')) : null)
+        : null;
       const campos = {
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
         horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
@@ -977,6 +1213,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
         registrado_en_cuaderno: registradoEnCuaderno,
         cuaderno_litros: cLitrosNum,
+        registrado_en_drive: registradoEnDrive,
+        saldo_drive: sDriveNum,
       };
     setSaving(true);
     try {
@@ -1334,6 +1572,41 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             </div>
           )}
         </div>
+
+        <div style={{ marginTop: '.75rem', padding: '.6rem .75rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <input
+              id="mov-drive"
+              type="checkbox"
+              checked={registradoEnDrive}
+              onChange={(e) => setRegistradoEnDrive(e.target.checked)}
+              style={{ width: '18px', height: '18px', accentColor: '#38bdf8', cursor: 'pointer' }}
+            />
+            <label htmlFor="mov-drive" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnDrive ? '#38bdf8' : '#f8fafc' }}>
+              📊 Registro Drive
+            </label>
+            <span style={{ fontSize: '.8rem', color: registradoEnDrive ? '#7dd3fc' : '#94a3b8' }}>
+              ({registradoEnDrive ? 'Registrado' : 'No registrado'})
+            </span>
+          </div>
+          {registradoEnDrive && (
+            <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
+              <label htmlFor="mov-drive-saldo" style={{ fontSize: '.8rem', color: '#7dd3fc', margin: 0, whiteSpace: 'nowrap' }}>
+                Saldo en Drive (L):
+              </label>
+              <input
+                id="mov-drive-saldo"
+                className="input mono"
+                type="number"
+                step="any"
+                value={saldoDrive}
+                onChange={(e) => setSaldoDrive(e.target.value)}
+                placeholder="Saldo en litros"
+                style={{ fontWeight: 700 }}
+              />
+            </div>
+          )}
+        </div>
       </form>
     </Modal>
   );
@@ -1376,6 +1649,8 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const [cf, setCf] = useState(s(mov.contador_global_fin));
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
   const [cuadernoLitros, setCuadernoLitros] = useState(mov.cuaderno_litros != null ? String(mov.cuaderno_litros) : (mov.registrado_en_cuaderno ? String(mov.litros) : ''));
+  const [registradoEnDrive, setRegistradoEnDrive] = useState(!!mov.registrado_en_drive);
+  const [saldoDrive, setSaldoDrive] = useState(mov.saldo_drive != null ? String(mov.saldo_drive) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1407,6 +1682,10 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
         registrado_en_cuaderno: registradoEnCuaderno,
         cuaderno_litros: registradoEnCuaderno
           ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : (Number(litros) || mov.litros))
+          : null,
+        registrado_en_drive: registradoEnDrive,
+        saldo_drive: registradoEnDrive
+          ? (saldoDrive.trim() !== '' ? Number(saldoDrive.replace(',', '.')) : null)
           : null,
       });
       toast('Movimiento actualizado', 'success');
@@ -1555,6 +1834,43 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
             />
           </div>
         )}
+
+        <div style={{ marginTop: '.75rem', padding: '.6rem .75rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <input
+              id="det-mov-drive"
+              type="checkbox"
+              checked={registradoEnDrive}
+              onChange={(e) => setRegistradoEnDrive(e.target.checked)}
+              disabled={!canWrite}
+              style={{ width: '18px', height: '18px', accentColor: '#38bdf8', cursor: 'pointer' }}
+            />
+            <label htmlFor="det-mov-drive" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnDrive ? '#38bdf8' : '#f8fafc' }}>
+              📊 Registro Drive
+            </label>
+            <span style={{ fontSize: '.8rem', color: registradoEnDrive ? '#7dd3fc' : '#94a3b8' }}>
+              ({registradoEnDrive ? 'Registrado' : 'No registrado'})
+            </span>
+          </div>
+          {registradoEnDrive && (
+            <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
+              <label htmlFor="det-mov-drive-saldo" style={{ fontSize: '.8rem', color: '#7dd3fc', margin: 0, whiteSpace: 'nowrap' }}>
+                Saldo en Drive (L):
+              </label>
+              <input
+                id="det-mov-drive-saldo"
+                className="input mono"
+                type="number"
+                step="any"
+                value={saldoDrive}
+                onChange={(e) => setSaldoDrive(e.target.value)}
+                disabled={!canWrite}
+                placeholder="Saldo en litros"
+                style={{ fontWeight: 700 }}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   );

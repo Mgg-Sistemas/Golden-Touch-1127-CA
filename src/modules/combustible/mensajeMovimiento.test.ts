@@ -68,6 +68,30 @@ describe('mensajeMovimiento', () => {
     expect(tOverride).toContain('📖 *Registro Cuaderno:* 75 L');
   });
 
+  it('incluye estado de Google Drive según corresponda', () => {
+    const tRegistrado = mensajeMovimiento({
+      mov: mov({ registrado_en_drive: true, saldo_drive: 1815 }),
+    });
+    expect(tRegistrado).toContain('📊 *Registro Drive:* 1.815 L');
+
+    const tRegistradoSinSaldo = mensajeMovimiento({
+      mov: mov({ registrado_en_drive: true }),
+    });
+    expect(tRegistradoSinSaldo).toContain('📊 *Registro Drive:* Registrado');
+
+    const tNoRegistrado = mensajeMovimiento({
+      mov: mov({ registrado_en_drive: false }),
+    });
+    expect(tNoRegistrado).toContain('📊 *Registro Drive:* No registrado');
+
+    const tOverride = mensajeMovimiento({
+      mov: mov({ registrado_en_drive: false }),
+      registradoEnDrive: true,
+      saldoDrive: 2450,
+    });
+    expect(tOverride).toContain('📊 *Registro Drive:* 2.450 L');
+  });
+
   it('no escribe los renglones de lo que no hay', () => {
     const t = mensajeMovimiento({ mov: mov({}) });
     expect(t).not.toContain('Equipo');

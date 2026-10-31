@@ -477,8 +477,13 @@ export async function descargarCombustiblePdf(
         doc.text(eqTrunc[0] || eqNombre, cx + 10, cy + 13);
 
         // Badge % Consumo con respecto al Tanque
-        const badgeW = 54;
-        const badgeH = 14;
+        const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
+        const txtPctTanque = `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% con respecto a ${pdfSafe(tanqueCorto)}`;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.0);
+        const txtWidth = doc.getTextWidth(txtPctTanque);
+        const badgeW = Math.min(cardW - 80, Math.max(92, txtWidth + 12));
+        const badgeH = 15;
         const bx = cx + cardW - badgeW - 6;
         const by = cy + 4;
         const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
@@ -487,26 +492,25 @@ export async function descargarCombustiblePdf(
           doc.setFillColor(224, 242, 254); // azul suave
           doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7.5);
+          doc.setFontSize(6.8);
           doc.setTextColor(3, 105, 161);
         } else {
           doc.setFillColor(254, 243, 199); // ámbar suave
           doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7.5);
+          doc.setFontSize(6.8);
           doc.setTextColor(217, 119, 6);
         }
 
-        const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
-        const txtPctTanque = `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% · ${pdfSafe(tanqueCorto)}`;
-        doc.text(txtPctTanque, bx + badgeW / 2, by + 5.5, { align: 'center' });
+        doc.text(txtPctTanque, bx + badgeW / 2, by + 5.8, { align: 'center' });
 
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(5.8);
+        doc.setFontSize(5.6);
+        doc.setTextColor(100, 116, 139);
         const txtSubBadge = f.pct_capacidad > 0
-          ? `Cap: ${f.pct_capacidad.toFixed(1)}% | Tot: ${f.pct_total.toFixed(1)}%`
-          : `Tot: ${f.pct_total.toFixed(1)}% del período`;
-        doc.text(txtSubBadge, bx + badgeW / 2, by + 11, { align: 'center' });
+          ? `${f.pct_capacidad.toFixed(1)}% de la capacidad física (${fmtNum(f.capacidad_tanque || 0)} L)`
+          : `${f.pct_total.toFixed(1)}% del consumo total del período`;
+        doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
 
         // Subtítulo con Empresa / Tipo / Ubicación
         doc.setFont('helvetica', 'normal');
@@ -526,71 +530,67 @@ export async function descargarCombustiblePdf(
         doc.setLineWidth(0.5);
         doc.line(cx + 8, cy + 29, cx + cardW - 8, cy + 29);
 
-        // 4 Columnas de Métricas
+        // 4 Columnas de Métricas: orden exacto pedido por el usuario
+        // "YAMAGRO 12h 12L 23% con respecto al tanque 3 · Por columnas"
         const innerW = cardW - 16;
         const colW = innerW / 4;
         const my = cy + 39;
 
-        // Métrica 1: Consumo
+        // Métrica 1: HORAS TRAB. (12h)
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.2);
         doc.setTextColor(71, 85, 105);
-        doc.text('CONSUMO (L)', cx + 8, my);
+        doc.text('HORAS TRAB.', cx + 8, my);
         doc.setFontSize(10);
-        doc.setTextColor(...NARANJA);
-        doc.text(`${fmtNum(f.litros, 2)} L`, cx + 8, my + 13);
+        doc.setTextColor(2, 132, 199);
+        doc.text(f.horas > 0 ? `${fmtNum(f.horas, 1)} h` : '—', cx + 8, my + 13);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.2);
         doc.setTextColor(148, 163, 184);
-        doc.text(`Tasa: $${f.tasa_promedio.toFixed(2)}/L`, cx + 8, my + 23);
+        doc.text(f.rendimiento ? `${fmtNum(f.rendimiento, 2)} L/h rend.` : (f.clase === 'vehiculo' ? 'Vehículo (odóm.)' : 'Sin horómetro'), cx + 8, my + 23);
 
-        // Métrica 2: Inversión USD
+        // Métrica 2: CONSUMO (L) (12L / 1000L)
         const m2x = cx + 8 + colW;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.2);
         doc.setTextColor(71, 85, 105);
-        doc.text('VALOR ($ USD)', m2x, my);
+        doc.text('CONSUMO (L)', m2x, my);
         doc.setFontSize(10);
-        doc.setTextColor(22, 163, 74);
-        doc.text(fmtUsd(f.usd), m2x, my + 13);
+        doc.setTextColor(...NARANJA);
+        doc.text(`${fmtNum(f.litros, 2)} L`, m2x, my + 13);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.2);
         doc.setTextColor(148, 163, 184);
         doc.text(`${f.surtidos} despacho(s)`, m2x, my + 23);
 
-        // Métrica 3: Horas Trabajadas
+        // Métrica 3: % RESPECTO AL TANQUE (23% con respecto al tanque 3)
         const m3x = cx + 8 + colW * 2;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.2);
         doc.setTextColor(71, 85, 105);
-        doc.text('HORAS TRAB.', m3x, my);
+        doc.text('% RESPECTO AL TANQUE', m3x, my);
         doc.setFontSize(10);
-        doc.setTextColor(2, 132, 199);
-        doc.text(f.horas > 0 ? `${fmtNum(f.horas, 1)} h` : '—', m3x, my + 13);
+        doc.setTextColor(147, 51, 234);
+        doc.text(`${(f.pct_tanque ?? f.pct_total).toFixed(1)}%`, m3x, my + 13);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.2);
         doc.setTextColor(148, 163, 184);
-        doc.text(f.rendimiento ? `${fmtNum(f.rendimiento, 2)} L/h` : 'Sin rend.', m3x, my + 23);
+        doc.text(`del ${pdfSafe(tanqueCorto)}`, m3x, my + 23);
 
-        // Métrica 4: Horómetros / Tanque Origen
+        // Métrica 4: VALOR ($ USD) y % Capacidad
         const m4x = cx + 8 + colW * 3;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.2);
         doc.setTextColor(71, 85, 105);
-        doc.text('TANQUE / HORÓM.', m4x, my);
-        doc.setFontSize(7.5);
-        doc.setTextColor(51, 65, 85);
-        const horomTxt = f.horometro_ini != null && f.horometro_fin != null
-          ? `${fmtNum(f.horometro_ini)} → ${fmtNum(f.horometro_fin)}`
-          : (f.tanque ? pdfSafe(f.tanque.split('(')[0].trim()) : '—');
-        doc.text(pdfSafe(horomTxt), m4x, my + 11);
+        doc.text('VALOR ($ USD)', m4x, my);
+        doc.setFontSize(10);
+        doc.setTextColor(22, 163, 74);
+        doc.text(fmtUsd(f.usd), m4x, my + 13);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.2);
         doc.setTextColor(148, 163, 184);
-        const subTanque = f.pct_tanque > 0
-          ? `${f.pct_tanque.toFixed(1)}% tk · ${(f.pct_capacidad ?? 0).toFixed(1)}% cap`
-          : pdfSafe(f.tanque ? `Tanque: ${f.tanque}` : '');
-        doc.text(pdfSafe(subTanque), m4x, my + 23);
+        const subCap = f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}% cap. física` : `Tasa: $${f.tasa_promedio.toFixed(2)}/L`;
+        doc.text(subCap, m4x, my + 23);
       }
 
       y += cardH + cardGap;

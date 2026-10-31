@@ -452,6 +452,10 @@ export interface MovimientoTanque {
   registrado_en_cuaderno?: boolean | null;
   /** Cantidad de litros registrados en el cuaderno físico (si fue registrado). */
   cuaderno_litros?: number | null;
+  /** Indica si el movimiento fue asentado en la hoja de control de Google Drive. */
+  registrado_en_drive?: boolean | null;
+  /** Saldo reportado en la hoja de Google Drive al momento del movimiento. */
+  saldo_drive?: number | null;
   tasa_usd_litro: number;
   monto_usd?: number | null;
   orden: number;

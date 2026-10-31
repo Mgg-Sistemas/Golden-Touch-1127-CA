@@ -62,6 +62,10 @@ export interface DatosMensaje {
   registradoEnCuaderno?: boolean | null;
   /** Litros registrados en cuaderno */
   cuadernoLitros?: number | null;
+  /** Forzar o indicar explícitamente el estado de Drive si no viene en mov */
+  registradoEnDrive?: boolean | null;
+  /** Saldo reportado en Drive */
+  saldoDrive?: number | null;
 }
 
 /**
@@ -99,6 +103,17 @@ export function mensajeMovimiento(d: DatosMensaje): string {
       lineas.push(`📖 *Registro Cuaderno:* ${cant}`);
     } else {
       lineas.push(`📖 *Registro Cuaderno:* No registrado`);
+    }
+  }
+
+  const regDrive = d.registradoEnDrive !== undefined ? d.registradoEnDrive : m.registrado_en_drive;
+  const sDrive = d.saldoDrive !== undefined ? d.saldoDrive : m.saldo_drive;
+  if (regDrive !== undefined && regDrive !== null) {
+    if (regDrive) {
+      const cant = sDrive != null ? `${num(sDrive)} L` : 'Registrado';
+      lineas.push(`📊 *Registro Drive:* ${cant}`);
+    } else {
+      lineas.push(`📊 *Registro Drive:* No registrado`);
     }
   }
   if (m.observacion) lineas.push(`📝 *Nota:* ${m.observacion}`);

@@ -1345,19 +1345,19 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                         textAlign: 'right',
                         background: esTraslado ? 'rgba(2, 132, 199, 0.15)' : 'rgba(249, 115, 22, 0.15)',
                         border: `1px solid ${esTraslado ? 'rgba(2, 132, 199, 0.3)' : 'rgba(249, 115, 22, 0.3)'}`,
-                        borderRadius: '4px',
-                        padding: '.15rem .45rem',
-                        lineHeight: 1.15
+                        borderRadius: '6px',
+                        padding: '.25rem .55rem',
+                        lineHeight: 1.2
                       }}>
                         <div style={{
-                          fontSize: '.78rem',
+                          fontSize: '.82rem',
                           fontWeight: 700,
                           color: esTraslado ? '#38bdf8' : 'var(--primary, #f97316)'
                         }}>
-                          {f.pct_tanque.toFixed(1)}%
+                          {(f.pct_tanque ?? f.pct_total).toFixed(1)}%
                         </div>
                         <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>
-                          {f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque'}
+                          con respecto a {f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque'}
                         </div>
                       </div>
                     </div>
@@ -1372,27 +1372,27 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                       borderRadius: '4px'
                     }}>
                       <div>
-                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>LITROS</div>
-                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--primary, #f97316)' }}>
-                          {f.litros.toLocaleString('es-VE')} L
-                        </div>
-                      </div>
-                      <div>
                         <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>HORAS</div>
                         <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#38bdf8' }}>
                           {f.horas > 0 ? `${f.horas} h` : '—'}
                         </div>
                       </div>
                       <div>
-                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>% CAP.</div>
-                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#a855f7' }}>
-                          {f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}%` : '—'}
+                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>LITROS</div>
+                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--primary, #f97316)' }}>
+                          {f.litros.toLocaleString('es-VE')} L
                         </div>
                       </div>
                       <div>
-                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>REND.</div>
+                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>% DEL TANQUE</div>
+                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#a855f7' }}>
+                          {(f.pct_tanque ?? f.pct_total).toFixed(1)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>VALOR ($ USD)</div>
                         <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#22c55e' }}>
-                          {f.rendimiento ? `${f.rendimiento.toFixed(1)} L/h` : '—'}
+                          ${f.usd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
                         </div>
                       </div>
                     </div>

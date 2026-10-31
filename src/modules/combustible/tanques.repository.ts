@@ -649,10 +649,18 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
       const matchLitros = m.observacion.match(/\[Cuaderno:\s*(?:Registrado\s*[-·:]\s*)?([\d.,]+)\s*L?\]/i);
       if (matchLitros) cLitros = Number(matchLitros[1].replace(',', '.'));
     }
+    const regDrive = m.registrado_en_drive ?? (m.observacion && /\[Drive:\s*(Sí|Registrado|\d+)/i.test(m.observacion) ? true : false);
+    let sDrive = m.saldo_drive;
+    if (sDrive == null && m.observacion) {
+      const matchDrive = m.observacion.match(/\[Drive:\s*(?:Registrado\s*[-·:]\s*)?([\d.,]+)\s*L?\]/i);
+      if (matchDrive) sDrive = Number(matchDrive[1].replace(',', '.'));
+    }
     return {
       ...m,
       registrado_en_cuaderno: regCuaderno,
       cuaderno_litros: cLitros ?? (regCuaderno ? m.litros : null),
+      registrado_en_drive: regDrive,
+      saldo_drive: sDrive,
       saldo_litros: round(saldoL, 2),
       saldo_usd: round(saldoU, 2),
     };
@@ -677,6 +685,10 @@ export interface MovimientoTanqueCampos {
   registrado_en_cuaderno?: boolean | null;
   /** Litros registrados en el cuaderno físico de campo */
   cuaderno_litros?: number | null;
+  /** ¿Fue asentado en la hoja de control de Google Drive? */
+  registrado_en_drive?: boolean | null;
+  /** Saldo reportado en la hoja de Google Drive */
+  saldo_drive?: number | null;
 }
 
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
@@ -685,17 +697,26 @@ async function insertarMovimiento(payload: Record<string, unknown>): Promise<Mov
   const res = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
   data = res.data;
   error = res.error;
-  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload)) {
+  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload || 'registrado_en_drive' in payload || 'saldo_drive' in payload)) {
     const fallbackPayload = { ...payload };
     const reg = fallbackPayload.registrado_en_cuaderno;
     const cLtrs = fallbackPayload.cuaderno_litros;
     delete fallbackPayload.registrado_en_cuaderno;
     delete fallbackPayload.cuaderno_litros;
+    const regDrive = fallbackPayload.registrado_en_drive;
+    const sDrive = fallbackPayload.saldo_drive;
+    delete fallbackPayload.registrado_en_drive;
+    delete fallbackPayload.saldo_drive;
+    let obs = String(fallbackPayload.observacion || '').trim();
     if (reg) {
       const cantTexto = cLtrs != null ? `${num(cLtrs)} L` : 'Registrado';
-      const obs = String(fallbackPayload.observacion || '').trim();
-      fallbackPayload.observacion = obs ? `${obs} [Cuaderno: ${cantTexto}]` : `[Cuaderno: ${cantTexto}]`;
+      obs = obs ? `${obs} [Cuaderno: ${cantTexto}]` : `[Cuaderno: ${cantTexto}]`;
     }
+    if (regDrive) {
+      const driveTexto = sDrive != null ? `${num(sDrive)} L` : 'Registrado';
+      obs = obs ? `${obs} [Drive: ${driveTexto}]` : `[Drive: ${driveTexto}]`;
+    }
+    fallbackPayload.observacion = obs || null;
     const res2 = await supabase.from('combustible_tanque_movimientos').insert(fallbackPayload).select('*').single();
     data = res2.data;
     error = res2.error;
@@ -730,6 +751,8 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
     kilometraje: c.kilometraje ?? null,
     ...(c.registrado_en_cuaderno !== undefined ? { registrado_en_cuaderno: c.registrado_en_cuaderno } : {}),
     ...(c.cuaderno_litros !== undefined ? { cuaderno_litros: c.cuaderno_litros } : {}),
+    ...(c.registrado_en_drive !== undefined ? { registrado_en_drive: c.registrado_en_drive } : {}),
+    ...(c.saldo_drive !== undefined ? { saldo_drive: c.saldo_drive } : {}),
   };
 }
 
@@ -1428,6 +1451,36 @@ export async function setMovimientoCuaderno(
   }
 }
 
+/**
+ * Actualiza el estado de asentado en hoja de Google Drive de un movimiento y su saldo.
+ */
+export async function setMovimientoDrive(
+  movId: string,
+  registrado_en_drive: boolean,
+  saldo_drive?: number | null,
+): Promise<void> {
+  const updatePayload: Record<string, unknown> = {
+    registrado_en_drive,
+    saldo_drive: registrado_en_drive ? (saldo_drive ?? null) : null,
+  };
+  const { error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .update(updatePayload)
+    .eq('id', movId);
+  if (error) {
+    if ((error as { code?: string }).code === '42703') {
+      const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion').eq('id', movId).maybeSingle();
+      const obs = (data as { observacion?: string | null })?.observacion || '';
+      const limpio = obs.replace(/\[Drive:\s*[^\]]+\]/gi, '').trim();
+      const texto = registrado_en_drive ? (saldo_drive != null ? `${num(saldo_drive)} L` : 'Registrado') : 'No registrado';
+      const nuevoObs = `${limpio} [Drive: ${texto}]`.trim();
+      await supabase.from('combustible_tanque_movimientos').update({ observacion: nuevoObs }).eq('id', movId);
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function actualizarMovimientoTanque(
   id: string,
   patch: MovimientoTanqueCampos & { tipo?: TipoMovTanque; litros?: number; tasaUsdLitro?: number },
@@ -1465,10 +1518,37 @@ export async function actualizarMovimientoTanque(
   if (patch.litros != null) upd.litros = num(patch.litros);
   if (patch.tasaUsdLitro != null) upd.tasa_usd_litro = round(num(patch.tasaUsdLitro), 4);
 
-  const { data, error } = await supabase.from('combustible_tanque_movimientos')
+  let { data, error } = await supabase.from('combustible_tanque_movimientos')
     .update(upd).eq('id', id)
     .select('tanque_id, equipo, mov_vinculado_id, fecha, hora, autorizado_por, ubicacion, observacion, litros, tasa_usd_litro')
     .single();
+  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_drive' in upd || 'saldo_drive' in upd || 'registrado_en_cuaderno' in upd || 'cuaderno_litros' in upd)) {
+    const fallbackUpd = { ...upd };
+    const reg = fallbackUpd.registrado_en_cuaderno;
+    const cLtrs = fallbackUpd.cuaderno_litros;
+    delete fallbackUpd.registrado_en_cuaderno;
+    delete fallbackUpd.cuaderno_litros;
+    const regDrive = fallbackUpd.registrado_en_drive;
+    const sDrive = fallbackUpd.saldo_drive;
+    delete fallbackUpd.registrado_en_drive;
+    delete fallbackUpd.saldo_drive;
+    let obs = String(fallbackUpd.observacion || '').replace(/\[Cuaderno:\s*[^\]]+\]/gi, '').replace(/\[Drive:\s*[^\]]+\]/gi, '').trim();
+    if (reg) {
+      const cantTexto = cLtrs != null ? `${num(cLtrs)} L` : 'Registrado';
+      obs = obs ? `${obs} [Cuaderno: ${cantTexto}]` : `[Cuaderno: ${cantTexto}]`;
+    }
+    if (regDrive) {
+      const driveTexto = sDrive != null ? `${num(sDrive)} L` : 'Registrado';
+      obs = obs ? `${obs} [Drive: ${driveTexto}]` : `[Drive: ${driveTexto}]`;
+    }
+    fallbackUpd.observacion = obs || null;
+    const res2 = await supabase.from('combustible_tanque_movimientos')
+      .update(fallbackUpd).eq('id', id)
+      .select('tanque_id, equipo, mov_vinculado_id, fecha, hora, autorizado_por, ubicacion, observacion, litros, tasa_usd_litro')
+      .single();
+    data = res2.data;
+    error = res2.error;
+  }
   if (error) throw error;
   const tanqueId = (data as { tanque_id: string }).tanque_id;
   const equipoNuevo = (data as { equipo: string | null }).equipo;
