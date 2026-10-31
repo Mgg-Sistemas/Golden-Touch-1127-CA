@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { ItemOrden } from '@/shared/lib/types';
-import { aplicarVinculos, asignarProducto, esPiezaMaquinaria, piezasSinProducto, productoUsadoEnOtroRenglon } from './piezasMaquinaria';
+import {
+  aplicarVinculos, asignarProducto, esNombreGenerico, esPiezaMaquinaria, etiquetaRenglonPorAsignar,
+  piezasSinProducto, productoUsadoEnOtroRenglon, requiereAsignarProducto,
+} from './piezasMaquinaria';
 
 const pieza = (sku: string, nombre: string, extra: Partial<ItemOrden> = {}): ItemOrden => ({
   sku, nombre, cantidad: 1, precio: 0, unidad: 'und', comprar: true,
@@ -69,5 +72,47 @@ describe('piezas de Maquinaria en la cotización', () => {
     const orden = [pieza('REP-010', 'FILTRO', { productoId: 'p-filtro' }), pieza('SRV-B', 'OTRO')];
     const r = aplicarVinculos(orden, new Map([['SRV-B', filtro]]));
     expect(r[1].productoId).toBeUndefined();
+  });
+});
+
+describe('renglones con nombre genérico de una Solicitud de Pedido (31/10/2026)', () => {
+  const generico = (sku: string, nombre: string, extra: Partial<ItemOrden> = {}): ItemOrden => ({
+    sku, nombre, cantidad: 2, precio: 0, unidad: 'und', comprar: true, nombre_generico: true, ...extra,
+  });
+
+  it('requieren producto igual que las piezas de Maquinaria; los renglones comunes no', () => {
+    expect(requiereAsignarProducto(generico('SPG-1', 'FILTRO'))).toBe(true);
+    expect(requiereAsignarProducto(pieza('SRV-A', 'FILTRO'))).toBe(true);
+    expect(requiereAsignarProducto({ sku: 'GEN-1', nombre: 'X', cantidad: 1, precio: 0 } as ItemOrden)).toBe(false);
+    expect(esNombreGenerico(generico('SPG-1', 'FILTRO'))).toBe(true);
+    expect(esPiezaMaquinaria(generico('SPG-1', 'FILTRO'))).toBe(false);
+  });
+
+  it('cuentan como pendientes mientras no tengan producto (y solo si se compran)', () => {
+    const items = [
+      generico('SPG-1', 'FILTRO'),
+      generico('SPG-2', 'CORREA', { comprar: false }),
+      generico('REP-010', 'FILTRO DE AIRE CAT', { productoId: 'p-filtro' }),
+    ];
+    expect(piezasSinProducto(items).map((i) => i.sku)).toEqual(['SPG-1']);
+  });
+
+  it('al asignar producto toman el del inventario, guardan el nombre genérico y NO quedan como repuesto de equipo', () => {
+    const [it] = asignarProducto([generico('SPG-1', 'FILTRO DE AIRE')], 'SPG-1', filtro);
+    expect(it).toMatchObject({ productoId: 'p-filtro', sku: 'REP-010', nombre: filtro.nombre, nombre_solicitado: 'FILTRO DE AIRE', nombre_generico: true });
+    expect(it.insumo_producto_id).toBeUndefined();
+    expect(it.insumo_nombre).toBeUndefined();
+  });
+
+  it('aplicarVinculos deja el producto elegido en la solicitud genérica', () => {
+    const orden = [generico('SPG-1', 'FILTRO DE AIRE'), generico('SPG-2', 'CORREA')];
+    const r = aplicarVinculos(orden, new Map([['SPG-1', filtro]]));
+    expect(r[0]).toMatchObject({ productoId: 'p-filtro', sku: 'REP-010' });
+    expect(r[1]).toBe(orden[1]);
+  });
+
+  it('rótulo de la celda según el origen', () => {
+    expect(etiquetaRenglonPorAsignar(generico('SPG-1', 'X'))).toBe('📝 Nombre genérico de la solicitud');
+    expect(etiquetaRenglonPorAsignar(pieza('SRV-A', 'X'))).toBe('🚜 Repuesto de Maquinaria');
   });
 });

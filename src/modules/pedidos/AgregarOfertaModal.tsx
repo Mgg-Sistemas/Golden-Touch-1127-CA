@@ -19,7 +19,7 @@ import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPar
 import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 import { getUnidades } from '@/modules/inventario/inventario.repository';
 import { listProductosActivos } from './pedidos.repository';
-import { asignarProducto, esPiezaMaquinaria, piezasSinProducto, productoUsadoEnOtroRenglon, type ProductoAsignable } from './piezasMaquinaria';
+import { asignarProducto, esPiezaMaquinaria, etiquetaRenglonPorAsignar, piezasSinProducto, productoUsadoEnOtroRenglon, requiereAsignarProducto, type ProductoAsignable } from './piezasMaquinaria';
 import { guardarVinculosPiezasEnOrden } from './piezasMaquinaria.repository';
 import { PiezaProductoCelda } from './PiezaProductoCelda';
 
@@ -136,8 +136,9 @@ export function AgregarOfertaModal({
   // Repuestos de Control de Maquinaria (30/10/2026): llegan con un nombre general y aquí
   // el analista les pone el producto del inventario (o da de alta uno nuevo). Se recuerda
   // el sku que cada renglón tenía en la orden para dejarle el mismo producto a la solicitud.
+  // 31/10/2026: igual para los renglones de una SP con nombres genéricos (flujo nuevo).
   const [skuOriginal] = useState(() => new Map(items.map((i) => [i.uid, i.sku])));
-  const hayPiezasMaq = useMemo(() => items.some(esPiezaMaquinaria), [items]);
+  const hayPiezasMaq = useMemo(() => items.some(requiereAsignarProducto), [items]);
   const [productosInv, setProductosInv] = useState<ProductoAsignable[]>([]);
   const [unidadesInv, setUnidadesInv] = useState<string[]>([]);
   useEffect(() => {
@@ -416,7 +417,8 @@ export function AgregarOfertaModal({
       toast('Elige la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
-    // Repuestos de Maquinaria: cada uno tiene que quedar con su producto del inventario.
+    // Repuestos de Maquinaria y renglones genéricos de la SP: cada uno tiene que quedar
+    // con su producto del inventario (la base también lo exige para los genéricos).
     const sinProducto = piezasSinProducto(items);
     if (sinProducto.length) {
       toast(`Ponle el producto del inventario (o crea uno nuevo) a: ${[...new Set(sinProducto.map((i) => i.nombre))].join(', ')}`, 'error');
@@ -572,7 +574,7 @@ export function AgregarOfertaModal({
     const vinculos = new Map<string, ProductoAsignable>();
     for (const it of items) {
       const original = skuOriginal.get(it.uid);
-      if (!original || !esPiezaMaquinaria(it) || !it.productoId) continue;
+      if (!original || !requiereAsignarProducto(it) || !it.productoId) continue;
       vinculos.set(original, { id: it.productoId, sku: it.sku, nombre: it.nombre, unidad: it.unidad });
     }
     try {
@@ -841,9 +843,10 @@ export function AgregarOfertaModal({
                     </td>
                     <td>
                       {esVariante ? <span className="muted">{it.nombre}</span> : it.nombre}
-                      {!esVariante && esPiezaMaquinaria(it) && (
+                      {!esVariante && requiereAsignarProducto(it) && (
                         <PiezaProductoCelda
                           key={`${it.uid}-${it.productoId ?? 'sin'}`}
+                          etiqueta={etiquetaRenglonPorAsignar(it)}
                           item={it} opciones={opcionesProductosInv} porId={productosInvPorId}
                           unidades={unidadesInv} actorEmail={registradoPorEmail}
                           onAsignar={(p) => asignarPieza(idx, p)} />
