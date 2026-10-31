@@ -270,7 +270,7 @@ describe('reporteMoldeable', () => {
     expect(enriquecidos[0].esTraslado).toBe(true);
     expect(enriquecidos[0].equipoNombre).toContain('Traslado → Tanque #3');
     expect(enriquecidos[0].empresa).toBe('Operación Interna');
-    expect(enriquecidos[0].tipoMaquina).toBe('Traslado');
+    expect(enriquecidos[0].tipoMaquina).toBe('Traslado entre Tanques');
 
     const { filas } = procesarFilasReporte(enriquecidos, 'equipo');
     expect(filas).toHaveLength(1);

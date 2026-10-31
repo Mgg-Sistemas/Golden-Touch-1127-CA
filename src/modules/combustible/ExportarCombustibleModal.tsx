@@ -1335,10 +1335,10 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.4rem' }}>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: '.86rem', color: '#f8fafc' }}>
-                          {f.equipo || 'Sin equipo'}
+                          {f.equipo || 'Sin clasificar'}
                         </div>
                         <div className="muted" style={{ fontSize: '.72rem' }}>
-                          {f.empresa || 'Sin empresa'} {f.tipo ? `· ${f.tipo}` : ''}
+                          {f.empresa || ''} {f.tipo && f.tipo !== f.equipo && f.tipo !== f.empresa ? `· ${f.tipo}` : ''}
                         </div>
                       </div>
                       <div style={{

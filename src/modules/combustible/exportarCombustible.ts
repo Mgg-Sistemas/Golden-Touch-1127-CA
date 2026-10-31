@@ -512,7 +512,12 @@ export async function descargarCombustiblePdf(
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.2);
         doc.setTextColor(100, 116, 139);
-        const metaTxt = pdfSafe(`${f.empresa || 'Sin empresa'} · ${f.tipo || 'Sin tipo'}${f.ubicacion ? ` · ${f.ubicacion}` : ''}`);
+        const partesMeta = [
+          f.empresa,
+          f.tipo && f.tipo !== f.empresa && f.tipo !== f.equipo ? f.tipo : null,
+          f.ubicacion && f.ubicacion !== f.equipo ? f.ubicacion : null,
+        ].filter(Boolean);
+        const metaTxt = pdfSafe(partesMeta.join(' · ') || 'Flota General');
         const metaTrunc = doc.splitTextToSize(metaTxt, cardW - 20) as string[];
         doc.text(metaTrunc[0] || metaTxt, cx + 10, cy + 24);
 

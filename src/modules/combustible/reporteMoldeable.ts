@@ -271,9 +271,22 @@ export function enriquecerMovimientos(
 
     if (esTraslado) {
       const dest = m.tanque_destino_id ? mapaTanques.get(m.tanque_destino_id) : undefined;
-      const destNombre = dest ? dest.nombre : (m.equipo || 'Tanque destino');
+      let destNombre = dest ? dest.nombre : '';
+      if (!destNombre) {
+        const obs = `${m.observacion || ''} ${m.equipo || ''}`.toUpperCase();
+        for (const tk of tanques) {
+          const numMatch = tk.nombre.match(/#?\s*(\d+)/);
+          if (numMatch && (obs.includes(`TANQUE ${numMatch[1]}`) || obs.includes(`TANQUE #${numMatch[1]}`))) {
+            destNombre = tk.nombre;
+            break;
+          }
+        }
+      }
+      if (!destNombre) {
+        destNombre = (m.equipo ?? '').trim() || 'Tanque #3 (Camión de Lubricación)';
+      }
       equipoNombre = `Traslado → ${destNombre}`;
-      tipoMaquina = 'Traslado';
+      tipoMaquina = 'Traslado entre Tanques';
       empresa = 'Operación Interna';
       claseMaquina = 'traslado';
     } else {
@@ -339,7 +352,12 @@ export function filtrarMovimientos(
       if (!tiposSel.includes(item.tipoMaquina)) return false;
     }
     if (tanquesSel && tanquesSel.length > 0) {
-      if (!tanquesSel.includes(item.tanqueNombre) && (!item.mov.tanque_id || !tanquesSel.includes(item.mov.tanque_id))) {
+      const matchOrigen = tanquesSel.includes(item.tanqueNombre) || (item.mov.tanque_id && tanquesSel.includes(item.mov.tanque_id));
+      const matchDestino = item.esTraslado && tanquesSel.some((tk) => {
+        const simple = tk.split('(')[0].trim().toUpperCase();
+        return item.equipoNombre.toUpperCase().includes(simple);
+      });
+      if (!matchOrigen && !matchDestino) {
         return false;
       }
     }
@@ -485,27 +503,46 @@ export function procesarFilasReporte(
         eqLabel = m.fecha || 'Sin fecha';
         fechaLabel = m.fecha || 'Sin fecha';
         mesLabel = mesEtiqueta(m.fecha);
+        empLabel = 'Consumo Diario';
+        tipoLabel = 'Fecha';
         tkeLabel = item.tanqueNombre;
         break;
       case 'empresa':
         clave = norm(item.empresa);
-        empLabel = item.empresa;
+        eqLabel = item.empresa || 'Sin empresa asignada';
+        empLabel = item.empresa || 'Sin empresa asignada';
+        tipoLabel = 'Empresa / Propietario';
+        tkeLabel = item.tanqueNombre;
         break;
       case 'tipo':
         clave = norm(item.tipoMaquina);
-        tipoLabel = item.tipoMaquina;
+        eqLabel = item.tipoMaquina || 'Otros / No clasificado';
+        tipoLabel = item.tipoMaquina || 'Otros / No clasificado';
+        empLabel = item.esTraslado ? 'Operación Interna' : 'Flota / Tipo de Máquina';
+        tkeLabel = item.tanqueNombre;
         break;
       case 'ubicacion':
         clave = norm(item.ubicacionNormalizada);
-        ubiLabel = item.ubicacionNormalizada;
+        eqLabel = item.ubicacionNormalizada || 'Sin ubicación';
+        ubiLabel = item.ubicacionNormalizada || 'Sin ubicación';
+        empLabel = 'Frente / Ubicación';
+        tipoLabel = 'Ubicación';
+        tkeLabel = item.tanqueNombre;
         break;
       case 'tanque':
         clave = norm(item.tanqueNombre);
-        tkeLabel = item.tanqueNombre;
+        eqLabel = item.tanqueNombre || 'Tanque desconocido';
+        tkeLabel = item.tanqueNombre || 'Tanque desconocido';
+        empLabel = 'Tanque de Suministro';
+        tipoLabel = 'Tanque';
         break;
       case 'mes':
         clave = (m.fecha || '').slice(0, 7);
         mesLabel = mesEtiqueta(m.fecha);
+        eqLabel = mesLabel || 'Sin fecha';
+        empLabel = 'Período Mensual';
+        tipoLabel = 'Mes';
+        tkeLabel = item.tanqueNombre;
         break;
     }
 
