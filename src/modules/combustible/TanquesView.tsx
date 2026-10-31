@@ -526,29 +526,29 @@ type ColId =
   | 'saldoUsd'
   | 'acciones';
 
-const COLUMNAS_TABLA: { id: ColId; label: string }[] = [
-  { id: 'fecha', label: 'Fecha' },
-  { id: 'equipo', label: 'Equipo' },
-  { id: 'autorizado', label: 'Autorizado' },
-  { id: 'destino', label: 'Destino' },
-  { id: 'observacion', label: 'Observación' },
-  { id: 'cuaderno', label: 'Cuaderno' },
-  { id: 'saldoDrive', label: 'Saldo Drive' },
-  { id: 'diferencia', label: 'Diferencia' },
-  { id: 'hi', label: 'HI' },
-  { id: 'hf', label: 'HF' },
-  { id: 'hrs', label: 'Hrs' },
-  { id: 'contFin', label: 'Cont. fin' },
-  { id: 'ltUsados', label: 'Lt usados (cont.)' },
-  { id: 'entrada', label: 'Entrada' },
-  { id: 'uso', label: 'Uso' },
-  { id: 'traslado', label: 'Traslado' },
-  { id: 'retorno', label: 'Retorno' },
-  { id: 'merma', label: 'Merma' },
-  { id: 'saldoLtrs', label: 'Saldo ltrs' },
-  { id: 'montoMov', label: '$ Mov.' },
-  { id: 'saldoUsd', label: 'Saldo $' },
-  { id: 'acciones', label: 'Acciones' },
+const COLUMNAS_TABLA: { id: ColId; label: string; title?: string }[] = [
+  { id: 'fecha', label: 'Fecha', title: 'Fecha y hora del movimiento' },
+  { id: 'equipo', label: 'Equipo', title: 'Equipo o máquina receptora' },
+  { id: 'autorizado', label: 'Autorizado', title: 'Persona que autorizó el movimiento' },
+  { id: 'destino', label: 'Destino', title: 'Ubicación o frente de destino' },
+  { id: 'observacion', label: 'Observación', title: 'Detalles u observaciones' },
+  { id: 'hi', label: 'HI', title: 'Horómetro inicial' },
+  { id: 'hf', label: 'HF', title: 'Horómetro final' },
+  { id: 'hrs', label: 'Hrs', title: 'Horas trabajadas calculadas' },
+  { id: 'contFin', label: 'Cont. fin', title: 'Lectura final del totalizador del surtidor' },
+  { id: 'ltUsados', label: 'Lt usados (cont.)', title: 'Litros medidos por el contador' },
+  { id: 'entrada', label: 'Entrada', title: 'Litros ingresados al tanque' },
+  { id: 'uso', label: 'Uso', title: 'Litros consumidos/despachados' },
+  { id: 'traslado', label: 'Traslado', title: 'Litros trasladados hacia otro tanque' },
+  { id: 'retorno', label: 'Retorno', title: 'Litros devueltos al tanque' },
+  { id: 'merma', label: 'Merma', title: 'Litros de merma o evaporación' },
+  { id: 'cuaderno', label: 'Cuaderno', title: 'Registro físico en cuaderno de campo' },
+  { id: 'saldoDrive', label: 'Saldo Drive', title: 'Saldo reportado en la hoja de Google Drive' },
+  { id: 'diferencia', label: 'Diferencia', title: 'Diferencia contra Google Drive, Cuaderno físico y Contador' },
+  { id: 'saldoLtrs', label: 'Saldo ltrs', title: 'Saldo resultante en litros en el tanque' },
+  { id: 'montoMov', label: '$ Mov.', title: 'Costo valorizado en USD del movimiento' },
+  { id: 'saldoUsd', label: 'Saldo $', title: 'Saldo valorizado en USD en el tanque' },
+  { id: 'acciones', label: 'Acciones', title: 'Ver detalle / eliminar' },
 ];
 
 /* ───────────── Registro de movimientos (filtros + tabla) reutilizable ─────────────
@@ -586,6 +586,37 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
   }));
   const [menuColsOpen, setMenuColsOpen] = useState(false);
   const numColsVisibles = useMemo(() => Object.values(colsVisibles).filter(Boolean).length, [colsVisibles]);
+
+  // Orden de columnas reorganizable
+  const [ordenColumnas, setOrdenColumnas] = useState<ColId[]>(() => COLUMNAS_TABLA.map((col) => col.id));
+  const [colArraste, setColArraste] = useState<ColId | null>(null);
+  const [colHover, setColHover] = useState<ColId | null>(null);
+
+  const moverColumna = (origen: ColId | null, destino: ColId) => {
+    if (!origen || origen === destino) return;
+    setOrdenColumnas((prev) => {
+      const idxOrigen = prev.indexOf(origen);
+      const idxDestino = prev.indexOf(destino);
+      if (idxOrigen === -1 || idxDestino === -1) return prev;
+      const nuevo = [...prev];
+      nuevo.splice(idxOrigen, 1);
+      nuevo.splice(idxDestino, 0, origen);
+      return nuevo;
+    });
+  };
+
+  const moverColumnaPaso = (colId: ColId, direccion: -1 | 1) => {
+    setOrdenColumnas((prev) => {
+      const idx = prev.indexOf(colId);
+      if (idx === -1) return prev;
+      const nuevoIdx = idx + direccion;
+      if (nuevoIdx < 0 || nuevoIdx >= prev.length) return prev;
+      const nuevo = [...prev];
+      const [item] = nuevo.splice(idx, 1);
+      nuevo.splice(nuevoIdx, 0, item);
+      return nuevo;
+    });
+  };
   // Cuántas fotos tiene cada movimiento (el 📎 n de la lista). Se pide por tandas para no armar una URL enorme.
   const [conteoFotos, setConteoFotos] = useState<Map<string, number>>(new Map());
   const idsMovs = useMemo(() => movs.map((m) => m.id), [movs]);
@@ -643,6 +674,285 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
 
   const hayFiltro = !!(fTexto || fTipo !== 'todos' || fEquipo || fAutorizado || fUbicacion || fDesde || fHasta);
   function limpiarFiltros() { setFTexto(''); setFTipo('todos'); setFEquipo(''); setFAutorizado(''); setFUbicacion(''); setFDesde(''); setFHasta(''); }
+
+
+  // Detección exhaustiva de diferencias contra Drive, Cuaderno y Contador
+  const renderDiferencia = (m: MovimientoTanque) => {
+    const diffs: Array<{
+      tipo: 'Drive' | 'Cuaderno' | 'Contador';
+      diferencia: number;
+      detalle: string;
+      color: string;
+      bg: string;
+      border: string;
+    }> = [];
+
+    // 1. Diferencia contra Saldo Drive: Saldo Drive vs Saldo Sistema
+    if (m.saldo_drive != null && m.saldo_litros != null) {
+      const d = Number((m.saldo_drive - m.saldo_litros).toFixed(2));
+      diffs.push({
+        tipo: 'Drive',
+        diferencia: d,
+        detalle: `Saldo Drive: ${num(m.saldo_drive)} L vs Sistema: ${num(m.saldo_litros)} L`,
+        color: d === 0 ? '#10b981' : d > 0 ? '#38bdf8' : '#f87171',
+        bg: d === 0 ? 'rgba(16, 185, 129, 0.12)' : d > 0 ? 'rgba(56, 189, 248, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+        border: d === 0 ? 'rgba(16, 185, 129, 0.3)' : d > 0 ? 'rgba(56, 189, 248, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+      });
+    }
+
+    // 2. Diferencia contra Cuaderno físico: Cuaderno vs Despacho en Sistema
+    if (m.cuaderno_litros != null && m.litros != null && (m.tipo === 'uso' || m.tipo === 'traslado')) {
+      const d = Number((m.cuaderno_litros - m.litros).toFixed(2));
+      if (d !== 0) {
+        diffs.push({
+          tipo: 'Cuaderno',
+          diferencia: d,
+          detalle: `Cuaderno físico: ${num(m.cuaderno_litros)} L vs Despacho registrado: ${num(m.litros)} L`,
+          color: d > 0 ? '#fbbf24' : '#f87171',
+          bg: d > 0 ? 'rgba(251, 191, 36, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+          border: d > 0 ? 'rgba(251, 191, 36, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+        });
+      }
+    }
+
+    // 3. Diferencia contra Contador mecánico / flujómetro del Surtidor: Contador vs Despacho en Sistema
+    if (m.contador_global_dif != null && m.litros != null && (m.tipo === 'uso' || m.tipo === 'traslado')) {
+      const d = Number((m.contador_global_dif - m.litros).toFixed(2));
+      if (d !== 0) {
+        diffs.push({
+          tipo: 'Contador',
+          diferencia: d,
+          detalle: `Contador surtidor: ${num(m.contador_global_dif)} L vs Despacho registrado: ${num(m.litros)} L`,
+          color: d > 0 ? '#a855f7' : '#f87171',
+          bg: d > 0 ? 'rgba(168, 85, 247, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+          border: d > 0 ? 'rgba(168, 85, 247, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+        });
+      }
+    }
+
+    if (diffs.length === 0) {
+      return <span className="muted">—</span>;
+    }
+
+    return (
+      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '2px' }}>
+        {diffs.map((df) => {
+          const esCero = df.diferencia === 0;
+          const textoSigno = esCero ? '✓ 0 L' : (df.diferencia > 0 ? `+${num(df.diferencia)} L` : `${num(df.diferencia)} L`);
+          const label = diffs.length > 1 ? `${df.tipo}: ${textoSigno}` : (df.tipo !== 'Drive' ? `${df.tipo}: ${textoSigno}` : textoSigno);
+
+          return (
+            <span
+              key={df.tipo}
+              title={df.detalle}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                fontSize: '.72rem',
+                fontWeight: 700,
+                color: df.color,
+                background: df.bg,
+                padding: '1px 5px',
+                borderRadius: '4px',
+                border: `1px solid ${df.border}`,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {label}
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Renderizador de encabezados de columna con soporte de arrastrar y soltar (Drag and Drop)
+  const renderTh = (colId: ColId) => {
+    const isDragging = colArraste === colId;
+    const isOver = colHover === colId;
+    const baseStyle: React.CSSProperties = {
+      cursor: colId !== 'acciones' ? 'grab' : 'default',
+      opacity: isDragging ? 0.4 : 1,
+      borderLeft: isOver ? '3px solid var(--primary, #f97316)' : undefined,
+      background: isOver ? 'rgba(249, 115, 22, 0.08)' : undefined,
+      userSelect: 'none',
+      whiteSpace: 'nowrap',
+    };
+
+    const dragProps = colId !== 'acciones' ? {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        e.dataTransfer.setData('text/plain', colId);
+        setColArraste(colId);
+      },
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        setColHover(colId);
+      },
+      onDragLeave: () => setColHover(null),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        moverColumna(colArraste, colId);
+        setColArraste(null);
+        setColHover(null);
+      },
+    } : {};
+
+    const colDef = COLUMNAS_TABLA.find((c) => c.id === colId);
+    const titleText = colDef?.title ? `${colDef.title} · (Arrastra para reorganizar)` : 'Arrastra para reorganizar columna';
+
+    switch (colId) {
+      case 'fecha': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Fecha</th>;
+      case 'equipo': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Equipo</th>;
+      case 'autorizado': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Autorizado</th>;
+      case 'destino': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Destino</th>;
+      case 'observacion': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Observación</th>;
+      case 'hi': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>HI</th>;
+      case 'hf': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>HF</th>;
+      case 'hrs': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Hrs</th>;
+      case 'contFin': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Cont. fin</th>;
+      case 'ltUsados': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Lt usados (cont.)</th>;
+      case 'entrada': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Entrada</th>;
+      case 'uso': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Uso</th>;
+      case 'traslado': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Traslado</th>;
+      case 'retorno': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Retorno</th>;
+      case 'merma': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Merma</th>;
+      case 'cuaderno': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Cuaderno</th>;
+      case 'saldoDrive': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Saldo Drive</th>;
+      case 'diferencia': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Diferencia</th>;
+      case 'saldoLtrs': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Saldo ltrs</th>;
+      case 'montoMov': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>$ Mov.</th>;
+      case 'saldoUsd': return <th key={colId} title={titleText} style={baseStyle} {...dragProps}>Saldo $</th>;
+      case 'acciones': return <th key={colId} style={{ width: 100 }}></th>;
+      default: return null;
+    }
+  };
+
+  // Renderizador de celdas por columna activa
+  const renderCelda = (m: MovimientoTanque, colId: ColId) => {
+    switch (colId) {
+      case 'fecha':
+        return (
+          <td key={colId} className="mono" style={{ whiteSpace: 'nowrap' }}>
+            {m.fecha}{m.hora ? <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div> : null}
+          </td>
+        );
+      case 'equipo':
+        return <td key={colId}>{m.equipo || '—'}</td>;
+      case 'autorizado':
+        return <td key={colId} className="muted">{m.autorizado_por || '—'}</td>;
+      case 'destino':
+        return <td key={colId} className="muted">{m.ubicacion || '—'}</td>;
+      case 'observacion':
+        return <td key={colId} className="muted" style={{ maxWidth: 180 }}>{m.observacion || '—'}</td>;
+      case 'hi':
+        return <td key={colId} className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>;
+      case 'hf':
+        return <td key={colId} className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>;
+      case 'hrs':
+        return <td key={colId} className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>;
+      case 'contFin':
+        return <td key={colId} className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>;
+      case 'ltUsados':
+        return <td key={colId} className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>;
+      case 'entrada':
+        return <td key={colId} className="mono" style={{ color: 'var(--primary-3)' }}>{m.tipo === 'entrada' ? num(m.litros) : ''}</td>;
+      case 'uso':
+        return <td key={colId} className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>;
+      case 'traslado':
+        return <td key={colId} className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>;
+      case 'retorno':
+        return <td key={colId} className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{m.tipo === 'retorno' ? num(m.litros) : ''}</td>;
+      case 'merma':
+        return <td key={colId} className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'merma' ? num(m.litros) : ''}</td>;
+      case 'cuaderno':
+        return (
+          <td key={colId} style={{ whiteSpace: 'nowrap' }}>
+            {m.registrado_en_cuaderno ? (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                fontSize: '.72rem',
+                fontWeight: 700,
+                color: '#34d399',
+                background: 'rgba(16, 185, 129, 0.12)',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+              }}>
+                ✓ {m.cuaderno_litros != null ? `${num(m.cuaderno_litros)} L` : 'Sí'}
+              </span>
+            ) : m.registrado_en_cuaderno === false ? (
+              <span style={{
+                fontSize: '.72rem',
+                color: '#94a3b8',
+                background: 'rgba(255,255,255,0.04)',
+                padding: '2px 5px',
+                borderRadius: '4px',
+              }}>
+                ✕ No
+              </span>
+            ) : (
+              <span className="muted">—</span>
+            )}
+          </td>
+        );
+      case 'saldoDrive':
+        return (
+          <td key={colId} className="mono" style={{ whiteSpace: 'nowrap' }}>
+            {m.saldo_drive != null ? (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                fontSize: '.74rem',
+                fontWeight: 700,
+                color: '#38bdf8',
+                background: 'rgba(56, 189, 248, 0.1)',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+              }}>
+                {num(m.saldo_drive)} L
+              </span>
+            ) : m.registrado_en_drive ? (
+              <span style={{ fontSize: '.72rem', color: '#38bdf8' }}>✓ Reg.</span>
+            ) : m.registrado_en_drive === false ? (
+              <span style={{ fontSize: '.72rem', color: '#94a3b8' }}>✕ No</span>
+            ) : (
+              <span className="muted">—</span>
+            )}
+          </td>
+        );
+      case 'diferencia':
+        return (
+          <td key={colId} className="mono" style={{ whiteSpace: 'nowrap' }}>
+            {renderDiferencia(m)}
+          </td>
+        );
+      case 'saldoLtrs':
+        return <td key={colId} className="mono"><strong>{num(m.saldo_litros)}</strong></td>;
+      case 'montoMov':
+        return <td key={colId} className="mono">{money(m.monto_usd)}</td>;
+      case 'saldoUsd':
+        return <td key={colId} className="mono"><strong>{money(m.saldo_usd)}</strong></td>;
+      case 'acciones':
+        return (
+          <td key={colId} style={{ whiteSpace: 'nowrap' }}>
+            <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => onVerDetalle(m)}>👁 Ver</button>
+            {(conteoFotos.get(m.id) ?? 0) > 0 && (
+              <button className="btn btn-sm btn-ghost" title="Ver las fotos cargadas de este movimiento" onClick={() => onVerDetalle(m)}>
+                📷 {conteoFotos.get(m.id)}
+              </button>
+            )}
+            {canWrite && allowDelete && onBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>🗑</button>}
+          </td>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <>
@@ -725,14 +1035,14 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', borderBottom: '1px solid #1e293b', paddingBottom: '.4rem' }}>
-                      <span style={{ fontWeight: 700, fontSize: '.78rem', color: '#f1f5f9' }}>Columnas visibles</span>
+                      <span style={{ fontWeight: 700, fontSize: '.78rem', color: '#f1f5f9' }}>Columnas y orden</span>
                       <div style={{ display: 'flex', gap: '.3rem' }}>
                         <button
                           type="button"
                           className="btn btn-xs btn-ghost"
                           onClick={() => {
                             const all = {} as Record<ColId, boolean>;
-                            COLUMNAS_TABLA.forEach((c) => { all[c.id] = true; });
+                            COLUMNAS_TABLA.forEach((col) => { all[col.id] = true; });
                             setColsVisibles(all);
                           }}
                           style={{ fontSize: '.7rem', padding: '1px 5px' }}
@@ -744,8 +1054,8 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
                           className="btn btn-xs btn-ghost"
                           onClick={() => {
                             const minCols = {} as Record<ColId, boolean>;
-                            COLUMNAS_TABLA.forEach((c) => {
-                              minCols[c.id] = c.id === 'fecha' || c.id === 'equipo' || c.id === 'uso' || c.id === 'saldoLtrs' || c.id === 'acciones';
+                            COLUMNAS_TABLA.forEach((col) => {
+                              minCols[col.id] = col.id === 'fecha' || col.id === 'equipo' || col.id === 'uso' || col.id === 'saldoLtrs' || col.id === 'acciones';
                             });
                             setColsVisibles(minCols);
                           }}
@@ -753,36 +1063,93 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
                         >
                           Mínimo
                         </button>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-ghost"
+                          onClick={() => setOrdenColumnas(COLUMNAS_TABLA.map((col) => col.id))}
+                          title="Restablecer orden predeterminado"
+                          style={{ fontSize: '.7rem', padding: '1px 5px', color: '#38bdf8' }}
+                        >
+                          ↺ Orden
+                        </button>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-                      {COLUMNAS_TABLA.map((col) => (
-                        <label
-                          key={col.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '.5rem',
-                            fontSize: '.78rem',
-                            color: colsVisibles[col.id] ? '#f8fafc' : '#64748b',
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            borderRadius: '4px',
-                            userSelect: 'none',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={colsVisibles[col.id]}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setColsVisibles((prev) => ({ ...prev, [col.id]: checked }));
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', maxHeight: '340px', overflowY: 'auto' }}>
+                      {ordenColumnas.map((colId, index) => {
+                        const colDef = COLUMNAS_TABLA.find((col) => col.id === colId) || { id: colId, label: colId };
+                        return (
+                          <div
+                            key={colId}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '.4rem',
+                              padding: '2px 4px',
+                              borderRadius: '4px',
+                              background: colsVisibles[colId] ? 'rgba(255,255,255,0.03)' : 'transparent',
                             }}
-                            style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
-                          />
-                          <span>{col.label}</span>
-                        </label>
-                      ))}
+                          >
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '.5rem',
+                                fontSize: '.78rem',
+                                color: colsVisibles[colId] ? '#f8fafc' : '#64748b',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                flex: 1,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={colsVisibles[colId]}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setColsVisibles((prev) => ({ ...prev, [colId]: checked }));
+                                }}
+                                style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                              />
+                              <span>{colDef.label}</span>
+                            </label>
+                            <div style={{ display: 'flex', gap: '2px' }}>
+                              <button
+                                type="button"
+                                disabled={index === 0}
+                                onClick={() => moverColumnaPaso(colId, -1)}
+                                title="Mover a la izquierda / antes"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: index === 0 ? '#475569' : '#94a3b8',
+                                  cursor: index === 0 ? 'default' : 'pointer',
+                                  fontSize: '.68rem',
+                                  padding: '1px 3px',
+                                }}
+                              >
+                                ▲
+                              </button>
+                              <button
+                                type="button"
+                                disabled={index === ordenColumnas.length - 1}
+                                onClick={() => moverColumnaPaso(colId, 1)}
+                                title="Mover a la derecha / después"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: index === ordenColumnas.length - 1 ? '#475569' : '#94a3b8',
+                                  cursor: index === ordenColumnas.length - 1 ? 'default' : 'pointer',
+                                  fontSize: '.68rem',
+                                  padding: '1px 3px',
+                                }}
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </>
@@ -798,31 +1165,14 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
         <EmptyState message={emptyMsg ?? 'Sin movimientos.'} icon="🛢" />
       ) : (
         <div className="table-wrap">
+
           <table className="table" style={{ fontSize: '.8rem' }}>
             <thead>
               <tr>
-                {colsVisibles.fecha && <th>Fecha</th>}
-                {colsVisibles.equipo && <th>Equipo</th>}
-                {colsVisibles.autorizado && <th>Autorizado</th>}
-                {colsVisibles.destino && <th>Destino</th>}
-                {colsVisibles.observacion && <th>Observación</th>}
-                {colsVisibles.cuaderno && <th title="Registro en cuaderno físico">Cuaderno</th>}
-                {colsVisibles.saldoDrive && <th title="Saldo reportado en Google Drive">Saldo Drive</th>}
-                {colsVisibles.diferencia && <th title="Diferencia positiva (+) o negativa (-) entre Drive, Cuaderno y Sistema">Diferencia</th>}
-                {colsVisibles.hi && <th>HI</th>}
-                {colsVisibles.hf && <th>HF</th>}
-                {colsVisibles.hrs && <th>Hrs</th>}
-                {colsVisibles.contFin && <th>Cont. fin</th>}
-                {colsVisibles.ltUsados && <th>Lt usados (cont.)</th>}
-                {colsVisibles.entrada && <th>Entrada</th>}
-                {colsVisibles.uso && <th>Uso</th>}
-                {colsVisibles.traslado && <th>Traslado</th>}
-                {colsVisibles.retorno && <th>Retorno</th>}
-                {colsVisibles.merma && <th>Merma</th>}
-                {colsVisibles.saldoLtrs && <th>Saldo ltrs</th>}
-                {colsVisibles.montoMov && <th>$ Mov.</th>}
-                {colsVisibles.saldoUsd && <th>Saldo $</th>}
-                {colsVisibles.acciones && <th></th>}
+                {ordenColumnas.map((colId) => {
+                  if (!colsVisibles[colId]) return null;
+                  return renderTh(colId);
+                })}
               </tr>
             </thead>
             <tbody>
@@ -831,198 +1181,10 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
               )}
               {movsFiltrados.map((m) => (
                 <tr key={m.id}>
-                  {colsVisibles.fecha && (
-                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>
-                      {m.fecha}{m.hora ? <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div> : null}
-                    </td>
-                  )}
-                  {colsVisibles.equipo && <td>{m.equipo || '—'}</td>}
-                  {colsVisibles.autorizado && <td className="muted">{m.autorizado_por || '—'}</td>}
-                  {colsVisibles.destino && <td className="muted">{m.ubicacion || '—'}</td>}
-                  {colsVisibles.observacion && <td className="muted" style={{ maxWidth: 180 }}>{m.observacion || '—'}</td>}
-                  {colsVisibles.cuaderno && (
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      {m.registrado_en_cuaderno ? (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          fontSize: '.72rem',
-                          fontWeight: 700,
-                          color: '#34d399',
-                          background: 'rgba(16, 185, 129, 0.12)',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(16, 185, 129, 0.3)',
-                        }}>
-                          ✓ {m.cuaderno_litros != null ? `${num(m.cuaderno_litros)} L` : 'Sí'}
-                        </span>
-                      ) : m.registrado_en_cuaderno === false ? (
-                        <span style={{
-                          fontSize: '.72rem',
-                          color: '#94a3b8',
-                          background: 'rgba(255,255,255,0.04)',
-                          padding: '2px 5px',
-                          borderRadius: '4px',
-                        }}>
-                          ✕ No
-                        </span>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  )}
-                  {colsVisibles.saldoDrive && (
-                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>
-                      {m.saldo_drive != null ? (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          fontSize: '.74rem',
-                          fontWeight: 700,
-                          color: '#38bdf8',
-                          background: 'rgba(56, 189, 248, 0.1)',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(56, 189, 248, 0.25)',
-                        }}>
-                          {num(m.saldo_drive)} L
-                        </span>
-                      ) : m.registrado_en_drive ? (
-                        <span style={{ fontSize: '.72rem', color: '#38bdf8' }}>✓ Reg.</span>
-                      ) : m.registrado_en_drive === false ? (
-                        <span style={{ fontSize: '.72rem', color: '#94a3b8' }}>✕ No</span>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  )}
-                  {colsVisibles.diferencia && (
-                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>
-                      {(() => {
-                        // 1. Diferencia entre Saldo Drive y Saldo Sistema
-                        if (m.saldo_drive != null && m.saldo_litros != null) {
-                          const d = Number((m.saldo_drive - m.saldo_litros).toFixed(2));
-                          if (d === 0) {
-                            return (
-                              <span
-                                title={`Conciliado exacto: Drive (${num(m.saldo_drive)} L) = Sistema (${num(m.saldo_litros)} L)`}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  fontSize: '.74rem',
-                                  fontWeight: 700,
-                                  color: '#10b981',
-                                  background: 'rgba(16, 185, 129, 0.12)',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  border: '1px solid rgba(16, 185, 129, 0.3)',
-                                }}
-                              >
-                                ✓ 0 L
-                              </span>
-                            );
-                          }
-                          const esPositivo = d > 0;
-                          return (
-                            <span
-                              title={`Diferencia Drive vs. Sistema: Drive (${num(m.saldo_drive)} L) − Sistema (${num(m.saldo_litros)} L)`}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                fontSize: '.74rem',
-                                fontWeight: 700,
-                                color: esPositivo ? '#38bdf8' : '#f87171',
-                                background: esPositivo ? 'rgba(56, 189, 248, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                border: `1px solid ${esPositivo ? 'rgba(56, 189, 248, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                              }}
-                            >
-                              {esPositivo ? `+${num(d)} L` : `${num(d)} L`}
-                            </span>
-                          );
-                        }
-
-                        // 2. Si hay Cuaderno y Litros del movimiento (diferencia física vs sistema)
-                        if (m.cuaderno_litros != null && m.litros != null && m.cuaderno_litros !== m.litros) {
-                          const d = Number((m.cuaderno_litros - m.litros).toFixed(2));
-                          const esPositivo = d > 0;
-                          return (
-                            <span
-                              title={`Diferencia Cuaderno vs. Despacho: Cuaderno (${num(m.cuaderno_litros)} L) − Despacho (${num(m.litros)} L)`}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                fontSize: '.74rem',
-                                fontWeight: 700,
-                                color: esPositivo ? '#fbbf24' : '#f87171',
-                                background: esPositivo ? 'rgba(251, 191, 36, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                border: `1px solid ${esPositivo ? 'rgba(251, 191, 36, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                              }}
-                            >
-                              {esPositivo ? `+${num(d)} L` : `${num(d)} L`}
-                            </span>
-                          );
-                        }
-
-                        // 3. Si hay Contador y Litros del movimiento (diferencia del surtidor)
-                        if (m.contador_global_dif != null && m.litros != null && (m.tipo === 'uso' || m.tipo === 'traslado')) {
-                          const d = Number((m.contador_global_dif - m.litros).toFixed(2));
-                          if (d !== 0) {
-                            const esPositivo = d > 0;
-                            return (
-                              <span
-                                title={`Diferencia Contador vs. Despacho: Contador (${num(m.contador_global_dif)} L) − Despacho (${num(m.litros)} L)`}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  fontSize: '.74rem',
-                                  fontWeight: 700,
-                                  color: esPositivo ? '#a855f7' : '#f87171',
-                                  background: esPositivo ? 'rgba(168, 85, 247, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  border: `1px solid ${esPositivo ? 'rgba(168, 85, 247, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                                }}
-                              >
-                                {esPositivo ? `+${num(d)} L` : `${num(d)} L`}
-                              </span>
-                            );
-                          }
-                        }
-
-                        return <span className="muted">—</span>;
-                      })()}
-                    </td>
-                  )}
-                  {colsVisibles.hi && <td className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>}
-                  {colsVisibles.hf && <td className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>}
-                  {colsVisibles.hrs && <td className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>}
-                  {colsVisibles.contFin && <td className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>}
-                  {colsVisibles.ltUsados && <td className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>}
-                  {colsVisibles.entrada && <td className="mono" style={{ color: 'var(--primary-3)' }}>{m.tipo === 'entrada' ? num(m.litros) : ''}</td>}
-                  {colsVisibles.uso && <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>}
-                  {colsVisibles.traslado && <td className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>}
-                  {colsVisibles.retorno && <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{m.tipo === 'retorno' ? num(m.litros) : ''}</td>}
-                  {colsVisibles.merma && <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'merma' ? num(m.litros) : ''}</td>}
-                  {colsVisibles.saldoLtrs && <td className="mono"><strong>{num(m.saldo_litros)}</strong></td>}
-                  {colsVisibles.montoMov && <td className="mono">{money(m.monto_usd)}</td>}
-                  {colsVisibles.saldoUsd && <td className="mono"><strong>{money(m.saldo_usd)}</strong></td>}
-                  {colsVisibles.acciones && (
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => onVerDetalle(m)}>👁 Ver</button>
-                      {(conteoFotos.get(m.id) ?? 0) > 0 && (
-                        <button className="btn btn-sm btn-ghost" title="Ver las fotos cargadas de este movimiento" onClick={() => onVerDetalle(m)}>
-                          📷 {conteoFotos.get(m.id)}
-                        </button>
-                      )}
-                      {canWrite && allowDelete && onBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>🗑</button>}
-                    </td>
-                  )}
+                  {ordenColumnas.map((colId) => {
+                    if (!colsVisibles[colId]) return null;
+                    return renderCelda(m, colId);
+                  })}
                 </tr>
               ))}
             </tbody>
