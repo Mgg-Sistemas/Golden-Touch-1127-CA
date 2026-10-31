@@ -30,7 +30,7 @@ import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCata
 import {
   listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada,
   eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
-  setMovimientoCuaderno, setMovimientoDrive,
+  setMovimientoCuaderno,
 } from './tanques.repository';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
@@ -286,8 +286,6 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   const [cf, setCf] = useState('');
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(false);
   const [cuadernoLitros, setCuadernoLitros] = useState('');
-  const [registradoEnDrive, setRegistradoEnDrive] = useState(false);
-  const [saldoDrive, setSaldoDrive] = useState('');
   const [masDatos, setMasDatos] = useState(false);
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
@@ -360,9 +358,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
       const cLitrosNum = registradoEnCuaderno
         ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : litrosNum)
         : null;
-      const sDriveNum = registradoEnDrive
-        ? (saldoDrive.trim() !== '' ? Number(saldoDrive.replace(',', '.')) : null)
-        : null;
+      // El registro en Drive se marca solo desde la PC (31/10/2026): el teléfono no lo manda.
       const campos = {
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
         horometroIni: hiNum, horometroFin: hfNum,
@@ -370,8 +366,6 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
         registrado_en_cuaderno: registradoEnCuaderno,
         cuaderno_litros: cLitrosNum,
-        registrado_en_drive: registradoEnDrive,
-        saldo_drive: sDriveNum,
       };
       let movId: string;
       if (tipo === 'uso') movId = (await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
@@ -620,76 +614,6 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
             </div>
           </div>
         )}
-
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '.75rem',
-            marginTop: '.6rem',
-            background: registradoEnDrive ? 'rgba(56, 189, 248, 0.14)' : 'rgba(30, 41, 59, 0.7)',
-            border: registradoEnDrive ? '1.5px solid rgba(56, 189, 248, 0.5)' : '1px solid #334155',
-            borderRadius: registradoEnDrive ? '12px 12px 0 0' : '12px',
-            padding: '.75rem 1rem',
-            cursor: 'pointer',
-            userSelect: 'none',
-            transition: 'all 0.2s ease',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
-            <span style={{ fontSize: '1.35rem' }}>📊</span>
-            <div>
-              <div style={{ fontWeight: 700, color: registradoEnDrive ? '#38bdf8' : '#f1f5f9', fontSize: '.95rem' }}>
-                Registro Drive
-              </div>
-              <div style={{ fontSize: '.75rem', color: registradoEnDrive ? '#7dd3fc' : '#94a3b8' }}>
-                {registradoEnDrive ? 'Registrado en Drive' : 'No registrado'}
-              </div>
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={registradoEnDrive}
-            onChange={(e) => {
-              const v = e.target.checked;
-              setRegistradoEnDrive(v);
-            }}
-            style={{
-              width: '22px',
-              height: '22px',
-              accentColor: '#38bdf8',
-              cursor: 'pointer',
-            }}
-          />
-        </label>
-        {registradoEnDrive && (
-          <div style={{
-            background: 'rgba(15, 23, 42, 0.85)',
-            border: '1.5px solid rgba(56, 189, 248, 0.5)',
-            borderTop: 'none',
-            borderRadius: '0 0 12px 12px',
-            padding: '.65rem 1rem',
-          }}>
-            <label htmlFor="surt-saldo-drive" style={{ fontSize: '.78rem', color: '#7dd3fc', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
-              Saldo reportado en Drive (L)
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-              <input
-                id="surt-saldo-drive"
-                className="input surt-input"
-                type="number"
-                inputMode="decimal"
-                step="any"
-                value={saldoDrive}
-                onChange={(e) => setSaldoDrive(e.target.value)}
-                placeholder="Saldo en litros según Drive"
-                style={{ fontWeight: 700, borderColor: 'rgba(56, 189, 248, 0.6)', background: 'rgba(14, 165, 233, 0.12)' }}
-              />
-              <span className="mono" style={{ color: '#38bdf8', fontWeight: 700 }}>Ltrs</span>
-            </div>
-          </div>
-        )}
       </div>
 
       <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos}
@@ -784,7 +708,6 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
   const [enCuaderno, setEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
-  const [enDrive, setEnDrive] = useState(!!mov.registrado_en_drive);
   const quien = useQuien();
   const destino = mov.tanque_destino_id ? tanques.find((t) => t.id === mov.tanque_destino_id)?.nombre : null;
   const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
@@ -818,8 +741,8 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         registradoPor: quien(mov.actor_name, mov.created_by),
         registradoEnCuaderno: enCuaderno,
         cuadernoLitros: enCuaderno ? (mov.cuaderno_litros ?? mov.litros) : null,
-        registradoEnDrive: enDrive,
-        saldoDrive: enDrive ? (mov.saldo_drive ?? null) : null,
+        // Drive es solo de la PC: null deja la línea fuera del aviso.
+        registradoEnDrive: null,
       })} />
 
       <div className="surt-detalle">
@@ -858,38 +781,6 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
                     mov.cuaderno_litros = cant;
                     setEnCuaderno(nuevo);
                     toast(nuevo ? 'Marcado como registrado en cuaderno' : 'Marcado como no registrado', 'success');
-                  } catch (e) {
-                    toast(mensajeError(e, 'No se pudo actualizar'), 'error');
-                  }
-                }}
-                style={{ fontSize: '.72rem', padding: '2px 6px', background: 'rgba(255,255,255,0.06)' }}
-              >
-                Cambiar
-              </button>
-            )}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.45rem 0', borderBottom: '1px solid #1e293b' }}>
-          <span className="muted" style={{ fontSize: '.84rem' }}>📊 Registro Drive</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-            <span style={{
-              fontWeight: 700,
-              color: enDrive ? '#38bdf8' : '#f87171',
-              fontSize: '.88rem',
-            }}>
-              {enDrive ? `✓ ${mov.saldo_drive != null ? `${num(mov.saldo_drive)} L` : 'Registrado'}` : '✕ No registrado'}
-            </span>
-            {canWrite && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs"
-                onClick={async () => {
-                  try {
-                    const nuevo = !enDrive;
-                    await setMovimientoDrive(mov.id, nuevo, nuevo ? mov.saldo_drive : null);
-                    mov.registrado_en_drive = nuevo;
-                    setEnDrive(nuevo);
-                    toast(nuevo ? 'Marcado como registrado en Drive' : 'Marcado como no registrado en Drive', 'success');
                   } catch (e) {
                     toast(mensajeError(e, 'No se pudo actualizar'), 'error');
                   }
