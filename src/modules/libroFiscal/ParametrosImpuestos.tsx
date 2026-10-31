@@ -145,6 +145,24 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
 
   const set = (p: Partial<FichaImpuesto>) => setFicha((f) => ({ ...f, ...p }));
 
+  // Deshabilitar/Habilitar persiste de una vez (solo el estado activo), con su motivo
+  // en el historial. Antes solo cambiaba la pantalla y había que escribir motivo y guardar,
+  // así que el impuesto seguía activo en la base aunque pareciera deshabilitado.
+  async function alternarActivo() {
+    const nuevoActivo = !impuesto.activo;
+    setGuardando(true);
+    try {
+      await guardarImpuesto(impuesto.clave, { activo: nuevoActivo }, nuevoActivo ? 'Habilitar impuesto' : 'Deshabilitar impuesto');
+      toast(`${impuesto.nombre}: ${nuevoActivo ? 'habilitado' : 'deshabilitado'}.`, 'success');
+      setMotivo(''); setHistorial(null);
+      onCambio();
+    } catch (e) {
+      toast(mensaje(e, 'No se pudo guardar el impuesto.'), 'error');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   return (
     <details className="card" style={{ marginBottom: '.6rem', opacity: impuesto.activo ? 1 : 0.7 }}>
       <summary style={{ cursor: 'pointer', display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -167,11 +185,11 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
             </button>
             {cambio && <button type="button" className="btn btn-ghost" onClick={() => setFicha(JSON.parse(firma) as FichaImpuesto)}>Deshacer</button>}
             <button type="button" className="btn btn-ghost" style={{ marginLeft: 'auto' }}
-              title={ficha.activo
-                ? 'Deja el impuesto fuera de uso. No se borra: queda en el historial y se puede volver a habilitar. Indica el motivo y guarda.'
-                : 'Vuelve a poner el impuesto en uso. Indica el motivo y guarda.'}
-              onClick={() => set({ activo: !ficha.activo })}>
-              {ficha.activo ? '⊘ Deshabilitar impuesto' : '✓ Habilitar impuesto'}
+              title={impuesto.activo
+                ? 'Deja el impuesto fuera de uso de una vez. No se borra: queda en el historial y se puede volver a habilitar. Deja de aparecer en tarjetas, filtros y columnas.'
+                : 'Vuelve a poner el impuesto en uso de una vez.'}
+              onClick={() => void alternarActivo()}>
+              {impuesto.activo ? '⊘ Deshabilitar impuesto' : '✓ Habilitar impuesto'}
             </button>
           </div>
         )}
