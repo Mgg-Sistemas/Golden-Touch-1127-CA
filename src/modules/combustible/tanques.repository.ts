@@ -691,13 +691,23 @@ export interface MovimientoTanqueCampos {
   saldo_drive?: number | null;
 }
 
+/**
+ * La columna no existe en la base: 42703 lo da Postgres y PGRST204 la API cuando su caché
+ * de esquema no la tiene (31/10/2026: «Could not find the 'registrado_en_drive' column»
+ * trabó los surtidos del teléfono porque solo se atrapaba el 42703).
+ */
+function esColumnaFaltante(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === '42703' || code === 'PGRST204';
+}
+
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
   let data: unknown;
   let error: unknown;
   const res = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
   data = res.data;
   error = res.error;
-  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload || 'registrado_en_drive' in payload || 'saldo_drive' in payload)) {
+  if (esColumnaFaltante(error) && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload || 'registrado_en_drive' in payload || 'saldo_drive' in payload)) {
     const fallbackPayload = { ...payload };
     const reg = fallbackPayload.registrado_en_cuaderno;
     const cLtrs = fallbackPayload.cuaderno_litros;
@@ -1522,7 +1532,7 @@ export async function actualizarMovimientoTanque(
     .update(upd).eq('id', id)
     .select('tanque_id, equipo, mov_vinculado_id, fecha, hora, autorizado_por, ubicacion, observacion, litros, tasa_usd_litro')
     .single();
-  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_drive' in upd || 'saldo_drive' in upd || 'registrado_en_cuaderno' in upd || 'cuaderno_litros' in upd)) {
+  if (esColumnaFaltante(error) && ('registrado_en_drive' in upd || 'saldo_drive' in upd || 'registrado_en_cuaderno' in upd || 'cuaderno_litros' in upd)) {
     const fallbackUpd = { ...upd };
     const reg = fallbackUpd.registrado_en_cuaderno;
     const cLtrs = fallbackUpd.cuaderno_litros;
