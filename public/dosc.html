@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control de Maquinaria · Catálogo de Propietarios (Maqueta)</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --card-bg: #151f32;
+      --card-inner: #0f172a;
+      --border: rgba(148, 163, 184, 0.18);
+      --gold: #f59e0b;
+      --gold-glow: rgba(245, 158, 11, 0.4);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --green: #10b981;
+      --orange: #f97316;
+      --red: #ef4444;
+      --blue: #38bdf8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    header {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 18px;
+      padding: 1.5rem;
+      margin-bottom: 1.75rem;
+      box-shadow: 0 10px 30px -10px rgba(0,0,0,0.6);
+    }
+    .head-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .title-group {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+    }
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    h1 span { color: var(--gold); }
+    .badge-tag {
+      background: linear-gradient(90deg, #ca8a04, #f59e0b);
+      color: #000;
+      padding: .25rem .65rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .subtext {
+      color: var(--text-muted);
+      font-size: .92rem;
+      margin-top: .4rem;
+      max-width: 820px;
+    }
+    .btn-back {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: #cbd5e1;
+      padding: .5rem 1rem;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: .88rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-back:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+    .selector-container {
+      margin-top: 1.25rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .nav-tabs {
+      display: inline-flex;
+      background: #090d16;
+      padding: 4px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: .6rem 1.25rem;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: .9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      transition: all 0.2s;
+    }
+    .tab-btn.active.tab-mindmap {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #000;
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+    }
+    .tab-btn.active.tab-direct {
+      background: linear-gradient(135deg, #38bdf8, #0284c7);
+      color: #000;
+      box-shadow: 0 4px 15px rgba(56, 189, 248, 0.4);
+    }
+    .tab-hint {
+      font-size: .84rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.03);
+      padding: .45rem .85rem;
+      border-radius: 8px;
+    }
+
+    /* Mindmap section */
+    .mindmap-section {
+      background: radial-gradient(ellipse at center, #1e293b 0%, #090d16 100%);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+    }
+    .mindmap-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: .75rem;
+    }
+    .canvas-container {
+      position: relative;
+      width: 100%;
+      max-width: 1040px;
+      margin: 0 auto;
+      height: 640px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    svg.connections {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .node-center {
+      position: absolute;
+      top: 320px; left: 520px;
+      transform: translate(-50%, -50%);
+      width: 190px; height: 190px;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 12px;
+      background: radial-gradient(circle, #854d0e 0%, #1e1b4b 90%);
+      border: 4px solid #facc15;
+      box-shadow: 0 0 35px rgba(250, 204, 21, 0.65), inset 0 0 20px rgba(250, 204, 21, 0.35);
+    }
+    .node-center.active {
+      transform: translate(-50%, -50%) scale(1.05);
+      border-color: #fff;
+    }
+    .node-prop {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 165px;
+      border-radius: 14px;
+      background: rgba(21, 31, 50, 0.95);
+      border: 2px solid rgba(148, 163, 184, 0.25);
+      padding: .85rem .75rem;
+      cursor: pointer;
+      z-index: 5;
+      transition: all 0.25s ease;
+      text-align: center;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+    }
+    .node-prop:hover {
+      transform: translate(-50%, -50%) scale(1.06);
+    }
+    .node-prop.active {
+      transform: translate(-50%, -50%) scale(1.08);
+      z-index: 8;
+    }
+
+    /* Machinery control section (NO SERVICES) */
+    .machinery-section {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.5rem;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4);
+    }
+    .prop-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1.5rem;
+    }
+    .stat-pill {
+      background: #090d16;
+      padding: .45rem .85rem;
+      border-radius: 10px;
+      text-align: center;
+      border: 1px solid rgba(255,255,255,0.06);
+      min-width: 85px;
+    }
+    .stat-pill .val {
+      font-size: 1.2rem;
+      font-weight: 800;
+    }
+    .stat-pill .lbl {
+      font-size: .68rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+    .filters-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: .75rem;
+      margin-bottom: 1.25rem;
+    }
+    .search-input {
+      background: #090d16;
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: .65rem 1rem;
+      border-radius: 10px;
+      font-size: .9rem;
+      width: 100%;
+      max-width: 420px;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: var(--gold);
+    }
+    .select-filter {
+      background: #090d16;
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: .6rem .85rem;
+      border-radius: 10px;
+      font-size: .85rem;
+      outline: none;
+      cursor: pointer;
+    }
+    .view-toggle {
+      display: inline-flex;
+      background: #090d16;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 2px;
+    }
+    .toggle-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: .35rem .75rem;
+      border-radius: 6px;
+      font-size: .82rem;
+      cursor: pointer;
+    }
+    .toggle-btn.active {
+      background: #334155;
+      color: #fff;
+    }
+    .banner-noservices {
+      background: rgba(56, 189, 248, 0.08);
+      border-left: 4px solid var(--blue);
+      padding: .65rem 1rem;
+      border-radius: 0 8px 8px 0;
+      font-size: .84rem;
+      color: #bae6fd;
+      margin-bottom: 1.35rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: .5rem;
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(315px, 1fr));
+      gap: 1.25rem;
+    }
+    .eq-card {
+      background: #0f172a;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 1.15rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .eq-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(245, 158, 11, 0.4);
+    }
+    .badge-status {
+      padding: .2rem .55rem;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .specs-box {
+      background: rgba(30, 41, 59, 0.65);
+      border-radius: 8px;
+      padding: .65rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem;
+      font-size: .78rem;
+      margin: .75rem 0;
+    }
+    .btn-detail {
+      width: 100%;
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid var(--border);
+      padding: .5rem;
+      border-radius: 8px;
+      font-size: .84rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .4rem;
+      transition: background 0.2s;
+    }
+    .btn-detail:hover {
+      background: #334155;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      z-index: 100;
+    }
+    .modal-content {
+      background: #1e293b;
+      border: 1px solid var(--gold);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 640px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 1.5rem;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+    }
+    .modal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      background: #0f172a;
+      padding: 1rem;
+      border-radius: 12px;
+      margin: 1.25rem 0;
+      font-size: .85rem;
+    }
+    .modal-grid .label {
+      color: var(--text-muted);
+      font-size: .75rem;
+      display: block;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .canvas-container { height: 750px; }
+      .node-center { top: 375px; left: 50%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ENCABEZADO Y SELECTOR DE OPCIONES -->
+  <header>
+    <div class="head-top">
+      <div>
+        <div class="title-group">
+          <span style="font-size: 1.8rem;">🚜</span>
+          <h1>Control de Maquinaria · <span>Catálogo de Propietarios</span></h1>
+          <span class="badge-tag">MAQUETA HTML /DOCS</span>
+        </div>
+        <p class="subtext">
+          Flujo interactivo con <strong>mapa mental radial</strong> centrado en <strong>GENERAL</strong> que desprende los propietarios.
+          Dentro de cada propietario se despliega la flota exclusiva <strong style="color: var(--blue);">100% libre de servicios</strong>.
+        </p>
+      </div>
+
+      <div>
+        <a href="/#/app/maquinaria" class="btn-back">← Volver al Módulo de Producción (PC)</a>
+      </div>
+    </div>
+
+    <!-- SELECTOR DE LAS DOS OPCIONES -->
+    <div class="selector-container">
+      <div>
+        <div style="font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 700; margin-bottom: .4rem;">
+          Elige la experiencia de entrada:
+        </div>
+        <div class="nav-tabs">
+          <button type="button" id="tabMindmap" class="tab-btn active tab-mindmap" onclick="setModo('mindmap')">
+            <span>🗺️</span>
+            <span>1. Catálogo Completo (Mapa Mental)</span>
+          </button>
+          <button type="button" id="tabDirect" class="tab-btn tab-direct" onclick="setModo('directo')">
+            <span>🚜</span>
+            <span>2. Entrada Directa a Maquinaria</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="tabHint" class="tab-hint">
+        💡 <strong>Opción 1 activa:</strong> Visualiza primero el mapa radial de propietarios para explorar flotas segmentadas o haz clic en GENERAL.
+      </div>
+    </div>
+  </header>
+
+  <!-- SECCIÓN 1: MAPA MENTAL RADIAL (SI MODO MINDMAP ESTÁ ACTIVO) -->
+  <section id="mindmapSection" class="mindmap-section">
+    <div class="mindmap-header">
+      <div style="display: flex; align-items: center; gap: .6rem;">
+        <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green);"></span>
+        <strong style="font-size: 1rem;">Mapa Mental de Propietarios · Centro GENERAL</strong>
+        <span style="font-size: .82rem; color: var(--text-muted);">(Haz clic en el centro o en los nodos para segmentar)</span>
+      </div>
+
+      <div>
+        <button type="button" class="btn-back" style="color: var(--gold); border-color: rgba(245, 158, 11, 0.4);" onclick="selectProp('GENERAL')">
+          👑 Ver Flota GENERAL Completa
+        </button>
+      </div>
+    </div>
+
+    <!-- LIENZO SVG RADIAL -->
+    <div class="canvas-container">
+      <svg class="connections" viewBox="0 0 1040 640">
+        <defs>
+          <radialGradient id="centerHalo" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.45" />
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+
+        <!-- Anillos concéntricos -->
+        <circle cx="520" cy="320" r="320" fill="none" stroke="rgba(245, 158, 11, 0.08)" stroke-dasharray="6 6" />
+        <circle cx="520" cy="320" r="210" fill="none" stroke="rgba(255, 255, 255, 0.04)" stroke-dasharray="4 4" />
+        <circle cx="520" cy="320" r="110" fill="url(#centerHalo)" />
+
+        <!-- Líneas Bézier conectando el centro con cada propietario -->
+        <g id="svgLines"></g>
+      </svg>
+
+      <!-- NODO CENTRAL GENERAL -->
+      <div id="nodeCenter" class="node-center active" onclick="selectProp('GENERAL')" title="Ver toda la flota general">
+        <span style="font-size: 2.2rem; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.5));">👑</span>
+        <div style="font-weight: 900; font-size: 1.15rem; color: #facc15; letter-spacing: .05em; text-transform: uppercase; margin-top: 2px;">
+          GENERAL
+        </div>
+        <div style="font-size: .75rem; color: #e2e8f0; font-weight: 600;">
+          Toda la Maquinaria
+        </div>
+        <div style="margin-top: 6px; background: rgba(0,0,0,0.6); padding: 2px 10px; border-radius: 999px; font-size: .78rem; font-weight: 800; color: #fff; border: 1px solid rgba(255,255,255,0.15);">
+          <span id="centerTotalEq">42</span> Equipos
+        </div>
+        <div style="font-size: .7rem; color: #4ade80; margin-top: 3px; font-weight: 700;">
+          <span id="centerOpEq">36</span> Operativos
+        </div>
+      </div>
+
+      <!-- NODOS PROPIETARIOS -->
+      <div id="nodesContainer"></div>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 2: CONTROL DE MAQUINARIA (SIN NADA DE SERVICIOS) -->
+  <main class="machinery-section">
+    <!-- BANNER DEL PROPIETARIO SELECCIONADO -->
+    <div class="prop-banner">
+      <div style="display: flex; align-items: center; gap: .75rem;">
+        <span id="bannerIcon" style="font-size: 2rem;">👑</span>
+        <div>
+          <h2 id="bannerName" style="font-size: 1.45rem; font-weight: 800;">GENERAL · Flota Consolidada</h2>
+          <div id="bannerSub" style="font-size: .84rem; color: var(--text-muted);">
+            Flota total consolidada de la operación · 42 equipos registrados
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: .6rem; flex-wrap: wrap;">
+        <div class="stat-pill">
+          <div id="statTotal" class="val">42</div>
+          <div class="lbl">Total</div>
+        </div>
+        <div class="stat-pill" style="border-color: rgba(16, 185, 129, 0.3);">
+          <div id="statOp" class="val" style="color: var(--green);">36</div>
+          <div class="lbl" style="color: var(--green);">Operativos</div>
+        </div>
+        <div class="stat-pill" style="border-color: rgba(245, 158, 11, 0.3);">
+          <div id="statTaller" class="val" style="color: var(--gold);">4</div>
+          <div class="lbl" style="color: var(--gold);">En Taller</div>
+        </div>
+        <div class="stat-pill" style="border-color: rgba(239, 68, 68, 0.3);">
+          <div id="statInact" class="val" style="color: var(--red);">2</div>
+          <div class="lbl" style="color: var(--red);">Inactivos</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BARRA DE FILTROS -->
+    <div class="filters-bar">
+      <div style="flex: 1 1 280px; max-width: 440px;">
+        <input type="text" id="searchInput" class="search-input" placeholder="🔍 Buscar por equipo, modelo, serial, operador o ubicación…" oninput="aplicarFiltros()">
+      </div>
+
+      <div style="display: flex; gap: .6rem; flex-wrap: wrap; align-items: center;">
+        <select id="filterStatus" class="select-filter" onchange="aplicarFiltros()">
+          <option value="todos">Todos los Estados</option>
+          <option value="OPERATIVO">🟢 Solo Operativos</option>
+          <option value="EN TALLER">🟠 En Taller</option>
+          <option value="INACTIVO">🔴 Inactivos</option>
+        </select>
+
+        <select id="filterTipo" class="select-filter" onchange="aplicarFiltros()">
+          <option value="todos">Todos los Tipos</option>
+          <option value="Excavadora">Excavadora</option>
+          <option value="Camión Volteo">Camión Volteo</option>
+          <option value="Jumbo">Jumbo de Perforación</option>
+          <option value="Retroexcavadora">Retroexcavadora</option>
+          <option value="Cargador Frontal">Cargador Frontal</option>
+          <option value="Planta Eléctrica">Planta Eléctrica</option>
+          <option value="Cisterna">Cisterna de Combustible</option>
+          <option value="Tractor">Tractor de Oruga</option>
+          <option value="Motobomba">Motobomba</option>
+        </select>
+
+        <div class="view-toggle">
+          <button type="button" id="btnCards" class="toggle-btn active" onclick="setVista('cards')">🎴 Cuadrícula</button>
+          <button type="button" id="btnTable" class="toggle-btn" onclick="setVista('tabla')">📑 Tabla</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AVISO DE CONTROL PURO (CERO SERVICIOS) -->
+    <div class="banner-noservices">
+      <div>
+        <strong>🛡️ Vista Pura de Control de Maquinaria:</strong> Mostrando <span id="contadorMostrados">42</span> máquinas.
+        Esta pantalla está exclusivamente enfocada en activos, horómetros, operadores y ubicación (cero servicios u órdenes de compra).
+      </div>
+      <button id="btnVolverGeneral" type="button" style="background: none; border: none; color: #facc15; font-weight: 700; cursor: pointer; text-decoration: underline; display: none;" onclick="selectProp('GENERAL')">
+        ← Volver a Flota General
+      </button>
+    </div>
+
+    <!-- CONTENEDOR DE EQUIPOS (CUADRÍCULA) -->
+    <div id="cardsGrid" class="cards-grid"></div>
+
+    <!-- CONTENEDOR DE TABLA -->
+    <div id="tableContainer" style="display: none; overflow-x: auto;">
+      <table style="width: 100%; border-collapse: collapse; font-size: .85rem; color: #f8fafc;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--border); color: var(--text-muted); text-align: left;">
+            <th style="padding: .75rem;">Equipo</th>
+            <th style="padding: .75rem;">Tipo</th>
+            <th style="padding: .75rem;">Propietario</th>
+            <th style="padding: .75rem;">Marca / Modelo</th>
+            <th style="padding: .75rem;">Serial / Placa</th>
+            <th style="padding: .75rem;">Horómetro</th>
+            <th style="padding: .75rem;">Operador</th>
+            <th style="padding: .75rem;">Ubicación</th>
+            <th style="padding: .75rem;">Estado</th>
+            <th style="padding: .75rem;">Ficha</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- MODAL DE FICHA TÉCNICA (SIN SERVICIOS) -->
+  <div id="modalOverlay" class="modal-overlay" style="display: none;" onclick="cerrarModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+        <div>
+          <div style="font-size: .75rem; font-weight: 800; text-transform: uppercase; color: var(--gold);">Ficha de Activo · Control de Maquinaria</div>
+          <h3 id="modalTitulo" style="margin: 0; font-size: 1.35rem; font-weight: 800;">CAT 336D</h3>
+        </div>
+        <button type="button" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;" onclick="document.getElementById('modalOverlay').style.display='none'">✕</button>
+      </div>
+
+      <div class="modal-grid">
+        <div>
+          <span class="label">Empresa / Propietario</span>
+          <strong id="modalProp" style="color: var(--gold);">Golden Touch 1127 C.A.</strong>
+        </div>
+        <div>
+          <span class="label">Tipo de Equipo</span>
+          <strong id="modalTipo">Excavadora</strong>
+        </div>
+        <div>
+          <span class="label">Marca y Modelo</span>
+          <strong id="modalMarcaModelo">Caterpillar · 336D2 L</strong>
+        </div>
+        <div>
+          <span class="label">Año y Color</span>
+          <strong id="modalAnioColor">2021 · Amarillo Caterpillar</strong>
+        </div>
+        <div>
+          <span class="label">Serial de Bastidor / Chasis</span>
+          <span id="modalSerial" style="font-family: monospace; color: var(--blue);">CAT0336DK2910</span>
+        </div>
+        <div>
+          <span class="label">Placa / Identificador</span>
+          <strong id="modalPlaca">GT-EQ-01</strong>
+        </div>
+        <div>
+          <span class="label">Horómetro Actual</span>
+          <strong id="modalHorometro" style="color: var(--blue); font-size: 1.05rem;">5.420 hrs</strong>
+        </div>
+        <div>
+          <span class="label">Combustible y Consumo</span>
+          <strong id="modalCombustible">Diesel · 38 L/hr</strong>
+        </div>
+        <div style="grid-column: 1/-1;">
+          <span class="label">Operador Asignado</span>
+          <strong id="modalOperador">Manuel Rojas (Operador Certificado)</strong>
+        </div>
+        <div style="grid-column: 1/-1;">
+          <span class="label">Ubicación Actual</span>
+          <strong id="modalUbicacion">Frente Mina Principal · Banco 4</strong>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <button type="button" class="btn-back" style="background: var(--gold); color: #000; font-weight: 800;" onclick="document.getElementById('modalOverlay').style.display='none'">
+          Cerrar Ficha
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // DATOS DE PROPIETARIOS
+    const PROPIETARIOS = [
+      { id: 'golden_touch', nombre: 'Golden Touch 1127 C.A.', categoria: 'Propio', icono: '🏢', color: '#f59e0b', contacto: 'Operaciones Mina', tel: '+58 414 123-4567', x: 200, y: 150 },
+      { id: 'consorcio_guayana', nombre: 'Consorcio Minero Guayana', categoria: 'Alquilado', icono: '⛏️', color: '#38bdf8', contacto: 'Ing. Roberto Silva', tel: '+58 424 987-6543', x: 840, y: 150 },
+      { id: 'inversiones_callao', nombre: 'Inversiones El Callao', categoria: 'Asociado', icono: '🚛', color: '#10b981', contacto: 'Carlos Méndez', tel: '+58 412 555-1122', x: 920, y: 380 },
+      { id: 'minera_pinos', nombre: 'Minera Los Pinos', categoria: 'Propio', icono: '🌲', color: '#14b8a6', contacto: 'Sede Los Pinos', tel: '+58 416 333-8899', x: 690, y: 530 },
+      { id: 'maquinarias_bolivar', nombre: 'Equipos & Maquinaria Bolívar', categoria: 'Contratista', icono: '🏗️', color: '#f97316', contacto: 'Servicios Bolívar', tel: '+58 424 777-2233', x: 350, y: 530 },
+      { id: 'sin_propietario', nombre: 'Sin Propietario Asignado', categoria: 'Por asignar', icono: '❓', color: '#94a3b8', contacto: 'Por regularizar', tel: '—', x: 120, y: 380 }
+    ];
+
+    // DATOS DE EQUIPOS
+    const EQUIPOS = [
+      // Golden Touch
+      { id: 'gt-01', equipo: 'EXC-01 · CAT 336D', tipo: 'Excavadora', propId: 'golden_touch', propNombre: 'Golden Touch 1127 C.A.', marca: 'Caterpillar', modelo: '336D2 L', serial: 'CAT0336DK2910', placa: 'GT-EQ-01', horometro: 5420, combustible: 'Diesel', consumo: 38, operador: 'Manuel Rojas', ubicacion: 'Frente Mina Principal · Banco 4', status: 'OPERATIVO', anio: 2021, color: 'Amarillo Caterpillar' },
+      { id: 'gt-02', equipo: 'EXC-02 · KOMATSU PC200', tipo: 'Excavadora', propId: 'golden_touch', propNombre: 'Golden Touch 1127 C.A.', marca: 'Komatsu', modelo: 'PC200-8M0', serial: 'KMTPC200-9941', placa: 'GT-EQ-02', horometro: 4180, combustible: 'Diesel', consumo: 26, operador: 'José Gregorio Hernández', ubicacion: 'Frente Mina Secundario', status: 'OPERATIVO', anio: 2020, color: 'Amarillo / Azul' },
+      { id: 'gt-03', equipo: 'VOL-01 · MACK GRANITE', tipo: 'Camión Volteo', propId: 'golden_touch', propNombre: 'Golden Touch 1127 C.A.', marca: 'Mack', modelo: 'Granite GU713 (24 m³)', serial: 'MCKGRAN-2022-01', placa: 'A44BC9D', horometro: 2890, combustible: 'Diesel', consumo: 22, operador: 'Pedro Yánez', ubicacion: 'Ruta Mina → Planta de Lavado', status: 'OPERATIVO', anio: 2022, color: 'Blanco' },
+      { id: 'gt-04', equipo: 'GEN-01 · CUMMINS 500KVA', tipo: 'Planta Eléctrica', propId: 'golden_touch', propNombre: 'Golden Touch 1127 C.A.', marca: 'Cummins', modelo: 'QSK19-G4', serial: 'CUMM-500-1127', placa: 'PE-GT-01', horometro: 8940, combustible: 'Diesel', consumo: 45, operador: 'Guardia Eléctrica Los Pinos', ubicacion: 'Campamento Central · Los Pinos', status: 'OPERATIVO', anio: 2019, color: 'Verde Oscuro' },
+      { id: 'gt-05', equipo: 'RETRO-01 · CAT 420F', tipo: 'Retroexcavadora', propId: 'golden_touch', propNombre: 'Golden Touch 1127 C.A.', marca: 'Caterpillar', modelo: '420F2 4x4', serial: 'CAT420F-7712', placa: 'GT-RET-01', horometro: 3650, combustible: 'Diesel', consumo: 16, operador: 'Eduardo Zambrano', ubicacion: 'Taller Central (Mantenimiento)', status: 'EN TALLER', anio: 2018, color: 'Amarillo' },
+      { id: 'gt-06', equipo: 'CIS-01 · FORD F-750 TANQUE', tipo: 'Cisterna', propId: 'golden_touch', propNombre: 'Golden Touch 1127 C.A.', marca: 'Ford', modelo: 'F-750 Super Duty (10.000 L)', serial: 'FRDF750-TANK-01', placa: 'A12XY9Z', horometro: 4910, combustible: 'Diesel', consumo: 18, operador: 'Luis Bermúdez (Chofer)', ubicacion: 'Surtidor Móvil · Campamento', status: 'OPERATIVO', anio: 2017, color: 'Rojo / Blanco' },
+
+      // Consorcio Guayana
+      { id: 'cg-01', equipo: 'EXC-03 · HITACHI ZX350', tipo: 'Excavadora', propId: 'consorcio_guayana', propNombre: 'Consorcio Minero Guayana', marca: 'Hitachi', modelo: 'ZX350LC-5G', serial: 'HTCH-ZX350-55', placa: 'ALQ-HIT-01', horometro: 6100, combustible: 'Diesel', consumo: 35, operador: 'Francisco Rivas', ubicacion: 'Frente Este · Terraza 2', status: 'OPERATIVO', anio: 2021, color: 'Naranja Hitachi' },
+      { id: 'cg-02', equipo: 'JUMBO-01 · ATLAS COPCO', tipo: 'Jumbo', propId: 'consorcio_guayana', propNombre: 'Consorcio Minero Guayana', marca: 'Epiroc / Atlas Copco', modelo: 'Boomer 282', serial: 'EP-BMR-282-09', placa: 'ALQ-JUM-01', horometro: 3200, combustible: 'Electrohidráulico', consumo: 20, operador: 'Héctor Carrillo', ubicacion: 'Galería Subterránea Nivel -40m', status: 'OPERATIVO', anio: 2022, color: 'Amarillo / Gris' },
+      { id: 'cg-03', equipo: 'CARG-01 · VOLVO L220H', tipo: 'Cargador Frontal', propId: 'consorcio_guayana', propNombre: 'Consorcio Minero Guayana', marca: 'Volvo', modelo: 'L220H (5.6 m³)', serial: 'VLV-L220-8812', placa: 'ALQ-VOL-02', horometro: 5800, combustible: 'Diesel', consumo: 32, operador: 'Ramón Castillo', ubicacion: 'Patio de Acopio Mineral Bruto', status: 'EN TALLER', anio: 2020, color: 'Amarillo Volvo' },
+
+      // Inversiones El Callao
+      { id: 'ec-01', equipo: 'VOL-02 · IVECO TRAKKER', tipo: 'Camión Volteo', propId: 'inversiones_callao', propNombre: 'Inversiones El Callao', marca: 'Iveco', modelo: 'Trakker 380 6x4', serial: 'IVC-TRK-380-01', placa: 'A88KL1P', horometro: 4720, combustible: 'Diesel', consumo: 24, operador: 'Antonio Márquez', ubicacion: 'Ruta Matanzas ↔ Mina', status: 'OPERATIVO', anio: 2019, color: 'Blanco' },
+      { id: 'ec-02', equipo: 'BOM-01 · GODWIN DPC300', tipo: 'Motobomba', propId: 'inversiones_callao', propNombre: 'Inversiones El Callao', marca: 'Godwin / Xylem', modelo: 'Dri-Prime DPC300 (12")', serial: 'GDW-DPC-300-88', placa: 'BOM-EC-01', horometro: 7200, combustible: 'Diesel', consumo: 14, operador: 'Cuadrilla de Bombeo', ubicacion: 'Pozo de Drenaje Fondo Mina', status: 'OPERATIVO', anio: 2018, color: 'Naranja' },
+
+      // Minera Los Pinos
+      { id: 'mp-01', equipo: 'TRACTOR-01 · CAT D8T', tipo: 'Tractor', propId: 'minera_pinos', propNombre: 'Minera Los Pinos', marca: 'Caterpillar', modelo: 'D8T Waste Handler', serial: 'CAT-D8T-9011', placa: 'MP-DOZ-01', horometro: 6700, combustible: 'Diesel', consumo: 42, operador: 'Vicente Morales', ubicacion: 'Escombrera y Nivelación Norte', status: 'OPERATIVO', anio: 2019, color: 'Amarillo' },
+      { id: 'mp-02', equipo: 'VOL-03 · MERCEDES ACTROS', tipo: 'Camión Volteo', propId: 'minera_pinos', propNombre: 'Minera Los Pinos', marca: 'Mercedes-Benz', modelo: 'Actros 3340K', serial: 'MB-ACT-3340-02', placa: 'A92MN4B', horometro: 5930, combustible: 'Diesel', consumo: 23, operador: 'Sin asignar', ubicacion: 'Galpón Los Pinos', status: 'INACTIVO', anio: 2016, color: 'Gris Plata' },
+
+      // Equipos Bolívar
+      { id: 'eb-01', equipo: 'EXC-04 · HYUNDAI ROBEX', tipo: 'Excavadora', propId: 'maquinarias_bolivar', propNombre: 'Equipos & Maquinaria Bolívar', marca: 'Hyundai', modelo: 'Robex 220LC-9S', serial: 'HYN-R220-410', placa: 'EB-EXC-01', horometro: 4320, combustible: 'Diesel', consumo: 27, operador: 'Gabriel Soto', ubicacion: 'Zanja de Drenaje Perimetral', status: 'OPERATIVO', anio: 2021, color: 'Amarillo / Negro' },
+
+      // Sin propietario
+      { id: 'sp-01', equipo: 'MINICARG-01 · BOBCAT S650', tipo: 'Cargador Frontal', propId: 'sin_propietario', propNombre: 'Sin Propietario Asignado', marca: 'Bobcat', modelo: 'S650 High Flow', serial: 'BOB-S650-128', placa: 'S/P-01', horometro: 1980, combustible: 'Diesel', consumo: 11, operador: 'Almacén Los Pinos', ubicacion: 'Galpón de Materiales', status: 'OPERATIVO', anio: 2022, color: 'Blanco / Naranja' }
+    ];
+
+    let propSeleccionado = 'GENERAL';
+    let modoActual = 'mindmap';
+    let vistaActual = 'cards';
+
+    function init() {
+      renderMindmap();
+      aplicarFiltros();
+    }
+
+    function setModo(modo) {
+      modoActual = modo;
+      document.getElementById('tabMindmap').className = 'tab-btn' + (modo === 'mindmap' ? ' active tab-mindmap' : '');
+      document.getElementById('tabDirect').className = 'tab-btn' + (modo === 'directo' ? ' active tab-direct' : '');
+      
+      const mindmapSec = document.getElementById('mindmapSection');
+      const hint = document.getElementById('tabHint');
+
+      if (modo === 'directo') {
+        mindmapSec.style.display = 'none';
+        hint.innerHTML = '⚡ <strong>Opción 2 activa:</strong> Entrada directa al control de maquinaria general sin navegar por el mapa.';
+        selectProp('GENERAL');
+      } else {
+        mindmapSec.style.display = 'block';
+        hint.innerHTML = '💡 <strong>Opción 1 activa:</strong> Explora primero el mapa radial de propietarios o haz clic en GENERAL.';
+      }
+    }
+
+    function renderMindmap() {
+      const centroX = 520;
+      const centroY = 320;
+      const svgLines = document.getElementById('svgLines');
+      const nodesContainer = document.getElementById('nodesContainer');
+
+      svgLines.innerHTML = '';
+      nodesContainer.innerHTML = '';
+
+      PROPIETARIOS.forEach(p => {
+        const eqCount = EQUIPOS.filter(e => e.propId === p.id).length;
+        const opCount = EQUIPOS.filter(e => e.propId === p.id && e.status === 'OPERATIVO').length;
+
+        // Curva Bézier
+        const midX = (centroX + p.x) / 2;
+        const midY = (centroY + p.y) / 2 - 25;
+        const d = `M ${centroX} ${centroY} Q ${midX} ${midY} ${p.x} ${p.y}`;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('id', `line-${p.id}`);
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'rgba(148, 163, 184, 0.25)');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-dasharray', '4 4');
+        path.style.transition = 'all 0.3s ease';
+        svgLines.appendChild(path);
+
+        // Nodo HTML
+        const node = document.createElement('div');
+        node.id = `node-${p.id}`;
+        node.className = 'node-prop';
+        node.style.top = `${p.y}px`;
+        node.style.left = `${p.x}px`;
+        node.onclick = () => selectProp(p.id);
+
+        node.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: center; gap: .4rem; margin-bottom: .25rem;">
+            <span style="font-size: 1.25rem;">${p.icono}</span>
+            <span style="font-size: .62rem; font-weight: 800; text-transform: uppercase; color: ${p.color};">${p.categoria}</span>
+          </div>
+          <div style="font-size: .82rem; font-weight: 700; color: #f8fafc; line-height: 1.2; margin-bottom: .4rem; min-height: 2rem; display: flex; align-items: center; justify-content: center;">
+            ${p.nombre}
+          </div>
+          <div style="display: flex; justify-content: space-between; background: rgba(0,0,0,0.4); padding: .25rem .5rem; border-radius: 8px; font-size: .72rem;">
+            <strong style="color: ${p.color};">${eqCount} eq.</strong>
+            <span style="color: #4ade80;">${opCount} op.</span>
+          </div>
+        `;
+        nodesContainer.appendChild(node);
+      });
+    }
+
+    function selectProp(id) {
+      propSeleccionado = id;
+
+      // Actualizar nodos y líneas
+      const nodeCenter = document.getElementById('nodeCenter');
+      if (id === 'GENERAL') {
+        nodeCenter.className = 'node-center active';
+      } else {
+        nodeCenter.className = 'node-center';
+      }
+
+      PROPIETARIOS.forEach(p => {
+        const node = document.getElementById(`node-${p.id}`);
+        const line = document.getElementById(`line-${p.id}`);
+        if (!node || !line) return;
+
+        if (p.id === id) {
+          node.className = 'node-prop active';
+          node.style.borderColor = p.color;
+          node.style.boxShadow = `0 0 25px ${p.color}66, 0 8px 20px rgba(0,0,0,0.6)`;
+          line.setAttribute('stroke', p.color);
+          line.setAttribute('stroke-width', '4');
+          line.setAttribute('stroke-dasharray', 'none');
+        } else {
+          node.className = 'node-prop';
+          node.style.borderColor = 'rgba(148, 163, 184, 0.25)';
+          node.style.boxShadow = '0 8px 20px rgba(0,0,0,0.5)';
+          line.setAttribute('stroke', 'rgba(148, 163, 184, 0.25)');
+          line.setAttribute('stroke-width', '2');
+          line.setAttribute('stroke-dasharray', '4 4');
+        }
+      });
+
+      // Actualizar Banner
+      const btnVolver = document.getElementById('btnVolverGeneral');
+      if (id === 'GENERAL') {
+        document.getElementById('bannerIcon').innerText = '👑';
+        document.getElementById('bannerName').innerText = 'GENERAL · Flota Consolidada';
+        document.getElementById('bannerSub').innerText = 'Flota total consolidada de la operación minera · Todas las máquinas';
+        btnVolver.style.display = 'none';
+      } else {
+        const prop = PROPIETARIOS.find(p => p.id === id);
+        document.getElementById('bannerIcon').innerText = prop.icono;
+        document.getElementById('bannerName').innerText = prop.nombre;
+        document.getElementById('bannerSub').innerText = `Propietario ${prop.categoria} · Contacto: ${prop.contacto} (${prop.tel})`;
+        btnVolver.style.display = 'inline-block';
+      }
+
+      aplicarFiltros();
+    }
+
+    function aplicarFiltros() {
+      const q = document.getElementById('searchInput').value.toLowerCase().trim();
+      const st = document.getElementById('filterStatus').value;
+      const tp = document.getElementById('filterTipo').value;
+
+      // Filtrar
+      const filtrados = EQUIPOS.filter(e => {
+        if (propSeleccionado !== 'GENERAL' && e.propId !== propSeleccionado) return false;
+        if (st !== 'todos' && e.status !== st) return false;
+        if (tp !== 'todos' && e.tipo !== tp) return false;
+        if (q) {
+          const txt = `${e.equipo} ${e.marca} ${e.modelo} ${e.serial} ${e.placa} ${e.operador} ${e.ubicacion}`.toLowerCase();
+          if (!txt.includes(q)) return false;
+        }
+        return true;
+      });
+
+      // Actualizar contadores del banner
+      const baseEquipos = propSeleccionado === 'GENERAL' ? EQUIPOS : EQUIPOS.filter(e => e.propId === propSeleccionado);
+      document.getElementById('statTotal').innerText = baseEquipos.length;
+      document.getElementById('statOp').innerText = baseEquipos.filter(e => e.status === 'OPERATIVO').length;
+      document.getElementById('statTaller').innerText = baseEquipos.filter(e => e.status === 'EN TALLER').length;
+      document.getElementById('statInact').innerText = baseEquipos.filter(e => e.status === 'INACTIVO').length;
+      document.getElementById('contadorMostrados').innerText = filtrados.length;
+
+      // Renderizar cuadrícula y tabla
+      renderCards(filtrados);
+      renderTable(filtrados);
+    }
+
+    function renderCards(lista) {
+      const grid = document.getElementById('cardsGrid');
+      grid.innerHTML = '';
+
+      if (!lista.length) {
+        grid.innerHTML = `
+          <div style="grid-column: 1/-1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+            <div style="font-size: 2.5rem; margin-bottom: .5rem;">🚜</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #fff;">No se encontraron máquinas</div>
+            <div>Prueba con otros términos de búsqueda o filtros.</div>
+          </div>
+        `;
+        return;
+      }
+
+      lista.forEach(e => {
+        const esOp = e.status === 'OPERATIVO';
+        const esTal = e.status === 'EN TALLER';
+        const stColor = esOp ? 'var(--green)' : esTal ? 'var(--gold)' : 'var(--red)';
+        const stBg = esOp ? 'rgba(16, 185, 129, 0.15)' : esTal ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+
+        const card = document.createElement('div');
+        card.className = 'eq-card';
+        card.innerHTML = `
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; margin-bottom: .6rem;">
+              <div>
+                <div style="font-size: .72rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted);">${e.tipo}</div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: #f8fafc;">${e.equipo}</div>
+              </div>
+              <span class="badge-status" style="background: ${stBg}; color: ${stColor}; border: 1px solid ${stColor}44;">
+                ${e.status}
+              </span>
+            </div>
+
+            <div style="font-size: .82rem; color: #cbd5e1; margin-bottom: .75rem; line-height: 1.4;">
+              <div><strong>Marca / Modelo:</strong> ${e.marca} · ${e.modelo} (${e.anio})</div>
+              <div><strong>Serial:</strong> <span style="font-family: monospace;">${e.serial}</span> · <strong>Placa:</strong> ${e.placa}</div>
+              <div><strong>Propietario:</strong> <span style="color: var(--gold);">${e.propNombre}</span></div>
+            </div>
+
+            <div class="specs-box">
+              <div>
+                <div style="color: var(--text-muted);">⏱️ Horómetro</div>
+                <div style="font-weight: 800; color: var(--blue); font-size: .92rem;">${e.horometro.toLocaleString()} hrs</div>
+              </div>
+              <div>
+                <div style="color: var(--text-muted);">⛽ Consumo est.</div>
+                <div style="font-weight: 700;">${e.consumo} L/hr</div>
+              </div>
+              <div style="grid-column: 1/-1;">
+                <div style="color: var(--text-muted);">👤 Operador</div>
+                <div style="font-weight: 600;">${e.operador}</div>
+              </div>
+              <div style="grid-column: 1/-1;">
+                <div style="color: var(--text-muted);">📍 Ubicación</div>
+                <div style="font-weight: 600;">${e.ubicacion}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="padding-top: .5rem; border-top: 1px solid rgba(255,255,255,0.06);">
+            <button type="button" class="btn-detail" onclick="abrirFicha('${e.id}')">
+              <span>🔍</span>
+              <span>Ver Ficha Técnica Completa</span>
+            </button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function renderTable(lista) {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+
+      lista.forEach(e => {
+        const esOp = e.status === 'OPERATIVO';
+        const esTal = e.status === 'EN TALLER';
+        const stColor = esOp ? 'var(--green)' : esTal ? 'var(--gold)' : 'var(--red)';
+
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid rgba(255,255,255,0.06)';
+        tr.innerHTML = `
+          <td style="padding: .75rem;"><strong>${e.equipo}</strong></td>
+          <td style="padding: .75rem;">${e.tipo}</td>
+          <td style="padding: .75rem; color: var(--gold);">${e.propNombre}</td>
+          <td style="padding: .75rem;">${e.marca} ${e.modelo}</td>
+          <td style="padding: .75rem; font-family: monospace; font-size: .78rem;">${e.serial} (${e.placa})</td>
+          <td style="padding: .75rem; font-weight: 700; color: var(--blue);">${e.horometro.toLocaleString()} hrs</td>
+          <td style="padding: .75rem;">${e.operador}</td>
+          <td style="padding: .75rem;">${e.ubicacion}</td>
+          <td style="padding: .75rem; color: ${stColor}; font-weight: 800;">● ${e.status}</td>
+          <td style="padding: .75rem;">
+            <button type="button" class="btn-back" style="font-size: .75rem; padding: .2rem .5rem;" onclick="abrirFicha('${e.id}')">Ficha</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function setVista(modo) {
+      vistaActual = modo;
+      document.getElementById('btnCards').className = 'toggle-btn' + (modo === 'cards' ? ' active' : '');
+      document.getElementById('btnTable').className = 'toggle-btn' + (modo === 'tabla' ? ' active' : '');
+      document.getElementById('cardsGrid').style.display = modo === 'cards' ? 'grid' : 'none';
+      document.getElementById('tableContainer').style.display = modo === 'tabla' ? 'block' : 'none';
+    }
+
+    function abrirFicha(id) {
+      const e = EQUIPOS.find(x => x.id === id);
+      if (!e) return;
+
+      document.getElementById('modalTitulo').innerText = e.equipo;
+      document.getElementById('modalProp').innerText = e.propNombre;
+      document.getElementById('modalTipo').innerText = e.tipo;
+      document.getElementById('modalMarcaModelo').innerText = `${e.marca} · ${e.modelo}`;
+      document.getElementById('modalAnioColor').innerText = `${e.anio} · ${e.color}`;
+      document.getElementById('modalSerial').innerText = e.serial;
+      document.getElementById('modalPlaca').innerText = e.placa;
+      document.getElementById('modalHorometro').innerText = `${e.horometro.toLocaleString()} horas`;
+      document.getElementById('modalCombustible').innerText = `${e.combustible} (${e.consumo} L/hr)`;
+      document.getElementById('modalOperador').innerText = e.operador;
+      document.getElementById('modalUbicacion').innerText = e.ubicacion;
+
+      document.getElementById('modalOverlay').style.display = 'flex';
+    }
+
+    function cerrarModal(e) {
+      document.getElementById('modalOverlay').style.display = 'none';
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
