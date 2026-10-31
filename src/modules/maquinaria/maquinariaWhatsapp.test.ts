@@ -89,6 +89,7 @@ describe('maquinariaWhatsapp', () => {
   it('textoCompraRepuestosWhatsapp genera solicitud para compras', () => {
     const txt = textoCompraRepuestosWhatsapp({
       ordenServicio: 'OS-0089',
+      solicitudServicio: 'SS-2026-0061',
       equipo: 'RETRO-03',
       piezas: [
         { nombre: 'FILTRO COMBUSTIBLE PRIMARIO', cantidad: 2, unidad: 'und' },
@@ -98,7 +99,9 @@ describe('maquinariaWhatsapp', () => {
       fecha: '2026-10-26T13:00:00Z',
     });
 
-    expect(txt).toContain('SOLICITUD DE COMPRA DE REPUESTOS');
+    expect(txt).toContain('SOLICITUD DE SERVICIO · REPUESTOS');
+    expect(txt).toContain('*Solicitud de Servicio:* SS-2026-0061');
+    expect(txt).not.toContain('Solicitud de Pedido');
     expect(txt).toContain('OS-0089');
     expect(txt).toContain('RETRO-03');
     expect(txt).toContain('FILTRO COMBUSTIBLE PRIMARIO: *2 und*');

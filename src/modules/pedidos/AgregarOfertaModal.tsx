@@ -17,6 +17,11 @@ import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPara, rotuloConversion, tienePresentacion, type Presentacion } from '@/modules/inventario/presentaciones';
 import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
+import { getUnidades } from '@/modules/inventario/inventario.repository';
+import { listProductosActivos } from './pedidos.repository';
+import { asignarProducto, esPiezaMaquinaria, piezasSinProducto, productoUsadoEnOtroRenglon, type ProductoAsignable } from './piezasMaquinaria';
+import { guardarVinculosPiezasEnOrden } from './piezasMaquinaria.repository';
+import { PiezaProductoCelda } from './PiezaProductoCelda';
 
 /** Tope de imágenes/adjuntos por cotización (oferta de proveedor). */
 const MAX_ADJ_OFERTA = 4;
@@ -128,6 +133,38 @@ export function AgregarOfertaModal({
       modelo: (i as ItemOrden).modelo ?? '',
     })),
   );
+  // Repuestos de Control de Maquinaria (30/10/2026): llegan con un nombre general y aquí
+  // el analista les pone el producto del inventario (o da de alta uno nuevo). Se recuerda
+  // el sku que cada renglón tenía en la orden para dejarle el mismo producto a la solicitud.
+  const [skuOriginal] = useState(() => new Map(items.map((i) => [i.uid, i.sku])));
+  const hayPiezasMaq = useMemo(() => items.some(esPiezaMaquinaria), [items]);
+  const [productosInv, setProductosInv] = useState<ProductoAsignable[]>([]);
+  const [unidadesInv, setUnidadesInv] = useState<string[]>([]);
+  useEffect(() => {
+    if (!hayPiezasMaq) return;
+    listProductosActivos()
+      .then((ps) => setProductosInv(ps.filter((p) => (p.almacen ?? 'General') === 'General')
+        .map((p) => ({ id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad }))))
+      .catch(() => setProductosInv([]));
+    getUnidades().then(setUnidadesInv).catch(() => setUnidadesInv(['und']));
+  }, [hayPiezasMaq]);
+  const productosInvPorId = useMemo(() => new Map(productosInv.map((p) => [p.id, p])), [productosInv]);
+  const opcionesProductosInv = useMemo(
+    () => productosInv.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` })),
+    [productosInv],
+  );
+  function asignarPieza(idx: number, p: ProductoAsignable): boolean {
+    const fila = items[idx];
+    if (!fila) return false;
+    if (productoUsadoEnOtroRenglon(items, fila.sku, p.id)) {
+      toast(`«${p.nombre}» ya está en otro renglón de esta cotización. Elige otro producto o súmale la cantidad a ese renglón.`, 'error');
+      return false;
+    }
+    // Un producto recién creado no estaba en el buscador: se suma para los demás renglones.
+    if (!productosInvPorId.has(p.id)) setProductosInv((prev) => [...prev, p]);
+    setItems((prev) => asignarProducto(prev, fila.sku, p));
+    return true;
+  }
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEditar?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEditar?.condiciones_pago ?? '');
   // Pago anticipado (adelanto parcial): solo en órdenes de SERVICIO cuando la condición es
@@ -379,6 +416,12 @@ export function AgregarOfertaModal({
       toast('Elige la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
+    // Repuestos de Maquinaria: cada uno tiene que quedar con su producto del inventario.
+    const sinProducto = piezasSinProducto(items);
+    if (sinProducto.length) {
+      toast(`Ponle el producto del inventario (o crea uno nuevo) a: ${[...new Set(sinProducto.map((i) => i.nombre))].join(', ')}`, 'error');
+      return;
+    }
     // Anticipo parcial: solo en servicio + condición 'anticipado' + monto > 0.
     const usaAnticipo = esServicioOrden && condiciones.trim() === 'anticipado' && Number(anticipoMonto) > 0;
     const actividadLimpia = actividad.replace(/\s+/g, ' ').trim();
@@ -484,6 +527,7 @@ export function AgregarOfertaModal({
           pdf_filename: primero?.filename ?? null,
         });
         notify(`Oferta actualizada · ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
+        await recordarPiezasEnOrden();
         onCreated();
         return;
       }
@@ -513,11 +557,28 @@ export function AgregarOfertaModal({
         igtf_aplicado: conIgtf && igtfMonto > 0,
       });
       notify(`Oferta registrada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
+      await recordarPiezasEnOrden();
       onCreated();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al registrar', 'error');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /** Deja en la solicitud los productos puestos a las piezas de Maquinaria (la próxima
+   *  cotización ya arranca con ellos). La oferta ya quedó guardada: si esto falla, solo avisa. */
+  async function recordarPiezasEnOrden() {
+    const vinculos = new Map<string, ProductoAsignable>();
+    for (const it of items) {
+      const original = skuOriginal.get(it.uid);
+      if (!original || !esPiezaMaquinaria(it) || !it.productoId) continue;
+      vinculos.set(original, { id: it.productoId, sku: it.sku, nombre: it.nombre, unidad: it.unidad });
+    }
+    try {
+      await guardarVinculosPiezasEnOrden(orden.id, vinculos);
+    } catch {
+      toast('La oferta se guardó, pero los productos de las piezas no quedaron en la solicitud: en la próxima cotización hay que elegirlos otra vez.', 'warning');
     }
   }
 
@@ -780,6 +841,16 @@ export function AgregarOfertaModal({
                     </td>
                     <td>
                       {esVariante ? <span className="muted">{it.nombre}</span> : it.nombre}
+                      {!esVariante && esPiezaMaquinaria(it) && (
+                        <PiezaProductoCelda
+                          key={`${it.uid}-${it.productoId ?? 'sin'}`}
+                          item={it} opciones={opcionesProductosInv} porId={productosInvPorId}
+                          unidades={unidadesInv} actorEmail={registradoPorEmail}
+                          onAsignar={(p) => asignarPieza(idx, p)} />
+                      )}
+                      {!esVariante && esPiezaMaquinaria(it) && it.equipo_nombre && (
+                        <div className="muted" style={{ fontSize: '.72rem' }}>🚜 {it.equipo_nombre}</div>
+                      )}
                       {!esVariante && it.es_servicio && (it.categoria_servicio || it.equipo_nombre) && (
                         <div className="muted" style={{ fontSize: '.72rem' }}>
                           {[it.categoria_servicio && `🗂 ${it.categoria_servicio}`, it.equipo_nombre && `🚜 ${it.equipo_nombre}`].filter(Boolean).join(' · ')}

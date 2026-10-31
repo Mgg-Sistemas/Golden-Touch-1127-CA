@@ -177,11 +177,12 @@ export function textoAveriaEstadoWhatsapp(d: DatosAveriaEstadoWhatsapp): string 
   return lineas.join('\n');
 }
 
-/* ── 4. Solicitud de Compra de Repuestos ── */
+/* ── 4. Repuestos pedidos a Compras (Solicitud de Servicio SS-…, 30/10/2026) ── */
 
 export interface DatosCompraRepuestosWhatsapp {
   ordenServicio?: string | null;
-  solicitudPedido?: string | null;
+  /** Código de la Solicitud de Servicio (SS-…) que se abrió en Pedidos → Servicios. */
+  solicitudServicio?: string | null;
   equipo: string;
   piezas: Array<{ nombre: string; cantidad: number; unidad?: string | null }>;
   solicitante?: string | null;
@@ -192,9 +193,9 @@ export function textoCompraRepuestosWhatsapp(d: DatosCompraRepuestosWhatsapp): s
   const fechaStr = d.fecha ? fechaHoraVE(new Date(d.fecha)) : fechaHoraVE();
   const lineas: string[] = [
     sinSelector(`🛒 *GOLDEN TOUCH 1127 CA*`),
-    sinSelector(`📦 *SOLICITUD DE COMPRA DE REPUESTOS*`),
+    sinSelector(`🔧 *SOLICITUD DE SERVICIO · REPUESTOS*`),
     d.ordenServicio ? `*Orden de Servicio:* ${d.ordenServicio}` : '',
-    d.solicitudPedido ? `*Solicitud de Pedido:* ${d.solicitudPedido}` : '',
+    d.solicitudServicio ? `*Solicitud de Servicio:* ${d.solicitudServicio}` : '',
     `*Fecha:* ${fechaStr}`,
     '',
     sinSelector(`🚜 *EQUIPO DESTINO:* ${d.equipo}`),
@@ -208,7 +209,7 @@ export function textoCompraRepuestosWhatsapp(d: DatosCompraRepuestosWhatsapp): s
   });
 
   lineas.push('');
-  lineas.push(sinSelector(`_Compras asignará marca comercial y especificaciones técnicas_`));
+  lineas.push(sinSelector(`_Compras le pone a cada pieza el producto del inventario al cotizar_`));
   lineas.push(sinSelector(`_Enviado desde el Sistema Golden Touch_`));
 
   return lineas.join('\n');
