@@ -31,8 +31,13 @@
   background: var(--bg-1);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
-  position: sticky; top: 0; height: 100vh;
+  /* 100dvh (con 100vh de respaldo): en el teléfono `100vh` mide la pantalla SIN la
+     barra del navegador, así que el final del menú —el botón de Salir— quedaba
+     escondido debajo de esa barra y no se podía alcanzar ni deslizando. */
+  position: sticky; top: 0; height: 100vh; height: 100dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;   /* deslizar el menú no arrastra la página de atrás */
+  -webkit-overflow-scrolling: touch;
 }
 .sidebar-brand {
   padding: 1rem 1.25rem;
@@ -77,6 +82,11 @@
   margin-top: auto;
   padding: 1rem;
   border-top: 1px solid var(--border);
+  /* El pie (usuario + Salir) queda SIEMPRE a la vista abajo del menú, aunque la
+     lista de módulos sea larga y haya que deslizarla. */
+  position: sticky; bottom: 0; z-index: 1;
+  background: var(--bg-1);
+  flex-shrink: 0;
 }
 .user-chip {
   display: flex; align-items: center; gap: .65rem;
@@ -94,7 +104,8 @@
   font-size: .85rem;
 }
 .user-chip .info { line-height: 1.1; flex: 1; min-width: 0; }
-.user-chip .info .name { font-size: .85rem; font-weight: 600; color: var(--text); }
+.user-chip .info .name { font-size: .85rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.user-chip > button { flex-shrink: 0; }   /* un nombre largo no empuja el botón de Salir fuera */
 .user-chip .info .role { font-size: .7rem; color: var(--text-muted); }
 
 /* Topbar */
@@ -691,12 +702,21 @@ tr.row-selectable:active { transform: scale(0.998); }
   /* Sidebar como panel deslizable sobre el contenido. */
   .sidebar {
     position: fixed; top: 0; left: 0; z-index: 60;
-    width: 270px; max-width: 84vw; height: 100vh;
+    width: 270px; max-width: 84vw;
+    /* Alto = lo que de verdad se ve (sin la barra del navegador). Con `100vh` el
+       pie con el botón de Salir quedaba cortado en todas las vistas de teléfono. */
+    height: 100vh; height: 100dvh;
+    max-height: 100vh; max-height: 100dvh;
     transform: translateX(-100%);
     transition: transform .22s ease;
     box-shadow: var(--shadow-lg);
   }
   .app.drawer-open .sidebar { transform: translateX(0); }
+  /* Pie del menú por encima de la «barra de inicio» del iPhone (zona segura). */
+  .sidebar-footer { padding: .75rem .75rem calc(.75rem + env(safe-area-inset-bottom, 0px)); }
+  /* Con ventanas minimizadas abajo (DockMinimizadas, z-index 9001) la barra flotante
+     tapaba el pie del menú: se le deja ese espacio libre. */
+  body.dock-activo .sidebar-footer { padding-bottom: calc(.75rem + 52px + env(safe-area-inset-bottom, 0px)); }
 
   /* Velo oscuro detrás del drawer abierto. */
   .sidebar-overlay {
