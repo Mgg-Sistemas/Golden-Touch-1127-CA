@@ -53,6 +53,7 @@ const RepuestosPorEquipoPage = lazy(() => import('./modules/maquinaria/Repuestos
 const MaquinariaMovilView = lazy(() => import('./modules/maquinaria/MaquinariaMovilView').then((m) => ({ default: m.MaquinariaMovilView })));
 const TelefonoInicioPage = lazy(() => import('./modules/auth/TelefonoInicioPage').then((m) => ({ default: m.TelefonoInicioPage })));
 const CambiarClavePage = lazy(() => import('./modules/usuarios/CambiarClavePage').then((m) => ({ default: m.CambiarClavePage })));
+const MaquetaPropietariosMindmap = lazy(() => import('./modules/maquinaria/MaquetaPropietariosMindmap'));
 
 function PageLoader() {
   return <div className="p-8 muted">Cargando…</div>;
@@ -76,6 +77,9 @@ export function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        {/* Maqueta /dosc y /docs: catálogo de propietarios (mapa mental) previo a maquinaria */}
+        <Route path="/dosc" element={<Suspense fallback={<PageLoader />}><MaquetaPropietariosMindmap /></Suspense>} />
+        <Route path="/docs" element={<Suspense fallback={<PageLoader />}><MaquetaPropietariosMindmap /></Suspense>} />
         {/* Lo que abre el QR del carnet: público, sin sesión. */}
         <Route path="/c/:token" element={<Suspense fallback={<PageLoader />}><CarnetPublicoPage /></Suspense>} />
         <Route
@@ -153,6 +157,8 @@ export function App() {
           <Route path="ajustes" element={<RequireModule module="ajustes"><Suspense fallback={<PageLoader />}><AjustesPage /></Suspense></RequireModule>} />
           <Route path="auditoria" element={<RequireAdmin><Suspense fallback={<PageLoader />}><AuditoriaPage /></Suspense></RequireAdmin>} />
           <Route path="telefono" element={<Suspense fallback={<PageLoader />}><TelefonoInicioPage /></Suspense>} />
+          <Route path="dosc" element={<Suspense fallback={<PageLoader />}><MaquetaPropietariosMindmap /></Suspense>} />
+          <Route path="docs" element={<Suspense fallback={<PageLoader />}><MaquetaPropietariosMindmap /></Suspense>} />
           <Route path="sin-acceso" element={<SinAccesoPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
