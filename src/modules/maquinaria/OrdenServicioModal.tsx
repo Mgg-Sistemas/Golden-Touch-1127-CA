@@ -9,11 +9,11 @@ import { listProductosActivos } from '@/modules/pedidos/pedidos.repository';
 import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, intervencionesDe, ajustarIntervenciones, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS,
+  SERVICIOS, URGENCIAS, intervencionesDe, ajustarIntervenciones, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio,
   repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
-  crearOrdenServicio, editarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, notificarComprasPiezasNuevas, faltaSalida, faltaCompra,
+  crearOrdenServicio, editarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, faltaSalida, faltaCompra,
   type OrdenServicio,
 } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
@@ -25,8 +25,6 @@ import { marcadoParaOrden, lineasDesdeFicha, sistemaDe, textoEquivalencias, type
 
 interface Linea {
   productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null;
-  /** Pieza nueva: categoría con la que se da de alta en el inventario al pedir la compra. */
-  categoria?: string;
 }
 
 /** Lo que importa para saber si los repuestos cambiaron al editar. */
@@ -143,7 +141,7 @@ export function OrdenServicioModal({
     setBusqueda('');
   }
   function agregarComoNueva(nombre: string) {
-    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0, almacen: null, categoria: CATEGORIA_REPUESTOS }]);
+    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0, almacen: null }]);
     setBusqueda('');
     setSugeridos(null);
   }
@@ -175,7 +173,7 @@ export function OrdenServicioModal({
     const nuevas = lineasDesdeFicha(ficha.filter((r) => marcados.has(r.id)), porId)
       .filter((n) => !lineas.some((l) => (n.productoId ? l.productoId === n.productoId : !l.productoId && l.nombre === n.nombre)));
     if (!nuevas.length) { toast('Eso ya está en la orden.', 'info'); setVerFicha(false); return; }
-    setLineas((prev) => [...prev, ...nuevas.map((n) => (n.productoId ? n : { ...n, categoria: CATEGORIA_REPUESTOS }))]);
+    setLineas((prev) => [...prev, ...nuevas]);
     toast(`📋 ${nuevas.length} repuesto(s) de la ficha agregado(s).`, 'success');
     setVerFicha(false);
   }
@@ -195,15 +193,6 @@ export function OrdenServicioModal({
         ...(cambiaron ? { repuestos: nuevos } : {}),
       });
       toast(`${orden.codigo} actualizada`, 'success');
-      // Cambiaron las piezas que no están en el inventario: Compras tiene que enterarse de nuevo
-      // (la base lo indica con `notificar`; la orden ya quedó guardada aunque el aviso falle).
-      if (r.notificar) {
-        try {
-          if (await notificarComprasPiezasNuevas({ id: orden.id, repuestos: r.repuestos })) toast('Compras avisada de las piezas nuevas.', 'info');
-        } catch {
-          toast('No se pudo avisar a Compras de las piezas nuevas; vuelve a intentarlo desde la orden.', 'warning');
-        }
-      }
       const o2 = { ...orden, estado: r.estado, repuestos: r.repuestos };
       if (cambiaron && (faltaSalida(o2) || faltaCompra(o2))) toast('Los repuestos cambiaron: pide la salida o la compra desde la orden.', 'info');
       onCreated();
@@ -246,11 +235,8 @@ export function OrdenServicioModal({
       if (faltaCompra(orden)) {
         try { partes.push(`Solicitud de Servicio ${await solicitarCompraDeOrden(orden)}`); }
         catch (e) {
+          // La orden ya quedó guardada: el aviso de abajo dice que la SS se genera desde la orden.
           pendientes.push(`la Solicitud de Servicio (${e instanceof Error ? e.message : (e as { message?: string })?.message || 'error'})`);
-          // Si no se pudo, al menos Compras se entera de las piezas nuevas.
-          if (r.repuestos.some((x) => !x.producto_id)) {
-            try { await notificarComprasPiezasNuevas(orden); partes.push('Compras notificada de las piezas nuevas'); } catch { /* queda por solicitar */ }
-          }
         }
       }
       notify(`🔧 ${partes.join(' · ')} — ${equipo.equipo}`, 'success', {
@@ -265,7 +251,6 @@ export function OrdenServicioModal({
     } finally { setSaving(false); }
   }
 
-  // Las piezas nuevas ya no se dan de alta desde aquí (30/10/2026): no hace falta categoría.
   const listo = paso === 0 ? !!tipo : true;
 
   return (

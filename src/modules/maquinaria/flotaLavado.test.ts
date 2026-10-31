@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  diasDesde, textoHace, ultimoLavado, tipoLavadoValido, accionesEquipo, piezasNuevas, puedeReemplazarPieza,
-  soloPiezasNuevasPorComprar,
+  diasDesde, textoHace, ultimoLavado, tipoLavadoValido, accionesEquipo,
 } from './flota';
 
 describe('lavados', () => {
@@ -38,28 +37,5 @@ describe('lavados', () => {
     expect(accionesEquipo({ maquinaria: true, combustible: false }, 'taller')).toContain('lavado');
     expect(accionesEquipo({ maquinaria: false, combustible: true }, 'operativa')).not.toContain('lavado');
     expect(accionesEquipo({ maquinaria: true, combustible: true }, 'retirada')).not.toContain('lavado');
-  });
-});
-
-describe('piezas que no están en el inventario', () => {
-  const rep = [
-    { producto_id: 'p1', desde_inventario: 1, a_comprar: 0 },
-    { producto_id: null, desde_inventario: 0, a_comprar: 2 },
-  ];
-  it('las detecta', () => {
-    expect(piezasNuevas(rep)).toHaveLength(1);
-    expect(piezasNuevas([rep[0]])).toHaveLength(0);
-  });
-  it('solo piezas nuevas por comprar: no hay SP posible', () => {
-    expect(soloPiezasNuevasPorComprar(rep)).toBe(true);
-    expect(soloPiezasNuevasPorComprar([...rep, { producto_id: 'p2', desde_inventario: 0, a_comprar: 1 }])).toBe(false);
-    expect(soloPiezasNuevasPorComprar([rep[0]])).toBe(false);
-  });
-  it('cambiar la pieza nueva por el producto: solo con la orden abierta y sin SP', () => {
-    expect(puedeReemplazarPieza({ estado: 'repuestos', orden_compra_id: null, repuestos: rep }, 1)).toBe(true);
-    expect(puedeReemplazarPieza({ estado: 'repuestos', orden_compra_id: null, repuestos: rep }, 0)).toBe(false); // ya es producto
-    expect(puedeReemplazarPieza({ estado: 'repuestos', orden_compra_id: 'sp', repuestos: rep }, 1)).toBe(false);
-    expect(puedeReemplazarPieza({ estado: 'realizada', orden_compra_id: null, repuestos: rep }, 1)).toBe(false);
-    expect(puedeReemplazarPieza({ estado: 'abierta', orden_compra_id: null, repuestos: rep }, 9)).toBe(false);
   });
 });

@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, date as fmtDate, statusBadge } from '@/shared/lib/format';
 import { listEquipos, type MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { COLUMNAS_COMPRA, puedeReemplazarPieza } from './flota';
+import { COLUMNAS_COMPRA } from './flota';
 import { listOrdenesServicio, salidasDeOrdenes, comprasPorIds, type OrdenServicio, type CompraResumen } from './flota.repository';
 import {
-  COLUMNAS_SALIDA, columnaSalidaDeOrden, columnaCompraDeOrden, ordenesConRepuestos, piezasNuevasPendientes, coincideTexto,
+  COLUMNAS_SALIDA, columnaSalidaDeOrden, columnaCompraDeOrden, ordenesConRepuestos, coincideTexto,
 } from './flotaListados';
 import { listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
 import { listadoFlotaExcel } from './flotaExcel';
-import { ReemplazarPiezaModal } from './ReemplazarPiezaModal';
 import { desenlaceCompra } from './SeguimientoCompraModal';
 import { FlotaNav } from './FlotaNav';
 
@@ -21,20 +19,17 @@ const ESTADO_SALIDA: Record<string, string> = { por_aprobar: 'Por aprobar', apro
 
 /**
  * Submódulo «Repuestos y compras» (solo lectura): lo que las órdenes de servicio pidieron
- * al inventario (solicitudes de salida) y a compras (solicitudes de pedido), y las piezas
- * nuevas que Compras todavía tiene que dar de alta. Las tarjetas se mueven en Salidas y
- * en Pedidos; aquí solo se sigue su avance.
+ * al inventario (solicitudes de salida) y a compras (Solicitudes de Servicio SS-…, donde el
+ * analista asigna el producto al cotizar). Las tarjetas se mueven en Salidas y en Pedidos;
+ * aquí solo se sigue su avance.
  */
 export function RepuestosComprasPage() {
-  const { can } = usePermissions();
-  const canWrite = can('maquinaria', 'escritura');
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
   const [salidas, setSalidas] = useState<Map<string, { codigo: string; estado: string }>>(new Map());
   const [compras, setCompras] = useState<Map<string, CompraResumen>>(new Map());
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
-  const [reemplazo, setReemplazo] = useState<{ orden: OrdenServicio; indice: number } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -59,7 +54,6 @@ export function RepuestosComprasPage() {
     const e = porId.get(o.equipo_id);
     return coincideTexto([o.codigo, e?.equipo, ...o.repuestos.map((r) => r.nombre)], q);
   }), [ordenes, porId, q]);
-  const pendientes = useMemo(() => piezasNuevasPendientes(conRepuestos), [conRepuestos]);
 
   const tableroSalidas = useMemo(() => COLUMNAS_SALIDA.map((c) => ({
     ...c, ordenes: conRepuestos.filter((o) => columnaSalidaDeOrden(o, o.solicitud_salida_id ? salidas.get(o.solicitud_salida_id)?.estado : null) === c.id),
@@ -86,7 +80,7 @@ export function RepuestosComprasPage() {
         o.codigo, fmtDate(o.created_at), porId.get(o.equipo_id)?.equipo ?? '—', r.nombre, r.cantidad, r.unidad, r.desde_inventario, r.a_comprar,
         r.desde_inventario > 0 ? (sal ? `${sal.codigo} (${ESTADO_SALIDA[sal.estado] ?? sal.estado})` : 'Por solicitar') : '',
         r.a_comprar > 0 ? (cmp ? `${cmp.oc_codigo || cmp.codigo} (${statusBadge(cmp.estado).label})` : 'Por solicitar') : '',
-        r.producto_id ? '' : o.compras_notificada_at ? `Compras notificada ${fmtDate(o.compras_notificada_at)}` : 'Sin avisar',
+        r.producto_id ? '' : 'Nombre general',
       ]);
     }),
   });
@@ -106,7 +100,7 @@ export function RepuestosComprasPage() {
       <Link key={o.id} to={`/app/maquinaria/equipo/${o.equipo_id}?tab=servicios`} className="flo-kcard" style={{ textDecoration: 'none' }}>
         <div className="fila"><strong>{o.codigo}</strong><span>{fmtDate(o.created_at)}</span></div>
         <div>{eq?.equipo ?? 'Equipo'}</div>
-        {lineas.slice(0, 4).map((r, i) => <div key={i}>{fmtNum(cual === 'salida' ? r.desde_inventario : r.a_comprar)} {r.unidad} · {r.nombre}{r.producto_id ? '' : ' (nueva)'}</div>)}
+        {lineas.slice(0, 4).map((r, i) => <div key={i}>{fmtNum(cual === 'salida' ? r.desde_inventario : r.a_comprar)} {r.unidad} · {r.nombre}{r.producto_id ? '' : ' (nombre general)'}</div>)}
         {lineas.length > 4 && <div>+{lineas.length - 4} más</div>}
         {cual === 'salida' && sal && <div className="fila"><span>📦 {sal.codigo}</span></div>}
         {cual === 'compra' && cmp && <div className="fila"><span>🛒 {cmp.oc_codigo || cmp.codigo}</span><span className="mono">{cmp.total ? `${fmtNum(cmp.total)} ${cmp.total_moneda ?? ''}` : ''}</span></div>}
@@ -135,27 +129,9 @@ export function RepuestosComprasPage() {
         </div>
       </div>
 
-      <div className="flo-sec">
-        <div className="flo-sec-head"><h3>🔩 Piezas nuevas pendientes de Compras</h3><span className="muted" style={{ fontSize: '.76rem' }}>{pendientes.length}</span></div>
-        {loading ? <EmptyState message="Cargando…" /> : pendientes.length ? (
-          <div className="flo-hist">
-            {pendientes.map(({ orden: o, pieza, indice }) => (
-              <div key={`${o.id}-${indice}`}>
-                <span>🔩</span>
-                <div style={{ minWidth: 0 }}>
-                  <strong>{fmtNum(pieza.cantidad)} {pieza.unidad} · {pieza.nombre}</strong>
-                  <small><Link to={`/app/maquinaria/equipo/${o.equipo_id}?tab=servicios`}>{o.codigo}</Link> · {porId.get(o.equipo_id)?.equipo ?? 'Equipo'} · {o.compras_notificada_at ? `Compras notificada ${fmtDate(o.compras_notificada_at)}` : 'todavía sin avisar a Compras'}</small>
-                </div>
-                {canWrite && puedeReemplazarPieza(o, indice)
-                  ? <button className="btn btn-sm" onClick={() => setReemplazo({ orden: o, indice })}>🔁 Ya existe</button>
-                  : <span />}
-              </div>
-            ))}
-          </div>
-        ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>No hay piezas nuevas pendientes.</p>}
-      </div>
+      {loading && <EmptyState message="Cargando…" />}
 
-      <div className="flo-sec" style={{ marginTop: '.8rem' }}>
+      <div className="flo-sec">
         <div className="flo-sec-head"><h3>📦 Salidas de inventario</h3><Link className="btn btn-sm btn-ghost" to="/app/salidas">Ir a Salidas</Link></div>
         <div className="flo-kanban">
           {tableroSalidas.map((c) => (
@@ -178,8 +154,6 @@ export function RepuestosComprasPage() {
           ))}
         </div>
       </div>
-
-      {reemplazo && <ReemplazarPiezaModal orden={reemplazo.orden} indice={reemplazo.indice} onClose={() => setReemplazo(null)} onDone={() => void cargar()} />}
     </div>
   );
 }

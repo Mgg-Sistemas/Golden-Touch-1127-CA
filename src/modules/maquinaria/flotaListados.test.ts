@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   diaLocal, enRango, coincideTexto, filtrarOrdenes, contarPorEstado, equiposEnAtencion, filtrarEventos,
-  filtrarLavados, equiposSinLavar, piezasNuevasPendientes, ordenesConRepuestos, equipoAdmite, columnaSalidaDeOrden, columnaCompraDeOrden,
+  filtrarLavados, equiposSinLavar, ordenesConRepuestos, equipoAdmite, columnaSalidaDeOrden, columnaCompraDeOrden,
 } from './flotaListados';
 
 const eq = (id: string, equipo: string, extra: Record<string, unknown> = {}) => ({ id, equipo, status: 'ACTIVO', activo: true, ...extra });
@@ -99,16 +99,13 @@ describe('lavados', () => {
 });
 
 describe('repuestos y compras', () => {
-  const base = { equipo_id: 'a', solicitud_salida_id: null, orden_compra_id: null, compras_notificada_at: null };
+  const base = { equipo_id: 'a', solicitud_salida_id: null, orden_compra_id: null };
   const ordenes = [
     { ...base, id: '1', codigo: 'OS-1', estado: 'repuestos', created_at: '2026-10-02T10:00:00Z', repuestos: [{ producto_id: null, nombre: 'PIEZA X', unidad: 'und', cantidad: 2, desde_inventario: 0, a_comprar: 2 }] },
     { ...base, id: '2', codigo: 'OS-2', estado: 'realizada', created_at: '2026-10-01T10:00:00Z', repuestos: [{ producto_id: null, nombre: 'PIEZA Y', unidad: 'und', cantidad: 1, desde_inventario: 0, a_comprar: 1 }] },
     { ...base, id: '3', codigo: 'OS-3', estado: 'anulada', created_at: '2026-10-03T10:00:00Z', repuestos: [{ producto_id: 'p', nombre: 'FILTRO', unidad: 'und', cantidad: 1, desde_inventario: 1, a_comprar: 0 }] },
     { ...base, id: '4', codigo: 'OS-4', estado: 'abierta', created_at: '2026-10-04T10:00:00Z', repuestos: [] },
   ];
-  it('piezas nuevas pendientes: solo de órdenes abiertas', () => {
-    expect(piezasNuevasPendientes(ordenes).map((p) => p.pieza.nombre)).toEqual(['PIEZA X']);
-  });
   it('órdenes con repuestos: sin anuladas ni órdenes sin repuestos', () => {
     expect(ordenesConRepuestos(ordenes).map((o) => o.id)).toEqual(['1', '2']);
   });
@@ -125,7 +122,7 @@ describe('acciones desde los submódulos', () => {
 });
 
 describe('tableros de repuestos', () => {
-  const o = (extra: Record<string, unknown>) => ({ id: '1', codigo: 'OS-1', equipo_id: 'a', estado: 'repuestos', created_at: '', solicitud_salida_id: null, orden_compra_id: null, compras_notificada_at: null,
+  const o = (extra: Record<string, unknown>) => ({ id: '1', codigo: 'OS-1', equipo_id: 'a', estado: 'repuestos', created_at: '', solicitud_salida_id: null, orden_compra_id: null,
     repuestos: [{ producto_id: 'p', nombre: 'X', unidad: 'und', cantidad: 4, desde_inventario: 2, a_comprar: 2 }], ...extra });
   it('salidas: por solicitar, según su estado o fuera del tablero', () => {
     expect(columnaSalidaDeOrden(o({}), null)).toBe('por_solicitar');

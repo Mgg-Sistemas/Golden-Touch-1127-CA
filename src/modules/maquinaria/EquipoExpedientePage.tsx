@@ -18,7 +18,7 @@ import { addMantenimiento } from './maquinariaMant.repository';
 import {
   ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
-  faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, etiquetaServicio,
+  faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, etiquetaServicio,
   puedeBorrarOrden, frecuenciaHrs,
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
@@ -46,7 +46,6 @@ import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { LavadoModal } from './LavadoModal';
 import { LecturaModal } from './LecturaModal';
-import { ReemplazarPiezaModal } from './ReemplazarPiezaModal';
 import { FotosOrden, FotosOrdenModal } from './FotosOrdenServicio';
 import { EstadoDetalleModal } from './EstadoDetalleModal';
 import { BorrarOrdenDialog } from './BorrarOrdenDialog';
@@ -128,10 +127,9 @@ export function EquipoExpedientePage() {
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const [lavadoOpen, setLavadoOpen] = useState(false);
   const [borrarLavado, setBorrarLavado] = useState<LavadoEquipo | null>(null);
-  const [reemplazo, setReemplazo] = useState<{ orden: OrdenServicio; indice: number } | null>(null);
   const [detalleEstado, setDetalleEstado] = useState(false);
   const [editarOrden, setEditarOrden] = useState<OrdenServicio | null>(null);
-  // «Pedir compra» de una orden con piezas que no están en el inventario (se elige su categoría).
+  // «Pedir compra»: la orden entra a Compras como Solicitud de Servicio (SS-…).
   const [pedirCompra, setPedirCompra] = useState<OrdenServicio | null>(null);
   const [borrarOrden, setBorrarOrden] = useState<OrdenServicio | null>(null);
   const [editarLavado, setEditarLavado] = useState<LavadoEquipo | null>(null);
@@ -396,7 +394,6 @@ export function EquipoExpedientePage() {
           {tab === 'lavados' && <TabLavados lavados={lavados} puedeRegistrar={puede('lavado')} puedeEditar={perm.maquinaria} onNuevo={() => setLavadoOpen(true)} onEditar={setEditarLavado} onBorrar={setBorrarLavado} />}
           {tab === 'servicios' && (
             <TabServicios
-              onReemplazar={(o, i) => setReemplazo({ orden: o, indice: i })}
               ordenes={ordenes} salidas={salidas} compras={compras} perm={perm} trabajando={trabajando}
               puedeCrear={puede('servicio')} onNueva={() => setNuevaOrden(true)}
               onIniciar={(o) => void iniciar(o)} onCerrar={(o, e) => setCerrar({ orden: o, estado: e })}
@@ -469,9 +466,6 @@ export function EquipoExpedientePage() {
       {lavadoOpen && (
         <LavadoModal equipo={eq} horometro={horometro} km={km} ultimo={lavado} actor={{ email: actor, nombre: actorName }}
           onClose={() => setLavadoOpen(false)} onSaved={() => void cargar()} />
-      )}
-      {reemplazo && (
-        <ReemplazarPiezaModal orden={reemplazo.orden} indice={reemplazo.indice} onClose={() => setReemplazo(null)} onDone={() => void cargar()} />
       )}
       {borrarLavado && (
         <ConfirmDialog title="Borrar lavado" danger confirmText="Borrar"
@@ -613,13 +607,12 @@ function Fact({ label, v }: { label: string; v: string | null | undefined }) {
   return <div><dt>{label}</dt><dd>{v}</dd></div>;
 }
 
-function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onVerCompra, onReemplazar, onEditar, onBorrar }: {
+function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onVerCompra, onEditar, onBorrar }: {
   ordenes: OrdenServicio[]; salidas: Map<string, { codigo: string; estado: string }>; compras: CompraEquipo[];
   perm: { maquinaria: boolean; salidas: boolean; pedidos: boolean; admin: boolean }; trabajando: string | null; puedeCrear: boolean;
   onEditar: (o: OrdenServicio) => void; onBorrar: (o: OrdenServicio) => void;
   onNueva: () => void; onIniciar: (o: OrdenServicio) => void; onCerrar: (o: OrdenServicio, e: EstadoOrdenServicio) => void;
   onPedir: (o: OrdenServicio, q: 'salida' | 'compra') => void; onPdf: (o: OrdenServicio) => void; onVerCompra: (compraId: string) => void;
-  onReemplazar: (o: OrdenServicio, indice: number) => void;
 }) {
   const [fotosDe, setFotosDe] = useState<OrdenServicio | null>(null);
   const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
@@ -658,11 +651,8 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
                     <span className="src">
                       {r.desde_inventario > 0 && <Chip tono="success">📦 {fmtNum(r.desde_inventario)} del inventario{sal ? ` · ${sal.codigo}` : ''}</Chip>}
                       {r.a_comprar > 0 && <Chip tono="warning">🛒 {fmtNum(r.a_comprar)} a compra{cmp ? ` · ${cmp.oc_codigo || cmp.codigo}` : ''}</Chip>}
-                      {!r.producto_id && <Chip tono="info">🔩 Pieza nueva · se da de alta al pedir la compra</Chip>}
+                      {!r.producto_id && <Chip tono="info">🔩 Nombre general · Compras le asigna el producto al cotizar</Chip>}
                       {r.pieza_nueva && <Chip tono="info">🔁 Era «{r.pieza_nueva}»</Chip>}
-                      {perm.maquinaria && puedeReemplazarPieza(o, i) && (
-                        <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => onReemplazar(o, i)}>🔁 Ya existe en inventario: cambiar por el producto</button>
-                      )}
                     </span>
                   </li>
                 ))}

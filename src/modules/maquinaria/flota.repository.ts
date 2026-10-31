@@ -20,7 +20,7 @@ import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
 import { ordenarFotosEquipo } from './maquinariaDocumentos';
 import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
-import { servicioPorId, piezasNuevas } from './flota';
+import { servicioPorId } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
 
 /* ───────── Estado operativo ───────── */
@@ -184,17 +184,14 @@ export async function solicitarSalidaDeOrden(o: OrdenServicio, equipoNombre: str
   return sol.codigo;
 }
 
-/** Datos de una pieza nueva. Desde el 30/10/2026 la base ya no la da de alta: se ignora. */
-export interface PiezaNuevaAlta { nombre: string; categoria: string; unidad?: string }
-
 /**
  * Pide la compra de lo que falta: la base crea la SOLICITUD DE SERVICIO (SS-…, Pedidos →
  * 🔧 Servicios, «pendiente») con los nombres generales de las piezas; el analista les pone el
  * producto del inventario al cotizar. Basta el permiso de Maquinaria. Devuelve el código SS.
- * `nuevas` queda por compatibilidad (la base ya no crea productos).
+ * `p_nuevas` va vacío: la base ya no crea productos (30/10/2026).
  */
-export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nuevas: PiezaNuevaAlta[] = []): Promise<string> {
-  const { data, error } = await supabase.rpc('maquinaria_pedir_compra_orden', { p_id: o.id, p_nuevas: nuevas });
+export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>): Promise<string> {
+  const { data, error } = await supabase.rpc('maquinaria_pedir_compra_orden', { p_id: o.id, p_nuevas: [] });
   if (error) throw error;
   return (data as { codigo: string }).codigo;
 }
@@ -306,23 +303,6 @@ export async function fotosDeEquipos(equipoId?: string): Promise<FotoEquipo[]> {
   return ordenarFotosEquipo(lista);
 }
 
-/* ───────── Piezas nuevas: aviso a Compras y cambio por el producto ───────── */
-
-/**
- * Avisa a Compras (notificación persistente dirigida al rol analista_de_compras, con el
- * código OS, el equipo y la lista de piezas; enlaza al expediente) de las
- * piezas de la orden que no existen en el inventario: las da de alta Compras, la orden
- * no crea productos. Deja constancia en la orden. Devuelve false si no había piezas.
- */
-export async function notificarComprasPiezasNuevas(o: Pick<OrdenServicio, 'id' | 'repuestos'>): Promise<boolean> {
-  if (!piezasNuevas(o.repuestos).length) return false;
-  // En el servidor (RPC): quien crea la orden no tiene el rol de Compras y no podría leer
-  // de vuelta una notificación dirigida a ese rol. Inserta el aviso y marca la orden juntos.
-  const { data, error } = await supabase.rpc('maquinaria_notificar_compras_piezas', { p_id: o.id });
-  if (error) throw error;
-  return data === true;
-}
-
 export interface EdicionOrdenServicio {
   tipo: string;
   urgencia: 'normal' | 'alta' | 'urgente';
@@ -340,11 +320,11 @@ export interface EdicionOrdenServicio {
   repuestos?: NuevaOrdenServicio['repuestos'];
 }
 
-/** Edita la orden. Si cambiaron las piezas nuevas, `notificar` pide volver a avisar a Compras. */
-export async function editarOrdenServicio(id: string, input: EdicionOrdenServicio): Promise<{ codigo: string; estado: EstadoOrdenServicio; repuestos: RepuestoOrden[]; notificar: boolean }> {
+/** Edita la orden (la base vuelve a decidir inventario / compra si cambiaron los repuestos). */
+export async function editarOrdenServicio(id: string, input: EdicionOrdenServicio): Promise<{ codigo: string; estado: EstadoOrdenServicio; repuestos: RepuestoOrden[] }> {
   const { data, error } = await supabase.rpc('maquinaria_editar_orden_servicio', { p_id: id, p: input });
   if (error) throw error;
-  return data as { codigo: string; estado: EstadoOrdenServicio; repuestos: RepuestoOrden[]; notificar: boolean };
+  return data as { codigo: string; estado: EstadoOrdenServicio; repuestos: RepuestoOrden[] };
 }
 
 /**
@@ -358,13 +338,6 @@ export async function eliminarOrdenServicio(o: Pick<OrdenServicio, 'id' | 'codig
   if (error) throw error;
   if (!data?.length) throw new Error(`No se pudo borrar la orden ${o.codigo} (puede que ya no exista o que no tengas permiso).`);
   await borrarArchivosFotosOrden(fotos.map((f) => f.path));
-}
-
-/** Cambia una pieza nueva por el producto del inventario y vuelve a decidir inventario / compra. */
-export async function reemplazarPiezaOrden(ordenId: string, indice: number, productoId: string): Promise<RepuestoOrden> {
-  const { data, error } = await supabase.rpc('maquinaria_reemplazar_pieza_orden', { p_id: ordenId, p_indice: indice, p_producto_id: productoId });
-  if (error) throw error;
-  return data as RepuestoOrden;
 }
 
 /* ───────── Lavados ───────── */
