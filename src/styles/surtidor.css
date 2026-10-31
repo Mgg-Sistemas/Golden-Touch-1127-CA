@@ -93,7 +93,7 @@
 .surt-confirmar strong { color: var(--danger); }
 .surt-confirmar .botones { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .7rem; }
 .surt-confirmar .btn { min-height: 60px; font-size: 1.1rem; font-weight: 800; }
-.btn-peligro { background: var(--danger); color: #fff; border: 0; }
+.btn-peligro { background: var(--danger); color: var(--text); border: 0; }
 
 /* Pasar el movimiento por WhatsApp (detalle del movimiento) */
 .surt-compartir { margin-bottom: .9rem; padding: .7rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-3); }
@@ -111,8 +111,13 @@
 
 /* ── Depósito Mina: salida con ¿retorna? SÍ / NO y fotos (13/10/2026) ── */
 .surt-btn.salida { border-color: var(--warning); }
-.surt-btn.traslado { border-color: #a855f7; font-size: 1.1rem; }
-.surt-btn.retorno { border-color: var(--info, var(--primary)); font-size: 1.1rem; }
+.surt-btn.traslado { border-color: var(--primary-3); font-size: 1.1rem; }
+.surt-btn.retorno { border-color: var(--info); font-size: 1.1rem; }
+/* Reporte por WhatsApp y accesos a otros depósitos: el color va por la clase, no inline. */
+.surt-btn.wsp { border-color: var(--success); }
+.surt-btn.dep-danados { border-color: var(--warning); }
+.surt-btn.dep-reutilizables { border-color: var(--success); }
+.surt-btn.dep-mina { border-color: var(--info); }
 .surt-sino { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .surt-sino .surt-btn { min-height: 96px; }
 .surt-sino .surt-btn.si.sel { border-color: var(--success); background: color-mix(in srgb, var(--success) 14%, var(--surface-3)); }
@@ -120,5 +125,5 @@
 .surt-foto-quitar { position: relative; cursor: default; }
 .surt-foto-quitar button {
   position: absolute; top: .25rem; right: .25rem; width: 32px; height: 32px; border-radius: 50%;
-  border: 0; background: rgba(0, 0, 0, .65); color: #fff; font-size: 1rem; cursor: pointer;
+  border: 1px solid var(--danger); background: var(--bg-0); color: var(--danger); font-size: 1rem; cursor: pointer;
 }

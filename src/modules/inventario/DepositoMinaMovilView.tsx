@@ -46,6 +46,7 @@ import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stock
 import { listMovimientosDepositoDesde } from './stockMina.repository';
 import { mensajeEntrada, mensajeProductoNuevo, mensajeTraslado } from './inventarioMovil';
 import { trasladarEntreAlmacenes } from './trasladoAlmacen.repository';
+import { costoProducto, docEntradaMovil, docTrasladoMovil, type DocMovilPdf } from './inventarioMovilPdf';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
 
@@ -171,9 +172,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
                 whiteSpace: 'nowrap',
                 fontWeight: esActivo ? 700 : 500,
                 fontSize: '.85rem',
-                borderRadius: '999px',
                 padding: '.35rem .75rem',
-                border: esActivo ? 'none' : '1px solid var(--border)',
                 textDecoration: 'none',
               }}
             >
@@ -231,7 +230,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
 
       {!loading && paso === 'inicio' && (
         <>
-          <button type="button" className="surt-btn" style={{ width: '100%', minHeight: 84, marginTop: '.75rem', borderColor: '#25d366' }}
+          <button type="button" className="surt-btn wsp" style={{ width: '100%', minHeight: 84, marginTop: '.75rem' }}
             onClick={() => setPaso('reporte')}>
             <span>📲 Reporte de stock (WhatsApp)</span>
             <small>Lo que hay en {DEP.nombre}, filtrado por fechas</small>
@@ -250,13 +249,12 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
                     <Link
                       key={d.almacen}
                       to={d.rutaTelefono}
-                      className="surt-btn"
+                      className={`surt-btn${d.almacen === ALMACEN_DANADOS ? ' dep-danados' : d.almacen === ALMACEN_REUTILIZABLES ? ' dep-reutilizables' : d.almacen === ALMACEN_MINA ? ' dep-mina' : ''}`}
                       style={{
                         minHeight: 68,
                         padding: '.5rem',
                         fontSize: '1rem',
                         textDecoration: 'none',
-                        borderColor: d.almacen === ALMACEN_DANADOS ? '#f59e0b' : d.almacen === ALMACEN_REUTILIZABLES ? '#10b981' : d.almacen === ALMACEN_MINA ? '#3b82f6' : 'var(--border-strong)',
                       }}
                     >
                       <span className="icono" aria-hidden style={{ fontSize: '1.5rem' }}>{d.icono}</span>
@@ -513,6 +511,7 @@ function FormEntrada({ dep, producto, actor, actorName, onCancel, onSaved }: {
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [pdf, setPdf] = useState<DocMovilPdf | null>(null);
   const cant = Number(cantidad.replace(',', '.')) || 0;
 
   async function guardar(e: FormEvent) {
@@ -529,6 +528,10 @@ function FormEntrada({ dep, producto, actor, actorName, onCancel, onSaved }: {
         deposito: dep.nombre, sku: producto.sku, nombre: producto.nombre, unidad: producto.unidad,
         cantidad: cant, queda: Number(mov.stock_despues) || despues, nota,
       }, actorName ?? actor, mov.at));
+      setPdf(docEntradaMovil({
+        movId: mov.id, at: mov.at, almacen: dep.almacen, producto, cantidad: cant,
+        precioUnit: mov.precio_unitario, nota,
+      }, { actor, nombre: actorName }));
     } catch (err) {
       toast(errMsg(err, 'No se pudo guardar'), 'error');
     } finally {
@@ -537,7 +540,7 @@ function FormEntrada({ dep, producto, actor, actorName, onCancel, onSaved }: {
   }
 
   const despues = (Number(producto.stock) || 0) + cant;
-  if (aviso) return <Listo titulo={`Entrada: +${num(cant)} ${producto.unidad} de ${producto.nombre}`} texto={aviso} onListo={() => { void onSaved(); }} />;
+  if (aviso) return <Listo titulo={`Entrada: +${num(cant)} ${producto.unidad} de ${producto.nombre}`} texto={aviso} pdf={pdf} onListo={() => { void onSaved(); }} />;
 
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
@@ -586,7 +589,7 @@ function FormTraslado({
   const [cantidad, setCantidad] = useState('');
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [aviso, setAviso] = useState<{ titulo: string; texto: string } | null>(null);
+  const [aviso, setAviso] = useState<{ titulo: string; texto: string; pdf: DocMovilPdf } | null>(null);
   const cant = Number(cantidad.replace(',', '.')) || 0;
   const hay = Number(producto.stock) || 0;
   const destinoDep = otros.find((d) => d.almacen === destinoAlmacen) ?? otros[0] ?? resolverDeposito('general');
@@ -605,7 +608,11 @@ function FormTraslado({
         actor,
         actor_name: actorName,
       });
-      setAviso({ titulo: `Traslado ${t.codigo} registrado`, texto: mensajeTraslado(t, actorName ?? actor) });
+      setAviso({
+        titulo: `Traslado ${t.codigo} registrado`,
+        texto: mensajeTraslado(t, actorName ?? actor),
+        pdf: docTrasladoMovil(t, costoProducto(producto), { actor, nombre: actorName }),
+      });
     } catch (err) {
       toast(errMsg(err, 'No se pudo trasladar'), 'error');
     } finally {
@@ -613,7 +620,7 @@ function FormTraslado({
     }
   }
 
-  if (aviso) return <Listo titulo={aviso.titulo} texto={aviso.texto} onListo={() => { void onSaved(); }} />;
+  if (aviso) return <Listo titulo={aviso.titulo} texto={aviso.texto} pdf={aviso.pdf} onListo={() => { void onSaved(); }} />;
 
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
