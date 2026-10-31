@@ -156,18 +156,22 @@ export function mesEtiqueta(fechaIso: string): string {
 }
 
 /** Calcula las horas trabajadas en un único movimiento de despacho. */
-export function horasDeMovimiento(m: MovimientoTanque): number {
+export function horasDeMovimiento(m: MovimientoTanque, esVehiculo = false): number {
+  if (esVehiculo) return 0;
+  let h = 0;
   if (m.horas_utilizadas != null && Number(m.horas_utilizadas) > 0) {
-    return Number(m.horas_utilizadas);
-  }
-  if (
+    h = Number(m.horas_utilizadas);
+  } else if (
     m.horometro_fin != null &&
     m.horometro_ini != null &&
     Number(m.horometro_fin) >= Number(m.horometro_ini)
   ) {
-    return Number(m.horometro_fin) - Number(m.horometro_ini);
+    h = Number(m.horometro_fin) - Number(m.horometro_ini);
   }
-  return 0;
+  // Sanidad: un despacho individual de combustible no supera 500 horas de operación continua.
+  // Valores mayores corresponden a lecturas de odómetro o acumuladores absolutos guardados por error.
+  if (h > 500) return 0;
+  return h;
 }
 
 /** Calcula el monto en USD de un movimiento según la base de tasa elegida. */
@@ -257,7 +261,6 @@ export function enriquecerMovimientos(
 
     const litros = Number(m.litros) || 0;
     const usd = valorUsdDeMovimiento(m, baseTasa, tasaActual);
-    const horas = horasDeMovimiento(m);
 
     let equipoNombre = (m.equipo ?? '').trim();
     let empresa = 'Sin empresa asignada';
@@ -292,6 +295,9 @@ export function enriquecerMovimientos(
         }
       }
     }
+
+    const esVehiculo = claseMaquina === 'vehiculo' || tipoMaquina.toUpperCase().includes('VEHÍCULO') || tipoMaquina.toUpperCase().includes('VEHICULO');
+    const horas = horasDeMovimiento(m, esVehiculo);
 
     return {
       mov: m,

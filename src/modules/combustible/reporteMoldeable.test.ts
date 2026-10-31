@@ -279,6 +279,38 @@ describe('reporteMoldeable', () => {
     expect(filas[0].pct_tanque).toBe(100);
     expect(filas[0].pct_capacidad).toBeCloseTo((1990 / 10000) * 100, 1);
   });
+  it('descarta horas de horómetro en vehículos o valores anómalos de odómetro (>500 h)', () => {
+    const fichas: MaquinariaEquipo[] = [
+      {
+        id: 'eq-encava',
+        equipo: 'ENCAVA EP-01',
+        combustible_equipo: 'ENCAVA EP-01',
+        propietario: 'MINERAL GROUP GUAYANA',
+        tipo: 'VEHÍCULO',
+        clase: 'vehiculo',
+        activo: true,
+      } as unknown as MaquinariaEquipo,
+    ];
+
+    const movs: MovimientoTanque[] = [
+      {
+        id: 'm-encava',
+        tanque_id: 'tk-1',
+        equipo: 'ENCAVA EP-01',
+        litros: 542,
+        horas_utilizadas: 352478, // odómetro guardado por error en horas
+        horometro_ini: 0,
+        horometro_fin: 352478,
+        fecha: '2026-10-28',
+        tipo: 'uso',
+      } as MovimientoTanque,
+    ];
+
+    const enriquecidos = enriquecerMovimientos(movs, fichas, [], 'historica');
+    expect(enriquecidos[0].horas).toBe(0); // debe ser 0 para no distorsionar
+
+    const { filas } = procesarFilasReporte(enriquecidos, 'equipo');
+    expect(filas[0].horas).toBe(0);
+    expect(filas[0].rendimiento).toBeNull();
+  });
 });
-
-
