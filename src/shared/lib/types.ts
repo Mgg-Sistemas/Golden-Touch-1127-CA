@@ -450,6 +450,8 @@ export interface MovimientoTanque {
   kilometraje?: number | null;
   /** Indica si el movimiento fue asentado en el cuaderno físico de campo. */
   registrado_en_cuaderno?: boolean | null;
+  /** Cantidad de litros registrados en el cuaderno físico (si fue registrado). */
+  cuaderno_litros?: number | null;
   tasa_usd_litro: number;
   monto_usd?: number | null;
   orden: number;

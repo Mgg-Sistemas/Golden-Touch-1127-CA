@@ -60,6 +60,8 @@ export interface DatosMensaje {
   registradoPor?: string | null;
   /** Forzar o indicar explícitamente el estado de cuaderno si no viene en mov */
   registradoEnCuaderno?: boolean | null;
+  /** Litros registrados en cuaderno */
+  cuadernoLitros?: number | null;
 }
 
 /**
@@ -90,8 +92,14 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   if (m.kilometraje != null) lineas.push(`📏 *Kilometraje:* ${num(m.kilometraje)}`);
 
   const regCuaderno = d.registradoEnCuaderno !== undefined ? d.registradoEnCuaderno : m.registrado_en_cuaderno;
+  const cuadLitros = d.cuadernoLitros !== undefined ? d.cuadernoLitros : m.cuaderno_litros;
   if (regCuaderno !== undefined && regCuaderno !== null) {
-    lineas.push(`📖 *Registrado en cuaderno:* ${regCuaderno ? 'Registrado' : 'No registrado'}`);
+    if (regCuaderno) {
+      const cant = cuadLitros != null ? `${num(cuadLitros)} L` : (m.litros != null ? `${num(m.litros)} L` : 'Registrado');
+      lineas.push(`📖 *Registro Cuaderno:* ${cant}`);
+    } else {
+      lineas.push(`📖 *Registro Cuaderno:* No registrado`);
+    }
   }
   if (m.observacion) lineas.push(`📝 *Nota:* ${m.observacion}`);
 

@@ -285,6 +285,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   const [ci, setCi] = useState(''); const [ciAuto, setCiAuto] = useState(false);
   const [cf, setCf] = useState('');
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(false);
+  const [cuadernoLitros, setCuadernoLitros] = useState('');
   const [masDatos, setMasDatos] = useState(false);
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
@@ -354,12 +355,16 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
     if (errHor) { setError(errHor); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
+      const cLitrosNum = registradoEnCuaderno
+        ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : litrosNum)
+        : null;
       const campos = {
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
         horometroIni: hiNum, horometroFin: hfNum,
         kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
         registrado_en_cuaderno: registradoEnCuaderno,
+        cuaderno_litros: cLitrosNum,
       };
       let movId: string;
       if (tipo === 'uso') movId = (await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
@@ -535,7 +540,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
         </div>
       )}
 
-      {/* Check de asentado en cuaderno físico (pedido 30/10/2026) */}
+      {/* Control de Registro Cuaderno (pedido 30/10/2026) */}
       <div className="surt-campo" style={{ margin: '.6rem 0' }}>
         <label
           style={{
@@ -545,7 +550,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
             gap: '.75rem',
             background: registradoEnCuaderno ? 'rgba(16, 185, 129, 0.14)' : 'rgba(30, 41, 59, 0.7)',
             border: registradoEnCuaderno ? '1.5px solid rgba(16, 185, 129, 0.5)' : '1px solid #334155',
-            borderRadius: '12px',
+            borderRadius: registradoEnCuaderno ? '12px 12px 0 0' : '12px',
             padding: '.75rem 1rem',
             cursor: 'pointer',
             userSelect: 'none',
@@ -556,17 +561,23 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
             <span style={{ fontSize: '1.35rem' }}>📖</span>
             <div>
               <div style={{ fontWeight: 700, color: registradoEnCuaderno ? '#34d399' : '#f1f5f9', fontSize: '.95rem' }}>
-                ¿Registrado en cuaderno?
+                Registro Cuaderno
               </div>
               <div style={{ fontSize: '.75rem', color: registradoEnCuaderno ? '#6ee7b7' : '#94a3b8' }}>
-                {registradoEnCuaderno ? '✓ Asentado en el cuaderno físico' : 'Pendiente por asentar en cuaderno'}
+                {registradoEnCuaderno ? 'Registrado' : 'No registrado'}
               </div>
             </div>
           </div>
           <input
             type="checkbox"
             checked={registradoEnCuaderno}
-            onChange={(e) => setRegistradoEnCuaderno(e.target.checked)}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setRegistradoEnCuaderno(v);
+              if (v && (!cuadernoLitros || cuadernoLitros === '')) {
+                setCuadernoLitros(litros || '');
+              }
+            }}
             style={{
               width: '22px',
               height: '22px',
@@ -575,6 +586,33 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
             }}
           />
         </label>
+        {registradoEnCuaderno && (
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.85)',
+            border: '1.5px solid rgba(16, 185, 129, 0.5)',
+            borderTop: 'none',
+            borderRadius: '0 0 12px 12px',
+            padding: '.65rem 1rem',
+          }}>
+            <label htmlFor="surt-cuaderno-litros" style={{ fontSize: '.78rem', color: '#6ee7b7', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+              ¿Cuánto está registrado en cuaderno?
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <input
+                id="surt-cuaderno-litros"
+                className="input surt-input"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                value={cuadernoLitros}
+                onChange={(e) => setCuadernoLitros(e.target.value)}
+                placeholder={litros || '0'}
+                style={{ fontWeight: 700, borderColor: 'rgba(16, 185, 129, 0.6)', background: 'rgba(6, 78, 59, 0.2)' }}
+              />
+              <span className="mono" style={{ color: '#34d399', fontWeight: 700 }}>Ltrs</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos}
@@ -695,7 +733,14 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
       {/* El que surte manda el aviso al grupo apenas carga el surtido. */}
-      <CompartirWhatsapp texto={mensajeMovimiento({ mov, tanque: tanque?.nombre, tanqueDestino: destino, registradoPor: quien(mov.actor_name, mov.created_by), registradoEnCuaderno: enCuaderno })} />
+      <CompartirWhatsapp texto={mensajeMovimiento({
+        mov,
+        tanque: tanque?.nombre,
+        tanqueDestino: destino,
+        registradoPor: quien(mov.actor_name, mov.created_by),
+        registradoEnCuaderno: enCuaderno,
+        cuadernoLitros: enCuaderno ? (mov.cuaderno_litros ?? mov.litros) : null,
+      })} />
 
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre} />
@@ -711,14 +756,14 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.45rem 0', borderBottom: '1px solid #1e293b' }}>
-          <span className="muted" style={{ fontSize: '.84rem' }}>📖 Cuaderno físico</span>
+          <span className="muted" style={{ fontSize: '.84rem' }}>📖 Registro Cuaderno</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
             <span style={{
               fontWeight: 700,
               color: enCuaderno ? '#34d399' : '#f87171',
               fontSize: '.88rem',
             }}>
-              {enCuaderno ? '✓ Registrado' : '✕ No registrado'}
+              {enCuaderno ? `✓ ${mov.cuaderno_litros != null ? `${num(mov.cuaderno_litros)} L` : 'Registrado'}` : '✕ No registrado'}
             </span>
             {canWrite && (
               <button
@@ -727,10 +772,12 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
                 onClick={async () => {
                   try {
                     const nuevo = !enCuaderno;
-                    await setMovimientoCuaderno(mov.id, nuevo);
+                    const cant = nuevo ? (mov.cuaderno_litros ?? mov.litros) : null;
+                    await setMovimientoCuaderno(mov.id, nuevo, cant);
                     mov.registrado_en_cuaderno = nuevo;
+                    mov.cuaderno_litros = cant;
                     setEnCuaderno(nuevo);
-                    toast(nuevo ? 'Marcado como asentado en cuaderno' : 'Marcado como no asentado', 'success');
+                    toast(nuevo ? 'Marcado como registrado en cuaderno' : 'Marcado como no registrado', 'success');
                   } catch (e) {
                     toast(mensajeError(e, 'No se pudo actualizar'), 'error');
                   }

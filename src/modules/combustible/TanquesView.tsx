@@ -856,6 +856,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const [recibidos, setRecibidos] = useState('');
   const [motivoMerma, setMotivoMerma] = useState('');
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(false);
+  const [cuadernoLitros, setCuadernoLitros] = useState('');
   const [movsTanque, setMovsTanque] = useState<MovimientoTanque[]>([]);
   const [pctMermaImplicita, setPctMermaImplicita] = useState<number>(() => {
     const t = tanques.find((x) => x.id === tanqueId);
@@ -966,13 +967,17 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     if (recepcion.ok?.excede && !motivoMerma.trim()) { setError(`La merma pasa el margen de ${margenRecibe}%: indica el motivo.`); return; }
     if (recepcion.ok?.excede && !isAdmin) { setError(`La merma pasa el margen de ${margenRecibe}%: solo un administrador puede guardarla.`); return; }
     const rec = tanqueRecibe && recibidos.trim() !== '' ? { recibidos: Number(recibidos.replace(',', '.')), motivo: motivoMerma } : null;
-    const campos = {
-      fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
-      horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
-      kilometraje: km === '' ? null : Number(km),
-      contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
-      registrado_en_cuaderno: registradoEnCuaderno,
-    };
+      const cLitrosNum = registradoEnCuaderno
+        ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : litrosNum)
+        : null;
+      const campos = {
+        fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
+        horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
+        kilometraje: km === '' ? null : Number(km),
+        contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
+        registrado_en_cuaderno: registradoEnCuaderno,
+        cuaderno_litros: cLitrosNum,
+      };
     setSaving(true);
     try {
       if (tipo === 'entrada') await registrarEntrada({ tanqueId, litros: litrosNum, costoLitro: Number(costo) || 0, campos, actor, actorName, recepcion: rec });
@@ -1288,18 +1293,46 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           </div>
         )}
 
-        {/* Check de cuaderno físico (pedido 30/10/2026) */}
-        <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginTop: '.75rem', padding: '.4rem 0' }}>
-          <input
-            id="mov-cuaderno"
-            type="checkbox"
-            checked={registradoEnCuaderno}
-            onChange={(e) => setRegistradoEnCuaderno(e.target.checked)}
-            style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
-          />
-          <label htmlFor="mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
-            📖 Registrado en cuaderno físico de control
-          </label>
+        {/* Control de Registro Cuaderno (pedido 30/10/2026) */}
+        <div className="form-row" style={{ marginTop: '.75rem', padding: '.4rem 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <input
+              id="mov-cuaderno"
+              type="checkbox"
+              checked={registradoEnCuaderno}
+              onChange={(e) => {
+                const v = e.target.checked;
+                setRegistradoEnCuaderno(v);
+                if (v && (!cuadernoLitros || cuadernoLitros === '')) {
+                  setCuadernoLitros(litros || '');
+                }
+              }}
+              style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+            />
+            <label htmlFor="mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
+              📖 Registro Cuaderno
+            </label>
+            <span style={{ fontSize: '.8rem', color: registradoEnCuaderno ? '#6ee7b7' : '#94a3b8' }}>
+              ({registradoEnCuaderno ? 'Registrado' : 'No registrado'})
+            </span>
+          </div>
+          {registradoEnCuaderno && (
+            <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
+              <label htmlFor="mov-cuaderno-litros" style={{ fontSize: '.8rem', color: '#6ee7b7', margin: 0, whiteSpace: 'nowrap' }}>
+                Litros en cuaderno:
+              </label>
+              <input
+                id="mov-cuaderno-litros"
+                className="input mono"
+                type="number"
+                step="any"
+                value={cuadernoLitros}
+                onChange={(e) => setCuadernoLitros(e.target.value)}
+                placeholder={litros || '0'}
+                style={{ fontWeight: 700 }}
+              />
+            </div>
+          )}
         </div>
       </form>
     </Modal>
@@ -1342,6 +1375,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const [ci, setCi] = useState(s(mov.contador_global_ini));
   const [cf, setCf] = useState(s(mov.contador_global_fin));
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
+  const [cuadernoLitros, setCuadernoLitros] = useState(mov.cuaderno_litros != null ? String(mov.cuaderno_litros) : (mov.registrado_en_cuaderno ? String(mov.litros) : ''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1371,6 +1405,9 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
         kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
         registrado_en_cuaderno: registradoEnCuaderno,
+        cuaderno_litros: registradoEnCuaderno
+          ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : (Number(litros) || mov.litros))
+          : null,
       });
       toast('Movimiento actualizado', 'success');
       onSaved();
@@ -1476,18 +1513,48 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
           style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
       </div>
 
-      <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginTop: '.75rem', padding: '.4rem 0' }}>
-        <input
-          id="det-mov-cuaderno"
-          type="checkbox"
-          checked={registradoEnCuaderno}
-          onChange={(e) => setRegistradoEnCuaderno(e.target.checked)}
-          disabled={!canWrite}
-          style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
-        />
-        <label htmlFor="det-mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
-          📖 Registrado en cuaderno físico de control
-        </label>
+      {/* Control de Registro Cuaderno (pedido 30/10/2026) */}
+      <div className="form-row" style={{ marginTop: '.75rem', padding: '.4rem 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+          <input
+            id="det-mov-cuaderno"
+            type="checkbox"
+            checked={registradoEnCuaderno}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setRegistradoEnCuaderno(v);
+              if (v && (!cuadernoLitros || cuadernoLitros === '')) {
+                setCuadernoLitros(litros || String(mov.litros));
+              }
+            }}
+            disabled={!canWrite}
+            style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+          />
+          <label htmlFor="det-mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
+            📖 Registro Cuaderno
+          </label>
+          <span style={{ fontSize: '.8rem', color: registradoEnCuaderno ? '#6ee7b7' : '#94a3b8' }}>
+            ({registradoEnCuaderno ? 'Registrado' : 'No registrado'})
+          </span>
+        </div>
+        {registradoEnCuaderno && (
+          <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
+            <label htmlFor="det-mov-cuaderno-litros" style={{ fontSize: '.8rem', color: '#6ee7b7', margin: 0, whiteSpace: 'nowrap' }}>
+              Litros en cuaderno:
+            </label>
+            <input
+              id="det-mov-cuaderno-litros"
+              className="input mono"
+              type="number"
+              step="any"
+              value={cuadernoLitros}
+              onChange={(e) => setCuadernoLitros(e.target.value)}
+              disabled={!canWrite}
+              placeholder={litros || String(mov.litros)}
+              style={{ fontWeight: 700 }}
+            />
+          </div>
+        )}
       </div>
     </Modal>
   );

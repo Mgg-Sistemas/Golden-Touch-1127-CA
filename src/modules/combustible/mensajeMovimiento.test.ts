@@ -46,20 +46,26 @@ describe('mensajeMovimiento', () => {
 
   it('incluye estado de cuaderno físico según corresponda', () => {
     const tRegistrado = mensajeMovimiento({
-      mov: mov({ registrado_en_cuaderno: true }),
+      mov: mov({ registrado_en_cuaderno: true, litros: 55 }),
     });
-    expect(tRegistrado).toContain('📖 *Registrado en cuaderno:* Registrado');
+    expect(tRegistrado).toContain('📖 *Registro Cuaderno:* 55 L');
+
+    const tRegistradoPersonalizado = mensajeMovimiento({
+      mov: mov({ registrado_en_cuaderno: true, litros: 55, cuaderno_litros: 50 }),
+    });
+    expect(tRegistradoPersonalizado).toContain('📖 *Registro Cuaderno:* 50 L');
 
     const tNoRegistrado = mensajeMovimiento({
       mov: mov({ registrado_en_cuaderno: false }),
     });
-    expect(tNoRegistrado).toContain('📖 *Registrado en cuaderno:* No registrado');
+    expect(tNoRegistrado).toContain('📖 *Registro Cuaderno:* No registrado');
 
     const tOverride = mensajeMovimiento({
-      mov: mov({ registrado_en_cuaderno: false }),
+      mov: mov({ registrado_en_cuaderno: false, litros: 80 }),
       registradoEnCuaderno: true,
+      cuadernoLitros: 75,
     });
-    expect(tOverride).toContain('📖 *Registrado en cuaderno:* Registrado');
+    expect(tOverride).toContain('📖 *Registro Cuaderno:* 75 L');
   });
 
   it('no escribe los renglones de lo que no hay', () => {

@@ -643,8 +643,19 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   return rows.map((m) => {
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
-    const regCuaderno = m.registrado_en_cuaderno ?? (m.observacion && /\[Cuaderno:\s*(Sí|Registrado)\]/i.test(m.observacion) ? true : false);
-    return { ...m, registrado_en_cuaderno: regCuaderno, saldo_litros: round(saldoL, 2), saldo_usd: round(saldoU, 2) };
+    const regCuaderno = m.registrado_en_cuaderno ?? (m.observacion && /\[Cuaderno:\s*(Sí|Registrado|\d+)/i.test(m.observacion) ? true : false);
+    let cLitros = m.cuaderno_litros;
+    if (cLitros == null && m.observacion) {
+      const matchLitros = m.observacion.match(/\[Cuaderno:\s*(?:Registrado\s*[-·:]\s*)?([\d.,]+)\s*L?\]/i);
+      if (matchLitros) cLitros = Number(matchLitros[1].replace(',', '.'));
+    }
+    return {
+      ...m,
+      registrado_en_cuaderno: regCuaderno,
+      cuaderno_litros: cLitros ?? (regCuaderno ? m.litros : null),
+      saldo_litros: round(saldoL, 2),
+      saldo_usd: round(saldoU, 2),
+    };
   });
 }
 
@@ -664,6 +675,8 @@ export interface MovimientoTanqueCampos {
   kilometraje?: number | null;
   /** ¿Fue asentado en el cuaderno físico de campo? */
   registrado_en_cuaderno?: boolean | null;
+  /** Litros registrados en el cuaderno físico de campo */
+  cuaderno_litros?: number | null;
 }
 
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
@@ -672,13 +685,16 @@ async function insertarMovimiento(payload: Record<string, unknown>): Promise<Mov
   const res = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
   data = res.data;
   error = res.error;
-  if (error && (error as { code?: string }).code === '42703' && 'registrado_en_cuaderno' in payload) {
+  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload)) {
     const fallbackPayload = { ...payload };
     const reg = fallbackPayload.registrado_en_cuaderno;
+    const cLtrs = fallbackPayload.cuaderno_litros;
     delete fallbackPayload.registrado_en_cuaderno;
+    delete fallbackPayload.cuaderno_litros;
     if (reg) {
+      const cantTexto = cLtrs != null ? `${num(cLtrs)} L` : 'Registrado';
       const obs = String(fallbackPayload.observacion || '').trim();
-      fallbackPayload.observacion = obs ? `${obs} [Cuaderno: Registrado]` : '[Cuaderno: Registrado]';
+      fallbackPayload.observacion = obs ? `${obs} [Cuaderno: ${cantTexto}]` : `[Cuaderno: ${cantTexto}]`;
     }
     const res2 = await supabase.from('combustible_tanque_movimientos').insert(fallbackPayload).select('*').single();
     data = res2.data;
@@ -713,6 +729,7 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
     // contador_global_dif. Basta con guardar HI y HF.
     kilometraje: c.kilometraje ?? null,
     ...(c.registrado_en_cuaderno !== undefined ? { registrado_en_cuaderno: c.registrado_en_cuaderno } : {}),
+    ...(c.cuaderno_litros !== undefined ? { cuaderno_litros: c.cuaderno_litros } : {}),
   };
 }
 
@@ -1380,19 +1397,30 @@ async function reencadenarHorometroEquipo(equipo: string | null | undefined): Pr
  *  (por equipo) — el inicial de cada movimiento vuelve a colgar del final del anterior. */
 
 /**
- * Actualiza el estado de asentado en cuaderno físico de un movimiento.
+ * Actualiza el estado de asentado en cuaderno físico de un movimiento y sus litros.
  */
-export async function setMovimientoCuaderno(movId: string, registrado_en_cuaderno: boolean): Promise<void> {
+export async function setMovimientoCuaderno(
+  movId: string,
+  registrado_en_cuaderno: boolean,
+  cuaderno_litros?: number | null,
+): Promise<void> {
+  const updatePayload: Record<string, unknown> = {
+    registrado_en_cuaderno,
+    cuaderno_litros: registrado_en_cuaderno ? (cuaderno_litros ?? null) : null,
+  };
   const { error } = await supabase
     .from('combustible_tanque_movimientos')
-    .update({ registrado_en_cuaderno })
+    .update(updatePayload)
     .eq('id', movId);
   if (error) {
     if ((error as { code?: string }).code === '42703') {
-      const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion').eq('id', movId).maybeSingle();
+      const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion, litros').eq('id', movId).maybeSingle();
       const obs = (data as { observacion?: string | null })?.observacion || '';
-      const limpio = obs.replace(/\[Cuaderno:\s*(Sí|No|Registrado|No registrado)\]/gi, '').trim();
-      const nuevoObs = `${limpio} [Cuaderno: ${registrado_en_cuaderno ? 'Registrado' : 'No registrado'}]`.trim();
+      const movLitros = (data as { litros?: number })?.litros;
+      const limpio = obs.replace(/\[Cuaderno:\s*[^\]]+\]/gi, '').trim();
+      const cant = cuaderno_litros ?? movLitros;
+      const texto = registrado_en_cuaderno ? (cant != null ? `${num(cant)} L` : 'Registrado') : 'No registrado';
+      const nuevoObs = `${limpio} [Cuaderno: ${texto}]`.trim();
       await supabase.from('combustible_tanque_movimientos').update({ observacion: nuevoObs }).eq('id', movId);
       return;
     }
