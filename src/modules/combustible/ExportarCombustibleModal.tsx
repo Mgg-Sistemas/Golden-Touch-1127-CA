@@ -44,6 +44,7 @@ const CLAVE_LOCAL_RESUMEN = 'combustible.reporte.resumen.v1';
 
 const MODOS_AGRUPACION: { id: ModoAgrupacionCombustible; icon: string; label: string }[] = [
   { id: 'equipo', icon: '🚜', label: 'Por Equipo' },
+  { id: 'dia', icon: '📆', label: 'Por Día' },
   { id: 'empresa', icon: '🏢', label: 'Por Empresa' },
   { id: 'tipo', icon: '🏷️', label: 'Por Tipo' },
   { id: 'ubicacion', icon: '📍', label: 'Por Ubicación' },
@@ -176,7 +177,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
       setCargando(true);
       try {
         const [movs, fchs] = await Promise.all([
-          consultarMovimientosReporteCombustible({ desde, hasta, tipos: ['uso'] }),
+          consultarMovimientosReporteCombustible({ desde, hasta, tipos: ['uso', 'traslado'] }),
           listEquipos().catch(() => [] as MaquinariaEquipo[]),
         ]);
         if (!cancelado) {
@@ -479,6 +480,12 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
               📅 Rango de Fechas
             </span>
             <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(hoyVE()); setHasta(hoyVE()); }}>
+                Hoy
+              </button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { const a = diasAtras(1); setDesde(a); setHasta(a); }}>
+                Ayer
+              </button>
               <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(primerDiaMesActual()); setHasta(hoyVE()); }}>
                 Este mes
               </button>
@@ -1275,6 +1282,188 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
               {resumen.rendimientoPromedio > 0 ? `${resumen.rendimientoPromedio.toFixed(2)} L/h` : '-'}
             </div>
           </div>
+        </div>
+
+        {/* 7. Vista Previa Interactiva (Fichas / Tabla) */}
+        <div style={{
+          background: 'var(--surface-2, #182230)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          padding: '.65rem .8rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+            <span style={{ fontSize: '.84rem', fontWeight: 600, color: 'var(--text, #f1f5f9)', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span>👁️ Vista Previa</span>
+              <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1' }}>
+                {filas.length} {filas.length === 1 ? 'registro' : 'registros'}
+              </span>
+            </span>
+            <div className="muted" style={{ fontSize: '.75rem' }}>
+              {formatoPresentacion === 'fichas' ? 'Diseño en tarjetas ejecutivas' : 'Diseño en cuadrícula tabular'}
+            </div>
+          </div>
+
+          {filas.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>
+              No hay movimientos de combustible para el período o filtros seleccionados.
+            </div>
+          ) : formatoPresentacion === 'fichas' ? (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: '.55rem',
+              maxHeight: '260px',
+              overflowY: 'auto',
+              paddingRight: '.2rem'
+            }}>
+              {filas.map((f) => {
+                const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
+                return (
+                  <div
+                    key={f.id}
+                    style={{
+                      background: 'var(--surface-1, #0f172a)',
+                      border: '1px solid var(--border, #334155)',
+                      borderLeft: `4px solid ${esTraslado ? '#0284c7' : 'var(--primary, #f97316)'}`,
+                      borderRadius: '6px',
+                      padding: '.55rem .7rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '.35rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.4rem' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '.86rem', color: '#f8fafc' }}>
+                          {f.equipo || 'Sin equipo'}
+                        </div>
+                        <div className="muted" style={{ fontSize: '.72rem' }}>
+                          {f.empresa || 'Sin empresa'} {f.tipo ? `· ${f.tipo}` : ''}
+                        </div>
+                      </div>
+                      <div style={{
+                        textAlign: 'right',
+                        background: esTraslado ? 'rgba(2, 132, 199, 0.15)' : 'rgba(249, 115, 22, 0.15)',
+                        border: `1px solid ${esTraslado ? 'rgba(2, 132, 199, 0.3)' : 'rgba(249, 115, 22, 0.3)'}`,
+                        borderRadius: '4px',
+                        padding: '.15rem .45rem',
+                        lineHeight: 1.15
+                      }}>
+                        <div style={{
+                          fontSize: '.78rem',
+                          fontWeight: 700,
+                          color: esTraslado ? '#38bdf8' : 'var(--primary, #f97316)'
+                        }}>
+                          {f.pct_tanque.toFixed(1)}%
+                        </div>
+                        <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>
+                          {f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: '.25rem',
+                      marginTop: '.2rem',
+                      background: 'rgba(0,0,0,0.2)',
+                      padding: '.35rem',
+                      borderRadius: '4px'
+                    }}>
+                      <div>
+                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>LITROS</div>
+                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--primary, #f97316)' }}>
+                          {f.litros.toLocaleString('es-VE')} L
+                        </div>
+                      </div>
+                      <div>
+                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>HORAS</div>
+                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#38bdf8' }}>
+                          {f.horas > 0 ? `${f.horas} h` : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>% CAP.</div>
+                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#a855f7' }}>
+                          {f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}%` : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>REND.</div>
+                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#22c55e' }}>
+                          {f.rendimiento ? `${f.rendimiento.toFixed(1)} L/h` : '—'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ maxHeight: '260px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.76rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-1, #0f172a)', borderBottom: '1px solid var(--border)' }}>
+                    {marcados.map((cKey) => {
+                      const cDef = CAMPOS_REPORTE_COMBUSTIBLE.find((c) => c.clave === cKey);
+                      return (
+                        <th
+                          key={cKey}
+                          style={{
+                            padding: '.4rem .55rem',
+                            textAlign: cDef?.alineacion || 'left',
+                            color: '#94a3b8',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {cDef?.etiqueta || cKey}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f, idx) => (
+                    <tr
+                      key={f.id || idx}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        background: idx % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent'
+                      }}
+                    >
+                      {marcados.map((cKey) => {
+                        const cDef = CAMPOS_REPORTE_COMBUSTIBLE.find((c) => c.clave === cKey);
+                        const raw = (f as unknown as Record<string, unknown>)[cKey];
+                        let txt = raw != null ? String(raw) : '—';
+                        if (cDef?.formato === 'porcentaje' && raw != null) {
+                          txt = `${Number(raw).toFixed(1)}%`;
+                        } else if (cDef?.formato === 'moneda' && raw != null) {
+                          txt = `$ ${Number(raw).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        } else if (cDef?.formato === 'numero' && raw != null) {
+                          txt = Number(raw).toLocaleString('es-VE');
+                        }
+                        return (
+                          <td
+                            key={cKey}
+                            style={{
+                              padding: '.35rem .55rem',
+                              textAlign: cDef?.alineacion || 'left',
+                              whiteSpace: 'nowrap',
+                              color: cKey === 'litros' ? 'var(--primary, #f97316)' : cKey === 'pct_tanque' ? '#f59e0b' : '#f1f5f9'
+                            }}
+                          >
+                            {txt}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </Modal>

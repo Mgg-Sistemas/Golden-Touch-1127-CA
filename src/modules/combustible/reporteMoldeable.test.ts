@@ -169,5 +169,116 @@ describe('reporteMoldeable', () => {
     expect(filtrados).toHaveLength(1);
     expect(filtrados[0].equipoNombre).toBe('E1');
   });
+  it('calcula porcentaje con respecto al tanque (% Tanque salidas y % Capacidad nominal)', () => {
+    const tanques: TanqueCombustible[] = [
+      { id: 'tk-1', nombre: 'Tanque #3 (Camión)', capacidad_litros: 2000, tasa_usd_litro: 0.50 } as TanqueCombustible,
+    ];
+
+    const movs: MovimientoTanque[] = [
+      {
+        id: 'm-1',
+        tanque_id: 'tk-1',
+        equipo: 'YAMAGRO',
+        litros: 1000,
+        monto_usd: 500,
+        horas_utilizadas: 12,
+        fecha: '2026-10-30',
+        tipo: 'uso',
+      } as MovimientoTanque,
+      {
+        id: 'm-2',
+        tanque_id: 'tk-1',
+        equipo: 'CAT 320D',
+        litros: 1000,
+        monto_usd: 500,
+        horas_utilizadas: 10,
+        fecha: '2026-10-30',
+        tipo: 'uso',
+      } as MovimientoTanque,
+    ];
+
+    const enriquecidos = enriquecerMovimientos(movs, [], tanques, 'historica');
+    const { filas } = procesarFilasReporte(enriquecidos, 'equipo');
+
+    const yamagro = filas.find((f) => f.equipo === 'YAMAGRO');
+    expect(yamagro).toBeDefined();
+    // 1000 L de 2000 L despachados por el tanque en el período = 50%
+    expect(yamagro?.pct_tanque).toBe(50);
+    // 1000 L de 2000 L de capacidad física nominal del tanque = 50%
+    expect(yamagro?.pct_capacidad).toBe(50);
+    expect(yamagro?.horas).toBe(12);
+    expect(yamagro?.litros).toBe(1000);
+  });
+
+  it('soporta agrupación por día ("dia")', () => {
+    const tanques: TanqueCombustible[] = [
+      { id: 'tk-1', nombre: 'Tanque #1', capacidad_litros: 10000, tasa_usd_litro: 0.50 } as TanqueCombustible,
+    ];
+
+    const movs: MovimientoTanque[] = [
+      {
+        id: 'm-1',
+        tanque_id: 'tk-1',
+        equipo: 'E1',
+        litros: 300,
+        horas_utilizadas: 5,
+        fecha: '2026-10-29',
+        tipo: 'uso',
+      } as MovimientoTanque,
+      {
+        id: 'm-2',
+        tanque_id: 'tk-1',
+        equipo: 'E2',
+        litros: 700,
+        horas_utilizadas: 8,
+        fecha: '2026-10-30',
+        tipo: 'uso',
+      } as MovimientoTanque,
+    ];
+
+    const enriquecidos = enriquecerMovimientos(movs, [], tanques, 'historica');
+    const { filas } = procesarFilasReporte(enriquecidos, 'dia');
+
+    expect(filas).toHaveLength(2);
+    expect(filas[0].id).toBe('2026-10-29');
+    expect(filas[0].litros).toBe(300);
+    expect(filas[1].id).toBe('2026-10-30');
+    expect(filas[1].litros).toBe(700);
+  });
+
+  it('procesa e identifica traslados entre tanques', () => {
+    const tanques: TanqueCombustible[] = [
+      { id: 'tk-1', nombre: 'Tanque #1 (Principal)', capacidad_litros: 10000, tasa_usd_litro: 0.50 } as TanqueCombustible,
+      { id: 'tk-3', nombre: 'Tanque #3 (Camión Lubricación)', capacidad_litros: 2000, tasa_usd_litro: 0.50 } as TanqueCombustible,
+    ];
+
+    const movs: MovimientoTanque[] = [
+      {
+        id: 'm-tr',
+        tanque_id: 'tk-1',
+        tanque_destino_id: 'tk-3',
+        litros: 1990,
+        monto_usd: 995,
+        fecha: '2026-10-30',
+        tipo: 'traslado',
+        observacion: 'SE SURTIÓ 1990 LITROS AL TANQUE 3 DESDE EL TANQUE 1',
+      } as MovimientoTanque,
+    ];
+
+    const enriquecidos = enriquecerMovimientos(movs, [], tanques, 'historica');
+    expect(enriquecidos).toHaveLength(1);
+    expect(enriquecidos[0].esTraslado).toBe(true);
+    expect(enriquecidos[0].equipoNombre).toContain('Traslado → Tanque #3');
+    expect(enriquecidos[0].empresa).toBe('Operación Interna');
+    expect(enriquecidos[0].tipoMaquina).toBe('Traslado');
+
+    const { filas } = procesarFilasReporte(enriquecidos, 'equipo');
+    expect(filas).toHaveLength(1);
+    expect(filas[0].es_traslado).toBe(true);
+    expect(filas[0].litros).toBe(1990);
+    expect(filas[0].pct_tanque).toBe(100);
+    expect(filas[0].pct_capacidad).toBeCloseTo((1990 / 10000) * 100, 1);
+  });
 });
+
 

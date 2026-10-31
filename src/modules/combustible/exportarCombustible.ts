@@ -476,17 +476,37 @@ export async function descargarCombustiblePdf(
         const eqTrunc = doc.splitTextToSize(eqNombre, cardW - 55) as string[];
         doc.text(eqTrunc[0] || eqNombre, cx + 10, cy + 13);
 
-        // Badge % Consumo
-        const badgeW = 42;
-        const badgeH = 12;
+        // Badge % Consumo con respecto al Tanque
+        const badgeW = 54;
+        const badgeH = 14;
         const bx = cx + cardW - badgeW - 6;
         const by = cy + 4;
-        doc.setFillColor(254, 243, 199);
-        doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(217, 119, 6);
-        doc.text(`${f.pct_total.toFixed(1)}%`, bx + badgeW / 2, by + 8.5, { align: 'center' });
+        const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
+
+        if (esTraslado) {
+          doc.setFillColor(224, 242, 254); // azul suave
+          doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(3, 105, 161);
+        } else {
+          doc.setFillColor(254, 243, 199); // ámbar suave
+          doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(217, 119, 6);
+        }
+
+        const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
+        const txtPctTanque = `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% · ${pdfSafe(tanqueCorto)}`;
+        doc.text(txtPctTanque, bx + badgeW / 2, by + 5.5, { align: 'center' });
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.8);
+        const txtSubBadge = f.pct_capacidad > 0
+          ? `Cap: ${f.pct_capacidad.toFixed(1)}% | Tot: ${f.pct_total.toFixed(1)}%`
+          : `Tot: ${f.pct_total.toFixed(1)}% del período`;
+        doc.text(txtSubBadge, bx + badgeW / 2, by + 11, { align: 'center' });
 
         // Subtítulo con Empresa / Tipo / Ubicación
         doc.setFont('helvetica', 'normal');
@@ -547,22 +567,25 @@ export async function descargarCombustiblePdf(
         doc.setTextColor(148, 163, 184);
         doc.text(f.rendimiento ? `${fmtNum(f.rendimiento, 2)} L/h` : 'Sin rend.', m3x, my + 23);
 
-        // Métrica 4: Horómetros / Tanque
+        // Métrica 4: Horómetros / Tanque Origen
         const m4x = cx + 8 + colW * 3;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.2);
         doc.setTextColor(71, 85, 105);
-        doc.text('HORÓMETROS', m4x, my);
+        doc.text('TANQUE / HORÓM.', m4x, my);
         doc.setFontSize(7.5);
         doc.setTextColor(51, 65, 85);
         const horomTxt = f.horometro_ini != null && f.horometro_fin != null
           ? `${fmtNum(f.horometro_ini)} → ${fmtNum(f.horometro_fin)}`
-          : f.tanque || '—';
+          : (f.tanque ? pdfSafe(f.tanque.split('(')[0].trim()) : '—');
         doc.text(pdfSafe(horomTxt), m4x, my + 11);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.2);
         doc.setTextColor(148, 163, 184);
-        doc.text(pdfSafe(f.tanque ? `Tanque: ${f.tanque}` : ''), m4x, my + 23);
+        const subTanque = f.pct_tanque > 0
+          ? `${f.pct_tanque.toFixed(1)}% tk · ${(f.pct_capacidad ?? 0).toFixed(1)}% cap`
+          : pdfSafe(f.tanque ? `Tanque: ${f.tanque}` : '');
+        doc.text(pdfSafe(subTanque), m4x, my + 23);
       }
 
       y += cardH + cardGap;
@@ -579,6 +602,8 @@ export async function descargarCombustiblePdf(
       if (col.clave === 'horas') return `${fmtNum(resumen.totalHoras, 1)} h`;
       if (col.clave === 'surtidos') return String(resumen.totalSurtidos);
       if (col.clave === 'pct_total') return '100.0 %';
+      if (col.clave === 'pct_tanque') return '—';
+      if (col.clave === 'pct_capacidad') return '—';
       if (col.clave === 'rendimiento') return resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '-';
       if (col.clave === 'tasa_promedio') return `${fmtUsd(resumen.tasaPromedio)}/L`;
       return '';

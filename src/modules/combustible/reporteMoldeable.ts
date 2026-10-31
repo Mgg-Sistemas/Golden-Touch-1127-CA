@@ -23,6 +23,7 @@ import { norm } from '@/shared/lib/texto';
 
 export type ModoAgrupacionCombustible =
   | 'equipo'
+  | 'dia'
   | 'empresa'
   | 'tipo'
   | 'ubicacion'
@@ -73,6 +74,11 @@ export interface FilaReporteCombustible {
   kilometraje: number | null;
   tasa_promedio: number;
   pct_total: number;
+  pct_tanque: number;
+  pct_capacidad: number;
+  capacidad_tanque?: number | null;
+  total_salidas_tanque?: number;
+  es_traslado?: boolean;
 }
 
 export interface TopConsumidorItem {
@@ -106,19 +112,21 @@ export interface CampoColumnaCombustible {
 
 export const CAMPOS_REPORTE_COMBUSTIBLE: CampoColumnaCombustible[] = [
   { clave: 'equipo', etiqueta: 'Equipo / Máquina', anchoPdf: 26, anchoExcel: 24, alineacion: 'left', formato: 'texto' },
+  { clave: 'horas', etiqueta: 'Horas Trab. (h)', anchoPdf: 15, anchoExcel: 14, alineacion: 'right', formato: 'numero', descripcion: 'Horas de operación calculadas en el período' },
+  { clave: 'litros', etiqueta: 'Consumo (L)', anchoPdf: 16, anchoExcel: 15, alineacion: 'right', formato: 'numero', descripcion: 'Litros despachados o trasladados' },
+  { clave: 'pct_tanque', etiqueta: '% Tanque (Salidas)', anchoPdf: 16, anchoExcel: 14, alineacion: 'right', formato: 'porcentaje', descripcion: '% de consumo respecto al total despachado por el tanque en el período' },
+  { clave: 'pct_capacidad', etiqueta: '% Cap. Tanque', anchoPdf: 16, anchoExcel: 14, alineacion: 'right', formato: 'porcentaje', descripcion: '% de consumo respecto a la capacidad nominal del tanque' },
+  { clave: 'rendimiento', etiqueta: 'Rend. (L/h)', anchoPdf: 14, anchoExcel: 13, alineacion: 'right', formato: 'numero', descripcion: 'Consumo horario promedio (L/h)' },
+  { clave: 'tanque', etiqueta: 'Tanque Origen', anchoPdf: 18, anchoExcel: 18, alineacion: 'left', formato: 'texto' },
   { clave: 'empresa', etiqueta: 'Empresa / Propietario', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto' },
   { clave: 'tipo', etiqueta: 'Tipo de Máquina', anchoPdf: 18, anchoExcel: 18, alineacion: 'left', formato: 'texto' },
-  { clave: 'litros', etiqueta: 'Consumo (L)', anchoPdf: 16, anchoExcel: 15, alineacion: 'right', formato: 'numero' },
   { clave: 'usd', etiqueta: 'Consumo ($ USD)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda' },
-  { clave: 'pct_total', etiqueta: '% Consumo', anchoPdf: 14, anchoExcel: 12, alineacion: 'right', formato: 'porcentaje' },
-  { clave: 'horas', etiqueta: 'Horas Trab. (h)', anchoPdf: 15, anchoExcel: 14, alineacion: 'right', formato: 'numero' },
-  { clave: 'rendimiento', etiqueta: 'Rend. (L/h)', anchoPdf: 14, anchoExcel: 13, alineacion: 'right', formato: 'numero' },
+  { clave: 'pct_total', etiqueta: '% Total Período', anchoPdf: 14, anchoExcel: 12, alineacion: 'right', formato: 'porcentaje', descripcion: '% respecto al consumo total de todos los tanques en el período' },
   { clave: 'surtidos', etiqueta: 'Nº Surtidos', anchoPdf: 12, anchoExcel: 12, alineacion: 'center', formato: 'numero' },
   { clave: 'horometro_ini', etiqueta: 'Horóm. Inicial', anchoPdf: 14, anchoExcel: 14, alineacion: 'right', formato: 'numero' },
   { clave: 'horometro_fin', etiqueta: 'Horóm. Final', anchoPdf: 14, anchoExcel: 14, alineacion: 'right', formato: 'numero' },
   { clave: 'tasa_promedio', etiqueta: 'Tasa Prom. ($/L)', anchoPdf: 15, anchoExcel: 14, alineacion: 'right', formato: 'moneda' },
   { clave: 'ubicacion', etiqueta: 'Ubicación / Mina', anchoPdf: 20, anchoExcel: 20, alineacion: 'left', formato: 'texto' },
-  { clave: 'tanque', etiqueta: 'Tanque Origen', anchoPdf: 18, anchoExcel: 18, alineacion: 'left', formato: 'texto' },
   { clave: 'fecha', etiqueta: 'Fecha', anchoPdf: 13, anchoExcel: 13, alineacion: 'center', formato: 'texto' },
   { clave: 'hora', etiqueta: 'Hora', anchoPdf: 11, anchoExcel: 11, alineacion: 'center', formato: 'texto' },
   { clave: 'autorizado', etiqueta: 'Autorizado Por', anchoPdf: 18, anchoExcel: 20, alineacion: 'left', formato: 'texto' },
@@ -126,13 +134,14 @@ export const CAMPOS_REPORTE_COMBUSTIBLE: CampoColumnaCombustible[] = [
 ];
 
 export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionCombustible, string[]> = {
-  equipo: ['equipo', 'empresa', 'tipo', 'litros', 'usd', 'pct_total', 'horas', 'rendimiento', 'surtidos'],
-  empresa: ['empresa', 'litros', 'usd', 'pct_total', 'horas', 'surtidos', 'tasa_promedio'],
-  tipo: ['tipo', 'litros', 'usd', 'pct_total', 'horas', 'surtidos'],
-  ubicacion: ['ubicacion', 'litros', 'usd', 'pct_total', 'horas', 'surtidos'],
-  tanque: ['tanque', 'litros', 'usd', 'pct_total', 'surtidos', 'tasa_promedio'],
-  mes: ['mes', 'litros', 'usd', 'pct_total', 'horas', 'surtidos'],
-  detallado: ['fecha', 'hora', 'equipo', 'empresa', 'tipo', 'litros', 'usd', 'horas', 'ubicacion', 'tanque'],
+  equipo: ['equipo', 'horas', 'litros', 'pct_tanque', 'pct_capacidad', 'rendimiento', 'tanque', 'empresa', 'usd'],
+  dia: ['fecha', 'horas', 'litros', 'pct_total', 'rendimiento', 'surtidos', 'usd'],
+  empresa: ['empresa', 'horas', 'litros', 'pct_total', 'surtidos', 'usd'],
+  tipo: ['tipo', 'horas', 'litros', 'pct_total', 'rendimiento', 'surtidos'],
+  ubicacion: ['ubicacion', 'horas', 'litros', 'pct_total', 'surtidos'],
+  tanque: ['tanque', 'litros', 'pct_total', 'surtidos', 'tasa_promedio', 'usd'],
+  mes: ['mes', 'horas', 'litros', 'pct_total', 'surtidos', 'usd'],
+  detallado: ['fecha', 'hora', 'equipo', 'horas', 'litros', 'pct_tanque', 'pct_capacidad', 'rendimiento', 'tanque', 'empresa', 'usd'],
 };
 
 const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -221,6 +230,8 @@ export interface MovimientoEnriquecido {
   claseMaquina: string;
   ubicacionNormalizada: string;
   tanqueNombre: string;
+  tanqueCapacidad: number | null;
+  esTraslado: boolean;
   litros: number;
   usd: number;
   horas: number;
@@ -241,32 +252,44 @@ export function enriquecerMovimientos(
   return movimientos.map((m) => {
     const t = m.tanque_id ? mapaTanques.get(m.tanque_id) : undefined;
     const tanqueNombre = t ? t.nombre : 'Tanque desconocido';
+    const tanqueCapacidad = t?.capacidad_litros != null ? Number(t.capacidad_litros) : null;
     const tasaActual = t ? Number(t.tasa_usd_litro) || 0 : undefined;
 
     const litros = Number(m.litros) || 0;
     const usd = valorUsdDeMovimiento(m, baseTasa, tasaActual);
     const horas = horasDeMovimiento(m);
 
-    const equipoNombre = (m.equipo ?? '').trim() || 'Sin equipo asignado';
-    const ficha = indice.buscar(equipoNombre);
-
+    let equipoNombre = (m.equipo ?? '').trim();
     let empresa = 'Sin empresa asignada';
     let tipoMaquina = 'Otros / No clasificado';
     let claseMaquina = 'otro';
     let ubicacion = normalizarUbicacion(m.ubicacion) || (m.ubicacion ?? '').trim() || 'Sin ubicación';
+    const esTraslado = m.tipo === 'traslado';
 
-    if (ficha) {
-      empresa = (ficha.propietario ?? '').trim() || 'Sin empresa asignada';
-      tipoMaquina = (ficha.tipo ?? '').trim() || 'Sin tipo';
-      claseMaquina = claseEquipo(ficha);
-      if (ficha.ubicacion && !m.ubicacion) {
-        ubicacion = normalizarUbicacion(ficha.ubicacion) || ficha.ubicacion.trim();
-      }
+    if (esTraslado) {
+      const dest = m.tanque_destino_id ? mapaTanques.get(m.tanque_destino_id) : undefined;
+      const destNombre = dest ? dest.nombre : (m.equipo || 'Tanque destino');
+      equipoNombre = `Traslado → ${destNombre}`;
+      tipoMaquina = 'Traslado';
+      empresa = 'Operación Interna';
+      claseMaquina = 'traslado';
     } else {
-      if (equipoNombre.toUpperCase().includes('BIDON') || equipoNombre.toUpperCase().includes('BIDONES')) {
-        tipoMaquina = 'Bidón / Almacenamiento';
-      } else if (equipoNombre.toUpperCase().includes('CUBICACION') || equipoNombre.toUpperCase().includes('MERMA')) {
-        tipoMaquina = 'Ajuste / Medición';
+      if (!equipoNombre) equipoNombre = 'Sin equipo asignado';
+      const ficha = indice.buscar(equipoNombre);
+
+      if (ficha) {
+        empresa = (ficha.propietario ?? '').trim() || 'Sin empresa asignada';
+        tipoMaquina = (ficha.tipo ?? '').trim() || 'Sin tipo';
+        claseMaquina = claseEquipo(ficha);
+        if (ficha.ubicacion && !m.ubicacion) {
+          ubicacion = normalizarUbicacion(ficha.ubicacion) || ficha.ubicacion.trim();
+        }
+      } else {
+        if (equipoNombre.toUpperCase().includes('BIDON') || equipoNombre.toUpperCase().includes('BIDONES')) {
+          tipoMaquina = 'Bidón / Almacenamiento';
+        } else if (equipoNombre.toUpperCase().includes('CUBICACION') || equipoNombre.toUpperCase().includes('MERMA')) {
+          tipoMaquina = 'Ajuste / Medición';
+        }
       }
     }
 
@@ -278,6 +301,8 @@ export function enriquecerMovimientos(
       claseMaquina,
       ubicacionNormalizada: ubicacion,
       tanqueNombre,
+      tanqueCapacidad,
+      esTraslado,
       litros,
       usd,
       horas,
@@ -335,10 +360,25 @@ export function procesarFilasReporte(
   const totalHoras = movs.reduce((acc, m) => acc + m.horas, 0);
   const totalSurtidos = movs.length;
 
+  // Acumular litros salidos por tanque de origen y capacidad de cada tanque
+  const salidasPorTanque = new Map<string, number>();
+  const capacidadPorTanque = new Map<string, number | null>();
+
+  for (const item of movs) {
+    salidasPorTanque.set(item.tanqueNombre, (salidasPorTanque.get(item.tanqueNombre) || 0) + item.litros);
+    if (!capacidadPorTanque.has(item.tanqueNombre)) {
+      capacidadPorTanque.set(item.tanqueNombre, item.tanqueCapacidad);
+    }
+  }
+
   if (agrupacion === 'detallado') {
     const filas: FilaReporteCombustible[] = movs.map((item, idx) => {
       const m = item.mov;
       const pct = totalLitros > 0 ? (item.litros / totalLitros) * 100 : 0;
+      const totalTanque = salidasPorTanque.get(item.tanqueNombre) || totalLitros;
+      const pctTanque = totalTanque > 0 ? (item.litros / totalTanque) * 100 : 0;
+      const capTanque = item.tanqueCapacidad ?? capacidadPorTanque.get(item.tanqueNombre) ?? null;
+      const pctCap = capTanque && capTanque > 0 ? (item.litros / capTanque) * 100 : 0;
       const tasaProm = item.litros > 0 ? item.usd / item.litros : 0;
       const rend = item.horas > 0 ? item.litros / item.horas : null;
 
@@ -351,11 +391,14 @@ export function procesarFilasReporte(
         ubicacion: item.ubicacionNormalizada,
         tanque: item.tanqueNombre,
         tanque_id: m.tanque_id,
+        capacidad_tanque: capTanque,
+        total_salidas_tanque: totalTanque,
         mes: mesEtiqueta(m.fecha),
         fecha: m.fecha,
         hora: m.hora ?? '',
         autorizado: m.autorizado_por ?? '',
         observacion: m.observacion ?? '',
+        es_traslado: item.esTraslado,
         litros: Math.round(item.litros * 100) / 100,
         usd: Math.round(item.usd * 100) / 100,
         surtidos: 1,
@@ -366,6 +409,8 @@ export function procesarFilasReporte(
         kilometraje: m.kilometraje ?? null,
         tasa_promedio: Math.round(tasaProm * 1000) / 1000,
         pct_total: Math.round(pct * 10) / 10,
+        pct_tanque: Math.round(pctTanque * 10) / 10,
+        pct_capacidad: Math.round(pctCap * 10) / 10,
       };
     });
 
@@ -394,6 +439,7 @@ export function procesarFilasReporte(
     ubicacion: string;
     tanque: string;
     mes: string;
+    fecha?: string;
     litros: number;
     usd: number;
     horas: number;
@@ -401,6 +447,9 @@ export function procesarFilasReporte(
     horometro_min: number | null;
     horometro_max: number | null;
     kilometraje_max: number | null;
+    tanquesUsados: Map<string, number>;
+    capacidadTanque: number | null;
+    es_traslado: boolean;
   }
 
   const mapa = new Map<string, AcumuladorGrupo>();
@@ -414,6 +463,7 @@ export function procesarFilasReporte(
     let ubiLabel = '';
     let tkeLabel = '';
     let mesLabel = '';
+    let fechaLabel = '';
 
     switch (agrupacion) {
       case 'equipo':
@@ -422,6 +472,13 @@ export function procesarFilasReporte(
         empLabel = item.empresa;
         tipoLabel = item.tipoMaquina;
         ubiLabel = item.ubicacionNormalizada;
+        tkeLabel = item.tanqueNombre;
+        break;
+      case 'dia':
+        clave = m.fecha || 'Sin fecha';
+        eqLabel = m.fecha || 'Sin fecha';
+        fechaLabel = m.fecha || 'Sin fecha';
+        mesLabel = mesEtiqueta(m.fecha);
         tkeLabel = item.tanqueNombre;
         break;
       case 'empresa':
@@ -457,6 +514,7 @@ export function procesarFilasReporte(
         ubicacion: ubiLabel,
         tanque: tkeLabel,
         mes: mesLabel,
+        fecha: fechaLabel,
         litros: 0,
         usd: 0,
         horas: 0,
@@ -464,6 +522,9 @@ export function procesarFilasReporte(
         horometro_min: null,
         horometro_max: null,
         kilometraje_max: null,
+        tanquesUsados: new Map<string, number>(),
+        capacidadTanque: item.tanqueCapacidad,
+        es_traslado: item.esTraslado,
       };
       mapa.set(clave, actual);
     }
@@ -472,6 +533,7 @@ export function procesarFilasReporte(
     actual.usd += item.usd;
     actual.horas += item.horas;
     actual.surtidos += 1;
+    actual.tanquesUsados.set(item.tanqueNombre, (actual.tanquesUsados.get(item.tanqueNombre) || 0) + item.litros);
 
     if (m.horometro_ini != null) {
       const hi = Number(m.horometro_ini);
@@ -492,6 +554,18 @@ export function procesarFilasReporte(
     const tasaProm = g.litros > 0 ? g.usd / g.litros : 0;
     const rend = g.horas > 0 ? g.litros / g.horas : null;
 
+    let tanquePrincipal = g.tanque;
+    if (g.tanquesUsados.size > 1) {
+      let maxL = -1;
+      for (const [tk, l] of g.tanquesUsados.entries()) {
+        if (l > maxL) { maxL = l; tanquePrincipal = tk; }
+      }
+    }
+    const totalTanque = salidasPorTanque.get(tanquePrincipal) || totalLitros;
+    const pctTanque = totalTanque > 0 ? (g.litros / totalTanque) * 100 : 0;
+    const capTanque = capacidadPorTanque.get(tanquePrincipal) ?? g.capacidadTanque ?? null;
+    const pctCap = capTanque && capTanque > 0 ? (g.litros / capTanque) * 100 : 0;
+
     return {
       id: g.clave,
       equipo: g.equipo,
@@ -499,8 +573,11 @@ export function procesarFilasReporte(
       tipo: g.tipo,
       clase: g.clase,
       ubicacion: g.ubicacion,
-      tanque: g.tanque,
+      tanque: tanquePrincipal,
+      capacidad_tanque: capTanque,
+      total_salidas_tanque: totalTanque,
       mes: g.mes,
+      fecha: g.fecha,
       litros: Math.round(g.litros * 100) / 100,
       usd: Math.round(g.usd * 100) / 100,
       surtidos: g.surtidos,
@@ -511,11 +588,14 @@ export function procesarFilasReporte(
       kilometraje: g.kilometraje_max,
       tasa_promedio: Math.round(tasaProm * 1000) / 1000,
       pct_total: Math.round(pct * 10) / 10,
+      pct_tanque: Math.round(pctTanque * 10) / 10,
+      pct_capacidad: Math.round(pctCap * 10) / 10,
+      es_traslado: g.es_traslado,
     };
   });
 
-  // Ordenar: por mes cronológico, o según el criterio principal (costo/USD, consumo/litros, horas)
-  if (agrupacion === 'mes') {
+  // Ordenar: por mes/día cronológico, o según el criterio principal (costo/USD, consumo/litros, horas)
+  if (agrupacion === 'mes' || agrupacion === 'dia') {
     filas.sort((a, b) => a.id.localeCompare(b.id));
   } else if (ordenarPor === 'usd') {
     filas.sort((a, b) => b.usd - a.usd);
