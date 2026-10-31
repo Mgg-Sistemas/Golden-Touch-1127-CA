@@ -5,6 +5,7 @@ import {
   enriquecerMovimientos,
   filtrarMovimientos,
   procesarFilasReporte,
+  obtenerMetricasFicha,
 } from './reporteMoldeable';
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import type { MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
@@ -312,5 +313,38 @@ describe('reporteMoldeable', () => {
     const { filas } = procesarFilasReporte(enriquecidos, 'equipo');
     expect(filas[0].horas).toBe(0);
     expect(filas[0].rendimiento).toBeNull();
+  });
+
+  it('genera metricas dinamicas para fichas ejecutivas respetando las columnas seleccionadas', () => {
+    const fila = {
+      id: '1',
+      equipo: 'PLANTA OLYMPIAN',
+      empresa: 'GOLDEN TOUCH 1127',
+      tipo: 'PLANTA',
+      tanque: 'Tanque #3',
+      litros: 3993,
+      usd: 2494.05,
+      horas: 70.8,
+      surtidos: 7,
+      rendimiento: 56.4,
+      pct_tanque: 20.3,
+      pct_capacidad: 199.7,
+      pct_total: 20.3,
+      tasa_promedio: 0.62,
+      capacidad_tanque: 2000,
+    } as any;
+
+    // Caso 1: Todas las columnas principales marcadas (incluye horas y usd)
+    const m1 = obtenerMetricasFicha(fila, ['horas', 'litros', 'pct_tanque', 'usd']);
+    expect(m1.map((m) => m.clave)).toEqual(['horas', 'litros', 'pct_tanque', 'usd']);
+    expect(m1.find((m) => m.clave === 'usd')?.valor).toContain('2.494,05');
+
+    // Caso 2: Usuario desmarca USD y Horas (como en el reclamo del usuario)
+    const m2 = obtenerMetricasFicha(fila, ['litros', 'pct_tanque', 'rendimiento', 'pct_capacidad']);
+    expect(m2.map((m) => m.clave)).toEqual(['litros', 'pct_tanque', 'rendimiento', 'pct_capacidad']);
+    expect(m2.some((m) => m.clave === 'usd')).toBe(false);
+    expect(m2.some((m) => m.clave === 'horas')).toBe(false);
+    expect(m2.find((m) => m.clave === 'rendimiento')?.valor).toContain('56.40');
+    expect(m2.find((m) => m.clave === 'pct_capacidad')?.valor).toBe('199.7%');
   });
 });

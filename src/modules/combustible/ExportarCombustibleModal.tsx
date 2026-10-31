@@ -22,6 +22,8 @@ import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { consultarMovimientosReporteCombustible } from './tanques.repository';
 import {
+  obtenerMetricasFicha,
+  type MetricaFichaCombustible,
   CAMPOS_POR_DEFECTO_POR_MODO,
   CAMPOS_REPORTE_COMBUSTIBLE,
   enriquecerMovimientos,
@@ -151,6 +153,19 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
   const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
   const [formatoPresentacion, setFormatoPresentacion] = useState<'fichas' | 'tabla'>('fichas');
   const [ordenarPor, setOrdenarPor] = useState<'usd' | 'litros' | 'horas'>('usd');
+
+  const tieneUsd = marcados.includes('usd') || marcados.includes('tasa_promedio');
+
+  const toggleIncluirUsd = (activar: boolean) => {
+    if (activar) {
+      setMarcados((prev) => (prev.includes('usd') ? prev : [...prev, 'usd']));
+    } else {
+      setMarcados((prev) => prev.filter((col) => col !== 'usd' && col !== 'tasa_promedio'));
+      if (ordenarPor === 'usd') {
+        setOrdenarPor('litros');
+      }
+    }
+  };
 
   // Filtros de inclusión mediante checks y pills (vacío = todos)
   const [empresasSel, setEmpresasSel] = useState<string[]>([]);
@@ -539,31 +554,47 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
             </div>
           </div>
 
-          {/* Valuación USD */}
+          {/* Valuación USD con toggle maestro */}
           <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' }}>
-            <div style={{ fontSize: '.84rem', fontWeight: 600, marginBottom: '.4rem', color: 'var(--text, #f1f5f9)' }}>
-              💵 Valuación en Dólares ($ USD)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', fontSize: '.8rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+              <span style={{ fontSize: '.84rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' }}>
+                💵 Valuación en Dólares ($ USD)
+              </span>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.76rem', fontWeight: 600, color: tieneUsd ? '#22c55e' : '#94a3b8' }}>
                 <input
-                  type="radio"
-                  name="baseTasa"
-                  checked={baseTasa === 'historica'}
-                  onChange={() => setBaseTasa('historica')}
+                  type="checkbox"
+                  checked={tieneUsd}
+                  onChange={(e) => toggleIncluirUsd(e.target.checked)}
                 />
-                <span><strong>Tasa histórica</strong> del movimiento (recomendado)</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="baseTasa"
-                  checked={baseTasa === 'actual'}
-                  onChange={() => setBaseTasa('actual')}
-                />
-                <span><strong>Tasa actual</strong> del tanque (como en el gráfico)</span>
+                <span>{tieneUsd ? '✓ Activa' : '✕ Ocultar USD'}</span>
               </label>
             </div>
+            {tieneUsd ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', fontSize: '.8rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="baseTasa"
+                    checked={baseTasa === 'historica'}
+                    onChange={() => setBaseTasa('historica')}
+                  />
+                  <span><strong>Tasa histórica</strong> del movimiento (recomendado)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="baseTasa"
+                    checked={baseTasa === 'actual'}
+                    onChange={() => setBaseTasa('actual')}
+                  />
+                  <span><strong>Tasa actual</strong> del tanque (como en el gráfico)</span>
+                </label>
+              </div>
+            ) : (
+              <div style={{ fontSize: '.76rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '.2rem' }}>
+                🚫 Valores en USD desactivados. El reporte y sus fichas se mostrarán únicamente en litros y horas.
+              </div>
+            )}
           </div>
         </div>
 
@@ -1258,18 +1289,22 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
               {resumen.totalLitros.toLocaleString('es-VE', { maximumFractionDigits: 1 })} L
             </div>
           </div>
-          <div>
-            <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>VALOR ($ USD)</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>
-              $ {resumen.totalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {tieneUsd && marcados.includes('usd') && (
+            <div>
+              <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>VALOR ($ USD)</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>
+                $ {resumen.totalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
             </div>
-          </div>
-          <div>
-            <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>HORAS TRABAJADAS</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#38bdf8' }}>
-              {resumen.totalHoras.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h
+          )}
+          {marcados.includes('horas') && (
+            <div>
+              <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>HORAS TRABAJADAS</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#38bdf8' }}>
+                {resumen.totalHoras.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>DESPACHOS</div>
             <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>
@@ -1332,16 +1367,36 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                       gap: '.35rem',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.4rem' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '.86rem', color: '#f8fafc' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.5rem' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: '.86rem',
+                            color: '#f8fafc',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={f.equipo || 'Sin clasificar'}
+                        >
                           {f.equipo || 'Sin clasificar'}
                         </div>
-                        <div className="muted" style={{ fontSize: '.72rem' }}>
+                        <div
+                          className="muted"
+                          style={{
+                            fontSize: '.72rem',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={`${f.empresa || ''} ${f.tipo && f.tipo !== f.equipo && f.tipo !== f.empresa ? '· ' + f.tipo : ''}`}
+                        >
                           {f.empresa || ''} {f.tipo && f.tipo !== f.equipo && f.tipo !== f.empresa ? `· ${f.tipo}` : ''}
                         </div>
                       </div>
                       <div style={{
+                        flexShrink: 0,
                         textAlign: 'right',
                         background: esTraslado ? 'rgba(2, 132, 199, 0.15)' : 'rgba(249, 115, 22, 0.15)',
                         border: `1px solid ${esTraslado ? 'rgba(2, 132, 199, 0.3)' : 'rgba(249, 115, 22, 0.3)'}`,
@@ -1362,40 +1417,29 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                       </div>
                     </div>
 
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(4, 1fr)',
-                      gap: '.25rem',
-                      marginTop: '.2rem',
-                      background: 'rgba(0,0,0,0.2)',
-                      padding: '.35rem',
-                      borderRadius: '4px'
-                    }}>
-                      <div>
-                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>HORAS</div>
-                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#38bdf8' }}>
-                          {f.horas > 0 ? `${f.horas} h` : '—'}
+                    {(() => {
+                      const metricasFicha = obtenerMetricasFicha(f, marcados);
+                      return (
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(${metricasFicha.length}, 1fr)`,
+                          gap: '.25rem',
+                          marginTop: '.2rem',
+                          background: 'rgba(0,0,0,0.2)',
+                          padding: '.35rem',
+                          borderRadius: '4px'
+                        }}>
+                          {metricasFicha.map((m: MetricaFichaCombustible) => (
+                            <div key={m.clave}>
+                              <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
+                              <div style={{ fontSize: '.82rem', fontWeight: 700, color: m.colorHex }}>
+                                {m.valor}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      </div>
-                      <div>
-                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>LITROS</div>
-                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--primary, #f97316)' }}>
-                          {f.litros.toLocaleString('es-VE')} L
-                        </div>
-                      </div>
-                      <div>
-                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>% DEL TANQUE</div>
-                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#a855f7' }}>
-                          {(f.pct_tanque ?? f.pct_total).toFixed(1)}%
-                        </div>
-                      </div>
-                      <div>
-                        <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>VALOR ($ USD)</div>
-                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#22c55e' }}>
-                          ${f.usd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

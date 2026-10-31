@@ -24,7 +24,7 @@ import type {
   ModoAgrupacionCombustible,
   BaseTasaUsd,
 } from './reporteMoldeable';
-import { CAMPOS_REPORTE_COMBUSTIBLE } from './reporteMoldeable';
+import { CAMPOS_REPORTE_COMBUSTIBLE, obtenerMetricasFicha } from './reporteMoldeable';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const TINTA: [number, number, number] = [30, 41, 59];
@@ -391,52 +391,90 @@ export async function descargarCombustiblePdf(
   doc.line(M, y, W - M, y);
   y += 12;
 
-  // 2. Tarjetas de Resumen en Cabecera (KPIs)
+  // 2. Tarjetas de Resumen en Cabecera (KPIs condicionados a columnas seleccionadas)
   if (meta.incluirResumen) {
-    const kpis = [
-      { label: 'TOTAL CONSUMO', val: `${fmtNum(resumen.totalLitros, 2)} L`, sub: resumen.rendimientoPromedio > 0 ? `Rend: ${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '' },
-      { label: 'VALOR TOTAL USD', val: fmtUsd(resumen.totalUsd), sub: `Tasa: ${fmtUsd(resumen.tasaPromedio)}/L` },
-      { label: 'HORAS TRABAJADAS', val: `${fmtNum(resumen.totalHoras, 1)} h`, sub: `${resumen.totalEquipos} equipos` },
-      { label: 'SURTIDOS / DESPACHOS', val: `${resumen.totalSurtidos}`, sub: `${filas.length} registros` },
-    ];
+    const kpis: Array<{ label: string; val: string; sub?: string }> = [];
 
-    const cardGap = 8;
-    const cardW = (UW - cardGap * (kpis.length - 1)) / kpis.length;
-    const cardH = 38;
+    if (columnasClaves.includes('litros')) {
+      kpis.push({
+        label: 'TOTAL CONSUMO',
+        val: `${fmtNum(resumen.totalLitros, 2)} L`,
+        sub: columnasClaves.includes('rendimiento') && resumen.rendimientoPromedio > 0
+          ? `Rend: ${fmtNum(resumen.rendimientoPromedio, 2)} L/h`
+          : '',
+      });
+    }
 
-    kpis.forEach((k, i) => {
-      const cx = M + i * (cardW + cardGap);
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(...BORDE);
-      doc.setLineWidth(0.6);
-      doc.roundedRect(cx, y, cardW, cardH, 4, 4, 'FD');
+    if (columnasClaves.includes('usd')) {
+      kpis.push({
+        label: 'VALOR TOTAL USD',
+        val: fmtUsd(resumen.totalUsd),
+        sub: `Tasa: ${fmtUsd(resumen.tasaPromedio)}/L`,
+      });
+    }
 
-      // Franja naranja vertical izquierda
-      doc.setFillColor(...NARANJA);
-      doc.rect(cx, y + 1, 3, cardH - 2, 'F');
+    if (columnasClaves.includes('horas')) {
+      kpis.push({
+        label: 'HORAS TRABAJADAS',
+        val: `${fmtNum(resumen.totalHoras, 1)} h`,
+        sub: `${resumen.totalEquipos} equipos`,
+      });
+    }
 
-      // Label
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.8);
-      doc.setTextColor(71, 85, 105);
-      doc.text(pdfSafe(k.label), cx + 8, y + 10);
+    if (columnasClaves.includes('surtidos') || (!columnasClaves.includes('horas') && !columnasClaves.includes('usd'))) {
+      kpis.push({
+        label: 'SURTIDOS / DESPACHOS',
+        val: `${resumen.totalSurtidos}`,
+        sub: `${filas.length} registros`,
+      });
+    }
 
-      // Valor
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.setTextColor(...NARANJA);
-      doc.text(pdfSafe(k.val), cx + 8, y + 24);
+    if (columnasClaves.includes('rendimiento') && !columnasClaves.includes('litros')) {
+      kpis.push({
+        label: 'PROMEDIO L/H',
+        val: resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '—',
+      });
+    }
 
-      // Sub
-      if (k.sub) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.5);
-        doc.setTextColor(148, 163, 184);
-        doc.text(pdfSafe(k.sub), cx + 8, y + 33);
-      }
-    });
+    if (kpis.length > 0) {
+      const cardGap = 8;
+      const cardW = (UW - cardGap * (kpis.length - 1)) / kpis.length;
+      const cardH = 38;
 
-    y += cardH + 12;
+      kpis.forEach((k, i) => {
+        const cx = M + i * (cardW + cardGap);
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(...BORDE);
+        doc.setLineWidth(0.6);
+        doc.roundedRect(cx, y, cardW, cardH, 4, 4, 'FD');
+
+        // Franja naranja vertical izquierda
+        doc.setFillColor(...NARANJA);
+        doc.rect(cx, y + 1, 3, cardH - 2, 'F');
+
+        // Label
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.8);
+        doc.setTextColor(71, 85, 105);
+        doc.text(pdfSafe(k.label), cx + 8, y + 10);
+
+        // Valor
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(...NARANJA);
+        doc.text(pdfSafe(k.val), cx + 8, y + 24);
+
+        // Sub
+        if (k.sub) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(148, 163, 184);
+          doc.text(pdfSafe(k.sub), cx + 8, y + 33);
+        }
+      });
+
+      y += cardH + 12;
+    }
   }
 
   // 3. Contenido: FICHAS EJECUTIVAS vs TABLA TABULAR
@@ -468,21 +506,22 @@ export async function descargarCombustiblePdf(
         doc.setFillColor(...NARANJA);
         doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
 
-        // Nombre de Equipo
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.5);
-        doc.setTextColor(...TINTA);
-        const eqNombre = pdfSafe(f.equipo || 'Sin equipo');
-        const eqTrunc = doc.splitTextToSize(eqNombre, cardW - 55) as string[];
-        doc.text(eqTrunc[0] || eqNombre, cx + 10, cy + 13);
-
-        // Badge % Consumo con respecto al Tanque
+        // Badge % Consumo con respecto al Tanque (calculado primero para delimitar el ancho del titulo)
         const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
         const txtPctTanque = `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% con respecto a ${pdfSafe(tanqueCorto)}`;
+        const txtSubBadge = f.pct_capacidad > 0
+          ? `${f.pct_capacidad.toFixed(1)}% de la capacidad física (${fmtNum(f.capacidad_tanque || 0)} L)`
+          : `${f.pct_total.toFixed(1)}% del consumo total del período`;
+
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.0);
-        const txtWidth = doc.getTextWidth(txtPctTanque);
-        const badgeW = Math.min(cardW - 80, Math.max(92, txtWidth + 12));
+        doc.setFontSize(6.8);
+        const w1 = doc.getTextWidth(txtPctTanque);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.5);
+        const w2 = doc.getTextWidth(txtSubBadge);
+
+        // Ancho optimo del badge (maximo 44% de la tarjeta para dejar espacio amplio al titulo)
+        const badgeW = Math.min(cardW * 0.44, Math.max(90, Math.max(w1, w2) + 12));
         const badgeH = 15;
         const bx = cx + cardW - badgeW - 6;
         const by = cy + 4;
@@ -492,27 +531,58 @@ export async function descargarCombustiblePdf(
           doc.setFillColor(224, 242, 254); // azul suave
           doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.8);
           doc.setTextColor(3, 105, 161);
         } else {
-          doc.setFillColor(254, 243, 199); // ámbar suave
+          doc.setFillColor(254, 243, 199); // ambar suave
           doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.8);
           doc.setTextColor(217, 119, 6);
         }
 
+        // Texto 1 del badge (auto-ajustable al ancho del badge)
+        let fontPct = 6.8;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(fontPct);
+        while (doc.getTextWidth(txtPctTanque) > badgeW - 6 && fontPct > 5.4) {
+          fontPct -= 0.2;
+          doc.setFontSize(fontPct);
+        }
         doc.text(txtPctTanque, bx + badgeW / 2, by + 5.8, { align: 'center' });
 
+        // Texto 2 del badge (auto-ajustable al ancho del badge)
+        let fontSub = 5.5;
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(5.6);
+        doc.setFontSize(fontSub);
         doc.setTextColor(100, 116, 139);
-        const txtSubBadge = f.pct_capacidad > 0
-          ? `${f.pct_capacidad.toFixed(1)}% de la capacidad física (${fmtNum(f.capacidad_tanque || 0)} L)`
-          : `${f.pct_total.toFixed(1)}% del consumo total del período`;
+        while (doc.getTextWidth(txtSubBadge) > badgeW - 6 && fontSub > 4.4) {
+          fontSub -= 0.2;
+          doc.setFontSize(fontSub);
+        }
         doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
 
-        // Subtítulo con Empresa / Tipo / Ubicación
+        // Nombre de Equipo: delimitado exactamente antes del badge para evitar todo solapado
+        const maxTitleW = Math.max(60, (bx - 8) - (cx + 10));
+        const eqNombre = pdfSafe(f.equipo || 'Sin clasificar');
+        let titleFontSize = 9.5;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(titleFontSize);
+        while (doc.getTextWidth(eqNombre) > maxTitleW && titleFontSize > 7.4) {
+          titleFontSize -= 0.3;
+          doc.setFontSize(titleFontSize);
+        }
+
+        let titleFinal = eqNombre;
+        if (doc.getTextWidth(titleFinal) > maxTitleW) {
+          while (titleFinal.length > 3 && doc.getTextWidth(titleFinal + '…') > maxTitleW) {
+            titleFinal = titleFinal.slice(0, -1);
+          }
+          titleFinal += '…';
+        }
+
+        doc.setTextColor(...TINTA);
+        doc.text(titleFinal, cx + 10, cy + 13);
+
+        // Subtitulo con Empresa / Tipo / Ubicacion
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.2);
         doc.setTextColor(100, 116, 139);
@@ -522,75 +592,45 @@ export async function descargarCombustiblePdf(
           f.ubicacion && f.ubicacion !== f.equipo ? f.ubicacion : null,
         ].filter(Boolean);
         const metaTxt = pdfSafe(partesMeta.join(' · ') || 'Flota General');
-        const metaTrunc = doc.splitTextToSize(metaTxt, cardW - 20) as string[];
-        doc.text(metaTrunc[0] || metaTxt, cx + 10, cy + 24);
+        const maxMetaW = cardW - 20;
+        let metaFinal = metaTxt;
+        if (doc.getTextWidth(metaFinal) > maxMetaW) {
+          while (metaFinal.length > 3 && doc.getTextWidth(metaFinal + '…') > maxMetaW) {
+            metaFinal = metaFinal.slice(0, -1);
+          }
+          metaFinal += '…';
+        }
+        doc.text(metaFinal, cx + 10, cy + 24);
 
         // Divisor interior
         doc.setDrawColor(241, 245, 249);
         doc.setLineWidth(0.5);
         doc.line(cx + 8, cy + 29, cx + cardW - 8, cy + 29);
 
-        // 4 Columnas de Métricas: orden exacto pedido por el usuario
-        // "YAMAGRO 12h 12L 23% con respecto al tanque 3 · Por columnas"
+        // Metricas dinamicas de la tarjeta segun las columnas seleccionadas
+        const metricasCard = obtenerMetricasFicha(f, columnasClaves);
         const innerW = cardW - 16;
-        const colW = innerW / 4;
+        const colW = innerW / Math.max(1, metricasCard.length);
         const my = cy + 39;
 
-        // Métrica 1: HORAS TRAB. (12h)
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.2);
-        doc.setTextColor(71, 85, 105);
-        doc.text('HORAS TRAB.', cx + 8, my);
-        doc.setFontSize(10);
-        doc.setTextColor(2, 132, 199);
-        doc.text(f.horas > 0 ? `${fmtNum(f.horas, 1)} h` : '—', cx + 8, my + 13);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.2);
-        doc.setTextColor(148, 163, 184);
-        doc.text(f.rendimiento ? `${fmtNum(f.rendimiento, 2)} L/h rend.` : (f.clase === 'vehiculo' ? 'Vehículo (odóm.)' : 'Sin horómetro'), cx + 8, my + 23);
+        metricasCard.forEach((m, idx) => {
+          const mx = cx + 8 + colW * idx;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.2);
+          doc.setTextColor(71, 85, 105);
+          doc.text(pdfSafe(m.etiqueta), mx, my);
 
-        // Métrica 2: CONSUMO (L) (12L / 1000L)
-        const m2x = cx + 8 + colW;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.2);
-        doc.setTextColor(71, 85, 105);
-        doc.text('CONSUMO (L)', m2x, my);
-        doc.setFontSize(10);
-        doc.setTextColor(...NARANJA);
-        doc.text(`${fmtNum(f.litros, 2)} L`, m2x, my + 13);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.2);
-        doc.setTextColor(148, 163, 184);
-        doc.text(`${f.surtidos} despacho(s)`, m2x, my + 23);
+          doc.setFontSize(10);
+          doc.setTextColor(...m.colorRgb);
+          doc.text(pdfSafe(m.valor), mx, my + 13);
 
-        // Métrica 3: % RESPECTO AL TANQUE (23% con respecto al tanque 3)
-        const m3x = cx + 8 + colW * 2;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.2);
-        doc.setTextColor(71, 85, 105);
-        doc.text('% RESPECTO AL TANQUE', m3x, my);
-        doc.setFontSize(10);
-        doc.setTextColor(147, 51, 234);
-        doc.text(`${(f.pct_tanque ?? f.pct_total).toFixed(1)}%`, m3x, my + 13);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.2);
-        doc.setTextColor(148, 163, 184);
-        doc.text(`del ${pdfSafe(tanqueCorto)}`, m3x, my + 23);
-
-        // Métrica 4: VALOR ($ USD) y % Capacidad
-        const m4x = cx + 8 + colW * 3;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.2);
-        doc.setTextColor(71, 85, 105);
-        doc.text('VALOR ($ USD)', m4x, my);
-        doc.setFontSize(10);
-        doc.setTextColor(22, 163, 74);
-        doc.text(fmtUsd(f.usd), m4x, my + 13);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.2);
-        doc.setTextColor(148, 163, 184);
-        const subCap = f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}% cap. física` : `Tasa: $${f.tasa_promedio.toFixed(2)}/L`;
-        doc.text(subCap, m4x, my + 23);
+          if (m.sub) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(6.2);
+            doc.setTextColor(148, 163, 184);
+            doc.text(pdfSafe(m.sub), mx, my + 23);
+          }
+        });
       }
 
       y += cardH + cardGap;

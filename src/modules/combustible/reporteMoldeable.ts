@@ -682,3 +682,123 @@ function calcularTopConsumidores(movs: MovimientoEnriquecido[], totalLitros: num
     .sort((a, b) => b.litros - a.litros)
     .slice(0, 5);
 }
+
+
+export interface MetricaFichaCombustible {
+  clave: string;
+  etiqueta: string;
+  valor: string;
+  sub?: string;
+  colorHex: string;
+  colorRgb: [number, number, number];
+}
+
+/**
+ * Obtiene las metricas visibles para una ficha ejecutiva segun las columnas seleccionadas por el usuario.
+ * Si el usuario desmarca USD o Horas, esas metricas no aparecen en la ficha y se reemplazan por otras
+ * columnas seleccionadas (Rendimiento, % Capacidad, Despachos, etc.), con un maximo de 4 metricas.
+ */
+export function obtenerMetricasFicha(
+  f: FilaReporteCombustible,
+  columnasClaves: string[]
+): MetricaFichaCombustible[] {
+  const metricas: MetricaFichaCombustible[] = [];
+  const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
+
+  // 1. Horas trabajadas (solo si esta marcado)
+  if (columnasClaves.includes('horas')) {
+    metricas.push({
+      clave: 'horas',
+      etiqueta: 'HORAS TRAB.',
+      valor: f.horas > 0 ? `${f.horas.toLocaleString('es-VE')} h` : '—',
+      sub: f.rendimiento ? `${f.rendimiento.toFixed(1)} L/h rend.` : (f.clase === 'vehiculo' ? 'Vehiculo (odom.)' : 'Sin horom.'),
+      colorHex: '#38bdf8',
+      colorRgb: [2, 132, 199],
+    });
+  }
+
+  // 2. Consumo en Litros (si esta marcado o por defecto)
+  if (columnasClaves.includes('litros') || metricas.length === 0) {
+    metricas.push({
+      clave: 'litros',
+      etiqueta: 'CONSUMO (L)',
+      valor: `${f.litros.toLocaleString('es-VE')} L`,
+      sub: `${f.surtidos} despacho(s)`,
+      colorHex: 'var(--primary, #f97316)',
+      colorRgb: [234, 88, 12],
+    });
+  }
+
+  // 3. % con respecto al tanque
+  if (columnasClaves.includes('pct_tanque') || columnasClaves.includes('pct_total')) {
+    metricas.push({
+      clave: 'pct_tanque',
+      etiqueta: '% DEL TANQUE',
+      valor: `${(f.pct_tanque ?? f.pct_total).toFixed(1)}%`,
+      sub: `del ${tanqueCorto}`,
+      colorHex: '#a855f7',
+      colorRgb: [147, 51, 234],
+    });
+  }
+
+  // 4. Valor en USD (SOLO SI 'usd' esta marcado)
+  if (columnasClaves.includes('usd')) {
+    metricas.push({
+      clave: 'usd',
+      etiqueta: 'VALOR ($ USD)',
+      valor: `$ ${f.usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      sub: f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}% cap. fisica` : `Tasa: $${f.tasa_promedio.toFixed(2)}/L`,
+      colorHex: '#22c55e',
+      colorRgb: [22, 163, 74],
+    });
+  }
+
+  // 5. Rendimiento (si se marco y hay espacio)
+  if (columnasClaves.includes('rendimiento') && metricas.length < 4) {
+    metricas.push({
+      clave: 'rendimiento',
+      etiqueta: 'REND. (L/h)',
+      valor: f.rendimiento != null ? `${f.rendimiento.toFixed(2)} L/h` : '—',
+      sub: 'Consumo horario',
+      colorHex: '#10b981',
+      colorRgb: [16, 185, 129],
+    });
+  }
+
+  // 6. % Capacidad fisica (si se marco y hay espacio)
+  if (columnasClaves.includes('pct_capacidad') && metricas.length < 4) {
+    metricas.push({
+      clave: 'pct_capacidad',
+      etiqueta: '% CAP. FISICA',
+      valor: f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}%` : '—',
+      sub: f.capacidad_tanque ? `de ${f.capacidad_tanque.toLocaleString('es-VE')} L` : 'Cap. nominal',
+      colorHex: '#eab308',
+      colorRgb: [202, 138, 4],
+    });
+  }
+
+  // 7. Surtidos / Despachos (si se marco y hay espacio)
+  if (columnasClaves.includes('surtidos') && metricas.length < 4) {
+    metricas.push({
+      clave: 'surtidos',
+      etiqueta: 'DESPACHOS',
+      valor: `${f.surtidos}`,
+      sub: 'Surtidos reg.',
+      colorHex: '#f59e0b',
+      colorRgb: [217, 119, 6],
+    });
+  }
+
+  // Fallback si no hay ninguna metrica marcada
+  if (metricas.length === 0) {
+    metricas.push({
+      clave: 'litros',
+      etiqueta: 'CONSUMO (L)',
+      valor: `${f.litros.toLocaleString('es-VE')} L`,
+      colorHex: 'var(--primary, #f97316)',
+      colorRgb: [234, 88, 12],
+    });
+  }
+
+  return metricas.slice(0, 4);
+}
