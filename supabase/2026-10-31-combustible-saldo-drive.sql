@@ -6,6 +6,8 @@
 --    saber si el movimiento fue asentado en la hoja de control de Google Drive.
 -- 2. Agrega saldo_drive a combustible_tanque_movimientos para guardar el
 --    saldo reportado en la hoja de Drive para cotejo y conciliación.
+-- 3. Recarga la caché de esquemas de PostgREST para que la API reconozca
+--    las nuevas columnas inmediatamente sin reiniciar.
 -- ═══════════════════════════════════════════════════════════════════
 
 alter table public.combustible_tanque_movimientos
@@ -22,3 +24,6 @@ comment on column public.combustible_tanque_movimientos.saldo_drive is
 
 create index if not exists idx_combustible_movimientos_drive
   on public.combustible_tanque_movimientos (registrado_en_drive);
+
+-- Recarga la caché de esquemas en Supabase / PostgREST inmediatamente:
+notify pgrst, 'reload schema';

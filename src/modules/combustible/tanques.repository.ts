@@ -691,13 +691,25 @@ export interface MovimientoTanqueCampos {
   saldo_drive?: number | null;
 }
 
+/** Detecta si Postgres o PostgREST fallaron porque la columna aún no existe o la caché de esquemas no refrescó */
+function esErrorColumnaNoExiste(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: string; message?: string; details?: string; hint?: string };
+  const str = `${e.code ?? ''} ${e.message ?? ''} ${e.details ?? ''} ${e.hint ?? ''}`;
+  return (
+    e.code === '42703' ||
+    e.code === 'PGRST204' ||
+    /schema cache|Could not find the '.*' column|column .* does not exist/i.test(str)
+  );
+}
+
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
   let data: unknown;
   let error: unknown;
   const res = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
   data = res.data;
   error = res.error;
-  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload || 'registrado_en_drive' in payload || 'saldo_drive' in payload)) {
+  if (error && esErrorColumnaNoExiste(error) && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload || 'registrado_en_drive' in payload || 'saldo_drive' in payload)) {
     const fallbackPayload = { ...payload };
     const reg = fallbackPayload.registrado_en_cuaderno;
     const cLtrs = fallbackPayload.cuaderno_litros;
@@ -1436,7 +1448,7 @@ export async function setMovimientoCuaderno(
     .update(updatePayload)
     .eq('id', movId);
   if (error) {
-    if ((error as { code?: string }).code === '42703') {
+    if (esErrorColumnaNoExiste(error)) {
       const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion, litros').eq('id', movId).maybeSingle();
       const obs = (data as { observacion?: string | null })?.observacion || '';
       const movLitros = (data as { litros?: number })?.litros;
@@ -1468,7 +1480,7 @@ export async function setMovimientoDrive(
     .update(updatePayload)
     .eq('id', movId);
   if (error) {
-    if ((error as { code?: string }).code === '42703') {
+    if (esErrorColumnaNoExiste(error)) {
       const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion').eq('id', movId).maybeSingle();
       const obs = (data as { observacion?: string | null })?.observacion || '';
       const limpio = obs.replace(/\[Drive:\s*[^\]]+\]/gi, '').trim();
@@ -1522,7 +1534,7 @@ export async function actualizarMovimientoTanque(
     .update(upd).eq('id', id)
     .select('tanque_id, equipo, mov_vinculado_id, fecha, hora, autorizado_por, ubicacion, observacion, litros, tasa_usd_litro')
     .single();
-  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_drive' in upd || 'saldo_drive' in upd || 'registrado_en_cuaderno' in upd || 'cuaderno_litros' in upd)) {
+  if (error && esErrorColumnaNoExiste(error) && ('registrado_en_drive' in upd || 'saldo_drive' in upd || 'registrado_en_cuaderno' in upd || 'cuaderno_litros' in upd)) {
     const fallbackUpd = { ...upd };
     const reg = fallbackUpd.registrado_en_cuaderno;
     const cLtrs = fallbackUpd.cuaderno_litros;
