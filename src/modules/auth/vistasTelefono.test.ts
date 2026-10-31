@@ -48,13 +48,24 @@ describe('normalizarVistas', () => {
   });
 });
 
-describe('pantalla del Depósito Mina', () => {
-  it('se abre con la pantalla dada y lectura en Inventario', () => {
-    expect(claves(vistasPermitidas(['deposito_mina'], conModulos('inventario'), false))).toEqual(['deposito_mina']);
-    expect(claves(vistasPermitidas(['deposito_mina'], conModulos('cocina'), false))).toEqual([]);
+describe('pantalla del Depósito Mina (depósito independiente, 30/10/2026)', () => {
+  const conMina = (a: string) => a === 'Depósito Mina';
+  it('se abre con la pantalla dada y permiso en el Depósito Mina, aunque no tenga Inventario', () => {
+    expect(claves(vistasPermitidas(['deposito_mina'], conModulos(), false, conMina))).toEqual(['deposito_mina']);
+  });
+  it('con Inventario pero sin el Depósito Mina, no se abre', () => {
+    expect(claves(vistasPermitidas(['deposito_mina'], conModulos('inventario'), false))).toEqual([]);
+    expect(claves(vistasPermitidas(['deposito_mina'], conModulos('inventario'), false, () => false))).toEqual([]);
+  });
+  it('con el depósito pero sin la pantalla, tampoco', () => {
+    expect(vistasPermitidas([], conModulos('inventario'), false, conMina)).toEqual([]);
+  });
+  it('la pantalla del Inventario General sigue pidiendo el módulo Inventario', () => {
+    expect(claves(vistasPermitidas(['inventario'], conModulos(), false, conMina))).toEqual([]);
+    expect(claves(vistasPermitidas(['inventario'], conModulos('inventario'), false))).toEqual(['inventario']);
   });
   it('un rol «solo teléfono» con esa sola pantalla entra directo a ella', () => {
-    const vs = vistasPermitidas(['deposito_mina'], conModulos('inventario'), false);
+    const vs = vistasPermitidas(['deposito_mina'], conModulos(), false, conMina);
     expect(inicioTelefono(vs)).toBe('/app/inventario/deposito-mina/telefono');
   });
 });
@@ -68,7 +79,7 @@ describe('pantalla de Solicitudes de Pedido (Almacén)', () => {
     expect(normalizarVistas(['solicitudes', 'solicitudes'])).toEqual(['solicitudes']);
   });
   it('con Depósito Mina y Solicitudes, entra al menú de pantallas', () => {
-    const vs = vistasPermitidas(['deposito_mina', 'solicitudes'], conModulos('inventario'), false);
+    const vs = vistasPermitidas(['deposito_mina', 'solicitudes'], conModulos('inventario'), false, (a) => a === 'Depósito Mina');
     expect(claves(vs)).toEqual(['deposito_mina', 'solicitudes']);
     expect(inicioTelefono(vs)).toBe(RUTA_TELEFONO);
   });

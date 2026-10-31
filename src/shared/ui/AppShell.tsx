@@ -4,6 +4,7 @@ import { cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
@@ -51,11 +52,11 @@ function conexionLenta(): boolean {
 
 export function AppShell() {
   const { user } = useSession();
-  const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
+  const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono, puedeVerAlmacen } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
-  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('delivery') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes'));
+  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('delivery') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -331,7 +332,7 @@ export function AppShell() {
           {can('delivery') && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
           {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
-          {can('inventario') && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}
+          {puedeVerAlmacen(ALMACEN_MINA) && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}
           {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Producción" />}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}

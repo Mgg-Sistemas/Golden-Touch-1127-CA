@@ -155,8 +155,14 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
   const esReutilizables = dep.almacen === ALMACEN_REUTILIZABLES;
   const esDanados = dep.almacen === ALMACEN_DANADOS;
   const { user } = useSession();
-  const { can, appUser, puedeVista } = usePermissions();
-  const canWrite = can('inventario', 'escritura');
+  const { can, appUser, puedeVista, isAdmin, vistasDelRol, puedeVerAlmacen, puedeEscribirAlmacen } = usePermissions();
+  // Cada depósito con su permiso (30/10/2026); en el General es el del módulo Inventario.
+  const canWrite = puedeEscribirAlmacen(dep.almacen);
+  // Lo que es de todo el inventario (categorías, crear depósitos, casiterita) sigue con el módulo.
+  const canWriteModulo = can('inventario', 'escritura');
+  const telDeposito = esMina
+    ? puedeVista('deposito_mina')
+    : isAdmin || vistasDelRol.some((k) => k === 'deposito_mina' || k === 'inventario');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [recepciones, setRecepciones] = useState<Orden[]>([]);
   const [recepcionesPendientes, setRecepcionesPendientes] = useState<Orden[]>([]);
@@ -462,11 +468,13 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
               >
                 Recepciones {(recepcionesPorMarcar + comprasRecep.length) > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepcionesPorMarcar + comprasRecep.length}</span>}
               </button>
-              <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Depósito independiente de la mina">⛏ Depósito Mina</Link>
-              <Link className="btn btn-ghost" to={DEPOSITOS.reutilizables.ruta} style={{ borderColor: '#10b981', color: '#10b981' }} title="Depósito de materiales reutilizables">♻️ Depósito Reutilizables</Link>
-              <Link className="btn btn-ghost" to={DEPOSITOS.danados.ruta} style={{ borderColor: '#f59e0b', color: '#f59e0b' }} title="Depósito de items y materiales dañados">⚠️ Depósito Items Dañados</Link>
+              {/* Solo los depósitos que el rol tiene (Usuarios → Roles → Depósitos). */}
+              {puedeVerAlmacen(ALMACEN_MINA) && <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Depósito independiente de la mina">⛏ Depósito Mina</Link>}
+              {puedeVerAlmacen(ALMACEN_REUTILIZABLES) && <Link className="btn btn-ghost" to={DEPOSITOS.reutilizables.ruta} style={{ borderColor: '#10b981', color: '#10b981' }} title="Depósito de materiales reutilizables">♻️ Depósito Reutilizables</Link>}
+              {puedeVerAlmacen(ALMACEN_DANADOS) && <Link className="btn btn-ghost" to={DEPOSITOS.danados.ruta} style={{ borderColor: '#f59e0b', color: '#f59e0b' }} title="Depósito de items y materiales dañados">⚠️ Depósito Items Dañados</Link>}
               {almacenes
                 .filter((a) => a.nombre !== 'General' && a.nombre !== ALMACEN_MINA && a.nombre !== ALMACEN_REUTILIZABLES && a.nombre !== ALMACEN_DANADOS)
+                .filter((a) => puedeVerAlmacen(a.nombre))
                 .map((a) => {
                   const d = resolverDeposito(a.nombre);
                   return (
@@ -475,7 +483,7 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
                     </Link>
                   );
                 })}
-              {canWrite && (
+              {canWriteModulo && (
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -489,18 +497,18 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
             </>
           ) : (
             <>
-              <Link className="btn btn-ghost" to="/app/inventario" title="Volver al Inventario Los Pinos">← Inventario Los Pinos</Link>
-              {(esReutilizables || esDanados) && (
+              {can('inventario') && <Link className="btn btn-ghost" to="/app/inventario" title="Volver al Inventario Los Pinos">← Inventario Los Pinos</Link>}
+              {(esReutilizables || esDanados) && puedeVerAlmacen(ALMACEN_MINA) && (
                 <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Ir a Depósito Mina">⛏ Depósito Mina</Link>
               )}
-              {puedeVista('deposito_mina') && (
+              {telDeposito && (
                 <Link className="btn btn-ghost" to={dep.rutaTelefono} title={`La pantalla de ${dep.nombre} con botones grandes para el teléfono`}>
                   📱 Vista teléfono
                 </Link>
               )}
             </>
           )}
-          {canWrite && (
+          {canWriteModulo && (
             <button
               className="btn btn-ghost"
               onClick={() => setGestionCatsOpen(true)}
@@ -756,7 +764,7 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
             revertida_at: t.revertida_at, revertida_por: t.revertida_por,
             origen: t.almacen_origen,
           }))}
-          puedeOperar={canWrite}
+          puedeOperar={canWriteModulo}
           onReintentar={async (id) => {
             await reintentarTrasladoCasiterita({ id, actor: productoActor, actorName });
             await reload();
