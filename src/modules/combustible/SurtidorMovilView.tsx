@@ -30,6 +30,7 @@ import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCata
 import {
   listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada,
   eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
+  setMovimientoCuaderno, setMovimientoDrive,
 } from './tanques.repository';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
@@ -283,6 +284,10 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   const [km, setKm] = useState('');
   const [ci, setCi] = useState(''); const [ciAuto, setCiAuto] = useState(false);
   const [cf, setCf] = useState('');
+  const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(false);
+  const [cuadernoLitros, setCuadernoLitros] = useState('');
+  const [registradoEnDrive, setRegistradoEnDrive] = useState(false);
+  const [saldoDrive, setSaldoDrive] = useState('');
   const [masDatos, setMasDatos] = useState(false);
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
@@ -352,11 +357,21 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
     if (errHor) { setError(errHor); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
+      const cLitrosNum = registradoEnCuaderno
+        ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : litrosNum)
+        : null;
+      const sDriveNum = registradoEnDrive
+        ? (saldoDrive.trim() !== '' ? Number(saldoDrive.replace(',', '.')) : null)
+        : null;
       const campos = {
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
         horometroIni: hiNum, horometroFin: hfNum,
         kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
+        registrado_en_cuaderno: registradoEnCuaderno,
+        cuaderno_litros: cLitrosNum,
+        registrado_en_drive: registradoEnDrive,
+        saldo_drive: sDriveNum,
       };
       let movId: string;
       if (tipo === 'uso') movId = (await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
@@ -382,15 +397,14 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   // nombre corto que usa el operador (alias de la ficha, o modelo / placa). Se guarda el
   // nombre del catálogo (`value`), igual que siempre.
   const equiposOpts = useMemo(() => opcionesEquipos({
-    catalogo: opts('equipo').map((c) => c.valor),
+    catalogo: catalogos.filter((c) => c.tipo === 'equipo'),
     fichas,
-    bidones: tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre),
+    bidones: esBidon(tanque.nombre) ? tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre) : [],
     modo: 'telefono',
-  }), [catalogos, tanques, fichas]);
+    tanqueActual: tanque,
+    incluirValor: equipo,
+  }), [catalogos, tanques, fichas, tanque, equipo]);
 
-  const subtitulo = tipo === 'entrada'
-    ? `Entra a ${tanque.nombre} · hoy tiene ${num(tanque.saldo_litros)} L a ${money(tanque.tasa_usd_litro)}/L`
-    : `Desde ${tanque.nombre} · ${num(tanque.saldo_litros)} L disponibles`;
 
   return (
     <form className="surt-form card" onSubmit={guardar}>
@@ -398,16 +412,42 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
         <span className="icono" aria-hidden>{ICONO[tipo]}</span>
         <div>
           <strong>{TITULO[tipo]}</strong>
-          <div className="muted" style={{ fontSize: '.85rem' }}>{subtitulo}</div>
+          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '3px' }}>
+            <span style={{
+              background: 'rgba(255, 138, 0, 0.15)',
+              color: '#FF8A00',
+              padding: '1px 8px',
+              borderRadius: '6px',
+              fontSize: '.76rem',
+              fontWeight: 700,
+              border: '1px solid rgba(255, 138, 0, 0.3)',
+            }}>
+              ⛽ {tanque.nombre}
+            </span>
+            <span style={{ color: '#94a3b8', fontSize: '.8rem' }}>
+              {tipo === 'entrada' ? `hoy ${num(tanque.saldo_litros)} L` : `${num(tanque.saldo_litros)} L disponibles`}
+            </span>
+          </div>
         </div>
       </div>
 
       {error && <div className="aviso danger"><span className="aviso-icono">⛔</span><div>{error}</div></div>}
 
       <div className="surt-campo">
-        <label htmlFor="surt-litros">Litros</label>
-        <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
-          value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
+        <label htmlFor="surt-litros">
+          <span>⛽ Litros {tipo === 'entrada' ? 'que entraron' : 'a despachar'}</span>
+        </label>
+        <div style={{ position: 'relative' }}>
+          <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
+            value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
+          <span style={{
+            position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)',
+            fontWeight: 800, color: 'var(--primary-2, #ffa733)', fontSize: '1.15rem',
+            userSelect: 'none', pointerEvents: 'none', opacity: 0.85,
+          }}>
+            Ltrs
+          </span>
+        </div>
         {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}
       </div>
 
@@ -437,7 +477,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
 
       <div className="surt-campo">
         <label htmlFor="surt-equipo">
-          {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}
+          <span>🚜 {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}</span>
         </label>
         <div className="surt-buscable">
           <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe el alias (L220G), la placa o parte del nombre…"
@@ -479,7 +519,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
       )}
 
       <div className="surt-campo">
-        <label htmlFor="surt-autorizado">Autorizado por</label>
+        <label htmlFor="surt-autorizado"><span>👤 Autorizado por</span></label>
         <div className="surt-buscable">
           <SearchSelect id="surt-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Busca quién autorizó…"
             options={opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))} />
@@ -488,7 +528,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
 
       {(tipo === 'uso' || tipo === 'traslado') && (
         <div className="surt-campo">
-          <label htmlFor="surt-cf">Contador del surtidor al terminar</label>
+          <label htmlFor="surt-cf"><span>🔢 Contador del surtidor al terminar</span></label>
           <input id="surt-cf" className="input surt-input" type="number" inputMode="decimal" step="any" value={cf} onChange={(e) => setCf(e.target.value)}
             placeholder={cfPropuesto != null ? `${cfPropuesto} (se pone solo)` : ciAuto ? `arrancó en ${ci}` : 'lectura final del contador'} />
           {cf === '' && ci !== '' && (
@@ -506,6 +546,151 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
           )}
         </div>
       )}
+
+      {/* Control de Registro Cuaderno (pedido 30/10/2026) */}
+      <div className="surt-campo" style={{ margin: '.6rem 0' }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '.75rem',
+            background: registradoEnCuaderno ? 'rgba(16, 185, 129, 0.14)' : 'rgba(30, 41, 59, 0.7)',
+            border: registradoEnCuaderno ? '1.5px solid rgba(16, 185, 129, 0.5)' : '1px solid #334155',
+            borderRadius: registradoEnCuaderno ? '12px 12px 0 0' : '12px',
+            padding: '.75rem 1rem',
+            cursor: 'pointer',
+            userSelect: 'none',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
+            <span style={{ fontSize: '1.35rem' }}>📖</span>
+            <div>
+              <div style={{ fontWeight: 700, color: registradoEnCuaderno ? '#34d399' : '#f1f5f9', fontSize: '.95rem' }}>
+                Registro Cuaderno
+              </div>
+              <div style={{ fontSize: '.75rem', color: registradoEnCuaderno ? '#6ee7b7' : '#94a3b8' }}>
+                {registradoEnCuaderno ? 'Registrado' : 'No registrado'}
+              </div>
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={registradoEnCuaderno}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setRegistradoEnCuaderno(v);
+              if (v && (!cuadernoLitros || cuadernoLitros === '')) {
+                setCuadernoLitros(litros || '');
+              }
+            }}
+            style={{
+              width: '22px',
+              height: '22px',
+              accentColor: '#10b981',
+              cursor: 'pointer',
+            }}
+          />
+        </label>
+        {registradoEnCuaderno && (
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.85)',
+            border: '1.5px solid rgba(16, 185, 129, 0.5)',
+            borderTop: 'none',
+            borderRadius: '0 0 12px 12px',
+            padding: '.65rem 1rem',
+          }}>
+            <label htmlFor="surt-cuaderno-litros" style={{ fontSize: '.78rem', color: '#6ee7b7', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+              ¿Cuánto está registrado en cuaderno?
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <input
+                id="surt-cuaderno-litros"
+                className="input surt-input"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                value={cuadernoLitros}
+                onChange={(e) => setCuadernoLitros(e.target.value)}
+                placeholder={litros || '0'}
+                style={{ fontWeight: 700, borderColor: 'rgba(16, 185, 129, 0.6)', background: 'rgba(6, 78, 59, 0.2)' }}
+              />
+              <span className="mono" style={{ color: '#34d399', fontWeight: 700 }}>Ltrs</span>
+            </div>
+          </div>
+        )}
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '.75rem',
+            marginTop: '.6rem',
+            background: registradoEnDrive ? 'rgba(56, 189, 248, 0.14)' : 'rgba(30, 41, 59, 0.7)',
+            border: registradoEnDrive ? '1.5px solid rgba(56, 189, 248, 0.5)' : '1px solid #334155',
+            borderRadius: registradoEnDrive ? '12px 12px 0 0' : '12px',
+            padding: '.75rem 1rem',
+            cursor: 'pointer',
+            userSelect: 'none',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
+            <span style={{ fontSize: '1.35rem' }}>📊</span>
+            <div>
+              <div style={{ fontWeight: 700, color: registradoEnDrive ? '#38bdf8' : '#f1f5f9', fontSize: '.95rem' }}>
+                Registro Drive
+              </div>
+              <div style={{ fontSize: '.75rem', color: registradoEnDrive ? '#7dd3fc' : '#94a3b8' }}>
+                {registradoEnDrive ? 'Registrado en Drive' : 'No registrado'}
+              </div>
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={registradoEnDrive}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setRegistradoEnDrive(v);
+            }}
+            style={{
+              width: '22px',
+              height: '22px',
+              accentColor: '#38bdf8',
+              cursor: 'pointer',
+            }}
+          />
+        </label>
+        {registradoEnDrive && (
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.85)',
+            border: '1.5px solid rgba(56, 189, 248, 0.5)',
+            borderTop: 'none',
+            borderRadius: '0 0 12px 12px',
+            padding: '.65rem 1rem',
+          }}>
+            <label htmlFor="surt-saldo-drive" style={{ fontSize: '.78rem', color: '#7dd3fc', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+              Saldo reportado en Drive (L)
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <input
+                id="surt-saldo-drive"
+                className="input surt-input"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                value={saldoDrive}
+                onChange={(e) => setSaldoDrive(e.target.value)}
+                placeholder="Saldo en litros según Drive"
+                style={{ fontWeight: 700, borderColor: 'rgba(56, 189, 248, 0.6)', background: 'rgba(14, 165, 233, 0.12)' }}
+              />
+              <span className="mono" style={{ color: '#38bdf8', fontWeight: 700 }}>Ltrs</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos}
         titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : '📷 Fotos (contador, equipo, vale)'} grande />
@@ -598,6 +783,8 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  const [enCuaderno, setEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
+  const [enDrive, setEnDrive] = useState(!!mov.registrado_en_drive);
   const quien = useQuien();
   const destino = mov.tanque_destino_id ? tanques.find((t) => t.id === mov.tanque_destino_id)?.nombre : null;
   const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
@@ -624,7 +811,16 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
       {/* El que surte manda el aviso al grupo apenas carga el surtido. */}
-      <CompartirWhatsapp texto={mensajeMovimiento({ mov, tanque: tanque?.nombre, tanqueDestino: destino, registradoPor: quien(mov.actor_name, mov.created_by) })} />
+      <CompartirWhatsapp texto={mensajeMovimiento({
+        mov,
+        tanque: tanque?.nombre,
+        tanqueDestino: destino,
+        registradoPor: quien(mov.actor_name, mov.created_by),
+        registradoEnCuaderno: enCuaderno,
+        cuadernoLitros: enCuaderno ? (mov.cuaderno_litros ?? mov.litros) : null,
+        registradoEnDrive: enDrive,
+        saldoDrive: enDrive ? (mov.saldo_drive ?? null) : null,
+      })} />
 
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre} />
@@ -639,6 +835,72 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
         <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.45rem 0', borderBottom: '1px solid #1e293b' }}>
+          <span className="muted" style={{ fontSize: '.84rem' }}>📖 Registro Cuaderno</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+            <span style={{
+              fontWeight: 700,
+              color: enCuaderno ? '#34d399' : '#f87171',
+              fontSize: '.88rem',
+            }}>
+              {enCuaderno ? `✓ ${mov.cuaderno_litros != null ? `${num(mov.cuaderno_litros)} L` : 'Registrado'}` : '✕ No registrado'}
+            </span>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={async () => {
+                  try {
+                    const nuevo = !enCuaderno;
+                    const cant = nuevo ? (mov.cuaderno_litros ?? mov.litros) : null;
+                    await setMovimientoCuaderno(mov.id, nuevo, cant);
+                    mov.registrado_en_cuaderno = nuevo;
+                    mov.cuaderno_litros = cant;
+                    setEnCuaderno(nuevo);
+                    toast(nuevo ? 'Marcado como registrado en cuaderno' : 'Marcado como no registrado', 'success');
+                  } catch (e) {
+                    toast(mensajeError(e, 'No se pudo actualizar'), 'error');
+                  }
+                }}
+                style={{ fontSize: '.72rem', padding: '2px 6px', background: 'rgba(255,255,255,0.06)' }}
+              >
+                Cambiar
+              </button>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.45rem 0', borderBottom: '1px solid #1e293b' }}>
+          <span className="muted" style={{ fontSize: '.84rem' }}>📊 Registro Drive</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+            <span style={{
+              fontWeight: 700,
+              color: enDrive ? '#38bdf8' : '#f87171',
+              fontSize: '.88rem',
+            }}>
+              {enDrive ? `✓ ${mov.saldo_drive != null ? `${num(mov.saldo_drive)} L` : 'Registrado'}` : '✕ No registrado'}
+            </span>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={async () => {
+                  try {
+                    const nuevo = !enDrive;
+                    await setMovimientoDrive(mov.id, nuevo, nuevo ? mov.saldo_drive : null);
+                    mov.registrado_en_drive = nuevo;
+                    setEnDrive(nuevo);
+                    toast(nuevo ? 'Marcado como registrado en Drive' : 'Marcado como no registrado en Drive', 'success');
+                  } catch (e) {
+                    toast(mensajeError(e, 'No se pudo actualizar'), 'error');
+                  }
+                }}
+                style={{ fontSize: '.72rem', padding: '2px 6px', background: 'rgba(255,255,255,0.06)' }}
+              >
+                Cambiar
+              </button>
+            )}
+          </div>
+        </div>
         <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${quien(mov.actor_name, mov.created_by)}` : ''}`} />
       </div>
 

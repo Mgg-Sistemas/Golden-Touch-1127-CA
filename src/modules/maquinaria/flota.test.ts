@@ -352,10 +352,10 @@ describe('alias: cómo lo conocen los operadores', () => {
     expect(aliasesDeEquipo({ alias: '  ', modelo: null, placa: 'A12BC3D' })).toEqual(['A12BC3D']);
     expect(aliasesDeEquipo({})).toEqual([]);
   });
-  it('nombre corto: primer alias → modelo → placa → nombre', () => {
+  it('nombre corto: primer alias; si no hay alias, el NOMBRE principal (no el modelo ni la placa)', () => {
     expect(nombreCortoEquipo({ alias: 'LA AMARILLA, L220G', modelo: 'L220G', equipo: 'PAYLOADER VOLVO' })).toBe('LA AMARILLA');
-    expect(nombreCortoEquipo({ alias: null, modelo: 'L220G', equipo: 'PAYLOADER VOLVO' })).toBe('L220G');
-    expect(nombreCortoEquipo({ alias: null, modelo: null, placa: 'A12BC3D', equipo: 'CAMIÓN 01' })).toBe('A12BC3D');
+    expect(nombreCortoEquipo({ alias: null, modelo: 'L220G', equipo: 'PAYLOADER VOLVO' })).toBe('PAYLOADER VOLVO');
+    expect(nombreCortoEquipo({ alias: null, modelo: null, placa: 'A12BC3D', equipo: 'CAMIÓN 01' })).toBe('CAMIÓN 01');
     expect(nombreCortoEquipo({ alias: null, modelo: null, placa: null, equipo: 'PLANTA PERKINS' })).toBe('PLANTA PERKINS');
   });
 });

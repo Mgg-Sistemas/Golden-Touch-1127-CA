@@ -3,7 +3,7 @@
    Botones y campos GRANDES: se usa con una mano, al lado del tanque, con
    guantes o con el sol encima. Nada más chico que 56px de alto.
    ============================================================ */
-.surtidor { max-width: 640px; margin: 0 auto; padding-bottom: 2rem; }
+.surtidor { max-width: 640px; margin: 0 auto; padding: .5rem .75rem 3rem; }
 .surt-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .surt-head h1 { margin: 0; font-size: 1.5rem; }
 
@@ -36,21 +36,132 @@
 .surt-btn.entrada { border-color: var(--success); }
 .surt-btn:active { transform: scale(.98); }
 
-.surt-form { display: flex; flex-direction: column; gap: .9rem; margin: 1rem 0; }
-.surt-form-titulo { display: flex; align-items: center; gap: .75rem; }
-.surt-form-titulo .icono { font-size: 2rem; }
-.surt-form-titulo strong { font-size: 1.2rem; }
-.surt-campo label { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; margin-bottom: .3rem; }
-.surt-campo small { display: block; margin-top: .3rem; font-size: .82rem; }
+.surt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  margin: .8rem 0;
+  padding: 1.25rem 1rem;
+  border-radius: var(--r-xl, 16px);
+  background: var(--surface-2, #182230);
+  border: 1.5px solid var(--border-strong, #334155);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.surt-form-titulo {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  padding-bottom: .85rem;
+  border-bottom: 1px solid var(--border, #2d3748);
+}
+.surt-form-titulo .icono {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: rgba(255, 138, 0, 0.14);
+  border: 1px solid rgba(255, 138, 0, 0.35);
+  font-size: 1.6rem;
+  flex-shrink: 0;
+}
+.surt-form-titulo strong {
+  font-size: 1.25rem;
+  color: var(--text, #f8fafc);
+  display: block;
+  line-height: 1.2;
+}
+.surt-campo label {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #94a3b8;
+  font-weight: 700;
+  margin-bottom: .35rem;
+}
+.surt-campo small {
+  display: block;
+  margin-top: .35rem;
+  font-size: .82rem;
+  line-height: 1.35;
+}
 .surt-alerta { color: var(--warning); font-weight: 600; }
-.surtidor .input.surt-input, .surtidor .select.surt-input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
-.surtidor .input.surt-litros { font-size: 2.2rem; text-align: center; font-family: var(--font-mono); font-weight: 800; min-height: 78px; }
+.surtidor .input.surt-input, .surtidor .select.surt-input {
+  width: 100%;
+  min-height: 52px;
+  font-size: 1.05rem;
+  padding: .65rem .85rem;
+  border-radius: 10px;
+  background: #0f172a;
+  border: 1.5px solid #334155;
+  color: var(--text, #f8fafc);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.surtidor .input.surt-input:focus, .surtidor .select.surt-input:focus {
+  outline: none;
+  border-color: var(--primary, #FF8A00);
+  box-shadow: 0 0 0 3px rgba(255, 138, 0, 0.2);
+}
+.surtidor .input.surt-litros {
+  font-size: 1.9rem;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  min-height: 58px;
+  color: #FF8A00;
+  background: #090d16;
+  border: 2px solid rgba(255, 138, 0, 0.45);
+  border-radius: 12px;
+  letter-spacing: .02em;
+}
+.surtidor .input.surt-litros:focus {
+  border-color: #FF8A00;
+  box-shadow: 0 0 0 4px rgba(255, 138, 0, 0.25);
+}
 /* Listas buscables (equipo, autorizado, tanque destino, mina): el buscador con el
    mismo alto y letra que los demás campos; se escribe una parte y filtra. */
-.surt-buscable .input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
+.surt-buscable .input {
+  width: 100%;
+  min-height: 52px;
+  font-size: 1.05rem;
+  padding: .65rem .85rem;
+  border-radius: 10px;
+  background: #0f172a;
+  border: 1.5px solid #334155;
+  color: var(--text, #f8fafc);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.surt-buscable .input:focus {
+  outline: none;
+  border-color: var(--primary, #FF8A00);
+  box-shadow: 0 0 0 3px rgba(255, 138, 0, 0.2);
+}
 .surt-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .surt-mas { background: none; border: none; color: var(--primary-2); font: inherit; font-weight: 600; padding: .4rem 0; cursor: pointer; text-align: left; }
-.surt-guardar { min-height: 66px; font-size: 1.25rem; font-weight: 800; width: 100%; }
+.surt-guardar {
+  min-height: 56px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  width: 100%;
+  border-radius: 12px;
+  background: var(--grad-primary, linear-gradient(135deg, #FF8A00 0%, #FFB020 100%));
+  color: #111827;
+  border: none;
+  box-shadow: 0 4px 16px rgba(255, 138, 0, 0.35);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  transition: transform .1s ease, filter .15s ease;
+}
+.surt-guardar:active {
+  transform: scale(.98);
+}
 .btn-grande { min-height: 52px; font-size: 1.05rem; padding: .6rem 1rem; }
 
 .surt-lista h2 { font-size: .8rem; margin: 1.25rem 0 .5rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }

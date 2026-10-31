@@ -17,6 +17,7 @@ import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
 import { esBidon, prepararCamposSalidaBidon } from './bidonCombustible';
 import { resolverHorometroVigente } from './horometroEquipo';
 import { norm } from '@/shared/lib/texto';
+import { esUnaDeLas16MaquinasAutorizadas } from './maquinasAutorizadas';
 import { push } from '@/modules/notificaciones/notif.repository';
 import type {
   CatalogoCombustible,
@@ -88,6 +89,145 @@ export function capacidadCalculada(g: GeometriaTanque): number {
 
 /* ───────────── Catálogos ───────────── */
 
+const CLAVE_TANQUES_PERMITIDOS = 'combustible_tanques_permitidos';
+let memoriaPermisosTanques: Record<string, string[]> | null = null;
+
+export async function obtenerPermisosTanquesFallback(): Promise<Record<string, string[]>> {
+  if (memoriaPermisosTanques) return memoriaPermisosTanques;
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(CLAVE_TANQUES_PERMITIDOS) : null;
+    if (raw) memoriaPermisosTanques = JSON.parse(raw);
+  } catch {}
+
+  try {
+    const { data } = await supabase
+      .from('sistema_interruptores')
+      .select('descripcion')
+      .eq('clave', CLAVE_TANQUES_PERMITIDOS)
+      .maybeSingle();
+    if (data?.descripcion) {
+      const parsed = JSON.parse(data.descripcion);
+      if (parsed && typeof parsed === 'object') {
+        memoriaPermisosTanques = { ...(memoriaPermisosTanques ?? {}), ...parsed };
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(CLAVE_TANQUES_PERMITIDOS, JSON.stringify(memoriaPermisosTanques));
+        }
+      }
+    }
+  } catch {}
+
+  return memoriaPermisosTanques ?? {};
+}
+
+export async function guardarPermisoTanqueFallback(
+  id: string,
+  valor: string,
+  tanques: string[] | null,
+): Promise<void> {
+  const actual = await obtenerPermisosTanquesFallback();
+  const siguiente: Record<string, string[]> = { ...actual };
+  const kId = (id ?? '').trim();
+  const kNombre = norm(valor);
+
+  if (tanques && tanques.length > 0) {
+    if (kId) siguiente[kId] = tanques;
+    if (kNombre) siguiente[kNombre] = tanques;
+  } else {
+    if (kId) delete siguiente[kId];
+    if (kNombre) delete siguiente[kNombre];
+  }
+  memoriaPermisosTanques = siguiente;
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(CLAVE_TANQUES_PERMITIDOS, JSON.stringify(siguiente));
+    }
+  } catch {}
+
+  try {
+    await supabase.from('sistema_interruptores').upsert({
+      clave: CLAVE_TANQUES_PERMITIDOS,
+      activo: true,
+      descripcion: JSON.stringify(siguiente),
+    });
+  } catch {}
+}
+
+export async function setEquipoTanquesPermitidos(
+  id: string,
+  valor: string,
+  tanques: string[] | null,
+): Promise<void> {
+  await guardarPermisoTanqueFallback(id, valor, tanques);
+  try {
+    await supabase
+      .from('combustible_catalogos')
+      .update({ tanques_permitidos: tanques && tanques.length > 0 ? tanques : null })
+      .eq('id', id);
+  } catch {}
+}
+
+export async function setMultipleCatalogosActivo(ids: string[], activo: boolean): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase.from('combustible_catalogos').update({ activo }).in('id', ids);
+  if (error) throw error;
+}
+
+export async function setMultipleTanquesPermitidos(
+  items: { id: string; valor: string }[],
+  tanques: string[] | null,
+): Promise<void> {
+  if (!items.length) return;
+  for (const item of items) {
+    await setEquipoTanquesPermitidos(item.id, item.valor, tanques);
+  }
+}
+
+/**
+ * Pone en activo = true las 16 máquinas operativas autorizadas
+ * y en activo = false todos los demás equipos del catálogo de combustible.
+ */
+export async function aplicarSolo16MaquinasAutorizadas(
+  catalogosActuales?: CatalogoCombustible[],
+): Promise<{ activados: number; desactivados: number }> {
+  let cats = catalogosActuales;
+  if (!cats || cats.length === 0) {
+    const { data, error } = await supabase.from('combustible_catalogos').select('*').eq('tipo', 'equipo');
+    if (error) throw error;
+    cats = (data ?? []) as CatalogoCombustible[];
+  }
+
+  const equipos = cats.filter((c) => c.tipo === 'equipo');
+  const idsDesactivar: string[] = [];
+  const idsActivar: string[] = [];
+
+  for (const eq of equipos) {
+    const esAutorizada = esUnaDeLas16MaquinasAutorizadas(eq.valor);
+    if (esAutorizada && !eq.activo) {
+      idsActivar.push(eq.id);
+    } else if (!esAutorizada && eq.activo) {
+      idsDesactivar.push(eq.id);
+    }
+  }
+
+  if (idsDesactivar.length > 0) {
+    for (let i = 0; i < idsDesactivar.length; i += 100) {
+      const lote = idsDesactivar.slice(i, i + 100);
+      await supabase.from('combustible_catalogos').update({ activo: false }).in('id', lote);
+    }
+  }
+
+  if (idsActivar.length > 0) {
+    for (let i = 0; i < idsActivar.length; i += 100) {
+      const lote = idsActivar.slice(i, i + 100);
+      await supabase.from('combustible_catalogos').update({ activo: true }).in('id', lote);
+    }
+  }
+
+  return { activados: idsActivar.length, desactivados: idsDesactivar.length };
+}
+
+
 export async function listCatalogos(): Promise<CatalogoCombustible[]> {
   const { data, error } = await supabase
     .from('combustible_catalogos')
@@ -96,7 +236,13 @@ export async function listCatalogos(): Promise<CatalogoCombustible[]> {
     .order('orden', { ascending: true })
     .order('valor', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as CatalogoCombustible[];
+  const rows = (data ?? []) as CatalogoCombustible[];
+  const permisosExtra = await obtenerPermisosTanquesFallback();
+  return rows.map((r) => {
+    if (r.tanques_permitidos && r.tanques_permitidos.length > 0) return r;
+    const fallback = permisosExtra[r.id] ?? permisosExtra[norm(r.valor)];
+    return fallback ? { ...r, tanques_permitidos: fallback } : r;
+  });
 }
 
 export async function addCatalogo(tipo: TipoCatalogoCombustible, valor: string): Promise<CatalogoCombustible> {
@@ -291,6 +437,8 @@ export interface TanqueInput {
   ubicacion?: string | null;
   /** Margen de merma al recibir (en %). Vacío = se queda como está (10 al crear). */
   margenMermaPct?: number | null;
+  /** Margen de merma técnica/implícita sugerida por movimiento (en %). */
+  mermaImplicitaPct?: number | null;
 }
 
 /** Geometría a partir del input del formulario (para cubicar/capacidad). */
@@ -358,6 +506,7 @@ export async function actualizarTanque(id: string, input: TanqueInput): Promise<
     updated_at: new Date().toISOString(),
   };
   if (input.margenMermaPct != null) patch.margen_merma_pct = Math.min(100, Math.max(0, num(input.margenMermaPct)));
+  if (input.mermaImplicitaPct != null) patch.merma_implicita_pct = Math.min(100, Math.max(0, num(input.mermaImplicitaPct)));
   // Tasa USD/L editable: OVERRIDE MANUAL. Normalmente la tasa es el PMP (se deriva sola de
   // las compras), pero editar la tasa del tanque permite "aplanar" todo a un valor puntual
   // (corrección). Al hacerlo, se re-valoriza el saldo y la APERTURA a esa tasa, y todos los
@@ -494,7 +643,27 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   return rows.map((m) => {
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
-    return { ...m, saldo_litros: round(saldoL, 2), saldo_usd: round(saldoU, 2) };
+    const regCuaderno = m.registrado_en_cuaderno ?? (m.observacion && /\[Cuaderno:\s*(Sí|Registrado|\d+)/i.test(m.observacion) ? true : false);
+    let cLitros = m.cuaderno_litros;
+    if (cLitros == null && m.observacion) {
+      const matchLitros = m.observacion.match(/\[Cuaderno:\s*(?:Registrado\s*[-·:]\s*)?([\d.,]+)\s*L?\]/i);
+      if (matchLitros) cLitros = Number(matchLitros[1].replace(',', '.'));
+    }
+    const regDrive = m.registrado_en_drive ?? (m.observacion && /\[Drive:\s*(Sí|Registrado|\d+)/i.test(m.observacion) ? true : false);
+    let sDrive = m.saldo_drive;
+    if (sDrive == null && m.observacion) {
+      const matchDrive = m.observacion.match(/\[Drive:\s*(?:Registrado\s*[-·:]\s*)?([\d.,]+)\s*L?\]/i);
+      if (matchDrive) sDrive = Number(matchDrive[1].replace(',', '.'));
+    }
+    return {
+      ...m,
+      registrado_en_cuaderno: regCuaderno,
+      cuaderno_litros: cLitros ?? (regCuaderno ? m.litros : null),
+      registrado_en_drive: regDrive,
+      saldo_drive: sDrive,
+      saldo_litros: round(saldoL, 2),
+      saldo_usd: round(saldoU, 2),
+    };
   });
 }
 
@@ -512,10 +681,46 @@ export interface MovimientoTanqueCampos {
   horometroFin?: number | null;
   /** Kilometraje (odómetro) del vehículo: lectura absoluta del momento. */
   kilometraje?: number | null;
+  /** ¿Fue asentado en el cuaderno físico de campo? */
+  registrado_en_cuaderno?: boolean | null;
+  /** Litros registrados en el cuaderno físico de campo */
+  cuaderno_litros?: number | null;
+  /** ¿Fue asentado en la hoja de control de Google Drive? */
+  registrado_en_drive?: boolean | null;
+  /** Saldo reportado en la hoja de Google Drive */
+  saldo_drive?: number | null;
 }
 
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
-  const { data, error } = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
+  let data: unknown;
+  let error: unknown;
+  const res = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
+  data = res.data;
+  error = res.error;
+  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_cuaderno' in payload || 'cuaderno_litros' in payload || 'registrado_en_drive' in payload || 'saldo_drive' in payload)) {
+    const fallbackPayload = { ...payload };
+    const reg = fallbackPayload.registrado_en_cuaderno;
+    const cLtrs = fallbackPayload.cuaderno_litros;
+    delete fallbackPayload.registrado_en_cuaderno;
+    delete fallbackPayload.cuaderno_litros;
+    const regDrive = fallbackPayload.registrado_en_drive;
+    const sDrive = fallbackPayload.saldo_drive;
+    delete fallbackPayload.registrado_en_drive;
+    delete fallbackPayload.saldo_drive;
+    let obs = String(fallbackPayload.observacion || '').trim();
+    if (reg) {
+      const cantTexto = cLtrs != null ? `${num(cLtrs)} L` : 'Registrado';
+      obs = obs ? `${obs} [Cuaderno: ${cantTexto}]` : `[Cuaderno: ${cantTexto}]`;
+    }
+    if (regDrive) {
+      const driveTexto = sDrive != null ? `${num(sDrive)} L` : 'Registrado';
+      obs = obs ? `${obs} [Drive: ${driveTexto}]` : `[Drive: ${driveTexto}]`;
+    }
+    fallbackPayload.observacion = obs || null;
+    const res2 = await supabase.from('combustible_tanque_movimientos').insert(fallbackPayload).select('*').single();
+    data = res2.data;
+    error = res2.error;
+  }
   if (error) throw error;
   const mov = data as MovimientoTanque;
   // Re-encadena los medidores CONTINUOS tras insertar (igual que al editar/borrar): el
@@ -544,6 +749,10 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
     // («column "horas_utilizadas" can only be updated to DEFAULT»). Lo mismo monto_usd y
     // contador_global_dif. Basta con guardar HI y HF.
     kilometraje: c.kilometraje ?? null,
+    ...(c.registrado_en_cuaderno !== undefined ? { registrado_en_cuaderno: c.registrado_en_cuaderno } : {}),
+    ...(c.cuaderno_litros !== undefined ? { cuaderno_litros: c.cuaderno_litros } : {}),
+    ...(c.registrado_en_drive !== undefined ? { registrado_en_drive: c.registrado_en_drive } : {}),
+    ...(c.saldo_drive !== undefined ? { saldo_drive: c.saldo_drive } : {}),
   };
 }
 
@@ -1209,6 +1418,69 @@ async function reencadenarHorometroEquipo(equipo: string | null | undefined): Pr
  *  Como la fecha/hora puede cambiar la posición cronológica del movimiento, tras guardar se
  *  RE-ENCADENAN los medidores continuos: el contador del surtidor (por tanque) y el horómetro
  *  (por equipo) — el inicial de cada movimiento vuelve a colgar del final del anterior. */
+
+/**
+ * Actualiza el estado de asentado en cuaderno físico de un movimiento y sus litros.
+ */
+export async function setMovimientoCuaderno(
+  movId: string,
+  registrado_en_cuaderno: boolean,
+  cuaderno_litros?: number | null,
+): Promise<void> {
+  const updatePayload: Record<string, unknown> = {
+    registrado_en_cuaderno,
+    cuaderno_litros: registrado_en_cuaderno ? (cuaderno_litros ?? null) : null,
+  };
+  const { error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .update(updatePayload)
+    .eq('id', movId);
+  if (error) {
+    if ((error as { code?: string }).code === '42703') {
+      const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion, litros').eq('id', movId).maybeSingle();
+      const obs = (data as { observacion?: string | null })?.observacion || '';
+      const movLitros = (data as { litros?: number })?.litros;
+      const limpio = obs.replace(/\[Cuaderno:\s*[^\]]+\]/gi, '').trim();
+      const cant = cuaderno_litros ?? movLitros;
+      const texto = registrado_en_cuaderno ? (cant != null ? `${num(cant)} L` : 'Registrado') : 'No registrado';
+      const nuevoObs = `${limpio} [Cuaderno: ${texto}]`.trim();
+      await supabase.from('combustible_tanque_movimientos').update({ observacion: nuevoObs }).eq('id', movId);
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Actualiza el estado de asentado en hoja de Google Drive de un movimiento y su saldo.
+ */
+export async function setMovimientoDrive(
+  movId: string,
+  registrado_en_drive: boolean,
+  saldo_drive?: number | null,
+): Promise<void> {
+  const updatePayload: Record<string, unknown> = {
+    registrado_en_drive,
+    saldo_drive: registrado_en_drive ? (saldo_drive ?? null) : null,
+  };
+  const { error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .update(updatePayload)
+    .eq('id', movId);
+  if (error) {
+    if ((error as { code?: string }).code === '42703') {
+      const { data } = await supabase.from('combustible_tanque_movimientos').select('observacion').eq('id', movId).maybeSingle();
+      const obs = (data as { observacion?: string | null })?.observacion || '';
+      const limpio = obs.replace(/\[Drive:\s*[^\]]+\]/gi, '').trim();
+      const texto = registrado_en_drive ? (saldo_drive != null ? `${num(saldo_drive)} L` : 'Registrado') : 'No registrado';
+      const nuevoObs = `${limpio} [Drive: ${texto}]`.trim();
+      await supabase.from('combustible_tanque_movimientos').update({ observacion: nuevoObs }).eq('id', movId);
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function actualizarMovimientoTanque(
   id: string,
   patch: MovimientoTanqueCampos & { tipo?: TipoMovTanque; litros?: number; tasaUsdLitro?: number },
@@ -1246,10 +1518,37 @@ export async function actualizarMovimientoTanque(
   if (patch.litros != null) upd.litros = num(patch.litros);
   if (patch.tasaUsdLitro != null) upd.tasa_usd_litro = round(num(patch.tasaUsdLitro), 4);
 
-  const { data, error } = await supabase.from('combustible_tanque_movimientos')
+  let { data, error } = await supabase.from('combustible_tanque_movimientos')
     .update(upd).eq('id', id)
     .select('tanque_id, equipo, mov_vinculado_id, fecha, hora, autorizado_por, ubicacion, observacion, litros, tasa_usd_litro')
     .single();
+  if (error && (error as { code?: string }).code === '42703' && ('registrado_en_drive' in upd || 'saldo_drive' in upd || 'registrado_en_cuaderno' in upd || 'cuaderno_litros' in upd)) {
+    const fallbackUpd = { ...upd };
+    const reg = fallbackUpd.registrado_en_cuaderno;
+    const cLtrs = fallbackUpd.cuaderno_litros;
+    delete fallbackUpd.registrado_en_cuaderno;
+    delete fallbackUpd.cuaderno_litros;
+    const regDrive = fallbackUpd.registrado_en_drive;
+    const sDrive = fallbackUpd.saldo_drive;
+    delete fallbackUpd.registrado_en_drive;
+    delete fallbackUpd.saldo_drive;
+    let obs = String(fallbackUpd.observacion || '').replace(/\[Cuaderno:\s*[^\]]+\]/gi, '').replace(/\[Drive:\s*[^\]]+\]/gi, '').trim();
+    if (reg) {
+      const cantTexto = cLtrs != null ? `${num(cLtrs)} L` : 'Registrado';
+      obs = obs ? `${obs} [Cuaderno: ${cantTexto}]` : `[Cuaderno: ${cantTexto}]`;
+    }
+    if (regDrive) {
+      const driveTexto = sDrive != null ? `${num(sDrive)} L` : 'Registrado';
+      obs = obs ? `${obs} [Drive: ${driveTexto}]` : `[Drive: ${driveTexto}]`;
+    }
+    fallbackUpd.observacion = obs || null;
+    const res2 = await supabase.from('combustible_tanque_movimientos')
+      .update(fallbackUpd).eq('id', id)
+      .select('tanque_id, equipo, mov_vinculado_id, fecha, hora, autorizado_por, ubicacion, observacion, litros, tasa_usd_litro')
+      .single();
+    data = res2.data;
+    error = res2.error;
+  }
   if (error) throw error;
   const tanqueId = (data as { tanque_id: string }).tanque_id;
   const equipoNuevo = (data as { equipo: string | null }).equipo;
@@ -1574,6 +1873,7 @@ export interface ConsumoEquipoItem {
   nombre: string;
   cantidad: number;
   valor: number;
+  horas?: number;
 }
 
 export type AgrupacionConsumo = 'equipo' | 'mina' | 'mes';
@@ -1585,7 +1885,7 @@ const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep',
 export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsumo = 'equipo'): Promise<ConsumoEquipoItem[]> {
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo, tanque_id')
+    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo, tanque_id, horas_utilizadas, horometro_ini, horometro_fin')
     .eq('tipo', 'uso')
     .gte('fecha', desde.toISOString().slice(0, 10))
     .lte('fecha', hasta.toISOString().slice(0, 10));
@@ -1610,14 +1910,21 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
       const [y, m] = f.split('-');
       clave = m ? `${MESES_ES[(Number(m) - 1 + 12) % 12]} ${y}` : '— sin fecha —';
     } else clave = (row.equipo as string)?.trim() || '— sin equipo —';
-    const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0 };
+    const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0, horas: 0 };
     cur.cantidad += litros;
     // Valor = litros × tasa vigente del tanque. Si no se conoce el tanque/tasa, cae al monto guardado.
     const tasa = row.tanque_id ? tasaPorTanque.get(row.tanque_id as string) ?? 0 : 0;
     cur.valor += tasa > 0 ? litros * tasa : num(row.monto_usd);
+    let h = 0;
+    if (row.horas_utilizadas != null && num(row.horas_utilizadas) > 0) {
+      h = num(row.horas_utilizadas);
+    } else if (row.horometro_fin != null && row.horometro_ini != null && num(row.horometro_fin) >= num(row.horometro_ini)) {
+      h = num(row.horometro_fin) - num(row.horometro_ini);
+    }
+    cur.horas = (cur.horas ?? 0) + h;
     acc.set(clave, cur);
   }
-  const arr = Array.from(acc.values()).map((x) => ({ ...x, cantidad: round(x.cantidad, 2), valor: round(x.valor, 2) }));
+  const arr = Array.from(acc.values()).map((x) => ({ ...x, cantidad: round(x.cantidad, 2), valor: round(x.valor, 2), horas: round(x.horas ?? 0, 1) }));
   // Por mes: orden cronológico; el resto, por mayor consumo.
   return por === 'mes' ? arr : arr.sort((a, b) => b.cantidad - a.cantidad);
 }
@@ -1625,6 +1932,43 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
 /** Compat: consumo por equipo (usa consumoUso). */
 export function consumoPorEquipo(desde: Date, hasta: Date): Promise<ConsumoEquipoItem[]> {
   return consumoUso(desde, hasta, 'equipo');
+}
+
+export interface ParametrosConsultaReporteCombustible {
+  desde: string;
+  hasta: string;
+  tipos?: TipoMovTanque[];
+  tanqueIds?: string[];
+}
+
+/**
+ * Consulta los movimientos para el reporte moldeable de combustible (29/10/2026).
+ * Por defecto solo movimientos de tipo 'uso' en el rango de fechas indicado.
+ */
+export async function consultarMovimientosReporteCombustible(
+  params: ParametrosConsultaReporteCombustible
+): Promise<MovimientoTanque[]> {
+  let q = supabase
+    .from('combustible_tanque_movimientos')
+    .select('*')
+    .gte('fecha', params.desde)
+    .lte('fecha', params.hasta);
+
+  if (params.tipos && params.tipos.length > 0) {
+    q = q.in('tipo', params.tipos);
+  } else {
+    q = q.eq('tipo', 'uso');
+  }
+
+  if (params.tanqueIds && params.tanqueIds.length > 0) {
+    q = q.in('tanque_id', params.tanqueIds);
+  }
+
+  q = q.order('fecha', { ascending: true }).order('created_at', { ascending: true });
+
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as MovimientoTanque[];
 }
 
 /** Horómetro vigente (último HF registrado) de TODOS los equipos, en una sola consulta.

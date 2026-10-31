@@ -13,6 +13,7 @@ export interface ConsumoRow {
   unidad: string;       // und / Lt / KG…
   cantidad: number;     // cantidad consumida (en su unidad)
   valor: number;        // equivalente en $ (cantidad × costo)
+  horas?: number;       // horas trabajadas (opcional)
 }
 
 type Preset = 'hoy' | '7d' | '15d' | 'mes' | 'rango';
@@ -51,19 +52,23 @@ function rangoDePreset(preset: Preset, desdeStr: string, hastaStr: string): { de
  * muestra una barra por cada producto/combustible consumido y una tabla con la
  * cantidad y su equivalente en $. Lo usan Inventario (por almacén) y Combustible.
  */
-export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTables }: {
+export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTables, permitirHoras, onAbrirReporte }: {
   title: string;
   subtitle?: string;
   cargar: (desde: Date, hasta: Date) => Promise<ConsumoRow[]>;
   onClose: () => void;
   /** Tablas a vigilar en vivo: si cambian (alta/edición/baja), se recarga el consumo. */
   realtimeTables?: string[];
+  /** Si es true, añade la métrica "Horas trabajadas", KPI de horas y columna en tabla. */
+  permitirHoras?: boolean;
+  /** Acción para abrir el reporte de combustible desde este modal. */
+  onAbrirReporte?: (rango: { desde: Date; hasta: Date }) => void;
 }) {
   const hoy = isoDay(new Date());
   const [preset, setPreset] = useState<Preset>('15d');
   const [desdeStr, setDesdeStr] = useState(hoy);
   const [hastaStr, setHastaStr] = useState(hoy);
-  const [metrica, setMetrica] = useState<'valor' | 'cantidad'>('valor');
+  const [metrica, setMetrica] = useState<'valor' | 'cantidad' | 'horas'>('valor');
   const [rows, setRows] = useState<ConsumoRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +85,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
     try {
       const { desde, hasta } = rangoDePreset(preset, desdeStr, hastaStr);
       const data = await cargarRef.current(desde, hasta);
-      setRows(data.slice().sort((a, b) => b.valor - a.valor));
+      setRows(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar el consumo');
       setRows([]);
@@ -91,31 +96,68 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
   // se recarga el consumo para que eliminar/editar se refleje sin cerrar el modal.
   useRealtime(realtimeTables ?? [], () => { void recargar(); }, { enabled: !!realtimeTables?.length });
 
-  // Buscador: filtra las filas por nombre (label) o sub-etiqueta.
-  const filtered = useMemo(() => {
+  // Buscador y ordenamiento según la métrica activa
+  const sorted = useMemo(() => {
     const s = norm(q);
-    if (!s) return rows;
-    return rows.filter((r) => norm(r.label).includes(s) || norm(r.sub).includes(s));
-  }, [rows, q]);
+    const base = !s
+      ? rows
+      : rows.filter((r) => norm(r.label).includes(s) || norm(r.sub).includes(s));
 
-  const totalCantidad = filtered.reduce((a, r) => a + r.cantidad, 0);
-  const totalValor = filtered.reduce((a, r) => a + r.valor, 0);
+    return base.slice().sort((a, b) => {
+      if (metrica === 'horas') return (b.horas ?? 0) - (a.horas ?? 0);
+      if (metrica === 'cantidad') return b.cantidad - a.cantidad;
+      return b.valor - a.valor;
+    });
+  }, [rows, q, metrica]);
+
+  const totalCantidad = sorted.reduce((a, r) => a + r.cantidad, 0);
+  const totalValor = sorted.reduce((a, r) => a + r.valor, 0);
+  const totalHoras = sorted.reduce((a, r) => a + (r.horas ?? 0), 0);
 
   const data: ChartPoint[] = useMemo(
-    () => filtered.map((r) => ({
-      label: r.label,
-      value: metrica === 'valor' ? Math.round(r.valor * 100) / 100 : r.cantidad,
-      tooltip: `${r.label}: ${num(r.cantidad)} ${r.unidad} · ${money(r.valor)}`,
-    })),
-    [filtered, metrica],
+    () => sorted.map((r) => {
+      let val = 0;
+      if (metrica === 'valor') val = Math.round(r.valor * 100) / 100;
+      else if (metrica === 'cantidad') val = r.cantidad;
+      else val = Math.round((r.horas ?? 0) * 10) / 10;
+
+      const horasTxt = r.horas != null && r.horas > 0 ? ` · ${num(r.horas)} h` : '';
+      return {
+        label: r.label,
+        value: val,
+        tooltip: `${r.label}: ${num(r.cantidad)} ${r.unidad} · ${money(r.valor)}${horasTxt}`,
+      };
+    }),
+    [sorted, metrica],
   );
 
   return (
-    <Modal title={title} size="xl" onClose={onClose}
-      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+    <Modal
+      title={title}
+      size="xl"
+      onClose={onClose}
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+          {onAbrirReporte ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                const { desde, hasta } = rangoDePreset(preset, desdeStr, hastaStr);
+                onAbrirReporte({ desde, hasta });
+              }}
+              title="Descargar reporte de combustible (PDF, Excel, CSV) con filtros avanzados"
+            >
+              📄 Descargar reporte (PDF / Excel / CSV)
+            </button>
+          ) : <span />}
+          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        </div>
+      }
+    >
       {subtitle && <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>{subtitle}</p>}
 
-      {/* Filtros de período */}
+      {/* Filtros de período y selector de métricas */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'center', marginBottom: '.6rem' }}>
         {PRESETS.map((p) => (
           <button key={p.key} className={`btn btn-sm ${preset === p.key ? 'btn-primary' : 'btn-ghost'}`}
@@ -128,9 +170,50 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
             <input className="input" type="date" value={hastaStr} min={desdeStr} max={hoy} onChange={(e) => setHastaStr(e.target.value)} style={{ width: 150 }} />
           </span>
         )}
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '.3rem' }}>
-          <button className={`btn btn-sm ${metrica === 'valor' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMetrica('valor')}>Valor ($)</button>
-          <button className={`btn btn-sm ${metrica === 'cantidad' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMetrica('cantidad')}>Cantidad</button>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
+          {onAbrirReporte && (
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              style={{
+                borderColor: 'var(--primary, #f97316)',
+                color: 'var(--primary, #f97316)',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '.3rem',
+                marginRight: '.3rem',
+              }}
+              onClick={() => {
+                const { desde, hasta } = rangoDePreset(preset, desdeStr, hastaStr);
+                onAbrirReporte({ desde, hasta });
+              }}
+              title="Descargar reporte institucional de combustible en PDF, Excel o CSV"
+            >
+              📄 Descargar reporte
+            </button>
+          )}
+          <button
+            className={`btn btn-sm ${metrica === 'valor' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setMetrica('valor')}
+          >
+            Valor ($)
+          </button>
+          {permitirHoras && (
+            <button
+              className={`btn btn-sm ${metrica === 'horas' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setMetrica('horas')}
+              title="Cantidad de horas trabajadas por máquina"
+            >
+              Horas trabajadas
+            </button>
+          )}
+          <button
+            className={`btn btn-sm ${metrica === 'cantidad' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setMetrica('cantidad')}
+          >
+            Cantidad
+          </button>
         </span>
       </div>
 
@@ -145,53 +228,85 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
       </div>
 
       {/* Totales */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${permitirHoras ? '120px' : '140px'}, 1fr))`, gap: '.6rem', marginBottom: '.75rem' }}>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-          <div className="muted" style={{ fontSize: '.68rem' }}>PRODUCTOS CONSUMIDOS</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(filtered.length)}</div>
+          <div className="muted" style={{ fontSize: '.68rem' }}>{permitirHoras ? 'EQUIPOS' : 'PRODUCTOS CONSUMIDOS'}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(sorted.length)}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>CANTIDAD TOTAL</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(totalCantidad)}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(totalCantidad)} {sorted[0]?.unidad || ''}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>VALOR TOTAL ($)</div>
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(totalValor)}</div>
         </div>
+        {permitirHoras && (
+          <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
+            <div className="muted" style={{ fontSize: '.68rem' }}>HORAS TRABAJADAS TOTAL</div>
+            <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: '#38bdf8' }}>{num(totalHoras)} h</div>
+          </div>
+        )}
       </div>
 
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
 
-      {/* Gráfica por producto */}
+      {/* Gráfica por producto / equipo */}
       <div className="card" style={{ padding: '.8rem', marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.4rem' }}>
-          <span>Consumo por producto {metrica === 'valor' ? '(en $)' : '(en cantidad)'}</span>
-          <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${filtered.length} producto(s)`}</span>
+          <span>
+            Consumo por {permitirHoras ? 'equipo' : 'producto'}{' '}
+            {metrica === 'valor' ? '(en $)' : metrica === 'horas' ? '(en horas trabajadas)' : '(en cantidad)'}
+          </span>
+          <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${sorted.length} ${permitirHoras ? 'equipo(s)' : 'producto(s)'}`}</span>
         </div>
-        <HBarChart data={data}
-          yFormatter={(v) => (metrica === 'valor' ? money(v) : num(v))}
-          emptyMessage={loading ? 'Cargando…' : 'Sin consumo en el período seleccionado.'} />
+        <HBarChart
+          data={data}
+          yFormatter={(v) => (metrica === 'valor' ? money(v) : metrica === 'horas' ? `${num(v)} h` : num(v))}
+          emptyMessage={loading ? 'Cargando…' : 'Sin consumo en el período seleccionado.'}
+        />
       </div>
 
       {/* Tabla detalle */}
       <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.84rem' }}>
-          <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Valor ($)</th></tr></thead>
+          <thead>
+            <tr>
+              <th>{permitirHoras ? 'Equipo' : 'Producto'}</th>
+              <th style={{ textAlign: 'right' }}>Cantidad</th>
+              {permitirHoras && <th style={{ textAlign: 'right' }}>Horas Trab.</th>}
+              <th style={{ textAlign: 'right' }}>Valor ($)</th>
+            </tr>
+          </thead>
           <tbody>
-            {!filtered.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>{loading ? 'Cargando…' : 'Sin consumo en el período.'}</td></tr>}
-            {filtered.map((r) => (
+            {!sorted.length && (
+              <tr>
+                <td colSpan={permitirHoras ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>
+                  {loading ? 'Cargando…' : 'Sin consumo en el período.'}
+                </td>
+              </tr>
+            )}
+            {sorted.map((r) => (
               <tr key={r.id}>
                 <td>{r.label}{r.sub ? <span className="muted mono" style={{ fontSize: '.72rem' }}> · {r.sub}</span> : null}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)} {r.unidad}</td>
+                {permitirHoras && (
+                  <td className="mono" style={{ textAlign: 'right', color: r.horas ? '#38bdf8' : undefined }}>
+                    {r.horas != null && r.horas > 0 ? `${num(r.horas)} h` : '-'}
+                  </td>
+                )}
                 <td className="mono" style={{ textAlign: 'right' }}>{money(r.valor)}</td>
               </tr>
             ))}
           </tbody>
-          {filtered.length > 0 && (
+          {sorted.length > 0 && (
             <tfoot>
               <tr>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totalCantidad)}</td>
+                {permitirHoras && (
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: '#38bdf8' }}>{num(totalHoras)} h</td>
+                )}
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-3)' }}>{money(totalValor)}</td>
               </tr>
             </tfoot>

@@ -21,10 +21,11 @@ const fichas = [payloader, excavadora, hilux, moto];
 describe('opciones del buscador de equipos (teléfono)', () => {
   const ops = opcionesEquipos({ catalogo, fichas, bidones: ['BIDÓN 200 L'], modo: 'telefono', apartados: CLASES_EQUIPO_BASE });
 
-  it('L220G sale por el modelo aunque no tenga alias, con el nombre oficial de hint', () => {
+  it('sin alias el label es el NOMBRE principal (no el modelo); el modelo sigue sirviendo para buscar', () => {
     const o = ops.find((x) => x.value === 'PAYLOADER VOLVO L220G 2014')!;
-    expect(o.label).toBe('L220G');
-    expect(o.hint).toBe('PAYLOADER VOLVO L220G 2014');
+    expect(o.label).toBe('PAYLOADER VOLVO L220G 2014');
+    expect(o.hint).toBeUndefined(); // el corto ya es el nombre oficial, no hace falta repetirlo
+    expect(o.keywords).toEqual(expect.arrayContaining(['L220G', 'VOLVO']));
     expect(o.group).toBe('Maquinaria y Equipos');
     expect(o.groupIcon).toBe('🚜');
   });
@@ -51,12 +52,12 @@ describe('opciones del buscador de equipos (teléfono)', () => {
   it('orden de grupos: Maquinaria, Vehículos, Motos… luego Otros y Bidones; dentro por label', () => {
     const grupos = ops.map((o) => o.group);
     expect(grupos).toEqual(['Maquinaria y Equipos', 'Maquinaria y Equipos', 'Vehículos', 'Motos', GRUPO_OTROS, GRUPO_BIDONES]);
-    expect(ops.slice(0, 2).map((o) => o.label)).toEqual(['EC240', 'L220G']);
+    expect(ops.slice(0, 2).map((o) => o.label)).toEqual(['EC240', 'PAYLOADER VOLVO L220G 2014']);
   });
 
-  it('la placa sirve para encontrar la camioneta', () => {
+  it('la placa sirve para encontrar la camioneta (aunque el label sea el nombre principal)', () => {
     const o = ops.find((x) => x.value === 'TOYOTA HILUX 05')!;
-    expect(o.label).toBe('HILUX');
+    expect(o.label).toBe('TOYOTA HILUX 05');
     expect(o.keywords).toContain('A12BC3D');
   });
 });
@@ -91,5 +92,93 @@ describe('cruce catálogo ↔ ficha', () => {
     const ops = opcionesEquipos({ catalogo: ['BIDÓN 200 L', 'X'], fichas: [], bidones: ['Bidón 200 L'], modo: 'telefono', apartados: CLASES_EQUIPO_BASE });
     expect(ops.filter((o) => o.value.toLowerCase().startsWith('bid'))).toHaveLength(1);
     expect(ops[ops.length - 1].group).toBe(GRUPO_BIDONES);
+  });
+});
+
+describe('filtrado por activo y tanques permitidos (control de surtido)', () => {
+  const catalogoConPermisos = [
+    { valor: 'PAYLOADER VOLVO L220G 2014', activo: true, tanques_permitidos: null }, // todos los tanques
+    { valor: 'EXCAVADORA VOLVO EC240', activo: true, tanques_permitidos: ['tanque-1', 'Tanque #3'] }, // solo tanque 1 y 3
+    { valor: 'TOYOTA HILUX 05', activo: false, tanques_permitidos: null }, // inactivo / no puede surtir
+    { valor: 'MOTO BERA 01', activo: true, tanques_permitidos: ['tanque-brasileros'] }, // solo brasileros
+  ];
+
+  it('excluye los equipos con activo === false (desmarcados del surtido)', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+    });
+    expect(ops.some((o) => o.value === 'TOYOTA HILUX 05')).toBe(false);
+    expect(ops.some((o) => o.value === 'PAYLOADER VOLVO L220G 2014')).toBe(true);
+  });
+
+  it('si se indica tanqueActual, solo muestra equipos autorizados para ese tanque o para todos', () => {
+    // Tanque 1: debe mostrar payloader (todos) y excavadora (tanque-1), pero no moto (solo brasileros) ni hilux (inactivo)
+    const opsT1 = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-1', nombre: 'Tanque #1' },
+    });
+    const valsT1 = opsT1.map((o) => o.value);
+    expect(valsT1).toContain('PAYLOADER VOLVO L220G 2014');
+    expect(valsT1).toContain('EXCAVADORA VOLVO EC240');
+    expect(valsT1).not.toContain('MOTO BERA 01');
+    expect(valsT1).not.toContain('TOYOTA HILUX 05');
+
+    // Tanque Brasileros: debe mostrar payloader (todos) y moto (brasileros), pero no excavadora
+    const opsBras = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-brasileros', nombre: 'Tanque #2 Brasileros' },
+    });
+    const valsBras = opsBras.map((o) => o.value);
+    expect(valsBras).toContain('PAYLOADER VOLVO L220G 2014');
+    expect(valsBras).toContain('MOTO BERA 01');
+    expect(valsBras).not.toContain('EXCAVADORA VOLVO EC240');
+  });
+
+  it('incluirValor preserva el equipo seleccionado aunque esté inactivo o restringido', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-1', nombre: 'Tanque #1' },
+      incluirValor: 'TOYOTA HILUX 05', // inactivo, pero en edición
+    });
+    expect(ops.some((o) => o.value === 'TOYOTA HILUX 05')).toBe(true);
+  });
+
+  it('NO permite dar salida directa a bidones desde otro tanque convencional (ej. Tanque #1)', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      bidones: ['Bidones 20 Litros (2)', 'BIDÓN 200 L'],
+      modo: 'telefono',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-1', nombre: 'Tanque #1' },
+    });
+    // Desde Tanque #1 NO deben aparecer los bidones
+    expect(ops.some((o) => o.value === 'Bidones 20 Litros (2)')).toBe(false);
+    expect(ops.some((o) => o.value === 'BIDÓN 200 L')).toBe(false);
+    expect(ops.some((o) => o.group === GRUPO_BIDONES)).toBe(false);
+  });
+
+  it('SÍ permite bidones cuando el tanque actual es el propio almacenamiento de bidones', () => {
+    const ops = opcionesEquipos({
+      catalogo: catalogoConPermisos,
+      fichas,
+      bidones: ['Bidones 20 Litros (2)'],
+      modo: 'telefono',
+      apartados: CLASES_EQUIPO_BASE,
+      tanqueActual: { id: 'tanque-bidon', nombre: 'Bidones 20 Litros (2)' },
+    });
+    expect(ops.some((o) => o.value === 'Bidones 20 Litros (2)')).toBe(true);
   });
 });

@@ -166,6 +166,13 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
               {guardando ? 'Guardando…' : 'Guardar ficha'}
             </button>
             {cambio && <button type="button" className="btn btn-ghost" onClick={() => setFicha(JSON.parse(firma) as FichaImpuesto)}>Deshacer</button>}
+            <button type="button" className="btn btn-ghost" style={{ marginLeft: 'auto' }}
+              title={ficha.activo
+                ? 'Deja el impuesto fuera de uso. No se borra: queda en el historial y se puede volver a habilitar. Indica el motivo y guarda.'
+                : 'Vuelve a poner el impuesto en uso. Indica el motivo y guarda.'}
+              onClick={() => set({ activo: !ficha.activo })}>
+              {ficha.activo ? '⊘ Deshabilitar impuesto' : '✓ Habilitar impuesto'}
+            </button>
           </div>
         )}
         {cambio && falta && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}

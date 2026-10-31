@@ -64,21 +64,30 @@ export function filtrarOpciones(options: SearchOption[], query: string): { opcio
  *  contenedor con overflow (tablas, modales) lo recorte. */
 const PANEL_LOOK: CSSProperties = {
   overflowY: 'auto',
-  background: 'var(--bg-1, #11151c)', border: '1px solid var(--border, #2a3240)',
-  borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)',
+  background: 'var(--surface-2, #182230)',
+  border: '1.5px solid rgba(255, 138, 0, 0.45)',
+  borderRadius: 12,
+  boxShadow: '0 20px 48px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 138, 0, 0.15)',
 };
 /** Cabecera de grupo del desplegable: pegada arriba mientras se baja por su grupo. */
 const GRUPO_STYLE: CSSProperties = {
-  position: 'sticky', top: 0, zIndex: 1,
-  padding: '.3rem .7rem .2rem', fontSize: '.72rem', fontWeight: 700, letterSpacing: '.04em',
-  textTransform: 'uppercase', color: 'var(--muted, #9aa3ad)',
-  background: 'var(--bg-1, #11151c)', borderBottom: '1px solid var(--border, #2a3240)',
+  position: 'sticky', top: 0, zIndex: 2,
+  padding: '.45rem .85rem', fontSize: '.75rem', fontWeight: 800, letterSpacing: '.06em',
+  textTransform: 'uppercase', color: '#FF8A00',
+  background: '#0f172a', borderBottom: '1px solid rgba(255, 138, 0, 0.25)',
 };
 const optStyle = (activo: boolean, sel: boolean): CSSProperties => ({
-  padding: '.45rem .7rem', cursor: 'pointer', fontSize: '.9rem',
-  background: activo ? 'var(--primary-soft, rgba(255,138,0,.15))' : 'transparent',
-  color: sel ? 'var(--primary-3, #ff8a00)' : 'var(--text, #e6e6e6)',
-  fontWeight: sel ? 600 : 400,
+  minHeight: 46,
+  display: 'flex',
+  alignItems: 'center',
+  padding: '.65rem .9rem',
+  cursor: 'pointer',
+  fontSize: '.98rem',
+  background: activo ? 'rgba(255, 138, 0, 0.16)' : sel ? 'rgba(255, 138, 0, 0.08)' : 'transparent',
+  color: sel ? 'var(--primary-2, #ffa733)' : 'var(--text, #f8fafc)',
+  fontWeight: sel ? 700 : 500,
+  borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+  transition: 'background 0.15s ease',
 });
 
 /** Máximo de opciones que se PINTAN a la vez (se filtra sobre TODO el catálogo, pero
@@ -100,11 +109,13 @@ function useAnchoredPos(anchorRef: RefObject<HTMLElement>, open: boolean): Ancho
       const r = el.getBoundingClientRect();
       const spaceBelow = window.innerHeight - r.bottom;
       const spaceAbove = r.top;
-      const flip = spaceBelow < 200 && spaceAbove > spaceBelow;
-      const maxHeight = Math.max(140, Math.min(260, (flip ? spaceAbove : spaceBelow) - 12));
+      const isMobile = window.innerWidth <= 640;
+      const flip = spaceBelow < (isMobile ? 180 : 200) && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(140, Math.min(isMobile ? 320 : 260, (flip ? spaceAbove : spaceBelow) - 12));
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8));
       setPos(flip
-        ? { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 2, maxHeight }
-        : { left: r.left, width: r.width, top: r.bottom + 2, maxHeight });
+        ? { left, width: r.width, bottom: window.innerHeight - r.top + 2, maxHeight }
+        : { left, width: r.width, top: r.bottom + 2, maxHeight });
     };
     update();
     window.addEventListener('scroll', update, true);
@@ -115,19 +126,30 @@ function useAnchoredPos(anchorRef: RefObject<HTMLElement>, open: boolean): Ancho
 }
 
 /** Panel desplegable montado en un portal (body) con posición fija anclada al input. */
-function DropdownPortal({ anchorRef, panelRef, open, children }: {
-  anchorRef: RefObject<HTMLElement>; panelRef: RefObject<HTMLDivElement>; open: boolean; children: ReactNode;
+function DropdownPortal({ anchorRef, panelRef, open, onClose, children }: {
+  anchorRef: RefObject<HTMLElement>; panelRef: RefObject<HTMLDivElement>; open: boolean; onClose?: () => void; children: ReactNode;
 }) {
   const pos = useAnchoredPos(anchorRef, open);
   if (!open || !pos) return null;
   const style: CSSProperties = {
-    // z-index por encima del modal (.modal-backdrop = 9000) y por debajo de los toasts (9999),
-    // porque el panel vive en un portal en <body>: si quedara por debajo del modal, no se vería.
     ...PANEL_LOOK, position: 'fixed', zIndex: 9500,
     left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
     ...(pos.top != null ? { top: pos.top } : { bottom: pos.bottom }),
   };
-  return createPortal(<div ref={panelRef} role="listbox" style={style}>{children}</div>, document.body);
+  return createPortal(
+    <>
+      <div
+        role="presentation"
+        style={{ position: 'fixed', inset: 0, zIndex: 9499, background: 'transparent' }}
+        onMouseDown={onClose}
+        onTouchStart={onClose}
+      />
+      <div ref={panelRef} role="listbox" style={style}>
+        {children}
+      </div>
+    </>,
+    document.body,
+  );
 }
 
 /**
@@ -234,7 +256,7 @@ export function SearchSelect({
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
         onKeyDown={onKeyDown}
       />
-      <DropdownPortal anchorRef={inputRef} panelRef={panelRef} open={open && !disabled}>
+      <DropdownPortal anchorRef={inputRef} panelRef={panelRef} open={open && !disabled} onClose={() => setOpen(false)}>
         {filtered.length === 0 && !showCreate && (
           <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>
         )}

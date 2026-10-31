@@ -693,9 +693,12 @@ export function aliasesDeEquipo(e: { alias?: string | null; modelo?: string | nu
   return base.filter((a) => { const k = norm(a); if (vistos.has(k)) return false; vistos.add(k); return true; });
 }
 
-/** Nombre corto para la lista del surtidor: primer alias; si no, modelo; si no, placa; si no, el nombre. */
+/** Nombre corto para la lista del surtidor: el primer alias si lo tiene; si no, el NOMBRE
+ *  PRINCIPAL del equipo (no el modelo ni la placa), para que el que surte vea el mismo nombre
+ *  que la máquina tiene en Maquinaria. El modelo y la placa siguen sirviendo para buscar. */
 export function nombreCortoEquipo(e: { alias?: string | null; modelo?: string | null; placa?: string | null; equipo?: string | null }): string {
-  return aliasesDeEquipo(e)[0] ?? (e.equipo ?? '').trim();
+  const alias = (e.alias ?? '').split(',').map((a) => a.trim()).filter(Boolean)[0];
+  return alias || (e.equipo ?? '').trim();
 }
 
 /* ───────── Contador (horómetro / km) ───────── */

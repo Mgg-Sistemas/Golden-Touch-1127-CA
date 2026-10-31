@@ -58,6 +58,14 @@ export interface DatosMensaje {
   tanqueDestino?: string | null;
   /** Quién lo cargó (va al pie). */
   registradoPor?: string | null;
+  /** Forzar o indicar explícitamente el estado de cuaderno si no viene en mov */
+  registradoEnCuaderno?: boolean | null;
+  /** Litros registrados en cuaderno */
+  cuadernoLitros?: number | null;
+  /** Forzar o indicar explícitamente el estado de Drive si no viene en mov */
+  registradoEnDrive?: boolean | null;
+  /** Saldo reportado en Drive */
+  saldoDrive?: number | null;
 }
 
 /**
@@ -86,6 +94,28 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   if (m.contador_global_fin != null) lineas.push(`🔢 *Contador:* ${num(m.contador_global_fin)}`);
   if (m.horometro_fin != null) lineas.push(`⏳ *Horómetro:* ${num(m.horometro_fin)}`);
   if (m.kilometraje != null) lineas.push(`📏 *Kilometraje:* ${num(m.kilometraje)}`);
+
+  const regCuaderno = d.registradoEnCuaderno !== undefined ? d.registradoEnCuaderno : m.registrado_en_cuaderno;
+  const cuadLitros = d.cuadernoLitros !== undefined ? d.cuadernoLitros : m.cuaderno_litros;
+  if (regCuaderno !== undefined && regCuaderno !== null) {
+    if (regCuaderno) {
+      const cant = cuadLitros != null ? `${num(cuadLitros)} L` : (m.litros != null ? `${num(m.litros)} L` : 'Registrado');
+      lineas.push(`📖 *Registro Cuaderno:* ${cant}`);
+    } else {
+      lineas.push(`📖 *Registro Cuaderno:* No registrado`);
+    }
+  }
+
+  const regDrive = d.registradoEnDrive !== undefined ? d.registradoEnDrive : m.registrado_en_drive;
+  const sDrive = d.saldoDrive !== undefined ? d.saldoDrive : m.saldo_drive;
+  if (regDrive !== undefined && regDrive !== null) {
+    if (regDrive) {
+      const cant = sDrive != null ? `${num(sDrive)} L` : 'Registrado';
+      lineas.push(`📊 *Registro Drive:* ${cant}`);
+    } else {
+      lineas.push(`📊 *Registro Drive:* No registrado`);
+    }
+  }
   if (m.observacion) lineas.push(`📝 *Nota:* ${m.observacion}`);
 
   lineas.push('', `🏢 GOLDEN TOUCH 1127 C.A.${d.registradoPor ? ` · Cargado por ${d.registradoPor}` : ''}`);
