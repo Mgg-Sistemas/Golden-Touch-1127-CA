@@ -67,6 +67,7 @@ import {
   type AlicuotasLocales, type CorrelativoEstimado, type DocKind, type NuevaRetencion, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
 import { etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, validarDocumentoRespaldo } from './validarCarga';
+import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnBaseImponible, avisoRetenidoSuperaBase } from './facturaDocumento';
 import { montoEscrito, municipioDeLinea } from './lineasRegistro';
 import { CampoMonto } from './CampoMonto';
 import { formatoParaImprimir, r8Disponible } from './formatos.repository';
@@ -1723,8 +1724,14 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (textoRif) { setError(textoRif.error); return; }
     if (sinDocumento && !observacion.trim()) { setError('Sin documento del sistema: indica en la observación de dónde viene esta retención.'); return; }
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indica la tasa de cambio para convertir la retención a bolívares.'); return; }
-    const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) { setError('Indica la fecha de la retención (emisión del comprobante).'); return; }
+    // Mismos datos fiscales que el registro por factura: el IGTF no lleva N° de factura/control (es percepción).
+    if (tipo === 'igtf') {
+      const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
+    } else {
+      const falta = faltaEnDatosFactura({ nro: facturaNumero, control: facturaControl, fecha: facturaFecha }, hoyIso()); if (falta) { setError(falta); return; }
+    }
+    const faltaFechaRet = faltaEnFechaRetencion(fechaRetencion, facturaFecha, hoyIso()); if (faltaFechaRet) { setError(faltaFechaRet); return; }
+    const faltaBase = faltaEnBaseImponible(esManual ? nDec(baseStr) : calculo.baseImponible); if (faltaBase) { setError(faltaBase); return; }
     if (!esManual) {
       const errorDoc = validarDocumentoRespaldo(tipoArchivo, otroDetalle, !!archivo);
       if (errorDoc) { setError(errorDoc); return; }
@@ -1999,12 +2006,12 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </div>
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Fecha de la factura</label>
-          <input className="input" type="date" value={facturaFecha} readOnly={!!elegida} onChange={(e) => setFacturaFecha(e.target.value)} />
+          <input className="input" type="date" value={facturaFecha} max={hoyIso()} readOnly={!!elegida} onChange={(e) => setFacturaFecha(e.target.value)} />
           <small className="hint muted">Define el período{tipo === 'iva' ? ' y la quincena' : ''} y la tasa.</small>
         </div>
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Fecha de la retención</label>
-          <input className="input" type="date" value={fechaRetencion} onChange={(e) => setFechaRetencion(e.target.value)} />
+          <input className="input" type="date" value={fechaRetencion} max={hoyIso()} onChange={(e) => setFechaRetencion(e.target.value)} />
           <small className="hint muted">Emisión del comprobante. No cambia el período.</small>
         </div>
       </div>
@@ -2228,6 +2235,11 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.8rem' }}>
           {esManual ? significadoRetencion(tipo, direccion) : calculo.explicacion}
         </p>
+        {/* C8: aviso de cordura NO bloqueante en una recibida (el retenido viene del comprobante del cliente). */}
+        {direccion === 'recibida' && (() => {
+          const aviso = avisoRetenidoSuperaBase(montoFinal, nDec(baseStr), nDec(ivaStr));
+          return aviso ? <div className="lfv8-alerta-media" style={{ margin: '.4rem 0 0' }}><span>⚠️ {aviso}</span></div> : null;
+        })()}
         {montosIlegibles.length > 0 && (
           <p style={{ margin: '.3rem 0 0', fontSize: '.8rem', color: 'var(--warning)' }}>
             No se entiende {montosIlegibles.join(', ')}: el cálculo no los toma. Escribe 1.234,56 o 1234,56.

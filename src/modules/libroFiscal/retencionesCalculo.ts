@@ -92,6 +92,8 @@ export interface ConfigRetencion {
   pctIvaEspecial: number;   // 100
   valorUt: number;          // define el sustraendo del ISLR
   pctIgtf: number;          // 3
+  /** Alícuota general del IVA (p. ej. 16). Para el desglose «IVA incluido»; sale de Parámetros. */
+  ivaAlicuota?: number;
   /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
   licenciaMunicipal?: string | null;
   /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
@@ -118,6 +120,7 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   estadosKanbanRetencion: ESTADOS_KANBAN_RETENCION_DEFECTO,
   pctIvaGeneral: 75, pctIvaEspecial: 100,
   valorUt: 0, pctIgtf: 3,
+  ivaAlicuota: 16,
   licenciaMunicipal: null,
   imprimirOriginalYCopia: true,
 };
