@@ -1,606 +1,592 @@
 /* ============================================================
-   Golden Touch · Delivery · Pantalla de PC (30/10/2026)
+   Golden Touch · Delivery · Panel central (31/10/2026 · igual que MGG)
 
-   Las OC de productos ya PAGADAS por Tesorería pasan a Delivery (la
-   retención es solo un dato, no las frena): un motorizado las acepta, las busca al proveedor y las
-   entrega en el almacén. Acá se supervisa todo eso:
-     Tablero   → una columna por estado (por tomar · aceptado · en ruta · entregado hoy)
-     Mapa      → la última posición de cada motorizado (Leaflet, carga diferida)
-     Histórico → filtros, tabla, resumen por motorizado y los PDF
-
-   Con el interruptor `compras_delivery` apagado se muestra el aviso; el Mapa
-   y el Histórico (vacío) se dejan ver para probar la ubicación.
+   La OC de productos que Tesorería pagó la toma UN motorizado desde su
+   teléfono, va en ruta y la entrega en el almacén. Acá se sigue todo desde
+   la PC:
+     Tablero      → por tomar / aceptados / en camino / entregados hoy, con
+                    fotos, comprobante de pago, WhatsApp, reporte del pedido
+                    (PDF y WhatsApp) y cancelar si se trabó
+     Mapa         → dónde está cada motorizado (Calles / Satelital)
+     Histórico    → lo tomado en un rango de fechas, filtrable por estado y
+                    delivery, con el reporte en PDF (vista previa) y WhatsApp
+     Por delivery → cuántos pedidos lleva cada uno y su tiempo promedio
+   Construido pero DESCONECTADO hasta que la administración lo active
+   (interruptor compras_delivery): mientras tanto las listas quedan vacías.
+   Traído de MGG; en GT la OC entra apenas queda pagada (sin esperar la
+   retención) y solo las creadas desde que se encendió.
    ============================================================ */
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { nombreYApellido } from '@/shared/lib/directorioUsuarios';
-import { Quien } from '@/shared/ui/Quien';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
-import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
-import { EmptyState } from '@/shared/ui/EmptyState';
-import { FechaInput } from '@/shared/ui/FechaInput';
+import { listProveedores } from '@/modules/pedidos/pedidos.repository';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
+import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
-import { dateTime, money, num } from '@/shared/lib/format';
-import { mensajeError } from '@/shared/lib/errores';
-import { hoyVenezuela, RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 import {
-  ESTADOS_DELIVERY, INTERRUPTOR_DELIVERY,
-  type EstadoDelivery, type EventoDeliveryRow, type FotoDelivery,
-} from './delivery.types';
-import {
-  diaVE, etiquetaEstado, filtrarHistorico, itemsABuscar, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
-  resumenPorRepartidor, textoDuracion, ETIQUETA_RETENCION, type PedidoDeliveryConRetencion,
+  ESTADO_DELIVERY, MOTIVOS_CANCELACION, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
+  type FotoDelivery, type PedidoDelivery,
 } from './delivery';
-import { reabrirPedido, urlFotoDelivery } from './delivery.repository';
-import { useDelivery } from './useDelivery';
-import { pdfHistoricoDelivery, pdfPedidosPorRepartidor } from './deliveryPdf';
-import './deliveryPc.css';
+import {
+  cancelarPedido, listHistorialDelivery, listPedidosDelivery, urlFotoDelivery, useDeliveryConectado, type FilaHistorialCruda,
+} from './delivery.repository';
+import {
+  RANGOS_DELIVERY, armarFilasHistorial, conteoPorEstado, duracionTxt, mensajeDelPedido, rangoDelivery,
+  rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, type FilaHistorialDelivery,
+} from './deliveryPanel';
+import { ESTADOS_FILTRO, filtrarHistorial, textoReporteGeneral, textoReportePedido, type FiltroEstadoDelivery } from './deliveryReporte';
+import { DeliveryMapa } from './DeliveryMapa';
+import { pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelivery } from './deliveryPdf';
+import { WhatsappDeliveryModal } from './WhatsappDeliveryModal';
+import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 
-/** El pedido tal como lo entrega useDelivery (con el estado de la retención de su OC). */
-type Pedido = PedidoDeliveryConRetencion;
+type Vista = 'tablero' | 'mapa' | 'historico' | 'por_delivery';
 
-// Leaflet solo se descarga al abrir la pestaña Mapa.
-const DeliveryMapa = lazy(() => import('./DeliveryMapa').then((m) => ({ default: m.DeliveryMapa })));
-
-type Pestana = 'tablero' | 'mapa' | 'historico';
-
-const PESTANAS: { key: Pestana; label: string }[] = [
-  { key: 'tablero', label: '📋 Tablero' },
-  { key: 'mapa', label: '🗺 Mapa' },
-  { key: 'historico', label: '📚 Histórico' },
+const TABS: { key: Vista; label: string; icon: string }[] = [
+  { key: 'tablero', label: 'Tablero', icon: '📊' },
+  { key: 'mapa', label: 'Mapa', icon: '🗺' },
+  { key: 'historico', label: 'Histórico', icon: '📜' },
+  { key: 'por_delivery', label: 'Por delivery', icon: '🛵' },
 ];
 
-/** «Cemento ×10 · Cabilla ×20 · y 3 más». */
-function resumenItems(p: Pedido, max = 3): string {
-  const items = itemsABuscar(p);
-  if (!items.length) return 'Sin renglones';
-  const partes = items.slice(0, max).map((i) => `${i.nombre} ×${num(i.cantidad)}${i.unidad ? ` ${i.unidad}` : ''}`);
-  return partes.join(' · ') + (items.length > max ? ` · y ${items.length - max} más` : '');
-}
+const msgError = (e: unknown, def: string) => (e instanceof Error ? e.message : def);
 
-/** El WhatsApp que corresponde al estado actual del pedido (null si no hay qué avisar). */
-function mensajeDelEstado(p: Pedido): string | null {
-  const quien = p.repartidor_nombre || p.repartidor_email || '';
-  switch (p.estado) {
-    case 'aceptado': return mensajeAceptado(p, quien);
-    case 'en_ruta': return mensajeEnRuta(p, quien);
-    case 'entregado': return mensajeEntregado(p, quien, p.nota_entrega);
-    case 'por_tomar':
-      return p.cancelaciones > 0 && p.ultima_cancelacion_motivo
-        ? mensajeCancelado(p, p.ultima_cancelacion_motivo, null, p.ultima_cancelacion_por || '')
-        : null;
-  }
+/** GT: el histórico muestra nombre y apellido aunque la toma solo guardara el correo. */
+function filasConNombres(rows: FilaHistorialCruda[], proveedores: Map<string, string>): FilaHistorialDelivery[] {
+  return armarFilasHistorial(rows, proveedores).map((f) => (f.repartidor.includes('@')
+    ? { ...f, repartidor: quienSync(null, f.repartidor) || f.repartidor } : f));
 }
 
 export function DeliveryPage() {
-  const { isAdmin, puedeVista, appUser } = usePermissions();
-  const { user } = useSession();
-  const quien = nombreYApellido(appUser?.nombre, appUser?.apellido) || user?.email || null;
-  const datos = useDelivery();
-  const [pestana, setPestana] = useState<Pestana>('tablero');
-  const [detalle, setDetalle] = useState<Pedido | null>(null);
-  const [wsp, setWsp] = useState<{ titulo: string; texto: string } | null>(null);
-  const [reabrir, setReabrir] = useState<Pedido | null>(null);
-  const hoy = hoyVenezuela();
+  const { can, isAdmin, vistasTelefono } = usePermissions();
+  const conectado = useDeliveryConectado();
+  const supervisor = isAdmin || can('delivery', 'full');
+  const tieneTelefono = vistasTelefono.some((v) => v.key === 'delivery');
+  const [vista, setVista] = useState<Vista>('tablero');
 
-  const cuenta = useMemo(() => {
-    const c: Record<EstadoDelivery, number> = { por_tomar: 0, aceptado: 0, en_ruta: 0, entregado: 0 };
-    let entregadosHoy = 0;
-    for (const p of datos.pedidos) {
-      c[p.estado]++;
-      if (p.estado === 'entregado' && diaVE(p.entregado_en) === hoy) entregadosHoy++;
-    }
-    return { ...c, entregadosHoy };
-  }, [datos.pedidos, hoy]);
+  /* ── Tablero: pedidos actuales (y cerrados si se piden) + lo de hoy ── */
+  const hoy = useMemo(hoyVenezuela, []);
+  const [verCerrados, setVerCerrados] = useState(false);
+  const [pedidos, setPedidos] = useState<PedidoDelivery[]>([]);
+  const [deHoy, setDeHoy] = useState<FilaHistorialDelivery[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
-  // Si el pedido abierto en el detalle cambió (realtime), se muestra la versión nueva.
-  const detalleVivo = detalle ? (datos.pedidos.find((p) => p.id === detalle.id) ?? detalle) : null;
+  /* ── Histórico / Por delivery: rango compartido ── */
+  const [desde, setDesde] = useState(() => rangoDelivery('semana', hoy).desde);
+  const [hasta, setHasta] = useState(hoy);
+  const [historial, setHistorial] = useState<FilaHistorialDelivery[]>([]);
+  const [cargandoHist, setCargandoHist] = useState(false);
+  const [proveedores, setProveedores] = useState<Map<string, string>>(new Map());
 
-  async function confirmarReabrir() {
-    if (!reabrir) return;
-    const p = reabrir;
-    setReabrir(null);
+  useEffect(() => {
+    listProveedores()
+      .then((ps) => setProveedores(new Map(ps.map((p) => [p.id, p.razon_social]))))
+      .catch(() => { /* sin nombres: el histórico muestra «—» */ });
+  }, []);
+
+  const recargarTablero = useCallback(async () => {
     try {
-      await reabrirPedido(p.id);
-      toast(`${p.codigo} volvió a «Por tomar».`, 'success');
-      void datos.reload();
+      const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados), listHistorialDelivery(hoy, hoy)]);
+      setPedidos(ps);
+      setDeHoy(filasConNombres(hh, proveedores));
+      setErrorCarga(null);
     } catch (e) {
-      toast(mensajeError(e, 'No se pudo reabrir el pedido.'), 'error');
-    }
-  }
+      setErrorCarga(msgError(e, 'No se pudieron leer los pedidos de Delivery.'));
+    } finally { setCargando(false); }
+  }, [verCerrados, hoy, proveedores]);
+  useEffect(() => { void recargarTablero(); }, [recargarTablero]);
 
-  const abrirWsp = (p: Pedido) => {
-    const texto = mensajeDelEstado(p);
-    if (texto) setWsp({ titulo: `💬 ${p.codigo} · ${etiquetaEstado(p.estado)}`, texto });
-  };
+  const enHistorico = vista === 'historico' || vista === 'por_delivery';
+  const recargarHistorial = useCallback(async () => {
+    if (!desde || !hasta || desde > hasta) return;
+    setCargandoHist(true);
+    try {
+      setHistorial(filasConNombres(await listHistorialDelivery(desde, hasta), proveedores));
+    } catch (e) {
+      toast(msgError(e, 'No se pudo leer el histórico.'), 'error');
+    } finally { setCargandoHist(false); }
+  }, [desde, hasta, proveedores]);
+  useEffect(() => { if (enHistorico) void recargarHistorial(); }, [enHistorico, recargarHistorial]);
+
+  // Tiempo real: lo que hace el motorizado en su teléfono (o Tesorería al pagar) se ve sin recargar.
+  // Las ubicaciones las escucha el propio mapa: llegan seguido y no cambian las listas.
+  useRealtime(['delivery_pedidos', 'ordenes'], () => {
+    void recargarTablero();
+    if (enHistorico) void recargarHistorial();
+  });
 
   return (
     <div>
-      <div className="dlv-head">
-        <div>
-          <h1>🛵 Delivery</h1>
-          <p className="hint muted">
-            Pedidos ya pagados por Tesorería: los motorizados los buscan al proveedor y los entregan en el almacén.
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <div style={{ flex: '1 1 320px' }}>
+          <h1 style={{ margin: 0 }}>🛵 Delivery</h1>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
+            Órdenes de productos pagadas por Tesorería que un motorizado toma, busca donde el proveedor y entrega en el almacén, con fotos y aviso por WhatsApp.
           </p>
         </div>
-        {puedeVista('delivery') && (
-          <Link to="/app/delivery/telefono" className="btn btn-ghost">📱 Vista de teléfono</Link>
-        )}
+        {tieneTelefono && <Link to="/app/delivery/telefono" className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
       </div>
 
-      {datos.loading && datos.activo === null && <p className="muted">Cargando…</p>}
-      {!datos.loading && datos.activo === false && <AvisoApagado isAdmin={isAdmin} />}
-      {datos.error && (
-        <div className="aviso danger" style={{ marginBottom: '1rem' }}><span className="aviso-icono">⚠</span><div>{datos.error}</div></div>
+      {conectado === false && (
+        <div className="aviso info" style={{ marginBottom: '1rem' }}>
+          <span className="aviso-icono">ℹ</span>
+          <div>
+            <strong>Delivery todavía no está conectado a Compras.</strong> Cuando la administración lo active, acá llegarán las órdenes
+            de productos que Tesorería pague desde ese momento (sin esperar la retención). Mientras tanto las listas quedan vacías.
+          </div>
+        </div>
+      )}
+      {errorCarga && conectado !== false && (
+        <div className="aviso warning" style={{ marginBottom: '1rem' }}>
+          <span className="aviso-icono">⚠</span><div>{errorCarga}</div>
+        </div>
       )}
 
-      <div className="lt-kpis" role="group" aria-label="Resumen de Delivery">
-        <Kpi color="azul" icono="💰" label="Por tomar" valor={cuenta.por_tomar} sub="Pagados, esperando motorizado" />
-        <Kpi color="ambar" icono="⚡" label="Aceptados" valor={cuenta.aceptado} sub="Van a buscarlo al proveedor" />
-        <Kpi color="naranja" icono="🚚" label="En ruta" valor={cuenta.en_ruta} sub="Camino al almacén" />
-        <Kpi color="verde" icono="✅" label="Entregados hoy" valor={cuenta.entregadosHoy} sub={`${cuenta.entregado} en total`} />
-      </div>
-
-      <div className="dlv-tabs" role="tablist" aria-label="Vistas de Delivery">
-        {PESTANAS.map((t) => (
-          <button key={t.key} type="button" role="tab" id={`dlv-tab-${t.key}`} aria-controls={`dlv-panel-${t.key}`}
-            className="dlv-tab" aria-selected={pestana === t.key} onClick={() => setPestana(t.key)}>
-            {t.label}
+      <div className="view-toggle" role="tablist" aria-label="Vista de Delivery" style={{ marginBottom: '1rem', flexWrap: 'wrap' }}>
+        {TABS.map((t) => (
+          <button key={t.key} role="tab" aria-selected={vista === t.key} className={vista === t.key ? 'active' : ''} onClick={() => setVista(t.key)}>
+            {t.icon} {t.label}
           </button>
         ))}
       </div>
 
-      <div role="tabpanel" id={`dlv-panel-${pestana}`} aria-labelledby={`dlv-tab-${pestana}`}>
-        {pestana === 'tablero' && (
-          datos.activo === false
-            ? <EmptyState icon="🕒" message="El tablero se llena cuando se encienda Delivery." />
-            : <Tablero pedidos={datos.pedidos} hoy={hoy} isAdmin={isAdmin}
-                onDetalle={setDetalle} onWhatsapp={abrirWsp} onReabrir={setReabrir} irHistorico={() => setPestana('historico')} />
-        )}
-        {pestana === 'mapa' && (
-          <Suspense fallback={<p className="muted">Cargando el mapa…</p>}>
-            <DeliveryMapa ubicaciones={datos.ubicaciones} pedidos={datos.pedidos} />
-          </Suspense>
-        )}
-        {pestana === 'historico' && (
-          <Historico pedidos={datos.pedidos} eventos={datos.eventos} quien={quien} onDetalle={setDetalle} />
-        )}
-      </div>
-
-      {detalleVivo && (
-        <DetallePedido p={detalleVivo} eventos={datos.eventos.filter((e) => e.pedido_id === detalleVivo.id)}
-          isAdmin={isAdmin} onClose={() => setDetalle(null)}
-          onWhatsapp={() => abrirWsp(detalleVivo)} onReabrir={() => setReabrir(detalleVivo)} />
+      {vista === 'tablero' && (
+        <TableroTab pedidos={pedidos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
+          verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()} />
       )}
-      {wsp && (
-        <Modal title={wsp.titulo} compact onClose={() => setWsp(null)}
-          footer={<button type="button" className="btn btn-ghost" onClick={() => setWsp(null)}>Cerrar</button>}>
-          <CompartirWhatsapp texto={wsp.texto} />
-        </Modal>
+      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} />}
+      {enHistorico && (
+        <BarraRango hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} cargando={cargandoHist} />
       )}
-      {reabrir && (
-        <ConfirmDialog title={`Reabrir ${reabrir.codigo}`} danger confirmText="↩ Reabrir"
-          message={`El pedido vuelve a «Por tomar» y queda libre para que otro motorizado lo acepte.${reabrir.repartidor_nombre ? ` Se le quita a ${reabrir.repartidor_nombre}.` : ''} Queda registrado en su historial.`}
-          onConfirm={() => void confirmarReabrir()} onCancel={() => setReabrir(null)} />
-      )}
-    </div>
-  );
-}
-
-/* ───────────── Aviso del interruptor ───────────── */
-
-function AvisoApagado({ isAdmin }: { isAdmin: boolean }) {
-  return (
-    <div style={{ display: 'grid', gap: '.6rem', maxWidth: 760, marginBottom: '1rem' }}>
-      <div className="aviso warning sm">
-        <span className="aviso-icono">🕒</span>
-        <div>Delivery todavía no está activo: se enciende junto con el nuevo flujo de Compras.</div>
-      </div>
-      {isAdmin && (
-        <div className="aviso sm">
-          <span className="aviso-icono">🔌</span>
-          <div>
-            Interruptor <code>{INTERRUPTOR_DELIVERY}</code>: <strong>apagado</strong> (o todavía no creado en la base).
-            Se enciende en <code>sistema_interruptores</code> cuando la gerencia lo indique. Mientras tanto puedes probar el Mapa.
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Kpi({ color, icono, label, valor, sub }: { color: string; icono: string; label: string; valor: number; sub: string }) {
-  return (
-    <div className={`lt-kpi ${color}`}>
-      <span className="lt-kpi-label"><span aria-hidden="true">{icono}</span> {label}</span>
-      <span className="lt-kpi-valor">{valor}</span>
-      <span className="lt-kpi-sub">{sub}</span>
+      {vista === 'historico' && <HistoricoTab filas={historial} desde={desde} hasta={hasta} />}
+      {vista === 'por_delivery' && <PorDeliveryTab filas={historial} desde={desde} hasta={hasta} />}
     </div>
   );
 }
 
 /* ───────────── Tablero ───────────── */
 
-function Tablero({ pedidos, hoy, isAdmin, onDetalle, onWhatsapp, onReabrir, irHistorico }: {
-  pedidos: Pedido[]; hoy: string; isAdmin: boolean;
-  onDetalle: (p: Pedido) => void; onWhatsapp: (p: Pedido) => void;
-  onReabrir: (p: Pedido) => void; irHistorico: () => void;
+function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio }: {
+  pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[]; cargando: boolean; supervisor: boolean;
+  verCerrados: boolean; setVerCerrados: (v: boolean) => void; onCambio: () => void;
 }) {
-  const columnas = useMemo(() => {
-    const m: Record<EstadoDelivery, Pedido[]> = { por_tomar: [], aceptado: [], en_ruta: [], entregado: [] };
-    for (const p of pedidos) {
-      // Los entregados de días anteriores viven en el Histórico.
-      if (p.estado === 'entregado' && diaVE(p.entregado_en) !== hoy) continue;
-      m[p.estado].push(p);
-    }
-    const clave = (p: Pedido) => p.entregado_en ?? p.en_ruta_en ?? p.aceptado_en ?? p.created_at;
-    for (const k of Object.keys(m) as EstadoDelivery[]) {
-      m[k].sort((a, b) => (k === 'por_tomar'
-        ? Number(!!b.orden.urgente) - Number(!!a.orden.urgente) || a.created_at.localeCompare(b.created_at)
-        : clave(b).localeCompare(clave(a))));
-    }
-    return m;
-  }, [pedidos, hoy]);
+  const quien = useQuien();
+  const c = conteoPorEstado(pedidos);
+  const entregadosHoy = deHoy.filter((f) => f.estado === 'entregado').length;
+  const canceladosHoy = deHoy.filter((f) => f.estado === 'cancelado').length;
+  const urgentes = pedidos.filter((p) => p.estado === 'por_tomar' && p.urgente).length;
+
+  const [fotos, setFotos] = useState<PedidoDelivery | null>(null);
+  const [whatsapp, setWhatsapp] = useState<{ titulo: string; texto: string } | null>(null);
+  const [cancelar, setCancelar] = useState<PedidoDelivery | null>(null);
+  const [comprobante, setComprobante] = useState<PedidoDelivery | null>(null);
+  const [generando, setGenerando] = useState<string | null>(null);
+
+  // Primero lo urgente y lo más viejo por tomar; después lo en curso; al final lo cerrado.
+  const orden: Record<string, number> = { por_tomar: 0, aceptado: 1, en_ruta: 2, entregado: 3, cancelado: 4 };
+  const lista = [...pedidos].sort((a, b) => (orden[a.estado] - orden[b.estado])
+    || (Number(b.urgente) - Number(a.urgente))
+    || String(a.pagada_en ?? a.aceptado_en ?? '').localeCompare(String(b.pagada_en ?? b.aceptado_en ?? '')));
+
+  function pdfPedido(p: PedidoDelivery) {
+    const k = `${p.orden_id}-${p.pedido_id ?? 'libre'}`;
+    setGenerando(k);
+    pdfPedidoDelivery(p)
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
+      .finally(() => setGenerando(null));
+  }
 
   return (
-    <div className="dlv-tablero">
-      {ESTADOS_DELIVERY.map((e) => (
-        <section key={e.key} className={`dlv-col ${e.key}`} aria-label={`${e.label}: ${columnas[e.key].length}`}>
-          <div className="dlv-col-cab">
-            <span>{e.icono} {e.key === 'entregado' ? 'Entregados hoy' : e.label}</span>
-            <span className="badge">{columnas[e.key].length}</span>
-          </div>
-          <div className="dlv-col-cuerpo">
-            {columnas[e.key].length === 0 && (
-              <div className="dlv-col-vacia">
-                {e.key === 'entregado'
-                  ? <>Nada entregado hoy. <button type="button" className="btn btn-ghost btn-sm" onClick={irHistorico}>Ver histórico</button></>
-                  : 'Sin pedidos'}
-              </div>
-            )}
-            {columnas[e.key].map((p) => (
-              <TarjetaPedido key={p.id} p={p} isAdmin={isAdmin}
-                onDetalle={() => onDetalle(p)} onWhatsapp={() => onWhatsapp(p)} onReabrir={() => onReabrir(p)} />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function TarjetaPedido({ p, isAdmin, onDetalle, onWhatsapp, onReabrir }: {
-  p: Pedido; isAdmin: boolean; onDetalle: () => void; onWhatsapp: () => void; onReabrir: () => void;
-}) {
-  const fotos = p.fotos_recibido.length + p.fotos_entrega.length;
-  const hayWsp = mensajeDelEstado(p) != null;
-  return (
-    <article className={`dlv-card${p.orden.urgente ? ' urgente' : ''}`} aria-label={`Pedido ${p.codigo}`}>
-      <div className="dlv-card-cab">
-        <span className="dlv-codigo">{p.codigo}</span>
-        <span className="dlv-oc">{p.orden.oc_codigo || p.orden.codigo}</span>
+    <>
+      <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
+        <div className="kpi">
+          <div className="label">Por tomar</div>
+          <div className="value">{c.por_tomar}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>{urgentes ? `${urgentes} urgente(s)` : 'OC pagadas sin delivery'}</div>
+          <div className="icon" aria-hidden="true">💰</div>
+        </div>
+        <div className="kpi">
+          <div className="label">Aceptados</div>
+          <div className="value">{c.aceptado}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>Tomados, aún donde el proveedor</div>
+          <div className="icon" aria-hidden="true">🛵</div>
+        </div>
+        <div className="kpi">
+          <div className="label">En camino</div>
+          <div className="value">{c.en_ruta}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>Rumbo al almacén</div>
+          <div className="icon" aria-hidden="true">🚚</div>
+        </div>
+        <div className="kpi">
+          <div className="label">Entregados hoy</div>
+          <div className="value">{entregadosHoy}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>{canceladosHoy ? `${canceladosHoy} cancelado(s) hoy` : 'Sin cancelaciones hoy'}</div>
+          <div className="icon" aria-hidden="true">✅</div>
+        </div>
       </div>
-      {(p.orden.urgente || p.orden.retencion === 'pendiente') && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
-          {p.orden.urgente && <span className="badge danger">🚨 Urgente</span>}
-          {p.orden.retencion === 'pendiente' && <span className="badge warning" title="La OC está pagada; la retención todavía no se ha hecho">{ETIQUETA_RETENCION.pendiente}</span>}
+
+      <div className="card">
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+          <span>📦 Pedidos</span>
+          <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem', fontWeight: 400 }}>
+            <input type="checkbox" checked={verCerrados} onChange={(e) => setVerCerrados(e.target.checked)} />
+            Ver también entregados y cancelados
+          </label>
         </div>
-      )}
-      <div className="dlv-prov">{p.proveedor?.razon_social || 'Proveedor sin nombre'}</div>
-      <div className="dlv-items">{resumenItems(p)}</div>
-      {p.repartidor_email && (
-        <div className="dlv-linea">🛵 <b><Quien nombre={p.repartidor_nombre} correo={p.repartidor_email} vacio="—" /></b></div>
-      )}
-      <Horas p={p} />
-      {p.analista?.nombre && <div className="dlv-linea">Analista: <b>{p.analista.nombre}</b></div>}
-      {p.cancelaciones > 0 && (
-        <div className="dlv-cancel" title={p.ultima_cancelacion_en ? dateTime(p.ultima_cancelacion_en) : undefined}>
-          ⚠ {p.cancelaciones} cancelación{p.cancelaciones === 1 ? '' : 'es'}
-          {p.ultima_cancelacion_motivo && <> · última: {p.ultima_cancelacion_motivo}</>}
-          {p.ultima_cancelacion_por && <> (<Quien nombre={null} correo={p.ultima_cancelacion_por} vacio={p.ultima_cancelacion_por} />)</>}
-        </div>
-      )}
-      <div className="dlv-acciones">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onDetalle}>
-          🔎 Detalle{fotos ? ` · 📷 ${fotos}` : ''}
-        </button>
-        {hayWsp && <button type="button" className="btn btn-ghost btn-sm" onClick={onWhatsapp}>💬 WhatsApp</button>}
-        {isAdmin && p.estado !== 'por_tomar' && (
-          <button type="button" className="btn btn-danger btn-sm" onClick={onReabrir}>↩ Reabrir</button>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function Horas({ p }: { p: Pedido }) {
-  const hora = (iso: string | null) => (iso ? dateTime(iso) : null);
-  const partes: [string, string | null][] = [
-    ['Aceptado', hora(p.aceptado_en)],
-    ['En ruta', hora(p.en_ruta_en)],
-    ['Entregado', hora(p.entregado_en)],
-  ];
-  const visibles = partes.filter(([, v]) => v);
-  if (!visibles.length) return <div className="dlv-linea">Pagado {dateTime(p.orden.pagada_en ?? p.created_at)}</div>;
-  return (
-    <div className="dlv-linea">
-      {visibles.map(([k, v]) => <span key={k}>{k}: <b>{v}</b></span>)}
-    </div>
-  );
-}
-
-/* ───────────── Detalle (fotos con URL firmada al abrir) ───────────── */
-
-const NOMBRE_EVENTO: Record<string, string> = {
-  creado: '🆕 Entró a Delivery', aceptado: '⚡ Aceptado', cancelado: '⚠ Cancelado', en_ruta: '🚚 En ruta',
-  entregado: '✅ Entregado', fotos: '📷 Fotos', reabierto: '↩ Reabierto',
-};
-
-function DetallePedido({ p, eventos, isAdmin, onClose, onWhatsapp, onReabrir }: {
-  p: Pedido; eventos: EventoDeliveryRow[]; isAdmin: boolean;
-  onClose: () => void; onWhatsapp: () => void; onReabrir: () => void;
-}) {
-  const hayWsp = mensajeDelEstado(p) != null;
-  const historial = [...eventos].sort((a, b) => a.at.localeCompare(b.at));
-  return (
-    <Modal title={`${p.codigo} · ${p.orden.oc_codigo || p.orden.codigo}`} size="lg" onClose={onClose}
-      footer={(
-        <>
-          {isAdmin && p.estado !== 'por_tomar' && <button type="button" className="btn btn-danger" onClick={onReabrir}>↩ Reabrir</button>}
-          {hayWsp && <button type="button" className="btn btn-ghost" onClick={onWhatsapp}>💬 WhatsApp</button>}
-          <button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-        </>
-      )}>
-      <div className="dlv-detalle">
-        <div className="dlv-detalle-grid">
-          <Dato k="Estado" v={<span className={`badge ${claseEstado(p.estado)}`}>{etiquetaEstado(p.estado)}</span>} />
-          <Dato k="Proveedor" v={<>{p.proveedor?.razon_social || '—'}{p.proveedor?.rif ? <span className="muted"> · {p.proveedor.rif}</span> : null}</>} />
-          <Dato k="Teléfono del proveedor" v={p.proveedor?.telefono || '—'} />
-          <Dato k="Dirección del proveedor" v={p.proveedor?.direccion || '—'} />
-          <Dato k="Motorizado" v={<Quien nombre={p.repartidor_nombre} correo={p.repartidor_email} vacio="Sin asignar" />} />
-          <Dato k="Analista de compras" v={p.analista?.nombre || <Quien correo={p.orden.analista_email} vacio="—" />} />
-          <Dato k="Unidad solicitante" v={p.orden.unidad_solicitante || '—'} />
-          <Dato k="Total OC" v={money(p.orden.total, p.orden.total_moneda)} />
-          <Dato k="Retención" v={<span className={`badge ${p.orden.retencion === 'pendiente' ? 'warning' : p.orden.retencion === 'hecha' ? 'success' : ''}`}>{ETIQUETA_RETENCION[p.orden.retencion] ?? '—'}</span>} />
-          <Dato k="Pagada" v={dateTime(p.orden.pagada_en)} />
-          <Dato k="Aceptado" v={dateTime(p.aceptado_en)} />
-          <Dato k="En ruta" v={dateTime(p.en_ruta_en)} />
-          <Dato k="Entregado" v={dateTime(p.entregado_en)} />
-        </div>
-
-        {p.orden.notas && <div className="aviso sm"><span className="aviso-icono">📝</span><div>{p.orden.notas}</div></div>}
-        {p.nota_entrega && <div className="aviso sm"><span className="aviso-icono">📦</span><div>Nota de entrega: {p.nota_entrega}</div></div>}
-
-        <div>
-          <h3>Productos</h3>
+        {cargando ? <p className="muted">Cargando…</p> : !lista.length ? (
+          <p className="muted" style={{ margin: '.4rem 0' }}>No hay pedidos {verCerrados ? '' : 'por tomar ni en curso '}por ahora.</p>
+        ) : (
           <div className="table-wrap">
-            <table className="table dlv-tabla">
-              <thead><tr><th>Producto</th><th className="num">Cantidad</th><th>Unidad</th></tr></thead>
+            <table className="table" style={{ fontSize: '.85rem' }}>
+              <thead>
+                <tr>
+                  <th>OC</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>Tiempos</th><th>Monto</th><th style={{ textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
               <tbody>
-                {itemsABuscar(p).map((i, idx) => (
-                  <tr key={idx}>
-                    <td data-col="Producto">{i.nombre}</td>
-                    <td data-col="Cantidad" className="num mono">{num(i.cantidad)}</td>
-                    <td data-col="Unidad">{i.unidad || 'und'}</td>
-                  </tr>
-                ))}
+                {lista.map((p) => {
+                  const est = ESTADO_DELIVERY[p.estado];
+                  const nFotos = p.fotos_recibo.length + p.fotos_entrega.length;
+                  const msg = mensajeDelPedido(p);
+                  const fin = p.estado === 'cancelado' ? p.cancelado_en : p.entregado_en;
+                  const clave = `${p.orden_id}-${p.pedido_id ?? 'libre'}`;
+                  return (
+                    <tr key={clave}>
+                      <td>
+                        <strong>{ocDe(p)}</strong>
+                        {p.urgente && <> <span className="badge danger">URGENTE</span></>}
+                        {p.almacen_destino && <div className="muted" style={{ fontSize: '.75rem' }}>🏬 {p.almacen_destino}</div>}
+                      </td>
+                      <td>
+                        {p.proveedor_nombre ?? '—'}
+                        {p.proveedor_direccion && <div className="muted" style={{ fontSize: '.75rem' }}>📍 {p.proveedor_direccion}</div>}
+                      </td>
+                      <td>{p.repartidor_nombre ? quien(p.repartidor_nombre) : <span className="muted">—</span>}</td>
+                      <td>
+                        <span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {est?.label ?? p.estado}</span>
+                        {p.estado === 'cancelado' && p.motivo_cancel && <div className="muted" style={{ fontSize: '.75rem' }}>{p.motivo_cancel}</div>}
+                      </td>
+                      <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                        {p.pagada_en && <div>💰 Pagada {fechaHoraVE(p.pagada_en)}</div>}
+                        {p.aceptado_en && <div>🛵 Tomada {fechaHoraVE(p.aceptado_en)}</div>}
+                        {p.en_ruta_en && <div>🚚 En ruta {fechaHoraVE(p.en_ruta_en)}</div>}
+                        {fin && <div>{p.estado === 'cancelado' ? '⛔' : '✅'} {fechaHoraVE(fin)}</div>}
+                        {p.estado === 'entregado' && <div className="muted">⏳ {duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en))}</div>}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{montoTxt(p.total, p.moneda)}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
+                          {msg && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWhatsapp(msg)}>💬 WhatsApp</button>}
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={generando === clave} onClick={() => pdfPedido(p)}
+                            title="Reporte del pedido en PDF (vista previa)">
+                            {generando === clave ? 'Generando…' : '📄 PDF'}
+                          </button>
+                          <button type="button" className="btn btn-ghost btn-sm" title="Reporte del pedido por WhatsApp"
+                            onClick={() => setWhatsapp({ titulo: `Reporte del pedido ${ocDe(p)}`, texto: textoReportePedido(p, quienSync) })}>
+                            📋 Reporte
+                          </button>
+                          {supervisor && sePuedeCancelar(p) && (
+                            <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setCancelar(p)}>⛔ Cancelar</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </div>
-
-        <div>
-          <h3>📷 Al recibir del proveedor ({p.fotos_recibido.length})</h3>
-          <Fotos fotos={p.fotos_recibido} />
-        </div>
-        <div>
-          <h3>📷 Al entregar en el almacén ({p.fotos_entrega.length})</h3>
-          <Fotos fotos={p.fotos_entrega} />
-        </div>
-
-        {p.cancelaciones > 0 && (
-          <div className="dlv-cancel">
-            ⚠ {p.cancelaciones} cancelación{p.cancelaciones === 1 ? '' : 'es'} · última: {p.ultima_cancelacion_motivo || '—'}
-            {p.ultima_cancelacion_por && <> · <Quien correo={p.ultima_cancelacion_por} vacio={p.ultima_cancelacion_por} /></>}
-            {p.ultima_cancelacion_en && <> · {dateTime(p.ultima_cancelacion_en)}</>}
-          </div>
         )}
+      </div>
 
-        <div>
-          <h3>Historial</h3>
-          {historial.length === 0
-            ? <p className="muted" style={{ fontSize: '.85rem' }}>Sin movimientos registrados.</p>
-            : (
-              <ul className="dlv-eventos">
-                {historial.map((ev) => (
-                  <li key={ev.id} className={ev.evento}>
-                    <strong>{NOMBRE_EVENTO[ev.evento] ?? ev.evento}</strong>
-                    <span className="muted">{dateTime(ev.at)}</span>
-                    {(ev.actor_nombre || ev.actor_email) && <span><Quien nombre={ev.actor_nombre} correo={ev.actor_email} /></span>}
-                    {ev.motivo && <span>· {ev.motivo}</span>}
-                    {ev.detalle && <span className="muted">· {ev.detalle}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
+      {fotos && <FotosModal pedido={fotos} onClose={() => setFotos(null)} />}
+      {comprobante && <ComprobanteModal pedido={comprobante} onClose={() => setComprobante(null)} />}
+      {whatsapp && <WhatsappDeliveryModal titulo={whatsapp.titulo} texto={whatsapp.texto} onClose={() => setWhatsapp(null)} />}
+      {cancelar && (
+        <CancelarModal pedido={cancelar} onClose={() => setCancelar(null)}
+          onCancelado={(texto) => { setCancelar(null); onCambio(); setWhatsapp({ titulo: 'Pedido cancelado', texto }); }} />
+      )}
+    </>
+  );
+}
+
+/* ───────────── Fotos del pedido ───────────── */
+
+function FotosModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () => void }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let vivo = true;
+    const todas = [...pedido.fotos_recibo, ...pedido.fotos_entrega];
+    void Promise.all(todas.map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
+      .then((pares) => { if (vivo) setUrls(Object.fromEntries(pares)); });
+    return () => { vivo = false; };
+  }, [pedido]);
+
+  const grupo = (titulo: string, fs: FotoDelivery[]) => (
+    <div style={{ marginBottom: '1rem' }}>
+      <div className="card-title" style={{ fontSize: '.9rem' }}>{titulo} ({fs.length})</div>
+      {!fs.length ? <p className="muted" style={{ margin: 0 }}>Sin fotos.</p> : (
+        <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+          {fs.map((f) => (
+            urls[f.path] ? (
+              <a key={f.path} href={urls[f.path]} target="_blank" rel="noopener noreferrer" title={f.filename}>
+                <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+              </a>
+            ) : (
+              <div key={f.path} className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
+                {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
+              </div>
+            )
+          ))}
         </div>
+      )}
+    </div>
+  );
+
+  return (
+    <Modal title={`📷 Fotos · ${ocDe(pedido)}`} size="lg" onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      {grupo('Al recibir del proveedor', pedido.fotos_recibo)}
+      {grupo('Al entregar en el almacén', pedido.fotos_entrega)}
+      {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}
+    </Modal>
+  );
+}
+
+/* ───────────── Comprobante de pago (se lee al abrir) ───────────── */
+
+function ComprobanteModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () => void }) {
+  return (
+    <Modal title={`🧾 Comprobante de pago · ${ocDe(pedido)}`} size="lg" onClose={onClose} minimizable={false}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <ComprobantePagoCuerpo pedido={pedido} />
+    </Modal>
+  );
+}
+
+/* ───────────── Cancelar un pedido trabado (supervisor) ───────────── */
+
+function CancelarModal({ pedido, onClose, onCancelado }: {
+  pedido: PedidoDelivery; onClose: () => void; onCancelado: (mensaje: string) => void;
+}) {
+  const [motivo, setMotivo] = useState(MOTIVOS_CANCELACION[0]);
+  const [detalle, setDetalle] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const esOtro = motivo === MOTIVOS_CANCELACION[MOTIVOS_CANCELACION.length - 1];
+  const falta = esOtro && !detalle.trim();
+
+  async function confirmar() {
+    if (!pedido.pedido_id || falta) return;
+    setGuardando(true);
+    try {
+      await cancelarPedido(pedido.pedido_id, motivo, detalle.trim() || null);
+      toast(`${ocDe(pedido)} cancelada: queda libre para otro delivery.`, 'success');
+      onCancelado(mensajeCancelado(pedido, pedido.repartidor_nombre || 'Delivery', motivo, detalle, new Date().toISOString()));
+    } catch (e) {
+      toast(msgError(e, 'No se pudo cancelar el pedido.'), 'error');
+    } finally { setGuardando(false); }
+  }
+
+  return (
+    <Modal title={`⛔ Cancelar · ${ocDe(pedido)}`} compact onClose={onClose}
+      footer={(
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Volver</button>
+          <button className="btn btn-danger" onClick={() => void confirmar()} disabled={guardando || falta}>{guardando ? 'Cancelando…' : 'Cancelar pedido'}</button>
+        </>
+      )}>
+      <p style={{ marginTop: 0 }}>
+        Lo tiene <strong>{pedido.repartidor_nombre ?? '—'}</strong> ({ESTADO_DELIVERY[pedido.estado].label.toLowerCase()}).
+        Al cancelarlo, la orden queda disponible para otro delivery.
+      </p>
+      <div className="form-row">
+        <label htmlFor="dlv-motivo">Motivo</label>
+        <select id="dlv-motivo" className="select" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
+          {MOTIVOS_CANCELACION.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+      <div className="form-row">
+        <label htmlFor="dlv-detalle">Detalle {esOtro ? '(obligatorio)' : '(opcional)'}</label>
+        <textarea id="dlv-detalle" className="input" rows={3} value={detalle} onChange={(e) => setDetalle(e.target.value)}
+          placeholder="Qué pasó, con quién se habló…" />
       </div>
     </Modal>
   );
 }
 
-function Dato({ k, v }: { k: string; v: ReactNode }) {
-  return <div className="dlv-dato"><span>{k}</span><span>{v}</span></div>;
-}
+/* ───────────── Rango de fechas (Histórico y Por delivery) ───────────── */
 
-function claseEstado(e: EstadoDelivery): string {
-  return e === 'por_tomar' ? 'info' : e === 'aceptado' ? 'warning' : e === 'en_ruta' ? 'primary' : 'success';
-}
-
-/** Miniaturas: la URL firmada se pide recién al abrir el detalle (el bucket es privado). */
-function Fotos({ fotos }: { fotos: FotoDelivery[] }) {
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  const clave = fotos.map((f) => f.path).join('|');
-  useEffect(() => {
-    let vivo = true;
-    void Promise.all(fotos.map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
-      .then((pares) => { if (vivo) setUrls(Object.fromEntries(pares.filter(([, u]) => !!u))); });
-    return () => { vivo = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clave]);
-  if (!fotos.length) return <p className="muted" style={{ fontSize: '.85rem' }}>Sin fotos.</p>;
+function BarraRango({ hoy, desde, hasta, setDesde, setHasta, cargando }: {
+  hoy: string; desde: string; hasta: string; setDesde: (v: string) => void; setHasta: (v: string) => void; cargando: boolean;
+}) {
+  const activo = rangoDeliveryActivo(desde, hasta, hoy);
   return (
-    <div className="dlv-fotos">
-      {fotos.map((f) => (urls[f.path]
-        ? (
-          <a key={f.path} className="dlv-foto" href={urls[f.path]} target="_blank" rel="noopener noreferrer" title={`Abrir ${f.nombre}`}>
-            <img src={urls[f.path]} alt={f.nombre} loading="lazy" />
-          </a>
-        )
-        : <span key={f.path} className="dlv-foto cargando">Cargando…</span>))}
+    <div className="card" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'flex-end', gap: '.8rem', flexWrap: 'wrap' }}>
+      <div className="form-row" style={{ margin: 0 }}>
+        <label htmlFor="dlv-desde" style={{ fontSize: '.72rem' }}>Desde</label>
+        <input id="dlv-desde" className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
+      </div>
+      <div className="form-row" style={{ margin: 0 }}>
+        <label htmlFor="dlv-hasta" style={{ fontSize: '.72rem' }}>Hasta</label>
+        <input id="dlv-hasta" className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
+      </div>
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        {RANGOS_DELIVERY.map((r) => (
+          <button key={r.valor} type="button" className={`chip${activo === r.valor ? ' chip-active' : ''}`} aria-pressed={activo === r.valor}
+            onClick={() => { const x = rangoDelivery(r.valor, hoy); setDesde(x.desde); setHasta(x.hasta); }}>
+            {r.label}
+          </button>
+        ))}
+      </div>
+      {cargando && <span className="muted" style={{ fontSize: '.85rem' }}>Cargando…</span>}
     </div>
   );
 }
 
 /* ───────────── Histórico ───────────── */
 
-interface FiltrosHistorico { desde: string; hasta: string; repartidor: string; estado: EstadoDelivery | '' }
+function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[]; desde: string; hasta: string }) {
+  const [repartidor, setRepartidor] = useState('');
+  const [estado, setEstado] = useState<FiltroEstadoDelivery>('');
+  const repartidores = useMemo(() => repartidoresDe(filas), [filas]);
+  const visibles = useMemo(() => filtrarHistorial(filas, { estado, repartidor }), [filas, estado, repartidor]);
+  const [generando, setGenerando] = useState(false);
+  const [whatsapp, setWhatsapp] = useState<string | null>(null);
 
-function Historico({ pedidos, eventos, quien, onDetalle }: {
-  pedidos: Pedido[]; eventos: EventoDeliveryRow[]; quien: string | null; onDetalle: (p: Pedido) => void;
-}) {
-  const hoy = hoyVenezuela();
-  const [f, setF] = useState<FiltrosHistorico>(() => ({ ...rangoRapido('mes', hoy), repartidor: '', estado: '' }));
-  const set = <K extends keyof FiltrosHistorico>(k: K, v: FiltrosHistorico[K]) => setF((x) => ({ ...x, [k]: v }));
-  const activo = rangoActivo(f.desde, f.hasta, hoy);
-
-  const repartidores = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of pedidos) if (p.repartidor_email) m.set(p.repartidor_email, p.repartidor_nombre || p.repartidor_email);
-    for (const e of eventos) if (e.actor_email && e.evento === 'aceptado' && !m.has(e.actor_email)) m.set(e.actor_email, e.actor_nombre || e.actor_email);
-    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [pedidos, eventos]);
-
-  const filtrados = useMemo(() => filtrarHistorico(pedidos, {
-    desde: f.desde || null, hasta: f.hasta || null, repartidor: f.repartidor || null, estado: f.estado || null,
-  }), [pedidos, f]);
-  const idsFiltrados = useMemo(() => new Set(filtrados.map((p) => p.id)), [filtrados]);
-  const eventosFiltrados = useMemo(() => eventos.filter((e) => idsFiltrados.has(e.pedido_id)), [eventos, idsFiltrados]);
-  const resumen = useMemo(() => resumenPorRepartidor(filtrados, eventosFiltrados), [filtrados, eventosFiltrados]);
-
-  const filtrosPdf = { desde: f.desde || null, hasta: f.hasta || null, repartidor: f.repartidor || null, estado: f.estado || null };
+  function pdf() {
+    setGenerando(true);
+    pdfHistorialDelivery({ desde, hasta, repartidor: repartidor || null, estado: estado || null, filas: visibles })
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
+      .finally(() => setGenerando(false));
+  }
 
   return (
-    <div>
-      <div className="lt-filtros">
-        <div className="lt-fila">
-          <div className="lt-campo">
-            <label htmlFor="dlv-desde">Desde</label>
-            <FechaInput id="dlv-desde" className="input" value={f.desde} onChange={(v) => set('desde', v)} />
-          </div>
-          <div className="lt-campo">
-            <label htmlFor="dlv-hasta">Hasta</label>
-            <FechaInput id="dlv-hasta" className="input" value={f.hasta} onChange={(v) => set('hasta', v)} />
-          </div>
-          <div className="lt-campo">
-            <label htmlFor="dlv-rep">Motorizado</label>
-            <select id="dlv-rep" className="select" value={f.repartidor} onChange={(e) => set('repartidor', e.target.value)}>
-              <option value="">Todos</option>
-              {repartidores.map(([email, nombre]) => <option key={email} value={email}>{nombre}</option>)}
-            </select>
-          </div>
-          <div className="lt-campo">
-            <label htmlFor="dlv-estado">Estado</label>
-            <select id="dlv-estado" className="select" value={f.estado} onChange={(e) => set('estado', e.target.value as FiltrosHistorico['estado'])}>
-              <option value="">Todos</option>
-              {ESTADOS_DELIVERY.map((e) => <option key={e.key} value={e.key}>{e.icono} {e.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="lt-pie">
-          {RANGOS_RAPIDOS.filter((x) => x.valor === 'mes' || x.valor === 'mesPasado').map((x) => (
-            <button key={x.valor} type="button" className={`lt-chip${activo === x.valor ? ' activo' : ''}`} aria-pressed={activo === x.valor}
-              onClick={() => { const r = rangoRapido(x.valor, hoy); setF((v) => ({ ...v, desde: r.desde, hasta: r.hasta })); }}>
-              {x.label}
-            </button>
-          ))}
-          {(f.desde || f.hasta || f.repartidor || f.estado) && (
-            <button type="button" className="lt-chip" onClick={() => setF({ desde: '', hasta: '', repartidor: '', estado: '' })}>✕ Limpiar</button>
-          )}
-          <span className="lt-contador">{filtrados.length} de {pedidos.length} pedidos</span>
-        </div>
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+        <span>📜 Histórico ({visibles.length})</span>
+        <select className="select" style={{ width: 'auto', minWidth: 180 }} value={estado}
+          onChange={(e) => setEstado(e.target.value as FiltroEstadoDelivery)} aria-label="Filtrar por estado">
+          {ESTADOS_FILTRO.map((x) => <option key={x.valor} value={x.valor}>{x.label}</option>)}
+        </select>
+        <select className="select" style={{ width: 'auto', minWidth: 200 }} value={repartidor} onChange={(e) => setRepartidor(e.target.value)} aria-label="Filtrar por delivery">
+          <option value="">Todos los delivery</option>
+          {repartidores.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={generando} onClick={pdf}>
+            {generando ? 'Generando…' : '📄 PDF (vista previa)'}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm"
+            onClick={() => setWhatsapp(textoReporteGeneral({ desde, hasta, estado: estado || null, repartidor: repartidor || null, filas: visibles }))}>
+            💬 WhatsApp
+          </button>
+        </span>
       </div>
+      {!visibles.length ? <p className="muted" style={{ margin: '.4rem 0' }}>No hay pedidos tomados con esos filtros.</p> : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.85rem' }}>
+            <thead>
+              <tr>
+                <th>Tomado</th><th>OC</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>En ruta</th>
+                <th>Entregado / Cancelado</th><th style={{ textAlign: 'right' }}>Tiempo</th><th>Almacén / Motivo</th>
+                <th style={{ textAlign: 'right' }}>Fotos</th><th style={{ textAlign: 'right' }}>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.map((f) => {
+                const est = ESTADO_DELIVERY[f.estado];
+                return (
+                  <tr key={f.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.fecha)}</td>
+                    <td><strong>{f.oc}</strong></td>
+                    <td>{f.proveedor}</td>
+                    <td>{f.repartidor}</td>
+                    <td><span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {est?.label ?? f.estado}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.en_ruta_en) || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—'}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duracionTxt(f.minutos)}</td>
+                    <td>
+                      {(f.estado === 'cancelado' ? f.motivo_cancel : f.almacen_entrega) || '—'}
+                      {f.estado !== 'cancelado' && f.nota_entrega && <div className="muted" style={{ fontSize: '.75rem' }}>📝 {f.nota_entrega}</div>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{f.fotos}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoTxt(f.total, f.moneda)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {whatsapp && <WhatsappDeliveryModal titulo="Reporte de Delivery" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
+    </div>
+  );
+}
 
-      <div className="dlv-hist-acciones">
-        <button type="button" className="btn btn-ghost" disabled={!filtrados.length}
-          onClick={() => void Promise.resolve(pdfHistoricoDelivery(filtrados, filtrosPdf, quien))
-            .catch((e: unknown) => toast(mensajeError(e, 'No se pudo armar el PDF.'), 'error'))}>
-          📄 PDF histórico
-        </button>
-        <button type="button" className="btn btn-ghost" disabled={!filtrados.length}
-          onClick={() => void Promise.resolve(pdfPedidosPorRepartidor(resumen, filtrosPdf, quien))
-            .catch((e: unknown) => toast(mensajeError(e, 'No se pudo armar el PDF.'), 'error'))}>
-          📄 PDF por motorizado
+/* ───────────── Por delivery ───────────── */
+
+function PorDeliveryTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[]; desde: string; hasta: string }) {
+  const resumen = useMemo(() => resumenHistorial(filas), [filas]);
+  const t = totalesResumen(resumen);
+  const [generando, setGenerando] = useState(false);
+
+  function pdf() {
+    setGenerando(true);
+    pdfPorDelivery({ desde, hasta, resumen })
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
+      .finally(() => setGenerando(false));
+  }
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+        <span>🛵 Pedidos por delivery</span>
+        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={generando || !resumen.length} onClick={pdf}>
+          📄 PDF (vista previa)
         </button>
       </div>
-
-      {filtrados.length === 0
-        ? <EmptyState icon="📚" message="No hay pedidos de Delivery en ese rango." />
-        : (
-          <div className="table-wrap">
-            <table className="table dlv-tabla">
-              <thead>
-                <tr>
-                  <th>DEL</th><th>OC</th><th>Proveedor</th><th>Productos</th><th>Motorizado</th><th>Estado</th>
-                  <th>Aceptado</th><th>Entregado</th><th className="num">Cancel.</th><th className="num">Fotos</th><th />
+      {!resumen.length ? <p className="muted" style={{ margin: '.4rem 0' }}>Ningún delivery tomó pedidos en ese rango.</p> : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.88rem' }}>
+            <thead>
+              <tr>
+                <th>Delivery</th><th style={{ textAlign: 'right' }}>Entregados</th><th style={{ textAlign: 'right' }}>Cancelados</th>
+                <th style={{ textAlign: 'right' }}>En curso</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Tiempo promedio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumen.map((r) => (
+                <tr key={r.repartidor}>
+                  <td><strong>{r.repartidor}</strong></td>
+                  <td style={{ textAlign: 'right' }}>{r.entregados}</td>
+                  <td style={{ textAlign: 'right' }}>{r.cancelados}</td>
+                  <td style={{ textAlign: 'right' }}>{r.enCurso}</td>
+                  <td style={{ textAlign: 'right' }}>{r.entregados + r.cancelados + r.enCurso}</td>
+                  <td style={{ textAlign: 'right' }}>{duracionTxt(r.minutosPromedio)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {filtrados.map((p) => (
-                  <tr key={p.id}>
-                    <td data-col="DEL" className="mono"><strong>{p.codigo}</strong></td>
-                    <td data-col="OC" className="mono">{p.orden.oc_codigo || p.orden.codigo}</td>
-                    <td data-col="Proveedor">{p.proveedor?.razon_social || '—'}</td>
-                    <td data-col="Productos" style={{ maxWidth: 280 }}>{resumenItems(p, 2)}</td>
-                    <td data-col="Motorizado"><Quien nombre={p.repartidor_nombre} correo={p.repartidor_email} vacio="—" /></td>
-                    <td data-col="Estado"><span className={`badge ${claseEstado(p.estado)}`}>{etiquetaEstado(p.estado)}</span></td>
-                    <td data-col="Aceptado">{dateTime(p.aceptado_en)}</td>
-                    <td data-col="Entregado">{dateTime(p.entregado_en)}</td>
-                    <td data-col="Cancel." className="num mono" title={p.ultima_cancelacion_motivo ?? undefined}>{p.cancelaciones || '—'}</td>
-                    <td data-col="Fotos" className="num mono">{p.fotos_recibido.length + p.fotos_entrega.length || '—'}</td>
-                    <td><button type="button" className="btn btn-ghost btn-sm" onClick={() => onDetalle(p)} aria-label={`Ver detalle de ${p.codigo}`}>🔎</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-      <h2 className="dlv-seccion-titulo">🛵 Pedidos por motorizado</h2>
-      {resumen.length === 0
-        ? <p className="muted">Sin motorizados en el rango.</p>
-        : (
-          <div className="table-wrap">
-            <table className="table dlv-tabla">
-              <thead>
-                <tr><th>Motorizado</th><th className="num">Entregados</th><th className="num">En curso</th><th className="num">Cancelaciones</th><th className="num">Tiempo promedio</th></tr>
-              </thead>
-              <tbody>
-                {resumen.map((r) => (
-                  <tr key={r.repartidor_email}>
-                    <td data-col="Motorizado"><Quien nombre={r.repartidor_nombre} correo={r.repartidor_email} vacio={r.repartidor_email} /></td>
-                    <td data-col="Entregados" className="num mono">{r.entregados}</td>
-                    <td data-col="En curso" className="num mono">{r.en_curso}</td>
-                    <td data-col="Cancelaciones" className="num mono">{r.cancelaciones}</td>
-                    <td data-col="Tiempo promedio" className="num mono">{textoDuracion(r.minutos_promedio)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 700 }}>
+                <td>Total</td>
+                <td style={{ textAlign: 'right' }}>{t.entregados}</td>
+                <td style={{ textAlign: 'right' }}>{t.cancelados}</td>
+                <td style={{ textAlign: 'right' }}>{t.enCurso}</td>
+                <td style={{ textAlign: 'right' }}>{t.entregados + t.cancelados + t.enCurso}</td>
+                <td style={{ textAlign: 'right' }}>{duracionTxt(t.minutosPromedio)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <p className="hint muted" style={{ margin: '.5rem 0 0', fontSize: '.8rem' }}>
+        Tiempo promedio = desde que el delivery toma el pedido hasta que lo entrega en el almacén. Cada cancelación cuenta, aunque la orden la haya retomado otro.
+      </p>
     </div>
   );
 }
