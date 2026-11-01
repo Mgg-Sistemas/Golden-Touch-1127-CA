@@ -2,6 +2,7 @@ import { Quien } from '@/shared/ui/Quien';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num, relTime } from '@/shared/lib/format';
@@ -121,6 +122,9 @@ export function DashboardPage() {
 
 function KpiGrid({ kpis }: { kpis: DashboardKpis | null }) {
   const navigate = useNavigate();
+  // Las órdenes por aprobar son de Compras (31/10/2026): sin ese permiso la tarjeta no sale.
+  const { can } = usePermissions();
+  const verCompras = can('compras');
   if (!kpis) return null;
   const restCls = kpis.productosARestablecer > 0 ? 'delta down' : 'delta';
   const restMsg = kpis.productosARestablecer > 0 ? 'requieren atención' : 'todo en orden';
@@ -144,14 +148,16 @@ function KpiGrid({ kpis }: { kpis: DashboardKpis | null }) {
         deltaText={restMsg}
         onClick={() => navigate('/app/inventario')}
       />
-      <Kpi
-        icon="📋"
-        label="Órdenes pendientes"
-        value={num(kpis.ordenesPendientes)}
-        deltaClassName={pendCls}
-        deltaText="esperando aprobación"
-        onClick={() => navigate('/app/pedidos?tab=oc_lote')}
-      />
+      {verCompras && (
+        <Kpi
+          icon="📋"
+          label="Órdenes pendientes"
+          value={num(kpis.ordenesPendientes)}
+          deltaClassName={pendCls}
+          deltaText="esperando aprobación"
+          onClick={() => navigate('/app/pedidos?tab=oc_lote')}
+        />
+      )}
       <Kpi
         icon="$"
         label="Valor del inventario"

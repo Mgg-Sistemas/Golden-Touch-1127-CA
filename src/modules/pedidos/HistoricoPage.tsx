@@ -61,10 +61,11 @@ export function HistoricoPage() {
   const [detalle, setDetalle] = useState<Orden | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
-  // Eliminar OC (revierte dinero + stock). Gateado por permiso de escritura de Pedidos.
+  // Eliminar OC (revierte dinero + stock). Gateado por el permiso de escritura de Compras
+  // (31/10/2026: `pedidos` quedó como permiso de base; quién trabaja Compras lo decide `compras`).
   const { can, isAdmin } = usePermissions();
   const { user } = useSession();
-  const puedeEliminar = isAdmin || can('pedidos', 'escritura');
+  const puedeEliminar = isAdmin || can('compras', 'escritura');
   const [eliminar, setEliminar] = useState<Orden | null>(null);
   // Adjuntos del pago de la OC abierta en el detalle (comprobantes, abonos, retención, factura).
   const [adjuntos, setAdjuntos] = useState<AdjuntoPago[]>([]);

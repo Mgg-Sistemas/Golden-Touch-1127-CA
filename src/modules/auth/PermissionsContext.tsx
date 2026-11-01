@@ -175,23 +175,40 @@ export function usePermissions(): PermissionsValue {
   return ctx;
 }
 
+/**
+ * Permisos que abren la pantalla de Pedidos (/app/pedidos), 31/10/2026: «Solicitud de
+ * Pedido» (crea y sigue sus SP), «Compras» (todo lo demás) o el viejo `pedidos`
+ * (base de pagos/recepción/retenciones, que siguen usando Tesorería, Recepción e Impuestos).
+ */
+export const MODULOS_PANTALLA_PEDIDOS: readonly ModuleKey[] = ['solicitud_pedido', 'compras', 'pedidos'];
+
+/** Módulos de permiso que no tienen ruta propia: abren la pantalla de otro. */
+const RUTA_DE_MODULO: Partial<Record<ModuleKey, string>> = {
+  solicitud_pedido: '/app/pedidos',
+  compras: '/app/pedidos',
+};
+
 /** Adónde va el usuario cuando entra o cuando cae en algo que no puede ver. */
 function destinoInicial(p: Pick<PermissionsValue, 'allowedModules' | 'soloTelefono' | 'vistasTelefono' | 'almacenes'>): string {
   if (p.soloTelefono) return inicioTelefono(p.vistasTelefono);
   const first = p.allowedModules[0];
-  if (first) return `/app/${first}`;
+  if (first) return RUTA_DE_MODULO[first] ?? `/app/${first}`;
   // Sin módulos pero con algún depósito: entra a su depósito.
   const deposito = Object.keys(p.almacenes)[0];
   return deposito ? resolverDeposito(deposito).ruta : '/app/sin-acceso';
 }
 
-/** Envuelve una página: si el rol no tiene lectura sobre `module`, redirige al primer módulo permitido. */
-export function RequireModule({ module, children }: { module: ModuleKey; children: ReactNode }) {
+/**
+ * Envuelve una página: si el rol no tiene lectura sobre `module`, redirige al primer módulo permitido.
+ * `module` puede ser una lista: basta lectura en CUALQUIERA de ellos (p. ej. Pedidos, 31/10/2026).
+ */
+export function RequireModule({ module, children }: { module: ModuleKey | readonly ModuleKey[]; children: ReactNode }) {
   const p = usePermissions();
   if (p.loading) return <div className="p-8 muted">Cargando…</div>;
+  const modulos: readonly ModuleKey[] = typeof module === 'string' ? [module] : module;
   // Solo teléfono: de las pantallas de PC solo queda Ajustes (para cambiar la clave).
-  if (p.soloTelefono && module !== 'ajustes') return <Navigate to={inicioTelefono(p.vistasTelefono)} replace />;
-  if (p.can(module, 'lectura')) return <>{children}</>;
+  if (p.soloTelefono && !modulos.includes('ajustes')) return <Navigate to={inicioTelefono(p.vistasTelefono)} replace />;
+  if (modulos.some((m) => p.can(m, 'lectura'))) return <>{children}</>;
   return <Navigate to={destinoInicial(p)} replace />;
 }
 

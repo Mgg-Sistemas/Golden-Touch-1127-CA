@@ -1,14 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { moduloDeNotificacion, notificacionPermitidaParaUsuario } from './notifPermisos';
+import { moduloDeNotificacion, modulosDeNotificacion, notificacionPermitidaParaUsuario } from './notifPermisos';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
 describe('moduloDeNotificacion', () => {
   it('extrae el módulo desde el link con hash', () => {
     expect(moduloDeNotificacion({ link: '#/app/retenciones', title: 'Comprobante', message: '' })).toBe('retenciones');
-    expect(moduloDeNotificacion({ link: '#/app/pedidos', title: 'Nueva OC', message: '' })).toBe('pedidos');
+    expect(moduloDeNotificacion({ link: '#/app/pedidos', title: 'Nueva OC', message: '' })).toBe('compras');
+    expect(moduloDeNotificacion({ link: '#/app/pedidos?tab=servicios', title: 'Servicio', message: '' })).toBe('compras');
     expect(moduloDeNotificacion({ link: '#/app/inventario', title: 'Aviso', message: '' })).toBe('inventario');
     expect(moduloDeNotificacion({ link: '#/app/combustible', title: 'Tanque bajo', message: '' })).toBe('combustible');
-    expect(moduloDeNotificacion({ link: '#/app/solicitudes', title: 'Pedido', message: '' })).toBe('pedidos');
+  });
+
+  it('la Revisión de Almacén (dentro de Pedidos o por su atajo) es de Inventario, no de Compras', () => {
+    expect(moduloDeNotificacion({ link: '#/app/pedidos?tab=almacen', title: 'Nueva solicitud', message: '' })).toBe('inventario');
+    expect(moduloDeNotificacion({ link: '#/app/solicitudes', title: 'Pedido', message: '' })).toBe('inventario');
+    expect(moduloDeNotificacion({ link: '#/app/solicitudes-almacen', title: 'Pedido', message: '' })).toBe('inventario');
+  });
+
+  it('el chat de una orden es de Compras y de Tesorería', () => {
+    const chat = { link: '#/app/pedidos', title: '💬 Mensaje en OC-0012', message: 'Ana: ya pagué' };
+    expect(modulosDeNotificacion(chat)).toEqual(['compras', 'tesoreria']);
+    expect(modulosDeNotificacion({ link: '#/app/pedidos', title: 'Orden aprobada', message: '' })).toEqual(['compras']);
+    expect(modulosDeNotificacion({ link: null, title: 'Sistema actualizado', message: '' })).toEqual([]);
   });
 
   it('extrae el módulo desde el link sin hash', () => {
@@ -19,7 +32,7 @@ describe('moduloDeNotificacion', () => {
   it('infiere el módulo por texto si no hay link', () => {
     expect(moduloDeNotificacion({ link: null, title: 'Retención de IVA aplicada', message: 'Comprobante emitido' })).toBe('retenciones');
     expect(moduloDeNotificacion({ link: null, title: 'Stock crítico', message: 'Falta aceite en almacén' })).toBe('inventario');
-    expect(moduloDeNotificacion({ link: null, title: 'Orden de compra aprobada', message: 'Listo para recibir' })).toBe('pedidos');
+    expect(moduloDeNotificacion({ link: null, title: 'Orden de compra aprobada', message: 'Listo para recibir' })).toBe('compras');
     expect(moduloDeNotificacion({ link: null, title: 'Nómina pagada', message: 'Transferencia realizada' })).toBe('rrhh');
     expect(moduloDeNotificacion({ link: null, title: 'Combustible bajo', message: 'Tanque general bajo' })).toBe('combustible');
   });
@@ -32,7 +45,9 @@ describe('moduloDeNotificacion', () => {
 
 describe('notificacionPermitidaParaUsuario', () => {
   const soloRetenciones = (mod: ModuleKey) => mod === 'retenciones';
-  const soloPedidosEInventario = (mod: ModuleKey) => mod === 'pedidos' || mod === 'inventario';
+  const soloPedidosEInventario = (mod: ModuleKey) => mod === 'compras' || mod === 'inventario';
+  // Tesorería / Recepción / Impuestos: conservan el viejo `pedidos` (base) pero no tienen Compras.
+  const baseSinCompras = (mod: ModuleKey) => mod === 'pedidos' || mod === 'solicitud_pedido' || mod === 'tesoreria';
   const sinPermisos = (_mod: ModuleKey) => false;
 
   it('administrador ve absolutamente todas las notificaciones', () => {
@@ -110,6 +125,26 @@ describe('notificacionPermitidaParaUsuario', () => {
       soloPedidosEInventario,
       false,
     )).toBe(false);
+  });
+
+  it('con el viejo `pedidos` (base) pero sin Compras, no le llegan los avisos de Compras; el chat y Tesorería sí', () => {
+    expect(notificacionPermitidaParaUsuario(
+      { link: '#/app/pedidos', title: 'Orden aprobada: SP-0001', message: '', destino: 'all' },
+      baseSinCompras,
+      false,
+    )).toBe(false);
+
+    expect(notificacionPermitidaParaUsuario(
+      { link: '#/app/pedidos', title: '💬 Mensaje en OC-0012', message: 'Compras: ¿ya salió el pago?', destino: 'all' },
+      baseSinCompras,
+      false,
+    )).toBe(true);
+
+    expect(notificacionPermitidaParaUsuario(
+      { link: '#/app/tesoreria', title: 'OC enviada para pagar', message: '', destino: 'all' },
+      baseSinCompras,
+      false,
+    )).toBe(true);
   });
 
   it('notificaciones globales del sistema sin módulo son visibles para todos', () => {

@@ -41,13 +41,13 @@ import { iconoDeposito } from '@/modules/inventario/depositos';
 import type { Almacen } from '@/shared/lib/types';
 import { UsuariosAutorizadosPanel } from './UsuariosAutorizadosPanel';
 
+// Un módulo que la fila guardada aún no trae (p. ej. «Solicitud de Pedido» / «Compras»,
+// 31/10/2026) se muestra con el default del rol: es lo mismo que aplica la sesión
+// (PermissionsContext → normalizeRolePermisos con rol), así la matriz no miente.
 function normalize(stored: Partial<AllPermisos>, roles: CustomRole[]): AllPermisos {
   return roles.reduce<AllPermisos>((acc, r) => {
-    const role = (stored[r.key] ?? {}) as Partial<RolePermisos>;
-    acc[r.key] = MODULES.reduce<RolePermisos>((m, mod) => {
-      m[mod.key] = { ...empty, ...role[mod.key] };
-      return m;
-    }, {} as RolePermisos);
+    const role = stored[r.key] as Partial<RolePermisos> | undefined;
+    acc[r.key] = role ? normalizeRolePermisos(role, r.key) : defaultsFor(r.key);
     return acc;
   }, {} as AllPermisos);
 }
@@ -362,7 +362,10 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                       const p = permisos[rc.key]?.[m.key] ?? { ...empty };
                       return (
                         <tr key={m.key}>
-                          <td><strong>{m.label}</strong></td>
+                          <td title={m.ayuda}>
+                            <strong>{m.label}</strong>
+                            {m.ayuda && <small className="muted" style={{ display: 'block', fontSize: '.7rem', lineHeight: 1.25 }}>{m.ayuda}</small>}
+                          </td>
                           <td style={{ textAlign: 'center' }}>
                             <input type="checkbox" disabled={readOnly || (rc.key === 'admin' && !isAdmin)} checked={p.lectura} onChange={() => togglePerm(rc.key, m.key, 'lectura')} aria-label={`Lectura ${m.label} para ${rc.label}`} />
                           </td>

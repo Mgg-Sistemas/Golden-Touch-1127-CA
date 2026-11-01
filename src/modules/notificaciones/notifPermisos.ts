@@ -18,11 +18,16 @@ function normalizar(texto: string): string {
 
 /**
  * Mapeo de prefijos de ruta canónicos a ModuleKey.
+ * 31/10/2026: los avisos de Pedidos son de Compras (permiso `compras`); el viejo `pedidos`
+ * quedó como permiso de escritura en la base (Tesorería, Recepción, Impuestos).
+ * `/app/solicitudes` es el atajo a la pestaña «Revisión de Almacén», que se gatea con
+ * Inventario (igual que `/app/pedidos?tab=almacen`, ver modulosDeNotificacion).
  */
 const RUTA_A_MODULO: Record<string, ModuleKey> = {
   dashboard: 'dashboard',
-  pedidos: 'pedidos',
-  solicitudes: 'pedidos',
+  pedidos: 'compras',
+  solicitudes: 'inventario',
+  'solicitudes-almacen': 'inventario',
   delivery: 'delivery',
   proveedores: 'proveedores',
   inventario: 'inventario',
@@ -46,6 +51,18 @@ const RUTA_A_MODULO: Record<string, ModuleKey> = {
 };
 
 /**
+ * Módulos con los que se ve una notificación (basta lectura en CUALQUIERA). Lista vacía =
+ * aviso general del sistema. Casi siempre es uno; el chat de una orden es de dos partes.
+ */
+export function modulosDeNotificacion(n: Pick<Notificacion, 'link' | 'title' | 'message'>): ModuleKey[] {
+  // El chat de una orden (ordenChat.repository) lo conversan Compras y Tesorería: el aviso
+  // («💬 Mensaje en …») es para la otra parte, sea cual sea (31/10/2026).
+  if (/^💬\s*mensaje en\b/i.test((n.title ?? '').trim())) return ['compras', 'tesoreria'];
+  const m = moduloDeNotificacion(n);
+  return m ? [m] : [];
+}
+
+/**
  * Infiere el módulo asociado a una notificación según su link o su contenido textual.
  * Devuelve `null` si es una notificación general del sistema (sin módulo asignado).
  */
@@ -56,6 +73,8 @@ export function moduloDeNotificacion(n: Pick<Notificacion, 'link' | 'title' | 'm
     const match = raw.match(/\/app\/([a-z0-9_-]+)/i);
     if (match && match[1]) {
       const segmento = match[1].toLowerCase();
+      // «Revisión de Almacén» vive dentro de Pedidos pero es de Almacén: la ve quien tiene Inventario.
+      if (segmento === 'pedidos' && /[?&]tab=almacen(?:&|$)/i.test(raw)) return 'inventario';
       if (RUTA_A_MODULO[segmento]) {
         return RUTA_A_MODULO[segmento];
       }
@@ -76,7 +95,7 @@ export function moduloDeNotificacion(n: Pick<Notificacion, 'link' | 'title' | 'm
     return 'inventario';
   }
   if (/orden.*compra|orden.*pedido|\boc\b|solicitud.*pedido|compra directa|servicio directo|\bcompras\b/.test(texto)) {
-    return 'pedidos';
+    return 'compras';
   }
   if (/tesoreria|\bcaja\b|pago.*oc|\babono\b|gasto registrado|\bdivisas\b|\btasa\b/.test(texto)) {
     return 'tesoreria';
@@ -113,7 +132,8 @@ export function moduloDeNotificacion(n: Pick<Notificacion, 'link' | 'title' | 'm
  * 1. Los administradores (`isAdmin = true`) ven absolutamente todas las notificaciones.
  * 2. Si `destino === 'admin'`, solo los administradores pueden verla.
  * 3. Si la notificación pertenece a un módulo específico (ej. `retenciones`), el usuario
- *    debe tener permiso de lectura en ese módulo (`can(modulo) === true`).
+ *    debe tener permiso de lectura en ese módulo (`can(modulo) === true`); si son varios
+ *    (chat de una orden: Compras y Tesorería), basta uno.
  * 4. Si la notificación es global del sistema (sin módulo asociado y `destino === 'all'`),
  *    es visible para todos los usuarios.
  */
@@ -127,9 +147,9 @@ export function notificacionPermitidaParaUsuario(
   // Destino exclusivo para administradores
   if (n.destino === 'admin') return false;
 
-  const modulo = moduloDeNotificacion(n);
-  if (modulo) {
-    return can(modulo);
+  const modulos = modulosDeNotificacion(n);
+  if (modulos.length) {
+    return modulos.some((m) => can(m));
   }
 
   // Notificación general sin módulo asignado
