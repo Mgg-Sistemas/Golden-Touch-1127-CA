@@ -1,60 +1,36 @@
 /* ============================================================
-   Golden Touch · Delivery · Reportes PDF (30/10/2026)
+   Golden Touch · Delivery · PDF (31/10/2026 · traído de MGG + reportes)
 
-   · Histórico: DEL, OC, proveedor, motorizado, aceptado, entregado, estado
-     y cancelaciones de los pedidos filtrados.
-   · Pedidos por motorizado: entregados, en curso, cancelaciones y tiempo
-     promedio de aceptado a entregado.
-   Estilo del sistema: logo horizontal, título, período, impreso por y tabla,
-   márgenes de 2 cm. `construir…` arma el documento; `pdf…` lo abre en la
-   vista previa (`previewPdf`), donde se descarga o se imprime.
+   · «Reporte de Delivery» (el Histórico de MGG, ahora con el resumen):
+     rango + estado + motorizado → totales por estado, resumen por
+     motorizado, tiempo promedio de entrega y la lista de pedidos.
+   · «Pedidos por delivery» (MGG): cuántos lleva cada uno y su promedio.
+   · «Reporte del pedido» (GT, 31/10): un pedido con sus pasos y horas,
+     almacén, nota, fotos y productos.
+   Formato de los PDF de GT: logo horizontal (dibujarLogoPdf), márgenes de
+   2 cm, «impreso por» con nombre y apellido. Se abren en la vista previa del
+   sistema (previewPdf): nada se descarga solo.
    ============================================================ */
 import type { jsPDF as JsPDF } from 'jspdf';
 import { previewPdf } from '@/shared/lib/reportePreview';
-import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
-import { MARGEN_PDF } from '@/shared/lib/pdfMargen';
+import { dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { supabase } from '@/shared/lib/supabase';
-import type { PedidoDelivery, PedidoDeliveryVista } from './delivery.types';
-import { etiquetaEstado, fechaHoraVE, textoDuracion, type ResumenRepartidor } from './delivery';
+import { ESTADO_DELIVERY, fechaHoraVE, montoTxt, type PedidoDelivery } from './delivery';
+import { duracionTxt, totalesResumen, type FilaHistorialDelivery, type ResumenDelivery } from './deliveryPanel';
+import { detallePedido, resumenReporte, textoFiltros, type FiltroEstadoDelivery } from './deliveryReporte';
 
-export interface FiltrosPdfDelivery {
-  /** YYYY-MM-DD (hora de Venezuela). */
-  desde?: string | null;
-  hasta?: string | null;
-  /** Texto del período ya armado por la pantalla (si viene, se usa tal cual). */
-  rango?: string | null;
-  /** Correo o nombre del motorizado filtrado. */
-  repartidor?: string | null;
-  estado?: string | null;
-}
-
+const M = MARGEN_PDF;
+const ALTO_PIE = 14;
+const MARGENES_TABLA = { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + ALTO_PIE };
 const NARANJA: [number, number, number] = [255, 138, 0];
 const GRIS: [number, number, number] = [110, 110, 110];
-const HEAD_STYLE = {
-  fillColor: [210, 210, 210] as [number, number, number], textColor: [20, 20, 20] as [number, number, number],
-  fontStyle: 'bold' as const, halign: 'center' as const,
-};
+const CAJA_LOGO = 44;
 
-const ddmmaaaa = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
-
-/** «Del 01/10/2026 al 30/10/2026 · Motorizado: … · Estado: …». */
-export function textoPeriodo(f: FiltrosPdfDelivery): string {
-  const partes: string[] = [];
-  if (f.rango?.trim()) partes.push(f.rango.trim());
-  else if (f.desde && f.hasta) partes.push(`Del ${ddmmaaaa(f.desde)} al ${ddmmaaaa(f.hasta)}`);
-  else if (f.desde) partes.push(`Desde el ${ddmmaaaa(f.desde)}`);
-  else if (f.hasta) partes.push(`Hasta el ${ddmmaaaa(f.hasta)}`);
-  else partes.push('Todo el período');
-  if (f.repartidor?.trim()) partes.push(`Motorizado: ${quienSync(f.repartidor, f.repartidor)}`);
-  if (f.estado?.trim()) partes.push(`Estado: ${etiquetaEstado(f.estado)}`);
-  return partes.join(' · ');
-}
-
-/** Quien imprime: el que se pasa, o el usuario con sesión (nombre y apellido). */
-async function impresoPor(quien?: string | null): Promise<string> {
-  if (quien?.trim()) return quien.trim();
+/** Quien imprime: el usuario con sesión, con nombre y apellido. */
+async function impresoPor(): Promise<string> {
   try {
     const { data } = await supabase.auth.getUser();
     const email = data.user?.email ?? '';
@@ -64,160 +40,181 @@ async function impresoPor(quien?: string | null): Promise<string> {
   }
 }
 
-async function nuevoDoc(orientacion: 'portrait' | 'landscape', titulo: string, filtros: FiltrosPdfDelivery, quien?: string | null) {
+async function nuevoDoc(titulo: string, sub: string, apaisado: boolean) {
   const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }, imprime] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
-    import('@/shared/lib/pdfLogo'),
-    impresoPor(quien),
+    import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/pdfLogo'), impresoPor(),
   ]);
   const logo = await loadLogoPdfDataUrl().catch(() => null);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: apaisado ? 'landscape' : 'portrait' });
   const W = doc.internal.pageSize.getWidth();
-  const M = MARGEN_PDF;
-  const y = M;
-  if (logo) { try { dibujarLogoPdf(doc, logo, M, y, 44); } catch { /* el logo es opcional */ } }
-  doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text(textoPdf(titulo), W / 2 + 28, y + 16, { align: 'center' });
+  let y = M;
+  const TX = logo ? M + anchoLogoPdf(CAJA_LOGO) + 14 : M;
+  if (logo) dibujarLogoPdf(doc, logo, M, y, CAJA_LOGO);
+  doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+  doc.text(textoPdf(titulo), TX, y + 14);
   doc.setTextColor(...GRIS); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(textoPdf(`GOLDEN TOUCH 1127 C.A. · ${textoPeriodo(filtros)}`), W / 2 + 28, y + 30, { align: 'center' });
-  doc.text(
-    textoPdf(`Impreso${imprime ? ` por ${imprime}` : ''} el ${fechaHoraVE(new Date().toISOString())}`),
-    W / 2 + 28, y + 42, { align: 'center' },
-  );
+  const subLineas = doc.splitTextToSize(textoPdf(`GOLDEN TOUCH 1127 C.A. · ${sub}`), W - M - TX) as string[];
+  doc.text(subLineas, TX, y + 28);
+  const yImp = y + 28 + subLineas.length * 11;
+  doc.text(textoPdf(`Impreso${imprime ? ` por ${imprime}` : ''} el ${fechaHoraVE(new Date().toISOString())}`), TX, yImp);
   doc.setTextColor(0, 0, 0);
-  return { doc, autoTable, W, M, y: y + 58 };
+  y = Math.max(y + CAJA_LOGO, yImp) + 8;
+  doc.setDrawColor(...NARANJA); doc.setLineWidth(1.5); doc.line(M, y, W - M, y); y += 16;
+  return { doc, autoTable, y, W };
 }
 
-/** Número de página al pie de cada hoja. */
-function numerarPaginas(doc: JsPDF, M: number) {
+/** Pie con el número de página en todas las hojas. */
+function pies(doc: JsPDF, texto: string) {
   const n = doc.getNumberOfPages();
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
+  const h = doc.internal.pageSize.getHeight();
+  const w = doc.internal.pageSize.getWidth();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRIS);
-    doc.text(textoPdf(`Delivery · Página ${i} de ${n}`), W - M, H - M + 14, { align: 'right' });
+    doc.text(textoPdf(texto), M, limiteInferiorPdf(h));
+    doc.text(`Página ${i} de ${n}`, w - M, limiteInferiorPdf(h), { align: 'right' });
   }
+  doc.setTextColor(0);
 }
 
-const sufijo = (f: FiltrosPdfDelivery) => [f.desde, f.hasta].filter(Boolean).join('_') || new Date().toISOString().slice(0, 10);
+const HEAD = { fillColor: NARANJA, textColor: 255, fontSize: 8.5 } as const;
+const FOOT = { fillColor: [245, 245, 245] as [number, number, number], textColor: 20, fontStyle: 'bold' as const, fontSize: 8.5 };
+const finTabla = (doc: JsPDF, porDefecto: number) =>
+  ((doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? porDefecto);
 
-/* ───────────── Histórico ───────────── */
+/* ───────────── Reporte general (Histórico) ───────────── */
 
-/** El histórico de pedidos (los que se le pasan, ya filtrados). */
-export async function construirPdfHistoricoDelivery(
-  pedidos: PedidoDeliveryVista[], filtros: FiltrosPdfDelivery = {}, quien?: string | null,
-): Promise<JsPDF> {
-  const { doc, autoTable, M, y } = await nuevoDoc('landscape', 'DELIVERY · HISTÓRICO DE PEDIDOS', filtros, quien);
-
-  const entregados = pedidos.filter((p) => p.estado === 'entregado').length;
-  const enCurso = pedidos.filter((p) => p.estado === 'aceptado' || p.estado === 'en_ruta').length;
-  const porTomar = pedidos.filter((p) => p.estado === 'por_tomar').length;
-  const cancel = pedidos.reduce((a, p) => a + (Number(p.cancelaciones) || 0), 0);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-  doc.text(textoPdf(
-    `Pedidos: ${pedidos.length}   ·   Entregados: ${entregados}   ·   En curso: ${enCurso}   ·   Por tomar: ${porTomar}   ·   Cancelaciones: ${cancel}`,
-  ), M, y);
+/** El reporte del histórico filtrado: resumen, por delivery y la lista de pedidos. */
+export async function pdfHistorialDelivery(data: {
+  desde: string; hasta: string; repartidor?: string | null; estado?: FiltroEstadoDelivery | null; filas: FilaHistorialDelivery[];
+}): Promise<void> {
+  const generado = fechaHoraVE(new Date().toISOString());
+  const { doc, autoTable, y } = await nuevoDoc('Reporte de Delivery', `${textoFiltros(data)} · ${data.filas.length} pedido(s)`, true);
+  const r = resumenReporte(data.filas);
 
   autoTable(doc, {
-    startY: y + 10,
-    head: [['DEL', 'OC', 'PROVEEDOR', 'MOTORIZADO', 'ACEPTADO', 'ENTREGADO', 'ESTADO', 'CANCEL.']],
-    body: pedidos.length
-      ? pedidos.map((p) => [
-        p.codigo,
-        p.orden?.oc_codigo || p.orden?.codigo || '—',
-        p.proveedor?.razon_social || '—',
-        quienSync(p.repartidor_nombre, p.repartidor_email) || '—',
-        fechaHoraVE(p.aceptado_en) || '—',
-        fechaHoraVE(p.entregado_en) || '—',
-        etiquetaEstado(p.estado),
-        p.cancelaciones ? String(p.cancelaciones) : '—',
-      ].map(textoPdf))
-      : [[{ content: 'No hay pedidos en ese período.', colSpan: 8, styles: { halign: 'center' as const } }]],
-    styles: { fontSize: 8, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
-    headStyles: HEAD_STYLE,
-    columnStyles: {
-      0: { cellWidth: 58, fontStyle: 'bold' },
-      1: { cellWidth: 70 },
-      2: { cellWidth: 'auto' },
-      3: { cellWidth: 110 },
-      4: { cellWidth: 80, halign: 'center' },
-      5: { cellWidth: 80, halign: 'center' },
-      6: { cellWidth: 62, halign: 'center' },
-      7: { cellWidth: 48, halign: 'right' },
-    },
-    margin: M,
+    startY: y,
+    head: [['Pedidos', 'Entregados', 'En ruta', 'Aceptados', 'Cancelados', 'Tiempo promedio de entrega']],
+    body: [[String(r.total), String(r.porEstado.entregado), String(r.porEstado.en_ruta), String(r.porEstado.aceptado),
+      String(r.porEstado.cancelado), duracionTxt(r.minutosPromedio)].map(textoPdf)],
+    theme: 'grid', headStyles: HEAD, styles: { fontSize: 9, cellPadding: 4, halign: 'center' }, margin: MARGENES_TABLA,
   });
 
-  numerarPaginas(doc, M);
-  return doc;
-}
-
-export async function pdfHistoricoDelivery(
-  pedidos: PedidoDeliveryVista[], filtros: FiltrosPdfDelivery = {}, quien?: string | null,
-): Promise<void> {
-  const doc = await construirPdfHistoricoDelivery(pedidos, filtros, quien);
-  previewPdf(doc, `delivery-historico-${sufijo(filtros)}.pdf`);
-}
-
-/* ───────────── Por motorizado ───────────── */
-
-/** Los pedidos por motorizado (el resumen de `resumenPorRepartidor`). */
-export async function construirPdfPedidosPorRepartidor(
-  resumen: ResumenRepartidor[], filtros: FiltrosPdfDelivery = {}, quien?: string | null,
-): Promise<JsPDF> {
-  const { doc, autoTable, M, y } = await nuevoDoc('portrait', 'DELIVERY · PEDIDOS POR MOTORIZADO', filtros, quien);
-
-  const tot = resumen.reduce((a, r) => ({
-    entregados: a.entregados + r.entregados, en_curso: a.en_curso + r.en_curso, cancelaciones: a.cancelaciones + r.cancelaciones,
-  }), { entregados: 0, en_curso: 0, cancelaciones: 0 });
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-  doc.text(textoPdf(
-    `Motorizados: ${resumen.length}   ·   Entregados: ${tot.entregados}   ·   En curso: ${tot.en_curso}   ·   Cancelaciones: ${tot.cancelaciones}`,
-  ), M, y);
+  if (r.porDelivery.length) {
+    const t = totalesResumen(r.porDelivery);
+    autoTable(doc, {
+      startY: finTabla(doc, y) + 14,
+      head: [['Delivery', 'Entregados', 'Cancelados', 'En curso', 'Total', 'Tiempo promedio']],
+      body: r.porDelivery.map((x) => [x.repartidor, String(x.entregados), String(x.cancelados), String(x.enCurso),
+        String(x.entregados + x.cancelados + x.enCurso), duracionTxt(x.minutosPromedio)].map(textoPdf)),
+      foot: [['Total', String(t.entregados), String(t.cancelados), String(t.enCurso),
+        String(t.entregados + t.cancelados + t.enCurso), duracionTxt(t.minutosPromedio)].map(textoPdf)],
+      theme: 'grid', headStyles: HEAD, footStyles: FOOT, styles: { fontSize: 8.5, cellPadding: 3 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      margin: MARGENES_TABLA,
+    });
+  }
 
   autoTable(doc, {
-    startY: y + 10,
-    head: [['MOTORIZADO', 'ACEPTADOS', 'ENTREGADOS', 'EN CURSO', 'CANCELACIONES', 'TIEMPO PROMEDIO']],
-    body: resumen.length
-      ? resumen.map((r) => [
-        quienSync(r.repartidor_nombre, r.repartidor_email) || r.repartidor_email,
-        String(r.aceptados), String(r.entregados), String(r.en_curso), String(r.cancelaciones),
-        textoDuracion(r.minutos_promedio),
-      ].map(textoPdf))
-      : [[{ content: 'No hay motorizados en ese período.', colSpan: 6, styles: { halign: 'center' as const } }]],
-    foot: resumen.length
-      ? [['TOTAL', String(resumen.reduce((a, r) => a + r.aceptados, 0)), String(tot.entregados), String(tot.en_curso), String(tot.cancelaciones), '']]
-      : undefined,
-    styles: { fontSize: 9, cellPadding: 5, valign: 'middle', overflow: 'linebreak' },
-    headStyles: HEAD_STYLE,
-    footStyles: { fillColor: [240, 240, 240], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'right' },
-    columnStyles: {
-      0: { cellWidth: 'auto', fontStyle: 'bold', halign: 'left' },
-      1: { cellWidth: 62, halign: 'right' },
-      2: { cellWidth: 68, halign: 'right' },
-      3: { cellWidth: 58, halign: 'right' },
-      4: { cellWidth: 80, halign: 'right' },
-      5: { cellWidth: 90, halign: 'right' },
-    },
-    margin: M,
+    startY: finTabla(doc, y) + 14,
+    head: [['Tomado', 'OC', 'Proveedor', 'Delivery', 'Estado', 'En ruta', 'Entregado / Cancelado', 'Tiempo', 'Almacén / Motivo', 'Fotos', 'Monto']],
+    body: data.filas.length
+      ? data.filas.map((f) => [
+        fechaHoraVE(f.fecha), f.oc, f.proveedor, f.repartidor, ESTADO_DELIVERY[f.estado]?.label ?? f.estado,
+        fechaHoraVE(f.en_ruta_en) || '—',
+        fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—',
+        duracionTxt(f.minutos),
+        (f.estado === 'cancelado' ? f.motivo_cancel : [f.almacen_entrega, f.nota_entrega].filter(Boolean).join(' · ')) || '—',
+        String(f.fotos ?? 0),
+        montoTxt(f.total, f.moneda),
+      ].map((x) => textoPdf(String(x))))
+      : [[{ content: 'No hay pedidos tomados con esos filtros.', colSpan: 11, styles: { halign: 'center' as const } }]],
+    theme: 'grid',
+    headStyles: HEAD,
+    styles: { fontSize: 7.6, cellPadding: 3, overflow: 'linebreak' },
+    columnStyles: { 7: { halign: 'right' }, 9: { halign: 'right' }, 10: { halign: 'right' } },
+    margin: MARGENES_TABLA,
+  });
+  pies(doc, `Reporte de Delivery · ${generado}`);
+  previewPdf(doc, `delivery-reporte-${data.desde}_${data.hasta}.pdf`);
+}
+
+/* ───────────── Por delivery (MGG) ───────────── */
+
+/** Cuántos pedidos lleva cada delivery en el rango. */
+export async function pdfPorDelivery(data: { desde: string; hasta: string; resumen: ResumenDelivery[] }): Promise<void> {
+  const generado = fechaHoraVE(new Date().toISOString());
+  const { doc, autoTable, y } = await nuevoDoc('Pedidos por delivery', textoFiltros(data), false);
+  const t = totalesResumen(data.resumen);
+  autoTable(doc, {
+    startY: y,
+    head: [['Delivery', 'Entregados', 'Cancelados', 'En curso', 'Total', 'Tiempo promedio']],
+    body: data.resumen.map((r) => [
+      r.repartidor, String(r.entregados), String(r.cancelados), String(r.enCurso),
+      String(r.entregados + r.cancelados + r.enCurso), duracionTxt(r.minutosPromedio),
+    ].map((x) => textoPdf(x))),
+    foot: [['Total', String(t.entregados), String(t.cancelados), String(t.enCurso),
+      String(t.entregados + t.cancelados + t.enCurso), duracionTxt(t.minutosPromedio)].map(textoPdf)],
+    theme: 'grid',
+    headStyles: { ...HEAD, fontSize: 9 },
+    footStyles: { ...FOOT, fontSize: 9 },
+    styles: { fontSize: 9, cellPadding: 4 },
+    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    margin: MARGENES_TABLA,
+  });
+  pies(doc, `Pedidos por delivery · ${generado}`);
+  previewPdf(doc, `delivery-por-repartidor-${data.desde}_${data.hasta}.pdf`);
+}
+
+/* ───────────── Un pedido (GT) ───────────── */
+
+/** Reporte de UN pedido: datos, pasos con hora, almacén, nota, fotos y productos. */
+export async function pdfPedidoDelivery(p: PedidoDelivery): Promise<void> {
+  const d = detallePedido(p, quienSync);
+  const generado = fechaHoraVE(new Date().toISOString());
+  const { doc, autoTable, y } = await nuevoDoc(`Reporte del pedido ${d.oc}`, `Delivery · ${d.estado}${d.urgente ? ' · URGENTE' : ''}`, false);
+
+  const datos: Array<[string, string]> = [
+    ['Orden de compra', d.oc],
+    ['Estado', d.estado + (d.urgente ? ' (urgente)' : '')],
+    ['Proveedor', d.proveedor],
+    ...(d.direccion ? [['Dirección', d.direccion] as [string, string]] : []),
+    ...(d.telefonoProveedor ? [['Teléfono del proveedor', d.telefonoProveedor] as [string, string]] : []),
+    ['Delivery', d.motorizado],
+    ...(d.analista ? [['Analista de Compras', d.analista] as [string, string]] : []),
+    ['Almacén de entrega', d.almacen],
+    ['Monto de la OC', d.monto],
+    ['Tiempo de entrega', d.tiempo],
+    ...(d.motivoCancel ? [['Motivo de cancelación', d.motivoCancel] as [string, string]] : []),
+    ['Nota de entrega', d.nota ?? '—'],
+    ['Fotos', `${d.fotosRecibo} al recibir del proveedor · ${d.fotosEntrega} de la entrega`],
+  ];
+  autoTable(doc, {
+    startY: y,
+    body: datos.map(([a, b]) => [textoPdf(a), textoPdf(b)]),
+    theme: 'grid',
+    styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150, fillColor: [248, 248, 248] } },
+    margin: MARGENES_TABLA,
   });
 
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRIS);
-  const finY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 40;
-  doc.text(textoPdf('Tiempo promedio: desde que el motorizado acepta el pedido hasta que lo entrega en el almacén.'), M, finY + 16);
+  autoTable(doc, {
+    startY: finTabla(doc, y) + 14,
+    head: [['Paso', 'Fecha y hora']],
+    body: d.pasos.length ? d.pasos.map((x) => [textoPdf(x.paso), textoPdf(x.hora)])
+      : [[{ content: 'Todavía no lo ha tomado ningún delivery.', colSpan: 2, styles: { halign: 'center' as const } }]],
+    theme: 'grid', headStyles: HEAD, styles: { fontSize: 9, cellPadding: 4 }, margin: MARGENES_TABLA,
+  });
 
-  numerarPaginas(doc, M);
-  return doc;
+  if (d.productos.length) {
+    autoTable(doc, {
+      startY: finTabla(doc, y) + 14,
+      head: [['Producto', 'Cantidad']],
+      body: d.productos.map((x) => [textoPdf(x.nombre), textoPdf(x.cantidad)]),
+      theme: 'grid', headStyles: HEAD, styles: { fontSize: 9, cellPadding: 4 },
+      columnStyles: { 1: { halign: 'right', cellWidth: 110 } }, margin: MARGENES_TABLA,
+    });
+  }
+  pies(doc, `Reporte del pedido ${d.oc} · ${generado}`);
+  previewPdf(doc, `delivery-${d.oc}.pdf`);
 }
-
-export async function pdfPedidosPorRepartidor(
-  resumen: ResumenRepartidor[], filtros: FiltrosPdfDelivery = {}, quien?: string | null,
-): Promise<void> {
-  const doc = await construirPdfPedidosPorRepartidor(resumen, filtros, quien);
-  previewPdf(doc, `delivery-por-motorizado-${sufijo(filtros)}.pdf`);
-}
-
-/** Solo para el tipo: los pedidos que no traen la vista también sirven para contar. */
-export type PedidoParaPdf = PedidoDelivery;

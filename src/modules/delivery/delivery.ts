@@ -1,381 +1,231 @@
 /* ============================================================
-   Golden Touch · Delivery · Lógica pura (30/10/2026)
+   Golden Touch · Delivery (31/10/2026 · igual que MGG)
 
-   Lo que se calcula sin tocar la base: los avisos de WhatsApp de cada paso
-   (aceptado, no se puede buscar, en ruta, entregado), el resumen por
-   motorizado, el filtro del histórico (fechas en hora de Venezuela), las
-   etiquetas de estado y el enlace para llamar / escribir por WhatsApp.
+   La OC de productos que Compras cotizó y Tesorería pagó pasa a Delivery:
+   el motorizado la TOMA (solo uno), va EN RUTA donde el proveedor y la
+   ENTREGA en el almacén, con fotos al recibirla y al entregarla. Si no
+   puede buscarla, la CANCELA con motivo y la OC queda libre para otro.
+   Cada paso deja su mensaje de WhatsApp. Está construido pero
+   DESCONECTADO hasta que la administración lo active (interruptor
+   `compras_delivery` en sistema_interruptores). Solo entran las OC creadas
+   desde que se encendió, y entran apenas quedan pagadas (sin esperar la
+   retención).
 
-   Todos los emojis son «emoji por defecto» (ninguno necesita el selector
-   U+FE0F, que WhatsApp pierde). Además se quita cualquier U+FE0F que venga
-   en lo escrito por el usuario (motivo, detalle, nota).
+   Traído de MGG (upstream src/modules/delivery/delivery.ts). Acá vive lo
+   que no toca la base: estados, motivos y mensajes. Emojis de color por sí
+   mismos, sin el selector U+FE0F (WhatsApp lo pierde).
    ============================================================ */
-import { quienSync } from '@/shared/lib/directorioUsuarios';
-import type { PagoMetodo } from '@/shared/lib/types';
-import type { AdjuntoPago } from '@/modules/pedidos/adjuntosPago';
-import {
-  ESTADOS_DELIVERY,
-  type EstadoDelivery, type EventoDeliveryRow, type PedidoDelivery, type PedidoDeliveryVista,
-} from './delivery.types';
 
-/* ───────────── Retención (solo informativa) ───────────── */
+/** Clave del interruptor en `sistema_interruptores` (GT; en MGG es config compras.delivery). */
+export const INTERRUPTOR_DELIVERY = 'compras_delivery';
 
-/**
- * La OC entra a Delivery en cuanto Tesorería la marca como pagada; la retención
- * NO la frena. Se muestra como dato: hecha, pendiente o no aplica (sin factura).
- */
-export type EstadoRetencionDelivery = 'hecha' | 'pendiente' | 'no_aplica';
+export type EstadoDelivery = 'por_tomar' | 'aceptado' | 'en_ruta' | 'entregado' | 'cancelado';
 
-/**
- * La vista del contrato + extensiones de este módulo (sin tocar delivery.types.ts):
- * · `orden.retencion`: estado de la retención (solo informativo).
- * · `orden.pagada_por` / `pagada_por_email` / `metodo_pago` / `metodo_pago_texto`:
- *   para mostrar «Pagado el … por … · método».
- * · `comprobantesPago`: los comprobantes que adjuntó Tesorería al pagar (bucket
- *   `compras-oc`; se abren con `urlComprobantePago` del repositorio), para que el
- *   motorizado verifique que la orden de verdad se pagó.
- */
-export type PedidoDeliveryConRetencion = PedidoDeliveryVista & {
-  orden: PedidoDeliveryVista['orden'] & {
-    retencion: EstadoRetencionDelivery;
-    /** Nombre y apellido de quien pagó (o lo guardado, si no está en el directorio). */
-    pagada_por: string | null;
-    pagada_por_email: string | null;
-    metodo_pago: PagoMetodo[];
-    /** «Pago móvil + Efectivo $» (vacío si no se indicó). */
-    metodo_pago_texto: string;
-  };
-  comprobantesPago: AdjuntoPago[];
-};
-/** Mismo tipo con nombre más claro (la vista completa de este módulo). */
-export type PedidoDeliveryCompleto = PedidoDeliveryConRetencion;
+export interface FotoDelivery { path: string; filename: string }
 
-export function estadoRetencion(o: { comprobante_tipo?: string | null; retencion_finalizada?: boolean | null }): EstadoRetencionDelivery {
-  if (o.comprobante_tipo !== 'factura') return 'no_aplica';
-  return o.retencion_finalizada ? 'hecha' : 'pendiente';
+export interface EventoDelivery { at: string; evento: string; actor?: string | null; motivo?: string | null }
+
+/** Una fila de `delivery_pedidos_listado`: la OC con su toma (si la hay). */
+export interface PedidoDelivery {
+  orden_id: string;
+  oc_codigo: string | null;
+  codigo: string;
+  total: number;
+  moneda: string;
+  urgente: boolean;
+  pagada_en: string | null;
+  items: Array<{ nombre: string; cantidad: number; unidad?: string | null; comprar?: boolean }>;
+  notas: string | null;
+  motivo: string | null;
+  finalidad: string | null;
+  almacen_destino: string | null;
+  proveedor_id: string | null;
+  proveedor_nombre: string | null;
+  proveedor_telefono: string | null;
+  proveedor_direccion: string | null;
+  proveedor_contacto: string | null;
+  analista_email: string | null;
+  analista_nombre: string | null;
+  analista_telefono: string | null;
+  pedido_id: string | null;
+  estado: EstadoDelivery;
+  repartidor_id: string | null;
+  repartidor_nombre: string | null;
+  aceptado_en: string | null;
+  en_ruta_en: string | null;
+  entregado_en: string | null;
+  cancelado_en: string | null;
+  motivo_cancel: string | null;
+  detalle_cancel: string | null;
+  almacen_entrega: string | null;
+  nota_entrega: string | null;
+  fotos_recibo: FotoDelivery[];
+  fotos_entrega: FotoDelivery[];
+  historial: EventoDelivery[];
+  es_mio: boolean;
 }
 
-export const ETIQUETA_RETENCION: Record<EstadoRetencionDelivery, string> = {
-  hecha: 'Retención hecha',
-  pendiente: 'Retención pendiente',
-  no_aplica: 'No lleva retención',
-};
-
-/** «Pagado el 30/10/2026 10:15 por Ana Pérez · Pago móvil». '' si la OC no tiene fecha de pago. */
-export function textoPagado(o: { pagada_en?: string | null; pagada_por?: string | null; metodo_pago_texto?: string | null }): string {
-  const f = fechaHoraVE(o.pagada_en);
-  if (!f) return '';
-  return [`Pagado el ${f}${o.pagada_por?.trim() ? ` por ${o.pagada_por.trim()}` : ''}`, o.metodo_pago_texto?.trim()]
-    .filter(Boolean).join(' · ');
+/** Ubicación del motorizado (una por motorizado). */
+export interface UbicacionDelivery {
+  repartidor_id: string;
+  repartidor_email: string | null;
+  repartidor_nombre: string | null;
+  lat: number;
+  lng: number;
+  precision_m: number | null;
+  velocidad: number | null;
+  rumbo: number | null;
+  pedido_id: string | null;
+  actualizado_en: string;
 }
 
-/* ───────────── Formatos ───────────── */
+export const ESTADO_DELIVERY: Record<EstadoDelivery, { label: string; emoji: string; badge: string }> = {
+  por_tomar: { label: 'Por tomar', emoji: '💰', badge: 'warning' },
+  aceptado: { label: 'Aceptado', emoji: '🛵', badge: 'info' },
+  en_ruta: { label: 'En ruta', emoji: '🚚', badge: 'info' },
+  entregado: { label: 'Entregado en almacén', emoji: '✅', badge: 'success' },
+  cancelado: { label: 'Cancelado', emoji: '⛔', badge: 'danger' },
+};
 
-const PIE = '🏢 GOLDEN TOUCH 1127 C.A. · Delivery';
+/** Motivos de cancelación (el último deja escribir). */
+export const MOTIVOS_CANCELACION: string[] = [
+  'El proveedor no tiene el pedido listo',
+  'Proveedor cerrado o no atiende',
+  'Dirección errada o zona inaccesible',
+  'Avería del vehículo',
+  'Condiciones climáticas / lluvia fuerte',
+  'Falta de combustible',
+  'Otro motivo',
+];
 
-export const numDelivery = (n: number | null | undefined) =>
-  Number(n ?? 0).toLocaleString('es-VE', { maximumFractionDigits: 4 });
+/** Centro de Puerto Ordaz, estado Bolívar (para centrar el mapa). */
+export const PUERTO_ORDAZ: [number, number] = [8.2869, -62.7467];
 
-/** Fecha y hora de Venezuela: «30/10/2026 09:45». */
+/** Una ubicación con más de este tiempo se muestra como «sin señal reciente». */
+export const UBICACION_VIEJA_MS = 10 * 60 * 1000;
+
+export const MAX_FOTOS_DELIVERY = 6;
+
+export function ocDe(p: Pick<PedidoDelivery, 'oc_codigo' | 'codigo'>): string {
+  return p.oc_codigo || p.codigo;
+}
+
+export function montoTxt(n: number, moneda: string): string {
+  const v = (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (moneda || 'USD').toUpperCase() === 'BS' ? `Bs ${v}` : `$${v}`;
+}
+
 export function fechaHoraVE(iso: string | null | undefined): string {
   const d = iso ? new Date(iso) : null;
   if (!d || Number.isNaN(d.getTime())) return '';
-  const f = new Intl.DateTimeFormat('es-VE', {
-    timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(d);
-  const v = (t: string) => f.find((x) => x.type === t)?.value ?? '';
-  return `${v('day')}/${v('month')}/${v('year')} ${v('hour')}:${v('minute')}`;
+  return d.toLocaleString('es-VE', {
+    timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
-/** Día en Venezuela (YYYY-MM-DD) de un instante. '' si no es una fecha. */
-export function diaVE(iso: string | null | undefined): string {
-  const d = iso ? new Date(iso) : null;
-  if (!d || Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+/** Minutos entre dos marcas (null si falta alguna). */
+export function minutosEntre(a: string | null | undefined, b: string | null | undefined): number | null {
+  if (!a || !b) return null;
+  const m = (new Date(b).getTime() - new Date(a).getTime()) / 60000;
+  return Number.isFinite(m) && m >= 0 ? Math.round(m) : null;
 }
 
-/** Minutos entre dos instantes (null si falta alguno o el orden no tiene sentido). */
-export function minutosEntre(desde: string | null | undefined, hasta: string | null | undefined): number | null {
-  if (!desde || !hasta) return null;
-  const a = new Date(desde).getTime();
-  const b = new Date(hasta).getTime();
-  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
-  return (b - a) / 60_000;
+/** Los renglones que se compran, en una línea cada uno. */
+function lineasItems(p: PedidoDelivery): string[] {
+  return (p.items ?? []).filter((i) => i.comprar !== false)
+    .map((i) => `• ${i.nombre} — ${(Number(i.cantidad) || 0).toLocaleString('es-VE', { maximumFractionDigits: 3 })}${i.unidad ? ` ${i.unidad}` : ''}`);
 }
 
-/** «45 min», «2 h 05 min». */
-export function textoDuracion(min: number | null | undefined): string {
-  if (min == null || !Number.isFinite(min)) return '—';
-  const m = Math.round(min);
-  if (m < 60) return `${m} min`;
-  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
+/** Pie de todos los mensajes (GT). */
+export const PIE_DELIVERY = '🏢 *GOLDEN TOUCH 1127 C.A.* · Delivery';
+
+function pie(): string[] {
+  return ['', PIE_DELIVERY];
 }
 
-const sinSelector = (s: string) => s.replace(/️/g, '');
-
-/* ───────────── Estados ───────────── */
-
-export function etiquetaEstado(estado: EstadoDelivery | string | null | undefined): string {
-  return ESTADOS_DELIVERY.find((e) => e.key === estado)?.label ?? String(estado ?? '');
-}
-
-export type AccionDelivery = 'aceptar' | 'en_ruta' | 'entregar';
-
-/** Lo que toca hacer después según el estado (null = ya se entregó). */
-export function siguienteAccion(estado: EstadoDelivery): { accion: AccionDelivery; label: string } | null {
-  switch (estado) {
-    case 'por_tomar': return { accion: 'aceptar', label: '✋ Aceptar' };
-    case 'aceptado': return { accion: 'en_ruta', label: '📷 Recibí el pedido · En ruta' };
-    case 'en_ruta': return { accion: 'entregar', label: '✅ Entregado en almacén' };
-    default: return null;
-  }
-}
-
-/* ───────────── Teléfono ───────────── */
-
-/**
- * Enlaces para llamar y para WhatsApp. Normaliza los números venezolanos:
- * «0414-123.45.67» → +584141234567; «414 1234567» → +584141234567; «+58 …» igual.
- * Si el campo trae varios números («0414… / 0286…») se usa el primero.
- * Devuelve null si no hay un número utilizable.
- */
-export function telLink(telefono: string | null | undefined): { numero: string; tel: string; wa: string } | null {
-  const primero = String(telefono ?? '').split(/[/,;]|\sy\s/)[0] ?? '';
-  const internacional = primero.trim().startsWith('+');
-  let d = primero.replace(/\D/g, '');
-  if (!d) return null;
-  if (internacional) {
-    // ya viene con código de país
-  } else if (d.startsWith('58') && d.length === 12) {
-    // 58 + 10 dígitos
-  } else if (d.startsWith('0') && d.length === 11) {
-    d = `58${d.slice(1)}`;
-  } else if (d.length === 10 && /^[24]/.test(d)) {
-    d = `58${d}`;
-  }
-  if (d.length < 7) return null;
-  return { numero: `+${d}`, tel: `tel:+${d}`, wa: `https://wa.me/${d}` };
-}
-
-/* ───────────── Mensajes de WhatsApp ───────────── */
-
-function cabecera(p: PedidoDeliveryVista): string[] {
-  const l = [`🔖 *N°:* ${p.codigo}`];
-  const oc = p.orden?.oc_codigo || p.orden?.codigo;
-  if (oc) l.push(`🧾 *OC:* ${oc}`);
-  if (p.orden?.urgente) l.push('🚨 *URGENTE*');
-  return l;
-}
-
-function lineasProveedor(p: PedidoDeliveryVista, completo: boolean): string[] {
-  const pr = p.proveedor;
-  if (!pr) return [];
-  const l: string[] = [];
-  const nombre = [pr.razon_social, pr.rif ? `(${pr.rif})` : ''].filter(Boolean).join(' ');
-  if (nombre) l.push(`🏪 *Proveedor:* ${nombre}`);
-  if (completo && pr.direccion?.trim()) l.push(`📍 *Dirección:* ${pr.direccion.trim()}`);
-  if (completo && pr.telefono?.trim()) l.push(`📞 *Teléfono:* ${pr.telefono.trim()}`);
-  return l;
-}
-
-/** Renglones que de verdad se compraron (los marcados «no comprar» no se buscan). */
-export function itemsABuscar(p: PedidoDeliveryVista) {
-  return (p.orden?.items ?? []).filter((i) => i && i.comprar !== false);
-}
-
-function lineasProductos(p: PedidoDeliveryVista): string[] {
-  const items = itemsABuscar(p);
-  if (!items.length) return [];
-  return [
-    '📦 *Productos:*',
-    ...items.map((i) => `• ${i.nombre} — ${numDelivery(i.cantidad)}${i.unidad ? ` ${i.unidad}` : ''}`),
+/** Aceptó el pedido. */
+export function mensajeAceptado(p: PedidoDelivery, repartidor: string, cuando?: string | null): string {
+  const l = [
+    '🛵 *PEDIDO ACEPTADO POR DELIVERY*',
+    `🔹 *Orden:* ${ocDe(p)}`,
+    p.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal',
+    `👤 *Delivery:* ${repartidor}`,
+    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
   ];
+  if (p.proveedor_direccion) l.push(`📍 *Dirección:* ${p.proveedor_direccion}`);
+  if (p.almacen_destino) l.push(`🏬 *Entregar en:* ${p.almacen_destino}`);
+  const items = lineasItems(p);
+  if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
+  l.push('', `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
+  return l.join('\n');
 }
 
-const nombreDe = (p: PedidoDeliveryVista, quien: string | null | undefined) =>
-  (quien ?? '').trim() || quienSync(p.repartidor_nombre, p.repartidor_email);
-
-function armar(bloques: string[][]): string {
-  const lineas: string[] = [];
-  for (const b of bloques) {
-    if (!b.length) continue;
-    if (lineas.length) lineas.push('');
-    lineas.push(...b);
-  }
-  lineas.push('', PIE);
-  return sinSelector(lineas.join('\n'));
-}
-
-/** «🛵 PEDIDO ACEPTADO»: el motorizado lo va a buscar. */
-export function mensajeAceptado(p: PedidoDeliveryVista, quien?: string | null): string {
-  const q = nombreDe(p, quien);
-  return armar([
-    ['🛵 *PEDIDO ACEPTADO*', ...cabecera(p)],
-    lineasProveedor(p, true),
-    lineasProductos(p),
-    [q ? `👤 *Lo va a buscar:* ${q}` : '', `🕒 ${fechaHoraVE(p.aceptado_en ?? new Date().toISOString())}`].filter(Boolean),
-  ]);
-}
-
-/** «⚠ NO SE PUEDE BUSCAR EL PEDIDO»: vuelve a «Por tomar» para que otro lo tome. */
-export function mensajeCancelado(
-  p: PedidoDeliveryVista, motivo: string | null | undefined, detalle: string | null | undefined, quien?: string | null,
-): string {
-  const q = nombreDe(p, quien);
-  const l: string[] = [];
-  if (motivo?.trim()) l.push(`📌 *Motivo:* ${motivo.trim()}`);
+/** No va a poder buscar el pedido. */
+export function mensajeCancelado(p: PedidoDelivery, repartidor: string, motivo: string, detalle?: string | null, cuando?: string | null): string {
+  const l = [
+    '⛔ *PEDIDO CANCELADO POR DELIVERY*',
+    `🔹 *Orden:* ${ocDe(p)}`,
+    `👤 *Delivery:* ${repartidor}`,
+    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    '',
+    `❌ *Motivo:* ${motivo}`,
+  ];
   if (detalle?.trim()) l.push(`📝 *Detalle:* ${detalle.trim()}`);
-  if (q) l.push(`👤 *Avisa:* ${q}`);
-  l.push(`🕒 ${fechaHoraVE(new Date().toISOString())}`);
-  return armar([
-    ['⚠ *NO SE PUEDE BUSCAR EL PEDIDO*', ...cabecera(p)],
-    lineasProveedor(p, false),
-    l,
-    ['🔄 El pedido vuelve a *Por tomar* para que otro motorizado lo busque.'],
-  ]);
+  l.push('', '🔄 La orden queda disponible para otro delivery.', `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
+  return l.join('\n');
 }
 
-/** «🚚 PEDIDO EN RUTA AL ALMACÉN»: ya lo recibió del proveedor. */
-export function mensajeEnRuta(p: PedidoDeliveryVista, quien?: string | null): string {
-  const q = nombreDe(p, quien);
-  const n = p.fotos_recibido?.length ?? 0;
-  return armar([
-    ['🚚 *PEDIDO EN RUTA AL ALMACÉN*', ...cabecera(p)],
-    lineasProveedor(p, false),
-    lineasProductos(p),
-    [
-      n ? `📷 *Fotos al recibir:* ${n}` : '📷 *Fotos al recibir:* sin fotos',
-      q ? `🛵 *Lo lleva:* ${q}` : '',
-      `🕒 ${fechaHoraVE(p.en_ruta_en ?? new Date().toISOString())}`,
-    ].filter(Boolean),
-  ]);
+/** Va en ruta. */
+export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: string | null): string {
+  const l = [
+    '🚚 *DELIVERY EN RUTA*',
+    `🔹 *Orden:* ${ocDe(p)}`,
+    `👤 *Delivery:* ${repartidor}`,
+    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+  ];
+  if (p.fotos_recibo?.length) l.push(`📷 *Fotos al recibir:* ${p.fotos_recibo.length}`);
+  if (p.almacen_destino) l.push(`🏬 *Va hacia:* ${p.almacen_destino}`);
+  l.push(`🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
+  return l.join('\n');
 }
 
-/** «✅ PEDIDO ENTREGADO EN ALMACÉN». */
-export function mensajeEntregado(p: PedidoDeliveryVista, quien?: string | null, nota?: string | null): string {
-  const q = nombreDe(p, quien);
-  const n = p.fotos_entrega?.length ?? 0;
-  const entregado = p.entregado_en ?? new Date().toISOString();
-  const tiempo = minutosEntre(p.aceptado_en, entregado);
-  const notaFinal = (nota ?? p.nota_entrega ?? '').trim();
-  return armar([
-    ['✅ *PEDIDO ENTREGADO EN ALMACÉN*', ...cabecera(p)],
-    lineasProveedor(p, false),
-    lineasProductos(p),
-    [
-      n ? `📷 *Fotos al entregar:* ${n}` : '',
-      notaFinal ? `📝 *Nota:* ${notaFinal}` : '',
-      q ? `🛵 *Entregado por:* ${q}` : '',
-      tiempo != null ? `⌛ *Tiempo desde que lo aceptó:* ${textoDuracion(tiempo)}` : '',
-      `🕒 ${fechaHoraVE(entregado)}`,
-    ].filter(Boolean),
-  ]);
+/** Entregó en el almacén. */
+export function mensajeEntregado(p: PedidoDelivery, repartidor: string, almacen: string, nota?: string | null, cuando?: string | null): string {
+  const l = [
+    '✅ *PEDIDO ENTREGADO EN ALMACÉN*',
+    `🔹 *Orden:* ${ocDe(p)}`,
+    `👤 *Delivery:* ${repartidor}`,
+    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    `🏬 *Almacén:* ${almacen}`,
+  ];
+  const items = lineasItems(p);
+  if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
+  if (p.fotos_entrega?.length) l.push(`📷 *Fotos de la entrega:* ${p.fotos_entrega.length}`);
+  if (nota?.trim()) l.push(`📝 *Nota:* ${nota.trim()}`);
+  const t = minutosEntre(p.aceptado_en, cuando ?? new Date().toISOString());
+  if (t != null) l.push(`⏳ *Tiempo desde que lo tomó:* ${t} min`);
+  l.push(`🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
+  return l.join('\n');
 }
 
-/* ───────────── Resumen por motorizado ───────────── */
-
-export interface ResumenRepartidor {
-  repartidor_email: string;
-  repartidor_nombre: string | null;
-  aceptados: number;
-  entregados: number;
-  cancelaciones: number;
-  en_curso: number;
-  /** Promedio aceptado → entregado, en minutos (null si no entregó ninguno con las dos horas). */
-  minutos_promedio: number | null;
-}
-
-const clave = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
-
-/**
- * Por motorizado: aceptados (los eventos «aceptado», o al menos los pedidos que
- * tiene), entregados, cancelaciones (eventos «cancelado»), en curso (aceptado o
- * en ruta) y el tiempo promedio de aceptado a entregado. Más entregas primero.
- */
-export function resumenPorRepartidor(pedidos: PedidoDelivery[], eventos: EventoDeliveryRow[]): ResumenRepartidor[] {
-  type Acc = ResumenRepartidor & { evAceptados: number; evEntregados: number; tiempos: number[] };
-  const m = new Map<string, Acc>();
-  const de = (email: string | null | undefined, nombre: string | null | undefined): Acc | null => {
-    const k = clave(email);
-    if (!k) return null;
-    let r = m.get(k);
-    if (!r) {
-      r = {
-        repartidor_email: (email ?? '').trim(), repartidor_nombre: null,
-        aceptados: 0, entregados: 0, cancelaciones: 0, en_curso: 0, minutos_promedio: null,
-        evAceptados: 0, evEntregados: 0, tiempos: [],
-      };
-      m.set(k, r);
-    }
-    if (!r.repartidor_nombre && nombre?.trim()) r.repartidor_nombre = nombre.trim();
-    return r;
-  };
-
+/** Cuántos pedidos lleva cada delivery (para el histórico y el PDF). */
+export function resumenPorDelivery(pedidos: PedidoDelivery[]): Array<{
+  repartidor: string; entregados: number; cancelados: number; enCurso: number; minutosPromedio: number | null;
+}> {
+  const acc = new Map<string, { entregados: number; cancelados: number; enCurso: number; minutos: number[] }>();
   for (const p of pedidos) {
-    const r = de(p.repartidor_email, p.repartidor_nombre);
-    if (!r) continue;
-    r.aceptados += 1;
+    if (!p.repartidor_nombre || p.estado === 'por_tomar') continue;
+    const a = acc.get(p.repartidor_nombre) ?? { entregados: 0, cancelados: 0, enCurso: 0, minutos: [] };
     if (p.estado === 'entregado') {
-      r.entregados += 1;
-      const t = minutosEntre(p.aceptado_en, p.entregado_en);
-      if (t != null) r.tiempos.push(t);
-    } else if (p.estado === 'aceptado' || p.estado === 'en_ruta') {
-      r.en_curso += 1;
-    }
+      a.entregados++;
+      const m = minutosEntre(p.aceptado_en, p.entregado_en);
+      if (m != null) a.minutos.push(m);
+    } else if (p.estado === 'cancelado') a.cancelados++;
+    else a.enCurso++;
+    acc.set(p.repartidor_nombre, a);
   }
-  for (const e of eventos) {
-    if (e.evento !== 'aceptado' && e.evento !== 'cancelado' && e.evento !== 'entregado') continue;
-    const r = de(e.actor_email, e.actor_nombre);
-    if (!r) continue;
-    if (e.evento === 'aceptado') r.evAceptados += 1;
-    else if (e.evento === 'entregado') r.evEntregados += 1;
-    else r.cancelaciones += 1;
-  }
-
-  return [...m.values()]
-    .map(({ evAceptados, evEntregados, tiempos, ...r }) => ({
-      ...r,
-      aceptados: Math.max(r.aceptados, evAceptados),
-      entregados: Math.max(r.entregados, evEntregados),
-      minutos_promedio: tiempos.length ? tiempos.reduce((a, b) => a + b, 0) / tiempos.length : null,
-    }))
-    .sort((a, b) => b.entregados - a.entregados
-      || (a.repartidor_nombre ?? a.repartidor_email).localeCompare(b.repartidor_nombre ?? b.repartidor_email, 'es'));
-}
-
-/* ───────────── Histórico ───────────── */
-
-export interface FiltrosHistoricoDelivery {
-  /** YYYY-MM-DD (día de Venezuela), inclusive. */
-  desde?: string | null;
-  hasta?: string | null;
-  /** Correo del motorizado. */
-  repartidor?: string | null;
-  estado?: EstadoDelivery | '' | null;
-}
-
-/** El día con que cuenta el pedido en el histórico: cuando se entregó, si no cuando se aceptó, si no cuando entró. */
-export function fechaReferencia(p: Pick<PedidoDelivery, 'entregado_en' | 'aceptado_en' | 'created_at'>): string {
-  return p.entregado_en || p.aceptado_en || p.created_at;
-}
-
-/** Filtra por rango de días (hora de Venezuela), motorizado y estado. Lo más reciente primero. */
-export function filtrarHistorico<T extends PedidoDelivery>(pedidos: T[], f: FiltrosHistoricoDelivery = {}): T[] {
-  const desde = (f.desde ?? '').trim();
-  const hasta = (f.hasta ?? '').trim();
-  const rep = clave(f.repartidor);
-  const estado = f.estado || null;
-  return pedidos
-    .filter((p) => {
-      if (estado && p.estado !== estado) return false;
-      if (rep && clave(p.repartidor_email) !== rep) return false;
-      if (desde || hasta) {
-        const dia = diaVE(fechaReferencia(p));
-        if (!dia) return false;
-        if (desde && dia < desde) return false;
-        if (hasta && dia > hasta) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => fechaReferencia(b).localeCompare(fechaReferencia(a)));
+  return [...acc.entries()].map(([repartidor, a]) => ({
+    repartidor, entregados: a.entregados, cancelados: a.cancelados, enCurso: a.enCurso,
+    minutosPromedio: a.minutos.length ? Math.round(a.minutos.reduce((s, x) => s + x, 0) / a.minutos.length) : null,
+  })).sort((x, y) => y.entregados - x.entregados || x.repartidor.localeCompare(y.repartidor, 'es'));
 }
