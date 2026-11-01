@@ -865,19 +865,22 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                 })()}
               </span>
               <span data-l="Pendiente">
-                {pends.map((k) => {
-                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  return <span key={k} className="lfv8-pill falta">{lbl}</span>;
-                })}
-                {pends.length === 0 && <span className="lfv8-pill ok">Completa</span>}
+                {/* Antes había un chip por impuesto pendiente. Ahora un contador discreto: el
+                    detalle (cuáles) queda en el tooltip y el impuesto se elige dentro del registro. */}
+                {pends.length === 0
+                  ? <span className="lfv8-pill ok">Completa</span>
+                  : <span className="muted" title={`Por registrar: ${pends.map((k) => IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k).join(', ')}`}>
+                      {pends.length} por registrar
+                    </span>}
               </span>
               <span className="lfv8-sis-acc">
-                {pends.map((k) => {
-                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  return (
-                    <button key={k} className="btn btn-sm lfv8-btn-reg" onClick={() => onRegistrar({
+                {/* Un solo botón: abre el registro con el primer pendiente; dentro del formulario
+                    se elige o cambia el impuesto (IVA, ISLR, ISAE…). Antes había un botón por impuesto. */}
+                {pends.length > 0 && (
+                  <button className="btn btn-sm lfv8-btn-reg" title="Abre el registro; dentro eliges el impuesto (IVA, ISLR, ISAE…)"
+                    onClick={() => onRegistrar({
                       direccion: 'practicada',
-                      tipoInicial: k,
+                      tipoInicial: pends[0],
                       // Las OC de servicio también viven en `ordenes`: van por orden_id, no por servicio_directo_id.
                       docKind: 'oc',
                       docId: o.id, codigo: o.oc_codigo ?? o.codigo,
@@ -887,10 +890,9 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                       baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
                       iva: o.iva_monto ?? 0,
                     })}>
-                      Registrar {lbl}
-                    </button>
-                  );
-                })}
+                    Registrar Impuesto
+                  </button>
+                )}
                 {onNoAplica && pends.map((k) => {
                   const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
                   return (
