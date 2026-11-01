@@ -22,7 +22,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, configDesdeFicha, enBolivares, fechaTasaBcv,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie, labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type FichaFiscalEmpresa, type SujetoRetenido, type TipoImpuesto,
@@ -364,7 +364,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     // El mínimo en UT y el sustraendo están en Bs: el cálculo necesita la moneda y la tasa.
     if (l.tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa }, config);
     if (l.tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
-    return calcularRetencionLocal({ montoPago: base, concepto }, l.tipo);
+    return calcularRetencionLocal({ montoPago: base, concepto: conceptoConAlicuotaEmpresa(concepto, config) }, l.tipo);
   }, [conceptos, config, moneda, tasa, supuestosIva]);
 
   // R7: con cada cambio de las líneas (o de la fecha, la moneda o la tasa), la regla vigente de cada practicada.

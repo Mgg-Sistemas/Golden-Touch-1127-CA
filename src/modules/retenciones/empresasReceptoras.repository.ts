@@ -12,8 +12,18 @@
 import { supabase } from '@/shared/lib/supabase';
 import { rifEmpresaParaGuardar } from '@/modules/libroFiscal/parametrosEmpresa';
 import { errorRetencion } from '@/modules/libroFiscal/erroresRetencion';
+import { columnaDisponible } from '@/modules/libroFiscal/disponibilidad';
 
 const TABLA = 'retencion_empresas_receptoras';
+
+/**
+ * ¿La ficha de empresa trae ya los campos fiscales por empresa (F-ME1)? Se pregunta
+ * por `pct_iva_especial`. Sin ellos, el editor fiscal por empresa se oculta y no se
+ * intenta escribir esas columnas (degradación segura).
+ */
+export function fichaFiscalEmpresaDisponible(): Promise<boolean> {
+  return columnaDisponible(TABLA, 'pct_iva_especial');
+}
 
 export interface EmpresaReceptora {
   id: string;
@@ -75,9 +85,11 @@ function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaRece
     retieneIslr: r.retiene_islr !== false,
     retieneMunicipal: r.retiene_municipal === true,
     pctIvaGeneral: r.pct_iva_general != null ? Number(r.pct_iva_general) : 75,
-    pctIvaEspecial: r.pct_iva_especial != null ? Number(r.pct_iva_especial) : 100,
-    pctIgtf: r.pct_igtf != null ? Number(r.pct_igtf) : 3,
-    ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : 16,
+    // Los campos fiscales de F-ME1 quedan en undefined si la base no los trae todavía:
+    // así el guardado no los escribe (no rompe pre-F-ME1) y la config cae en su default.
+    pctIvaEspecial: r.pct_iva_especial != null ? Number(r.pct_iva_especial) : undefined,
+    pctIgtf: r.pct_igtf != null ? Number(r.pct_igtf) : undefined,
+    ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : undefined,
     alicuotaMunicipal: r.alicuota_municipal != null ? Number(r.alicuota_municipal) : undefined,
     imprimirOriginalYCopia: r.imprimir_original_y_copia !== false,
   };
@@ -115,8 +127,17 @@ export function faltaEnEmpresa(empresa: EmpresaReceptoraInput): string | null {
   const rif = rifEmpresaParaGuardar(empresa.rif);
   if (rif.error) return rif.error;
   if (rif.rif.startsWith('C')) return 'El RIF de la empresa no puede empezar por C: letra J, G, V, E o P.';
-  const pct = empresa.pctIvaGeneral ?? 75;
-  if (!Number.isFinite(pct) || pct < 0 || pct > 100) return 'El % de retención de IVA va de 0 a 100.';
+  // Los % de retención de IVA y las alícuotas van de 0 a 100 (en pantalla el IVA se elige
+  // entre 75 y 100; aquí se valida el rango por si llega otro valor).
+  for (const [etq, v] of [
+    ['de retención de IVA', empresa.pctIvaGeneral ?? 75],
+    ['de retención de IVA al contribuyente especial', empresa.pctIvaEspecial],
+    ['del IGTF', empresa.pctIgtf],
+    ['general del IVA', empresa.ivaAlicuota],
+    ['del ISAE (municipal)', empresa.alicuotaMunicipal],
+  ] as const) {
+    if (v != null && (!Number.isFinite(v) || v < 0 || v > 100)) return `El % ${etq} va de 0 a 100.`;
+  }
   if (empresa.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empresa.email.trim())) return 'El correo de la empresa no es válido.';
   return null;
 }
@@ -130,7 +151,7 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
   if (falta) throw new Error(falta);
   const nombre = empresa.nombre.trim();
 
-  const fila = {
+  const filaBase = {
     clave: empresa.clave || claveDeEmpresa(empresa.nombreCorto || nombre) || `empresa_${Date.now()}`,
     nombre,
     nombre_corto: empresa.nombreCorto?.trim() || null,
@@ -151,6 +172,16 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
     pct_iva_general: empresa.pctIvaGeneral ?? 75,
     imprimir_original_y_copia: empresa.imprimirOriginalYCopia ?? true,
   };
+
+  // Campos fiscales por empresa (F-ME1): solo se escriben los que vienen definidos. El
+  // editor por empresa (que solo aparece con la base al día) es quien los manda; el resto
+  // de los flujos (p. ej. el catálogo del buzón) no los toca, así no se rompe pre-F-ME1.
+  const filaFiscal: Record<string, unknown> = {};
+  if (empresa.pctIvaEspecial !== undefined) filaFiscal.pct_iva_especial = empresa.pctIvaEspecial;
+  if (empresa.pctIgtf !== undefined) filaFiscal.pct_igtf = empresa.pctIgtf;
+  if (empresa.ivaAlicuota !== undefined) filaFiscal.iva_alicuota = empresa.ivaAlicuota;
+  if (empresa.alicuotaMunicipal !== undefined) filaFiscal.alicuota_municipal = empresa.alicuotaMunicipal;
+  const fila = { ...filaBase, ...filaFiscal };
 
   const textos = { unico: 'Ya hay una empresa con ese nombre corto: usa otro.' };
   // El autor y las fechas los pone la base.

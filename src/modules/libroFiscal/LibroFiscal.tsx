@@ -21,7 +21,7 @@
 
    La cuenta no se hace aquí: viene de `retencionesCalculo.ts`.
    ============================================================ */
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -51,7 +51,7 @@ import type { EstadoOrden } from '@/shared/lib/types';
 import { badgeEstatusKanban } from '@/modules/retenciones/retencionesKanban';
 import {
   CONFIG_RETENCION_DEFECTO, ESTADOS_KANBAN_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, configDesdeFicha, enBolivares, fechaTasaBcv,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
   motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
@@ -1648,7 +1648,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (tipo === 'iva') return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(ivaStr), motivos, supuesto }, config);
     if (tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa: nDec(tasaStr) }, config);
     if (tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
-    return calcularRetencionLocal({ montoPago: base, concepto }, tipo);
+    return calcularRetencionLocal({ montoPago: base, concepto: conceptoConAlicuotaEmpresa(concepto, config) }, tipo);
   }, [tipo, baseStr, ivaStr, motivos, supuesto, concepto, config, moneda, tasaStr]);
 
   const esManual = direccion === 'recibida';
@@ -2273,7 +2273,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
 type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'firma' | 'vencimientos'
   | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores'
-  | 'compras';
+  | 'compras' | 'empresas_fiscal';
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
@@ -2303,6 +2303,10 @@ const AJUSTES_PA: DefSeccionPa[] = [
   { key: 'vencimientos', capa: 'ajustes', titulo: 'Avisos de vencimiento', linea: 'Cuándo avisar de licencias, declaraciones y actividades que vencen.',
     que: 'Los avisos de lo que vence: licencias, declaraciones y actividades con fecha «hasta».', ingresa: 'Con cuántos días de anticipación se avisa y si los avisos están encendidos.',
     efecto: 'Cambia la lista de vencimientos de la cabecera y los avisos del registro.', noCambia: 'Ninguna fecha ni ningún monto: solo cuándo se avisa.' },
+  { key: 'empresas_fiscal', capa: 'ajustes', titulo: 'Config fiscal por empresa', linea: 'El régimen y los porcentajes de cada empresa (multi-empresa).',
+    que: 'La configuración fiscal de cada empresa receptora: régimen (agente de IVA, especial, ISLR, ISAE) y porcentajes (IVA, IGTF, alícuota, ISAE).',
+    ingresa: 'Por cada empresa: sus banderas de régimen, sus % de retención y su licencia municipal.',
+    efecto: 'El libro, el registro y los reportes de esa empresa usan su propio régimen y sus %.', noCambia: 'La identidad de la empresa (nombre, RIF) se edita en el buzón. Lo ya registrado conserva sus valores.' },
 ];
 const AVANZADOS_PA: DefSeccionPa[] = [
   { key: 'impuestos', capa: 'avanzados', titulo: 'Impuestos y reglas', linea: 'Conceptos del ISLR: porcentaje por sujeto y si están activos.',
@@ -2344,7 +2348,12 @@ const DEF_VALORES_R3: DefSeccionPa = {
 };
 const AVISO_AVANZADOS ='Estos cambios afectan cálculos, números o fechas de declaración. Lo ya emitido no cambia.';
 
-export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar: boolean; onClose: () => void }) {
+export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmpresas = null }: {
+  puedeEditar: boolean;
+  onClose: () => void;
+  /** Multi-empresa: el editor de config fiscal por empresa (se inyecta desde Retenciones para no invertir la dependencia). Null → la sección no aparece. */
+  editorFiscalEmpresas?: ReactNode;
+}) {
   const [cfg, setCfg] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [locales, setLocales] = useState<AlicuotasLocales>({ municipal: 0, estadal: 0 });
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
@@ -2370,7 +2379,9 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
     void r3Disponible().then(setR3).catch(() => setR3(false));
     void r6Disponible().then(setR6).catch(() => setR6(false));
   }, []);
-  const visible = (s: DefSeccionPa) => CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key)) || (r8 && CONECTADAS_R8.has(s.key));
+  const visible = (s: DefSeccionPa) => s.key === 'empresas_fiscal'
+    ? editorFiscalEmpresas != null   // solo con multi-empresa (Retenciones inyecta el editor)
+    : CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key)) || (r8 && CONECTADAS_R8.has(s.key));
   const AJUSTES_VIS = AJUSTES_PA.filter(visible);
   const AVANZADOS_VIS = AVANZADOS_PA.filter(visible);
 
@@ -2837,6 +2848,9 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
 
           {/* ── Interruptores de reglas ── */}
           {seccion === 'interruptores' && <SeccionInterruptores puedeEditar={puedeEditar} />}
+
+          {/* ── Multi-empresa: config fiscal por empresa (editor inyectado desde Retenciones) ── */}
+          {seccion === 'empresas_fiscal' && editorFiscalEmpresas}
         </>
         );
       })()}

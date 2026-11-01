@@ -7,7 +7,7 @@ import {
   type ConceptoRetencion, type ConfigRetencion,
   resumenLibro, significadoRetencion, esRecuperable, labelDireccion, totalesPorMoneda,
   puedePracticar, motivoNoPuedePracticar, limiteEntregaComprobante, enBolivares,
-  configDesdeFicha,
+  configDesdeFicha, conceptoConAlicuotaEmpresa,
 } from './retencionesCalculo';
 
 const especial: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: true, valorUt: 9 };
@@ -102,6 +102,31 @@ describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
     const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, pctIgtf: undefined, ivaAlicuota: undefined });
     expect(c.pctIgtf).toBe(CONFIG_RETENCION_DEFECTO.pctIgtf);
     expect(c.ivaAlicuota).toBe(CONFIG_RETENCION_DEFECTO.ivaAlicuota);
+  });
+
+  it('toma la alícuota del ISAE de la ficha si viene', () => {
+    expect(configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, alicuotaMunicipal: 1.5 }).alicuotaMunicipal).toBe(1.5);
+  });
+});
+
+describe('multi-empresa · conceptoConAlicuotaEmpresa (ISAE por empresa)', () => {
+  const municipal = { id: 'm', tipo: 'municipal', porcentaje: 1 };
+
+  it('override del % del ISAE con la alícuota de la empresa', () => {
+    expect(conceptoConAlicuotaEmpresa(municipal, { alicuotaMunicipal: 2 }).porcentaje).toBe(2);
+  });
+
+  it('sin alícuota por empresa, el concepto queda igual (la global)', () => {
+    expect(conceptoConAlicuotaEmpresa(municipal, {}).porcentaje).toBe(1);
+  });
+
+  it('no toca conceptos que no son municipales', () => {
+    const islr = { id: 'i', tipo: 'islr', porcentaje: 5 };
+    expect(conceptoConAlicuotaEmpresa(islr, { alicuotaMunicipal: 2 }).porcentaje).toBe(5);
+  });
+
+  it('un concepto null sigue null', () => {
+    expect(conceptoConAlicuotaEmpresa(null, { alicuotaMunicipal: 2 })).toBeNull();
   });
 });
 
