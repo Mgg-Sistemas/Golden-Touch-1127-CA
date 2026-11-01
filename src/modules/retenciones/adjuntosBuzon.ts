@@ -48,6 +48,17 @@ export interface ValidacionArchivos {
   valido: boolean;
 }
 
+/** ¿Es una foto HEIC/HEIF de iPhone? Se detecta por tipo o por extensión (a veces el tipo llega vacío). */
+export function esHeic(f: File): boolean {
+  return /hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
+}
+
+/** Mensaje claro para una foto HEIC de iPhone que no se puede guardar. */
+const mensajeHeic = (nombre: string) =>
+  `La foto «${nombre}» está en formato HEIC/HEIF de iPhone y no se puede guardar directamente. `
+  + 'En el iPhone, cambia Ajustes › Cámara › Formato a «Más compatible» (así salen en JPG), '
+  + 'o abre la foto y súbela como captura de pantalla.';
+
 /** Clasifica una lista de archivos en imágenes y PDFs */
 export function clasificarArchivos(archivos: readonly File[]): { imagenes: File[]; pdfs: File[]; otros: File[] } {
   const imagenes: File[] = [];
@@ -87,11 +98,14 @@ export function validarArchivosFactura(
   }
 
   if (otros.length > 0) {
+    const heic = otros.find(esHeic);
     return {
       imagenes: [],
       pdfs: [],
       valido: false,
-      error: `El archivo «${otros[0].name}» no es compatible. Solo se admiten imágenes (JPG/PNG) y documentos PDF.`,
+      error: heic
+        ? mensajeHeic(heic.name)
+        : `El archivo «${otros[0].name}» no es compatible. Solo se admiten imágenes (JPG/PNG) y documentos PDF.`,
     };
   }
 
@@ -139,7 +153,9 @@ export async function prepararImagenesParaSubida(imagenes: readonly File[]): Pro
       /* se queda la original; abajo se ve si se puede guardar */
     }
     if (!TIPOS_GUARDABLES.includes(lista.type)) {
-      throw new Error(`La foto «${img.name}» está en un formato que no se puede guardar (solo JPG, PNG o WEBP). Tómala de nuevo con la cámara en formato JPG o haz una captura de pantalla de ella.`);
+      throw new Error(esHeic(img)
+        ? mensajeHeic(img.name)
+        : `La foto «${img.name}» está en un formato que no se puede guardar (solo JPG, PNG o WEBP). Tómala de nuevo con la cámara en formato JPG o haz una captura de pantalla de ella.`);
     }
     listas.push(lista);
   }

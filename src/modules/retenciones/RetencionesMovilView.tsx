@@ -19,7 +19,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
-import { num, date, money } from '@/shared/lib/format';
+import { date, money } from '@/shared/lib/format';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { completarRif, formatearRif } from '@/shared/lib/rif';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
@@ -43,7 +43,9 @@ import {
 import {
   reproducirSonidoFacturaNueva, isSonidoRetencionesHabilitado, toggleSonidoRetenciones,
 } from './soundRetenciones';
-import { lanzarAvisoFactura } from './notificacionesDispositivo';
+import {
+  lanzarAvisoFactura, solicitarPermisoAvisos, isNotificacionesSoportadas, getEstadoPermisoNotificacion,
+} from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
 
 const ESTATUS_CONFIG: Record<EstatusFacturaBuzon, { label: string; icono: string; clase: string }> = {
@@ -58,6 +60,9 @@ const estatusDe = (f: FacturaExternaBuzon) => ESTATUS_CONFIG[f.estatus] ?? ESTAT
 /** El texto de un error, para mostrarlo tal cual (los repositorios ya lo dan en español). */
 const motivoDe = (e: unknown, porDefecto: string) => (e instanceof Error && e.message ? e.message : porDefecto);
 
+/** La tasa con sus decimales reales (hasta 4), no recortada a 2 como el formato de montos. */
+const fmtTasa = (t: number) => Number(t).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
 /**
  * El monto que se muestra primero es en bolívares: es como se informa a los entes
  * fiscales. Si la factura es en dólares, el monto en dólares y la tasa van debajo.
@@ -66,11 +71,11 @@ function montosDeFactura(f: FacturaExternaBuzon): { principal: string; alterno: 
   if (f.moneda === 'Bs') {
     return {
       principal: money(f.montoTotal, 'Bs'),
-      alterno: f.montoUsd != null && f.tasa ? `≈ ${money(f.montoUsd, 'USD')} (tasa ${num(f.tasa)} Bs por $)` : null,
+      alterno: f.montoUsd != null && f.tasa ? `≈ ${money(f.montoUsd, 'USD')} (tasa ${fmtTasa(f.tasa)} Bs por $)` : null,
     };
   }
   if (f.tasa && f.tasa > 0) {
-    return { principal: money(f.montoBs, 'Bs'), alterno: `${money(f.montoTotal, 'USD')} a ${num(f.tasa)} Bs por $` };
+    return { principal: money(f.montoBs, 'Bs'), alterno: `${money(f.montoTotal, 'USD')} a ${fmtTasa(f.tasa)} Bs por $` };
   }
   return { principal: money(f.montoTotal, 'USD'), alterno: 'Sin tasa para pasarla a bolívares' };
 }
@@ -100,6 +105,8 @@ export function RetencionesMovilView() {
   const [modalEmpresa, setModalEmpresa] = useState(false);
   const [empresaRecienCreada, setEmpresaRecienCreada] = useState<string | null>(null);
   const [sonidoHabilitado, setSonidoHabilitado] = useState(isSonidoRetencionesHabilitado());
+  // Para avisar solo cuando ENTRA una factura nueva (igual que la vista PC).
+  const prevCountRef = useRef<number | null>(null);
 
   // Detector: sin las tablas del buzón no se consulta ni se suscribe a nada.
   useEffect(() => {
@@ -112,10 +119,16 @@ export function RetencionesMovilView() {
 
   // Se traen todas las facturas y se filtra por empresa en pantalla: así los
   // contadores de cada empresa son los de verdad.
-  const cargarDatos = useCallback(async () => {
+  const cargarDatos = useCallback(async (avisarNuevas = false) => {
     try {
       const [empr, facs] = await Promise.all([listEmpresasReceptoras(), listFacturasBuzon()]);
       setEmpresas(empr);
+      // Si entró una factura desde el último conteo, suena (si está activo), vibra y avisa en pantalla.
+      if (avisarNuevas && prevCountRef.current !== null && facs.length > prevCountRef.current) {
+        lanzarAvisoFactura(facs[0], { conSonido: true });
+        toast('🔔 Llegó una factura nueva al buzón', 'info');
+      }
+      prevCountRef.current = facs.length;
       setFacturas(facs);
       setErrorCarga(null);
     } catch (e) {
@@ -126,18 +139,33 @@ export function RetencionesMovilView() {
   }, []);
 
   useEffect(() => {
-    if (disponible) void cargarDatos();
+    if (disponible) void cargarDatos(false);
   }, [disponible, cargarDatos]);
 
-  // Realtime para cambios en facturas externas (solo si las tablas existen)
+  // Realtime para cambios en facturas externas (solo si las tablas existen): avisa de las entrantes.
   useRealtime(['retencion_facturas_externas', 'retencion_empresas_receptoras'], () => {
-    void cargarDatos();
+    void cargarDatos(true);
   }, { enabled: disponible === true });
 
-  const toggleSonido = () => {
+  const toggleSonido = async () => {
     const nuevo = toggleSonidoRetenciones();
     setSonidoHabilitado(nuevo);
-    toast(nuevo ? 'Sonido de facturas activado 🔔' : 'Sonido silenciado 🔕', 'info');
+    if (!nuevo) { toast('Sonido silenciado 🔕', 'info'); return; }
+    // Al activar los avisos se pide permiso de notificaciones, para que el banner funcione (como la vista PC).
+    const estado = getEstadoPermisoNotificacion();
+    if (isNotificacionesSoportadas() && estado === 'default') {
+      const res = await solicitarPermisoAvisos();
+      toast(
+        res === 'granted'
+          ? '🔔 Avisos activados: sonido y aviso en pantalla cuando entre una factura.'
+          : 'Sonido activado. El navegador no dio permiso para el aviso en pantalla.',
+        res === 'granted' ? 'success' : 'info',
+      );
+    } else if (estado === 'denied') {
+      toast('Sonido activado. Los avisos en pantalla están bloqueados: toca el candado junto a la dirección para permitirlos.', 'warning');
+    } else {
+      toast('Sonido de facturas activado 🔔', 'info');
+    }
   };
 
   const facturasFiltradas = useMemo(() => {
@@ -166,7 +194,7 @@ export function RetencionesMovilView() {
           <button
             type="button"
             className={`buzon-audio-toggle ${sonidoHabilitado ? 'activo' : ''}`}
-            onClick={toggleSonido}
+            onClick={() => void toggleSonido()}
             title={sonidoHabilitado ? 'Sonido de avisos activo' : 'Sonido desactivado'}
           >
             {sonidoHabilitado ? '🔔 Con sonido' : '🔕 Silencio'}
@@ -565,7 +593,8 @@ function AvisoSinEmpresas({ canWrite, onAgregar, onCancelar }: {
 
 /* ────────────────────────────────────────────────────────────
    Detalle de una factura del buzón. Los soportes se ven con
-   enlaces firmados (de una hora) que se piden al abrirlo.
+   enlaces firmados (de diez minutos) que se piden al abrirlo y se
+   vuelven a pedir, frescos, cada vez que se toca una miniatura.
    ──────────────────────────────────────────────────────────── */
 function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; onClose: () => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -596,7 +625,8 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
     return () => { cancel = true; };
   }, [factura]);
 
-  // Si el enlace no llegó al abrir, se vuelve a pedir al tocar el soporte.
+  // El enlace firmado dura 10 min; al tocar una miniatura se pide SIEMPRE uno fresco
+  // (el que se cargó al abrir el detalle puede haber vencido).
   const abrirSoporte = async (path: string) => {
     try {
       const url = await obtenerUrlAdjunto(path);
@@ -687,19 +717,8 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
                     <small>{nombre}</small>
                   </div>
                 );
-                return url ? (
-                  <a
-                    key={adj.id}
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="buzon-thumb-item"
-                    title={nombre}
-                    style={{ textDecoration: 'none' }}
-                  >
-                    {contenido}
-                  </a>
-                ) : (
+                // Siempre un botón que pide un enlace fresco al tocar: así nunca se abre uno vencido.
+                return (
                   <button
                     key={adj.id}
                     type="button"
@@ -872,12 +891,27 @@ function FormularioCargaFactura({
       return;
     }
 
+    // En dólares con monto, la tasa es obligatoria: la retención se informa en Bs y sin tasa
+    // el equivalente en bolívares quedaría en 0. Se exige ANTES de subir los archivos.
+    if (moneda === 'USD' && monto != null && monto > 0 && (tasaNum == null || tasaNum <= 0)) {
+      toast('Falta la tasa del día (Bs por $): sin ella el monto no pasa a bolívares, que es como se informa. Escríbela antes de guardar.', 'warning');
+      return;
+    }
+
+    // RIF opcional: si se escribió algo que no tiene arreglo, no se pierde en silencio: se avisa y se guarda sin RIF.
+    const rifEscrito = proveedorRif.trim();
+    const rifCompleto = rifEscrito ? completarRif(rifEscrito) : null;
+    const rifParaGuardar = rifCompleto && !rifCompleto.startsWith('C') ? formatearRif(rifCompleto) : null;
+    if (rifEscrito && !rifParaGuardar) {
+      toast('El RIF escrito no es válido; la factura se guardará SIN RIF. Corrígelo si quieres incluirlo.', 'warning');
+    }
+
     const input: NuevaFacturaBuzonInput = {
       empresaId,
       empresaNombre: empresaSeleccionada?.nombre ?? '',
       tipoDocumento,
       proveedorNombre: proveedorNombre.trim(),
-      proveedorRif: proveedorRif.trim() || null,
+      proveedorRif: rifParaGuardar,
       facturaNumero: numeroFactura.trim() || null,
       facturaControl: numeroControl.trim() || null,
       facturaFecha: fechaFactura || null,
@@ -918,11 +952,10 @@ function FormularioCargaFactura({
       // Guarda la factura, sube los soportes y los registra; si algo falla no queda nada a medias
       const fac = await cargarFacturaBuzon(input, preparados, setProgresoMsg);
 
-      // Al guardar: el sonido distintivo y, además, el aviso nativo del dispositivo
-      // (con permiso y avisos activos). El sonido ya lo pone reproducirSonidoFacturaNueva,
-      // así que el aviso se lanza sin sonido para no repetirlo.
+      // Confirmación para quien la cargó: un sonido corto (si el sonido está activo).
+      // No se lanza aviso en pantalla a-uno-mismo: el banner «factura entrante» lo reciben
+      // los demás por realtime, no quien la acaba de subir.
       reproducirSonidoFacturaNueva();
-      lanzarAvisoFactura(fac, { conSonido: false });
 
       toast('Factura cargada', 'success');
       onGuardada(fac);
@@ -1167,12 +1200,13 @@ function FormularioCargaFactura({
         </div>
 
         {/* Inputs escondidos */}
+        {/* Sin «capture»: el selector del teléfono ofrece tomar foto O elegir de la galería
+            (una factura ya fotografiada se sube desde la galería). */}
         <input
           ref={inputFotosRef}
           type="file"
           accept="image/*"
           multiple
-          capture="environment"
           style={{ display: 'none' }}
           onChange={handleSeleccionarArchivos}
         />
