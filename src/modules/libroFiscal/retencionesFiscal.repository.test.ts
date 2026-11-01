@@ -186,6 +186,11 @@ describe('la fila que se escribe en el libro', () => {
     expect(f.iva_monto).toBeNull();
   });
 
+  it('multi-empresa (D1b): el suelto marca empresa_id en la línea solo si viene', () => {
+    expect(filaGtDeNueva(nueva({ empresaId: 'emp-1' }), { entero: 1, texto: 'x' }).empresa_id).toBe('emp-1');
+    expect('empresa_id' in filaGtDeNueva(nueva(), { entero: 1, texto: 'x' })).toBe(false);
+  });
+
   it('numera toda practicada menos el IGTF; las recibidas no', () => {
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr' })).toBe(true);
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr', montoRetenido: 0 })).toBe(false);

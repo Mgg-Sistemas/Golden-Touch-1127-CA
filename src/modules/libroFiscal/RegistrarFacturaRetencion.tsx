@@ -22,10 +22,10 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, configDesdeFicha, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie, labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
-  type SujetoRetenido, type TipoImpuesto,
+  type FichaFiscalEmpresa, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import {
   adjuntarComprobante, consultarCorrelativoEstimado, getConfigRetencion, listConceptos, sujetoAGt, tipoAGt,
@@ -138,7 +138,7 @@ const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
   baseStr: '0', ivaStr: '0', pctStr: '', montoStr: '', numeroStr: '', motivos: {}, descripcion: '', ...over,
 });
 
-export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto, empresaId = null }: {
+export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto, empresaId = null, empresaFicha = null }: {
   semilla?: SemillaFactura;
   /** En una practicada, solo se ofrecen los proveedores con retenciones por realizar (si se pasa). */
   proveedorIdsPendientes?: Set<string>;
@@ -152,6 +152,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   fichasImpuesto?: Map<TipoImpuesto, FichaRetencionVista> | null;
   /** Multi-empresa: la empresa receptora que queda marcada en la cabecera. null = single-empresa. */
   empresaId?: string | null;
+  /** Multi-empresa: la ficha fiscal de la empresa (régimen y %); null = GT/single (config global). */
+  empresaFicha?: FichaFiscalEmpresa | null;
 }) {
   const [configBase, setConfigBase] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   // Con R3, los valores (UT, % del IVA) de la fecha de la factura; sin R3, los de Parámetros.
@@ -232,7 +234,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
       .then(([c, cs, ps]) => {
-        setConfigBase(c); setConfig(c); setConceptos(cs);
+        // Multi-empresa: una empresa NO-GT trae su régimen y % de su ficha.
+        const base = empresaFicha ? configDesdeFicha(c, empresaFicha) : c;
+        setConfigBase(base); setConfig(base); setConceptos(cs);
         const activos = ps.filter((p) => p.estado === 'activo');
         setProveedores(activos);
         const p = s.contraparteId ? activos.find((x) => x.id === s.contraparteId) : null;
@@ -244,7 +248,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       })
       .catch((e) => setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'));
     r7Disponible().then(setConR7).catch(() => setConR7(false));
-  }, [s.contraparteId]);
+  }, [s.contraparteId, empresaFicha]);
 
   // La tasa es la BCV de la fecha de la factura (sábado y domingo: la del lunes), no la del día en que se registra.
   useEffect(() => {
@@ -920,7 +924,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           {(() => {
             const tiposUsados = new Set(lineas.map((l) => l.tipo));
             const tiposDisponibles = soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null)
-              .filter((t) => !tiposUsados.has(t.key) && admiteDireccion(fichasImpuesto?.get(t.key), direccion));
+              // Multi-empresa (DE1): en una empresa NO-GT no se ofrece un impuesto que no
+              // practica según su ficha. GT/single-empresa: se ofrece y se bloquea con aviso, como hoy.
+              .filter((t) => !tiposUsados.has(t.key) && admiteDireccion(fichasImpuesto?.get(t.key), direccion)
+                && (!empresaFicha || direccion !== 'practicada' || puedePracticar(t.key, config)));
             const puedeAgregar = tiposDisponibles.length > 0;
             return (
               <button

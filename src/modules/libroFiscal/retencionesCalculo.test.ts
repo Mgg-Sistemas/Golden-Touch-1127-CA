@@ -7,6 +7,7 @@ import {
   type ConceptoRetencion, type ConfigRetencion,
   resumenLibro, significadoRetencion, esRecuperable, labelDireccion, totalesPorMoneda,
   puedePracticar, motivoNoPuedePracticar, limiteEntregaComprobante, enBolivares,
+  configDesdeFicha,
 } from './retencionesCalculo';
 
 const especial: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: true, valorUt: 9 };
@@ -52,6 +53,55 @@ describe('quién retiene · dos marcas separadas (D2)', () => {
 
   it('sin marcas, el motivo del IVA lo explica y remite a «Retención recibida»', () => {
     expect(motivoNoPuedePracticar('iva', ninguna)).toContain('Retención recibida');
+  });
+
+  it('multi-empresa: las banderas de régimen apagan ISLR/municipal/estadal', () => {
+    const noIslr = { ...CONFIG_RETENCION_DEFECTO, retieneIslr: false };
+    expect(puedePracticar('islr', noIslr)).toBe(false);
+    expect(motivoNoPuedePracticar('islr', noIslr)).toContain('no retiene ISLR');
+    const noMun = { ...CONFIG_RETENCION_DEFECTO, retieneMunicipal: false };
+    expect(puedePracticar('municipal', noMun)).toBe(false);
+    expect(motivoNoPuedePracticar('municipal', noMun)).toContain('ISAE');
+    const noEst = { ...CONFIG_RETENCION_DEFECTO, retieneEstadal: false };
+    expect(puedePracticar('regional', noEst)).toBe(false);
+    expect(motivoNoPuedePracticar('regional', noEst)).toContain('Timbre Estadal');
+  });
+});
+
+describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
+  const fichaBase = {
+    rif: 'J-50000000-5', nombre: 'Minería Tin Oxide, C.A.', direccionFiscal: 'Av. X', municipio: 'Caroní', estado: 'Bolívar',
+    esAgenteRetencionIva: false, esContribuyenteEspecial: true, retieneIslr: true, retieneMunicipal: false,
+    pctIvaGeneral: 100, pctIvaEspecial: 100, pctIgtf: 3, ivaAlicuota: 16, licenciaMunicipal: 'RIM-123',
+  };
+
+  it('toma identidad, régimen y % de la ficha y marca porcentajesDeFicha', () => {
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
+    expect(c.rif).toBe('J-50000000-5');
+    expect(c.razonSocial).toBe('Minería Tin Oxide, C.A.');
+    expect(c.municipio).toBe('Caroní');
+    expect(c.licenciaMunicipal).toBe('RIM-123');
+    expect(c.esAgenteRetencionIva).toBe(false);
+    expect(c.esContribuyenteEspecial).toBe(true);
+    expect(c.retieneIslr).toBe(true);
+    expect(c.retieneMunicipal).toBe(false);
+    expect(c.retieneEstadal).toBe(false);   // DE2: NO-GT no practica estadal por defecto
+    expect(c.pctIvaGeneral).toBe(100);
+    expect(c.porcentajesDeFicha).toBe(true);
+  });
+
+  it('el régimen de la ficha gobierna qué practica (IGTF sí, IVA no, municipal no)', () => {
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
+    expect(puedePracticar('igtf', c)).toBe(true);     // es especial
+    expect(puedePracticar('iva', c)).toBe(true);      // especial también retiene IVA
+    expect(puedePracticar('municipal', c)).toBe(false);
+    expect(puedePracticar('regional', c)).toBe(false);
+  });
+
+  it('cae en la base cuando la ficha no trae un %', () => {
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, pctIgtf: undefined, ivaAlicuota: undefined });
+    expect(c.pctIgtf).toBe(CONFIG_RETENCION_DEFECTO.pctIgtf);
+    expect(c.ivaAlicuota).toBe(CONFIG_RETENCION_DEFECTO.ivaAlicuota);
   });
 });
 
