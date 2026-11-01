@@ -1506,7 +1506,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     const fmtFicha = fichasImpuesto?.get(tipo)?.serieFormato;
     let activo = true;
 
-    consultarCorrelativoEstimado(tipo, periodo, fmtFicha)
+    consultarCorrelativoEstimado(tipo, periodo, fmtFicha, empresaId)
       .then((c) => {
         if (activo) setCorrelativoEstimado(c);
       })
@@ -1525,7 +1525,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     return () => {
       activo = false;
     };
-  }, [direccion, tipo, facturaFecha, fechaRetencion, fichasImpuesto]);
+  }, [direccion, tipo, facturaFecha, fechaRetencion, fichasImpuesto, empresaId]);
 
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])

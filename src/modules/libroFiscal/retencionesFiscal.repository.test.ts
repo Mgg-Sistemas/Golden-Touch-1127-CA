@@ -412,6 +412,18 @@ describe('consultarCorrelativoEstimado: previsualización del correlativo según
     expect(res.comprobante).toBe('20261000000015');
   });
 
+  it('B2 multi-empresa: con empresaId el estimado cuenta solo esa empresa', async () => {
+    cola.push({ data: [], error: null });
+    await consultarCorrelativoEstimado('iva', '202610', undefined, 'empresa-mto');
+    expect(llamadas[0].metodos).toContainEqual(['eq', 'empresa_id', 'empresa-mto']);
+  });
+
+  it('sin empresaId el estimado no filtra por empresa (single/GT, como hoy)', async () => {
+    cola.push({ data: [], error: null });
+    await consultarCorrelativoEstimado('iva', '202610');
+    expect(llamadas[0].metodos.some((m) => m[0] === 'eq' && m[1] === 'empresa_id')).toBe(false);
+  });
+
   it('para ISLR asigna formato continuo de 10 dígitos', async () => {
     cola.push({
       data: [{ numero: 3, comprobante_nro: '0000000003' }],

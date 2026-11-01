@@ -284,7 +284,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         // El formato del número sale de la ficha del impuesto (R2); sin ficha, del mapeo fijo.
         const fmtFicha = fichasImpuesto?.get(t)?.serieFormato;
         try {
-          mapa[t] = await consultarCorrelativoEstimado(t, periodo, fmtFicha);
+          mapa[t] = await consultarCorrelativoEstimado(t, periodo, fmtFicha, empresaId);
         } catch {
           const fmt = fmtFicha ?? formatoSerie(t);
           mapa[t] = {
@@ -300,7 +300,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
     void cargarCorrelativos();
     return () => { activo = false; };
-  }, [direccion, facturaFecha, fichasImpuesto]);
+  }, [direccion, facturaFecha, fichasImpuesto, empresaId]);
 
   const opcionesProveedor = useMemo(() => {
     const lista = proveedorIdsPendientes ? proveedores.filter((p) => proveedorIdsPendientes.has(p.id)) : proveedores;
