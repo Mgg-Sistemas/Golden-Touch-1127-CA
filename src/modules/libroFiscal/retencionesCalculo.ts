@@ -263,6 +263,19 @@ export function conceptoConAlicuotaEmpresa<T extends { tipo: string; porcentaje:
   return { ...concepto, porcentaje: config.alicuotaMunicipal };
 }
 
+/**
+ * Precio con IVA incluido (no discriminado): del total con IVA (menos lo exento)
+ * saca la base y el IVA implícito. IVA = total − total/(1+alícuota). Puro y
+ * reutilizable: lo usan el botón «Desglosar IVA incluido» y el derivado automático
+ * de C3 (supuesto «IVA no discriminado»). No cambia ningún cálculo de retención.
+ */
+export function desglosarIvaDeTotal(total: number, exento: number, aliPct: number): { base: number; iva: number; gravable: number } {
+  const ali = Number(aliPct) > 0 ? Number(aliPct) : 16;
+  const gravable = Math.max(0, r2(Number(total) || 0) - Math.max(0, r2(Number(exento) || 0)));
+  const base = r2(gravable / (1 + ali / 100));
+  return { base, iva: r2(gravable - base), gravable };
+}
+
 /** Un renglón del catálogo. */
 export interface ConceptoRetencion {
   id: string;

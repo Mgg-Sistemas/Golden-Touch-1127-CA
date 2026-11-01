@@ -7,7 +7,7 @@ import {
   type ConceptoRetencion, type ConfigRetencion,
   resumenLibro, significadoRetencion, esRecuperable, labelDireccion, totalesPorMoneda,
   puedePracticar, motivoNoPuedePracticar, limiteEntregaComprobante, enBolivares,
-  configDesdeFicha, conceptoConAlicuotaEmpresa,
+  configDesdeFicha, conceptoConAlicuotaEmpresa, desglosarIvaDeTotal,
 } from './retencionesCalculo';
 
 const especial: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: true, valorUt: 9 };
@@ -127,6 +127,33 @@ describe('multi-empresa · conceptoConAlicuotaEmpresa (ISAE por empresa)', () =>
 
   it('un concepto null sigue null', () => {
     expect(conceptoConAlicuotaEmpresa(null, { alicuotaMunicipal: 2 })).toBeNull();
+  });
+});
+
+describe('C3 · desglosarIvaDeTotal (IVA incluido / no discriminado)', () => {
+  it('saca base e IVA del total con IVA al 16%', () => {
+    expect(desglosarIvaDeTotal(1160, 0, 16)).toEqual({ base: 1000, iva: 160, gravable: 1160 });
+  });
+
+  it('descuenta lo exento antes de desglosar', () => {
+    const d = desglosarIvaDeTotal(1160, 160, 16);
+    expect(d.gravable).toBe(1000);
+    expect(d.base).toBe(862.07);
+    expect(d.iva).toBe(137.93);
+  });
+
+  it('total 0 → todo 0', () => {
+    expect(desglosarIvaDeTotal(0, 0, 16)).toEqual({ base: 0, iva: 0, gravable: 0 });
+  });
+
+  it('sin alícuota usa 16 por defecto', () => {
+    expect(desglosarIvaDeTotal(1160, 0, 0)).toEqual({ base: 1000, iva: 160, gravable: 1160 });
+  });
+
+  it('con otra alícuota (p. ej. 12) desglosa con ese divisor', () => {
+    const d = desglosarIvaDeTotal(1120, 0, 12);
+    expect(d.base).toBe(1000);
+    expect(d.iva).toBe(120);
   });
 });
 

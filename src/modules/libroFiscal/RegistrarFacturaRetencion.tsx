@@ -22,7 +22,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, enBolivares, fechaTasaBcv,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, desglosarIvaDeTotal, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie, labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type FichaFiscalEmpresa, type SujetoRetenido, type TipoImpuesto,
@@ -129,6 +129,8 @@ interface LineaUI {
   /** Los supuestos marcados por código (las 5 casillas fijas, o los de R6). */
   motivos: Record<string, boolean>;
   descripcion: string;
+  /** C3: el usuario confirmó el IVA derivado del total (cuando el IVA no está discriminado). Solo UI. */
+  ivaDerivadoConfirmado?: boolean;
 }
 
 
@@ -499,6 +501,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const faltaBase = faltaEnBaseImponible(nDec(l.baseStr));
       if (faltaBase) return `${labelImpuesto(l.tipo)}: ${faltaBase}`;
       if (esCeroSinMotivo(pctDe(l), monto, l.descripcion)) return `${labelImpuesto(l.tipo)}: un 0 % se registra solo con su motivo.`;
+      // C3: IVA no discriminado → el IVA se deriva del total y el usuario debe confirmarlo
+      // (automático pero visible). No se guarda hasta que confirme el IVA derivado vigente.
+      if (l.tipo === 'iva' && l.motivos.ivaNoDiscriminado) {
+        const d = desglosarIvaDeTotal(nDec(facturaTotal), nDec(exentoStr), aliIvaPct);
+        if (!l.ivaDerivadoConfirmado || Math.abs(nDec(l.ivaStr) - d.iva) > 0.01) {
+          return `IVA: el IVA no está discriminado en la factura. Aplica y confirma el IVA derivado del total (Bs ${numeroATexto(d.iva)}) antes de guardar.`;
+        }
+      }
     }
     return null;
   }
@@ -544,11 +554,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       toast('Escribe primero el monto total de la factura para calcular el desglose.', 'warning');
       return;
     }
-    const exento = Math.max(0, nDec(exentoStr));
-    const gravableConIva = Math.max(0, tot - exento);
     marcarSucio();
-    const base = Math.round((gravableConIva / (1 + aliIvaPct / 100)) * 100) / 100;
-    const iva = Math.round((gravableConIva - base) * 100) / 100;
+    const { base, iva } = desglosarIvaDeTotal(tot, nDec(exentoStr), aliIvaPct);
     setLineas((xs) => {
       const tieneIva = xs.some((l) => l.tipo === 'iva');
       const actualizadas = xs.map((l) => {
@@ -1113,9 +1120,34 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   supuestosIva={supuestosIva}
                   pctGeneral={config.pctIvaGeneral}
                   pctActual={calc.porcentaje}
-                  onChange={(codigo, valor) => setLinea(l.id, { motivos: { ...l.motivos, [codigo]: valor } })}
+                  onChange={(codigo, valor) => setLinea(l.id, codigo === 'ivaNoDiscriminado' && !valor
+                    ? { motivos: { ...l.motivos, [codigo]: valor }, ivaDerivadoConfirmado: false }
+                    : { motivos: { ...l.motivos, [codigo]: valor } })}
                 />
               )}
+              {/* C3: IVA no discriminado → se deriva del total y el usuario lo confirma (automático pero visible). */}
+              {direccion === 'practicada' && l.tipo === 'iva' && l.motivos.ivaNoDiscriminado && (() => {
+                const d = desglosarIvaDeTotal(nDec(facturaTotal), nDec(exentoStr), aliIvaPct);
+                const confirmado = !!l.ivaDerivadoConfirmado && Math.abs(nDec(l.ivaStr) - d.iva) <= 0.01;
+                return (
+                  <div className="aviso info sm" style={{ marginTop: '.35rem', display: 'grid', gap: '.35rem' }}>
+                    <div>
+                      <strong>IVA no discriminado en la factura.</strong> Se deriva del total (÷{divisorIvaTxt}):
+                      {' '}base <strong className="mono">{money(d.base, moneda)}</strong> · IVA <strong className="mono">{money(d.iva, moneda)}</strong>.
+                      {nDec(facturaTotal) <= 0 && <span> Escribe primero el total de la factura.</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button type="button" className="btn btn-sm btn-primary" disabled={d.iva <= 0}
+                        onClick={() => setLinea(l.id, { baseStr: numeroATexto(d.base), ivaStr: numeroATexto(d.iva), ivaDerivadoConfirmado: true })}>
+                        Aplicar y confirmar IVA derivado
+                      </button>
+                      {confirmado
+                        ? <small style={{ color: 'var(--success)' }}>✓ Confirmado</small>
+                        : <small style={{ color: 'var(--warning)' }}>Confírmalo antes de guardar.</small>}
+                    </div>
+                  </div>
+                );
+              })()}
               {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{motivoNoPuedePracticar(l.tipo, config)}</small>}
               {!esManual && <small className="hint muted">{calc.explicacion}</small>}
               {monto === 0 && (
