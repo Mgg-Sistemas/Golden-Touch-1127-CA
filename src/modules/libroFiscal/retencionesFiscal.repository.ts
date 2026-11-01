@@ -106,6 +106,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     pctIvaEspecial: n(j.iva_retencion_especial) || 100,
     valorUt: n(j.unidad_tributaria),
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
+    ivaAlicuota: n(j.iva_alicuota) || CONFIG_RETENCION_DEFECTO.ivaAlicuota,
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
     imprimirOriginalYCopia: bool('imprimir_original_copia', true),
   };

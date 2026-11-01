@@ -12,6 +12,9 @@ import { hoyVE } from '@/modules/tesoreria/tasas.repository';
 import { motivosVigentes, type MotivoNoAplica } from './motivosSupuestos.repository';
 import { marcarNoAplica } from './noAplica.repository';
 
+/** Sentinel del motivo «Otro (escribirlo)»: no puede ser '' porque choca con el placeholder del select. */
+const MOTIVO_OTRO = '__otro__';
+
 export interface ObjetivoNoAplica {
   ordenId: string;
   origenTipo?: 'oc' | 'compra_directa' | 'servicio_directo';
@@ -47,18 +50,22 @@ export function NoAplicaModal({ objetivo: o, actor, actorName, onClose, onHecho 
     return () => { vivo = false; };
   }, [o.impuestoClave, fechaConsulta]);
 
-  const elegido = motivos?.find((m) => m.id === motivoId) ?? null;
+  // «Otro (escribirlo)» necesita un value propio: con value="" chocaba con el placeholder
+  // y no se podía seleccionar. Con el sentinel se distingue y se escribe el motivo a mano.
+  const esOtro = motivoId === MOTIVO_OTRO;
+  const usaTexto = esOtro || !motivoId;
+  const elegido = esOtro ? null : (motivos?.find((m) => m.id === motivoId) ?? null);
 
   async function guardar() {
     setError(null);
-    if (!motivoId && !motivoTexto.trim()) { setError('Indica el motivo: por qué no corresponde retener.'); return; }
+    if (usaTexto && !motivoTexto.trim()) { setError('Indica el motivo: por qué no corresponde retener.'); return; }
     if (elegido?.requiereTexto && !detalle.trim()) { setError(`El motivo «${elegido.texto}» pide un detalle.`); return; }
     setGuardando(true);
     try {
       await marcarNoAplica({
         ordenId: o.ordenId, origenTipo: o.origenTipo, proveedorId: o.proveedorId, proveedorNombre: o.proveedorNombre,
         moneda: o.moneda, total: o.total, impuestoClave: o.impuestoClave,
-        motivoId: motivoId || null, motivoTexto: motivoId ? null : motivoTexto, detalle, actor, actorName,
+        motivoId: usaTexto ? null : motivoId, motivoTexto: usaTexto ? motivoTexto : null, detalle, actor, actorName,
       });
       toast(`${o.impuestoNombre} de ${o.codigo}: marcado «no aplica».`, 'success');
       onHecho();
@@ -86,10 +93,10 @@ export function NoAplicaModal({ objetivo: o, actor, actorName, onClose, onHecho 
           <select className="select" value={motivoId} onChange={(e) => setMotivoId(e.target.value)}>
             <option value="">— Elige el motivo —</option>
             {motivos.map((m) => <option key={m.id} value={m.id}>{m.texto}</option>)}
-            <option value="">Otro (escribirlo)</option>
+            <option value={MOTIVO_OTRO}>Otro (escribirlo)</option>
           </select>
         )}
-        {motivos && (motivos.length === 0 || !motivoId) && (
+        {motivos && (motivos.length === 0 || usaTexto) && (
           <input className="input" value={motivoTexto} onChange={(e) => setMotivoTexto(e.target.value)}
             placeholder="Ej.: no es documento fiscal (nota de entrega), proveedor exento…" style={{ marginTop: '.3rem' }} />
         )}

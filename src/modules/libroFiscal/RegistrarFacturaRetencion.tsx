@@ -41,7 +41,7 @@ import { SeLeyo } from './SeLeyo';
 import { rotuloImpuesto } from './rotulos';
 import { BuscadorFactura } from './BuscadorFactura';
 import { pendientesComoTipos, r10Disponible, retenerDespues, type FacturaResumen } from './facturasResumen.repository';
-import { faltaEnDatosFactura } from './facturaDocumento';
+import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnBaseImponible, faltaEnTotalFactura, avisoRetenidoSuperaBase } from './facturaDocumento';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { useDescartar } from './confirmarDescartar';
@@ -415,6 +415,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const pctDe = (l: LineaUI) => (esManual ? nDec(l.pctStr) : calculoDe(l).porcentaje);
 
   const totalRetenido = useMemo(() => lineas.reduce((a, l) => a + montoDe(l), 0), [lineas, montoDe]);
+  // C8: aviso de cordura NO bloqueante en recibida: si alguna línea retiene más que su base o su IVA.
+  const avisoRecibida = useMemo(() => {
+    if (!esManual) return null;
+    for (const l of lineas) {
+      const a = avisoRetenidoSuperaBase(montoDe(l), nDec(l.baseStr), l.tipo === 'iva' ? nDec(l.ivaStr) : 0);
+      if (a) return a;
+    }
+    return null;
+  }, [esManual, lineas, montoDe]);
 
   const totalRetenidoBs = enBolivares(totalRetenido, moneda, tasa);
 
@@ -450,8 +459,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (periodoCerrado) {
       return `El período fiscal (${nombrePeriodo(periodoCerrado)}) ya fue declarado ante el SENIAT. No se pueden registrar retenciones en períodos cerrados sin reapertura previa.`;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) return 'Indica la fecha de la retención (emisión del comprobante).';
-    if (fechaRetencion < facturaFecha) return 'La fecha de la retención no puede ser anterior a la de la factura.';
+    const faltaFechaRet = faltaEnFechaRetencion(fechaRetencion, facturaFecha, hoyIso());
+    if (faltaFechaRet) return faltaFechaRet;
+    const faltaTotal = faltaEnTotalFactura(nDec(facturaTotal));
+    if (faltaTotal) return faltaTotal;
     if (avisoFecha) return avisoFecha;
     if (avisoRegla) return avisoRegla;
     if (ilegibles.length) return `No se entiende: ${ilegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`;
@@ -479,6 +490,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       }
       const monto = montoDe(l);
       if (monto < 0) return `${labelImpuesto(l.tipo)}: el monto no puede ser negativo.`;
+      const faltaBase = faltaEnBaseImponible(nDec(l.baseStr));
+      if (faltaBase) return `${labelImpuesto(l.tipo)}: ${faltaBase}`;
       if (esCeroSinMotivo(pctDe(l), monto, l.descripcion)) return `${labelImpuesto(l.tipo)}: un 0 % se registra solo con su motivo.`;
     }
     return null;
@@ -515,6 +528,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // Desde «Facturas registradas»: se abre ya sobre esa factura.
   useEffect(() => { if (s.documento) aplicarDocumento(s.documento); }, [s.documento]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // La alícuota del IVA sale de Parámetros (config.ivaAlicuota); si no hay, 16 por defecto.
+  const aliIvaPct = Number(config.ivaAlicuota) > 0 ? Number(config.ivaAlicuota) : 16;
+  const divisorIvaTxt = (1 + aliIvaPct / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   const desglosarIvaIncluido = () => {
     const tot = nDec(facturaTotal);
     if (tot <= 0) {
@@ -524,7 +541,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     const exento = Math.max(0, nDec(exentoStr));
     const gravableConIva = Math.max(0, tot - exento);
     marcarSucio();
-    const base = Math.round((gravableConIva / 1.16) * 100) / 100;
+    const base = Math.round((gravableConIva / (1 + aliIvaPct / 100)) * 100) / 100;
     const iva = Math.round((gravableConIva - base) * 100) / 100;
     setLineas((xs) => {
       const tieneIva = xs.some((l) => l.tipo === 'iva');
@@ -857,7 +874,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
           <label>Fecha de la retención</label>
-          <input className="input" type="date" value={fechaRetencion} onChange={(e) => { marcarSucio(); setFechaRetencion(e.target.value); }} />
+          <input className="input" type="date" value={fechaRetencion} max={hoyIso()} onChange={(e) => { marcarSucio(); setFechaRetencion(e.target.value); }} />
           <small className="hint muted">Emisión del comprobante.</small>
         </div>
         {periodoCerrado && (
@@ -891,10 +908,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 type="button"
                 className="btn btn-sm btn-ghost"
                 style={{ fontSize: '.75rem', padding: '2px 8px', border: '1px dashed var(--primary)', color: 'var(--primary)' }}
-                title="Aplica la regla de precio con IVA incluido: Base = Total ÷ 1,16 e IVA = 16% sobre la base"
+                title={`Aplica la regla de precio con IVA incluido: Base = Total ÷ ${divisorIvaTxt} e IVA = ${aliIvaPct}% sobre la base`}
                 onClick={desglosarIvaIncluido}
               >
-                ⚡ Desglosar IVA incluido (÷1,16)
+                ⚡ Desglosar IVA incluido (÷{divisorIvaTxt})
               </button>
             )}
           </div>
@@ -1114,6 +1131,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           Total retenido en bolívares: Bs {totalRetenidoBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (a {tasa} Bs por $).
         </small>
       )}
+      {avisoRecibida && <div className="lfv8-alerta-media" style={{ marginTop: '.5rem' }}><span>⚠️ {avisoRecibida}</span></div>}
     </Modal>
   );
 }
