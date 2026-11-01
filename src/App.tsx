@@ -4,7 +4,7 @@ import { LandingPage } from './modules/landing/LandingPage';
 import { LoginPage } from './modules/auth/LoginPage';
 import { AppShell } from './shared/ui/AppShell';
 import { ProtectedRoute } from './modules/auth/ProtectedRoute';
-import { PermissionsProvider, RequireModule, RequireAdmin, RequireVistaTelefono, RequireDeposito, HomeRedirect } from './modules/auth/PermissionsContext';
+import { PermissionsProvider, RequireModule, RequireAdmin, RequireVistaTelefono, RequireDeposito, HomeRedirect, MODULOS_PANTALLA_PEDIDOS } from './modules/auth/PermissionsContext';
 import { ToastHost } from './shared/ui/Toast';
 import { PasswordChangeGate } from './modules/usuarios/PasswordChangeGate';
 
@@ -106,8 +106,10 @@ export function App() {
         >
           <Route index element={<HomeRedirect />} />
           <Route path="dashboard" element={<RequireModule module="dashboard"><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></RequireModule>} />
-          <Route path="pedidos" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><PedidosPage /></Suspense></RequireModule>} />
-          <Route path="pedidos/historico" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
+          {/* 31/10/2026: Pedidos abre con «Solicitud de Pedido», «Compras» o el viejo `pedidos` (base);
+              el Histórico es de Compras. */}
+          <Route path="pedidos" element={<RequireModule module={MODULOS_PANTALLA_PEDIDOS}><Suspense fallback={<PageLoader />}><PedidosPage /></Suspense></RequireModule>} />
+          <Route path="pedidos/historico" element={<RequireModule module="compras"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
           {/* Delivery (30/10/2026): el motorizado busca las OC pagadas y las entrega en el almacén. Interruptor compras_delivery. */}
           <Route path="delivery" element={<RequireModule module="delivery"><Suspense fallback={<PageLoader />}><DeliveryPage /></Suspense></RequireModule>} />
           <Route path="delivery/telefono" element={<RequireVistaTelefono vista="delivery"><Suspense fallback={<PageLoader />}><DeliveryMovilView /></Suspense></RequireVistaTelefono>} />

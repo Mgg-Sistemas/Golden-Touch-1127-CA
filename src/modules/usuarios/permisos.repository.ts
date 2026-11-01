@@ -4,6 +4,8 @@ import { normalizarPermisosAlmacenes, type PermisosAlmacenes } from '@/modules/a
 export type RoleKey = string;
 export type ModuleKey =
   | 'dashboard'
+  | 'solicitud_pedido'
+  | 'compras'
   | 'pedidos'
   | 'delivery'
   | 'proveedores'
@@ -35,10 +37,19 @@ export interface ModulePermission {
 export type RolePermisos = Record<ModuleKey, ModulePermission>;
 export type AllPermisos = Record<RoleKey, RolePermisos>;
 
-/** Lista canónica de módulos del sistema. Fuente única para la matriz, el menú y los guards. */
-export const MODULES: { key: ModuleKey; label: string }[] = [
+/** Lista canónica de módulos del sistema. Fuente única para la matriz, el menú y los guards.
+ *  `ayuda`: nota corta que el panel de Roles y Permisos muestra bajo el nombre (y como tooltip). */
+export const MODULES: { key: ModuleKey; label: string; ayuda?: string }[] = [
   { key: 'dashboard',   label: 'Dashboard' },
-  { key: 'pedidos',     label: 'Pedidos / Compras' },
+  // 31/10/2026: el viejo «Pedidos / Compras» se separa en dos permisos de pantalla.
+  { key: 'solicitud_pedido', label: 'Solicitud de Pedido', ayuda: 'Crear Solicitudes de Pedido y ver solo las fases de las suyas.' },
+  { key: 'compras',     label: 'Compras', ayuda: 'Todo Compras: cotizar, OC, OC por lote, servicios, compra y servicio directo, reportes e Histórico.' },
+  // La clave `pedidos` se queda en la base: 33 políticas RLS (cajas, abonos, facturas,
+  // recepción, ofertas…) la usan como permiso de escritura. Ya no decide quién ve Compras.
+  {
+    key: 'pedidos', label: 'Pedidos · base (pagos, recepción y retenciones)',
+    ayuda: 'Permiso de escritura en la base que usan Tesorería, Recepción e Impuestos. Ya no decide quién ve Compras.',
+  },
   { key: 'delivery',    label: 'Delivery' },
   { key: 'proveedores', label: 'Proveedores' },
   { key: 'inventario',  label: 'Inventario' },
@@ -72,7 +83,12 @@ export function defaultsFor(role: RoleKey): RolePermisos {
 
   if (role === 'admin') {
     MODULES.forEach((m) => (all[m.key] = { lectura: true, escritura: true, full: true }));
-  } else if (role === 'analista') {
+    return all;
+  }
+  // 31/10/2026: todos los roles pueden pedir (crean sus SP y siguen solo las suyas).
+  // `compras` (el resto de Compras) solo viene con el admin; a los demás se lo da el panel.
+  all.solicitud_pedido = { lectura: true, escritura: true, full: false };
+  if (role === 'analista') {
     (['dashboard', 'pedidos', 'proveedores', 'inventario', 'produccion', 'salidas', 'combustible', 'acopio', 'cocina', 'maquinaria', 'ajustes'] as ModuleKey[]).forEach((k) => {
       all[k] = { lectura: true, escritura: true, full: false };
     });

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
-import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { usePermissions, MODULOS_PANTALLA_PEDIDOS } from '@/modules/auth/PermissionsContext';
 import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
@@ -31,7 +31,7 @@ const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 /** Vistas que se capturan en vivo para ilustrar el manual (key → ruta → permiso). */
 const CAPTURA_RUTAS: Array<{ key: string; ruta: string; permiso: ModuleKey }> = [
   { key: 'dashboard', ruta: '/app/dashboard', permiso: 'dashboard' },
-  { key: 'pedidos', ruta: '/app/pedidos', permiso: 'pedidos' },
+  { key: 'pedidos', ruta: '/app/pedidos', permiso: 'compras' },
   { key: 'proveedores', ruta: '/app/proveedores', permiso: 'proveedores' },
   { key: 'inventario', ruta: '/app/inventario', permiso: 'inventario' },
   { key: 'produccion', ruta: '/app/produccion', permiso: 'produccion' },
@@ -55,8 +55,12 @@ export function AppShell() {
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono, puedeVerAlmacen } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
+  // Pedidos (31/10/2026): se abre con «Solicitud de Pedido», «Compras» o el viejo `pedidos` (base).
+  // Quien solo pide (sin Compras) lo ve como «Solicitud de Pedido».
+  const verPedidos = MODULOS_PANTALLA_PEDIDOS.some((m) => can(m));
+  const labelPedidos = !can('compras') && can('solicitud_pedido') ? 'Solicitud de Pedido' : 'Pedidos / Compras';
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
-  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('delivery') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
+  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -165,7 +169,9 @@ export function AppShell() {
     // datos de la pantalla que se está usando. El menú igual precarga al pasar el mouse.
     if (!user || conexionLenta()) return;
     const rutas = ([
-      ['dashboard', '/app/dashboard'], ['pedidos', '/app/pedidos'], ['delivery', '/app/delivery'], ['inventario', '/app/inventario'], ['inventario', '/app/inventario/deposito-mina'],
+      ['dashboard', '/app/dashboard'],
+      ['solicitud_pedido', '/app/pedidos'], ['compras', '/app/pedidos'], ['pedidos', '/app/pedidos'], ['compras', '/app/pedidos/historico'],
+      ['delivery', '/app/delivery'], ['inventario', '/app/inventario'], ['inventario', '/app/inventario/deposito-mina'],
       ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],
       ['ventas', '/app/ventas'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
@@ -328,7 +334,7 @@ export function AppShell() {
         {showOperacion && <div className="sidebar-section">Operación</div>}
         {!soloTelefono && <nav className="nav">
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
-          {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
+          {verPedidos && <NavItem to="/app/pedidos" icon="✉" label={labelPedidos} />}
           {can('delivery') && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
           {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
