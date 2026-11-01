@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
+import { mensajeError } from '@/shared/lib/errores';
 import { notify } from '@/shared/lib/notify';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -167,7 +168,9 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       setAutoEstado('guardado');
     } catch (e) {
       setAutoEstado('error');
-      toast(e instanceof Error ? e.message : 'No se pudo guardar el permiso', 'error');
+      // Los errores de Supabase son objetos planos (no `Error`): antes se tapaba la causa real
+      // con el texto genérico (01/11/2026, «No se pudo guardar el permiso» sin más).
+      toast(mensajeError(e, 'No se pudo guardar el permiso'), 'error');
       refrescarAlTerminar.current = true; // vuelve a lo que de verdad quedó guardado
     } finally {
       terminarGuardado();
@@ -189,7 +192,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       setAutoEstado('guardado');
     } catch (e) {
       setAutoEstado('error');
-      toast(e instanceof Error ? e.message : 'No se pudo guardar la pantalla de teléfono', 'error');
+      toast(mensajeError(e, 'No se pudo guardar la pantalla de teléfono'), 'error');
       refrescarAlTerminar.current = true;
     } finally {
       terminarGuardado();
@@ -211,7 +214,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       setAutoEstado('guardado');
     } catch (e) {
       setAutoEstado('error');
-      toast(e instanceof Error ? e.message : 'No se pudo guardar el permiso del depósito', 'error');
+      toast(mensajeError(e, 'No se pudo guardar el permiso del depósito'), 'error');
       refrescarAlTerminar.current = true;
     } finally {
       terminarGuardado();
