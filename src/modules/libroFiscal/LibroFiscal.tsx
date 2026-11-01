@@ -140,8 +140,10 @@ function rutaDocumento(kind: DocKind, id: string | null): string | null {
 
 type VistaLibro = 'lista' | 'factura' | 'impuesto' | 'sin';
 
-export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura' }: {
+export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura', empresaId = null }: {
   canWrite?: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
+  /** Multi-empresa: el libro se filtra a esta empresa. null = single-empresa (todo, como hoy). */
+  empresaId?: string | null;
 }) {
   const { can } = usePermissions();
   const canVerPedidos = can('pedidos', 'lectura');
@@ -219,14 +221,14 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
 
   const reload = useCallback(async () => {
     const [rs, cfg] = await Promise.all([
-      listRetenciones({ desde: desde || undefined, hasta: hasta || undefined, incluirAnuladas: true }),
+      listRetenciones({ desde: desde || undefined, hasta: hasta || undefined, incluirAnuladas: true, empresaId: empresaId ?? undefined }),
       getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO),
     ]);
     setFilas(rs); setConfig(cfg); setErrorCarga(null);
     if (cfg.imprimirOriginalYCopia !== undefined) {
       setImprimirOriginalYCopia(cfg.imprimirOriginalYCopia !== false);
     }
-  }, [desde, hasta]);
+  }, [desde, hasta, empresaId]);
 
   useEffect(() => {
     let cancel = false;
@@ -1342,7 +1344,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
           onHecho={async () => { setRegistrar(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
       {facturaVarias && (
-        <RegistrarFacturaRetencion actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
+        <RegistrarFacturaRetencion actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId}
           semilla={retenerSobre ? { documento: retenerSobre } : semillaCompra}
           onClose={() => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); }}
           onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />

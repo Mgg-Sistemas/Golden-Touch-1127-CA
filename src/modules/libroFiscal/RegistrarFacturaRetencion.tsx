@@ -138,7 +138,7 @@ const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
   baseStr: '0', ivaStr: '0', pctStr: '', montoStr: '', numeroStr: '', motivos: {}, descripcion: '', ...over,
 });
 
-export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto }: {
+export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto, empresaId = null }: {
   semilla?: SemillaFactura;
   /** En una practicada, solo se ofrecen los proveedores con retenciones por realizar (si se pasa). */
   proveedorIdsPendientes?: Set<string>;
@@ -150,6 +150,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   impuestosActivos?: ImpuestosActivos | null;
   /** La ficha de cada impuesto: gatea la dirección admitida por línea y da el formato de su serie. */
   fichasImpuesto?: Map<TipoImpuesto, FichaRetencionVista> | null;
+  /** Multi-empresa: la empresa receptora que queda marcada en la cabecera. null = single-empresa. */
+  empresaId?: string | null;
 }) {
   const [configBase, setConfigBase] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   // Con R3, los valores (UT, % del IVA) de la fecha de la factura; sin R3, los de Parámetros.
@@ -586,7 +588,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         facturaFecha, facturaTotal: facturaTotal.trim() ? nDec(facturaTotal) : null,
         exento: exentoNum,
         moneda, tasa: moneda === 'Bs' ? null : tasa, periodo,
-        nota: nota.trim() || null, valorUt: config.valorUt, actor, actorName,
+        nota: nota.trim() || null, valorUt: config.valorUt, empresaId, actor, actorName,
       };
       const lineasNuevas: LineaFacturaNueva[] = lineas.map((l) => {
         const calc = calculoDe(l);

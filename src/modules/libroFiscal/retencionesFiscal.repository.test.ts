@@ -38,7 +38,7 @@ import {
   errorPorcentajesIva, guardarConfigRetencion,
   filaGtDeNueva, jsonDeConfig, llevaNumeroPropio, marcarDeclarada, registrarRetencion, rolAGt,
   sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, tiposLicenciaDeJson, type NuevaRetencion,
-  consultarCorrelativoEstimado,
+  consultarCorrelativoEstimado, listRetenciones,
 } from './retencionesFiscal.repository';
 
 // Datos inventados. El RIF se arma con el dígito verificador que acepte la validación de GT.
@@ -317,6 +317,20 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('numero_origen (V2) se lee como dato informativo', () => {
     expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA', numero_origen: 'dado' }).numeroOrigen).toBe('dado');
     expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA' }).numeroOrigen).toBeNull();
+  });
+});
+
+describe('multi-empresa: el libro filtra por empresa cuando se pide', () => {
+  it('con empresaId aplica eq(empresa_id)', async () => {
+    cola.push({ data: [], error: null });
+    await listRetenciones({ empresaId: 'emp-1' });
+    expect(llamadas[0].metodos).toContainEqual(['eq', 'empresa_id', 'emp-1']);
+  });
+
+  it('sin empresaId (single-empresa) no filtra por empresa', async () => {
+    cola.push({ data: [], error: null });
+    await listRetenciones({ direccion: 'practicada' });
+    expect(llamadas[0].metodos.some((x) => x[0] === 'eq' && x[1] === 'empresa_id')).toBe(false);
   });
 });
 

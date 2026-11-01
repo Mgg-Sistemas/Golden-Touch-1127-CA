@@ -318,7 +318,7 @@ export function RetencionesPage() {
 
       {/* ── Libro fiscal consolidado (con switch interno entre vista por factura, lista o por impuesto) ── */}
       {(vista === 'agrupada' || vista === 'libro') && (
-        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
+        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} empresaId={empresaId} />
       )}
 
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}
@@ -326,7 +326,7 @@ export function RetencionesPage() {
       {vista === 'periodos' && conV3 && <PeriodosRetencion puedeEditar={canWrite} />}
 
       {/* ── Reportes ── */}
-      {vista === 'reportes' && <ReportesView actor={actor} />}
+      {vista === 'reportes' && <ReportesView actor={actor} empresaId={empresaId} />}
 
       {/* ── Auditoría Fiscal (concisa y explícita) ── */}
       {vista === 'auditoria' && <AuditoriaRetenciones />}
@@ -462,7 +462,7 @@ export function RetencionesPage() {
       )}
       {registrarFactura && (
         <RegistrarFacturaRetencion
-          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
+          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId}
           onClose={() => setRegistrarFactura(null)}
           onHecho={async () => { setRegistrarFactura(null); await reload().catch(() => {}); }}
         />
