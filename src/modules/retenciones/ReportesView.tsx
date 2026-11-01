@@ -210,8 +210,8 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
     setGenerando(tipo);
     try {
       if (tipo === 'csv') descargarCsv(tabla, c);
-      else if (tipo === 'excel') await reporteExcel(tabla, c);
-      else await reportePdf(tabla, c);
+      else if (tipo === 'excel') await reporteExcel(tabla, c, config);
+      else await reportePdf(tabla, c, config);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el archivo.', 'error');
     } finally {
