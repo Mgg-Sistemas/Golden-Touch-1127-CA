@@ -18,7 +18,7 @@ function consulta(tabla: string) {
 
 vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consulta(t), rpc: vi.fn() } }));
 
-import { faltaEnDatosFactura, puedeOfrecerBorrar } from './facturaDocumento';
+import { faltaEnDatosFactura, puedeOfrecerBorrar, faltaEnTipoDocumentoRetencion } from './facturaDocumento';
 import { borrarFacturaLibre } from './retencionFacturas.repository';
 import { errorRetencion } from './erroresRetencion';
 
@@ -46,6 +46,17 @@ describe('datos fiscales de la factura (P03)', () => {
     expect(faltaEnDatosFactura({ ...ok, fecha: '2026-02-30' }, hoy)).toMatch(/fecha/);
     expect(faltaEnDatosFactura({ ...ok, fecha: '1999-12-31' }, hoy)).toMatch(/2000/);
     expect(faltaEnDatosFactura({ ...ok, fecha: '2026-10-21' }, hoy)).toMatch(/futura/);
+  });
+
+  it('solo se retiene sobre factura, nota de crédito o nota de débito', () => {
+    expect(faltaEnTipoDocumentoRetencion('factura')).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion('nota_credito')).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion('nota_debito')).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion(null)).toBeNull();       // vacío = factura
+    expect(faltaEnTipoDocumentoRetencion(undefined)).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion('nota_entrega')).toMatch(/factura|nota de crédito|nota de débito/i);
+    expect(faltaEnTipoDocumentoRetencion('comprobante_pago')).toMatch(/no sobre/i);
+    expect(faltaEnTipoDocumentoRetencion('cualquier_cosa')).not.toBeNull();
   });
 
   it('«Borrar» se ofrece solo sin líneas de retención', () => {

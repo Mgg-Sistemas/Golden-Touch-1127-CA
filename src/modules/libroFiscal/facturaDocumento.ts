@@ -28,3 +28,20 @@ export function faltaEnDatosFactura(d: { nro?: string | null; control?: string |
 
 /** ¿Se ofrece «Borrar» en una factura? Solo si no tiene ninguna línea de retención, ni anulada. */
 export const puedeOfrecerBorrar = (f: { lineas: unknown[] }) => f.lineas.length === 0;
+
+/** Los únicos documentos sobre los que se retiene (norma): factura, nota de crédito o nota de débito. */
+export const TIPOS_DOCUMENTO_RETENCION = ['factura', 'nota_debito', 'nota_credito'] as const;
+export type TipoDocumentoRetencion = typeof TIPOS_DOCUMENTO_RETENCION[number];
+
+/**
+ * ¿El tipo de documento permite retener? Solo factura, nota de crédito o nota de
+ * débito; nunca comprobantes de pago, notas de entrega u otros. Vacío cuenta como
+ * «factura» (el valor por defecto). Devuelve el motivo si NO se puede, o null.
+ */
+export function faltaEnTipoDocumentoRetencion(tipo: string | null | undefined): string | null {
+  const t = (tipo ?? 'factura').trim() || 'factura';
+  if (!(TIPOS_DOCUMENTO_RETENCION as readonly string[]).includes(t)) {
+    return 'Solo se puede retener sobre una factura, nota de crédito o nota de débito; no sobre comprobantes de pago, notas de entrega u otros documentos.';
+  }
+  return null;
+}
