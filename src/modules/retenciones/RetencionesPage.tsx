@@ -39,6 +39,10 @@ import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modul
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import { ReportesView } from './ReportesView';
 import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
+// Multi-empresa (andamiaje F-ME2): empresa actual arriba del módulo. Oculto y
+// sin efecto mientras la base no traiga la empresa en las retenciones.
+import { useEmpresaActual } from './empresaActual';
+import { EmpresaActualSelector } from './EmpresaActualSelector';
 import { Link } from 'react-router-dom';
 import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
@@ -76,6 +80,9 @@ export function RetencionesPage() {
   // R11: el buzón de facturas del teléfono, solo con sus tablas en la base.
   const [conBuzon, setConBuzon] = useState(false);
   useEffect(() => { buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false)); }, []);
+  // Multi-empresa (andamiaje): la empresa actual del módulo. En single-empresa
+  // queda inerte (multiempresa=false) y el selector no se muestra.
+  const { multiempresa, empresas, empresaId, setEmpresaId } = useEmpresaActual();
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
@@ -284,6 +291,9 @@ export function RetencionesPage() {
           Retenciones por factura: aplicables, registradas y no aplicables.
         </p>
         <div className="lfv8-cabeza-acciones">
+          {multiempresa && (
+            <EmpresaActualSelector empresas={empresas} empresaId={empresaId} onChange={setEmpresaId} />
+          )}
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           {conBuzon && puedeVista('retenciones') && (
             <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none' }} title="Abrir vista móvil de facturas">
@@ -308,7 +318,7 @@ export function RetencionesPage() {
 
       {/* ── Libro fiscal consolidado (con switch interno entre vista por factura, lista o por impuesto) ── */}
       {(vista === 'agrupada' || vista === 'libro') && (
-        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
+        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} empresaId={empresaId} />
       )}
 
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}
@@ -316,7 +326,7 @@ export function RetencionesPage() {
       {vista === 'periodos' && conV3 && <PeriodosRetencion puedeEditar={canWrite} />}
 
       {/* ── Reportes ── */}
-      {vista === 'reportes' && <ReportesView actor={actor} />}
+      {vista === 'reportes' && <ReportesView actor={actor} empresaId={empresaId} />}
 
       {/* ── Auditoría Fiscal (concisa y explícita) ── */}
       {vista === 'auditoria' && <AuditoriaRetenciones />}
@@ -452,7 +462,7 @@ export function RetencionesPage() {
       )}
       {registrarFactura && (
         <RegistrarFacturaRetencion
-          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
+          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId}
           onClose={() => setRegistrarFactura(null)}
           onHecho={async () => { setRegistrarFactura(null); await reload().catch(() => {}); }}
         />

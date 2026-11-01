@@ -100,6 +100,8 @@ export interface FacturaNueva {
   valorUt?: number | null;
   /** P03: el archivo de factura de Compras del que sale el registro. Se manda solo si viene; la base lo enlaza en la misma transacción. */
   adjuntoId?: string | null;
+  /** Multi-empresa: la empresa receptora. Se marca en la CABECERA; el trigger R13 la copia a las líneas. Solo viaja si viene. */
+  empresaId?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -140,6 +142,8 @@ export function pFacturaDe(f: FacturaNueva): Record<string, unknown> {
     actor_name: f.actorName ?? null,
     // Una factura fuera del sistema no lleva archivo de Compras (la base: RET_ADJUNTO_SIN_ORIGEN).
     ...(f.adjuntoId && f.docKind !== 'manual' ? { adjunto_id: f.adjuntoId } : {}),
+    // Multi-empresa: la empresa receptora en la cabecera (R13 la copia a las líneas). Solo si viene.
+    ...(f.empresaId ? { empresa_id: f.empresaId } : {}),
   };
 }
 
@@ -288,6 +292,8 @@ export interface FiltroFacturas {
   desde?: string;
   hasta?: string;
   docId?: string;
+  /** Multi-empresa: solo las facturas de ESA empresa. Surte efecto únicamente si viene. */
+  empresaId?: string | null;
 }
 
 /**
@@ -304,6 +310,7 @@ export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLi
   if (f.desde) q = q.gte('factura_fecha', f.desde);
   if (f.hasta) q = q.lte('factura_fecha', f.hasta);
   if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
+  if (f.empresaId) q = q.eq('empresa_id', f.empresaId);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map((row) => {

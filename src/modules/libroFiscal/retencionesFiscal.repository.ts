@@ -509,6 +509,8 @@ export interface FiltroRetenciones {
   hasta?: string;
   docId?: string;
   incluirAnuladas?: boolean;
+  /** Multi-empresa: filtra al libro de ESA empresa. Solo surte efecto si viene (en single-empresa no se pasa). */
+  empresaId?: string | null;
 }
 
 /**
@@ -533,6 +535,8 @@ export async function listRetenciones(f: FiltroRetenciones = {}): Promise<Retenc
     if (f.desde) q = q.gte('factura_fecha', f.desde);
     if (f.hasta) q = q.lte('factura_fecha', f.hasta);
     if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
+    // Multi-empresa: la columna la pone/copia la base (R13). Solo filtra si se pidió.
+    if (f.empresaId) q = q.eq('empresa_id', f.empresaId);
     if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
     return q;
   });
@@ -582,6 +586,13 @@ export interface NuevaRetencion {
   sustraendo?: number;
   montoRetenido: number;
   observacion?: string | null;
+  /**
+   * Multi-empresa: la empresa receptora. RESERVADO: el registro suelto inserta
+   * una línea SIN documento cabecera, así que todavía no se escribe (pendiente de
+   * confirmar con Master/BD cómo lleva la empresa una línea suelta — D1b). El
+   * camino de factura sí marca la empresa en la cabecera (ver FacturaNueva).
+   */
+  empresaId?: string | null;
   actor: string;
   actorName?: string | null;
 }

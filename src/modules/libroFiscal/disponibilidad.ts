@@ -113,6 +113,16 @@ export async function buzonDisponible(): Promise<boolean> {
   return facturas && empresas;
 }
 
+/**
+ * Multi-empresa aplicado (F-ME1): las retenciones registradas llevan la empresa
+ * receptora. Se pregunta por la columna `empresa_id` de `retencion_documentos`
+ * (que ya implica que el paquete de base está). Sin ella, el módulo se comporta
+ * single-empresa como hasta hoy (degradación segura).
+ */
+export function multiEmpresaDisponible(): Promise<boolean> {
+  return columnaDisponible('retencion_documentos', 'empresa_id');
+}
+
 /** Olvida lo preguntado (al cambiar de sesión, o en las pruebas). */
 export function olvidarDisponibilidad(): void {
   cache.clear();
