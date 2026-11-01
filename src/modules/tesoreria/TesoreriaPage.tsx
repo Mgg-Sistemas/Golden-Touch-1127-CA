@@ -29,6 +29,9 @@ import { repartirPagoYReembolso } from './reembolsoPago';
 import { filtrarMovimientos } from './filtrosMovimientos';
 import { filtrarRenglonesNomina, montoRenglonLote, totalLote } from './nominaLote';
 import { convertirRetencion } from './retencionPago';
+// Excepción de alcance (W5, autorizada): leer del libro la retención ya hecha
+// para PRE-LLENAR el monto en el pago de una OC «retener antes de pagar».
+import { retencionRegistradaDeOrden, type RetencionRegistrada } from './retencionRegistrada';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, listConversiones, type ConversionCaja } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
@@ -5648,6 +5651,26 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [retencionMoneda, setRetencionMoneda] = useState<'Bs' | 'USD'>('Bs');
   const [tasaRetStr, setTasaRetStr] = useState('');
   const [tasaRetEditada, setTasaRetEditada] = useState(false);
+  // W5: la retención YA registrada en el libro para esta OC (en Bs). Pre-llena
+  // el campo cuando se retiene «antes de pagar». null = no hay nada registrado.
+  const [retRegistrada, setRetRegistrada] = useState<RetencionRegistrada | null>(null);
+  const retPrellenada = useRef(false);
+  useEffect(() => {
+    // Solo las OC que se retienen antes de pagar traen una retención ya hecha.
+    if (!retieneAntes || !o.id) return;
+    let vivo = true;
+    retencionRegistradaDeOrden(o.id).then((reg) => {
+      if (!vivo || !reg) return;
+      setRetRegistrada(reg);
+      // Pre-llenamos una sola vez y sin pisar lo que Tesorería haya escrito.
+      if (!retPrellenada.current) {
+        retPrellenada.current = true;
+        setRetencionMoneda('Bs');
+        setRetencionStr(String(reg.montoBs));
+      }
+    }).catch(() => { /* si falla la lectura, el campo queda como hoy (vacío) */ });
+    return () => { vivo = false; };
+  }, [retieneAntes, o.id]);
   const monedaOc: 'Bs' | 'USD' = (o.total_moneda ?? 'USD') === 'Bs' ? 'Bs' : 'USD';
   const tasaRetNum = Number(tasaRetStr) || 0;
   const retConv = convertirRetencion(conRetencion ? Number(retencionStr) || 0 : 0, retencionMoneda, tasaRetNum, monedaOc);
@@ -5655,6 +5678,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   // Lo que se resta del total: la retención en la moneda de la OC.
   const retencionNum = conRetencion ? retConv.enMonedaOc : 0;
   const retencionInvalida = conRetencion && (faltaTasaRet || retencionNum <= 0 || retencionNum >= baseFactura);
+  // W5: aviso NO bloqueante si el monto editado deja de coincidir con lo
+  // registrado en el libro (comparado en Bs, que es como se declara).
+  const retNoCoincide = conRetencion && retRegistrada != null && !faltaTasaRet
+    && Math.abs(retConv.enBs - retRegistrada.montoBs) > 0.01;
   const baseOrden = retencionInvalida ? baseFactura : round2(baseFactura - retencionNum);
   // Pagar de más ya no se bloquea: se pide confirmación y el excedente sale como reembolso.
   const [confirmarReembolso, setConfirmarReembolso] = useState(false);
@@ -6431,6 +6458,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 {' − '}retención <strong className="mono">{monto(retencionNum, monedaOc)}</strong>
                 {' = '}<strong className="mono" style={{ color: retencionInvalida ? 'var(--danger)' : 'var(--success)' }}>{monto(round2(baseFactura - retencionNum), monedaOc)}</strong> a pagar
               </div>
+              {retRegistrada != null && (
+                <div className="muted" style={{ fontSize: '.82rem' }}>
+                  Retención registrada en el libro: <strong className="mono">{monto(retRegistrada.montoBs, 'Bs')}</strong>
+                  {retRegistrada.lineas > 1 && <span> · {retRegistrada.lineas} impuestos sumados</span>}
+                </div>
+              )}
             </div>
           )}
           {retencionInvalida && (
@@ -6439,6 +6472,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 ? 'Indica la tasa (Bs por $) para convertir la retención.'
                 : 'La retención tiene que ser mayor que 0 y menor que el total de la factura.'}
             </small>
+          )}
+          {retNoCoincide && retRegistrada && (
+            <div className="aviso warning sm" style={{ marginTop: '.35rem' }}>
+              <span className="aviso-icono">⚠️</span>
+              <div>No coincide con la retención registrada (<strong className="mono">{monto(retRegistrada.montoBs, 'Bs')}</strong>). Puedes continuar, pero revisa el monto.</div>
+            </div>
           )}
           {!conRetencion && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Márcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
         </div>
