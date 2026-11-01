@@ -43,6 +43,7 @@ import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
 // sin efecto mientras la base no traiga la empresa en las retenciones.
 import { useEmpresaActual, esEmpresaGt } from './empresaActual';
 import { EmpresaActualSelector } from './EmpresaActualSelector';
+import { EditorFichasFiscalesEmpresa } from './EditorFichasFiscalesEmpresa';
 import { Link } from 'react-router-dom';
 import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
@@ -444,6 +445,7 @@ export function RetencionesPage() {
       {parametros && (
         <ConfiguracionFiscalModal
           puedeEditar={canWrite}
+          editorFiscalEmpresas={multiempresa ? <EditorFichasFiscalesEmpresa puedeEditar={canWrite} /> : null}
           onClose={() => {
             setParametros(false);
             void reload();

@@ -105,6 +105,12 @@ export interface ConfigRetencion {
   porcentajesDeFicha?: boolean;
   /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
   licenciaMunicipal?: string | null;
+  /**
+   * Multi-empresa: alícuota del ISAE (municipal) de la empresa según su municipio. Solo
+   * se fija para una empresa NO-GT (desde su ficha); en GT/single queda undefined y el
+   * ISAE usa la alícuota del concepto (la global de hoy).
+   */
+  alicuotaMunicipal?: number;
   /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
   imprimirOriginalYCopia?: boolean;
 }
@@ -205,6 +211,8 @@ export interface FichaFiscalEmpresa {
   pctIvaEspecial?: number;
   pctIgtf?: number;
   ivaAlicuota?: number;
+  /** Alícuota del ISAE (municipal) de la empresa según su municipio (F-ME1). */
+  alicuotaMunicipal?: number;
   imprimirOriginalYCopia?: boolean;
 }
 
@@ -234,9 +242,25 @@ export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpres
     pctIvaEspecial: ficha.pctIvaEspecial ?? base.pctIvaEspecial,
     pctIgtf: ficha.pctIgtf ?? base.pctIgtf,
     ivaAlicuota: ficha.ivaAlicuota ?? base.ivaAlicuota,
+    // La alícuota del ISAE de la empresa (si su ficha la trae); si no, el ISAE usa la del concepto (global).
+    alicuotaMunicipal: ficha.alicuotaMunicipal ?? base.alicuotaMunicipal,
     imprimirOriginalYCopia: ficha.imprimirOriginalYCopia ?? base.imprimirOriginalYCopia,
     porcentajesDeFicha: true,
   };
+}
+
+/**
+ * Multi-empresa: para el ISAE (municipal), si la empresa trae su propia alícuota
+ * (config.alicuotaMunicipal), se usa esa en vez de la del concepto (que es la global).
+ * Para los demás impuestos, o sin alícuota por empresa, el concepto queda igual. No
+ * cambia la fórmula: solo la alícuota de entrada del ISAE de una empresa NO-GT.
+ */
+export function conceptoConAlicuotaEmpresa<T extends { tipo: string; porcentaje: number } | null>(
+  concepto: T,
+  config: Pick<ConfigRetencion, 'alicuotaMunicipal'>,
+): T {
+  if (!concepto || concepto.tipo !== 'municipal' || config.alicuotaMunicipal == null) return concepto;
+  return { ...concepto, porcentaje: config.alicuotaMunicipal };
 }
 
 /** Un renglón del catálogo. */
