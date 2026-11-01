@@ -22,8 +22,7 @@ import {
 } from './retencionesFiscal.repository';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
-import { v2rDisponible } from './disponibilidad';
-import { CONFIG_RETENCION_DEFECTO, formatoComprobante } from './retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO } from './retencionesCalculo';
 
 const T_DOCUMENTOS = 'retencion_documentos';
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -237,30 +236,8 @@ function errorLegibleFactura(e: { code?: string; message?: string }): Error {
 }
 
 /**
- * Sin V2R la base no numera las practicadas: cada línea que lleva número
- * propio (practicada, no IGTF, sin número escrito) lo pide con
- * siguiente_numero_retencion y lo arma AAAAMM + 8, como el registro suelto de
- * hoy. Con V2R, las líneas van sin número y la base lo pone.
- * Ojo: así el número se pide antes de la transacción; si el registro falla, ese número queda gastado (igual que hoy en el suelto).
- */
-export async function numerarSinV2R(factura: Pick<FacturaNueva, 'direccion' | 'periodo' | 'facturaFecha'>, lineas: LineaFacturaNueva[]): Promise<LineaFacturaNueva[]> {
-  if (factura.direccion !== 'practicada' || (await v2rDisponible())) return lineas;
-  const salida: LineaFacturaNueva[] = [];
-  for (const l of lineas) {
-    if (l.tipo === 'igtf' || (Number(l.monto) || 0) <= 0 || l.comprobanteNro?.trim()) { salida.push(l); continue; }
-    const periodo = l.comprobantePeriodo || factura.periodo || (factura.facturaFecha ?? '').slice(0, 7).replace('-', '');
-    const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(l.tipo), p_periodo: periodo });
-    if (error) throw errorLegibleFactura(error);
-    const entero = Number(data);
-    if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
-    salida.push({ ...l, comprobanteNro: formatoComprobante(periodo, entero, l.tipo), comprobantePeriodo: periodo });
-  }
-  return salida;
-}
-
-/**
  * Registra una factura con sus líneas en una sola transacción. La base asigna
- * los números (V2) y los devuelve. Todo o nada.
+ * los números de cada practicada (V2R) y los devuelve. Todo o nada.
  */
 export async function registrarFactura(factura: FacturaNueva, lineas: LineaFacturaNueva[]): Promise<FacturaConLineas> {
   if (!lineas.length) throw new Error('La factura necesita al menos una línea de impuesto.');
@@ -270,10 +247,9 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
   // R3: la UT de la fecha de la factura (sin UT cargada para esa fecha, no se registra).
   const vigente = await configDeFecha({ ...CONFIG_RETENCION_DEFECTO, valorUt: factura.valorUt ?? 0 },
     (factura.facturaFecha ?? '').slice(0, 10), lineas.map((l) => l.tipo));
-  const conNumero = await numerarSinV2R(factura, lineas);
   const { data, error } = await supabase.rpc('retencion_factura_registrar', {
     p_factura: pFacturaDe(factura),
-    p_lineas: conNumero.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(vigente.valorUt) })),
+    p_lineas: lineas.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(vigente.valorUt) })),
   });
   if (error) throw errorLegibleFactura(error);
   const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };

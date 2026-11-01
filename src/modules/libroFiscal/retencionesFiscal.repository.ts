@@ -35,7 +35,7 @@ import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
 import { serieDeImpuesto } from './impuestos.repository';
-import { tablaDisponible, v2rDisponible } from './disponibilidad';
+import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_RETENCIONES = 'retenciones';
@@ -696,19 +696,12 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
   // R3: la UT (y los % del IVA) de la fecha de la factura. Antes de pedir el número: si falta, no se gasta.
   const vigente = await configDeFecha(config, (input.facturaFecha ?? '').slice(0, 10), [input.tipo]);
 
-  // Con V2R, el número de una practicada lo asigna la base. Solo viaja si se escribió a mano: «dado».
-  // Sin V2R (la base de hoy), el front lo pide con siguiente_numero_retencion y lo arma AAAAMM + 8.
-  let numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
-  if (!(await v2rDisponible())) {
-    if (llevaNumeroPropio(input)) {
-      const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(input.tipo), p_periodo: input.periodo });
-      if (error) throw error;
-      const entero = Number(data);
-      if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
-      numero = { entero, texto: formatoComprobante(input.periodo, entero, input.tipo) };
-    }
-  } else if (numero.texto && input.direccion === 'practicada') {
-    // V2R: la serie (si numera y su formato) sale de retencion_impuestos; sin R2, las reglas fijas.
+  // La base numera cada practicada al insertar (único lugar donde dos usuarios no
+  // sacan el mismo). El número solo viaja desde el front si se escribió a mano: «dado».
+  const numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
+  if (numero.texto && input.direccion === 'practicada') {
+    // El número «dado» se valida con la serie (si numera y su formato) de
+    // retencion_impuestos; sin R2, con las reglas fijas del impuesto.
     const serie = await serieDeImpuesto(tipoAGt(input.tipo));
     const numera = serie ? serie.numera : llevaNumeroPropio(input);
     const formato = serie ? serie.formato : formatoSerie(input.tipo);
