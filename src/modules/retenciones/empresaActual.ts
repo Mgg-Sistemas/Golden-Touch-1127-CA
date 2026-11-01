@@ -21,12 +21,16 @@ import { multiEmpresaDisponible } from '@/modules/libroFiscal/disponibilidad';
 /** Dónde recuerda el navegador la empresa elegida (comodidad por usuario, no es dato fiscal). */
 export const CLAVE_EMPRESA_ACTUAL = 'gt.retenciones.empresaActual';
 
-/** La clave de la empresa principal (GT) según el diseño de BD; es el default natural. */
-const CLAVE_GT = 'empresa-golden-touch';
+/**
+ * El ID (no la clave) de la empresa principal (GT). Es el identificador ESTABLE que usa
+ * BD (default, FK y filtros de R13); la clave de GT es «golden_touch», distinta de su id.
+ * Por eso la detección de GT va por id, no por clave.
+ */
+const ID_GT = 'empresa-golden-touch';
 
 /** ¿Es GT (la empresa principal)? GT conserva su régimen por R1; las demás, por su ficha. */
-export function esEmpresaGt(empresa: { clave?: string } | null | undefined): boolean {
-  return !!empresa && empresa.clave === CLAVE_GT;
+export function esEmpresaGt(empresa: { id?: string } | null | undefined): boolean {
+  return !!empresa && empresa.id === ID_GT;
 }
 
 /**
@@ -42,7 +46,7 @@ export function empresaPorDefecto(empresas: EmpresaReceptora[], guardadaId: stri
   const activas = empresas.filter((e) => e.activo);
   const elegibles = activas.length ? activas : empresas;
   if (guardadaId && elegibles.some((e) => e.id === guardadaId)) return guardadaId;
-  const gt = elegibles.find((e) => e.clave === CLAVE_GT);
+  const gt = elegibles.find((e) => e.id === ID_GT);
   if (gt) return gt.id;
   return elegibles[0].id;
 }

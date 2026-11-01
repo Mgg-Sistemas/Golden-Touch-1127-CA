@@ -13,6 +13,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { rifEmpresaParaGuardar } from '@/modules/libroFiscal/parametrosEmpresa';
 import { errorRetencion } from '@/modules/libroFiscal/erroresRetencion';
 import { columnaDisponible } from '@/modules/libroFiscal/disponibilidad';
+import { errorPorcentajesIva } from '@/modules/libroFiscal/retencionesFiscal.repository';
 
 const TABLA = 'retencion_empresas_receptoras';
 
@@ -149,6 +150,10 @@ export function faltaEnEmpresa(empresa: EmpresaReceptoraInput): string | null {
 export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): Promise<EmpresaReceptora> {
   const falta = faltaEnEmpresa(empresa);
   if (falta) throw new Error(falta);
+  // A2: el % de retención de IVA solo puede ser 75 o 100 (Providencia SNAT/2025/000054),
+  // igual que la config de GT. El select de la UI ya lo protege; el repo lo cierra también.
+  const faltaIva = errorPorcentajesIva({ pctIvaGeneral: empresa.pctIvaGeneral ?? 75, pctIvaEspecial: empresa.pctIvaEspecial ?? 100 });
+  if (faltaIva) throw new Error(faltaIva);
   const nombre = empresa.nombre.trim();
 
   const filaBase = {

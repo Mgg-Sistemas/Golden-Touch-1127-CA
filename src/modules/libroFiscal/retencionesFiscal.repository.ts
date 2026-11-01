@@ -797,6 +797,7 @@ export async function consultarCorrelativoEstimado(
   tipo: TipoImpuesto,
   periodo: string,
   formatoFicha?: ReturnType<typeof formatoSerie>,
+  empresaId?: string | null,
 ): Promise<CorrelativoEstimado> {
   if (tipo === 'igtf') {
     return {
@@ -822,6 +823,11 @@ export async function consultarCorrelativoEstimado(
 
     if (esIva && periodo) {
       q = q.eq('comprobante_periodo', periodo);
+    }
+    // B2 (multi-empresa): cada empresa lleva su propia serie (R14). Si viene la empresa,
+    // el estimado cuenta solo sus retenciones, para que coincida con el número que asignará la base.
+    if (empresaId) {
+      q = q.eq('empresa_id', empresaId);
     }
 
     const { data } = await q

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { empresaPorDefecto } from './empresaActual';
+import { empresaPorDefecto, esEmpresaGt } from './empresaActual';
 import type { EmpresaReceptora } from './empresasReceptoras.repository';
 
-/** Fábrica mínima: solo los campos que mira empresaPorDefecto. */
+/** Fábrica mínima: solo los campos que mira empresaPorDefecto / esEmpresaGt. */
 function emp(over: Partial<EmpresaReceptora> & { id: string }): EmpresaReceptora {
   return {
     clave: over.clave ?? over.id, nombre: over.id, rif: 'J-0', colorBadge: '#000',
@@ -10,19 +10,38 @@ function emp(over: Partial<EmpresaReceptora> & { id: string }): EmpresaReceptora
   } as EmpresaReceptora;
 }
 
+// GT REAL: su id es 'empresa-golden-touch' pero su clave es 'golden_touch' (distinta).
+const GT = emp({ id: 'empresa-golden-touch', clave: 'golden_touch', nombre: 'Golden Touch' });
+
+describe('esEmpresaGt · detecta a GT por ID, no por clave (B1)', () => {
+  it('GT real (id=empresa-golden-touch, clave=golden_touch) es GT', () => {
+    expect(esEmpresaGt(GT)).toBe(true);
+  });
+
+  it('una NO-GT no es GT aunque su clave se parezca', () => {
+    expect(esEmpresaGt(emp({ id: 'empresa-mto', clave: 'empresa-golden-touch' }))).toBe(false);
+    expect(esEmpresaGt(emp({ id: 'empresa-mto', clave: 'mto' }))).toBe(false);
+  });
+
+  it('null/undefined no es GT', () => {
+    expect(esEmpresaGt(null)).toBe(false);
+    expect(esEmpresaGt(undefined)).toBe(false);
+  });
+});
+
 describe('empresaPorDefecto', () => {
   it('null si no hay empresas', () => {
     expect(empresaPorDefecto([], 'x')).toBeNull();
   });
 
   it('respeta la guardada si sigue activa', () => {
-    const lista = [emp({ id: 'a', clave: 'empresa-golden-touch' }), emp({ id: 'b' })];
+    const lista = [GT, emp({ id: 'b' })];
     expect(empresaPorDefecto(lista, 'b')).toBe('b');
   });
 
-  it('ignora la guardada si ya no existe y cae en GT', () => {
-    const lista = [emp({ id: 'a' }), emp({ id: 'gt', clave: 'empresa-golden-touch' })];
-    expect(empresaPorDefecto(lista, 'zzz')).toBe('gt');
+  it('ignora la guardada si ya no existe y cae en GT (por id)', () => {
+    const lista = [emp({ id: 'a' }), GT];
+    expect(empresaPorDefecto(lista, 'zzz')).toBe('empresa-golden-touch');
   });
 
   it('ignora la guardada si está inactiva', () => {
@@ -35,9 +54,9 @@ describe('empresaPorDefecto', () => {
     expect(empresaPorDefecto(lista, null)).toBe('uno');
   });
 
-  it('prefiere GT sobre la primera cuando no hay guardada', () => {
-    const lista = [emp({ id: 'mto' }), emp({ id: 'gt', clave: 'empresa-golden-touch' })];
-    expect(empresaPorDefecto(lista, null)).toBe('gt');
+  it('prefiere GT (por id) sobre la primera cuando no hay guardada', () => {
+    const lista = [emp({ id: 'mto' }), GT];
+    expect(empresaPorDefecto(lista, null)).toBe('empresa-golden-touch');
   });
 
   it('si todas están inactivas, igual elige una (no deja al módulo sin empresa)', () => {
