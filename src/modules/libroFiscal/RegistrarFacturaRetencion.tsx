@@ -53,9 +53,26 @@ import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva, type TipoDocumento,
 } from './retencionFacturas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { soloImpuestosActivos, admiteDireccion, type ImpuestosActivos, type FichaRetencionVista } from '@/modules/retenciones/impuestosVista';
 
 /** Para calcular mientras se escribe. Lo ilegible lo señala `ilegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
+
+/**
+ * Los impuestos de una línea: los activos que admiten la dirección de la factura,
+ * pero si la línea ya tiene elegido uno que se deshabilitó (o dejó de admitir esa
+ * dirección), se sigue mostrando para no perder el valor en pantalla.
+ */
+function tiposDeLinea(
+  impuestosActivos: ImpuestosActivos | null | undefined,
+  fichasImpuesto: Map<TipoImpuesto, FichaRetencionVista> | null | undefined,
+  direccion: DireccionRetencion,
+  tipoActual: TipoImpuesto,
+): typeof TIPOS_IMPUESTO {
+  const base = soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null)
+    .filter((t) => admiteDireccion(fichasImpuesto?.get(t.key), direccion));
+  return base.some((t) => t.key === tipoActual) ? base : [...base, ...TIPOS_IMPUESTO.filter((t) => t.key === tipoActual)];
+}
 /** Hoy en la hora local (AAAA-MM-DD). */
 /** Hoy en Venezuela. */
 const hoyIso = hoyVenezuela;
@@ -118,7 +135,7 @@ const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
   baseStr: '0', ivaStr: '0', pctStr: '', montoStr: '', numeroStr: '', motivos: {}, descripcion: '', ...over,
 });
 
-export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
+export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto }: {
   semilla?: SemillaFactura;
   /** En una practicada, solo se ofrecen los proveedores con retenciones por realizar (si se pasa). */
   proveedorIdsPendientes?: Set<string>;
@@ -126,6 +143,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   actorName: string | null;
   onClose: () => void;
   onHecho: (res: Awaited<ReturnType<typeof registrarFactura>>) => void;
+  /** Los impuestos activos de la tabla; uno deshabilitado no se ofrece como línea nueva. */
+  impuestosActivos?: ImpuestosActivos | null;
+  /** La ficha de cada impuesto: gatea la dirección admitida por línea y da el formato de su serie. */
+  fichasImpuesto?: Map<TipoImpuesto, FichaRetencionVista> | null;
 }) {
   const [configBase, setConfigBase] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   // Con R3, los valores (UT, % del IVA) de la fecha de la factura; sin R3, los de Parámetros.
@@ -246,13 +267,16 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const tipos: TipoImpuesto[] = ['iva', 'islr', 'municipal', 'regional', 'igtf'];
       const mapa: Record<string, CorrelativoEstimado> = {};
       for (const t of tipos) {
+        // El formato del número sale de la ficha del impuesto (R2); sin ficha, del mapeo fijo.
+        const fmtFicha = fichasImpuesto?.get(t)?.serieFormato;
         try {
-          mapa[t] = await consultarCorrelativoEstimado(t, periodo);
+          mapa[t] = await consultarCorrelativoEstimado(t, periodo, fmtFicha);
         } catch {
+          const fmt = fmtFicha ?? formatoSerie(t);
           mapa[t] = {
             numero: 1,
-            comprobante: formatoComprobante(periodo, 1, t),
-            formato: formatoSerie(t),
+            comprobante: formatoComprobante(periodo, 1, t, fmt),
+            formato: fmt,
             explicacion: 'Correlativo inicial',
           };
         }
@@ -262,7 +286,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
     void cargarCorrelativos();
     return () => { activo = false; };
-  }, [direccion, facturaFecha]);
+  }, [direccion, facturaFecha, fichasImpuesto]);
 
   const opcionesProveedor = useMemo(() => {
     const lista = proveedorIdsPendientes ? proveedores.filter((p) => proveedorIdsPendientes.has(p.id)) : proveedores;
@@ -701,15 +725,20 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       <div className="form-row">
         <label>¿Quién retuvo?</label>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {DIRECCIONES.map((d) => (
-            <label key={d.key} className="card" style={{
-              margin: 0, padding: '.45rem .8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '.4rem',
-              borderColor: direccion === d.key ? 'var(--primary)' : 'var(--border)',
+          {DIRECCIONES.map((d) => {
+            // Se ofrece la dirección si algún impuesto activo la admite (sin fichas, las dos).
+            const ningunImpuesto = !!fichasImpuesto
+              && !soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null).some((t) => admiteDireccion(fichasImpuesto.get(t.key), d.key));
+            return (
+            <label key={d.key} className="card" title={ningunImpuesto ? `Ningún impuesto activo admite «${d.label.toLowerCase()}».` : undefined} style={{
+              margin: 0, padding: '.45rem .8rem', cursor: ningunImpuesto ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '.4rem',
+              borderColor: direccion === d.key ? 'var(--primary)' : 'var(--border)', opacity: ningunImpuesto ? 0.5 : 1,
             }}>
-              <input type="radio" checked={direccion === d.key} onChange={() => { marcarSucio(); setDireccion(d.key); }} />
+              <input type="radio" checked={direccion === d.key} disabled={ningunImpuesto} onChange={() => { marcarSucio(); setDireccion(d.key); }} />
               <span style={{ fontWeight: 600 }}>{d.label}</span>
             </label>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -835,7 +864,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           </div>
           {(() => {
             const tiposUsados = new Set(lineas.map((l) => l.tipo));
-            const tiposDisponibles = TIPOS_IMPUESTO.filter((t) => !tiposUsados.has(t.key));
+            const tiposDisponibles = soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null)
+              .filter((t) => !tiposUsados.has(t.key) && admiteDireccion(fichasImpuesto?.get(t.key), direccion));
             const puedeAgregar = tiposDisponibles.length > 0;
             return (
               <button
@@ -944,7 +974,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                       setLinea(l.id, { tipo: nuevoTipo });
                     }}
                   >
-                    {TIPOS_IMPUESTO.map((t) => {
+                    {tiposDeLinea(impuestosActivos, fichasImpuesto, direccion, l.tipo).map((t) => {
                       const ocupadoPorOtra = lineas.some((otra) => otra.id !== l.id && otra.tipo === t.key);
                       return (
                         <option key={t.key} value={t.key} disabled={ocupadoPorOtra}>

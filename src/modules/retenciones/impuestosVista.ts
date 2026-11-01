@@ -10,12 +10,33 @@
    Si no hay datos (no se pudo leer o la tabla está vacía) se pasa `null` y se usa
    la lista fija completa: degradación segura, la pantalla no se rompe.
    ============================================================ */
-import type { TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
+import type { DireccionRetencion, FormatoSerie, TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 
 /** Las claves de impuesto activas y su orden en la tabla. */
 export interface ImpuestosActivos {
   claves: Set<TipoImpuesto>;
   orden: Map<string, number>;
+}
+
+/**
+ * Lo que la ficha de un impuesto dice para las vistas de registro: qué
+ * direcciones admite y el formato de su serie. Sale de `retencion_impuestos`.
+ */
+export interface FichaRetencionVista {
+  admitePracticada: boolean;
+  admiteSufrida: boolean;
+  serieFormato: FormatoSerie | null;
+  numera: boolean;
+}
+
+/**
+ * ¿La ficha admite esa dirección? `practicada` mira `admitePracticada`;
+ * `recibida` (sufrida), `admiteSufrida`. Sin ficha (`undefined`), admite las dos:
+ * degradación segura, igual que hoy, cuando no se pudo leer la tabla.
+ */
+export function admiteDireccion(ficha: FichaRetencionVista | undefined, direccion: DireccionRetencion): boolean {
+  if (!ficha) return true;
+  return direccion === 'practicada' ? ficha.admitePracticada : ficha.admiteSufrida;
 }
 
 /**

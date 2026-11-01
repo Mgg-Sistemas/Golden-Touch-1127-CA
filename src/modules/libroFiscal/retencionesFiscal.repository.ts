@@ -781,6 +781,7 @@ export interface CorrelativoEstimado {
 export async function consultarCorrelativoEstimado(
   tipo: TipoImpuesto,
   periodo: string,
+  formatoFicha?: ReturnType<typeof formatoSerie>,
 ): Promise<CorrelativoEstimado> {
   if (tipo === 'igtf') {
     return {
@@ -792,8 +793,10 @@ export async function consultarCorrelativoEstimado(
   }
 
   const tipoGt = tipoAGt(tipo);
-  const esIva = tipo === 'iva';
-  const fmt = formatoSerie(tipo);
+  // El formato sale de la ficha (R2) si el front lo pasa; si no, el mapeo fijo del tipo.
+  const fmt = formatoFicha !== undefined ? formatoFicha : formatoSerie(tipo);
+  // Con formato AAAAMM8 el número lleva el período adelante (hoy solo el IVA).
+  const esIva = fmt === 'AAAAMM8';
 
   try {
     let q = supabase
@@ -831,7 +834,7 @@ export async function consultarCorrelativoEstimado(
     }
 
     const siguienteNumero = maxNum + 1;
-    const compTexto = formatoComprobante(periodo, siguienteNumero, tipo);
+    const compTexto = formatoComprobante(periodo, siguienteNumero, tipo, fmt);
 
     return {
       numero: siguienteNumero,
@@ -842,7 +845,7 @@ export async function consultarCorrelativoEstimado(
         : `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} (${compTexto}).`,
     };
   } catch {
-    const compTexto = formatoComprobante(periodo, 1, tipo);
+    const compTexto = formatoComprobante(periodo, 1, tipo, fmt);
     return {
       numero: 1,
       comprobante: compTexto,
