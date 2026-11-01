@@ -19,7 +19,7 @@ import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { getConfigRetencion, listRetenciones, tipoAGt, tipoDeGt } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import { listImpuestos } from '@/modules/libroFiscal/impuestos.repository';
-import { soloImpuestosActivos, filtrarActivos, type ImpuestosActivos } from './impuestosVista';
+import { soloImpuestosActivos, filtrarActivos, type ImpuestosActivos, type FichaRetencionVista } from './impuestosVista';
 import { impuestosQuePractica, noAplicaDisponible, noAplicaPorOrden } from '@/modules/libroFiscal/noAplica.repository';
 import { listCondiciones, empresaEsAgenteEnFecha, type CondicionRegistrada } from '@/modules/libroFiscal/agenteCondiciones.repository';
 import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAplicaModal';
@@ -94,9 +94,14 @@ export function RetencionesPage() {
   // ACTIVOS de la tabla, no de una lista fija: un impuesto deshabilitado desaparece.
   // Si no se puede leer o no hay datos, se cae a la lista fija (no se rompe la pantalla).
   const [impuestosActivos, setImpuestosActivos] = useState<ImpuestosActivos | null>(null);
+  // La ficha de cada impuesto (direcciones que admite, formato de su serie) para los modales de registro.
+  const [fichasImpuesto, setFichasImpuesto] = useState<Map<TipoImpuesto, FichaRetencionVista> | null>(null);
   const cargarImpuestosActivos = useCallback(() => {
     listImpuestos()
       .then((xs) => {
+        setFichasImpuesto(new Map(xs.map((i) => [tipoDeGt(i.clave), {
+          admitePracticada: i.admitePracticada, admiteSufrida: i.admiteSufrida, serieFormato: i.serieFormato, numera: i.numera,
+        }] as const)));
         const activos = xs.filter((i) => i.activo !== false);
         if (!activos.length) { setImpuestosActivos(null); return; }
         setImpuestosActivos({
@@ -104,7 +109,7 @@ export function RetencionesPage() {
           orden: new Map(activos.map((i) => [tipoDeGt(i.clave), i.orden] as const)),
         });
       })
-      .catch(() => setImpuestosActivos(null));
+      .catch(() => { setImpuestosActivos(null); setFichasImpuesto(null); });
   }, []);
   useEffect(() => { cargarImpuestosActivos(); }, [cargarImpuestosActivos]);
 
@@ -424,7 +429,7 @@ export function RetencionesPage() {
       {registrar && (
         <RegistrarRetencionModal
           semilla={registrar} actor={actor} actorName={actorName}
-          proveedorIdsPendientes={proveedorIdsPendientes} impuestosActivos={impuestosActivos}
+          proveedorIdsPendientes={proveedorIdsPendientes} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => {}); }}
         />
@@ -436,7 +441,7 @@ export function RetencionesPage() {
       )}
       {registrarFactura && (
         <RegistrarFacturaRetencion
-          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos}
+          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
           onClose={() => setRegistrarFactura(null)}
           onHecho={async () => { setRegistrarFactura(null); await reload().catch(() => {}); }}
         />
@@ -597,6 +602,25 @@ function equivalente(o: Orden, t: TasaDoc | undefined): { monto: string; tasa: s
 }
 
 /**
+ * Quién decide si la empresa retiene IVA, en UNA sola fuente. El Régimen (R1) a la
+ * fecha del documento manda; `esAgenteRetencionIva` de Parámetros es su espejo (la
+ * base lo sincroniza desde R1) y solo se usa cuando no hay R1 cargado. Así el flag
+ * legado y el Régimen no pueden discrepar en la pantalla. La práctica (RPC) es el
+ * fallback intermedio que ya existía.
+ */
+function retieneIvaVigente(
+  condiciones: CondicionRegistrada[] | null,
+  practica: Set<ImpuestoPendiente> | null | undefined,
+  config: ConfigRetencion | null | undefined,
+  fecha: string,
+): boolean {
+  if (condiciones && condiciones.length > 0) return empresaEsAgenteEnFecha(condiciones, fecha, 'IVA');
+  if (practica) return practica.has('iva');
+  if (config) return config.esAgenteRetencionIva !== false;
+  return true;
+}
+
+/**
  * Lo que falta: ni el comprobante del flujo anterior ni una retención vigente en el libro.
  * Considera las condiciones de agente de IVA, los impuestos que practica la empresa (IVA, ISLR, ISAE)
  * según Parámetros (o la RPC de práctica de retenciones).
@@ -613,14 +637,7 @@ function impuestosPendientesDeOrden(
   const out: ImpuestoPendiente[] = [];
 
   const fechaDoc = fechaDocumento(o).fecha;
-  let retieneIva = true;
-  if (condiciones && condiciones.length > 0) {
-    retieneIva = empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA');
-  } else if (practica) {
-    retieneIva = practica.has('iva');
-  } else if (config) {
-    retieneIva = config.esAgenteRetencionIva !== false;
-  }
+  const retieneIva = retieneIvaVigente(condiciones, practica, config, fechaDoc);
 
   const retieneIslr = practica ? practica.has('islr') : (config ? config.retieneIslr !== false : true);
   const retieneMunicipal = practica ? practica.has('municipal') : (config ? config.retieneMunicipal !== false : true);
@@ -802,14 +819,7 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
         {!loading && visible.map(({ orden: o, proveedorNombre }) => {
           const fechaDoc = fechaDocumento(o).fecha;
           const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones, config, activos);
-          let retieneIva = true;
-          if (condiciones && condiciones.length > 0) {
-            retieneIva = empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA');
-          } else if (practica) {
-            retieneIva = practica.has('iva');
-          } else if (config) {
-            retieneIva = config.esAgenteRetencionIva !== false;
-          }
+          const retieneIva = retieneIvaVigente(condiciones, practica, config, fechaDoc);
           const retieneIslr = practica ? practica.has('islr') : (config ? config.retieneIslr !== false : true);
           const retieneMunicipal = practica ? practica.has('municipal') : (config ? config.retieneMunicipal !== false : true);
 

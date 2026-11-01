@@ -411,10 +411,15 @@ export function formatoSerie(tipo: TipoImpuesto): FormatoSerie | null {
   return 'N10';
 }
 
-/** El número con el formato de su serie (la base es la que lo asigna; esto es para mostrar y probar). */
-export function formatoComprobante(periodo: string, consecutivo: number, tipo: TipoImpuesto = 'iva'): string {
+/**
+ * El número con el formato de su serie (la base es la que lo asigna; esto es
+ * para mostrar y probar). Si se pasa `formato`, manda sobre el mapeo fijo del
+ * tipo: así el front puede usar el formato de la ficha (`serieFormato`).
+ */
+export function formatoComprobante(periodo: string, consecutivo: number, tipo: TipoImpuesto = 'iva', formato?: FormatoSerie | null): string {
   const sec = String(Math.max(1, Math.trunc(n0(consecutivo))));
-  return formatoSerie(tipo) === 'N10' ? sec.padStart(10, '0') : `${periodo}${sec.padStart(8, '0')}`;
+  const f = formato !== undefined ? formato : formatoSerie(tipo);
+  return f === 'N10' ? sec.padStart(10, '0') : `${periodo}${sec.padStart(8, '0')}`;
 }
 
 /** ¿Tiene la forma del número de su serie? Sin impuesto, vale cualquiera de los dos formatos. */
