@@ -15,6 +15,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { normalizarRif } from '@/shared/lib/rif';
+import { faltaEnTipoDocumentoRetencion } from './facturaDocumento';
 import type { DireccionRetencion, SujetoRetenido, TipoImpuesto } from './retencionesCalculo';
 import {
   aRetencion, rolAGt, sujetoAGt, tipoAGt, type DocKind, type RetencionPracticada,
@@ -259,6 +260,9 @@ export async function numerarSinV2R(factura: Pick<FacturaNueva, 'direccion' | 'p
  */
 export async function registrarFactura(factura: FacturaNueva, lineas: LineaFacturaNueva[]): Promise<FacturaConLineas> {
   if (!lineas.length) throw new Error('La factura necesita al menos una línea de impuesto.');
+  // Enforcement: solo se retiene sobre factura, nota de crédito o nota de débito.
+  const faltaTipo = faltaEnTipoDocumentoRetencion(factura.tipoDocumento);
+  if (faltaTipo) throw new Error(faltaTipo);
   // R3: la UT de la fecha de la factura (sin UT cargada para esa fecha, no se registra).
   const vigente = await configDeFecha({ ...CONFIG_RETENCION_DEFECTO, valorUt: factura.valorUt ?? 0 },
     (factura.facturaFecha ?? '').slice(0, 10), lineas.map((l) => l.tipo));
