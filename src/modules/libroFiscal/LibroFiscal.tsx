@@ -60,7 +60,7 @@ import {
 } from './retencionesCalculo';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
-  guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt,
+  guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt, tipoDeGt,
   urlComprobante,
   PORCENTAJES_IVA,
   consultarCorrelativoEstimado,
@@ -98,6 +98,9 @@ import { BuscadorFactura } from './BuscadorFactura';
 import { FacturasRegistradas } from './FacturasRegistradas';
 import { filasNoAplica, lineaRetenerDespues, precargaDeFactura } from './registroSuelto';
 import { dateTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { listImpuestos } from './impuestos.repository';
+import { soloImpuestosActivos, type ImpuestosActivos } from '@/modules/retenciones/impuestosVista';
 
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -234,6 +237,25 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     return () => { cancel = true; };
   }, [reload]);
 
+  // Los impuestos ACTIVOS de la tabla mandan sobre la lista fija: uno deshabilitado
+  // desaparece de tarjetas, filtros, columnas, casillas y del modal de registro. Si no
+  // se puede leer (o la tabla está vacía), se cae a la lista fija: la pantalla no se rompe.
+  const [impuestosActivos, setImpuestosActivos] = useState<ImpuestosActivos | null>(null);
+  const cargarImpuestosActivos = useCallback(() => {
+    listImpuestos()
+      .then((xs) => {
+        const activos = xs.filter((i) => i.activo !== false);
+        if (!activos.length) { setImpuestosActivos(null); return; }
+        setImpuestosActivos({
+          claves: new Set(activos.map((i) => tipoDeGt(i.clave))),
+          orden: new Map(activos.map((i) => [tipoDeGt(i.clave), i.orden] as const)),
+        });
+      })
+      .catch(() => setImpuestosActivos(null));
+  }, []);
+  useEffect(() => { cargarImpuestosActivos(); }, [cargarImpuestosActivos]);
+  useRealtime(['retencion_impuestos'], () => { cargarImpuestosActivos(); });
+
   // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
   // dice cuántas retenciones quedan con los demás filtros puestos.
   const [vista, setVista] = useState<VistaLibro>(vistaInicial);
@@ -245,7 +267,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
 
   const filtros = useMemo<FiltroLista<RetencionPracticada>[]>(() => [
     { campo: 'direccion', etiqueta: 'Quién retuvo', valor: direccion, opciones: DIRECCIONES.map((d): [string, string] => [d.key, d.label]), pasa: (r, v) => r.direccion === v },
-    { campo: 'tipo', etiqueta: 'Impuesto', valor: tipo, opciones: TIPOS_IMPUESTO.map((t): [string, string] => [t.key, t.corto]), pasa: (r, v) => r.tipo === v },
+    { campo: 'tipo', etiqueta: 'Impuesto', valor: tipo, opciones: soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos).map((t): [string, string] => [t.key, t.corto]), pasa: (r, v) => r.tipo === v },
     {
       campo: 'estado', etiqueta: 'Estado', valor: estado,
       opciones: [...ESTADOS_RETENCION.map((e): [string, string] => [e.key, e.label]), ['anulada', 'Anuladas']],
@@ -256,7 +278,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       opciones: [['con_orden', 'Con OC / CS'], ['fuera_sistema', 'Fuera del sistema']] as [string, string][],
       pasa: (r: RetencionPracticada, v: string) => (v === 'fuera_sistema' ? fueraDelSistema(r) : !fueraDelSistema(r)),
     }] : []),
-  ], [direccion, tipo, estado, filtroOrigen]);
+  ], [direccion, tipo, estado, filtroOrigen, impuestosActivos]);
 
   const base = useMemo(() => filas.filter((r) => buscaEn(texto, r.contraparteNombre, r.contraparteRif, r.numeroComprobante,
     r.facturaNumero, r.docCodigo, r.conceptoNombre)), [filas, texto]);
@@ -325,10 +347,11 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     pendientes: number; registradas: number;
   };
 
-  const impuestosTarjeta = useMemo(() => {
-    const activos = TIPOS_IMPUESTO.filter((t) => t.key !== 'igtf');
-    return activos;
-  }, []);
+  // El IGTF no es tarjeta (es costo, ni se practica ni se sufre); del resto, solo los activos.
+  const impuestosTarjeta = useMemo(
+    () => soloImpuestosActivos(TIPOS_IMPUESTO.filter((t) => t.key !== 'igtf'), impuestosActivos),
+    [impuestosActivos],
+  );
 
   const agruparPorProveedor = useCallback((fuente: RetencionPracticada[]): ProveedorAgrupado[] => {
     const provMap = new Map<string, Map<string, FacturaAgrupada>>();
@@ -614,7 +637,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
             <span>Impuesto</span>
             <div className="lfv8-chips" role="group" aria-label="Impuesto">
               <button type="button" className="lfv8-chip" aria-pressed={tipo === ''} onClick={() => setTipo('')}>Todos</button>
-              {TIPOS_IMPUESTO.map((t) => (
+              {soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos).map((t) => (
                 <button key={t.key} type="button" className="lfv8-chip"
                   aria-pressed={tipo === t.key} onClick={() => setTipo(tipo === t.key ? '' : t.key as TipoImpuesto)}>
                   {t.corto}
@@ -737,16 +760,17 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
             )}
           </div>
         )}
-        <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
+        <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}
+          title={!visibles.length ? 'Sin filas para exportar con estos filtros' : 'Descargar el libro en PDF'}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
           title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
         {tipo === 'iva' && (
           <button className="btn btn-ghost" onClick={() => void exportarSeniatIva()} disabled={!relacionables.length}
-            title="Exportar archivo TXT para declaración informativa de retenciones de IVA ante el SENIAT">↓ TXT SENIAT</button>
+            title={!relacionables.length ? 'Sin filas para exportar con estos filtros' : 'Exportar archivo TXT para declaración informativa de retenciones de IVA ante el SENIAT'}>↓ TXT SENIAT</button>
         )}
         {tipo === 'islr' && (
           <button className="btn btn-ghost" onClick={() => void exportarSeniatIslr()} disabled={!relacionables.length}
-            title="Exportar archivo XML para declaración informativa de retenciones de ISLR ante el SENIAT">↓ XML SENIAT</button>
+            title={!relacionables.length ? 'Sin filas para exportar con estos filtros' : 'Exportar archivo XML para declaración informativa de retenciones de ISLR ante el SENIAT'}>↓ XML SENIAT</button>
         )}
         {tipo === 'islr' && (
           <button className="btn btn-ghost" onClick={() => setModalArc({ anio: new Date().getFullYear(), proveedorRif: '' })} disabled={!filas.length}
@@ -1307,12 +1331,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       )}
 
       {registrar && (
-        <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName}
+        <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
       {facturaVarias && (
-        <RegistrarFacturaRetencion actor={actor} actorName={actorName}
+        <RegistrarFacturaRetencion actor={actor} actorName={actorName} impuestosActivos={impuestosActivos}
           semilla={retenerSobre ? { documento: retenerSobre } : semillaCompra}
           onClose={() => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); }}
           onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
@@ -1362,13 +1386,14 @@ export interface SemillaRetencion {
   sustituyeAComprobante?: string | null;
 }
 
-export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
+export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos }: {
   semilla: SemillaRetencion;
   actor: string;
   actorName: string | null;
   onClose: () => void;
   onHecho: () => void;
   proveedorIdsPendientes?: Set<string>;
+  impuestosActivos?: ImpuestosActivos | null;
 }) {
   const [configBase, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   // Con R3, la UT y los % salen de los valores vigentes a la fecha de la factura; sin R3, del JSON.
@@ -1881,8 +1906,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div className="form-row">
         <label>Impuesto</label>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {/* Con una factura ya registrada elegida, solo sus impuestos pendientes. */}
-          {TIPOS_IMPUESTO.filter((t) => !precarga || precarga.impuestos.includes(t.key)).map((t) => {
+          {/* Solo los impuestos activos; con una factura ya registrada elegida, solo sus pendientes. */}
+          {soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null).filter((t) => !precarga || precarga.impuestos.includes(t.key)).map((t) => {
             const noPuede = direccion === 'practicada' && !puedePracticar(t.key, config);
             return (
               <label key={t.key} className="card" title={noPuede ? motivoNoPuedePracticar(t.key, config) ?? '' : undefined} style={{
@@ -3041,8 +3066,8 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {puedeEditar && c.tipo === 'islr' && (edit?.id === c.id ? (
                     <>
-                      <button className="btn btn-sm btn-primary" onClick={() => void guardarPct(c)}>✓</button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => setEdit(null)}>✕</button>
+                      <button className="btn btn-sm btn-primary" onClick={() => void guardarPct(c)} title="Guardar el porcentaje" aria-label="Guardar el porcentaje">✓</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEdit(null)} title="Cancelar" aria-label="Cancelar">✕</button>
                     </>
                   ) : (
                     <>

@@ -53,9 +53,19 @@ import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva, type TipoDocumento,
 } from './retencionFacturas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { soloImpuestosActivos, type ImpuestosActivos } from '@/modules/retenciones/impuestosVista';
 
 /** Para calcular mientras se escribe. Lo ilegible lo señala `ilegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
+
+/**
+ * Los impuestos de una línea: solo los activos, pero si la línea ya tiene elegido
+ * uno que se deshabilitó, se sigue mostrando para no perder el valor en pantalla.
+ */
+function tiposDeLinea(impuestosActivos: ImpuestosActivos | null | undefined, tipoActual: TipoImpuesto): typeof TIPOS_IMPUESTO {
+  const base = soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null);
+  return base.some((t) => t.key === tipoActual) ? base : [...base, ...TIPOS_IMPUESTO.filter((t) => t.key === tipoActual)];
+}
 /** Hoy en la hora local (AAAA-MM-DD). */
 /** Hoy en Venezuela. */
 const hoyIso = hoyVenezuela;
@@ -118,7 +128,7 @@ const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
   baseStr: '0', ivaStr: '0', pctStr: '', montoStr: '', numeroStr: '', motivos: {}, descripcion: '', ...over,
 });
 
-export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
+export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos }: {
   semilla?: SemillaFactura;
   /** En una practicada, solo se ofrecen los proveedores con retenciones por realizar (si se pasa). */
   proveedorIdsPendientes?: Set<string>;
@@ -126,6 +136,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   actorName: string | null;
   onClose: () => void;
   onHecho: (res: Awaited<ReturnType<typeof registrarFactura>>) => void;
+  /** Los impuestos activos de la tabla; uno deshabilitado no se ofrece como línea nueva. */
+  impuestosActivos?: ImpuestosActivos | null;
 }) {
   const [configBase, setConfigBase] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   // Con R3, los valores (UT, % del IVA) de la fecha de la factura; sin R3, los de Parámetros.
@@ -835,7 +847,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           </div>
           {(() => {
             const tiposUsados = new Set(lineas.map((l) => l.tipo));
-            const tiposDisponibles = TIPOS_IMPUESTO.filter((t) => !tiposUsados.has(t.key));
+            const tiposDisponibles = soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null).filter((t) => !tiposUsados.has(t.key));
             const puedeAgregar = tiposDisponibles.length > 0;
             return (
               <button
@@ -944,7 +956,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                       setLinea(l.id, { tipo: nuevoTipo });
                     }}
                   >
-                    {TIPOS_IMPUESTO.map((t) => {
+                    {tiposDeLinea(impuestosActivos, l.tipo).map((t) => {
                       const ocupadoPorOtra = lineas.some((otra) => otra.id !== l.id && otra.tipo === t.key);
                       return (
                         <option key={t.key} value={t.key} disabled={ocupadoPorOtra}>

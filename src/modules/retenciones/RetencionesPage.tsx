@@ -424,7 +424,7 @@ export function RetencionesPage() {
       {registrar && (
         <RegistrarRetencionModal
           semilla={registrar} actor={actor} actorName={actorName}
-          proveedorIdsPendientes={proveedorIdsPendientes}
+          proveedorIdsPendientes={proveedorIdsPendientes} impuestosActivos={impuestosActivos}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => {}); }}
         />
@@ -436,7 +436,7 @@ export function RetencionesPage() {
       )}
       {registrarFactura && (
         <RegistrarFacturaRetencion
-          semilla={registrarFactura} actor={actor} actorName={actorName}
+          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos}
           onClose={() => setRegistrarFactura(null)}
           onHecho={async () => { setRegistrarFactura(null); await reload().catch(() => {}); }}
         />
