@@ -15,6 +15,8 @@ import {
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import { badgeEstatusKanban, badgeImpuestoOrden } from './retencionesKanban';
+import { estadoRetencionDeOrden, badgeEstadoRetencion, textoPago } from './estadoRetencion';
+import { montosPagadosDeOrdenes, type MontoPagado } from './pagoOrden.repository';
 import type { Orden } from '@/shared/lib/types';
 import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { getConfigRetencion, listRetenciones, tipoAGt, tipoDeGt } from '@/modules/libroFiscal/retencionesFiscal.repository';
@@ -67,6 +69,7 @@ export function RetencionesPage() {
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [registradas, setRegistradas] = useState<Registradas>(new Map());
+  const [pagosOc, setPagosOc] = useState<Map<string, MontoPagado>>(new Map());
   const [tasasDoc, setTasasDoc] = useState<TasasDoc>(new Map());
   const [conV3, setConV3] = useState(false);
   useEffect(() => { v3Disponible().then(setConV3).catch(() => setConV3(false)); }, []);
@@ -155,6 +158,9 @@ export function RetencionesPage() {
       reg.set(id, s);
     }
     setPendientes(p); setHechas(h); setRegistradas(reg);
+    // Monto neto con que Tesorería pagó las OC ya pagadas (lectura cruzada, solo lectura).
+    const idsPagadas = [...p, ...h].filter((i) => i.orden.retencion_pagada).map((i) => i.orden.id);
+    setPagosOc(await montosPagadosDeOrdenes(idsPagadas).catch(() => new Map<string, MontoPagado>()));
     const docs = p.map((i) => {
       const d = fechaDocumento(i.orden);
       return { id: i.orden.id, fecha: fechaTasaBcv(d.fecha), origen: d.origen };
@@ -329,7 +335,7 @@ export function RetencionesPage() {
       {vista === 'pendientes' && (
         <PorRealizarView
           items={porRealizar} registradas={registradas} practica={practica} condiciones={condiciones} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
-          config={configFiscal} impuestosActivos={impuestosActivos}
+          config={configFiscal} impuestosActivos={impuestosActivos} pagosOc={pagosOc}
           onVer={setSel} onVista={() => setVista('agrupada')}
           onRegistrar={setRegistrar}
           onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
@@ -373,11 +379,16 @@ export function RetencionesPage() {
               {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => {
                 const kanban = badgeEstatusKanban(o.estado);
                 const impOc = badgeImpuestoOrden(o);
+                const estRet = estadoRetencionDeOrden(o, impuestosPendientesDeOrden(o, registradas, practica, condiciones, configFiscal, impuestosActivos), registradas.get(o.id), pagosOc.get(o.id) ?? null);
+                const badgeRet = badgeEstadoRetencion(estRet);
                 return (
                   <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
                     <td className="mono">
                       <div>{o.oc_codigo ?? '—'}</div>
                       <div style={{ display: 'flex', gap: '.25rem', marginTop: '2px', flexWrap: 'wrap' }}>
+                        <span className={badgeRet.className} title={badgeRet.tooltip} style={{ fontSize: '.65rem', padding: '1px 4px' }}>
+                          {badgeRet.label}
+                        </span>
                         <span className={kanban.className} title={kanban.tooltip} style={{ fontSize: '.65rem', padding: '1px 4px' }}>
                           {kanban.label}
                         </span>
@@ -391,7 +402,7 @@ export function RetencionesPage() {
                   <td>{labelCondicionPago(o.condiciones_pago)}</td>
                   <td>{labelRetencionModo(o.retencion_modo)}{o.retencion_momento && <div className="muted" style={{ fontSize: '.74rem' }}>{labelRetencionMomento(o.retencion_momento)}</div>}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
-                  <td>{o.retencion_pagada ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span> : <span className="muted">Por pagar</span>}</td>
+                  <td>{o.retencion_pagada ? <span className="badge" style={{ color: 'var(--success)' }}>{textoPago(estRet)}</span> : <span className="muted">Por pagar</span>}</td>
                   <td className="muted">{o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</td>
                   <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-primary" onClick={() => setSel({ orden: o, proveedorNombre })}>Ver</button>
@@ -650,10 +661,11 @@ function impuestosPendientesDeOrden(
   return filtrarActivos(out, activos);
 }
 
-function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, loading, canWrite, config, impuestosActivos, onVer, onVista, onRegistrar, onNoAplica }: {
+function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, loading, canWrite, config, impuestosActivos, pagosOc, onVer, onVista, onRegistrar, onNoAplica }: {
   items: RetencionItem[]; registradas: Registradas; practica: Set<ImpuestoPendiente> | null; condiciones: CondicionRegistrada[] | null; tasasDoc: TasasDoc; loading: boolean; canWrite: boolean;
   config?: ConfigRetencion | null;
   impuestosActivos?: ImpuestosActivos | null;
+  pagosOc?: Map<string, MontoPagado> | null;
   onVer: (item: RetencionItem) => void; onVista: () => void;
   onRegistrar: (semilla: SemillaRetencion) => void;
   /** Solo con R10 y permiso: marcar que un impuesto no aplica. */
@@ -833,12 +845,17 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
           const regs = Math.max(0, total - pends.length);
           const kanban = badgeEstatusKanban(o.estado);
           const impOc = badgeImpuestoOrden(o);
+          const estRet = estadoRetencionDeOrden(o, pends, registradas.get(o.id), pagosOc?.get(o.id) ?? null);
+          const badgeRet = badgeEstadoRetencion(estRet);
           return (
             <div key={o.id} className="lfv8-sis-fila">
               <span data-l="Compra">
                 <span className="mono">{o.oc_codigo ?? o.codigo}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
                   <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
+                  <span className={badgeRet.className} title={badgeRet.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
+                    {badgeRet.label}
+                  </span>
                   <span className={kanban.className} title={kanban.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
                     {kanban.label}
                   </span>
