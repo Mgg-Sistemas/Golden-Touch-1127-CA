@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import {
-  armarCsv, borrarPlantilla, filtrarReporte, guardarPlantilla, leerPlantillas, numeroCsv, ordenarReporte,
+  armarCsv, borrarPlantilla, filtrarReporte, guardarPlantilla, impuestosReporteActivos, leerPlantillas, numeroCsv, ordenarReporte,
   rangoDePeriodo, retenidoBs, tablaCruzada, tablaDeCruzada, tablaDetalle, totalesReporte, type FiltroReporte,
 } from './reportesRetenciones';
+import type { TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 
 // Datos inventados: ningún proveedor ni factura real.
 const ret = (over: Partial<RetencionPracticada> = {}): RetencionPracticada => ({
@@ -192,5 +193,19 @@ describe('mis plantillas', () => {
     expect(() => guardarPlantilla('a@ejemplo.com', { ...p, nombre: '  ' }, s)).toThrow('nombre');
     expect(() => guardarPlantilla('a@ejemplo.com', p, { getItem: () => null, setItem: () => { throw new Error('QuotaExceeded'); } })).toThrow('no deja guardar');
     expect(leerPlantillas('a@ejemplo.com', { getItem: () => '{roto' })).toEqual([]);
+  });
+});
+
+describe('impuestosReporteActivos (filtro de reporte dinámico)', () => {
+  it('sin datos (null) devuelve la lista fija completa', () => {
+    expect(impuestosReporteActivos(null).map((i) => i.key)).toEqual(['iva', 'islr', 'isae', 'estadal', 'igtf']);
+  });
+  it('solo los impuestos activos, por su tipo (un deshabilitado no aparece)', () => {
+    const activos = new Set<TipoImpuesto>(['iva', 'islr']);
+    expect(impuestosReporteActivos(activos).map((i) => i.key)).toEqual(['iva', 'islr']);
+  });
+  it('ISAE/Estadal se mapean por tipo (municipal/regional)', () => {
+    expect(impuestosReporteActivos(new Set<TipoImpuesto>(['municipal'])).map((i) => i.key)).toEqual(['isae']);
+    expect(impuestosReporteActivos(new Set<TipoImpuesto>(['regional'])).map((i) => i.key)).toEqual(['estadal']);
   });
 });

@@ -9,11 +9,12 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { diaVE } from '@/modules/tesoreria/tasas.repository';
-import { getConfigRetencion, listRetenciones, type RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { getConfigRetencion, listRetenciones, tipoDeGt, type RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { listImpuestos } from '@/modules/libroFiscal/impuestos.repository';
 import { razonSocialAgente } from '@/modules/libroFiscal/comprobanteRetencionPdf';
-import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from '@/modules/libroFiscal/retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import {
-  COLUMNAS_POR_DEFECTO, COLUMNAS_REPORTE, IMPUESTOS_REPORTE, borrarPlantilla, filtrarReporte, formatoMonto,
+  COLUMNAS_POR_DEFECTO, COLUMNAS_REPORTE, IMPUESTOS_REPORTE, impuestosReporteActivos, borrarPlantilla, filtrarReporte, formatoMonto,
   guardarPlantilla, leerPlantillas, ordenarReporte, rangoDePeriodo, tablaCruzada, tablaDeCruzada, tablaDetalle,
   totalesReporte, type Agrupar, type EleccionPeriodo, type EstadoFiltro, type FechaBase, type FiltroReporte,
   type OrdenReporte, type PeriodoReporte, type PlantillaPropia, type TablaReporte,
@@ -93,6 +94,19 @@ export function ReportesView({ actor }: { actor: string }) {
   const [arcAnio, setArcAnio] = useState(() => new Date().getFullYear());
   const [arcProveedorRif, setArcProveedorRif] = useState('');
 
+  // Los impuestos ACTIVOS de la tabla: uno deshabilitado no aparece en los filtros del reporte.
+  // Degradación segura: si no se puede leer (o la tabla está vacía), se usa la lista fija completa.
+  const [impuestosActivos, setImpuestosActivos] = useState<Set<TipoImpuesto> | null>(null);
+  const cargarImpuestosActivos = useCallback(() => {
+    listImpuestos()
+      .then((xs) => {
+        const activos = xs.filter((i) => i.activo !== false);
+        setImpuestosActivos(activos.length ? new Set(activos.map((i) => tipoDeGt(i.clave))) : null);
+      })
+      .catch(() => setImpuestosActivos(null));
+  }, []);
+  useEffect(() => { cargarImpuestosActivos(); }, [cargarImpuestosActivos]);
+
   const cargar = useCallback(async () => {
     try {
       const [filas, cfg] = await Promise.all([listRetenciones({ incluirAnuladas: true }), getConfigRetencion().catch(() => null)]);
@@ -103,6 +117,10 @@ export function ReportesView({ actor }: { actor: string }) {
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['retenciones'], () => { void cargar(); });
+  useRealtime(['retencion_impuestos'], () => { cargarImpuestosActivos(); });
+
+  // La lista de impuestos del filtro, solo los activos (o todos si no hay datos).
+  const impuestosReporteVista = useMemo(() => impuestosReporteActivos(impuestosActivos), [impuestosActivos]);
   useEffect(() => { setMisPlantillas(leerPlantillas(actor)); }, [actor]);
 
   const proveedoresIslr = useMemo(() => {
@@ -167,13 +185,13 @@ export function ReportesView({ actor }: { actor: string }) {
   }, [filas, esCruzada, columnas, agrupar, fBase]);
 
   const textoFiltros = useMemo(() => {
-    const imp = IMPUESTOS_REPORTE.filter((i) => impuestos[i.key]).map((i) => i.label).join(', ') || 'ningún impuesto';
+    const imp = impuestosReporteVista.filter((i) => impuestos[i.key]).map((i) => i.label).join(', ') || 'ningún impuesto';
     const dir = direccion === 'practicada' ? 'a proveedores' : direccion === 'recibida' ? 'de clientes' : 'todas las direcciones';
     const est = { '': 'sin anuladas', ok: 'registradas', declarada: 'declaradas', anulada: 'anuladas', todas: 'con anuladas' }[estado];
     const partes = [imp, dir, est, moneda ? `en ${moneda === 'Bs' ? 'Bs' : '$'}` : '', provQ.trim() ? `proveedor «${provQ.trim()}»` : '',
       fBase === 'registro' ? 'por fecha de registro' : 'por fecha de la factura'];
     return partes.filter(Boolean).join(' · ');
-  }, [impuestos, direccion, estado, moneda, provQ, fBase]);
+  }, [impuestos, direccion, estado, moneda, provQ, fBase, impuestosReporteVista]);
 
   const cabecera = (): CabeceraReporte | null => (rango ? {
     titulo, rango, filtros: textoFiltros, totales, registros: filas.length, orientacion,
@@ -335,7 +353,7 @@ export function ReportesView({ actor }: { actor: string }) {
           <div className="lfv8-campo">
             <span>Impuestos</span>
             <div className="lfv8-chips">
-              {IMPUESTOS_REPORTE.map((i) => (
+              {impuestosReporteVista.map((i) => (
                 <button key={i.key} type="button" className="lfv8-chip" aria-pressed={!!impuestos[i.key]} onClick={() => toggleImp(i.key)}>{i.label}</button>
               ))}
             </div>
