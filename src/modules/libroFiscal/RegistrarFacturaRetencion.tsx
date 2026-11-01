@@ -53,6 +53,9 @@ import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva, type TipoDocumento,
 } from './retencionFacturas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { mensajeRetencion, datosMensajeDeRetenciones } from '@/modules/retenciones/mensajeRetencion';
+import { montoPagadoDeOrden, type MontoPagado } from '@/modules/retenciones/pagoOrden.repository';
 
 /** Para calcular mientras se escribe. Lo ilegible lo señala `ilegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
@@ -137,6 +140,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Al registrar con éxito: se queda el resultado para ofrecer «Compartir por WhatsApp».
+  const [resultado, setResultado] = useState<Awaited<ReturnType<typeof registrarFactura>> | null>(null);
+  const [pagoResultado, setPagoResultado] = useState<MontoPagado | null>(null);
   const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
   // R7: el cálculo con la regla vigente de cada línea (por id de línea); sin entrada = el cálculo de hoy.
   const [conR7, setConR7] = useState(false);
@@ -586,11 +592,41 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         }
       }
       notify(`${etiquetaDoc} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
-      onHecho(res);
+      // No se cierra aún: se muestra el éxito con «Compartir por WhatsApp».
+      setResultado(res);
+      setSaving(false);
+      // Si la OC ya está pagada, se lee el monto neto de caja (lectura cruzada a Tesorería, solo lectura).
+      const prim = res.lineas[0];
+      if (prim?.docKind === 'oc' && prim.docId) {
+        void montoPagadoDeOrden(prim.docId).then((p) => setPagoResultado(p)).catch(() => { /* sin monto: queda «✓ Pagada» o «Por pagar» */ });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo registrar la factura.');
       setSaving(false);
     }
+  }
+
+  if (resultado) {
+    const cerrar = () => onHecho(resultado);
+    const datos = datosMensajeDeRetenciones(resultado.lineas, {
+      empresaAgente: config.razonSocial ?? '',
+      // Aplicables = lo retenido ahora + lo que quedaba pendiente de esa factura (para las «no aplicadas»).
+      aplicables: [...new Set<TipoImpuesto>([...resultado.lineas.map((l) => l.tipo), ...(documento ? pendientesComoTipos(documento) : [])])],
+      pagada: !!pagoResultado,
+      montoPagado: pagoResultado?.monto ?? null,
+      monedaPago: pagoResultado?.moneda ?? null,
+    });
+    return (
+      <Modal title="✅ Retención registrada" size="lg" onClose={cerrar}
+        footer={<button type="button" className="btn btn-primary" onClick={cerrar}>Cerrar</button>}>
+        <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--primary)' }}>
+          <strong>{resultado.lineas.length} retención(es) registrada(s)</strong> de {datos.proveedorNombre}
+          {datos.ocNumero ? ` · ${datos.ocNumero}` : ''}.
+        </div>
+        <p className="muted" style={{ marginBottom: '.5rem' }}>Comparte el resumen por WhatsApp:</p>
+        <CompartirWhatsapp texto={mensajeRetencion(datos)} />
+      </Modal>
+    );
   }
 
   return (

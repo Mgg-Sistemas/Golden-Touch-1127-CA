@@ -41,6 +41,7 @@ import {
   lanzarAvisoFactura,
 } from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
+import { estadoRetencionDeBuzon, badgeEstadoRetencion } from './estadoRetencion';
 
 /** Cómo se dice cada estado del buzón en pantalla (la clave interna no se muestra). */
 const ROTULO_ESTADO_BUZON: Record<EstatusFacturaBuzon, string> = {
@@ -557,6 +558,10 @@ export function BuzonFacturasExternasView() {
                               {rotuloEstadoBuzon(fac.estatus)}
                             </span>
                           )}
+                          {(() => {
+                            const b = badgeEstadoRetencion(estadoRetencionDeBuzon(fac.estatus));
+                            return <div style={{ marginTop: '0.3rem' }}><span className={b.className} title={b.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px' }}>{b.label}</span></div>;
+                          })()}
                         </td>
                         <td style={{ padding: '0.65rem 0.8rem', textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center' }}>

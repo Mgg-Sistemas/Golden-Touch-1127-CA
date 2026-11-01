@@ -45,6 +45,7 @@ import {
 } from './soundRetenciones';
 import { lanzarAvisoFactura } from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
+import { estadoRetencionDeBuzon, badgeEstadoRetencion } from './estadoRetencion';
 
 const ESTATUS_CONFIG: Record<EstatusFacturaBuzon, { label: string; icono: string; clase: string }> = {
   recibida: { label: 'Recibida', icono: '📥', clase: 'buzon-estatus-recibida' },
@@ -372,6 +373,11 @@ export function RetencionesMovilView() {
                             {estConfig.icono} {estConfig.label}
                           </span>
                         </div>
+
+                        {(() => {
+                          const b = badgeEstadoRetencion(estadoRetencionDeBuzon(fac.estatus));
+                          return <div><span className={b.className} title={b.tooltip} style={{ fontSize: '.7rem', padding: '1px 6px' }}>{b.label}</span></div>;
+                        })()}
 
                         <div>
                           <div className="buzon-card-prov">{fac.proveedorNombre}</div>
