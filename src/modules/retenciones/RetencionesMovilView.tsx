@@ -872,9 +872,10 @@ function FormularioCargaFactura({
   const revisarRif = () => {
     const escrito = proveedorRif.trim();
     if (!escrito) { setRifAviso(null); return; }
+    // Inválido = completarRif devuelve null. La letra «C» (Consejo Comunal) es VÁLIDA para el SENIAT.
     const completo = completarRif(escrito);
-    if (!completo || completo.startsWith('C')) {
-      setRifAviso('Ese RIF no es válido: letra (J, G, V, E o P), 8 dígitos y el verificador.');
+    if (!completo) {
+      setRifAviso('Ese RIF no es válido: letra (J, G, V, E, P o C), 8 dígitos y el verificador.');
       return;
     }
     setRifAviso(null);
@@ -906,8 +907,9 @@ function FormularioCargaFactura({
 
     // RIF opcional: si se escribió algo que no tiene arreglo, no se pierde en silencio: se avisa y se guarda sin RIF.
     const rifEscrito = proveedorRif.trim();
+    // Inválido = completarRif devuelve null (NO el prefijo «C», que es un Consejo Comunal válido).
     const rifCompleto = rifEscrito ? completarRif(rifEscrito) : null;
-    const rifParaGuardar = rifCompleto && !rifCompleto.startsWith('C') ? formatearRif(rifCompleto) : null;
+    const rifParaGuardar = rifCompleto ? formatearRif(rifCompleto) : null;
     if (rifEscrito && !rifParaGuardar) {
       toast('El RIF escrito no es válido; la factura se guardará SIN RIF. Corrígelo si quieres incluirlo.', 'warning');
     }
