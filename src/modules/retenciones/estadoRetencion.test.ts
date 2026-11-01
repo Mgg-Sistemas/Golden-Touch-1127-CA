@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
-  estadoRetencion, estadoRetencionDeOrden, estadoRetencionDeBuzon, impuestosHechosDeOrden,
+  estadoRetencion, estadoRetencionDeOrden, estadoRetencionDeBuzon, estadoRetencionSoloOrden, impuestosHechosDeOrden,
   badgeEstadoRetencion, textoPago,
 } from './estadoRetencion';
 
@@ -72,6 +72,21 @@ describe('impuestosHechosDeOrden', () => {
   it('une paths de la OC y registradas del libro, solo iva/islr/municipal', () => {
     const h = impuestosHechosDeOrden({ ...ordenBase, retencion_islr_path: 'y' }, new Set(['iva']));
     expect(h.sort()).toEqual(['islr', 'iva']);
+  });
+});
+
+describe('estadoRetencionSoloOrden (grueso, para Compras)', () => {
+  it('finalizada → retenida', () => {
+    expect(estadoRetencionSoloOrden({ ...ordenBase, retencion_finalizada: true }).estado).toBe('retenida');
+  });
+  it('con algún path pero sin finalizar → parcial', () => {
+    expect(estadoRetencionSoloOrden({ ...ordenBase, retencion_islr_path: 'y' }).estado).toBe('parcial');
+  });
+  it('sin paths ni finalizar → no_retenida', () => {
+    expect(estadoRetencionSoloOrden(ordenBase).estado).toBe('no_retenida');
+  });
+  it('lleva el estado de pago', () => {
+    expect(estadoRetencionSoloOrden({ ...ordenBase, retencion_pagada: true }).pagada).toBe(true);
   });
 });
 

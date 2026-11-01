@@ -130,6 +130,21 @@ export function estadoRetencionDeOrden(
   return conPago(estadoRetencion(aplicables, hechas, pagada));
 }
 
+/**
+ * Estado GRUESO de una orden usando SOLO lo que la orden ya trae (sin leer el
+ * libro ni caja): para la lista de Compras, de un vistazo. Se ancla en
+ * retencion_finalizada y los paths de la OC. «retenida» y «pagada» coinciden con
+ * el resto del módulo; solo el matiz «parcial» puede diferir en bordes (aquí es
+ * «hay algún comprobante pero no se finalizó»). No conoce los aplicables reales.
+ */
+export function estadoRetencionSoloOrden(o: OrdenConRetencion): ResumenRetencion {
+  const hechas = impuestosHechosDeOrden(o);
+  const pagada = !!o.retencion_pagada;
+  if (o.retencion_finalizada) return { estado: 'retenida', aplicables: hechas, hechas, faltantes: [], pagada };
+  if (hechas.length > 0) return { estado: 'parcial', aplicables: hechas, hechas, faltantes: [], pagada };
+  return { estado: 'no_retenida', aplicables: [], hechas: [], faltantes: [], pagada };
+}
+
 /* ───────── Adaptador: una FACTURA del buzón ───────── */
 
 /** El estado de retención de una factura del buzón, a partir de su estatus. */

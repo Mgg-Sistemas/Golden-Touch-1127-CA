@@ -113,6 +113,17 @@ import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_AUTORIZADOS_CANCELA, ESTADOS_FIRMADOS_GG } from './aprobadoresOc';
+// Lectura cruzada a Retenciones (EXCEPCIÓN DE ALCANCE autorizada): badge «de un vistazo» del
+// estado de retención de la OC. Estado GRUESO: se ancla en retencion_finalizada/paths de la
+// propia orden (sin leer libro ni caja); «retenida/pagada» coinciden con el módulo, solo
+// «parcial» puede diferir en bordes. Es la MISMA fuente (estadoRetencion.ts).
+import { estadoRetencionSoloOrden, badgeEstadoRetencion, textoPago } from '@/modules/retenciones/estadoRetencion';
+
+/** ¿La OC está en el flujo de retención? Solo entonces mostramos el badge, para no meter ruido. */
+function ocEnRetencion(o: Orden): boolean {
+  return !!(o.retencion_momento || o.retencion_finalizada || o.retencion_iva_path
+    || o.retencion_islr_path || o.retencion_municipal_path || o.retencion_aplicada);
+}
 import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
@@ -2430,7 +2441,17 @@ function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onAp
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(o.total, o.total_moneda)}</td>
-                <td><StatusBadge estado={o.estado} /></td>
+                <td>
+                  <StatusBadge estado={o.estado} />
+                  {ocEnRetencion(o) && (() => {
+                    const est = estadoRetencionSoloOrden(o);
+                    const b = badgeEstadoRetencion(est);
+                    return <div style={{ marginTop: '.25rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span className={b.className} title={b.tooltip} style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>{b.label}</span>
+                      <span className="muted" style={{ fontSize: '.62rem' }}>{textoPago(est)}</span>
+                    </div>;
+                  })()}
+                </td>
                 <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
                 <td className="actions" onClick={(e) => e.stopPropagation()}>
                   <button className="btn btn-sm btn-ghost" onClick={() => onView(o.id)}>Ver</button>
@@ -2574,6 +2595,14 @@ const KanbanCard = memo(function KanbanCard({
             ↻ {changes}
           </span>
         )}
+        {ocEnRetencion(orden) && (() => {
+          const est = estadoRetencionSoloOrden(orden);
+          const b = badgeEstadoRetencion(est);
+          return (<>
+            <span className={b.className} title={b.tooltip} style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>{b.label}</span>
+            <span className="muted" style={{ fontSize: '.62rem' }}>{textoPago(est)}</span>
+          </>);
+        })()}
       </div>
       <div className="meta" style={{ fontSize: '.72rem', marginTop: '.15rem' }} title="Solicitante y fecha de creación">
         <span>👤 <Quien nombre={orden.solicitante} correo={orden.solicitante_email} vacio="—" /></span>
