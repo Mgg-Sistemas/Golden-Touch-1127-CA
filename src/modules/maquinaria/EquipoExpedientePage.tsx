@@ -91,7 +91,8 @@ export function EquipoExpedientePage() {
     maquinaria: can('maquinaria', 'escritura'),
     combustible: can('combustible', 'escritura'),
     salidas: can('salidas', 'escritura'),
-    pedidos: can('pedidos', 'escritura'),
+    // Pedir compra / SP desde Maquinaria (31/10/2026): «Solicitud de Pedido» o «Compras».
+    pedidos: can('solicitud_pedido', 'escritura') || can('compras', 'escritura'),
     admin: fullMaq,
   };
   const tab = (TABS.some((t) => t.id === sp.get('tab')) ? sp.get('tab') : 'resumen') as Tab;

@@ -34,7 +34,8 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { INTERRUPTOR_RETENCION_MOMENTO } from '@/shared/lib/types';
-import { useInterruptor, interruptorActivo } from '@/shared/lib/interruptores';
+import { aplicaAOrden, interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
+import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
 import { agregarNombreGenerico, itemsParaSpGenerica, normalizarNombreGenerico, spConNombresGenericos } from './nombresGenericos';
 import {
@@ -154,6 +155,8 @@ type Scope = 'pedidos' | 'almacen' | 'oc' | 'compra_directa' | 'oc_lote' | 'serv
 // `sinLimite` para mostrarlas completas y no ocultar trabajo pendiente.
 type KanbanCol = { key: EstadoOrden; label: string; sinLimite?: boolean };
 const KANBAN_COLS_PEDIDOS: KanbanCol[] = [
+  // 31/10/2026: con el flujo nuevo la SP pasa primero por Almacén (interruptor compras_revision_almacen).
+  { key: 'revision_almacen', label: 'En revisión de Almacén', sinLimite: true },
   { key: 'pendiente', label: 'Pendiente', sinLimite: true },
   { key: 'aprobada', label: 'Aprobada' },
   { key: 'recibida', label: 'Recibida' },
@@ -446,12 +449,16 @@ export function PedidosPage() {
   );
 
   const isAdmin = isPermAdmin || usuario?.role === 'admin' || role === 'admin';
-  // La matriz de permisos gobierna el acceso (no el rol hardcodeado): quien tiene
-  // 'escritura' sobre Pedidos trabaja el módulo completo (crear solicitudes y
-  // gestionar Compras: ofertas, emitir/confirmar OC, recibir). El "aprobar" final
+  // La matriz de permisos gobierna el acceso (no el rol hardcodeado). El "aprobar" final
   // de la OC lo hacen el admin o los usuarios autorizados (regla de negocio).
-  const canWrite = isAdmin || can('pedidos', 'escritura');
-  const canManageProcurement = canWrite;
+  // 31/10/2026: el viejo «Pedidos / Compras» (clave `pedidos`) se separó en dos permisos y
+  // ya NO decide nada en esta pantalla (sigue en la base para pagar/recibir/retener):
+  //   · `compras` ('escritura') → trabaja TODO Compras (OC, lote, directas, servicios,
+  //     reportes, categorías, mercado, aprobar SP, ofertas…).
+  //   · `solicitud_pedido` ('escritura') → solo CREA Solicitudes de Pedido (y de servicio)
+  //     y sigue las fases de las que él creó.
+  const canManageProcurement = isAdmin || can('compras', 'escritura');
+  const puedeCrearSolicitud = isAdmin || can('solicitud_pedido', 'escritura') || canManageProcurement;
   // APROBAR la Solicitud de Pedido (pendiente → aprobada) la hace COMPRAS
   // (analista). La firma final de la OC (oc_creada → oc_aprobada) la hacen el admin y
   // los usuarios de Roles y Permisos › «Usuarios autorizados para:» con «Aprobar órdenes
@@ -462,14 +469,16 @@ export function PedidosPage() {
   const userRole = usuario?.role ?? role;
   const puedeAprobarSolicitud = canManageProcurement; // SP: Compras (analista/admin)
   const puedeAprobarPedidos = puedeAprobarOc(userRole, userEmail); // OC: admin o usuario autorizado
-  const canVerCompras = canManageProcurement || puedeAprobarPedidos;
+  const canVerCompras = canManageProcurement || can('compras', 'lectura') || puedeAprobarPedidos;
+  // La pestaña «Revisión de Almacén» es de quien tiene Inventario (Almacén, Compras, admin).
+  const puedeVerAlmacen = can('inventario');
 
-  // Quien no gestiona compras ni aprueba OC solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
+  // Quien no ve Compras solo trabaja Solicitud de Pedido (y Revisión de Almacén si es de
+  // Almacén): lo mantenemos en esos scopes.
   useEffect(() => {
-    if (!canVerCompras && scope !== 'pedidos') setScope('pedidos');
-    // La pestaña «Revisión de Almacén» es de quien tiene Inventario (Almacén, Compras, admin).
-    else if (scope === 'almacen' && !can('inventario')) setScope('pedidos');
-  }, [canVerCompras, scope, can]);
+    if (scope === 'almacen') { if (!puedeVerAlmacen) setScope('pedidos'); }
+    else if (!canVerCompras && scope !== 'pedidos') setScope('pedidos');
+  }, [canVerCompras, puedeVerAlmacen, scope]);
 
   // Alertas de Cocina (restablecer el mercado): solo le importan a Compras.
   const refreshAlertas = useCallback(async () => {
@@ -524,14 +533,20 @@ export function PedidosPage() {
     categorias: categoriaPorSku,
     equipos: equiposMap,
   }), [proveedorMap, personaMap, categoriaPorSku, equiposMap]);
+  // 31/10/2026: quien no ve Compras (solo «Solicitud de Pedido») ve SOLO las órdenes que él
+  // creó (visibilidadSolicitudes.ts). Compras, quien aprueba OC y el admin ven todas.
+  const ordenesVisibles = useMemo(
+    () => (canVerCompras ? ordenes : soloOrdenesPropias(ordenes, userEmail)),
+    [ordenes, canVerCompras, userEmail],
+  );
   // Quiénes hicieron las órdenes de la pestaña actual (para el select «Realizadas por»).
   const personasRealizaron = useMemo(() => {
-    const base = ordenes.filter((o) => (scope === 'servicios' ? o.tipo === 'servicio' : !(o.tipo === 'servicio' && canVerCompras)));
+    const base = ordenesVisibles.filter((o) => (scope === 'servicios' ? o.tipo === 'servicio' : !(o.tipo === 'servicio' && canVerCompras)));
     return personasQueRealizaron(base, personaMap);
-  }, [ordenes, scope, canVerCompras, personaMap]);
+  }, [ordenesVisibles, scope, canVerCompras, personaMap]);
 
   const filteredOrdenes = useMemo(() => {
-    return ordenes.filter((o) => {
+    return ordenesVisibles.filter((o) => {
       // Los servicios viven en su propia pestaña: se muestran SOLO en "Servicios"
       // y se excluyen del resto (Solicitud de Pedido / Órdenes de Compra). Para
       // quien NO ve pestañas (solo lectura, sin acceso a "Servicios") se siguen
@@ -545,7 +560,7 @@ export function PedidosPage() {
       // productos, montos, fechas, estado, método de pago…). 17/10/2026.
       return coincideOrden(o, filterText, ctxBusqueda);
     });
-  }, [ordenes, filterText, filterEstado, filterPersona, viewMode, ctxBusqueda, scope, canVerCompras]);
+  }, [ordenesVisibles, filterText, filterEstado, filterPersona, viewMode, ctxBusqueda, scope, canVerCompras]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -586,7 +601,8 @@ export function PedidosPage() {
   // cambiar de pestaña) lo deja un instante fuera de la lista. El modal solo se cierra
   // cuando el usuario lo cierra (modal.kind deja de ser 'detail').
   const detailRef = useRef<Orden | null>(null);
-  const detailEncontrado = modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
+  // Se busca entre las visibles: con solo «Solicitud de Pedido» no se abre una orden ajena (?detalle=ID).
+  const detailEncontrado = modal.kind === 'detail' ? ordenesVisibles.find((o) => o.id === modal.ordenId) ?? null : null;
   if (modal.kind === 'detail') {
     if (detailEncontrado) detailRef.current = detailEncontrado;
   } else {
@@ -657,13 +673,18 @@ export function PedidosPage() {
                 ? 'Solicitudes de servicio (recargas, mantenimientos…). Mismo flujo que una OC: se solicita, se aprueba, se cotiza, lo aprueba el Gerente General y va a Tesorería.'
                 : canManageProcurement
                   ? 'Solicitudes de pedido generadas por analistas. Aprueba la mejor oferta antes de emitir la OC.'
-                  : 'Crea solicitudes de pedido. El administrador aprueba antes de emitir la orden de compra.'}
+                  : !canVerCompras
+                    ? 'Crea tus solicitudes de pedido y sigue sus fases. Compras las cotiza y gestiona.'
+                    : 'Crea solicitudes de pedido. El administrador aprueba antes de emitir la orden de compra.'}
           </p>
         </div>
         <div className="actions">
-          <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
-            ⌕ Histórico
-          </Link>
+          {/* El Histórico lista TODAS las órdenes: solo para quien ve Compras (31/10/2026). */}
+          {canVerCompras && (
+            <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
+              ⌕ Histórico
+            </Link>
+          )}
           {canManageProcurement && (
             <button
               className="btn btn-ghost"
@@ -703,12 +724,12 @@ export function PedidosPage() {
             </button>
           )}
           */}
-          {canWrite && scope === 'pedidos' && (
+          {canManageProcurement && scope === 'pedidos' && (
             <button className="btn btn-ghost" onClick={() => setCategoriasOpen(true)} title="Gestionar clasificaciones y unidades solicitantes">
               🗂 Categorías
             </button>
           )}
-          {canWrite && (scope === 'pedidos' || scope === 'servicios') && (
+          {puedeCrearSolicitud && (scope === 'pedidos' || scope === 'servicios') && (
             <button
               className={scope === 'servicios' ? 'btn btn-primary' : 'btn btn-ghost'}
               onClick={() => setModal({ kind: 'create_servicio' })}
@@ -717,7 +738,7 @@ export function PedidosPage() {
               🔧 Nuevo servicio
             </button>
           )}
-          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
+          {canManageProcurement && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
             <button
               className="btn"
               style={{ background: 'var(--brand, #ff8a00)', color: '#111', fontWeight: 700 }}
@@ -727,7 +748,7 @@ export function PedidosPage() {
               🛒 Solicitud de mercado
             </button>
           )}
-          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
+          {puedeCrearSolicitud && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
             <button
               className="btn btn-primary"
               onClick={() => setModal({ kind: 'create' })}
@@ -764,8 +785,10 @@ export function PedidosPage() {
         </div>
       )}
 
-      {/* Solo quien gestiona compras o aprueba OC ve las pestañas de OC / lote / compra directa. */}
-      {canVerCompras && (
+      {/* Solo quien ve Compras (o aprueba OC) ve las pestañas de OC / lote / compra directa.
+          31/10/2026: Almacén sin Compras ve una barra reducida (Solicitud de Pedido +
+          Revisión de Almacén); antes la barra se ocultaba y no llegaba a su pestaña. */}
+      {(canVerCompras || puedeVerAlmacen) && (
         <div
           className="view-toggle"
           role="tablist"
@@ -779,7 +802,7 @@ export function PedidosPage() {
           >
             ✉ Solicitud de Pedido
           </button>
-          {can('inventario') && (
+          {puedeVerAlmacen && (
             <button
               className={scope === 'almacen' ? 'active' : ''}
               onClick={() => switchScope('almacen')}
@@ -788,20 +811,24 @@ export function PedidosPage() {
               🏬 Revisión de Almacén
             </button>
           )}
-          <button
-            className={scope === 'oc' ? 'active' : ''}
-            onClick={() => switchScope('oc')}
-            title="Ver órdenes de compra"
-          >
-            🧾 Órdenes de Compra
-          </button>
-          <button
-            className={scope === 'oc_lote' ? 'active' : ''}
-            onClick={() => switchScope('oc_lote')}
-            title="Checklist de compras pendientes por pagar"
-          >
-            📋 OC por lote
-          </button>
+          {canVerCompras && (
+            <button
+              className={scope === 'oc' ? 'active' : ''}
+              onClick={() => switchScope('oc')}
+              title="Ver órdenes de compra"
+            >
+              🧾 Órdenes de Compra
+            </button>
+          )}
+          {canVerCompras && (
+            <button
+              className={scope === 'oc_lote' ? 'active' : ''}
+              onClick={() => switchScope('oc_lote')}
+              title="Checklist de compras pendientes por pagar"
+            >
+              📋 OC por lote
+            </button>
+          )}
           {canManageProcurement && (
             <button
               className={scope === 'compra_directa' ? 'active' : ''}
@@ -811,13 +838,15 @@ export function PedidosPage() {
               🛒 Compra Directa
             </button>
           )}
-          <button
-            className={scope === 'servicios' ? 'active' : ''}
-            onClick={() => switchScope('servicios')}
-            title="Solicitudes de servicio (recargas, mantenimientos…) · mismo flujo que una OC"
-          >
-            🔧 Servicios
-          </button>
+          {canVerCompras && (
+            <button
+              className={scope === 'servicios' ? 'active' : ''}
+              onClick={() => switchScope('servicios')}
+              title="Solicitudes de servicio (recargas, mantenimientos…) · mismo flujo que una OC"
+            >
+              🔧 Servicios
+            </button>
+          )}
           {canManageProcurement && (
             <button
               className={scope === 'servicio_directo' ? 'active' : ''}
@@ -860,17 +889,20 @@ export function PedidosPage() {
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
-        <select
-          className="select"
-          style={{ maxWidth: 240 }}
-          value={filterPersona}
-          onChange={(e) => setFilterPersona(e.target.value)}
-          title="Ver solo las órdenes que hizo un analista de Compras"
-          aria-label="Realizadas por"
-        >
-          <option value="">Realizadas por: todos</option>
-          {personasRealizaron.map((p) => <option key={p.email} value={p.email}>{p.nombre}</option>)}
-        </select>
+        {/* «Realizadas por» es de Compras: quien solo tiene Solicitud de Pedido ve solo lo suyo. */}
+        {canVerCompras && (
+          <select
+            className="select"
+            style={{ maxWidth: 240 }}
+            value={filterPersona}
+            onChange={(e) => setFilterPersona(e.target.value)}
+            title="Ver solo las órdenes que hizo un analista de Compras"
+            aria-label="Realizadas por"
+          >
+            <option value="">Realizadas por: todos</option>
+            {personasRealizaron.map((p) => <option key={p.email} value={p.email}>{p.nombre}</option>)}
+          </select>
+        )}
         <select
           className="select"
           style={{ maxWidth: 220 }}
@@ -1004,7 +1036,7 @@ export function PedidosPage() {
       )}
 
       {categoriasOpen && (
-        <CategoriasModal canWrite={canWrite} onClose={() => setCategoriasOpen(false)} />
+        <CategoriasModal canWrite={canManageProcurement} onClose={() => setCategoriasOpen(false)} />
       )}
 
       {/* Modal: editar OC (etapa cargar ofertas) */}
@@ -1603,7 +1635,10 @@ function MetodoPagoModal({
   // Nuevo flujo (interruptor compras_retencion_momento): con factura se marca si se retiene
   // ANTES de pagar (va primero a Retenciones; Tesorería paga el neto → el monto BAJA) o
   // DESPUÉS (va a Tesorería y se paga completo → el monto SUBE; luego Retenciones).
-  const momentoActivo = useInterruptor(INTERRUPTOR_RETENCION_MOMENTO);
+  // 31/10/2026: solo para las órdenes creadas EN o DESPUÉS de encender el interruptor
+  // (activado_en); las pendientes de antes siguen con el flujo de siempre.
+  const momentoDesde = useInterruptorDesde(INTERRUPTOR_RETENCION_MOMENTO);
+  const momentoActivo = aplicaAOrden(momentoDesde, orden.created_at);
   const [retencionMomento, setRetencionMomento] = useState<RetencionMomento | null>(orden.retencion_momento ?? null);
   // OC por factura: con IVA (suma al total) o sin IVA. El % arranca en 16 (general) pero
   // es EDITABLE, y el MONTO también se puede poner a mano (se sincronizan entre sí).

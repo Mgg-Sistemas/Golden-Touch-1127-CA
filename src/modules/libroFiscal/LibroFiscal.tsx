@@ -148,7 +148,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   empresaFicha?: FichaFiscalEmpresa | null;
 }) {
   const { can } = usePermissions();
-  const canVerPedidos = can('pedidos', 'lectura');
+  // Abrir el documento de origen en Pedidos: Impuestos conserva `pedidos` (base); Compras también (31/10/2026).
+  const canVerPedidos = can('pedidos', 'lectura') || can('compras', 'lectura');
 
   // Desde el 07/10/2026 la empresa retiene IVA: el libro abre en lo que
   // practicó (lo que hay que enterar), que es el trabajo del día a día.
