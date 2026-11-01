@@ -587,10 +587,10 @@ export interface NuevaRetencion {
   montoRetenido: number;
   observacion?: string | null;
   /**
-   * Multi-empresa: la empresa receptora. RESERVADO: el registro suelto inserta
-   * una línea SIN documento cabecera, así que todavía no se escribe (pendiente de
-   * confirmar con Master/BD cómo lleva la empresa una línea suelta — D1b). El
-   * camino de factura sí marca la empresa en la cabecera (ver FacturaNueva).
+   * Multi-empresa: la empresa receptora. El registro suelto inserta una línea SIN
+   * documento cabecera, así que la empresa elegida se marca directamente en la
+   * línea (D1b). Solo viaja si viene (single-empresa no la manda). El camino de
+   * factura marca la empresa en la cabecera (ver FacturaNueva).
    */
   empresaId?: string | null;
   actor: string;
@@ -651,6 +651,9 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     servicio_directo_id: input.docKind === 'servicio_directo' ? input.docId ?? null : null,
     actor: input.actor, actor_name: input.actorName ?? null,
     updated_at: new Date().toISOString(),
+    // Multi-empresa (D1b): el registro suelto inserta una línea SIN cabecera, así que la
+    // empresa elegida se marca aquí mismo. Solo viaja si viene (single-empresa no la manda).
+    ...(input.empresaId ? { empresa_id: input.empresaId } : {}),
   };
 }
 

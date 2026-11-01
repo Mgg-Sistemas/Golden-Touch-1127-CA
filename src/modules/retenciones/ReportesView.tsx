@@ -12,7 +12,7 @@ import { diaVE } from '@/modules/tesoreria/tasas.repository';
 import { getConfigRetencion, listRetenciones, tipoDeGt, type RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import { listImpuestos } from '@/modules/libroFiscal/impuestos.repository';
 import { razonSocialAgente } from '@/modules/libroFiscal/comprobanteRetencionPdf';
-import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, configDesdeFicha, type ConfigRetencion, type FichaFiscalEmpresa, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import {
   COLUMNAS_POR_DEFECTO, COLUMNAS_REPORTE, IMPUESTOS_REPORTE, impuestosReporteActivos, borrarPlantilla, filtrarReporte, formatoMonto,
   guardarPlantilla, leerPlantillas, ordenarReporte, rangoDePeriodo, tablaCruzada, tablaDeCruzada, tablaDetalle,
@@ -57,10 +57,12 @@ const PERIODOS: { value: PeriodoReporte; label: string; grupo: 'Atajos' | 'Elegi
 
 const fechaVe = (s: string) => { const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
 
-export function ReportesView({ actor, empresaId = null }: {
+export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
   actor: string;
   /** Multi-empresa: los reportes salen de ESA empresa. null = single-empresa (todo, como hoy). */
   empresaId?: string | null;
+  /** Multi-empresa: la ficha de la empresa NO-GT (régimen y %); null = GT/single (config global). */
+  empresaFicha?: FichaFiscalEmpresa | null;
 }) {
   const hoy = diaVE(new Date().toISOString()) || new Date().toISOString().slice(0, 10);
 
@@ -114,11 +116,12 @@ export function ReportesView({ actor, empresaId = null }: {
   const cargar = useCallback(async () => {
     try {
       const [filas, cfg] = await Promise.all([listRetenciones({ incluirAnuladas: true, empresaId: empresaId ?? undefined }), getConfigRetencion().catch(() => null)]);
-      setDatos(filas); setConfig(cfg); setErrorCarga(null);
+      // Multi-empresa: una empresa NO-GT usa el régimen y los % de su ficha.
+      setDatos(filas); setConfig(cfg && empresaFicha ? configDesdeFicha(cfg, empresaFicha) : cfg); setErrorCarga(null);
     } catch (e) {
       setErrorCarga(e instanceof Error ? e.message : 'No se pudieron leer las retenciones.');
     }
-  }, [empresaId]);
+  }, [empresaId, empresaFicha]);
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['retenciones'], () => { void cargar(); });
   useRealtime(['retencion_impuestos'], () => { cargarImpuestosActivos(); });

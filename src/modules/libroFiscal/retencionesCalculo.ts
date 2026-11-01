@@ -86,6 +86,8 @@ export interface ConfigRetencion {
   retieneIslr?: boolean;
   /** Si la empresa retiene Impuesto Municipal (ISAE). Por defecto true. */
   retieneMunicipal?: boolean;
+  /** Si la empresa retiene Timbre Estadal (regional). Por defecto true (GT); una NO-GT arranca en false salvo que su ficha lo diga. */
+  retieneEstadal?: boolean;
   /** Estatus del Kanban de compras que se procesan en el módulo de Retenciones. */
   estadosKanbanRetencion?: EstadoOrden[];
   pctIvaGeneral: number;    // 75
@@ -94,6 +96,13 @@ export interface ConfigRetencion {
   pctIgtf: number;          // 3
   /** Alícuota general del IVA (p. ej. 16). Para el desglose «IVA incluido»; sale de Parámetros. */
   ivaAlicuota?: number;
+  /**
+   * Multi-empresa: los porcentajes (IVA, especial, IGTF, alícuota) vienen de la FICHA de la
+   * empresa y NO deben pisarse con los parámetros nacionales con fecha. Con esto, configDeFecha
+   * trae solo la UT (nacional) y respeta los % de la ficha. GT/single-empresa: undefined → los
+   * % siguen saliendo de los parámetros con fecha, como hoy.
+   */
+  porcentajesDeFicha?: boolean;
   /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
   licenciaMunicipal?: string | null;
   /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
@@ -127,21 +136,26 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */
 
-/** ¿Puede la empresa practicar esta retención? Las recibidas se registran siempre. */
-export function puedePracticar(
-  tipo: TipoImpuesto,
-  config: Pick<ConfigRetencion, 'esAgenteRetencionIva' | 'esContribuyenteEspecial'>,
-): boolean {
+/** Lo que mira el régimen para decidir qué practica la empresa. */
+type ConfigRegimen = Pick<ConfigRetencion,
+  'esAgenteRetencionIva' | 'esContribuyenteEspecial' | 'retieneIslr' | 'retieneMunicipal' | 'retieneEstadal'>;
+
+/**
+ * ¿Puede la empresa practicar esta retención? Las recibidas se registran siempre.
+ * IVA/IGTF dependen de la designación; ISLR/municipal/estadal, de las banderas de
+ * régimen (por defecto true, para no cambiar a GT ni al single-empresa de hoy).
+ */
+export function puedePracticar(tipo: TipoImpuesto, config: ConfigRegimen): boolean {
   if (tipo === 'iva') return config.esAgenteRetencionIva || config.esContribuyenteEspecial;
   if (tipo === 'igtf') return config.esContribuyenteEspecial;
+  if (tipo === 'islr') return config.retieneIslr !== false;
+  if (tipo === 'municipal') return config.retieneMunicipal !== false;
+  if (tipo === 'regional') return config.retieneEstadal !== false;
   return true;
 }
 
 /** Por qué no puede, en una línea, o null si puede. */
-export function motivoNoPuedePracticar(
-  tipo: TipoImpuesto,
-  config: Pick<ConfigRetencion, 'esAgenteRetencionIva' | 'esContribuyenteEspecial'>,
-): string | null {
+export function motivoNoPuedePracticar(tipo: TipoImpuesto, config: ConfigRegimen): string | null {
   if (puedePracticar(tipo, config)) return null;
   if (tipo === 'iva') {
     return 'La empresa no está marcada como agente de retención de IVA ni como contribuyente especial '
@@ -149,9 +163,80 @@ export function motivoNoPuedePracticar(
       + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
       + 'Si la empresa fue designada, activar la casilla en Parámetros.';
   }
+  if (tipo === 'islr') {
+    return 'La empresa no retiene ISLR según su ficha fiscal. '
+      + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
+      + 'Si la empresa sí retiene ISLR, actívalo en su ficha (Empresas).';
+  }
+  if (tipo === 'municipal') {
+    return 'La empresa no retiene Impuesto Municipal (ISAE) según su ficha fiscal. '
+      + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
+      + 'Si la empresa sí lo retiene, actívalo en su ficha (Empresas).';
+  }
+  if (tipo === 'regional') {
+    return 'La empresa no retiene Timbre Estadal según su ficha fiscal. '
+      + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida».';
+  }
   return 'Solo el contribuyente especial percibe el IGTF (Ley del IGTF). '
     + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
     + 'Si la empresa fue designada contribuyente especial, activar la casilla en Parámetros.';
+}
+
+/* ───────────────── Multi-empresa: config desde la ficha de la empresa ───────────────── */
+
+/**
+ * La parte fiscal de una empresa receptora que define su régimen y porcentajes.
+ * Es una forma estructural (no importa el tipo del módulo de Retenciones, para no
+ * invertir la dependencia): cualquier ficha con estos campos encaja.
+ */
+export interface FichaFiscalEmpresa {
+  rif?: string | null;
+  nombre?: string | null;
+  direccionFiscal?: string | null;
+  municipio?: string | null;
+  estado?: string | null;
+  email?: string | null;
+  licenciaMunicipal?: string | null;
+  esAgenteRetencionIva?: boolean;
+  esContribuyenteEspecial?: boolean;
+  retieneIslr?: boolean;
+  retieneMunicipal?: boolean;
+  pctIvaGeneral?: number;
+  pctIvaEspecial?: number;
+  pctIgtf?: number;
+  ivaAlicuota?: number;
+  imprimirOriginalYCopia?: boolean;
+}
+
+/**
+ * Config de una empresa NO-GT: toma la identidad, el régimen (banderas) y los
+ * porcentajes de SU ficha, sobre la base global. Marca `porcentajesDeFicha` para
+ * que configDeFecha traiga solo la UT nacional y respete estos % (orden validado
+ * por Master). El timbre estadal queda en false por defecto (DE2). No toca GT:
+ * GT usa la config global tal cual (su régimen sale de R1).
+ */
+export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpresa): ConfigRetencion {
+  return {
+    ...base,
+    rif: ficha.rif || base.rif,
+    razonSocial: ficha.nombre || base.razonSocial,
+    direccionFiscal: ficha.direccionFiscal ?? base.direccionFiscal,
+    municipio: ficha.municipio ?? base.municipio,
+    estado: ficha.estado ?? base.estado,
+    email: ficha.email ?? base.email,
+    licenciaMunicipal: ficha.licenciaMunicipal ?? base.licenciaMunicipal,
+    esAgenteRetencionIva: ficha.esAgenteRetencionIva ?? false,
+    esContribuyenteEspecial: ficha.esContribuyenteEspecial ?? false,
+    retieneIslr: ficha.retieneIslr ?? false,
+    retieneMunicipal: ficha.retieneMunicipal ?? false,
+    retieneEstadal: false,
+    pctIvaGeneral: ficha.pctIvaGeneral ?? base.pctIvaGeneral,
+    pctIvaEspecial: ficha.pctIvaEspecial ?? base.pctIvaEspecial,
+    pctIgtf: ficha.pctIgtf ?? base.pctIgtf,
+    ivaAlicuota: ficha.ivaAlicuota ?? base.ivaAlicuota,
+    imprimirOriginalYCopia: ficha.imprimirOriginalYCopia ?? base.imprimirOriginalYCopia,
+    porcentajesDeFicha: true,
+  };
 }
 
 /** Un renglón del catálogo. */

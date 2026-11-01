@@ -24,6 +24,11 @@ export const CLAVE_EMPRESA_ACTUAL = 'gt.retenciones.empresaActual';
 /** La clave de la empresa principal (GT) según el diseño de BD; es el default natural. */
 const CLAVE_GT = 'empresa-golden-touch';
 
+/** ¿Es GT (la empresa principal)? GT conserva su régimen por R1; las demás, por su ficha. */
+export function esEmpresaGt(empresa: { clave?: string } | null | undefined): boolean {
+  return !!empresa && empresa.clave === CLAVE_GT;
+}
+
 /**
  * Qué empresa debe quedar seleccionada, dada la lista y lo que recordaba el
  * navegador. Pura y testeable:

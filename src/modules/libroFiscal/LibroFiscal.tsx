@@ -51,12 +51,12 @@ import type { EstadoOrden } from '@/shared/lib/types';
 import { badgeEstatusKanban } from '@/modules/retenciones/retencionesKanban';
 import {
   CONFIG_RETENCION_DEFECTO, ESTADOS_KANBAN_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, configDesdeFicha, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
   motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
-  type EstadoRetencion, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
+  type EstadoRetencion, type FichaFiscalEmpresa, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
@@ -140,10 +140,12 @@ function rutaDocumento(kind: DocKind, id: string | null): string | null {
 
 type VistaLibro = 'lista' | 'factura' | 'impuesto' | 'sin';
 
-export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura', empresaId = null }: {
+export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura', empresaId = null, empresaFicha = null }: {
   canWrite?: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
   /** Multi-empresa: el libro se filtra a esta empresa. null = single-empresa (todo, como hoy). */
   empresaId?: string | null;
+  /** Multi-empresa: la ficha de la empresa NO-GT (régimen y %); null = GT/single (config global). */
+  empresaFicha?: FichaFiscalEmpresa | null;
 }) {
   const { can } = usePermissions();
   const canVerPedidos = can('pedidos', 'lectura');
@@ -224,11 +226,13 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       listRetenciones({ desde: desde || undefined, hasta: hasta || undefined, incluirAnuladas: true, empresaId: empresaId ?? undefined }),
       getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO),
     ]);
-    setFilas(rs); setConfig(cfg); setErrorCarga(null);
-    if (cfg.imprimirOriginalYCopia !== undefined) {
-      setImprimirOriginalYCopia(cfg.imprimirOriginalYCopia !== false);
+    // Multi-empresa: una empresa NO-GT usa el régimen y los % de su ficha.
+    const cfgEmpresa = empresaFicha ? configDesdeFicha(cfg, empresaFicha) : cfg;
+    setFilas(rs); setConfig(cfgEmpresa); setErrorCarga(null);
+    if (cfgEmpresa.imprimirOriginalYCopia !== undefined) {
+      setImprimirOriginalYCopia(cfgEmpresa.imprimirOriginalYCopia !== false);
     }
-  }, [desde, hasta, empresaId]);
+  }, [desde, hasta, empresaId, empresaFicha]);
 
   useEffect(() => {
     let cancel = false;
@@ -1339,12 +1343,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       )}
 
       {registrar && (
-        <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
+        <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId} empresaFicha={empresaFicha}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
       {facturaVarias && (
-        <RegistrarFacturaRetencion actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId}
+        <RegistrarFacturaRetencion actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId} empresaFicha={empresaFicha}
           semilla={retenerSobre ? { documento: retenerSobre } : semillaCompra}
           onClose={() => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); }}
           onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
@@ -1394,7 +1398,7 @@ export interface SemillaRetencion {
   sustituyeAComprobante?: string | null;
 }
 
-export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto }: {
+export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto, empresaId = null, empresaFicha = null }: {
   semilla: SemillaRetencion;
   actor: string;
   actorName: string | null;
@@ -1404,6 +1408,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   impuestosActivos?: ImpuestosActivos | null;
   /** La ficha de cada impuesto: gatea la dirección admitida y da el formato de su serie. */
   fichasImpuesto?: Map<TipoImpuesto, FichaRetencionVista> | null;
+  /** Multi-empresa: la empresa receptora que queda marcada en la retención. null = single-empresa. */
+  empresaId?: string | null;
+  /** Multi-empresa: la ficha fiscal de la empresa NO-GT (régimen y %); null = GT/single. */
+  empresaFicha?: FichaFiscalEmpresa | null;
 }) {
   const [configBase, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   // Con R3, la UT y los % salen de los valores vigentes a la fecha de la factura; sin R3, del JSON.
@@ -1522,7 +1530,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
       .then(([c, cs, ps]) => {
-        setConfig(c); setConceptos(cs);
+        // Multi-empresa: una empresa NO-GT trae su régimen y % de su ficha.
+        setConfig(empresaFicha ? configDesdeFicha(c, empresaFicha) : c); setConceptos(cs);
         const activos = ps.filter((p) => p.estado === 'activo');
         setProveedores(activos);
         if (semilla.contraparteId) {
@@ -1536,7 +1545,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         }
       })
       .catch((e) => { setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'); });
-  }, [semilla.contraparteId]);
+  }, [semilla.contraparteId, empresaFicha]);
 
   // La tasa es la BCV de la fecha de la factura (sábado y domingo: la del lunes), no la del día en que se registra.
   // En Bs también se lee: sirve para informar el equivalente en $, no se guarda.
@@ -1743,7 +1752,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     try {
       const periodo = periodoDe(facturaFecha);
       const nueva: NuevaRetencion = {
-        tipo, direccion,
+        tipo, direccion, empresaId,
         docKind: semilla.docKind ?? 'manual',
         docId: semilla.docId ?? null, docCodigo: semilla.codigo ?? null,
         contraparteId: proveedorId || semilla.contraparteId || null,

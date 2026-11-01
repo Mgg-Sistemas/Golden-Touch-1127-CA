@@ -39,6 +39,14 @@ export interface EmpresaReceptora {
   retieneIslr?: boolean;
   retieneMunicipal?: boolean;
   pctIvaGeneral?: number;
+  /** % de retención de IVA al contribuyente especial (F-ME1, default 100). */
+  pctIvaEspecial?: number;
+  /** Alícuota del IGTF de la empresa (F-ME1, default 3). */
+  pctIgtf?: number;
+  /** Alícuota general del IVA para el desglose «IVA incluido» (F-ME1, default 16). */
+  ivaAlicuota?: number;
+  /** Alícuota del Impuesto Municipal (ISAE) de la empresa según su municipio (F-ME1, default = la global de hoy). */
+  alicuotaMunicipal?: number;
   imprimirOriginalYCopia?: boolean;
 }
 
@@ -67,6 +75,10 @@ function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaRece
     retieneIslr: r.retiene_islr !== false,
     retieneMunicipal: r.retiene_municipal === true,
     pctIvaGeneral: r.pct_iva_general != null ? Number(r.pct_iva_general) : 75,
+    pctIvaEspecial: r.pct_iva_especial != null ? Number(r.pct_iva_especial) : 100,
+    pctIgtf: r.pct_igtf != null ? Number(r.pct_igtf) : 3,
+    ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : 16,
+    alicuotaMunicipal: r.alicuota_municipal != null ? Number(r.alicuota_municipal) : undefined,
     imprimirOriginalYCopia: r.imprimir_original_y_copia !== false,
   };
 }
