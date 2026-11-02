@@ -30,6 +30,30 @@ export const TIPOS_DOCUMENTO_BUZON: { valor: TipoDocumentoBuzon; etiqueta: strin
 export const rotuloTipoDocumento = (t: TipoDocumentoBuzon | string): string =>
   TIPOS_DOCUMENTO_BUZON.find((x) => x.valor === t)?.etiqueta ?? 'Factura';
 
+/**
+ * El número de la factura para mostrar como «N° 123». Desde R12 el número es
+ * opcional, así que una factura sin número muestra «(sin número)» en vez de un
+ * «Factura N° » colgando (C-i).
+ */
+export function rotuloNumeroFactura(numero: string | null | undefined): string {
+  return numero?.trim() ? `N° ${numero.trim()}` : '(sin número)';
+}
+
+/** Igual que rotuloNumeroFactura, con el estilo «#123» de la vista PC; vacío → «(sin número)». */
+export function numeralFactura(numero: string | null | undefined): string {
+  return numero?.trim() ? `#${numero.trim()}` : '(sin número)';
+}
+
+/**
+ * El sello de creación más reciente de una lista de facturas del buzón, o '' si
+ * está vacía. Sirve para avisar de una factura entrante por el sello más nuevo y
+ * no por el conteo (C-i): si entra una y se borra otra en la misma recarga el
+ * conteo no cambia, pero el sello sí, así el aviso no se pierde.
+ */
+export function ultimaCreacionBuzon(facs: readonly Pick<FacturaExternaBuzon, 'createdAt'>[]): string {
+  return facs.reduce((max, f) => (f.createdAt > max ? f.createdAt : max), '');
+}
+
 export interface FacturaExternaBuzon {
   id: string;
   empresaId: string;
@@ -130,7 +154,7 @@ export async function listFacturasBuzon(filtro?: {
   return filtrarPorTexto(items, filtro?.busqueda);
 }
 
-function filtrarPorTexto(xs: FacturaExternaBuzon[], q?: string): FacturaExternaBuzon[] {
+export function filtrarPorTexto(xs: FacturaExternaBuzon[], q?: string): FacturaExternaBuzon[] {
   if (!q?.trim()) return xs;
   const s = q.trim().toLowerCase();
   return xs.filter(

@@ -5,7 +5,7 @@
    Genera el texto limpio con emojis estándar para compartir
    en grupos de WhatsApp desde el teléfono o la PC.
    ============================================================ */
-import type { FacturaExternaBuzon } from './facturasBuzon.repository';
+import { rotuloNumeroFactura, type FacturaExternaBuzon } from './facturasBuzon.repository';
 
 export const EMOJI_ESTATUS: Record<FacturaExternaBuzon['estatus'], string> = {
   recibida: '🟡',
@@ -40,7 +40,7 @@ export function mensajeFacturaExterna(fac: FacturaExternaBuzon): string {
   if (fac.proveedorRif) {
     lineas.push(`🆔 *RIF:* ${fac.proveedorRif}`);
   }
-  lineas.push(`📄 *N° Factura:* ${fac.facturaNumero}`);
+  lineas.push(`📄 *Factura:* ${rotuloNumeroFactura(fac.facturaNumero)}`);
   if (fac.facturaControl) {
     lineas.push(`🔢 *N° Control:* ${fac.facturaControl}`);
   }

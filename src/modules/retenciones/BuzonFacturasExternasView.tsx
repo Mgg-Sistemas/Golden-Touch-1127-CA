@@ -25,6 +25,7 @@ import {
 } from './empresasReceptoras.repository';
 import {
   listFacturasBuzon, actualizarEstatusFacturaBuzon, eliminarFacturaBuzon,
+  numeralFactura, ultimaCreacionBuzon,
   type FacturaBuzon, type EstatusFacturaBuzon,
 } from './facturasBuzon.repository';
 import { obtenerUrlAdjunto, type AdjuntoFacturaItem } from './adjuntosBuzon';
@@ -106,7 +107,9 @@ export function BuzonFacturasExternasView() {
   const [sonidoActivo, setSonidoActivo] = useState(isSonidoRetencionesHabilitado());
   const [avisosActivos, setAvisosActivos] = useState(isAvisosPantallaHabilitados());
   const [permisoNotif, setPermisoNotif] = useState(getEstadoPermisoNotificacion());
-  const prevCountRef = useRef<number | null>(null);
+  // Por el SELLO de creación más reciente, no por el conteo: si entra 1 y se borra 1
+  // en la misma recarga el conteo no cambia pero el sello sí, y el aviso no se pierde (C-i).
+  const prevUltimaCreacionRef = useRef<string | null>(null);
 
   const cargarDatos = useCallback(async (reproducirSonido = false) => {
     try {
@@ -116,13 +119,14 @@ export function BuzonFacturasExternasView() {
       ]);
       setEmpresas(empr);
 
-      // Si llegaron nuevas facturas desde el último render, sonar arpegio y alertar en pantalla/móvil
-      if (reproducirSonido && prevCountRef.current !== null && facs.length > prevCountRef.current) {
+      // Si llegaron nuevas facturas desde el último render (sello más nuevo), sonar arpegio y alertar.
+      const ultima = ultimaCreacionBuzon(facs);
+      if (reproducirSonido && prevUltimaCreacionRef.current !== null && ultima > prevUltimaCreacionRef.current) {
         const facMasReciente = facs[0];
         lanzarAvisoFactura(facMasReciente, { conSonido: true });
         toast('🔔 Llegó una factura nueva al buzón', 'info');
       }
-      prevCountRef.current = facs.length;
+      prevUltimaCreacionRef.current = ultima;
       setFacturas(facs);
       setErrorCarga(null);
     } catch (e) {
@@ -501,7 +505,7 @@ export function BuzonFacturasExternasView() {
                           </small>
                         </td>
                         <td style={{ padding: '0.65rem 0.8rem' }}>
-                          <strong style={{ fontFamily: 'var(--font-mono)' }}>#{fac.facturaNumero}</strong>
+                          <strong style={{ fontFamily: 'var(--font-mono)' }}>{numeralFactura(fac.facturaNumero)}</strong>
                           {fac.facturaControl && (
                             <small className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
                               N° de control: {fac.facturaControl}
@@ -617,7 +621,7 @@ export function BuzonFacturasExternasView() {
       {/* Modal: Compartir WhatsApp directo */}
       {whatsappFac && (
         <Modal
-          title={`WhatsApp · Factura #${whatsappFac.facturaNumero}`}
+          title={`WhatsApp · Factura ${numeralFactura(whatsappFac.facturaNumero)}`}
           onClose={() => setWhatsappFac(null)}
           size="md"
         >
@@ -634,7 +638,7 @@ export function BuzonFacturasExternasView() {
       {facturaABorrar && canWrite && (
         <ConfirmDialog
           title="¿Borrar esta factura del buzón?"
-          message={`Se borrará la factura #${facturaABorrar.facturaNumero} de ${facturaABorrar.proveedorNombre} con todos sus soportes.`}
+          message={`Se borrará la factura ${numeralFactura(facturaABorrar.facturaNumero)} de ${facturaABorrar.proveedorNombre} con todos sus soportes.`}
           confirmText={borrandoFactura ? 'Borrando...' : 'Sí, borrar la factura'}
           danger
           onCancel={() => { if (!borrandoFactura) setFacturaABorrar(null); }}
@@ -756,7 +760,7 @@ function ModalDetalleFactura({
 
   return (
     <Modal
-      title={`Factura #${factura.facturaNumero} · ${factura.proveedorNombre}`}
+      title={`Factura ${numeralFactura(factura.facturaNumero)} · ${factura.proveedorNombre}`}
       onClose={onClose}
       size="lg"
     >
@@ -795,7 +799,7 @@ function ModalDetalleFactura({
           </div>
           <div>
             <small className="muted" style={{ display: 'block' }}>NÚMERO / CONTROL</small>
-            <strong>Factura #{factura.facturaNumero}</strong>
+            <strong>Factura {numeralFactura(factura.facturaNumero)}</strong>
             {factura.facturaControl && (
               <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>N° de control: {factura.facturaControl}</div>
             )}
