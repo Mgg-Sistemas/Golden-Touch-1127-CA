@@ -23,7 +23,6 @@ import { getConfigRetencion, listRetenciones, tipoAGt, tipoDeGt } from '@/module
 import { listImpuestos } from '@/modules/libroFiscal/impuestos.repository';
 import { soloImpuestosActivos, filtrarActivos, type ImpuestosActivos, type FichaRetencionVista } from './impuestosVista';
 import { impuestosQuePractica, noAplicaDisponible, noAplicaPorOrden } from '@/modules/libroFiscal/noAplica.repository';
-import { listCondiciones, empresaEsAgenteEnFecha, type CondicionRegistrada } from '@/modules/libroFiscal/agenteCondiciones.repository';
 import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAplicaModal';
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
 import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones';
@@ -75,7 +74,7 @@ function guardarBuzonVisto(v: string): void {
 
 export function RetencionesPage() {
   const { user } = useSession();
-  const { can, appUser, puedeVista } = usePermissions();
+  const { can, appUser, puedeVista, isAdmin } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -130,13 +129,16 @@ export function RetencionesPage() {
   const [conNoAplica, setConNoAplica] = useState(false);
   useEffect(() => { noAplicaDisponible().then(setConNoAplica).catch(() => setConNoAplica(false)); }, []);
   const [noAplica, setNoAplica] = useState<ObjetivoNoAplica | null>(null);
-  // Con R10: «Por realizar» pide solo los impuestos que la empresa practica hoy según Parámetros › Régimen.
+  // D2: «Por realizar» pide solo los impuestos que la empresa practica, leídos de la
+  // ÚNICA fuente (la RPC retencion_empresa_practica, por empresa cuando la base lo trae).
+  // La base enforcea el régimen a la fecha de cada factura; el tablero resuelve a hoy.
   const [practica, setPractica] = useState<Set<ImpuestoPendiente> | null>(null);
-  useEffect(() => {
-    impuestosQuePractica(IMPUESTOS_PENDIENTES.map((t) => tipoAGt(t.key)), hoyVE())
+  const cargarPractica = useCallback(() => {
+    impuestosQuePractica(IMPUESTOS_PENDIENTES.map((t) => tipoAGt(t.key)), hoyVE(), empresaId ?? 'empresa-golden-touch')
       .then((s) => setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null))
       .catch(() => setPractica(null));
-  }, []);
+  }, [empresaId]);
+  useEffect(() => { cargarPractica(); }, [cargarPractica]);
 
   // Las vistas (tarjetas, filtros y columnas por impuesto) salen de los impuestos
   // ACTIVOS de la tabla, no de una lista fija: un impuesto deshabilitado desaparece.
@@ -161,12 +163,6 @@ export function RetencionesPage() {
   }, []);
   useEffect(() => { cargarImpuestosActivos(); }, [cargarImpuestosActivos]);
 
-  // Régimen fiscal con historial de condiciones para validar vigencias fecha por fecha
-  const [condiciones, setCondiciones] = useState<CondicionRegistrada[] | null>(null);
-  const cargarCondiciones = useCallback(() => {
-    listCondiciones().then(setCondiciones).catch(() => setCondiciones([]));
-  }, []);
-  useEffect(() => { cargarCondiciones(); }, [cargarCondiciones]);
 
   // Búsqueda, filtros, orden y página de las dos listas de OC (Por realizar y Realizadas).
   const [fDesde, setFDesde] = useState('');
@@ -233,17 +229,17 @@ export function RetencionesPage() {
     ...(conBuzon ? ['retencion_facturas_externas'] : [])], () => {
     cargarImpuestosActivos();
     void reload();
-    cargarCondiciones();
+    cargarPractica();
     if (conBuzon) void refrescarBuzonNuevas();
   });
 
   // Una OC sigue «por realizar» mientras tenga impuestos pendientes o ya tenga impuestos cargados en el libro pero aún falte marcarla como finalizada.
   const porRealizar = useMemo(
     () => pendientes.filter((i) =>
-      impuestosPendientesDeOrden(i.orden, registradas, practica, condiciones, configFiscal, impuestosActivos).length > 0
+      impuestosPendientesDeOrden(i.orden, registradas, practica, configFiscal, impuestosActivos).length > 0
       || Boolean(registradas.get(i.orden.id)?.size),
     ),
-    [pendientes, registradas, practica, condiciones, configFiscal, impuestosActivos],
+    [pendientes, registradas, practica, configFiscal, impuestosActivos],
   );
 
   // La semilla del registro sale del archivo: su orden y, si es una OC que ya está en la lista, proveedor y montos.
@@ -395,7 +391,7 @@ export function RetencionesPage() {
       )}
       {vista === 'pendientes' && (
         <PorRealizarView
-          items={porRealizar} registradas={registradas} practica={practica} condiciones={condiciones} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
+          items={porRealizar} registradas={registradas} practica={practica} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
           config={configFiscal} impuestosActivos={impuestosActivos} pagosOc={pagosOc}
           onVer={setSel} onVista={() => setVista('agrupada')}
           onRegistrar={setRegistrar}
@@ -440,7 +436,7 @@ export function RetencionesPage() {
               {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => {
                 const kanban = badgeEstatusKanban(o.estado);
                 const impOc = badgeImpuestoOrden(o);
-                const estRet = estadoRetencionDeOrden(o, impuestosPendientesDeOrden(o, registradas, practica, condiciones, configFiscal, impuestosActivos), registradas.get(o.id), pagosOc.get(o.id) ?? null);
+                const estRet = estadoRetencionDeOrden(o, impuestosPendientesDeOrden(o, registradas, practica, configFiscal, impuestosActivos), registradas.get(o.id), pagosOc.get(o.id) ?? null);
                 const badgeRet = badgeEstadoRetencion(estRet);
                 return (
                   <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
@@ -484,7 +480,7 @@ export function RetencionesPage() {
       {sel && (
         <RetencionModal
           item={sel} canWrite={canWrite} actor={actor} impuestosActivos={impuestosActivos}
-          tieneResueltosEnLibro={Boolean(registradas.get(sel.orden.id)?.size) || impuestosPendientesDeOrden(sel.orden, registradas, practica, condiciones, configFiscal, impuestosActivos).length === 0}
+          tieneResueltosEnLibro={Boolean(registradas.get(sel.orden.id)?.size) || impuestosPendientesDeOrden(sel.orden, registradas, practica, configFiscal, impuestosActivos).length === 0}
           onClose={() => setSel(null)}
           onSaved={async () => { setSel(null); await reload(); }}
         />
@@ -493,6 +489,9 @@ export function RetencionesPage() {
         <ConfiguracionFiscalModal
           puedeEditar={canWrite}
           editorFiscalEmpresas={multiempresa ? <EditorFichasFiscalesEmpresa puedeEditar={canWrite} /> : null}
+          empresasRegimen={multiempresa ? empresas.map((e) => ({ id: e.id, nombre: e.nombreCorto || e.nombre })) : []}
+          empresaRegimenId={empresaId}
+          puedeBorrarRegimen={isAdmin}
           onClose={() => {
             setParametros(false);
             void reload();
@@ -675,56 +674,35 @@ function equivalente(o: Orden, t: TasaDoc | undefined): { monto: string; tasa: s
 }
 
 /**
- * Quién decide si la empresa retiene IVA, en UNA sola fuente. El Régimen (R1) a la
- * fecha del documento manda; `esAgenteRetencionIva` de Parámetros es su espejo (la
- * base lo sincroniza desde R1) y solo se usa cuando no hay R1 cargado. Así el flag
- * legado y el Régimen no pueden discrepar en la pantalla. La práctica (RPC) es el
- * fallback intermedio que ya existía.
- */
-function retieneIvaVigente(
-  condiciones: CondicionRegistrada[] | null,
-  practica: Set<ImpuestoPendiente> | null | undefined,
-  config: ConfigRetencion | null | undefined,
-  fecha: string,
-): boolean {
-  if (condiciones && condiciones.length > 0) return empresaEsAgenteEnFecha(condiciones, fecha, 'IVA');
-  if (practica) return practica.has('iva');
-  if (config) return config.esAgenteRetencionIva !== false;
-  return true;
-}
-
-/**
- * Lo que falta: ni el comprobante del flujo anterior ni una retención vigente en el libro.
- * Considera las condiciones de agente de IVA, los impuestos que practica la empresa (IVA, ISLR, ISAE)
- * según Parámetros (o la RPC de práctica de retenciones).
+ * Lo que falta de una orden: ni el comprobante del flujo anterior ni una retención
+ * vigente en el libro, SOLO para los impuestos que la empresa practica. D2: «practica»
+ * es la ÚNICA fuente (la RPC retencion_empresa_practica, resuelta a hoy en `practica`);
+ * si la RPC no está (degradación), se cae a las banderas de la config (GT). El Régimen
+ * por fecha lo enforcea la base al registrar, así que el tablero a-hoy no deja pasar
+ * nada fuera de régimen. Ya no se reconcilia con condiciones ni con el flag legado.
  */
 function impuestosPendientesDeOrden(
   o: Orden,
   reg: Registradas,
   practica: Set<ImpuestoPendiente> | null = null,
-  condiciones: CondicionRegistrada[] | null = null,
   config?: ConfigRetencion | null,
   activos: ImpuestosActivos | null = null,
 ): ImpuestoPendiente[] {
   const ya = reg.get(o.id);
   const out: ImpuestoPendiente[] = [];
+  const retiene = (k: ImpuestoPendiente, flag: 'esAgenteRetencionIva' | 'retieneIslr' | 'retieneMunicipal') =>
+    (practica ? practica.has(k) : (config ? config[flag] !== false : true));
 
-  const fechaDoc = fechaDocumento(o).fecha;
-  const retieneIva = retieneIvaVigente(condiciones, practica, config, fechaDoc);
-
-  const retieneIslr = practica ? practica.has('islr') : (config ? config.retieneIslr !== false : true);
-  const retieneMunicipal = practica ? practica.has('municipal') : (config ? config.retieneMunicipal !== false : true);
-
-  if (retieneIva && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
-  if (retieneIslr && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
-  if (retieneMunicipal && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
+  if (retiene('iva', 'esAgenteRetencionIva') && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
+  if (retiene('islr', 'retieneIslr') && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
+  if (retiene('municipal', 'retieneMunicipal') && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
 
   // Un impuesto deshabilitado en Parámetros no pide retención.
   return filtrarActivos(out, activos);
 }
 
-function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, loading, canWrite, config, impuestosActivos, pagosOc, onVer, onVista, onRegistrar, onNoAplica }: {
-  items: RetencionItem[]; registradas: Registradas; practica: Set<ImpuestoPendiente> | null; condiciones: CondicionRegistrada[] | null; tasasDoc: TasasDoc; loading: boolean; canWrite: boolean;
+function PorRealizarView({ items, registradas, practica, tasasDoc, loading, canWrite, config, impuestosActivos, pagosOc, onVer, onVista, onRegistrar, onNoAplica }: {
+  items: RetencionItem[]; registradas: Registradas; practica: Set<ImpuestoPendiente> | null; tasasDoc: TasasDoc; loading: boolean; canWrite: boolean;
   config?: ConfigRetencion | null;
   impuestosActivos?: ImpuestosActivos | null;
   pagosOc?: Map<string, MontoPagado> | null;
@@ -767,12 +745,12 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
         if (!hay.includes(txt)) return false;
       }
       if (fImp) {
-        const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones, config, activos);
+        const pends = impuestosPendientesDeOrden(o, registradas, practica, config, activos);
         if (!pends.includes(fImp as ImpuestoPendiente)) return false;
       }
       return true;
     });
-  }, [items, registradas, practica, condiciones, config, activos, q, fImp]);
+  }, [items, registradas, practica, config, activos, q, fImp]);
 
   const ordenadas = useMemo(() => {
     const xs = [...filtradas];
@@ -790,10 +768,10 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
   const conteoImp = useMemo(() => {
     const c: Record<string, number> = { iva: 0, islr: 0, municipal: 0 };
     for (const i of items) {
-      for (const k of impuestosPendientesDeOrden(i.orden, registradas, practica, condiciones, config, activos)) c[k]++;
+      for (const k of impuestosPendientesDeOrden(i.orden, registradas, practica, config, activos)) c[k]++;
     }
     return c;
-  }, [items, registradas, practica, condiciones, config, activos]);
+  }, [items, registradas, practica, config, activos]);
 
   return (
     <>
@@ -813,7 +791,7 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                 {canWrite && (
                   <span className="lfv8-pagar-acc">
                     <button className="btn btn-sm lfv8-btn-reg" onClick={() => {
-                      const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones, config, activos);
+                      const pends = impuestosPendientesDeOrden(o, registradas, practica, config, activos);
                       onRegistrar({
                         direccion: 'practicada',
                         tipoInicial: pends[0] ?? 'iva',
@@ -891,9 +869,8 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
         {!loading && !ordenadas.length && <div className="lfv8-sis-vacio">Sin registros para los filtros aplicados.</div>}
 
         {!loading && visible.map(({ orden: o, proveedorNombre }) => {
-          const fechaDoc = fechaDocumento(o).fecha;
-          const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones, config, activos);
-          const retieneIva = retieneIvaVigente(condiciones, practica, config, fechaDoc);
+          const pends = impuestosPendientesDeOrden(o, registradas, practica, config, activos);
+          const retieneIva = practica ? practica.has('iva') : (config ? config.esAgenteRetencionIva !== false : true);
           const retieneIslr = practica ? practica.has('islr') : (config ? config.retieneIslr !== false : true);
           const retieneMunicipal = practica ? practica.has('municipal') : (config ? config.retieneMunicipal !== false : true);
 
@@ -990,7 +967,7 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                         ordenId: o.id, codigo: o.oc_codigo ?? o.codigo, proveedorId: o.proveedor_id ?? null, proveedorNombre,
                         moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD', total: o.total ?? null,
                         impuestoClave: tipoAGt(k), impuestoNombre: lbl,
-                        fechaDocumento: fechaDoc,
+                        fechaDocumento: fechaDocumento(o).fecha,
                       })}>
                       {lbl}: no aplica
                     </button>

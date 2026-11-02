@@ -2358,11 +2358,17 @@ const DEF_VALORES_R3: DefSeccionPa = {
 };
 const AVISO_AVANZADOS ='Estos cambios afectan cálculos, números o fechas de declaración. Lo ya emitido no cambia.';
 
-export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmpresas = null }: {
+export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmpresas = null, empresasRegimen = [], empresaRegimenId = null, puedeBorrarRegimen = false }: {
   puedeEditar: boolean;
   onClose: () => void;
   /** Multi-empresa: el editor de config fiscal por empresa (se inyecta desde Retenciones para no invertir la dependencia). Null → la sección no aparece. */
   editorFiscalEmpresas?: ReactNode;
+  /** D2: empresas (datos planos) para el selector de Régimen por empresa; vacío = single-empresa. */
+  empresasRegimen?: { id: string; nombre: string }[];
+  /** D2: empresa actual del módulo, como selección inicial del Régimen. */
+  empresaRegimenId?: string | null;
+  /** D2: borrar una fila del régimen es admin-only (la tabla no tiene política DELETE para otros). */
+  puedeBorrarRegimen?: boolean;
 }) {
   const [cfg, setCfg] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [locales, setLocales] = useState<AlicuotasLocales>({ municipal: 0, estadal: 0 });
@@ -2769,7 +2775,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
           {seccion === 'regimen' && (
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
               {/* Con R1, las dos condiciones llevan fecha e historial y las escribe su propia pantalla. */}
-              {r1 && <ParametrosRegimen puedeEditar={puedeEditar} />}
+              {r1 && <ParametrosRegimen puedeEditar={puedeEditar} empresas={empresasRegimen} empresaIdInicial={empresaRegimenId} puedeBorrar={puedeBorrarRegimen} />}
               <div className="card" style={{ background: 'var(--bg-2)' }}>
                 {!r1 && (<>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>

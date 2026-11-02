@@ -72,7 +72,7 @@ export function EditorFichasFiscalesEmpresa({ puedeEditar }: { puedeEditar: bool
   return (
     <div style={{ display: 'grid', gap: '.9rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '.88rem' }}>
-        El régimen y los porcentajes de cada empresa. El nombre y el RIF se editan en el buzón.
+        Los porcentajes y lo municipal de cada empresa. El régimen (qué retiene) se edita en Parámetros → Régimen; el nombre y el RIF, en el buzón.
       </p>
       {error && <div className="aviso error sm"><span className="aviso-icono">⚠️</span><div>{error}</div></div>}
 
@@ -83,22 +83,11 @@ export function EditorFichasFiscalesEmpresa({ puedeEditar }: { puedeEditar: bool
           <div key={e.id} className="card" style={{ display: 'grid', gap: '.6rem' }}>
             <div style={{ fontWeight: 700 }}>{e.nombreCorto || e.nombre} <span className="muted mono" style={{ fontWeight: 400 }}>· {e.rif}</span></div>
 
-            {/* Régimen (banderas) */}
-            <div style={{ display: 'grid', gap: '.35rem' }}>
-              <span className="muted" style={{ fontSize: '.82rem', fontWeight: 600 }}>Qué retiene esta empresa</span>
-              {([
-                ['esAgenteRetencionIva', 'Es agente de retención de IVA'],
-                ['esContribuyenteEspecial', 'Es contribuyente especial (percibe IGTF)'],
-                ['retieneIslr', 'Retiene ISLR a sus proveedores'],
-                ['retieneMunicipal', 'Retiene Impuesto Municipal (ISAE)'],
-              ] as const).map(([campo, etiqueta]) => (
-                <label key={campo} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: dis ? 'default' : 'pointer' }}>
-                  <input type="checkbox" disabled={dis} checked={d[campo] !== false && !!d[campo]}
-                    onChange={(ev) => editar(e.id, { [campo]: ev.target.checked })} />
-                  {etiqueta}
-                </label>
-              ))}
-            </div>
+            {/* D2: el régimen (qué retiene cada empresa) ya NO se edita acá; se gobierna en
+                Parámetros → Régimen (L6, por empresa y fecha). Acá solo lo que queda de la ficha. */}
+            <p className="muted" style={{ margin: 0, fontSize: '.78rem' }}>
+              El régimen (agente de IVA, especial, ISLR, municipal) se edita en Parámetros → Régimen.
+            </p>
 
             {/* Porcentajes */}
             <div className="form-grid">
