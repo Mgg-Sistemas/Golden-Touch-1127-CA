@@ -166,6 +166,18 @@ export async function listHistorial(filtro: FiltroHistorial = {}): Promise<FilaH
   return (data ?? []).map((r) => mapearFila(r as Record<string, unknown>));
 }
 
+/**
+ * Una celda para CSV: entre comillas y, si el texto empieza por un carácter que
+ * Excel/Sheets interpretarían como fórmula (= + - @ o tab/retorno), se le antepone
+ * una comilla simple para que quede como TEXTO (anti «CSV formula injection»). El
+ * actor/motivo/clave son texto libre que pudo escribir cualquiera, así que se blindan.
+ */
+export function celdaCsvSegura(valor: string | null | undefined): string {
+  const s = String(valor ?? '');
+  const seguro = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return `"${seguro.replace(/"/g, '""')}"`;
+}
+
 export interface ResumenHistorial { total: number; altas: number; cambios: number; bajas: number; }
 
 /** Conteo por tipo de acción, para las tarjetas. */

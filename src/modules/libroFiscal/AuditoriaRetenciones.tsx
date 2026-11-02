@@ -17,7 +17,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { norm } from '@/shared/lib/texto';
 import { rotuloAutor } from './rotulos';
 import {
-  historialDisponible, listHistorial, resumenHistorial, diffHistorial, LABEL_CATEGORIA,
+  historialDisponible, listHistorial, resumenHistorial, diffHistorial, celdaCsvSegura, LABEL_CATEGORIA,
   type FilaHistorial, type AccionHistorial, type CategoriaHistorial, type ResumenHistorial,
 } from './historialRetenciones.repository';
 
@@ -134,11 +134,11 @@ export function AuditoriaRetenciones() {
 
   function exportarCsv() {
     if (!filtrados.length) return;
-    const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
     const cabecera = ['Fecha y Hora', 'Tipo de objeto', 'Tabla', 'Clave', 'Acción', 'Responsable', 'Motivo'];
+    // Todo texto libre pasa por celdaCsvSegura (comillas + guarda anti fórmula de Excel).
     const lineas = filtrados.map((f) => [
-      formatFechaHoraVE(f.at), esc(f.categoriaLabel), esc(f.tabla), esc(f.clave ?? ''),
-      ESTILO_ACCION[f.accion].label, esc(rotuloAutor(f.actor)), esc(f.motivo ?? ''),
+      celdaCsvSegura(formatFechaHoraVE(f.at)), celdaCsvSegura(f.categoriaLabel), celdaCsvSegura(f.tabla), celdaCsvSegura(f.clave ?? ''),
+      celdaCsvSegura(ESTILO_ACCION[f.accion].label), celdaCsvSegura(rotuloAutor(f.actor)), celdaCsvSegura(f.motivo ?? ''),
     ]);
     const csv = '﻿' + [cabecera.join(','), ...lineas.map((l) => l.join(','))].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));

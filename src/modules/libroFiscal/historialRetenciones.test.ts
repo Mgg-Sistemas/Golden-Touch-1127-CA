@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  categoriaDeTabla, accionDeFila, diffHistorial, resumenHistorial, LABEL_CATEGORIA,
+  categoriaDeTabla, accionDeFila, diffHistorial, resumenHistorial, celdaCsvSegura, LABEL_CATEGORIA,
   type FilaHistorial,
 } from './historialRetenciones.repository';
 
@@ -58,5 +58,20 @@ describe('historialRetenciones · resumen por acción', () => {
   });
   it('lista vacía → todo en cero', () => {
     expect(resumenHistorial([])).toEqual({ total: 0, altas: 0, cambios: 0, bajas: 0 });
+  });
+});
+
+describe('historialRetenciones · celda CSV segura (anti formula injection)', () => {
+  it('antepone comilla simple cuando el texto empieza por = + - @ o tab/retorno', () => {
+    expect(celdaCsvSegura('=1+1')).toBe(`"'=1+1"`);
+    expect(celdaCsvSegura('+34')).toBe(`"'+34"`);
+    expect(celdaCsvSegura('-5')).toBe(`"'-5"`);
+    expect(celdaCsvSegura('@SUM(A1)')).toBe(`"'@SUM(A1)"`);
+    expect(celdaCsvSegura('\tdato')).toBe(`"'\tdato"`);
+  });
+  it('texto normal solo va entre comillas; las comillas internas se duplican', () => {
+    expect(celdaCsvSegura('IVA')).toBe('"IVA"');
+    expect(celdaCsvSegura('dice "hola"')).toBe('"dice ""hola"""');
+    expect(celdaCsvSegura(null)).toBe('""');
   });
 });
