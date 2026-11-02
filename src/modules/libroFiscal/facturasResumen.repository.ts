@@ -17,7 +17,7 @@ import { tablaDisponible } from './disponibilidad';
 import { configDeFecha } from './parametros.repository';
 import { aRetencion, tipoDeGt } from './retencionesFiscal.repository';
 import {
-  aFacturaCabecera, numerarSinV2R, pLineaDe,
+  aFacturaCabecera, pLineaDe,
   type FacturaConLineas, type LineaFacturaNueva,
 } from './retencionFacturas.repository';
 import { CONFIG_RETENCION_DEFECTO, type TipoImpuesto } from './retencionesCalculo';
@@ -113,7 +113,7 @@ export const buscarFacturasRetenibles = (texto: string, proveedorId?: string | n
 
 /**
  * Retiene después contra una factura ya registrada: las líneas van con la UT
- * de la fecha de la factura y, sin V2R, con su número como hoy.
+ * de la fecha de la factura; el número de cada practicada lo pone la base (V2R).
  */
 export async function retenerDespues(
   doc: Pick<FacturaResumen, 'documentoId' | 'facturaFecha' | 'direccion'>,
@@ -123,10 +123,9 @@ export async function retenerDespues(
   if (!lineas.length) throw new Error('Agrega al menos una línea de impuesto para retener.');
   const fecha = (doc.facturaFecha ?? '').slice(0, 10);
   const vigente = await configDeFecha({ ...CONFIG_RETENCION_DEFECTO, valorUt: opciones.valorUt ?? 0 }, fecha, lineas.map((l) => l.tipo));
-  const conNumero = await numerarSinV2R({ direccion: doc.direccion, periodo: opciones.periodo ?? undefined, facturaFecha: fecha }, lineas);
   const { data, error } = await supabase.rpc('retencion_lineas_registrar', {
     p_documento_id: doc.documentoId,
-    p_lineas: conNumero.map((l) => ({ ...pLineaDe(l), valor_ut: Number(vigente.valorUt) > 0 ? Number(vigente.valorUt) : null })),
+    p_lineas: lineas.map((l) => ({ ...pLineaDe(l), valor_ut: Number(vigente.valorUt) > 0 ? Number(vigente.valorUt) : null })),
     p_periodo: opciones.periodo ?? null,
     p_actor_name: opciones.actorName ?? null,
   });
