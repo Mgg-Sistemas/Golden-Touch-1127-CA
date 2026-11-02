@@ -1399,6 +1399,13 @@ export interface SemillaRetencion {
   sustituyeAComprobante?: string | null;
 }
 
+// C-c (líder): «¿Quién retuvo?» (Recibida/Practicada) es un control de VENTAS. En el
+// flujo de compras —este registro suelto— la retención es SIEMPRE practicada, así que
+// el control se oculta y la dirección queda fija en 'practicada'. Reversible: con
+// OFRECER_DIRECCION = true vuelve el toggle. El modelo (DIRECCIONES, 'recibida'…) queda
+// intacto a propósito: «recibida» sigue existiendo para ventas.
+const OFRECER_DIRECCION: boolean = false;
+
 export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto, empresaId = null, empresaFicha = null }: {
   semilla: SemillaRetencion;
   actor: string;
@@ -1429,7 +1436,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
 
-  const [direccion, setDireccion] = useState<DireccionRetencion>(semilla.direccion ?? 'practicada');
+  const [direccion, setDireccion] = useState<DireccionRetencion>(OFRECER_DIRECCION ? (semilla.direccion ?? 'practicada') : 'practicada');
   const verProveedores = usePermissions().can('proveedores');
   const [tipo, setTipo] = useState<TipoImpuesto>(semilla.tipoInicial ?? 'iva');
   const [sujeto, setSujeto] = useState<SujetoRetenido>('pj_domiciliada');
@@ -1832,6 +1839,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       )}
 
       {/* La dirección primero: cambia el significado de todo lo demás */}
+      {OFRECER_DIRECCION && (
       <div className="form-row">
         <label>¿Quién retuvo?</label>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
@@ -1851,6 +1859,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </div>
         <small className="hint muted">{significadoRetencion(tipo, direccion)}</small>
       </div>
+      )}
 
       {avisoFecha && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>

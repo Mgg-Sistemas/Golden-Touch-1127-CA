@@ -52,10 +52,14 @@ export function faltaEnBaseImponible(base: number | null | undefined): string | 
   return null;
 }
 
-/** El total de la factura no puede ser negativo (ni NaN). null si está bien. */
+/**
+ * Valida el campo que el usuario ve como «Base imponible» (C-d). Internamente sigue
+ * siendo el total de la factura (`facturaTotal`): solo cambió el rótulo, no la semántica.
+ * No puede ser negativo (ni NaN). null si está bien.
+ */
 export function faltaEnTotalFactura(total: number | null | undefined): string | null {
   if (total == null) return null;
-  if (!Number.isFinite(total) || total < 0) return 'El total de la factura no puede ser negativo.';
+  if (!Number.isFinite(total) || total < 0) return 'La base imponible no puede ser negativa.';
   return null;
 }
 
