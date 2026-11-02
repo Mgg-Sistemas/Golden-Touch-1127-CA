@@ -2302,7 +2302,7 @@ const AJUSTES_PA: DefSeccionPa[] = [
   { key: 'licencias', capa: 'ajustes', titulo: 'Tipos de licencia', linea: 'Los tipos de licencia de actividad económica que se eligen en el perfil.',
     que: 'Los tipos de licencia de actividad económica que se eligen en el perfil fiscal de cada proveedor.', ingresa: 'El nombre del tipo.',
     efecto: 'Son las opciones del tipo de licencia en el perfil fiscal de cada proveedor.', noCambia: 'Un perfil que ya tiene un tipo lo conserva, aunque el tipo se desactive.' },
-  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Los datos del agente de retención que van en cada comprobante.',
+  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa base', linea: 'Los datos del agente de retención que van en cada comprobante (single-empresa).',
     que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
     efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
   { key: 'compras', capa: 'ajustes', titulo: 'Flujo de compras y kanban', linea: 'Estatus del kanban a abordar e impuestos a practicar.',
@@ -2557,6 +2557,13 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
           {/* ── Empresa ── */}
           {seccion === 'empresa' && (
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              {/* C5: con multi-empresa, lo fiscal de cada empresa va en «Config fiscal por empresa».
+                  Esta sección es la empresa BASE (single-empresa). */}
+              {empresasRegimen.length > 1 && (
+                <p className="hint muted" style={{ fontSize: '.82rem', margin: '0 0 .6rem' }}>
+                  Con varias empresas, los datos fiscales de cada una se editan en <strong>Config fiscal por empresa</strong>. Aquí van los datos de la empresa base (single-empresa).
+                </p>
+              )}
               <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
                 <div className="form-row" style={{ flex: '1 1 220px' }}>
                   <label>Razón social</label>
@@ -2801,14 +2808,8 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
           {/* ── Tipos de licencia ── */}
           {seccion === 'licencias' && <SeccionLicencias puedeEditar={puedeEditar} />}
 
-          {/* ── Avisos de vencimiento ── */}
-          {seccion === 'vencimientos' && <SeccionVencimientos puedeEditar={puedeEditar} />}
-
-          {/* ── Períodos y numeración ── */}
-          {seccion === 'numeracion' && <SeccionNumeracion puedeEditar={puedeEditar} />}
-
-          {/* ── Interruptores de reglas ── */}
-          {seccion === 'interruptores' && <SeccionInterruptores puedeEditar={puedeEditar} />}
+          {/* C6: las secciones mock numeracion/interruptores/vencimientos se quitaron (eran
+              duplicados latentes de Períodos/motorReglas/ParametrosImpuestos, ocultos por visible()). */}
 
           {/* ── Multi-empresa: config fiscal por empresa (editor inyectado desde Retenciones) ── */}
           {seccion === 'empresas_fiscal' && editorFiscalEmpresas}
@@ -2888,127 +2889,6 @@ function SeccionLicencias({ puedeEditar }: { puedeEditar: boolean }) {
   );
 }
 
-function SeccionVencimientos({ puedeEditar }: { puedeEditar: boolean }) {
-  const [cfg, setCfg] = useState({
-    avisosActivos: true,
-    diasLicencia: 30,
-    diasDeclaracion: 5,
-    diasActividad: 15,
-  });
-
-  return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div className="card" style={{ background: 'var(--bg-2)', margin: '0 0 .6rem' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
-          <input type="checkbox" checked={cfg.avisosActivos} onChange={(e) => setCfg((p) => ({ ...p, avisosActivos: e.target.checked }))} />
-          Avisos de vencimiento activos
-        </label>
-        <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.82rem' }}>
-          Al desactivar, no se muestra la lista de vencimientos en la cabecera ni los avisos al registrar.
-        </p>
-      </div>
-      <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap' }}>
-        <div className="form-row" style={{ flex: '1 1 180px' }}>
-          <label>Días antes del vencimiento de licencia</label>
-          <input className="input mono" type="number" min={0} value={cfg.diasLicencia}
-            onChange={(e) => setCfg((p) => ({ ...p, diasLicencia: Number(e.target.value) }))} />
-        </div>
-        <div className="form-row" style={{ flex: '1 1 180px' }}>
-          <label>Días antes del vencimiento de declaración</label>
-          <input className="input mono" type="number" min={0} value={cfg.diasDeclaracion}
-            onChange={(e) => setCfg((p) => ({ ...p, diasDeclaracion: Number(e.target.value) }))} />
-        </div>
-        <div className="form-row" style={{ flex: '1 1 180px' }}>
-          <label>Días antes del vencimiento de actividad</label>
-          <input className="input mono" type="number" min={0} value={cfg.diasActividad}
-            onChange={(e) => setCfg((p) => ({ ...p, diasActividad: Number(e.target.value) }))} />
-        </div>
-      </div>
-    </fieldset>
-  );
-}
-
-function SeccionNumeracion({ puedeEditar }: { puedeEditar: boolean }) {
-  const [periodos, setPeriodos] = useState([
-    { imp: 'IVA', freq: 'quincenal' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
-    { imp: 'ISLR', freq: 'mensual' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
-    { imp: 'ISAE', freq: 'mensual' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
-  ]);
-
-  function setP(i: number, k: string, v: string) {
-    setPeriodos((prev) => prev.map((p, j) => j === i ? { ...p, [k]: v } : p));
-  }
-
-  return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div style={{ display: 'grid', gap: '1rem' }}>
-        {periodos.map((p, i) => (
-          <div key={p.imp} className="card" style={{ margin: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '.5rem' }}>
-              <strong>{p.imp}</strong>
-              <select className="select" style={{ width: 'auto' }} value={p.freq}
-                onChange={(e) => setP(i, 'freq', e.target.value)}>
-                <option value="quincenal">Quincenal</option>
-                <option value="mensual">Mensual</option>
-              </select>
-            </div>
-            <p className="muted" style={{ fontSize: '.82rem', margin: '0 0 .5rem' }}>
-              {p.freq === 'quincenal' ? 'Cada mes se divide en dos quincenas (1–15 y 16–fin).' : 'Un período por mes calendario.'}
-            </p>
-            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
-                <label>Inicio del período en curso</label>
-                <input className="input" type="date" value={p.inicio} onChange={(e) => setP(i, 'inicio', e.target.value)} />
-              </div>
-              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
-                <label>Cierre</label>
-                <input className="input" type="date" value={p.cierre} onChange={(e) => setP(i, 'cierre', e.target.value)} />
-              </div>
-              <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
-                <label>Último N° de comprobante emitido</label>
-                <input className="input mono" value={p.ultimoNumero} onChange={(e) => setP(i, 'ultimoNumero', e.target.value)} placeholder="Ej.: 00000244" />
-              </div>
-              <div className="form-row" style={{ flex: '1 1 120px', margin: 0 }}>
-                <label>Serie</label>
-                <input className="input mono" value={p.serie} onChange={(e) => setP(i, 'serie', e.target.value)} placeholder="Ej.: 2026" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>Un período no cruza de un mes a otro. El número se propone al registrar y avanza consecutivamente.</p>
-    </fieldset>
-  );
-}
-
-function SeccionInterruptores({ puedeEditar }: { puedeEditar: boolean }) {
-  const [reglas, setReglas] = useState([
-    { id: 'auto_iva', label: 'Proponer IVA automáticamente en cada factura', desc: 'Si el proveedor tiene perfil fiscal, se propone la retención de IVA al crear la factura.', activo: true },
-    { id: 'auto_islr', label: 'Proponer ISLR según concepto y actividad', desc: 'Se busca el concepto por el tipo de servicio/producto y se propone el porcentaje.', activo: true },
-    { id: 'auto_isae', label: 'Proponer ISAE en servicios', desc: 'Todo servicio genera retención de ISAE según la actividad económica del proveedor.', activo: true },
-    { id: 'bloquear_sin_perfil', label: 'Bloquear registro sin perfil fiscal', desc: 'No permite registrar una retención si el proveedor no tiene perfil fiscal configurado.', activo: false },
-    { id: 'validar_numero', label: 'Validar número de comprobante consecutivo', desc: 'Rechaza un número que no sea el siguiente al último emitido en la serie.', activo: true },
-    { id: 'exigir_factura', label: 'Exigir N° de factura al registrar', desc: 'No permite registrar sin el número de la factura del proveedor.', activo: false },
-  ]);
-
-  return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div style={{ display: 'grid', gap: '.5rem' }}>
-        {reglas.map((r) => (
-          <div key={r.id} className="card" style={{ margin: 0, display: 'flex', gap: '.7rem', alignItems: 'flex-start', padding: '.65rem .8rem' }}>
-            <input type="checkbox" checked={r.activo} style={{ marginTop: '.15rem' }}
-              onChange={() => setReglas((prev) => prev.map((x) => x.id === r.id ? { ...x, activo: !x.activo } : x))} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '.9rem' }}>{r.label}</div>
-              <div className="muted" style={{ fontSize: '.8rem' }}>{r.desc}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>Cada cambio se aplica al momento. Las retenciones ya registradas no se recalculan.</p>
-    </fieldset>
-  );
-}
 
 function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
   conceptos: ConceptoRetencion[]; puedeEditar: boolean; onCambio: () => void;
