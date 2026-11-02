@@ -1604,7 +1604,7 @@ function MetodoPagoModal({
   // Cambio de proveedor = volver a cotizar. Solo mientras se indica el método de pago
   // (OC «Confirmada · indicar método de pago»), antes de enviarla a Tesorería.
   const proveedorActual = proveedores.find((p) => p.id === orden.proveedor_id) ?? null;
-  const puedeCambiarProveedor = orden.estado === 'confirmada_metodo';
+  const puedeCambiarProveedor = orden.estado === 'confirmada_metodo' || orden.estado === 'oc_aprobada';
   const [motivoCambio, setMotivoCambio] = useState('');
   const [reabriendo, setReabriendo] = useState(false);
   // Número de administración del proveedor (14/10/2026): OBLIGATORIO. Se escribe la
@@ -1861,8 +1861,8 @@ function MetodoPagoModal({
           <div style={{ marginTop: '.6rem', paddingTop: '.6rem', borderTop: '1px dashed var(--border)' }}>
             <div style={{ fontSize: '.85rem', fontWeight: 700 }}>¿El proveedor desistió? Cambia de proveedor</div>
             <p className="muted" style={{ margin: '.25rem 0 .5rem', fontSize: '.82rem' }}>
-              Se usa <strong>volver a cotizar</strong>: la OC regresa a <strong>«Pendiente (cargar ofertas)»</strong> con <strong>todas las cotizaciones</strong> a la vista
-              para que <strong>escojas una nueva</strong> (o cargues otra); luego el <strong>Gerente General la aprueba de nuevo</strong> y recién ahí se indica el método de pago.
+              Se usa <strong>volver a cotizar</strong>: la OC regresa a <strong>«Pendiente (cargar ofertas)» (estado aprobada)</strong> con <strong>todas las cotizaciones</strong> a la vista
+              para que <strong>escojas una nueva</strong> o <strong>cargues más ofertas</strong>; luego el <strong>Gerente General la aprueba de nuevo</strong> y recién ahí se indica el método de pago.
               No mueve caja ni inventario, y <strong>todo queda en la traza</strong>.
             </p>
             <div className="form-row" style={{ margin: 0 }}>
@@ -2797,11 +2797,14 @@ function OrdenDetailModal({
     try {
       // En una OC hija de un reparto, lo que vuelve es la ORDEN PADRE: ahí es donde
       // hay que seguir eligiendo, así que el aviso nombra a la madre y no a la hija.
-      const destino = await reabrirEleccionOferta(o, actorEmail || 'sistema');
+      const motivo = (isOcAprobada || isConfirmadaMetodo)
+        ? 'Reelección de oferta mientras la OC estaba pendiente de pago'
+        : undefined;
+      const destino = await reabrirEleccionOferta(o, actorEmail || 'sistema', { motivo });
       notify(
         o.op_padre_id
           ? `OC ${o.oc_codigo ?? o.codigo} volvió a la orden ${destino.codigo} · elige de nuevo entre todas las ofertas`
-          : `OC ${o.oc_codigo ?? o.codigo} · elección reabierta — elige de nuevo entre todas las ofertas`,
+          : `OC ${o.oc_codigo ?? o.codigo} volvió a «aprobada» · puedes añadir más ofertas o reelegir una cotización`,
         'success', { link: '#/app/pedidos' });
       setReelegirOpen(false);
       await onAcceptedOffer();
@@ -2963,6 +2966,13 @@ function OrdenDetailModal({
               💳 Indicar método de pago / Enviar para Pagar
             </button>
           )}
+          {canManageProcurement && (
+            <button className="btn" style={{ background: 'var(--warning)', color: '#111', border: 'none' }}
+              onClick={() => setReelegirOpen(true)}
+              title="Volver a la etapa de ofertas («aprobada») para reelegir el proveedor, añadir más ofertas o editar cotizaciones. La nueva elección requerirá aprobación del Gerente General.">
+              🔄 Reelegir oferta
+            </button>
+          )}
         </>
       )}
       {puedeEditarPreciosPago && (
@@ -2972,7 +2982,7 @@ function OrdenDetailModal({
         </button>
       )}
       {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar.
-          Mientras no se haya pagado, Compras puede CAMBIAR el método de pago indicado. */}
+          Mientras no se haya pagado, Compras puede CAMBIAR el método de pago indicado o reelegir oferta. */}
       {isOcAprobada && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
@@ -2988,6 +2998,13 @@ function OrdenDetailModal({
           {canManageProcurement && (
             <button className="btn btn-primary" onClick={onEnviarPagar} title="Cambiar el método de pago indicado (antes de que Tesorería pague)">
               💳 Cambiar método de pago
+            </button>
+          )}
+          {canManageProcurement && (
+            <button className="btn" style={{ background: 'var(--warning)', color: '#111', border: 'none' }}
+              onClick={() => setReelegirOpen(true)}
+              title="Volver a la etapa de ofertas («aprobada») para reelegir el proveedor, añadir más ofertas o editar cotizaciones. La nueva elección requerirá aprobación del Gerente General.">
+              🔄 Reelegir oferta
             </button>
           )}
         </>
@@ -3340,6 +3357,7 @@ function OrdenDetailModal({
           onAccepted={onAcceptedOffer}
           onAddOferta={onAddOffer}
           onEditarOferta={onEditarOferta}
+          onReelegir={() => setReelegirOpen(true)}
         />
       )}
 
@@ -3534,7 +3552,7 @@ function OrdenDetailModal({
         title={`Reelegir oferta · ${o.oc_codigo ?? o.codigo}`}
         message={o.op_padre_id
           ? `Esta OC salió de un reparto entre proveedores. Sus productos VUELVEN A LA ORDEN PADRE y ahí se muestran TODAS las ofertas de nuevo (las elegidas y las descartadas) para volver a elegir proveedor. Esta OC queda cerrada como reasignada y sale del tablero; lo que estén comprando las otras OC del mismo reparto no se toca. No mueve caja ni inventario. ¿Devolver ${o.oc_codigo ?? o.codigo} a la orden padre?`
-          : `La OC volverá a la etapa de elección y se mostrarán TODAS las ofertas de nuevo para que puedas re-elegir el proveedor, editar los precios o cargarle IVA/IGTF/descuento a la oferta. Al elegir otra vez, esos valores se sincronizan a la OC y a Tesorería. No mueve caja ni inventario. ¿Reabrir la elección de ${o.oc_codigo ?? o.codigo}?`}
+          : `La OC volverá al estado «aprobada» (Pendiente cargar ofertas) para que puedas añadir más ofertas o reelegir otra cotización entre todas las registradas. La nueva oferta elegida pasará a aprobación del Gerente General. No mueve caja ni inventario. ¿Reabrir la elección de ${o.oc_codigo ?? o.codigo}?`}
         confirmText={reelegiendo ? 'Reabriendo…' : 'Reelegir oferta'}
         requireText="REELEGIR"
         requireLabel="Escribe REELEGIR para confirmar"
