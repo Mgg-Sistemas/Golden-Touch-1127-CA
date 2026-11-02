@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -39,6 +39,7 @@ import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modul
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import { ReportesView } from './ReportesView';
 import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
+import { listFacturasBuzon, ultimaCreacionBuzon } from './facturasBuzon.repository';
 // Multi-empresa (andamiaje F-ME2): empresa actual arriba del módulo. Oculto y
 // sin efecto mientras la base no traiga la empresa en las retenciones.
 import { useEmpresaActual, esEmpresaGt } from './empresaActual';
@@ -61,6 +62,17 @@ function nombreDocumento(codigo: string | null | undefined): string {
   return 'Compra';
 }
 
+// C-g: marca por-navegador de hasta dónde se «vio» el buzón (el sello de creación de la
+// factura más nueva ya vista). El badge cuenta las creadas después de esa marca; al abrir
+// el buzón se actualiza y el badge se limpia. Es una comodidad por usuario, no dato fiscal.
+const CLAVE_BUZON_VISTO = 'gt.retenciones.buzon.visto';
+function leerBuzonVisto(): string | null {
+  try { return localStorage.getItem(CLAVE_BUZON_VISTO); } catch { return null; }
+}
+function guardarBuzonVisto(v: string): void {
+  try { localStorage.setItem(CLAVE_BUZON_VISTO, v); } catch { /* sin localStorage: el badge es best-effort */ }
+}
+
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser, puedeVista } = usePermissions();
@@ -81,6 +93,28 @@ export function RetencionesPage() {
   // R11: el buzón de facturas del teléfono, solo con sus tablas en la base.
   const [conBuzon, setConBuzon] = useState(false);
   useEffect(() => { buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false)); }, []);
+  // C-g: contador PERSISTENTE de facturas nuevas en el buzón (no depende de tener la vista
+  // abierta). «Nuevas» = creadas después de la última vez que se abrió el buzón.
+  const [buzonNuevas, setBuzonNuevas] = useState(0);
+  const buzonVistoRef = useRef<string | null>(leerBuzonVisto());
+  const buzonUltimaRef = useRef<string>('');
+  const refrescarBuzonNuevas = useCallback(async () => {
+    try {
+      const facs = await listFacturasBuzon();
+      const ultima = ultimaCreacionBuzon(facs);
+      buzonUltimaRef.current = ultima;
+      // Primera vez (sin marca): se toma lo actual como ya visto, el badge no alarma de golpe.
+      if (buzonVistoRef.current === null) { buzonVistoRef.current = ultima; guardarBuzonVisto(ultima); }
+      const visto = buzonVistoRef.current ?? '';
+      setBuzonNuevas(facs.filter((f) => f.createdAt > visto).length);
+    } catch { /* el badge es best-effort: sin lectura, queda como estaba */ }
+  }, []);
+  useEffect(() => { if (conBuzon) void refrescarBuzonNuevas(); }, [conBuzon, refrescarBuzonNuevas]);
+  // Al abrir el buzón (teléfono o vista PC) se marca lo visto y el badge se limpia.
+  const marcarBuzonVisto = useCallback(() => {
+    if (buzonUltimaRef.current) { buzonVistoRef.current = buzonUltimaRef.current; guardarBuzonVisto(buzonUltimaRef.current); }
+    setBuzonNuevas(0);
+  }, []);
   // Multi-empresa (andamiaje): la empresa actual del módulo. En single-empresa
   // queda inerte (multiempresa=false) y el selector no se muestra.
   const { multiempresa, empresas, empresaId, empresaActual, setEmpresaId } = useEmpresaActual();
@@ -193,10 +227,14 @@ export function RetencionesPage() {
   }, [reload]);
 
   // Realtime multiusuario: lo que registra otro (o paga Tesorería o cambia en Régimen/Parámetros) se refleja al instante.
-  useRealtime(['ordenes', 'retenciones', 'retencion_decisiones', 'retencion_agente_condiciones', 'parametros', 'retencion_impuestos'], () => {
+  // C-g: se suma `retencion_facturas_externas` (solo con el buzón en la base) para que una
+  // factura cargada desde el teléfono refresque el contador de nuevas aunque la vista esté cerrada.
+  useRealtime(['ordenes', 'retenciones', 'retencion_decisiones', 'retencion_agente_condiciones', 'parametros', 'retencion_impuestos',
+    ...(conBuzon ? ['retencion_facturas_externas'] : [])], () => {
     cargarImpuestosActivos();
     void reload();
     cargarCondiciones();
+    if (conBuzon) void refrescarBuzonNuevas();
   });
 
   // Una OC sigue «por realizar» mientras tenga impuestos pendientes o ya tenga impuestos cargados en el libro pero aún falte marcarla como finalizada.
@@ -300,8 +338,13 @@ export function RetencionesPage() {
           )}
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           {conBuzon && puedeVista('retenciones') && (
-            <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none' }} title="Abrir vista móvil de facturas">
+            <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none', position: 'relative' }} title={buzonNuevas > 0 ? `${buzonNuevas} factura(s) nueva(s) en el buzón` : 'Abrir vista móvil de facturas'} onClick={marcarBuzonVisto}>
               📱 Teléfono
+              {buzonNuevas > 0 && (
+                <span style={{ marginLeft: 6, background: 'var(--danger)', color: '#fff', borderRadius: 999, padding: '0 6px', fontSize: '.7rem', fontWeight: 700 }}>
+                  {buzonNuevas}
+                </span>
+              )}
             </Link>
           )}
           <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
@@ -310,7 +353,11 @@ export function RetencionesPage() {
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
-            {conBuzon && <button className={vista === 'buzon' ? 'active' : ''} onClick={() => setVista('buzon')}>📥 Buzón Móvil</button>}
+            {conBuzon && (
+              <button className={vista === 'buzon' ? 'active' : ''} onClick={() => { setVista('buzon'); marcarBuzonVisto(); }}>
+                📥 Buzón Móvil{buzonNuevas > 0 ? ` (${buzonNuevas})` : ''}
+              </button>
+            )}
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
             <button className={vista === 'auditoria' ? 'active' : ''} onClick={() => setVista('auditoria')}>🛡️ Auditoría</button>

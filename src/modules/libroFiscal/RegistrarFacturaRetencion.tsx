@@ -140,6 +140,13 @@ const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
   baseStr: '0', ivaStr: '0', pctStr: '', montoStr: '', numeroStr: '', motivos: {}, descripcion: '', ...over,
 });
 
+// C-c (líder): «¿Quién retuvo?» (Recibida/Practicada) es un control de VENTAS. En el
+// flujo de compras —este formulario— la retención es SIEMPRE practicada, así que el
+// control se oculta y la dirección queda fija en 'practicada'. Reversible: con
+// OFRECER_DIRECCION = true vuelve el toggle. El modelo (DIRECCIONES, 'recibida',
+// esManual…) se deja intacto a propósito: «recibida» sigue existiendo para ventas.
+const OFRECER_DIRECCION: boolean = false;
+
 export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto, empresaId = null, empresaFicha = null }: {
   semilla?: SemillaFactura;
   /** En una practicada, solo se ofrecen los proveedores con retenciones por realizar (si se pasa). */
@@ -177,7 +184,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [avisoRegla, setAvisoRegla] = useState<string | null>(null);
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
 
-  const [direccion, setDireccion] = useState<DireccionRetencion>(s.direccion ?? 'practicada');
+  const [direccion, setDireccion] = useState<DireccionRetencion>(OFRECER_DIRECCION ? (s.direccion ?? 'practicada') : 'practicada');
   const verProveedores = usePermissions().can('proveedores');
   const [proveedorId, setProveedorId] = useState(s.contraparteId ?? '');
   const [contraparte, setContraparte] = useState(s.contraparteNombre ?? '');
@@ -278,7 +285,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     let activo = true;
 
     const cargarCorrelativos = async () => {
-      const tipos: TipoImpuesto[] = ['iva', 'islr', 'municipal', 'regional', 'igtf'];
+      // C-a (D1/L1): los impuestos salen del catálogo activo (Parámetros › Impuestos),
+      // no de una lista fija. Uno deshabilitado no se consulta ni se muestra. Sin datos
+      // (impuestosActivos=null) caen todos: degradación segura, como hoy.
+      const tipos: TipoImpuesto[] = soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null).map((t) => t.key);
       const mapa: Record<string, CorrelativoEstimado> = {};
       for (const t of tipos) {
         // El formato del número sale de la ficha del impuesto (R2); sin ficha, del mapeo fijo.
@@ -300,7 +310,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
     void cargarCorrelativos();
     return () => { activo = false; };
-  }, [direccion, facturaFecha, fichasImpuesto, empresaId]);
+  }, [direccion, facturaFecha, fichasImpuesto, empresaId, impuestosActivos]);
 
   const opcionesProveedor = useMemo(() => {
     const lista = proveedorIdsPendientes ? proveedores.filter((p) => proveedorIdsPendientes.has(p.id)) : proveedores;
@@ -444,7 +454,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const textoRif = rifMal ? textoRifInvalido({ direccion, rif, nombre: contraparte }) : null;
   const ilegibles = [
     ...(moneda !== 'Bs' && leerMonto(tasaStr) == null ? ['Tasa'] : []),
-    ...(leerMonto(facturaTotal) == null ? ['Total de la factura'] : []),
+    ...(leerMonto(facturaTotal) == null ? ['Base imponible'] : []),
     ...(exentoStr.trim() !== '' && leerMonto(exentoStr) == null ? ['Monto exento'] : []),
     ...lineas.flatMap((l) => ([
       [l.tipo === 'iva' ? 'base imponible' : 'monto del pago', l.baseStr, true],
@@ -788,6 +798,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
       )}
 
+      {OFRECER_DIRECCION && (
       <div className="form-row">
         <label>¿Quién retuvo?</label>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
@@ -807,6 +818,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           })}
         </div>
       </div>
+      )}
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '2 1 240px' }}>
@@ -900,7 +912,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           </div>
         )}
         <div className="form-row" style={{ flex: '1 1 130px' }}>
-          <label>Total {tipoDocumento === 'factura' ? 'factura' : 'documento'}</label>
+          {/* C-d (líder): es solo el RÓTULO. El campo interno sigue siendo `facturaTotal`
+              (el total de la factura) y alimenta el desglose de IVA incluido como total;
+              la líder pide que el usuario lo lea como «Base imponible». Semántica sin cambios. */}
+          <label>Base imponible</label>
           <input className="input mono" value={facturaTotal} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaTotal(e.target.value); }} inputMode="decimal" />
           <SeLeyo texto={facturaTotal} />
         </div>

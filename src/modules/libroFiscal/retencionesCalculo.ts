@@ -122,8 +122,11 @@ export const ESTADOS_KANBAN_RETENCION_DEFECTO: EstadoOrden[] = [
 
 /**
  * Los valores con los que arranca la pantalla mientras se lee la configuración.
- * Golden Touch es agente de retención de IVA desde el 07/10/2026 y no es
- * contribuyente especial. Lo que vale es lo guardado en Parámetros.
+ * Es el DEFAULT de CAPACIDAD del cálculo (puede IVA), NO el régimen de una empresa:
+ * quién practica IVA lo decide L6 (Parámetros → Régimen), que el app lee por el JSON
+ * de configuración; este default solo aplica si esa config no carga. Por eso GT, que
+ * es contribuyente ordinario, no retiene IVA aunque aquí la capacidad siga en true.
+ * No es contribuyente especial. Lo que vale es lo guardado en Parámetros.
  */
 export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   rif: null, razonSocial: null, direccionFiscal: null, municipio: null, estado: null,

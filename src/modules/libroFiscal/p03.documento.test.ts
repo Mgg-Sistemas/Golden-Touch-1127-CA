@@ -75,9 +75,10 @@ describe('datos fiscales de la factura (P03)', () => {
     expect(faltaEnBaseImponible(null)).toBeNull();
     expect(faltaEnBaseImponible(-1)).toMatch(/base imponible no puede ser negativa/);
     expect(faltaEnBaseImponible(NaN)).toMatch(/base imponible/);
+    // C-d: el rótulo del campo pasó a «Base imponible» (sigue siendo el total internamente).
     expect(faltaEnTotalFactura(0)).toBeNull();
-    expect(faltaEnTotalFactura(-0.01)).toMatch(/total de la factura no puede ser negativo/);
-    expect(faltaEnTotalFactura(NaN)).toMatch(/total de la factura/);
+    expect(faltaEnTotalFactura(-0.01)).toMatch(/base imponible no puede ser negativa/);
+    expect(faltaEnTotalFactura(NaN)).toMatch(/base imponible/);
   });
 
   it('C8: aviso NO bloqueante si el retenido supera la base o el IVA', () => {
