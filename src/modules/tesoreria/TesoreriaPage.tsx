@@ -6464,9 +6464,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 {' = '}<strong className="mono" style={{ color: retencionInvalida ? 'var(--danger)' : 'var(--success)' }}>{monto(round2(baseFactura - retencionNum), monedaOc)}</strong> a pagar
               </div>
               {retRegistrada != null && (
-                <div className="muted" style={{ fontSize: '.82rem' }}>
-                  Retención registrada en el libro: <strong className="mono">{monto(retRegistrada.montoBs, 'Bs')}</strong>
-                  {retRegistrada.lineas > 1 && <span> · {retRegistrada.lineas} impuestos sumados</span>}
+                <div className="muted" style={{ fontSize: '.82rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                  <span>Retención registrada en el libro: <strong className="mono">{monto(retRegistrada.montoBs, 'Bs')}</strong>
+                  {retRegistrada.lineas > 1 && <span> · {retRegistrada.lineas} impuestos sumados</span>}</span>
+                  {/* El monto registrado siempre se puede volver a traer al campo (tras editarlo o recargar). */}
+                  <button type="button" className="btn btn-sm btn-ghost"
+                    title="Poner en el campo el monto de la retención ya registrada en el libro (en Bs)"
+                    onClick={() => { setConRetencion(true); setRetencionMoneda('Bs'); setTasaRetEditada(false); setRetencionStr(String(retRegistrada.montoBs)); }}>
+                    Usar este monto
+                  </button>
                 </div>
               )}
             </div>
