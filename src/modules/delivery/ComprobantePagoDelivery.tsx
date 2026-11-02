@@ -28,6 +28,10 @@ export function ComprobantePagoCuerpo({ pedido }: { pedido: PedidoDelivery }) {
   if (cargando) return <p className="muted">Buscando el comprobante…</p>;
   if (error) return <div className="aviso danger sm"><span className="aviso-icono">⚠</span><div>{error}</div></div>;
   if (!dato) return null;
+  // 02/11/2026: un retiro en Almacén Los Pinos no tiene pago.
+  if (!dato.aplica) {
+    return <div className="aviso info sm"><span className="aviso-icono">📦</span><div>{dato.mensaje || 'Este pedido no lleva comprobante de pago.'}</div></div>;
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
       <div className="surt-detalle">

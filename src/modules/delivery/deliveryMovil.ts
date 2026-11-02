@@ -7,7 +7,8 @@
    cada paso cuando se quiere volver a verlo.
    ============================================================ */
 import {
-  mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, type PedidoDelivery,
+  claveDelivery, esRetiroAlmacen, mensajeAceptado, mensajeCancelado, mensajeEntregado,
+  type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
 
 /* ── Ubicación ── */
@@ -86,31 +87,41 @@ export const MAX_ENTREGADOS_TELEFONO = 30;
 
 const t = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() || 0 : 0);
 
+/** 02/11/2026: claves (orden + origen) de lo que ESTE motorizado marcó «No disponible». */
+export function rechazadosPor(rechazos: Pick<RechazoDelivery, 'orden_id' | 'origen' | 'repartidor_id'>[], uid: string | null | undefined): Set<string> {
+  return new Set(uid ? rechazos.filter((r) => r.repartidor_id === uid).map((r) => claveDelivery(r)) : []);
+}
+
 /**
  * Junta la lista de activos (`listPedidosDelivery(false)`) con la de cerrados
  * (`listPedidosDelivery(true)`). En la de activos una fila «cancelado» solo
- * puede estar porque la OC quedó libre otra vez: esa se puede tomar.
+ * puede estar porque el pedido quedó libre otra vez: ese se puede tomar.
  * Orden: lo mío en curso, lo que está por tomar (urgente primero, como lo
- * manda la base), lo de otros en curso y los entregados más nuevos.
+ * manda la base) y mis entregados más nuevos.
+ * 02/11/2026 (pedido de la usuaria): un pedido aceptado SOLO lo ve quien lo
+ * aceptó (lo de otros en curso o entregado no sale en el teléfono; la PC lo
+ * ve todo) y lo que yo marqué «No disponible» ya no me sale en «Por tomar».
+ * Cada fila es (orden, origen): la misma SP puede traer su retiro de Almacén
+ * y su OC.
  */
-export function armarFeed(activos: PedidoDelivery[], conCerrados: PedidoDelivery[]): PedidoFeed[] {
+export function armarFeed(activos: PedidoDelivery[], conCerrados: PedidoDelivery[], rechazadosPorMi: Set<string> = new Set()): PedidoFeed[] {
   const vistos = new Set<string>();
   const mios: PedidoFeed[] = [];
   const libres: PedidoFeed[] = [];
-  const ajenos: PedidoFeed[] = [];
   for (const p of activos) {
-    vistos.add(p.orden_id);
-    if (p.estado === 'por_tomar' || p.estado === 'cancelado') libres.push({ p, disponible: true });
-    else if (p.es_mio) mios.push({ p, disponible: false });
-    else ajenos.push({ p, disponible: false });
+    const k = claveDelivery(p);
+    vistos.add(k);
+    if (p.estado === 'por_tomar' || p.estado === 'cancelado') {
+      if (!rechazadosPorMi.has(k)) libres.push({ p, disponible: true });
+    } else if (p.es_mio) mios.push({ p, disponible: false });
   }
   mios.sort((a, b) => (a.p.estado === 'en_ruta' ? 0 : 1) - (b.p.estado === 'en_ruta' ? 0 : 1));
   const entregados = conCerrados
-    .filter((p) => !vistos.has(p.orden_id) && p.estado === 'entregado')
+    .filter((p) => !vistos.has(claveDelivery(p)) && p.estado === 'entregado' && p.es_mio)
     .sort((a, b) => t(b.entregado_en) - t(a.entregado_en))
     .slice(0, MAX_ENTREGADOS_TELEFONO)
     .map((p) => ({ p, disponible: false }));
-  return [...mios, ...libres, ...ajenos, ...entregados];
+  return [...mios, ...libres, ...entregados];
 }
 
 export function enChip(f: PedidoFeed, chip: ChipDelivery): boolean {
@@ -126,6 +137,12 @@ export function trabajoEnCurso(feed: PedidoFeed[]): PedidoDelivery | null {
   return (mios.find((f) => f.p.estado === 'en_ruta') ?? mios[0])?.p ?? null;
 }
 
+/** 02/11/2026: la tarjeta muestra solo cuántos productos trae: «📦 1 producto» / «📦 17 productos». */
+export function productosTxt(n: number): string {
+  const k = Math.max(0, Math.trunc(Number(n) || 0));
+  return `📦 ${k} ${k === 1 ? 'producto' : 'productos'}`;
+}
+
 /* ── Mensajes ── */
 
 /** El mensaje del paso en que está el pedido, con las horas guardadas (para volver a verlo). */
@@ -133,15 +150,20 @@ export function mensajeDeEstado(
   p: PedidoDelivery, nombre: string, verAlmacen: (a: string) => string = (a) => a,
 ): { titulo: string; texto: string } | null {
   const quien = p.repartidor_nombre?.trim() || nombre;
+  const retiro = esRetiroAlmacen(p);
   switch (p.estado) {
-    case 'aceptado': return { titulo: 'Pedido aceptado', texto: mensajeAceptado(p, quien, p.aceptado_en) };
-    case 'en_ruta': return { titulo: 'En ruta', texto: mensajeEnRuta(p, quien, p.en_ruta_en) };
-    case 'entregado': return {
+    case 'aceptado': return { titulo: retiro ? 'Retiro aceptado' : 'Pedido aceptado', texto: mensajeAceptado(p, quien, p.aceptado_en) };
+    // 02/11/2026: al aceptar queda «En camino»: se muestra el mensaje de la aceptación.
+    case 'en_ruta': return { titulo: 'En camino', texto: mensajeAceptado(p, quien, p.en_ruta_en ?? p.aceptado_en) };
+    case 'entregado': return retiro ? {
+      titulo: 'Retiro entregado',
+      texto: mensajeEntregado(p, quien, (p.almacen_entrega ?? '').trim() || '—', p.nota_entrega, p.entregado_en),
+    } : {
       titulo: 'Entregado en almacén',
       texto: mensajeEntregado(p, quien, verAlmacen(p.almacen_entrega ?? p.almacen_destino ?? '—'), p.nota_entrega, p.entregado_en),
     };
     case 'cancelado': return {
-      titulo: 'Pedido cancelado',
+      titulo: retiro ? 'Retiro cancelado' : 'Pedido cancelado',
       texto: mensajeCancelado(p, quien, p.motivo_cancel ?? '—', p.detalle_cancel, p.cancelado_en),
     };
     default: return null;

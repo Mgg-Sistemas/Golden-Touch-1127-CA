@@ -15,6 +15,11 @@
    (interruptor compras_delivery): mientras tanto las listas quedan vacías.
    Traído de MGG; en GT la OC entra apenas queda pagada (sin esperar la
    retención) y solo las creadas desde que se encendió.
+   02/11/2026: también los RETIROS EN ALMACÉN LOS PINOS (📦, lo que la
+   revisión de Almacén marcó como disponible: sin monto ni comprobante, se
+   entrega A la unidad / persona); filtro por origen en Histórico; al aceptar
+   queda directo «En camino»; los «No disponible» del motorizado se ven con
+   su motivo en el Tablero.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -26,17 +31,22 @@ import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ESTADO_DELIVERY, MOTIVOS_CANCELACION, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
-  type FotoDelivery, type PedidoDelivery,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, MOTIVOS_CANCELACION, ORIGEN_DELIVERY, claveDelivery, destinoRetiro, esRetiroAlmacen,
+  etiquetaEstado, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe, rechazosDe, rotuloFotos,
+  type FotoDelivery, type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, listHistorialDelivery, listPedidosDelivery, urlFotoDelivery, useDeliveryConectado, type FilaHistorialCruda,
+  cancelarPedido, listHistorialDelivery, listPedidosDelivery, listRechazosDelivery, urlFotoDelivery, useDeliveryConectado,
+  type FilaHistorialCruda,
 } from './delivery.repository';
 import {
   RANGOS_DELIVERY, armarFilasHistorial, conteoPorEstado, duracionTxt, mensajeDelPedido, rangoDelivery,
   rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, type FilaHistorialDelivery,
 } from './deliveryPanel';
-import { ESTADOS_FILTRO, filtrarHistorial, textoReporteGeneral, textoReportePedido, type FiltroEstadoDelivery } from './deliveryReporte';
+import {
+  ESTADOS_FILTRO, ORIGENES_FILTRO, filtrarHistorial, textoReporteGeneral, textoReportePedido,
+  type FiltroEstadoDelivery, type FiltroOrigenDelivery,
+} from './deliveryReporte';
 import { DeliveryMapa } from './DeliveryMapa';
 import { pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelivery } from './deliveryPdf';
 import { WhatsappDeliveryModal } from './WhatsappDeliveryModal';
@@ -70,6 +80,7 @@ export function DeliveryPage() {
   const hoy = useMemo(hoyVenezuela, []);
   const [verCerrados, setVerCerrados] = useState(false);
   const [pedidos, setPedidos] = useState<PedidoDelivery[]>([]);
+  const [rechazos, setRechazos] = useState<RechazoDelivery[]>([]);
   const [deHoy, setDeHoy] = useState<FilaHistorialDelivery[]>([]);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
@@ -90,6 +101,8 @@ export function DeliveryPage() {
   const recargarTablero = useCallback(async () => {
     try {
       const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados), listHistorialDelivery(hoy, hoy)]);
+      // Los «No disponible» de lo que se ve (no frenan el tablero si fallan).
+      setRechazos(await listRechazosDelivery(ps.map((p) => p.orden_id)).catch(() => []));
       setPedidos(ps);
       setDeHoy(filasConNombres(hh, proveedores));
       setErrorCarga(null);
@@ -113,7 +126,7 @@ export function DeliveryPage() {
 
   // Tiempo real: lo que hace el motorizado en su teléfono (o Tesorería al pagar) se ve sin recargar.
   // Las ubicaciones las escucha el propio mapa: llegan seguido y no cambian las listas.
-  useRealtime(['delivery_pedidos', 'ordenes'], () => {
+  useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => {
     void recargarTablero();
     if (enHistorico) void recargarHistorial();
   });
@@ -124,7 +137,8 @@ export function DeliveryPage() {
         <div style={{ flex: '1 1 320px' }}>
           <h1 style={{ margin: 0 }}>🛵 Delivery</h1>
           <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
-            Órdenes de productos pagadas por Tesorería que un motorizado toma, busca donde el proveedor y entrega en el almacén, con fotos y aviso por WhatsApp.
+            Órdenes de productos pagadas por Tesorería que un motorizado acepta, busca donde el proveedor y entrega en el almacén, y retiros en {ALMACEN_RETIRO} de lo que
+            Almacén tiene para una solicitud, con fotos y aviso por WhatsApp.
           </p>
         </div>
         {tieneTelefono && <Link to="/app/delivery/telefono" className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
@@ -154,7 +168,7 @@ export function DeliveryPage() {
       </div>
 
       {vista === 'tablero' && (
-        <TableroTab pedidos={pedidos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
+        <TableroTab pedidos={pedidos} rechazos={rechazos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
           verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()} />
       )}
       {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} />}
@@ -169,8 +183,8 @@ export function DeliveryPage() {
 
 /* ───────────── Tablero ───────────── */
 
-function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio }: {
-  pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[]; cargando: boolean; supervisor: boolean;
+function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio }: {
+  pedidos: PedidoDelivery[]; rechazos: RechazoDelivery[]; deHoy: FilaHistorialDelivery[]; cargando: boolean; supervisor: boolean;
   verCerrados: boolean; setVerCerrados: (v: boolean) => void; onCambio: () => void;
 }) {
   const quien = useQuien();
@@ -178,6 +192,7 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
   const entregadosHoy = deHoy.filter((f) => f.estado === 'entregado').length;
   const canceladosHoy = deHoy.filter((f) => f.estado === 'cancelado').length;
   const urgentes = pedidos.filter((p) => p.estado === 'por_tomar' && p.urgente).length;
+  const retirosPorTomar = pedidos.filter((p) => p.estado === 'por_tomar' && esRetiroAlmacen(p)).length;
 
   const [fotos, setFotos] = useState<PedidoDelivery | null>(null);
   const [whatsapp, setWhatsapp] = useState<{ titulo: string; texto: string } | null>(null);
@@ -189,10 +204,10 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
   const orden: Record<string, number> = { por_tomar: 0, aceptado: 1, en_ruta: 2, entregado: 3, cancelado: 4 };
   const lista = [...pedidos].sort((a, b) => (orden[a.estado] - orden[b.estado])
     || (Number(b.urgente) - Number(a.urgente))
-    || String(a.pagada_en ?? a.aceptado_en ?? '').localeCompare(String(b.pagada_en ?? b.aceptado_en ?? '')));
+    || String(a.pagada_en ?? a.revisada_en ?? a.aceptado_en ?? '').localeCompare(String(b.pagada_en ?? b.revisada_en ?? b.aceptado_en ?? '')));
 
   function pdfPedido(p: PedidoDelivery) {
-    const k = `${p.orden_id}-${p.pedido_id ?? 'libre'}`;
+    const k = `${claveDelivery(p)}-${p.pedido_id ?? 'libre'}`;
     setGenerando(k);
     pdfPedidoDelivery(p)
       .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
@@ -205,20 +220,24 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
         <div className="kpi">
           <div className="label">Por tomar</div>
           <div className="value">{c.por_tomar}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>{urgentes ? `${urgentes} urgente(s)` : 'OC pagadas sin delivery'}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>
+            {[urgentes ? `${urgentes} urgente(s)` : 'OC pagadas y retiros sin delivery', retirosPorTomar ? `📦 ${retirosPorTomar} en Almacén` : '']
+              .filter(Boolean).join(' · ')}
+          </div>
           <div className="icon" aria-hidden="true">💰</div>
         </div>
         <div className="kpi">
-          <div className="label">Aceptados</div>
-          <div className="value">{c.aceptado}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>Tomados, aún donde el proveedor</div>
-          <div className="icon" aria-hidden="true">🛵</div>
+          <div className="label">En camino</div>
+          {/* 02/11/2026: al aceptar queda directo «En camino» (los «Aceptado» son de antes). */}
+          <div className="value">{c.en_ruta + c.aceptado}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>Aceptados por un delivery, sin entregar</div>
+          <div className="icon" aria-hidden="true">🚚</div>
         </div>
         <div className="kpi">
-          <div className="label">En camino</div>
-          <div className="value">{c.en_ruta}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>Rumbo al almacén</div>
-          <div className="icon" aria-hidden="true">🚚</div>
+          <div className="label">No disponible</div>
+          <div className="value">{rechazos.length}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>Marcados por un delivery en lo que se ve</div>
+          <div className="icon" aria-hidden="true">✕</div>
         </div>
         <div className="kpi">
           <div className="label">Entregados hoy</div>
@@ -243,43 +262,56 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
             <table className="table" style={{ fontSize: '.85rem' }}>
               <thead>
                 <tr>
-                  <th>OC</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>Tiempos</th><th>Monto</th><th style={{ textAlign: 'right' }}>Acciones</th>
+                  <th>OC / SP</th><th>Proveedor / Origen</th><th>Delivery</th><th>Estado</th><th>Tiempos</th><th>Monto</th><th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {lista.map((p) => {
+                  const retiro = esRetiroAlmacen(p);
                   const est = ESTADO_DELIVERY[p.estado];
                   const nFotos = p.fotos_recibo.length + p.fotos_entrega.length;
                   const msg = mensajeDelPedido(p);
                   const fin = p.estado === 'cancelado' ? p.cancelado_en : p.entregado_en;
-                  const clave = `${p.orden_id}-${p.pedido_id ?? 'libre'}`;
+                  const clave = `${claveDelivery(p)}-${p.pedido_id ?? 'libre'}`;
+                  const noDisp = rechazosDe(p, rechazos);
+                  const destino = retiro ? (p.almacen_entrega || destinoRetiro(p)) : p.almacen_destino;
                   return (
                     <tr key={clave}>
                       <td>
-                        <strong>{ocDe(p)}</strong>
+                        <strong>{retiro ? p.codigo : ocDe(p)}</strong>
                         {p.urgente && <> <span className="badge danger">URGENTE</span></>}
-                        {p.almacen_destino && <div className="muted" style={{ fontSize: '.75rem' }}>🏬 {p.almacen_destino}</div>}
+                        {destino && <div className="muted" style={{ fontSize: '.75rem' }}>🏬 {retiro ? `Entregar a: ${destino}` : destino}</div>}
                       </td>
                       <td>
-                        {p.proveedor_nombre ?? '—'}
-                        {p.proveedor_direccion && <div className="muted" style={{ fontSize: '.75rem' }}>📍 {p.proveedor_direccion}</div>}
+                        {retiro ? <span className="badge info">{ORIGEN_DELIVERY.almacen.emoji} Retiro en {ALMACEN_RETIRO}</span> : (p.proveedor_nombre ?? '—')}
+                        {!retiro && p.proveedor_direccion && <div className="muted" style={{ fontSize: '.75rem' }}>📍 {p.proveedor_direccion}</div>}
+                        {retiro && p.analista_nombre && <div className="muted" style={{ fontSize: '.75rem' }}>Revisó: {p.analista_nombre}</div>}
                       </td>
-                      <td>{p.repartidor_nombre ? quien(p.repartidor_nombre) : <span className="muted">—</span>}</td>
                       <td>
-                        <span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {est?.label ?? p.estado}</span>
+                        {p.repartidor_nombre ? quien(p.repartidor_nombre) : <span className="muted">—</span>}
+                        {noDisp.map((r) => (
+                          <div key={r.id} className="muted" style={{ fontSize: '.75rem', color: 'var(--danger)' }}
+                            title={`${fechaHoraVE(r.created_at)} · ${r.motivo}`}>
+                            ✕ No disponible: {r.repartidor_nombre ? quien(r.repartidor_nombre) : (r.repartidor_email ?? '—')} — {r.motivo}
+                          </div>
+                        ))}
+                      </td>
+                      <td>
+                        <span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {etiquetaEstado(p.estado, p.origen)}</span>
                         {p.estado === 'cancelado' && p.motivo_cancel && <div className="muted" style={{ fontSize: '.75rem' }}>{p.motivo_cancel}</div>}
                       </td>
                       <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
-                        {p.pagada_en && <div>💰 Pagada {fechaHoraVE(p.pagada_en)}</div>}
-                        {p.aceptado_en && <div>🛵 Tomada {fechaHoraVE(p.aceptado_en)}</div>}
-                        {p.en_ruta_en && <div>🚚 En ruta {fechaHoraVE(p.en_ruta_en)}</div>}
+                        {!retiro && p.pagada_en && <div>💰 Pagada {fechaHoraVE(p.pagada_en)}</div>}
+                        {retiro && p.revisada_en && <div>📦 Revisada {fechaHoraVE(p.revisada_en)}</div>}
+                        {p.aceptado_en && <div>🛵 Aceptada {fechaHoraVE(p.aceptado_en)}</div>}
+                        {p.en_ruta_en && p.en_ruta_en !== p.aceptado_en && <div>🚚 En camino {fechaHoraVE(p.en_ruta_en)}</div>}
                         {fin && <div>{p.estado === 'cancelado' ? '⛔' : '✅'} {fechaHoraVE(fin)}</div>}
                         {p.estado === 'entregado' && <div className="muted">⏳ {duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en))}</div>}
                       </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{montoTxt(p.total, p.moneda)}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{retiro ? <span className="muted">—</span> : montoTxt(p.total, p.moneda)}</td>
                       <td>
                         <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>
+                          {!retiro && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>}
                           <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
                           {msg && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWhatsapp(msg)}>💬 WhatsApp</button>}
                           <button type="button" className="btn btn-ghost btn-sm" disabled={generando === clave} onClick={() => pdfPedido(p)}
@@ -287,7 +319,7 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                             {generando === clave ? 'Generando…' : '📄 PDF'}
                           </button>
                           <button type="button" className="btn btn-ghost btn-sm" title="Reporte del pedido por WhatsApp"
-                            onClick={() => setWhatsapp({ titulo: `Reporte del pedido ${ocDe(p)}`, texto: textoReportePedido(p, quienSync) })}>
+                            onClick={() => setWhatsapp({ titulo: `Reporte del pedido ${retiro ? p.codigo : ocDe(p)}`, texto: textoReportePedido(p, quienSync) })}>
                             📋 Reporte
                           </button>
                           {supervisor && sePuedeCancelar(p) && (
@@ -349,10 +381,10 @@ function FotosModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () =
   );
 
   return (
-    <Modal title={`📷 Fotos · ${ocDe(pedido)}`} size="lg" onClose={onClose}
+    <Modal title={`📷 Fotos · ${esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido)}`} size="lg" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      {grupo('Al recibir del proveedor', pedido.fotos_recibo)}
-      {grupo('Al entregar en el almacén', pedido.fotos_entrega)}
+      {grupo(rotuloFotos(pedido.origen, 'recibo'), pedido.fotos_recibo)}
+      {grupo(rotuloFotos(pedido.origen, 'entrega'), pedido.fotos_entrega)}
       {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}
     </Modal>
   );
@@ -385,7 +417,7 @@ function CancelarModal({ pedido, onClose, onCancelado }: {
     setGuardando(true);
     try {
       await cancelarPedido(pedido.pedido_id, motivo, detalle.trim() || null);
-      toast(`${ocDe(pedido)} cancelada: queda libre para otro delivery.`, 'success');
+      toast(`${esRetiroAlmacen(pedido) ? `Retiro ${pedido.codigo}` : ocDe(pedido)} cancelado: queda libre para otro delivery.`, 'success');
       onCancelado(mensajeCancelado(pedido, pedido.repartidor_nombre || 'Delivery', motivo, detalle, new Date().toISOString()));
     } catch (e) {
       toast(msgError(e, 'No se pudo cancelar el pedido.'), 'error');
@@ -393,7 +425,7 @@ function CancelarModal({ pedido, onClose, onCancelado }: {
   }
 
   return (
-    <Modal title={`⛔ Cancelar · ${ocDe(pedido)}`} compact onClose={onClose}
+    <Modal title={`⛔ Cancelar · ${esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido)}`} compact onClose={onClose}
       footer={(
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Volver</button>
@@ -401,8 +433,8 @@ function CancelarModal({ pedido, onClose, onCancelado }: {
         </>
       )}>
       <p style={{ marginTop: 0 }}>
-        Lo tiene <strong>{pedido.repartidor_nombre ?? '—'}</strong> ({ESTADO_DELIVERY[pedido.estado].label.toLowerCase()}).
-        Al cancelarlo, la orden queda disponible para otro delivery.
+        Lo tiene <strong>{pedido.repartidor_nombre ?? '—'}</strong> ({etiquetaEstado(pedido.estado, pedido.origen).toLowerCase()}).
+        Al cancelarlo, {esRetiroAlmacen(pedido) ? `el retiro en ${ALMACEN_RETIRO}` : 'la orden'} queda disponible para otro delivery.
       </p>
       <div className="form-row">
         <label htmlFor="dlv-motivo">Motivo</label>
@@ -453,14 +485,15 @@ function BarraRango({ hoy, desde, hasta, setDesde, setHasta, cargando }: {
 function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[]; desde: string; hasta: string }) {
   const [repartidor, setRepartidor] = useState('');
   const [estado, setEstado] = useState<FiltroEstadoDelivery>('');
+  const [origen, setOrigen] = useState<FiltroOrigenDelivery>('');
   const repartidores = useMemo(() => repartidoresDe(filas), [filas]);
-  const visibles = useMemo(() => filtrarHistorial(filas, { estado, repartidor }), [filas, estado, repartidor]);
+  const visibles = useMemo(() => filtrarHistorial(filas, { estado, repartidor, origen }), [filas, estado, repartidor, origen]);
   const [generando, setGenerando] = useState(false);
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
 
   function pdf() {
     setGenerando(true);
-    pdfHistorialDelivery({ desde, hasta, repartidor: repartidor || null, estado: estado || null, filas: visibles })
+    pdfHistorialDelivery({ desde, hasta, repartidor: repartidor || null, estado: estado || null, origen: origen || null, filas: visibles })
       .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
       .finally(() => setGenerando(false));
   }
@@ -469,6 +502,10 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
     <div className="card">
       <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
         <span>📜 Histórico ({visibles.length})</span>
+        <select className="select" style={{ width: 'auto', minWidth: 180 }} value={origen}
+          onChange={(e) => setOrigen(e.target.value as FiltroOrigenDelivery)} aria-label="Filtrar por origen">
+          {ORIGENES_FILTRO.map((x) => <option key={x.valor} value={x.valor}>{x.label}</option>)}
+        </select>
         <select className="select" style={{ width: 'auto', minWidth: 180 }} value={estado}
           onChange={(e) => setEstado(e.target.value as FiltroEstadoDelivery)} aria-label="Filtrar por estado">
           {ESTADOS_FILTRO.map((x) => <option key={x.valor} value={x.valor}>{x.label}</option>)}
@@ -482,7 +519,7 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
             {generando ? 'Generando…' : '📄 PDF (vista previa)'}
           </button>
           <button type="button" className="btn btn-ghost btn-sm"
-            onClick={() => setWhatsapp(textoReporteGeneral({ desde, hasta, estado: estado || null, repartidor: repartidor || null, filas: visibles }))}>
+            onClick={() => setWhatsapp(textoReporteGeneral({ desde, hasta, estado: estado || null, repartidor: repartidor || null, origen: origen || null, filas: visibles }))}>
             💬 WhatsApp
           </button>
         </span>
@@ -492,8 +529,8 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
           <table className="table" style={{ fontSize: '.85rem' }}>
             <thead>
               <tr>
-                <th>Tomado</th><th>OC</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>En ruta</th>
-                <th>Entregado / Cancelado</th><th style={{ textAlign: 'right' }}>Tiempo</th><th>Almacén / Motivo</th>
+                <th>Tomado</th><th>Origen</th><th>OC / SP</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>En camino</th>
+                <th>Entregado / Cancelado</th><th style={{ textAlign: 'right' }}>Tiempo</th><th>Almacén / Entregado a / Motivo</th>
                 <th style={{ textAlign: 'right' }}>Fotos</th><th style={{ textAlign: 'right' }}>Monto</th>
               </tr>
             </thead>
@@ -503,10 +540,11 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
                 return (
                   <tr key={f.id}>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.fecha)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{ORIGEN_DELIVERY[f.origen].emoji} {ORIGEN_DELIVERY[f.origen].corto}</td>
                     <td><strong>{f.oc}</strong></td>
                     <td>{f.proveedor}</td>
                     <td>{f.repartidor}</td>
-                    <td><span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {est?.label ?? f.estado}</span></td>
+                    <td><span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {etiquetaEstado(f.estado, f.origen)}</span></td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.en_ruta_en) || '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duracionTxt(f.minutos)}</td>
@@ -515,7 +553,7 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
                       {f.estado !== 'cancelado' && f.nota_entrega && <div className="muted" style={{ fontSize: '.75rem' }}>📝 {f.nota_entrega}</div>}
                     </td>
                     <td style={{ textAlign: 'right' }}>{f.fotos}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoTxt(f.total, f.moneda)}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{f.origen === 'almacen' ? '—' : montoTxt(f.total, f.moneda)}</td>
                   </tr>
                 );
               })}

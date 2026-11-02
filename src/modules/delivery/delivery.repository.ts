@@ -9,6 +9,10 @@
    · el comprobante de pago sale de la OC (comprobantes_pago / factura_path)
      con comprobantesDeLaOrden(), como en Compras de GT;
    · la moneda de la OC es `total_moneda`.
+
+   02/11/2026 · Retiro en Almacén Los Pinos (supabase/2026-11-02-delivery-
+   retiro-almacen.sql): el listado sale de `delivery_listado` (trae `origen`
+   y el destino del retiro) y se toma con `delivery_tomar_origen`.
    ============================================================ */
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
@@ -19,7 +23,7 @@ import { comprobantesDeLaOrden } from '@/modules/pedidos/adjuntosPago';
 import { labelMetodoPago, urlAdjuntoOc } from '@/modules/pedidos/pedidos.repository';
 import type { PagoMetodo } from '@/shared/lib/types';
 import {
-  INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, type FotoDelivery, type PedidoDelivery, type UbicacionDelivery,
+  INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, type FotoDelivery, type OrigenDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';
 
 const BUCKET = 'delivery-fotos';
@@ -34,6 +38,7 @@ function normalizar(r: Record<string, unknown>): PedidoDelivery {
   const p = r as unknown as PedidoDelivery;
   return {
     ...p,
+    origen: p.origen === 'almacen' ? 'almacen' : 'compra',
     total: Number(p.total) || 0,
     items: Array.isArray(r.items) ? (r.items as PedidoDelivery['items']) : [],
     fotos_recibo: Array.isArray(r.fotos_recibo) ? (r.fotos_recibo as FotoDelivery[]) : [],
@@ -61,19 +66,40 @@ export function useDeliveryConectado(): boolean | null {
 }
 
 /**
- * Los pedidos: los disponibles (OC pagadas sin tomar), los en curso y,
- * con `incluirCerrados`, los entregados y cancelados (histórico).
+ * Los pedidos: los disponibles (OC pagadas sin tomar y, desde el 02/11/2026,
+ * los retiros en Almacén Los Pinos), los en curso y, con `incluirCerrados`,
+ * los entregados y cancelados (histórico).
  */
 export async function listPedidosDelivery(incluirCerrados = false): Promise<PedidoDelivery[]> {
-  const { data, error } = await supabase.rpc('delivery_pedidos_listado', { p_incluir_cerrados: incluirCerrados });
+  const { data, error } = await supabase.rpc('delivery_listado', { p_incluir_cerrados: incluirCerrados });
   if (error) throw err(error, 'No se pudieron leer los pedidos.');
   return ((data ?? []) as Record<string, unknown>[]).map(normalizar);
 }
 
-/** Tomar el pedido. Si otro delivery lo tomó primero, la base lo rechaza con su nombre. */
-export async function tomarPedido(ordenId: string): Promise<void> {
-  const { error } = await supabase.rpc('delivery_tomar', { p_orden_id: ordenId });
-  if (error) throw err(error, 'No se pudo tomar el pedido.');
+/**
+ * Aceptar el pedido (la OC o el retiro de Almacén): desde el 02/11/2026 queda
+ * directo EN CAMINO. Si otro delivery lo aceptó primero, la base lo rechaza con su nombre.
+ */
+export async function tomarPedido(ordenId: string, origen: OrigenDelivery = 'compra'): Promise<void> {
+  const { error } = await supabase.rpc('delivery_tomar_origen', { p_orden_id: ordenId, p_origen: origen });
+  if (error) throw err(error, 'No se pudo aceptar el pedido.');
+}
+
+/** 02/11/2026: «No disponible» con motivo (queda guardado; el pedido sigue libre para los demás). */
+export async function rechazarPedido(ordenId: string, origen: OrigenDelivery, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('delivery_rechazar', { p_orden_id: ordenId, p_origen: origen, p_motivo: motivo });
+  if (error) throw err(error, 'No se pudo guardar el «No disponible».');
+}
+
+/** Los «No disponible» de esas órdenes (para ocultarlos al que los marcó y mostrarlos en la PC). */
+export async function listRechazosDelivery(ordenIds: string[]): Promise<RechazoDelivery[]> {
+  const ids = [...new Set(ordenIds)].filter(Boolean);
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from('delivery_rechazos')
+    .select('id, orden_id, origen, repartidor_id, repartidor_email, repartidor_nombre, motivo, created_at')
+    .in('orden_id', ids).order('created_at', { ascending: false });
+  if (error) throw err(error, 'No se pudieron leer los «No disponible».');
+  return ((data ?? []) as RechazoDelivery[]).map((r) => ({ ...r, origen: r.origen === 'almacen' ? 'almacen' : 'compra' }));
 }
 
 export async function marcarEnRuta(pedidoId: string): Promise<void> {
@@ -81,6 +107,7 @@ export async function marcarEnRuta(pedidoId: string): Promise<void> {
   if (error) throw err(error, 'No se pudo marcar en ruta.');
 }
 
+/** `almacen` = el almacén donde se entregó la OC, o «Entregado a» (unidad / persona) en un retiro de Almacén. */
 export async function marcarEntregado(pedidoId: string, almacen: string, nota?: string | null): Promise<void> {
   const { error } = await supabase.rpc('delivery_avanzar', {
     p_pedido_id: pedidoId, p_estado: 'entregado', p_almacen: almacen, p_nota: nota ?? null,
@@ -146,13 +173,18 @@ export interface FilaHistorialCruda {
   motivo_cancel: string | null; almacen_entrega: string | null;
   /** GT: también nota y cantidad de fotos, para el reporte. */
   nota_entrega?: string | null; fotos_recibo?: unknown; fotos_entrega?: unknown;
-  orden: { oc_codigo: string | null; codigo: string; total: number; moneda: string | null; proveedor_id: string | null } | null;
+  /** 02/11/2026: 'compra' | 'almacen' (sin dato = compra). */
+  origen?: string | null;
+  orden: {
+    oc_codigo: string | null; codigo: string; total: number; moneda: string | null; proveedor_id: string | null;
+    unidad_solicitante?: string | null; solicitante?: string | null;
+  } | null;
 }
 
 /** Histórico directo de la tabla (incluye cada cancelación aunque la OC se haya retomado). */
 export async function listHistorialDelivery(desde: string, hasta: string): Promise<FilaHistorialCruda[]> {
   const { data, error } = await supabase.from('delivery_pedidos')
-    .select('id, orden_id, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id)')
+    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id, unidad_solicitante, solicitante)')
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59.999-04:00`)
     .order('aceptado_en', { ascending: false });
   if (error) throw err(error, 'No se pudo leer el histórico.');
@@ -167,6 +199,9 @@ export interface ComprobantePagoDelivery {
   pagos: Array<{ monto: number; moneda: string; metodo: string }>;
   total: number;
   moneda: string;
+  /** 02/11/2026: false en un retiro de Almacén (no lleva comprobante); `mensaje` lo explica. */
+  aplica: boolean;
+  mensaje: string | null;
 }
 
 /**
@@ -181,8 +216,11 @@ export async function comprobantePagoDelivery(ordenId: string): Promise<Comproba
   const o = (data ?? {}) as {
     pagada_en?: string | null; total?: number | null; total_moneda?: string | null;
     comprobantes_pago?: { path: string; nombre: string }[] | null; factura_path?: string | null; factura_nombre?: string | null;
-    metodo_pago?: PagoMetodo[] | null;
+    metodo_pago?: PagoMetodo[] | null; aplica?: boolean | null; mensaje?: string | null;
   };
+  if (o.aplica === false) {
+    return { archivos: [], pagadaEn: null, pagos: [], total: 0, moneda: o.total_moneda || 'USD', aplica: false, mensaje: o.mensaje ?? null };
+  }
   const refs = comprobantesDeLaOrden({
     comprobantes_pago: Array.isArray(o.comprobantes_pago) ? o.comprobantes_pago : null,
     factura_path: o.factura_path ?? null, factura_nombre: o.factura_nombre ?? null,
@@ -200,5 +238,7 @@ export async function comprobantePagoDelivery(ordenId: string): Promise<Comproba
     pagos,
     total: Number(o.total) || 0,
     moneda: o.total_moneda || 'USD',
+    aplica: true,
+    mensaje: null,
   };
 }

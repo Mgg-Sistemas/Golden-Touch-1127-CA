@@ -10,6 +10,9 @@
    Formato de los PDF de GT: logo horizontal (dibujarLogoPdf), márgenes de
    2 cm, «impreso por» con nombre y apellido. Se abren en la vista previa del
    sistema (previewPdf): nada se descarga solo.
+   02/11/2026: con el origen (OC pagada / retiro en Almacén Los Pinos): el
+   general trae la columna «Origen» y el filtro; el del pedido rotula SP,
+   «Retirar en», «Entregado a» y las fotos «al retirar en Almacén».
    ============================================================ */
 import type { jsPDF as JsPDF } from 'jspdf';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -18,9 +21,11 @@ import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { supabase } from '@/shared/lib/supabase';
-import { ESTADO_DELIVERY, fechaHoraVE, montoTxt, type PedidoDelivery } from './delivery';
+import { ALMACEN_RETIRO, ORIGEN_DELIVERY, etiquetaEstado, fechaHoraVE, montoTxt, type PedidoDelivery } from './delivery';
 import { duracionTxt, totalesResumen, type FilaHistorialDelivery, type ResumenDelivery } from './deliveryPanel';
-import { detallePedido, resumenReporte, textoFiltros, type FiltroEstadoDelivery } from './deliveryReporte';
+import {
+  detallePedido, resumenReporte, textoFiltros, type FiltroEstadoDelivery, type FiltroOrigenDelivery,
+} from './deliveryReporte';
 
 const M = MARGEN_PDF;
 const ALTO_PIE = 14;
@@ -86,7 +91,8 @@ const finTabla = (doc: JsPDF, porDefecto: number) =>
 
 /** El reporte del histórico filtrado: resumen, por delivery y la lista de pedidos. */
 export async function pdfHistorialDelivery(data: {
-  desde: string; hasta: string; repartidor?: string | null; estado?: FiltroEstadoDelivery | null; filas: FilaHistorialDelivery[];
+  desde: string; hasta: string; repartidor?: string | null; estado?: FiltroEstadoDelivery | null;
+  origen?: FiltroOrigenDelivery | null; filas: FilaHistorialDelivery[];
 }): Promise<void> {
   const generado = fechaHoraVE(new Date().toISOString());
   const { doc, autoTable, y } = await nuevoDoc('Reporte de Delivery', `${textoFiltros(data)} · ${data.filas.length} pedido(s)`, true);
@@ -94,9 +100,9 @@ export async function pdfHistorialDelivery(data: {
 
   autoTable(doc, {
     startY: y,
-    head: [['Pedidos', 'Entregados', 'En ruta', 'Aceptados', 'Cancelados', 'Tiempo promedio de entrega']],
-    body: [[String(r.total), String(r.porEstado.entregado), String(r.porEstado.en_ruta), String(r.porEstado.aceptado),
-      String(r.porEstado.cancelado), duracionTxt(r.minutosPromedio)].map(textoPdf)],
+    head: [['Pedidos', 'De Compras (OC)', `Retiros ${ALMACEN_RETIRO}`, 'Entregados', 'En camino', 'Aceptados', 'Cancelados', 'Tiempo promedio de entrega']],
+    body: [[String(r.total), String(r.porOrigen.compra), String(r.porOrigen.almacen), String(r.porEstado.entregado), String(r.porEstado.en_ruta),
+      String(r.porEstado.aceptado), String(r.porEstado.cancelado), duracionTxt(r.minutosPromedio)].map(textoPdf)],
     theme: 'grid', headStyles: HEAD, styles: { fontSize: 9, cellPadding: 4, halign: 'center' }, margin: MARGENES_TABLA,
   });
 
@@ -117,22 +123,22 @@ export async function pdfHistorialDelivery(data: {
 
   autoTable(doc, {
     startY: finTabla(doc, y) + 14,
-    head: [['Tomado', 'OC', 'Proveedor', 'Delivery', 'Estado', 'En ruta', 'Entregado / Cancelado', 'Tiempo', 'Almacén / Motivo', 'Fotos', 'Monto']],
+    head: [['Tomado', 'Origen', 'OC / SP', 'Proveedor', 'Delivery', 'Estado', 'En camino', 'Entregado / Cancelado', 'Tiempo', 'Almacén / Entregado a / Motivo', 'Fotos', 'Monto']],
     body: data.filas.length
       ? data.filas.map((f) => [
-        fechaHoraVE(f.fecha), f.oc, f.proveedor, f.repartidor, ESTADO_DELIVERY[f.estado]?.label ?? f.estado,
+        fechaHoraVE(f.fecha), ORIGEN_DELIVERY[f.origen]?.corto ?? 'Compras', f.oc, f.proveedor, f.repartidor, etiquetaEstado(f.estado, f.origen),
         fechaHoraVE(f.en_ruta_en) || '—',
         fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—',
         duracionTxt(f.minutos),
         (f.estado === 'cancelado' ? f.motivo_cancel : [f.almacen_entrega, f.nota_entrega].filter(Boolean).join(' · ')) || '—',
         String(f.fotos ?? 0),
-        montoTxt(f.total, f.moneda),
+        f.origen === 'almacen' ? '—' : montoTxt(f.total, f.moneda),
       ].map((x) => textoPdf(String(x))))
-      : [[{ content: 'No hay pedidos tomados con esos filtros.', colSpan: 11, styles: { halign: 'center' as const } }]],
+      : [[{ content: 'No hay pedidos tomados con esos filtros.', colSpan: 12, styles: { halign: 'center' as const } }]],
     theme: 'grid',
     headStyles: HEAD,
-    styles: { fontSize: 7.6, cellPadding: 3, overflow: 'linebreak' },
-    columnStyles: { 7: { halign: 'right' }, 9: { halign: 'right' }, 10: { halign: 'right' } },
+    styles: { fontSize: 7.4, cellPadding: 3, overflow: 'linebreak' },
+    columnStyles: { 8: { halign: 'right' }, 10: { halign: 'right' }, 11: { halign: 'right' } },
     margin: MARGENES_TABLA,
   });
   pies(doc, `Reporte de Delivery · ${generado}`);
@@ -171,10 +177,25 @@ export async function pdfPorDelivery(data: { desde: string; hasta: string; resum
 /** Reporte de UN pedido: datos, pasos con hora, almacén, nota, fotos y productos. */
 export async function pdfPedidoDelivery(p: PedidoDelivery): Promise<void> {
   const d = detallePedido(p, quienSync);
+  const retiro = d.origen === 'almacen';
   const generado = fechaHoraVE(new Date().toISOString());
-  const { doc, autoTable, y } = await nuevoDoc(`Reporte del pedido ${d.oc}`, `Delivery · ${d.estado}${d.urgente ? ' · URGENTE' : ''}`, false);
+  const { doc, autoTable, y } = await nuevoDoc(
+    retiro ? `Retiro en Almacén · ${d.oc}` : `Reporte del pedido ${d.oc}`,
+    `Delivery · ${retiro ? `Retiro en ${ALMACEN_RETIRO} · ` : ''}${d.estado}${d.urgente ? ' · URGENTE' : ''}`, false,
+  );
 
-  const datos: Array<[string, string]> = [
+  const datos: Array<[string, string]> = retiro ? [
+    ['Solicitud de pedido', d.oc],
+    ['Origen', `Retiro en ${ALMACEN_RETIRO}`],
+    ['Estado', d.estado + (d.urgente ? ' (urgente)' : '')],
+    ['Delivery', d.motorizado],
+    ...(d.analista ? [['Revisó en Almacén', d.analista] as [string, string]] : []),
+    [p.estado === 'entregado' ? 'Entregado a' : 'Entregar a', d.almacen],
+    ['Tiempo de entrega', d.tiempo],
+    ...(d.motivoCancel ? [['Motivo de cancelación', d.motivoCancel] as [string, string]] : []),
+    ['Nota de entrega', d.nota ?? '—'],
+    ['Fotos', `${d.fotosRecibo} al retirar en Almacén · ${d.fotosEntrega} de la entrega`],
+  ] : [
     ['Orden de compra', d.oc],
     ['Estado', d.estado + (d.urgente ? ' (urgente)' : '')],
     ['Proveedor', d.proveedor],
@@ -215,6 +236,6 @@ export async function pdfPedidoDelivery(p: PedidoDelivery): Promise<void> {
       columnStyles: { 1: { halign: 'right', cellWidth: 110 } }, margin: MARGENES_TABLA,
     });
   }
-  pies(doc, `Reporte del pedido ${d.oc} · ${generado}`);
-  previewPdf(doc, `delivery-${d.oc}.pdf`);
+  pies(doc, `${retiro ? 'Retiro en Almacén' : 'Reporte del pedido'} ${d.oc} · ${generado}`);
+  previewPdf(doc, `delivery-${retiro ? 'retiro-' : ''}${d.oc}.pdf`);
 }

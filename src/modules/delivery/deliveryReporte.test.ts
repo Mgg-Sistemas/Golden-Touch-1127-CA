@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { PedidoDelivery } from './delivery';
-import { armarFilasHistorial } from './deliveryPanel';
+import { armarFilasHistorial, filtrarPorOrigen } from './deliveryPanel';
 import {
-  ESTADOS_FILTRO, MAX_PEDIDOS_WHATSAPP, detallePedido, filtrarHistorial, resumenReporte, textoFiltros,
+  ESTADOS_FILTRO, MAX_PEDIDOS_WHATSAPP, ORIGENES_FILTRO, detallePedido, filtrarHistorial, resumenReporte, textoFiltros,
   textoReporteGeneral, textoReportePedido,
 } from './deliveryReporte';
 
@@ -28,7 +28,7 @@ describe('Reporte de un pedido', () => {
   it('detalle: motorizado con nombre y apellido, pasos con hora, almacén, nota, fotos y solo lo que se compra', () => {
     const d = detallePedido(pedido(), nombres);
     expect(d.motorizado).toBe('Carlos Mendoza');
-    expect(d.pasos.map((x) => x.paso)).toEqual(['Pagada por Tesorería', 'Tomada por el delivery', 'En ruta', 'Entregada en almacén']);
+    expect(d.pasos.map((x) => x.paso)).toEqual(['Pagada por Tesorería', 'Tomada por el delivery', 'En camino', 'Entregada en almacén']);
     expect(d.tiempo).toBe('1 h 05 min');
     expect(d.almacen).toBe('General');
     expect(d.nota).toBe('Completo');
@@ -57,7 +57,7 @@ describe('Reporte de un pedido', () => {
     expect(t).toContain('🔹 *Orden:* OC-2026-0181 · 🚨 URGENTE');
     expect(t).toContain('👤 *Delivery:* Carlos Mendoza');
     expect(t).toContain('🏬 *Almacén de entrega:* General');
-    expect(t).toContain('• En ruta:');
+    expect(t).toContain('• En camino:');
     expect(t).toContain('⏳ *Tiempo de entrega:* 1 h 05 min');
     expect(t).toContain('📝 *Nota:* Completo');
     expect(t).toContain('📷 *Fotos:* 1 al recibir · 2 de la entrega');
@@ -121,5 +121,58 @@ describe('Reporte general', () => {
     expect(textoReporteGeneral({ desde: '2026-10-31', hasta: '2026-10-31', filas: [] })).toContain('No hay pedidos tomados con esos filtros.');
     const muchas = Array.from({ length: MAX_PEDIDOS_WHATSAPP + 3 }, (_, i) => ({ ...filas[0], id: `x${i}` }));
     expect(textoReporteGeneral({ desde: '2026-10-31', hasta: '2026-10-31', filas: muchas })).toContain('… y 3 más (ver el PDF).');
+  });
+});
+
+describe('Retiro en Almacén Los Pinos (02/11/2026)', () => {
+  const retiro = pedido({
+    origen: 'almacen', oc_codigo: null, codigo: 'SP-2026-0391', pagada_en: null, revisada_en: '2026-11-02T12:00:00Z', total: 0,
+    proveedor_id: null, proveedor_nombre: 'Almacén Los Pinos', proveedor_direccion: null, proveedor_telefono: null,
+    almacen_destino: null, almacen_entrega: 'PRODUCCION · ENDER MEJIA', unidad_solicitante: 'PRODUCCION', solicitante_nombre: 'ENDER MEJIA',
+    analista_nombre: 'ISNER ORENCE',
+  });
+
+  it('detalle del retiro: SP, sin monto, pasos con la revisión de Almacén, «Entregado a»', () => {
+    const d = detallePedido(retiro, nombres);
+    expect(d.origen).toBe('almacen');
+    expect(d.rotuloOrden).toBe('Solicitud de pedido');
+    expect(d.oc).toBe('SP-2026-0391');
+    expect(d.estado).toBe('Entregado');
+    expect(d.monto).toBe('—');
+    expect(d.proveedor).toBe('Almacén Los Pinos');
+    expect(d.almacen).toBe('PRODUCCION · ENDER MEJIA');
+    expect(d.pasos.map((x) => x.paso)).toEqual(['Revisada por Almacén (hay en Los Pinos)', 'Tomada por el delivery', 'En camino', 'Entregada a quien la pidió']);
+  });
+
+  it('WhatsApp del retiro', () => {
+    const t = textoReportePedido(retiro, nombres, 'x');
+    expect(t).toContain('📋 *REPORTE DE DELIVERY · RETIRO EN ALMACÉN*');
+    expect(t).toContain('🔹 *Solicitud:* SP-2026-0391');
+    expect(t).toContain('📦 *Retirar en:* Almacén Los Pinos');
+    expect(t).toContain('🏬 *Entregado a:* PRODUCCION · ENDER MEJIA');
+    expect(t).not.toContain('Monto');
+    expect(t).toContain('1 al retirar en Almacén');
+    sinSelector(t);
+  });
+
+  it('general: filas del retiro, filtro por origen y conteo por origen', () => {
+    const base = { repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null };
+    const filas = armarFilasHistorial([
+      { ...base, id: 'a', orden_id: 'o1', estado: 'entregado', repartidor_nombre: 'Pedro', aceptado_en: '2026-11-02T12:00:00Z', orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: 'p1' } },
+      { ...base, id: 'b', orden_id: 'o1', origen: 'almacen', estado: 'entregado', repartidor_nombre: 'Ana', aceptado_en: '2026-11-02T10:00:00Z', almacen_entrega: 'PRODUCCION', orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: 'p1' } },
+    ], new Map([['p1', 'Ferretería X']]));
+    expect(filas[1]).toMatchObject({ origen: 'almacen', oc: 'SP-1', proveedor: 'Almacén Los Pinos', total: 0 });
+    expect(filas[0]).toMatchObject({ origen: 'compra', oc: 'OC-1', proveedor: 'Ferretería X', total: 10 });
+    expect(filtrarHistorial(filas, { origen: 'almacen' }).map((f) => f.id)).toEqual(['b']);
+    expect(filtrarHistorial(filas, { origen: 'compra' }).map((f) => f.id)).toEqual(['a']);
+    expect(filtrarHistorial(filas, { origen: '' })).toHaveLength(2);
+    expect(filtrarPorOrigen(filas, 'almacen').map((f) => f.id)).toEqual(['b']);
+    expect(resumenReporte(filas).porOrigen).toEqual({ compra: 1, almacen: 1 });
+    expect(ORIGENES_FILTRO.map((o) => o.valor)).toEqual(['', 'compra', 'almacen']);
+    expect(textoFiltros({ desde: '2026-11-02', hasta: '2026-11-02', origen: 'almacen' })).toBe('Día 02/11/2026 · Origen: Almacén Los Pinos');
+    const t = textoReporteGeneral({ desde: '2026-11-02', hasta: '2026-11-02', filas, generado: 'x' });
+    expect(t).toContain('🏭 De Compras (OC): 1 · 📦 Retiros en Almacén Los Pinos: 1');
+    expect(t).toContain('SP-1 · 📦 Almacén Los Pinos · Ana');
+    sinSelector(t);
   });
 });
