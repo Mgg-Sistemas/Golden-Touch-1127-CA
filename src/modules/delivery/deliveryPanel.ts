@@ -9,8 +9,8 @@
    ============================================================ */
 import type { FilaHistorialCruda } from './delivery.repository';
 import {
-  UBICACION_VIEJA_MS, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, minutosEntre, resumenPorDelivery,
-  type EstadoDelivery, type PedidoDelivery,
+  ALMACEN_RETIRO, UBICACION_VIEJA_MS, destinoDe, esRetiroAlmacen, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
+  minutosEntre, resumenPorDelivery, type EstadoDelivery, type OrigenDelivery, type PedidoDelivery,
 } from './delivery';
 
 /* ───────────── Atajos de fechas (hora de Venezuela, AAAA-MM-DD) ───────────── */
@@ -61,13 +61,14 @@ export function sePuedeCancelar(p: Pick<PedidoDelivery, 'estado' | 'pedido_id'>)
 /** El mensaje de WhatsApp del último paso del pedido, para volver a enviarlo. */
 export function mensajeDelPedido(p: PedidoDelivery): { titulo: string; texto: string } | null {
   const rep = p.repartidor_nombre || 'Delivery';
+  const que = esRetiroAlmacen(p) ? 'Retiro' : 'Pedido';
   switch (p.estado) {
-    case 'aceptado': return { titulo: 'Pedido aceptado', texto: mensajeAceptado(p, rep, p.aceptado_en) };
-    case 'en_ruta': return { titulo: 'Delivery en ruta', texto: mensajeEnRuta(p, rep, p.en_ruta_en) };
+    case 'aceptado': return { titulo: `${que} aceptado`, texto: mensajeAceptado(p, rep, p.aceptado_en) };
+    case 'en_ruta': return { titulo: 'Delivery en camino', texto: mensajeEnRuta(p, rep, p.en_ruta_en) };
     case 'entregado':
-      return { titulo: 'Pedido entregado', texto: mensajeEntregado(p, rep, p.almacen_entrega || p.almacen_destino || '—', p.nota_entrega, p.entregado_en) };
+      return { titulo: `${que} entregado`, texto: mensajeEntregado(p, rep, destinoDe(p), p.nota_entrega, p.entregado_en) };
     case 'cancelado':
-      return { titulo: 'Pedido cancelado', texto: mensajeCancelado(p, rep, p.motivo_cancel || 'Sin motivo', p.detalle_cancel, p.cancelado_en) };
+      return { titulo: `${que} cancelado`, texto: mensajeCancelado(p, rep, p.motivo_cancel || 'Sin motivo', p.detalle_cancel, p.cancelado_en) };
     default: return null;
   }
 }
@@ -100,9 +101,13 @@ type FilaCruda = FilaHistorialCruda;
 export interface FilaHistorialDelivery {
   id: string;
   orden_id: string;
+  /** 02/11/2026: la OC (compra) o el retiro en Almacén Los Pinos. */
+  origen: OrigenDelivery;
   /** Cuándo lo tomó (aceptado_en). */
   fecha: string;
+  /** La OC (o la SP en un retiro de Almacén). */
   oc: string;
+  /** El proveedor, o «Almacén Los Pinos» en un retiro. */
   proveedor: string;
   repartidor: string;
   estado: EstadoDelivery;
@@ -125,12 +130,15 @@ export function armarFilasHistorial(rows: FilaCruda[], proveedores: Map<string, 
   return rows.map((r) => {
     const o = r.orden;
     const estado = r.estado as EstadoDelivery;
+    const retiro = r.origen === 'almacen';
     return {
       id: r.id,
       orden_id: r.orden_id,
+      origen: retiro ? 'almacen' : 'compra',
       fecha: r.aceptado_en,
-      oc: o ? (o.oc_codigo || o.codigo) : '—',
-      proveedor: (o?.proveedor_id && proveedores.get(o.proveedor_id)) || '—',
+      // Un retiro se nombra por la SP aunque esa SP ya tenga su OC.
+      oc: o ? (retiro ? o.codigo : (o.oc_codigo || o.codigo)) : '—',
+      proveedor: retiro ? ALMACEN_RETIRO : ((o?.proveedor_id && proveedores.get(o.proveedor_id)) || '—'),
       repartidor: r.repartidor_nombre || r.repartidor_email || '—',
       estado,
       en_ruta_en: r.en_ruta_en,
@@ -140,7 +148,8 @@ export function armarFilasHistorial(rows: FilaCruda[], proveedores: Map<string, 
       almacen_entrega: r.almacen_entrega,
       nota_entrega: r.nota_entrega ?? null,
       fotos: (Array.isArray(r.fotos_recibo) ? r.fotos_recibo.length : 0) + (Array.isArray(r.fotos_entrega) ? r.fotos_entrega.length : 0),
-      total: Number(o?.total) || 0,
+      // Un retiro de Almacén no tiene monto (no se paga nada).
+      total: retiro ? 0 : (Number(o?.total) || 0),
       moneda: o?.moneda || 'USD',
       minutos: estado === 'entregado' ? minutosEntre(r.aceptado_en, r.entregado_en) : null,
     };
@@ -150,6 +159,11 @@ export function armarFilasHistorial(rows: FilaCruda[], proveedores: Map<string, 
 /** Los motorizados que aparecen en el histórico, en orden alfabético. */
 export function repartidoresDe(filas: Pick<FilaHistorialDelivery, 'repartidor'>[]): string[] {
   return [...new Set(filas.map((f) => f.repartidor).filter((x) => x && x !== '—'))].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** 02/11/2026: Compras / Almacén / Todos ('' = todos). */
+export function filtrarPorOrigen<T extends Pick<FilaHistorialDelivery, 'origen'>>(filas: T[], origen: OrigenDelivery | '' | null | undefined): T[] {
+  return origen ? filas.filter((f) => f.origen === origen) : filas;
 }
 
 export function filtrarPorRepartidor<T extends Pick<FilaHistorialDelivery, 'repartidor'>>(filas: T[], repartidor: string): T[] {

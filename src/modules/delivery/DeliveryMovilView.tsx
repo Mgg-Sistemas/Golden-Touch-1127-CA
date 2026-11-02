@@ -14,6 +14,17 @@
    Mientras la administración no conecte Delivery a Compras, no llegan OC.
    GT (31/10): cada pedido tomado tiene su reporte en PDF (vista previa) y
    por WhatsApp.
+   02/11/2026 (pedidos de la usuaria):
+   · RETIRO EN ALMACÉN LOS PINOS: lo que la revisión de Almacén marcó como
+     disponible también llega «Por tomar» (📦, sin comprobante de pago); se
+     retira en Los Pinos (fotos «al retirar en Almacén») y se entrega A la
+     unidad / persona que lo pidió («Entregado a»).
+   · «✓ Aceptar pedido» lo deja directo EN CAMINO y ya no le sale a ningún
+     otro motorizado (solo a quien lo aceptó y en la PC).
+   · «✕ No disponible» pide un motivo, queda guardado, sale su WhatsApp y el
+     pedido sigue libre para los demás (al que lo marcó ya no le sale).
+   · La tarjeta ya no trae la lista de renglones: dice «📦 N productos» y
+     «📋 Ver orden» la despliega (y «Ocultar orden» la pliega).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
@@ -29,17 +40,18 @@ import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { Quien } from '@/shared/ui/Quien';
 import {
-  ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, fechaHoraVE, mensajeAceptado, mensajeCancelado,
-  mensajeEnRuta, mensajeEntregado, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery, destinoRetiro,
+  esRetiroAlmacen, etiquetaEstado, fechaHoraVE, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
+  mensajeNoDisponible, montoTxt, motivoNoDisponible, ocDe, type FotoDelivery, type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, compartirUbicacion, listPedidosDelivery, marcarEnRuta, marcarEntregado,
-  subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado,
+  cancelarPedido, compartirUbicacion, listPedidosDelivery, listRechazosDelivery, marcarEnRuta, marcarEntregado,
+  rechazarPedido, subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado,
 } from './delivery.repository';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 import { textoReportePedido } from './deliveryReporte';
 import {
-  armarFeed, debeEnviarUbicacion, enChip, errorUbicacion, mapaHref, mensajeDeEstado, telHref, trabajoEnCurso,
+  armarFeed, debeEnviarUbicacion, enChip, errorUbicacion, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref, trabajoEnCurso,
   type ChipDelivery, type EnvioGps, type PedidoFeed,
 } from './deliveryMovil';
 import './deliveryMovil.css';
@@ -62,11 +74,12 @@ const cant = (n: number) => (Number(n) || 0).toLocaleString('es-VE', { maximumFr
 const CHIPS: Array<{ key: ChipDelivery; label: string }> = [
   { key: 'todos', label: 'Todos' },
   { key: 'por_tomar', label: '💰 Por tomar' },
-  { key: 'en_ruta', label: '🚚 En ruta' },
+  { key: 'en_ruta', label: '🚚 En camino' },
   { key: 'entregados', label: '✅ Entregados' },
 ];
 
-type Accion = { tipo: 'cancelar' | 'entregar'; ordenId: string };
+/** `clave` = orden + origen (la misma SP puede traer su retiro de Almacén y su OC). */
+type Accion = { tipo: 'cancelar' | 'entregar' | 'no_disponible'; clave: string };
 
 export function DeliveryMovilView() {
   const { user } = useSession();
@@ -80,6 +93,7 @@ export function DeliveryMovilView() {
 
   const [activos, setActivos] = useState<PedidoDelivery[]>([]);
   const [cerrados, setCerrados] = useState<PedidoDelivery[]>([]);
+  const [rechazos, setRechazos] = useState<RechazoDelivery[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [chip, setChip] = useState<ChipDelivery>('todos');
@@ -96,9 +110,13 @@ export function DeliveryMovilView() {
       listPedidosDelivery(false),
       listPedidosDelivery(true).catch(() => [] as PedidoDelivery[]),
     ]);
+    // Los «No disponible» de lo que está por tomar (lo que yo marqué ya no me sale).
+    const r = await listRechazosDelivery(a.filter((p) => p.estado === 'por_tomar' || p.estado === 'cancelado').map((p) => p.orden_id))
+      .catch(() => [] as RechazoDelivery[]);
     if (mio !== turno.current) return;
     setActivos(a);
     setCerrados(c);
+    setRechazos(r);
   }, []);
 
   useEffect(() => {
@@ -107,7 +125,7 @@ export function DeliveryMovilView() {
       .finally(() => { if (vivo) setLoading(false); });
     return () => { vivo = false; };
   }, [reload]);
-  useRealtime(['delivery_pedidos', 'ordenes'], () => { void reload().catch(() => {}); });
+  useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => { void reload().catch(() => {}); });
 
   useEffect(() => {
     let vivo = true;
@@ -122,16 +140,22 @@ export function DeliveryMovilView() {
     return () => { vivo = false; };
   }, []);
 
-  const feed = useMemo(() => armarFeed(activos, cerrados), [activos, cerrados]);
+  const uid = user?.id ?? null;
+  const feed = useMemo(() => armarFeed(activos, cerrados, rechazadosPor(rechazos, uid)), [activos, cerrados, rechazos, uid]);
   const visibles = useMemo(() => feed.filter((f) => enChip(f, chip)), [feed, chip]);
   const cuenta = useMemo(() => Object.fromEntries(CHIPS.map((c) => [c.key, feed.filter((f) => enChip(f, c.key)).length])) as Record<ChipDelivery, number>, [feed]);
   const enCurso = trabajoEnCurso(feed);
-  const pedidoAccion = accion ? feed.find((f) => f.p.orden_id === accion.ordenId)?.p ?? null : null;
+  const accionFeed = accion ? feed.find((f) => claveDelivery(f.p) === accion.clave) ?? null : null;
+  const pedidoAccion = accionFeed?.p ?? null;
 
-  // Si el pedido de la acción dejó de estar en curso (otra pestaña, la PC), se vuelve a la lista.
+  // Si el pedido de la acción cambió (otra pestaña, otro motorizado, la PC), se vuelve a la lista.
   useEffect(() => {
-    if (accion && !loading && (!pedidoAccion || !pedidoAccion.es_mio || !['aceptado', 'en_ruta'].includes(pedidoAccion.estado))) setAccion(null);
-  }, [accion, pedidoAccion, loading]);
+    if (!accion || loading) return;
+    const sigue = accion.tipo === 'no_disponible'
+      ? !!accionFeed?.disponible
+      : !!pedidoAccion && pedidoAccion.es_mio && ['aceptado', 'en_ruta'].includes(pedidoAccion.estado);
+    if (!sigue) setAccion(null);
+  }, [accion, accionFeed, pedidoAccion, loading]);
 
   function hecho(titulo: string, texto: string) {
     setAccion(null);
@@ -140,27 +164,29 @@ export function DeliveryMovilView() {
   }
   function volver() { setAccion(null); setListo(null); }
 
+  // Aceptar: queda directo EN CAMINO (si otro se adelantó, la base dice quién).
   async function tomar(p: PedidoDelivery) {
-    setOcupado(p.orden_id);
+    setOcupado(claveDelivery(p));
     try {
-      await tomarPedido(p.orden_id);
-      toast(`Tomaste la orden ${ocDe(p)}.`, 'success');
-      hecho('Pedido aceptado', mensajeAceptado(p, quien));
+      await tomarPedido(p.orden_id, p.origen ?? 'compra');
+      toast(`Aceptaste ${esRetiroAlmacen(p) ? `el retiro ${p.codigo}` : `la orden ${ocDe(p)}`}: va en camino.`, 'success');
+      hecho('En camino', mensajeAceptado(p, quien));
     } catch (e) {
-      toast(errMsg(e, 'No se pudo tomar el pedido'), 'error');
+      toast(errMsg(e, 'No se pudo aceptar el pedido'), 'error');
       void reload().catch(() => {});
     } finally { setOcupado(null); }
   }
 
+  // Pedidos viejos que quedaron «Aceptado» (antes del 02/11/2026) todavía se pueden pasar a «En camino».
   async function enRuta(p: PedidoDelivery) {
     if (!p.pedido_id) return;
-    setOcupado(p.orden_id);
+    setOcupado(claveDelivery(p));
     try {
       await marcarEnRuta(p.pedido_id);
-      toast('Marcado en ruta.', 'success');
-      hecho('En ruta', mensajeEnRuta(p, quien));
+      toast('Marcado en camino.', 'success');
+      hecho('En camino', mensajeEnRuta(p, quien));
     } catch (e) {
-      toast(errMsg(e, 'No se pudo marcar en ruta'), 'error');
+      toast(errMsg(e, 'No se pudo marcar en camino'), 'error');
     } finally { setOcupado(null); }
   }
 
@@ -213,8 +239,11 @@ export function DeliveryMovilView() {
       {accion?.tipo === 'entregar' && pedidoAccion && (
         <FormEntregar p={pedidoAccion} almacenes={almacenes} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
+      {accion?.tipo === 'no_disponible' && pedidoAccion && (
+        <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+      )}
 
-      {enPantallaPrincipal && (
+      {(enPantallaPrincipal || accion?.tipo === 'no_disponible') && (
         <>
           <div className="dlv-chips" role="tablist" aria-label="Filtrar pedidos">
             {CHIPS.map((c) => (
@@ -235,18 +264,25 @@ export function DeliveryMovilView() {
             </p>
           )}
 
-          {visibles.map((f) => (
-            <TarjetaPedido key={f.p.orden_id} f={f} canWrite={canWrite} ocupado={ocupado === f.p.orden_id} bloqueado={!!ocupado}
-              onTomar={() => void tomar(f.p)}
-              onEnRuta={() => void enRuta(f.p)}
-              onCancelar={() => { setListo(null); setAccion({ tipo: 'cancelar', ordenId: f.p.orden_id }); }}
-              onEntregar={() => { setListo(null); setAccion({ tipo: 'entregar', ordenId: f.p.orden_id }); }}
-              onVerMensaje={() => verMensaje(f.p)}
-              onComprobante={() => setComprobanteDe(f.p)}
-              onReporte={() => { setAccion(null); setListo({ titulo: `Reporte del pedido ${ocDe(f.p)}`, texto: textoReportePedido(f.p, quienSync) }); }}
-              onFotos={() => void reload().catch(() => {})}
-            />
-          ))}
+          {visibles.map((f) => {
+            const k = claveDelivery(f.p);
+            return (
+              <TarjetaPedido key={k} f={f} canWrite={canWrite} ocupado={ocupado === k} bloqueado={!!ocupado}
+                onTomar={() => void tomar(f.p)}
+                onNoDisponible={() => { setListo(null); setAccion({ tipo: 'no_disponible', clave: k }); }}
+                onEnRuta={() => void enRuta(f.p)}
+                onCancelar={() => { setListo(null); setAccion({ tipo: 'cancelar', clave: k }); }}
+                onEntregar={() => { setListo(null); setAccion({ tipo: 'entregar', clave: k }); }}
+                onVerMensaje={() => verMensaje(f.p)}
+                onComprobante={() => setComprobanteDe(f.p)}
+                onReporte={() => {
+                  setAccion(null);
+                  setListo({ titulo: `Reporte del pedido ${esRetiroAlmacen(f.p) ? f.p.codigo : ocDe(f.p)}`, texto: textoReportePedido(f.p, quienSync) });
+                }}
+                onFotos={() => void reload().catch(() => {})}
+              />
+            );
+          })}
         </>
       )}
 
@@ -257,12 +293,13 @@ export function DeliveryMovilView() {
 
 /* ── Una orden en el listado ── */
 
-function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onReporte, onFotos }: {
+function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponible, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onReporte, onFotos }: {
   f: PedidoFeed; canWrite: boolean; ocupado: boolean; bloqueado: boolean;
-  onTomar: () => void; onEnRuta: () => void; onCancelar: () => void; onEntregar: () => void;
+  onTomar: () => void; onNoDisponible: () => void; onEnRuta: () => void; onCancelar: () => void; onEntregar: () => void;
   onVerMensaje: () => void; onComprobante: () => void; onReporte: () => void; onFotos: () => void;
 }) {
   const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [verOrden, setVerOrden] = useState(false);
   function verPdf() {
     setGenerandoPdf(true);
     import('./deliveryPdf').then((m) => m.pdfPedidoDelivery(f.p))
@@ -270,13 +307,16 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onC
       .finally(() => setGenerandoPdf(false));
   }
   const { p, disponible } = f;
+  const retiro = esRetiroAlmacen(p);
   const estado = disponible ? ESTADO_DELIVERY.por_tomar : ESTADO_DELIVERY[p.estado];
   const enCurso = !disponible && (p.estado === 'aceptado' || p.estado === 'en_ruta');
   const mioEnCurso = enCurso && p.es_mio;
   const items = (p.items ?? []).filter((i) => i.comprar !== false);
   const telProv = telHref(p.proveedor_telefono);
   const telAnalista = telHref(p.analista_telefono);
+  const telSolicitante = telHref(p.solicitante_telefono);
   const mapa = mapaHref(p.proveedor_direccion);
+  const destino = destinoRetiro(p);
   // Lo mío, en cualquier paso (si está libre otra vez y es mío, es porque yo lo cancelé).
   const puedeVerMensaje = p.es_mio;
 
@@ -284,25 +324,34 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onC
     <article className={`dlv-card${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
       <div className="dlv-card-cab">
         <div style={{ minWidth: 0 }}>
-          <div className="dlv-oc">{ocDe(p)}</div>
-          {p.pagada_en && <div className="dlv-sub">Pagada {fechaHoraVE(p.pagada_en)}</div>}
+          <div className="dlv-oc">{retiro ? p.codigo : ocDe(p)}</div>
+          {!retiro && p.pagada_en && <div className="dlv-sub">Pagada {fechaHoraVE(p.pagada_en)}</div>}
+          {retiro && p.revisada_en && <div className="dlv-sub">Revisada en Almacén {fechaHoraVE(p.revisada_en)}</div>}
         </div>
         <div className="dlv-badges">
           {p.urgente && <span className="badge danger">🚨 Urgente</span>}
-          <span className={`badge ${estado.badge}`}>{estado.emoji} {estado.label}</span>
+          <span className={`badge ${estado.badge}`}>{estado.emoji} {disponible ? estado.label : etiquetaEstado(p.estado, p.origen)}</span>
         </div>
       </div>
 
-      <div className="dlv-prov">
-        <div className="nombre">🏭 {p.proveedor_nombre ?? 'Proveedor sin nombre'}</div>
-        {p.proveedor_contacto && <div className="dlv-sub">Contacto: {p.proveedor_contacto}</div>}
-        {p.proveedor_direccion && (mapa
-          ? <a className="dir" href={mapa} target="_blank" rel="noopener noreferrer">📍 {p.proveedor_direccion}</a>
-          : <div className="dlv-sub">📍 {p.proveedor_direccion}</div>)}
-        {!p.proveedor_direccion && <div className="dlv-sub">Sin dirección cargada: pregúntale al analista.</div>}
-      </div>
+      {retiro ? (
+        <div className="dlv-prov">
+          <div className="nombre">📦 Retiro en {ALMACEN_RETIRO}</div>
+          {p.analista_nombre && <div className="dlv-sub">Revisó: {p.analista_nombre}</div>}
+          <div className="dlv-sub">🏬 Entregar a: <strong>{destino || '—'}</strong></div>
+        </div>
+      ) : (
+        <div className="dlv-prov">
+          <div className="nombre">🏭 {p.proveedor_nombre ?? 'Proveedor sin nombre'}</div>
+          {p.proveedor_contacto && <div className="dlv-sub">Contacto: {p.proveedor_contacto}</div>}
+          {p.proveedor_direccion && (mapa
+            ? <a className="dir" href={mapa} target="_blank" rel="noopener noreferrer">📍 {p.proveedor_direccion}</a>
+            : <div className="dlv-sub">📍 {p.proveedor_direccion}</div>)}
+          {!p.proveedor_direccion && <div className="dlv-sub">Sin dirección cargada: pregúntale al analista.</div>}
+        </div>
+      )}
 
-      {mioEnCurso && (
+      {mioEnCurso && !retiro && (
         <div className="dlv-llamar">
           {telProv
             ? <a className="btn btn-ghost btn-grande" href={telProv}>📞 Llamar proveedor<small>{p.proveedor_telefono}</small></a>
@@ -312,17 +361,39 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onC
             : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {p.analista_nombre ?? 'Analista'}<small>sin teléfono</small></span>}
         </div>
       )}
+      {mioEnCurso && retiro && (
+        <div className="dlv-llamar">
+          {telAnalista
+            ? <a className="btn btn-ghost btn-grande" href={telAnalista}>📞 Llamar almacenista<small>{p.analista_nombre ?? p.analista_email ?? ''}</small></a>
+            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {p.analista_nombre ?? 'Almacenista'}<small>sin teléfono</small></span>}
+          {telSolicitante
+            ? <a className="btn btn-ghost btn-grande" href={telSolicitante}>📞 Llamar a quien lo pidió<small>{p.solicitante_nombre ?? ''}</small></a>
+            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {p.solicitante_nombre ?? 'Solicitante'}<small>sin teléfono</small></span>}
+        </div>
+      )}
 
-      {!!items.length && (
+      {/* 02/11/2026: la tarjeta solo dice cuántos productos trae; la lista se despliega con «Ver orden». */}
+      <div className="dlv-sub" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
+        <strong>{productosTxt(items.length)}</strong>
+        {!!items.length && (
+          <button type="button" className="btn btn-ghost btn-sm" aria-expanded={verOrden} onClick={() => setVerOrden((v) => !v)}>
+            {verOrden ? '📋 Ocultar orden' : '📋 Ver orden'}
+          </button>
+        )}
+      </div>
+      {verOrden && !!items.length && (
         <ul className="dlv-items">
           {items.map((i, k) => (
             <li key={`${i.nombre}-${k}`}><span>{i.nombre}</span><span>{cant(i.cantidad)}{i.unidad ? ` ${i.unidad}` : ''}</span></li>
           ))}
         </ul>
       )}
-      <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>
-      {(p.almacen_entrega || p.almacen_destino) && (
+      {!retiro && <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
+      {!retiro && (p.almacen_entrega || p.almacen_destino) && (
         <div className="dlv-sub">🏬 {p.estado === 'entregado' ? 'Entregado en' : 'Entregar en'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
+      )}
+      {retiro && p.estado === 'entregado' && p.almacen_entrega && (
+        <div className="dlv-sub">🏬 Entregado a: <strong>{p.almacen_entrega}</strong></div>
       )}
       {p.estado === 'entregado' && p.entregado_en && (
         <div className="dlv-sub">✅ {fechaHoraVE(p.entregado_en)}{p.repartidor_nombre ? ` · ${p.repartidor_nombre}` : ''}</div>
@@ -334,27 +405,35 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onC
       )}
       {enCurso && !p.es_mio && <div className="dlv-tomado">🛵 Tomado por <strong>{p.repartidor_nombre ?? 'otro delivery'}</strong>{p.aceptado_en ? ` · ${fechaHoraVE(p.aceptado_en)}` : ''}</div>}
 
-      {(p.fotos_recibo.length > 0 || (mioEnCurso && p.estado === 'aceptado')) && (
-        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso && p.estado === 'aceptado'} onCambio={onFotos} />
+      {/* 02/11/2026: al aceptar queda «En camino»: ahí se suben las fotos al recibir / retirar y las de la entrega. */}
+      {(p.fotos_recibo.length > 0 || mioEnCurso) && (
+        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
       )}
       {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta')) && (
         <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && mioEnCurso && p.estado === 'en_ruta'} onCambio={onFotos} />
       )}
 
       <div className="dlv-acciones">
-        <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>
+        {!retiro && <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>}
         {canWrite && disponible && (
-          <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onTomar}>
-            {ocupado ? 'Tomando…' : '✓ Aceptar pedido'}
-          </button>
+          <div className="surt-grid2">
+            <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onTomar}>
+              {ocupado ? 'Aceptando…' : '✓ Aceptar pedido'}
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={bloqueado} onClick={onNoDisponible} style={{ color: 'var(--danger)' }}>
+              ✕ No disponible
+            </button>
+          </div>
         )}
         {canWrite && mioEnCurso && p.estado === 'aceptado' && (
           <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onEnRuta}>
-            {ocupado ? 'Guardando…' : '🚚 Marcar en ruta'}
+            {ocupado ? 'Guardando…' : '🚚 Marcar en camino'}
           </button>
         )}
         {canWrite && mioEnCurso && p.estado === 'en_ruta' && (
-          <button type="button" className="btn btn-success" disabled={bloqueado} onClick={onEntregar}>📦 Entregado en almacén</button>
+          <button type="button" className="btn btn-success" disabled={bloqueado} onClick={onEntregar}>
+            {retiro ? '📦 Entregado' : '📦 Entregado en almacén'}
+          </button>
         )}
         {canWrite && mioEnCurso && (
           <button type="button" className="btn btn-ghost" disabled={bloqueado} onClick={onCancelar} style={{ color: 'var(--danger)' }}>
@@ -384,8 +463,10 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
   const fotos = tipo === 'recibo' ? p.fotos_recibo : p.fotos_entrega;
   const [subiendo, setSubiendo] = useState(false);
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
-  const titulo = tipo === 'recibo' ? '📷 Fotos al recibir' : '📷 Fotos de la entrega';
-  const id = `dlv-fotos-${tipo}-${p.orden_id}`;
+  const titulo = tipo === 'recibo'
+    ? (esRetiroAlmacen(p) ? '📷 Fotos al retirar en Almacén' : '📷 Fotos al recibir')
+    : '📷 Fotos de la entrega';
+  const id = `dlv-fotos-${tipo}-${claveDelivery(p).replace(':', '-')}`;
 
   async function agregar(lista: FileList | null) {
     const archivos = Array.from(lista ?? []);
@@ -460,8 +541,8 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
     setGuardando(true);
     try {
       await cancelarPedido(p.pedido_id, motivo, detalle.trim() || null);
-      toast(`Cancelaste la orden ${ocDe(p)}. Queda libre para otro delivery.`, 'success');
-      onHecho('Pedido cancelado', mensajeCancelado(p, quien, motivo, detalle));
+      toast(`Cancelaste ${esRetiroAlmacen(p) ? `el retiro ${p.codigo}` : `la orden ${ocDe(p)}`}. Queda libre para otro delivery.`, 'success');
+      onHecho(esRetiroAlmacen(p) ? 'Retiro cancelado' : 'Pedido cancelado', mensajeCancelado(p, quien, motivo, detalle));
     } catch (err) {
       toast(errMsg(err, 'No se pudo cancelar el pedido'), 'error');
     } finally { setGuardando(false); }
@@ -471,10 +552,10 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
       <div className="surt-form-titulo">
         <span className="icono" aria-hidden>⛔</span>
-        <div><strong>No puedo buscarlo</strong><div className="muted" style={{ fontSize: '.85rem' }}>{ocDe(p)} · {p.proveedor_nombre ?? '—'}</div></div>
+        <div><strong>No puedo buscarlo</strong><div className="muted" style={{ fontSize: '.85rem' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)} · {esRetiroAlmacen(p) ? ALMACEN_RETIRO : (p.proveedor_nombre ?? '—')}</div></div>
       </div>
       <p className="muted" style={{ margin: 0, fontSize: '.88rem' }}>
-        La orden vuelve a quedar libre para que la tome otro delivery. Elige el motivo:
+        {esRetiroAlmacen(p) ? 'El retiro' : 'La orden'} vuelve a quedar libre para que lo tome otro delivery. Elige el motivo:
       </p>
       <div className="dlv-motivos" role="radiogroup" aria-label="Motivo">
         {MOTIVOS_CANCELACION.map((m) => (
@@ -502,6 +583,122 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
 /* ── Entregado en almacén ── */
 
 function FormEntregar({ p, almacenes, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; almacenes: Almacen[]; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+}) {
+  // 02/11/2026: el retiro de Almacén se entrega A una unidad / persona, no en un almacén.
+  if (esRetiroAlmacen(p)) return <FormEntregarRetiro p={p} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
+  return <FormEntregarAlmacen p={p} almacenes={almacenes} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
+}
+
+function FormEntregarRetiro({ p, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+}) {
+  const [entregadoA, setEntregadoA] = useState(destinoRetiro(p));
+  const [nota, setNota] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const falta = entregadoA.trim().length < 2;
+
+  async function guardar(e: FormEvent) {
+    e.preventDefault();
+    if (!p.pedido_id) return;
+    if (falta) { toast('Escribe a quién se lo entregaste (unidad o persona).', 'error'); return; }
+    setGuardando(true);
+    try {
+      await marcarEntregado(p.pedido_id, entregadoA.trim(), nota.trim() || null);
+      toast(`Retiro ${p.codigo} entregado.`, 'success');
+      onHecho('Retiro entregado', mensajeEntregado(p, quien, entregadoA.trim(), nota));
+    } catch (err) {
+      toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
+    } finally { setGuardando(false); }
+  }
+
+  return (
+    <form className="surt-form" onSubmit={(e) => void guardar(e)}>
+      <div className="surt-form-titulo">
+        <span className="icono" aria-hidden>📦</span>
+        <div><strong>Entregado</strong><div className="muted" style={{ fontSize: '.85rem' }}>{p.codigo} · Retiro en {ALMACEN_RETIRO}</div></div>
+      </div>
+      <div className="surt-campo">
+        <label htmlFor="dlv-ent-a">Entregado a (unidad o persona)</label>
+        <input id="dlv-ent-a" className="input surt-input" value={entregadoA} onChange={(e) => setEntregadoA(e.target.value)}
+          placeholder="Ej.: PRODUCCION · Ender Mejía" />
+        {destinoRetiro(p) && <small className="muted">La solicitud la pidió {destinoRetiro(p)}.</small>}
+      </div>
+      <div className="surt-campo">
+        <label htmlFor="dlv-ent-nota-r">Nota (opcional)</label>
+        <textarea id="dlv-ent-nota-r" className="input surt-input" rows={3} value={nota}
+          placeholder="Ej.: lo recibió el jefe de turno" onChange={(e) => setNota(e.target.value)} />
+      </div>
+      {!p.fotos_entrega.length && (
+        <div className="aviso warning sm"><span className="aviso-icono">📷</span><div>Todavía no subiste fotos de la entrega. Puedes volver y agregarlas antes de confirmar.</div></div>
+      )}
+      <div className="surt-grid2">
+        <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
+        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando || falta}>
+          {guardando ? 'Guardando…' : '✅ Confirmar entrega'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/* ── No disponible (pedido por tomar): motivo obligatorio ── */
+
+function NoDisponibleModal({ p, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+}) {
+  const [opcion, setOpcion] = useState('');
+  const [detalle, setDetalle] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const esOtro = opcion === MOTIVOS_NO_DISPONIBLE[MOTIVOS_NO_DISPONIBLE.length - 1];
+  const motivo = opcion ? motivoNoDisponible(opcion, detalle) : '';
+  const falta = motivo.trim().length < 3;
+  const retiro = esRetiroAlmacen(p);
+
+  async function guardar() {
+    if (falta) { toast(esOtro ? 'Escribe cuál es el motivo.' : 'Elige el motivo.', 'error'); return; }
+    setGuardando(true);
+    try {
+      await rechazarPedido(p.orden_id, p.origen ?? 'compra', motivo);
+      toast('Marcado como no disponible. Sigue libre para otro delivery.', 'success');
+      onHecho('No disponible', mensajeNoDisponible(p, quien, motivo));
+    } catch (err) {
+      toast(errMsg(err, 'No se pudo guardar'), 'error');
+    } finally { setGuardando(false); }
+  }
+
+  return (
+    <Modal title={`✕ No disponible · ${retiro ? p.codigo : ocDe(p)}`} onClose={onCancel} minimizable={false}
+      footer={(
+        <div className="surt-grid2" style={{ width: '100%' }}>
+          <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
+          <button type="button" className="btn btn-peligro btn-grande" onClick={() => void guardar()} disabled={guardando || falta}>
+            {guardando ? 'Guardando…' : 'Confirmar'}
+          </button>
+        </div>
+      )}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        {retiro ? `Retiro en ${ALMACEN_RETIRO}` : (p.proveedor_nombre ?? '—')}. El pedido sigue disponible para los demás delivery;
+        a ti ya no te saldrá en «Por tomar». Elige el motivo:
+      </p>
+      <div className="dlv-motivos" role="radiogroup" aria-label="Motivo">
+        {MOTIVOS_NO_DISPONIBLE.map((m) => (
+          <button key={m} type="button" role="radio" aria-checked={opcion === m}
+            className={`dlv-motivo${opcion === m ? ' sel' : ''}`} onClick={() => setOpcion(m)}>
+            <span aria-hidden>{opcion === m ? '●' : '○'}</span> {m}
+          </button>
+        ))}
+      </div>
+      <div className="surt-campo">
+        <label htmlFor="dlv-nodisp-detalle">Detalle {esOtro ? '(obligatorio)' : '(opcional)'}</label>
+        <textarea id="dlv-nodisp-detalle" className="input surt-input" rows={3} value={detalle}
+          placeholder="Ej.: estoy llevando otra orden a Los Pinos" onChange={(e) => setDetalle(e.target.value)} />
+      </div>
+    </Modal>
+  );
+}
+
+function FormEntregarAlmacen({ p, almacenes, quien, onCancel, onHecho }: {
   p: PedidoDelivery; almacenes: Almacen[]; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
   const [almacen, setAlmacen] = useState(p.almacen_destino ?? '');

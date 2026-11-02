@@ -14,12 +14,25 @@
    Traído de MGG (upstream src/modules/delivery/delivery.ts). Acá vive lo
    que no toca la base: estados, motivos y mensajes. Emojis de color por sí
    mismos, sin el selector U+FE0F (WhatsApp lo pierde).
+
+   02/11/2026 · RETIRO EN ALMACÉN LOS PINOS: cuando la revisión de Almacén
+   de una Solicitud de Pedido marca existencias en Los Pinos, ese retiro
+   también llega a Delivery (origen 'almacen'): el motorizado lo retira en
+   el Almacén Los Pinos y lo entrega A la unidad / persona que lo pidió. La
+   misma SP puede tener su retiro y, después, su OC pagada (origen
+   'compra'). Ver supabase/2026-11-02-delivery-retiro-almacen.sql.
    ============================================================ */
 
 /** Clave del interruptor en `sistema_interruptores` (GT; en MGG es config compras.delivery). */
 export const INTERRUPTOR_DELIVERY = 'compras_delivery';
 
 export type EstadoDelivery = 'por_tomar' | 'aceptado' | 'en_ruta' | 'entregado' | 'cancelado';
+
+/** 02/11/2026: de dónde sale el pedido: la OC pagada (proveedor) o el retiro en Almacén Los Pinos. */
+export type OrigenDelivery = 'compra' | 'almacen';
+
+/** Nombre visible del almacén de donde se retira (va en vez del proveedor). */
+export const ALMACEN_RETIRO = 'Almacén Los Pinos';
 
 export interface FotoDelivery { path: string; filename: string }
 
@@ -63,6 +76,14 @@ export interface PedidoDelivery {
   fotos_entrega: FotoDelivery[];
   historial: EventoDelivery[];
   es_mio: boolean;
+  /** 02/11/2026: sin dato = 'compra' (filas viejas / pruebas). */
+  origen?: OrigenDelivery;
+  /** Destino de un retiro de Almacén: la unidad y la persona que pidió la SP. */
+  unidad_solicitante?: string | null;
+  solicitante_nombre?: string | null;
+  solicitante_telefono?: string | null;
+  /** Cuándo Almacén revisó la SP (el «listo» de un retiro, como pagada_en en la OC). */
+  revisada_en?: string | null;
 }
 
 /** Ubicación del motorizado (una por motorizado). */
@@ -81,8 +102,10 @@ export interface UbicacionDelivery {
 
 export const ESTADO_DELIVERY: Record<EstadoDelivery, { label: string; emoji: string; badge: string }> = {
   por_tomar: { label: 'Por tomar', emoji: '💰', badge: 'warning' },
+  // (un retiro de Almacén «entregado» se rotula con etiquetaEstado())
   aceptado: { label: 'Aceptado', emoji: '🛵', badge: 'info' },
-  en_ruta: { label: 'En ruta', emoji: '🚚', badge: 'info' },
+  // 02/11/2026: al aceptar queda directo «En camino» (ya no hay paso intermedio «tomado»).
+  en_ruta: { label: 'En camino', emoji: '🚚', badge: 'info' },
   entregado: { label: 'Entregado en almacén', emoji: '✅', badge: 'success' },
   cancelado: { label: 'Cancelado', emoji: '⛔', badge: 'danger' },
 };
@@ -98,6 +121,23 @@ export const MOTIVOS_CANCELACION: string[] = [
   'Otro motivo',
 ];
 
+/** 02/11/2026: motivos de «No disponible» en un pedido por tomar (el último deja escribir). */
+export const MOTIVOS_NO_DISPONIBLE: string[] = [
+  'Estoy en otra entrega',
+  'Fuera de mi horario / zona',
+  'Avería del vehículo',
+  'Falta de combustible',
+  'Condiciones climáticas / lluvia fuerte',
+  'Otro motivo',
+];
+
+/** Arma el motivo a guardar: la opción elegida y el detalle (con «Otro motivo», solo el detalle). */
+export function motivoNoDisponible(opcion: string, detalle?: string | null): string {
+  const d = (detalle ?? '').trim();
+  if (opcion === MOTIVOS_NO_DISPONIBLE[MOTIVOS_NO_DISPONIBLE.length - 1]) return d;
+  return d ? `${opcion} · ${d}` : opcion;
+}
+
 /** Centro de Puerto Ordaz, estado Bolívar (para centrar el mapa). */
 export const PUERTO_ORDAZ: [number, number] = [8.2869, -62.7467];
 
@@ -108,6 +148,61 @@ export const MAX_FOTOS_DELIVERY = 6;
 
 export function ocDe(p: Pick<PedidoDelivery, 'oc_codigo' | 'codigo'>): string {
   return p.oc_codigo || p.codigo;
+}
+
+/* ───────────── 02/11/2026 · Origen (OC pagada / retiro en Almacén) ───────────── */
+
+/** ¿Es un retiro en Almacén Los Pinos? (sin origen = OC, como antes) */
+export function esRetiroAlmacen(p: Pick<PedidoDelivery, 'origen'>): boolean {
+  return p.origen === 'almacen';
+}
+
+export const ORIGEN_DELIVERY: Record<OrigenDelivery, { label: string; emoji: string; corto: string }> = {
+  compra: { label: 'OC pagada (proveedor)', emoji: '🏭', corto: 'Compras' },
+  almacen: { label: `Retiro en ${ALMACEN_RETIRO}`, emoji: '📦', corto: 'Almacén' },
+};
+
+/** Una fila por (orden, origen): la misma SP puede tener su retiro de Almacén y su OC. */
+export function claveDelivery(p: Pick<PedidoDelivery, 'orden_id' | 'origen'>): string {
+  return `${p.orden_id}:${p.origen ?? 'compra'}`;
+}
+
+/** De dónde se busca: el proveedor de la OC o «📦 Retiro en Almacén Los Pinos». */
+export function origenTxt(p: Pick<PedidoDelivery, 'origen' | 'proveedor_nombre'>): string {
+  return esRetiroAlmacen(p) ? `📦 Retiro en ${ALMACEN_RETIRO}` : (p.proveedor_nombre?.trim() || '—');
+}
+
+/** Destino de un retiro de Almacén: «UNIDAD · Persona» (la unidad / el solicitante de la SP). */
+export function destinoRetiro(p: Pick<PedidoDelivery, 'unidad_solicitante' | 'solicitante_nombre'>): string {
+  return [p.unidad_solicitante?.trim(), p.solicitante_nombre?.trim()].filter(Boolean).join(' · ');
+}
+
+/** A dónde va: el almacén de la OC, o la unidad / solicitante del retiro (lo entregado manda). */
+export function destinoDe(p: Pick<PedidoDelivery, 'origen' | 'almacen_entrega' | 'almacen_destino' | 'unidad_solicitante' | 'solicitante_nombre'>): string {
+  const d = esRetiroAlmacen(p) ? (p.almacen_entrega || destinoRetiro(p)) : (p.almacen_entrega || p.almacen_destino);
+  return (d ?? '').trim() || '—';
+}
+
+/** Etiqueta del estado: un retiro «entregado» no va a un almacén sino a quien lo pidió. */
+export function etiquetaEstado(estado: EstadoDelivery, origen?: OrigenDelivery | null): string {
+  if (estado === 'entregado' && origen === 'almacen') return 'Entregado';
+  return ESTADO_DELIVERY[estado]?.label ?? estado;
+}
+
+/** Cómo se rotulan las fotos: «al recibir» del proveedor o «al retirar en Almacén». */
+export function rotuloFotos(origen: OrigenDelivery | null | undefined, tipo: 'recibo' | 'entrega'): string {
+  if (tipo === 'entrega') return origen === 'almacen' ? 'De la entrega' : 'De la entrega en el almacén';
+  return origen === 'almacen' ? 'Al retirar en Almacén' : 'Al recibir del proveedor';
+}
+
+/** «🔹 *Orden:* OC-…» o «🔹 *Solicitud:* SP-…». */
+function lineaOrden(p: PedidoDelivery): string {
+  return esRetiroAlmacen(p) ? `🔹 *Solicitud:* ${p.codigo}` : `🔹 *Orden:* ${ocDe(p)}`;
+}
+
+/** «🏭 *Proveedor:* …» o «📦 *Retirar en:* Almacén Los Pinos». */
+function lineaOrigen(p: PedidoDelivery): string {
+  return esRetiroAlmacen(p) ? `📦 *Retirar en:* ${ALMACEN_RETIRO}` : `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`;
 }
 
 export function montoTxt(n: number, moneda: string): string {
@@ -143,60 +238,105 @@ function pie(): string[] {
   return ['', PIE_DELIVERY];
 }
 
-/** Aceptó el pedido. */
+/** Aceptó el pedido: desde el 02/11/2026 queda directo EN CAMINO. */
 export function mensajeAceptado(p: PedidoDelivery, repartidor: string, cuando?: string | null): string {
+  const retiro = esRetiroAlmacen(p);
   const l = [
-    '🛵 *PEDIDO ACEPTADO POR DELIVERY*',
-    `🔹 *Orden:* ${ocDe(p)}`,
+    retiro ? '🚚 *EN CAMINO · RETIRO EN ALMACÉN LOS PINOS*' : '🚚 *EN CAMINO · PEDIDO ACEPTADO POR DELIVERY*',
+    lineaOrden(p),
     p.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal',
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    lineaOrigen(p),
   ];
-  if (p.proveedor_direccion) l.push(`📍 *Dirección:* ${p.proveedor_direccion}`);
-  if (p.almacen_destino) l.push(`🏬 *Entregar en:* ${p.almacen_destino}`);
+  if (!retiro && p.proveedor_direccion) l.push(`📍 *Dirección:* ${p.proveedor_direccion}`);
+  if (retiro) {
+    const destino = destinoRetiro(p);
+    if (destino) l.push(`🏬 *Entregar a:* ${destino}`);
+  } else if (p.almacen_destino) l.push(`🏬 *Entregar en:* ${p.almacen_destino}`);
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
   l.push('', `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
   return l.join('\n');
 }
 
+/** 02/11/2026: el motorizado marca «No disponible» en un pedido por tomar (sigue libre para los demás). */
+export function mensajeNoDisponible(p: PedidoDelivery, repartidor: string, motivo: string, cuando?: string | null): string {
+  const l = [
+    '🛵 *DELIVERY NO DISPONIBLE*',
+    lineaOrden(p),
+    lineaOrigen(p),
+    `👤 *Delivery:* ${repartidor}`,
+    `📝 *Motivo:* ${motivo.trim()}`,
+    '',
+    '🔄 El pedido sigue disponible para otro delivery.',
+    `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`,
+    ...pie(),
+  ];
+  return l.join('\n');
+}
+
+/** «No disponible» guardado (tabla delivery_rechazos). */
+export interface RechazoDelivery {
+  id: string;
+  orden_id: string;
+  origen: OrigenDelivery;
+  repartidor_id: string;
+  repartidor_email: string | null;
+  repartidor_nombre: string | null;
+  motivo: string;
+  created_at: string;
+}
+
+/** Los «No disponible» de un pedido (misma orden y mismo origen), del más nuevo al más viejo. */
+export function rechazosDe(p: Pick<PedidoDelivery, 'orden_id' | 'origen'>, rechazos: RechazoDelivery[]): RechazoDelivery[] {
+  const k = claveDelivery(p);
+  return rechazos.filter((r) => claveDelivery(r) === k).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
 /** No va a poder buscar el pedido. */
 export function mensajeCancelado(p: PedidoDelivery, repartidor: string, motivo: string, detalle?: string | null, cuando?: string | null): string {
+  const retiro = esRetiroAlmacen(p);
   const l = [
-    '⛔ *PEDIDO CANCELADO POR DELIVERY*',
-    `🔹 *Orden:* ${ocDe(p)}`,
+    retiro ? '⛔ *RETIRO EN ALMACÉN CANCELADO POR DELIVERY*' : '⛔ *PEDIDO CANCELADO POR DELIVERY*',
+    lineaOrden(p),
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    lineaOrigen(p),
     '',
     `❌ *Motivo:* ${motivo}`,
   ];
   if (detalle?.trim()) l.push(`📝 *Detalle:* ${detalle.trim()}`);
-  l.push('', '🔄 La orden queda disponible para otro delivery.', `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
+  l.push('', retiro ? '🔄 El retiro queda disponible para otro delivery.' : '🔄 La orden queda disponible para otro delivery.',
+    `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
   return l.join('\n');
 }
 
 /** Va en ruta. */
 export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: string | null): string {
+  const retiro = esRetiroAlmacen(p);
   const l = [
-    '🚚 *DELIVERY EN RUTA*',
-    `🔹 *Orden:* ${ocDe(p)}`,
+    '🚚 *DELIVERY EN CAMINO*',
+    lineaOrden(p),
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    lineaOrigen(p),
   ];
-  if (p.fotos_recibo?.length) l.push(`📷 *Fotos al recibir:* ${p.fotos_recibo.length}`);
-  if (p.almacen_destino) l.push(`🏬 *Va hacia:* ${p.almacen_destino}`);
+  if (p.fotos_recibo?.length) l.push(`📷 *Fotos ${retiro ? 'al retirar en Almacén' : 'al recibir'}:* ${p.fotos_recibo.length}`);
+  if (retiro) {
+    const destino = destinoRetiro(p);
+    if (destino) l.push(`🏬 *Va hacia:* ${destino}`);
+  } else if (p.almacen_destino) l.push(`🏬 *Va hacia:* ${p.almacen_destino}`);
   l.push(`🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
   return l.join('\n');
 }
 
-/** Entregó en el almacén. */
+/** Entregó en el almacén (OC) o a la unidad / persona que lo pidió (retiro de Almacén). */
 export function mensajeEntregado(p: PedidoDelivery, repartidor: string, almacen: string, nota?: string | null, cuando?: string | null): string {
+  const retiro = esRetiroAlmacen(p);
   const l = [
-    '✅ *PEDIDO ENTREGADO EN ALMACÉN*',
-    `🔹 *Orden:* ${ocDe(p)}`,
+    retiro ? '✅ *RETIRO DE ALMACÉN ENTREGADO*' : '✅ *PEDIDO ENTREGADO EN ALMACÉN*',
+    lineaOrden(p),
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
-    `🏬 *Almacén:* ${almacen}`,
+    lineaOrigen(p),
+    retiro ? `🏬 *Entregado a:* ${almacen}` : `🏬 *Almacén:* ${almacen}`,
   ];
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);

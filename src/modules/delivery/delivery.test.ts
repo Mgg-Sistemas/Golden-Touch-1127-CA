@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, minutosEntre, resumenPorDelivery, type PedidoDelivery,
+  claveDelivery, destinoDe, destinoRetiro, esRetiroAlmacen, etiquetaEstado, mensajeAceptado, mensajeCancelado, mensajeEnRuta,
+  mensajeEntregado, mensajeNoDisponible, minutosEntre, motivoNoDisponible, origenTxt, rechazosDe, resumenPorDelivery, rotuloFotos,
+  type PedidoDelivery,
 } from './delivery';
 
 const base: PedidoDelivery = {
@@ -22,7 +24,7 @@ const sinSelector = (t: string) => expect(t).not.toContain('️');
 describe('Delivery · mensajes de WhatsApp', () => {
   it('aceptado: orden, urgencia, proveedor, destino y solo lo que se compra', () => {
     const t = mensajeAceptado(base, 'CARLOS MENDOZA');
-    expect(t).toContain('🛵 *PEDIDO ACEPTADO POR DELIVERY*');
+    expect(t).toContain('🚚 *EN CAMINO · PEDIDO ACEPTADO POR DELIVERY*');
     expect(t).toContain('🔹 *Orden:* OC-2026-0219');
     expect(t).toContain('🚨 *Requerimiento:* URGENTE');
     expect(t).toContain('🏬 *Entregar en:* Los Pinos');
@@ -46,6 +48,67 @@ describe('Delivery · mensajes de WhatsApp', () => {
     expect(t).toContain('✅ *PEDIDO ENTREGADO EN ALMACÉN*');
     expect(t).toContain('*Tiempo desde que lo tomó:* 45 min');
     sinSelector(t);
+  });
+});
+
+describe('Delivery · retiro en Almacén Los Pinos (02/11/2026)', () => {
+  const retiro: PedidoDelivery = {
+    ...base, origen: 'almacen', oc_codigo: null, codigo: 'SP-2026-0391', proveedor_id: null, proveedor_nombre: 'Almacén Los Pinos',
+    proveedor_direccion: null, almacen_destino: null, unidad_solicitante: 'PRODUCCION', solicitante_nombre: 'ENDER MEJIA',
+    items: [{ nombre: 'GUANTES DE CARNAZA', cantidad: 4, unidad: 'und' }, { nombre: 'ACEITE 68', cantidad: 1, unidad: 'und' }],
+  };
+
+  it('origen, destino, clave y estado', () => {
+    expect(esRetiroAlmacen(retiro)).toBe(true);
+    expect(esRetiroAlmacen(base)).toBe(false);
+    expect(claveDelivery(retiro)).toBe('o1:almacen');
+    expect(claveDelivery(base)).toBe('o1:compra');
+    expect(destinoRetiro(retiro)).toBe('PRODUCCION · ENDER MEJIA');
+    expect(destinoDe(retiro)).toBe('PRODUCCION · ENDER MEJIA');
+    expect(destinoDe({ ...retiro, almacen_entrega: 'Jefe de turno' })).toBe('Jefe de turno');
+    expect(destinoDe(base)).toBe('Los Pinos');
+    expect(origenTxt(retiro)).toBe('📦 Retiro en Almacén Los Pinos');
+    expect(etiquetaEstado('entregado', 'almacen')).toBe('Entregado');
+    expect(etiquetaEstado('entregado', 'compra')).toBe('Entregado en almacén');
+    expect(etiquetaEstado('en_ruta')).toBe('En camino');
+    expect(rotuloFotos('almacen', 'recibo')).toBe('Al retirar en Almacén');
+    expect(rotuloFotos('compra', 'recibo')).toBe('Al recibir del proveedor');
+  });
+
+  it('mensajes: SP, «Retirar en», «Entregar a» / «Entregado a»', () => {
+    const a = mensajeAceptado(retiro, 'CARLOS');
+    expect(a).toContain('🚚 *EN CAMINO · RETIRO EN ALMACÉN LOS PINOS*');
+    expect(a).toContain('🔹 *Solicitud:* SP-2026-0391');
+    expect(a).toContain('📦 *Retirar en:* Almacén Los Pinos');
+    expect(a).toContain('🏬 *Entregar a:* PRODUCCION · ENDER MEJIA');
+    expect(a).not.toContain('Proveedor');
+    expect(mensajeEnRuta(retiro, 'CARLOS')).toContain('📷 *Fotos al retirar en Almacén:* 1');
+    const e = mensajeEntregado(retiro, 'CARLOS', 'PRODUCCION · ENDER MEJIA', null, '2026-10-30T13:45:00Z');
+    expect(e).toContain('✅ *RETIRO DE ALMACÉN ENTREGADO*');
+    expect(e).toContain('🏬 *Entregado a:* PRODUCCION · ENDER MEJIA');
+    expect(mensajeCancelado(retiro, 'CARLOS', 'Avería del vehículo')).toContain('El retiro queda disponible');
+    sinSelector(a); sinSelector(e);
+  });
+
+  it('No disponible: mensaje, motivo armado y rechazos del pedido', () => {
+    const t = mensajeNoDisponible(base, 'CARLOS', 'Estoy en otra entrega');
+    expect(t).toContain('🛵 *DELIVERY NO DISPONIBLE*');
+    expect(t).toContain('🔹 *Orden:* OC-2026-0219');
+    expect(t).toContain('🏭 *Proveedor:* FERRETERÍA CARONÍ');
+    expect(t).toContain('👤 *Delivery:* CARLOS');
+    expect(t).toContain('📝 *Motivo:* Estoy en otra entrega');
+    expect(mensajeNoDisponible(retiro, 'CARLOS', 'x')).toContain('🔹 *Solicitud:* SP-2026-0391');
+    sinSelector(t);
+    expect(motivoNoDisponible('Avería del vehículo', '')).toBe('Avería del vehículo');
+    expect(motivoNoDisponible('Avería del vehículo', 'caucho')).toBe('Avería del vehículo · caucho');
+    expect(motivoNoDisponible('Otro motivo', ' voy al banco ')).toBe('voy al banco');
+    expect(motivoNoDisponible('Otro motivo', '')).toBe('');
+    const r = (id: string, origen: 'compra' | 'almacen', at: string) => ({
+      id, orden_id: 'o1', origen, repartidor_id: 'u', repartidor_email: null, repartidor_nombre: 'X', motivo: 'm', created_at: at,
+    });
+    const lista = [r('a', 'compra', '2026-11-02T10:00:00Z'), r('b', 'almacen', '2026-11-02T11:00:00Z'), r('c', 'compra', '2026-11-02T12:00:00Z')];
+    expect(rechazosDe(base, lista).map((x) => x.id)).toEqual(['c', 'a']);
+    expect(rechazosDe(retiro, lista).map((x) => x.id)).toEqual(['b']);
   });
 });
 

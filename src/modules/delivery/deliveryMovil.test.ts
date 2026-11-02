@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { PedidoDelivery } from './delivery';
 import {
-  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, errorUbicacion, mapaHref, mensajeDeEstado, telHref, trabajoEnCurso,
+  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, errorUbicacion, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor,
+  telHref, trabajoEnCurso,
 } from './deliveryMovil';
 
 const base: PedidoDelivery = {
@@ -67,32 +68,55 @@ describe('Delivery teléfono · enlaces', () => {
 describe('Delivery teléfono · listado', () => {
   const activos = [
     P({ orden_id: 'libre' }),
-    P({ orden_id: 'ajeno', estado: 'aceptado', pedido_id: 'd2', repartidor_nombre: 'ANA' }),
+    P({ orden_id: 'ajeno', estado: 'en_ruta', pedido_id: 'd2', repartidor_nombre: 'ANA' }),
     P({ orden_id: 'mio-acep', estado: 'aceptado', pedido_id: 'd3', es_mio: true }),
     P({ orden_id: 'mio-ruta', estado: 'en_ruta', pedido_id: 'd4', es_mio: true }),
     P({ orden_id: 'relibre', estado: 'cancelado', pedido_id: 'd5', motivo_cancel: 'Avería del vehículo' }),
   ];
   const cerrados = [
     ...activos,
-    P({ orden_id: 'ent-viejo', estado: 'entregado', pedido_id: 'd6', entregado_en: '2026-10-28T10:00:00Z' }),
-    P({ orden_id: 'ent-nuevo', estado: 'entregado', pedido_id: 'd7', entregado_en: '2026-10-30T10:00:00Z' }),
+    P({ orden_id: 'ent-viejo', estado: 'entregado', pedido_id: 'd6', entregado_en: '2026-10-28T10:00:00Z', es_mio: true }),
+    P({ orden_id: 'ent-nuevo', estado: 'entregado', pedido_id: 'd7', entregado_en: '2026-10-30T10:00:00Z', es_mio: true }),
+    P({ orden_id: 'ent-ajeno', estado: 'entregado', pedido_id: 'd9', entregado_en: '2026-10-31T10:00:00Z' }),
     P({ orden_id: 'cerrado-cancel', estado: 'cancelado', pedido_id: 'd8' }),
   ];
 
-  it('lo mío en curso primero (en ruta antes), luego por tomar, lo ajeno y los entregados nuevos', () => {
+  it('lo mío en curso primero (en camino antes), luego por tomar y mis entregados nuevos; lo de otros NO sale', () => {
     const f = armarFeed(activos, cerrados);
-    expect(f.map((x) => x.p.orden_id)).toEqual(['mio-ruta', 'mio-acep', 'libre', 'relibre', 'ajeno', 'ent-nuevo', 'ent-viejo']);
+    expect(f.map((x) => x.p.orden_id)).toEqual(['mio-ruta', 'mio-acep', 'libre', 'relibre', 'ent-nuevo', 'ent-viejo']);
     expect(f.find((x) => x.p.orden_id === 'relibre')?.disponible).toBe(true);
-    expect(f.find((x) => x.p.orden_id === 'ajeno')?.disponible).toBe(false);
+    expect(f.some((x) => x.p.orden_id === 'ajeno' || x.p.orden_id === 'ent-ajeno')).toBe(false);
   });
 
   it('chips', () => {
     const f = armarFeed(activos, cerrados);
     const ids = (c: Parameters<typeof enChip>[1]) => f.filter((x) => enChip(x, c)).map((x) => x.p.orden_id);
     expect(ids('por_tomar')).toEqual(['libre', 'relibre']);
-    expect(ids('en_ruta')).toEqual(['mio-ruta', 'mio-acep', 'ajeno']);
+    expect(ids('en_ruta')).toEqual(['mio-ruta', 'mio-acep']);
     expect(ids('entregados')).toEqual(['ent-nuevo', 'ent-viejo']);
-    expect(ids('todos')).toHaveLength(7);
+    expect(ids('todos')).toHaveLength(6);
+  });
+
+  it('02/11: lo que marqué «No disponible» ya no me sale (a los demás sí)', () => {
+    const rech = [{ orden_id: 'libre', origen: 'compra' as const, repartidor_id: 'yo' }];
+    expect(armarFeed(activos, [], rechazadosPor(rech, 'yo')).map((x) => x.p.orden_id)).not.toContain('libre');
+    expect(armarFeed(activos, [], rechazadosPor(rech, 'otro')).map((x) => x.p.orden_id)).toContain('libre');
+    expect(rechazadosPor(rech, null).size).toBe(0);
+  });
+
+  it('02/11: la misma SP con su retiro de Almacén y su OC son dos tarjetas', () => {
+    const f = armarFeed([P({ orden_id: 'sp1' }), P({ orden_id: 'sp1', origen: 'almacen', oc_codigo: null })], []);
+    expect(f).toHaveLength(2);
+    // el «No disponible» del retiro no tapa la OC
+    const g = armarFeed([P({ orden_id: 'sp1' }), P({ orden_id: 'sp1', origen: 'almacen' })], [],
+      rechazadosPor([{ orden_id: 'sp1', origen: 'almacen', repartidor_id: 'yo' }], 'yo'));
+    expect(g.map((x) => x.p.origen ?? 'compra')).toEqual(['compra']);
+  });
+
+  it('02/11: cantidad de productos de la tarjeta', () => {
+    expect(productosTxt(1)).toBe('📦 1 producto');
+    expect(productosTxt(17)).toBe('📦 17 productos');
+    expect(productosTxt(0)).toBe('📦 0 productos');
   });
 
   it('trabajo en curso: el mío en ruta', () => {
