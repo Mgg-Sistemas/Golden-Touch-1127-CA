@@ -98,6 +98,28 @@ import { mensajeError } from '@/shared/lib/errores';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { enviarMensaje } from '@/modules/pedidos/ordenChat.repository';
 import { construirTextoMotivoPagoWhatsapp, MOTIVOS_NO_PAGO, type MotivoNoPagoTipo } from './motivoPagoWhatsapp';
+import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
+import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
+
+/**
+ * Botón que abre el reporte moldeable de Tesorería en un ámbito dado. Autocontenido
+ * (botón + estado + modal): se coloca JUNTO a las descargas rígidas existentes sin
+ * tocar su flujo ni reemplazarlas. Solo enriquece.
+ */
+function BotonReporteMoldeable({ ambito, rango, label = '📄 Reporte moldeable', className = 'btn btn-sm btn-ghost' }: {
+  ambito: AmbitoTesoreria;
+  rango?: { desde: string; hasta: string };
+  label?: string;
+  className?: string;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setAbierto(true)} title="Reporte moldeable: columnas, filtros, fichas o tabla, PDF/Excel/CSV">{label}</button>
+      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} onClose={() => setAbierto(false)} />}
+    </>
+  );
+}
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -558,6 +580,7 @@ export function TesoreriaPage() {
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={async () => {
                 try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
+              <BotonReporteMoldeable ambito="movimientos" rango={{ desde: fDesde, hasta: fHasta }} />
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
               {fBuscar.trim() && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
@@ -3943,6 +3966,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         <button className="btn btn-ghost" disabled={!rows.length}
           onClick={() => descargarOrdenesPorPagarPdf(rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}
           title="Resumen en PDF de TODO lo pendiente por pagar, por segmentos (Compras Directas, OC, Servicios/CS y Servicios Directos), con subtotal por segmento y total general en $ y Bs a la tasa del día">↓ Resumen PDF</button>
+        <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte moldeable" className="btn btn-ghost" />
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -4508,7 +4532,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
               <label style={{ margin: 0 }}>Cuenta a crédito ({ordenes.length})</label>
-              <button className="btn btn-sm btn-ghost" title="Resumen de compras a crédito en PDF (vista previa)"
+              <span style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}><button className="btn btn-sm btn-ghost" title="Resumen de compras a crédito en PDF (vista previa)"
                 onClick={async () => {
                   try {
                     await descargarResumenCuentasPdf('Resumen de Compras a Crédito', ordenes.map((x) => {
@@ -4524,7 +4548,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                       };
                     }), 'ABONADO');
                   } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-                }}>📄 Resumen</button>
+                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Moldeable" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={ordenes.map((x) => ({ value: x.orden.id, label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}` }))} />
@@ -4828,7 +4852,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
           <label style={{ margin: 0 }}>Cuenta por pagar ({lista.length})</label>
-          <button className="btn btn-sm btn-ghost" title="Resumen de cuentas por pagar en PDF (vista previa)"
+          <span style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}><button className="btn btn-sm btn-ghost" title="Resumen de cuentas por pagar en PDF (vista previa)"
             onClick={async () => {
               try {
                 await descargarResumenCuentasPdf('Resumen de Cuentas por Pagar', lista.map((c) => {
@@ -4844,7 +4868,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                   };
                 }), 'ABONADO');
               } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-            }}>📄 Resumen</button>
+            }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Moldeable" className="btn btn-sm btn-ghost" /></span>
         </div>
         <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
           options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}` }))} />
@@ -5379,7 +5403,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
               <label style={{ margin: 0 }}>Cuenta por cobrar ({lista.length})</label>
-              <button className="btn btn-sm btn-ghost" title="Resumen de cuentas por cobrar en PDF (vista previa)"
+              <span style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}><button className="btn btn-sm btn-ghost" title="Resumen de cuentas por cobrar en PDF (vista previa)"
                 onClick={async () => {
                   try {
                     await descargarResumenCuentasPdf('Resumen de Cuentas por Cobrar', lista.map((c) => {
@@ -5395,7 +5419,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                       };
                     }), 'COBRADO');
                   } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-                }}>📄 Resumen</button>
+                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Moldeable" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.cobrado) || 0)), c.moneda)}` }))} />
