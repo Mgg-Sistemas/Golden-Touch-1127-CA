@@ -220,11 +220,12 @@ export interface FichaFiscalEmpresa {
 }
 
 /**
- * Config de una empresa NO-GT: toma la identidad, el régimen (banderas) y los
- * porcentajes de SU ficha, sobre la base global. Marca `porcentajesDeFicha` para
- * que configDeFecha traiga solo la UT nacional y respete estos % (orden validado
- * por Master). El timbre estadal queda en false por defecto (DE2). No toca GT:
- * GT usa la config global tal cual (su régimen sale de R1).
+ * Config de una empresa NO-GT: toma de SU ficha la IDENTIDAD y lo local (licencia,
+ * alícuota municipal) sobre la base global. D2b: el RÉGIMEN (qué retiene) ya NO sale
+ * de las banderas de la ficha — es una sola fuente, L6 (retencion_agente_condiciones),
+ * que el tablero y el registro consultan por la RPC retencion_empresa_practica. Aquí
+ * las banderas de régimen quedan las de `base` (capacidad), no las de la ficha. No toca
+ * GT (usa la config global tal cual). Los % siguen viniendo de la ficha hasta D3.
  */
 export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpresa): ConfigRetencion {
   return {
@@ -236,11 +237,6 @@ export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpres
     estado: ficha.estado ?? base.estado,
     email: ficha.email ?? base.email,
     licenciaMunicipal: ficha.licenciaMunicipal ?? base.licenciaMunicipal,
-    esAgenteRetencionIva: ficha.esAgenteRetencionIva ?? false,
-    esContribuyenteEspecial: ficha.esContribuyenteEspecial ?? false,
-    retieneIslr: ficha.retieneIslr ?? false,
-    retieneMunicipal: ficha.retieneMunicipal ?? false,
-    retieneEstadal: false,
     pctIvaGeneral: ficha.pctIvaGeneral ?? base.pctIvaGeneral,
     pctIvaEspecial: ficha.pctIvaEspecial ?? base.pctIvaEspecial,
     pctIgtf: ficha.pctIgtf ?? base.pctIgtf,

@@ -170,18 +170,19 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
     municipio: empresa.municipio?.trim() || null,
     estado: empresa.estado?.trim() || null,
     licencia_municipal: empresa.licenciaMunicipal?.trim() || null,
-    es_agente_iva: empresa.esAgenteRetencionIva ?? true,
-    es_contribuyente_especial: empresa.esContribuyenteEspecial ?? false,
-    retiene_islr: empresa.retieneIslr ?? true,
-    retiene_municipal: empresa.retieneMunicipal ?? false,
     pct_iva_general: empresa.pctIvaGeneral ?? 75,
     imprimir_original_y_copia: empresa.imprimirOriginalYCopia ?? true,
   };
 
-  // Campos fiscales por empresa (F-ME1): solo se escriben los que vienen definidos. El
-  // editor por empresa (que solo aparece con la base al día) es quien los manda; el resto
-  // de los flujos (p. ej. el catálogo del buzón) no los toca, así no se rompe pre-F-ME1.
+  // Campos que solo se escriben si vienen definidos (el editor que los maneja es quien los
+  // manda; el resto de los flujos no los toca). D2b: las banderas de RÉGIMEN entran aquí —
+  // su fuente es L6 (Parámetros → Régimen), así que ningún editor de ficha las manda y no se
+  // pisan al guardar la ficha (quedan como dato muerto, igual que los % de F-ME1).
   const filaFiscal: Record<string, unknown> = {};
+  if (empresa.esAgenteRetencionIva !== undefined) filaFiscal.es_agente_iva = empresa.esAgenteRetencionIva;
+  if (empresa.esContribuyenteEspecial !== undefined) filaFiscal.es_contribuyente_especial = empresa.esContribuyenteEspecial;
+  if (empresa.retieneIslr !== undefined) filaFiscal.retiene_islr = empresa.retieneIslr;
+  if (empresa.retieneMunicipal !== undefined) filaFiscal.retiene_municipal = empresa.retieneMunicipal;
   if (empresa.pctIvaEspecial !== undefined) filaFiscal.pct_iva_especial = empresa.pctIvaEspecial;
   if (empresa.pctIgtf !== undefined) filaFiscal.pct_igtf = empresa.pctIgtf;
   if (empresa.ivaAlicuota !== undefined) filaFiscal.iva_alicuota = empresa.ivaAlicuota;

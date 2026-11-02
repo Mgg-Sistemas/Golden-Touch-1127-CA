@@ -23,7 +23,7 @@ import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, desglosarIvaDeTotal, enBolivares, fechaTasaBcv,
-  formatoComprobante, formatoSerie, labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
+  formatoComprobante, formatoSerie, labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type FichaFiscalEmpresa, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
@@ -54,6 +54,7 @@ import {
 } from './retencionFacturas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { soloImpuestosActivos, admiteDireccion, type ImpuestosActivos, type FichaRetencionVista } from '@/modules/retenciones/impuestosVista';
+import { usePuedePracticarEmpresa } from './practicaEmpresa';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { mensajeRetencion, datosMensajeDeRetenciones } from '@/modules/retenciones/mensajeRetencion';
 import { montoPagadoDeOrden, type MontoPagado } from '@/modules/retenciones/pagoOrden.repository';
@@ -198,6 +199,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [facturaFecha, setFacturaFecha] = useState(s.facturaFecha ?? '');
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
   const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
+  // D2b: ¿practica esta empresa el impuesto? NO-GT lee la RPC (L6) por empresa y fecha;
+  // GT/single sigue con puedePracticar(config). Una sola fuente, también en el registro.
+  const puedePracticarEmpresa = usePuedePracticarEmpresa(empresaFicha, empresaId, facturaFecha);
   const [exentoStr, setExentoStr] = useState(s.exento != null ? numeroATexto(s.exento) : '');
   const [nota, setNota] = useState('');
   // R10: la factura sola (sin líneas, queda pendiente) y retener después sobre una ya registrada.
@@ -949,7 +953,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               // Multi-empresa (DE1): en una empresa NO-GT no se ofrece un impuesto que no
               // practica según su ficha. GT/single-empresa: se ofrece y se bloquea con aviso, como hoy.
               .filter((t) => !tiposUsados.has(t.key) && admiteDireccion(fichasImpuesto?.get(t.key), direccion)
-                && (!empresaFicha || direccion !== 'practicada' || puedePracticar(t.key, config)));
+                && (!empresaFicha || direccion !== 'practicada' || puedePracticarEmpresa(t.key, config)));
             const puedeAgregar = tiposDisponibles.length > 0;
             return (
               <button
@@ -981,7 +985,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           const calc = calculoDe(l);
           const monto = montoDe(l);
           const sugerido = l.tipo === 'islr' ? sugerirSujetoPorRif(rif) : null;
-          const noPuede = direccion === 'practicada' && !puedePracticar(l.tipo, config);
+          const noPuede = direccion === 'practicada' && !puedePracticarEmpresa(l.tipo, config);
           return (
             <div key={l.id} className="card" style={{ margin: '.35rem 0', background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
               {/* Barra de cabecera de la línea con el correlativo asignado según el impuesto */}
@@ -1163,7 +1167,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   </div>
                 );
               })()}
-              {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{motivoNoPuedePracticar(l.tipo, config)}</small>}
+              {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{empresaFicha ? `La empresa no practica retención de ${labelImpuesto(l.tipo)} según su régimen (Parámetros → Régimen).` : motivoNoPuedePracticar(l.tipo, config)}</small>}
               {!esManual && <small className="hint muted">{calc.explicacion}</small>}
               {monto === 0 && (
                 <div className="form-row" style={{ margin: '.3rem 0 0' }}>

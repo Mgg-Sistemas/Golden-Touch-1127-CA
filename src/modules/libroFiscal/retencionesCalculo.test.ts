@@ -75,27 +75,25 @@ describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
     pctIvaGeneral: 100, pctIvaEspecial: 100, pctIgtf: 3, ivaAlicuota: 16, licenciaMunicipal: 'RIM-123',
   };
 
-  it('toma identidad, régimen y % de la ficha y marca porcentajesDeFicha', () => {
+  it('toma identidad y lo local de la ficha; el RÉGIMEN NO viene de la ficha (D2b: es L6)', () => {
     const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
     expect(c.rif).toBe('J-50000000-5');
     expect(c.razonSocial).toBe('Minería Tin Oxide, C.A.');
     expect(c.municipio).toBe('Caroní');
     expect(c.licenciaMunicipal).toBe('RIM-123');
-    expect(c.esAgenteRetencionIva).toBe(false);
-    expect(c.esContribuyenteEspecial).toBe(true);
-    expect(c.retieneIslr).toBe(true);
-    expect(c.retieneMunicipal).toBe(false);
-    expect(c.retieneEstadal).toBe(false);   // DE2: NO-GT no practica estadal por defecto
-    expect(c.pctIvaGeneral).toBe(100);
-    expect(c.porcentajesDeFicha).toBe(true);
+    expect(c.pctIvaGeneral).toBe(100);   // el % sigue en esta rama (D3 lo quita en la suya)
+    // D2b: el régimen queda el de la base (capacidad), NO el de la ficha; su fuente es L6.
+    expect(c.esAgenteRetencionIva).toBe(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva);
+    expect(c.esContribuyenteEspecial).toBe(CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial);
+    expect(c.retieneIslr).toBe(CONFIG_RETENCION_DEFECTO.retieneIslr);
   });
 
-  it('el régimen de la ficha gobierna qué practica (IGTF sí, IVA no, municipal no)', () => {
+  it('configDesdeFicha NO decide qué practica: el régimen va por L6/la RPC, no por la ficha (D2b)', () => {
+    // La ficha dice esAgenteRetencionIva=false, pero configDesdeFicha ya no lo copia: queda la
+    // capacidad de la base. El gating real por empresa lo hace la RPC (ver d2Practica.test).
     const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
-    expect(puedePracticar('igtf', c)).toBe(true);     // es especial
-    expect(puedePracticar('iva', c)).toBe(true);      // especial también retiene IVA
-    expect(puedePracticar('municipal', c)).toBe(false);
-    expect(puedePracticar('regional', c)).toBe(false);
+    expect(c.esAgenteRetencionIva).toBe(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva);
+    expect(puedePracticar('iva', c)).toBe(puedePracticar('iva', CONFIG_RETENCION_DEFECTO));
   });
 
   it('cae en la base cuando la ficha no trae un %', () => {

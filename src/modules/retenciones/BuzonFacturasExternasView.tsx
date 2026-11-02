@@ -1016,8 +1016,6 @@ function ModalGestionEmpresas({
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
                         RIF: <strong>{emp.rif || 'Sin RIF'}</strong>
                         {emp.municipio && ` · ${emp.municipio}${emp.estado ? `, ${emp.estado}` : ''}`}
-                        {emp.esAgenteRetencionIva && ` · Agente de retención de ${rotuloImpuesto('IVA')}`}
-                        {emp.esContribuyenteEspecial && ' · Contribuyente especial'}
                         {` · ${cantidad} ${cantidad === 1 ? 'factura' : 'facturas'}`}
                       </div>
                     </div>
@@ -1135,10 +1133,8 @@ function ModalFichaFiscalEmpresa({
   const [estado, setEstado] = useState(empresa.estado || '');
   const [licenciaMunicipal, setLicenciaMunicipal] = useState(empresa.licenciaMunicipal || '');
 
-  const [esAgenteRetencionIva, setEsAgenteRetencionIva] = useState(empresa.esAgenteRetencionIva ?? true);
-  const [esContribuyenteEspecial, setEsContribuyenteEspecial] = useState(empresa.esContribuyenteEspecial ?? false);
-  const [retieneIslr, setRetieneIslr] = useState(empresa.retieneIslr ?? true);
-  const [retieneMunicipal, setRetieneMunicipal] = useState(empresa.retieneMunicipal ?? false);
+  // D2b: el régimen (agente IVA/especial/ISLR/municipal) ya NO se edita acá; su fuente es
+  // L6 (Parámetros → Régimen). Este editor no lo manda, así que guardarEmpresaReceptora no lo pisa.
   const [pctIvaGeneral, setPctIvaGeneral] = useState(empresa.pctIvaGeneral ?? 75);
   const [imprimirOriginalYCopia, setImprimirOriginalYCopia] = useState(empresa.imprimirOriginalYCopia ?? true);
 
@@ -1166,10 +1162,6 @@ function ModalFichaFiscalEmpresa({
       municipio: municipio.trim() || undefined,
       estado: estado.trim() || undefined,
       licenciaMunicipal: licenciaMunicipal.trim() || undefined,
-      esAgenteRetencionIva,
-      esContribuyenteEspecial,
-      retieneIslr,
-      retieneMunicipal,
       pctIvaGeneral,
       imprimirOriginalYCopia,
     };
@@ -1324,46 +1316,13 @@ function ModalFichaFiscalEmpresa({
           </div>
         </div>
 
-        {/* 3. Régimen Tributario y Retenciones */}
+        {/* 3. Opciones del comprobante (D2b: el RÉGIMEN se edita en Parámetros → Régimen, L6, una sola fuente). */}
         <div className="buzon-ficha-fiscal-seccion">
-          <h4>⚖️ Régimen y condición de agente de retención</h4>
+          <h4>⚙️ Opciones del comprobante</h4>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
+            El régimen (agente de retención de {rotuloImpuesto('IVA')}, contribuyente especial, {rotuloImpuesto('ISLR')}, {rotuloImpuesto('MUNICIPAL')}) se edita en Parámetros → Régimen.
+          </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.6rem', marginBottom: '0.6rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={esAgenteRetencionIva}
-                onChange={(e) => setEsAgenteRetencionIva(e.target.checked)}
-              />
-              <span>Agente de retención de {rotuloImpuesto('IVA')}</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={esContribuyenteEspecial}
-                onChange={(e) => setEsContribuyenteEspecial(e.target.checked)}
-              />
-              <span>Contribuyente especial</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={retieneIslr}
-                onChange={(e) => setRetieneIslr(e.target.checked)}
-              />
-              <span>Retiene {rotuloImpuesto('ISLR')}</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={retieneMunicipal}
-                onChange={(e) => setRetieneMunicipal(e.target.checked)}
-              />
-              <span>Retiene {rotuloImpuesto('MUNICIPAL')}</span>
-            </label>
-
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"
