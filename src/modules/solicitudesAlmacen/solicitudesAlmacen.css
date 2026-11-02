@@ -23,6 +23,10 @@
 
 .spa-lote { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; padding: .55rem 1.1rem; border-top: 1px solid var(--border); background: var(--bg-2); }
 .spa-lote > span { font-size: .8rem; color: var(--text-muted); margin-right: .25rem; }
+/* 02/11/2026 · Cada botón de lote con el color de lo que hace (como en MGG): existencias, todo, Compras. */
+.btn.spa-lote-stock { border-color: var(--info); }
+.btn.spa-lote-todo { border-color: var(--success); }
+.btn.spa-lote-compras { border-color: var(--danger); }
 
 .spa-tabla td.num, .spa-tabla th.num { text-align: right; }
 .spa-tabla .spa-input { width: 7.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700; }
@@ -49,8 +53,21 @@
 @media (max-width: 640px) { .spa-resumen { grid-template-columns: 1fr; } }
 
 /* ── Teléfono ── */
+/* 02/11/2026 · Inicio como en MGG: tarjetas grandes «Por revisar» (naranja), «Urgentes» (rojo)
+   y «Revisadas» (verde, a lo ancho) que filtran la lista, y un buscador debajo. */
+.spa-inicio .surt-btn { grid-column: auto; }
+.spa-inicio .surt-btn[aria-pressed="false"] { opacity: .8; }
+.spa-inicio .surt-btn.urgentes { border-color: var(--danger); }
+.spa-inicio .surt-btn.urgentes[aria-pressed="true"] { background: color-mix(in srgb, var(--danger) 14%, var(--surface-3)); }
+.spa-inicio .surt-btn.revisadas { grid-column: 1 / -1; min-height: 84px; border-color: var(--success); font-size: 1.05rem; }
+.spa-inicio .surt-btn.revisadas .icono { font-size: 1.6rem; }
+.spa-inicio .surt-btn.revisadas[aria-pressed="true"] { background: color-mix(in srgb, var(--success) 14%, var(--surface-3)); }
+.spa-inicio .surt-btn small { white-space: normal; }
+.surtidor .input.spa-buscar { width: 100%; margin-bottom: .75rem; }
 .spa-movil-sp { display: grid; grid-template-columns: 1fr auto; gap: .5rem; align-items: center; }
 .spa-movil-sp .codigo { font-family: var(--font-mono); font-weight: 800; font-size: 1.15rem; color: var(--primary-3); }
+/* Resumen en vivo bajo el detalle: cuántos renglones entrega Los Pinos y cuántos cotiza Compras. */
+.spa-vivo { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: center; margin: .4rem 0 .6rem; }
 .spa-renglon { padding: .8rem .9rem; margin-bottom: .6rem; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2); }
 .spa-renglon .nombre { font-weight: 700; font-size: 1.05rem; line-height: 1.3; }
 .spa-renglon .sub { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-top: .3rem; font-size: .85rem; color: var(--text-muted); }
@@ -62,3 +79,7 @@
 .spa-lote-movil { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .4rem; margin: .5rem 0 .9rem; }
 .spa-lote-movil .btn { min-height: 56px; font-size: .85rem; line-height: 1.2; white-space: normal; justify-content: center; text-align: center; }
 @media (max-width: 400px) { .spa-lote-movil { grid-template-columns: 1fr; } }
+/* El «Marcar como revisada» se resalta un instante cuando un lote lo trae a la vista (02/11/2026). */
+.surt-guardar.spa-resaltar { animation: spa-resaltar 1.2s ease-out; }
+@keyframes spa-resaltar { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 70%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+@media (prefers-reduced-motion: reduce) { .surt-guardar.spa-resaltar { animation: none; } }
