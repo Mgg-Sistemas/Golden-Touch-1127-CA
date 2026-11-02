@@ -644,7 +644,13 @@ export function descargarTesoreriaCsv(
   if (!filas.length) throw new Error('No hay datos para exportar.');
 
   const escapar = (val: unknown) => {
-    const s = String(val ?? '');
+    let s = String(val ?? '');
+    // Anti «CSV formula injection»: si el texto empieza por un carácter que
+    // Excel/Sheets interpretarían como fórmula (= + - @ o tab/retorno), se le
+    // antepone una comilla simple para que quede como TEXTO. La contraparte, el
+    // concepto, el estado, etc. son texto libre que pudo escribir cualquiera.
+    // Las columnas numéricas se formatean aparte y no pasan por aquí.
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return (s.includes(';') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s;
   };
 
