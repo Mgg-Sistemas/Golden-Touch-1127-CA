@@ -9,6 +9,9 @@
 
    Con el interruptor `compras_revision_almacen` apagado, la pantalla solo
    muestra el aviso y Compras sigue igual que antes.
+
+   02/11/2026 · Solo Los Pinos (el Depósito Mina no entra en la revisión) y
+   cada botón de lote responde con un aviso de lo que hizo.
    ============================================================ */
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -25,13 +28,15 @@ import { dateTime, num } from '@/shared/lib/format';
 import { mensajeError } from '@/shared/lib/errores';
 import { devolverARevision, type SolicitudConRevision } from './solicitudesAlmacen.repository';
 import {
-  faltante, porAlmacenDe, resumenRevision, revisionGuardada, stockDe, stockMinaDe, textoWhatsappRevision, textoWhatsappSolicitud,
-  type AlmacenRevision, type RevisionRenglon, type StockMinaPorNombre,
+  faltante, resumenRevision, revisionGuardada, stockDe, textoWhatsappRevision, textoWhatsappSolicitud, tieneDe,
+  type BuscarParecido, type ModoLote, type RevisionRenglon, type StockPorProducto,
 } from './revisionAlmacen';
 import { useBorradores, useSolicitudesAlmacen } from './useSolicitudesAlmacen';
 import {
-  AvisoApagado, BadgeExistencia, BarraCobertura, ModalWhatsapp, ResumenListas, renglonesDe, useMarcarRevisada,
+  AvisoApagado, BadgeExistencia, BarraCobertura, ModalWhatsapp, ResumenListas, renglonesDe, useLotes, useMarcarRevisada,
 } from './SolicitudesComun';
+
+type BotonLote = { modo: ModoLote; texto: string; clase: string; disabled: boolean };
 
 type Pestana = 'por_revisar' | 'revisadas';
 
@@ -44,8 +49,9 @@ export function SolicitudesAlmacenPage() {
   const quien = nombreYApellido(appUser?.nombre, appUser?.apellido) || user?.email || '';
 
   const datos = useSolicitudesAlmacen();
-  const bor = useBorradores(datos.stock, datos.stockMina);
+  const bor = useBorradores(datos.stock);
   const marcar = useMarcarRevisada(quien, (id) => { bor.olvidar(id); void datos.reload(); });
+  const lotes = useLotes(datos, bor, marcar);
   const [pestana, setPestana] = useState<Pestana>('por_revisar');
   const [wsp, setWsp] = useState<{ titulo: string; texto: string } | null>(null);
   const [devolver, setDevolver] = useState<SolicitudConRevision | null>(null);
@@ -97,9 +103,10 @@ export function SolicitudesAlmacenPage() {
             datos.porRevisar.length
               ? datos.porRevisar.map((s) => (
                 <TarjetaPorRevisar key={s.orden.id} s={s} puedeRevisar={puedeRevisar} guardando={marcar.guardando}
-                  revision={bor.revisionDe(s)} stock={datos.stock} stockMina={datos.stockMina} sugerido={datos.sugerido}
+                  revision={bor.revisionDe(s)} stock={datos.stock} sugerido={datos.sugerido}
                   nota={bor.nota(s.orden.id)} onNota={(v) => bor.fijarNota(s.orden.id, v)}
-                  onFijar={(idx, v, alm) => bor.fijar(s, idx, v, alm)} onLote={(m) => bor.lote(s, m)}
+                  onFijar={(idx, v) => bor.fijar(s, idx, v)}
+                  botonesLote={lotes.botones(s)} onLote={(m) => void lotes.aplicar(s, m)}
                   onWhatsapp={() => setWsp({ titulo: `📲 Solicitud ${s.orden.codigo}`, texto: textoWhatsappSolicitud(s.orden) })}
                   onRevisar={() => marcar.pedir(s, bor.revisionDe(s), bor.nota(s.orden.id))} />
               ))
@@ -153,23 +160,23 @@ function Cabecera({ s, extra }: { s: SolicitudConRevision; extra?: ReactNode }) 
   );
 }
 
-function TarjetaPorRevisar({ s, revision, stock, stockMina, sugerido, nota, onNota, onFijar, onLote, onWhatsapp, onRevisar, puedeRevisar, guardando }: {
+function TarjetaPorRevisar({ s, revision, stock, sugerido, nota, onNota, onFijar, botonesLote, onLote, onWhatsapp, onRevisar, puedeRevisar, guardando }: {
   s: SolicitudConRevision;
   revision: RevisionRenglon[];
-  stock: Record<string, number>;
-  stockMina: StockMinaPorNombre;
-  sugerido: (nombre: string) => { nombre: string; stock: number; unidad: string } | null;
+  stock: StockPorProducto;
+  sugerido: BuscarParecido;
   nota: string;
   onNota: (v: string) => void;
-  onFijar: (idx: number, v: number | null, almacen: AlmacenRevision) => void;
-  onLote: (m: 'todo_disponible_segun_stock' | 'todo_a_compras' | 'todo_disponible') => void;
+  onFijar: (idx: number, v: number | null) => void;
+  botonesLote: BotonLote[];
+  onLote: (m: ModoLote) => void;
   onWhatsapp: () => void;
   onRevisar: () => void;
   puedeRevisar: boolean;
   guardando: boolean;
 }) {
   const items = s.orden.items;
-  const porIdx = new Map(revision.map((r) => [r.idx, porAlmacenDe(r)]));
+  const porIdx = new Map(revision.map((r) => [r.idx, tieneDe(r)]));
   const resumen = resumenRevision(items, revision);
   return (
     <section className={`card spa-sp${s.orden.urgente ? ' urgente' : ''}`} aria-label={`Solicitud ${s.orden.codigo}`}>
@@ -178,9 +185,9 @@ function TarjetaPorRevisar({ s, revision, stock, stockMina, sugerido, nota, onNo
       {puedeRevisar && (
         <div className="spa-lote">
           <span>Por lote:</span>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onLote('todo_disponible_segun_stock')}>✔ Todo según existencias</button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onLote('todo_disponible')}>✔ Todo disponible</button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onLote('todo_a_compras')}>🛒 Todo a Compras</button>
+          {botonesLote.map((b) => (
+            <button key={b.modo} type="button" className={`btn btn-sm btn-ghost ${b.clase}`} disabled={b.disabled || guardando} onClick={() => onLote(b.modo)}>{b.texto}</button>
+          ))}
         </div>
       )}
 
@@ -189,18 +196,16 @@ function TarjetaPorRevisar({ s, revision, stock, stockMina, sugerido, nota, onNo
           <thead>
             <tr>
               <th>Producto</th><th>Unidad</th><th className="num">Solicitado</th>
-              <th>📍 Hay en Los Pinos</th><th>⛏ Hay en Depósito Mina</th>
-              <th className="num">Sale de Los Pinos</th><th className="num">Sale de la Mina</th><th className="num">A Compras</th>
+              <th>📍 Hay en Los Pinos</th>
+              <th className="num">Sale de Los Pinos</th><th className="num">A Compras</th>
             </tr>
           </thead>
           <tbody>
             {items.map((it, idx) => {
               const sol = Number(it.cantidad) || 0;
-              const pa = porIdx.get(idx) ?? { los_pinos: 0, mina: 0 };
-              const tiene = pa.los_pinos + pa.mina;
+              const tiene = porIdx.get(idx) ?? 0;
               const falta = faltante(sol, tiene);
               const st = stockDe(it, stock);
-              const stMina = stockMinaDe(it, stockMina);
               const sug = !it.productoId ? sugerido(it.nombre) : null;
               return (
                 <tr key={idx}>
@@ -213,20 +218,10 @@ function TarjetaPorRevisar({ s, revision, stock, stockMina, sugerido, nota, onNo
                   <td data-col="Unidad">{it.unidad || 'und'}</td>
                   <td data-col="Solicitado" className="num mono">{num(sol)}</td>
                   <td data-col="Hay en Los Pinos"><BadgeExistencia solicitada={sol} stock={st} unidad={it.unidad} /></td>
-                  <td data-col="Hay en Depósito Mina">
-                    {stMina == null
-                      ? <span className="muted" style={{ fontSize: '.78rem' }}>No está en la Mina</span>
-                      : <BadgeExistencia solicitada={sol} stock={stMina} unidad={it.unidad} />}
-                  </td>
                   <td data-col="Sale de Los Pinos" className="num">
-                    <DecimalInput className="input spa-input" value={pa.los_pinos} disabled={!puedeRevisar}
+                    <DecimalInput className="input spa-input" value={tiene} disabled={!puedeRevisar}
                       aria-label={`Sale de Los Pinos: ${it.nombre}`} title={`Entre 0 y ${num(sol)}`}
-                      onChange={(v) => onFijar(idx, v, 'los_pinos')} />
-                  </td>
-                  <td data-col="Sale de la Mina" className="num">
-                    <DecimalInput className="input spa-input" value={pa.mina} disabled={!puedeRevisar || stMina == null}
-                      aria-label={`Sale del Depósito Mina: ${it.nombre}`} title={stMina == null ? 'Ese producto no está en el Depósito Mina' : `Entre 0 y ${num(sol)}`}
-                      onChange={(v) => onFijar(idx, v, 'mina')} />
+                      onChange={(v) => onFijar(idx, v)} />
                   </td>
                   <td data-col="A Compras" className="num">
                     <span className={`spa-compras${falta ? '' : ' cero'}`}>{num(falta)}</span>
@@ -246,7 +241,7 @@ function TarjetaPorRevisar({ s, revision, stock, stockMina, sugerido, nota, onNo
               placeholder="Ej.: lo disponible se retira en el galpón 2" autoComplete="off" />
           </div>
           <div className="spa-cuenta">
-            Almacén entrega <b>{resumen.disponibles.length}</b> · Compras cotiza <b>{resumen.aCompras.length}</b>
+            Los Pinos entrega <b>{resumen.disponibles.length}</b> · Compras cotiza <b>{resumen.aCompras.length}</b>
           </div>
           <button type="button" className="btn btn-success" disabled={guardando} onClick={onRevisar}>✓ Marcar como revisada</button>
         </div>

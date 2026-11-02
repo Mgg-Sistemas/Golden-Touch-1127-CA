@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  acotarDisponible, acotarPorAlmacen, aplicarLote, claveNombreProducto, estadoExistencia, porAlmacenDe, stockMinaDe, estadoSolicitudTexto, faltante, propuestaDesdeExistencias,
-  resumenRevision, revisionGuardada, textoWhatsappRevision, textoWhatsappSolicitud,
+  acotarDisponible, acotarPorAlmacen, aplicarLote, avisoLote, estadoExistencia, existenciaRenglon, porAlmacenDe, estadoSolicitudTexto, faltante,
+  propuestaDesdeExistencias, resumenRevision, revisionGuardada, textoLoteSegunExistencias, textoWhatsappRevision, textoWhatsappSolicitud, tieneDe,
+  TEXTO_LOTE_TODO_A_COMPRAS, TEXTO_LOTE_TODO_DISPONIBLE, TEXTO_SIN_EXISTENCIA,
   type OrdenSP, type RenglonSP,
 } from './revisionAlmacen';
 
@@ -73,8 +74,8 @@ describe('resumenRevision', () => {
   it('un renglón parcial sale en las dos listas', () => {
     const r = resumenRevision([CANDADOS, LENTES], [{ idx: 0, cantidad_disponible: 4 }, { idx: 1, cantidad_disponible: 10 }]);
     expect(r.disponibles).toEqual([
-      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 4, almacen: 'los_pinos' },
-      { nombre: 'LENTE DE SEGURIDAD', unidad: 'UND', cantidad: 10, almacen: 'los_pinos' },
+      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 4 },
+      { nombre: 'LENTE DE SEGURIDAD', unidad: 'UND', cantidad: 10 },
     ]);
     expect(r.aCompras).toEqual([{ nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 44 }]);
   });
@@ -96,13 +97,13 @@ describe('resumenRevision', () => {
   });
 });
 
-describe('Los Pinos + Depósito Mina (30/10/2026)', () => {
-  const MINA = { [claveNombreProducto('Candados de Seguridad')]: 30 };
-  it('la propuesta toma primero Los Pinos y lo que falta de la Mina (por nombre, sin acentos ni mayúsculas)', () => {
-    const [r] = propuestaDesdeExistencias([CANDADOS], { 'p-candado': 10 }, MINA);
-    expect(r).toEqual({ idx: 0, cantidad_disponible: 40, por_almacen: { los_pinos: 10, mina: 30 } });
-    expect(stockMinaDe(CANDADOS, MINA)).toBe(30);
-    expect(stockMinaDe(LENTES, MINA)).toBeNull();
+describe('Solo Los Pinos (02/11/2026): la Mina ya no entra en la revisión', () => {
+  it('la propuesta y los lotes guardan el desglose con mina = 0 (la base sigue igual)', () => {
+    expect(propuestaDesdeExistencias([CANDADOS], { 'p-candado': 10 })).toEqual([
+      { idx: 0, cantidad_disponible: 10, por_almacen: { los_pinos: 10, mina: 0 } },
+    ]);
+    expect(aplicarLote([CANDADOS], 'todo_disponible')[0].por_almacen).toEqual({ los_pinos: 48, mina: 0 });
+    expect(aplicarLote([CANDADOS], 'todo_a_compras')[0].por_almacen).toEqual({ los_pinos: 0, mina: 0 });
   });
   it('lo de cada almacén nunca pasa de lo solicitado', () => {
     expect(acotarPorAlmacen({ los_pinos: 40, mina: 30 }, 48)).toEqual({ los_pinos: 40, mina: 8 });
@@ -110,21 +111,66 @@ describe('Los Pinos + Depósito Mina (30/10/2026)', () => {
   });
   it('sin desglose guardado, todo es de Los Pinos', () => {
     expect(porAlmacenDe({ idx: 0, cantidad_disponible: 7 })).toEqual({ los_pinos: 7, mina: 0 });
+    expect(tieneDe({ idx: 0, cantidad_disponible: 7 })).toBe(7);
+    expect(tieneDe(undefined)).toBe(0);
   });
-  it('resumen y WhatsApp separan lo que sale de cada almacén', () => {
-    const rev = [{ idx: 0, cantidad_disponible: 40, por_almacen: { los_pinos: 10, mina: 30 } }];
+  it('una revisión vieja con Mina se sigue leyendo y cuenta como «tiene»; el WhatsApp solo nombra Los Pinos', () => {
+    const rev = revisionGuardada([{ idx: 0, cantidad_disponible: 40, por_almacen: { los_pinos: 10, mina: 30 } }]);
+    expect(rev).toEqual([{ idx: 0, cantidad_disponible: 40, por_almacen: { los_pinos: 10, mina: 30 } }]);
+    expect(tieneDe(rev[0])).toBe(40);
     const res = resumenRevision([CANDADOS], rev);
-    expect(res.disponibles).toEqual([
-      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 10, almacen: 'los_pinos' },
-      { nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 30, almacen: 'mina' },
-    ]);
+    expect(res.disponibles).toEqual([{ nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 40 }]);
     expect(res.aCompras).toEqual([{ nombre: 'CANDADOS DE SEGURIDAD', unidad: 'UND', cantidad: 8 }]);
     const t = textoWhatsappRevision(orden, res, 'X');
-    expect(t).toContain('✅ *TIENE:*\n📍 _Los Pinos:_\n🔸 10 UND · CANDADOS DE SEGURIDAD\n⛏ _Depósito Mina:_\n🔸 30 UND · CANDADOS DE SEGURIDAD');
+    expect(t).toContain('✅ *TIENE:*\n📍 _Los Pinos:_\n🔸 40 UND · CANDADOS DE SEGURIDAD');
+    expect(t).not.toContain('Mina');
   });
-  it('lee el desglose guardado', () => {
-    expect(revisionGuardada([{ idx: 0, cantidad_disponible: 5, por_almacen: { los_pinos: 2, mina: 3 } }]))
-      .toEqual([{ idx: 0, cantidad_disponible: 5, por_almacen: { los_pinos: 2, mina: 3 } }]);
+});
+
+describe('«Según existencias» con la existencia del momento (02/11/2026)', () => {
+  const TORNILLO: RenglonSP = { sku: 'FER-010', nombre: 'TORNILLO 2 1/2"', unidad: 'UND', cantidad: 50, productoId: 'p-tornillo' };
+  // Caso real (SP-2026-0399): renglón genérico, piden 1 und, el parecido tiene 40 LITROS.
+  const ACEITE: RenglonSP = { sku: '', nombre: 'ACEITE HIDRAULICO 68', unidad: 'und', cantidad: 1 };
+  const parecido = (nombre: string) => {
+    if (nombre === 'ACEITE HIDRAULICO 68') return { nombre: 'ACEITE HIDRAULICO 68', stock: 40, unidad: 'LITROS' };
+    if (nombre === 'GUANTES DE CARNAZA') return { nombre: 'GUANTES DE CARNAZA LARGOS', stock: 0, unidad: 'PAR' };
+    return null;
+  };
+
+  it('existenciaRenglon dice de dónde sale la existencia', () => {
+    expect(existenciaRenglon(TORNILLO, { 'p-tornillo': 41 })).toEqual({ origen: 'vinculado', stock: 41, unidad: 'UND' });
+    expect(existenciaRenglon(TORNILLO, {})).toEqual({ origen: 'no_esta', stock: null, unidad: 'UND' });
+    expect(existenciaRenglon(ACEITE, {}, parecido)).toEqual({ origen: 'parecido', stock: 40, unidad: 'LITROS', parecido: 'ACEITE HIDRAULICO 68' });
+    expect(existenciaRenglon(CAL, {}, parecido)).toEqual({ origen: 'no_esta', stock: null, unidad: 'KG' });
+    expect(existenciaRenglon({ ...SIN_VINCULO, nombre: 'ALGO RARO' }, {}, parecido)).toEqual({ origen: 'sin_vincular', stock: null, unidad: 'PAR' });
+  });
+  it('la propuesta usa el parecido: sale min(stock del parecido, solicitado); sin parecido, 0', () => {
+    expect(aplicarLote([ACEITE, TORNILLO, SIN_VINCULO], 'todo_disponible_segun_stock', { 'p-tornillo': 41 }, parecido).map((r) => r.cantidad_disponible))
+      .toEqual([1, 41, 0]);
+    // Sin `sugerido` (la propuesta inicial al abrir), lo sin vincular arranca en 0.
+    expect(propuestaDesdeExistencias([ACEITE], {}).map((r) => r.cantidad_disponible)).toEqual([0]);
+    expect(faltante(1, aplicarLote([ACEITE], 'todo_disponible_segun_stock', {}, parecido)[0].cantidad_disponible)).toBe(0);
+  });
+  it('el toast dice cuánto hay y cuánto sale, renglón por renglón', () => {
+    expect(textoLoteSegunExistencias([ACEITE, TORNILLO], { 'p-tornillo': 41 }, parecido))
+      .toBe('Según inventario Los Pinos: ACEITE HIDRAULICO 68 · hay 40 LITROS (parecido) · sale 1 · TORNILLO 2 1/2" · hay 41 UND · sale 41');
+    expect(textoLoteSegunExistencias([ACEITE, TORNILLO], {}, parecido))
+      .toBe('Según inventario Los Pinos: ACEITE HIDRAULICO 68 · hay 40 LITROS (parecido) · sale 1 · TORNILLO 2 1/2" · no está en inventario → Compras');
+  });
+  it('parecido con otro nombre lo nombra; sin vincular y sin existencia van a Compras; decimales con coma', () => {
+    expect(textoLoteSegunExistencias([CAL, SIN_VINCULO, { ...SIN_VINCULO, nombre: 'ALGO RARO' }], { 'p-cal': 1.5 }, parecido))
+      .toBe('Según inventario Los Pinos: CAL · hay 1,5 KG · sale 1,5 · GUANTES DE CARNAZA · hay 0 PAR (parecido: GUANTES DE CARNAZA LARGOS) → Compras · ALGO RARO · sin vincular → Compras');
+  });
+  it('si no hay nada de nada: todo va a Compras (toast de aviso)', () => {
+    expect(textoLoteSegunExistencias([TORNILLO, SIN_VINCULO], { 'p-tornillo': 0 }, parecido)).toBe(TEXTO_SIN_EXISTENCIA);
+    expect(textoLoteSegunExistencias([SIN_VINCULO], {})).toBe(TEXTO_SIN_EXISTENCIA);
+    expect(textoLoteSegunExistencias([], {})).toBe(TEXTO_SIN_EXISTENCIA);
+    expect(avisoLote('todo_disponible_segun_stock', [TORNILLO], { 'p-tornillo': 0 })).toEqual({ texto: TEXTO_SIN_EXISTENCIA, tipo: 'warning' });
+    expect(avisoLote('todo_disponible_segun_stock', [TORNILLO], { 'p-tornillo': 41 }).tipo).toBe('info');
+  });
+  it('«Todo disponible» y «Todo a Compras» responden siempre, aunque no cambie nada', () => {
+    expect(avisoLote('todo_disponible', [], {})).toEqual({ texto: TEXTO_LOTE_TODO_DISPONIBLE, tipo: 'success' });
+    expect(avisoLote('todo_a_compras', [], {})).toEqual({ texto: TEXTO_LOTE_TODO_A_COMPRAS, tipo: 'warning' });
   });
 });
 

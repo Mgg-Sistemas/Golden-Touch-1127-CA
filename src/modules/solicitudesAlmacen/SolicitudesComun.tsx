@@ -12,9 +12,69 @@ import { num } from '@/shared/lib/format';
 import { mensajeError } from '@/shared/lib/errores';
 import { revisarSolicitud, CLAVE_INTERRUPTOR, type SolicitudConRevision } from './solicitudesAlmacen.repository';
 import {
-  ALMACENES_REVISION, estadoExistencia, resumenRevision, textoWhatsappRevision, type RenglonSP, type ResumenRevision, type RevisionRenglon,
+  avisoLote, estadoExistencia, resumenRevision, textoWhatsappRevision,
+  type ModoLote, type RenglonSP, type ResumenRevision, type RevisionRenglon,
 } from './revisionAlmacen';
+import type { useBorradores, useSolicitudesAlmacen } from './useSolicitudesAlmacen';
 import './solicitudesAlmacen.css';
+
+/** Nombre de cada botón de lote (PC y teléfono). */
+export const BOTONES_LOTE: { modo: ModoLote; texto: string; clase: string }[] = [
+  { modo: 'todo_disponible_segun_stock', texto: '✔ Según existencias', clase: 'spa-lote-stock' },
+  { modo: 'todo_disponible', texto: '✔ Todo disponible', clase: 'spa-lote-todo' },
+  { modo: 'todo_a_compras', texto: '🛒 Todo a Compras', clase: 'spa-lote-compras' },
+];
+
+/**
+ * 02/11/2026 · Los botones de lote, iguales en PC y teléfono. Cada uno responde con un
+ * toast (antes «Todo a Compras» con Los Pinos ya en 0 parecía fallar):
+ * · «Según existencias» consulta la existencia DEL MOMENTO en la base (mientras, el botón
+ *   dice «Consultando…») y propone con ella; lo sin vincular toma la del parecido.
+ * · «Todo disponible» propone todo de Los Pinos.
+ * · «Todo a Compras» pone todo en 0 y abre de una vez la confirmación de «Marcar como
+ *   revisada»; al confirmar se guarda y sale el WhatsApp de la revisión.
+ */
+export function useLotes(
+  datos: ReturnType<typeof useSolicitudesAlmacen>,
+  bor: ReturnType<typeof useBorradores>,
+  marcar: Pick<ReturnType<typeof useMarcarRevisada>, 'pedir'>,
+  despues?: (modo: ModoLote) => void,
+) {
+  const [consultando, setConsultando] = useState<string | null>(null);
+
+  const aplicar = async (s: SolicitudConRevision, modo: ModoLote) => {
+    if (modo === 'todo_disponible_segun_stock') {
+      if (consultando) return;
+      setConsultando(s.orden.id);
+      try {
+        const fresco = await datos.consultarExistencias(s);
+        bor.lote(s, modo, fresco.stock, fresco.sugerido);
+        const a = avisoLote(modo, s.orden.items, fresco.stock, fresco.sugerido);
+        toast(a.texto, a.tipo, { silent: true });
+        despues?.(modo);
+      } catch (e) {
+        toast(mensajeError(e, 'No se pudo consultar el inventario de Los Pinos.'), 'error');
+      } finally {
+        setConsultando(null);
+      }
+      return;
+    }
+    const revision = bor.lote(s, modo);
+    const a = avisoLote(modo, s.orden.items, datos.stock, datos.sugerido);
+    toast(a.texto, a.tipo, { silent: true });
+    if (modo === 'todo_a_compras') marcar.pedir(s, revision, bor.nota(s.orden.id));
+    despues?.(modo);
+  };
+
+  /** Texto y estado de cada botón para la SP `s`. */
+  const botones = (s: SolicitudConRevision) => BOTONES_LOTE.map((b) => ({
+    ...b,
+    texto: b.modo === 'todo_disponible_segun_stock' && consultando === s.orden.id ? '⏳ Consultando…' : b.texto,
+    disabled: consultando != null,
+  }));
+
+  return { aplicar, botones, consultando };
+}
 
 export function AvisoApagado({ isAdmin }: { isAdmin: boolean }) {
   return (
@@ -69,15 +129,13 @@ export function ModalWhatsapp({ titulo, texto, onClose }: { titulo: string; text
 export function ResumenListas({ resumen }: { resumen: ResumenRevision }) {
   const lista = (ls: ResumenRevision['disponibles']) => (
     <ul>{ls.map((l, i) => (
-      <li key={i}><b className="mono">{num(l.cantidad)} {l.unidad.toUpperCase()}</b> · {l.nombre}
-        {l.almacen && <span className="muted" style={{ fontSize: '.78rem' }}> · {ALMACENES_REVISION.find((a) => a.key === l.almacen)?.icono} {ALMACENES_REVISION.find((a) => a.key === l.almacen)?.label}</span>}
-      </li>
+      <li key={i}><b className="mono">{num(l.cantidad)} {l.unidad.toUpperCase()}</b> · {l.nombre}</li>
     ))}</ul>
   );
   return (
     <div className="spa-resumen" style={{ padding: '.4rem 0 0' }}>
       <div>
-        <h3>✅ Tiene Almacén</h3>
+        <h3>✅ Tiene Los Pinos</h3>
         {resumen.disponibles.length ? lista(resumen.disponibles) : <div className="vacio">Nada de lo solicitado</div>}
       </div>
       <div>

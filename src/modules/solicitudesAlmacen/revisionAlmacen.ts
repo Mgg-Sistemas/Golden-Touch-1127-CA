@@ -7,9 +7,15 @@
 
    Aquí vive la parte sin pantalla ni base, para poder probarla:
    · la propuesta según las existencias del Inventario General,
-   · los botones de lote (todo según existencias, todo disponible, todo a Compras),
+   · los botones de lote (todo según existencias, todo disponible, todo a Compras)
+     y el aviso que se muestra al pulsarlos (02/11/2026),
    · el resumen (lo que tiene / lo que va a Compras),
    · los dos mensajes de WhatsApp: el de la SP y el de la revisión.
+
+   02/11/2026 · Solo cuenta LOS PINOS. El Depósito Mina ya no entra en la
+   revisión (ni se lee su existencia ni se muestra). El desglose `por_almacen`
+   {los_pinos, mina} se sigue guardando con mina = 0 para no tocar la RPC
+   `almacen_revisar_solicitud`; una revisión vieja con mina > 0 se lee igual.
 
    El flujo se enciende con el interruptor `compras_revision_almacen`
    (tabla `sistema_interruptores`). Apagado, las SP van directo a Compras.
@@ -42,34 +48,23 @@ export interface OrdenSP {
 }
 
 /**
- * De dónde sale lo que tiene Almacén (30/10/2026, bosquejo del nuevo flujo): el almacenista
- * de LOS PINOS confirma, y ve también lo que hay en el DEPÓSITO MINA. Matanza se suma
- * cuando exista ese almacén.
+ * De dónde sale lo que tiene Almacén. Desde el 02/11/2026 solo LOS PINOS; `mina` queda
+ * en el desglose guardado (siempre 0) por compatibilidad con la base y con lo ya revisado.
  */
 export type AlmacenRevision = 'los_pinos' | 'mina';
-export const ALMACENES_REVISION: { key: AlmacenRevision; label: string; icono: string }[] = [
-  { key: 'los_pinos', label: 'Los Pinos', icono: '📍' },
-  { key: 'mina', label: 'Depósito Mina', icono: '⛏' },
-];
+export const ALMACEN_LOS_PINOS = { key: 'los_pinos' as const, label: 'Los Pinos', icono: '📍' };
 export type PorAlmacen = Record<AlmacenRevision, number>;
 
 /** Lo que Almacén dice de un renglón: cuánto de lo pedido TIENE. `idx` = posición en `items`. */
 export interface RevisionRenglon {
   idx: number;
   cantidad_disponible: number;
-  /** Cuánto de lo disponible sale de cada almacén (suma = cantidad_disponible). Sin él, todo es de Los Pinos. */
+  /** Desglose guardado en la base (suma = cantidad_disponible). Sin él, todo es de Los Pinos. */
   por_almacen?: PorAlmacen;
 }
 
 /** Existencia actual por id de producto (Los Pinos, el inventario de siempre). */
 export type StockPorProducto = Record<string, number>;
-
-/** Existencia del Depósito Mina por NOMBRE de producto (clave de `claveNombreProducto`): son catálogos aparte. */
-export type StockMinaPorNombre = Record<string, number>;
-
-/** Mismo criterio que la base (sin acentos, minúsculas, espacios simples) para hallar el producto en la Mina. */
-export const claveNombreProducto = (s: string): string =>
-  (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 export type ModoLote = 'todo_disponible_segun_stock' | 'todo_a_compras' | 'todo_disponible';
 
@@ -77,8 +72,6 @@ export interface LineaResumen {
   nombre: string;
   unidad: string;
   cantidad: number;
-  /** Solo en lo que TIENE Almacén: de qué almacén sale. */
-  almacen?: AlmacenRevision;
 }
 
 export interface ResumenRevision {
@@ -119,13 +112,6 @@ export function estadoExistencia(solicitada: number, stock: number | null): Esta
   return stock >= solicitada ? 'alcanza' : 'parcial';
 }
 
-/** Existencia del mismo producto (por nombre) en el Depósito Mina; `null` si allá no existe. */
-export function stockMinaDe(it: RenglonSP, stockMina: StockMinaPorNombre): number | null {
-  const k = claveNombreProducto(it.nombre ?? '');
-  if (!k || !(k in stockMina)) return null;
-  return Math.max(0, Number(stockMina[k]) || 0);
-}
-
 /** Lo de cada almacén, acotado: cada parte ≥ 0 y la suma nunca pasa de lo solicitado. */
 export function acotarPorAlmacen(pa: Partial<PorAlmacen>, solicitada: number): PorAlmacen {
   const los = acotarDisponible(pa.los_pinos ?? 0, solicitada);
@@ -139,33 +125,67 @@ export function porAlmacenDe(r: RevisionRenglon | undefined): PorAlmacen {
   return r.por_almacen ?? { los_pinos: r.cantidad_disponible, mina: 0 };
 }
 
-const renglonDesde = (idx: number, pa: PorAlmacen): RevisionRenglon =>
-  ({ idx, cantidad_disponible: redondear(pa.los_pinos + pa.mina), por_almacen: pa });
+/** Cuánto TIENE Almacén de un renglón revisado (Los Pinos; una revisión vieja con Mina también cuenta). */
+export const tieneDe = (r: RevisionRenglon | undefined): number => {
+  const pa = porAlmacenDe(r);
+  return redondear(pa.los_pinos + pa.mina);
+};
+
+/** Un renglón revisado desde Los Pinos (la Mina siempre en 0 desde el 02/11/2026). */
+export const renglonLosPinos = (idx: number, cantidad: number): RevisionRenglon =>
+  ({ idx, cantidad_disponible: redondear(cantidad), por_almacen: { los_pinos: redondear(cantidad), mina: 0 } });
+
+/** Producto del inventario que se parece a un renglón escrito a mano (sin `productoId`). */
+export interface ParecidoInventario { nombre: string; stock: number; unidad: string }
+export type BuscarParecido = (nombre: string) => ParecidoInventario | null;
+
+const unidadDe = (u?: string | null) => ((u ?? '').trim() || 'und').toUpperCase();
+const nombreDe = (it: RenglonSP) => (it.nombre ?? '').trim() || 'SIN NOMBRE';
+const mismoNombre = (a?: string | null, b?: string | null) =>
+  (a ?? '').trim().toUpperCase().replace(/\s+/g, ' ') === (b ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
 
 /**
- * Propuesta inicial: de cada renglón, primero lo que alcance en Los Pinos y lo que falte,
- * lo que haya en el Depósito Mina (0 donde no hay producto).
+ * De dónde sale la existencia de un renglón (02/11/2026):
+ * · `vinculado`: tiene producto del inventario y apareció en Los Pinos;
+ * · `no_esta`: tiene producto pero ya no está en el Inventario General;
+ * · `parecido`: escrito a mano, se usa la existencia del producto parecido;
+ * · `sin_vincular`: escrito a mano y sin parecido → nada que entregar.
+ */
+export type OrigenExistencia = 'vinculado' | 'no_esta' | 'parecido' | 'sin_vincular';
+export interface ExistenciaRenglon { origen: OrigenExistencia; stock: number | null; unidad: string; parecido?: string }
+
+export function existenciaRenglon(it: RenglonSP, stock: StockPorProducto, sugerido: BuscarParecido = () => null): ExistenciaRenglon {
+  if (it.productoId) {
+    const st = stockDe(it, stock);
+    return st == null
+      ? { origen: 'no_esta', stock: null, unidad: unidadDe(it.unidad) }
+      : { origen: 'vinculado', stock: st, unidad: unidadDe(it.unidad) };
+  }
+  const sug = sugerido(it.nombre ?? '');
+  if (!sug) return { origen: 'sin_vincular', stock: null, unidad: unidadDe(it.unidad) };
+  return { origen: 'parecido', stock: Math.max(0, Number(sug.stock) || 0), unidad: unidadDe(sug.unidad), parecido: sug.nombre };
+}
+
+/**
+ * Propuesta: de cada renglón, lo que alcance en Los Pinos. Con `sugerido`, un renglón sin
+ * vincular toma la existencia del producto parecido (el almacenista lo corrige si no es).
+ * Sin producto ni parecido: 0.
  */
 export function propuestaDesdeExistencias(
-  items: readonly RenglonSP[], stockPorProducto: StockPorProducto, stockMina: StockMinaPorNombre = {},
+  items: readonly RenglonSP[], stockPorProducto: StockPorProducto, sugerido?: BuscarParecido,
 ): RevisionRenglon[] {
-  return items.map((it, idx) => {
-    const sol = cantidadDe(it);
-    const pinos = stockDe(it, stockPorProducto) ?? 0;
-    const mina = stockMinaDe(it, stockMina) ?? 0;
-    return renglonDesde(idx, acotarPorAlmacen({ los_pinos: pinos, mina }, sol));
-  });
+  return items.map((it, idx) => renglonLosPinos(idx, acotarDisponible(existenciaRenglon(it, stockPorProducto, sugerido).stock ?? 0, cantidadDe(it))));
 }
 
-/** Botones de lote: aplican lo mismo a todos los renglones («todo disponible» lo pone en Los Pinos). */
+/** Botones de lote: aplican lo mismo a todos los renglones. */
 export function aplicarLote(
-  items: readonly RenglonSP[], modo: ModoLote, stockPorProducto: StockPorProducto = {}, stockMina: StockMinaPorNombre = {},
+  items: readonly RenglonSP[], modo: ModoLote, stockPorProducto: StockPorProducto = {}, sugerido?: BuscarParecido,
 ): RevisionRenglon[] {
-  if (modo === 'todo_disponible_segun_stock') return propuestaDesdeExistencias(items, stockPorProducto, stockMina);
-  return items.map((it, idx) => renglonDesde(idx, { los_pinos: modo === 'todo_disponible' ? cantidadDe(it) : 0, mina: 0 }));
+  if (modo === 'todo_disponible_segun_stock') return propuestaDesdeExistencias(items, stockPorProducto, sugerido);
+  return items.map((it, idx) => renglonLosPinos(idx, modo === 'todo_disponible' ? cantidadDe(it) : 0));
 }
 
-/** Lo que tiene Almacén (por almacén) y lo que va a Compras. Un renglón puede salir en las dos listas (parcial). */
+/** Lo que tiene Almacén y lo que va a Compras. Un renglón puede salir en las dos listas (parcial). */
 export function resumenRevision(items: readonly RenglonSP[], revision: readonly RevisionRenglon[]): ResumenRevision {
   const porIdx = new Map(revision.map((r) => [r.idx, r]));
   const disponibles: LineaResumen[] = [];
@@ -173,12 +193,57 @@ export function resumenRevision(items: readonly RenglonSP[], revision: readonly 
   items.forEach((it, idx) => {
     const sol = cantidadDe(it);
     const pa = acotarPorAlmacen(porAlmacenDe(porIdx.get(idx)), sol);
-    const falta = faltante(sol, pa.los_pinos + pa.mina);
+    const tiene = redondear(pa.los_pinos + pa.mina);
+    const falta = faltante(sol, tiene);
     const base = { nombre: (it.nombre ?? '').trim() || 'SIN NOMBRE', unidad: (it.unidad ?? '').trim() || 'und' };
-    for (const a of ALMACENES_REVISION) if (pa[a.key] > 0) disponibles.push({ ...base, cantidad: pa[a.key], almacen: a.key });
+    if (tiene > 0) disponibles.push({ ...base, cantidad: tiene });
     if (falta > 0) aCompras.push({ ...base, cantidad: falta });
   });
   return { disponibles, aCompras };
+}
+
+/* ── Aviso al pulsar un botón de lote (02/11/2026) ──
+   Antes «Todo a Compras» con Los Pinos ya en 0 «no hacía nada» y parecía fallar.
+   Ahora cada botón responde con un toast; el texto se arma aquí para probarlo. */
+
+export const TEXTO_SIN_EXISTENCIA = 'Según inventario Los Pinos no hay existencia de lo solicitado: todo va a Compras.';
+
+/**
+ * «Según inventario Los Pinos: ACEITE HIDRAULICO 68 · hay 40 LITROS (parecido) · sale 1 ·
+ * TORNILLO · no está en inventario → Compras», un tramo por renglón con la existencia
+ * del momento y cuánto sale. Si no hay existencia de nada: lo dice y todo va a Compras.
+ */
+export function textoLoteSegunExistencias(
+  items: readonly RenglonSP[], stock: StockPorProducto, sugerido: BuscarParecido = () => null,
+): string {
+  let hayAlgo = false;
+  const tramos = items.map((it) => {
+    const n = nombreDe(it);
+    const e = existenciaRenglon(it, stock, sugerido);
+    if (e.origen === 'no_esta') return `${n} · no está en inventario → Compras`;
+    if (e.origen === 'sin_vincular') return `${n} · sin vincular → Compras`;
+    const st = e.stock ?? 0;
+    const par = e.origen === 'parecido' ? (mismoNombre(e.parecido, n) ? ' (parecido)' : ` (parecido: ${e.parecido})`) : '';
+    const sale = acotarDisponible(st, cantidadDe(it));
+    if (sale > 0) hayAlgo = true;
+    return sale > 0 ? `${n} · hay ${num(st)} ${e.unidad}${par} · sale ${num(sale)}` : `${n} · hay ${num(st)} ${e.unidad}${par} → Compras`;
+  });
+  if (!items.length || !hayAlgo) return TEXTO_SIN_EXISTENCIA;
+  return `Según inventario Los Pinos: ${tramos.join(' · ')}`;
+}
+
+export const TEXTO_LOTE_TODO_DISPONIBLE = 'Todo marcado como disponible en Los Pinos.';
+/** «Todo a Compras» además abre la confirmación de «Marcar como revisada» (02/11/2026). */
+export const TEXTO_LOTE_TODO_A_COMPRAS = 'Todo va a Compras: Los Pinos no entrega nada. Confirma para enviarla.';
+
+/** Qué se le dice a la usuaria al pulsar cada botón de lote (texto y color del toast). */
+export function avisoLote(
+  modo: ModoLote, items: readonly RenglonSP[], stock: StockPorProducto, sugerido?: BuscarParecido,
+): { texto: string; tipo: 'info' | 'success' | 'warning' } {
+  if (modo === 'todo_disponible') return { texto: TEXTO_LOTE_TODO_DISPONIBLE, tipo: 'success' };
+  if (modo === 'todo_a_compras') return { texto: TEXTO_LOTE_TODO_A_COMPRAS, tipo: 'warning' };
+  const texto = textoLoteSegunExistencias(items, stock, sugerido);
+  return { texto, tipo: texto === TEXTO_SIN_EXISTENCIA ? 'warning' : 'info' };
 }
 
 /**
@@ -228,11 +293,8 @@ export function textoWhatsappRevision(
   const q = lineaQuien(orden);
   if (q) lineas.push(q);
   if (resumen.disponibles.length) {
-    lineas.push('✅ *TIENE:*');
-    for (const a of ALMACENES_REVISION) {
-      const de = resumen.disponibles.filter((l) => (l.almacen ?? 'los_pinos') === a.key);
-      if (de.length) lineas.push(`${a.icono} _${a.label}:_`, ...de.map(linea));
-    }
+    // 02/11/2026 · Solo Los Pinos entrega.
+    lineas.push('✅ *TIENE:*', `${ALMACEN_LOS_PINOS.icono} _${ALMACEN_LOS_PINOS.label}:_`, ...resumen.disponibles.map(linea));
   } else {
     lineas.push('✅ *TIENE:* nada de lo solicitado');
   }
