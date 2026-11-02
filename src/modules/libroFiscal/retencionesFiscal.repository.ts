@@ -113,6 +113,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     incluirFirma: bool('comprobante_firma', true),
     incluirSello: bool('comprobante_sello', true),
     incluirQr: bool('comprobante_qr', true),
+    buzonActivo: bool('buzon_activo', true),
   };
 }
 
@@ -142,6 +143,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     comprobante_firma: c.incluirFirma !== false,
     comprobante_sello: c.incluirSello !== false,
     comprobante_qr: c.incluirQr !== false,
+    buzon_activo: c.buzonActivo !== false,
   };
 }
 

@@ -82,7 +82,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
 import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
-import { p03Disponible, v2rDisponible } from './disponibilidad';
+import { p03Disponible, v2rDisponible, buzonDisponible } from './disponibilidad';
 import { RegistrarFacturaRetencion, type SemillaFactura } from './RegistrarFacturaRetencion';
 import { FacturasPorRegistrar } from './FacturasPorRegistrar';
 import { semillaDeFacturaOrigen } from './documentosOrigen.repository';
@@ -2278,7 +2278,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
 type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'firma' | 'vencimientos'
   | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores'
-  | 'compras' | 'empresas_fiscal';
+  | 'compras' | 'empresas_fiscal' | 'buzon_telefono';
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
@@ -2312,6 +2312,10 @@ const AJUSTES_PA: DefSeccionPa[] = [
     que: 'La configuración fiscal de cada empresa receptora: régimen (agente de IVA, especial, ISLR, ISAE) y porcentajes (IVA, IGTF, alícuota, ISAE).',
     ingresa: 'Por cada empresa: sus banderas de régimen, sus % de retención y su licencia municipal.',
     efecto: 'El libro, el registro y los reportes de esa empresa usan su propio régimen y sus %.', noCambia: 'La identidad de la empresa (nombre, RIF) se edita en el buzón. Lo ya registrado conserva sus valores.' },
+  { key: 'buzon_telefono', capa: 'ajustes', titulo: 'Buzón / Vista teléfono', linea: 'Activar el buzón de facturas del teléfono y el padrón de empresas receptoras.',
+    que: 'Si el buzón (vista teléfono) está disponible en el módulo y qué empresas reciben facturas.',
+    ingresa: 'El interruptor de activación del buzón. (El padrón de empresas se edita acá y en el buzón.)',
+    efecto: 'Enciende o apaga la pestaña del buzón y la vista de teléfono en Retenciones.', noCambia: 'Las facturas ya cargadas en el buzón.' },
 ];
 const AVANZADOS_PA: DefSeccionPa[] = [
   { key: 'impuestos', capa: 'avanzados', titulo: 'Impuestos y reglas', linea: 'Conceptos del ISLR: porcentaje por sujeto y si están activos.',
@@ -2383,16 +2387,20 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
   const [r3, setR3] = useState(false);
   const [r6, setR6] = useState(false);
   const [r8, setR8] = useState(false);
+  const [conBuzon, setConBuzon] = useState(false);
   useEffect(() => {
     void r8Disponible().then(setR8).catch(() => setR8(false));
     void r1Disponible().then(setR1).catch(() => setR1(false));
     void r2Disponible().then(setR2).catch(() => setR2(false));
     void r3Disponible().then(setR3).catch(() => setR3(false));
     void r6Disponible().then(setR6).catch(() => setR6(false));
+    void buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false));
   }, []);
   const visible = (s: DefSeccionPa) => s.key === 'empresas_fiscal'
     ? editorFiscalEmpresas != null   // solo con multi-empresa (Retenciones inyecta el editor)
-    : CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key)) || (r8 && CONECTADAS_R8.has(s.key));
+    : s.key === 'buzon_telefono'
+      ? conBuzon                      // C4a: solo con el buzón en la base
+      : CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key)) || (r8 && CONECTADAS_R8.has(s.key));
   const AJUSTES_VIS = AJUSTES_PA.filter(visible);
   const AVANZADOS_VIS = AVANZADOS_PA.filter(visible);
 
@@ -2817,6 +2825,23 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
 
           {/* ── Multi-empresa: config fiscal por empresa (editor inyectado desde Retenciones) ── */}
           {seccion === 'empresas_fiscal' && editorFiscalEmpresas}
+
+          {/* ── C4a (D6): Buzón / Vista teléfono: activar/ocultar. El padrón de empresas viene en C4b. ── */}
+          {seccion === 'buzon_telefono' && (
+            <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div className="card" style={{ background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                <strong style={{ display: 'block', marginBottom: '.35rem', fontSize: '.88rem' }}>📥 Buzón de facturas / Vista teléfono</strong>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer', fontWeight: 600 }}>
+                  <input type="checkbox" checked={cfg.buzonActivo !== false} onChange={(e) => set('buzonActivo', e.target.checked)} />
+                  <span>Activar el buzón y la vista de teléfono en Retenciones</span>
+                </label>
+                <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
+                  Si se desactiva, se ocultan la pestaña «Buzón Móvil» y el acceso «📱 Teléfono» del módulo. Las facturas ya cargadas no se tocan.
+                </p>
+              </div>
+              <p className="hint muted" style={{ fontSize: '.82rem' }}>El padrón de empresas receptoras se gestiona en el buzón; su edición unificada aquí llega en una próxima actualización.</p>
+            </fieldset>
+          )}
         </>
         );
       })()}

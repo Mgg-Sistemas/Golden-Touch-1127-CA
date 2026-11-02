@@ -92,6 +92,8 @@ export function RetencionesPage() {
   // R11: el buzón de facturas del teléfono, solo con sus tablas en la base.
   const [conBuzon, setConBuzon] = useState(false);
   useEffect(() => { buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false)); }, []);
+  // C4a (D6): el buzón se muestra si está en la base Y activado en Parámetros (config.buzonActivo).
+  const buzonVisible = conBuzon && configFiscal.buzonActivo !== false;
   // C-g: contador PERSISTENTE de facturas nuevas en el buzón (no depende de tener la vista
   // abierta). «Nuevas» = creadas después de la última vez que se abrió el buzón.
   const [buzonNuevas, setBuzonNuevas] = useState(0);
@@ -333,7 +335,7 @@ export function RetencionesPage() {
             <EmpresaActualSelector empresas={empresas} empresaId={empresaId} onChange={setEmpresaId} />
           )}
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
-          {conBuzon && puedeVista('retenciones') && (
+          {buzonVisible && puedeVista('retenciones') && (
             <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none', position: 'relative' }} title={buzonNuevas > 0 ? `${buzonNuevas} factura(s) nueva(s) en el buzón` : 'Abrir vista móvil de facturas'} onClick={marcarBuzonVisto}>
               📱 Teléfono
               {buzonNuevas > 0 && (
@@ -349,7 +351,7 @@ export function RetencionesPage() {
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
-            {conBuzon && (
+            {buzonVisible && (
               <button className={vista === 'buzon' ? 'active' : ''} onClick={() => { setVista('buzon'); marcarBuzonVisto(); }}>
                 📥 Buzón Móvil{buzonNuevas > 0 ? ` (${buzonNuevas})` : ''}
               </button>
@@ -379,7 +381,7 @@ export function RetencionesPage() {
       {vista === 'auditoria' && <AuditoriaRetenciones />}
 
       {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
-      {vista === 'buzon' && conBuzon && <BuzonFacturasExternasView />}
+      {vista === 'buzon' && buzonVisible && <BuzonFacturasExternasView />}
 
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}
