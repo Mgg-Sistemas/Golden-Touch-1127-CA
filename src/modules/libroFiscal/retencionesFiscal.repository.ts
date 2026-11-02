@@ -109,6 +109,9 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     ivaAlicuota: n(j.iva_alicuota) || CONFIG_RETENCION_DEFECTO.ivaAlicuota,
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
     imprimirOriginalYCopia: bool('imprimir_original_copia', true),
+    incluirLogo: bool('comprobante_logo', true),
+    incluirFirma: bool('comprobante_firma', true),
+    incluirSello: bool('comprobante_sello', true),
   };
 }
 
@@ -134,6 +137,9 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
     imprimir_original_copia: c.imprimirOriginalYCopia !== false,
+    comprobante_logo: c.incluirLogo !== false,
+    comprobante_firma: c.incluirFirma !== false,
+    comprobante_sello: c.incluirSello !== false,
   };
 }
 

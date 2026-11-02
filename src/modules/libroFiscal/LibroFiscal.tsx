@@ -202,15 +202,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [dispDigital, setDispDigital] = useState<{ tieneLogo: boolean; tieneFirma: boolean; tieneSello: boolean; tieneAlguno: boolean }>({
     tieneLogo: true, tieneFirma: false, tieneSello: true, tieneAlguno: true,
   });
-  const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConLogo') !== 'false'; } catch { return true; }
-  });
-  const [imprimirFirma, setImprimirFirma] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConFirma') !== 'false'; } catch { return true; }
-  });
-  const [imprimirSello, setImprimirSello] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConSello') !== 'false'; } catch { return true; }
-  });
+  // C2: incluir logo/firma/sello en el comprobante es FORMATO del documento → su fuente es
+  // la config (un solo editor en Parámetros). Estos estados son un override NO persistente
+  // para quitar algo en un PDF puntual; se sincronizan con la config al cargar (sin localStorage).
+  const [imprimirLogo, setImprimirLogo] = useState(true);
+  const [imprimirFirma, setImprimirFirma] = useState(true);
+  const [imprimirSello, setImprimirSello] = useState(true);
   // C1: «Original y Copia» ya no tiene espejo en localStorage ni estado propio: su única
   // fuente es la config (single) / la ficha (multi, vía configDesdeFicha). El PDF lo lee
   // de `config` directamente (opciones ?? config ?? true), así que no se pasa aparte.
@@ -235,6 +232,10 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     // Multi-empresa: una empresa NO-GT usa el régimen y los % de su ficha.
     const cfgEmpresa = empresaFicha ? configDesdeFicha(cfg, empresaFicha) : cfg;
     setFilas(rs); setConfig(cfgEmpresa); setErrorCarga(null);
+    // C2: el override de impresión arranca de la config (formato del documento).
+    setImprimirLogo(cfgEmpresa.incluirLogo !== false);
+    setImprimirFirma(cfgEmpresa.incluirFirma !== false);
+    setImprimirSello(cfgEmpresa.incluirSello !== false);
   }, [desde, hasta, empresaId, empresaFicha]);
 
   useEffect(() => {
@@ -737,10 +738,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 <input
                   type="checkbox"
                   checked={imprimirLogo}
-                  onChange={(e) => {
-                    setImprimirLogo(e.target.checked);
-                    try { localStorage.setItem('retenciones:imprimirConLogo', String(e.target.checked)); } catch { /* ignorar */ }
-                  }}
+                  onChange={(e) => setImprimirLogo(e.target.checked)}
                 />
                 <span>Logo</span>
               </label>
@@ -750,10 +748,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 <input
                   type="checkbox"
                   checked={imprimirFirma}
-                  onChange={(e) => {
-                    setImprimirFirma(e.target.checked);
-                    try { localStorage.setItem('retenciones:imprimirConFirma', String(e.target.checked)); } catch { /* ignorar */ }
-                  }}
+                  onChange={(e) => setImprimirFirma(e.target.checked)}
                 />
                 <span>Firma</span>
               </label>
@@ -763,10 +758,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 <input
                   type="checkbox"
                   checked={imprimirSello}
-                  onChange={(e) => {
-                    setImprimirSello(e.target.checked);
-                    try { localStorage.setItem('retenciones:imprimirConSello', String(e.target.checked)); } catch { /* ignorar */ }
-                  }}
+                  onChange={(e) => setImprimirSello(e.target.checked)}
                 />
                 <span>Sello</span>
               </label>
@@ -2627,6 +2619,18 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
                 </label>
                 <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
                   Cumplimiento de Providencias SENIAT (SNAT/2025/000054 IVA y Art. 24 D. 1808 ISLR). Si se desactiva, el comprobante se emitirá en una sola página (Solo Original).
+                </p>
+                {/* C2: incluir logo/firma/sello en el comprobante = formato del documento (una fuente). */}
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '.5rem', paddingTop: '.5rem', borderTop: '1px solid var(--border)' }}>
+                  {([['incluirLogo', 'Incluir logo'], ['incluirFirma', 'Incluir firma'], ['incluirSello', 'Incluir sello']] as const).map(([campo, etiqueta]) => (
+                    <label key={campo} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.84rem' }}>
+                      <input type="checkbox" checked={cfg[campo] !== false} onChange={(e) => set(campo, e.target.checked)} />
+                      <span>{etiqueta}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.78rem' }}>
+                  Se estampan si están cargados en Parámetros → Firma y sello. Al exportar se puede quitar alguno para un PDF puntual sin cambiar esta configuración.
                 </p>
               </div>
 

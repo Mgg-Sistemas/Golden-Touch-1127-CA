@@ -113,6 +113,11 @@ export interface ConfigRetencion {
   alicuotaMunicipal?: number;
   /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
   imprimirOriginalYCopia?: boolean;
+  // C2: incluir en el comprobante el logo / firma / sello digitales (si están cargados). Es
+  // FORMATO del documento (una fuente: config), no preferencia por-dispositivo. Default true.
+  incluirLogo?: boolean;
+  incluirFirma?: boolean;
+  incluirSello?: boolean;
 }
 
 /** Estatus del Kanban de compras que por defecto son abordables en Retenciones. */
@@ -141,6 +146,9 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   ivaAlicuota: 16,
   licenciaMunicipal: null,
   imprimirOriginalYCopia: true,
+  incluirLogo: true,
+  incluirFirma: true,
+  incluirSello: true,
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */
