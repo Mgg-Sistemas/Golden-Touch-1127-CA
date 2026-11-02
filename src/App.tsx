@@ -26,6 +26,7 @@ const ComidasMovilView = lazy(() => import('./modules/cocina/ComidasMovilView').
 const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
 const GeodestaPage = lazy(() => import('./modules/geodesta/GeodestaPage').then((m) => ({ default: m.GeodestaPage })));
 const TesoreriaPage = lazy(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
+const AdministracionPage = lazy(() => import('./modules/administracion/AdministracionPage').then((m) => ({ default: m.AdministracionPage })));
 const AsignacionesPage = lazy(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
 const ChoferesPage = lazy(() => import('./modules/choferes/ChoferesPage').then((m) => ({ default: m.ChoferesPage })));
 const VentasPage = lazy(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
@@ -148,6 +149,7 @@ export function App() {
           <Route path="maquinaria/repuestos-equipo" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><RepuestosPorEquipoPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/telefono" element={<RequireVistaTelefono vista="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
+          <Route path="administracion" element={<RequireModule module="administracion"><Suspense fallback={<PageLoader />}><AdministracionPage /></Suspense></RequireModule>} />
           <Route path="asignaciones" element={<RequireModule module="asignaciones"><Suspense fallback={<PageLoader />}><AsignacionesPage /></Suspense></RequireModule>} />
           <Route path="choferes" element={<RequireModule module="choferes"><Suspense fallback={<PageLoader />}><ChoferesPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
