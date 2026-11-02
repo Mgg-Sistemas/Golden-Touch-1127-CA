@@ -9,7 +9,7 @@
    ============================================================ */
 import type { FilaHistorialCruda } from './delivery.repository';
 import {
-  ALMACEN_RETIRO, UBICACION_VIEJA_MS, destinoDe, esRetiroAlmacen, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
+  ALMACEN_RETIRO, MOTIVO_RECIBIDA_ALMACEN, UBICACION_VIEJA_MS, destinoDe, esRetiroAlmacen, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
   minutosEntre, resumenPorDelivery, type EstadoDelivery, type OrigenDelivery, type PedidoDelivery,
 } from './delivery';
 
@@ -129,8 +129,11 @@ export interface FilaHistorialDelivery {
 export function armarFilasHistorial(rows: FilaCruda[], proveedores: Map<string, string>): FilaHistorialDelivery[] {
   return rows.map((r) => {
     const o = r.orden;
-    const estado = r.estado as EstadoDelivery;
     const retiro = r.origen === 'almacen';
+    // 02/11/2026: toma viva de una OC que Almacén ya recibió por su cuenta → cerrada «Recibida por Almacén»
+    // (igual que la muestra delivery_listado).
+    const recibidaPorAlmacen = !retiro && (r.estado === 'aceptado' || r.estado === 'en_ruta') && !!o?.recibida_en;
+    const estado = (recibidaPorAlmacen ? 'cancelado' : r.estado) as EstadoDelivery;
     return {
       id: r.id,
       orden_id: r.orden_id,
@@ -143,8 +146,8 @@ export function armarFilasHistorial(rows: FilaCruda[], proveedores: Map<string, 
       estado,
       en_ruta_en: r.en_ruta_en,
       entregado_en: r.entregado_en,
-      cancelado_en: r.cancelado_en,
-      motivo_cancel: r.motivo_cancel,
+      cancelado_en: recibidaPorAlmacen ? (o?.recibida_en ?? null) : r.cancelado_en,
+      motivo_cancel: recibidaPorAlmacen ? MOTIVO_RECIBIDA_ALMACEN : r.motivo_cancel,
       almacen_entrega: r.almacen_entrega,
       nota_entrega: r.nota_entrega ?? null,
       fotos: (Array.isArray(r.fotos_recibo) ? r.fotos_recibo.length : 0) + (Array.isArray(r.fotos_entrega) ? r.fotos_entrega.length : 0),
@@ -174,9 +177,10 @@ export type ResumenDelivery = ReturnType<typeof resumenPorDelivery>[number];
 
 /** Cuántos pedidos lleva cada delivery en el rango (cada cancelación cuenta, aunque la OC se haya retomado). */
 export function resumenHistorial(filas: FilaHistorialDelivery[]): ResumenDelivery[] {
-  // resumenPorDelivery solo lee estado, repartidor_nombre, aceptado_en y entregado_en.
+  // resumenPorDelivery solo lee estado, motivo_cancel, repartidor_nombre, aceptado_en y entregado_en.
   const comoPedidos = filas.map((f) => ({
-    estado: f.estado, repartidor_nombre: f.repartidor === '—' ? null : f.repartidor, aceptado_en: f.fecha, entregado_en: f.entregado_en,
+    estado: f.estado, motivo_cancel: f.motivo_cancel, repartidor_nombre: f.repartidor === '—' ? null : f.repartidor,
+    aceptado_en: f.fecha, entregado_en: f.entregado_en,
   })) as unknown as PedidoDelivery[];
   return resumenPorDelivery(comoPedidos);
 }

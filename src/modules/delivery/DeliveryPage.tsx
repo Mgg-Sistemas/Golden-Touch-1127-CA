@@ -31,7 +31,7 @@ import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ALMACEN_RETIRO, ESTADO_DELIVERY, MOTIVOS_CANCELACION, ORIGEN_DELIVERY, claveDelivery, destinoRetiro, esRetiroAlmacen,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, cerradoPorRecepcion, MOTIVOS_CANCELACION, ORIGEN_DELIVERY, claveDelivery, destinoRetiro, esRetiroAlmacen,
   etiquetaEstado, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe, rechazosDe, rotuloFotos,
   type FotoDelivery, type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
@@ -297,7 +297,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                         ))}
                       </td>
                       <td>
-                        <span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {etiquetaEstado(p.estado, p.origen)}</span>
+                        <span className={`badge ${est?.badge ?? ''}`}>{cerradoPorRecepcion(p) ? '📥' : est?.emoji} {etiquetaEstado(p.estado, p.origen, p.motivo_cancel)}</span>
                         {p.estado === 'cancelado' && p.motivo_cancel && <div className="muted" style={{ fontSize: '.75rem' }}>{p.motivo_cancel}</div>}
                       </td>
                       <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
@@ -544,7 +544,7 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
                     <td><strong>{f.oc}</strong></td>
                     <td>{f.proveedor}</td>
                     <td>{f.repartidor}</td>
-                    <td><span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {etiquetaEstado(f.estado, f.origen)}</span></td>
+                    <td><span className={`badge ${est?.badge ?? ''}`}>{cerradoPorRecepcion(f) ? '📥' : est?.emoji} {etiquetaEstado(f.estado, f.origen, f.motivo_cancel)}</span></td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.en_ruta_en) || '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duracionTxt(f.minutos)}</td>

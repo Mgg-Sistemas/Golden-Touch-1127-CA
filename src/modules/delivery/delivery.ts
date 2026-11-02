@@ -183,10 +183,35 @@ export function destinoDe(p: Pick<PedidoDelivery, 'origen' | 'almacen_entrega' |
   return (d ?? '').trim() || '—';
 }
 
+/**
+ * 02/11/2026: Almacén recibió la OC por su cuenta mientras el delivery la tenía (aceptada / en
+ * camino): la base la muestra cerrada como 'cancelado' con este motivo (supabase/2026-11-02-
+ * delivery-recepcion.sql). No es una cancelación del motorizado.
+ */
+export const MOTIVO_RECIBIDA_ALMACEN = 'Recibida por Almacén';
+
+/** ¿Quedó cerrada porque Almacén la recibió por su cuenta? */
+export function cerradoPorRecepcion(p: Pick<PedidoDelivery, 'estado' | 'motivo_cancel'>): boolean {
+  return p.estado === 'cancelado' && p.motivo_cancel === MOTIVO_RECIBIDA_ALMACEN;
+}
+
 /** Etiqueta del estado: un retiro «entregado» no va a un almacén sino a quien lo pidió. */
-export function etiquetaEstado(estado: EstadoDelivery, origen?: OrigenDelivery | null): string {
+export function etiquetaEstado(estado: EstadoDelivery, origen?: OrigenDelivery | null, motivoCancel?: string | null): string {
   if (estado === 'entregado' && origen === 'almacen') return 'Entregado';
+  if (estado === 'cancelado' && motivoCancel === MOTIVO_RECIBIDA_ALMACEN) return MOTIVO_RECIBIDA_ALMACEN;
   return ESTADO_DELIVERY[estado]?.label ?? estado;
+}
+
+/** 02/11/2026: al entregar la OC queda recibida en Inventario en este almacén (Los Pinos = General). */
+export function almacenRecepcion(p: Pick<PedidoDelivery, 'almacen_destino'>): string {
+  return (p.almacen_destino ?? '').trim() || 'General';
+}
+
+/** «General» es el inventario de Los Pinos: así se le muestra al motorizado. */
+export function almacenVisible(a: string | null | undefined): string {
+  const x = (a ?? '').trim();
+  if (!x) return '—';
+  return x === 'General' ? `${ALMACEN_RETIRO} (General)` : x;
 }
 
 /** Cómo se rotulan las fotos: «al recibir» del proveedor o «al retirar en Almacén». */
@@ -338,6 +363,8 @@ export function mensajeEntregado(p: PedidoDelivery, repartidor: string, almacen:
     lineaOrigen(p),
     retiro ? `🏬 *Entregado a:* ${almacen}` : `🏬 *Almacén:* ${almacen}`,
   ];
+  // 02/11/2026: la OC entregada queda recibida en Inventario (el retiro no mueve stock).
+  if (!retiro) l.push('📥 *Recibida en Inventario* (entra al stock del almacén)');
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
   if (p.fotos_entrega?.length) l.push(`📷 *Fotos de la entrega:* ${p.fotos_entrega.length}`);
@@ -354,7 +381,8 @@ export function resumenPorDelivery(pedidos: PedidoDelivery[]): Array<{
 }> {
   const acc = new Map<string, { entregados: number; cancelados: number; enCurso: number; minutos: number[] }>();
   for (const p of pedidos) {
-    if (!p.repartidor_nombre || p.estado === 'por_tomar') continue;
+    // «Recibida por Almacén» no es trabajo ni cancelación del motorizado: no cuenta.
+    if (!p.repartidor_nombre || p.estado === 'por_tomar' || cerradoPorRecepcion(p)) continue;
     const a = acc.get(p.repartidor_nombre) ?? { entregados: 0, cancelados: 0, enCurso: 0, minutos: [] };
     if (p.estado === 'entregado') {
       a.entregados++;

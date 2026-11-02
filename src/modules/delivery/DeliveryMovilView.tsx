@@ -25,22 +25,23 @@
      pedido sigue libre para los demás (al que lo marcó ya no le sale).
    · La tarjeta ya no trae la lista de renglones: dice «📦 N productos» y
      «📋 Ver orden» la despliega (y «Ocultar orden» la pliega).
+   · «Entregado» de una OC la deja RECIBIDA en Inventario (Almacén Los Pinos /
+     General): ya no se elige almacén. Si Almacén la recibió antes por su
+     cuenta, el pedido se cierra («Recibida por Almacén») y sale del teléfono.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { nombreYApellido, quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
-import type { Almacen } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { Quien } from '@/shared/ui/Quien';
 import {
-  ALMACEN_RETIRO, ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery, destinoRetiro,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, almacenRecepcion, almacenVisible, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery, destinoRetiro,
   esRetiroAlmacen, etiquetaEstado, fechaHoraVE, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
   mensajeNoDisponible, montoTxt, motivoNoDisponible, ocDe, type FotoDelivery, type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
@@ -94,7 +95,6 @@ export function DeliveryMovilView() {
   const [activos, setActivos] = useState<PedidoDelivery[]>([]);
   const [cerrados, setCerrados] = useState<PedidoDelivery[]>([]);
   const [rechazos, setRechazos] = useState<RechazoDelivery[]>([]);
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [chip, setChip] = useState<ChipDelivery>('todos');
   const [accion, setAccion] = useState<Accion | null>(null);
@@ -127,18 +127,6 @@ export function DeliveryMovilView() {
   }, [reload]);
   useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => { void reload().catch(() => {}); });
 
-  useEffect(() => {
-    let vivo = true;
-    // GT: el almacén principal (General · Peramanal) y los depósitos activos; sin subalmacenes.
-    listAlmacenes()
-      .then((as) => {
-        if (!vivo) return;
-        setAlmacenes(as.filter((a) => a.estado === 'activo' && !a.parent_id)
-          .sort((a, b) => (a.sede ?? '').localeCompare(b.sede ?? '', 'es') || a.nombre.localeCompare(b.nombre, 'es')));
-      })
-      .catch(() => { /* sin lista: se entrega en el almacén de la OC */ });
-    return () => { vivo = false; };
-  }, []);
 
   const uid = user?.id ?? null;
   const feed = useMemo(() => armarFeed(activos, cerrados, rechazadosPor(rechazos, uid)), [activos, cerrados, rechazos, uid]);
@@ -237,7 +225,7 @@ export function DeliveryMovilView() {
         <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
       {accion?.tipo === 'entregar' && pedidoAccion && (
-        <FormEntregar p={pedidoAccion} almacenes={almacenes} quien={quien} onCancel={volver} onHecho={hecho} />
+        <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
       {accion?.tipo === 'no_disponible' && pedidoAccion && (
         <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
@@ -330,7 +318,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponibl
         </div>
         <div className="dlv-badges">
           {p.urgente && <span className="badge danger">🚨 Urgente</span>}
-          <span className={`badge ${estado.badge}`}>{estado.emoji} {disponible ? estado.label : etiquetaEstado(p.estado, p.origen)}</span>
+          <span className={`badge ${estado.badge}`}>{estado.emoji} {disponible ? estado.label : etiquetaEstado(p.estado, p.origen, p.motivo_cancel)}</span>
         </div>
       </div>
 
@@ -582,12 +570,12 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
 
 /* ── Entregado en almacén ── */
 
-function FormEntregar({ p, almacenes, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; almacenes: Almacen[]; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+function FormEntregar({ p, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
   // 02/11/2026: el retiro de Almacén se entrega A una unidad / persona, no en un almacén.
   if (esRetiroAlmacen(p)) return <FormEntregarRetiro p={p} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
-  return <FormEntregarAlmacen p={p} almacenes={almacenes} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
+  return <FormEntregarAlmacen p={p} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
 }
 
 function FormEntregarRetiro({ p, quien, onCancel, onHecho }: {
@@ -698,28 +686,26 @@ function NoDisponibleModal({ p, quien, onCancel, onHecho }: {
   );
 }
 
-function FormEntregarAlmacen({ p, almacenes, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; almacenes: Almacen[]; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+/**
+ * 02/11/2026: la OC entregada queda RECIBIDA en Inventario (la base hace la recepción completa:
+ * stock, kardex y estado de la orden). Entra al almacén de la OC; sin almacén, al General
+ * = Almacén Los Pinos. Por eso ya no se elige el almacén aquí.
+ */
+function FormEntregarAlmacen({ p, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
-  const [almacen, setAlmacen] = useState(p.almacen_destino ?? '');
+  const almacen = almacenRecepcion(p);
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
-
-  // La OC trae su almacén; si no está entre los activos, igual se ofrece.
-  const opciones = useMemo(() => {
-    const ns = almacenes.map((a) => a.nombre);
-    return p.almacen_destino && !ns.includes(p.almacen_destino) ? [p.almacen_destino, ...ns] : ns;
-  }, [almacenes, p.almacen_destino]);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (!p.pedido_id) return;
-    if (!almacen) { toast('Elige el almacén donde lo entregaste.', 'error'); return; }
     setGuardando(true);
     try {
       await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
-      toast(`Orden ${ocDe(p)} entregada.`, 'success');
-      onHecho('Entregado en almacén', mensajeEntregado(p, quien, nombreAlmacenVisible(almacen), nota));
+      toast(`Orden ${ocDe(p)} entregada y recibida en Inventario (${almacenVisible(almacen)}).`, 'success');
+      onHecho('Entregado en almacén', mensajeEntregado(p, quien, almacenVisible(almacen), nota));
     } catch (err) {
       toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
     } finally { setGuardando(false); }
@@ -731,13 +717,10 @@ function FormEntregarAlmacen({ p, almacenes, quien, onCancel, onHecho }: {
         <span className="icono" aria-hidden>📦</span>
         <div><strong>Entregado en almacén</strong><div className="muted" style={{ fontSize: '.85rem' }}>{ocDe(p)} · {p.proveedor_nombre ?? '—'}</div></div>
       </div>
-      <div className="surt-campo">
-        <label htmlFor="dlv-ent-almacen">Almacén</label>
-        <select id="dlv-ent-almacen" className="select input surt-input" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-          {!almacen && <option value="">Elegir…</option>}
-          {opciones.map((n) => <option key={n} value={n}>{nombreAlmacenVisible(n)}</option>)}
-        </select>
-        {p.almacen_destino && <small className="muted">La OC indica entregar en {nombreAlmacenVisible(p.almacen_destino)}.</small>}
+      <div className="aviso info sm">
+        <span className="aviso-icono">📥</span>
+        <div>Al confirmar, la orden queda <strong>recibida en Inventario</strong> en <strong>{almacenVisible(almacen)}</strong> con todas sus cantidades
+          (los servicios no suman stock). Si llegó incompleta, no la confirmes: avisa a Almacén para que la reciba desde Pedidos.</div>
       </div>
       <div className="surt-campo">
         <label htmlFor="dlv-ent-nota">Nota (opcional)</label>
@@ -749,7 +732,7 @@ function FormEntregarAlmacen({ p, almacenes, quien, onCancel, onHecho }: {
       )}
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
-        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando || !almacen}>
+        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando}>
           {guardando ? 'Guardando…' : '✅ Confirmar entrega'}
         </button>
       </div>
