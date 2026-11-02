@@ -127,6 +127,13 @@ export function EditorFichasFiscalesEmpresa({ puedeEditar }: { puedeEditar: bool
               </div>
             </div>
 
+            {/* C1: «Original y Copia» del comprobante, por empresa, en UN solo lugar (su única fuente es la ficha). */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: dis ? 'default' : 'pointer', fontSize: '.86rem' }}>
+              <input type="checkbox" disabled={dis} checked={d.imprimirOriginalYCopia !== false}
+                onChange={(ev) => editar(e.id, { imprimirOriginalYCopia: ev.target.checked })} />
+              Imprimir el comprobante en Original y Copia
+            </label>
+
             {puedeEditar && (
               <div>
                 <button type="button" className="btn btn-sm btn-primary" disabled={dis} onClick={() => void guardar(e.id)}>

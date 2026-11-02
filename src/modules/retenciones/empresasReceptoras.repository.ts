@@ -170,23 +170,24 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
     municipio: empresa.municipio?.trim() || null,
     estado: empresa.estado?.trim() || null,
     licencia_municipal: empresa.licenciaMunicipal?.trim() || null,
-    pct_iva_general: empresa.pctIvaGeneral ?? 75,
-    imprimir_original_y_copia: empresa.imprimirOriginalYCopia ?? true,
   };
 
   // Campos que solo se escriben si vienen definidos (el editor que los maneja es quien los
-  // manda; el resto de los flujos no los toca). D2b: las banderas de RÉGIMEN entran aquí —
-  // su fuente es L6 (Parámetros → Régimen), así que ningún editor de ficha las manda y no se
-  // pisan al guardar la ficha (quedan como dato muerto, igual que los % de F-ME1).
+  // manda; el resto de los flujos no los toca → no los pisan). D2b: las banderas de RÉGIMEN
+  // (su fuente es L6, Parámetros → Régimen). C1/C3: imprimir_original_y_copia (su editor es la
+  // config/EditorFichas, no el buzón) y pct_iva_general (nacional). Así el alta/edición de
+  // identidad en el buzón no pisa lo fiscal; quedan como dato que gobierna su propio editor.
   const filaFiscal: Record<string, unknown> = {};
   if (empresa.esAgenteRetencionIva !== undefined) filaFiscal.es_agente_iva = empresa.esAgenteRetencionIva;
   if (empresa.esContribuyenteEspecial !== undefined) filaFiscal.es_contribuyente_especial = empresa.esContribuyenteEspecial;
   if (empresa.retieneIslr !== undefined) filaFiscal.retiene_islr = empresa.retieneIslr;
   if (empresa.retieneMunicipal !== undefined) filaFiscal.retiene_municipal = empresa.retieneMunicipal;
+  if (empresa.pctIvaGeneral !== undefined) filaFiscal.pct_iva_general = empresa.pctIvaGeneral;
   if (empresa.pctIvaEspecial !== undefined) filaFiscal.pct_iva_especial = empresa.pctIvaEspecial;
   if (empresa.pctIgtf !== undefined) filaFiscal.pct_igtf = empresa.pctIgtf;
   if (empresa.ivaAlicuota !== undefined) filaFiscal.iva_alicuota = empresa.ivaAlicuota;
   if (empresa.alicuotaMunicipal !== undefined) filaFiscal.alicuota_municipal = empresa.alicuotaMunicipal;
+  if (empresa.imprimirOriginalYCopia !== undefined) filaFiscal.imprimir_original_y_copia = empresa.imprimirOriginalYCopia;
   const fila = { ...filaBase, ...filaFiscal };
 
   const textos = { unico: 'Ya hay una empresa con ese nombre corto: usa otro.' };

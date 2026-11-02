@@ -211,9 +211,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [imprimirSello, setImprimirSello] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConSello') !== 'false'; } catch { return true; }
   });
-  const [imprimirOriginalYCopia, setImprimirOriginalYCopia] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false'; } catch { return true; }
-  });
+  // C1: «Original y Copia» ya no tiene espejo en localStorage ni estado propio: su única
+  // fuente es la config (single) / la ficha (multi, vía configDesdeFicha). El PDF lo lee
+  // de `config` directamente (opciones ?? config ?? true), así que no se pasa aparte.
 
   useEffect(() => {
     let vivo = true;
@@ -235,9 +235,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     // Multi-empresa: una empresa NO-GT usa el régimen y los % de su ficha.
     const cfgEmpresa = empresaFicha ? configDesdeFicha(cfg, empresaFicha) : cfg;
     setFilas(rs); setConfig(cfgEmpresa); setErrorCarga(null);
-    if (cfgEmpresa.imprimirOriginalYCopia !== undefined) {
-      setImprimirOriginalYCopia(cfgEmpresa.imprimirOriginalYCopia !== false);
-    }
   }, [desde, hasta, empresaId, empresaFicha]);
 
   useEffect(() => {
@@ -462,7 +459,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
-        imprimirOriginalYCopia,
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
@@ -479,7 +475,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
-        imprimirOriginalYCopia,
       });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron generar los comprobantes', 'error');
@@ -2443,7 +2438,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
     setSaving(true); setError(null);
     try {
       await guardarConfigRetencion({ ...cfg, rif: rifEmpresa.rif || cfg.rif }, locales, { conservarRegimen: r1, conservarParametros: r3 });
-      try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(cfg.imprimirOriginalYCopia !== false)); } catch { /* ignorar */ }
+      // C1: sin espejo en localStorage — «Original y Copia» se guarda en la config (su única fuente).
       toast('Parámetros fiscales guardados', 'success');
       onClose();
     } catch (e) {

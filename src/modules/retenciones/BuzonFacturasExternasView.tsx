@@ -1131,18 +1131,13 @@ function ModalFichaFiscalEmpresa({
   const [direccionFiscal, setDireccionFiscal] = useState(empresa.direccionFiscal || '');
   const [municipio, setMunicipio] = useState(empresa.municipio || '');
   const [estado, setEstado] = useState(empresa.estado || '');
-  const [licenciaMunicipal, setLicenciaMunicipal] = useState(empresa.licenciaMunicipal || '');
 
-  // D2b: el régimen (agente IVA/especial/ISLR/municipal) ya NO se edita acá; su fuente es
-  // L6 (Parámetros → Régimen). Este editor no lo manda, así que guardarEmpresaReceptora no lo pisa.
-  const [pctIvaGeneral, setPctIvaGeneral] = useState(empresa.pctIvaGeneral ?? 75);
-  const [imprimirOriginalYCopia, setImprimirOriginalYCopia] = useState(empresa.imprimirOriginalYCopia ?? true);
+  // C3/D2b: este editor del buzón es SOLO identidad y contacto. Lo FISCAL por empresa
+  // (régimen, % de IVA, alícuotas, licencia RIM, original y copia) se edita en Parámetros →
+  // Config fiscal por empresa / Régimen. Aquí no se manda, así que no se pisa al guardar.
 
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
-
-  // Las opciones de % de retención de IVA; si la ficha trae otro valor, también se muestra.
-  const opcionesPct = pctIvaGeneral === 75 || pctIvaGeneral === 100 ? [75, 100] : [75, 100, pctIvaGeneral];
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -1161,9 +1156,7 @@ function ModalFichaFiscalEmpresa({
       direccionFiscal: direccionFiscal.trim() || undefined,
       municipio: municipio.trim() || undefined,
       estado: estado.trim() || undefined,
-      licenciaMunicipal: licenciaMunicipal.trim() || undefined,
-      pctIvaGeneral,
-      imprimirOriginalYCopia,
+      // C3: sin campos fiscales (licencia/% IVA/original y copia); se editan en Parámetros.
     };
 
     const falta = !esColorValido(colorBadge) ? 'Elige el color de la empresa.' : faltaEnEmpresa(input);
@@ -1302,36 +1295,17 @@ function ModalFichaFiscalEmpresa({
                 onChange={(e) => setEstado(e.target.value)}
               />
             </div>
-            <div>
-              <label style={etiqueta}>N° de licencia municipal (patente)</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                value={licenciaMunicipal}
-                maxLength={LARGO.licencia}
-                onChange={(e) => setLicenciaMunicipal(e.target.value)}
-              />
-            </div>
           </div>
         </div>
 
-        {/* 3. Opciones del comprobante (D2b: el RÉGIMEN se edita en Parámetros → Régimen, L6, una sola fuente). */}
+        {/* 3. Opciones (C3: lo FISCAL por empresa —régimen, % de IVA, alícuotas, licencia RIM,
+            original y copia— se edita en Parámetros → Config fiscal por empresa / Régimen. Acá, identidad). */}
         <div className="buzon-ficha-fiscal-seccion">
-          <h4>⚙️ Opciones del comprobante</h4>
+          <h4>⚙️ Opciones</h4>
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
-            El régimen (agente de retención de {rotuloImpuesto('IVA')}, contribuyente especial, {rotuloImpuesto('ISLR')}, {rotuloImpuesto('MUNICIPAL')}) se edita en Parámetros → Régimen.
+            Los datos fiscales por empresa (régimen, % de {rotuloImpuesto('IVA')}, alícuotas, licencia municipal, original y copia) se editan en Parámetros → Config fiscal por empresa.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.6rem', marginBottom: '0.6rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={imprimirOriginalYCopia}
-                onChange={(e) => setImprimirOriginalYCopia(e.target.checked)}
-              />
-              <span>Comprobantes con original y copia</span>
-            </label>
-
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -1343,21 +1317,6 @@ function ModalFichaFiscalEmpresa({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.82rem', fontWeight: 700 }}>% de retención de {rotuloImpuesto('IVA')}:</label>
-              <select
-                className="select sm"
-                value={pctIvaGeneral}
-                onChange={(e) => setPctIvaGeneral(Number(e.target.value))}
-              >
-                {opcionesPct.map((p) => (
-                  <option key={p} value={p}>
-                    {p === 75 ? '75 % (general)' : `${num(p)} %`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <label style={{ fontSize: '0.82rem', fontWeight: 700 }}>Color de la empresa:</label>
               <input
