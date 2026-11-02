@@ -44,11 +44,9 @@ export interface EmpresaReceptora {
   estado?: string;
   licenciaMunicipal?: string;
 
-  // Régimen fiscal y condición de agente
-  esAgenteRetencionIva?: boolean;
-  esContribuyenteEspecial?: boolean;
-  retieneIslr?: boolean;
-  retieneMunicipal?: boolean;
+  // % y alícuotas de la empresa. El RÉGIMEN (qué retiene: IVA/ISLR/ISAE) NO vive acá:
+  // su única fuente es L6 (Parámetros → Régimen), vía la RPC retencion_empresa_practica.
+  // Los % los lee configDesdeFicha para una empresa NO-GT; su recorte definitivo es de D3.
   pctIvaGeneral?: number;
   /** % de retención de IVA al contribuyente especial (F-ME1, default 100). */
   pctIvaEspecial?: number;
@@ -81,10 +79,6 @@ function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaRece
     municipio: texto(r.municipio),
     estado: texto(r.estado),
     licenciaMunicipal: texto(r.licencia_municipal),
-    esAgenteRetencionIva: r.es_agente_iva !== false,
-    esContribuyenteEspecial: r.es_contribuyente_especial === true,
-    retieneIslr: r.retiene_islr !== false,
-    retieneMunicipal: r.retiene_municipal === true,
     pctIvaGeneral: r.pct_iva_general != null ? Number(r.pct_iva_general) : 75,
     // Los campos fiscales de F-ME1 quedan en undefined si la base no los trae todavía:
     // así el guardado no los escribe (no rompe pre-F-ME1) y la config cae en su default.
@@ -172,20 +166,12 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
     licencia_municipal: empresa.licenciaMunicipal?.trim() || null,
   };
 
-  // Campos que solo se escriben si vienen definidos (el editor que los maneja es quien los
-  // manda; el resto de los flujos no los toca → no los pisan). D2b: las banderas de RÉGIMEN
-  // (su fuente es L6, Parámetros → Régimen). C1/C3: imprimir_original_y_copia (su editor es la
-  // config/EditorFichas, no el buzón) y pct_iva_general (nacional). Así el alta/edición de
-  // identidad en el buzón no pisa lo fiscal; quedan como dato que gobierna su propio editor.
+  // Lo por-empresa del comprobante que SÍ gobierna esta ficha: la alícuota municipal (ISAE)
+  // y si imprime en Original y Copia. Se escriben solo si vienen definidos (presence-gate), así
+  // el alta/edición de identidad en el buzón no los pisa. El RÉGIMEN (qué retiene) y los %
+  // nacionales NO se escriben desde aquí: su fuente es L6 (Parámetros → Régimen) y R3
+  // (Parámetros → Valores); el editor único nunca manda esos campos.
   const filaFiscal: Record<string, unknown> = {};
-  if (empresa.esAgenteRetencionIva !== undefined) filaFiscal.es_agente_iva = empresa.esAgenteRetencionIva;
-  if (empresa.esContribuyenteEspecial !== undefined) filaFiscal.es_contribuyente_especial = empresa.esContribuyenteEspecial;
-  if (empresa.retieneIslr !== undefined) filaFiscal.retiene_islr = empresa.retieneIslr;
-  if (empresa.retieneMunicipal !== undefined) filaFiscal.retiene_municipal = empresa.retieneMunicipal;
-  if (empresa.pctIvaGeneral !== undefined) filaFiscal.pct_iva_general = empresa.pctIvaGeneral;
-  if (empresa.pctIvaEspecial !== undefined) filaFiscal.pct_iva_especial = empresa.pctIvaEspecial;
-  if (empresa.pctIgtf !== undefined) filaFiscal.pct_igtf = empresa.pctIgtf;
-  if (empresa.ivaAlicuota !== undefined) filaFiscal.iva_alicuota = empresa.ivaAlicuota;
   if (empresa.alicuotaMunicipal !== undefined) filaFiscal.alicuota_municipal = empresa.alicuotaMunicipal;
   if (empresa.imprimirOriginalYCopia !== undefined) filaFiscal.imprimir_original_y_copia = empresa.imprimirOriginalYCopia;
   const fila = { ...filaBase, ...filaFiscal };

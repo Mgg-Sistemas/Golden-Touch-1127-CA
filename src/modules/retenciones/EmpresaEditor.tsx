@@ -66,23 +66,46 @@ export function EmpresaEditor({ empresa, modo, onGuardada, onClose, idForm }: {
   };
 
   function construirInput(): EmpresaReceptoraInput {
+    // Pick EXPLÍCITO (nada de `...empresa`): el editor único arma SOLO identidad/contacto y lo
+    // por-empresa del comprobante (alícuota municipal, licencia, original/copia). NUNCA el
+    // RÉGIMEN (qué retiene) ni los % nacionales: su fuente es Parámetros → Régimen (L6) y
+    // Parámetros → Valores (R3), no esta ficha. Los campos que el modo no edita se conservan
+    // de la empresa para no blanquearlos al guardar.
+    const prev = empresa;
+
     if (verFiscal) {
-      // Edición fiscal de una empresa existente: se parte de ella (conserva identidad y lo que
-      // no se toca) y solo se pisan los campos fiscales por-empresa.
+      // Modo fiscal: edita alícuota municipal, licencia y original/copia; la identidad se
+      // conserva tal cual de la empresa.
+      const e = prev as EmpresaReceptora;
       return {
-        ...(empresa as EmpresaReceptora),
-        alicuotaMunicipal: alicuotaMunicipal.trim() === '' ? undefined : Number(alicuotaMunicipal),
+        id: e.id, clave: e.clave, orden: e.orden,
+        nombre: e.nombre, nombreCorto: e.nombreCorto, rif: e.rif,
+        colorBadge: e.colorBadge, activo: e.activo,
+        email: e.email, telefono: e.telefono, direccionFiscal: e.direccionFiscal,
+        municipio: e.municipio, estado: e.estado,
         licenciaMunicipal: licenciaMunicipal.trim() || undefined,
+        alicuotaMunicipal: alicuotaMunicipal.trim() === '' ? undefined : Number(alicuotaMunicipal),
         imprimirOriginalYCopia,
       };
     }
-    // Identidad (rápido o completo). En edición se parte de la empresa para no perder lo demás.
-    const base: EmpresaReceptoraInput = esEdicion
-      ? { ...(empresa as EmpresaReceptora) }
-      : { nombre: '', rif: '', colorBadge: COLOR_POR_DEFECTO, activo: true };
-    base.nombre = nombre.trim();
-    base.nombreCorto = nombreCorto.trim() || undefined;
-    base.rif = rif.trim();
+
+    // Rápido e identidad. Base: claves de fila (en edición) y lo que este modo no edita,
+    // conservado de la empresa. La alícuota municipal y original/copia quedan FUERA del input
+    // → el presence-gate del repo no los pisa.
+    const base: EmpresaReceptoraInput = {
+      id: prev?.id, clave: prev?.clave, orden: prev?.orden,
+      nombre: nombre.trim(),
+      nombreCorto: nombreCorto.trim() || undefined,
+      rif: rif.trim(),
+      colorBadge: prev?.colorBadge ?? COLOR_POR_DEFECTO,
+      activo: prev?.activo ?? true,
+      email: prev?.email,
+      telefono: prev?.telefono,
+      direccionFiscal: prev?.direccionFiscal,
+      municipio: prev?.municipio,
+      estado: prev?.estado,
+      licenciaMunicipal: prev?.licenciaMunicipal,
+    };
     if (verContacto) {
       base.colorBadge = colorBadge;
       base.activo = activo;
