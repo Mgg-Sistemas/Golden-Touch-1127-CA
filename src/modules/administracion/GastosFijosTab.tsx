@@ -1,0 +1,135 @@
+/* ============================================================
+   Golden Touch · Administración · pestaña «Gastos fijos»
+   Lista de PLANTILLAS de la empresa elegida (o de todas), con alta/edición.
+   El próximo vencimiento sale de administracionCalculo.ts (de Master); la
+   tabla tiene scroll horizontal en móvil (regla ui-ux). Sin recurrencia aún.
+   ============================================================ */
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from '@/shared/ui/Toast';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { proximoVencimiento, type Periodicidad } from './administracionCalculo';
+import type { AdminRepo, Empresa, GastoFijo, OpcionRef } from './admin.repository';
+import { GastoFijoModal } from './GastoFijoModal';
+
+const PERIOD_LABEL: Record<Periodicidad, string> = {
+  mensual: 'Mensual', bimensual: 'Bimensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual',
+};
+const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const montoFmt = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export function GastosFijosTab({ repo, empresaClave, empresas }: {
+  repo: AdminRepo;
+  /** Clave de la empresa elegida, o null = todas. */
+  empresaClave: string | null;
+  empresas: Empresa[];
+}) {
+  const [gastos, setGastos] = useState<GastoFijo[]>([]);
+  const [categorias, setCategorias] = useState<OpcionRef[]>([]);
+  const [proveedores, setProveedores] = useState<OpcionRef[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [modal, setModal] = useState<{ gasto: GastoFijo | null } | null>(null);
+
+  const nombreCat = useMemo(() => new Map(categorias.map((c) => [c.id, c.nombre])), [categorias]);
+  const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    setError(null);
+    try {
+      const [gs, cats, provs] = await Promise.all([
+        repo.listGastosFijos(empresaClave ?? undefined),
+        repo.listCategorias().catch(() => [] as OpcionRef[]),
+        repo.listProveedores().catch(() => [] as OpcionRef[]),
+      ]);
+      setGastos(gs);
+      setCategorias(cats);
+      setProveedores(provs);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron leer los gastos fijos.');
+    } finally {
+      setCargando(false);
+    }
+  }, [repo, empresaClave]);
+
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  async function alternarEstado(g: GastoFijo) {
+    const nuevo = g.estado === 'activo' ? 'suspendido' : 'activo';
+    try {
+      await repo.setEstadoGastoFijo(g.id, nuevo);
+      toast(nuevo === 'activo' ? 'Gasto fijo reactivado.' : 'Gasto fijo suspendido.', 'success');
+      await cargar();
+    } catch (e) {
+      toast(`No se pudo cambiar el estado: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    }
+  }
+
+  const mostrarEmpresa = empresaClave == null;
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+        <span>Gastos fijos {empresaClave ? `· ${nombreEmp.get(empresaClave) ?? empresaClave}` : '· todas las empresas'}</span>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>
+      </div>
+
+      {error && <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No se pudo leer: {/sesi|jwt|auth|401|permission|relation|does not exist/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>}
+
+      {cargando ? (
+        <p className="muted" style={{ marginTop: '.5rem' }}>Leyendo gastos fijos…</p>
+      ) : gastos.length === 0 && !error ? (
+        <EmptyState icon="🧾" message={empresaClave ? 'Esta empresa no tiene gastos fijos aún.' : 'No hay gastos fijos cargados.'} />
+      ) : (
+        <div className="adm-tabla" style={{ marginTop: '.6rem' }}>
+          <table>
+            <thead>
+              <tr>
+                {mostrarEmpresa && <th>Empresa</th>}
+                <th>Concepto</th>
+                <th>Proveedor</th>
+                <th style={{ textAlign: 'right' }}>Monto</th>
+                <th>Periodicidad</th>
+                <th>Próx. vencimiento</th>
+                <th>Categoría</th>
+                <th>Estado</th>
+                <th aria-label="Acciones" />
+              </tr>
+            </thead>
+            <tbody>
+              {gastos.map((g) => (
+                <tr key={g.id} style={g.estado === 'activo' ? undefined : { opacity: 0.6 }}>
+                  {mostrarEmpresa && <td className="mono">{g.empresaClave}</td>}
+                  <td>{g.concepto}</td>
+                  <td>{g.proveedorNombre ?? '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoFmt(g.monto)} {g.moneda}</td>
+                  <td>{PERIOD_LABEL[g.periodicidad]}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{fFecha.format(proximoVencimiento(g))}</td>
+                  <td>{g.categoriaGastoId ? (nombreCat.get(g.categoriaGastoId) ?? '—') : '—'}</td>
+                  <td>{g.estado === 'activo' ? 'Activo' : 'Suspendido'}</td>
+                  <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModal({ gasto: g })}>Editar</button>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void alternarEstado(g)}>{g.estado === 'activo' ? 'Suspender' : 'Activar'}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal && (
+        <GastoFijoModal
+          repo={repo}
+          empresas={empresas}
+          empresaClaveFija={empresaClave}
+          categorias={categorias}
+          proveedores={proveedores}
+          gasto={modal.gasto}
+          onClose={() => setModal(null)}
+          onSaved={() => void cargar()}
+        />
+      )}
+    </div>
+  );
+}

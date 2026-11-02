@@ -1,53 +1,106 @@
-import { useState } from 'react';
+/* ============================================================
+   Golden Touch · Administración — «Gastos fijos por servicio»
+   Multi-empresa (lista propia del módulo): la cabecera trae el selector de
+   EMPRESA (activas + «Todas»), recordado por navegador, y «⚙ Gestionar
+   empresas». Toda la vista se filtra por la empresa elegida. Tres pestañas:
+   Gastos fijos (viva) · Movimientos/Histórico · Reporte (Fase 2/3).
+   Estilo del sistema (view-toggle, tarjetas, tokens). Los datos entran por
+   un repo inyectado: Supabase en la app; en memoria en la demo (DEV).
+   ============================================================ */
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { crearRepoSupabase, type AdminRepo, type Empresa } from './admin.repository';
+import { crearPreferenciasAdmin, TODAS, type PreferenciasAdmin, type TabAdmin } from './administracionPreferencias';
+import { EmpresasModal } from './EmpresasModal';
+import { GastosFijosTab } from './GastosFijosTab';
+import './administracion.css';
 
-/**
- * Módulo Administración — «Gastos fijos por servicio».
- * Andamiaje (Fase 0): las tres pestañas, SIN lógica todavía. El estilo sigue a
- * Tesorería (cabecera + `view-toggle`, tarjetas y tokens del sistema); nada de
- * estética nueva. La lógica (plantillas, histórico, reporte) llega en fases.
- */
-type Vista = 'gastos' | 'movimientos' | 'reporte';
-
-const PESTANAS: { id: Vista; label: string; prepara: string }[] = [
-  { id: 'gastos', label: '📌 Gastos fijos', prepara: 'Plantillas de gasto fijo por servicio: servicio, proveedor, monto, periodicidad y próximo vencimiento.' },
-  { id: 'movimientos', label: '📒 Movimientos / Histórico', prepara: 'Histórico de movimientos y su carga: importación de archivo para el inicial y alta manual para el día a día.' },
-  { id: 'reporte', label: '📊 Reporte', prepara: 'Reporte con filtros, totales por categoría y moneda, exportación a PDF y Excel, y mensaje de WhatsApp para pegar.' },
+const PESTANAS: { id: TabAdmin; label: string }[] = [
+  { id: 'gastos', label: '📌 Gastos fijos' },
+  { id: 'movimientos', label: '📒 Movimientos / Histórico' },
+  { id: 'reporte', label: '📊 Reporte' },
 ];
+const PROXIMAMENTE: Record<Exclude<TabAdmin, 'gastos'>, string> = {
+  movimientos: 'Histórico de movimientos y su carga (importación de archivo y alta manual).',
+  reporte: 'Reporte con filtros, totales por categoría y moneda, exportación a PDF y Excel, y mensaje de WhatsApp para pegar.',
+};
 
-export function AdministracionPage() {
-  const [vista, setVista] = useState<Vista>('gastos');
-  const activa = PESTANAS.find((p) => p.id === vista) ?? PESTANAS[0];
+export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso }: {
+  repo?: AdminRepo;
+  prefs?: PreferenciasAdmin;
+  /** Franja arriba de todo (la demo avisa que es de prueba). */
+  aviso?: ReactNode;
+} = {}) {
+  const repo = useMemo(() => repoDado ?? crearRepoSupabase(), [repoDado]);
+  const prefs = useMemo(() => prefsDadas ?? crearPreferenciasAdmin(), [prefsDadas]);
+
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [empresaSel, setEmpresaSel] = useState<string>(() => prefs.leerEmpresa());
+  const [tab, setTab] = useState<TabAdmin>(() => prefs.leerTab());
+  const [gestionar, setGestionar] = useState(false);
+
+  const cargarEmpresas = useCallback(async () => {
+    setError(null);
+    try { setEmpresas(await repo.listEmpresas()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron leer las empresas.'); }
+  }, [repo]);
+
+  useEffect(() => { void cargarEmpresas(); }, [cargarEmpresas]);
+
+  // Si la empresa elegida ya no está activa (la desactivaron/borraron), vuelve a «Todas».
+  useEffect(() => {
+    if (empresaSel !== TODAS && empresas.length && !empresas.some((e) => e.clave === empresaSel && e.activa)) {
+      setEmpresaSel(TODAS);
+      prefs.guardarEmpresa(TODAS);
+    }
+  }, [empresas, empresaSel, prefs]);
+
+  const activas = useMemo(() => empresas.filter((e) => e.activa), [empresas]);
+  const empresaClave = empresaSel === TODAS ? null : empresaSel;
+
+  const elegirEmpresa = (v: string) => { setEmpresaSel(v); prefs.guardarEmpresa(v); };
+  const elegirTab = (t: TabAdmin) => { setTab(t); prefs.guardarTab(t); };
 
   return (
     <div>
+      {aviso}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>💼 Administración</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Gastos fijos por servicio: plantillas, histórico y reporte.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
-          {/* Multi-empresa: toda la vista se filtrará por empresa. Placeholder de layout
-              reservado en la cabecera; el selector real (registro de empresas y scoping)
-              llega en la Fase 1. Por eso va deshabilitado y sin lógica todavía. */}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
             <span className="muted hint">Empresa</span>
-            <select disabled defaultValue="todas" title="Multi-empresa: el selector de empresa se activa en la Fase 1"
-              aria-label="Empresa (multi-empresa, se activa en la Fase 1)">
-              <option value="todas">Todas las empresas</option>
+            <select className="input" value={empresaSel} onChange={(e) => elegirEmpresa(e.target.value)} aria-label="Empresa" style={{ minWidth: 190 }}>
+              <option value={TODAS}>Todas las empresas</option>
+              {activas.map((e) => <option key={e.id} value={e.clave}>{e.nombre}</option>)}
             </select>
           </label>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setGestionar(true)}>⚙ Gestionar empresas</button>
           <div className="view-toggle" role="tablist" aria-label="Vista de administración">
             {PESTANAS.map((p) => (
-              <button key={p.id} className={vista === p.id ? 'active' : ''} onClick={() => setVista(p.id)}>{p.label}</button>
+              <button key={p.id} className={tab === p.id ? 'active' : ''} onClick={() => elegirTab(p.id)}>{p.label}</button>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-title">{activa.label}</div>
-        <p className="muted hint" style={{ margin: '.35rem 0 0' }}>En preparación · {activa.prepara}</p>
-      </div>
+      {error && (
+        <div className="adm-aviso">
+          No se pudieron leer las empresas{/sesi|jwt|auth|401|permission|relation|does not exist/i.test(error) ? ': inicia sesión o la base aún no tiene las tablas del módulo.' : `: ${error}`}
+        </div>
+      )}
+
+      {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab !== 'gastos' && (
+        <div className="card">
+          <div className="card-title">{PESTANAS.find((p) => p.id === tab)?.label}</div>
+          <p className="muted hint" style={{ margin: '.35rem 0 0' }}>En preparación · {PROXIMAMENTE[tab]}</p>
+        </div>
+      )}
+
+      {gestionar && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
     </div>
   );
 }

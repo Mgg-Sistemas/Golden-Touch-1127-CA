@@ -1,0 +1,22 @@
+/* ============================================================
+   Golden Touch · Administración · estilos del módulo
+   Pocas clases propias: el resto son del sistema (view-toggle, card, input,
+   btn, muted, mono). Tokens del sistema; nada de estética nueva.
+   ============================================================ */
+
+/* Formularios a dos columnas (una en móvil). */
+.form-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem 1rem; }
+@media (max-width: 640px) { .form-grid-2 { grid-template-columns: 1fr; } }
+
+/* Tablas del módulo: no desbordan el viewport (scroll propio en móvil). */
+.adm-tabla { overflow-x: auto; }
+.adm-tabla table { width: 100%; border-collapse: collapse; font-size: .9rem; font-variant-numeric: tabular-nums; }
+.adm-tabla th, .adm-tabla td { padding: .45rem .6rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+.adm-tabla th { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); white-space: nowrap; }
+
+/* Aviso (error / demo). */
+.adm-aviso { padding: .55rem .85rem; border-radius: 8px; font-size: .88rem; background: rgba(239, 79, 94, .12); color: var(--danger); font-weight: 600; margin-bottom: .75rem; }
+.adm-aviso.demo { background: rgba(255, 213, 74, .1); color: var(--gold); border: 1px dashed rgba(255, 213, 74, .4); }
+
+/* Envoltura de la página de prueba (DEV). */
+.adm-demo { padding: 1rem 1.25rem; min-height: 100vh; background: var(--bg-0); }

@@ -27,6 +27,10 @@ const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ def
 const GeodestaPage = lazy(() => import('./modules/geodesta/GeodestaPage').then((m) => ({ default: m.GeodestaPage })));
 const TesoreriaPage = lazy(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const AdministracionPage = lazy(() => import('./modules/administracion/AdministracionPage').then((m) => ({ default: m.AdministracionPage })));
+// Página de prueba del módulo Administración: SOLO en desarrollo (no entra al build de producción).
+const AdministracionDemoPage = import.meta.env.DEV
+  ? lazy(() => import('./modules/administracion/demo/AdministracionDemoPage').then((m) => ({ default: m.AdministracionDemoPage })))
+  : null;
 const AsignacionesPage = lazy(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
 const ChoferesPage = lazy(() => import('./modules/choferes/ChoferesPage').then((m) => ({ default: m.ChoferesPage })));
 const VentasPage = lazy(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
@@ -83,6 +87,8 @@ export function App() {
         <Route path="/docs" element={<Suspense fallback={<PageLoader />}><MaquetaPropietariosMindmap /></Suspense>} />
         {/* Lo que abre el QR del carnet: público, sin sesión. */}
         <Route path="/c/:token" element={<Suspense fallback={<PageLoader />}><CarnetPublicoPage /></Suspense>} />
+        {/* Maqueta de Administración (gastos fijos): página de prueba local, solo en DEV. */}
+        {AdministracionDemoPage && <Route path="/demo/administracion" element={<Suspense fallback={<PageLoader />}><AdministracionDemoPage /></Suspense>} />}
         <Route
           path="/cambiar-clave"
           element={
