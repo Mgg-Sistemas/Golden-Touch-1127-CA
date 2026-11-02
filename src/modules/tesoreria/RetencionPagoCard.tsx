@@ -68,6 +68,9 @@ export function RetencionPagoCard({ r, total, monedaDoc, tasaBcv }: {
   tasaBcv: number;
 }) {
   const tasa = Number(r.tasaStr) || 0;
+  // 02/11/2026: en Tesorería ya no se ofrece marcar retención. Solo se muestra si ya
+  // viene cargada (la retención que puso Compras al montar la compra/servicio directo).
+  if (!r.activa) return null;
   return (
     <div className="card" style={{ marginBottom: '.75rem', borderColor: r.activa ? 'var(--brand, #ff8a00)' : undefined }}>
       <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontWeight: 600 }}>
