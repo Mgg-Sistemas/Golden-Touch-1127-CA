@@ -34,7 +34,7 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { INTERRUPTOR_RETENCION_MOMENTO } from '@/shared/lib/types';
-import { aplicaAOrden, interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
+import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
 import { agregarNombreGenerico, itemsParaSpGenerica, normalizarNombreGenerico, spConNombresGenericos } from './nombresGenericos';
@@ -1625,10 +1625,11 @@ function MetodoPagoModal({
   // Nuevo flujo (interruptor compras_retencion_momento): con factura se marca si se retiene
   // ANTES de pagar (va primero a Retenciones; Tesorería paga el neto → el monto BAJA) o
   // DESPUÉS (va a Tesorería y se paga completo → el monto SUBE; luego Retenciones).
-  // 31/10/2026: solo para las órdenes creadas EN o DESPUÉS de encender el interruptor
-  // (activado_en); las pendientes de antes siguen con el flujo de siempre.
+  // 02/11/2026: con el interruptor encendido aplica a TODAS las órdenes (también las de
+  // antes): la pregunta vieja «Se paga después / completo y se reembolsa» salía como una
+  // segunda retención. Como la retención es opcional, no frena a las pendientes.
   const momentoDesde = useInterruptorDesde(INTERRUPTOR_RETENCION_MOMENTO);
-  const momentoActivo = aplicaAOrden(momentoDesde, orden.created_at);
+  const momentoActivo = !!momentoDesde;
   const [retencionMomento, setRetencionMomento] = useState<RetencionMomento | null>(orden.retencion_momento ?? null);
   // OC por factura: con IVA (suma al total) o sin IVA. El % arranca en 16 (general) pero
   // es EDITABLE, y el MONTO también se puede poner a mano (se sincronizan entre sí).
