@@ -112,6 +112,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     incluirLogo: bool('comprobante_logo', true),
     incluirFirma: bool('comprobante_firma', true),
     incluirSello: bool('comprobante_sello', true),
+    incluirQr: bool('comprobante_qr', true),
   };
 }
 
@@ -140,6 +141,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     comprobante_logo: c.incluirLogo !== false,
     comprobante_firma: c.incluirFirma !== false,
     comprobante_sello: c.incluirSello !== false,
+    comprobante_qr: c.incluirQr !== false,
   };
 }
 

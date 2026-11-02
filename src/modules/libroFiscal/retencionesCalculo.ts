@@ -118,6 +118,7 @@ export interface ConfigRetencion {
   incluirLogo?: boolean;
   incluirFirma?: boolean;
   incluirSello?: boolean;
+  incluirQr?: boolean;
 }
 
 /** Estatus del Kanban de compras que por defecto son abordables en Retenciones. */
@@ -149,6 +150,7 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   incluirLogo: true,
   incluirFirma: true,
   incluirSello: true,
+  incluirQr: true,
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */
