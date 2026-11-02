@@ -1,0 +1,808 @@
+/* ============================================================
+   Golden Touch · Tesorería · Motor del Reporte Moldeable
+   (02/11/2026)
+
+   Motor de datos PURO y SÍNCRONO para el reporte financiero flexible,
+   calcado del de Combustible (reporteMoldeable.ts). Consolida las tres
+   vertientes de Tesorería en una sola fila normalizada:
+     · movimientos  → libro de caja (ingresos/egresos/traslados)
+     · por_pagar    → compromisos (OC, CS, servicios y compras directas)
+     · creditos_cartera → cuentas a crédito (CxP proveedores + CxC clientes)
+
+   REGLA DE ORO: aquí NO se lee de Supabase. Las funciones reciben los datos
+   YA leídos por la capa de repositorios/modal, más un `ContextoTasas` con la
+   tasa BCV del día (y opcionalmente las tasas históricas por fecha). Así todo
+   el cálculo es determinista y testeable con fixtures.
+
+   Valuación: cada fila guarda su monto en la moneda original y su equivalente
+   consolidado en USD y en Bs, con la tasa BCV aplicada (del día o histórica).
+   ============================================================ */
+
+import type { MovimientoCaja } from '@/shared/lib/types';
+import type { DatosPendientesPorPagar, ClaveSegmento } from './pendientesPorPagar';
+import type { CuentaPorPagar } from './cuentasPorPagar.repository';
+import type { CuentaPorCobrar } from './cuentasPorCobrar.repository';
+
+/* ───────────── Tipos de configuración ───────────── */
+
+/** Qué contexto operativo de Tesorería se está reportando. */
+export type AmbitoTesoreria = 'movimientos' | 'por_pagar' | 'creditos_cartera';
+
+/** Dimensión principal de agrupación de las filas. */
+export type ModoAgrupacionTesoreria =
+  | 'caja'
+  | 'moneda'
+  | 'tipo_movimiento'
+  | 'categoria_gasto'
+  | 'contraparte'
+  | 'origen_documento'
+  | 'dia'
+  | 'mes'
+  | 'detallado';
+
+/** Moneda en la que se consolida/presenta el reporte. */
+export type MonedaConsolidacion = 'usd' | 'bs' | 'original';
+
+/** Criterio de tasa de cambio para la valuación. */
+export type BaseTasaTesoreria = 'bcv_dia' | 'historica';
+
+/** Signo del flujo de caja (lo que suma vs lo que resta). */
+export type TipoFlujoTesoreria = 'ingreso' | 'egreso' | 'traslado';
+
+/**
+ * Tasas ya resueltas por la capa de datos, para que el motor sea puro.
+ * `tasaBcvHoy` = Bs por 1 USD (BCV del día). `tasasPorFecha` (opcional) mapea
+ * 'YYYY-MM-DD' → Bs por 1 USD para la valuación histórica.
+ */
+export interface ContextoTasas {
+  tasaBcvHoy: number;
+  tasaFecha: string | null;
+  tasasPorFecha?: Map<string, number>;
+}
+
+/* ───────────── Fila normalizada ───────────── */
+
+export interface FilaReporteTesoreria {
+  id: string;
+  ambito: AmbitoTesoreria;
+  fecha: string;                 // YYYY-MM-DD
+  hora?: string | null;          // HH:mm:ss
+  codigo?: string | null;        // OC-2026-0181, CS-…, SD-…, o correlativo de gasto
+  caja_origen?: string | null;   // Nombre de la caja/banco
+  caja_destino?: string | null;  // En traslados
+  moneda_original: string;       // USD, Bs, USDT, COP…
+  monto_original: number;        // Monto en moneda nativa
+  tipo_movimiento: TipoFlujoTesoreria;
+  categoria: string;             // Categoría / rubro
+  subcategoria?: string | null;
+  contraparte: string;           // Proveedor, empleado o cliente
+  concepto: string;              // Motivo / descripción
+  origen_documento: string;      // Tipo de documento (OC, CS, SD, Gasto, Movimiento…)
+  estado?: string | null;        // Pagado, Lista para pagar, A crédito…
+  metodo_pago?: string | null;   // Transferencia, Pago móvil, Efectivo…
+  datos_pago_resumen?: string | null;
+
+  // Normalizaciones multimoneda calculadas
+  tasa_bcv_aplicada: number;     // Bs por 1 USD usada en esta fila
+  monto_usd: number;             // Equivalente consolidado en USD
+  monto_bs: number;              // Equivalente consolidado en Bs
+  saldo_caja_momento?: number | null;
+
+  // Métricas de grupo (cuando la fila representa un grupo agrupado)
+  total_operaciones?: number;
+  pct_del_total?: number;        // % respecto al total del período (por |USD|)
+}
+
+/* ───────────── Resumen / KPIs ───────────── */
+
+export interface TopItemTesoreria {
+  nombre: string;
+  montoUsd: number;
+  porcentaje: number;
+}
+
+export interface ResumenReporteTesoreria {
+  totalEgresosUsd: number;
+  totalEgresosBs: number;
+  totalIngresosUsd: number;
+  totalIngresosBs: number;
+  saldoNetoUsd: number;
+  saldoNetoBs: number;
+  totalOperaciones: number;
+  tasaBcvReferencia: number;
+  topCategorias: TopItemTesoreria[];
+  topProveedores: TopItemTesoreria[];
+}
+
+/* ───────────── Métrica de ficha ejecutiva ───────────── */
+
+export interface MetricaFichaTesoreria {
+  clave: string;
+  etiqueta: string;
+  valor: string;
+  sub?: string;
+  colorHex: string;
+  colorRgb: [number, number, number];
+}
+
+/* ───────────── Catálogo de columnas ───────────── */
+
+export interface CampoColumnaTesoreria {
+  clave: string;
+  etiqueta: string;
+  descripcion?: string;
+  anchoPdf: number;
+  anchoExcel: number;
+  alineacion: 'left' | 'right' | 'center';
+  formato?: 'texto' | 'numero' | 'moneda' | 'moneda_bs' | 'porcentaje';
+}
+
+export const CAMPOS_REPORTE_TESORERIA: CampoColumnaTesoreria[] = [
+  { clave: 'fecha', etiqueta: 'Fecha', anchoPdf: 14, anchoExcel: 13, alineacion: 'center', formato: 'texto', descripcion: 'Fecha de emisión o ejecución' },
+  { clave: 'hora', etiqueta: 'Hora', anchoPdf: 11, anchoExcel: 11, alineacion: 'center', formato: 'texto', descripcion: 'Hora exacta del registro' },
+  { clave: 'codigo', etiqueta: 'N° Código / Ref', anchoPdf: 18, anchoExcel: 18, alineacion: 'left', formato: 'texto', descripcion: 'Código OC/CS/SD o referencia' },
+  { clave: 'caja', etiqueta: 'Caja / Banco', anchoPdf: 20, anchoExcel: 20, alineacion: 'left', formato: 'texto', descripcion: 'Cuenta bancaria o billetera de origen' },
+  { clave: 'contraparte', etiqueta: 'Proveedor / Beneficiario', anchoPdf: 26, anchoExcel: 26, alineacion: 'left', formato: 'texto', descripcion: 'Razón social de la contraparte' },
+  { clave: 'tipo_mov', etiqueta: 'Tipo de Movimiento', anchoPdf: 16, anchoExcel: 16, alineacion: 'center', formato: 'texto', descripcion: 'Ingreso, Egreso o Traslado' },
+  { clave: 'categoria', etiqueta: 'Categoría de Gasto', anchoPdf: 20, anchoExcel: 20, alineacion: 'left', formato: 'texto', descripcion: 'Rubro contable / operativo' },
+  { clave: 'concepto', etiqueta: 'Concepto / Motivo', anchoPdf: 28, anchoExcel: 30, alineacion: 'left', formato: 'texto', descripcion: 'Detalle descriptivo' },
+  { clave: 'estado', etiqueta: 'Estado', anchoPdf: 16, anchoExcel: 16, alineacion: 'center', formato: 'texto', descripcion: 'Lista para pagar, Pagado, A crédito' },
+  { clave: 'metodo_pago', etiqueta: 'Método y Datos de Pago', anchoPdf: 26, anchoExcel: 28, alineacion: 'left', formato: 'texto', descripcion: 'Banco, cuenta, cédula/RIF destino' },
+  { clave: 'monto_usd', etiqueta: 'Monto ($ USD)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Valor expresado en Dólares' },
+  { clave: 'monto_bs', etiqueta: 'Monto (Bs)', anchoPdf: 18, anchoExcel: 18, alineacion: 'right', formato: 'moneda_bs', descripcion: 'Valor expresado en Bolívares' },
+  { clave: 'monto_original', etiqueta: 'Monto Moneda Orig.', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'numero', descripcion: 'Monto en divisa original' },
+  { clave: 'tasa_bcv', etiqueta: 'Tasa BCV ($/Bs)', anchoPdf: 15, anchoExcel: 14, alineacion: 'right', formato: 'numero', descripcion: 'Tasa de cambio aplicada' },
+  { clave: 'pct_total', etiqueta: '% del Total', anchoPdf: 13, anchoExcel: 12, alineacion: 'right', formato: 'porcentaje', descripcion: 'Peso sobre el total del período' },
+  { clave: 'saldo_caja', etiqueta: 'Saldo Resultante', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'numero', descripcion: 'Saldo tras el movimiento' },
+];
+
+export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionTesoreria, string[]> = {
+  caja: ['caja', 'tipo_mov', 'monto_usd', 'monto_bs', 'pct_total'],
+  moneda: ['monto_original', 'monto_usd', 'monto_bs', 'pct_total'],
+  tipo_movimiento: ['tipo_mov', 'monto_usd', 'monto_bs', 'pct_total'],
+  categoria_gasto: ['categoria', 'monto_usd', 'monto_bs', 'pct_total'],
+  contraparte: ['contraparte', 'categoria', 'monto_usd', 'monto_bs', 'pct_total'],
+  origen_documento: ['origen_documento', 'monto_usd', 'monto_bs', 'pct_total'],
+  dia: ['fecha', 'monto_usd', 'monto_bs', 'pct_total'],
+  mes: ['fecha', 'monto_usd', 'monto_bs', 'pct_total'],
+  detallado: ['fecha', 'codigo', 'caja', 'contraparte', 'tipo_mov', 'categoria', 'estado', 'metodo_pago', 'monto_usd', 'monto_bs'],
+};
+
+/* ───────────── Opciones del reporte ───────────── */
+
+export interface FiltrosTesoreria {
+  cajasSel?: string[];
+  monedasSel?: string[];
+  tiposSel?: TipoFlujoTesoreria[];
+  categoriasSel?: string[];
+  contrapartesSel?: string[];
+  estadosSel?: string[];
+}
+
+export interface OpcionesReporteTesoreria extends FiltrosTesoreria {
+  desde: string; // YYYY-MM-DD
+  hasta: string; // YYYY-MM-DD
+  ambito: AmbitoTesoreria;
+  agrupacion: ModoAgrupacionTesoreria;
+  baseTasa: BaseTasaTesoreria;
+  monedaConsolidacion: MonedaConsolidacion;
+  mostrarUsd: boolean;
+  mostrarBs: boolean;
+  columnas: string[];
+  ordenarPor?: OrdenReporteTesoreria;
+  incluirResumen: boolean;
+  soloResumen?: boolean;
+}
+
+export type OrdenReporteTesoreria = 'usd' | 'bs' | 'fecha' | 'contraparte';
+
+/* ───────────── Utilidades numéricas y de fecha ───────────── */
+
+const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+/** Redondeo a 2 decimales. */
+export function round2(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Etiqueta "Mes Año" a partir de un YYYY-MM o YYYY-MM-DD. */
+export function mesEtiqueta(fechaIso: string): string {
+  const [y, m] = (fechaIso || '').split('-');
+  const mesIdx = Number(m) - 1;
+  if (mesIdx >= 0 && mesIdx < 12 && y) return `${MESES_ES[mesIdx]} ${y}`;
+  return fechaIso || 'Sin fecha';
+}
+
+/** Día (YYYY-MM-DD) de un instante ISO o de una fecha ya en ese formato. */
+export function diaDe(valor: string | null | undefined): string {
+  const s = (valor ?? '').trim();
+  if (!s) return '';
+  // Ya viene como YYYY-MM-DD (o con hora pegada): tomamos los 10 primeros.
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+}
+
+/** Hora (HH:mm) de un instante ISO, o null si no se puede derivar. */
+export function horaDe(valor: string | null | undefined): string | null {
+  const s = (valor ?? '').trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(11, 16);
+}
+
+/** La tasa (Bs por 1 USD) a aplicar a una fila según la base y su fecha. */
+function tasaDeFecha(ctx: ContextoTasas, fecha: string, base: BaseTasaTesoreria): number {
+  if (base === 'historica' && ctx.tasasPorFecha) {
+    const t = ctx.tasasPorFecha.get(diaDe(fecha));
+    if (t && t > 0) return t;
+  }
+  return Number(ctx.tasaBcvHoy) || 0;
+}
+
+export interface Equivalencias { usd: number; bs: number; tasa: number; }
+
+/**
+ * Convierte un monto en su moneda a { usd, bs } con la tasa BCV dada.
+ * Para monedas que no son Bs/USD/USDT (p. ej. COP) se usa `tasaBsUnidad`
+ * (Bs por unidad, del propio movimiento) si está; si no, no hay equivalencia.
+ */
+export function convertirMonto(
+  monto: number,
+  moneda: string,
+  tasaUsd: number,
+  tasaBsUnidad?: number | null,
+): Equivalencias {
+  const k = Number(monto) || 0;
+  const R = Number(tasaUsd) || 0;
+  if (moneda === 'Bs') {
+    return { usd: R > 0 ? round2(k / R) : 0, bs: round2(k), tasa: R };
+  }
+  if (moneda === 'USD' || moneda === 'USDT') {
+    // USDT se valora 1:1 con el dólar para la consolidación (cripto-dólar).
+    return { usd: round2(k), bs: round2(k * R), tasa: R };
+  }
+  const tbu = Number(tasaBsUnidad) || 0;
+  if (tbu > 0) {
+    const bs = round2(k * tbu);
+    return { usd: R > 0 ? round2(bs / R) : 0, bs, tasa: R };
+  }
+  return { usd: 0, bs: 0, tasa: R };
+}
+
+/* ───────────── Normalizador: movimientos de caja ───────────── */
+
+/** Mapea el tipo del libro al flujo de tesorería (ingreso/egreso/traslado). */
+function flujoDeMovimiento(m: MovimientoCaja): TipoFlujoTesoreria {
+  switch (m.tipo) {
+    case 'ingreso': return 'ingreso';
+    case 'salida': return 'egreso';
+    case 'traslado_salida':
+    case 'traslado_entrada': return 'traslado';
+    case 'ajuste':
+      return (Number(m.saldo_despues) || 0) >= (Number(m.saldo_antes) || 0) ? 'ingreso' : 'egreso';
+    default: return 'egreso';
+  }
+}
+
+const LABEL_CATEGORIA_MOV: Record<string, string> = {
+  gasto: 'Gasto operativo',
+  pago_personal: 'Pago a personal',
+  pago_oc: 'Pago de orden',
+  pago_nomina: 'Nómina',
+  ingreso: 'Ingreso',
+  cobro_venta: 'Cobro de venta',
+  reverso_venta: 'Reverso de venta',
+  reembolso_oc: 'Reembolso de orden',
+};
+
+/** Rubro visible de un movimiento: subcategoría de gasto > categoría de gasto > etiqueta base. */
+function categoriaDeMovimiento(m: MovimientoCaja): string {
+  if (m.tipo === 'ajuste') return 'Ajuste';
+  const cat = (m.gasto_categoria ?? '').trim();
+  if (cat) return cat;
+  const base = (m.categoria ?? '').trim();
+  if (base) return LABEL_CATEGORIA_MOV[base] ?? base;
+  return m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso';
+}
+
+/** Tipo de documento origen de un movimiento. */
+function origenDeMovimiento(m: MovimientoCaja): string {
+  if (m.ref_orden_id) return 'Pago de orden';
+  if (m.ref_venta_id) return 'Venta';
+  if (m.ref_nomina_renglon_id) return 'Nómina';
+  if (m.gasto_correlativo != null) return 'Gasto con correlativo';
+  return 'Movimiento de caja';
+}
+
+/**
+ * Normaliza los movimientos del libro mayor a filas del reporte.
+ * `base` elige la valuación (BCV del día o histórica por fecha del movimiento).
+ */
+export function normalizarMovimientosTesoreria(
+  movs: MovimientoCaja[],
+  ctx: ContextoTasas,
+  base: BaseTasaTesoreria = 'bcv_dia',
+): FilaReporteTesoreria[] {
+  return movs.map((m, idx) => {
+    const fecha = diaDe(m.at);
+    const R = tasaDeFecha(ctx, fecha, base);
+    const conv = convertirMonto(m.monto, m.moneda, R, m.tasa_bs);
+    const flujo = flujoDeMovimiento(m);
+    return {
+      id: m.id || `mov-${idx}`,
+      ambito: 'movimientos',
+      fecha,
+      hora: horaDe(m.at),
+      codigo: m.gasto_correlativo != null ? String(m.gasto_correlativo) : null,
+      caja_origen: m.caja?.nombre ?? '—',
+      caja_destino: m.destino ?? null,
+      moneda_original: m.moneda,
+      monto_original: round2(m.monto),
+      tipo_movimiento: flujo,
+      categoria: categoriaDeMovimiento(m),
+      subcategoria: (m.gasto_subcategoria ?? null) || null,
+      contraparte: (m.beneficiario ?? '').trim() || '—',
+      concepto: (m.motivo ?? '').trim(),
+      origen_documento: origenDeMovimiento(m),
+      estado: null,
+      metodo_pago: null,
+      datos_pago_resumen: null,
+      tasa_bcv_aplicada: R,
+      monto_usd: conv.usd,
+      monto_bs: conv.bs,
+      saldo_caja_momento: m.saldo_despues ?? null,
+    };
+  });
+}
+
+/* ───────────── Normalizador: pendientes por pagar ───────────── */
+
+const ORIGEN_POR_SEGMENTO: Record<ClaveSegmento, string> = {
+  compras_directas: 'Compra directa',
+  oc: 'Orden de compra',
+  servicios: 'Control de servicio',
+  servicios_directos: 'Servicio directo',
+  credito: 'Crédito (orden)',
+};
+
+/**
+ * Aplana el reporte de «pendientes por pagar» (ya armado, con montos en $ y Bs
+ * a la tasa BCV del día) a filas del reporte. Solo los segmentos por pagar; las
+ * cuentas a crédito van en el ámbito `creditos_cartera`.
+ */
+export function normalizarPendientesPorPagar(datos: DatosPendientesPorPagar): FilaReporteTesoreria[] {
+  const fecha = diaDe(datos.generadoEn);
+  const R = Number(datos.tasa) || 0;
+  const filas: FilaReporteTesoreria[] = [];
+  for (const seg of datos.segmentos) {
+    const origen = ORIGEN_POR_SEGMENTO[seg.clave] ?? seg.titulo;
+    for (let i = 0; i < seg.filas.length; i++) {
+      const f = seg.filas[i];
+      const linea = f.pagos[0];
+      filas.push({
+        id: `pp-${seg.clave}-${f.codigo || i}`,
+        ambito: 'por_pagar',
+        fecha,
+        hora: null,
+        codigo: f.codigo,
+        caja_origen: null,
+        caja_destino: null,
+        moneda_original: 'USD',
+        monto_original: round2(f.usd),
+        tipo_movimiento: 'egreso',
+        categoria: origen,
+        subcategoria: null,
+        contraparte: f.proveedor,
+        concepto: seg.titulo,
+        origen_documento: origen,
+        estado: f.estado,
+        metodo_pago: linea ? linea.texto : null,
+        datos_pago_resumen: linea ? linea.texto : null,
+        tasa_bcv_aplicada: R,
+        monto_usd: round2(f.usd),
+        monto_bs: round2(f.bs),
+        saldo_caja_momento: null,
+      });
+    }
+  }
+  return filas;
+}
+
+/* ───────────── Normalizador: cuentas a crédito (cartera) ───────────── */
+
+/**
+ * Normaliza las cuentas a crédito abiertas: CxP (lo que debemos, egreso) y CxC
+ * (lo que nos deben, ingreso). El saldo pendiente es monto − abonado/cobrado.
+ */
+export function normalizarCreditosCartera(
+  cxp: CuentaPorPagar[],
+  cxc: CuentaPorCobrar[],
+  ctx: ContextoTasas,
+  base: BaseTasaTesoreria = 'bcv_dia',
+): FilaReporteTesoreria[] {
+  const filas: FilaReporteTesoreria[] = [];
+
+  for (const c of cxp) {
+    if (c.estado !== 'abierta') continue;
+    const saldo = round2((Number(c.monto) || 0) - (Number(c.abonado) || 0));
+    const fecha = diaDe(c.created_at);
+    const R = tasaDeFecha(ctx, fecha, base);
+    const conv = convertirMonto(saldo, c.moneda, R);
+    filas.push({
+      id: `cxp-${c.id}`,
+      ambito: 'creditos_cartera',
+      fecha,
+      hora: null,
+      codigo: null,
+      caja_origen: null,
+      caja_destino: null,
+      moneda_original: c.moneda,
+      monto_original: saldo,
+      tipo_movimiento: 'egreso',
+      categoria: 'Cuenta por pagar',
+      subcategoria: null,
+      contraparte: c.contraparte,
+      concepto: (c.nota ?? '').trim() || 'Crédito a pagar',
+      origen_documento: 'Cuenta por pagar',
+      estado: 'A crédito',
+      metodo_pago: null,
+      datos_pago_resumen: null,
+      tasa_bcv_aplicada: R,
+      monto_usd: conv.usd,
+      monto_bs: conv.bs,
+      saldo_caja_momento: null,
+    });
+  }
+
+  for (const c of cxc) {
+    if (c.estado !== 'abierta') continue;
+    const saldo = round2((Number(c.monto) || 0) - (Number(c.cobrado) || 0));
+    const fecha = diaDe(c.created_at);
+    const R = tasaDeFecha(ctx, fecha, base);
+    const conv = convertirMonto(saldo, c.moneda, R);
+    filas.push({
+      id: `cxc-${c.id}`,
+      ambito: 'creditos_cartera',
+      fecha,
+      hora: null,
+      codigo: null,
+      caja_origen: null,
+      caja_destino: null,
+      moneda_original: c.moneda,
+      monto_original: saldo,
+      tipo_movimiento: 'ingreso',
+      categoria: 'Cuenta por cobrar',
+      subcategoria: null,
+      contraparte: c.contraparte,
+      concepto: (c.nota ?? '').trim() || 'Crédito a cobrar',
+      origen_documento: 'Cuenta por cobrar',
+      estado: 'A crédito',
+      metodo_pago: null,
+      datos_pago_resumen: null,
+      tasa_bcv_aplicada: R,
+      monto_usd: conv.usd,
+      monto_bs: conv.bs,
+      saldo_caja_momento: null,
+    });
+  }
+
+  return filas;
+}
+
+/* ───────────── Filtros ───────────── */
+
+/** Filtra las filas por las selecciones de chips/checks (vacío = sin filtro). */
+export function filtrarFilasTesoreria(filas: FilaReporteTesoreria[], f: FiltrosTesoreria): FilaReporteTesoreria[] {
+  const { cajasSel, monedasSel, tiposSel, categoriasSel, contrapartesSel, estadosSel } = f;
+  return filas.filter((row) => {
+    if (cajasSel && cajasSel.length > 0) {
+      if (!row.caja_origen || !cajasSel.includes(row.caja_origen)) return false;
+    }
+    if (monedasSel && monedasSel.length > 0) {
+      if (!monedasSel.includes(row.moneda_original)) return false;
+    }
+    if (tiposSel && tiposSel.length > 0) {
+      if (!tiposSel.includes(row.tipo_movimiento)) return false;
+    }
+    if (categoriasSel && categoriasSel.length > 0) {
+      if (!categoriasSel.includes(row.categoria)) return false;
+    }
+    if (contrapartesSel && contrapartesSel.length > 0) {
+      if (!contrapartesSel.includes(row.contraparte)) return false;
+    }
+    if (estadosSel && estadosSel.length > 0) {
+      if (!row.estado || !estadosSel.includes(row.estado)) return false;
+    }
+    return true;
+  });
+}
+
+/* ───────────── Resumen / KPIs ───────────── */
+
+function topPor(
+  filas: FilaReporteTesoreria[],
+  clave: (f: FilaReporteTesoreria) => string,
+  soloEgresos: boolean,
+): TopItemTesoreria[] {
+  const map = new Map<string, number>();
+  let base = 0;
+  for (const f of filas) {
+    if (soloEgresos && f.tipo_movimiento !== 'egreso') continue;
+    const usd = Math.abs(f.monto_usd);
+    map.set(clave(f), (map.get(clave(f)) || 0) + usd);
+    base += usd;
+  }
+  return Array.from(map.entries())
+    .map(([nombre, montoUsd]) => ({
+      nombre,
+      montoUsd: round2(montoUsd),
+      porcentaje: base > 0 ? Math.round((montoUsd / base) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.montoUsd - a.montoUsd)
+    .slice(0, 5);
+}
+
+/** KPIs del período a partir de las filas de detalle (ya filtradas). */
+export function resumenTesoreria(filas: FilaReporteTesoreria[], tasaReferencia: number): ResumenReporteTesoreria {
+  let egUsd = 0, egBs = 0, inUsd = 0, inBs = 0;
+  for (const f of filas) {
+    if (f.tipo_movimiento === 'egreso') { egUsd += f.monto_usd; egBs += f.monto_bs; }
+    else if (f.tipo_movimiento === 'ingreso') { inUsd += f.monto_usd; inBs += f.monto_bs; }
+    // Los traslados no suman a ingresos ni egresos (movimiento entre cajas propias).
+  }
+  return {
+    totalEgresosUsd: round2(egUsd),
+    totalEgresosBs: round2(egBs),
+    totalIngresosUsd: round2(inUsd),
+    totalIngresosBs: round2(inBs),
+    saldoNetoUsd: round2(inUsd - egUsd),
+    saldoNetoBs: round2(inBs - egBs),
+    totalOperaciones: filas.length,
+    tasaBcvReferencia: Number(tasaReferencia) || 0,
+    topCategorias: topPor(filas, (f) => f.categoria, true),
+    topProveedores: topPor(filas, (f) => f.contraparte, true),
+  };
+}
+
+/* ───────────── Agrupación y procesamiento ───────────── */
+
+interface AcumuladorTesoreria {
+  clave: string;
+  etiqueta: string;
+  fecha: string;
+  caja: string | null;
+  moneda: string;
+  tipo: TipoFlujoTesoreria;
+  categoria: string;
+  contraparte: string;
+  origen: string;
+  monedasUsadas: Set<string>;
+  usd: number;
+  bs: number;
+  original: number;
+  operaciones: number;
+}
+
+/** Clave + etiqueta del grupo de una fila según la dimensión elegida. */
+function claveGrupo(f: FilaReporteTesoreria, modo: ModoAgrupacionTesoreria): { clave: string; etiqueta: string } {
+  switch (modo) {
+    case 'caja': return { clave: f.caja_origen || 'Sin caja', etiqueta: f.caja_origen || 'Sin caja' };
+    case 'moneda': return { clave: f.moneda_original, etiqueta: f.moneda_original };
+    case 'tipo_movimiento': return { clave: f.tipo_movimiento, etiqueta: ETIQUETA_FLUJO[f.tipo_movimiento] };
+    case 'categoria_gasto': return { clave: f.categoria, etiqueta: f.categoria };
+    case 'contraparte': return { clave: f.contraparte, etiqueta: f.contraparte };
+    case 'origen_documento': return { clave: f.origen_documento, etiqueta: f.origen_documento };
+    case 'dia': return { clave: f.fecha || 'Sin fecha', etiqueta: f.fecha || 'Sin fecha' };
+    case 'mes': return { clave: (f.fecha || '').slice(0, 7) || 'Sin fecha', etiqueta: mesEtiqueta(f.fecha) };
+    default: return { clave: f.id, etiqueta: f.contraparte || f.categoria };
+  }
+}
+
+export const ETIQUETA_FLUJO: Record<TipoFlujoTesoreria, string> = {
+  ingreso: 'Ingreso / Cobro',
+  egreso: 'Egreso / Pago',
+  traslado: 'Traslado entre cajas',
+};
+
+/**
+ * Genera las filas del reporte según la dimensión de agrupación, más el resumen.
+ * El % del total se calcula sobre el |USD| de todas las filas del período.
+ * El resumen (KPIs) siempre sale del detalle completo, no de los grupos.
+ */
+export function procesarFilasReporteTesoreria(
+  filasDetalle: FilaReporteTesoreria[],
+  agrupacion: ModoAgrupacionTesoreria,
+  opciones: { ordenarPor?: OrdenReporteTesoreria } = {},
+): { filas: FilaReporteTesoreria[]; resumen: ResumenReporteTesoreria } {
+  const ordenarPor = opciones.ordenarPor ?? 'usd';
+  const tasaRef = filasDetalle.find((f) => f.tasa_bcv_aplicada > 0)?.tasa_bcv_aplicada ?? 0;
+  const resumen = resumenTesoreria(filasDetalle, tasaRef);
+  const totalAbsUsd = filasDetalle.reduce((a, f) => a + Math.abs(f.monto_usd), 0);
+
+  if (agrupacion === 'detallado') {
+    const filas = filasDetalle.map((f) => ({
+      ...f,
+      total_operaciones: 1,
+      pct_del_total: totalAbsUsd > 0 ? Math.round((Math.abs(f.monto_usd) / totalAbsUsd) * 1000) / 10 : 0,
+    }));
+    ordenarFilas(filas, ordenarPor);
+    return { filas, resumen };
+  }
+
+  const mapa = new Map<string, AcumuladorTesoreria>();
+  for (const f of filasDetalle) {
+    const { clave, etiqueta } = claveGrupo(f, agrupacion);
+    let g = mapa.get(clave);
+    if (!g) {
+      g = {
+        clave, etiqueta,
+        fecha: f.fecha,
+        caja: f.caja_origen ?? null,
+        moneda: f.moneda_original,
+        tipo: f.tipo_movimiento,
+        categoria: f.categoria,
+        contraparte: f.contraparte,
+        origen: f.origen_documento,
+        monedasUsadas: new Set<string>(),
+        usd: 0, bs: 0, original: 0, operaciones: 0,
+      };
+      mapa.set(clave, g);
+    }
+    g.usd += f.monto_usd;
+    g.bs += f.monto_bs;
+    g.original += f.monto_original;
+    g.operaciones += 1;
+    g.monedasUsadas.add(f.moneda_original);
+  }
+
+  const filas: FilaReporteTesoreria[] = Array.from(mapa.values()).map((g) => {
+    const monedaRep = g.monedasUsadas.size === 1 ? g.moneda : 'Varias';
+    return {
+      id: g.clave || g.etiqueta,
+      ambito: filasDetalle[0]?.ambito ?? 'movimientos',
+      fecha: g.fecha,
+      hora: null,
+      codigo: null,
+      caja_origen: agrupacion === 'caja' ? g.etiqueta : g.caja,
+      caja_destino: null,
+      moneda_original: monedaRep,
+      monto_original: monedaRep === 'Varias' ? 0 : round2(g.original),
+      tipo_movimiento: g.tipo,
+      categoria: agrupacion === 'categoria_gasto' ? g.etiqueta : g.categoria,
+      subcategoria: null,
+      contraparte: agrupacion === 'contraparte' ? g.etiqueta : g.contraparte,
+      concepto: g.etiqueta,
+      origen_documento: agrupacion === 'origen_documento' ? g.etiqueta : g.origen,
+      estado: null,
+      metodo_pago: null,
+      datos_pago_resumen: null,
+      tasa_bcv_aplicada: tasaRef,
+      monto_usd: round2(g.usd),
+      monto_bs: round2(g.bs),
+      saldo_caja_momento: null,
+      total_operaciones: g.operaciones,
+      pct_del_total: totalAbsUsd > 0 ? Math.round((Math.abs(g.usd) / totalAbsUsd) * 1000) / 10 : 0,
+    };
+  });
+
+  if (agrupacion === 'mes' || agrupacion === 'dia') {
+    filas.sort((a, b) => a.id.localeCompare(b.id));
+  } else {
+    ordenarFilas(filas, ordenarPor);
+  }
+
+  return { filas, resumen };
+}
+
+function ordenarFilas(filas: FilaReporteTesoreria[], ordenarPor: OrdenReporteTesoreria): void {
+  switch (ordenarPor) {
+    case 'bs': filas.sort((a, b) => Math.abs(b.monto_bs) - Math.abs(a.monto_bs)); break;
+    case 'fecha': filas.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || '')); break;
+    case 'contraparte': filas.sort((a, b) => a.contraparte.localeCompare(b.contraparte)); break;
+    default: filas.sort((a, b) => Math.abs(b.monto_usd) - Math.abs(a.monto_usd));
+  }
+}
+
+/* ───────────── Métricas de la ficha ejecutiva ───────────── */
+
+/**
+ * Métricas visibles de una ficha ejecutiva según las columnas marcadas y los
+ * interruptores maestros de moneda. Si se desmarca USD (o su toggle), el
+ * recuadro de dólares no aparece y se redistribuye; máximo 4 recuadros.
+ */
+export function obtenerMetricasFichaTesoreria(
+  f: FilaReporteTesoreria,
+  columnasClaves: string[],
+  toggles: { mostrarUsd: boolean; mostrarBs: boolean },
+): MetricaFichaTesoreria[] {
+  const metricas: MetricaFichaTesoreria[] = [];
+  const tasaTxt = f.tasa_bcv_aplicada > 0 ? `Tasa: Bs ${f.tasa_bcv_aplicada.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/$` : 'Sin tasa';
+
+  // 1. Monto en USD (solo si está marcado Y el toggle maestro de USD está activo)
+  if (toggles.mostrarUsd && columnasClaves.includes('monto_usd')) {
+    metricas.push({
+      clave: 'monto_usd',
+      etiqueta: 'MONTO ($ USD)',
+      valor: `$ ${f.monto_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      sub: tasaTxt,
+      colorHex: '#22c55e',
+      colorRgb: [22, 163, 74],
+    });
+  }
+
+  // 2. Monto en Bs (solo si está marcado Y el toggle maestro de Bs está activo)
+  if (toggles.mostrarBs && columnasClaves.includes('monto_bs')) {
+    metricas.push({
+      clave: 'monto_bs',
+      etiqueta: 'MONTO (Bs)',
+      valor: `Bs ${f.monto_bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      sub: 'Total consolidado',
+      colorHex: '#FF8A00',
+      colorRgb: [255, 138, 0],
+    });
+  }
+
+  // 3. Monto en moneda original (si está marcado y la moneda no es ya USD/Bs)
+  if (columnasClaves.includes('monto_original') && metricas.length < 4 && f.moneda_original !== 'USD' && f.moneda_original !== 'Bs') {
+    metricas.push({
+      clave: 'monto_original',
+      etiqueta: `MONTO (${f.moneda_original})`,
+      valor: `${f.monto_original.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      sub: 'Moneda original',
+      colorHex: '#38bdf8',
+      colorRgb: [2, 132, 199],
+    });
+  }
+
+  // 4. Operaciones (si está agrupado o se marcó)
+  if (metricas.length < 4 && (f.total_operaciones != null)) {
+    metricas.push({
+      clave: 'operaciones',
+      etiqueta: 'OPERACIONES',
+      valor: `${f.total_operaciones}`,
+      sub: f.total_operaciones === 1 ? 'registro' : 'registros',
+      colorHex: '#a855f7',
+      colorRgb: [147, 51, 234],
+    });
+  }
+
+  // 5. % del total
+  if (columnasClaves.includes('pct_total') && metricas.length < 4 && f.pct_del_total != null) {
+    metricas.push({
+      clave: 'pct_total',
+      etiqueta: '% DEL TOTAL',
+      valor: `${f.pct_del_total.toFixed(1)}%`,
+      sub: 'del período',
+      colorHex: '#eab308',
+      colorRgb: [202, 138, 4],
+    });
+  }
+
+  // 6. Método / estado de pago
+  if ((columnasClaves.includes('metodo_pago') || columnasClaves.includes('estado')) && metricas.length < 4) {
+    metricas.push({
+      clave: 'metodo_pago',
+      etiqueta: 'MÉTODO / ESTADO',
+      valor: f.estado || '—',
+      sub: f.datos_pago_resumen || f.metodo_pago || '',
+      colorHex: '#10b981',
+      colorRgb: [16, 185, 129],
+    });
+  }
+
+  // Respaldo: si nada quedó marcado, al menos el monto en USD o Bs.
+  if (metricas.length === 0) {
+    metricas.push({
+      clave: 'monto_usd',
+      etiqueta: 'MONTO ($ USD)',
+      valor: `$ ${f.monto_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      sub: tasaTxt,
+      colorHex: '#22c55e',
+      colorRgb: [22, 163, 74],
+    });
+  }
+
+  return metricas.slice(0, 4);
+}
