@@ -2,8 +2,10 @@
    Golden Touch · Retenciones · Config fiscal POR EMPRESA (multi-empresa)
 
    Dentro de «⚙ Parámetros». Lista las empresas receptoras y deja editar SU
-   régimen y SUS porcentajes (lo que define cómo se les retiene). La identidad
-   (nombre, RIF) se edita en el buzón: aquí solo la parte fiscal.
+   régimen (qué retiene cada una) y lo POR-EMPRESA del municipal (alícuota del ISAE
+   y licencia RIM). Los % nacionales (IVA 75/100, alícuota del IVA, IGTF) NO viven
+   aquí: son de Parámetros → Valores y rigen para todas (D3). La identidad (nombre,
+   RIF) se edita en el buzón.
 
    Degradación segura: si la base todavía no trae las columnas fiscales por
    empresa (F-ME1), se avisa y no se edita.
@@ -14,9 +16,6 @@ import {
   listEmpresasReceptoras, guardarEmpresaReceptora, faltaEnEmpresa, fichaFiscalEmpresaDisponible,
   type EmpresaReceptora,
 } from './empresasReceptoras.repository';
-
-/** El % de retención de IVA solo admite 75 o 100 (Providencia SNAT/2025/000054). */
-const PORCENTAJES_IVA = [75, 100] as const;
 
 type Draft = EmpresaReceptora;
 
@@ -72,7 +71,7 @@ export function EditorFichasFiscalesEmpresa({ puedeEditar }: { puedeEditar: bool
   return (
     <div style={{ display: 'grid', gap: '.9rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '.88rem' }}>
-        El régimen y los porcentajes de cada empresa. El nombre y el RIF se editan en el buzón.
+        El régimen de cada empresa y lo municipal (alícuota del ISAE, licencia). Los % nacionales van en Parámetros → Valores. El nombre y el RIF se editan en el buzón.
       </p>
       {error && <div className="aviso error sm"><span className="aviso-icono">⚠️</span><div>{error}</div></div>}
 
@@ -100,32 +99,9 @@ export function EditorFichasFiscalesEmpresa({ puedeEditar }: { puedeEditar: bool
               ))}
             </div>
 
-            {/* Porcentajes */}
+            {/* D3: solo lo POR-EMPRESA (municipal). Los % nacionales (IVA 75/100, alícuota del
+                IVA, IGTF) se configuran en Parámetros → Valores y rigen para todas las empresas. */}
             <div className="form-grid">
-              <div className="form-row">
-                <label>% de retención de IVA (general)</label>
-                <select className="input" disabled={dis} value={d.pctIvaGeneral ?? 75}
-                  onChange={(ev) => editar(e.id, { pctIvaGeneral: Number(ev.target.value) })}>
-                  {PORCENTAJES_IVA.map((p) => <option key={p} value={p}>{p} %</option>)}
-                </select>
-              </div>
-              <div className="form-row">
-                <label>% de retención de IVA (al contribuyente especial)</label>
-                <select className="input" disabled={dis} value={d.pctIvaEspecial ?? 100}
-                  onChange={(ev) => editar(e.id, { pctIvaEspecial: Number(ev.target.value) })}>
-                  {PORCENTAJES_IVA.map((p) => <option key={p} value={p}>{p} %</option>)}
-                </select>
-              </div>
-              <div className="form-row">
-                <label>Alícuota general del IVA (%)</label>
-                <input className="input mono" type="number" min={0} max={100} step="any" disabled={dis}
-                  value={num(d.ivaAlicuota)} onChange={(ev) => editar(e.id, { ivaAlicuota: ev.target.value === '' ? undefined : Number(ev.target.value) })} placeholder="16" />
-              </div>
-              <div className="form-row">
-                <label>Alícuota del IGTF (%)</label>
-                <input className="input mono" type="number" min={0} max={100} step="any" disabled={dis}
-                  value={num(d.pctIgtf)} onChange={(ev) => editar(e.id, { pctIgtf: ev.target.value === '' ? undefined : Number(ev.target.value) })} placeholder="3" />
-              </div>
               <div className="form-row">
                 <label>Alícuota del ISAE / Impuesto Municipal (%)</label>
                 <input className="input mono" type="number" min={0} max={100} step="any" disabled={dis}
@@ -137,6 +113,9 @@ export function EditorFichasFiscalesEmpresa({ puedeEditar }: { puedeEditar: bool
                   value={d.licenciaMunicipal ?? ''} onChange={(ev) => editar(e.id, { licenciaMunicipal: ev.target.value })} placeholder="N° de licencia de actividad económica" />
               </div>
             </div>
+            <p className="muted" style={{ margin: 0, fontSize: '.8rem' }}>
+              Los % nacionales (IVA 75/100, alícuota del IVA e IGTF) se configuran en Parámetros → Valores y rigen para todas las empresas.
+            </p>
 
             {puedeEditar && (
               <div>

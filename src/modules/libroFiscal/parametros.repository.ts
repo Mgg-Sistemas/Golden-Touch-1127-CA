@@ -219,15 +219,10 @@ export async function historialValor(impuesto: string | null, clave: string, lim
 export async function configDeFecha(base: ConfigRetencion, fecha: string, tipos: TipoImpuesto[] = []): Promise<ConfigRetencion> {
   const f = String(fecha ?? '').trim().slice(0, 10);
   if (!FECHA.test(f) || !(await r3Disponible())) return base;
-  // Multi-empresa (NO-GT): los % mandan desde la ficha de la empresa. De los parámetros
-  // nacionales con fecha solo se toma la UT (que es nacional y común a todas).
-  if (base.porcentajesDeFicha) {
-    const ut = await parametroEnFecha(null, 'ut', f);
-    if (typeof ut !== 'number' || !(ut > 0)) {
-      throw new Error(`No hay UT cargada para el ${ddmmaaaa(f)}. Cárguela en Parámetros → Valores (con su fecha y fuente) antes de registrar.`);
-    }
-    return { ...base, valorUt: ut };
-  }
+  // D3 (una sola autoridad): los valores NACIONALES —UT, % de retención de IVA 75/100,
+  // alícuota del IVA, alícuota del IGTF— salen de retencion_parametros por fecha para
+  // TODAS las empresas (Parámetros → Valores gobierna). Lo único por-empresa es la
+  // alícuota municipal (ISAE), que viaja en `base` desde la ficha y no se toca aquí.
   const [ut, pctIva, pctArt5, igtf, aliIva] = await Promise.all([
     parametroEnFecha(null, 'ut', f),
     parametroEnFecha('IVA', 'pct_retencion', f),

@@ -96,13 +96,8 @@ export interface ConfigRetencion {
   pctIgtf: number;          // 3
   /** Alícuota general del IVA (p. ej. 16). Para el desglose «IVA incluido»; sale de Parámetros. */
   ivaAlicuota?: number;
-  /**
-   * Multi-empresa: los porcentajes (IVA, especial, IGTF, alícuota) vienen de la FICHA de la
-   * empresa y NO deben pisarse con los parámetros nacionales con fecha. Con esto, configDeFecha
-   * trae solo la UT (nacional) y respeta los % de la ficha. GT/single-empresa: undefined → los
-   * % siguen saliendo de los parámetros con fecha, como hoy.
-   */
-  porcentajesDeFicha?: boolean;
+  // D3 (una sola autoridad): los % nacionales (IVA 75/100, alícuota IVA, IGTF) salen de
+  // Parámetros → Valores por fecha para TODAS las empresas; ya no hay una fuente «de la ficha».
   /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
   licenciaMunicipal?: string | null;
   /**
@@ -220,11 +215,12 @@ export interface FichaFiscalEmpresa {
 }
 
 /**
- * Config de una empresa NO-GT: toma la identidad, el régimen (banderas) y los
- * porcentajes de SU ficha, sobre la base global. Marca `porcentajesDeFicha` para
- * que configDeFecha traiga solo la UT nacional y respete estos % (orden validado
- * por Master). El timbre estadal queda en false por defecto (DE2). No toca GT:
- * GT usa la config global tal cual (su régimen sale de R1).
+ * Config de una empresa NO-GT: toma de SU ficha la identidad y el régimen (banderas),
+ * sobre la base global. D3 (una sola autoridad): los % NACIONALES —IVA 75/100, alícuota
+ * del IVA, IGTF— NO salen de la ficha; salen de Parámetros → Valores por fecha (vía
+ * configDeFecha), igual que para GT. Lo único por-empresa es la alícuota municipal
+ * (ISAE). El timbre estadal queda en false por defecto (DE2). No toca GT: GT usa la
+ * config global tal cual (su régimen sale de R1).
  */
 export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpresa): ConfigRetencion {
   return {
@@ -241,14 +237,10 @@ export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpres
     retieneIslr: ficha.retieneIslr ?? false,
     retieneMunicipal: ficha.retieneMunicipal ?? false,
     retieneEstadal: false,
-    pctIvaGeneral: ficha.pctIvaGeneral ?? base.pctIvaGeneral,
-    pctIvaEspecial: ficha.pctIvaEspecial ?? base.pctIvaEspecial,
-    pctIgtf: ficha.pctIgtf ?? base.pctIgtf,
-    ivaAlicuota: ficha.ivaAlicuota ?? base.ivaAlicuota,
-    // La alícuota del ISAE de la empresa (si su ficha la trae); si no, el ISAE usa la del concepto (global).
+    // Lo ÚNICO por-empresa: la alícuota del ISAE según su municipio (si su ficha la trae);
+    // si no, el ISAE usa la del concepto (global). Los demás % son nacionales (Parámetros).
     alicuotaMunicipal: ficha.alicuotaMunicipal ?? base.alicuotaMunicipal,
     imprimirOriginalYCopia: ficha.imprimirOriginalYCopia ?? base.imprimirOriginalYCopia,
-    porcentajesDeFicha: true,
   };
 }
 

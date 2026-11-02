@@ -75,7 +75,7 @@ describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
     pctIvaGeneral: 100, pctIvaEspecial: 100, pctIgtf: 3, ivaAlicuota: 16, licenciaMunicipal: 'RIM-123',
   };
 
-  it('toma identidad, régimen y % de la ficha y marca porcentajesDeFicha', () => {
+  it('toma identidad y régimen de la ficha; los % quedan NACIONALES (base), no de la ficha (D3)', () => {
     const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
     expect(c.rif).toBe('J-50000000-5');
     expect(c.razonSocial).toBe('Minería Tin Oxide, C.A.');
@@ -86,8 +86,8 @@ describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
     expect(c.retieneIslr).toBe(true);
     expect(c.retieneMunicipal).toBe(false);
     expect(c.retieneEstadal).toBe(false);   // DE2: NO-GT no practica estadal por defecto
-    expect(c.pctIvaGeneral).toBe(100);
-    expect(c.porcentajesDeFicha).toBe(true);
+    // D3: la ficha ya NO fija los %; quedan los de la base (nacionales), pese al 100 de la ficha.
+    expect(c.pctIvaGeneral).toBe(CONFIG_RETENCION_DEFECTO.pctIvaGeneral);
   });
 
   it('el régimen de la ficha gobierna qué practica (IGTF sí, IVA no, municipal no)', () => {
@@ -98,8 +98,9 @@ describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
     expect(puedePracticar('regional', c)).toBe(false);
   });
 
-  it('cae en la base cuando la ficha no trae un %', () => {
-    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, pctIgtf: undefined, ivaAlicuota: undefined });
+  it('los % salen de la base (nacionales), no de la ficha (D3)', () => {
+    // La ficha trae pctIgtf/ivaAlicuota propios, pero configDesdeFicha ya no los lee: usa la base.
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, pctIgtf: 9, ivaAlicuota: 12 });
     expect(c.pctIgtf).toBe(CONFIG_RETENCION_DEFECTO.pctIgtf);
     expect(c.ivaAlicuota).toBe(CONFIG_RETENCION_DEFECTO.ivaAlicuota);
   });
