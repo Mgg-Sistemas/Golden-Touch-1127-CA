@@ -24,8 +24,9 @@
    paga necesita a quién, cuánto y por dónde; el detalle de qué se compró vive
    en la OC y en su PDF, que es donde se revisa.
    ============================================================ */
-import type { Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
+import type { OfertaProveedor, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
+import { lineasCotizacionesAprobacion } from './cotizacionesAprobacion';
 import { BANCOS_VE } from '@/shared/lib/bancos';
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
@@ -246,7 +247,16 @@ export function textoOrdenPagar(
  * aprobación. Lleva lo que se necesita para decidir —quién pide, a quién se le compra,
  * qué y cuánto cuesta— y nada del pago, que todavía no se indica en esta etapa.
  */
-export function textoOrdenAprobacion(o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>): string {
+export function textoOrdenAprobacion(
+  o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>,
+  /** Todas las cotizaciones de la solicitud (02/11/2026): numeradas, en $ y Bs, la elegida
+   *  y qué analista la escogió. Sin ofertas el aviso sale como antes. */
+  cotizaciones?: {
+    ofertas: OfertaProveedor[];
+    nombreProveedor: (proveedorId: string) => string | null | undefined;
+    tasaUsd?: number | null;
+  },
+): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
   const esServicio = o.tipo === 'servicio';
@@ -266,6 +276,10 @@ export function textoOrdenAprobacion(o: Orden, proveedor: Proveedor | null, pers
 
   const nota = o.notas?.trim();
   if (nota) L.push(`📌 *Nota:* ${nota}`);
+  const lineasCot = cotizaciones
+    ? lineasCotizacionesAprobacion(o, cotizaciones.ofertas, { ...cotizaciones, personas })
+    : [];
+  if (lineasCot.length) L.push('', ...lineasCot, '');
   const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
   L.push(`💵 *Total:* ${monto(totalOrden, moneda)}`);
   L.push('', '🏢 GOLDEN TOUCH 1127 C.A.');

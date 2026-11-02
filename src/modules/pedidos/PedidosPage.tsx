@@ -3567,7 +3567,7 @@ function OrdenDetailModal({
       />
     )}
     {whatsappPagarOpen && (
-      <OrdenPagarWhatsappModal orden={o} proveedor={proveedor} modo={isOcCreada ? 'aprobacion' : 'pagar'} personas={personaMap} onClose={() => setWhatsappPagarOpen(false)} />
+      <OrdenPagarWhatsappModal orden={o} proveedor={proveedor} modo={isOcCreada ? 'aprobacion' : 'pagar'} personas={personaMap} proveedorMap={proveedorMap} onClose={() => setWhatsappPagarOpen(false)} />
     )}
     {editarPreciosOpen && (
       <EditarPreciosOcModal
