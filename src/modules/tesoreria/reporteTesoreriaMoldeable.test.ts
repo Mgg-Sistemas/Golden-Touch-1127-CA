@@ -262,6 +262,23 @@ describe('procesarFilasReporteTesoreria', () => {
     expect(resumen.totalEgresosUsd).toBe(100);
     expect(resumen.totalOperaciones).toBe(3);
   });
+
+  it('el % del total es relativo al propio tipo de flujo (egresos no diluidos por ingresos)', () => {
+    const detalleMix = normalizarMovimientosTesoreria(
+      [
+        mkMov({ id: 'a', tipo: 'salida', monto: 30, moneda: 'USD', gasto_categoria: 'Fletes' }),
+        mkMov({ id: 'b', tipo: 'salida', monto: 10, moneda: 'USD', gasto_categoria: 'Nómina' }),
+        mkMov({ id: 'c', tipo: 'ingreso', monto: 100, moneda: 'USD' }),
+      ],
+      CTX,
+    );
+    const { filas } = procesarFilasReporteTesoreria(detalleMix, 'categoria_gasto');
+    // Egresos: Fletes 30 y Nómina 10 sobre total egresos 40 → 75% y 25%.
+    expect(filas.find((f) => f.categoria === 'Fletes')!.pct_del_total).toBe(75);
+    expect(filas.find((f) => f.categoria === 'Nómina')!.pct_del_total).toBe(25);
+    // El ingreso se mide sobre el total de ingresos (100), no sobre el gran total.
+    expect(filas.find((f) => f.categoria === 'Ingreso')!.pct_del_total).toBe(100);
+  });
 });
 
 describe('obtenerMetricasFichaTesoreria', () => {

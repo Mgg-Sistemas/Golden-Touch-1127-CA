@@ -583,6 +583,14 @@ interface AcumuladorTesoreria {
   bs: number;
   original: number;
   operaciones: number;
+  /** |USD| acumulado por tipo de flujo, para el % relativo al propio tipo. */
+  porTipo: Record<TipoFlujoTesoreria, number>;
+}
+
+/** El tipo de flujo que más pesa (|USD|) dentro de un grupo. */
+function tipoDominante(porTipo: Record<TipoFlujoTesoreria, number>): TipoFlujoTesoreria {
+  const tipos: TipoFlujoTesoreria[] = ['egreso', 'ingreso', 'traslado'];
+  return tipos.reduce((best, t) => (porTipo[t] > porTipo[best] ? t : best), 'egreso' as TipoFlujoTesoreria);
 }
 
 /** Clave + etiqueta del grupo de una fila según la dimensión elegida. */
@@ -619,13 +627,22 @@ export function procesarFilasReporteTesoreria(
   const ordenarPor = opciones.ordenarPor ?? 'usd';
   const tasaRef = filasDetalle.find((f) => f.tasa_bcv_aplicada > 0)?.tasa_bcv_aplicada ?? 0;
   const resumen = resumenTesoreria(filasDetalle, tasaRef);
-  const totalAbsUsd = filasDetalle.reduce((a, f) => a + Math.abs(f.monto_usd), 0);
+
+  // El % de cada fila es relativo al total de su PROPIO tipo de flujo (egreso sobre
+  // el total de egresos, etc.), coherente con el resumen: los traslados tienen su
+  // propio denominador y no diluyen a egresos/ingresos.
+  const totPorTipo: Record<TipoFlujoTesoreria, number> = { ingreso: 0, egreso: 0, traslado: 0 };
+  for (const f of filasDetalle) totPorTipo[f.tipo_movimiento] += Math.abs(f.monto_usd);
+  const pctDe = (usd: number, tipo: TipoFlujoTesoreria): number => {
+    const den = totPorTipo[tipo];
+    return den > 0 ? Math.round((Math.abs(usd) / den) * 1000) / 10 : 0;
+  };
 
   if (agrupacion === 'detallado') {
     const filas = filasDetalle.map((f) => ({
       ...f,
       total_operaciones: 1,
-      pct_del_total: totalAbsUsd > 0 ? Math.round((Math.abs(f.monto_usd) / totalAbsUsd) * 1000) / 10 : 0,
+      pct_del_total: pctDe(f.monto_usd, f.tipo_movimiento),
     }));
     ordenarFilas(filas, ordenarPor);
     return { filas, resumen };
@@ -647,6 +664,7 @@ export function procesarFilasReporteTesoreria(
         origen: f.origen_documento,
         monedasUsadas: new Set<string>(),
         usd: 0, bs: 0, original: 0, operaciones: 0,
+        porTipo: { ingreso: 0, egreso: 0, traslado: 0 },
       };
       mapa.set(clave, g);
     }
@@ -655,10 +673,12 @@ export function procesarFilasReporteTesoreria(
     g.original += f.monto_original;
     g.operaciones += 1;
     g.monedasUsadas.add(f.moneda_original);
+    g.porTipo[f.tipo_movimiento] += Math.abs(f.monto_usd);
   }
 
   const filas: FilaReporteTesoreria[] = Array.from(mapa.values()).map((g) => {
     const monedaRep = g.monedasUsadas.size === 1 ? g.moneda : 'Varias';
+    const dom = tipoDominante(g.porTipo);
     return {
       id: g.clave || g.etiqueta,
       ambito: filasDetalle[0]?.ambito ?? 'movimientos',
@@ -669,7 +689,7 @@ export function procesarFilasReporteTesoreria(
       caja_destino: null,
       moneda_original: monedaRep,
       monto_original: monedaRep === 'Varias' ? 0 : round2(g.original),
-      tipo_movimiento: g.tipo,
+      tipo_movimiento: dom,
       categoria: agrupacion === 'categoria_gasto' ? g.etiqueta : g.categoria,
       subcategoria: null,
       contraparte: agrupacion === 'contraparte' ? g.etiqueta : g.contraparte,
@@ -683,7 +703,7 @@ export function procesarFilasReporteTesoreria(
       monto_bs: round2(g.bs),
       saldo_caja_momento: null,
       total_operaciones: g.operaciones,
-      pct_del_total: totalAbsUsd > 0 ? Math.round((Math.abs(g.usd) / totalAbsUsd) * 1000) / 10 : 0,
+      pct_del_total: pctDe(g.porTipo[dom], dom),
     };
   });
 
