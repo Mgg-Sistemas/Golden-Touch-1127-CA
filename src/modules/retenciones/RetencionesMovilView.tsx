@@ -28,8 +28,8 @@ import { leerMonto, numeroATexto } from '@/modules/libroFiscal/validarCarga';
 import { SeLeyo } from '@/modules/libroFiscal/SeLeyo';
 
 import {
-  listEmpresasReceptoras, guardarEmpresaReceptora, faltaEnEmpresa,
-  type EmpresaReceptora, type EmpresaReceptoraInput,
+  listEmpresasReceptoras,
+  type EmpresaReceptora,
 } from './empresasReceptoras.repository';
 import {
   listFacturasBuzon, cargarFacturaBuzon, eliminarFacturaBuzon, faltaEnFacturaBuzon,
@@ -48,6 +48,7 @@ import {
   lanzarAvisoFactura, solicitarPermisoAvisos, isNotificacionesSoportadas, getEstadoPermisoNotificacion,
 } from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
+import { EmpresaEditor } from './EmpresaEditor';
 import { estadoRetencionDeBuzon, badgeEstadoRetencion } from './estadoRetencion';
 
 const ESTATUS_CONFIG: Record<EstatusFacturaBuzon, { label: string; icono: string; clase: string }> = {
@@ -591,19 +592,25 @@ export function RetencionesMovilView() {
         />
       )}
 
-      {/* Modal: Crear o Editar Empresa Receptora (Móvil) — un solo form (C-l) */}
+      {/* Modal: Crear o Editar Empresa Receptora (Móvil) — editor ÚNICO EmpresaEditor (C4b, modo rápido) */}
       {empresaModal && canWrite && (
-        <ModalNuevaEmpresa
-          empresa={empresaModal.empresa}
-          onClose={() => setEmpresaModal(null)}
-          onGuardada={(emp) => {
-            const eraEdicion = Boolean(empresaModal.empresa);
-            setEmpresas((prev) => (prev.some((x) => x.id === emp.id) ? prev.map((x) => (x.id === emp.id ? emp : x)) : [...prev, emp]));
-            if (!eraEdicion) { setEmpresaFiltro(emp.id); setEmpresaRecienCreada(emp.id); }
-            setEmpresaModal(null);
-            toast(eraEdicion ? `Empresa ${emp.nombreCorto || emp.nombre} actualizada` : `Empresa ${emp.nombreCorto || emp.nombre} lista para usar`, 'success');
-          }}
-        />
+        <Modal title={empresaModal.empresa ? '✏️ Editar empresa' : '✏️ Agregar empresa que recibe facturas'} onClose={() => setEmpresaModal(null)} size="md">
+          <p className="muted" style={{ margin: '0 0 .6rem', fontSize: '.85rem' }}>
+            Indica a qué empresa corresponde la compra. Lo fiscal (régimen, %, alícuotas, licencia) se completa desde la PC en Parámetros.
+          </p>
+          <EmpresaEditor
+            modo="rapido"
+            empresa={empresaModal.empresa}
+            onClose={() => setEmpresaModal(null)}
+            onGuardada={(emp) => {
+              const eraEdicion = Boolean(empresaModal.empresa);
+              setEmpresas((prev) => (prev.some((x) => x.id === emp.id) ? prev.map((x) => (x.id === emp.id ? emp : x)) : [...prev, emp]));
+              if (!eraEdicion) { setEmpresaFiltro(emp.id); setEmpresaRecienCreada(emp.id); }
+              setEmpresaModal(null);
+              toast(eraEdicion ? `Empresa ${emp.nombreCorto || emp.nombre} actualizada` : `Empresa ${emp.nombreCorto || emp.nombre} lista para usar`, 'success');
+            }}
+          />
+        </Modal>
       )}
     </div>
   );
@@ -1366,113 +1373,3 @@ function FormularioCargaFactura({
   );
 }
 
-/* ────────────────────────────────────────────────────────────
-   Modal para Escribir / Añadir / Editar Empresa Receptora (Móvil)
-   Ágil y directo para el personal en campo. Un solo form: sin `empresa`
-   CREA (INSERT); con `empresa` EDITA (UPDATE, C-l), conservando el resto
-   de su ficha fiscal (que se completa desde la PC). Se guarda en la base.
-   ──────────────────────────────────────────────────────────── */
-function ModalNuevaEmpresa({
-  empresa, onClose, onGuardada,
-}: {
-  /** Si viene, se editan sus datos (UPDATE); si no, se crea una nueva (INSERT). */
-  empresa?: EmpresaReceptora;
-  onClose: () => void;
-  onGuardada: (emp: EmpresaReceptora) => void;
-}) {
-  const esEdicion = Boolean(empresa);
-  const [nombre, setNombre] = useState(empresa?.nombre ?? '');
-  const [nombreCorto, setNombreCorto] = useState(empresa?.nombreCorto ?? '');
-  const [rif, setRif] = useState(empresa?.rif ?? '');
-  const [guardando, setGuardando] = useState(false);
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (guardando) return;
-    // En edición se parte de la empresa completa (conserva id, color, estado y la ficha
-    // fiscal de la PC) y solo se pisan los campos del form → UPDATE sin perder lo demás.
-    const input: EmpresaReceptoraInput = esEdicion
-      ? { ...(empresa as EmpresaReceptora), nombre: nombre.trim(), nombreCorto: nombreCorto.trim() || undefined, rif: rif.trim() }
-      : { nombre: nombre.trim(), nombreCorto: nombreCorto.trim() || undefined, rif: rif.trim(), colorBadge: '#2563eb', activo: true };
-    const falta = faltaEnEmpresa(input);
-    if (falta) {
-      toast(falta, 'warning');
-      return;
-    }
-    setGuardando(true);
-    try {
-      const emp = await guardarEmpresaReceptora(input);
-      onGuardada(emp);
-    } catch (err) {
-      toast(motivoDe(err, 'No se pudo guardar la empresa.'), 'error');
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  return (
-    <Modal title={esEdicion ? '✏️ Editar empresa que recibe facturas' : '✏️ Agregar empresa que recibe facturas'} onClose={onClose} size="md">
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-        <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-          Indica a qué empresa corresponde la compra. El departamento de Impuestos completa el resto de la ficha fiscal desde la PC.
-        </p>
-
-        <div>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            Razón social de la empresa *
-          </label>
-          <input
-            type="text"
-            className="input"
-            style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
-            placeholder="Ej. Inversiones El Roble C.A."
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            required
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            Nombre corto (el que se ve en los botones)
-          </label>
-          <input
-            type="text"
-            className="input"
-            style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
-            placeholder="Ej. El Roble"
-            maxLength={30}
-            value={nombreCorto}
-            onChange={(e) => setNombreCorto(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            RIF de la empresa *
-          </label>
-          <input
-            type="text"
-            className="input"
-            style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
-            placeholder="Ej. J-12345678-9"
-            value={rif}
-            onChange={(e) => setRif(e.target.value)}
-            autoCapitalize="characters"
-            required
-          />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
-          <button type="button" className="btn" style={{ minHeight: '52px' }} onClick={onClose} disabled={guardando}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn primario" style={{ minHeight: '52px', fontWeight: 800 }} disabled={guardando}>
-            {guardando ? 'Guardando…' : (esEdicion ? 'Guardar cambios' : 'Aceptar')}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
