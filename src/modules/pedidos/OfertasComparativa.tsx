@@ -65,6 +65,8 @@ interface Props {
   onAddOferta: () => void;
   /** Editar una oferta pendiente (proveedor, marca/modelo, cantidad, precio…). */
   onEditarOferta?: (o: OfertaProveedor) => void;
+  /** Reelegir oferta: devuelve la OC a «aprobada» para elegir de nuevo o añadir más ofertas. */
+  onReelegir?: () => void;
 }
 
 export function OfertasComparativa({
@@ -77,6 +79,7 @@ export function OfertasComparativa({
   onAccepted,
   onAddOferta,
   onEditarOferta,
+  onReelegir,
 }: Props) {
   const [ofertas, setOfertas] = useState<OfertaProveedor[]>([]);
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
@@ -265,6 +268,8 @@ export function OfertasComparativa({
   const puedeAgregar = (canCrearOferta ?? canDecidir) && enEtapaOc && ofertas.length < MAX_OFERTAS;
   // Edición/eliminación de ofertas: nunca en una hija (la oferta es del padre).
   const puedeEditarOfertas = (canCrearOferta ?? canDecidir) && !esHija;
+  // Reelegir oferta: disponible cuando la OC ya eligió oferta pero aún no se ha pagado en Tesorería.
+  const puedeReelegir = !esHija && canDecidir && ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado);
 
   const headLine = (
     <div className="card-title" style={{ marginBottom: '.5rem' }}>
@@ -277,6 +282,17 @@ export function OfertasComparativa({
         {puedeDecidir && ofertas.length >= 1 && (
           <button className="btn btn-sm btn-ghost" onClick={() => setRepartir(true)} title="Comprar distintos ítems a distintos proveedores (una OC por proveedor)">
             🔀 Repartir entre proveedores
+          </button>
+        )}
+        {puedeReelegir && onReelegir && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ background: 'var(--warning)', color: '#111', border: 'none' }}
+            onClick={onReelegir}
+            title="Volver a la etapa de ofertas («aprobada») para reelegir el proveedor, añadir más ofertas o editar cotizaciones"
+          >
+            🔄 Reelegir oferta
           </button>
         )}
       </span>

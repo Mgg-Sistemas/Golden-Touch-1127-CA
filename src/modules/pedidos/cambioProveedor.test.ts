@@ -130,9 +130,21 @@ describe('reabrirEleccionOferta · cambio de proveedor desde «indicar método d
     expect(base.ofertasPatch).toBeNull();   // eso lo hace la función de la base
   });
 
-  it('en otro estado (p. ej. ya «Confirmada pagar») se rechaza sin escribir nada', async () => {
+  it('permite reabrir desde «oc_aprobada» (Confirmada pagar): vuelve a aprobada, anula aprobación y limpia método de pago', async () => {
     base.estadoVigente = 'oc_aprobada';
-    await expect(reabrirEleccionOferta(orden({ estado: 'oc_aprobada' }), 'x@gt.com', { motivo: 'motivo' })).rejects.toThrow(/Solo se puede reelegir/);
+    await reabrirEleccionOferta(orden({ estado: 'oc_aprobada', metodo_pago: [{ metodo: 'transferencia', moneda: 'Bs', monto: 1000 }] } as Partial<Orden>), 'compras@gt.com', { motivo: 'Cambio de cotización' });
+    expect(base.ofertasPatch).toMatchObject({ estado: 'pendiente', decidida_por_email: null, decidida_en: null, motivo_descarte: null });
+    expect(base.ordenPatch).toMatchObject({
+      estado: 'aprobada',
+      oc_creada_por: null, oc_creada_en: null,
+      oc_aprobada_por: null, oc_aprobada_en: null,
+      metodo_pago: null,
+    });
+  });
+
+  it('en otro estado (p. ej. ya «pagada») se rechaza sin escribir nada', async () => {
+    base.estadoVigente = 'pagada';
+    await expect(reabrirEleccionOferta(orden({ estado: 'pagada' }), 'x@gt.com', { motivo: 'motivo' })).rejects.toThrow(/Solo se puede reelegir/);
     expect(base.ofertasPatch).toBeNull();
     expect(base.ordenPatch).toBeNull();
   });

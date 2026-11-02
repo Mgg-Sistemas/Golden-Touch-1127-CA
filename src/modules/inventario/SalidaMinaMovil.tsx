@@ -22,9 +22,9 @@ import { docRetornoMovil, docSalidaMovil, verDocMovilPdf, type DocMovilPdf } fro
 
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-/** Aviso ya guardado: el texto para WhatsApp, el PDF en vista previa (30/10/2026,
- *  mismo formato que Salidas y Traslados) y el botón para seguir. */
-export function Listo({ titulo, texto, onListo, pdf }: { titulo: string; texto: string; onListo: () => void; pdf?: DocMovilPdf | null }) {
+/** Aviso ya guardado: el texto para WhatsApp (con las fotos de la salida, 02/11/2026),
+ *  el PDF en vista previa (30/10/2026, mismo formato que Salidas y Traslados) y el botón para seguir. */
+export function Listo({ titulo, texto, onListo, pdf, fotos }: { titulo: string; texto: string; onListo: () => void; pdf?: DocMovilPdf | null; fotos?: File[] }) {
   const [abriendo, setAbriendo] = useState(false);
   async function verPdf() {
     if (!pdf) return;
@@ -36,7 +36,7 @@ export function Listo({ titulo, texto, onListo, pdf }: { titulo: string; texto: 
   return (
     <div className="surt-form">
       <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>
-      <CompartirWhatsapp texto={texto} />
+      <CompartirWhatsapp texto={texto} fotos={fotos} />
       {pdf && (
         <button type="button" className="btn btn-ghost btn-grande" onClick={() => void verPdf()} disabled={abriendo}>
           {abriendo ? 'Armando el PDF…' : '📄 Ver PDF'}
@@ -98,7 +98,7 @@ export function FormSalidaMina({ producto, almacen, actor, actorName, onCancel, 
   }
 
   if (hecha) {
-    return <Listo titulo={`Salida ${hecha.codigo} registrada`} texto={mensajeSalidaMina(hecha, actorName ?? actor)} onListo={onSaved}
+    return <Listo titulo={`Salida ${hecha.codigo} registrada`} texto={mensajeSalidaMina(hecha, actorName ?? actor)} onListo={onSaved} fotos={fotos}
       pdf={docSalidaMovil(hecha, producto, almacen, { actor, nombre: actorName })} />;
   }
 

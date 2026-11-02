@@ -835,11 +835,11 @@ export async function reabrirEleccionOferta(
   actorEmail: string,
   opciones: { motivo?: string } = {},
 ): Promise<Orden> {
-  const desdeMetodoPago = o.estado === 'confirmada_metodo';
+  const desdeMetodoPago = o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada';
   if (o.estado !== 'oc_creada' && !desdeMetodoPago)
-    throw new Error('Solo se puede reelegir la oferta mientras la OC está «Pendiente por aprobación del Gerente General» o «Confirmada (indicar método de pago)».');
-  const motivo = opciones.motivo?.trim() || null;
-  if (desdeMetodoPago && !motivo) throw new Error('Escribe el motivo del cambio de proveedor.');
+    throw new Error('Solo se puede reelegir la oferta mientras la OC está «Pendiente por aprobación del Gerente General», «Confirmada (indicar método de pago)» o «Confirmada pagar».');
+  const motivo = opciones.motivo?.trim() || (o.estado === 'oc_aprobada' ? 'Reelección de oferta (OC pendiente de pago)' : null);
+  if (o.estado === 'confirmada_metodo' && !motivo) throw new Error('Escribe el motivo del cambio de proveedor.');
   // Otro usuario pudo mover la OC mientras esta pantalla estaba abierta (p. ej. ya la mandó a
   // pagar): se comprueba ANTES de tocar nada, para no dejar las ofertas reactivadas a medias.
   const MOVIDA = 'La orden cambió de estado mientras la editabas (otro usuario la movió). Actualiza la pantalla y revísala antes de reabrir la elección.';
@@ -882,7 +882,18 @@ export async function reabrirEleccionOferta(
       aprobacionAnteriorEn: o.oc_aprobada_en ?? null,
     });
     // Se anula la aprobación del Gerente: volverá a aprobar la nueva cotización.
-    Object.assign(patch, { oc_aprobada_por: null, oc_aprobada_en: null });
+    // Además, si ya se había indicado método de pago (oc_aprobada), se resetea para salir de Tesorería.
+    Object.assign(patch, {
+      oc_aprobada_por: null,
+      oc_aprobada_en: null,
+      metodo_pago: null,
+      metodo_pago_por: null,
+      metodo_pago_en: null,
+      metodo_pago_imagen_path: null,
+      comprobante_tipo: null,
+      retencion_modo: null,
+      retencion_momento: null,
+    });
   }
   patch.historial = appendHistorial(o, 'eleccion_reabierta', actorEmail, extras);
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).eq('estado', o.estado).select('*').maybeSingle();
