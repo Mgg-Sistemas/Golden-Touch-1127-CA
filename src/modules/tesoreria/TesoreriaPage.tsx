@@ -5637,9 +5637,11 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const baseFactura = Number(row.montoAPagar ?? o.total) || 0;
   // Retención: si la factura la tiene, se marca y se escribe el monto (en la moneda de
   // la OC). Se RESTA del total antes de pagar: todo lo de abajo trabaja con el neto.
-  // Nuevo flujo: si Compras marcó «retener ANTES de pagar», la retención ya está hecha y
-  // arranca marcada (el monto BAJA); «DESPUÉS de pagar» se paga completo (el monto SUBE).
-  const retieneAntes = o.retencion_momento === 'antes_de_pagar';
+  // Nuevo flujo: si Compras marcó «retener ANTES de pagar» y Retenciones ya la hizo, arranca
+  // marcada (el monto BAJA); «DESPUÉS de pagar» se paga completo (el monto SUBE).
+  // La retención es OPCIONAL (01/11/2026): el pago nunca se frena por ella y Tesorería
+  // puede marcar o desmarcar «Tiene retención» en cualquier caso.
+  const retieneAntes = o.retencion_momento === 'antes_de_pagar' && !!o.retencion_finalizada;
   const retieneDespues = o.retencion_momento === 'despues_de_pagar';
   const [conRetencion, setConRetencion] = useState(retieneAntes);
   const [retencionStr, setRetencionStr] = useState('');
@@ -6375,7 +6377,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             </div>
           )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontWeight: 600 }}>
-            <input type="checkbox" checked={conRetencion} disabled={retieneAntes || retieneDespues}
+            <input type="checkbox" checked={conRetencion}
               onChange={(e) => { setConRetencion(e.target.checked); if (!e.target.checked) setRetencionStr(''); }} />
             Tiene retención
           </label>

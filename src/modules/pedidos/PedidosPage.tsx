@@ -1182,7 +1182,8 @@ export function PedidosPage() {
               await indicarMetodoPago(modal.orden, metodos, actorMp, soporte, imagenPath);
               const cod = modal.orden.oc_codigo ?? modal.orden.codigo;
               if (soporte.retencionMomento === 'antes_de_pagar') {
-                notify(`OC ${cod} enviada a Retenciones (se retiene ANTES de pagar) · Tesorería la verá cuando la retención esté hecha`, 'success', { link: '#/app/retenciones' });
+                // 01/11/2026: la retención es opcional; Tesorería la ve y la puede pagar igual.
+                notify(`OC ${cod} enviada a Retenciones (se retiene ANTES de pagar)`, 'success', { link: '#/app/retenciones' });
               } else if (soporte.retencionMomento === 'despues_de_pagar') {
                 notify(`OC ${cod} enviada a Tesorería para pagar completa · pasa a Retenciones después del pago`, 'success', { link: '#/app/tesoreria' });
               } else {
@@ -1769,9 +1770,7 @@ function MetodoPagoModal({
       setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(totalFinal)}).`); return;
     }
     if (esContraEntrega && !notaEntrega) { setError('Confirma la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
-    if (momentoActivo && comprobanteTipo === 'factura' && !retencionMomento) {
-      setError('Indica si se retiene ANTES o DESPUÉS de pagar: de eso depende si la OC va a Retenciones o a Tesorería.'); return;
-    }
+    // 01/11/2026: «¿cuándo se retiene?» es opcional; sin marcar nada la OC sigue a Tesorería.
     // Validar datos del proveedor en los métodos que los requieren.
     for (const l of validos) {
       if (requiereDatos(l.metodo)) {
@@ -1974,12 +1973,13 @@ function MetodoPagoModal({
         </div>
         {comprobanteTipo === 'factura' && (
           <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
-            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención{momentoActivo && <> · <strong style={{ color: 'var(--danger)' }}>¿cuándo se retiene? (obligatorio)</strong></>}</div>
+            {/* 01/11/2026: la retención es opcional; se puede mandar a pagar sin marcar nada. */}
+            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención{momentoActivo && <> · ¿cuándo se retiene? (opcional)</>}</div>
             {momentoActivo ? (
             <div style={{ display: 'grid', gap: '.35rem' }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
                 <input type="radio" name="ret-momento" checked={retencionMomento === 'antes_de_pagar'} onChange={() => setRetencionMomento('antes_de_pagar')} />
-                <span><strong>🔻 Retener ANTES de pagar</strong> → va primero a <strong>Retenciones</strong>. Tesorería la paga cuando la retención esté hecha, por el total <strong>menos la retención (el monto BAJA)</strong>.</span>
+                <span><strong>🔻 Retener ANTES de pagar</strong> → va primero a <strong>Retenciones</strong>. Tesorería la paga por el total <strong>menos la retención (el monto BAJA)</strong>.</span>
               </label>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
                 <input type="radio" name="ret-momento" checked={retencionMomento === 'despues_de_pagar'} onChange={() => setRetencionMomento('despues_de_pagar')} />

@@ -1615,9 +1615,9 @@ let ultimaReconciliacionOc = 0;
 /** Cada cuánto, como máximo, se vuelve a reconciliar al listar (ver `listOrdenesPorPagar`). */
 const RECONCILIAR_CADA_MS = 5 * 60_000;
 
-/** Nuevo flujo (30/10/2026): una OC que se retiene ANTES de pagar no llega a Tesorería
- *  hasta que Retenciones finaliza la retención (la base tampoco deja pagarla antes). */
-const LISTA_PARA_TESORERIA = 'retencion_momento.is.null,retencion_momento.neq.antes_de_pagar,retencion_finalizada.is.true';
+// La retención es OPCIONAL (01/11/2026): la OC llega a Tesorería y se paga igual, retenga
+// Retenciones o no. `retencion_momento` queda solo como dato informativo (hasta el 31/10 un
+// filtro frenaba aquí las «antes de pagar» hasta finalizar la retención, y la base también).
 
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   // Antes de listar, reconciliamos pagos huérfanos (caja descontada pero OC sin cerrar)
@@ -1633,7 +1633,7 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   }
   const [{ data: os, error }, { data: provs }] = await Promise.all([
     supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada'])
-      .or(LISTA_PARA_TESORERIA).order('oc_aprobada_en', { ascending: true }),
+      .order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('*'),
   ]);
   if (error) throw error;
@@ -1648,7 +1648,7 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
 export async function resumenPendientesPorPagar(): Promise<{ porPagar: number; credito: number }> {
   const head = { count: 'exact' as const, head: true };
   const [oc, cd, sd, cr] = await Promise.all([
-    supabase.from(TABLE).select('id', head).in('estado', ['confirmada_metodo', 'oc_aprobada']).or(LISTA_PARA_TESORERIA),
+    supabase.from(TABLE).select('id', head).in('estado', ['confirmada_metodo', 'oc_aprobada']),
     supabase.from('compras_directas').select('id', head).eq('estado', 'por_pagar'),
     supabase.from('servicios_directos').select('id', head).eq('estado', 'por_pagar'),
     supabase.from(TABLE).select('id', head).eq('estado', 'cuenta_abierta'),
