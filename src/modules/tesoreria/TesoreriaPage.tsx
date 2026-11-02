@@ -6390,6 +6390,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         </div>
 
         {/* Retención: se descuenta del total de la factura antes de pagar. */}
+        {/* 02/11/2026: «Tiene retención» se oculta en Tesorería; solo sale cuando Compras marcó
+            retener ANTES de pagar y Retenciones ya la hizo (ahí se paga el neto). */}
+        {retieneAntes && (
         <div className="card" style={{ marginBottom: '.75rem', borderColor: conRetencion ? 'var(--brand, #ff8a00)' : undefined }}>
           {retieneAntes && (
             <div className="aviso warning sm" style={{ marginBottom: '.5rem' }}>
@@ -6483,6 +6486,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           )}
           {!conRetencion && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Márcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
         </div>
+        )}
 
         {/* Conversión $ ⇄ Bs con la tasa BCV del día (editable). */}
         <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
