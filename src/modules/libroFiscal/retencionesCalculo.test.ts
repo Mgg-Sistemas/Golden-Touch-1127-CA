@@ -75,17 +75,19 @@ describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
     pctIvaGeneral: 100, pctIvaEspecial: 100, pctIgtf: 3, ivaAlicuota: 16, licenciaMunicipal: 'RIM-123',
   };
 
-  it('toma identidad y lo local de la ficha; el RÉGIMEN NO viene de la ficha (D2b: es L6)', () => {
+  it('toma identidad y lo local de la ficha; ni el RÉGIMEN ni los % vienen de la ficha (D2b: régimen=L6; D3: %=Valores)', () => {
     const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
     expect(c.rif).toBe('J-50000000-5');
     expect(c.razonSocial).toBe('Minería Tin Oxide, C.A.');
     expect(c.municipio).toBe('Caroní');
     expect(c.licenciaMunicipal).toBe('RIM-123');
-    expect(c.pctIvaGeneral).toBe(100);   // el % sigue en esta rama (D3 lo quita en la suya)
-    // D2b: el régimen queda el de la base (capacidad), NO el de la ficha; su fuente es L6.
+    // D2b: el RÉGIMEN queda el de la base (capacidad), NO el de la ficha; su fuente es L6.
     expect(c.esAgenteRetencionIva).toBe(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva);
     expect(c.esContribuyenteEspecial).toBe(CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial);
     expect(c.retieneIslr).toBe(CONFIG_RETENCION_DEFECTO.retieneIslr);
+    expect(c.retieneMunicipal).toBe(CONFIG_RETENCION_DEFECTO.retieneMunicipal);
+    // D3: la ficha ya NO fija los %; quedan los de la base (nacionales), pese al 100 de la ficha.
+    expect(c.pctIvaGeneral).toBe(CONFIG_RETENCION_DEFECTO.pctIvaGeneral);
   });
 
   it('configDesdeFicha NO decide qué practica: el régimen va por L6/la RPC, no por la ficha (D2b)', () => {
@@ -96,8 +98,9 @@ describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
     expect(puedePracticar('iva', c)).toBe(puedePracticar('iva', CONFIG_RETENCION_DEFECTO));
   });
 
-  it('cae en la base cuando la ficha no trae un %', () => {
-    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, pctIgtf: undefined, ivaAlicuota: undefined });
+  it('los % salen de la base (nacionales), no de la ficha (D3)', () => {
+    // La ficha trae pctIgtf/ivaAlicuota propios, pero configDesdeFicha ya no los lee: usa la base.
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, pctIgtf: 9, ivaAlicuota: 12 });
     expect(c.pctIgtf).toBe(CONFIG_RETENCION_DEFECTO.pctIgtf);
     expect(c.ivaAlicuota).toBe(CONFIG_RETENCION_DEFECTO.ivaAlicuota);
   });

@@ -131,20 +131,16 @@ describe('valores de la fecha de la factura', () => {
     await expect(configDeFecha(CONFIG_RETENCION_DEFECTO, '2026-10-16', ['islr'])).resolves.toMatchObject({ valorUt: 43 });
   });
 
-  it('multi-empresa (porcentajesDeFicha): solo la UT nacional; los % mandan desde la ficha', async () => {
-    valoresRpc = { '*:ut': 9, 'IVA:pct_retencion': 75, 'IVA:pct_retencion_art5': 100, 'IGTF:alicuota': 3 };
-    const ficha = { ...CONFIG_RETENCION_DEFECTO, porcentajesDeFicha: true, pctIvaGeneral: 100, pctIgtf: 5, ivaAlicuota: 12 };
-    const c = await configDeFecha(ficha, '2026-10-16', ['iva', 'igtf']);
-    expect(c.valorUt).toBe(9);          // la UT sí es nacional, con fecha
-    expect(c.pctIvaGeneral).toBe(100);  // el % manda desde la ficha, no el 75 global
-    expect(c.pctIgtf).toBe(5);
-    expect(c.ivaAlicuota).toBe(12);
-  });
-
-  it('multi-empresa (porcentajesDeFicha): sin UT para esa fecha, tampoco registra', async () => {
-    valoresRpc = {};
-    await expect(configDeFecha({ ...CONFIG_RETENCION_DEFECTO, porcentajesDeFicha: true }, '2026-10-16', ['iva']))
-      .rejects.toThrow('No hay UT cargada');
+  it('D3: una empresa NO-GT también lee los % NACIONALES por fecha (una sola autoridad)', async () => {
+    valoresRpc = { '*:ut': 9, 'IVA:pct_retencion': 75, 'IVA:pct_retencion_art5': 100, 'IGTF:alicuota': 3, 'IVA:alicuota': 16 };
+    // Aunque la config traiga otros % (como antes los ponía la ficha), mandan los nacionales de Parámetros.
+    const noGt = { ...CONFIG_RETENCION_DEFECTO, pctIvaGeneral: 100, pctIgtf: 5, ivaAlicuota: 12 };
+    const c = await configDeFecha(noGt, '2026-10-16', ['iva', 'igtf']);
+    expect(c.valorUt).toBe(9);           // la UT es nacional, con fecha
+    expect(c.pctIvaGeneral).toBe(75);    // nacional, NO el 100 de la ficha
+    expect(c.pctIvaEspecial).toBe(100);  // nacional (art. 5)
+    expect(c.pctIgtf).toBe(3);           // nacional, NO el 5
+    expect(c.ivaAlicuota).toBe(16);      // nacional, NO el 12
   });
 
   it('sin R3, la configuración de siempre y sin preguntar a la base', async () => {

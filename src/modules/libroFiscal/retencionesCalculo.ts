@@ -96,13 +96,8 @@ export interface ConfigRetencion {
   pctIgtf: number;          // 3
   /** Alícuota general del IVA (p. ej. 16). Para el desglose «IVA incluido»; sale de Parámetros. */
   ivaAlicuota?: number;
-  /**
-   * Multi-empresa: los porcentajes (IVA, especial, IGTF, alícuota) vienen de la FICHA de la
-   * empresa y NO deben pisarse con los parámetros nacionales con fecha. Con esto, configDeFecha
-   * trae solo la UT (nacional) y respeta los % de la ficha. GT/single-empresa: undefined → los
-   * % siguen saliendo de los parámetros con fecha, como hoy.
-   */
-  porcentajesDeFicha?: boolean;
+  // D3 (una sola autoridad): los % nacionales (IVA 75/100, alícuota IVA, IGTF) salen de
+  // Parámetros → Valores por fecha para TODAS las empresas; ya no hay una fuente «de la ficha».
   /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
   licenciaMunicipal?: string | null;
   /**
@@ -233,12 +228,13 @@ export interface FichaFiscalEmpresa {
 }
 
 /**
- * Config de una empresa NO-GT: toma de SU ficha la IDENTIDAD y lo local (licencia,
- * alícuota municipal) sobre la base global. D2b: el RÉGIMEN (qué retiene) ya NO sale
- * de las banderas de la ficha — es una sola fuente, L6 (retencion_agente_condiciones),
- * que el tablero y el registro consultan por la RPC retencion_empresa_practica. Aquí
- * las banderas de régimen quedan las de `base` (capacidad), no las de la ficha. No toca
- * GT (usa la config global tal cual). Los % siguen viniendo de la ficha hasta D3.
+ * Config de una empresa NO-GT: toma de SU ficha solo la IDENTIDAD y lo local (licencia,
+ * alícuota municipal, original/copia) sobre la base global. El RÉGIMEN (qué retiene) NO
+ * sale de las banderas de la ficha — fuente única L6 (retencion_agente_condiciones), que
+ * el tablero y el registro consultan por la RPC retencion_empresa_practica (D2b). Los %
+ * NACIONALES —IVA 75/100, alícuota del IVA, IGTF— tampoco salen de la ficha: salen de
+ * Parámetros → Valores por fecha (vía configDeFecha), igual que para GT (D3). Las banderas
+ * de régimen y los % quedan los de `base`. No toca GT (usa la config global tal cual).
  */
 export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpresa): ConfigRetencion {
   return {
@@ -250,14 +246,11 @@ export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpres
     estado: ficha.estado ?? base.estado,
     email: ficha.email ?? base.email,
     licenciaMunicipal: ficha.licenciaMunicipal ?? base.licenciaMunicipal,
-    pctIvaGeneral: ficha.pctIvaGeneral ?? base.pctIvaGeneral,
-    pctIvaEspecial: ficha.pctIvaEspecial ?? base.pctIvaEspecial,
-    pctIgtf: ficha.pctIgtf ?? base.pctIgtf,
-    ivaAlicuota: ficha.ivaAlicuota ?? base.ivaAlicuota,
-    // La alícuota del ISAE de la empresa (si su ficha la trae); si no, el ISAE usa la del concepto (global).
+    // Ni el RÉGIMEN (banderas → L6) ni los % NACIONALES (→ Parámetros → Valores) salen de
+    // la ficha: quedan los de `base`. Lo ÚNICO por-empresa que sigue abajo es la alícuota del
+    // ISAE según su municipio (si su ficha la trae); si no, el ISAE usa la del concepto (global).
     alicuotaMunicipal: ficha.alicuotaMunicipal ?? base.alicuotaMunicipal,
     imprimirOriginalYCopia: ficha.imprimirOriginalYCopia ?? base.imprimirOriginalYCopia,
-    porcentajesDeFicha: true,
   };
 }
 
