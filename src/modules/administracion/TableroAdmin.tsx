@@ -6,7 +6,7 @@
    ============================================================ */
 import { useMemo } from 'react';
 import type { Empresa, GastoFijo } from './admin.repository';
-import { barrasEmpresa, donutCategoria, kpisTablero, type GastoTablero } from './administracionTablero';
+import { barrasEmpresa, donutCategoria, filasTablero, kpisTablero } from './administracionTablero';
 
 /** Tasa Bs/USD para los equivalentes (demo). En la app real la pone getTasaHoy(). */
 const TASA_DEMO = 40;
@@ -69,16 +69,7 @@ export function TableroAdmin({ gastos, empresas, nombreCat, tasa = TASA_DEMO }: 
   nombreCat: Map<string, string>;
   tasa?: number;
 }) {
-  const filas: GastoTablero[] = useMemo(() => {
-    const nombreEmp = new Map(empresas.map((e) => [e.clave, e.nombre]));
-    return gastos.map((g) => ({
-      empresaClave: g.empresaClave,
-      empresaNombre: nombreEmp.get(g.empresaClave) ?? g.empresaClave,
-      categoria: g.categoriaGastoId ? nombreCat.get(g.categoriaGastoId) ?? 'Sin categoría' : 'Sin categoría',
-      monto: g.monto, moneda: g.moneda, periodicidad: g.periodicidad,
-      diaVencimiento: g.diaVencimiento, vigenteDesde: g.vigenteDesde, estado: g.estado,
-    }));
-  }, [gastos, empresas, nombreCat]);
+  const filas = useMemo(() => filasTablero(gastos, empresas, nombreCat), [gastos, empresas, nombreCat]);
 
   const k = useMemo(() => kpisTablero(filas, tasa), [filas, tasa]);
   const donut = useMemo(() => donutCategoria(filas, tasa), [filas, tasa]);

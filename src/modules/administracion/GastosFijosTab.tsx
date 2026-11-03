@@ -11,6 +11,8 @@ import { proximoVencimiento, type Periodicidad } from './administracionCalculo';
 import type { AdminRepo, Empresa, GastoFijo, OpcionRef } from './admin.repository';
 import { GastoFijoModal } from './GastoFijoModal';
 import { TableroAdmin } from './TableroAdmin';
+import { filasTablero } from './administracionTablero';
+import { nombreArchivoReporte, reporteGastosFijosTxt } from './administracionWhatsApp';
 
 const PERIOD_LABEL: Record<Periodicidad, string> = {
   mensual: 'Mensual', bimensual: 'Bimensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual',
@@ -22,6 +24,13 @@ function urgencia(venc: Date, hoy = new Date()): string {
   const dias = Math.ceil((venc.getTime() - new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).getTime()) / 86400000);
   return dias < 0 ? 'vencido' : dias <= 7 ? 'pronto' : '';
 }
+/** Etiqueta del período actual, p. ej. «Noviembre 2026». */
+const periodoLabel = (() => {
+  const s = new Intl.DateTimeFormat('es-VE', { month: 'long', year: 'numeric' }).format(new Date()).replace(' de ', ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+})();
+/** Tasa Bs/USD para los equivalentes (demo). La app real usa getTasaHoy(). */
+const TASA_DEMO = 40;
 
 export function GastosFijosTab({ repo, empresaClave, empresas }: {
   repo: AdminRepo;
@@ -71,6 +80,26 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
     }
   }
 
+  function descargarWhatsApp() {
+    const filas = filasTablero(gastos, empresas, nombreCat);
+    const empresaNombre = empresaClave ? nombreEmp.get(empresaClave) ?? empresaClave : null;
+    const txt = reporteGastosFijosTxt(filas, { empresaNombre, periodoLabel, tasa: TASA_DEMO });
+    try {
+      const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nombreArchivoReporte(periodoLabel);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast('Resumen para WhatsApp descargado — pégalo en el chat.', 'success');
+    } catch {
+      toast('No se pudo generar el archivo.', 'error');
+    }
+  }
+
   const mostrarEmpresa = empresaClave == null;
 
   return (
@@ -81,7 +110,11 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
       <div className="card">
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <span>Gastos fijos {empresaClave ? `· ${nombreEmp.get(empresaClave) ?? empresaClave}` : '· todas las empresas'}</span>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={descargarWhatsApp} disabled={gastos.length === 0}
+              title="Descarga un resumen con formato de WhatsApp, listo para pegar en el chat">📱 WhatsApp</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>
+          </div>
         </div>
 
         {error && <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No se pudo leer: {/sesi|jwt|auth|401|permission|relation|does not exist/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>}

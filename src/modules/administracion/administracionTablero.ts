@@ -8,9 +8,11 @@ import {
   MESES_PERIODO, agruparTotales, proximoVencimiento, totalGeneral,
   type GrupoTotal, type Moneda, type MovimientoCalc, type Periodicidad,
 } from './administracionCalculo';
+import type { Empresa, GastoFijo } from './admin.repository';
 
 export interface GastoTablero {
   empresaClave: string;
+  concepto: string;
   /** Razón social o la clave; es lo que se muestra en el gráfico por empresa. */
   empresaNombre: string;
   /** Nombre de categoría ya resuelto (o 'Sin categoría'). */
@@ -74,4 +76,17 @@ export function donutCategoria(gastos: readonly GastoTablero[], tasa: number): (
 /** Gasto mensual-equivalente por empresa (activos), de mayor a menor. */
 export function barrasEmpresa(gastos: readonly GastoTablero[], tasa: number): GrupoTotal[] {
   return agruparTotales(activos(gastos).map(movMensual), 'empresa', { tasa });
+}
+
+/** Mapea los gastos del repo a las filas del tablero (resuelve empresa y categoría). */
+export function filasTablero(gastos: readonly GastoFijo[], empresas: readonly Empresa[], nombreCat: Map<string, string>): GastoTablero[] {
+  const nombreEmp = new Map(empresas.map((e) => [e.clave, e.nombre]));
+  return gastos.map((g) => ({
+    empresaClave: g.empresaClave,
+    concepto: g.concepto,
+    empresaNombre: nombreEmp.get(g.empresaClave) ?? g.empresaClave,
+    categoria: g.categoriaGastoId ? nombreCat.get(g.categoriaGastoId) ?? 'Sin categoría' : 'Sin categoría',
+    monto: g.monto, moneda: g.moneda, periodicidad: g.periodicidad,
+    diaVencimiento: g.diaVencimiento, vigenteDesde: g.vigenteDesde, estado: g.estado,
+  }));
 }

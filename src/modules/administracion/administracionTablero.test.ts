@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { barrasEmpresa, donutCategoria, kpisTablero, type GastoTablero } from './administracionTablero';
 
 const g = (p: Partial<GastoTablero>): GastoTablero => ({
-  empresaClave: 'GT', empresaNombre: 'Golden Touch', categoria: 'Servicios', monto: 100, moneda: 'USD',
+  empresaClave: 'GT', concepto: 'Gasto', empresaNombre: 'Golden Touch', categoria: 'Servicios', monto: 100, moneda: 'USD',
   periodicidad: 'mensual', diaVencimiento: 10, vigenteDesde: '2020-01-01', estado: 'activo', ...p,
 });
 const hoy = new Date(2026, 10, 1); // 2026-11-01
