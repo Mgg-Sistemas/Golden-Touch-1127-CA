@@ -74,7 +74,7 @@ function totalizar(facs: readonly FacturaBuzon[]) {
   return { bs, usd, vigentes: vigentes.length };
 }
 
-export function BuzonFacturasExternasView() {
+export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac: FacturaBuzon) => void } = {}) {
   const { can } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
 
@@ -563,6 +563,16 @@ export function BuzonFacturasExternasView() {
                         </td>
                         <td style={{ padding: '0.65rem 0.8rem', textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center' }}>
+                            {onRegistrar && canWrite && fac.estatus !== 'retenida' && fac.estatus !== 'descartada' && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-primary"
+                                onClick={() => onRegistrar(fac)}
+                                title="Registrar la retención de esta factura en el Libro Fiscal de su empresa"
+                              >
+                                ✍ Retener
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="btn btn-sm"

@@ -38,7 +38,7 @@ import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modul
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import { ReportesView } from './ReportesView';
 import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
-import { listFacturasBuzon, ultimaCreacionBuzon } from './facturasBuzon.repository';
+import { listFacturasBuzon, ultimaCreacionBuzon, actualizarEstatusFacturaBuzon, type FacturaBuzon } from './facturasBuzon.repository';
 // Multi-empresa (andamiaje F-ME2): empresa actual arriba del módulo. Oculto y
 // sin efecto mientras la base no traiga la empresa en las retenciones.
 import { useEmpresaActual, esEmpresaGt } from './empresaActual';
@@ -130,6 +130,9 @@ export function RetencionesPage() {
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // P03: registrar el documento fiscal desde un archivo de factura que subió Compras.
   const [registrarFactura, setRegistrarFactura] = useState<SemillaFactura | null>(null);
+  // D: la factura del Buzón que se está registrando (para marcarla 'retenida' al terminar y
+  // registrar bajo SU empresa). Reusa el MISMO registro; no se duplica ningún formulario.
+  const [buzonEnRegistro, setBuzonEnRegistro] = useState<FacturaBuzon | null>(null);
   // D48: «no aplica» por impuesto, sin número de comprobante (con R10 en la base).
   const [conNoAplica, setConNoAplica] = useState(false);
   useEffect(() => { noAplicaDisponible().then(setConNoAplica).catch(() => setConNoAplica(false)); }, []);
@@ -267,6 +270,29 @@ export function RetencionesPage() {
     setRegistrarFactura(semilla);
   }
 
+  // D (puente Buzón → Libro): el rol retención (vista PC) toma una factura cargada en el
+  // buzón y abre el MISMO registro, sembrado con sus datos y BAJO la empresa de la factura
+  // (cada empresa retiene en su libro). La ficha sale de las empresas ya cargadas; GT → null.
+  function fichaDeBuzon(empId: string) {
+    const e = empresas.find((x) => x.id === empId);
+    return e && !esEmpresaGt(e) ? e : null;
+  }
+  function abrirDesdeBuzon(fac: FacturaBuzon) {
+    setBuzonEnRegistro(fac);
+    setRegistrarFactura({
+      direccion: 'practicada',
+      tipoDocumento: fac.tipoDocumento,
+      contraparteNombre: fac.proveedorNombre,
+      contraparteRif: fac.proveedorRif,
+      moneda: fac.moneda,
+      facturaNro: fac.facturaNumero || null,
+      facturaControl: fac.facturaControl,
+      facturaFecha: fac.facturaFecha,
+      facturaTotal: fac.montoTotal,
+      baseImponible: fac.montoTotal,
+    });
+  }
+
   const proveedorIdsPendientes = useMemo(
     () => new Set(porRealizar.map((i) => i.orden.proveedor_id).filter(Boolean) as string[]),
     [porRealizar],
@@ -384,7 +410,7 @@ export function RetencionesPage() {
       {vista === 'auditoria' && <AuditoriaRetenciones />}
 
       {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
-      {vista === 'buzon' && buzonVisible && <BuzonFacturasExternasView />}
+      {vista === 'buzon' && buzonVisible && <BuzonFacturasExternasView onRegistrar={abrirDesdeBuzon} />}
 
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}
@@ -523,9 +549,17 @@ export function RetencionesPage() {
       )}
       {registrarFactura && (
         <RegistrarFacturaRetencion
-          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId} empresaFicha={empresaFicha}
-          onClose={() => setRegistrarFactura(null)}
-          onHecho={async () => { setRegistrarFactura(null); await reload().catch(() => {}); }}
+          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
+          empresaId={buzonEnRegistro ? buzonEnRegistro.empresaId : empresaId}
+          empresaFicha={buzonEnRegistro ? fichaDeBuzon(buzonEnRegistro.empresaId) : empresaFicha}
+          onClose={() => { setRegistrarFactura(null); setBuzonEnRegistro(null); }}
+          onHecho={async () => {
+            const buz = buzonEnRegistro;
+            setRegistrarFactura(null); setBuzonEnRegistro(null);
+            // Reusa actualizarEstatusFacturaBuzon; el realtime del buzón refresca solo.
+            if (buz) await actualizarEstatusFacturaBuzon(buz.id, 'retenida').catch(() => {});
+            await reload().catch(() => {});
+          }}
         />
       )}
     </div>
