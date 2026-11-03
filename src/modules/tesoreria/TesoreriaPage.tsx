@@ -66,7 +66,6 @@ import {
 } from './cuentasPorCobrar.repository';
 import { getVentaCabecera, type Venta } from '@/modules/ventas/ventas.repository';
 import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
-import { descargarOrdenesPorPagarPdf } from './ordenesPorPagarPdf';
 import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, MAX_COMPROBANTES_PAGO, type OrdenPorPagar,
@@ -3963,9 +3962,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   return (
     <Modal title="Órdenes pendientes por pagar" size="xl" onClose={onClose} footer={
       <>
-        <button className="btn btn-ghost" disabled={!rows.length}
-          onClick={() => descargarOrdenesPorPagarPdf(rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}
-          title="Resumen en PDF de TODO lo pendiente por pagar, por segmentos (Compras Directas, OC, Servicios/CS y Servicios Directos), con subtotal por segmento y total general en $ y Bs a la tasa del día">↓ Resumen PDF</button>
+        {/* «↓ Resumen PDF» se quitó a pedido del usuario (03/11/2026); el reporte queda en «📄 Reporte». */}
         <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte" className="btn btn-ghost" />
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
