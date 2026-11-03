@@ -70,6 +70,16 @@ export type MapaProductos = Map<string, ProductoInfoInventario>;
 /** Sede por NOMBRE de almacén (el stock se indexa por nombre de almacén). */
 export type MapaSedes = Map<string, string>;
 
+/**
+ * Sede de un almacén por su nombre. Un nombre que no es un almacén registrado
+ * ('PRODUCCION' de los martillos y la casiterita, 'LOS PINOS', 'GT MATANZA'…) la base
+ * lo trata como el General (ver supabase/2026-10-30-permisos-por-deposito.sql), así que
+ * toma la sede del General; «Sin sede» solo si tampoco se conoce la del General (03/11/2026).
+ */
+export function sedeDeAlmacen(almacen: string | null | undefined, sedes: MapaSedes): string {
+  return sedes.get(almacen || 'General') || sedes.get('General') || SIN_SEDE;
+}
+
 /** Movimientos del período, separados por tipo (del resumen de inventario). */
 export interface MovimientosInventario {
   entradas: MovResumenRow[];
@@ -292,7 +302,7 @@ export function normalizarExistencias(
       categoria: info?.categoria || 'Sin categoría',
       unidad: info?.unidad || 'und',
       almacen: e.almacen || 'General',
-      sede: sedes.get(e.almacen) || SIN_SEDE,
+      sede: sedeDeAlmacen(e.almacen, sedes),
       stock,
       costo_promedio: costo,
       valor: round2(stock * costo),
@@ -336,7 +346,7 @@ export function normalizarMovimientosInventario(
       categoria: info?.categoria || 'Sin categoría',
       unidad: info?.unidad || 'und',
       almacen: fila.almacen || 'General',
-      sede: sedes.get(fila.almacen) || SIN_SEDE,
+      sede: sedeDeAlmacen(fila.almacen, sedes),
       stock: null,
       costo_promedio: costo,
       valor,

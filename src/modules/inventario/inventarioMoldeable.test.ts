@@ -85,8 +85,13 @@ describe('normalizarExistencias', () => {
     expect(f.stock).toBe(8);
   });
 
-  it('almacén sin sede conocida cae en «Sin sede»', () => {
-    const [f] = normalizarExistencias([mkEx({ producto_id: 'p1', almacen: 'Legado', stock: 1, costo_promedio: 1 })], PRODS, SEDES);
+  it('almacén no registrado (legado, p. ej. PRODUCCION) toma la sede del General', () => {
+    const [f] = normalizarExistencias([mkEx({ producto_id: 'p1', almacen: 'PRODUCCION', stock: 1, costo_promedio: 1 })], PRODS, SEDES);
+    expect(f.sede).toBe('Matanzas');
+  });
+
+  it('sin sede del General conocida, cae en «Sin sede»', () => {
+    const [f] = normalizarExistencias([mkEx({ producto_id: 'p1', almacen: 'Legado', stock: 1, costo_promedio: 1 })], PRODS, new Map());
     expect(f.sede).toBe(SIN_SEDE);
   });
 

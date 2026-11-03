@@ -181,10 +181,13 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
   const sedes = Array.from(new Set(almacenes.map((a) => a.sede?.trim() || SIN_SEDE)))
     .sort((a, b) => a.localeCompare(b, 'es-VE'));
 
-  // Almacenes legados (nombre en existencias que no existe como entidad) → "Sin sede".
+  // Almacenes legados (nombre en existencias que no existe como entidad, p. ej. 'PRODUCCION'):
+  // la base los trata como el General, así que van en la sede del General (03/11/2026);
+  // a «Sin sede» solo si el General no tiene sede.
   const conocidos = new Set(almacenes.map((a) => a.nombre));
   const huérfanos = Array.from(exPorAlmacen.keys()).filter((n) => !conocidos.has(n)).sort((a, b) => a.localeCompare(b, 'es-VE'));
-  if (huérfanos.length && !sedes.includes(SIN_SEDE)) sedes.push(SIN_SEDE);
+  const sedeHuerfanos = almacenes.find((a) => a.nombre === 'General')?.sede?.trim() || SIN_SEDE;
+  if (huérfanos.length && !sedes.includes(sedeHuerfanos)) sedes.push(sedeHuerfanos);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -212,8 +215,8 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
   for (const sede of sedes) {
     const sedeAlmacenes = almacenes.filter((a) => (a.sede?.trim() || SIN_SEDE) === sede);
     const nodos = ordenJerarquico(sedeAlmacenes, almacenes);
-    // Los huérfanos cuelgan de "Sin sede" como almacenes principales.
-    if (sede === SIN_SEDE) huérfanos.forEach((n) => nodos.push({ nombre: n, display: n, depth: 0 }));
+    // Los huérfanos cuelgan de la sede del General como almacenes principales.
+    if (sede === sedeHuerfanos) huérfanos.forEach((n) => nodos.push({ nombre: n, display: n, depth: 0 }));
     if (!nodos.length) continue;
 
     // Encabezado de SEDE.
