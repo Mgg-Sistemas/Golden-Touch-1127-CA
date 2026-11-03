@@ -238,3 +238,8 @@
   position: absolute; top: .25rem; right: .25rem; width: 32px; height: 32px; border-radius: 50%;
   border: 1px solid var(--danger); background: var(--bg-0); color: var(--danger); font-size: 1rem; cursor: pointer;
 }
+
+/* Inventario · teléfono · Histórico de salidas y de traslados lado a lado (03/11/2026) */
+.surt-historicos { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .75rem; }
+.surt-historicos .surt-btn { min-height: 120px; height: 100%; }
+@media (max-width: 359px) { .surt-historicos { grid-template-columns: 1fr; } }

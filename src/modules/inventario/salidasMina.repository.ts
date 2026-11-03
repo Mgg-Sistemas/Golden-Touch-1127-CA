@@ -9,6 +9,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
+import type { SolicitudSalida } from '@/shared/lib/types';
 import {
   MAX_FOTOS_SALIDA_MINA, errorFotosSalidaMina, type FotoSalidaMina, type RetornoSalidaMina, type SalidaMina,
 } from './salidasMina';
@@ -37,6 +38,30 @@ export async function listSalidasMina(limite = 60): Promise<SalidaMina[]> {
   const { data, error } = await supabase.from(TABLE).select('*').order('created_at', { ascending: false }).limit(limite);
   if (error) throw err(error, 'No se pudieron leer las salidas.');
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
+}
+
+/** Histórico del teléfono (03/11/2026): las salidas de ese almacén entre dos fechas
+ *  (límites ISO, ver limitesIsoRango), de la más reciente a la más vieja. Las viejas de la
+ *  Mina no tienen almacén guardado: para la Mina también se traen las que lo tienen en null. */
+export async function listSalidasMinaHistorico(f: { almacen: string; desdeIso: string; hastaIso: string; limite?: number }): Promise<SalidaMina[]> {
+  let q = supabase.from(TABLE).select('*').gte('created_at', f.desdeIso).lt('created_at', f.hastaIso);
+  q = f.almacen === 'Depósito Mina' ? q.or('almacen.eq."Depósito Mina",almacen.is.null') : q.eq('almacen', f.almacen);
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(f.limite ?? 200);
+  if (error) throw err(error, 'No se pudieron leer las salidas.');
+  return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
+}
+
+/** Las salidas EJECUTADAS del módulo Salidas (PC) que registró ese usuario desde ese
+ *  almacén, entre dos fechas (03/11/2026: en el histórico del teléfono cada quien ve
+ *  también las suyas de la PC). El General viejo guardaba el almacén en null. */
+export async function listMisSalidasPcEjecutadas(f: { almacen: string; actor: string; desdeIso: string; hastaIso: string; limite?: number }): Promise<SolicitudSalida[]> {
+  let q = supabase.from('solicitudes_salida').select('*')
+    .eq('scope', 'salida').eq('estado', 'ejecutada').ilike('actor', f.actor.trim())
+    .gte('created_at', f.desdeIso).lt('created_at', f.hastaIso);
+  q = f.almacen === 'General' ? q.or('almacen_origen.eq.General,almacen_origen.is.null') : q.eq('almacen_origen', f.almacen);
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(f.limite ?? 200);
+  if (error) throw err(error, 'No se pudieron leer las salidas del módulo Salidas.');
+  return (data ?? []) as SolicitudSalida[];
 }
 
 /** Las que retornan y todavía no volvieron completas (todas, no solo las últimas) de ese almacén. */
@@ -92,4 +117,19 @@ export async function urlFotoSalidaMina(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw new Error('No se pudo abrir la foto.');
   return data.signedUrl;
+}
+
+/** Baja las fotos guardadas de una salida como archivos, para pasarlas al menú de
+ *  compartir de WhatsApp (histórico del teléfono, 03/11/2026). Una que no baje se salta. */
+export async function descargarFotosSalidaMina(s: Pick<SalidaMina, 'fotos'>): Promise<File[]> {
+  const archivos = await Promise.all(s.fotos.map(async (f) => {
+    try {
+      const resp = await fetch(await urlFotoSalidaMina(f.path));
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      const tipo = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
+      return new File([blob], f.filename || f.path.split('/').pop() || 'foto.jpg', { type: tipo });
+    } catch { return null; }
+  }));
+  return archivos.filter((f): f is File => !!f);
 }

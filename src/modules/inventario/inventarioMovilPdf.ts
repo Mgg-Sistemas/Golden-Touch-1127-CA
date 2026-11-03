@@ -158,6 +158,9 @@ export function docRetornoMovil(s: SalidaMina, cantidad: number, nota: string | 
   };
 }
 
+/** Salida del módulo Salidas (PC) en el histórico del teléfono: su misma Orden de Salida, sin ajustes. */
+export const docSalidaPc = (sol: SolicitudSalida): DocMovilPdf => ({ sol, actor: sol.actor ?? null, opciones: {} });
+
 /** Abre el PDF en vista previa (el mismo visor de todo el sistema). */
 export async function verDocMovilPdf(d: DocMovilPdf): Promise<void> {
   const [{ descargarOrdenSalidaPdf }, { resolverQuien }] = await Promise.all([
