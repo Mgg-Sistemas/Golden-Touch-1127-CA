@@ -14,7 +14,7 @@ import type {
   FilaReporteProveedor,
   ResumenReporteProveedor,
 } from './proveedoresMoldeable';
-import { numeroColumnaProveedor, textoColumnaProveedor } from './proveedoresMoldeable';
+import { numeroColumnaProveedor, obtenerMetricasFichaProveedor, textoColumnaProveedor } from './proveedoresMoldeable';
 
 export type OrientacionHoja = 'auto' | 'vertical' | 'horizontal';
 
@@ -40,6 +40,8 @@ export interface OpcionesReporteProveedores {
   claves?: string[];
   /** Orientación forzada o automática según el peso de las columnas. */
   orientacion?: OrientacionHoja;
+  /** Presentación del PDF moldeable: «fichas» (tarjetas) o «tabla». Por defecto, fichas. */
+  formatoPresentacion?: 'fichas' | 'tabla';
   /** Reporte moldeable (agrupación + KPIs). Si viene, manda sobre `claves`. */
   moldeable?: DatosMoldeableProveedor;
 }
@@ -361,6 +363,152 @@ function lineasResumenProveedor(r: ResumenReporteProveedor): string[] {
   return l;
 }
 
+/* Tintas de la ficha (tarjeta) del PDF moldeable. */
+const TINTA_FICHA: [number, number, number] = [30, 41, 59];
+const BORDE_FICHA: [number, number, number] = [225, 225, 225];
+
+/**
+ * Dibuja las filas del reporte como FICHAS (tarjetas), calcando el patrón de
+ * Inventario/Tesorería: recuadro con acento lateral por estado, badge, título
+ * (razón social), subtítulo (RIF · categorías), divisoria y hasta 4 métricas.
+ */
+function dibujarFichasProveedor(
+  doc: import('jspdf').jsPDF,
+  filas: FilaReporteProveedor[],
+  columnas: CampoReporteProveedor[],
+  agrupacionEtiqueta: string | undefined,
+  orientation: 'portrait' | 'landscape',
+  W: number,
+  H: number,
+  MARGIN: number,
+  yInicial: number,
+): void {
+  const clavesColumnas = columnas.map((c) => c.clave);
+  const UW = W - MARGIN * 2;
+  const cols = orientation === 'landscape' ? 2 : 1;
+  const cardGap = 10;
+  const cardW = (UW - (cols - 1) * cardGap) / cols;
+  const cardH = orientation === 'landscape' ? 72 : 66;
+  let y = yInicial;
+
+  for (let i = 0; i < filas.length; i += cols) {
+    if (y + cardH > H - 36) { doc.addPage(); y = 36; }
+    for (let c = 0; c < cols; c++) {
+      const f = filas[i + c];
+      if (!f) break;
+      const cx = MARGIN + c * (cardW + cardGap);
+      const cy = y;
+      // Acento lateral: rojo si está inactivo, ámbar si activo (igual que la vista previa).
+      const acento: [number, number, number] = f.estado === 'Inactivo' ? [239, 68, 68] : [217, 119, 6];
+
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...BORDE_FICHA);
+      doc.setLineWidth(0.6);
+      doc.roundedRect(cx, cy, cardW, cardH, 4, 4, 'FD');
+      doc.setFillColor(...acento);
+      doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
+
+      // Badge: estado y/o % del total arriba; origen (o N° de proveedores del grupo) debajo.
+      const pctTxt = f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}%` : '';
+      const txtBadge = pdfSafe([f.estado, pctTxt].filter(Boolean).join(' · ') || (f.origen || 'Proveedor'));
+      const txtSubBadge = pdfSafe(
+        f.origen || (f.total_proveedores != null && f.total_proveedores > 1 ? `${f.total_proveedores} proveedores` : ''),
+      );
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.8);
+      const w1 = doc.getTextWidth(txtBadge);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.5);
+      const w2 = doc.getTextWidth(txtSubBadge);
+      const badgeW = Math.min(cardW * 0.44, Math.max(70, Math.max(w1, w2) + 12));
+      const badgeH = txtSubBadge ? 15 : 11;
+      const bx = cx + cardW - badgeW - 6;
+      const by = cy + 4;
+
+      const [ar, ag, ab] = acento;
+      doc.setFillColor(Math.min(255, ar + 180), Math.min(255, ag + 70), Math.min(255, ab + 60));
+      doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+
+      let fontB = 6.8;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(fontB);
+      doc.setTextColor(...acento);
+      while (doc.getTextWidth(txtBadge) > badgeW - 6 && fontB > 5.4) { fontB -= 0.2; doc.setFontSize(fontB); }
+      doc.text(txtBadge, bx + badgeW / 2, by + (txtSubBadge ? 5.8 : 7.2), { align: 'center' });
+
+      if (txtSubBadge) {
+        let fontS = 5.5;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(fontS);
+        doc.setTextColor(100, 116, 139);
+        while (doc.getTextWidth(txtSubBadge) > badgeW - 6 && fontS > 4.4) { fontS -= 0.2; doc.setFontSize(fontS); }
+        doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
+      }
+
+      // Título: razón social (o la etiqueta del grupo).
+      const tituloBase = f.razon_social || f.rif || 'Sin nombre';
+      const maxTitleW = Math.max(60, (bx - 8) - (cx + 10));
+      let titulo = pdfSafe(tituloBase);
+      let titleFont = 9.5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(titleFont);
+      while (doc.getTextWidth(titulo) > maxTitleW && titleFont > 7.4) { titleFont -= 0.3; doc.setFontSize(titleFont); }
+      if (doc.getTextWidth(titulo) > maxTitleW) {
+        while (titulo.length > 3 && doc.getTextWidth(titulo + '…') > maxTitleW) titulo = titulo.slice(0, -1);
+        titulo += '…';
+      }
+      doc.setTextColor(...TINTA_FICHA);
+      doc.text(titulo, cx + 10, cy + 13);
+
+      // Subtítulo: RIF · categorías · (dimensión, si es un grupo sin RIF).
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.2);
+      doc.setTextColor(100, 116, 139);
+      const partes = [
+        f.rif && f.rif !== tituloBase ? f.rif : null,
+        f.categorias && f.categorias !== tituloBase ? f.categorias : null,
+        !f.rif && agrupacionEtiqueta ? agrupacionEtiqueta : null,
+      ].filter(Boolean) as string[];
+      let metaTxt = pdfSafe(partes.join(' · ') || 'Proveedor');
+      const maxMetaW = cardW - 20;
+      if (doc.getTextWidth(metaTxt) > maxMetaW) {
+        while (metaTxt.length > 3 && doc.getTextWidth(metaTxt + '…') > maxMetaW) metaTxt = metaTxt.slice(0, -1);
+        metaTxt += '…';
+      }
+      doc.text(metaTxt, cx + 10, cy + 24);
+
+      doc.setDrawColor(241, 245, 249);
+      doc.setLineWidth(0.5);
+      doc.line(cx + 8, cy + 29, cx + cardW - 8, cy + 29);
+
+      // Métricas dinámicas (hasta 4) del motor, según las columnas marcadas.
+      const metricas = obtenerMetricasFichaProveedor(f, clavesColumnas);
+      const innerW = cardW - 16;
+      const colW = innerW / Math.max(1, metricas.length);
+      const my = cy + 39;
+      metricas.forEach((m, idx) => {
+        const mx = cx + 8 + colW * idx;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(71, 85, 105);
+        doc.text(pdfSafe(m.etiqueta), mx, my);
+        doc.setFontSize(9.5);
+        doc.setTextColor(...m.colorRgb);
+        const valFit = doc.splitTextToSize(pdfSafe(m.valor), colW - 4) as string[];
+        doc.text(valFit[0] ?? '', mx, my + 13);
+        if (m.sub) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.0);
+          doc.setTextColor(148, 163, 184);
+          const subFit = doc.splitTextToSize(pdfSafe(m.sub), colW - 4) as string[];
+          doc.text(subFit[0] ?? '', mx, my + 23);
+        }
+      });
+    }
+    y += cardH + cardGap;
+  }
+}
+
 async function construirProveedoresPdfMoldeable(
   datos: DatosMoldeableProveedor,
   logo: string | null,
@@ -373,11 +521,14 @@ async function construirProveedoresPdfMoldeable(
   ]);
   const generado = momentoGeneracion(op.generadoEn ?? new Date().toISOString());
   const { filas, columnas, resumen, agrupacionEtiqueta } = datos;
+  // Presentación: «fichas» (tarjetas) por defecto; «tabla» mantiene el autoTable.
+  const esFichas = op.formatoPresentacion !== 'tabla';
   const anchoTotal = columnas.reduce((a, c) => a + c.anchoPdf, 0);
   const orientation: 'portrait' | 'landscape' =
     op.orientacion === 'vertical' ? 'portrait'
       : op.orientacion === 'horizontal' ? 'landscape'
-        : anchoTotal > 85 || columnas.length > 5 ? 'landscape' : 'portrait';
+        : esFichas ? 'landscape'
+          : anchoTotal > 85 || columnas.length > 5 ? 'landscape' : 'portrait';
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation });
   const W = doc.internal.pageSize.getWidth();
@@ -418,25 +569,29 @@ async function construirProveedoresPdfMoldeable(
     y += alto + 10;
   }
 
-  const util = W - MARGIN * 2 - 24;
-  const letra = letraQueEntra(util, anchoTotal);
-  const columnStyles: Record<number, { cellWidth: number; halign?: 'center' | 'left' | 'right' }> = {
-    0: { halign: 'center', cellWidth: 24 },
-  };
-  columnas.forEach((c, idx) => {
-    columnStyles[idx + 1] = { cellWidth: (util * c.anchoPdf) / anchoTotal, halign: c.alineacion };
-  });
+  if (esFichas) {
+    dibujarFichasProveedor(doc, filas, columnas, agrupacionEtiqueta, orientation, W, H, MARGIN, y);
+  } else {
+    const util = W - MARGIN * 2 - 24;
+    const letra = letraQueEntra(util, anchoTotal);
+    const columnStyles: Record<number, { cellWidth: number; halign?: 'center' | 'left' | 'right' }> = {
+      0: { halign: 'center', cellWidth: 24 },
+    };
+    columnas.forEach((c, idx) => {
+      columnStyles[idx + 1] = { cellWidth: (util * c.anchoPdf) / anchoTotal, halign: c.alineacion };
+    });
 
-  autoTable(doc, {
-    startY: y,
-    head: [['#', ...columnas.map((c) => pdfSafe(c.etiqueta.toUpperCase()))]],
-    body: filas.map((f, i) => [String(i + 1), ...columnas.map((c) => pdfSafe(textoColumnaProveedor(f, c.clave)) || '—')]),
-    styles: { fontSize: letra, cellPadding: letra < 7.5 ? 2.5 : 4, valign: 'middle', overflow: 'linebreak' },
-    headStyles: { fillColor: PASTEL_PDF.cabecera, textColor: PASTEL_PDF.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
-    alternateRowStyles: { fillColor: PASTEL_PDF.cebra },
-    columnStyles,
-    margin: MARGIN,
-  });
+    autoTable(doc, {
+      startY: y,
+      head: [['#', ...columnas.map((c) => pdfSafe(c.etiqueta.toUpperCase()))]],
+      body: filas.map((f, i) => [String(i + 1), ...columnas.map((c) => pdfSafe(textoColumnaProveedor(f, c.clave)) || '—')]),
+      styles: { fontSize: letra, cellPadding: letra < 7.5 ? 2.5 : 4, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: PASTEL_PDF.cabecera, textColor: PASTEL_PDF.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
+      alternateRowStyles: { fillColor: PASTEL_PDF.cebra },
+      columnStyles,
+      margin: MARGIN,
+    });
+  }
 
   const paginas = doc.getNumberOfPages();
   for (let i = 1; i <= paginas; i++) {

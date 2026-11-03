@@ -16,6 +16,7 @@ export type ModuleKey =
   | 'acopio'
   | 'cocina'
   | 'tesoreria'
+  | 'administracion'
   | 'ventas'
   | 'retenciones'
   | 'documentacion'
@@ -59,6 +60,7 @@ export const MODULES: { key: ModuleKey; label: string; ayuda?: string }[] = [
   { key: 'acopio',      label: 'Centro de Costo PERAMANAL' },
   { key: 'cocina',      label: 'Control de Alimentación (Cocina)' },
   { key: 'tesoreria',   label: 'Tesorería' },
+  { key: 'administracion', label: 'Administración', ayuda: 'Gastos fijos por servicio: plantillas, histórico y reporte; se reflejan en Tesorería (multi-empresa).' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'documentacion', label: 'Documentación' },
