@@ -1,16 +1,16 @@
 /* ============================================================
-   Golden Touch · Administración · pestaña «Reporte»
-   El análisis del HISTÓRICO (egresos efectivos), al estándar de reportes del
-   sistema: filtros (período · moneda; la empresa viene de la cabecera), total
-   del alcance, desglose por categoría y por empresa, y las salidas PDF, Excel
-   y WhatsApp (los tres del mismo armado puro `armarReporteAdmin`). Mantiene el
-   lenguaje visual del tablero aprobado.
+   Golden Touch · Administración · pestaña «Reporte» (dinámico)
+   Reporte configurable, al estándar del sistema: rango de fechas, filtros
+   (moneda, categoría; la empresa viene de la cabecera) y DIMENSIÓN de
+   agrupación elegible (empresa/categoría/proveedor/período/moneda/estado).
+   Las salidas PDF, Excel y WhatsApp salen del mismo armado puro
+   `armarReporteAdmin` → todas dicen lo mismo. Lenguaje visual del tablero.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { type Moneda } from './administracionCalculo';
-import { armarReporteAdmin } from './administracionReporte';
+import { armarReporteAdmin, ETIQUETA_DIMENSION, type DimensionReporte } from './administracionReporte';
 import { descargarReporteAdminPdf } from './administracionReportePdf';
 import { descargarReporteAdminExcel } from './administracionReporteExcel';
 import { reporteMovimientosTxt } from './administracionWhatsApp';
@@ -20,15 +20,9 @@ import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.reposito
 const num0 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 0 });
 const monto2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const TASA_DEMO = 40;
-const TODOS = '__todos__';
+const DIMENSIONES: DimensionReporte[] = ['categoria', 'empresa', 'proveedor', 'periodo', 'moneda', 'estado'];
 
-/** «2026-10» → «Octubre 2026»; otros tokens (B6, T4…) se muestran tal cual. */
-function etiquetaPeriodo(token: string): string {
-  const m = /^(\d{4})-(\d{2})$/.exec(token);
-  if (!m) return token;
-  const nombre = new Intl.DateTimeFormat('es-VE', { month: 'long' }).format(new Date(Number(m[1]), Number(m[2]) - 1, 1));
-  return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)} ${m[1]}`;
-}
+const fCorta = (iso: string) => { const [a, m, d] = iso.split('-'); return d && m && a ? `${d}/${m}/${a}` : iso; };
 
 export function ReporteTab({ repo, empresaClave, empresas }: {
   repo: AdminRepo;
@@ -39,8 +33,11 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   const [categorias, setCategorias] = useState<OpcionRef[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [periodo, setPeriodo] = useState<string>(TODOS);
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
   const [moneda, setMoneda] = useState<'' | Moneda>('');
+  const [categoriaId, setCategoriaId] = useState('');
+  const [agruparPor, setAgruparPor] = useState<DimensionReporte>('categoria');
   const [wsp, setWsp] = useState<string | null>(null);
 
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
@@ -60,27 +57,29 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   }, [repo, empresaClave]);
   useEffect(() => { void cargar(); }, [cargar]);
 
-  // Si la empresa cambia y el período elegido ya no aparece, vuelve a «Todos».
-  const periodos = useMemo(() => [...new Set(movs.map((m) => m.periodo))].sort().reverse(), [movs]);
-  useEffect(() => { if (periodo !== TODOS && !periodos.includes(periodo)) setPeriodo(TODOS); }, [periodos, periodo]);
-
   const filtrados = useMemo(
-    () => movs.filter((m) => m.estadoPago !== 'anulado' && (periodo === TODOS || m.periodo === periodo) && (!moneda || m.moneda === moneda)),
-    [movs, periodo, moneda],
+    () => movs.filter((m) =>
+      m.estadoPago !== 'anulado'
+      && (!desde || m.fecha >= desde)
+      && (!hasta || m.fecha <= hasta)
+      && (!moneda || m.moneda === moneda)
+      && (!categoriaId || m.categoriaGastoId === categoriaId)),
+    [movs, desde, hasta, moneda, categoriaId],
   );
-  const alcanceLabel = periodo === TODOS ? 'Todo el histórico' : etiquetaPeriodo(periodo);
+  const alcanceLabel = (!desde && !hasta) ? 'Todo el histórico' : `${desde ? fCorta(desde) : '…'} – ${hasta ? fCorta(hasta) : '…'}`;
   const empresaNombre = empresaClave ? nombreEmp.get(empresaClave) ?? empresaClave : null;
 
-  // UN solo armado puro → las tres salidas (WhatsApp, PDF, Excel) y la vista dicen lo mismo.
+  // UN solo armado puro, agrupado por la dimensión elegida → las tres salidas y la vista dicen lo mismo.
   const data = useMemo(
-    () => armarReporteAdmin(filtrados, empresas, categorias, { empresaNombre, alcanceLabel, tasa: TASA_DEMO }),
-    [filtrados, empresas, categorias, empresaNombre, alcanceLabel],
+    () => armarReporteAdmin(filtrados, empresas, categorias, { empresaNombre, alcanceLabel, tasa: TASA_DEMO, agruparPor }),
+    [filtrados, empresas, categorias, empresaNombre, alcanceLabel, agruparPor],
   );
-  const { total, porCategoria, porEmpresa, porMoneda } = data;
-  const maxCat = Math.max(1, ...porCategoria.map((g) => g.equivUsd));
+  const { total, grupos } = data;
+  const dim = ETIQUETA_DIMENSION[agruparPor];
+  const maxVal = Math.max(1, ...grupos.map((g) => g.equivUsd));
 
   function abrirWhatsApp() {
-    setWsp(reporteMovimientosTxt(porCategoria, total, { empresaNombre, periodoLabel: alcanceLabel }));
+    setWsp(reporteMovimientosTxt(grupos, total, { empresaNombre, periodoLabel: alcanceLabel, dimLabel: dim.toLowerCase() }));
   }
   async function descargarPdf() {
     try { await descargarReporteAdminPdf(data); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF.', 'error'); }
@@ -91,23 +90,38 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
 
   return (
     <div className="adm-tablero">
-      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
-            <span className="muted hint">Período</span>
-            <select className="input" value={periodo} onChange={(e) => setPeriodo(e.target.value)} style={{ minWidth: 150 }}>
-              <option value={TODOS}>Todo el histórico</option>
-              {periodos.map((p) => <option key={p} value={p}>{etiquetaPeriodo(p)}</option>)}
-            </select>
+      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: '.2rem' }}>
+            <span className="muted hint">Desde</span>
+            <input type="date" className="input" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
           </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: '.2rem' }}>
+            <span className="muted hint">Hasta</span>
+            <input type="date" className="input" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
+          </label>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: '.2rem' }}>
             <span className="muted hint">Moneda</span>
             <select className="input" value={moneda} onChange={(e) => setMoneda(e.target.value as '' | Moneda)}>
-              <option value="">Ambas</option>
-              <option value="USD">USD</option>
-              <option value="Bs">Bs</option>
+              <option value="">Ambas</option><option value="USD">USD</option><option value="Bs">Bs</option>
             </select>
           </label>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: '.2rem' }}>
+            <span className="muted hint">Categoría</span>
+            <select className="input" value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} style={{ maxWidth: 170 }}>
+              <option value="">Todas</option>
+              {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: '.2rem' }}>
+            <span className="muted hint">Agrupar por</span>
+            <select className="input" value={agruparPor} onChange={(e) => setAgruparPor(e.target.value as DimensionReporte)}>
+              {DIMENSIONES.map((d) => <option key={d} value={d}>{ETIQUETA_DIMENSION[d]}</option>)}
+            </select>
+          </label>
+          {(desde || hasta || moneda || categoriaId) && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setDesde(''); setHasta(''); setMoneda(''); setCategoriaId(''); }}>✕ Limpiar</button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void descargarPdf()} disabled={!filtrados.length}>📄 PDF</button>
@@ -122,7 +136,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
       {cargando ? (
         <div className="card"><p className="muted">Calculando el reporte…</p></div>
       ) : !filtrados.length && !error ? (
-        <div className="card"><EmptyState icon="📊" message="No hay movimientos en este alcance. Cargá el histórico en «Movimientos»." /></div>
+        <div className="card"><EmptyState icon="📊" message="No hay movimientos en este alcance. Ajustá los filtros o cargá el histórico en «Movimientos»." /></div>
       ) : (
         <>
           <div className="adm-kpis">
@@ -148,26 +162,26 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
 
           <div className="adm-graficos">
             <div className="card adm-grafico">
-              <div className="adm-grafico-tit">Por categoría</div>
+              <div className="adm-grafico-tit">Por {dim.toLowerCase()}</div>
               <ul className="adm-barras">
-                {porCategoria.map((g) => (
+                {grupos.map((g) => (
                   <li key={g.clave}>
                     <span className="adm-barra-nom" title={g.clave}>{g.clave}</span>
-                    <span className="adm-barra-pista"><span className="adm-barra-fill" style={{ width: `${Math.round((g.equivUsd / maxCat) * 100)}%` }} /></span>
+                    <span className="adm-barra-pista"><span className="adm-barra-fill" style={{ width: `${Math.round((g.equivUsd / maxVal) * 100)}%` }} /></span>
                     <span className="adm-barra-val">$ {num0(g.equivUsd)}</span>
                   </li>
                 ))}
               </ul>
             </div>
             <div className="card adm-grafico">
-              <div className="adm-grafico-tit">{empresaClave ? 'Detalle por moneda' : 'Por empresa'}</div>
+              <div className="adm-grafico-tit">Detalle · {dim}</div>
               <div className="adm-tabla">
                 <table>
                   <thead>
-                    <tr><th>{empresaClave ? 'Moneda' : 'Empresa'}</th><th style={{ textAlign: 'right' }}>Bs</th><th style={{ textAlign: 'right' }}>USD</th><th style={{ textAlign: 'right' }}>Equiv. $</th><th style={{ textAlign: 'right' }}>Mov.</th></tr>
+                    <tr><th>{dim}</th><th style={{ textAlign: 'right' }}>Bs</th><th style={{ textAlign: 'right' }}>USD</th><th style={{ textAlign: 'right' }}>Equiv. $</th><th style={{ textAlign: 'right' }}>Mov.</th></tr>
                   </thead>
                   <tbody>
-                    {(empresaClave ? porMoneda : porEmpresa).map((g) => (
+                    {grupos.map((g) => (
                       <tr key={g.clave}>
                         <td>{g.clave}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto2(g.bs)}</td>

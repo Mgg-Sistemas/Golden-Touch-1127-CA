@@ -10,7 +10,7 @@ import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { tokenPeriodo, type Moneda } from './administracionCalculo';
-import { parseImportacion } from './administracionImport';
+import { ImportarAdminModal } from './ImportarAdminModal';
 import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.repository';
 
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -135,8 +135,9 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
           onClose={() => setModal(null)} onSaved={() => void cargar()} />
       )}
       {modal === 'importar' && (
-        <ImportarModal repo={repo} empresas={empresas} categorias={categorias}
-          onClose={() => setModal(null)} onSaved={() => void cargar()} />
+        <ImportarAdminModal repo={repo} empresas={empresas} categorias={categorias}
+          existentes={movs.map((m) => ({ empresaClave: m.empresaClave, periodo: m.periodo, concepto: m.concepto }))}
+          onClose={() => setModal(null)} onImportado={() => void cargar()} />
       )}
     </>
   );
@@ -224,55 +225,3 @@ function MovimientoManualModal({ repo, empresas, empresaClaveFija, categorias, o
   );
 }
 
-/* ───────── Importación ───────── */
-function ImportarModal({ repo, empresas, categorias, onClose, onSaved }: {
-  repo: AdminRepo; empresas: Empresa[]; categorias: OpcionRef[]; onClose: () => void; onSaved: () => void;
-}) {
-  const [texto, setTexto] = useState('');
-  const [importando, setImportando] = useState(false);
-  const res = useMemo(() => (texto.trim() ? parseImportacion(texto, { empresas, categorias }) : null), [texto, empresas, categorias]);
-
-  function leerArchivo(file: File | undefined) {
-    if (!file) return;
-    const r = new FileReader();
-    r.onload = () => setTexto(String(r.result ?? ''));
-    r.onerror = () => toast('No se pudo leer el archivo.', 'error');
-    r.readAsText(file);
-  }
-  async function importar() {
-    if (!res || !res.filas.length) return;
-    setImportando(true);
-    try {
-      for (const f of res.filas) await repo.crearMovimiento(f);
-      toast(`Se importaron ${res.filas.length} movimiento(s)${res.errores.length ? `, ${res.errores.length} con error` : ''}.`, 'success');
-      onSaved();
-      onClose();
-    } catch (e) {
-      toast(`No se pudo importar: ${e instanceof Error ? e.message : 'error'}`, 'error');
-    } finally {
-      setImportando(false);
-    }
-  }
-
-  return (
-    <Modal title="⬆ Importar histórico" onClose={onClose}
-      footer={<>
-        <button type="button" className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-        <button type="button" className="btn btn-primary" onClick={() => void importar()} disabled={importando || !res || !res.filas.length}>
-          Importar {res?.filas.length ? `${res.filas.length} fila(s)` : ''}
-        </button>
-      </>}>
-      <p className="muted hint" style={{ marginTop: 0 }}>
-        CSV con encabezado. Columnas: <b>empresa, fecha, concepto, monto, moneda</b> (obligatorias) · proveedor, periodo, categoria, estado, nota (opcionales).
-      </p>
-      <input type="file" accept=".csv,.txt" className="input" onChange={(e) => leerArchivo(e.target.files?.[0])} />
-      <textarea className="input" style={{ width: '100%', minHeight: 120, marginTop: '.5rem', fontFamily: 'monospace', fontSize: '.82rem' }}
-        value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={'empresa,fecha,concepto,monto,moneda\nGT,2026-10-05,Agua,"1.800,00",Bs'} />
-      {res && (
-        <div className="adm-aviso demo" style={{ marginTop: '.6rem' }}>
-          Listas para importar: <b>{res.filas.length}</b>. {res.errores.length > 0 && <>Con error: <b>{res.errores.length}</b> — {res.errores.slice(0, 5).map((e) => `fila ${e.fila}: ${e.motivo}`).join(' · ')}{res.errores.length > 5 ? '…' : ''}</>}
-        </div>
-      )}
-    </Modal>
-  );
-}

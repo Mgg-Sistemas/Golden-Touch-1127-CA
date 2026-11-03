@@ -1,17 +1,24 @@
 /* ============================================================================
    Golden Touch · Administración · reporte del histórico (datos puros)
    El estándar del sistema: UNA lectura → UN armado → varias salidas (WhatsApp,
-   PDF, Excel), todas diciendo lo mismo. Toma los movimientos YA filtrados y
-   arma el objeto que consumen los tres generadores. Sin React, determinista.
+   PDF, Excel), todas diciendo lo mismo. Toma los movimientos YA filtrados y,
+   según la DIMENSIÓN elegida (empresa/categoría/proveedor/período/moneda/estado),
+   arma el desglose que consumen los tres generadores. Dinámico, determinista.
    ============================================================================ */
-import { agruparTotales, totalGeneral, type GrupoTotal, type Moneda, type MovimientoCalc } from './administracionCalculo';
+import { totalGeneral, type GrupoTotal, type Moneda, type MovimientoCalc } from './administracionCalculo';
 import type { Empresa, Movimiento, OpcionRef } from './admin.repository';
+
+export type DimensionReporte = 'empresa' | 'categoria' | 'proveedor' | 'periodo' | 'moneda' | 'estado';
+export const ETIQUETA_DIMENSION: Record<DimensionReporte, string> = {
+  empresa: 'Empresa', categoria: 'Categoría', proveedor: 'Proveedor', periodo: 'Período', moneda: 'Moneda', estado: 'Estado',
+};
 
 export interface ReporteAdminFila {
   fecha: string;
   empresa: string;
   concepto: string;
   categoria: string;
+  proveedor: string;
   monto: number;
   moneda: Moneda;
   periodo: string;
@@ -31,9 +38,10 @@ export interface ReporteAdminMeta {
 export interface ReporteAdminData {
   meta: ReporteAdminMeta;
   total: Omit<GrupoTotal, 'clave'>;
-  porCategoria: GrupoTotal[];
-  porEmpresa: GrupoTotal[];
-  porMoneda: GrupoTotal[];
+  /** Dimensión por la que se agrupó el desglose. */
+  agruparPor: DimensionReporte;
+  /** Desglose por la dimensión elegida (mayor a menor, en USD equivalente). */
+  grupos: GrupoTotal[];
   filas: ReporteAdminFila[];
 }
 
@@ -42,28 +50,64 @@ const ORIGEN_LABEL: Record<string, string> = { generado: 'Generado', importado: 
 export const estadoPagoLabel = (e: string): string => ESTADO_LABEL[e] ?? e;
 export const origenLabel = (o: string): string => ORIGEN_LABEL[o] ?? o;
 
-/** Arma el reporte a partir de los movimientos YA filtrados (período/moneda). */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Clave de agrupación de una fila según la dimensión. */
+function claveDimension(f: ReporteAdminFila, dim: DimensionReporte): string {
+  switch (dim) {
+    case 'empresa': return f.empresa;
+    case 'categoria': return f.categoria;
+    case 'proveedor': return f.proveedor || 'Sin proveedor';
+    case 'periodo': return f.periodo;
+    case 'moneda': return f.moneda;
+    case 'estado': return estadoPagoLabel(f.estadoPago);
+    default: return '—';
+  }
+}
+
+/** Agrupa las filas por una dimensión cualquiera, de mayor a menor (USD equivalente). */
+export function agruparFilas(filas: readonly ReporteAdminFila[], dim: DimensionReporte, tasa: number): GrupoTotal[] {
+  const grupos = new Map<string, { bs: number; usd: number; n: number }>();
+  for (const f of filas) {
+    const k = claveDimension(f, dim);
+    const g = grupos.get(k) ?? { bs: 0, usd: 0, n: 0 };
+    if (f.moneda === 'Bs') g.bs += f.monto; else g.usd += f.monto;
+    g.n += 1;
+    grupos.set(k, g);
+  }
+  const t = tasa > 0 ? tasa : 0;
+  return [...grupos.entries()]
+    .map(([clave, g]) => {
+      const bs = r2(g.bs);
+      const usd = r2(g.usd);
+      return { clave, bs, usd, equivUsd: r2(usd + (t ? bs / t : 0)), equivBs: r2(bs + usd * t), n: g.n };
+    })
+    .sort((a, b) => b.equivUsd - a.equivUsd || a.clave.localeCompare(b.clave, 'es'));
+}
+
+/** Arma el reporte a partir de los movimientos YA filtrados, agrupado por `agruparPor`. */
 export function armarReporteAdmin(
   movs: readonly Movimiento[],
   empresas: readonly Empresa[],
   categorias: readonly OpcionRef[],
-  o: { empresaNombre: string | null; alcanceLabel: string; tasa: number; generadoEn?: string },
+  o: { empresaNombre: string | null; alcanceLabel: string; tasa: number; agruparPor: DimensionReporte; generadoEn?: string },
 ): ReporteAdminData {
   const nombreEmp = new Map(empresas.map((e) => [e.clave, e.nombre]));
   const nombreCat = new Map(categorias.map((c) => [c.id, c.nombre]));
   const empOf = (m: Movimiento) => nombreEmp.get(m.empresaClave) ?? m.empresaClave;
   const catOf = (m: Movimiento) => (m.categoriaGastoId ? nombreCat.get(m.categoriaGastoId) ?? 'Sin categoría' : 'Sin categoría');
-  const calc: MovimientoCalc[] = movs.map((m) => ({ empresaClave: empOf(m), categoria: catOf(m), moneda: m.moneda, monto: m.monto }));
+  const filas: ReporteAdminFila[] = movs.map((m) => ({
+    fecha: m.fecha, empresa: empOf(m), concepto: m.concepto, categoria: catOf(m),
+    proveedor: m.proveedorNombre ?? '', monto: m.monto, moneda: m.moneda, periodo: m.periodo,
+    estadoPago: m.estadoPago, origen: m.origen,
+  }));
+  const calc: MovimientoCalc[] = filas.map((f) => ({ empresaClave: f.empresa, moneda: f.moneda, monto: f.monto }));
   return {
     meta: { empresaNombre: o.empresaNombre, alcanceLabel: o.alcanceLabel, tasa: o.tasa, generadoEn: o.generadoEn ?? new Date().toISOString() },
     total: totalGeneral(calc, o.tasa),
-    porCategoria: agruparTotales(calc, 'categoria', { tasa: o.tasa }),
-    porEmpresa: agruparTotales(calc, 'empresa', { tasa: o.tasa }),
-    porMoneda: agruparTotales(calc, 'moneda', { tasa: o.tasa }),
-    filas: movs.map((m) => ({
-      fecha: m.fecha, empresa: empOf(m), concepto: m.concepto, categoria: catOf(m),
-      monto: m.monto, moneda: m.moneda, periodo: m.periodo, estadoPago: m.estadoPago, origen: m.origen,
-    })),
+    agruparPor: o.agruparPor,
+    grupos: agruparFilas(filas, o.agruparPor, o.tasa),
+    filas,
   };
 }
 

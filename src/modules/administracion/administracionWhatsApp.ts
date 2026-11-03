@@ -63,12 +63,14 @@ export interface OpcionesReporteMovWa {
   empresaNombre?: string | null;
   /** Etiqueta del alcance, p. ej. «Octubre 2026» o «Todo el histórico». */
   periodoLabel: string;
+  /** Dimensión del desglose en minúscula (categoría, empresa, proveedor…). */
+  dimLabel?: string;
 }
 
 /** Reporte del HISTÓRICO (egresos efectivos) en marcado de WhatsApp: total del
- *  alcance y desglose por categoría. Sobre los totales ya calculados (puro). */
+ *  alcance y desglose por la dimensión elegida. Sobre los totales ya calculados. */
 export function reporteMovimientosTxt(
-  porCategoria: readonly GrupoTotal[], total: Omit<GrupoTotal, 'clave'>, o: OpcionesReporteMovWa,
+  grupos: readonly GrupoTotal[], total: Omit<GrupoTotal, 'clave'>, o: OpcionesReporteMovWa,
 ): string {
   const L: string[] = [];
   L.push(`*📊 Reporte de gastos · ${o.empresaNombre?.trim() || 'Todas las empresas'}*`);
@@ -77,9 +79,9 @@ export function reporteMovimientosTxt(
   L.push('*Total del período*');
   L.push(`• ${usd(total.equivUsd)}  (${num(total.bs)} Bs · ${num(total.usd)} $) — ${total.n} mov.`);
   L.push('');
-  L.push('*Por categoría*');
-  for (const g of porCategoria) L.push(`• ${g.clave}: ${usd(g.equivUsd)}  (${num(g.bs)} Bs · ${num(g.usd)} $)`);
-  if (!porCategoria.length) L.push('• (sin movimientos en el período)');
+  L.push(`*Por ${o.dimLabel || 'categoría'}*`);
+  for (const g of grupos) L.push(`• ${g.clave}: ${usd(g.equivUsd)}  (${num(g.bs)} Bs · ${num(g.usd)} $)`);
+  if (!grupos.length) L.push('• (sin movimientos en el período)');
   return L.join('\n');
 }
 

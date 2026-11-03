@@ -8,7 +8,7 @@
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
-import { nombreArchivoReporteAdmin, estadoPagoLabel, origenLabel, type ReporteAdminData } from './administracionReporte';
+import { nombreArchivoReporteAdmin, estadoPagoLabel, origenLabel, ETIQUETA_DIMENSION, type ReporteAdminData } from './administracionReporte';
 
 const bsNum = (n: number) => Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -19,8 +19,9 @@ export async function descargarReporteAdminPdf(data: ReporteAdminData): Promise<
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const { meta, total, porCategoria, porEmpresa, filas } = data;
+  const { meta, total, grupos, agruparPor, filas } = data;
   const tasa = meta.tasa;
+  const dim = ETIQUETA_DIMENSION[agruparPor];
 
   const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
@@ -57,24 +58,20 @@ export async function descargarReporteAdminPdf(data: ReporteAdminData): Promise<
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 138, 0);
     doc.text(t, MARGIN, y); doc.setTextColor(0, 0, 0); y += 6;
   };
-  const tablaTotales = (rows: typeof porCategoria, etiqueta: string) => {
-    titulo(etiqueta);
-    autoTable(doc, {
-      startY: y,
-      head: [[etiqueta === 'Por empresa' ? 'EMPRESA' : 'CATEGORÍA', 'Bs', 'USD', 'EQUIV. $', 'MOV.']],
-      body: rows.map((g) => [pdfSafe(g.clave), bsNum(g.bs), fmt.money(g.usd), fmt.money(g.equivUsd), String(g.n)]),
-      foot: [['TOTAL', bsNum(total.bs), fmt.money(total.usd), fmt.money(total.equivUsd), String(total.n)]],
-      styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
-      headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
-      footStyles: { fillColor: [255, 244, 232], textColor: [20, 20, 20], fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', cellWidth: 44 } },
-      margin: { left: MARGIN, right: MARGIN },
-    });
-    y = finalY() + 18;
-  };
-
-  tablaTotales(porCategoria, 'Por categoría');
-  if (porEmpresa.length > 1) tablaTotales(porEmpresa, 'Por empresa');
+  // ── Desglose por la dimensión elegida ──
+  titulo(`Por ${dim.toLowerCase()}`);
+  autoTable(doc, {
+    startY: y,
+    head: [[dim.toUpperCase(), 'Bs', 'USD', 'EQUIV. $', 'MOV.']],
+    body: grupos.map((g) => [pdfSafe(g.clave), bsNum(g.bs), fmt.money(g.usd), fmt.money(g.equivUsd), String(g.n)]),
+    foot: [['TOTAL', bsNum(total.bs), fmt.money(total.usd), fmt.money(total.equivUsd), String(total.n)]],
+    styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
+    headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
+    footStyles: { fillColor: [255, 244, 232], textColor: [20, 20, 20], fontStyle: 'bold' },
+    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', cellWidth: 44 } },
+    margin: { left: MARGIN, right: MARGIN },
+  });
+  y = finalY() + 18;
 
   // ── Detalle ──
   titulo('Detalle de movimientos');
