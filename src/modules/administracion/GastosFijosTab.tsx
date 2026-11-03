@@ -12,6 +12,7 @@ import type { AdminRepo, Empresa, GastoFijo, OpcionRef } from './admin.repositor
 import { GastoFijoModal } from './GastoFijoModal';
 import { TableroAdmin } from './TableroAdmin';
 import { filasTablero } from './administracionTablero';
+import { cargarTasaBcv, TASA_FALLBACK } from './administracionTasa';
 import { reporteGastosFijosTxt } from './administracionWhatsApp';
 import { WhatsAppReporteModal } from './WhatsAppReporteModal';
 
@@ -30,8 +31,6 @@ const periodoLabel = (() => {
   const s = new Intl.DateTimeFormat('es-VE', { month: 'long', year: 'numeric' }).format(new Date()).replace(' de ', ' ');
   return s.charAt(0).toUpperCase() + s.slice(1);
 })();
-/** Tasa Bs/USD para los equivalentes (demo). La app real usa getTasaHoy(). */
-const TASA_DEMO = 40;
 
 export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = true }: {
   repo: AdminRepo;
@@ -48,6 +47,7 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ gasto: GastoFijo | null } | null>(null);
   const [wsp, setWsp] = useState<string | null>(null);
+  const [tasa, setTasa] = useState(TASA_FALLBACK);
 
   const nombreCat = useMemo(() => new Map(categorias.map((c) => [c.id, c.nombre])), [categorias]);
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
@@ -56,14 +56,16 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
     setCargando(true);
     setError(null);
     try {
-      const [gs, cats, provs] = await Promise.all([
+      const [gs, cats, provs, t] = await Promise.all([
         repo.listGastosFijos(empresaClave ?? undefined),
         repo.listCategorias().catch(() => [] as OpcionRef[]),
         repo.listProveedores().catch(() => [] as OpcionRef[]),
+        cargarTasaBcv(),
       ]);
       setGastos(gs);
       setCategorias(cats);
       setProveedores(provs);
+      setTasa(t.tasa);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron leer los gastos fijos.');
     } finally {
@@ -87,7 +89,7 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
   function abrirWhatsApp() {
     const filas = filasTablero(gastos, empresas, nombreCat);
     const empresaNombre = empresaClave ? nombreEmp.get(empresaClave) ?? empresaClave : null;
-    setWsp(reporteGastosFijosTxt(filas, { empresaNombre, periodoLabel, tasa: TASA_DEMO }));
+    setWsp(reporteGastosFijosTxt(filas, { empresaNombre, periodoLabel, tasa }));
   }
 
   const mostrarEmpresa = empresaClave == null;
@@ -95,7 +97,7 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
   return (
     <>
       {!cargando && !error && gastos.length > 0 && (
-        <TableroAdmin gastos={gastos} empresas={empresas} nombreCat={nombreCat} />
+        <TableroAdmin gastos={gastos} empresas={empresas} nombreCat={nombreCat} tasa={tasa} />
       )}
       <div className="card">
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
