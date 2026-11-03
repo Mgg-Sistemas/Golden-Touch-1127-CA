@@ -38,8 +38,8 @@ describe('construirTextoMotivoPagoWhatsapp', () => {
     expect(txt).toContain('🛒 *Analista encargado:*');
     expect(txt).toContain('📝 *Nota del analista:* FARMATODO REALIZO PRIMERA COMPRA CON UN DESCUENTO DEL 15%');
     expect(txt).toContain('💵 *Total:* $50,00');
-    expect(txt).toContain('💱 *Monto en Bs:* Bs 2.025,00 (tasa BCV 40,50)');
-    expect(txt).toContain('📌 *Estado:* PAGADA POR TESORERIA');
+    expect(txt).not.toContain('Monto en Bs');
+    expect(txt).toContain('📌 *Estado:* *PAGADA POR TESORERIA*');
   });
 
   it('genera formato correcto cuando NO se pagará: Sin fondos', () => {
@@ -52,7 +52,7 @@ describe('construirTextoMotivoPagoWhatsapp', () => {
     });
 
     expect(txt).toContain('⚠️ *NOTIFICACIÓN DE PAGO DE OC*');
-    expect(txt).toContain('📌 *Estado:* Sin fondos en estos momentos.');
+    expect(txt).toContain('📌 *Estado:* *Sin fondos en estos momentos.*');
   });
 
   it('genera formato y acción requerida cuando NO procede la compra', () => {
@@ -65,7 +65,7 @@ describe('construirTextoMotivoPagoWhatsapp', () => {
       motivoDetalle: 'Precio muy elevado respecto al presupuesto',
     });
 
-    expect(txt).toContain('📌 *Estado:* No procede esta compra (Precio muy elevado respecto al presupuesto)');
+    expect(txt).toContain('📌 *Estado:* *No procede esta compra (Precio muy elevado respecto al presupuesto)*');
     expect(txt).toContain('🚨 *ACCIÓN REQUERIDA:* Notificación al analista encargado para que cancele la orden o busque otra cotización.');
   });
 
@@ -79,6 +79,6 @@ describe('construirTextoMotivoPagoWhatsapp', () => {
       motivoDetalle: 'Esperando firma de autorización especial',
     });
 
-    expect(txt).toContain('📌 *Estado:* Esperando firma de autorización especial');
+    expect(txt).toContain('📌 *Estado:* *Esperando firma de autorización especial*');
   });
 });

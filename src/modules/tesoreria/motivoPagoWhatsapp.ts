@@ -22,13 +22,10 @@ function num(n: number | null | undefined): string {
   return (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function numTasa(t: number): string {
-  return t.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-}
-
 export interface MensajeMotivoPagoOptions {
   orden: Orden;
   proveedorNombre?: string | null;
+  /** Ya no se usa (el aviso va solo en $); se deja para no romper a quien la pasa. */
   tasaUsd?: number | null;
   personas?: Map<string, string>;
   pagada: boolean;
@@ -39,7 +36,6 @@ export interface MensajeMotivoPagoOptions {
 export function construirTextoMotivoPagoWhatsapp({
   orden: o,
   proveedorNombre,
-  tasaUsd,
   personas,
   pagada,
   motivoTipo,
@@ -81,19 +77,13 @@ export function construirTextoMotivoPagoWhatsapp({
     L.push(`📝 *Nota del analista:* ${notaAnalista}`);
   }
 
-  // Montos en $ y en Bs al cambio
+  // Monto solo en $ (03/11/2026: la usuaria pidió quitar el «Monto en Bs» de este aviso).
   const totalUsd = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
   L.push(`💵 *Total:* $${num(totalUsd)}`);
 
-  const t = Number(tasaUsd) || 0;
-  if (t > 0) {
-    const totalBs = Math.round(totalUsd * t * 100) / 100;
-    L.push(`💱 *Monto en Bs:* Bs ${num(totalBs)} (tasa BCV ${numTasa(t)})`);
-  }
-
   // Estado
   if (pagada) {
-    L.push('📌 *Estado:* PAGADA POR TESORERIA');
+    L.push('📌 *Estado:* *PAGADA POR TESORERIA*');
   } else {
     let descMotivo = motivoTipo || 'Pendiente de pago';
     if (motivoTipo === 'No procede esta compra') {
@@ -103,7 +93,7 @@ export function construirTextoMotivoPagoWhatsapp({
       const otro = motivoDetalle?.trim();
       descMotivo = otro || 'Otro motivo especificado por tesorería';
     }
-    L.push(`📌 *Estado:* ${descMotivo}`);
+    L.push(`📌 *Estado:* *${descMotivo}*`);
 
     if (motivoTipo === 'No procede esta compra') {
       L.push('', '🚨 *ACCIÓN REQUERIDA:* Notificación al analista encargado para que cancele la orden o busque otra cotización.');
