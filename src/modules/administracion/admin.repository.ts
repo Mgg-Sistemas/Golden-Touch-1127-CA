@@ -102,6 +102,9 @@ export interface AdminRepo {
   listProveedores(): Promise<OpcionRef[]>;
   listMovimientos(empresaClave?: string): Promise<Movimiento[]>;
   crearMovimiento(m: MovimientoInput): Promise<Movimiento>;
+  editarMovimiento(id: string, cambios: Partial<MovimientoInput>): Promise<void>;
+  /** Anula un movimiento (estado_pago = 'anulado'); queda fuera de los totales del reporte. */
+  anularMovimiento(id: string): Promise<void>;
   /** Genera los pendientes que faltan hasta `hasta` (default hoy), idempotente. Devuelve cuántos creó. */
   generarPendientes(empresaClave?: string, hasta?: Date): Promise<{ creados: number }>;
   marcarPagado(id: string): Promise<void>;
@@ -270,6 +273,14 @@ export function crearRepoSupabase(): AdminRepo {
       const { data, error } = await supabase.from(T_MOV).insert(deMov(m)).select('*').single();
       if (error) throw error;
       return aMov(data as RowMov);
+    },
+    async editarMovimiento(id, cambios) {
+      const { error } = await supabase.from(T_MOV).update(deMov(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async anularMovimiento(id) {
+      const { error } = await supabase.from(T_MOV).update({ estado_pago: 'anulado' }).eq('id', id);
+      if (error) throw error;
     },
     async generarPendientes(empresaClave, hasta = new Date()) {
       let qg = supabase.from(T_GF).select('*');

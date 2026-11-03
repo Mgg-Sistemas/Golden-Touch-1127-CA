@@ -120,6 +120,16 @@ export function crearRepoDemo(): AdminRepo {
       movimientos.push(nuevo);
       return Promise.resolve({ ...nuevo });
     },
+    editarMovimiento: (id, cambios) => {
+      const i = movimientos.findIndex((m) => m.id === id);
+      if (i >= 0) movimientos[i] = { ...movimientos[i], ...cambios };
+      return Promise.resolve();
+    },
+    anularMovimiento: (id) => {
+      const i = movimientos.findIndex((m) => m.id === id);
+      if (i >= 0) movimientos[i] = { ...movimientos[i], estadoPago: 'anulado' };
+      return Promise.resolve();
+    },
     generarPendientes: (empresaClave, hasta = new Date()) => {
       const gs = gastos.filter((g) => !empresaClave || g.empresaClave === empresaClave);
       const existentes = movimientos.filter((m) => m.gastoFijoId).map((m) => ({ gastoFijoId: m.gastoFijoId as string, periodo: m.periodo }));
