@@ -14,6 +14,7 @@ import {
   setNotifPrefs,
   stopNotificationPattern,
 } from '@/shared/lib/sound';
+import { activarNotificaciones, soportaPush } from '@/shared/lib/webpush';
 
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
@@ -46,6 +47,22 @@ export function AjustesPage() {
   const [notifEnabled, setNotifEnabled] = useState(() => getNotifPrefs().enabled);
   const [notifSound, setNotifSound] = useState(() => getNotifPrefs().sound);
   const [notifDuration, setNotifDuration] = useState(() => getNotifPrefs().duration);
+
+  // Notificaciones push de este dispositivo (Web Push · BORRADOR: el envío real lo hará un
+  // Edge Function todavía inexistente — ver shared/lib/webpush.ts).
+  const pushSoportado = soportaPush();
+  const [pushMsg, setPushMsg] = useState('');
+  const [pushActivando, setPushActivando] = useState(false);
+  async function activarPush() {
+    setPushActivando(true);
+    try {
+      const r = await activarNotificaciones();
+      setPushMsg(r.ok ? 'Activadas en este dispositivo.' : (r.motivo ?? 'No se pudo activar.'));
+      toast(r.ok ? 'Notificaciones activadas en este dispositivo.' : (r.motivo ?? 'No se pudo activar.'), r.ok ? 'success' : 'warning');
+    } finally {
+      setPushActivando(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -291,6 +308,20 @@ export function AjustesPage() {
                 style={{ width: '100%', marginTop: '.5rem', accentColor: 'var(--primary)' }}
               />
             </div>
+          </div>
+
+          <div className="setting-row">
+            <div style={{ flex: 1 }}>
+              <strong>Notificaciones en este dispositivo</strong>
+              <div className="muted" style={{ fontSize: '.82rem' }}>
+                Recibir avisos aunque la app esté cerrada (push a la versión instalada).
+                {!pushSoportado && ' Este navegador no lo soporta.'}
+                {pushMsg && <><br />{pushMsg}</>}
+              </div>
+            </div>
+            <button type="button" className="btn btn-sm btn-primary" disabled={!pushSoportado || pushActivando} onClick={() => void activarPush()}>
+              {pushActivando ? 'Activando…' : 'Activar'}
+            </button>
           </div>
 
           <div style={{ display: 'flex', gap: '.5rem', marginTop: '.75rem' }}>

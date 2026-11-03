@@ -60,7 +60,7 @@ export function AppShell() {
   const verPedidos = MODULOS_PANTALLA_PEDIDOS.some((m) => can(m));
   const labelPedidos = !can('compras') && can('solicitud_pedido') ? 'Solicitud de Pedido' : 'Pedidos / Compras';
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
-  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
+  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('administracion') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -173,7 +173,7 @@ export function AppShell() {
       ['solicitud_pedido', '/app/pedidos'], ['compras', '/app/pedidos'], ['pedidos', '/app/pedidos'], ['compras', '/app/pedidos/historico'],
       ['delivery', '/app/delivery'], ['inventario', '/app/inventario'], ['inventario', '/app/inventario/deposito-mina'],
       ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],
-      ['ventas', '/app/ventas'],
+      ['ventas', '/app/ventas'], ['administracion', '/app/administracion'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
       ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['maquinaria', '/app/maquinaria/repuestos-equipo'], ['retenciones', '/app/retenciones'], ['documentacion', '/app/documentacion'],
@@ -346,6 +346,7 @@ export function AppShell() {
           {can('recepciones') && <NavItem to="/app/recepciones" icon="📋" label="Recepciones" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación (Cocina)" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
+          {can('administracion') && <NavItem to="/app/administracion" icon="💼" label="Administración" />}
           {can('ventas') && <NavItem to="/app/ventas" icon="↗" label="Ventas" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('documentacion') && <NavItem to="/app/documentacion" icon="🗂" label="Documentación" />}

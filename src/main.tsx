@@ -5,6 +5,7 @@ import { App } from './App';
 import { instalarSelectOnFocusMonto } from './shared/lib/selectOnFocus';
 import { instalarMayusculaAutomatica } from './shared/lib/mayusculaInputs';
 import { instalarTablasResponsive } from './shared/lib/tablasResponsive';
+import { registrarServiceWorkerPush } from './shared/lib/webpush';
 import { initHints } from './shared/ui/HintsToggle';
 import './styles/index.css';
 
@@ -19,6 +20,9 @@ instalarMayusculaAutomatica();
 // Tablas legibles en teléfono: cada fila pasa a ser una ficha «etiqueta: valor».
 // En pantallas grandes no toca nada (ni siquiera agenda el observer).
 instalarTablasResponsive();
+// Service worker de notificaciones push (solo lo REGISTRA; la suscripción, que pide
+// permiso, va tras una acción del usuario — ver shared/lib/webpush.ts / Ajustes).
+void registrarServiceWorkerPush();
 
 // Recuperación tras un despliegue: si la app tenía el index.html viejo en caché y
 // un chunk con hash ya no existe (404), el lazy-import falla y la pantalla queda en
