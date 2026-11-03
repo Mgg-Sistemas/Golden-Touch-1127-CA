@@ -52,6 +52,10 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   const [abonarS, setAbonarS] = useState<ServicioDirecto | null>(null);
   // Ver la factura del proveedor antes de pagar (12/10/2026: no se veía en Tesorería).
   const [verFactura, setVerFactura] = useState<{ tipo: 'compra'; c: CompraDirecta } | { tipo: 'servicio'; s: ServicioDirecto } | null>(null);
+  // Switch de vista: operación (compras/servicios normales) vs los GASTOS FIJOS de
+  // Administración materializados aquí como servicios directos. Un usuario de Tesorería
+  // los ve por su permiso de Tesorería, sin necesitar acceso al módulo Administración.
+  const [vista, setVista] = useState<'operacion' | 'gastos_fijos'>('operacion');
 
   const reload = useCallback(async () => {
     const [cs, ss] = await Promise.all([
@@ -65,10 +69,13 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   useEffect(() => { void reload(); }, [reload]);
   useRealtime(['compras_directas', 'servicios_directos'], () => { void reload(); });
 
-  const total = useMemo(
-    () => compras.reduce((a, c) => a + (c.gasto ?? 0), 0) + servicios.reduce((a, s) => a + (s.gasto ?? 0), 0),
-    [compras, servicios],
-  );
+  // Operación vs. gastos fijos: los gastos fijos de Administración se materializan aquí como
+  // servicios directos con `gasto_fijo_id`. El switch alterna qué conjunto se ve.
+  const serviciosOp = useMemo(() => servicios.filter((s) => !s.gasto_fijo_id), [servicios]);
+  const serviciosGF = useMemo(() => servicios.filter((s) => s.gasto_fijo_id), [servicios]);
+  const comprasVista = vista === 'operacion' ? compras : [];
+  const serviciosVista = vista === 'operacion' ? serviciosOp : serviciosGF;
+  const total = comprasVista.reduce((a, c) => a + (c.gasto ?? 0), 0) + serviciosVista.reduce((a, s) => a + (s.gasto ?? 0), 0);
 
   if (!compras.length && !servicios.length) return null;
 
@@ -78,18 +85,25 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
         <strong>🧾 Directos por pagar{' '}
           <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#1a1a1a' }}>DIRECTO</span>
         </strong>
-        <span className="muted mono">{compras.length + servicios.length} · {money(total)}</span>
+        <span className="muted mono">{comprasVista.length + serviciosVista.length} · {money(total)}</span>
       </div>
       <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
         El analista cargó la factura y los montos. Al pagar, el gasto sale de la caja elegida (en compras, entra al inventario) y queda <strong>Finalizada</strong>.
       </div>
 
-      {compras.length > 0 && (
+      {/* Switch de vista: Operación vs. Gastos fijos (de Administración). Siempre visible para
+          que Tesorería vea «su lado» de gastos fijos; se gobierna con el permiso de Tesorería. */}
+      <div className="view-toggle" role="tablist" aria-label="Vista de pendientes" style={{ marginTop: '.6rem' }}>
+        <button type="button" role="tab" aria-selected={vista === 'operacion'} className={vista === 'operacion' ? 'active' : ''} onClick={() => setVista('operacion')}>🧾 Operación</button>
+        <button type="button" role="tab" aria-selected={vista === 'gastos_fijos'} className={vista === 'gastos_fijos' ? 'active' : ''} onClick={() => setVista('gastos_fijos')}>📌 Gastos fijos{serviciosGF.length ? ` (${serviciosGF.length})` : ''}</button>
+      </div>
+
+      {comprasVista.length > 0 && (
         <div className="table-wrap" style={{ marginTop: '.5rem' }}>
           <table className="table">
             <thead><tr><th colSpan={6}>🛒 Compras</th></tr><tr><th>Código</th><th>Material(es)</th><th>Proveedor</th><th>Montó</th><th style={{ textAlign: 'right' }}>Total</th><th></th></tr></thead>
             <tbody>
-              {compras.map((c) => (
+              {comprasVista.map((c) => (
                 <tr key={c.id}>
                   <td className="mono">{c.codigo ?? '—'}</td>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : null}
@@ -109,15 +123,16 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
         </div>
       )}
 
-      {servicios.length > 0 && (
+      {serviciosVista.length > 0 && (
         <div className="table-wrap" style={{ marginTop: '.5rem' }}>
           <table className="table">
-            <thead><tr><th colSpan={6}>🔧 Servicios</th></tr><tr><th>Código</th><th>Servicio(s)</th><th>Proveedor</th><th>Montó</th><th style={{ textAlign: 'right' }}>Total</th><th></th></tr></thead>
+            <thead><tr><th colSpan={6}>{vista === 'gastos_fijos' ? '📌 Gastos fijos' : '🔧 Servicios'}</th></tr><tr><th>Código</th><th>{vista === 'gastos_fijos' ? 'Concepto' : 'Servicio(s)'}</th><th>Proveedor</th><th>Montó</th><th style={{ textAlign: 'right' }}>Total</th><th></th></tr></thead>
             <tbody>
-              {servicios.map((s) => (
+              {serviciosVista.map((s) => (
                 <tr key={s.id}>
                   <td className="mono">{s.codigo ?? '—'}</td>
-                  <td>{s.descripcion}{s.items.length > 1 ? <span className="muted"> · {s.items.length} ítems</span> : null}</td>
+                  <td>{s.descripcion}{s.items.length > 1 ? <span className="muted"> · {s.items.length} ítems</span> : null}
+                    {s.nota?.trim() && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap' }}>📝 {s.nota}</div>}</td>
                   <td>{s.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{<Quien nombre={s.actor_name} correo={s.actor} vacio="—" />}<br />{dateTime(s.updated_at)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{s.gasto != null ? montoMoneda(s.gasto, s.moneda) : '—'}
@@ -138,6 +153,13 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {vista === 'gastos_fijos' && serviciosVista.length === 0 && (
+        <div className="muted" style={{ marginTop: '.6rem', fontSize: '.85rem' }}>
+          No hay gastos fijos por pagar en este momento. Los pendientes de Administración aparecen aquí
+          automáticamente cuando se generan (se reflejan como servicios directos por pagar).
         </div>
       )}
 

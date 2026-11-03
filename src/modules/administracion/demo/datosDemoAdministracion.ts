@@ -24,6 +24,7 @@ const CATEGORIAS_DEMO: OpcionRef[] = [
   { id: 'cat-serv', nombre: 'Servicios públicos' },
   { id: 'cat-alq', nombre: 'Alquiler' },
   { id: 'cat-hon', nombre: 'Honorarios profesionales' },
+  { id: 'cat-para', nombre: 'Parafiscales' },
   { id: 'cat-otros', nombre: 'Otros gastos fijos' },
 ];
 
@@ -43,6 +44,7 @@ function gastosSemilla(): GastoFijo[] {
     base({ empresaClave: 'DEMO1', concepto: 'Internet y telefonía', proveedorId: 'prov-luz', proveedorNombre: 'Energía Demo del Centro', categoriaGastoId: 'cat-serv', monto: 95, moneda: 'USD', tasaRef: 40, periodicidad: 'mensual', diaVencimiento: 15, vigenteDesde: '2026-02-01', estado: 'activo' }),
     base({ empresaClave: 'DEMO1', concepto: 'Alquiler de galpón', proveedorId: null, proveedorNombre: 'Inmobiliaria Demo', categoriaGastoId: 'cat-alq', monto: 2400, moneda: 'USD', tasaRef: 40, periodicidad: 'trimestral', diaVencimiento: 1, vigenteDesde: '2026-01-01', estado: 'suspendido' }),
     base({ empresaClave: 'DEMO2', concepto: 'Honorarios del abogado', proveedorId: 'prov-abo', proveedorNombre: 'Bufete Demo Legal', categoriaGastoId: 'cat-hon', monto: 300, moneda: 'USD', tasaRef: 40, periodicidad: 'bimensual', diaVencimiento: 20, vigenteDesde: '2026-01-01', estado: 'activo' }),
+    base({ empresaClave: 'GT', concepto: 'Parafiscales (INCES)', proveedorId: null, proveedorNombre: 'INCES', categoriaGastoId: 'cat-para', monto: 1200, moneda: 'Bs', tasaRef: null, periodicidad: 'trimestral', diaVencimiento: 5, vigenteDesde: '2026-01-01', estado: 'activo' }),
   ];
 }
 

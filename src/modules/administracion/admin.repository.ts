@@ -11,8 +11,9 @@
 import { supabase } from '@/shared/lib/supabase';
 import { listCategoriasGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
+import { crearServicioDirecto, enviarServicioAPagar } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
-import { generarPendientes as calcularPendientes } from './administracionGenerar';
+import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
 
@@ -288,11 +289,38 @@ export function crearRepoSupabase(): AdminRepo {
         categoriaGastoId: n.categoriaGastoId, periodo: n.periodo, fecha: n.fecha, monto: n.monto, moneda: n.moneda,
         tasaRef: null, estadoPago: 'pendiente', origen: 'generado', servicioDirectoId: null,
       }));
-      const { error } = await supabase.from(T_MOV).insert(filas);
+      const { data: insertadas, error } = await supabase.from(T_MOV).insert(filas).select('*');
       if (error) throw error;
-      // Fase 3 (follow-up, con la base y la columna empresa_clave de servicios_directos
-      // aplicadas): materializar cada pendiente como servicio directo `por_pagar` en
-      // Tesorería (crearServicioDirecto → enviarServicioAPagar, nota `notaPendiente`).
+
+      // ── Fase 3 (BORRADOR · requiere sql/administracion/03_servicios_directos_gasto_fijo.sql
+      //    aplicado — D27 — y revisión de Principal) ──
+      // Materializa cada pendiente como servicio directo «por pagar» en Tesorería, con la
+      // marca empresa_clave/gasto_fijo_id, y lo enlaza de vuelta (servicio_directo_id). Así
+      // Tesorería lo ve/paga con SU permiso, sin tocar las tablas admin_*. Reusa el flujo
+      // estándar del sistema (crearServicioDirecto → enviarServicioAPagar).
+      // Pendiente de afinar antes de activar: rendimiento (hoy ~3-4 llamadas por pendiente),
+      // reintento de los que fallen la materialización, y que la nota use el nombre de la
+      // empresa (no la clave). Mientras la columna no exista, el `update` del marcador es un
+      // no-op silencioso y los pendientes quedan igualmente creados.
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const actor = auth.user?.email ?? 'sistema';
+        const gastoPorId = new Map(gastos.map((g) => [g.id, g]));
+        for (const mov of (insertadas ?? []).map((r) => aMov(r as RowMov))) {
+          try {
+            const g = mov.gastoFijoId ? gastoPorId.get(mov.gastoFijoId) : undefined;
+            const sd = await crearServicioDirecto({
+              lineas: [{ descripcion: mov.concepto, cantidad: 1 }],
+              proveedorNombre: g?.proveedorNombre ?? mov.proveedorNombre ?? null,
+              nota: notaPendiente(mov.empresaClave, mov.periodo),
+              moneda: mov.moneda, actor,
+            });
+            await enviarServicioAPagar({ servicio: sd, items: [{ descripcion: mov.concepto, cantidad: 1, gasto: mov.monto }], moneda: mov.moneda, actor });
+            await supabase.from('servicios_directos').update({ empresa_clave: mov.empresaClave, gasto_fijo_id: mov.gastoFijoId }).eq('id', sd.id);
+            await supabase.from(T_MOV).update({ servicio_directo_id: sd.id }).eq('id', mov.id);
+          } catch { /* un pendiente que no se pudo materializar queda creado sin SD (se reintentará) */ }
+        }
+      } catch { /* sin sesión / columnas aún sin aplicar: los pendientes quedan creados igual */ }
       return { creados: nuevos.length };
     },
     async marcarPagado(id) {

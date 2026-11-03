@@ -95,6 +95,12 @@ export interface ServicioDirecto {
   tasa_pago?: number | null;
   caja_id: string | null;
   caja_mov_id: string | null;
+  /** Materialización de un GASTO FIJO de Administración (integración Opción A): empresa
+   *  (admin_empresas.clave) y la plantilla que lo originó. null = servicio directo normal
+   *  de operación. Columnas ADITIVAS nullables en `servicios_directos` (SQL en borrador,
+   *  sin aplicar — D27): mientras no existan, llegan como undefined y quedan null. */
+  empresa_clave?: string | null;
+  gasto_fijo_id?: string | null;
   /** Desglose multimoneda del pago (para revertir exacto al reabrir). Null si fue caja simple. */
   pago_legs: PagoLeg[] | null;
   adjunto_path: string | null;
@@ -127,6 +133,7 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
     ...r, items, nota: r.nota ?? null, moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
     detalle_servicio: Array.isArray(r.detalle_servicio) ? r.detalle_servicio : [],
     con_abonos: !!r.con_abonos, abonado_total: Number(r.abonado_total) || 0,
+    empresa_clave: r.empresa_clave ?? null, gasto_fijo_id: r.gasto_fijo_id ?? null,
   };
 }
 
