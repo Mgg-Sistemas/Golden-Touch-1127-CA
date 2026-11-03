@@ -83,6 +83,10 @@ import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIO
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
 import { obtenerInfoModalidadPago } from './modalidadPago';
+import {
+  RETENCION_INFO, TIPOS_RETENCION, calcularRetencionesCompras, errorRetencionesCompras, netoAPagarCompras,
+  pctTexto, uiInicialRetenciones, type CamposRetencionesCompras, type RetencionesCompras, type RetencionesUi, type TipoRetencion,
+} from './retencionesCompras';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -1599,7 +1603,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null }, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null; retenciones?: RetencionesCompras | null }, imagenPath?: string | null) => Promise<void> | void;
   /** Cambiar de proveedor: reabre la elección de oferta (volver a cotizar). Lleva el motivo. */
   onCambiarProveedor: (motivo: string) => Promise<void>;
 }) {
@@ -1642,6 +1646,12 @@ function MetodoPagoModal({
   const momentoDesde = useInterruptorDesde(INTERRUPTOR_RETENCION_MOMENTO);
   const momentoActivo = !!momentoDesde;
   const [retencionMomento, setRetencionMomento] = useState<RetencionMomento | null>(orden.retencion_momento ?? null);
+  // Retenciones por tipo (03/11/2026): IVA, ISLR, ISAE, IGTF con % o monto. No tocan el total
+  // de la OC: neto a pagar = total − retenciones (ver retencionesCompras.ts).
+  const [retUi, setRetUi] = useState<RetencionesUi>(() => uiInicialRetenciones(orden as Orden & CamposRetencionesCompras));
+  function setRetTipo(t: TipoRetencion, patch: Partial<RetencionesUi[TipoRetencion]>) {
+    setRetUi((u) => ({ ...u, [t]: { ...u[t], ...patch } }));
+  }
   // OC por factura: con IVA (suma al total) o sin IVA. El % arranca en 16 (general) pero
   // es EDITABLE, y el MONTO también se puede poner a mano (se sincronizan entre sí).
   const [conIva, setConIva] = useState(!!orden.iva_aplicado);
@@ -1731,6 +1741,14 @@ function MetodoPagoModal({
     setDescPct(m > 0 && totalConImp > 0 ? String(Math.round((m / totalConImp) * 10000) / 100) : '0');
   }
   const totalFinal = Math.max(0, Math.round((totalConImp - descuentoMonto) * 100) / 100);
+  // Retenciones: solo con factura y «¿cuándo se retiene?» marcado. Bases: IVA → IVA de la
+  // factura; ISLR/ISAE → base imponible (sin IVA); IGTF → IGTF de la orden.
+  const usaRetenciones = momentoActivo && comprobanteTipo === 'factura' && !!retencionMomento;
+  const retenciones = calcularRetencionesCompras(retUi, { baseImponible: baseNum, iva: ivaMonto, igtf: igtfMonto });
+  const retTotal = usaRetenciones ? retenciones.total : 0;
+  const netoCompras = netoAPagarCompras(totalFinal, retTotal);
+  // Lo que paga Tesorería: el neto si se retiene ANTES; el total si es DESPUÉS.
+  const aPagarCompras = usaRetenciones && retencionMomento === 'antes_de_pagar' ? netoCompras : totalFinal;
   // Moneda de la orden (Bs o $): los importes del método de pago se muestran en ella.
   const monedaOrden = orden.total_moneda ?? 'USD';
   const simboloMoneda = monedaOrden === 'Bs' ? 'Bs' : '$';
@@ -1769,7 +1787,8 @@ function MetodoPagoModal({
   const sumMontos = Math.round(validos.reduce((a, l) => a + (Number(l.monto) || 0), 0) * 100) / 100;
   const hayMontos = validos.some((l) => (Number(l.monto) || 0) > 0);
   // El reparto debe sumar el TOTAL CON IMPUESTOS (base + IVA + IGTF), no la base sola.
-  const repartoOk = !esMultipago || !hayMontos || Math.abs(sumMontos - totalFinal) <= 0.01;
+  // Con retención ANTES de pagar se reparte el NETO (lo que de verdad paga Tesorería).
+  const repartoOk = !esMultipago || !hayMontos || Math.abs(sumMontos - aPagarCompras) <= 0.01;
 
   async function handleSend() {
     setError(null);
@@ -1779,7 +1798,11 @@ function MetodoPagoModal({
     if (numeroAdmLimpio.length < 7) { setError('El número de administración del proveedor (teléfono) debe tener al menos 7 dígitos.'); return; }
     // Multipago con reparto: si se cargó algún monto, todos deben sumar el total.
     if (esMultipago && hayMontos && !repartoOk) {
-      setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(totalFinal)}).`); return;
+      setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar lo que se paga (${mm(aPagarCompras)}).`); return;
+    }
+    if (usaRetenciones) {
+      const errRet = errorRetencionesCompras(totalFinal, retTotal);
+      if (errRet) { setError(errRet); return; }
     }
     if (esContraEntrega && !notaEntrega) { setError('Confirma la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
     // 01/11/2026: «¿cuándo se retiene?» es opcional; sin marcar nada la OC sigue a Tesorería.
@@ -1815,6 +1838,7 @@ function MetodoPagoModal({
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
         conDescuento, descuentoMonto,
         numeroAdministracion: numeroAdmLimpio,
+        retenciones: usaRetenciones && retTotal > 0 ? retenciones : null,
       }, imagenPath);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
@@ -1997,6 +2021,66 @@ function MetodoPagoModal({
                 <input type="radio" name="ret-momento" checked={retencionMomento === 'despues_de_pagar'} onChange={() => setRetencionMomento('despues_de_pagar')} />
                 <span><strong>🔺 Retener DESPUÉS de pagar</strong> → va directo a <strong>Tesorería</strong>, que paga el <strong>total completo (el monto SUBE)</strong>. Ya pagada, pasa a Retenciones.</span>
               </label>
+              {retencionMomento && (
+                <button type="button" className="btn btn-sm btn-ghost" style={{ justifySelf: 'start' }} onClick={() => setRetencionMomento(null)}>✕ Sin indicar</button>
+              )}
+              {/* Retenciones por tipo (03/11/2026): marcar un check BAJA el monto a pagar (ANTES)
+                  o lo deja informado para Retenciones (DESPUÉS: se paga completo). */}
+              {retencionMomento && (
+                <div style={{ marginTop: '.4rem', border: '1px solid var(--border)', borderRadius: 8, padding: '.55rem .7rem', background: 'var(--bg-2)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.35rem' }}>¿Qué se retiene?</div>
+                  {TIPOS_RETENCION.map((t) => {
+                    const info = RETENCION_INFO[t];
+                    const u = retUi[t];
+                    const base = t === 'iva' ? ivaMonto : t === 'igtf' ? igtfMonto : baseNum;
+                    const l = retenciones[t];
+                    return (
+                      <div key={t} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: '.5rem', padding: '.35rem 0', borderTop: '1px dashed var(--border)', opacity: u.activa ? 1 : 0.7 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontSize: '.86rem', minWidth: 0 }}>
+                          <input type="checkbox" checked={u.activa} onChange={(e) => setRetTipo(t, { activa: e.target.checked })} />
+                          <span><strong>{info.etiqueta}</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· % {info.sobre} ({mm(base)})</span></span>
+                        </label>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          <input className="input mono" type="number" min={0} max={100} step="any"
+                            value={u.manual ? String(l.pct) : u.pct}
+                            onChange={(e) => setRetTipo(t, { pct: e.target.value, manual: false, activa: true })}
+                            title={`Porcentaje (${info.pctDefault}% sugerido)`}
+                            style={{ width: 62, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+                          <span>%</span>
+                          <input className="input mono" type="number" min={0} step="any"
+                            value={u.manual ? u.monto : (l.monto > 0 ? String(l.monto) : '')}
+                            onChange={(e) => setRetTipo(t, { monto: e.target.value, manual: true, activa: true })}
+                            title="Monto retenido (editable a mano)" placeholder="0,00"
+                            style={{ width: 96, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+                          <span>{simboloMoneda}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {/* Desglose: total factura − retenciones = neto. */}
+                  <div style={{ marginTop: '.45rem', paddingTop: '.45rem', borderTop: '1px solid var(--border)', display: 'grid', gap: '.15rem', fontSize: '.86rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Total factura</span><strong className="mono">{mm(totalFinal)}</strong></div>
+                    {TIPOS_RETENCION.filter((t) => retenciones[t].monto > 0).map((t) => (
+                      <div key={t} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span className="muted">− Retención {RETENCION_INFO[t].corta} ({pctTexto(retenciones[t].pct)})</span>
+                        <span className="mono" style={{ color: 'var(--danger)' }}>−{mm(retenciones[t].monto)}</span>
+                      </div>
+                    ))}
+                    {retencionMomento === 'antes_de_pagar' ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.98rem' }}>
+                        <strong>Neto a pagar</strong><strong className="mono" style={{ color: 'var(--success)' }}>{mm(netoCompras)}</strong>
+                      </div>
+                    ) : (
+                      <div className="muted" style={{ fontSize: '.78rem' }}>
+                        Se paga el <strong>total completo ({mm(totalFinal)})</strong>; estas retenciones ({mm(retTotal)}) quedan informadas para que Retenciones las aplique después.
+                      </div>
+                    )}
+                    {errorRetencionesCompras(totalFinal, retTotal) && (
+                      <small style={{ color: 'var(--danger)' }}>{errorRetencionesCompras(totalFinal, retTotal)}</small>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             ) : (
             <div style={{ display: 'grid', gap: '.35rem' }}>
@@ -2130,7 +2214,7 @@ function MetodoPagoModal({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.86rem', gap: '.5rem', flexWrap: 'wrap' }}>
             <span className="muted">Reparto por moneda (opcional)</span>
             <strong className="mono" style={{ color: hayMontos ? (repartoOk ? 'var(--success)' : 'var(--danger)') : undefined }}>
-              {mm(sumMontos)} / {mm(totalFinal)}
+              {mm(sumMontos)} / {mm(aPagarCompras)}
             </strong>
           </div>
           <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
@@ -2138,7 +2222,7 @@ function MetodoPagoModal({
               ? `Deja los montos en 0 y Tesorería define cuánto va por cada uno, o indica aquí cuánto pagar por cada método (en ${simboloMoneda}).`
               : repartoOk
               ? '✓ El reparto suma el total. Tesorería verá cuánto pagar por cada moneda.'
-              : <span style={{ color: 'var(--danger)' }}>⚠ Los montos deben sumar el total de la OC ({mm(totalFinal)}).</span>}
+              : <span style={{ color: 'var(--danger)' }}>⚠ Los montos deben sumar lo que se paga ({mm(aPagarCompras)}).</span>}
           </small>
         </div>
       )}
