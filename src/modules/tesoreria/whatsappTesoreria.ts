@@ -3,11 +3,14 @@
    (02/11/2026)
 
    La misma información del reporte (movimientos, pendientes por pagar o
-   cuentas a crédito), en texto PUNTUAL y en TONO NEUTRO para mandarla por el
-   chat sin abrir el sistema del otro lado: un ítem por renglón con su monto en
-   la moneda propia, y al final un total consolidado en $ y Bs.
+   cuentas a crédito), en texto PUNTUAL para mandarla por el chat sin abrir el
+   sistema del otro lado: un ítem por renglón con su monto en la moneda propia,
+   y al final un total consolidado en $ y Bs.
 
-   SIN emojis y sin adornos, a propósito: es un aviso directo, no un informe.
+   CON emojis, igual que el resto del módulo (textoPendientesPorPagarWhatsapp)
+   y Combustible: un emoji de encabezado por ámbito, un marcador por renglón
+   según el tipo de flujo (egreso/ingreso/traslado) y 💰 en el total, para
+   escanear de un vistazo dónde está cada cosa.
 
    Builder PURO sobre las filas ya normalizadas (FilaReporteTesoreria): no toca
    Supabase ni depende de la pantalla, así el formato se fija con un test propio
@@ -15,13 +18,27 @@
    de Pedidos (textoPendientesPorPagarWhatsapp), que sigue vivo y aparte.
    ============================================================ */
 import { identidadEmpresa } from '@/shared/lib/empresa';
-import type { AmbitoTesoreria, FilaReporteTesoreria } from './reporteTesoreriaMoldeable';
+import type { AmbitoTesoreria, FilaReporteTesoreria, TipoFlujoTesoreria } from './reporteTesoreriaMoldeable';
+
+/** Emoji de encabezado por ámbito (uno distinto, de un vistazo). */
+const EMOJI_AMBITO: Record<AmbitoTesoreria, string> = {
+  movimientos: '📊',
+  por_pagar: '🧾',
+  creditos_cartera: '🤝',
+};
 
 /** Nombre corto de cada ámbito para el encabezado. */
 const TITULO_AMBITO: Record<AmbitoTesoreria, string> = {
   movimientos: 'Movimientos de caja',
   por_pagar: 'Pendientes por pagar',
   creditos_cartera: 'Cuentas a crédito (cartera)',
+};
+
+/** Marcador de cada renglón según el tipo de flujo: a dónde va o de dónde viene la plata. */
+const EMOJI_FLUJO: Record<TipoFlujoTesoreria, string> = {
+  egreso: '🔻',
+  ingreso: '🔺',
+  traslado: '🔁',
 };
 
 /** Tope de ítems listados: más allá, el mensaje dejaría de ser puntual. */
@@ -70,20 +87,20 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   const emp = identidadEmpresa('GT');
 
   const L: string[] = [];
-  L.push(`${emp.nombre} — Reporte de Tesorería`);
-  L.push(`${TITULO_AMBITO[opts.ambito]} · ${fechaCorta(opts.desde)} al ${fechaCorta(opts.hasta)}`);
+  L.push(`${EMOJI_AMBITO[opts.ambito]} *Reporte de Tesorería — ${TITULO_AMBITO[opts.ambito]}*`);
+  L.push(`_${emp.nombre} · ${fechaCorta(opts.desde)} al ${fechaCorta(opts.hasta)}_`);
   L.push('');
 
   if (!filas.length) {
-    L.push('Sin registros en este ámbito.');
+    L.push('Sin registros en este ámbito. ✅');
     return L.join('\n');
   }
 
   filas.slice(0, LIMITE_ITEMS).forEach((f, i) => {
-    L.push(`${i + 1}. ${etiquetaFila(f)} — ${f.moneda_original} ${num(f.monto_original)}`);
+    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${etiquetaFila(f)} — *${f.moneda_original} ${num(f.monto_original)}*`);
   });
   if (filas.length > LIMITE_ITEMS) {
-    L.push(`(+${filas.length - LIMITE_ITEMS} ítem(s) más)`);
+    L.push(`… (+${filas.length - LIMITE_ITEMS} ítem(s) más)`);
   }
 
   // Total consolidado y bruto: suma de los equivalentes de TODAS las filas,
@@ -96,6 +113,6 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   if (mostrarBs) partes.push(`Bs ${num(totBs)}`);
 
   L.push('');
-  L.push(`Total (${filas.length}): ${partes.join(' · ')}`);
+  L.push(`💰 *Total (${filas.length}):* ${partes.join(' · ')}`);
   return L.join('\n');
 }
