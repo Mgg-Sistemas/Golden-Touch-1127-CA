@@ -122,6 +122,9 @@ export function RetencionesPage() {
   // La ficha fiscal a usar para config/régimen: solo para una empresa NO-GT. GT (o
   // single-empresa) → null, y el libro/registro/reportes usan la config global (R1), como hoy.
   const empresaFicha = multiempresa && empresaActual && !esEmpresaGt(empresaActual) ? empresaActual : null;
+  // «Por realizar» nace del flujo de compras de Golden Touch; una empresa NO-GT
+  // (empresaFicha no-null) no tiene ese flujo. esGt=true para GT o single-empresa.
+  const esGt = empresaFicha == null;
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
@@ -237,11 +240,11 @@ export function RetencionesPage() {
 
   // Una OC sigue «por realizar» mientras tenga impuestos pendientes o ya tenga impuestos cargados en el libro pero aún falte marcarla como finalizada.
   const porRealizar = useMemo(
-    () => pendientes.filter((i) =>
+    () => !esGt ? [] : pendientes.filter((i) =>
       impuestosPendientesDeOrden(i.orden, registradas, practica, configFiscal, impuestosActivos).length > 0
       || Boolean(registradas.get(i.orden.id)?.size),
     ),
-    [pendientes, registradas, practica, configFiscal, impuestosActivos],
+    [esGt, pendientes, registradas, practica, configFiscal, impuestosActivos],
   );
 
   // La semilla del registro sale del archivo: su orden y, si es una OC que ya está en la lista, proveedor y montos.
@@ -385,21 +388,26 @@ export function RetencionesPage() {
 
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}
-      {vista === 'pendientes' && (
+      {vista === 'pendientes' && (esGt ? (
         <>
           <AvisoSinFactura rutaDe={(o) => `/app/pedidos?detalle=${encodeURIComponent(o.origen.id)}`} />
           <FacturasPorRegistrar puedeRegistrar={canWrite} onRegistrar={(f) => { void abrirDesdeFactura(f); }} />
+          <PorRealizarView
+            items={porRealizar} registradas={registradas} practica={practica} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
+            config={configFiscal} impuestosActivos={impuestosActivos} pagosOc={pagosOc}
+            onVer={setSel} onVista={() => setVista('agrupada')}
+            onRegistrar={setRegistrar}
+            onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
+          />
         </>
-      )}
-      {vista === 'pendientes' && (
-        <PorRealizarView
-          items={porRealizar} registradas={registradas} practica={practica} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
-          config={configFiscal} impuestosActivos={impuestosActivos} pagosOc={pagosOc}
-          onVer={setSel} onVista={() => setVista('agrupada')}
-          onRegistrar={setRegistrar}
-          onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
-        />
-      )}
+      ) : (
+        <div className="card" style={{ marginTop: '.5rem' }}>
+          <p style={{ margin: 0 }}>
+            La pestaña «Por realizar» aplica solo a Golden Touch: las compras que generan retenciones vienen de su flujo.
+            Para <strong>{empresaActual?.nombre ?? 'esta empresa'}</strong>, usá el Buzón / registro manual y el Libro fiscal.
+          </p>
+        </div>
+      ))}
 
       {/* ── Realizadas ── */}
       {vista === 'hechas' && (

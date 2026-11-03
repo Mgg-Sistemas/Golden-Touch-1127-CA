@@ -193,6 +193,11 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
             </button>
           </div>
         )}
+        {puedeEditar && (
+          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+            Deshabilitar un impuesto lo apaga para todo el módulo (todas las empresas). Para que una empresa puntual no retenga un impuesto, usá Parámetros → Régimen, que es por empresa.
+          </small>
+        )}
         {cambio && falta && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
         {puedeEditar && cambio && !falta && !motivo.trim() && <small className="hint muted">Indica el motivo del cambio para guardar la ficha: queda en el historial.</small>}
       </fieldset>
