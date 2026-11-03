@@ -34,13 +34,27 @@ async function construirDoc(
 
   if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 50); }
   const tx = logo ? MARGIN + anchoLogoPdf(50) + 12 : MARGIN;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-  doc.text(`Combustible · ${tanque.nombre}`, tx, y + 18);
+  // Bloque derecho (empresa/fecha y conteo): se mide primero para que el título no se
+  // le monte encima (03/11/2026: «Tanque #3 (Camión de Lubricación)» lo pisaba).
+  const derecha1 = `GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`;
+  const derecha2 = `${movs.length} movimiento(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`Saldo: ${num(tanque.saldo_litros)} L · ${money(tanque.saldo_usd)} · Tasa ${money(tanque.tasa_usd_litro)}/L`, tx, y + 33);
-  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
-  doc.text(`${movs.length} movimiento(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`, PAGE_W - MARGIN, y + 33, { align: 'right' });
-  y += 58;
+  const anchoDerecha = Math.max(doc.getTextWidth(derecha1), doc.getTextWidth(derecha2));
+  const anchoTitulo = PAGE_W - MARGIN - anchoDerecha - 16 - tx;
+  // El título baja de 16 a 11 pt hasta caber; si aun así no cabe, pasa a dos renglones.
+  const titulo = `Combustible · ${tanque.nombre}`;
+  doc.setFont('helvetica', 'bold');
+  let tam = 16;
+  doc.setFontSize(tam);
+  while (tam > 11 && doc.getTextWidth(titulo) > anchoTitulo) { tam -= 0.5; doc.setFontSize(tam); }
+  const renglones = (doc.splitTextToSize(titulo, anchoTitulo) as string[]).slice(0, 2);
+  doc.text(renglones, tx, y + 18);
+  const extra = (renglones.length - 1) * tam * 1.15;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  doc.text(`Saldo: ${num(tanque.saldo_litros)} L · ${money(tanque.saldo_usd)} · Tasa ${money(tanque.tasa_usd_litro)}/L`, tx, y + 33 + extra);
+  doc.text(derecha1, PAGE_W - MARGIN, y + 18, { align: 'right' });
+  doc.text(derecha2, PAGE_W - MARGIN, y + 33, { align: 'right' });
+  y += 58 + extra;
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 8;
