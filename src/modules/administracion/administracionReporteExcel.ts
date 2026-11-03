@@ -6,7 +6,7 @@
    ============================================================ */
 import type { WorkSheet } from 'xlsx-js-style';
 import { previewExcel } from '@/shared/lib/reportePreview';
-import { nombreArchivoReporteAdmin, estadoPagoLabel, origenLabel, type ReporteAdminData } from './administracionReporte';
+import { nombreArchivoReporteAdmin, estadoPagoLabel, origenLabel, ETIQUETA_DIMENSION, type ReporteAdminData } from './administracionReporte';
 
 type Celda = string | number;
 
@@ -22,38 +22,34 @@ function negrita(XLSX: typeof import('xlsx-js-style'), ws: WorkSheet, fila: numb
 
 export async function descargarReporteAdminExcel(data: ReporteAdminData): Promise<void> {
   const XLSX = await import('xlsx-js-style');
-  const { meta, total, porCategoria, porEmpresa, filas } = data;
+  const { meta, total, grupos, agruparPor, filas } = data;
+  const dim = ETIQUETA_DIMENSION[agruparPor];
 
-  // ── Hoja Resumen ──
+  // ── Hoja Resumen (por la dimensión elegida) ──
   const resumen: Celda[][] = [
     [`Reporte de gastos · ${meta.empresaNombre || 'Todas las empresas'}`],
     [meta.alcanceLabel],
     [`Tasa Bs/USD: ${meta.tasa}`, `Generado: ${new Date(meta.generadoEn).toLocaleString('es-VE')}`],
     [],
-    ['Por categoría', 'Bs', 'USD', 'Equiv. $', 'Mov.'],
+    [dim, 'Bs', 'USD', 'Equiv. $', 'Mov.'],
   ];
-  const filaCatHead = resumen.length - 1;
-  for (const g of porCategoria) resumen.push([g.clave, g.bs, g.usd, g.equivUsd, g.n]);
+  const filaDimHead = resumen.length - 1;
+  for (const g of grupos) resumen.push([g.clave, g.bs, g.usd, g.equivUsd, g.n]);
   resumen.push(['TOTAL', total.bs, total.usd, total.equivUsd, total.n]);
   const filaTotal = resumen.length - 1;
-  resumen.push([]);
-  resumen.push(['Por empresa', 'Bs', 'USD', 'Equiv. $', 'Mov.']);
-  const filaEmpHead = resumen.length - 1;
-  for (const g of porEmpresa) resumen.push([g.clave, g.bs, g.usd, g.equivUsd, g.n]);
 
   const wsR = XLSX.utils.aoa_to_sheet(resumen);
   wsR['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }];
   negrita(XLSX, wsR, 0, 1);
-  negrita(XLSX, wsR, filaCatHead, 5);
+  negrita(XLSX, wsR, filaDimHead, 5);
   negrita(XLSX, wsR, filaTotal, 5);
-  negrita(XLSX, wsR, filaEmpHead, 5);
 
   // ── Hoja Detalle ──
-  const det: Celda[][] = [['Fecha', 'Empresa', 'Concepto', 'Categoría', 'Monto', 'Moneda', 'Período', 'Estado', 'Origen']];
-  for (const f of filas) det.push([f.fecha, f.empresa, f.concepto, f.categoria, f.monto, f.moneda, f.periodo, estadoPagoLabel(f.estadoPago), origenLabel(f.origen)]);
+  const det: Celda[][] = [['Fecha', 'Empresa', 'Concepto', 'Categoría', 'Proveedor', 'Monto', 'Moneda', 'Período', 'Estado', 'Origen']];
+  for (const f of filas) det.push([f.fecha, f.empresa, f.concepto, f.categoria, f.proveedor, f.monto, f.moneda, f.periodo, estadoPagoLabel(f.estadoPago), origenLabel(f.origen)]);
   const wsD = XLSX.utils.aoa_to_sheet(det);
-  wsD['!cols'] = [{ wch: 12 }, { wch: 24 }, { wch: 28 }, { wch: 22 }, { wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 11 }, { wch: 11 }];
-  negrita(XLSX, wsD, 0, 9);
+  wsD['!cols'] = [{ wch: 12 }, { wch: 24 }, { wch: 28 }, { wch: 22 }, { wch: 20 }, { wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 11 }, { wch: 11 }];
+  negrita(XLSX, wsD, 0, 10);
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsR, 'Resumen');

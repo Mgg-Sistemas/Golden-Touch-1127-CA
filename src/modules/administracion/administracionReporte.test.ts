@@ -14,27 +14,35 @@ const mov = (p: Partial<Movimiento>): Movimiento => ({
 });
 
 describe('armarReporteAdmin', () => {
-  it('resuelve empresa y categoría, agrupa por categoría/empresa/moneda y totaliza', () => {
-    const movs = [
-      mov({ empresaClave: 'GT', categoriaGastoId: 'cat-serv', moneda: 'Bs', monto: 1800 }),
-      mov({ empresaClave: 'GT', categoriaGastoId: 'cat-alq', moneda: 'USD', monto: 800 }),
-      mov({ empresaClave: 'DEMO1', categoriaGastoId: 'cat-serv', moneda: 'USD', monto: 95 }),
-    ];
-    const d = armarReporteAdmin(movs, empresas, categorias, { empresaNombre: null, alcanceLabel: 'Octubre 2026', tasa: 40 });
+  const movs = [
+    mov({ empresaClave: 'GT', categoriaGastoId: 'cat-serv', moneda: 'Bs', monto: 1800, proveedorNombre: 'Hidro' }),
+    mov({ empresaClave: 'GT', categoriaGastoId: 'cat-alq', moneda: 'USD', monto: 800, proveedorNombre: null }),
+    mov({ empresaClave: 'DEMO1', categoriaGastoId: 'cat-serv', moneda: 'USD', monto: 95, proveedorNombre: 'Hidro' }),
+  ];
+
+  it('resuelve empresa/categoría/proveedor y totaliza', () => {
+    const d = armarReporteAdmin(movs, empresas, categorias, { empresaNombre: null, alcanceLabel: 'Octubre 2026', tasa: 40, agruparPor: 'categoria' });
     expect(d.total.n).toBe(3);
     expect(d.total.usd).toBe(895);
     expect(d.total.bs).toBe(1800);
     expect(d.filas[0].empresa).toBe('Golden Touch 1127, C.A.');
     expect(d.filas[0].categoria).toBe('Servicios');
-    expect(d.porCategoria.map((g) => g.clave).sort()).toEqual(['Alquiler', 'Servicios']);
-    expect(d.porEmpresa).toHaveLength(2);
-    expect(d.porMoneda.map((g) => g.clave).sort()).toEqual(['Bs', 'USD']);
+    expect(d.filas[0].proveedor).toBe('Hidro');
     expect(d.meta.alcanceLabel).toBe('Octubre 2026');
   });
 
+  it('agrupa por la dimensión elegida', () => {
+    expect(armarReporteAdmin(movs, empresas, categorias, { empresaNombre: null, alcanceLabel: 'x', tasa: 40, agruparPor: 'categoria' }).grupos.map((g) => g.clave).sort()).toEqual(['Alquiler', 'Servicios']);
+    expect(armarReporteAdmin(movs, empresas, categorias, { empresaNombre: null, alcanceLabel: 'x', tasa: 40, agruparPor: 'empresa' }).grupos.map((g) => g.clave).sort()).toEqual(['Demo Norte', 'Golden Touch 1127, C.A.']);
+    expect(armarReporteAdmin(movs, empresas, categorias, { empresaNombre: null, alcanceLabel: 'x', tasa: 40, agruparPor: 'moneda' }).grupos.map((g) => g.clave).sort()).toEqual(['Bs', 'USD']);
+    const porProv = armarReporteAdmin(movs, empresas, categorias, { empresaNombre: null, alcanceLabel: 'x', tasa: 40, agruparPor: 'proveedor' });
+    expect(porProv.agruparPor).toBe('proveedor');
+    expect(porProv.grupos.map((g) => g.clave).sort()).toEqual(['Hidro', 'Sin proveedor']);
+  });
+
   it('la categoría faltante cae en «Sin categoría»', () => {
-    const d = armarReporteAdmin([mov({ categoriaGastoId: null })], empresas, categorias, { empresaNombre: 'Golden Touch 1127, C.A.', alcanceLabel: 'Todo el histórico', tasa: 40 });
+    const d = armarReporteAdmin([mov({ categoriaGastoId: null })], empresas, categorias, { empresaNombre: 'Golden Touch 1127, C.A.', alcanceLabel: 'Todo el histórico', tasa: 40, agruparPor: 'categoria' });
     expect(d.filas[0].categoria).toBe('Sin categoría');
-    expect(d.porCategoria[0].clave).toBe('Sin categoría');
+    expect(d.grupos[0].clave).toBe('Sin categoría');
   });
 });
