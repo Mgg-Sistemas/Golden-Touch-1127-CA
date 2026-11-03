@@ -21,10 +21,12 @@ const periodoLabel = (() => {
   return s.charAt(0).toUpperCase() + s.slice(1);
 })();
 
-export function MovimientosTab({ repo, empresaClave, empresas }: {
+export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = true }: {
   repo: AdminRepo;
   empresaClave: string | null;
   empresas: Empresa[];
+  /** Sin escritura: lista de solo lectura (sin generar/importar/registrar/pagar). */
+  puedeEscribir?: boolean;
 }) {
   const [movs, setMovs] = useState<Movimiento[]>([]);
   const [categorias, setCategorias] = useState<OpcionRef[]>([]);
@@ -74,12 +76,14 @@ export function MovimientosTab({ repo, empresaClave, empresas }: {
       <div className="card">
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <span>Movimientos / Histórico {empresaClave ? `· ${nombreEmp.get(empresaClave) ?? empresaClave}` : '· todas las empresas'}</span>
-          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void generar()} disabled={generando}
-              title={`Crea los pendientes que falten hasta ${periodoLabel} y los manda a Tesorería`}>⚙ Generar pendientes</button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setModal('importar')}>⬆ Importar</button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal('manual')}>+ Registrar</button>
-          </div>
+          {puedeEscribir && (
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void generar()} disabled={generando}
+                title={`Crea los pendientes que falten hasta ${periodoLabel} y los manda a Tesorería`}>⚙ Generar pendientes</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setModal('importar')}>⬆ Importar</button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal('manual')}>+ Registrar</button>
+            </div>
+          )}
         </div>
 
         {error && <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No se pudo leer: {/sesi|jwt|auth|401|permission|relation|does not exist/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>}
@@ -116,7 +120,7 @@ export function MovimientosTab({ repo, empresaClave, empresas }: {
                     <td><span className={`adm-badge pago-${m.estadoPago}`}>{m.estadoPago === 'pagado' ? 'Pagado' : m.estadoPago === 'pendiente' ? 'Pendiente' : 'Anulado'}</span></td>
                     <td className="muted" style={{ fontSize: '.82rem' }}>{ORIGEN_LABEL[m.origen]}{m.servicioDirectoId ? ' · en Tesorería' : ''}</td>
                     <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      {m.estadoPago === 'pendiente' && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void pagar(m)}>Marcar pagado</button>}
+                      {puedeEscribir && m.estadoPago === 'pendiente' && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void pagar(m)}>Marcar pagado</button>}
                     </td>
                   </tr>
                 ))}

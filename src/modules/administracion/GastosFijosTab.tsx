@@ -33,11 +33,13 @@ const periodoLabel = (() => {
 /** Tasa Bs/USD para los equivalentes (demo). La app real usa getTasaHoy(). */
 const TASA_DEMO = 40;
 
-export function GastosFijosTab({ repo, empresaClave, empresas }: {
+export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = true }: {
   repo: AdminRepo;
   /** Clave de la empresa elegida, o null = todas. */
   empresaClave: string | null;
   empresas: Empresa[];
+  /** Si no puede escribir, la vista queda de solo lectura (sin alta/edición). */
+  puedeEscribir?: boolean;
 }) {
   const [gastos, setGastos] = useState<GastoFijo[]>([]);
   const [categorias, setCategorias] = useState<OpcionRef[]>([]);
@@ -101,7 +103,7 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
           <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-ghost btn-sm" onClick={abrirWhatsApp} disabled={gastos.length === 0}
               title="Enviar el resumen por WhatsApp (o copiarlo)">💬 WhatsApp</button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>
+            {puedeEscribir && <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>}
           </div>
         </div>
 
@@ -142,8 +144,12 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
                       <td>{g.categoriaGastoId && nombreCat.get(g.categoriaGastoId) ? <span className="adm-chip">{nombreCat.get(g.categoriaGastoId)}</span> : '—'}</td>
                       <td><span className={`adm-badge ${g.estado}`}>{g.estado === 'activo' ? 'Activo' : 'Suspendido'}</span></td>
                       <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModal({ gasto: g })}>Editar</button>
-                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => void alternarEstado(g)}>{g.estado === 'activo' ? 'Suspender' : 'Activar'}</button>
+                        {puedeEscribir ? (
+                          <>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModal({ gasto: g })}>Editar</button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void alternarEstado(g)}>{g.estado === 'activo' ? 'Suspender' : 'Activar'}</button>
+                          </>
+                        ) : <span className="muted">—</span>}
                       </td>
                     </tr>
                   );

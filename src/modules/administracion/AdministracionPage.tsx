@@ -8,6 +8,7 @@
    un repo inyectado: Supabase en la app; en memoria en la demo (DEV).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { crearRepoSupabase, type AdminRepo, type Empresa } from './admin.repository';
 import { crearPreferenciasAdmin, TODAS, type PreferenciasAdmin, type TabAdmin } from './administracionPreferencias';
 import { EmpresasModal } from './EmpresasModal';
@@ -22,11 +23,15 @@ const PESTANAS: { id: TabAdmin; label: string }[] = [
   { id: 'reporte', label: '📊 Reporte' },
 ];
 
-export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso }: {
+export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, puedeEscribir = true, puedeFull = true }: {
   repo?: AdminRepo;
   prefs?: PreferenciasAdmin;
   /** Franja arriba de todo (la demo avisa que es de prueba). */
   aviso?: ReactNode;
+  /** Permiso de escritura del módulo (registrar/generar/importar/editar). La demo lo deja en true. */
+  puedeEscribir?: boolean;
+  /** Full control: además gestiona la lista de empresas (admin_empresas). */
+  puedeFull?: boolean;
 } = {}) {
   const repo = useMemo(() => repoDado ?? crearRepoSupabase(), [repoDado]);
   const prefs = useMemo(() => prefsDadas ?? crearPreferenciasAdmin(), [prefsDadas]);
@@ -75,7 +80,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso }:
               {activas.map((e) => <option key={e.id} value={e.clave}>{e.nombre}</option>)}
             </select>
           </label>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setGestionar(true)}>⚙ Gestionar empresas</button>
+          {puedeFull && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setGestionar(true)}>⚙ Gestionar empresas</button>}
           <div className="view-toggle" role="tablist" aria-label="Vista de administración">
             {PESTANAS.map((p) => (
               <button key={p.id} className={tab === p.id ? 'active' : ''} onClick={() => elegirTab(p.id)}>{p.label}</button>
@@ -90,11 +95,18 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso }:
         </div>
       )}
 
-      {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
-      {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
+      {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
 
-      {gestionar && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
+      {gestionar && puedeFull && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
     </div>
   );
+}
+
+/** La ruta de la app real: toma los permisos del rol y los pasa a la página.
+ *  (La demo DEV usa `AdministracionPage` directo, fuera del PermissionsProvider.) */
+export function AdministracionPageApp() {
+  const { can } = usePermissions();
+  return <AdministracionPage puedeEscribir={can('administracion', 'escritura')} puedeFull={can('administracion', 'full')} />;
 }

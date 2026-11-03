@@ -26,7 +26,7 @@ const ComidasMovilView = lazy(() => import('./modules/cocina/ComidasMovilView').
 const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
 const GeodestaPage = lazy(() => import('./modules/geodesta/GeodestaPage').then((m) => ({ default: m.GeodestaPage })));
 const TesoreriaPage = lazy(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
-const AdministracionPage = lazy(() => import('./modules/administracion/AdministracionPage').then((m) => ({ default: m.AdministracionPage })));
+const AdministracionPage = lazy(() => import('./modules/administracion/AdministracionPage').then((m) => ({ default: m.AdministracionPageApp })));
 // Página de prueba del módulo Administración: SOLO en desarrollo (no entra al build de producción).
 const AdministracionDemoPage = import.meta.env.DEV
   ? lazy(() => import('./modules/administracion/demo/AdministracionDemoPage').then((m) => ({ default: m.AdministracionDemoPage })))
