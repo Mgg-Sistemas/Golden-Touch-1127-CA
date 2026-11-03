@@ -11,6 +11,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { norm } from '@/shared/lib/texto';
 import { tokenPeriodo, type Moneda } from './administracionCalculo';
 import { ImportarAdminModal } from './ImportarAdminModal';
+import { ParafiscalModal } from './ParafiscalModal';
 import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.repository';
 
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -36,6 +37,7 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
   const [generando, setGenerando] = useState(false);
   const [form, setForm] = useState<{ mov: Movimiento | null } | null>(null);
   const [importar, setImportar] = useState(false);
+  const [parafiscal, setParafiscal] = useState(false);
   const [anular, setAnular] = useState<Movimiento | null>(null);
   const [buscar, setBuscar] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'todos' | Movimiento['estadoPago']>('todos');
@@ -99,6 +101,8 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => void generar()} disabled={generando}
                 title={`Crea los pendientes que falten hasta ${periodoLabel} y los manda a Tesorería`}>⚙ Generar pendientes</button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setImportar(true)}>⬆ Importar</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setParafiscal(true)}
+                title="Calcular y registrar un parafiscal (FAOV / BANAVIH)">⚖ Parafiscal</button>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => setForm({ mov: null })}>+ Registrar</button>
             </div>
           )}
@@ -178,6 +182,10 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
         <ImportarAdminModal repo={repo} empresas={empresas} categorias={categorias}
           existentes={movs.map((m) => ({ empresaClave: m.empresaClave, periodo: m.periodo, concepto: m.concepto }))}
           onClose={() => setImportar(false)} onImportado={() => void cargar()} />
+      )}
+      {parafiscal && (
+        <ParafiscalModal repo={repo} empresas={empresas} empresaClaveFija={empresaClave} categorias={categorias}
+          onClose={() => setParafiscal(false)} onSaved={() => void cargar()} />
       )}
       {anular && (
         <ConfirmDialog
