@@ -7,7 +7,7 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminRepo, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef } from '../admin.repository';
+import type { AdminRepo, DocumentoEmpresa, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 
 const uid = (): string => {
@@ -64,6 +64,8 @@ export function crearRepoDemo(): AdminRepo {
   const empresas: Empresa[] = EMPRESAS_DEMO.map((e) => ({ ...e }));
   const gastos: GastoFijo[] = gastosSemilla();
   const movimientos: Movimiento[] = movimientosSemilla();
+  const documentos: DocumentoEmpresa[] = [];
+  const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
   return {
@@ -146,6 +148,28 @@ export function crearRepoDemo(): AdminRepo {
     marcarPagado: (id) => {
       const i = movimientos.findIndex((m) => m.id === id);
       if (i >= 0) movimientos[i] = { ...movimientos[i], estadoPago: 'pagado' };
+      return Promise.resolve();
+    },
+    listDocumentos: (empresaClave) => Promise.resolve(
+      documentos.filter((d) => d.empresaClave === empresaClave).map((d) => ({ ...d }))
+        .sort((a, b) => (a.createdAt && b.createdAt && a.createdAt < b.createdAt ? 1 : -1)),
+    ),
+    subirDocumento: (empresaClave, tipo: TipoDocumento, file: File) => {
+      const path = `demo/${empresaClave}/${uid()}-${file.name}`;
+      try { urlsDemo.set(path, URL.createObjectURL(file)); } catch { /* sin createObjectURL: la previsualización queda vacía */ }
+      const nuevo: DocumentoEmpresa = {
+        id: uid(), empresaClave, tipo, nombre: file.name, path,
+        contentType: file.type || null, tamano: file.size, createdAt: new Date().toISOString(),
+      };
+      documentos.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    urlDocumento: (path) => Promise.resolve(urlsDemo.get(path) ?? ''),
+    borrarDocumento: (doc) => {
+      const i = documentos.findIndex((d) => d.id === doc.id);
+      if (i >= 0) documentos.splice(i, 1);
+      const u = urlsDemo.get(doc.path);
+      if (u) { try { URL.revokeObjectURL(u); } catch { /* ya revocada */ } urlsDemo.delete(doc.path); }
       return Promise.resolve();
     },
   };
