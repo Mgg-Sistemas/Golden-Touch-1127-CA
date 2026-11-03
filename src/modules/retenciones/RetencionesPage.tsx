@@ -42,6 +42,8 @@ import { listFacturasBuzon, ultimaCreacionBuzon, actualizarEstatusFacturaBuzon, 
 // Multi-empresa (andamiaje F-ME2): empresa actual arriba del módulo. Oculto y
 // sin efecto mientras la base no traiga la empresa en las retenciones.
 import { useEmpresaActual, esEmpresaGt } from './empresaActual';
+import { rifValido } from '@/shared/lib/rif';
+import { list as listProveedores, insert as insertProveedor } from '@/modules/proveedores/proveedores.repository';
 import { EmpresaActualSelector } from './EmpresaActualSelector';
 import { EditorFichasFiscalesEmpresa } from './EditorFichasFiscalesEmpresa';
 import { Link } from 'react-router-dom';
@@ -277,10 +279,26 @@ export function RetencionesPage() {
     const e = empresas.find((x) => x.id === empId);
     return e && !esEmpresaGt(e) ? e : null;
   }
-  function abrirDesdeBuzon(fac: FacturaBuzon) {
+  async function abrirDesdeBuzon(fac: FacturaBuzon) {
+    // El registro exige un proveedor registrado: lo buscamos por RIF. Si existe, se
+    // selecciona; si no existe y el RIF es válido, se CREA (reusa proveedores.insert) para
+    // poder retener. Con RIF inválido/vacío se abre sin proveedor y el registro lo pide.
+    const rif = (fac.proveedorRif ?? '').trim();
+    let contraparteId: string | undefined;
+    if (rif) {
+      const lista = await listProveedores().catch(() => [] as Awaited<ReturnType<typeof listProveedores>>);
+      const existe = lista.find((p) => (p.rif ?? '').trim().toUpperCase() === rif.toUpperCase());
+      if (existe) {
+        contraparteId = existe.id;
+      } else if (rifValido(rif)) {
+        const nuevo = await insertProveedor({ rif, razon_social: (fac.proveedorNombre || rif).trim(), categorias: [], estado: 'activo' }).catch(() => null);
+        contraparteId = nuevo?.id;
+      }
+    }
     setBuzonEnRegistro(fac);
     setRegistrarFactura({
       direccion: 'practicada',
+      contraparteId,
       tipoDocumento: fac.tipoDocumento,
       contraparteNombre: fac.proveedorNombre,
       contraparteRif: fac.proveedorRif,
