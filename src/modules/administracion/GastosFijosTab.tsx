@@ -12,7 +12,8 @@ import type { AdminRepo, Empresa, GastoFijo, OpcionRef } from './admin.repositor
 import { GastoFijoModal } from './GastoFijoModal';
 import { TableroAdmin } from './TableroAdmin';
 import { filasTablero } from './administracionTablero';
-import { nombreArchivoReporte, reporteGastosFijosTxt } from './administracionWhatsApp';
+import { reporteGastosFijosTxt } from './administracionWhatsApp';
+import { WhatsAppReporteModal } from './WhatsAppReporteModal';
 
 const PERIOD_LABEL: Record<Periodicidad, string> = {
   mensual: 'Mensual', bimensual: 'Bimensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual',
@@ -44,6 +45,7 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ gasto: GastoFijo | null } | null>(null);
+  const [wsp, setWsp] = useState<string | null>(null);
 
   const nombreCat = useMemo(() => new Map(categorias.map((c) => [c.id, c.nombre])), [categorias]);
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
@@ -80,24 +82,10 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
     }
   }
 
-  function descargarWhatsApp() {
+  function abrirWhatsApp() {
     const filas = filasTablero(gastos, empresas, nombreCat);
     const empresaNombre = empresaClave ? nombreEmp.get(empresaClave) ?? empresaClave : null;
-    const txt = reporteGastosFijosTxt(filas, { empresaNombre, periodoLabel, tasa: TASA_DEMO });
-    try {
-      const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = nombreArchivoReporte(periodoLabel);
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast('Resumen para WhatsApp descargado — pégalo en el chat.', 'success');
-    } catch {
-      toast('No se pudo generar el archivo.', 'error');
-    }
+    setWsp(reporteGastosFijosTxt(filas, { empresaNombre, periodoLabel, tasa: TASA_DEMO }));
   }
 
   const mostrarEmpresa = empresaClave == null;
@@ -111,8 +99,8 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <span>Gastos fijos {empresaClave ? `· ${nombreEmp.get(empresaClave) ?? empresaClave}` : '· todas las empresas'}</span>
           <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={descargarWhatsApp} disabled={gastos.length === 0}
-              title="Descarga un resumen con formato de WhatsApp, listo para pegar en el chat">📱 WhatsApp</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={abrirWhatsApp} disabled={gastos.length === 0}
+              title="Enviar el resumen por WhatsApp (o copiarlo)">💬 WhatsApp</button>
             <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>
           </div>
         </div>
@@ -176,6 +164,14 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
           gasto={modal.gasto}
           onClose={() => setModal(null)}
           onSaved={() => void cargar()}
+        />
+      )}
+
+      {wsp != null && (
+        <WhatsAppReporteModal
+          titulo={`Gastos fijos · ${empresaClave ? nombreEmp.get(empresaClave) ?? empresaClave : 'todas'}`}
+          texto={wsp}
+          onClose={() => setWsp(null)}
         />
       )}
     </>

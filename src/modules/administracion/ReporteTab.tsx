@@ -1,16 +1,20 @@
 /* ============================================================
    Golden Touch · Administración · pestaña «Reporte»
-   El análisis del HISTÓRICO (egresos efectivos), tan potente como el de
-   Combustible: filtros (período · moneda, la empresa viene de la cabecera),
-   total del alcance, desglose por categoría y por empresa, y descarga del
-   resumen para WhatsApp (TXT) y del detalle (CSV). Reusa agruparTotales y el
-   lenguaje visual del tablero aprobado. Los totales salen de la lógica pura.
+   El análisis del HISTÓRICO (egresos efectivos), al estándar de reportes del
+   sistema: filtros (período · moneda; la empresa viene de la cabecera), total
+   del alcance, desglose por categoría y por empresa, y las salidas PDF, Excel
+   y WhatsApp (los tres del mismo armado puro `armarReporteAdmin`). Mantiene el
+   lenguaje visual del tablero aprobado.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { agruparTotales, totalGeneral, type Moneda, type MovimientoCalc } from './administracionCalculo';
-import { nombreArchivoReporteMov, reporteMovimientosTxt } from './administracionWhatsApp';
+import { type Moneda } from './administracionCalculo';
+import { armarReporteAdmin } from './administracionReporte';
+import { descargarReporteAdminPdf } from './administracionReportePdf';
+import { descargarReporteAdminExcel } from './administracionReporteExcel';
+import { reporteMovimientosTxt } from './administracionWhatsApp';
+import { WhatsAppReporteModal } from './WhatsAppReporteModal';
 import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.repository';
 
 const num0 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 0 });
@@ -26,22 +30,6 @@ function etiquetaPeriodo(token: string): string {
   return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)} ${m[1]}`;
 }
 
-function descargarTexto(nombre: string, contenido: string, tipo = 'text/plain;charset=utf-8'): boolean {
-  try {
-    const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = nombre;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function ReporteTab({ repo, empresaClave, empresas }: {
   repo: AdminRepo;
   empresaClave: string | null;
@@ -53,8 +41,8 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   const [error, setError] = useState<string | null>(null);
   const [periodo, setPeriodo] = useState<string>(TODOS);
   const [moneda, setMoneda] = useState<'' | Moneda>('');
+  const [wsp, setWsp] = useState<string | null>(null);
 
-  const nombreCat = useMemo(() => new Map(categorias.map((c) => [c.id, c.nombre])), [categorias]);
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
 
   const cargar = useCallback(async () => {
@@ -80,33 +68,25 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
     () => movs.filter((m) => m.estadoPago !== 'anulado' && (periodo === TODOS || m.periodo === periodo) && (!moneda || m.moneda === moneda)),
     [movs, periodo, moneda],
   );
-  const calc: MovimientoCalc[] = useMemo(
-    () => filtrados.map((m) => ({ empresaClave: nombreEmp.get(m.empresaClave) ?? m.empresaClave, categoria: m.categoriaGastoId ? nombreCat.get(m.categoriaGastoId) ?? 'Sin categoría' : 'Sin categoría', moneda: m.moneda, monto: m.monto })),
-    [filtrados, nombreEmp, nombreCat],
-  );
-  const total = useMemo(() => totalGeneral(calc, TASA_DEMO), [calc]);
-  const porCategoria = useMemo(() => agruparTotales(calc, 'categoria', { tasa: TASA_DEMO }), [calc]);
-  const porEmpresa = useMemo(() => agruparTotales(calc, 'empresa', { tasa: TASA_DEMO }), [calc]);
-  const maxCat = Math.max(1, ...porCategoria.map((g) => g.equivUsd));
-
   const alcanceLabel = periodo === TODOS ? 'Todo el histórico' : etiquetaPeriodo(periodo);
   const empresaNombre = empresaClave ? nombreEmp.get(empresaClave) ?? empresaClave : null;
 
-  function descargarWhatsApp() {
-    const txt = reporteMovimientosTxt(porCategoria, total, { empresaNombre, periodoLabel: alcanceLabel });
-    const ok = descargarTexto(nombreArchivoReporteMov(alcanceLabel), txt);
-    toast(ok ? 'Resumen para WhatsApp descargado — pégalo en el chat.' : 'No se pudo generar el archivo.', ok ? 'success' : 'error');
+  // UN solo armado puro → las tres salidas (WhatsApp, PDF, Excel) y la vista dicen lo mismo.
+  const data = useMemo(
+    () => armarReporteAdmin(filtrados, empresas, categorias, { empresaNombre, alcanceLabel, tasa: TASA_DEMO }),
+    [filtrados, empresas, categorias, empresaNombre, alcanceLabel],
+  );
+  const { total, porCategoria, porEmpresa, porMoneda } = data;
+  const maxCat = Math.max(1, ...porCategoria.map((g) => g.equivUsd));
+
+  function abrirWhatsApp() {
+    setWsp(reporteMovimientosTxt(porCategoria, total, { empresaNombre, periodoLabel: alcanceLabel }));
   }
-  function descargarCsv() {
-    const esc = (v: string) => (/[",;\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-    const cab = ['fecha', 'empresa', 'concepto', 'categoria', 'monto', 'moneda', 'periodo', 'estado', 'origen'];
-    const filas = filtrados.map((m) => [
-      m.fecha, nombreEmp.get(m.empresaClave) ?? m.empresaClave, m.concepto,
-      m.categoriaGastoId ? nombreCat.get(m.categoriaGastoId) ?? '' : '', monto2(m.monto), m.moneda, m.periodo, m.estadoPago, m.origen,
-    ].map((c) => esc(String(c))).join(','));
-    const csv = [cab.join(','), ...filas].join('\n');
-    const ok = descargarTexto(`reporte-gastos-${alcanceLabel.toLowerCase().replace(/\s+/g, '-')}.csv`, csv, 'text/csv;charset=utf-8');
-    toast(ok ? 'CSV del detalle descargado.' : 'No se pudo generar el CSV.', ok ? 'success' : 'error');
+  async function descargarPdf() {
+    try { await descargarReporteAdminPdf(data); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF.', 'error'); }
+  }
+  async function descargarExcel() {
+    try { await descargarReporteAdminExcel(data); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el Excel.', 'error'); }
   }
 
   return (
@@ -130,9 +110,10 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
           </label>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={descargarCsv} disabled={!filtrados.length}>⬇ CSV</button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={descargarWhatsApp} disabled={!filtrados.length}
-            title="Descarga un resumen con formato de WhatsApp, listo para pegar en el chat">📱 WhatsApp</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void descargarPdf()} disabled={!filtrados.length}>📄 PDF</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void descargarExcel()} disabled={!filtrados.length}>📊 Excel</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={abrirWhatsApp} disabled={!filtrados.length}
+            title="Enviar el resumen por WhatsApp (o copiarlo)">💬 WhatsApp</button>
         </div>
       </div>
 
@@ -186,7 +167,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
                     <tr><th>{empresaClave ? 'Moneda' : 'Empresa'}</th><th style={{ textAlign: 'right' }}>Bs</th><th style={{ textAlign: 'right' }}>USD</th><th style={{ textAlign: 'right' }}>Equiv. $</th><th style={{ textAlign: 'right' }}>Mov.</th></tr>
                   </thead>
                   <tbody>
-                    {(empresaClave ? agruparTotales(calc, 'moneda', { tasa: TASA_DEMO }) : porEmpresa).map((g) => (
+                    {(empresaClave ? porMoneda : porEmpresa).map((g) => (
                       <tr key={g.clave}>
                         <td>{g.clave}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto2(g.bs)}</td>
@@ -201,6 +182,10 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
             </div>
           </div>
         </>
+      )}
+
+      {wsp != null && (
+        <WhatsAppReporteModal titulo={`Reporte · ${alcanceLabel}`} texto={wsp} onClose={() => setWsp(null)} />
       )}
     </div>
   );
