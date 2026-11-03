@@ -15,6 +15,7 @@ import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import {
   categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre, datosConductor, nominaFijaDe,
+  etiquetaCategoria, claseBadgeCategoria, resumenPorCategoria,
 } from './choferes';
 import { useEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import {
@@ -109,7 +110,9 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       const veh = vehPorId.get(v.vehiculo_id ?? '');
       const nominaFija = nominaDe(c);
       const vehiculoTxt = veh?.placa || (veh ? `${veh.marca || ''} ${veh.modelo || ''}`.trim() : '—');
-      const obs = categoriaDeViaje(v, c);
+      // Clave guardada (para contar por tipo) y etiqueta actual del catálogo (para mostrar/PDF/Excel).
+      const categoria = categoriaDeViaje(v, c, datos.clasificaciones);
+      const obs = etiquetaCategoria(categoria, datos.clasificaciones);
       const infoPago = infoPagoViaje(v, pagosMap);
       const fSalida = (v.salida_real_at ?? v.fecha_salida).slice(0, 10);
       const nViajes = cantidadViajes(v.viajes);
@@ -130,13 +133,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         monto: montoUnit,
         totalPagar,
         observaciones: obs,
+        categoria,
         pagado: infoPago.pagado,
         fechaPago: infoPago.fechaPago,
         fechaCorteDesde: infoPago.fechaCorteDesde,
         fechaCorteHasta: infoPago.fechaCorteHasta,
       };
     });
-  }, [viajes, porId, vehPorId, pagosMap, nominaDe]);
+  }, [viajes, porId, vehPorId, pagosMap, nominaDe, datos.clasificaciones]);
 
   // Filtrado
   const filasFiltradas = useMemo(() => {
@@ -172,6 +176,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         monto: f.monto,
         totalPagar: f.totalPagar,
         observaciones: f.observaciones,
+        categoria: f.categoria,
         pagado: f.pagado,
         fechaPago: f.fechaPago,
         fechaCorteDesde: f.fechaCorteDesde,
@@ -784,9 +789,8 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         });
         const listaVehiculos = Array.from(vehiculosSet);
 
-        const nLargos = g.filas.filter(f => f.observaciones === 'VIAJE LARGO').reduce((a, f) => a + f.viajes, 0);
-        const nCortos = g.filas.filter(f => f.observaciones === 'VIAJE CORTO').reduce((a, f) => a + f.viajes, 0);
-        const nInternos = g.filas.filter(f => f.observaciones === 'VIAJE INTERNO').reduce((a, f) => a + f.viajes, 0);
+        // Conteo por clasificación (las tres de siempre + las nuevas que tengan viajes).
+        const porTipo = resumenPorCategoria(g.filas);
 
         return (
           <div key={g.choferId} className="card" style={{ padding: 0, marginBottom: '.85rem', overflow: 'hidden', border: '1px solid var(--border)' }}>
@@ -897,9 +901,9 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '.85rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span>Largos: <strong className="mono" style={{ color: 'var(--text)' }}>{nLargos}</strong></span>
-                    <span>Cortos: <strong className="mono" style={{ color: 'var(--text)' }}>{nCortos}</strong></span>
-                    <span>Internos: <strong className="mono" style={{ color: 'var(--text)' }}>{nInternos}</strong></span>
+                    {porTipo.map((t) => (
+                      <span key={t.clave}>{t.etiqueta.charAt(0) + t.etiqueta.slice(1).toLocaleLowerCase('es')}: <strong className="mono" style={{ color: 'var(--text)' }}>{t.viajes}</strong></span>
+                    ))}
                     <button
                       type="button"
                       className="btn btn-xs btn-ghost"
@@ -941,7 +945,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                           <td className="mono" style={{ textAlign: 'right' }}>{money(f.monto)}</td>
                           <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{money(f.totalPagar)}</td>
                           <td>
-                            <span className={`badge ${f.observaciones === 'VIAJE INTERNO' ? 'warning' : f.observaciones === 'VIAJE LARGO' ? 'info' : 'primary'}`}>
+                            <span className={`badge ${claseBadgeCategoria(f.categoria ?? f.observaciones)}`}>
                               {f.observaciones}
                             </span>
                           </td>
@@ -1462,6 +1466,8 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
           viajes={viajes}
           descansos={datos.descansos}
           hoy={datos.hoy}
+          clasificaciones={datos.clasificaciones}
+          onClasificacionesCambiadas={recargar}
           canWrite={canWrite}
           actor={actor}
           actorName={actorName}
@@ -1478,6 +1484,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
           viaje={viajes.find((x) => x.id === detalleViaje.id) ?? detalleViaje}
           conductor={porId.get(detalleViaje.chofer_id)}
           vehiculo={vehPorId.get(detalleViaje.vehiculo_id ?? '')}
+          clasificaciones={datos.clasificaciones}
           canWrite={canWrite}
           onClose={() => setDetalleViaje(null)}
           onChanged={recargar}

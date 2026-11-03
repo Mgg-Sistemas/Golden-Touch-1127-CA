@@ -411,14 +411,122 @@ export function errorViajesVolqueta(viajes: number | null | undefined, material:
   return null;
 }
 
-/* ───────── Categorías de viaje y nómina de viajes (planilla) ───────── */
-export const CATEGORIAS_VIAJE = [
-  { key: 'VIAJE CORTO', label: 'Viaje corto', tarifaSugerida: 25 },
-  { key: 'VIAJE LARGO', label: 'Viaje largo', tarifaSugerida: 50 },
-  { key: 'VIAJE INTERNO', label: 'Viaje interno', tarifaSugerida: 1 },
-] as const;
+/* ───────── Categorías de viaje y nómina de viajes (planilla) ─────────
+   Clasificaciones de viaje (03-11-2026): ya no son fijas. Viven en la tabla
+   choferes_clasificaciones_viaje (nombre, ícono, tarifa, activo, orden) y se
+   editan con «⚙ Clasificaciones». La `clave` (MAYÚSCULAS) es lo que se guarda en
+   choferes_viajes.categoria_viaje y nunca cambia; renombrar solo cambia `nombre`.
+   Las tres de siempre (VIAJE CORTO / LARGO / INTERNO) siguen usando la tasa
+   propia del chofer (expediente) si la tiene; las nuevas usan su tarifa. */
+export interface ClasificacionViaje {
+  id?: string;
+  clave: string;
+  nombre: string;
+  icono: string;
+  tarifa_usd: number;
+  activo: boolean;
+  orden: number;
+}
 
-export type CategoriaViaje = (typeof CATEGORIAS_VIAJE)[number]['key'];
+/** Las tres de siempre: semilla de la tabla y respaldo si la tabla no carga. */
+export const CLASIFICACIONES_BASE: readonly ClasificacionViaje[] = [
+  { clave: 'VIAJE CORTO', nombre: 'Viaje corto', icono: '🚗', tarifa_usd: 25, activo: true, orden: 1 },
+  { clave: 'VIAJE LARGO', nombre: 'Viaje largo', icono: '🚚', tarifa_usd: 50, activo: true, orden: 2 },
+  { clave: 'VIAJE INTERNO', nombre: 'Viaje interno', icono: '🔄', tarifa_usd: 1, activo: true, orden: 3 },
+];
+
+/** Compatibilidad con el formato anterior ({ key, label, tarifaSugerida }). */
+export const CATEGORIAS_VIAJE = CLASIFICACIONES_BASE.map((c) => ({ key: c.clave, label: c.nombre, tarifaSugerida: c.tarifa_usd }));
+
+/** Clave guardada en el viaje: 'VIAJE CORTO', 'VIAJE LARGO', 'VIAJE INTERNO' o cualquier clasificación nueva. */
+export type CategoriaViaje = string;
+
+/** Cuando no hay ninguna clasificación activa con tarifa para comparar. */
+export const SIN_CLASIFICAR = 'SIN CLASIFICAR';
+
+/** Qué tasa del chofer corresponde a cada clasificación base. */
+const TASA_CHOFER_DE: Record<string, keyof TasasChofer> = {
+  'VIAJE CORTO': 'corto',
+  'VIAJE LARGO': 'largo',
+  'VIAJE INTERNO': 'interno',
+};
+
+/** ¿Es una de las tres de siempre (usa la tasa propia del chofer)? */
+export function esClasificacionBase(clave: string | null | undefined): boolean {
+  return !!clave && clave.trim().toUpperCase() in TASA_CHOFER_DE;
+}
+
+/** Clave a partir del nombre: «Viaje  mina» → «VIAJE MINA». */
+export function claveDeClasificacion(nombre: string): string {
+  return nombre.trim().replace(/\s+/g, ' ').toLocaleUpperCase('es');
+}
+
+/** Ordenadas por `orden` y luego por nombre (no muta la lista). */
+export function ordenarClasificaciones<T extends Pick<ClasificacionViaje, 'orden' | 'nombre'>>(lista: readonly T[]): T[] {
+  return [...lista].sort((a, b) => (a.orden - b.orden) || a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+/** Busca la clasificación de una clave (activa o no). */
+export function clasificacionDe(clave: string | null | undefined, clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE): ClasificacionViaje | null {
+  const k = (clave ?? '').trim().toUpperCase();
+  if (!k) return null;
+  return clasifs.find((c) => c.clave === k) ?? CLASIFICACIONES_BASE.find((c) => c.clave === k) ?? null;
+}
+
+/** Texto para mostrar en pantalla, PDF y Excel: el nombre actual en MAYÚSCULAS («VIAJE CORTO»). */
+export function etiquetaCategoria(clave: string | null | undefined, clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE): string {
+  const c = clasificacionDe(clave, clasifs);
+  if (c) return c.nombre.toLocaleUpperCase('es');
+  const k = (clave ?? '').trim().toUpperCase();
+  return k || SIN_CLASIFICAR;
+}
+
+/** Ícono de la clasificación (🏷 si no está en el catálogo). */
+export function iconoCategoria(clave: string | null | undefined, clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE): string {
+  return clasificacionDe(clave, clasifs)?.icono || '🏷';
+}
+
+/** Clase del badge: se conservan los colores de siempre; las nuevas van neutras. */
+export function claseBadgeCategoria(clave: string | null | undefined): string {
+  const k = (clave ?? '').trim().toUpperCase();
+  if (k === 'VIAJE INTERNO') return 'warning';
+  if (k === 'VIAJE LARGO') return 'info';
+  if (k === 'VIAJE CORTO') return 'primary';
+  if (k === SIN_CLASIFICAR) return 'danger';
+  return 'neutral';
+}
+
+/** Tasas por defecto (corto/largo/interno) tomadas del catálogo; si falta alguna, las de siempre. */
+export function tasasPorDefectoDe(clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE): TasasChofer {
+  const t = { ...TASAS_DEFAULT };
+  for (const c of clasifs) {
+    const k = TASA_CHOFER_DE[c.clave];
+    if (k && Number(c.tarifa_usd) > 0) t[k] = Number(c.tarifa_usd);
+  }
+  return t;
+}
+
+/**
+ * Tarifa por viaje de una clasificación para un chofer: en las tres base manda la
+ * tasa propia del chofer (o la del catálogo si no tiene); en las nuevas, la del catálogo.
+ */
+export function tarifaDeClasificacion(
+  c: ClasificacionViaje,
+  chofer?: ConductorTasasRef | null,
+  clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE,
+): number {
+  const k = TASA_CHOFER_DE[c.clave];
+  if (k) return tasasDeConductor(chofer, tasasPorDefectoDe(clasifs))[k];
+  return Number(c.tarifa_usd) || 0;
+}
+
+/** Clasificaciones ACTIVAS, en orden, con la tarifa que le toca a ese chofer. */
+export function clasificacionesConTarifa(
+  clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE,
+  chofer?: ConductorTasasRef | null,
+): { clasif: ClasificacionViaje; tarifa: number }[] {
+  return ordenarClasificaciones(clasifs.filter((c) => c.activo)).map((clasif) => ({ clasif, tarifa: tarifaDeClasificacion(clasif, chofer, clasifs) }));
+}
 
 export interface TasasChofer {
   corto: number;
@@ -443,8 +551,9 @@ export interface ConductorTasasRef {
 /**
  * Obtiene las tasas propias de pago por viaje de un conductor (corto, largo, interno).
  */
-export function tasasDeConductor(c?: ConductorTasasRef | null): TasasChofer {
-  if (!c) return { ...TASAS_DEFAULT };
+export function tasasDeConductor(c?: ConductorTasasRef | null, porDefecto: TasasChofer = TASAS_DEFAULT): TasasChofer {
+  const D = porDefecto;
+  if (!c) return { ...D };
 
   let corto = Number(c.tarifa_corto_usd);
   let largo = Number(c.tarifa_largo_usd);
@@ -466,15 +575,17 @@ export function tasasDeConductor(c?: ConductorTasasRef | null): TasasChofer {
   }
 
   const base = Number(c.tarifa_viaje_usd) || 0;
-  if (!corto || isNaN(corto) || corto <= 0) {
-    corto = base > 0 ? base : TASAS_DEFAULT.corto;
+  // Si el chofer no trae ninguna tasa propia, valen las del catálogo tal cual (no «corto × 2»).
+  const cortoPropio = !!corto && !isNaN(corto) && corto > 0;
+  if (!cortoPropio) {
+    corto = base > 0 ? base : D.corto;
   }
   if (!largo || isNaN(largo) || largo <= 0) {
-    largo = base >= 50 ? base : (corto ? (corto >= 50 ? corto : corto * 2) : TASAS_DEFAULT.largo);
+    largo = base >= 50 ? base : (cortoPropio || base > 0) ? (corto >= 50 ? corto : corto * 2) : D.largo;
     if (largo < corto) largo = corto * 2;
   }
   if (!interno || isNaN(interno) || interno <= 0) {
-    interno = TASAS_DEFAULT.interno;
+    interno = D.interno;
   }
 
   return { corto, largo, interno };
@@ -497,61 +608,95 @@ export function observacionesSinTagsTasas(obs: string | null | undefined): strin
 }
 
 /**
- * Clasifica automáticamente una tarifa / tasa en:
- * VIAJE CORTO, VIAJE LARGO o VIAJE INTERNO, según la tasa ingresada y las tasas del chofer.
+ * Detección automática de la clasificación a partir de la tasa (03-11-2026).
+ *
+ * Se compara con la tarifa de cada clasificación ACTIVA (en corto/largo/interno,
+ * la tasa propia del chofer):
+ *   1. Coincidencia exacta (±0,01 $) → esa clasificación (si dos empatan, la de menor `orden`).
+ *   2. Si no, la MÁS CERCANA EN PROPORCIÓN (|ln(monto / tarifa)|): $13 está más cerca
+ *      de $25 que de $1, aunque en dólares la distancia sea parecida. Con las tres de
+ *      siempre (1 / 25 / 50) los cortes quedan en ≈$5 y ≈$35, como la regla anterior.
+ *   3. Tasa vacía o 0 → «VIAJE CORTO» (o la primera activa).
+ *   4. Sin ninguna clasificación activa con tarifa > 0 → «SIN CLASIFICAR».
+ * Siempre se puede corregir a mano con el selector.
  */
 export function clasificarCategoriaPorTasa(
   tarifa: number | null | undefined,
   chofer?: ConductorTasasRef | null,
+  clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE,
 ): CategoriaViaje {
+  const opciones = clasificacionesConTarifa(clasifs, chofer);
+  if (!opciones.length) return SIN_CLASIFICAR;
   const monto = Number(tarifa) || 0;
-  if (monto <= 0) return 'VIAJE CORTO';
+  if (monto <= 0) return (opciones.find((o) => o.clasif.clave === 'VIAJE CORTO') ?? opciones[0]).clasif.clave;
 
-  const tasas = tasasDeConductor(chofer);
+  const exacta = opciones.find((o) => Math.abs(monto - o.tarifa) < 0.01);
+  if (exacta) return exacta.clasif.clave;
 
-  // 1. Coincidencia exacta con las tasas del chofer
-  if (Math.abs(monto - tasas.interno) < 0.01) return 'VIAJE INTERNO';
-  if (Math.abs(monto - tasas.largo) < 0.01) return 'VIAJE LARGO';
-  if (Math.abs(monto - tasas.corto) < 0.01) return 'VIAJE CORTO';
-
-  // 2. Umbral de viaje interno (valores bajos típicos de cantera / planta)
-  const umbralInterno = Math.max(tasas.interno * 1.5, 5);
-  if (monto <= umbralInterno) return 'VIAJE INTERNO';
-
-  // 3. Umbral de viaje largo: si es mayor o igual al punto medio o la tasa de viaje largo
-  const puntoMedioLargo = tasas.largo > tasas.corto ? (tasas.corto + tasas.largo) / 2 : 50;
-  if (monto >= puntoMedioLargo || monto >= 50) return 'VIAJE LARGO';
-
-  return 'VIAJE CORTO';
+  let mejor: { clave: string; d: number } | null = null;
+  for (const o of opciones) {
+    if (!(o.tarifa > 0)) continue;
+    const d = Math.abs(Math.log(monto / o.tarifa));
+    if (!mejor || d < mejor.d - 1e-9) mejor = { clave: o.clasif.clave, d };
+  }
+  return mejor ? mejor.clave : SIN_CLASIFICAR;
 }
 
-export function tarifaSugeridaCategoria(cat: string, chofer?: ConductorTasasRef | null): number {
-  const c = (cat || '').trim().toUpperCase();
-  const tasas = tasasDeConductor(chofer);
-  if (c.includes('INTERNO')) return tasas.interno;
-  if (c.includes('LARGO')) return tasas.largo;
-  if (c.includes('CORTO')) return tasas.corto;
-  return 0;
+/** Tarifa que se propone al elegir una clasificación (0 si no está en el catálogo). */
+export function tarifaSugeridaCategoria(
+  cat: string,
+  chofer?: ConductorTasasRef | null,
+  clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE,
+): number {
+  const c = clasificacionDe(cat, clasifs);
+  return c ? tarifaDeClasificacion(c, chofer, clasifs) : 0;
 }
 
 /**
- * Obtiene la categoría de un viaje: la guardada explícitamente o inferida de origen/destino/nota/tarifa.
+ * Obtiene la categoría de un viaje: la guardada explícitamente (cualquier clave del
+ * catálogo, activa o no) o inferida de nota/origen/destino/tarifa.
  */
 export function categoriaDeViaje(
   v?: { categoria_viaje?: string | null; nota?: string | null; origen?: string | null; destino?: string | null; tarifa_usd?: number | null } | null,
   chofer?: ConductorTasasRef | null,
+  clasifs: readonly ClasificacionViaje[] = CLASIFICACIONES_BASE,
 ): CategoriaViaje {
   if (!v) return 'VIAJE CORTO';
   const cv = (v.categoria_viaje ?? '').trim().toUpperCase();
-  if (cv === 'VIAJE CORTO' || cv === 'VIAJE LARGO' || cv === 'VIAJE INTERNO') return cv as CategoriaViaje;
+  if (cv) return cv;
   const match = (v.nota ?? '').match(/\[CAT:\s*([^\]]+)\]/i);
   if (match) {
     const m = match[1].trim().toUpperCase();
-    if (m === 'VIAJE CORTO' || m === 'VIAJE LARGO' || m === 'VIAJE INTERNO') return m as CategoriaViaje;
+    if (m) return m;
   }
   const texto = `${v.origen ?? ''} ${v.destino ?? ''} ${v.nota ?? ''}`.toUpperCase();
   if (texto.includes('INTERNO')) return 'VIAJE INTERNO';
-  return clasificarCategoriaPorTasa(v.tarifa_usd, chofer);
+  return clasificarCategoriaPorTasa(v.tarifa_usd, chofer, clasifs);
+}
+
+/**
+ * Resumen por clasificación de una lista de filas de nómina (para el recibo y la
+ * franja del chofer): siempre las tres de siempre (aunque den 0, como antes) y,
+ * después, cada clasificación nueva que tenga viajes, en orden de aparición.
+ */
+export function resumenPorCategoria(
+  filas: readonly { categoria?: string | null; observaciones: string; viajes: number; totalPagar: number }[],
+): { clave: string; etiqueta: string; viajes: number; monto: number }[] {
+  const fijas: { clave: string; etiqueta: string }[] = [
+    { clave: 'VIAJE LARGO', etiqueta: 'VIAJES LARGOS' },
+    { clave: 'VIAJE CORTO', etiqueta: 'VIAJES CORTOS' },
+    { clave: 'VIAJE INTERNO', etiqueta: 'VIAJES INTERNOS' },
+  ];
+  const out = new Map<string, { clave: string; etiqueta: string; viajes: number; monto: number }>();
+  for (const f of fijas) out.set(f.clave, { ...f, viajes: 0, monto: 0 });
+  for (const f of filas) {
+    const clave = (f.categoria || f.observaciones || SIN_CLASIFICAR).trim().toUpperCase();
+    const r = out.get(clave) ?? { clave, etiqueta: (f.observaciones || clave).toLocaleUpperCase('es'), viajes: 0, monto: 0 };
+    r.viajes += Number(f.viajes) || 0;
+    r.monto = Math.round((r.monto + (Number(f.totalPagar) || 0)) * 100) / 100;
+    out.set(clave, r);
+  }
+  return [...out.values()];
 }
 
 /**

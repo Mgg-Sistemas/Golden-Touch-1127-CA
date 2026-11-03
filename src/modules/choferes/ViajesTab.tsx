@@ -30,15 +30,17 @@ import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import { listadoFlotaPdf } from '@/modules/maquinaria/flotaPdf';
 import { listadoFlotaExcel } from '@/modules/maquinaria/flotaExcel';
 import {
-  ESTADO_VIAJE, TIPO_VIAJE, CATEGORIAS_VIAJE, categoriaDeViaje, tarifaSugeridaCategoria, viajeEstaPagado,
+  ESTADO_VIAJE, TIPO_VIAJE, CLASIFICACIONES_BASE, categoriaDeViaje, tarifaSugeridaCategoria, viajeEstaPagado,
   alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta,
   tarifaTotalViaje, totalViajes, horasDiaVolqueta, errorViajesVolqueta, cantidadViajes, datosConductor,
-  tasasDeConductor, clasificarCategoriaPorTasa,
-  type EstadoViaje, type Parada, type TipoViaje, type CategoriaViaje,
+  clasificarCategoriaPorTasa, clasificacionesConTarifa, clasificacionDe, etiquetaCategoria, iconoCategoria, claseBadgeCategoria,
+  ordenarClasificaciones, claveDeClasificacion, esClasificacionBase,
+  type EstadoViaje, type Parada, type TipoViaje, type CategoriaViaje, type ClasificacionViaje,
 } from './choferes';
 import {
   cancelarViaje, crearVehiculo, crearViaje, editarViaje, eliminarViaje, finalizarViaje, guardarParadas, iniciarViaje, normalizarPlaca,
-  type Conductor, type VehiculoFlota, type Viaje, type ViajeInput,
+  crearClasificacionViaje, editarClasificacionViaje,
+  type Conductor, type VehiculoFlota, type Viaje, type ViajeInput, type ClasificacionInput,
 } from './choferes.repository';
 import { FlotaModal } from './ExpedienteTab';
 import { aDatetimeLocal, ahoraLocal, fechaHora, nombreConductor, textoVehiculo, type PropsTab } from './ChoferesPage';
@@ -46,11 +48,12 @@ import { aDatetimeLocal, ahoraLocal, fechaHora, nombreConductor, textoVehiculo, 
 const normal = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
-  const { conductores, flota, viajes, descansos, hoy, loading, recargar } = datos;
+  const { conductores, flota, viajes, descansos, hoy, loading, recargar, clasificaciones } = datos;
   const [texto, setTexto] = useState('');
   const [estado, setEstado] = useState<EstadoViaje | ''>('');
   const [choferId, setChoferId] = useState('');
   const [form, setForm] = useState<Viaje | 'nuevo' | null>(null);
+  const [verClasifs, setVerClasifs] = useState(false);
   const [detalle, setDetalle] = useState<Viaje | null>(null);
   const [accion, setAccion] = useState<{ tipo: 'iniciar' | 'finalizar' | 'cancelar'; viaje: Viaje } | null>(null);
   const [tipo, setTipo] = useState<TipoViaje | ''>('');
@@ -126,6 +129,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
           <span className="chip">🚛 {conteo.en_ruta} en ruta · 📅 {conteo.programado} programados · Σ {totalViajes(filas)} viajes</span>
           <button className="btn btn-sm btn-ghost" disabled={!filas.length} onClick={() => void exportar('pdf')} title={tipo === 'volqueta' ? 'Formato de la hoja de volqueta' : 'Listado de viajes'}>↓ PDF</button>
           <button className="btn btn-sm btn-ghost" disabled={!filas.length} onClick={() => void exportar('excel')} title={tipo === 'volqueta' ? 'Formato de la hoja de volqueta' : 'Listado de viajes'}>↓ Excel</button>
+          {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setVerClasifs(true)} title="Crear, editar o desactivar clasificaciones de viaje y sus tarifas">⚙ Clasificaciones</button>}
           {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setForm('nuevo')} disabled={!conductores.some((c) => c.activo)} title={conductores.some((c) => c.activo) ? 'Programar una ruta o cargar un viaje ya realizado' : 'Primero abre expedientes en «Expediente y flota»'}>+ Orden de ruta</button>}
         </div>
       </div>
@@ -141,7 +145,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
                 {filas.map((v) => {
                   const e = ESTADO_VIAJE[v.estado];
                   const pr = progresoParadas(v.paradas);
-                  const cat = categoriaDeViaje(v, porId.get(v.chofer_id));
+                  const cat = etiquetaCategoria(categoriaDeViaje(v, porId.get(v.chofer_id), clasificaciones), clasificaciones);
                   const pagado = viajeEstaPagado(v);
                   return (
                     <tr key={v.id}>
@@ -191,11 +195,16 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
 
       {form && (
         <ViajeModal inicial={form === 'nuevo' ? null : form} conductores={conductores} flota={flota} viajes={viajes} descansos={descansos} hoy={hoy}
+          clasificaciones={clasificaciones} onClasificacionesCambiadas={recargar}
           canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await recargar(); }} />
       )}
       {detalle && (
         <DetalleViajeModal viaje={viajes.find((x) => x.id === detalle.id) ?? detalle} conductor={porId.get(detalle.chofer_id)} vehiculo={vehPorId.get(detalle.vehiculo_id ?? '')}
-          canWrite={canWrite} onClose={() => setDetalle(null)} onChanged={recargar} />
+          clasificaciones={clasificaciones} canWrite={canWrite} onClose={() => setDetalle(null)} onChanged={recargar} />
+      )}
+      {verClasifs && (
+        <ClasificacionesViajeModal clasificaciones={clasificaciones} canWrite={canWrite} actor={actor}
+          onClose={() => setVerClasifs(false)} onChanged={recargar} />
       )}
       {accion && (
         <AccionViajeModal accion={accion.tipo} viaje={accion.viaje} conductor={porId.get(accion.viaje.chofer_id)}
@@ -211,9 +220,13 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
 }
 
 /* ───────── Nueva / editar orden de ruta ───────── */
-export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWrite, actor, actorName, onClose, onSaved }: {
+export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, clasificaciones = CLASIFICACIONES_BASE, onClasificacionesCambiadas, canWrite, actor, actorName, onClose, onSaved }: {
   inicial: Viaje | null; conductores: Conductor[]; flota: VehiculoFlota[]; viajes: Viaje[];
   descansos: { personal_id: string; desde: string; hasta: string }[]; hoy: string;
+  /** Catálogo de clasificaciones (choferes_clasificaciones_viaje). */
+  clasificaciones?: readonly ClasificacionViaje[];
+  /** Para recargar tras editar el catálogo desde «⚙ Clasificaciones». */
+  onClasificacionesCambiadas?: () => Promise<void> | void;
   canWrite: boolean; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const [choferId, setChoferId] = useState(inicial?.chofer_id ?? '');
@@ -249,11 +262,19 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
   const chofer = conductores.find((c) => c.id === choferId) ?? null;
   const vehiculo = flota.find((v) => v.id === vehiculoId) ?? null;
   const diaSalida = salida.slice(0, 10);
-  const choferTasas = useMemo(() => tasasDeConductor(chofer), [chofer]);
+  // Botones rápidos: clasificaciones ACTIVAS con la tarifa que le toca a este chofer.
+  const opcionesClasif = useMemo(() => clasificacionesConTarifa(clasificaciones, chofer), [clasificaciones, chofer]);
+  // Selector: las activas y, si el viaje tiene una ya desactivada, también esa (para no perderla).
+  const opcionesSelect = useMemo(() => {
+    const act = opcionesClasif.map((o) => o.clasif);
+    const actual = clasificacionDe(categoria, clasificaciones);
+    return actual && !act.some((c) => c.clave === actual.clave) ? [...act, actual] : act;
+  }, [opcionesClasif, categoria, clasificaciones]);
+  const [verClasifs, setVerClasifs] = useState(false);
 
   function elegirCategoria(c: CategoriaViaje) {
     setCategoria(c);
-    const sugerida = tarifaSugeridaCategoria(c, chofer);
+    const sugerida = tarifaSugeridaCategoria(c, chofer, clasificaciones);
     if (sugerida > 0) {
       setTarifa(sugerida);
     }
@@ -304,13 +325,12 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
     setChoferId(id);
     const c = conductores.find((x) => x.id === id);
     if (c) {
-      const t = tasasDeConductor(c);
       if (tarifa == null || tarifa === 0) {
-        setTarifa(t.corto);
-        setCategoria('VIAJE CORTO');
+        // Se propone la clasificación actual (por defecto «Viaje corto») con la tarifa de este chofer.
+        const sug = tarifaSugeridaCategoria(categoria, c, clasificaciones);
+        if (sug > 0) setTarifa(sug);
       } else {
-        const cat = clasificarCategoriaPorTasa(tarifa, c);
-        setCategoria(cat);
+        setCategoria(clasificarCategoriaPorTasa(tarifa, c, clasificaciones));
       }
       // Si el chofer tiene un vehículo externo habitual en sus observaciones (ej. [VEHICULO: A22CYOJ])
       const matchVeh = (c.observaciones || '').match(/\[VEHICULO:\s*([^\]]+)\]/i);
@@ -324,10 +344,10 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
     }
   }
 
-  function aplicarTasa(monto: number) {
+  /** Botón rápido: aplica la tarifa y deja ESA clasificación (aunque otra tenga la misma tarifa). */
+  function aplicarClasificacion(clave: string, monto: number) {
     setTarifa(monto);
-    const cat = clasificarCategoriaPorTasa(monto, chofer);
-    setCategoria(cat);
+    setCategoria(clave);
   }
 
   const avisos = useMemo(() => {
@@ -478,11 +498,14 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
           <div className="form-row" style={{ gridColumn: '1 / -1', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '.75rem', marginTop: '.35rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.4rem' }}>
               <label style={{ margin: 0, fontWeight: 600, fontSize: '.9rem' }}>💵 Tasa y clasificación del viaje</label>
-              {chofer && (
-                <span className="muted" style={{ fontSize: '.76rem' }}>
-                  Tasas de <strong>{nombreConductor(chofer)}</strong>: Corto ${choferTasas.corto} · Largo ${choferTasas.largo} · Interno ${choferTasas.interno}
-                </span>
-              )}
+              <span style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {chofer && (
+                  <span className="muted" style={{ fontSize: '.76rem' }}>
+                    Tarifas para <strong>{nombreConductor(chofer)}</strong>: {opcionesClasif.map((o) => `${o.clasif.nombre} $${o.tarifa}`).join(' · ')}
+                  </span>
+                )}
+                {canWrite && <button type="button" className="btn btn-xs btn-ghost" onClick={() => setVerClasifs(true)} title="Crear, editar o desactivar clasificaciones y sus tarifas">⚙ Clasificaciones</button>}
+              </span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.75rem', alignItems: 'start' }}>
@@ -493,39 +516,23 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
                 <DecimalInput
                   className="input"
                   value={tarifa}
-                  onChange={(n) => {
-                    setTarifa(n);
-                    const cat = clasificarCategoriaPorTasa(n, chofer);
-                    setCategoria(cat);
-                  }}
+                  onChange={(n) => { setTarifa(n); setCategoria(clasificarCategoriaPorTasa(n, chofer, clasificaciones)); }}
                   placeholder="0,00"
                   aria-label="Tarifa por viaje en dólares"
                 />
                 <div style={{ display: 'flex', gap: '.3rem', marginTop: '.4rem', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    className={`btn btn-xs ${categoria === 'VIAJE CORTO' ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => aplicarTasa(choferTasas.corto)}
-                    title={`Aplicar tasa corto ($${choferTasas.corto})`}
-                  >
-                    🚗 Corto (${choferTasas.corto})
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-xs ${categoria === 'VIAJE LARGO' ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => aplicarTasa(choferTasas.largo)}
-                    title={`Aplicar tasa largo ($${choferTasas.largo})`}
-                  >
-                    🚚 Largo (${choferTasas.largo})
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-xs ${categoria === 'VIAJE INTERNO' ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => aplicarTasa(choferTasas.interno)}
-                    title={`Aplicar tasa interno ($${choferTasas.interno})`}
-                  >
-                    🔄 Interno (${choferTasas.interno})
-                  </button>
+                  {opcionesClasif.map(({ clasif, tarifa: t }) => (
+                    <button
+                      key={clasif.clave}
+                      type="button"
+                      className={`btn btn-xs ${categoria === clasif.clave ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={() => aplicarClasificacion(clasif.clave, t)}
+                      title={`Aplicar ${clasif.nombre.toLowerCase()} ($${t})`}
+                    >
+                      {clasif.icono} {clasif.nombre} (${t})
+                    </button>
+                  ))}
+                  {!opcionesClasif.length && <span className="muted" style={{ fontSize: '.75rem' }}>No hay clasificaciones activas: actívalas en ⚙ Clasificaciones.</span>}
                 </div>
               </div>
 
@@ -535,10 +542,10 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minHeight: 38 }}>
                   <span
-                    className={`badge ${categoria === 'VIAJE LARGO' ? 'info' : categoria === 'VIAJE INTERNO' ? 'warning' : 'primary'}`}
+                    className={`badge ${claseBadgeCategoria(categoria)}`}
                     style={{ fontSize: '.88rem', padding: '.35rem .7rem', fontWeight: 700 }}
                   >
-                    {categoria === 'VIAJE LARGO' ? '🚚 VIAJE LARGO' : categoria === 'VIAJE INTERNO' ? '🔄 VIAJE INTERNO' : '🚗 VIAJE CORTO'}
+                    {iconoCategoria(categoria, clasificaciones)} {etiquetaCategoria(categoria, clasificaciones)}
                   </span>
                   <select
                     id="vj-cat"
@@ -548,13 +555,14 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
                     style={{ width: 'auto', fontSize: '.8rem', padding: '.2rem .4rem' }}
                     title="Permite ajustar manualmente la categoría si se requiere"
                   >
-                    {CATEGORIAS_VIAJE.map((c) => (
-                      <option key={c.key} value={c.key}>{c.label}</option>
+                    {!opcionesSelect.some((c) => c.clave === categoria) && <option value={categoria}>{etiquetaCategoria(categoria, clasificaciones)}</option>}
+                    {opcionesSelect.map((c) => (
+                      <option key={c.clave} value={c.clave}>{c.icono} {c.nombre}{c.activo ? '' : ' (inactiva)'}</option>
                     ))}
                   </select>
                 </div>
                 <span className="muted" style={{ fontSize: '.75rem', display: 'block', marginTop: 4 }}>
-                  ⚡ Detectado al colocar la tasa ({money(tarifa ?? 0)}){cantidadViajes(nViajes) > 1 ? ` · total ${money((tarifa ?? 0) * cantidadViajes(nViajes))}` : ''}.
+                  ⚡ Detectado al colocar la tasa ({money(tarifa ?? 0)}){cantidadViajes(nViajes) > 1 ? ` · total ${money((tarifa ?? 0) * cantidadViajes(nViajes))}` : ''}: la clasificación con esa tarifa o, si no hay, la más cercana.
                 </span>
               </div>
             </div>
@@ -586,6 +594,8 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
             <div>{avisos.map((a) => <div key={a}>{a}</div>)}<div className="muted" style={{ marginTop: '.2rem' }}>Se puede guardar igual; queda a criterio de quien programa.</div></div></div>
         )}
       </form>
+      {verClasifs && <ClasificacionesViajeModal clasificaciones={clasificaciones} canWrite={canWrite} actor={actor}
+        onClose={() => setVerClasifs(false)} onChanged={async () => { await onClasificacionesCambiadas?.(); }} />}
       {verFlota && <FlotaModal flota={flota} canWrite={canWrite} actor={actor} hoy={hoy} onClose={() => setVerFlota(false)} onChanged={() => undefined}
         onElegir={(v) => { setVehiculoId(v.id); setVerFlota(false); }} />}
     </Modal>
@@ -593,8 +603,8 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
 }
 
 /* ───────── Detalle + paradas ───────── */
-export function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, onChanged }: {
-  viaje: Viaje; conductor?: Conductor; vehiculo?: VehiculoFlota; canWrite: boolean; onClose: () => void; onChanged: () => Promise<void>;
+export function DetalleViajeModal({ viaje: v, conductor, vehiculo, clasificaciones = CLASIFICACIONES_BASE, canWrite, onClose, onChanged }: {
+  viaje: Viaje; conductor?: Conductor; vehiculo?: VehiculoFlota; clasificaciones?: readonly ClasificacionViaje[]; canWrite: boolean; onClose: () => void; onChanged: () => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
   const e = ESTADO_VIAJE[v.estado];
@@ -612,7 +622,7 @@ export function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onC
       <div className="form-grid" style={{ fontSize: '.88rem' }}>
         <div><span className="muted">Estado</span><div><span className={`badge ${e.clase}`}>{e.icon} {e.label}</span></div></div>
         <div><span className="muted">Tipo · viajes</span><div>{TIPO_VIAJE[v.tipo_viaje].icon} {TIPO_VIAJE[v.tipo_viaje].label} · <span className="mono">{v.viajes}</span> viaje{v.viajes === 1 ? '' : 's'}</div></div>
-        <div><span className="muted">Categoría</span><div><span className="badge" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>{categoriaDeViaje(v, conductor)}</span></div></div>
+        <div><span className="muted">Categoría</span><div><span className="badge" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>{(() => { const k = categoriaDeViaje(v, conductor, clasificaciones); return `${iconoCategoria(k, clasificaciones)} ${etiquetaCategoria(k, clasificaciones)}`; })()}</span></div></div>
         <div><span className="muted">Nómina viajes</span><div>{viajeEstaPagado(v) ? <span style={{ color: 'var(--success)', fontWeight: 600 }}>✅ Pagado {v.pagado_at ? `(${v.pagado_at.slice(0, 10)})` : ''}</span> : <span className="muted">⏳ Pendiente de pago</span>}</div></div>
         <div><span className="muted">Chofer</span><div><strong>{nombreConductor(conductor)}</strong></div></div>
         <div><span className="muted">Vehículo</span><div>{textoVehiculo(vehiculo)}</div></div>
@@ -709,3 +719,102 @@ export function AccionViajeModal({ accion, viaje: v, conductor, onClose, onDone 
   );
 }
 
+
+/* ───────── ⚙ Clasificaciones de viaje (03-11-2026) ─────────
+   Crear, editar (nombre, ícono, tarifa, orden) y activar/desactivar. No se borran:
+   desactivar = deja de salir en los botones y en la detección automática; los viajes
+   ya cargados conservan su clasificación. La clave (lo guardado en el viaje) no cambia. */
+type BorradorClasif = { id?: string; clave?: string } & ClasificacionInput;
+
+export function ClasificacionesViajeModal({ clasificaciones, canWrite, actor, onClose, onChanged }: {
+  clasificaciones: readonly ClasificacionViaje[]; canWrite: boolean; actor: string; onClose: () => void; onChanged: () => Promise<void>;
+}) {
+  const [edit, setEdit] = useState<BorradorClasif | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lista = useMemo(() => ordenarClasificaciones(clasificaciones), [clasificaciones]);
+  // Si la tabla no cargó, la lista son las tres de siempre sin id: no se pueden editar.
+  const sinTabla = lista.length > 0 && lista.every((c) => !c.id);
+
+  function nuevo() {
+    setError(null);
+    setEdit({ nombre: '', icono: '🚛', tarifa_usd: null, activo: true, orden: Math.max(0, ...lista.map((c) => c.orden)) + 1 });
+  }
+  async function guardar(e: FormEvent) {
+    e.preventDefault();
+    if (!edit) return;
+    setSaving(true); setError(null);
+    try {
+      if (edit.id) await editarClasificacionViaje(edit.id, edit, lista, actor);
+      else await crearClasificacionViaje(edit, lista, actor);
+      toast(edit.id ? 'Clasificación guardada' : `Clasificación «${edit.nombre.trim()}» creada`, 'success');
+      setEdit(null);
+      await onChanged();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
+    finally { setSaving(false); }
+  }
+  async function alternar(c: ClasificacionViaje) {
+    if (!c.id) return;
+    setSaving(true);
+    try {
+      await editarClasificacionViaje(c.id, { nombre: c.nombre, icono: c.icono, tarifa_usd: c.tarifa_usd, activo: !c.activo, orden: c.orden }, lista, actor);
+      toast(c.activo ? `«${c.nombre}» desactivada` : `«${c.nombre}» activada`, 'success');
+      await onChanged();
+    } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo guardar', 'error'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="⚙ Clasificaciones de viaje" size="md" onClose={() => !saving && onClose()} footer={<button className="btn btn-primary" onClick={onClose} disabled={saving}>Cerrar</button>}>
+      <p className="muted" style={{ fontSize: '.8rem', marginTop: 0 }}>
+        Cada clasificación tiene su tarifa por viaje. Al poner la tasa en una orden de ruta, el sistema elige la clasificación con esa tarifa o, si no hay, la más cercana.
+        En <strong>corto, largo e interno</strong> manda la tasa propia del chofer (expediente) si la tiene.
+      </p>
+      {sinTabla && <div className="aviso warning sm" style={{ marginBottom: '.5rem' }}><span className="aviso-icono">⚠</span><div>El catálogo no está disponible en la base; se muestran las tres de siempre. Avisa a soporte.</div></div>}
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th>Orden</th><th>Clasificación</th><th style={{ textAlign: 'right' }}>Tarifa $</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {lista.map((c) => (
+              <tr key={c.clave} style={{ opacity: c.activo ? 1 : 0.55 }}>
+                <td className="mono">{c.orden}</td>
+                <td>{c.icono} {c.nombre}{esClasificacionBase(c.clave) ? <div className="muted" style={{ fontSize: '.7rem' }}>usa la tasa del chofer si la tiene</div> : null}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{money(c.tarifa_usd)}</td>
+                <td><span className={`badge ${c.activo ? 'success' : 'neutral'}`}>{c.activo ? 'Activa' : 'Inactiva'}</span></td>
+                <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                  {canWrite && c.id && <button className="btn btn-sm btn-ghost" disabled={saving} onClick={() => { setError(null); setEdit({ id: c.id, clave: c.clave, nombre: c.nombre, icono: c.icono, tarifa_usd: c.tarifa_usd, activo: c.activo, orden: c.orden }); }} title="Editar nombre, ícono, tarifa u orden">✎</button>}
+                  {canWrite && c.id && <button className="btn btn-sm btn-ghost" disabled={saving} onClick={() => void alternar(c)} title={c.activo ? 'Desactivar (los viajes ya cargados la conservan)' : 'Activar'}>{c.activo ? '⛔' : '✅'}</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {canWrite && !sinTabla && !edit && <button className="btn btn-sm btn-primary" style={{ marginTop: '.6rem' }} onClick={nuevo}>+ Nueva clasificación</button>}
+      {edit && (
+        <form onSubmit={guardar} className="card" style={{ marginTop: '.6rem', padding: '.75rem' }}>
+          <strong style={{ fontSize: '.88rem' }}>{edit.id ? `Editar «${edit.nombre}»` : 'Nueva clasificación'}</strong>
+          {error && <div className="aviso danger sm" style={{ margin: '.4rem 0' }}><span className="aviso-icono">⛔</span><div>{error}</div></div>}
+          <div className="form-grid" style={{ marginTop: '.4rem' }}>
+            <div className="form-row"><label htmlFor="cl-nombre">Nombre</label>
+              <input id="cl-nombre" className="input" value={edit.nombre} maxLength={60} required autoFocus placeholder="Viaje mina, viaje a Puerto Ordaz…" onChange={(e) => setEdit({ ...edit, nombre: e.target.value })} />
+              <span className="muted" style={{ fontSize: '.72rem' }}>{edit.id ? `Se guarda en los viajes como «${edit.clave}» (no cambia al renombrar).` : edit.nombre.trim() ? `Se guardará en los viajes como «${claveDeClasificacion(edit.nombre)}».` : ''}</span></div>
+            <div className="form-row"><label htmlFor="cl-icono">Ícono (emoji)</label>
+              <input id="cl-icono" className="input" value={edit.icono} maxLength={8} style={{ width: 90 }} onChange={(e) => setEdit({ ...edit, icono: e.target.value })} /></div>
+            <div className="form-row"><label>Tarifa por viaje ($)</label>
+              <DecimalInput className="input" value={edit.tarifa_usd} onChange={(n) => setEdit({ ...edit, tarifa_usd: n })} placeholder="0,00" aria-label="Tarifa por viaje en dólares" /></div>
+            <div className="form-row"><label htmlFor="cl-orden">Orden</label>
+              <input id="cl-orden" className="input mono" type="number" min={0} step={1} value={edit.orden ?? ''} style={{ width: 90 }} onChange={(e) => setEdit({ ...edit, orden: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+          </div>
+          <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: '.85rem', marginTop: '.3rem' }}>
+            <input type="checkbox" checked={edit.activo} onChange={(e) => setEdit({ ...edit, activo: e.target.checked })} /> Activa (sale en los botones y en la detección)
+          </label>
+          <div style={{ display: 'flex', gap: '.4rem', justifyContent: 'flex-end', marginTop: '.5rem' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEdit(null)} disabled={saving}>Cancelar</button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}
