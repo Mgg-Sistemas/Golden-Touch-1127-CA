@@ -316,7 +316,9 @@ export function crearRepoSupabase(): AdminRepo {
               moneda: mov.moneda, actor,
             });
             await enviarServicioAPagar({ servicio: sd, items: [{ descripcion: mov.concepto, cantidad: 1, gasto: mov.monto }], moneda: mov.moneda, actor });
-            await supabase.from('servicios_directos').update({ empresa_clave: mov.empresaClave, gasto_fijo_id: mov.gastoFijoId }).eq('id', sd.id);
+            // Marca la empresa en el pendiente de Tesorería (columna aditiva de BD `02`). El
+            // enlace a la plantilla va en el movimiento (gasto_fijo_id + servicio_directo_id), no aquí.
+            await supabase.from('servicios_directos').update({ empresa_clave: mov.empresaClave }).eq('id', sd.id);
             await supabase.from(T_MOV).update({ servicio_directo_id: sd.id }).eq('id', mov.id);
           } catch { /* un pendiente que no se pudo materializar queda creado sin SD (se reintentará) */ }
         }

@@ -70,9 +70,9 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   useRealtime(['compras_directas', 'servicios_directos'], () => { void reload(); });
 
   // Operación vs. gastos fijos: los gastos fijos de Administración se materializan aquí como
-  // servicios directos con `gasto_fijo_id`. El switch alterna qué conjunto se ve.
-  const serviciosOp = useMemo(() => servicios.filter((s) => !s.gasto_fijo_id), [servicios]);
-  const serviciosGF = useMemo(() => servicios.filter((s) => s.gasto_fijo_id), [servicios]);
+  // servicios directos con `empresa_clave` (los normales la tienen null). El switch los separa.
+  const serviciosOp = useMemo(() => servicios.filter((s) => !s.empresa_clave), [servicios]);
+  const serviciosGF = useMemo(() => servicios.filter((s) => s.empresa_clave), [servicios]);
   const comprasVista = vista === 'operacion' ? compras : [];
   const serviciosVista = vista === 'operacion' ? serviciosOp : serviciosGF;
   const total = comprasVista.reduce((a, c) => a + (c.gasto ?? 0), 0) + serviciosVista.reduce((a, s) => a + (s.gasto ?? 0), 0);
