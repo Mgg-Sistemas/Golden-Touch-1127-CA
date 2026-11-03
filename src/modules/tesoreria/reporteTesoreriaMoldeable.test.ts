@@ -133,6 +133,7 @@ describe('normalizarPendientesPorPagar', () => {
     totUsd: 100,
     totBs: 4000,
     totCant: 1,
+    preparacion: { porMetodoMoneda: [], totalesPorMoneda: [], sinMetodo: { usd: 0, bs: 0, nOrdenes: 0 } },
     generadoEn: '2026-11-01T12:00:00Z',
   };
 

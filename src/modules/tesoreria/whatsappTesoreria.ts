@@ -19,6 +19,15 @@
    ============================================================ */
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import type { AmbitoTesoreria, FilaReporteTesoreria, TipoFlujoTesoreria } from './reporteTesoreriaMoldeable';
+import { esMonedaDivisa, type PreparacionPorPagar } from './pendientesPorPagar';
+
+/** Monto en su moneda nativa para el chat (Bs 1.234,56 · $ 12,34 · USDT 5,00). */
+function montoMonedaWsp(moneda: string, monto: number): string {
+  const m = (moneda || '').toUpperCase();
+  if (m === 'BS') return `Bs ${num(monto)}`;
+  if (m === 'USD') return `$ ${num(monto)}`;
+  return `${moneda} ${num(monto)}`;
+}
 
 /** Emoji de encabezado por ámbito (uno distinto, de un vistazo). */
 const EMOJI_AMBITO: Record<AmbitoTesoreria, string> = {
@@ -74,6 +83,8 @@ export interface OpcionesWhatsappTesoreria {
   /** Respetan los interruptores maestros de moneda del reporte (al menos uno activo). */
   mostrarUsd?: boolean;
   mostrarBs?: boolean;
+  /** «Por preparar» (solo por_pagar, si el toggle está encendido): totales nativos por moneda/método. */
+  preparacion?: PreparacionPorPagar;
 }
 
 /**
@@ -101,6 +112,29 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   });
   if (filas.length > LIMITE_ITEMS) {
     L.push(`… (+${filas.length - LIMITE_ITEMS} ítem(s) más)`);
+  }
+
+  // «Por preparar» (solo por_pagar, con el toggle encendido): totales NATIVOS por moneda,
+  // independientes (lo de divisa no se reconvierte a Bs ni viceversa) + desglose por método.
+  const prep = opts.preparacion;
+  if (opts.ambito === 'por_pagar' && prep &&
+      (prep.totalesPorMoneda.length > 0 || prep.sinMetodo.nOrdenes > 0)) {
+    L.push('');
+    L.push('💵 *Por preparar (por moneda):*');
+    for (const t of prep.totalesPorMoneda) {
+      L.push(`• ${esMonedaDivisa(t.moneda) ? '💵' : '🪙'} *${montoMonedaWsp(t.moneda, t.monto)}*`);
+    }
+    if (prep.sinMetodo.nOrdenes > 0) {
+      L.push(`• ⏳ _Sin método asignado (ref.):_ $ ${num(prep.sinMetodo.usd)} · Bs ${num(prep.sinMetodo.bs)}`);
+    }
+    if (prep.porMetodoMoneda.length > 0) {
+      L.push('');
+      L.push('*Detalle por método:*');
+      for (const l of prep.porMetodoMoneda) {
+        L.push(`• ${esMonedaDivisa(l.moneda) ? '💵' : '🪙'} ${unaLinea(l.metodoLabel)} (${l.moneda}): ${montoMonedaWsp(l.moneda, l.monto)}`);
+      }
+    }
+    return L.join('\n');   // termina aquí: no se añade el total bruto reconvertido
   }
 
   // Total consolidado y bruto: suma de los equivalentes de TODAS las filas,

@@ -20,7 +20,7 @@ import { toast } from '@/shared/ui/Toast';
 import { mensajeError } from '@/shared/lib/errores';
 import type { MovimientoCaja } from '@/shared/lib/types';
 import { listLibroMayor } from './tesoreria.repository';
-import { cargarPendientesPorPagar, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import { cargarPendientesPorPagar, esMonedaDivisa, type DatosPendientesPorPagar } from './pendientesPorPagar';
 import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
 import { listCuentasPorCobrar, type CuentaPorCobrar } from './cuentasPorCobrar.repository';
 import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
@@ -59,6 +59,7 @@ const CLAVE_USD = 'tesoreria.reporte.usd.v1';
 const CLAVE_BS = 'tesoreria.reporte.bs.v1';
 const CLAVE_RESUMEN = 'tesoreria.reporte.resumen.v1';
 const CLAVE_KPIS = 'tesoreria.reporte.kpisSimples.v1';
+const CLAVE_PREPARAR = 'tesoreria.reporte.preparar.v1';
 
 const AMBITOS: { id: AmbitoTesoreria; icon: string; label: string }[] = [
   { id: 'movimientos', icon: '📒', label: 'Movimientos de caja' },
@@ -104,6 +105,13 @@ function leerPrefs() {
 
 const fmtUsd = (v: number) => `$ ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtBs = (v: number) => `Bs ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Monto en su moneda nativa (para «Por preparar»): Bs …, $ …, USDT … */
+const fmtNativa = (moneda: string, monto: number) => {
+  const m = (moneda || '').toUpperCase();
+  if (m === 'BS') return fmtBs(monto);
+  if (m === 'USD') return fmtUsd(monto);
+  return `${moneda} ${monto.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 const fmtFechaCorta = (f: string) => { const [y, m, d] = (f || '').split('-'); return y && m && d ? `${d}/${m}` : f; };
 
 interface Props {
@@ -125,6 +133,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   const [marcados, setMarcados] = useState<string[]>(prefs.campos);
   const [incluirResumen, setIncluirResumen] = useState<boolean>(prefs.incluirResumen);
   const [kpisSimplificados, setKpisSimplificados] = useState<boolean>(prefs.kpisSimplificados);
+  // «Por preparar» (solo por_pagar): encendido por defecto; se recuerda por equipo.
+  const [incluirPreparar, setIncluirPreparar] = useState<boolean>(() => {
+    try { const v = localStorage.getItem(CLAVE_PREPARAR); return v === null ? true : v === 'true'; } catch { return true; }
+  });
   const [verWhatsapp, setVerWhatsapp] = useState(false);
   const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
   const [formatoPresentacion, setFormatoPresentacion] = useState<'fichas' | 'tabla'>('fichas');
@@ -257,7 +269,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     if (marcadosVisibles.length === 0) { toast('Marca al menos una columna visible para exportar.', 'warning'); return; }
     if (filas.length === 0) { toast('No hay datos con los filtros y período seleccionados.', 'warning'); return; }
     setOcupado(formato);
-    try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_TASA, baseTasa); localStorage.setItem(CLAVE_USD, String(mostrarUsd)); localStorage.setItem(CLAVE_BS, String(mostrarBs)); localStorage.setItem(CLAVE_RESUMEN, String(incluirResumen)); localStorage.setItem(CLAVE_KPIS, String(kpisSimplificados)); } catch { /* no crítico */ }
+    try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_TASA, baseTasa); localStorage.setItem(CLAVE_USD, String(mostrarUsd)); localStorage.setItem(CLAVE_BS, String(mostrarBs)); localStorage.setItem(CLAVE_RESUMEN, String(incluirResumen)); localStorage.setItem(CLAVE_KPIS, String(kpisSimplificados)); localStorage.setItem(CLAVE_PREPARAR, String(incluirPreparar)); } catch { /* no crítico */ }
 
     const partes: string[] = [];
     if (cajasSel.length) partes.push(cajasSel.length === 1 ? cajasSel[0] : `${cajasSel.length} cajas`);
@@ -274,6 +286,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
       subtituloFiltros: partes.length ? `Filtros: ${partes.join(' · ')}` : undefined,
       incluirResumen, orientacion, formatoPresentacion, ordenarPor,
       kpisSimplificados,
+      preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
     };
     try {
       if (formato === 'pdf') await descargarTesoreriaPdf(filas, resumen, marcados, meta);
@@ -321,8 +334,11 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
   // Aviso puntual para WhatsApp: ítems en su moneda + total consolidado, por ámbito.
   const textoWsp = useMemo(
-    () => textoWhatsappTesoreria(filtradas, { ambito, desde, hasta, mostrarUsd, mostrarBs }),
-    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs],
+    () => textoWhatsappTesoreria(filtradas, {
+      ambito, desde, hasta, mostrarUsd, mostrarBs,
+      preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
+    }),
+    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP],
   );
 
   return (
@@ -374,6 +390,53 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             </div>
           )}
         </div>
+
+        {/* «Por preparar» (solo Pendientes por pagar): cuánto pagar nativo por moneda y método. */}
+        {ambito === 'por_pagar' && (
+          <div style={surf2}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={incluirPreparar} onChange={(e) => setIncluirPreparar(e.target.checked)} />
+              <span style={tituloSec}>💵 Incluir «Por preparar» (totales por método y moneda)</span>
+            </label>
+            <div className="muted" style={{ fontSize: '.73rem', marginTop: '.3rem' }}>
+              Cuánto hay que pagar en cada moneda, nativo y por separado (divisa y bolívares, sin conversión). Apágalo para el reporte como lista simple.
+            </div>
+            {incluirPreparar && cargando && <div className="muted" style={{ fontSize: '.76rem', marginTop: '.5rem' }}>Cargando…</div>}
+            {incluirPreparar && !cargando && datosPP?.preparacion && (
+              <div style={{ marginTop: '.6rem', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+                  {datosPP.preparacion.totalesPorMoneda.map((t) => (
+                    <div key={t.moneda} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.4rem .7rem', minWidth: 130 }}>
+                      <div className="muted" style={{ fontSize: '.64rem', fontWeight: 600 }}>{esMonedaDivisa(t.moneda) ? '💵 DIVISA' : '🪙 BOLÍVARES'} · {t.moneda}</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: esMonedaDivisa(t.moneda) ? '#22c55e' : '#FF8A00' }}>{fmtNativa(t.moneda, t.monto)}</div>
+                      <div className="muted" style={{ fontSize: '.63rem' }}>{t.nOrdenes} operación(es)</div>
+                    </div>
+                  ))}
+                  {datosPP.preparacion.totalesPorMoneda.length === 0 && (
+                    <div className="muted" style={{ fontSize: '.78rem' }}>Todo está sin método asignado todavía.</div>
+                  )}
+                </div>
+                {datosPP.preparacion.porMetodoMoneda.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                    {datosPP.preparacion.porMetodoMoneda.map((l) => (
+                      <div key={`${l.metodo}|${l.moneda}`} style={{ fontSize: '.76rem', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '.6rem', fontWeight: 700, padding: '.05rem .4rem', borderRadius: 999, background: esMonedaDivisa(l.moneda) ? 'rgba(34,197,94,.15)' : 'rgba(255,138,0,.15)', color: esMonedaDivisa(l.moneda) ? '#22c55e' : '#FF8A00' }}>{esMonedaDivisa(l.moneda) ? 'Divisa' : 'Bolívares'}</span>
+                        <span>{l.metodoLabel} ({l.moneda}):</span>
+                        <strong>{fmtNativa(l.moneda, l.monto)}</strong>
+                        <span className="muted" style={{ fontSize: '.68rem' }}>· {l.nOrdenes} op.</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {datosPP.preparacion.sinMetodo.nOrdenes > 0 && (
+                  <div className="muted" style={{ fontSize: '.74rem' }}>
+                    ⏳ Sin método asignado (referencia): {fmtUsd(datosPP.preparacion.sinMetodo.usd)} · {fmtBs(datosPP.preparacion.sinMetodo.bs)} · {datosPP.preparacion.sinMetodo.nOrdenes} op.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Fechas */}
         <div style={surf2}>

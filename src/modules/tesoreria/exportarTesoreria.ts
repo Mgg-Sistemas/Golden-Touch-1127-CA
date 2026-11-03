@@ -19,6 +19,7 @@ import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
+import { esMonedaDivisa, type PreparacionPorPagar } from './pendientesPorPagar';
 import type {
   FilaReporteTesoreria,
   ResumenReporteTesoreria,
@@ -86,6 +87,17 @@ export interface MetadatosExportacionTesoreria {
   ordenarPor?: 'usd' | 'bs' | 'fecha' | 'contraparte';
   /** KPIs en vista simple: dos tarjetas «Total $ / Total Bs» (bruto) en vez del detalle. */
   kpisSimplificados?: boolean;
+  /** «Por preparar» (solo ámbito por_pagar): totales NATIVOS por método y moneda. Solo
+   *  viene cuando el usuario deja encendido su toggle; si no, el reporte sale sin el bloque. */
+  preparacion?: PreparacionPorPagar;
+}
+
+/** Formatea un monto en su moneda nativa para «Por preparar» (Bs 1.234,56 · $ 12,34 · USDT 5,00). */
+function fmtMonedaNativa(moneda: string, monto: number): string {
+  const m = (moneda || '').toUpperCase();
+  if (m === 'BS') return `Bs ${fmtNum(monto, 2)}`;
+  if (m === 'USD') return `$ ${fmtNum(monto, 2)}`;
+  return `${moneda} ${fmtNum(monto, 2)}`;   // USDT, COP…
 }
 
 /** Total bruto por moneda: egresos + ingresos (positivo, sirve para los 3 ámbitos). */
@@ -165,6 +177,45 @@ export async function descargarTesoreriaExcel(
 
   const idEmp = identidadEmpresa('GT');
   const columnas = columnasVisibles(columnasClaves, meta);
+
+  // 0. Hoja «Por preparar» (solo por_pagar, si el usuario dejó su toggle encendido).
+  if (meta.ambito === 'por_pagar' && meta.preparacion &&
+      (meta.preparacion.totalesPorMoneda.length > 0 || meta.preparacion.sinMetodo.nOrdenes > 0)) {
+    const prep = meta.preparacion;
+    const wp = wb.addWorksheet('Por preparar', { views: [{ showGridLines: false }] });
+    wp.columns = [{ width: 24 }, { width: 16 }, { width: 20 }, { width: 12 }];
+    let r = 1;
+    const tit = wp.getCell(r, 1);
+    tit.value = 'POR PREPARAR — nativo por moneda (sin reconversión)';
+    tit.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFF8A00' } };
+    wp.mergeCells(r, 1, r, 4); r += 2;
+    const head = wp.getRow(r);
+    head.values = ['Tipo', 'Moneda', 'Total (nativo)', 'Operaciones'];
+    head.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' } };
+    head.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } }; });
+    r += 1;
+    for (const t of prep.totalesPorMoneda) {
+      const row = wp.getRow(r);
+      row.values = [esMonedaDivisa(t.moneda) ? 'Divisa' : 'Bolívares', t.moneda, t.monto, t.nOrdenes];
+      row.getCell(3).numFmt = '#,##0.00';
+      r += 1;
+    }
+    if (prep.sinMetodo.nOrdenes > 0) {
+      const r1 = wp.getRow(r); r1.values = ['Sin método (ref.)', 'USD', prep.sinMetodo.usd, prep.sinMetodo.nOrdenes]; r1.getCell(3).numFmt = '#,##0.00'; r += 1;
+      const r2 = wp.getRow(r); r2.values = ['Sin método (ref.)', 'Bs', prep.sinMetodo.bs, '']; r2.getCell(3).numFmt = '#,##0.00'; r += 1;
+    }
+    r += 1;
+    const h2 = wp.getRow(r);
+    h2.values = ['Método', 'Moneda', 'Monto (nativo)', 'Operaciones'];
+    h2.font = { name: 'Arial', bold: true };
+    r += 1;
+    for (const l of prep.porMetodoMoneda) {
+      const row = wp.getRow(r);
+      row.values = [`${esMonedaDivisa(l.moneda) ? '[Divisa] ' : '[Bolívares] '}${l.metodoLabel}`, l.moneda, l.monto, l.nOrdenes];
+      row.getCell(3).numFmt = '#,##0.00';
+      r += 1;
+    }
+  }
 
   // 1. Hoja Resumen
   if (meta.incluirResumen) {
@@ -419,6 +470,42 @@ export async function descargarTesoreriaPdf(
   doc.setLineWidth(1.4);
   doc.line(M, y, W - M, y);
   y += 12;
+
+  // 1b. «Por preparar» (solo por_pagar, si el usuario dejó su toggle encendido).
+  // Totales NATIVOS por moneda (divisa y bolívares independientes, sin reconversión).
+  if (meta.ambito === 'por_pagar' && meta.preparacion &&
+      (meta.preparacion.totalesPorMoneda.length > 0 || meta.preparacion.sinMetodo.nOrdenes > 0)) {
+    const prep = meta.preparacion;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...NARANJA);
+    doc.text(pdfSafe('POR PREPARAR — lo que hay que pagar, por moneda (nativo, sin reconvertir)'), M, y + 2);
+    y += 14;
+    doc.setFontSize(11);
+    doc.setTextColor(...TINTA);
+    const totTxt = prep.totalesPorMoneda.map((t) => fmtMonedaNativa(t.moneda, t.monto)).join('     ·     ');
+    doc.text(pdfSafe(totTxt || 'Todo sin método asignado'), M, y + 2);
+    y += 14;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(90, 90, 90);
+    for (const l of prep.porMetodoMoneda) {
+      if (y > H - 60) { doc.addPage(); y = 36; }
+      const tipo = esMonedaDivisa(l.moneda) ? 'Divisa' : 'Bolivares';
+      doc.text(pdfSafe(`[${tipo}] ${l.metodoLabel} (${l.moneda}): ${fmtMonedaNativa(l.moneda, l.monto)}  ·  ${l.nOrdenes} op.`), M + 10, y + 2);
+      y += 10.5;
+    }
+    if (prep.sinMetodo.nOrdenes > 0) {
+      if (y > H - 60) { doc.addPage(); y = 36; }
+      doc.text(pdfSafe(`[Sin método asignado] referencia: $ ${fmtNum(prep.sinMetodo.usd, 2)} · Bs ${fmtNum(prep.sinMetodo.bs, 2)}  ·  ${prep.sinMetodo.nOrdenes} op.`), M + 10, y + 2);
+      y += 10.5;
+    }
+    y += 4;
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.5);
+    doc.line(M, y, W - M, y);
+    y += 12;
+  }
 
   // 2. Tarjetas de KPIs
   if (meta.incluirResumen) {
