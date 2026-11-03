@@ -579,6 +579,8 @@ interface AcumuladorTesoreria {
   contraparte: string;
   origen: string;
   monedasUsadas: Set<string>;
+  /** Valores distintos del grupo: si hay más de uno, la fila no puede mostrar solo el primero. */
+  distintos: { caja: Set<string>; categoria: Set<string>; contraparte: Set<string>; origen: Set<string>; fecha: Set<string> };
   usd: number;
   bs: number;
   original: number;
@@ -663,6 +665,7 @@ export function procesarFilasReporteTesoreria(
         contraparte: f.contraparte,
         origen: f.origen_documento,
         monedasUsadas: new Set<string>(),
+        distintos: { caja: new Set(), categoria: new Set(), contraparte: new Set(), origen: new Set(), fecha: new Set() },
         usd: 0, bs: 0, original: 0, operaciones: 0,
         porTipo: { ingreso: 0, egreso: 0, traslado: 0 },
       };
@@ -673,28 +676,36 @@ export function procesarFilasReporteTesoreria(
     g.original += f.monto_original;
     g.operaciones += 1;
     g.monedasUsadas.add(f.moneda_original);
+    g.distintos.caja.add(f.caja_origen ?? '');
+    g.distintos.categoria.add(f.categoria ?? '');
+    g.distintos.contraparte.add(f.contraparte ?? '');
+    g.distintos.origen.add(f.origen_documento ?? '');
+    g.distintos.fecha.add(f.fecha ?? '');
     g.porTipo[f.tipo_movimiento] += Math.abs(f.monto_usd);
   }
 
   const filas: FilaReporteTesoreria[] = Array.from(mapa.values()).map((g) => {
     const monedaRep = g.monedasUsadas.size === 1 ? g.moneda : 'Varias';
+    // 03/11/2026: un grupo que junta varios proveedores (o categorías, cajas, orígenes)
+    // ya no se titula con el de la primera fila: dice cuántos son.
+    const uno = (set: Set<string>, valor: string, plural: string) => (set.size > 1 ? `${set.size} ${plural}` : valor);
     const dom = tipoDominante(g.porTipo);
     return {
       id: g.clave || g.etiqueta,
       ambito: filasDetalle[0]?.ambito ?? 'movimientos',
-      fecha: g.fecha,
+      fecha: g.distintos.fecha.size > 1 ? '' : g.fecha,
       hora: null,
       codigo: null,
-      caja_origen: agrupacion === 'caja' ? g.etiqueta : g.caja,
+      caja_origen: agrupacion === 'caja' ? g.etiqueta : (g.distintos.caja.size > 1 ? `${g.distintos.caja.size} cajas` : g.caja),
       caja_destino: null,
       moneda_original: monedaRep,
       monto_original: monedaRep === 'Varias' ? 0 : round2(g.original),
       tipo_movimiento: dom,
-      categoria: agrupacion === 'categoria_gasto' ? g.etiqueta : g.categoria,
+      categoria: agrupacion === 'categoria_gasto' ? g.etiqueta : uno(g.distintos.categoria, g.categoria, 'categorías'),
       subcategoria: null,
-      contraparte: agrupacion === 'contraparte' ? g.etiqueta : g.contraparte,
+      contraparte: agrupacion === 'contraparte' ? g.etiqueta : uno(g.distintos.contraparte, g.contraparte, 'proveedores / beneficiarios'),
       concepto: g.etiqueta,
-      origen_documento: agrupacion === 'origen_documento' ? g.etiqueta : g.origen,
+      origen_documento: agrupacion === 'origen_documento' ? g.etiqueta : uno(g.distintos.origen, g.origen, 'orígenes'),
       estado: null,
       metodo_pago: null,
       datos_pago_resumen: null,
