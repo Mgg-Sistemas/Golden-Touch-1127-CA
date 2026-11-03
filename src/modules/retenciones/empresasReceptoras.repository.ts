@@ -12,8 +12,19 @@
 import { supabase } from '@/shared/lib/supabase';
 import { rifEmpresaParaGuardar } from '@/modules/libroFiscal/parametrosEmpresa';
 import { errorRetencion } from '@/modules/libroFiscal/erroresRetencion';
+import { columnaDisponible } from '@/modules/libroFiscal/disponibilidad';
+import { errorPorcentajesIva } from '@/modules/libroFiscal/retencionesFiscal.repository';
 
 const TABLA = 'retencion_empresas_receptoras';
+
+/**
+ * ¿La ficha de empresa trae ya los campos fiscales por empresa (F-ME1)? Se pregunta
+ * por `pct_iva_especial`. Sin ellos, el editor fiscal por empresa se oculta y no se
+ * intenta escribir esas columnas (degradación segura).
+ */
+export function fichaFiscalEmpresaDisponible(): Promise<boolean> {
+  return columnaDisponible(TABLA, 'pct_iva_especial');
+}
 
 export interface EmpresaReceptora {
   id: string;
@@ -33,12 +44,18 @@ export interface EmpresaReceptora {
   estado?: string;
   licenciaMunicipal?: string;
 
-  // Régimen fiscal y condición de agente
-  esAgenteRetencionIva?: boolean;
-  esContribuyenteEspecial?: boolean;
-  retieneIslr?: boolean;
-  retieneMunicipal?: boolean;
+  // % y alícuotas de la empresa. El RÉGIMEN (qué retiene: IVA/ISLR/ISAE) NO vive acá:
+  // su única fuente es L6 (Parámetros → Régimen), vía la RPC retencion_empresa_practica.
+  // Los % los lee configDesdeFicha para una empresa NO-GT; su recorte definitivo es de D3.
   pctIvaGeneral?: number;
+  /** % de retención de IVA al contribuyente especial (F-ME1, default 100). */
+  pctIvaEspecial?: number;
+  /** Alícuota del IGTF de la empresa (F-ME1, default 3). */
+  pctIgtf?: number;
+  /** Alícuota general del IVA para el desglose «IVA incluido» (F-ME1, default 16). */
+  ivaAlicuota?: number;
+  /** Alícuota del Impuesto Municipal (ISAE) de la empresa según su municipio (F-ME1, default = la global de hoy). */
+  alicuotaMunicipal?: number;
   imprimirOriginalYCopia?: boolean;
 }
 
@@ -62,11 +79,13 @@ function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaRece
     municipio: texto(r.municipio),
     estado: texto(r.estado),
     licenciaMunicipal: texto(r.licencia_municipal),
-    esAgenteRetencionIva: r.es_agente_iva !== false,
-    esContribuyenteEspecial: r.es_contribuyente_especial === true,
-    retieneIslr: r.retiene_islr !== false,
-    retieneMunicipal: r.retiene_municipal === true,
     pctIvaGeneral: r.pct_iva_general != null ? Number(r.pct_iva_general) : 75,
+    // Los campos fiscales de F-ME1 quedan en undefined si la base no los trae todavía:
+    // así el guardado no los escribe (no rompe pre-F-ME1) y la config cae en su default.
+    pctIvaEspecial: r.pct_iva_especial != null ? Number(r.pct_iva_especial) : undefined,
+    pctIgtf: r.pct_igtf != null ? Number(r.pct_igtf) : undefined,
+    ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : undefined,
+    alicuotaMunicipal: r.alicuota_municipal != null ? Number(r.alicuota_municipal) : undefined,
     imprimirOriginalYCopia: r.imprimir_original_y_copia !== false,
   };
 }
@@ -103,8 +122,17 @@ export function faltaEnEmpresa(empresa: EmpresaReceptoraInput): string | null {
   const rif = rifEmpresaParaGuardar(empresa.rif);
   if (rif.error) return rif.error;
   if (rif.rif.startsWith('C')) return 'El RIF de la empresa no puede empezar por C: letra J, G, V, E o P.';
-  const pct = empresa.pctIvaGeneral ?? 75;
-  if (!Number.isFinite(pct) || pct < 0 || pct > 100) return 'El % de retención de IVA va de 0 a 100.';
+  // Los % de retención de IVA y las alícuotas van de 0 a 100 (en pantalla el IVA se elige
+  // entre 75 y 100; aquí se valida el rango por si llega otro valor).
+  for (const [etq, v] of [
+    ['de retención de IVA', empresa.pctIvaGeneral ?? 75],
+    ['de retención de IVA al contribuyente especial', empresa.pctIvaEspecial],
+    ['del IGTF', empresa.pctIgtf],
+    ['general del IVA', empresa.ivaAlicuota],
+    ['del ISAE (municipal)', empresa.alicuotaMunicipal],
+  ] as const) {
+    if (v != null && (!Number.isFinite(v) || v < 0 || v > 100)) return `El % ${etq} va de 0 a 100.`;
+  }
   if (empresa.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empresa.email.trim())) return 'El correo de la empresa no es válido.';
   return null;
 }
@@ -116,9 +144,13 @@ export function faltaEnEmpresa(empresa: EmpresaReceptoraInput): string | null {
 export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): Promise<EmpresaReceptora> {
   const falta = faltaEnEmpresa(empresa);
   if (falta) throw new Error(falta);
+  // A2: el % de retención de IVA solo puede ser 75 o 100 (Providencia SNAT/2025/000054),
+  // igual que la config de GT. El select de la UI ya lo protege; el repo lo cierra también.
+  const faltaIva = errorPorcentajesIva({ pctIvaGeneral: empresa.pctIvaGeneral ?? 75, pctIvaEspecial: empresa.pctIvaEspecial ?? 100 });
+  if (faltaIva) throw new Error(faltaIva);
   const nombre = empresa.nombre.trim();
 
-  const fila = {
+  const filaBase = {
     clave: empresa.clave || claveDeEmpresa(empresa.nombreCorto || nombre) || `empresa_${Date.now()}`,
     nombre,
     nombre_corto: empresa.nombreCorto?.trim() || null,
@@ -132,13 +164,17 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
     municipio: empresa.municipio?.trim() || null,
     estado: empresa.estado?.trim() || null,
     licencia_municipal: empresa.licenciaMunicipal?.trim() || null,
-    es_agente_iva: empresa.esAgenteRetencionIva ?? true,
-    es_contribuyente_especial: empresa.esContribuyenteEspecial ?? false,
-    retiene_islr: empresa.retieneIslr ?? true,
-    retiene_municipal: empresa.retieneMunicipal ?? false,
-    pct_iva_general: empresa.pctIvaGeneral ?? 75,
-    imprimir_original_y_copia: empresa.imprimirOriginalYCopia ?? true,
   };
+
+  // Lo por-empresa del comprobante que SÍ gobierna esta ficha: la alícuota municipal (ISAE)
+  // y si imprime en Original y Copia. Se escriben solo si vienen definidos (presence-gate), así
+  // el alta/edición de identidad en el buzón no los pisa. El RÉGIMEN (qué retiene) y los %
+  // nacionales NO se escriben desde aquí: su fuente es L6 (Parámetros → Régimen) y R3
+  // (Parámetros → Valores); el editor único nunca manda esos campos.
+  const filaFiscal: Record<string, unknown> = {};
+  if (empresa.alicuotaMunicipal !== undefined) filaFiscal.alicuota_municipal = empresa.alicuotaMunicipal;
+  if (empresa.imprimirOriginalYCopia !== undefined) filaFiscal.imprimir_original_y_copia = empresa.imprimirOriginalYCopia;
+  const fila = { ...filaBase, ...filaFiscal };
 
   const textos = { unico: 'Ya hay una empresa con ese nombre corto: usa otro.' };
   // El autor y las fechas los pone la base.

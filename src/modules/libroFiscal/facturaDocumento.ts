@@ -28,3 +28,67 @@ export function faltaEnDatosFactura(d: { nro?: string | null; control?: string |
 
 /** ¿Se ofrece «Borrar» en una factura? Solo si no tiene ninguna línea de retención, ni anulada. */
 export const puedeOfrecerBorrar = (f: { lineas: unknown[] }) => f.lineas.length === 0;
+
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const fechaValida = (f: string) => FECHA_ISO.test(f) && new Date(`${f}T00:00:00Z`).toISOString().slice(0, 10) === f;
+
+/**
+ * La fecha de la retención (emisión del comprobante): válida, no anterior a la de
+ * la factura y no futura. Compartida por los dos caminos de registro. `hoy` en AAAA-MM-DD.
+ */
+export function faltaEnFechaRetencion(fechaRetencion: string | null | undefined, fechaFactura: string | null | undefined, hoy: string): string | null {
+  const fr = (fechaRetencion ?? '').slice(0, 10);
+  if (!fechaValida(fr)) return 'Indica la fecha de la retención (emisión del comprobante).';
+  const ff = (fechaFactura ?? '').slice(0, 10);
+  if (ff && fr < ff) return 'La fecha de la retención no puede ser anterior a la de la factura.';
+  if (fr > hoy) return 'La fecha de la retención no puede ser futura.';
+  return null;
+}
+
+/** La base imponible no puede ser negativa (ni NaN). null si está bien. */
+export function faltaEnBaseImponible(base: number | null | undefined): string | null {
+  if (base == null) return null;
+  if (!Number.isFinite(base) || base < 0) return 'La base imponible no puede ser negativa.';
+  return null;
+}
+
+/**
+ * Valida el campo que el usuario ve como «Base imponible» (C-d). Internamente sigue
+ * siendo el total de la factura (`facturaTotal`): solo cambió el rótulo, no la semántica.
+ * No puede ser negativo (ni NaN). null si está bien.
+ */
+export function faltaEnTotalFactura(total: number | null | undefined): string | null {
+  if (total == null) return null;
+  if (!Number.isFinite(total) || total < 0) return 'La base imponible no puede ser negativa.';
+  return null;
+}
+
+/**
+ * Aviso NO bloqueante (cordura) para una retención RECIBIDA que se copia del
+ * comprobante del cliente: el retenido no debería superar la base ni el IVA.
+ * Devuelve el texto del aviso, o null si todo luce bien. No frena el registro.
+ */
+export function avisoRetenidoSuperaBase(retenido: number, base: number, iva: number): string | null {
+  if (!(Number(retenido) > 0)) return null;
+  const superaBase = base > 0 && retenido > base + 0.005;
+  const superaIva = iva > 0 && retenido > iva + 0.005;
+  if (superaBase || superaIva) return 'El retenido supera la base o el IVA: verifica el comprobante.';
+  return null;
+}
+
+/** Los únicos documentos sobre los que se retiene (norma): factura, nota de crédito o nota de débito. */
+export const TIPOS_DOCUMENTO_RETENCION = ['factura', 'nota_debito', 'nota_credito'] as const;
+export type TipoDocumentoRetencion = typeof TIPOS_DOCUMENTO_RETENCION[number];
+
+/**
+ * ¿El tipo de documento permite retener? Solo factura, nota de crédito o nota de
+ * débito; nunca comprobantes de pago, notas de entrega u otros. Vacío cuenta como
+ * «factura» (el valor por defecto). Devuelve el motivo si NO se puede, o null.
+ */
+export function faltaEnTipoDocumentoRetencion(tipo: string | null | undefined): string | null {
+  const t = (tipo ?? 'factura').trim() || 'factura';
+  if (!(TIPOS_DOCUMENTO_RETENCION as readonly string[]).includes(t)) {
+    return 'Solo se puede retener sobre una factura, nota de crédito o nota de débito; no sobre comprobantes de pago, notas de entrega u otros documentos.';
+  }
+  return null;
+}

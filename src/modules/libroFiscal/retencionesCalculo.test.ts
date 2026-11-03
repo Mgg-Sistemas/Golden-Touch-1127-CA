@@ -7,6 +7,7 @@ import {
   type ConceptoRetencion, type ConfigRetencion,
   resumenLibro, significadoRetencion, esRecuperable, labelDireccion, totalesPorMoneda,
   puedePracticar, motivoNoPuedePracticar, limiteEntregaComprobante, enBolivares,
+  configDesdeFicha, conceptoConAlicuotaEmpresa, desglosarIvaDeTotal,
 } from './retencionesCalculo';
 
 const especial: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: true, valorUt: 9 };
@@ -52,6 +53,108 @@ describe('quién retiene · dos marcas separadas (D2)', () => {
 
   it('sin marcas, el motivo del IVA lo explica y remite a «Retención recibida»', () => {
     expect(motivoNoPuedePracticar('iva', ninguna)).toContain('Retención recibida');
+  });
+
+  it('multi-empresa: las banderas de régimen apagan ISLR/municipal/estadal', () => {
+    const noIslr = { ...CONFIG_RETENCION_DEFECTO, retieneIslr: false };
+    expect(puedePracticar('islr', noIslr)).toBe(false);
+    expect(motivoNoPuedePracticar('islr', noIslr)).toContain('no retiene ISLR');
+    const noMun = { ...CONFIG_RETENCION_DEFECTO, retieneMunicipal: false };
+    expect(puedePracticar('municipal', noMun)).toBe(false);
+    expect(motivoNoPuedePracticar('municipal', noMun)).toContain('ISAE');
+    const noEst = { ...CONFIG_RETENCION_DEFECTO, retieneEstadal: false };
+    expect(puedePracticar('regional', noEst)).toBe(false);
+    expect(motivoNoPuedePracticar('regional', noEst)).toContain('Timbre Estadal');
+  });
+});
+
+describe('multi-empresa · configDesdeFicha (NO-GT)', () => {
+  const fichaBase = {
+    rif: 'J-50000000-5', nombre: 'Minería Tin Oxide, C.A.', direccionFiscal: 'Av. X', municipio: 'Caroní', estado: 'Bolívar',
+    esAgenteRetencionIva: false, esContribuyenteEspecial: true, retieneIslr: true, retieneMunicipal: false,
+    pctIvaGeneral: 100, pctIvaEspecial: 100, pctIgtf: 3, ivaAlicuota: 16, licenciaMunicipal: 'RIM-123',
+  };
+
+  it('toma identidad y lo local de la ficha; ni el RÉGIMEN ni los % vienen de la ficha (D2b: régimen=L6; D3: %=Valores)', () => {
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
+    expect(c.rif).toBe('J-50000000-5');
+    expect(c.razonSocial).toBe('Minería Tin Oxide, C.A.');
+    expect(c.municipio).toBe('Caroní');
+    expect(c.licenciaMunicipal).toBe('RIM-123');
+    // D2b: el RÉGIMEN queda el de la base (capacidad), NO el de la ficha; su fuente es L6.
+    expect(c.esAgenteRetencionIva).toBe(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva);
+    expect(c.esContribuyenteEspecial).toBe(CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial);
+    expect(c.retieneIslr).toBe(CONFIG_RETENCION_DEFECTO.retieneIslr);
+    expect(c.retieneMunicipal).toBe(CONFIG_RETENCION_DEFECTO.retieneMunicipal);
+    // D3: la ficha ya NO fija los %; quedan los de la base (nacionales), pese al 100 de la ficha.
+    expect(c.pctIvaGeneral).toBe(CONFIG_RETENCION_DEFECTO.pctIvaGeneral);
+  });
+
+  it('configDesdeFicha NO decide qué practica: el régimen va por L6/la RPC, no por la ficha (D2b)', () => {
+    // La ficha dice esAgenteRetencionIva=false, pero configDesdeFicha ya no lo copia: queda la
+    // capacidad de la base. El gating real por empresa lo hace la RPC (ver d2Practica.test).
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, fichaBase);
+    expect(c.esAgenteRetencionIva).toBe(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva);
+    expect(puedePracticar('iva', c)).toBe(puedePracticar('iva', CONFIG_RETENCION_DEFECTO));
+  });
+
+  it('los % salen de la base (nacionales), no de la ficha (D3)', () => {
+    // La ficha trae pctIgtf/ivaAlicuota propios, pero configDesdeFicha ya no los lee: usa la base.
+    const c = configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, pctIgtf: 9, ivaAlicuota: 12 });
+    expect(c.pctIgtf).toBe(CONFIG_RETENCION_DEFECTO.pctIgtf);
+    expect(c.ivaAlicuota).toBe(CONFIG_RETENCION_DEFECTO.ivaAlicuota);
+  });
+
+  it('toma la alícuota del ISAE de la ficha si viene', () => {
+    expect(configDesdeFicha(CONFIG_RETENCION_DEFECTO, { ...fichaBase, alicuotaMunicipal: 1.5 }).alicuotaMunicipal).toBe(1.5);
+  });
+});
+
+describe('multi-empresa · conceptoConAlicuotaEmpresa (ISAE por empresa)', () => {
+  const municipal = { id: 'm', tipo: 'municipal', porcentaje: 1 };
+
+  it('override del % del ISAE con la alícuota de la empresa', () => {
+    expect(conceptoConAlicuotaEmpresa(municipal, { alicuotaMunicipal: 2 }).porcentaje).toBe(2);
+  });
+
+  it('sin alícuota por empresa, el concepto queda igual (la global)', () => {
+    expect(conceptoConAlicuotaEmpresa(municipal, {}).porcentaje).toBe(1);
+  });
+
+  it('no toca conceptos que no son municipales', () => {
+    const islr = { id: 'i', tipo: 'islr', porcentaje: 5 };
+    expect(conceptoConAlicuotaEmpresa(islr, { alicuotaMunicipal: 2 }).porcentaje).toBe(5);
+  });
+
+  it('un concepto null sigue null', () => {
+    expect(conceptoConAlicuotaEmpresa(null, { alicuotaMunicipal: 2 })).toBeNull();
+  });
+});
+
+describe('C3 · desglosarIvaDeTotal (IVA incluido / no discriminado)', () => {
+  it('saca base e IVA del total con IVA al 16%', () => {
+    expect(desglosarIvaDeTotal(1160, 0, 16)).toEqual({ base: 1000, iva: 160, gravable: 1160 });
+  });
+
+  it('descuenta lo exento antes de desglosar', () => {
+    const d = desglosarIvaDeTotal(1160, 160, 16);
+    expect(d.gravable).toBe(1000);
+    expect(d.base).toBe(862.07);
+    expect(d.iva).toBe(137.93);
+  });
+
+  it('total 0 → todo 0', () => {
+    expect(desglosarIvaDeTotal(0, 0, 16)).toEqual({ base: 0, iva: 0, gravable: 0 });
+  });
+
+  it('sin alícuota usa 16 por defecto', () => {
+    expect(desglosarIvaDeTotal(1160, 0, 0)).toEqual({ base: 1000, iva: 160, gravable: 1160 });
+  });
+
+  it('con otra alícuota (p. ej. 12) desglosa con ese divisor', () => {
+    const d = desglosarIvaDeTotal(1120, 0, 12);
+    expect(d.base).toBe(1000);
+    expect(d.iva).toBe(120);
   });
 });
 

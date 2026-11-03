@@ -19,7 +19,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
-import { num, date, money } from '@/shared/lib/format';
+import { date, money } from '@/shared/lib/format';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { completarRif, formatearRif } from '@/shared/lib/rif';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
@@ -28,11 +28,12 @@ import { leerMonto, numeroATexto } from '@/modules/libroFiscal/validarCarga';
 import { SeLeyo } from '@/modules/libroFiscal/SeLeyo';
 
 import {
-  listEmpresasReceptoras, guardarEmpresaReceptora, faltaEnEmpresa,
-  type EmpresaReceptora, type EmpresaReceptoraInput,
+  listEmpresasReceptoras,
+  type EmpresaReceptora,
 } from './empresasReceptoras.repository';
 import {
   listFacturasBuzon, cargarFacturaBuzon, eliminarFacturaBuzon, faltaEnFacturaBuzon,
+  filtrarPorTexto, rotuloNumeroFactura, ultimaCreacionBuzon,
   TIPOS_DOCUMENTO_BUZON, type TipoDocumentoBuzon,
   type FacturaExternaBuzon, type EstatusFacturaBuzon, type NuevaFacturaBuzonInput,
 } from './facturasBuzon.repository';
@@ -43,8 +44,12 @@ import {
 import {
   reproducirSonidoFacturaNueva, isSonidoRetencionesHabilitado, toggleSonidoRetenciones,
 } from './soundRetenciones';
-import { lanzarAvisoFactura } from './notificacionesDispositivo';
+import {
+  lanzarAvisoFactura, solicitarPermisoAvisos, isNotificacionesSoportadas, getEstadoPermisoNotificacion,
+} from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
+import { EmpresaEditor } from './EmpresaEditor';
+import { estadoRetencionDeBuzon, badgeEstadoRetencion } from './estadoRetencion';
 
 const ESTATUS_CONFIG: Record<EstatusFacturaBuzon, { label: string; icono: string; clase: string }> = {
   recibida: { label: 'Recibida', icono: '📥', clase: 'buzon-estatus-recibida' },
@@ -58,6 +63,9 @@ const estatusDe = (f: FacturaExternaBuzon) => ESTATUS_CONFIG[f.estatus] ?? ESTAT
 /** El texto de un error, para mostrarlo tal cual (los repositorios ya lo dan en español). */
 const motivoDe = (e: unknown, porDefecto: string) => (e instanceof Error && e.message ? e.message : porDefecto);
 
+/** La tasa con sus decimales reales (hasta 4), no recortada a 2 como el formato de montos. */
+const fmtTasa = (t: number) => Number(t).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
 /**
  * El monto que se muestra primero es en bolívares: es como se informa a los entes
  * fiscales. Si la factura es en dólares, el monto en dólares y la tasa van debajo.
@@ -66,11 +74,11 @@ function montosDeFactura(f: FacturaExternaBuzon): { principal: string; alterno: 
   if (f.moneda === 'Bs') {
     return {
       principal: money(f.montoTotal, 'Bs'),
-      alterno: f.montoUsd != null && f.tasa ? `≈ ${money(f.montoUsd, 'USD')} (tasa ${num(f.tasa)} Bs por $)` : null,
+      alterno: f.montoUsd != null && f.tasa ? `≈ ${money(f.montoUsd, 'USD')} (tasa ${fmtTasa(f.tasa)} Bs por $)` : null,
     };
   }
   if (f.tasa && f.tasa > 0) {
-    return { principal: money(f.montoBs, 'Bs'), alterno: `${money(f.montoTotal, 'USD')} a ${num(f.tasa)} Bs por $` };
+    return { principal: money(f.montoBs, 'Bs'), alterno: `${money(f.montoTotal, 'USD')} a ${fmtTasa(f.tasa)} Bs por $` };
   }
   return { principal: money(f.montoTotal, 'USD'), alterno: 'Sin tasa para pasarla a bolívares' };
 }
@@ -97,9 +105,16 @@ export function RetencionesMovilView() {
   const [detalle, setDetalle] = useState<FacturaExternaBuzon | null>(null);
   const [facturaWhatsApp, setFacturaWhatsApp] = useState<FacturaExternaBuzon | null>(null);
   const [facturaABorrar, setFacturaABorrar] = useState<FacturaExternaBuzon | null>(null);
-  const [modalEmpresa, setModalEmpresa] = useState(false);
+  // null = cerrado; {} = crear; { empresa } = editar esa empresa (C-l). Un solo form para ambos.
+  const [empresaModal, setEmpresaModal] = useState<{ empresa?: EmpresaReceptora } | null>(null);
   const [empresaRecienCreada, setEmpresaRecienCreada] = useState<string | null>(null);
   const [sonidoHabilitado, setSonidoHabilitado] = useState(isSonidoRetencionesHabilitado());
+  const [busqueda, setBusqueda] = useState('');
+  const [estatusFiltro, setEstatusFiltro] = useState<string>('todas');
+  // Para avisar solo cuando ENTRA una factura nueva: por el SELLO de creación más
+  // reciente, no por el conteo. Si entra 1 y se borra 1 en la misma recarga el conteo
+  // no cambia pero el sello sí, así el aviso no se pierde (C-i). Igual que la vista PC.
+  const prevUltimaCreacionRef = useRef<string | null>(null);
 
   // Detector: sin las tablas del buzón no se consulta ni se suscribe a nada.
   useEffect(() => {
@@ -112,10 +127,18 @@ export function RetencionesMovilView() {
 
   // Se traen todas las facturas y se filtra por empresa en pantalla: así los
   // contadores de cada empresa son los de verdad.
-  const cargarDatos = useCallback(async () => {
+  const cargarDatos = useCallback(async (avisarNuevas = false) => {
     try {
       const [empr, facs] = await Promise.all([listEmpresasReceptoras(), listFacturasBuzon()]);
       setEmpresas(empr);
+      // Si entró una factura desde la última recarga (el sello más nuevo creció), suena
+      // (si está activo), vibra y avisa en pantalla. facs[0] es la más reciente (orden desc).
+      const ultima = ultimaCreacionBuzon(facs);
+      if (avisarNuevas && prevUltimaCreacionRef.current !== null && ultima > prevUltimaCreacionRef.current) {
+        lanzarAvisoFactura(facs[0], { conSonido: true });
+        toast('🔔 Llegó una factura nueva al buzón', 'info');
+      }
+      prevUltimaCreacionRef.current = ultima;
       setFacturas(facs);
       setErrorCarga(null);
     } catch (e) {
@@ -126,24 +149,42 @@ export function RetencionesMovilView() {
   }, []);
 
   useEffect(() => {
-    if (disponible) void cargarDatos();
+    if (disponible) void cargarDatos(false);
   }, [disponible, cargarDatos]);
 
-  // Realtime para cambios en facturas externas (solo si las tablas existen)
+  // Realtime para cambios en facturas externas (solo si las tablas existen): avisa de las entrantes.
   useRealtime(['retencion_facturas_externas', 'retencion_empresas_receptoras'], () => {
-    void cargarDatos();
+    void cargarDatos(true);
   }, { enabled: disponible === true });
 
-  const toggleSonido = () => {
+  const toggleSonido = async () => {
     const nuevo = toggleSonidoRetenciones();
     setSonidoHabilitado(nuevo);
-    toast(nuevo ? 'Sonido de facturas activado 🔔' : 'Sonido silenciado 🔕', 'info');
+    if (!nuevo) { toast('Sonido silenciado 🔕', 'info'); return; }
+    // Al activar los avisos se pide permiso de notificaciones, para que el banner funcione (como la vista PC).
+    const estado = getEstadoPermisoNotificacion();
+    if (isNotificacionesSoportadas() && estado === 'default') {
+      const res = await solicitarPermisoAvisos();
+      toast(
+        res === 'granted'
+          ? '🔔 Avisos activados: sonido y aviso en pantalla cuando entre una factura.'
+          : 'Sonido activado. El navegador no dio permiso para el aviso en pantalla.',
+        res === 'granted' ? 'success' : 'info',
+      );
+    } else if (estado === 'denied') {
+      toast('Sonido activado. Los avisos en pantalla están bloqueados: toca el candado junto a la dirección para permitirlos.', 'warning');
+    } else {
+      toast('Sonido de facturas activado 🔔', 'info');
+    }
   };
 
   const facturasFiltradas = useMemo(() => {
-    if (empresaFiltro === 'todas') return facturas;
-    return facturas.filter((f) => f.empresaId === empresaFiltro);
-  }, [facturas, empresaFiltro]);
+    // C-h: además del filtro por empresa (chips), búsqueda por texto y filtro de
+    // estado, como la vista PC, para organizar aunque no se sepa qué se busca.
+    let xs = empresaFiltro === 'todas' ? facturas : facturas.filter((f) => f.empresaId === empresaFiltro);
+    if (estatusFiltro !== 'todas') xs = xs.filter((f) => f.estatus === estatusFiltro);
+    return filtrarPorTexto(xs, busqueda);
+  }, [facturas, empresaFiltro, estatusFiltro, busqueda]);
 
   const empresaSeleccionadaNombre = useMemo(() => {
     if (empresaFiltro === 'todas') return 'todas las empresas';
@@ -166,7 +207,7 @@ export function RetencionesMovilView() {
           <button
             type="button"
             className={`buzon-audio-toggle ${sonidoHabilitado ? 'activo' : ''}`}
-            onClick={toggleSonido}
+            onClick={() => void toggleSonido()}
             title={sonidoHabilitado ? 'Sonido de avisos activo' : 'Sonido desactivado'}
           >
             {sonidoHabilitado ? '🔔 Con sonido' : '🔕 Silencio'}
@@ -268,7 +309,7 @@ export function RetencionesMovilView() {
             void cargarDatos();
             setFacturaWhatsApp(nuevaFac);
           }}
-          onAbrirNuevaEmpresa={() => setModalEmpresa(true)}
+          onAbrirNuevaEmpresa={() => setEmpresaModal({})}
         />
       )}
 
@@ -297,7 +338,7 @@ export function RetencionesMovilView() {
           )}
 
           {sinEmpresas ? (
-            <AvisoSinEmpresas canWrite={canWrite} onAgregar={() => setModalEmpresa(true)} />
+            <AvisoSinEmpresas canWrite={canWrite} onAgregar={() => setEmpresaModal({})} />
           ) : (
             <>
               {/* Selector horizontal de empresas */}
@@ -322,6 +363,54 @@ export function RetencionesMovilView() {
                     </button>
                   );
                 })}
+              </div>
+
+              {/* C-l: editar la empresa seleccionada (con escritura). El mismo form que «Escribir otra», pre-llenado → UPDATE. */}
+              {canWrite && empresaFiltro !== 'todas' && (() => {
+                const emp = empresas.find((e) => e.id === empresaFiltro);
+                return emp ? (
+                  <div style={{ margin: '.35rem 0' }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setEmpresaModal({ empresa: emp })}
+                      title={`Editar los datos de ${emp.nombreCorto || emp.nombre}`}
+                    >
+                      ✏ Editar {emp.nombreCorto || emp.nombre}
+                    </button>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* C-h: búsqueda + filtro de estado (como la vista PC) */}
+              <div className="buzon-movil-filtros" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', margin: '.5rem 0' }}>
+                <input
+                  type="search"
+                  className="input surt-input"
+                  placeholder="🔎 Buscar por proveedor, RIF, N°, empresa o descripción…"
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  aria-label="Buscar facturas del buzón"
+                />
+                <div className="buzon-empresas-scroll" role="group" aria-label="Filtrar por estado">
+                  <button
+                    type="button"
+                    className={`buzon-empresa-chip ${estatusFiltro === 'todas' ? 'sel' : ''}`}
+                    onClick={() => setEstatusFiltro('todas')}
+                  >
+                    Todos los estados
+                  </button>
+                  {(Object.keys(ESTATUS_CONFIG) as EstatusFacturaBuzon[]).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className={`buzon-empresa-chip ${estatusFiltro === k ? 'sel' : ''}`}
+                      onClick={() => setEstatusFiltro(k)}
+                    >
+                      {ESTATUS_CONFIG[k].icono} {ESTATUS_CONFIG[k].label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {loading ? (
@@ -373,10 +462,15 @@ export function RetencionesMovilView() {
                           </span>
                         </div>
 
+                        {(() => {
+                          const b = badgeEstadoRetencion(estadoRetencionDeBuzon(fac.estatus));
+                          return <div><span className={b.className} title={b.tooltip} style={{ fontSize: '.7rem', padding: '1px 6px' }}>{b.label}</span></div>;
+                        })()}
+
                         <div>
                           <div className="buzon-card-prov">{fac.proveedorNombre}</div>
                           <div className="buzon-card-rif">
-                            {fac.proveedorRif ? `RIF: ${fac.proveedorRif}` : 'Sin RIF'} · Factura N° {fac.facturaNumero}
+                            {fac.proveedorRif ? `RIF: ${fac.proveedorRif}` : 'Sin RIF'} · Factura {rotuloNumeroFactura(fac.facturaNumero)}
                           </div>
                         </div>
 
@@ -480,7 +574,7 @@ export function RetencionesMovilView() {
       {facturaABorrar && canWrite && (
         <ConfirmDialog
           title="¿Eliminar esta factura?"
-          message={`Se eliminará permanentemente la factura N° ${facturaABorrar.facturaNumero} de ${facturaABorrar.proveedorNombre} y sus soportes adjuntos.`}
+          message={`Se eliminará permanentemente la factura ${rotuloNumeroFactura(facturaABorrar.facturaNumero)} de ${facturaABorrar.proveedorNombre} y sus soportes adjuntos.`}
           confirmText="Sí, eliminar factura"
           danger
           onCancel={() => setFacturaABorrar(null)}
@@ -498,18 +592,25 @@ export function RetencionesMovilView() {
         />
       )}
 
-      {/* Modal: Crear o Escribir Nueva Empresa Receptora (Móvil) */}
-      {modalEmpresa && canWrite && (
-        <ModalNuevaEmpresa
-          onClose={() => setModalEmpresa(false)}
-          onCreada={(nueva) => {
-            setEmpresas((prev) => (prev.some((x) => x.id === nueva.id) ? prev : [...prev, nueva]));
-            setEmpresaFiltro(nueva.id);
-            setEmpresaRecienCreada(nueva.id);
-            setModalEmpresa(false);
-            toast(`Empresa ${nueva.nombreCorto || nueva.nombre} lista para usar`, 'success');
-          }}
-        />
+      {/* Modal: Crear o Editar Empresa Receptora (Móvil) — editor ÚNICO EmpresaEditor (C4b, modo rápido) */}
+      {empresaModal && canWrite && (
+        <Modal title={empresaModal.empresa ? '✏️ Editar empresa' : '✏️ Agregar empresa que recibe facturas'} onClose={() => setEmpresaModal(null)} size="md">
+          <p className="muted" style={{ margin: '0 0 .6rem', fontSize: '.85rem' }}>
+            Indica a qué empresa corresponde la compra. Lo fiscal (régimen, %, alícuotas, licencia) se completa desde la PC en Parámetros.
+          </p>
+          <EmpresaEditor
+            modo="rapido"
+            empresa={empresaModal.empresa}
+            onClose={() => setEmpresaModal(null)}
+            onGuardada={(emp) => {
+              const eraEdicion = Boolean(empresaModal.empresa);
+              setEmpresas((prev) => (prev.some((x) => x.id === emp.id) ? prev.map((x) => (x.id === emp.id ? emp : x)) : [...prev, emp]));
+              if (!eraEdicion) { setEmpresaFiltro(emp.id); setEmpresaRecienCreada(emp.id); }
+              setEmpresaModal(null);
+              toast(eraEdicion ? `Empresa ${emp.nombreCorto || emp.nombre} actualizada` : `Empresa ${emp.nombreCorto || emp.nombre} lista para usar`, 'success');
+            }}
+          />
+        </Modal>
       )}
     </div>
   );
@@ -565,7 +666,8 @@ function AvisoSinEmpresas({ canWrite, onAgregar, onCancelar }: {
 
 /* ────────────────────────────────────────────────────────────
    Detalle de una factura del buzón. Los soportes se ven con
-   enlaces firmados (de una hora) que se piden al abrirlo.
+   enlaces firmados (de diez minutos) que se piden al abrirlo y se
+   vuelven a pedir, frescos, cada vez que se toca una miniatura.
    ──────────────────────────────────────────────────────────── */
 function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; onClose: () => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -596,7 +698,8 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
     return () => { cancel = true; };
   }, [factura]);
 
-  // Si el enlace no llegó al abrir, se vuelve a pedir al tocar el soporte.
+  // El enlace firmado dura 10 min; al tocar una miniatura se pide SIEMPRE uno fresco
+  // (el que se cargó al abrir el detalle puede haber vencido).
   const abrirSoporte = async (path: string) => {
     try {
       const url = await obtenerUrlAdjunto(path);
@@ -609,7 +712,7 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
 
   return (
     <Modal
-      title={`Factura N° ${factura.facturaNumero} · ${factura.proveedorNombre}`}
+      title={`Factura ${rotuloNumeroFactura(factura.facturaNumero)} · ${factura.proveedorNombre}`}
       onClose={onClose}
       size="lg"
     >
@@ -631,7 +734,7 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
           </div>
           <div>
             <small className="muted" style={{ display: 'block' }}>NÚMERO / CONTROL</small>
-            <strong>Factura N° {factura.facturaNumero}</strong>
+            <strong>Factura {rotuloNumeroFactura(factura.facturaNumero)}</strong>
             {factura.facturaControl && (
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Control: {factura.facturaControl}</div>
             )}
@@ -687,19 +790,8 @@ function DetalleFactura({ factura, onClose }: { factura: FacturaExternaBuzon; on
                     <small>{nombre}</small>
                   </div>
                 );
-                return url ? (
-                  <a
-                    key={adj.id}
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="buzon-thumb-item"
-                    title={nombre}
-                    style={{ textDecoration: 'none' }}
-                  >
-                    {contenido}
-                  </a>
-                ) : (
+                // Siempre un botón que pide un enlace fresco al tocar: así nunca se abre uno vencido.
+                return (
                   <button
                     key={adj.id}
                     type="button"
@@ -847,9 +939,10 @@ function FormularioCargaFactura({
   const revisarRif = () => {
     const escrito = proveedorRif.trim();
     if (!escrito) { setRifAviso(null); return; }
+    // Inválido = completarRif devuelve null. La letra «C» (Consejo Comunal) es VÁLIDA para el SENIAT.
     const completo = completarRif(escrito);
-    if (!completo || completo.startsWith('C')) {
-      setRifAviso('Ese RIF no es válido: letra (J, G, V, E o P), 8 dígitos y el verificador.');
+    if (!completo) {
+      setRifAviso('Ese RIF no es válido: letra (J, G, V, E, P o C), 8 dígitos y el verificador.');
       return;
     }
     setRifAviso(null);
@@ -872,12 +965,28 @@ function FormularioCargaFactura({
       return;
     }
 
+    // En dólares con monto, la tasa es obligatoria: la retención se informa en Bs y sin tasa
+    // el equivalente en bolívares quedaría en 0. Se exige ANTES de subir los archivos.
+    if (moneda === 'USD' && monto != null && monto > 0 && (tasaNum == null || tasaNum <= 0)) {
+      toast('Falta la tasa del día (Bs por $): sin ella el monto no pasa a bolívares, que es como se informa. Escríbela antes de guardar.', 'warning');
+      return;
+    }
+
+    // RIF opcional: si se escribió algo que no tiene arreglo, no se pierde en silencio: se avisa y se guarda sin RIF.
+    const rifEscrito = proveedorRif.trim();
+    // Inválido = completarRif devuelve null (NO el prefijo «C», que es un Consejo Comunal válido).
+    const rifCompleto = rifEscrito ? completarRif(rifEscrito) : null;
+    const rifParaGuardar = rifCompleto ? formatearRif(rifCompleto) : null;
+    if (rifEscrito && !rifParaGuardar) {
+      toast('El RIF escrito no es válido; la factura se guardará SIN RIF. Corrígelo si quieres incluirlo.', 'warning');
+    }
+
     const input: NuevaFacturaBuzonInput = {
       empresaId,
       empresaNombre: empresaSeleccionada?.nombre ?? '',
       tipoDocumento,
       proveedorNombre: proveedorNombre.trim(),
-      proveedorRif: proveedorRif.trim() || null,
+      proveedorRif: rifParaGuardar,
       facturaNumero: numeroFactura.trim() || null,
       facturaControl: numeroControl.trim() || null,
       facturaFecha: fechaFactura || null,
@@ -918,11 +1027,10 @@ function FormularioCargaFactura({
       // Guarda la factura, sube los soportes y los registra; si algo falla no queda nada a medias
       const fac = await cargarFacturaBuzon(input, preparados, setProgresoMsg);
 
-      // Al guardar: el sonido distintivo y, además, el aviso nativo del dispositivo
-      // (con permiso y avisos activos). El sonido ya lo pone reproducirSonidoFacturaNueva,
-      // así que el aviso se lanza sin sonido para no repetirlo.
+      // Confirmación para quien la cargó: un sonido corto (si el sonido está activo).
+      // No se lanza aviso en pantalla a-uno-mismo: el banner «factura entrante» lo reciben
+      // los demás por realtime, no quien la acaba de subir.
       reproducirSonidoFacturaNueva();
-      lanzarAvisoFactura(fac, { conSonido: false });
 
       toast('Factura cargada', 'success');
       onGuardada(fac);
@@ -1167,12 +1275,13 @@ function FormularioCargaFactura({
         </div>
 
         {/* Inputs escondidos */}
+        {/* Sin «capture»: el selector del teléfono ofrece tomar foto O elegir de la galería
+            (una factura ya fotografiada se sube desde la galería). */}
         <input
           ref={inputFotosRef}
           type="file"
           accept="image/*"
           multiple
-          capture="environment"
           style={{ display: 'none' }}
           onChange={handleSeleccionarArchivos}
         />
@@ -1264,111 +1373,3 @@ function FormularioCargaFactura({
   );
 }
 
-/* ────────────────────────────────────────────────────────────
-   Modal para Escribir / Añadir Empresa Receptora (Móvil)
-   Ágil y directo para el personal en campo. Se guarda en la
-   base; Impuestos completa la ficha fiscal desde la PC.
-   ──────────────────────────────────────────────────────────── */
-function ModalNuevaEmpresa({
-  onClose, onCreada,
-}: {
-  onClose: () => void;
-  onCreada: (emp: EmpresaReceptora) => void;
-}) {
-  const [nombre, setNombre] = useState('');
-  const [nombreCorto, setNombreCorto] = useState('');
-  const [rif, setRif] = useState('');
-  const [guardando, setGuardando] = useState(false);
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (guardando) return;
-    const input: EmpresaReceptoraInput = {
-      nombre: nombre.trim(),
-      nombreCorto: nombreCorto.trim() || undefined,
-      rif: rif.trim(),
-      colorBadge: '#2563eb',
-      activo: true,
-    };
-    const falta = faltaEnEmpresa(input);
-    if (falta) {
-      toast(falta, 'warning');
-      return;
-    }
-    setGuardando(true);
-    try {
-      const emp = await guardarEmpresaReceptora(input);
-      onCreada(emp);
-    } catch (err) {
-      toast(motivoDe(err, 'No se pudo guardar la empresa.'), 'error');
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  return (
-    <Modal title="✏️ Agregar empresa que recibe facturas" onClose={onClose} size="md">
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-        <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-          Indica a qué empresa corresponde la compra. El departamento de Impuestos completa el resto de la ficha fiscal desde la PC.
-        </p>
-
-        <div>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            Razón social de la empresa *
-          </label>
-          <input
-            type="text"
-            className="input"
-            style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
-            placeholder="Ej. Inversiones El Roble C.A."
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            required
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            Nombre corto (el que se ve en los botones)
-          </label>
-          <input
-            type="text"
-            className="input"
-            style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
-            placeholder="Ej. El Roble"
-            maxLength={30}
-            value={nombreCorto}
-            onChange={(e) => setNombreCorto(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-            RIF de la empresa *
-          </label>
-          <input
-            type="text"
-            className="input"
-            style={{ width: '100%', minHeight: '52px', fontSize: '1.1rem' }}
-            placeholder="Ej. J-12345678-9"
-            value={rif}
-            onChange={(e) => setRif(e.target.value)}
-            autoCapitalize="characters"
-            required
-          />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
-          <button type="button" className="btn" style={{ minHeight: '52px' }} onClick={onClose} disabled={guardando}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn primario" style={{ minHeight: '52px', fontWeight: 800 }} disabled={guardando}>
-            {guardando ? 'Guardando…' : 'Aceptar'}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}

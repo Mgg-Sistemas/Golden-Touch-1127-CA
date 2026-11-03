@@ -48,7 +48,7 @@ export function lineaRetenerDespues(input: NuevaRetencion): LineaFacturaNueva {
     conceptoNombre: input.conceptoNombre?.trim() || null,
     municipio: input.tipo === 'municipal' ? input.municipio?.trim() || null : null,
     descripcion: input.observacion?.trim() || null,
-    // En una practicada el número lo pone la base (o numerarSinV2R); en una recibida, el del comprobante del cliente.
+    // En una practicada el número lo pone la base (V2R); en una recibida, el del comprobante del cliente.
     comprobanteNro: input.direccion === 'recibida' ? input.numeroComprobante?.trim() || null : null,
     quincena: input.quincena ?? null,
     // La fecha de la línea es la de la retención; el período sale de la factura.

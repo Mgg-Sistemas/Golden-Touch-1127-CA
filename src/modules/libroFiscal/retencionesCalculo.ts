@@ -86,16 +86,36 @@ export interface ConfigRetencion {
   retieneIslr?: boolean;
   /** Si la empresa retiene Impuesto Municipal (ISAE). Por defecto true. */
   retieneMunicipal?: boolean;
+  /** Si la empresa retiene Timbre Estadal (regional). Por defecto true (GT); una NO-GT arranca en false salvo que su ficha lo diga. */
+  retieneEstadal?: boolean;
   /** Estatus del Kanban de compras que se procesan en el módulo de Retenciones. */
   estadosKanbanRetencion?: EstadoOrden[];
   pctIvaGeneral: number;    // 75
   pctIvaEspecial: number;   // 100
   valorUt: number;          // define el sustraendo del ISLR
   pctIgtf: number;          // 3
+  /** Alícuota general del IVA (p. ej. 16). Para el desglose «IVA incluido»; sale de Parámetros. */
+  ivaAlicuota?: number;
+  // D3 (una sola autoridad): los % nacionales (IVA 75/100, alícuota IVA, IGTF) salen de
+  // Parámetros → Valores por fecha para TODAS las empresas; ya no hay una fuente «de la ficha».
   /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
   licenciaMunicipal?: string | null;
+  /**
+   * Multi-empresa: alícuota del ISAE (municipal) de la empresa según su municipio. Solo
+   * se fija para una empresa NO-GT (desde su ficha); en GT/single queda undefined y el
+   * ISAE usa la alícuota del concepto (la global de hoy).
+   */
+  alicuotaMunicipal?: number;
   /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
   imprimirOriginalYCopia?: boolean;
+  // C2: incluir en el comprobante el logo / firma / sello digitales (si están cargados). Es
+  // FORMATO del documento (una fuente: config), no preferencia por-dispositivo. Default true.
+  incluirLogo?: boolean;
+  incluirFirma?: boolean;
+  incluirSello?: boolean;
+  incluirQr?: boolean;
+  /** C4a (D6): el buzón / vista teléfono está activo (visible) para el módulo. Default true. */
+  buzonActivo?: boolean;
 }
 
 /** Estatus del Kanban de compras que por defecto son abordables en Retenciones. */
@@ -105,8 +125,11 @@ export const ESTADOS_KANBAN_RETENCION_DEFECTO: EstadoOrden[] = [
 
 /**
  * Los valores con los que arranca la pantalla mientras se lee la configuración.
- * Golden Touch es agente de retención de IVA desde el 07/10/2026 y no es
- * contribuyente especial. Lo que vale es lo guardado en Parámetros.
+ * Es el DEFAULT de CAPACIDAD del cálculo (puede IVA), NO el régimen de una empresa:
+ * quién practica IVA lo decide L6 (Parámetros → Régimen), que el app lee por el JSON
+ * de configuración; este default solo aplica si esa config no carga. Por eso GT, que
+ * es contribuyente ordinario, no retiene IVA aunque aquí la capacidad siga en true.
+ * No es contribuyente especial. Lo que vale es lo guardado en Parámetros.
  */
 export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   rif: null, razonSocial: null, direccionFiscal: null, municipio: null, estado: null,
@@ -118,27 +141,38 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   estadosKanbanRetencion: ESTADOS_KANBAN_RETENCION_DEFECTO,
   pctIvaGeneral: 75, pctIvaEspecial: 100,
   valorUt: 0, pctIgtf: 3,
+  ivaAlicuota: 16,
   licenciaMunicipal: null,
   imprimirOriginalYCopia: true,
+  incluirLogo: true,
+  incluirFirma: true,
+  incluirSello: true,
+  incluirQr: true,
+  buzonActivo: true,
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */
 
-/** ¿Puede la empresa practicar esta retención? Las recibidas se registran siempre. */
-export function puedePracticar(
-  tipo: TipoImpuesto,
-  config: Pick<ConfigRetencion, 'esAgenteRetencionIva' | 'esContribuyenteEspecial'>,
-): boolean {
+/** Lo que mira el régimen para decidir qué practica la empresa. */
+type ConfigRegimen = Pick<ConfigRetencion,
+  'esAgenteRetencionIva' | 'esContribuyenteEspecial' | 'retieneIslr' | 'retieneMunicipal' | 'retieneEstadal'>;
+
+/**
+ * ¿Puede la empresa practicar esta retención? Las recibidas se registran siempre.
+ * IVA/IGTF dependen de la designación; ISLR/municipal/estadal, de las banderas de
+ * régimen (por defecto true, para no cambiar a GT ni al single-empresa de hoy).
+ */
+export function puedePracticar(tipo: TipoImpuesto, config: ConfigRegimen): boolean {
   if (tipo === 'iva') return config.esAgenteRetencionIva || config.esContribuyenteEspecial;
   if (tipo === 'igtf') return config.esContribuyenteEspecial;
+  if (tipo === 'islr') return config.retieneIslr !== false;
+  if (tipo === 'municipal') return config.retieneMunicipal !== false;
+  if (tipo === 'regional') return config.retieneEstadal !== false;
   return true;
 }
 
 /** Por qué no puede, en una línea, o null si puede. */
-export function motivoNoPuedePracticar(
-  tipo: TipoImpuesto,
-  config: Pick<ConfigRetencion, 'esAgenteRetencionIva' | 'esContribuyenteEspecial'>,
-): string | null {
+export function motivoNoPuedePracticar(tipo: TipoImpuesto, config: ConfigRegimen): string | null {
   if (puedePracticar(tipo, config)) return null;
   if (tipo === 'iva') {
     return 'La empresa no está marcada como agente de retención de IVA ni como contribuyente especial '
@@ -146,9 +180,105 @@ export function motivoNoPuedePracticar(
       + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
       + 'Si la empresa fue designada, activar la casilla en Parámetros.';
   }
+  if (tipo === 'islr') {
+    return 'La empresa no retiene ISLR según su ficha fiscal. '
+      + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
+      + 'Si la empresa sí retiene ISLR, actívalo en su ficha (Empresas).';
+  }
+  if (tipo === 'municipal') {
+    return 'La empresa no retiene Impuesto Municipal (ISAE) según su ficha fiscal. '
+      + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
+      + 'Si la empresa sí lo retiene, actívalo en su ficha (Empresas).';
+  }
+  if (tipo === 'regional') {
+    return 'La empresa no retiene Timbre Estadal según su ficha fiscal. '
+      + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida».';
+  }
   return 'Solo el contribuyente especial percibe el IGTF (Ley del IGTF). '
     + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
     + 'Si la empresa fue designada contribuyente especial, activar la casilla en Parámetros.';
+}
+
+/* ───────────────── Multi-empresa: config desde la ficha de la empresa ───────────────── */
+
+/**
+ * La parte fiscal de una empresa receptora que define su régimen y porcentajes.
+ * Es una forma estructural (no importa el tipo del módulo de Retenciones, para no
+ * invertir la dependencia): cualquier ficha con estos campos encaja.
+ */
+export interface FichaFiscalEmpresa {
+  rif?: string | null;
+  nombre?: string | null;
+  direccionFiscal?: string | null;
+  municipio?: string | null;
+  estado?: string | null;
+  email?: string | null;
+  licenciaMunicipal?: string | null;
+  esAgenteRetencionIva?: boolean;
+  esContribuyenteEspecial?: boolean;
+  retieneIslr?: boolean;
+  retieneMunicipal?: boolean;
+  pctIvaGeneral?: number;
+  pctIvaEspecial?: number;
+  pctIgtf?: number;
+  ivaAlicuota?: number;
+  /** Alícuota del ISAE (municipal) de la empresa según su municipio (F-ME1). */
+  alicuotaMunicipal?: number;
+  imprimirOriginalYCopia?: boolean;
+}
+
+/**
+ * Config de una empresa NO-GT: toma de SU ficha solo la IDENTIDAD y lo local (licencia,
+ * alícuota municipal, original/copia) sobre la base global. El RÉGIMEN (qué retiene) NO
+ * sale de las banderas de la ficha — fuente única L6 (retencion_agente_condiciones), que
+ * el tablero y el registro consultan por la RPC retencion_empresa_practica (D2b). Los %
+ * NACIONALES —IVA 75/100, alícuota del IVA, IGTF— tampoco salen de la ficha: salen de
+ * Parámetros → Valores por fecha (vía configDeFecha), igual que para GT (D3). Las banderas
+ * de régimen y los % quedan los de `base`. No toca GT (usa la config global tal cual).
+ */
+export function configDesdeFicha(base: ConfigRetencion, ficha: FichaFiscalEmpresa): ConfigRetencion {
+  return {
+    ...base,
+    rif: ficha.rif || base.rif,
+    razonSocial: ficha.nombre || base.razonSocial,
+    direccionFiscal: ficha.direccionFiscal ?? base.direccionFiscal,
+    municipio: ficha.municipio ?? base.municipio,
+    estado: ficha.estado ?? base.estado,
+    email: ficha.email ?? base.email,
+    licenciaMunicipal: ficha.licenciaMunicipal ?? base.licenciaMunicipal,
+    // Ni el RÉGIMEN (banderas → L6) ni los % NACIONALES (→ Parámetros → Valores) salen de
+    // la ficha: quedan los de `base`. Lo ÚNICO por-empresa que sigue abajo es la alícuota del
+    // ISAE según su municipio (si su ficha la trae); si no, el ISAE usa la del concepto (global).
+    alicuotaMunicipal: ficha.alicuotaMunicipal ?? base.alicuotaMunicipal,
+    imprimirOriginalYCopia: ficha.imprimirOriginalYCopia ?? base.imprimirOriginalYCopia,
+  };
+}
+
+/**
+ * Multi-empresa: para el ISAE (municipal), si la empresa trae su propia alícuota
+ * (config.alicuotaMunicipal), se usa esa en vez de la del concepto (que es la global).
+ * Para los demás impuestos, o sin alícuota por empresa, el concepto queda igual. No
+ * cambia la fórmula: solo la alícuota de entrada del ISAE de una empresa NO-GT.
+ */
+export function conceptoConAlicuotaEmpresa<T extends { tipo: string; porcentaje: number } | null>(
+  concepto: T,
+  config: Pick<ConfigRetencion, 'alicuotaMunicipal'>,
+): T {
+  if (!concepto || concepto.tipo !== 'municipal' || config.alicuotaMunicipal == null) return concepto;
+  return { ...concepto, porcentaje: config.alicuotaMunicipal };
+}
+
+/**
+ * Precio con IVA incluido (no discriminado): del total con IVA (menos lo exento)
+ * saca la base y el IVA implícito. IVA = total − total/(1+alícuota). Puro y
+ * reutilizable: lo usan el botón «Desglosar IVA incluido» y el derivado automático
+ * de C3 (supuesto «IVA no discriminado»). No cambia ningún cálculo de retención.
+ */
+export function desglosarIvaDeTotal(total: number, exento: number, aliPct: number): { base: number; iva: number; gravable: number } {
+  const ali = Number(aliPct) > 0 ? Number(aliPct) : 16;
+  const gravable = Math.max(0, r2(Number(total) || 0) - Math.max(0, r2(Number(exento) || 0)));
+  const base = r2(gravable / (1 + ali / 100));
+  return { base, iva: r2(gravable - base), gravable };
 }
 
 /** Un renglón del catálogo. */
@@ -411,10 +541,15 @@ export function formatoSerie(tipo: TipoImpuesto): FormatoSerie | null {
   return 'N10';
 }
 
-/** El número con el formato de su serie (la base es la que lo asigna; esto es para mostrar y probar). */
-export function formatoComprobante(periodo: string, consecutivo: number, tipo: TipoImpuesto = 'iva'): string {
+/**
+ * El número con el formato de su serie (la base es la que lo asigna; esto es
+ * para mostrar y probar). Si se pasa `formato`, manda sobre el mapeo fijo del
+ * tipo: así el front puede usar el formato de la ficha (`serieFormato`).
+ */
+export function formatoComprobante(periodo: string, consecutivo: number, tipo: TipoImpuesto = 'iva', formato?: FormatoSerie | null): string {
   const sec = String(Math.max(1, Math.trunc(n0(consecutivo))));
-  return formatoSerie(tipo) === 'N10' ? sec.padStart(10, '0') : `${periodo}${sec.padStart(8, '0')}`;
+  const f = formato !== undefined ? formato : formatoSerie(tipo);
+  return f === 'N10' ? sec.padStart(10, '0') : `${periodo}${sec.padStart(8, '0')}`;
 }
 
 /** ¿Tiene la forma del número de su serie? Sin impuesto, vale cualquiera de los dos formatos. */

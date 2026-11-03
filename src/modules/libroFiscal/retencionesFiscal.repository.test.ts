@@ -38,7 +38,7 @@ import {
   errorPorcentajesIva, guardarConfigRetencion,
   filaGtDeNueva, jsonDeConfig, llevaNumeroPropio, marcarDeclarada, registrarRetencion, rolAGt,
   sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, tiposLicenciaDeJson, type NuevaRetencion,
-  consultarCorrelativoEstimado,
+  consultarCorrelativoEstimado, listRetenciones,
 } from './retencionesFiscal.repository';
 
 // Datos inventados. El RIF se arma con el dígito verificador que acepte la validación de GT.
@@ -186,6 +186,11 @@ describe('la fila que se escribe en el libro', () => {
     expect(f.iva_monto).toBeNull();
   });
 
+  it('multi-empresa (D1b): el suelto marca empresa_id en la línea solo si viene', () => {
+    expect(filaGtDeNueva(nueva({ empresaId: 'emp-1' }), { entero: 1, texto: 'x' }).empresa_id).toBe('emp-1');
+    expect('empresa_id' in filaGtDeNueva(nueva(), { entero: 1, texto: 'x' })).toBe(false);
+  });
+
   it('numera toda practicada menos el IGTF; las recibidas no', () => {
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr' })).toBe(true);
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr', montoRetenido: 0 })).toBe(false);
@@ -320,6 +325,20 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   });
 });
 
+describe('multi-empresa: el libro filtra por empresa cuando se pide', () => {
+  it('con empresaId aplica eq(empresa_id)', async () => {
+    cola.push({ data: [], error: null });
+    await listRetenciones({ empresaId: 'emp-1' });
+    expect(llamadas[0].metodos).toContainEqual(['eq', 'empresa_id', 'emp-1']);
+  });
+
+  it('sin empresaId (single-empresa) no filtra por empresa', async () => {
+    cola.push({ data: [], error: null });
+    await listRetenciones({ direccion: 'practicada' });
+    expect(llamadas[0].metodos.some((x) => x[0] === 'eq' && x[1] === 'empresa_id')).toBe(false);
+  });
+});
+
 describe('un cambio que no toca ninguna fila no es un éxito', () => {
   it('anular sin permiso avisa en vez de callar', async () => {
     cola.push({ data: [], error: null });
@@ -391,6 +410,18 @@ describe('consultarCorrelativoEstimado: previsualización del correlativo según
     const res = await consultarCorrelativoEstimado('iva', '202610');
     expect(res.numero).toBe(15);
     expect(res.comprobante).toBe('20261000000015');
+  });
+
+  it('B2 multi-empresa: con empresaId el estimado cuenta solo esa empresa', async () => {
+    cola.push({ data: [], error: null });
+    await consultarCorrelativoEstimado('iva', '202610', undefined, 'empresa-mto');
+    expect(llamadas[0].metodos).toContainEqual(['eq', 'empresa_id', 'empresa-mto']);
+  });
+
+  it('sin empresaId el estimado no filtra por empresa (single/GT, como hoy)', async () => {
+    cola.push({ data: [], error: null });
+    await consultarCorrelativoEstimado('iva', '202610');
+    expect(llamadas[0].metodos.some((m) => m[0] === 'eq' && m[1] === 'empresa_id')).toBe(false);
   });
 
   it('para ISLR asigna formato continuo de 10 dígitos', async () => {

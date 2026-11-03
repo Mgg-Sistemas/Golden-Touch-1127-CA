@@ -29,6 +29,9 @@ import { repartirPagoYReembolso } from './reembolsoPago';
 import { filtrarMovimientos } from './filtrosMovimientos';
 import { filtrarRenglonesNomina, montoRenglonLote, totalLote } from './nominaLote';
 import { convertirRetencion } from './retencionPago';
+// Excepción de alcance (W5, autorizada): leer del libro la retención ya hecha
+// para PRE-LLENAR el monto en el pago de una OC «retener antes de pagar».
+import { retencionRegistradaDeOrden, type RetencionRegistrada } from './retencionRegistrada';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, listConversiones, type ConversionCaja } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
@@ -95,6 +98,28 @@ import { mensajeError } from '@/shared/lib/errores';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { enviarMensaje } from '@/modules/pedidos/ordenChat.repository';
 import { construirTextoMotivoPagoWhatsapp, MOTIVOS_NO_PAGO, type MotivoNoPagoTipo } from './motivoPagoWhatsapp';
+import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
+import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
+
+/**
+ * Botón que abre el reporte moldeable de Tesorería en un ámbito dado. Autocontenido
+ * (botón + estado + modal): se coloca JUNTO a las descargas rígidas existentes sin
+ * tocar su flujo ni reemplazarlas. Solo enriquece.
+ */
+function BotonReporteMoldeable({ ambito, rango, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
+  ambito: AmbitoTesoreria;
+  rango?: { desde: string; hasta: string };
+  label?: string;
+  className?: string;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setAbierto(true)} title="Reporte moldeable: columnas, filtros, fichas o tabla, PDF/Excel/CSV">{label}</button>
+      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} onClose={() => setAbierto(false)} />}
+    </>
+  );
+}
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -555,6 +580,7 @@ export function TesoreriaPage() {
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={async () => {
                 try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
+              <BotonReporteMoldeable ambito="movimientos" rango={{ desde: fDesde, hasta: fHasta }} />
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
               {fBuscar.trim() && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
@@ -3940,6 +3966,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         <button className="btn btn-ghost" disabled={!rows.length}
           onClick={() => descargarOrdenesPorPagarPdf(rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}
           title="Resumen en PDF de TODO lo pendiente por pagar, por segmentos (Compras Directas, OC, Servicios/CS y Servicios Directos), con subtotal por segmento y total general en $ y Bs a la tasa del día">↓ Resumen PDF</button>
+        <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte" className="btn btn-ghost" />
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -4505,7 +4532,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
               <label style={{ margin: 0 }}>Cuenta a crédito ({ordenes.length})</label>
-              <button className="btn btn-sm btn-ghost" title="Resumen de compras a crédito en PDF (vista previa)"
+              <span style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}><button className="btn btn-sm btn-ghost" title="Resumen de compras a crédito en PDF (vista previa)"
                 onClick={async () => {
                   try {
                     await descargarResumenCuentasPdf('Resumen de Compras a Crédito', ordenes.map((x) => {
@@ -4521,7 +4548,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                       };
                     }), 'ABONADO');
                   } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-                }}>📄 Resumen</button>
+                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={ordenes.map((x) => ({ value: x.orden.id, label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}` }))} />
@@ -4825,7 +4852,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
           <label style={{ margin: 0 }}>Cuenta por pagar ({lista.length})</label>
-          <button className="btn btn-sm btn-ghost" title="Resumen de cuentas por pagar en PDF (vista previa)"
+          <span style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}><button className="btn btn-sm btn-ghost" title="Resumen de cuentas por pagar en PDF (vista previa)"
             onClick={async () => {
               try {
                 await descargarResumenCuentasPdf('Resumen de Cuentas por Pagar', lista.map((c) => {
@@ -4841,7 +4868,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                   };
                 }), 'ABONADO');
               } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-            }}>📄 Resumen</button>
+            }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
         </div>
         <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
           options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}` }))} />
@@ -5376,7 +5403,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
               <label style={{ margin: 0 }}>Cuenta por cobrar ({lista.length})</label>
-              <button className="btn btn-sm btn-ghost" title="Resumen de cuentas por cobrar en PDF (vista previa)"
+              <span style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}><button className="btn btn-sm btn-ghost" title="Resumen de cuentas por cobrar en PDF (vista previa)"
                 onClick={async () => {
                   try {
                     await descargarResumenCuentasPdf('Resumen de Cuentas por Cobrar', lista.map((c) => {
@@ -5392,7 +5419,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                       };
                     }), 'COBRADO');
                   } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-                }}>📄 Resumen</button>
+                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.cobrado) || 0)), c.moneda)}` }))} />
@@ -5650,6 +5677,26 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [retencionMoneda, setRetencionMoneda] = useState<'Bs' | 'USD'>('Bs');
   const [tasaRetStr, setTasaRetStr] = useState('');
   const [tasaRetEditada, setTasaRetEditada] = useState(false);
+  // W5: la retención YA registrada en el libro para esta OC (en Bs). Pre-llena
+  // el campo cuando se retiene «antes de pagar». null = no hay nada registrado.
+  const [retRegistrada, setRetRegistrada] = useState<RetencionRegistrada | null>(null);
+  const retPrellenada = useRef(false);
+  useEffect(() => {
+    // Solo las OC que se retienen antes de pagar traen una retención ya hecha.
+    if (!retieneAntes || !o.id) return;
+    let vivo = true;
+    retencionRegistradaDeOrden(o.id).then((reg) => {
+      if (!vivo || !reg) return;
+      setRetRegistrada(reg);
+      // Pre-llenamos una sola vez y sin pisar lo que Tesorería haya escrito.
+      if (!retPrellenada.current) {
+        retPrellenada.current = true;
+        setRetencionMoneda('Bs');
+        setRetencionStr(String(reg.montoBs));
+      }
+    }).catch(() => { /* si falla la lectura, el campo queda como hoy (vacío) */ });
+    return () => { vivo = false; };
+  }, [retieneAntes, o.id]);
   const monedaOc: 'Bs' | 'USD' = (o.total_moneda ?? 'USD') === 'Bs' ? 'Bs' : 'USD';
   const tasaRetNum = Number(tasaRetStr) || 0;
   const retConv = convertirRetencion(conRetencion ? Number(retencionStr) || 0 : 0, retencionMoneda, tasaRetNum, monedaOc);
@@ -5657,6 +5704,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   // Lo que se resta del total: la retención en la moneda de la OC.
   const retencionNum = conRetencion ? retConv.enMonedaOc : 0;
   const retencionInvalida = conRetencion && (faltaTasaRet || retencionNum <= 0 || retencionNum >= baseFactura);
+  // W5: aviso NO bloqueante si el monto editado deja de coincidir con lo
+  // registrado en el libro (comparado en Bs, que es como se declara).
+  const retNoCoincide = conRetencion && retRegistrada != null && !faltaTasaRet
+    && Math.abs(retConv.enBs - retRegistrada.montoBs) > 0.01;
   const baseOrden = retencionInvalida ? baseFactura : round2(baseFactura - retencionNum);
   // Pagar de más ya no se bloquea: se pide confirmación y el excedente sale como reembolso.
   const [confirmarReembolso, setConfirmarReembolso] = useState(false);
@@ -6436,6 +6487,18 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 {' − '}retención <strong className="mono">{monto(retencionNum, monedaOc)}</strong>
                 {' = '}<strong className="mono" style={{ color: retencionInvalida ? 'var(--danger)' : 'var(--success)' }}>{monto(round2(baseFactura - retencionNum), monedaOc)}</strong> a pagar
               </div>
+              {retRegistrada != null && (
+                <div className="muted" style={{ fontSize: '.82rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                  <span>Retención registrada en el libro: <strong className="mono">{monto(retRegistrada.montoBs, 'Bs')}</strong>
+                  {retRegistrada.lineas > 1 && <span> · {retRegistrada.lineas} impuestos sumados</span>}</span>
+                  {/* El monto registrado siempre se puede volver a traer al campo (tras editarlo o recargar). */}
+                  <button type="button" className="btn btn-sm btn-ghost"
+                    title="Poner en el campo el monto de la retención ya registrada en el libro (en Bs)"
+                    onClick={() => { setConRetencion(true); setRetencionMoneda('Bs'); setTasaRetEditada(false); setRetencionStr(String(retRegistrada.montoBs)); }}>
+                    Usar este monto
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {retencionInvalida && (
@@ -6444,6 +6507,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 ? 'Indica la tasa (Bs por $) para convertir la retención.'
                 : 'La retención tiene que ser mayor que 0 y menor que el total de la factura.'}
             </small>
+          )}
+          {retNoCoincide && retRegistrada && (
+            <div className="aviso warning sm" style={{ marginTop: '.35rem' }}>
+              <span className="aviso-icono">⚠️</span>
+              <div>No coincide con la retención registrada (<strong className="mono">{monto(retRegistrada.montoBs, 'Bs')}</strong>). Puedes continuar, pero revisa el monto.</div>
+            </div>
           )}
           {!conRetencion && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Márcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
         </div>

@@ -7,6 +7,7 @@
    ============================================================ */
 import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { getConfigRetencion } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import type { ConfigRetencion } from '@/modules/libroFiscal/retencionesCalculo';
 import { razonSocialAgente } from '@/modules/libroFiscal/comprobanteRetencionPdf';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, fechaPdf, textoPdf } from '@/modules/libroFiscal/pdfComun';
 import { armarCsv, formatoMonto, type Rango, type TablaReporte, type Totales } from './reportesRetenciones';
@@ -46,9 +47,14 @@ export function descargarCsv(t: TablaReporte, c: CabeceraReporte): void {
 }
 
 /** Excel con el formato de los Excel del sistema: título, filtros, encabezado naranja y totales en negrita. */
-export async function reporteExcel(t: TablaReporte, c: CabeceraReporte): Promise<void> {
+export async function reporteExcel(t: TablaReporte, c: CabeceraReporte, configEmpresa?: ConfigRetencion | null): Promise<void> {
   if (!t.filas.length) throw new Error('No hay filas que exportar con estos filtros.');
-  const [{ default: ExcelJS }, config] = await Promise.all([import('exceljs'), getConfigRetencion().catch(() => null)]);
+  // Multi-empresa: si viene la config de la empresa actual, su nombre/RIF encabezan el
+  // reporte; si no, se lee la global (como hoy).
+  const [{ default: ExcelJS }, config] = await Promise.all([
+    import('exceljs'),
+    configEmpresa ? Promise.resolve(configEmpresa) : getConfigRetencion().catch(() => null),
+  ]);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(c.titulo.slice(0, 31), {
     pageSetup: { orientation: c.orientacion === 'vertical' ? 'portrait' : 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
@@ -101,10 +107,12 @@ export async function reporteExcel(t: TablaReporte, c: CabeceraReporte): Promise
 }
 
 /** PDF con el logo de Golden Touch, para imprimir o guardar. */
-export async function reportePdf(t: TablaReporte, c: CabeceraReporte): Promise<void> {
+export async function reportePdf(t: TablaReporte, c: CabeceraReporte, configEmpresa?: ConfigRetencion | null): Promise<void> {
   if (!t.filas.length) throw new Error('No hay filas que imprimir con estos filtros.');
+  // Multi-empresa: la empresa actual encabeza el PDF si viene; si no, la global (como hoy).
   const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl, dibujarLogoPdf }, config] = await Promise.all([
-    import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/pdfLogo'), getConfigRetencion().catch(() => null),
+    import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/pdfLogo'),
+    configEmpresa ? Promise.resolve(configEmpresa) : getConfigRetencion().catch(() => null),
   ]);
   const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: c.orientacion === 'vertical' ? 'portrait' : 'landscape' });
