@@ -227,6 +227,9 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   }), [filasDetalle, cajasSel, monedasSel, tiposSel, categoriasSel, contrapartesSel, estadosSel]);
 
   const { filas, resumen } = useMemo(() => procesarFilasReporteTesoreria(filtradas, agrupacion, { ordenarPor }), [filtradas, agrupacion, ordenarPor]);
+  // Nombre legible de la dimensión activa (sin el prefijo «Por »), para los avisos de claridad:
+  // así el usuario entiende que el nº de tarjetas/filas = nº de grupos de ESA dimensión.
+  const nombreDimension = (MODOS.find((m) => m.id === agrupacion)?.label ?? '').replace(/^Por\s+/, '');
 
   // Columnas visibles en pantalla (respetan los toggles de moneda)
   const marcadosVisibles = useMemo(() => marcados.filter((c) => {
@@ -329,7 +332,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '.5rem', flexWrap: 'wrap' }}>
-          <div className="muted" style={{ fontSize: '.8rem' }}>{cargando ? 'Cargando datos...' : `${filas.length} fila(s) a exportar`}</div>
+          <div className="muted" style={{ fontSize: '.8rem' }}>{cargando ? 'Cargando datos...' : (agrupacion === 'detallado' ? `${filas.length} fila(s) a exportar` : `${filas.length} grupo(s) · agrupado por ${nombreDimension}`)}</div>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
             <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
@@ -403,6 +406,13 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                 </button>
               ))}
             </div>
+            {!cargando && (
+              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.45rem', lineHeight: 1.35 }}>
+                {agrupacion === 'detallado'
+                  ? `Sin agrupar: cada movimiento es una fila (${filas.length} en total).`
+                  : `Agrupando por ${nombreDimension}: ${filas.length} grupo(s) → el reporte tendrá ${filas.length} tarjeta(s)/fila(s). Cambia la dimensión para ver más o menos.`}
+              </div>
+            )}
           </div>
           <div style={surf2}>
             <div style={{ ...tituloSec, marginBottom: '.4rem' }}>💱 Valuación y monedas</div>
