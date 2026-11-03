@@ -15,12 +15,14 @@ import { EmpresasModal } from './EmpresasModal';
 import { GastosFijosTab } from './GastosFijosTab';
 import { MovimientosTab } from './MovimientosTab';
 import { ReporteTab } from './ReporteTab';
+import { ConfiguracionTab } from './ConfiguracionTab';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
   { id: 'gastos', label: '📌 Gastos fijos' },
   { id: 'movimientos', label: '📒 Movimientos / Histórico' },
   { id: 'reporte', label: '📊 Reporte' },
+  { id: 'config', label: '⚙ Configuración' },
 ];
 
 export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, puedeEscribir = true, puedeFull = true }: {
@@ -98,6 +100,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab === 'config' && <ConfiguracionTab empresas={empresas} puedeFull={puedeFull} onGestionarEmpresas={() => setGestionar(true)} />}
 
       {gestionar && puedeFull && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
     </div>
