@@ -55,7 +55,8 @@
 /* ── Teléfono ── */
 /* 02/11/2026 · Inicio como en MGG: tarjetas grandes «Por revisar» (naranja), «Urgentes» (rojo)
    y «Revisadas» (verde, a lo ancho) que filtran la lista, y un buscador debajo. */
-.spa-inicio .surt-btn { grid-column: auto; }
+.spa-inicio .surt-btn,
+.surt-acciones.spa-inicio .surt-btn.primario { grid-column: auto; }  /* Por revisar y Urgentes lado a lado (como MGG) */
 .spa-inicio .surt-btn[aria-pressed="false"] { opacity: .8; }
 .spa-inicio .surt-btn.urgentes { border-color: var(--danger); }
 .spa-inicio .surt-btn.urgentes[aria-pressed="true"] { background: color-mix(in srgb, var(--danger) 14%, var(--surface-3)); }
