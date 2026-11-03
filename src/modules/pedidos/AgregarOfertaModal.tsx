@@ -7,7 +7,7 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, OrigenProveedor, Proveedor } from '@/shared/lib/types';
-import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
+import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO, ligarRenglonesAInventario } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { esRecargaAgua } from './servicios.repository';
@@ -19,9 +19,12 @@ import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPar
 import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 import { getUnidades } from '@/modules/inventario/inventario.repository';
 import { listProductosActivos } from './pedidos.repository';
-import { asignarProducto, esPiezaMaquinaria, etiquetaRenglonPorAsignar, piezasSinProducto, productoUsadoEnOtroRenglon, requiereAsignarProducto, type ProductoAsignable } from './piezasMaquinaria';
+import { esPiezaMaquinaria, etiquetaRenglonPorAsignar, requiereAsignarProducto, type ProductoAsignable } from './piezasMaquinaria';
 import { guardarVinculosPiezasEnOrden } from './piezasMaquinaria.repository';
-import { PiezaProductoCelda } from './PiezaProductoCelda';
+import { eleccionInicial, planFichas, renglonesBase, type ConSkuOrden, type DestinoRenglon, type EleccionNombreInventario, type FichaMin, type ModoNombreInventario } from './nombreInventario';
+import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
+import { interruptorActivo } from '@/shared/lib/interruptores';
+import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
 
 /** Tope de imágenes/adjuntos por cotización (oferta de proveedor). */
 const MAX_ADJ_OFERTA = 4;
@@ -57,6 +60,91 @@ let _ofertaUidSeq = 0;
 function nuevoUid(): string {
   _ofertaUidSeq += 1;
   return `fi-${_ofertaUidSeq}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Celda «Se guarda en inventario como» de un renglón (03/11/2026, de MGG). Dejar como
+ * viene (por defecto) · Cambiar: elegir un producto del inventario o escribir el nombre de
+ * uno nuevo. Si hace falta un producto nuevo pide su categoría y unidad; se crea al guardar.
+ */
+function CeldaNombreInventario({
+  item, eleccion, destino, fichaActual, opcionesProductos, unidades, bloqueada, onChange,
+}: {
+  item: Pick<ItemOrden, 'sku' | 'nombre' | 'productoId' | 'unidad' | 'nombre_solicitado' | 'orden_servicio' | 'pieza_maquinaria' | 'nombre_generico'>;
+  eleccion: EleccionNombreInventario | undefined;
+  destino: DestinoRenglon | undefined;
+  fichaActual: FichaMin | undefined;
+  opcionesProductos: { value: string; label: string; hint?: string }[];
+  unidades: string[];
+  /** Oferta ya aceptada: el producto de la OC ya está fijado, solo se muestra. */
+  bloqueada: boolean;
+  onChange: (patch: Partial<EleccionNombreInventario>) => void;
+}) {
+  const modo: ModoNombreInventario = eleccion?.modo ?? 'como_viene';
+  const unidad = eleccion?.unidad ?? item.unidad ?? '';
+  const chico = { fontSize: '.76rem' } as const;
+  const mayus = (s: string) => s[0].toUpperCase() + s.slice(1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', minWidth: 230 }}>
+      {requiereAsignarProducto(item) && (
+        <div className="muted" style={{ fontSize: '.68rem' }}>
+          {etiquetaRenglonPorAsignar(item)}{item.orden_servicio ? ` · ${item.orden_servicio}` : ''}
+          {item.nombre_solicitado ? <> · pedido como «{item.nombre_solicitado}»</> : null}
+        </div>
+      )}
+      {!bloqueada && (
+        <select className="select" style={chico} value={modo} aria-label={`Se guarda en inventario como · ${item.nombre}`}
+          onChange={(ev) => onChange({ modo: ev.target.value as ModoNombreInventario })}>
+          <option value="como_viene">Dejar como viene</option>
+          <option value="existente">Cambiar · elegir del inventario</option>
+          <option value="nuevo">Cambiar · producto nuevo</option>
+        </select>
+      )}
+      {!bloqueada && modo === 'existente' && (
+        <SearchSelect value={eleccion?.productoId ?? ''} onChange={(v) => onChange({ productoId: v || null })}
+          options={opcionesProductos} placeholder="🔍 Buscar en el inventario…" emptyText="Ningún producto coincide" />
+      )}
+      {!bloqueada && modo === 'nuevo' && (
+        <input className="input" style={chico} placeholder="Nombre con que se guarda *" aria-label="Nombre del producto nuevo"
+          value={eleccion?.nombre ?? ''} onChange={(ev) => onChange({ nombre: ev.target.value.toUpperCase() })} />
+      )}
+      {destino?.tipo === 'igual' && (
+        <small style={{ ...chico, color: 'var(--success)' }}>
+          ✓ {fichaActual?.nombre ?? item.nombre} <span className="mono muted">{fichaActual?.sku ?? item.sku}</span>
+        </small>
+      )}
+      {destino?.tipo === 'sin_ficha' && (
+        <small className="muted" style={chico}>Sin producto del inventario: no entra al inventario al recibir.</small>
+      )}
+      {destino?.tipo === 'ficha' && (
+        <small style={{ ...chico, color: 'var(--success)' }}>
+          ✓ Entra a <strong>{destino.ficha.nombre}</strong> <span className="mono muted">{destino.ficha.sku}</span>
+          {destino.ficha.unidad && item.unidad && destino.ficha.unidad.toLowerCase() !== item.unidad.toLowerCase()
+            ? <span className="muted"> · en {destino.ficha.unidad}</span> : null}
+        </small>
+      )}
+      {destino?.tipo === 'incompleto' && (
+        <small style={{ ...chico, color: 'var(--warning, #f59e0b)' }}>⚠️ {mayus(destino.falta)}.</small>
+      )}
+      {destino?.tipo === 'crear' && (
+        <>
+          <small style={chico}>＋ Producto nuevo: <strong>{destino.nombre}</strong></small>
+          {!bloqueada && (
+            <>
+              <CategoriaProductoSelect value={eleccion?.categoria ?? destino.categoria ?? ''} onChange={(v) => onChange({ categoria: v })} />
+              <select className="select" style={chico} value={unidad} aria-label="Unidad del producto nuevo" onChange={(ev) => onChange({ unidad: ev.target.value })}>
+                {!unidad && <option value="">— unidad —</option>}
+                {[...new Set([unidad, ...unidades])].filter(Boolean).map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </>
+          )}
+          {destino.falta
+            ? <small style={{ ...chico, color: 'var(--warning, #f59e0b)' }}>⚠️ {mayus(destino.falta)}.</small>
+            : <small className="muted" style={{ fontSize: '.66rem' }}>Se crea al guardar · Inventario General, stock 0.</small>}
+        </>
+      )}
+    </div>
+  );
 }
 
 export function AgregarOfertaModal({
@@ -133,38 +221,50 @@ export function AgregarOfertaModal({
       modelo: (i as ItemOrden).modelo ?? '',
     })),
   );
-  // Repuestos de Control de Maquinaria (30/10/2026): llegan con un nombre general y aquí
-  // el analista les pone el producto del inventario (o da de alta uno nuevo). Se recuerda
-  // el sku que cada renglón tenía en la orden para dejarle el mismo producto a la solicitud.
-  // 31/10/2026: igual para los renglones de una SP con nombres genéricos (flujo nuevo).
-  const [skuOriginal] = useState(() => new Map(items.map((i) => [i.uid, i.sku])));
-  const hayPiezasMaq = useMemo(() => items.some(requiereAsignarProducto), [items]);
-  const [productosInv, setProductosInv] = useState<ProductoAsignable[]>([]);
+  /* «Se guarda en inventario como» (03/11/2026, de MGG). Con el flujo nuevo de Compras
+     (interruptor compras_revision_almacen) y en solicitudes de productos, cada renglón dice
+     con qué producto del inventario entra al recibir: los de nombre genérico de la SP y los
+     repuestos de Maquinaria (30/10) lo NECESITAN; los demás pueden quedar como vienen o
+     cambiarse. La elección se guarda por sku y se aplica al guardar la cotización. */
+  const [flujoNuevo, setFlujoNuevo] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    interruptorActivo(CLAVE_INTERRUPTOR_REVISION_ALMACEN).then((v) => { if (vivo) setFlujoNuevo(v); }).catch(() => { /* apagado */ });
+    return () => { vivo = false; };
+  }, []);
+  // Renglón que lleva la celda: nunca un servicio (los servicios no entran al inventario),
+  // salvo el repuesto de Maquinaria que viene dentro de una Solicitud de Servicio.
+  const ordenDeServicio = orden.tipo === 'servicio';
+  const llevaNombreInv = (it: ItemOrden) => requiereAsignarProducto(it) || (flujoNuevo && !ordenDeServicio && !it.es_servicio);
+  const conNombreInv = items.some(llevaNombreInv);
+  // Oferta ya aceptada: los renglones de la OC ya son los suyos; aquí solo se muestra.
+  const nombreInvBloqueado = ofertaEditar?.estado === 'aceptada';
+  const [catalogo, setCatalogo] = useState<FichaMin[]>([]);
   const [unidadesInv, setUnidadesInv] = useState<string[]>([]);
   useEffect(() => {
-    if (!hayPiezasMaq) return;
+    if (!conNombreInv) return;
+    let vivo = true;
     listProductosActivos()
-      .then((ps) => setProductosInv(ps.filter((p) => (p.almacen ?? 'General') === 'General')
-        .map((p) => ({ id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad }))))
-      .catch(() => setProductosInv([]));
-    getUnidades().then(setUnidadesInv).catch(() => setUnidadesInv(['und']));
-  }, [hayPiezasMaq]);
-  const productosInvPorId = useMemo(() => new Map(productosInv.map((p) => [p.id, p])), [productosInv]);
+      .then((ps) => { if (vivo) setCatalogo(ps.filter((p) => (p.almacen ?? 'General') === 'General')
+        .map((p) => ({ id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad, estado: p.estado }))); })
+      .catch(() => { if (vivo) setCatalogo([]); });
+    getUnidades().then((u) => { if (vivo) setUnidadesInv(u); }).catch(() => { if (vivo) setUnidadesInv(['und']); });
+    return () => { vivo = false; };
+  }, [conNombreInv]);
+  const catalogoPorId = useMemo(() => new Map(catalogo.map((p) => [p.id, p])), [catalogo]);
   const opcionesProductosInv = useMemo(
-    () => productosInv.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` })),
-    [productosInv],
+    () => catalogo.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}`, hint: p.unidad || undefined })),
+    [catalogo],
   );
-  function asignarPieza(idx: number, p: ProductoAsignable): boolean {
-    const fila = items[idx];
-    if (!fila) return false;
-    if (productoUsadoEnOtroRenglon(items, fila.sku, p.id)) {
-      toast(`«${p.nombre}» ya está en otro renglón de esta cotización. Elige otro producto o súmale la cantidad a ese renglón.`, 'error');
-      return false;
-    }
-    // Un producto recién creado no estaba en el buscador: se suma para los demás renglones.
-    if (!productosInvPorId.has(p.id)) setProductosInv((prev) => [...prev, p]);
-    setItems((prev) => asignarProducto(prev, fila.sku, p));
-    return true;
+  const [elecciones, setElecciones] = useState<Record<string, EleccionNombreInventario>>({});
+  const planInv = useMemo(
+    () => (conNombreInv
+      ? planFichas(renglonesBase(items.filter(llevaNombreInv)).map((item) => ({ item, eleccion: elecciones[item.sku] })), catalogo)
+      : null),
+    [conNombreInv, items, elecciones, catalogo, flujoNuevo], // llevaNombreInv depende de flujoNuevo
+  );
+  function updateEleccion(it: FormItem, patch: Partial<EleccionNombreInventario>) {
+    setElecciones((prev) => ({ ...prev, [it.sku]: { ...eleccionInicial(it), ...(prev[it.sku] ?? {}), ...patch } }));
   }
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEditar?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEditar?.condiciones_pago ?? '');
@@ -417,11 +517,11 @@ export function AgregarOfertaModal({
       toast('Elige la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
-    // Repuestos de Maquinaria y renglones genéricos de la SP: cada uno tiene que quedar
-    // con su producto del inventario (la base también lo exige para los genéricos).
-    const sinProducto = piezasSinProducto(items);
-    if (sinProducto.length) {
-      toast(`Ponle el producto del inventario (o crea uno nuevo) a: ${[...new Set(sinProducto.map((i) => i.nombre))].join(', ')}`, 'error');
+    // «Se guarda en inventario como»: cada renglón tiene que saber con qué producto entra
+    // (los genéricos de la SP y los repuestos de Maquinaria lo necesitan: la base también
+    // lo exige para los genéricos).
+    if (!nombreInvBloqueado && planInv?.error) {
+      toast(`Se guarda en inventario como · ${planInv.error}`, 'error');
       return;
     }
     // Anticipo parcial: solo en servicio + condición 'anticipado' + monto > 0.
@@ -486,7 +586,7 @@ export function AgregarOfertaModal({
       //    Si el proveedor cotizó SOLO en $ (Bs en blanco), usamos ese valor en $ como
       //    el precio canónico del ítem (ambos están en $), para que el ranking, la OC y
       //    la recepción a inventario tengan un costo válido.
-      const itemsGuardar: ItemOrden[] = items.map((i) => {
+      let itemsGuardar: ConSkuOrden<ItemOrden>[] = items.map((i) => {
         const soloUsd = (!i.precio || i.precio <= 0) && i.precio_usd > 0;
         return {
           ...i,
@@ -496,6 +596,17 @@ export function AgregarOfertaModal({
           modelo: i.modelo.trim() || null,
         };
       });
+      // «Se guarda en inventario como»: cada renglón queda ligado a su producto (el elegido,
+      // uno que ya se llama igual o uno nuevo, que se crea ahora). Ningún producto existente
+      // se renombra. El orden de los renglones no cambia (índice = el de `items`).
+      if (conNombreInv && !nombreInvBloqueado) {
+        const ligado = await ligarRenglonesAInventario(itemsGuardar, elecciones, catalogo, registradoPorEmail);
+        itemsGuardar = ligado.items;
+        if (ligado.creadas.length) {
+          setCatalogo((prev) => [...prev, ...ligado.creadas.map((p) => ({ id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad, estado: p.estado }))]);
+          notify(`${ligado.creadas.length === 1 ? 'Producto nuevo en el inventario' : `${ligado.creadas.length} productos nuevos en el inventario`}: ${ligado.creadas.map((p) => `${p.nombre} (${p.sku})`).join(', ')}`, 'success', { link: '#/app/inventario' });
+        }
+      }
       // Total de referencia (Bs a BCV, en $) recalculado tras la copia: para una oferta
       // solo-$ queda igual al total en USD; para Bs o mixtas, igual que antes. Las
       // variantes del mismo producto (alternativas) cuentan como UNA (la más cara).
@@ -529,7 +640,7 @@ export function AgregarOfertaModal({
           pdf_filename: primero?.filename ?? null,
         });
         notify(`Oferta actualizada · ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
-        await recordarPiezasEnOrden();
+        await recordarPiezasEnOrden(itemsGuardar);
         onCreated();
         return;
       }
@@ -559,7 +670,7 @@ export function AgregarOfertaModal({
         igtf_aplicado: conIgtf && igtfMonto > 0,
       });
       notify(`Oferta registrada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
-      await recordarPiezasEnOrden();
+      await recordarPiezasEnOrden(itemsGuardar);
       onCreated();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al registrar', 'error');
@@ -570,13 +681,16 @@ export function AgregarOfertaModal({
 
   /** Deja en la solicitud los productos puestos a las piezas de Maquinaria (la próxima
    *  cotización ya arranca con ellos). La oferta ya quedó guardada: si esto falla, solo avisa. */
-  async function recordarPiezasEnOrden() {
+  async function recordarPiezasEnOrden(guardados: ConSkuOrden<ItemOrden>[]) {
+    // Solo los renglones con nombre general (repuestos de Maquinaria y genéricos de la SP):
+    // un renglón que ya traía producto y se cambió aquí queda cambiado en ESTA oferta
+    // (con su `sku_orden`), sin tocar la solicitud ni las demás ofertas.
     const vinculos = new Map<string, ProductoAsignable>();
-    for (const it of items) {
-      const original = skuOriginal.get(it.uid);
-      if (!original || !requiereAsignarProducto(it) || !it.productoId) continue;
-      vinculos.set(original, { id: it.productoId, sku: it.sku, nombre: it.nombre, unidad: it.unidad });
-    }
+    guardados.forEach((it, i) => {
+      const original = it.sku_orden ?? items[i]?.sku;
+      if (!original || !requiereAsignarProducto(it) || !it.productoId) return;
+      vinculos.set(original, { id: it.productoId, sku: it.sku, nombre: it.nombre, unidad: it.unidad_uso ?? it.unidad });
+    });
     try {
       await guardarVinculosPiezasEnOrden(orden.id, vinculos);
     } catch {
@@ -805,12 +919,20 @@ export function AgregarOfertaModal({
 
       <div className="form-row">
         <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completa al menos una columna)</span></label>
+        {conNombreInv && !nombreInvBloqueado && (
+          <p className="hint muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
+            📦 <strong>Se guarda en inventario como</strong>: el producto del inventario con que cada renglón entra al recibir la OC. Por defecto queda <strong>como viene de la solicitud</strong>; con <strong>Cambiar</strong> eliges un producto que ya existe o escribes el nombre de uno nuevo (indica su categoría: se crea al guardar). Ningún producto existente se renombra.
+          </p>
+        )}
         <div className="table-wrap">
           <table className="items-table" style={{ fontSize: '.84rem' }}>
             <thead>
               <tr>
                 <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>SKU</th>
                 <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>{esServicioOrden ? 'Servicio' : 'Producto'}</th>
+                {conNombreInv && (
+                  <th rowSpan={2} style={{ verticalAlign: 'bottom' }} title="El producto del inventario con que este renglón entra al recibir la OC.">Se guarda en inventario como</th>
+                )}
                 <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Marca / modelo</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant.</th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
@@ -843,14 +965,6 @@ export function AgregarOfertaModal({
                     </td>
                     <td>
                       {esVariante ? <span className="muted">{it.nombre}</span> : it.nombre}
-                      {!esVariante && requiereAsignarProducto(it) && (
-                        <PiezaProductoCelda
-                          key={`${it.uid}-${it.productoId ?? 'sin'}`}
-                          etiqueta={etiquetaRenglonPorAsignar(it)}
-                          item={it} opciones={opcionesProductosInv} porId={productosInvPorId}
-                          unidades={unidadesInv} actorEmail={registradoPorEmail}
-                          onAsignar={(p) => asignarPieza(idx, p)} />
-                      )}
                       {!esVariante && esPiezaMaquinaria(it) && it.equipo_nombre && (
                         <div className="muted" style={{ fontSize: '.72rem' }}>🚜 {it.equipo_nombre}</div>
                       )}
@@ -868,6 +982,26 @@ export function AgregarOfertaModal({
                         );
                       })()}
                     </td>
+                    {conNombreInv && (
+                      <td style={{ verticalAlign: 'top' }}>
+                        {!llevaNombreInv(it) ? (
+                          <span className="muted" style={{ fontSize: '.74rem' }}>{it.es_servicio ? 'Servicio: no entra al inventario' : '—'}</span>
+                        ) : items.findIndex((x) => x.sku === it.sku) !== idx ? (
+                          <span className="muted" style={{ fontSize: '.74rem' }} title="Otra marca/modelo del mismo renglón">↳ igual que el de arriba</span>
+                        ) : (
+                          <CeldaNombreInventario
+                            item={it}
+                            eleccion={elecciones[it.sku]}
+                            destino={planInv?.destinos.get(it.sku)}
+                            fichaActual={it.productoId ? catalogoPorId.get(it.productoId) : undefined}
+                            opcionesProductos={opcionesProductosInv}
+                            unidades={unidadesInv}
+                            bloqueada={nombreInvBloqueado}
+                            onChange={(patch) => updateEleccion(it, patch)}
+                          />
+                        )}
+                      </td>
+                    )}
                     <td>
                       {/* No controlado (defaultValue) como los precios: así un re-render
                           por realtime no borra lo que se está tecleando. La key={it.uid}
@@ -943,7 +1077,7 @@ export function AgregarOfertaModal({
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
-                <td colSpan={5} className="num">SUBTOTAL{conAlternativas ? ' *' : ''}</td>
+                <td colSpan={conNombreInv ? 6 : 5} className="num">SUBTOTAL{conAlternativas ? ' *' : ''}</td>
                 <td className="num mono">{money(precioTotal)}</td>
                 <td></td>
                 <td className="num mono">{tieneUsd ? money(totalUsd) : '—'}</td>
