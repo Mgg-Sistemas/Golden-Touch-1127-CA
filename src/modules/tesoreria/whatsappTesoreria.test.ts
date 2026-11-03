@@ -79,4 +79,32 @@ describe('textoWhatsappTesoreria', () => {
     expect(t).toContain('(+1 ítem(s) más)');
     expect(t).toMatch(/💰 \*Total \(41\):\* \$ 41,00 · Bs 1\.476,00$/);
   });
+
+  it('con «Por preparar» muestra totales nativos por moneda y OMITE el total bruto reconvertido', () => {
+    const filas = [mkFila({ contraparte: 'A', moneda_original: 'USD', monto_original: 100, monto_usd: 100, monto_bs: 3600 })];
+    const preparacion = {
+      porMetodoMoneda: [
+        { metodo: 'transferencia', metodoLabel: 'Transferencia', moneda: 'Bs', monto: 3600, nOrdenes: 1 },
+        { metodo: 'zelle', metodoLabel: 'Zelle', moneda: 'USD', monto: 100, nOrdenes: 1 },
+      ],
+      totalesPorMoneda: [
+        { moneda: 'USD', monto: 100, nOrdenes: 1 },
+        { moneda: 'Bs', monto: 3600, nOrdenes: 1 },
+      ],
+      sinMetodo: { usd: 0, bs: 0, nOrdenes: 0 },
+    };
+    const t = textoWhatsappTesoreria(filas, { ambito: 'por_pagar', ...RANGO, preparacion });
+    expect(t).toContain('💵 *Por preparar (por moneda):*');
+    expect(t).toContain('$ 100,00');
+    expect(t).toContain('Bs 3.600,00');
+    expect(t).toContain('*Detalle por método:*');
+    expect(t).toContain('Zelle (USD): $ 100,00');
+    expect(t).not.toContain('💰 *Total');   // no se añade el total bruto reconvertido
+  });
+
+  it('sin «Por preparar» (toggle apagado) mantiene el total bruto como antes', () => {
+    const filas = [mkFila({ moneda_original: 'USD', monto_original: 100, monto_usd: 100, monto_bs: 3600 })];
+    const t = textoWhatsappTesoreria(filas, { ambito: 'por_pagar', ...RANGO });
+    expect(t).toContain('💰 *Total');
+  });
 });

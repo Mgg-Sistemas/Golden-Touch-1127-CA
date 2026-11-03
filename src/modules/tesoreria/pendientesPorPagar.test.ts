@@ -19,7 +19,7 @@ import type { Orden } from '@/shared/lib/types';
 import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 import type { CompraDirecta } from '@/modules/pedidos/compras.repository';
 import type { ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
-import { armarPendientesPorPagar, lineasDePago } from './pendientesPorPagar';
+import { armarPendientesPorPagar, lineasDePago, calcularPreparacion } from './pendientesPorPagar';
 import { textoPendientesPorPagarWhatsapp } from './pendientesPorPagarWhatsapp';
 import { construirPendientesPorPagarExcel } from './pendientesPorPagarExcel';
 import { descargarPendientesPorPagarPdf } from './ordenesPorPagarPdf';
@@ -56,6 +56,65 @@ const entrada = () => ({
   comprasDir: [compra(), compra({ id: 'c2', codigo: 'CD-2026-0099', estado: 'finalizada' })],
   serviciosDir: [servicio()],
   tasa: 36, tasaFecha: '2026-10-20', generadoEn: GEN,
+});
+
+describe('calcularPreparacion · «Por preparar» nativo por método y moneda', () => {
+  const met = (metodo: string, moneda: string, monto = 0) => ({ metodo, moneda, monto });
+
+  it('método único: USD va al total USD; Bs va al total Bs; USDT al total USDT (nativo, sin reconvertir)', () => {
+    const p = calcularPreparacion({
+      ocRows: [
+        oc({ metodo_pago: [met('divisas_efectivo', 'USD')] }, { montoAPagar: 100 }),
+        oc({ metodo_pago: [met('transferencia', 'Bs')] }, { montoAPagar: 10 }),   // 10 $ → 360 Bs a tasa 36
+        oc({ metodo_pago: [met('binance', 'USDT')] }, { montoAPagar: 50 }),
+      ],
+      comprasPP: [], serviciosPP: [], tasa: 36,
+    });
+    const tot = (m: string) => p.totalesPorMoneda.find((t) => t.moneda === m)?.monto ?? 0;
+    expect(tot('USD')).toBe(100);
+    expect(tot('Bs')).toBe(360);
+    expect(tot('USDT')).toBe(50);
+    // Independientes: el pago en Bs NO aparece en el total de divisa y viceversa.
+    expect(tot('USD')).not.toBe(360);
+    expect(p.sinMetodo.nOrdenes).toBe(0);
+  });
+
+  it('pago partido: cada pata suma en su propia moneda y método', () => {
+    const p = calcularPreparacion({
+      ocRows: [oc({ metodo_pago: [met('zelle', 'USD', 30), met('transferencia', 'Bs', 360)] }, { montoAPagar: 99 })],
+      comprasPP: [], serviciosPP: [], tasa: 36,
+    });
+    expect(p.totalesPorMoneda.find((t) => t.moneda === 'USD')?.monto).toBe(30);
+    expect(p.totalesPorMoneda.find((t) => t.moneda === 'Bs')?.monto).toBe(360);
+    expect(p.porMetodoMoneda.some((l) => l.metodo === 'zelle' && l.moneda === 'USD' && l.monto === 30)).toBe(true);
+  });
+
+  it('esperando método y compras/servicios directos → «Sin método asignado» (no entran en los totales nativos)', () => {
+    const p = calcularPreparacion({
+      ocRows: [oc({ metodo_pago: [met('divisas_efectivo', 'USD')] }, { montoAPagar: 20, esperandoMetodo: true })],
+      comprasPP: [compra({ gasto: 3600, moneda: 'Bs' })],   // 3600 Bs → 100 $
+      serviciosPP: [], tasa: 36,
+    });
+    expect(p.porMetodoMoneda).toHaveLength(0);
+    expect(p.totalesPorMoneda).toHaveLength(0);
+    expect(p.sinMetodo.nOrdenes).toBe(2);
+    expect(p.sinMetodo.usd).toBe(120);    // 20 + 100
+    expect(p.sinMetodo.bs).toBe(4320);    // 20*36 + 3600
+  });
+
+  it('agrega varias órdenes del mismo método y moneda en una sola línea', () => {
+    const p = calcularPreparacion({
+      ocRows: [
+        oc({ metodo_pago: [met('transferencia', 'Bs')] }, { montoAPagar: 10 }),
+        oc({ metodo_pago: [met('transferencia', 'Bs')] }, { montoAPagar: 5 }),
+      ],
+      comprasPP: [], serviciosPP: [], tasa: 36,
+    });
+    const linea = p.porMetodoMoneda.filter((l) => l.metodo === 'transferencia' && l.moneda === 'Bs');
+    expect(linea).toHaveLength(1);
+    expect(linea[0].monto).toBe(540);      // (10 + 5) * 36
+    expect(linea[0].nOrdenes).toBe(2);
+  });
 });
 
 describe('armarPendientesPorPagar', () => {
