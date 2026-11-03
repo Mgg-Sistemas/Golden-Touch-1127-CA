@@ -175,7 +175,7 @@ export function ExportarProveedoresModal({ proveedores, total, filtro, onClose }
     try {
       guardarPrefs();
       const datos = datosMoldeable();
-      const op = { filtro, orientacion, moldeable: datos };
+      const op = { filtro, orientacion, formatoPresentacion, moldeable: datos };
       if (formato === 'csv') descargarProveedoresCsv(datos.filas, datos.columnas, { filtro });
       else if (formato === 'xlsx') await descargarProveedoresExcel(proveedores, op);
       else await descargarProveedoresPdf(proveedores, op);
