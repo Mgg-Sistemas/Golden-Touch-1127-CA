@@ -48,6 +48,8 @@ import {
   descargarTesoreriaPdf,
   type MetadatosExportacionTesoreria,
 } from './exportarTesoreria';
+import { textoWhatsappTesoreria } from './whatsappTesoreria';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 
 const CLAVE_CAMPOS = 'tesoreria.reporte.campos.v1';
 const CLAVE_AMBITO = 'tesoreria.reporte.ambito.v1';
@@ -56,6 +58,7 @@ const CLAVE_TASA = 'tesoreria.reporte.tasa.v1';
 const CLAVE_USD = 'tesoreria.reporte.usd.v1';
 const CLAVE_BS = 'tesoreria.reporte.bs.v1';
 const CLAVE_RESUMEN = 'tesoreria.reporte.resumen.v1';
+const CLAVE_KPIS = 'tesoreria.reporte.kpisSimples.v1';
 
 const AMBITOS: { id: AmbitoTesoreria; icon: string; label: string }[] = [
   { id: 'movimientos', icon: '📒', label: 'Movimientos de caja' },
@@ -96,7 +99,7 @@ function leerPrefs() {
   let baseTasa: BaseTasaTesoreria = 'bcv_dia';
   try { const t = localStorage.getItem(CLAVE_TASA) as BaseTasaTesoreria; if (t === 'bcv_dia' || t === 'historica') baseTasa = t; } catch { /* default */ }
   const leerBool = (k: string, def: boolean) => { try { const v = localStorage.getItem(k); return v == null ? def : v === 'true'; } catch { return def; } };
-  return { ambito, agrupacion, campos, baseTasa, mostrarUsd: leerBool(CLAVE_USD, true), mostrarBs: leerBool(CLAVE_BS, true), incluirResumen: leerBool(CLAVE_RESUMEN, true) };
+  return { ambito, agrupacion, campos, baseTasa, mostrarUsd: leerBool(CLAVE_USD, true), mostrarBs: leerBool(CLAVE_BS, true), incluirResumen: leerBool(CLAVE_RESUMEN, true), kpisSimplificados: leerBool(CLAVE_KPIS, false) };
 }
 
 const fmtUsd = (v: number) => `$ ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -121,6 +124,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   const [mostrarBs, setMostrarBs] = useState<boolean>(prefs.mostrarBs);
   const [marcados, setMarcados] = useState<string[]>(prefs.campos);
   const [incluirResumen, setIncluirResumen] = useState<boolean>(prefs.incluirResumen);
+  const [kpisSimplificados, setKpisSimplificados] = useState<boolean>(prefs.kpisSimplificados);
+  const [verWhatsapp, setVerWhatsapp] = useState(false);
   const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
   const [formatoPresentacion, setFormatoPresentacion] = useState<'fichas' | 'tabla'>('fichas');
   const [ordenarPor, setOrdenarPor] = useState<'usd' | 'bs' | 'fecha' | 'contraparte'>('usd');
@@ -249,7 +254,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     if (marcadosVisibles.length === 0) { toast('Marca al menos una columna visible para exportar.', 'warning'); return; }
     if (filas.length === 0) { toast('No hay datos con los filtros y período seleccionados.', 'warning'); return; }
     setOcupado(formato);
-    try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_TASA, baseTasa); localStorage.setItem(CLAVE_USD, String(mostrarUsd)); localStorage.setItem(CLAVE_BS, String(mostrarBs)); localStorage.setItem(CLAVE_RESUMEN, String(incluirResumen)); } catch { /* no crítico */ }
+    try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_TASA, baseTasa); localStorage.setItem(CLAVE_USD, String(mostrarUsd)); localStorage.setItem(CLAVE_BS, String(mostrarBs)); localStorage.setItem(CLAVE_RESUMEN, String(incluirResumen)); localStorage.setItem(CLAVE_KPIS, String(kpisSimplificados)); } catch { /* no crítico */ }
 
     const partes: string[] = [];
     if (cajasSel.length) partes.push(cajasSel.length === 1 ? cajasSel[0] : `${cajasSel.length} cajas`);
@@ -265,6 +270,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
       mostrarUsd, mostrarBs,
       subtituloFiltros: partes.length ? `Filtros: ${partes.join(' · ')}` : undefined,
       incluirResumen, orientacion, formatoPresentacion, ordenarPor,
+      kpisSimplificados,
     };
     try {
       if (formato === 'pdf') await descargarTesoreriaPdf(filas, resumen, marcados, meta);
@@ -310,6 +316,12 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
   const montoPrincipal = (f: FilaReporteTesoreria) => (mostrarUsd ? fmtUsd(f.monto_usd) : fmtBs(f.monto_bs));
 
+  // Aviso puntual para WhatsApp: ítems en su moneda + total consolidado, por ámbito.
+  const textoWsp = useMemo(
+    () => textoWhatsappTesoreria(filtradas, { ambito, desde, hasta, mostrarUsd, mostrarBs }),
+    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs],
+  );
+
   return (
     <Modal
       title="📄 Descargar Reporte de Tesorería"
@@ -322,12 +334,27 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
             <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
             <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
+            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || filas.length === 0}>💬 WhatsApp</button>
             <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
           </div>
         </div>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
+        {/* Panel de WhatsApp: aviso puntual del ámbito actual, con el texto y los botones de compartir/copiar */}
+        {verWhatsapp && (
+          <div style={{ ...surf2, borderColor: 'var(--primary, #25D366)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+              <span style={tituloSec}>💬 Enviar por WhatsApp — {AMBITOS.find((a) => a.id === ambito)?.label ?? 'Reporte'}</span>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setVerWhatsapp(false)}>← Volver al reporte</button>
+            </div>
+            <p className="muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.5rem' }}>
+              Aviso directo: cada ítem con su monto y el total consolidado. Respeta el período, los filtros y las monedas activas.
+            </p>
+            <CompartirWhatsapp texto={textoWsp} />
+          </div>
+        )}
+
         {/* Ámbito */}
         <div style={surf2}>
           <div style={{ ...tituloSec, marginBottom: '.4rem' }}>🧭 Ámbito del reporte</div>
@@ -491,20 +518,35 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
               <button type="button" className={`btn btn-xs ${orientacion === 'landscape' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.25rem .75rem' }} onClick={() => setOrientacion('landscape')}>Horizontal</button>
               <button type="button" className={`btn btn-xs ${orientacion === 'portrait' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.25rem .75rem' }} onClick={() => setOrientacion('portrait')}>Vertical</button>
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.8rem' }}>
-              <input type="checkbox" checked={incluirResumen} onChange={(e) => setIncluirResumen(e.target.checked)} />
-              <span><strong>Incluir resumen (KPIs)</strong> en cabecera</span>
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.8rem' }}>
+                <input type="checkbox" checked={kpisSimplificados} onChange={(e) => setKpisSimplificados(e.target.checked)} />
+                <span><strong>KPIs en vista simple</strong> (Total $ / Total Bs)</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.8rem' }}>
+                <input type="checkbox" checked={incluirResumen} onChange={(e) => setIncluirResumen(e.target.checked)} />
+                <span><strong>Incluir resumen (KPIs)</strong> en cabecera</span>
+              </label>
+            </div>
           </div>
         </div>
 
         {/* KPIs */}
         <div style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.5rem .8rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.5rem' }}>
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>FILAS EN REPORTE</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b' }}>{filas.length}</div></div>
-          {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>EGRESOS ($)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtUsd(resumen.totalEgresosUsd)}</div></div>}
-          {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>INGRESOS ($)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>{fmtUsd(resumen.totalIngresosUsd)}</div></div>}
-          {mostrarBs && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>EGRESOS (Bs)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtBs(resumen.totalEgresosBs)}</div></div>}
-          <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>SALDO NETO</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: (mostrarUsd ? resumen.saldoNetoUsd : resumen.saldoNetoBs) >= 0 ? '#22c55e' : '#ef4444' }}>{mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs)}</div></div>
+          {kpisSimplificados ? (
+            <>
+              {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>TOTAL $</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>{fmtUsd(resumen.totalEgresosUsd + resumen.totalIngresosUsd)}</div></div>}
+              {mostrarBs && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>TOTAL Bs</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtBs(resumen.totalEgresosBs + resumen.totalIngresosBs)}</div></div>}
+            </>
+          ) : (
+            <>
+              {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>EGRESOS ($)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtUsd(resumen.totalEgresosUsd)}</div></div>}
+              {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>INGRESOS ($)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>{fmtUsd(resumen.totalIngresosUsd)}</div></div>}
+              {mostrarBs && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>EGRESOS (Bs)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtBs(resumen.totalEgresosBs)}</div></div>}
+              <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>SALDO NETO</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: (mostrarUsd ? resumen.saldoNetoUsd : resumen.saldoNetoBs) >= 0 ? '#22c55e' : '#ef4444' }}>{mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs)}</div></div>
+            </>
+          )}
         </div>
 
         {/* Vista previa */}

@@ -106,7 +106,7 @@ import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
  * (botón + estado + modal): se coloca JUNTO a las descargas rígidas existentes sin
  * tocar su flujo ni reemplazarlas. Solo enriquece.
  */
-function BotonReporteMoldeable({ ambito, rango, label = '📄 Reporte moldeable', className = 'btn btn-sm btn-ghost' }: {
+function BotonReporteMoldeable({ ambito, rango, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
   ambito: AmbitoTesoreria;
   rango?: { desde: string; hasta: string };
   label?: string;
@@ -3966,7 +3966,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         <button className="btn btn-ghost" disabled={!rows.length}
           onClick={() => descargarOrdenesPorPagarPdf(rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}
           title="Resumen en PDF de TODO lo pendiente por pagar, por segmentos (Compras Directas, OC, Servicios/CS y Servicios Directos), con subtotal por segmento y total general en $ y Bs a la tasa del día">↓ Resumen PDF</button>
-        <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte moldeable" className="btn btn-ghost" />
+        <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte" className="btn btn-ghost" />
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -4548,7 +4548,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                       };
                     }), 'ABONADO');
                   } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Moldeable" className="btn btn-sm btn-ghost" /></span>
+                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={ordenes.map((x) => ({ value: x.orden.id, label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}` }))} />
@@ -4868,7 +4868,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                   };
                 }), 'ABONADO');
               } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-            }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Moldeable" className="btn btn-sm btn-ghost" /></span>
+            }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
         </div>
         <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
           options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}` }))} />
@@ -5419,7 +5419,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                       };
                     }), 'COBRADO');
                   } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Moldeable" className="btn btn-sm btn-ghost" /></span>
+                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.cobrado) || 0)), c.moneda)}` }))} />

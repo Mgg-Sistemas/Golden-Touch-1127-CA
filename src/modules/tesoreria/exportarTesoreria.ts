@@ -84,6 +84,16 @@ export interface MetadatosExportacionTesoreria {
   orientacion?: 'auto' | 'portrait' | 'landscape';
   formatoPresentacion?: 'fichas' | 'tabla';
   ordenarPor?: 'usd' | 'bs' | 'fecha' | 'contraparte';
+  /** KPIs en vista simple: dos tarjetas «Total $ / Total Bs» (bruto) en vez del detalle. */
+  kpisSimplificados?: boolean;
+}
+
+/** Total bruto por moneda: egresos + ingresos (positivo, sirve para los 3 ámbitos). */
+function kpisSimples(resumen: ResumenReporteTesoreria, meta: MetadatosExportacionTesoreria): Array<{ label: string; val: string }> {
+  const kpis: Array<{ label: string; val: string }> = [];
+  if (meta.mostrarUsd) kpis.push({ label: 'TOTAL $', val: fmtUsd(resumen.totalEgresosUsd + resumen.totalIngresosUsd) });
+  if (meta.mostrarBs) kpis.push({ label: 'TOTAL Bs', val: fmtBs(resumen.totalEgresosBs + resumen.totalIngresosBs) });
+  return kpis;
 }
 
 /** Valor crudo de una columna (resuelve clave→campo de la fila). */
@@ -172,16 +182,20 @@ export async function descargarTesoreriaExcel(
     r3.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF64748B' } };
 
     const kpis: Array<{ label: string; val: string }> = [];
-    if (meta.mostrarUsd) {
-      kpis.push({ label: 'EGRESOS ($ USD)', val: fmtUsd(resumen.totalEgresosUsd) });
-      kpis.push({ label: 'INGRESOS ($ USD)', val: fmtUsd(resumen.totalIngresosUsd) });
-    }
-    if (meta.mostrarBs) {
-      kpis.push({ label: 'EGRESOS (Bs)', val: fmtBs(resumen.totalEgresosBs) });
-      kpis.push({ label: 'INGRESOS (Bs)', val: fmtBs(resumen.totalIngresosBs) });
-    }
-    if (kpis.length < 4) {
-      kpis.push({ label: 'SALDO NETO', val: meta.mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs) });
+    if (meta.kpisSimplificados) {
+      kpis.push(...kpisSimples(resumen, meta));
+    } else {
+      if (meta.mostrarUsd) {
+        kpis.push({ label: 'EGRESOS ($ USD)', val: fmtUsd(resumen.totalEgresosUsd) });
+        kpis.push({ label: 'INGRESOS ($ USD)', val: fmtUsd(resumen.totalIngresosUsd) });
+      }
+      if (meta.mostrarBs) {
+        kpis.push({ label: 'EGRESOS (Bs)', val: fmtBs(resumen.totalEgresosBs) });
+        kpis.push({ label: 'INGRESOS (Bs)', val: fmtBs(resumen.totalIngresosBs) });
+      }
+      if (kpis.length < 4) {
+        kpis.push({ label: 'SALDO NETO', val: meta.mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs) });
+      }
     }
 
     kpis.slice(0, 4).forEach((k, i) => {
@@ -409,20 +423,24 @@ export async function descargarTesoreriaPdf(
   // 2. Tarjetas de KPIs
   if (meta.incluirResumen) {
     const kpis: Array<{ label: string; val: string; sub?: string }> = [];
-    if (meta.mostrarUsd) {
-      kpis.push({ label: 'EGRESOS ($ USD)', val: fmtUsd(resumen.totalEgresosUsd), sub: `${resumen.totalOperaciones} operaciones` });
-      kpis.push({ label: 'INGRESOS ($ USD)', val: fmtUsd(resumen.totalIngresosUsd), sub: `Neto: ${fmtUsd(resumen.saldoNetoUsd)}` });
-    }
-    if (meta.mostrarBs) {
-      kpis.push({ label: 'EGRESOS (Bs)', val: fmtBs(resumen.totalEgresosBs) });
-      kpis.push({ label: 'INGRESOS (Bs)', val: fmtBs(resumen.totalIngresosBs), sub: `Neto: ${fmtBs(resumen.saldoNetoBs)}` });
-    }
-    if (kpis.length < 4) {
-      kpis.push({
-        label: 'TASA BCV',
-        val: resumen.tasaBcvReferencia > 0 ? `Bs ${fmtNum(resumen.tasaBcvReferencia, 2)}/$` : '—',
-        sub: `${resumen.totalOperaciones} operaciones`,
-      });
+    if (meta.kpisSimplificados) {
+      kpisSimples(resumen, meta).forEach((k, i) => kpis.push(i === 0 ? { ...k, sub: `${resumen.totalOperaciones} operaciones` } : k));
+    } else {
+      if (meta.mostrarUsd) {
+        kpis.push({ label: 'EGRESOS ($ USD)', val: fmtUsd(resumen.totalEgresosUsd), sub: `${resumen.totalOperaciones} operaciones` });
+        kpis.push({ label: 'INGRESOS ($ USD)', val: fmtUsd(resumen.totalIngresosUsd), sub: `Neto: ${fmtUsd(resumen.saldoNetoUsd)}` });
+      }
+      if (meta.mostrarBs) {
+        kpis.push({ label: 'EGRESOS (Bs)', val: fmtBs(resumen.totalEgresosBs) });
+        kpis.push({ label: 'INGRESOS (Bs)', val: fmtBs(resumen.totalIngresosBs), sub: `Neto: ${fmtBs(resumen.saldoNetoBs)}` });
+      }
+      if (kpis.length < 4) {
+        kpis.push({
+          label: 'TASA BCV',
+          val: resumen.tasaBcvReferencia > 0 ? `Bs ${fmtNum(resumen.tasaBcvReferencia, 2)}/$` : '—',
+          sub: `${resumen.totalOperaciones} operaciones`,
+        });
+      }
     }
 
     const cards = kpis.slice(0, 4);
