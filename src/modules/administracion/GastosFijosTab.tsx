@@ -10,12 +10,18 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { proximoVencimiento, type Periodicidad } from './administracionCalculo';
 import type { AdminRepo, Empresa, GastoFijo, OpcionRef } from './admin.repository';
 import { GastoFijoModal } from './GastoFijoModal';
+import { TableroAdmin } from './TableroAdmin';
 
 const PERIOD_LABEL: Record<Periodicidad, string> = {
   mensual: 'Mensual', bimensual: 'Bimensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual',
 };
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const montoFmt = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** '' normal · 'pronto' vence en ≤7 días · 'vencido' ya pasó. */
+function urgencia(venc: Date, hoy = new Date()): string {
+  const dias = Math.ceil((venc.getTime() - new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).getTime()) / 86400000);
+  return dias < 0 ? 'vencido' : dias <= 7 ? 'pronto' : '';
+}
 
 export function GastosFijosTab({ repo, empresaClave, empresas }: {
   repo: AdminRepo;
@@ -68,55 +74,64 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
   const mostrarEmpresa = empresaClave == null;
 
   return (
-    <div className="card">
-      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-        <span>Gastos fijos {empresaClave ? `· ${nombreEmp.get(empresaClave) ?? empresaClave}` : '· todas las empresas'}</span>
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>
-      </div>
-
-      {error && <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No se pudo leer: {/sesi|jwt|auth|401|permission|relation|does not exist/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>}
-
-      {cargando ? (
-        <p className="muted" style={{ marginTop: '.5rem' }}>Leyendo gastos fijos…</p>
-      ) : gastos.length === 0 && !error ? (
-        <EmptyState icon="🧾" message={empresaClave ? 'Esta empresa no tiene gastos fijos aún.' : 'No hay gastos fijos cargados.'} />
-      ) : (
-        <div className="adm-tabla" style={{ marginTop: '.6rem' }}>
-          <table>
-            <thead>
-              <tr>
-                {mostrarEmpresa && <th>Empresa</th>}
-                <th>Concepto</th>
-                <th>Proveedor</th>
-                <th style={{ textAlign: 'right' }}>Monto</th>
-                <th>Periodicidad</th>
-                <th>Próx. vencimiento</th>
-                <th>Categoría</th>
-                <th>Estado</th>
-                <th aria-label="Acciones" />
-              </tr>
-            </thead>
-            <tbody>
-              {gastos.map((g) => (
-                <tr key={g.id} style={g.estado === 'activo' ? undefined : { opacity: 0.6 }}>
-                  {mostrarEmpresa && <td className="mono">{g.empresaClave}</td>}
-                  <td>{g.concepto}</td>
-                  <td>{g.proveedorNombre ?? '—'}</td>
-                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoFmt(g.monto)} {g.moneda}</td>
-                  <td>{PERIOD_LABEL[g.periodicidad]}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fFecha.format(proximoVencimiento(g))}</td>
-                  <td>{g.categoriaGastoId ? (nombreCat.get(g.categoriaGastoId) ?? '—') : '—'}</td>
-                  <td>{g.estado === 'activo' ? 'Activo' : 'Suspendido'}</td>
-                  <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModal({ gasto: g })}>Editar</button>
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void alternarEstado(g)}>{g.estado === 'activo' ? 'Suspender' : 'Activar'}</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+    <>
+      {!cargando && !error && gastos.length > 0 && (
+        <TableroAdmin gastos={gastos} empresas={empresas} nombreCat={nombreCat} />
       )}
+      <div className="card">
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+          <span>Gastos fijos {empresaClave ? `· ${nombreEmp.get(empresaClave) ?? empresaClave}` : '· todas las empresas'}</span>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ gasto: null })}>+ Nuevo gasto fijo</button>
+        </div>
+
+        {error && <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No se pudo leer: {/sesi|jwt|auth|401|permission|relation|does not exist/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>}
+
+        {cargando ? (
+          <p className="muted" style={{ marginTop: '.5rem' }}>Leyendo gastos fijos…</p>
+        ) : gastos.length === 0 && !error ? (
+          <EmptyState icon="🧾" message={empresaClave ? 'Esta empresa no tiene gastos fijos aún.' : 'No hay gastos fijos cargados.'} />
+        ) : (
+          <div className="adm-tabla" style={{ marginTop: '.6rem' }}>
+            <table>
+              <thead>
+                <tr>
+                  {mostrarEmpresa && <th>Empresa</th>}
+                  <th>Concepto</th>
+                  <th>Proveedor</th>
+                  <th style={{ textAlign: 'right' }}>Monto</th>
+                  <th>Periodicidad</th>
+                  <th>Próx. vencimiento</th>
+                  <th>Categoría</th>
+                  <th>Estado</th>
+                  <th aria-label="Acciones" />
+                </tr>
+              </thead>
+              <tbody>
+                {gastos.map((g) => {
+                  const venc = proximoVencimiento(g);
+                  const urg = g.estado === 'activo' ? urgencia(venc) : '';
+                  return (
+                    <tr key={g.id} className={g.estado === 'activo' ? undefined : 'adm-fila-off'}>
+                      {mostrarEmpresa && <td className="mono">{g.empresaClave}</td>}
+                      <td>{g.concepto}</td>
+                      <td>{g.proveedorNombre ?? '—'}</td>
+                      <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoFmt(g.monto)} {g.moneda}</td>
+                      <td>{PERIOD_LABEL[g.periodicidad]}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}><span className={`adm-venc ${urg}`}>{fFecha.format(venc)}</span></td>
+                      <td>{g.categoriaGastoId && nombreCat.get(g.categoriaGastoId) ? <span className="adm-chip">{nombreCat.get(g.categoriaGastoId)}</span> : '—'}</td>
+                      <td><span className={`adm-badge ${g.estado}`}>{g.estado === 'activo' ? 'Activo' : 'Suspendido'}</span></td>
+                      <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModal({ gasto: g })}>Editar</button>
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => void alternarEstado(g)}>{g.estado === 'activo' ? 'Suspender' : 'Activar'}</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {modal && (
         <GastoFijoModal
@@ -130,6 +145,6 @@ export function GastosFijosTab({ repo, empresaClave, empresas }: {
           onSaved={() => void cargar()}
         />
       )}
-    </div>
+    </>
   );
 }
