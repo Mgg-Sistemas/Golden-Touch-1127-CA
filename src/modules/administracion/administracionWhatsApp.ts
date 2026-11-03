@@ -4,7 +4,7 @@
    listo para PEGAR en el chat (mismo patrón que pedidos/confirmadasPagarTxt).
    Reusa kpisTablero (resumen) y proximoVencimiento (detalle). Determinista.
    ============================================================================ */
-import { proximoVencimiento } from './administracionCalculo';
+import { proximoVencimiento, type GrupoTotal } from './administracionCalculo';
 import { kpisTablero, type GastoTablero } from './administracionTablero';
 
 const num = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 0 });
@@ -52,6 +52,38 @@ export function reporteGastosFijosTxt(filas: readonly GastoTablero[], o: Opcione
 
 /** Nombre de archivo sugerido para el TXT. */
 export function nombreArchivoReporte(periodoLabel: string): string {
-  const slug = periodoLabel.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'periodo';
-  return `gastos-fijos-${slug}.txt`;
+  return `gastos-fijos-${slugArchivo(periodoLabel)}.txt`;
+}
+
+function slugArchivo(periodoLabel: string): string {
+  return periodoLabel.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'periodo';
+}
+
+export interface OpcionesReporteMovWa {
+  empresaNombre?: string | null;
+  /** Etiqueta del alcance, p. ej. «Octubre 2026» o «Todo el histórico». */
+  periodoLabel: string;
+}
+
+/** Reporte del HISTÓRICO (egresos efectivos) en marcado de WhatsApp: total del
+ *  alcance y desglose por categoría. Sobre los totales ya calculados (puro). */
+export function reporteMovimientosTxt(
+  porCategoria: readonly GrupoTotal[], total: Omit<GrupoTotal, 'clave'>, o: OpcionesReporteMovWa,
+): string {
+  const L: string[] = [];
+  L.push(`*📊 Reporte de gastos · ${o.empresaNombre?.trim() || 'Todas las empresas'}*`);
+  L.push(o.periodoLabel);
+  L.push('');
+  L.push('*Total del período*');
+  L.push(`• ${usd(total.equivUsd)}  (${num(total.bs)} Bs · ${num(total.usd)} $) — ${total.n} mov.`);
+  L.push('');
+  L.push('*Por categoría*');
+  for (const g of porCategoria) L.push(`• ${g.clave}: ${usd(g.equivUsd)}  (${num(g.bs)} Bs · ${num(g.usd)} $)`);
+  if (!porCategoria.length) L.push('• (sin movimientos en el período)');
+  return L.join('\n');
+}
+
+/** Nombre de archivo para el reporte del histórico. */
+export function nombreArchivoReporteMov(periodoLabel: string): string {
+  return `reporte-gastos-${slugArchivo(periodoLabel)}.txt`;
 }

@@ -12,6 +12,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { listCategoriasGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
+import { generarPendientes as calcularPendientes } from './administracionGenerar';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
 
@@ -51,6 +52,34 @@ export interface GastoFijo {
 }
 export type GastoFijoInput = Omit<GastoFijo, 'id' | 'createdAt'>;
 
+export type EstadoPago = 'pendiente' | 'pagado' | 'anulado';
+export type OrigenMovimiento = 'generado' | 'importado' | 'manual';
+
+/** Un egreso por período: el pendiente generado, el movimiento importado o el
+ *  alta manual (tabla `admin_gasto_fijo_movimientos`). Sobre esto va el reporte. */
+export interface Movimiento {
+  id: string;
+  empresaClave: string;
+  /** Plantilla que lo originó; null para filas sueltas del histórico. */
+  gastoFijoId: string | null;
+  concepto: string;
+  proveedorNombre: string | null;
+  categoriaGastoId: string | null;
+  /** Token de período (2026-11, 2026-T4…). */
+  periodo: string;
+  /** Vencimiento / fecha efectiva ('AAAA-MM-DD'). */
+  fecha: string;
+  monto: number;
+  moneda: Moneda;
+  tasaRef: number | null;
+  estadoPago: EstadoPago;
+  origen: OrigenMovimiento;
+  /** El pendiente materializado en Tesorería (Opción A); null si aún no. */
+  servicioDirectoId: string | null;
+  createdAt?: string | null;
+}
+export type MovimientoInput = Omit<Movimiento, 'id' | 'createdAt'>;
+
 /** Opción {id, nombre} para los selectores (categorías, proveedores). */
 export interface OpcionRef { id: string; nombre: string; }
 
@@ -70,6 +99,11 @@ export interface AdminRepo {
   setEstadoGastoFijo(id: string, estado: EstadoGastoFijo): Promise<void>;
   listCategorias(): Promise<OpcionRef[]>;
   listProveedores(): Promise<OpcionRef[]>;
+  listMovimientos(empresaClave?: string): Promise<Movimiento[]>;
+  crearMovimiento(m: MovimientoInput): Promise<Movimiento>;
+  /** Genera los pendientes que faltan hasta `hasta` (default hoy), idempotente. Devuelve cuántos creó. */
+  generarPendientes(empresaClave?: string, hasta?: Date): Promise<{ creados: number }>;
+  marcarPagado(id: string): Promise<void>;
 }
 
 /* ───────── Mapeo snake_case (fila de base) ↔ camelCase (dominio) ───────── */
@@ -130,8 +164,41 @@ function deGasto(g: Partial<GastoFijoInput>): Record<string, unknown> {
   return o;
 }
 
+interface RowMov {
+  id: string; empresa_clave: string; gasto_fijo_id: string | null; concepto: string; proveedor_nombre: string | null;
+  categoria_gasto_id: string | null; periodo: string; fecha: string; monto: number | string; moneda: string;
+  tasa_ref: number | string | null; estado_pago: string; origen: string; servicio_directo_id: string | null; created_at?: string | null;
+}
+function aMov(r: RowMov): Movimiento {
+  return {
+    id: r.id, empresaClave: r.empresa_clave, gastoFijoId: r.gasto_fijo_id ?? null, concepto: r.concepto,
+    proveedorNombre: r.proveedor_nombre ?? null, categoriaGastoId: r.categoria_gasto_id ?? null,
+    periodo: r.periodo, fecha: (r.fecha ?? '').slice(0, 10), monto: num(r.monto), moneda: r.moneda as Moneda,
+    tasaRef: r.tasa_ref == null ? null : num(r.tasa_ref), estadoPago: (r.estado_pago as EstadoPago) ?? 'pendiente',
+    origen: (r.origen as OrigenMovimiento) ?? 'manual', servicioDirectoId: r.servicio_directo_id ?? null, createdAt: r.created_at ?? null,
+  };
+}
+function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (m.empresaClave !== undefined) o.empresa_clave = m.empresaClave;
+  if (m.gastoFijoId !== undefined) o.gasto_fijo_id = m.gastoFijoId;
+  if (m.concepto !== undefined) o.concepto = m.concepto;
+  if (m.proveedorNombre !== undefined) o.proveedor_nombre = m.proveedorNombre;
+  if (m.categoriaGastoId !== undefined) o.categoria_gasto_id = m.categoriaGastoId;
+  if (m.periodo !== undefined) o.periodo = m.periodo;
+  if (m.fecha !== undefined) o.fecha = m.fecha;
+  if (m.monto !== undefined) o.monto = m.monto;
+  if (m.moneda !== undefined) o.moneda = m.moneda;
+  if (m.tasaRef !== undefined) o.tasa_ref = m.tasaRef;
+  if (m.estadoPago !== undefined) o.estado_pago = m.estadoPago;
+  if (m.origen !== undefined) o.origen = m.origen;
+  if (m.servicioDirectoId !== undefined) o.servicio_directo_id = m.servicioDirectoId;
+  return o;
+}
+
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
+const T_MOV = 'admin_gasto_fijo_movimientos';
 
 /** Impl contra Supabase (la app real). Las tablas las crea BD (SQL en borrador). */
 export function crearRepoSupabase(): AdminRepo {
@@ -190,6 +257,47 @@ export function crearRepoSupabase(): AdminRepo {
     async listProveedores() {
       const ps = await listProveedoresActivos();
       return ps.map((p) => ({ id: p.id, nombre: p.razon_social }));
+    },
+    async listMovimientos(empresaClave) {
+      let q = supabase.from(T_MOV).select('*').order('fecha', { ascending: false });
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []).map((r) => aMov(r as RowMov));
+    },
+    async crearMovimiento(m) {
+      const { data, error } = await supabase.from(T_MOV).insert(deMov(m)).select('*').single();
+      if (error) throw error;
+      return aMov(data as RowMov);
+    },
+    async generarPendientes(empresaClave, hasta = new Date()) {
+      let qg = supabase.from(T_GF).select('*');
+      if (empresaClave) qg = qg.eq('empresa_clave', empresaClave);
+      const { data: gRows, error: ge } = await qg;
+      if (ge) throw ge;
+      const gastos = (gRows ?? []).map((r) => aGasto(r as RowGasto));
+      let qm = supabase.from(T_MOV).select('gasto_fijo_id, periodo').not('gasto_fijo_id', 'is', null);
+      if (empresaClave) qm = qm.eq('empresa_clave', empresaClave);
+      const { data: mRows, error: me } = await qm;
+      if (me) throw me;
+      const existentes = (mRows ?? []).map((r) => ({ gastoFijoId: (r as { gasto_fijo_id: string }).gasto_fijo_id, periodo: (r as { periodo: string }).periodo }));
+      const nuevos = calcularPendientes(gastos, existentes, hasta);
+      if (!nuevos.length) return { creados: 0 };
+      const filas = nuevos.map((n) => deMov({
+        empresaClave: n.empresaClave, gastoFijoId: n.gastoFijoId, concepto: n.concepto, proveedorNombre: null,
+        categoriaGastoId: n.categoriaGastoId, periodo: n.periodo, fecha: n.fecha, monto: n.monto, moneda: n.moneda,
+        tasaRef: null, estadoPago: 'pendiente', origen: 'generado', servicioDirectoId: null,
+      }));
+      const { error } = await supabase.from(T_MOV).insert(filas);
+      if (error) throw error;
+      // Fase 3 (follow-up, con la base y la columna empresa_clave de servicios_directos
+      // aplicadas): materializar cada pendiente como servicio directo `por_pagar` en
+      // Tesorería (crearServicioDirecto → enviarServicioAPagar, nota `notaPendiente`).
+      return { creados: nuevos.length };
+    },
+    async marcarPagado(id) {
+      const { error } = await supabase.from(T_MOV).update({ estado_pago: 'pagado' }).eq('id', id);
+      if (error) throw error;
     },
   };
 }

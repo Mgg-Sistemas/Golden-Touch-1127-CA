@@ -12,6 +12,8 @@ import { crearRepoSupabase, type AdminRepo, type Empresa } from './admin.reposit
 import { crearPreferenciasAdmin, TODAS, type PreferenciasAdmin, type TabAdmin } from './administracionPreferencias';
 import { EmpresasModal } from './EmpresasModal';
 import { GastosFijosTab } from './GastosFijosTab';
+import { MovimientosTab } from './MovimientosTab';
+import { ReporteTab } from './ReporteTab';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
@@ -19,10 +21,6 @@ const PESTANAS: { id: TabAdmin; label: string }[] = [
   { id: 'movimientos', label: '📒 Movimientos / Histórico' },
   { id: 'reporte', label: '📊 Reporte' },
 ];
-const PROXIMAMENTE: Record<Exclude<TabAdmin, 'gastos'>, string> = {
-  movimientos: 'Histórico de movimientos y su carga (importación de archivo y alta manual).',
-  reporte: 'Reporte con filtros, totales por categoría y moneda, exportación a PDF y Excel, y mensaje de WhatsApp para pegar.',
-};
 
 export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso }: {
   repo?: AdminRepo;
@@ -93,12 +91,8 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso }:
       )}
 
       {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
-      {tab !== 'gastos' && (
-        <div className="card">
-          <div className="card-title">{PESTANAS.find((p) => p.id === tab)?.label}</div>
-          <p className="muted hint" style={{ margin: '.35rem 0 0' }}>En preparación · {PROXIMAMENTE[tab]}</p>
-        </div>
-      )}
+      {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
 
       {gestionar && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
     </div>

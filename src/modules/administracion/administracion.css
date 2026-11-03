@@ -65,6 +65,9 @@
 .adm-badge { display: inline-block; padding: .12rem .5rem; border-radius: 999px; font-size: .74rem; font-weight: 700; }
 .adm-badge.activo { color: var(--success, #29c081); background: rgba(41, 192, 129, .14); }
 .adm-badge.suspendido { color: var(--text-muted); background: rgba(255, 255, 255, .06); }
+.adm-badge.pago-pagado { color: var(--success, #29c081); background: rgba(41, 192, 129, .14); }
+.adm-badge.pago-pendiente { color: var(--warning, #f5b133); background: rgba(245, 177, 51, .14); }
+.adm-badge.pago-anulado { color: var(--text-muted); background: rgba(255, 255, 255, .06); text-decoration: line-through; }
 .adm-venc.pronto { color: var(--warning, #f5b133); font-weight: 700; }
 .adm-venc.vencido { color: var(--danger, #ef4f5e); font-weight: 700; }
 .adm-fila-off { opacity: .55; }

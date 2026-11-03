@@ -7,7 +7,8 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminRepo, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, OpcionRef } from '../admin.repository';
+import type { AdminRepo, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef } from '../admin.repository';
+import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 
 const uid = (): string => {
   try { return crypto.randomUUID(); } catch { return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`; }
@@ -45,10 +46,22 @@ function gastosSemilla(): GastoFijo[] {
   ];
 }
 
+/** Algo de histórico ya cargado (importado), para que Movimientos y Reporte no estén vacíos. */
+function movimientosSemilla(): Movimiento[] {
+  const m = (p: Omit<Movimiento, 'id'>): Movimiento => ({ id: uid(), ...p });
+  return [
+    m({ empresaClave: 'GT', gastoFijoId: null, concepto: 'Agua', proveedorNombre: 'Hidro Demo, C.A.', categoriaGastoId: 'cat-serv', periodo: '2026-09', fecha: '2026-09-05', monto: 1750, moneda: 'Bs', tasaRef: null, estadoPago: 'pagado', origen: 'importado', servicioDirectoId: null }),
+    m({ empresaClave: 'GT', gastoFijoId: null, concepto: 'Agua', proveedorNombre: 'Hidro Demo, C.A.', categoriaGastoId: 'cat-serv', periodo: '2026-10', fecha: '2026-10-05', monto: 1800, moneda: 'Bs', tasaRef: null, estadoPago: 'pagado', origen: 'importado', servicioDirectoId: null }),
+    m({ empresaClave: 'GT', gastoFijoId: null, concepto: 'Alquiler de oficina', proveedorNombre: 'Inmobiliaria Demo', categoriaGastoId: 'cat-alq', periodo: '2026-10', fecha: '2026-10-01', monto: 800, moneda: 'USD', tasaRef: 40, estadoPago: 'pagado', origen: 'importado', servicioDirectoId: null }),
+    m({ empresaClave: 'DEMO1', gastoFijoId: null, concepto: 'Internet y telefonía', proveedorNombre: 'Energía Demo del Centro', categoriaGastoId: 'cat-serv', periodo: '2026-10', fecha: '2026-10-15', monto: 95, moneda: 'USD', tasaRef: 40, estadoPago: 'pagado', origen: 'importado', servicioDirectoId: null }),
+  ];
+}
+
 /** Repo en memoria para la página de prueba: implementa AdminRepo sin tocar base. */
 export function crearRepoDemo(): AdminRepo {
   const empresas: Empresa[] = EMPRESAS_DEMO.map((e) => ({ ...e }));
   const gastos: GastoFijo[] = gastosSemilla();
+  const movimientos: Movimiento[] = movimientosSemilla();
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
   return {
@@ -96,5 +109,32 @@ export function crearRepoDemo(): AdminRepo {
     },
     listCategorias: () => Promise.resolve(CATEGORIAS_DEMO.map((c) => ({ ...c }))),
     listProveedores: () => Promise.resolve(PROVEEDORES_DEMO.map((p) => ({ ...p }))),
+    listMovimientos: (empresaClave) => Promise.resolve(
+      movimientos.filter((m) => !empresaClave || m.empresaClave === empresaClave).map((m) => ({ ...m }))
+        .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0)),
+    ),
+    crearMovimiento: (m: MovimientoInput) => {
+      const nuevo: Movimiento = { id: uid(), ...m };
+      movimientos.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    generarPendientes: (empresaClave, hasta = new Date()) => {
+      const gs = gastos.filter((g) => !empresaClave || g.empresaClave === empresaClave);
+      const existentes = movimientos.filter((m) => m.gastoFijoId).map((m) => ({ gastoFijoId: m.gastoFijoId as string, periodo: m.periodo }));
+      const nuevos = calcularPendientes(gs, existentes, hasta);
+      for (const n of nuevos) {
+        movimientos.push({
+          id: uid(), empresaClave: n.empresaClave, gastoFijoId: n.gastoFijoId, concepto: n.concepto, proveedorNombre: null,
+          categoriaGastoId: n.categoriaGastoId, periodo: n.periodo, fecha: n.fecha, monto: n.monto, moneda: n.moneda, tasaRef: null,
+          estadoPago: 'pendiente', origen: 'generado', servicioDirectoId: `demo-sd-${n.periodo}-${(n.gastoFijoId ?? '').slice(0, 6)}`,
+        });
+      }
+      return Promise.resolve({ creados: nuevos.length });
+    },
+    marcarPagado: (id) => {
+      const i = movimientos.findIndex((m) => m.id === id);
+      if (i >= 0) movimientos[i] = { ...movimientos[i], estadoPago: 'pagado' };
+      return Promise.resolve();
+    },
   };
 }

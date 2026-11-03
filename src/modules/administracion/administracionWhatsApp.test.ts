@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { nombreArchivoReporte, reporteGastosFijosTxt } from './administracionWhatsApp';
+import { nombreArchivoReporte, nombreArchivoReporteMov, reporteGastosFijosTxt, reporteMovimientosTxt } from './administracionWhatsApp';
+import { agruparTotales, totalGeneral, type MovimientoCalc } from './administracionCalculo';
 import type { GastoTablero } from './administracionTablero';
 
 const g = (p: Partial<GastoTablero>): GastoTablero => ({
@@ -38,5 +39,30 @@ describe('reporteGastosFijosTxt', () => {
 
   it('nombre de archivo en slug', () => {
     expect(nombreArchivoReporte('Noviembre 2026')).toBe('gastos-fijos-noviembre-2026.txt');
+  });
+});
+
+describe('reporteMovimientosTxt (histórico)', () => {
+  const movs: MovimientoCalc[] = [
+    { empresaClave: 'Golden Touch', categoria: 'Servicios', moneda: 'Bs', monto: 1800 },
+    { empresaClave: 'Golden Touch', categoria: 'Alquiler', moneda: 'USD', monto: 800 },
+    { empresaClave: 'Demo Norte', categoria: 'Servicios', moneda: 'USD', monto: 95 },
+  ];
+  const porCat = agruparTotales(movs, 'categoria', { tasa: 40 });
+  const total = totalGeneral(movs, 40);
+
+  it('encabeza con la empresa, el total y el desglose por categoría', () => {
+    const txt = reporteMovimientosTxt(porCat, total, { empresaNombre: 'Golden Touch', periodoLabel: 'Octubre 2026' });
+    expect(txt).toContain('*📊 Reporte de gastos · Golden Touch*');
+    expect(txt).toContain('Octubre 2026');
+    expect(txt).toContain('*Total del período*');
+    expect(txt).toContain('— 3 mov.');
+    expect(txt).toContain('Alquiler:');
+    expect(txt).toContain('Servicios:');
+  });
+
+  it('cae en «Todas las empresas» sin empresa, y el archivo va en slug', () => {
+    expect(reporteMovimientosTxt(porCat, total, { periodoLabel: 'Todo el histórico' })).toContain('Todas las empresas');
+    expect(nombreArchivoReporteMov('Todo el histórico')).toBe('reporte-gastos-todo-el-historico.txt');
   });
 });
