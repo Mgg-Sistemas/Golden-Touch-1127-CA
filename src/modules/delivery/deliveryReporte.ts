@@ -75,7 +75,7 @@ export function detallePedido(p: PedidoDelivery, quien: ResolverNombre = tal): D
     origen: retiro ? 'almacen' : 'compra',
     rotuloOrden: retiro ? 'Solicitud de pedido' : 'Orden de compra',
     oc: retiro ? p.codigo : ocDe(p),
-    estado: etiquetaEstado(p.estado, p.origen),
+    estado: etiquetaEstado(p.estado, p.origen, p.motivo_cancel),
     urgente: !!p.urgente,
     proveedor: retiro ? ALMACEN_RETIRO : (p.proveedor_nombre?.trim() || '—'),
     direccion: retiro ? null : (p.proveedor_direccion?.trim() || null),

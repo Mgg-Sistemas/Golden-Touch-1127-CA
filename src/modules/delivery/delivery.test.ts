@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  claveDelivery, destinoDe, destinoRetiro, esRetiroAlmacen, etiquetaEstado, mensajeAceptado, mensajeCancelado, mensajeEnRuta,
+  MOTIVO_RECIBIDA_ALMACEN, almacenRecepcion, almacenVisible, cerradoPorRecepcion, claveDelivery, destinoDe, destinoRetiro, esRetiroAlmacen, etiquetaEstado, mensajeAceptado, mensajeCancelado, mensajeEnRuta,
   mensajeEntregado, mensajeNoDisponible, minutosEntre, motivoNoDisponible, origenTxt, rechazosDe, resumenPorDelivery, rotuloFotos,
   type PedidoDelivery,
 } from './delivery';
@@ -124,5 +124,30 @@ describe('Delivery · resumen por delivery', () => {
     expect(r[0]).toEqual({ repartidor: 'CARLOS MENDOZA', entregados: 2, cancelados: 1, enCurso: 0, minutosPromedio: 60 });
     expect(r[1]).toMatchObject({ repartidor: 'ANA', enCurso: 1 });
     expect(minutosEntre(null, '2026-10-30T13:00:00Z')).toBeNull();
+  });
+});
+
+describe('Delivery · recepción en Inventario (02/11/2026)', () => {
+  it('«Recibida por Almacén»: etiqueta, no cuenta como cancelación del motorizado', () => {
+    const cerrado = { ...base, estado: 'cancelado' as const, motivo_cancel: MOTIVO_RECIBIDA_ALMACEN };
+    expect(cerradoPorRecepcion(cerrado)).toBe(true);
+    expect(cerradoPorRecepcion({ ...base, estado: 'cancelado', motivo_cancel: 'Avería del vehículo' })).toBe(false);
+    expect(etiquetaEstado('cancelado', 'compra', MOTIVO_RECIBIDA_ALMACEN)).toBe('Recibida por Almacén');
+    expect(etiquetaEstado('cancelado', 'compra', 'Avería')).toBe('Cancelado');
+    const r = resumenPorDelivery([cerrado, { ...base, estado: 'cancelado', motivo_cancel: 'Avería' }]);
+    expect(r[0]).toMatchObject({ repartidor: 'CARLOS MENDOZA', cancelados: 1 });
+  });
+
+  it('almacén de la recepción: el de la OC, si no General (= Almacén Los Pinos)', () => {
+    expect(almacenRecepcion({ almacen_destino: null })).toBe('General');
+    expect(almacenRecepcion({ almacen_destino: ' Viveres ' })).toBe('Viveres');
+    expect(almacenVisible('General')).toBe('Almacén Los Pinos (General)');
+    expect(almacenVisible('Depósito Mina')).toBe('Depósito Mina');
+    expect(almacenVisible('')).toBe('—');
+  });
+
+  it('el WhatsApp de la OC entregada dice que quedó recibida en Inventario (el retiro no)', () => {
+    expect(mensajeEntregado(base, 'CARLOS', 'Almacén Los Pinos (General)')).toContain('📥 *Recibida en Inventario*');
+    expect(mensajeEntregado({ ...base, origen: 'almacen' }, 'CARLOS', 'PRODUCCION')).not.toContain('Recibida en Inventario');
   });
 });

@@ -176,3 +176,19 @@ describe('Retiro en Almacén Los Pinos (02/11/2026)', () => {
     sinSelector(t);
   });
 });
+
+describe('Toma viva de una OC que Almacén ya recibió (02/11/2026)', () => {
+  it('el histórico la muestra cerrada «Recibida por Almacén» y no cuenta para el motorizado', () => {
+    const base = { repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null };
+    const filas = armarFilasHistorial([
+      { ...base, id: 'a', orden_id: 'o1', estado: 'en_ruta', repartidor_nombre: 'Pedro', aceptado_en: '2026-11-02T12:00:00Z',
+        orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: null, recibida_en: '2026-11-02T13:00:00Z' } },
+      { ...base, id: 'b', orden_id: 'o2', estado: 'en_ruta', repartidor_nombre: 'Pedro', aceptado_en: '2026-11-02T12:00:00Z',
+        orden: { oc_codigo: 'OC-2', codigo: 'SP-2', total: 10, moneda: 'USD', proveedor_id: null, recibida_en: null } },
+    ], new Map());
+    expect(filas[0]).toMatchObject({ estado: 'cancelado', motivo_cancel: 'Recibida por Almacén', cancelado_en: '2026-11-02T13:00:00Z' });
+    expect(filas[1]).toMatchObject({ estado: 'en_ruta', motivo_cancel: null });
+    expect(resumenReporte(filas).porDelivery[0]).toMatchObject({ repartidor: 'Pedro', cancelados: 0, enCurso: 1 });
+    expect(detallePedido(pedido({ estado: 'cancelado', motivo_cancel: 'Recibida por Almacén' })).estado).toBe('Recibida por Almacén');
+  });
+});

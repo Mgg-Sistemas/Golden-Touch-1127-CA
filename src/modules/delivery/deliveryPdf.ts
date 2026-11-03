@@ -126,7 +126,7 @@ export async function pdfHistorialDelivery(data: {
     head: [['Tomado', 'Origen', 'OC / SP', 'Proveedor', 'Delivery', 'Estado', 'En camino', 'Entregado / Cancelado', 'Tiempo', 'Almacén / Entregado a / Motivo', 'Fotos', 'Monto']],
     body: data.filas.length
       ? data.filas.map((f) => [
-        fechaHoraVE(f.fecha), ORIGEN_DELIVERY[f.origen]?.corto ?? 'Compras', f.oc, f.proveedor, f.repartidor, etiquetaEstado(f.estado, f.origen),
+        fechaHoraVE(f.fecha), ORIGEN_DELIVERY[f.origen]?.corto ?? 'Compras', f.oc, f.proveedor, f.repartidor, etiquetaEstado(f.estado, f.origen, f.motivo_cancel),
         fechaHoraVE(f.en_ruta_en) || '—',
         fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—',
         duracionTxt(f.minutos),

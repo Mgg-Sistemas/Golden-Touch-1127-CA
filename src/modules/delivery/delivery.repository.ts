@@ -178,13 +178,15 @@ export interface FilaHistorialCruda {
   orden: {
     oc_codigo: string | null; codigo: string; total: number; moneda: string | null; proveedor_id: string | null;
     unidad_solicitante?: string | null; solicitante?: string | null;
+    /** 02/11/2026: si Almacén la recibió por su cuenta, la toma viva se ve cerrada «Recibida por Almacén». */
+    recibida_en?: string | null;
   } | null;
 }
 
 /** Histórico directo de la tabla (incluye cada cancelación aunque la OC se haya retomado). */
 export async function listHistorialDelivery(desde: string, hasta: string): Promise<FilaHistorialCruda[]> {
   const { data, error } = await supabase.from('delivery_pedidos')
-    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id, unidad_solicitante, solicitante)')
+    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id, unidad_solicitante, solicitante, recibida_en)')
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59.999-04:00`)
     .order('aceptado_en', { ascending: false });
   if (error) throw err(error, 'No se pudo leer el histórico.');
