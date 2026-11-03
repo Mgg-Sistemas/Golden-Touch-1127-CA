@@ -291,7 +291,7 @@ export function RetencionesPage() {
       if (existe) {
         contraparteId = existe.id;
       } else if (rifValido(rif)) {
-        const nuevo = await insertProveedor({ rif, razon_social: (fac.proveedorNombre || rif).trim(), categorias: [], estado: 'activo' }).catch(() => null);
+        const nuevo = await insertProveedor({ rif, razon_social: (fac.proveedorNombre || rif).trim(), categorias: [], estado: 'activo', origen: 'nacional' }).catch(() => null);
         contraparteId = nuevo?.id;
       }
     }
