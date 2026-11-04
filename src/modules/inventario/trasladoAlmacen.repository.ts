@@ -34,3 +34,13 @@ export async function listTrasladosMovil(f: { almacen: string; desdeIso: string;
   if (error) throw new Error(/permission denied|row-level security/i.test(error.message) ? 'No tienes permiso para ver este depósito.' : error.message);
   return agruparTraslados((data ?? []) as unknown as MovimientoTraslado[]).slice(0, limite);
 }
+
+/** Traslado con VARIOS productos (04/11/2026): todos en una transacción
+ *  (`inventario_trasladar_deposito_lote`); si uno no alcanza, no se mueve ninguno. */
+export async function trasladarVariosEntreAlmacenes(input: {
+  items: { producto_id: string; cantidad: number }[]; destino: string; nota?: string | null; actor: string; actor_name?: string | null;
+}): Promise<TrasladoAlmacen[]> {
+  const { data, error } = await supabase.rpc('inventario_trasladar_deposito_lote', { p: input });
+  if (error) throw new Error(error.message);
+  return (Array.isArray(data) ? data : []) as TrasladoAlmacen[];
+}

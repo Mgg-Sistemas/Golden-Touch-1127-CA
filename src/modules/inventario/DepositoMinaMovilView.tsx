@@ -39,15 +39,16 @@ import {
   type InfoDeposito,
 } from './depositos';
 import { listAlmacenes } from './almacenes.repository';
-import { FormSalidaMina, Listo, PorRetornarMina } from './SalidaMinaMovil';
+import { FormSalidaMina, ItemsLoteMovil, Listo, PorRetornarMina, itemsLoteListos, type ItemLoteMovil } from './SalidaMinaMovil';
 import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
 import type { SalidaMina } from './salidasMina';
 import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stockMinaWhatsapp';
 import { listMovimientosDepositoDesde } from './stockMina.repository';
-import { mensajeEntrada, mensajeProductoNuevo, mensajeTraslado } from './inventarioMovil';
-import { trasladarEntreAlmacenes } from './trasladoAlmacen.repository';
-import { costoProducto, docEntradaMovil, docTrasladoMovil, type DocMovilPdf } from './inventarioMovilPdf';
+import { mensajeEntrada, mensajeProductoNuevo, mensajeTraslados } from './inventarioMovil';
+import { errorItemsLote } from './salidasMina';
+import { trasladarEntreAlmacenes, trasladarVariosEntreAlmacenes } from './trasladoAlmacen.repository';
+import { costoProducto, docEntradaMovil, docTrasladosMovil, type DocMovilPdf } from './inventarioMovilPdf';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
 
@@ -305,13 +306,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
       )}
 
       {paso === 'salida' && elegido && (
-        <FormSalidaMina producto={elegido} almacen={DEP.almacen} actor={actor} actorName={actorName}
+        <FormSalidaMina producto={elegido} productos={productos} almacen={DEP.almacen} actor={actor} actorName={actorName}
           onCancel={() => setElegido(null)}
           onSaved={() => { volver(); void reload().catch(() => {}); }} />
       )}
 
       {paso === 'traslado' && elegido && (
-        <FormTraslado dep={DEP} depositoActual={deposito} producto={elegido} actor={actor} actorName={actorName}
+        <FormTraslado dep={DEP} depositoActual={deposito} producto={elegido} productos={productos} actor={actor} actorName={actorName}
           depositos={destinosTraslado} onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
@@ -589,6 +590,7 @@ function FormEntrada({ dep, producto, actor, actorName, onCancel, onSaved }: {
 function FormTraslado({
   dep,
   producto,
+  productos,
   actor,
   actorName,
   depositos,
@@ -598,6 +600,7 @@ function FormTraslado({
   dep: Dep;
   depositoActual: string;
   producto: Producto;
+  productos: Producto[];
   actor: string;
   actorName: string | null;
   depositos: InfoDeposito[];
@@ -609,32 +612,29 @@ function FormTraslado({
     [depositos, dep.almacen],
   );
   const [destinoAlmacen, setDestinoAlmacen] = useState<string>(otros[0]?.almacen ?? 'General');
-  const [cantidad, setCantidad] = useState('');
+  // Varios productos en un solo traslado (04/11/2026): todos o ninguno.
+  const [items, setItems] = useState<ItemLoteMovil[]>([{ producto, cantidad: '' }]);
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; texto: string; pdf: DocMovilPdf } | null>(null);
-  const cant = Number(cantidad.replace(',', '.')) || 0;
-  const hay = Number(producto.stock) || 0;
+  const listos = itemsLoteListos(items);
+  const malItems = errorItemsLote(listos);
   const destinoDep = otros.find((d) => d.almacen === destinoAlmacen) ?? otros[0] ?? resolverDeposito('general');
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    if (cant <= 0) return toast('Escribe cuánto se traslada.', 'error');
-    if (cant > hay) return toast(`No alcanza: hay ${num(hay)} ${producto.unidad}.`, 'error');
+    if (malItems) return toast(malItems, 'error');
     setGuardando(true);
     try {
-      const t = await trasladarEntreAlmacenes({
-        producto_id: producto.id,
-        cantidad: cant,
-        destino: destinoDep.almacen,
-        nota: nota.trim() || null,
-        actor,
-        actor_name: actorName,
-      });
+      const comun = { destino: destinoDep.almacen, nota: nota.trim() || null, actor, actor_name: actorName };
+      const ts = listos.length === 1
+        ? [await trasladarEntreAlmacenes({ ...comun, producto_id: listos[0].producto.id, cantidad: listos[0].cantidad })]
+        : await trasladarVariosEntreAlmacenes({ ...comun, items: listos.map((it) => ({ producto_id: it.producto.id, cantidad: it.cantidad })) });
+      const porId = new Map(items.map((it) => [it.producto.id, it.producto]));
       setAviso({
-        titulo: `Traslado ${t.codigo} registrado`,
-        texto: mensajeTraslado(t, actorName ?? actor),
-        pdf: docTrasladoMovil(t, costoProducto(producto), { actor, nombre: actorName }),
+        titulo: ts.length === 1 ? `Traslado ${ts[0].codigo} registrado` : `Traslado de ${ts.length} productos registrado`,
+        texto: mensajeTraslados(ts, actorName ?? actor),
+        pdf: docTrasladosMovil(ts, (id) => costoProducto(porId.get(id)), { actor, nombre: actorName }),
       });
     } catch (err) {
       toast(errMsg(err, 'No se pudo trasladar'), 'error');
@@ -647,8 +647,7 @@ function FormTraslado({
 
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
-      <div className="surt-form-titulo"><span className="icono" aria-hidden>🔁</span><strong>Traslado · {producto.nombre}</strong></div>
-      <div className="muted">{producto.sku} · hay {num(hay)} {producto.unidad} en {dep.nombre}</div>
+      <div className="surt-form-titulo"><span className="icono" aria-hidden>🔁</span><strong>Traslado · {items.length === 1 ? items[0].producto.nombre : `${items.length} productos`}</strong></div>
 
       <div className="surt-campo">
         <label style={{ fontWeight: 600, marginBottom: '.35rem', display: 'block' }}>¿A cuál depósito se traslada?</label>
@@ -672,21 +671,15 @@ function FormTraslado({
 
       <div className="aviso info sm">
         <span className="aviso-icono">🔁</span>
-        <div>De <strong>{dep.nombre}</strong> a <strong>{destinoDep.nombre}</strong>. Si allá no existe este producto, se crea con el mismo nombre, categoría y unidad.</div>
+        <div>De <strong>{dep.nombre}</strong> a <strong>{destinoDep.nombre}</strong>. Si allá no existe un producto, se crea con el mismo nombre, categoría y unidad.</div>
       </div>
-      <div className="surt-campo">
-        <label htmlFor="inv-traslado-cant">¿Cuánto se traslada? ({producto.unidad})</label>
-        <input id="inv-traslado-cant" className="input surt-litros" inputMode="decimal" value={cantidad}
-          onChange={(e) => setCantidad(e.target.value)} placeholder="0" autoFocus />
-        {cant > 0 && cant <= hay && <small className="muted">En {dep.nombre} quedan {num(hay - cant)} {producto.unidad}.</small>}
-        {cant > hay && <small style={{ color: 'var(--danger)' }}>No alcanza: hay {num(hay)} {producto.unidad}.</small>}
-      </div>
+      <ItemsLoteMovil items={items} onChange={setItems} productos={productos} lugar={dep.nombre} disabled={guardando} />
       <div className="surt-campo">
         <label htmlFor="inv-traslado-nota">Nota</label>
         <input id="inv-traslado-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Opcional: para qué, quién lo lleva…" autoComplete="off" />
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || cant <= 0 || cant > hay || !otros.length}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || !otros.length}>
         {guardando ? 'Trasladando…' : `🔁 Trasladar a ${destinoDep.nombre}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro producto</button>

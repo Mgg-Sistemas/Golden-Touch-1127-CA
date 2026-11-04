@@ -118,3 +118,29 @@ export function mensajeTraslado(t: TrasladoAlmacen, quien?: string | null): stri
   l.push('', ...pie(o, quien, t.at));
   return l.join('\n');
 }
+
+/** Un traslado con VARIOS productos (04/11/2026): un renglón por producto, con cómo
+ *  queda en los dos almacenes. Con uno solo, el aviso de siempre. */
+export function mensajeTraslados(ts: TrasladoAlmacen[], quien?: string | null): string {
+  if (ts.length === 1) return mensajeTraslado(ts[0], quien);
+  const t = ts[0];
+  const o = nombreDepositoChat(t.origen);
+  const d = nombreDepositoChat(t.destino);
+  const codigos = ts.map((x) => x.codigo);
+  const l = [
+    '🔁 *TRASLADO ENTRE ALMACENES*',
+    `🔖 *N°:* ${codigos.length <= 4 ? codigos.join(', ') : `${codigos[0]} … ${codigos[codigos.length - 1]} (${codigos.length})`}`,
+    '',
+    `📤 *Sale de:* ${o}`,
+    `📥 *Entra a:* ${d}`,
+    '',
+    `📦 *Productos (${ts.length}):*`,
+  ];
+  ts.forEach((x, i) => {
+    l.push(`${i + 1}. ${x.nombre} — *${conUnidad(Number(x.cantidad), x.unidad)}*${x.creado_en_destino ? ' · nuevo en ese almacén' : ''}`);
+    l.push(`    📊 Queda: ${o} ${conUnidad(Number(x.stock_origen), x.unidad)} · ${d} ${conUnidad(Number(x.stock_destino), x.unidad)}`);
+  });
+  if (t.nota?.trim()) l.push('', `📝 *Nota:* ${t.nota.trim()}`);
+  l.push('', ...pie(o, quien, t.at));
+  return l.join('\n');
+}

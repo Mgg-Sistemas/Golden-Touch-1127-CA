@@ -183,3 +183,49 @@ export function mensajeRetornoMina(s: SalidaMina, cantidad: number, nota?: strin
   lineas.push('', ...pie(quien, cuando ?? new Date().toISOString(), general));
   return lineas.join('\n');
 }
+
+/* ---------- Varios productos en una sola salida (04/11/2026) ----------
+   Cada material sigue siendo su propia fila con su N° (el kardex, «Por retornar» y
+   el histórico no cambian); la base los guarda todos juntos o ninguno
+   (`deposito_mina_registrar_salidas`). El aviso y el PDF los juntan en uno. */
+
+/** Máximo de productos en una salida o un traslado del teléfono (igual que la base). */
+export const MAX_ITEMS_LOTE_MOVIL = 30;
+
+/** Los N° de un lote: hasta 4 se listan; más, «primero … último (n)». */
+export function rangoCodigos(codigos: string[]): string {
+  if (codigos.length <= 4) return codigos.join(', ');
+  return `${codigos[0]} … ${codigos[codigos.length - 1]} (${codigos.length})`;
+}
+
+/** Renglones de un lote con su cantidad: qué le falta o tiene mal (null si está bien). */
+export function errorItemsLote(items: { nombre: string; cantidad: number; stock: number; unidad?: string | null }[]): string | null {
+  if (!items.length) return 'Agrega al menos un producto.';
+  if (items.length > MAX_ITEMS_LOTE_MOVIL) return `Máximo ${MAX_ITEMS_LOTE_MOVIL} productos por vez.`;
+  for (const it of items) {
+    if (!(it.cantidad > 0)) return `Escribe la cantidad de ${it.nombre}.`;
+    if (it.cantidad > it.stock) return `No alcanza ${it.nombre}: hay ${num(it.stock)}${it.unidad ? ` ${it.unidad}` : ''}.`;
+  }
+  return null;
+}
+
+/** El aviso de una salida con uno o varios materiales, listo para WhatsApp. */
+export function mensajeSalidasMina(ss: SalidaMina[], quien?: string | null): string {
+  if (ss.length === 1) return mensajeSalidaMina(ss[0], quien);
+  const s = ss[0];
+  const general = esSalidaGeneral(s);
+  const lineas = [
+    general ? '📤 *SALIDA DE INVENTARIO GENERAL*' : '📤 *SALIDA DE DEPÓSITO*',
+    `🔖 *N°:* ${rangoCodigos(ss.map((x) => x.codigo))}`,
+    '',
+    `📦 *Materiales (${ss.length}):*`,
+    ...ss.map((x, i) => `${i + 1}. ${x.producto_nombre} — *${num(x.cantidad)}${x.unidad ? ` ${x.unidad}` : ''}*`),
+    '',
+    `📝 *Motivo:* ${s.motivo}`,
+  ];
+  if (s.autorizado_por) lineas.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
+  lineas.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
+  if (s.fotos.length) lineas.push(`📷 *Fotos:* ${s.fotos.length}`);
+  lineas.push('', ...pie(quien ?? quienSync(s.actor_name, s.actor), s.created_at, general));
+  return lineas.join('\n');
+}
