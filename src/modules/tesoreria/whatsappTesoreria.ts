@@ -108,7 +108,10 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   }
 
   filas.slice(0, LIMITE_ITEMS).forEach((f, i) => {
-    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${etiquetaFila(f)} — *${f.moneda_original} ${num(f.monto_original)}*`);
+    // Sin Bs en el reporte (04/11/2026): lo pagado en bolívares se muestra por su equivalente en $.
+    const enBs = (f.moneda_original || '').toUpperCase() === 'BS';
+    const monto = enBs && !mostrarBs ? `$ ${num(f.monto_usd || 0)}` : `${f.moneda_original} ${num(f.monto_original)}`;
+    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${etiquetaFila(f)} — *${monto}*`);
   });
   if (filas.length > LIMITE_ITEMS) {
     L.push(`… (+${filas.length - LIMITE_ITEMS} ítem(s) más)`);
@@ -125,7 +128,7 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
       L.push(`• ${esMonedaDivisa(t.moneda) ? '💵' : '🪙'} *${montoMonedaWsp(t.moneda, t.monto)}*`);
     }
     if (prep.sinMetodo.nOrdenes > 0) {
-      L.push(`• ⏳ _Sin método asignado (ref.):_ $ ${num(prep.sinMetodo.usd)} · Bs ${num(prep.sinMetodo.bs)}`);
+      L.push(`• ⏳ _Sin método asignado (ref.):_ $ ${num(prep.sinMetodo.usd)}${mostrarBs ? ` · Bs ${num(prep.sinMetodo.bs)}` : ''}`);
     }
     if (prep.porMetodoMoneda.length > 0) {
       L.push('');

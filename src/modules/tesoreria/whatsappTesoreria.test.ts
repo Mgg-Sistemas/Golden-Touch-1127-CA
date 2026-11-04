@@ -64,6 +64,13 @@ describe('textoWhatsappTesoreria', () => {
     expect(soloBs).toMatch(/💰 \*Total \(1\):\* Bs 1\.800,00$/);
   });
 
+  it('sin Bs, lo pagado en bolívares sale por su equivalente en $', () => {
+    const filas = [mkFila({ contraparte: 'A', moneda_original: 'BS', monto_original: 3600, monto_usd: 100, monto_bs: 3600 })];
+    const t = textoWhatsappTesoreria(filas, { ambito: 'movimientos', ...RANGO, mostrarBs: false });
+    expect(t).toContain('— *$ 100,00*');
+    expect(t).not.toContain('Bs');
+  });
+
   it('usa la categoría cuando no hay proveedor', () => {
     const filas = [mkFila({ contraparte: '—', categoria: 'Combustible', tipo_movimiento: 'egreso', moneda_original: 'USD', monto_original: 12, monto_usd: 12, monto_bs: 432 })];
     const t = textoWhatsappTesoreria(filas, { ambito: 'movimientos', ...RANGO });

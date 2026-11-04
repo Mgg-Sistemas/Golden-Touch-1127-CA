@@ -55,10 +55,10 @@ const CLAVE_CAMPOS = 'tesoreria.reporte.campos.v1';
 const CLAVE_AMBITO = 'tesoreria.reporte.ambito.v1';
 const CLAVE_AGRUPACION = 'tesoreria.reporte.agrupacion.v1';
 const CLAVE_TASA = 'tesoreria.reporte.tasa.v1';
-const CLAVE_USD = 'tesoreria.reporte.usd.v1';
-const CLAVE_BS = 'tesoreria.reporte.bs.v1';
+const CLAVE_USD = 'tesoreria.reporte.usd.v2';
+const CLAVE_BS = 'tesoreria.reporte.bs.v2';
 const CLAVE_RESUMEN = 'tesoreria.reporte.resumen.v1';
-const CLAVE_KPIS = 'tesoreria.reporte.kpisSimples.v1';
+const CLAVE_KPIS = 'tesoreria.reporte.kpisSimples.v2';
 const CLAVE_PREPARAR = 'tesoreria.reporte.preparar.v1';
 
 const AMBITOS: { id: AmbitoTesoreria; icon: string; label: string }[] = [
@@ -100,7 +100,7 @@ function leerPrefs() {
   let baseTasa: BaseTasaTesoreria = 'bcv_dia';
   try { const t = localStorage.getItem(CLAVE_TASA) as BaseTasaTesoreria; if (t === 'bcv_dia' || t === 'historica') baseTasa = t; } catch { /* default */ }
   const leerBool = (k: string, def: boolean) => { try { const v = localStorage.getItem(k); return v == null ? def : v === 'true'; } catch { return def; } };
-  return { ambito, agrupacion, campos, baseTasa, mostrarUsd: leerBool(CLAVE_USD, true), mostrarBs: leerBool(CLAVE_BS, true), incluirResumen: leerBool(CLAVE_RESUMEN, true), kpisSimplificados: leerBool(CLAVE_KPIS, false) };
+  return { ambito, agrupacion, campos, baseTasa, mostrarUsd: leerBool(CLAVE_USD, true), mostrarBs: leerBool(CLAVE_BS, false), incluirResumen: leerBool(CLAVE_RESUMEN, true), kpisSimplificados: leerBool(CLAVE_KPIS, true) };
 }
 
 const fmtUsd = (v: number) => `$ ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

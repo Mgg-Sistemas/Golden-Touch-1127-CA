@@ -497,7 +497,7 @@ export async function descargarTesoreriaPdf(
     }
     if (prep.sinMetodo.nOrdenes > 0) {
       if (y > H - 60) { doc.addPage(); y = 36; }
-      doc.text(pdfSafe(`[Sin método asignado] referencia: $ ${fmtNum(prep.sinMetodo.usd, 2)} · Bs ${fmtNum(prep.sinMetodo.bs, 2)}  ·  ${prep.sinMetodo.nOrdenes} op.`), M + 10, y + 2);
+      doc.text(pdfSafe(`[Sin método asignado] referencia: $ ${fmtNum(prep.sinMetodo.usd, 2)}${meta.mostrarBs ? ` · Bs ${fmtNum(prep.sinMetodo.bs, 2)}` : ''}  ·  ${prep.sinMetodo.nOrdenes} op.`), M + 10, y + 2);
       y += 10.5;
     }
     y += 4;
