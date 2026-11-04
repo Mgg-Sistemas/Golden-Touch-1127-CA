@@ -108,7 +108,10 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   }
 
   filas.slice(0, LIMITE_ITEMS).forEach((f, i) => {
-    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${etiquetaFila(f)} — *${f.moneda_original} ${num(f.monto_original)}*`);
+    // Sin Bs en el reporte (04/11/2026): lo pagado en bolívares se muestra por su equivalente en $.
+    const enBs = (f.moneda_original || '').toUpperCase() === 'BS';
+    const monto = enBs && !mostrarBs ? `$ ${num(f.monto_usd || 0)}` : `${f.moneda_original} ${num(f.monto_original)}`;
+    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${etiquetaFila(f)} — *${monto}*`);
   });
   if (filas.length > LIMITE_ITEMS) {
     L.push(`… (+${filas.length - LIMITE_ITEMS} ítem(s) más)`);
@@ -116,25 +119,28 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
 
   // «Por preparar» (solo por_pagar, con el toggle encendido): totales NATIVOS por moneda,
   // independientes (lo de divisa no se reconvierte a Bs ni viceversa) + desglose por método.
+  // El Bs se desactualiza con la tasa: el bloque respeta los checks de moneda. Se agrupa por
+  // moneda (cada una con su total y su nº de pagos) y debajo el desglose por método.
   const prep = opts.preparacion;
-  if (opts.ambito === 'por_pagar' && prep &&
-      (prep.totalesPorMoneda.length > 0 || prep.sinMetodo.nOrdenes > 0)) {
-    L.push('');
-    L.push('💵 *Por preparar (por moneda):*');
-    for (const t of prep.totalesPorMoneda) {
-      L.push(`• ${esMonedaDivisa(t.moneda) ? '💵' : '🪙'} *${montoMonedaWsp(t.moneda, t.monto)}*`);
-    }
-    if (prep.sinMetodo.nOrdenes > 0) {
-      L.push(`• ⏳ _Sin método asignado (ref.):_ $ ${num(prep.sinMetodo.usd)} · Bs ${num(prep.sinMetodo.bs)}`);
-    }
-    if (prep.porMetodoMoneda.length > 0) {
+  if (opts.ambito === 'por_pagar' && prep) {
+    const ver = (m: string) => (esMonedaDivisa(m) ? mostrarUsd : mostrarBs);
+    const totales = prep.totalesPorMoneda.filter((t) => ver(t.moneda));
+    const refPartes: string[] = [];
+    if (mostrarUsd) refPartes.push(`$ ${num(prep.sinMetodo.usd)}`);
+    if (mostrarBs) refPartes.push(`Bs ${num(prep.sinMetodo.bs)}`);
+    const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && refPartes.length > 0;
+    if (totales.length > 0 || haySinMetodo) {
       L.push('');
-      L.push('*Detalle por método:*');
-      for (const l of prep.porMetodoMoneda) {
-        L.push(`• ${esMonedaDivisa(l.moneda) ? '💵' : '🪙'} ${unaLinea(l.metodoLabel)} (${l.moneda}): ${montoMonedaWsp(l.moneda, l.monto)}`);
+      L.push('💵 *Por preparar:*');
+      for (const t of totales) {
+        L.push(`${esMonedaDivisa(t.moneda) ? '💵' : '🪙'} *${t.moneda}: ${t.nOrdenes} pago(s) · ${montoMonedaWsp(t.moneda, t.monto)}*`);
+        for (const l of prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda)) {
+          L.push(`   • ${unaLinea(l.metodoLabel)}: ${montoMonedaWsp(l.moneda, l.monto)} · ${l.nOrdenes} op.`);
+        }
       }
+      if (haySinMetodo) L.push(`⏳ _Sin método asignado (ref.):_ ${refPartes.join(' · ')} · ${prep.sinMetodo.nOrdenes} op.`);
+      return L.join('\n');   // termina aquí: no se añade el total bruto reconvertido
     }
-    return L.join('\n');   // termina aquí: no se añade el total bruto reconvertido
   }
 
   // Total consolidado y bruto: suma de los equivalentes de TODAS las filas,
