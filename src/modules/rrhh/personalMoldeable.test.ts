@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
+import type { Personal, PersonalFamiliar, PersonalSueldo } from '@/shared/lib/types';
+import type { PersonalCargo } from './cargos';
 import {
+  calcularKpisCabeceraDinamicos,
   filtrarFilasPersonal,
+  normalizarHistoricoCargos,
+  normalizarHistoricoSalarial,
   normalizarPersonal,
   obtenerMetricasFichaPersonal,
   procesarFilasReportePersonal,
@@ -210,5 +214,94 @@ describe('personalMoldeable · Motor Puro', () => {
     expect(metricasSinSueldo.some((m) => m.clave === 'sueldo_base')).toBe(false);
     expect(metricasSinSueldo.some((m) => m.clave === 'antiguedad')).toBe(true);
     expect(metricasSinSueldo.some((m) => m.clave === 'contacto')).toBe(true);
+  });
+
+  it('normaliza histórico salarial calculando deltas en $ y % y motivos', () => {
+    const personasMap = new Map<string, Personal>([
+      ['p1', mockPersonal1],
+      ['p2', mockPersonal2],
+    ]);
+
+    const cambiosSueldo: PersonalSueldo[] = [
+      {
+        id: 's1',
+        personal_id: 'p1',
+        sueldo_nuevo: 500,
+        sueldo_anterior: 400,
+        fecha: '2024-01-01',
+        motivo: 'Ajuste anual',
+        nota: null,
+        created_by: 'Admin',
+        created_at: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 's2',
+        personal_id: 'p2',
+        sueldo_nuevo: 400,
+        sueldo_anterior: 350,
+        fecha: '2024-02-01',
+        motivo: 'Promoción',
+        nota: null,
+        created_by: 'RRHH',
+        created_at: '2024-02-01T00:00:00Z',
+      },
+    ];
+
+    const filas = normalizarHistoricoSalarial(cambiosSueldo, personasMap, mockFamiliaresMap);
+    expect(filas.length).toBe(2);
+    expect(filas[0].sueldo_base).toBe(500);
+    expect(filas[0].sueldo_anterior).toBe(400);
+    expect(filas[0].variacion_sueldo_usd).toBe(100);
+    expect(filas[0].variacion_sueldo_pct).toBe(25);
+    expect(filas[0].motivo_ultimo_aumento).toBe('Ajuste anual');
+  });
+
+  it('normaliza histórico de cargos reflejando cargo anterior, nuevo y motivo', () => {
+    const personasMap = new Map<string, Personal>([
+      ['p1', mockPersonal1],
+    ]);
+
+    const cambiosCargo: PersonalCargo[] = [
+      {
+        id: 'c1',
+        personal_id: 'p1',
+        cargo_anterior: 'AYUDANTE',
+        cargo_nuevo: 'OPERADOR',
+        departamento_anterior: 'MANTENIMIENTO',
+        departamento_nuevo: 'OPERACIONES',
+        fecha: '2024-03-01',
+        motivo: 'Ascenso por desempeño',
+        nota: null,
+        actor_name: 'Gerencia',
+        created_by: 'Gerencia',
+        created_at: '2024-03-01T00:00:00Z',
+      },
+    ];
+
+    const filas = normalizarHistoricoCargos(cambiosCargo, personasMap, mockFamiliaresMap);
+    expect(filas.length).toBe(1);
+    expect(filas[0].cargo).toBe('OPERADOR');
+    expect(filas[0].cargo_anterior).toBe('AYUDANTE');
+    expect(filas[0].departamento).toBe('OPERACIONES');
+    expect(filas[0].departamento_anterior).toBe('MANTENIMIENTO');
+    expect(filas[0].motivo_cambio_cargo).toBe('Ascenso por desempeño');
+  });
+
+  it('calcula KPIs dinámicos de cabecera respondiendo fielmente a las columnas marcadas', () => {
+    const filas = [
+      normalizarPersonal(mockPersonal1, mockFamiliaresMap),
+      normalizarPersonal(mockPersonal2, mockFamiliaresMap),
+    ];
+    const { resumen } = procesarFilasReportePersonal(filas, 'departamento');
+
+    // Con todas las columnas
+    const kpisConSueldo = calcularKpisCabeceraDinamicos(filas, resumen, ['sueldo_base', 'antiguedad_texto', 'hijos_texto'], 'directorio');
+    expect(kpisConSueldo.some((k) => k.id === 'masa_salarial')).toBe(true);
+
+    // Sin columnas de sueldo: NO debe mostrar masa salarial, debe mostrar fallback o métricas alternativas
+    const kpisSinSueldo = calcularKpisCabeceraDinamicos(filas, resumen, ['antiguedad_texto', 'hijos_texto', 'departamento'], 'directorio');
+    expect(kpisSinSueldo.some((k) => k.id === 'masa_salarial')).toBe(false);
+    expect(kpisSinSueldo.some((k) => k.id === 'antiguedad')).toBe(true);
+    expect(kpisSinSueldo.some((k) => k.id === 'carga_familiar')).toBe(true);
   });
 });

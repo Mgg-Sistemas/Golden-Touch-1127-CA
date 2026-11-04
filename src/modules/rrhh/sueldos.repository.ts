@@ -28,6 +28,18 @@ export async function listHistorialSueldo(personalId: string): Promise<PersonalS
   return (data ?? []) as PersonalSueldo[];
 }
 
+/** Todos los cambios de sueldo de todo el personal (para reporte de Histórico Salarial). */
+export async function listTodosCambiosSueldo(): Promise<PersonalSueldo[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(5000);
+  if (error) throw new Error(mensaje(error));
+  return (data ?? []) as PersonalSueldo[];
+}
+
 export interface CambioSueldoInput {
   personalId: string;
   sueldoNuevo: number;

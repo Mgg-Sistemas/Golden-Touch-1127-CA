@@ -8,15 +8,15 @@
 
    Características clave:
      · Multi-empresa nativo con selección por casillas (checks): GT, MTO y nóminas creadas.
+     · Tres ámbitos completamente funcionales: Directorio General, Histórico Salarial e Histórico de Cargos.
      · Filtros y agrupación por Carga Familiar (Con hijos / Sin hijos / Dependientes).
-     · Preparado con ámbitos (scopes) y campos para Histórico Salarial e Histórico de Cargos.
+     · Banner de KPIs de cabecera 100% dinámico generado estrictamente según las columnas marcadas.
      · Doble formato de presentación: Fichas Ejecutivas con métricas adaptables vs Tabla Tabular.
-     · Cálculo de KPIs de cabecera: Personal total, Masa salarial ($ USD), Sueldo promedio,
-       antigüedad y edad promedio, distribución por género y cargas familiares.
      · 100% determinista, libre de llamadas de red y testeable con Vitest.
    ============================================================ */
 
-import type { EmpresaRrhh, Personal, PersonalFamiliar } from '@/shared/lib/types';
+import type { EmpresaRrhh, Personal, PersonalFamiliar, PersonalSueldo } from '@/shared/lib/types';
+import type { PersonalCargo } from './cargos';
 import {
   antiguedad,
   edad,
@@ -29,7 +29,7 @@ import { GRADOS } from './instruccionYTrabajo';
 
 /* ───────────── Tipos de configuración ───────────── */
 
-/** Ámbitos del reporte de personal (Directorio actual o futuros históricos). */
+/** Ámbitos del reporte de personal (Directorio actual o históricos operativos). */
 export type AmbitoReportePersonal =
   | 'directorio'
   | 'historico_salarial'
@@ -143,7 +143,7 @@ export interface FilaReportePersonal {
   parentesco_emergencia: string;
   telefono_emergencia: string;
 
-  // Reservado para Histórico Salarial (futuras actualizaciones)
+  // Histórico Salarial operativo
   sueldo_anterior?: number | null;
   fecha_ultimo_aumento?: string | null;
   variacion_sueldo_usd?: number | null;
@@ -151,11 +151,13 @@ export interface FilaReportePersonal {
   motivo_ultimo_aumento?: string | null;
   total_aumentos?: number;
 
-  // Reservado para Histórico de Cargos (futuras actualizaciones)
+  // Histórico de Cargos operativo
   cargo_anterior?: string | null;
+  departamento_anterior?: string | null;
   fecha_cambio_cargo?: string | null;
   motivo_cambio_cargo?: string | null;
   tiempo_en_cargo_actual?: string | null;
+  actor_name?: string | null;
 
   // Métricas de grupo (cuando la fila representa un grupo o consolidado)
   total_personas?: number;
@@ -178,7 +180,18 @@ export interface MetricaFichaPersonal {
   colorRgb: [number, number, number];
 }
 
-/* ───────────── Resumen y KPIs de cabecera ───────────── */
+/* ───────────── Tarjeta KPI Dinámica de Cabecera ───────────── */
+
+export interface TarjetaKpiDinamica {
+  id: string;
+  titulo: string;
+  valor: string;
+  sub: string;
+  colorHex: string;
+  colorRgb: [number, number, number];
+}
+
+/* ───────────── Resumen y Totales de Cabecera ───────────── */
 
 export interface ItemTopDepartamento {
   nombre: string;
@@ -267,11 +280,17 @@ export const CAMPOS_REPORTE_PERSONAL: CampoColumnaPersonal[] = [
   { clave: 'contacto_emergencia', etiqueta: 'Contacto Emergencia', categoria: 'contacto', anchoPdf: 32, anchoExcel: 22, alineacion: 'left', formato: 'texto' },
   { clave: 'telefono_emergencia', etiqueta: 'Tlf. Emergencia', categoria: 'contacto', anchoPdf: 24, anchoExcel: 15, alineacion: 'center', formato: 'texto' },
 
-  // Histórico Salarial / Cargos (preparados para futuras actualizaciones)
+  // Histórico Salarial y de Cargos
   { clave: 'sueldo_anterior', etiqueta: 'Sueldo Anterior ($)', categoria: 'historico', anchoPdf: 24, anchoExcel: 16, alineacion: 'right', formato: 'moneda' },
-  { clave: 'fecha_ultimo_aumento', etiqueta: 'Fecha Últ. Aumento', categoria: 'historico', anchoPdf: 22, anchoExcel: 14, alineacion: 'center', formato: 'fecha' },
-  { clave: 'variacion_sueldo_pct', etiqueta: 'Var. Sueldo (%)', categoria: 'historico', anchoPdf: 20, anchoExcel: 12, alineacion: 'right', formato: 'numero' },
+  { clave: 'fecha_ultimo_aumento', etiqueta: 'Fecha Cambio Sueldo', categoria: 'historico', anchoPdf: 22, anchoExcel: 14, alineacion: 'center', formato: 'fecha' },
+  { clave: 'variacion_sueldo_usd', etiqueta: 'Diferencia Sueldo ($)', categoria: 'historico', anchoPdf: 22, anchoExcel: 15, alineacion: 'right', formato: 'moneda' },
+  { clave: 'variacion_sueldo_pct', etiqueta: 'Variación Sueldo (%)', categoria: 'historico', anchoPdf: 20, anchoExcel: 14, alineacion: 'right', formato: 'numero' },
+  { clave: 'motivo_ultimo_aumento', etiqueta: 'Motivo Cambio Sueldo', categoria: 'historico', anchoPdf: 34, anchoExcel: 24, alineacion: 'left', formato: 'texto' },
   { clave: 'cargo_anterior', etiqueta: 'Cargo Anterior', categoria: 'historico', anchoPdf: 32, anchoExcel: 22, alineacion: 'left', formato: 'texto' },
+  { clave: 'departamento_anterior', etiqueta: 'Depto. Anterior', categoria: 'historico', anchoPdf: 30, anchoExcel: 20, alineacion: 'left', formato: 'texto' },
+  { clave: 'fecha_cambio_cargo', etiqueta: 'Fecha Cambio Cargo', categoria: 'historico', anchoPdf: 22, anchoExcel: 14, alineacion: 'center', formato: 'fecha' },
+  { clave: 'motivo_cambio_cargo', etiqueta: 'Motivo Cambio Cargo', categoria: 'historico', anchoPdf: 34, anchoExcel: 24, alineacion: 'left', formato: 'texto' },
+  { clave: 'actor_name', etiqueta: 'Registrado Por', categoria: 'historico', anchoPdf: 26, anchoExcel: 18, alineacion: 'left', formato: 'texto' },
 ];
 
 /** Presets de columnas por defecto según el modo de agrupación. */
@@ -285,6 +304,13 @@ export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionPersonal, string[
   antiguedad: ['nombre_completo', 'cedula', 'departamento', 'cargo', 'fecha_ingreso', 'antiguedad_texto', 'sueldo_base'],
   grado_instruccion: ['nombre_completo', 'cedula', 'departamento', 'cargo', 'titulo_obtenido', 'sueldo_base'],
   detallado: ['ficha_nro', 'nombre_completo', 'cedula', 'departamento', 'cargo', 'empresa', 'sueldo_base', 'antiguedad_texto', 'hijos_texto', 'telefono', 'estado_texto'],
+};
+
+/** Presets de columnas por defecto según el ámbito. */
+export const CAMPOS_POR_DEFECTO_POR_AMBITO: Record<AmbitoReportePersonal, string[]> = {
+  directorio: ['nombre_completo', 'cedula', 'cargo', 'departamento', 'empresa', 'sueldo_base', 'antiguedad_texto', 'hijos_texto', 'estado_texto'],
+  historico_salarial: ['nombre_completo', 'cargo', 'departamento', 'sueldo_anterior', 'sueldo_base', 'variacion_sueldo_usd', 'variacion_sueldo_pct', 'fecha_ultimo_aumento', 'motivo_ultimo_aumento', 'empresa'],
+  historico_cargos: ['nombre_completo', 'cargo_anterior', 'cargo', 'departamento', 'fecha_cambio_cargo', 'motivo_cambio_cargo', 'actor_name', 'empresa'],
 };
 
 export const CAMPOS_PRINCIPALES_PERSONAL: string[] = [
@@ -424,10 +450,86 @@ export function normalizarPersonal(
     motivo_ultimo_aumento: null,
     total_aumentos: 0,
     cargo_anterior: null,
+    departamento_anterior: null,
     fecha_cambio_cargo: null,
     motivo_cambio_cargo: null,
     tiempo_en_cargo_actual: null,
+    actor_name: null,
   };
+}
+
+/**
+ * Normaliza el listado de cambios de sueldo en filas del reporte.
+ */
+export function normalizarHistoricoSalarial(
+  cambios: PersonalSueldo[],
+  personasMap: Map<string, Personal>,
+  familiaresMap?: Map<string, PersonalFamiliar[]>,
+): FilaReportePersonal[] {
+  return cambios.map((c) => {
+    const p = personasMap.get(c.personal_id) ?? ({
+      id: c.personal_id,
+      nombre: 'Trabajador',
+      apellido: 'Registrado',
+      empresa: 'GT',
+      activo: true,
+      sueldo_base: c.sueldo_nuevo,
+      created_at: c.created_at,
+    } as Personal);
+
+    const filaBase = normalizarPersonal(p, familiaresMap, 'historico_salarial');
+    const ant = c.sueldo_anterior != null ? Number(c.sueldo_anterior) : null;
+    const nvo = Number(c.sueldo_nuevo) || 0;
+    const delta = ant != null ? round2(nvo - ant) : null;
+    const pct = ant != null && ant > 0 ? round2(((nvo - ant) / ant) * 100) : null;
+
+    return {
+      ...filaBase,
+      id: c.id,
+      sueldo_base: nvo,
+      sueldo_base_formato: formatearUsd(nvo),
+      sueldo_anterior: ant,
+      fecha_ultimo_aumento: fmtFecha(c.fecha),
+      variacion_sueldo_usd: delta,
+      variacion_sueldo_pct: pct,
+      motivo_ultimo_aumento: txt(c.motivo) || (c.historico ? 'Registro histórico' : 'Cambio de sueldo'),
+    };
+  });
+}
+
+/**
+ * Normaliza el listado de cambios de cargo en filas del reporte.
+ */
+export function normalizarHistoricoCargos(
+  cambios: PersonalCargo[],
+  personasMap: Map<string, Personal>,
+  familiaresMap?: Map<string, PersonalFamiliar[]>,
+): FilaReportePersonal[] {
+  return cambios.map((c) => {
+    const p = personasMap.get(c.personal_id) ?? ({
+      id: c.personal_id,
+      nombre: 'Trabajador',
+      apellido: 'Registrado',
+      empresa: 'GT',
+      activo: true,
+      sueldo_base: 0,
+      created_at: c.created_at,
+    } as Personal);
+
+    const filaBase = normalizarPersonal(p, familiaresMap, 'historico_cargos');
+
+    return {
+      ...filaBase,
+      id: c.id,
+      cargo: txt(c.cargo_nuevo) || filaBase.cargo,
+      cargo_anterior: txt(c.cargo_anterior) || 'Sin cargo previo',
+      departamento: txt(c.departamento_nuevo) || filaBase.departamento,
+      departamento_anterior: txt(c.departamento_anterior) || null,
+      fecha_cambio_cargo: fmtFecha(c.fecha),
+      motivo_cambio_cargo: txt(c.motivo) || 'Cambio de cargo registrado',
+      actor_name: txt(c.actor_name) || null,
+    };
+  });
 }
 
 /* ───────────── Filtrado en Memoria ───────────── */
@@ -447,7 +549,6 @@ export function filtrarFilasPersonal(
   const hijosFiltro = opciones.hijosFiltro ?? 'todos';
 
   return filas.filter((f) => {
-    // Si '__ninguno__' está marcado, no entra ninguna fila
     if (empSet?.has('__ninguno__') || depSet?.has('__ninguno__') || carSet?.has('__ninguno__')) {
       return false;
     }
@@ -640,7 +741,7 @@ export function procesarFilasReportePersonal(
         return { clave: f.grado_instruccion || 'sin_grado', titulo: f.grado_instruccion_texto.toUpperCase() };
       case 'detallado':
       default:
-        return { clave: 'general', titulo: 'DIRECTORIO DE PERSONAL' };
+        return { clave: 'general', titulo: 'REGISTROS DETALLADOS' };
     }
   };
 
@@ -665,7 +766,6 @@ export function procesarFilasReportePersonal(
     const pctPersonal = totalPersonal > 0 ? round2((filasOrdenadas.length / totalPersonal) * 100) : 0;
     const pctMasa = masaSalarialTotalUsd > 0 ? round2((grupoMasa / masaSalarialTotalUsd) * 100) : 0;
 
-    // Asignar métricas de grupo a cada fila para los badges y fichas
     for (const f of filasOrdenadas) {
       f.total_personas = filasOrdenadas.length;
       f.pct_personal_total = pctPersonal;
@@ -687,9 +787,7 @@ export function procesarFilasReportePersonal(
     };
   });
 
-  // Ordenar grupos alfabéticamente por título o por masa salarial si aplica
   grupos.sort((a, b) => b.totalPersonas - a.totalPersonas || a.titulo.localeCompare(b.titulo, 'es'));
-
   const filasPlanasyOrdenadas = grupos.flatMap((g) => g.filas);
 
   return {
@@ -712,89 +810,305 @@ export function obtenerMetricasFichaPersonal(
   const metricas: MetricaFichaPersonal[] = [];
   const cols = new Set(columnasSeleccionadas);
 
-  // 1. Sueldo Base (USD) - Verde institucional
+  // 1. Sueldo Base (USD)
   if (cols.has('sueldo_base')) {
     metricas.push({
       clave: 'sueldo_base',
-      etiqueta: 'SUELDO BASE ($)',
-      valor: f.sueldo_base_formato,
+      etiqueta: 'SUELDO ($)',
+      valor: f.sueldo_base > 0 ? f.sueldo_base_formato : 'No asignado',
       sub: f.activo ? 'Vigente mensual' : 'Inactivo',
-      colorHex: '#22c55e',
-      colorRgb: [34, 197, 94],
+      colorHex: f.sueldo_base > 0 ? '#22c55e' : '#94a3b8',
+      colorRgb: f.sueldo_base > 0 ? [34, 197, 94] : [148, 163, 184],
     });
   }
 
-  // 2. Antigüedad / Fecha Ingreso - Naranja institucional
-  if (cols.has('antiguedad_texto') || cols.has('fecha_ingreso')) {
+  // 2. Variación Salarial / Diferencia (Histórico Salarial)
+  if ((cols.has('variacion_sueldo_usd') || cols.has('variacion_sueldo_pct') || cols.has('sueldo_anterior')) && metricas.length < 4) {
+    const delta = f.variacion_sueldo_usd;
+    const txtValor = delta != null
+      ? (delta >= 0 ? `+$ ${delta.toLocaleString('es-VE')}` : `-$ ${Math.abs(delta).toLocaleString('es-VE')}`)
+      : (f.sueldo_anterior != null ? `$ ${f.sueldo_anterior.toLocaleString('es-VE')}` : 'Sin ajuste previo');
+    const txtSub = f.variacion_sueldo_pct != null
+      ? `${f.variacion_sueldo_pct >= 0 ? '+' : ''}${f.variacion_sueldo_pct.toFixed(1)}% (${f.motivo_ultimo_aumento || 'Ajuste'})`
+      : (f.motivo_ultimo_aumento || 'Histórico');
+
+    metricas.push({
+      clave: 'variacion_sueldo',
+      etiqueta: cols.has('variacion_sueldo_usd') ? 'VARIACIÓN ($)' : 'SUELDO ANT.',
+      valor: txtValor,
+      sub: txtSub,
+      colorHex: delta != null && delta >= 0 ? '#10b981' : (delta != null ? '#ef4444' : '#94a3b8'),
+      colorRgb: delta != null && delta >= 0 ? [16, 185, 129] : [148, 163, 184],
+    });
+  }
+
+  // 3. Cargo Anterior / Motivo Cambio (Histórico de Cargos)
+  if ((cols.has('cargo_anterior') || cols.has('motivo_cambio_cargo') || cols.has('fecha_cambio_cargo')) && metricas.length < 4) {
+    metricas.push({
+      clave: 'cargo_anterior',
+      etiqueta: 'CARGO PREVIO',
+      valor: f.cargo_anterior || 'Sin cargo previo',
+      sub: f.fecha_cambio_cargo ? `Rige: ${f.fecha_cambio_cargo}` : (f.motivo_cambio_cargo || 'Histórico'),
+      colorHex: '#f97316',
+      colorRgb: [249, 115, 22],
+    });
+  }
+
+  // 4. Antigüedad / Fecha Ingreso
+  if ((cols.has('antiguedad_texto') || cols.has('fecha_ingreso')) && metricas.length < 4) {
     metricas.push({
       clave: 'antiguedad',
       etiqueta: 'ANTIGÜEDAD',
-      valor: f.antiguedad_texto,
-      sub: f.fecha_ingreso ? `Ingreso: ${f.fecha_ingreso}` : 'Sin fecha',
+      valor: f.antiguedad_texto || 'Sin calcular',
+      sub: f.fecha_ingreso ? `Ingreso: ${f.fecha_ingreso}` : 'Sin fecha registrada',
       colorHex: '#f59e0b',
       colorRgb: [245, 158, 11],
     });
   }
 
-  // 3. Carga Familiar / Hijos - Púrpura dinámico
-  if (cols.has('hijos_texto') || cols.has('cantidad_hijos') || cols.has('nombres_hijos')) {
+  // 5. Carga Familiar / Hijos
+  if ((cols.has('hijos_texto') || cols.has('cantidad_hijos') || cols.has('nombres_hijos')) && metricas.length < 4) {
     metricas.push({
       clave: 'hijos',
       etiqueta: 'CARGA FAMILIAR',
       valor: f.tiene_hijos ? `${f.cantidad_hijos} hijo(s)` : 'Sin hijos',
-      sub: f.carga_familiar_total > f.cantidad_hijos ? `${f.carga_familiar_total} dependientes` : (f.tiene_hijos ? 'Padre / Madre' : 'Sin dependientes'),
+      sub: f.carga_familiar_total > f.cantidad_hijos
+        ? `${f.carga_familiar_total} dependientes`
+        : (f.tiene_hijos ? 'Padre / Madre' : 'Sin dependientes'),
       colorHex: '#a855f7',
       colorRgb: [168, 85, 247],
     });
   }
 
-  // 4. Edad / Sociodemográfico (si hay espacio y está marcado)
+  // 6. Edad / Sociodemográfico
   if ((cols.has('edad') || cols.has('fecha_nacimiento') || cols.has('genero_texto')) && metricas.length < 4) {
     metricas.push({
       clave: 'edad',
       etiqueta: 'EDAD / GÉNERO',
-      valor: f.edad !== null ? `${f.edad} años` : '—',
+      valor: f.edad !== null ? `${f.edad} años` : 'Sin registrar',
       sub: `${f.genero_texto} · ${f.estado_civil_texto}`,
-      colorHex: '#06b6d4',
-      colorRgb: [6, 182, 212],
+      colorHex: f.edad !== null ? '#06b6d4' : '#94a3b8',
+      colorRgb: f.edad !== null ? [6, 182, 212] : [148, 163, 184],
     });
   }
 
-  // 5. Teléfono / Contacto (si hay espacio y está marcado)
+  // 7. Teléfono / Contacto
   if ((cols.has('telefono') || cols.has('correo')) && metricas.length < 4) {
     metricas.push({
       clave: 'contacto',
       etiqueta: 'CONTACTO',
       valor: f.telefono || 'Sin teléfono',
-      sub: f.correo || 'Sin correo',
-      colorHex: '#3b82f6',
-      colorRgb: [59, 130, 246],
+      sub: f.correo || 'Sin correo registrado',
+      colorHex: f.telefono ? '#3b82f6' : '#94a3b8',
+      colorRgb: f.telefono ? [59, 130, 246] : [148, 163, 184],
     });
   }
 
-  // 6. Grado de Instrucción (si hay espacio y está marcado)
+  // 8. Grado de Instrucción
   if ((cols.has('grado_instruccion_texto') || cols.has('titulo_obtenido')) && metricas.length < 4) {
     metricas.push({
       clave: 'instruccion',
       etiqueta: 'INSTRUCCIÓN',
-      valor: f.grado_instruccion_texto,
-      sub: f.titulo_obtenido || 'Sin especialidad',
+      valor: f.grado_instruccion_texto || 'No especificado',
+      sub: f.titulo_obtenido || 'Sin título asentado',
       colorHex: '#8b5cf6',
       colorRgb: [139, 92, 246],
     });
   }
 
-  // Fallback si no seleccionó ninguna de las anteriores: Estado laboral
+  // Fallback si ninguna columna típica de métricas fue marcada: Estatus o indicador sutil
   if (metricas.length === 0) {
     metricas.push({
       clave: 'estado',
       etiqueta: 'ESTATUS',
-      valor: f.estado_texto,
-      sub: f.empresa_nombre,
+      valor: cols.has('estado_texto') ? f.estado_texto : '—',
+      sub: cols.has('estado_texto') ? f.empresa_nombre : 'Columna no seleccionada',
       colorHex: f.activo ? '#10b981' : '#ef4444',
       colorRgb: f.activo ? [16, 185, 129] : [239, 68, 68],
     });
   }
 
   return metricas;
+}
+
+/* ───────────── Generación Dinámica de Tarjetas KPI de Cabecera ───────────── */
+
+/**
+ * Calcula hasta 4 tarjetas de resumen para la cabecera del reporte (en pantalla, PDF y Excel),
+ * respondiendo ESTRICTAMENTE a las columnas seleccionadas por el usuario.
+ */
+export function calcularKpisCabeceraDinamicos(
+  filas: FilaReportePersonal[],
+  resumen: ResumenReportePersonal,
+  columnasMarcadas: string[],
+  ambito: AmbitoReportePersonal,
+): TarjetaKpiDinamica[] {
+  const cols = new Set(columnasMarcadas);
+  const tarjetas: TarjetaKpiDinamica[] = [];
+
+  // 1. Conteo de filas (Siempre presente)
+  if (ambito === 'historico_cargos') {
+    tarjetas.push({
+      id: 'total_cargos',
+      titulo: 'CAMBIOS DE CARGO',
+      valor: `${filas.length} reg.`,
+      sub: `${new Set(filas.map((f) => f.nombre_completo)).size} personas alcanzadas`,
+      colorHex: '#ff8a00',
+      colorRgb: [255, 138, 0],
+    });
+  } else if (ambito === 'historico_salarial') {
+    tarjetas.push({
+      id: 'total_sueldos',
+      titulo: 'AJUSTES SALARIALES',
+      valor: `${filas.length} reg.`,
+      sub: `${new Set(filas.map((f) => f.nombre_completo)).size} trabajadores con historial`,
+      colorHex: '#ff8a00',
+      colorRgb: [255, 138, 0],
+    });
+  } else {
+    tarjetas.push({
+      id: 'total_personal',
+      titulo: 'TOTAL PERSONAL',
+      valor: `${resumen.totalPersonal} pers.`,
+      sub: cols.has('estado_texto')
+        ? `${resumen.totalActivos} activos · ${resumen.totalInactivos} inactivos`
+        : 'Plantilla de nómina',
+      colorHex: '#ff8a00',
+      colorRgb: [255, 138, 0],
+    });
+  }
+
+  // 2. Masa Salarial ($ USD) - SOLO SI se marcaron columnas de dinero/sueldo
+  if (cols.has('sueldo_base') || cols.has('sueldo_anterior') || cols.has('variacion_sueldo_usd')) {
+    tarjetas.push({
+      id: 'masa_salarial',
+      titulo: ambito === 'directorio' ? 'MASA SALARIAL ($)' : 'MONTO TOTAL ($)',
+      valor: `$ ${resumen.masaSalarialTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`,
+      sub: `Promedio: $ ${resumen.sueldoPromedioUsd.toFixed(2)} USD`,
+      colorHex: '#22c55e',
+      colorRgb: [34, 197, 94],
+    });
+  }
+
+  // 3. Variación de Sueldo (%) en histórico salarial
+  if (ambito === 'historico_salarial' && (cols.has('variacion_sueldo_pct') || cols.has('variacion_sueldo_usd'))) {
+    const aumentosValidos = filas.filter((f) => f.variacion_sueldo_pct != null && f.variacion_sueldo_pct > 0);
+    const promPct = aumentosValidos.length > 0
+      ? aumentosValidos.reduce((acc, f) => acc + (f.variacion_sueldo_pct || 0), 0) / aumentosValidos.length
+      : 0;
+    tarjetas.push({
+      id: 'variacion_promedio',
+      titulo: 'AUMENTO PROMEDIO',
+      valor: `+${promPct.toFixed(1)}%`,
+      sub: `${aumentosValidos.length} aumentos con incremento`,
+      colorHex: '#10b981',
+      colorRgb: [16, 185, 129],
+    });
+  }
+
+  // 4. Antigüedad Promedio - SOLO SI se marcaron antigüedad o fecha de ingreso
+  if (cols.has('antiguedad_texto') || cols.has('fecha_ingreso')) {
+    tarjetas.push({
+      id: 'antiguedad',
+      titulo: 'ANTIGÜEDAD PROMEDIO',
+      valor: `${resumen.antiguedadPromedioAnos.toFixed(1)} años`,
+      sub: 'Permanencia media',
+      colorHex: '#f59e0b',
+      colorRgb: [245, 158, 11],
+    });
+  }
+
+  // 5. Carga Familiar - SOLO SI se marcaron columnas de hijos o familia
+  if (cols.has('hijos_texto') || cols.has('cantidad_hijos') || cols.has('nombres_hijos')) {
+    tarjetas.push({
+      id: 'carga_familiar',
+      titulo: 'CARGA FAMILIAR',
+      valor: `${resumen.conHijos} con hijos`,
+      sub: `${resumen.totalHijosRegistrados} hijo(s) registrados`,
+      colorHex: '#a855f7',
+      colorRgb: [168, 85, 247],
+    });
+  }
+
+  // 6. Edad Promedio - SOLO SI se marcó edad o fecha de nacimiento
+  if ((cols.has('edad') || cols.has('fecha_nacimiento')) && tarjetas.length < 4) {
+    tarjetas.push({
+      id: 'edad',
+      titulo: 'EDAD PROMEDIO',
+      valor: resumen.edadPromedio !== null ? `${resumen.edadPromedio} años` : 'Sin registrar',
+      sub: 'Demografía media',
+      colorHex: '#06b6d4',
+      colorRgb: [6, 182, 212],
+    });
+  }
+
+  // 7. Departamentos Representados - Si se marcó departamento
+  if (cols.has('departamento') && tarjetas.length < 4) {
+    tarjetas.push({
+      id: 'departamentos',
+      titulo: 'DEPARTAMENTOS',
+      valor: `${resumen.totalDepartamentos} áreas`,
+      sub: resumen.topDepartamentos[0]?.nombre ? `Mayor: ${resumen.topDepartamentos[0].nombre}` : 'Áreas de trabajo',
+      colorHex: '#3b82f6',
+      colorRgb: [59, 130, 246],
+    });
+  }
+
+  // 8. Distribución Género - Si se marcó género
+  if (cols.has('genero_texto') && tarjetas.length < 4) {
+    tarjetas.push({
+      id: 'genero',
+      titulo: 'GÉNERO',
+      valor: `${resumen.totalHombres} H · ${resumen.totalMujeres} M`,
+      sub: resumen.totalSinGenero > 0 ? `${resumen.totalSinGenero} sin indicar` : '100% clasificado',
+      colorHex: '#ec4899',
+      colorRgb: [236, 72, 153],
+    });
+  }
+
+  // 9. Empresas / Nóminas - Si se marcó empresa
+  if (cols.has('empresa') && tarjetas.length < 4) {
+    tarjetas.push({
+      id: 'empresa',
+      titulo: 'NÓMINAS',
+      valor: `${resumen.totalEmpresas} empresas`,
+      sub: 'Grupo Golden Touch',
+      colorHex: '#6366f1',
+      colorRgb: [99, 102, 241],
+    });
+  }
+
+  // Fallbacks sutiles si hay menos de 4 tarjetas porque el usuario desmarcó columnas
+  if (tarjetas.length < 4 && !cols.has('sueldo_base') && ambito === 'directorio') {
+    tarjetas.push({
+      id: 'no_sueldo',
+      titulo: 'SUELDOS ($)',
+      valor: '—',
+      sub: 'Columna no seleccionada',
+      colorHex: '#64748b',
+      colorRgb: [100, 116, 139],
+    });
+  }
+  if (tarjetas.length < 4 && !cols.has('antiguedad_texto') && !cols.has('fecha_ingreso')) {
+    tarjetas.push({
+      id: 'no_antiguedad',
+      titulo: 'ANTIGÜEDAD',
+      valor: '—',
+      sub: 'Columna no seleccionada',
+      colorHex: '#64748b',
+      colorRgb: [100, 116, 139],
+    });
+  }
+  if (tarjetas.length < 4 && !cols.has('hijos_texto') && !cols.has('cantidad_hijos')) {
+    tarjetas.push({
+      id: 'no_familia',
+      titulo: 'CARGA FAMILIAR',
+      valor: '—',
+      sub: 'Columna no seleccionada',
+      colorHex: '#64748b',
+      colorRgb: [100, 116, 139],
+    });
+  }
+
+  return tarjetas.slice(0, 4);
 }
