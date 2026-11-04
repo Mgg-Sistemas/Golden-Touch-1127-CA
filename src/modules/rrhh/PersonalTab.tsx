@@ -38,6 +38,7 @@ import {
 } from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
+import { HistorialCargoModal } from './HistorialCargoModal';
 import { errorFicha, errorFichaEdicion, etiquetaFicha, fichaCambia, mismaFicha, FICHA_MIN } from './fichaNro';
 import { errorCorreo } from './correoPersonal';
 import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
@@ -132,6 +133,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [sueldoPersona, setSueldoPersona] = useState<Personal | null>(null);
+  const [cargoPersona, setCargoPersona] = useState<Personal | null>(null);
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
   const [constanciaPersona, setConstanciaPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -768,6 +770,8 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                     title="Ficha técnica (con PDF)">🗂</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setSueldoPersona(p)}
                     title="Historial de sueldo: de cuánto a cuánto, cuándo y por qué">💵</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setCargoPersona(p)}
+                    title="Historial de cargos: de cuál a cuál, la fecha del cambio y el motivo (con PDF)">🧭</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Generar carnet con QR">🪪</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
@@ -876,10 +880,28 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   ? <small style={{ color: 'var(--warning)' }}>Ese RIF no pasa el dígito verificador: revísalo. Igual se guarda.</small>
                   : <small className="muted">Es otro dato que la cédula. Va en la constancia y en la nómina.</small>}
               </div>
-              <ComboConAgregar
-                label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
-                onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
-                hint="Elige de la lista o agrega uno nuevo (queda guardado)." />
+              {editId ? (
+                /* 04/11/2026: en una ficha que ya existe el cargo se cambia desde 🧭, con
+                   fecha y motivo, y queda en el historial de cargos (como el sueldo). */
+                <div className="form-row">
+                  <label>Cargo</label>
+                  <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input className="input" readOnly tabIndex={-1} value={form.cargo ?? ''} style={{ maxWidth: 240, opacity: .75 }} />
+                    {canWrite && (
+                      <button type="button" className="btn btn-sm btn-ghost"
+                        onClick={() => { const p = lista.find((x) => x.id === editId); if (p) { cerrarForm(); setCargoPersona(p); } }}>
+                        🧭 Cambiar cargo
+                      </button>
+                    )}
+                  </div>
+                  <small className="muted">Se cambia desde 🧭, con fecha y motivo, y queda en el historial de cargos.</small>
+                </div>
+              ) : (
+                <ComboConAgregar
+                  label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
+                  onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
+                  hint="Elige de la lista o agrega uno nuevo (queda guardado)." />
+              )}
               <ComboConAgregar
                 label="Departamento" valor={form.departamento ?? ''} opciones={departamentos}
                 onChange={(v) => setForm((f) => ({ ...f, departamento: v }))}
@@ -1173,6 +1195,18 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
           canWrite={canWrite}
           isAdmin={isAdmin}
           onClose={() => setSueldoPersona(null)}
+          onCambio={() => { void recargar(); }}
+        />
+      )}
+      {cargoPersona && (
+        <HistorialCargoModal
+          persona={cargoPersona}
+          canWrite={canWrite}
+          isAdmin={isAdmin}
+          cargos={cargos}
+          departamentos={departamentos}
+          actorName={appUser?.nombre ?? null}
+          onClose={() => setCargoPersona(null)}
           onCambio={() => { void recargar(); }}
         />
       )}
