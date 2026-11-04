@@ -11,6 +11,7 @@ import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { type Moneda } from './administracionCalculo';
 import { armarReporteAdmin, ETIQUETA_DIMENSION, type DimensionReporte } from './administracionReporte';
+import { cargarTasaBcv, TASA_FALLBACK } from './administracionTasa';
 import { descargarReporteAdminPdf } from './administracionReportePdf';
 import { descargarReporteAdminExcel } from './administracionReporteExcel';
 import { reporteMovimientosTxt } from './administracionWhatsApp';
@@ -19,7 +20,6 @@ import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.reposito
 
 const num0 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 0 });
 const monto2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const TASA_DEMO = 40;
 const DIMENSIONES: DimensionReporte[] = ['categoria', 'empresa', 'proveedor', 'periodo', 'moneda', 'estado'];
 
 const fCorta = (iso: string) => { const [a, m, d] = iso.split('-'); return d && m && a ? `${d}/${m}/${a}` : iso; };
@@ -38,6 +38,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   const [moneda, setMoneda] = useState<'' | Moneda>('');
   const [categoriaId, setCategoriaId] = useState('');
   const [agruparPor, setAgruparPor] = useState<DimensionReporte>('categoria');
+  const [tasa, setTasa] = useState(TASA_FALLBACK);
   const [wsp, setWsp] = useState<string | null>(null);
 
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
@@ -46,9 +47,10 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
     setCargando(true);
     setError(null);
     try {
-      const [ms, cats] = await Promise.all([repo.listMovimientos(empresaClave ?? undefined), repo.listCategorias().catch(() => [] as OpcionRef[])]);
+      const [ms, cats, t] = await Promise.all([repo.listMovimientos(empresaClave ?? undefined), repo.listCategorias().catch(() => [] as OpcionRef[]), cargarTasaBcv()]);
       setMovs(ms);
       setCategorias(cats);
+      setTasa(t.tasa);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron leer los movimientos.');
     } finally {
@@ -71,8 +73,8 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
 
   // UN solo armado puro, agrupado por la dimensión elegida → las tres salidas y la vista dicen lo mismo.
   const data = useMemo(
-    () => armarReporteAdmin(filtrados, empresas, categorias, { empresaNombre, alcanceLabel, tasa: TASA_DEMO, agruparPor }),
-    [filtrados, empresas, categorias, empresaNombre, alcanceLabel, agruparPor],
+    () => armarReporteAdmin(filtrados, empresas, categorias, { empresaNombre, alcanceLabel, tasa, agruparPor }),
+    [filtrados, empresas, categorias, empresaNombre, alcanceLabel, tasa, agruparPor],
   );
   const { total, grupos } = data;
   const dim = ETIQUETA_DIMENSION[agruparPor];
@@ -143,7 +145,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
             <div className="adm-kpi oro">
               <span className="adm-kpi-lbl">Total del período</span>
               <span className="adm-kpi-num">$ {num0(total.equivUsd)}</span>
-              <span className="adm-kpi-sub">equivalente en USD · tasa {TASA_DEMO}</span>
+              <span className="adm-kpi-sub">equivalente en USD · tasa {num0(tasa)}</span>
             </div>
             <div className="adm-kpi">
               <span className="adm-kpi-lbl">En bolívares</span>

@@ -84,6 +84,31 @@ export type MovimientoInput = Omit<Movimiento, 'id' | 'createdAt'>;
 /** Opción {id, nombre} para los selectores (categorías, proveedores). */
 export interface OpcionRef { id: string; nombre: string; }
 
+/** Tipo de papel legal de una empresa. */
+export type TipoDocumento = 'rif' | 'acta_constitutiva' | 'acta_modificacion' | 'cedula' | 'otro';
+export const TIPO_DOCUMENTO_LABEL: Record<TipoDocumento, string> = {
+  rif: 'RIF',
+  acta_constitutiva: 'Acta constitutiva',
+  acta_modificacion: 'Acta de modificación',
+  cedula: 'Cédula del representante',
+  otro: 'Otro documento',
+};
+
+/** Documento (PDF/imagen) adjunto a una empresa (tabla `admin_empresa_documentos`
+ *  + Storage bucket `admin-documentos`). El RIF, las actas, la cédula del
+ *  representante: los papeles que la empresa necesita tener a mano. */
+export interface DocumentoEmpresa {
+  id: string;
+  empresaClave: string;
+  tipo: TipoDocumento;
+  nombre: string;
+  /** Ruta en el bucket; con ella se pide la URL firmada. */
+  path: string;
+  contentType: string | null;
+  tamano: number | null;
+  createdAt: string | null;
+}
+
 /** Puerto de datos del módulo. La página lo recibe inyectado: Supabase en la
  *  app; una impl en memoria en la página de prueba (DEV). */
 export interface AdminRepo {
@@ -102,9 +127,20 @@ export interface AdminRepo {
   listProveedores(): Promise<OpcionRef[]>;
   listMovimientos(empresaClave?: string): Promise<Movimiento[]>;
   crearMovimiento(m: MovimientoInput): Promise<Movimiento>;
+  editarMovimiento(id: string, cambios: Partial<MovimientoInput>): Promise<void>;
+  /** Anula un movimiento (estado_pago = 'anulado'); queda fuera de los totales del reporte. */
+  anularMovimiento(id: string): Promise<void>;
   /** Genera los pendientes que faltan hasta `hasta` (default hoy), idempotente. Devuelve cuántos creó. */
   generarPendientes(empresaClave?: string, hasta?: Date): Promise<{ creados: number }>;
   marcarPagado(id: string): Promise<void>;
+  /** Papeles legales de una empresa (RIF, actas, cédula…), más recientes primero. */
+  listDocumentos(empresaClave: string): Promise<DocumentoEmpresa[]>;
+  /** Sube un PDF/imagen al bucket y lo registra. Si el registro falla, borra el archivo. */
+  subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File): Promise<DocumentoEmpresa>;
+  /** URL firmada (10 min) para previsualizar/descargar. */
+  urlDocumento(path: string): Promise<string>;
+  /** Borra el registro y luego el archivo del bucket. */
+  borrarDocumento(doc: DocumentoEmpresa): Promise<void>;
 }
 
 /* ───────── Mapeo snake_case (fila de base) ↔ camelCase (dominio) ───────── */
@@ -200,6 +236,26 @@ function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
+const T_DOC = 'admin_empresa_documentos';
+const BUCKET_DOCS = 'admin-documentos';
+
+interface RowDoc {
+  id: string; empresa_clave: string; tipo: string; nombre: string; path: string;
+  content_type: string | null; tamano: number | string | null; created_at?: string | null;
+}
+function aDoc(r: RowDoc): DocumentoEmpresa {
+  return {
+    id: r.id, empresaClave: r.empresa_clave, tipo: (r.tipo as TipoDocumento) ?? 'otro', nombre: r.nombre,
+    path: r.path, contentType: r.content_type ?? null,
+    tamano: r.tamano == null ? null : num(r.tamano), createdAt: r.created_at ?? null,
+  };
+}
+/** Ruta única del archivo en el bucket: <empresa>/<stamp>-<nombre saneado>. */
+function rutaDoc(empresaClave: string, nombre: string): string {
+  const stamp = `${Math.floor(performance.now()).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  const safe = nombre.replace(/[^\w.-]+/g, '_').slice(-80);
+  return `${empresaClave}/${stamp}-${safe}`;
+}
 
 /** Impl contra Supabase (la app real). Las tablas las crea BD (SQL en borrador). */
 export function crearRepoSupabase(): AdminRepo {
@@ -271,6 +327,14 @@ export function crearRepoSupabase(): AdminRepo {
       if (error) throw error;
       return aMov(data as RowMov);
     },
+    async editarMovimiento(id, cambios) {
+      const { error } = await supabase.from(T_MOV).update(deMov(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async anularMovimiento(id) {
+      const { error } = await supabase.from(T_MOV).update({ estado_pago: 'anulado' }).eq('id', id);
+      if (error) throw error;
+    },
     async generarPendientes(empresaClave, hasta = new Date()) {
       let qg = supabase.from(T_GF).select('*');
       if (empresaClave) qg = qg.eq('empresa_clave', empresaClave);
@@ -328,6 +392,37 @@ export function crearRepoSupabase(): AdminRepo {
     async marcarPagado(id) {
       const { error } = await supabase.from(T_MOV).update({ estado_pago: 'pagado' }).eq('id', id);
       if (error) throw error;
+    },
+    async listDocumentos(empresaClave) {
+      if (!empresaClave) return [];
+      const { data, error } = await supabase.from(T_DOC).select('*').eq('empresa_clave', empresaClave).order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data ?? []).map((r) => aDoc(r as RowDoc));
+    },
+    async subirDocumento(empresaClave, tipo, file) {
+      if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
+        throw new Error('El documento debe ser un PDF o una imagen.');
+      const path = rutaDoc(empresaClave, file.name);
+      const { error: upErr } = await supabase.storage.from(BUCKET_DOCS).upload(path, file, { upsert: false, contentType: file.type || 'application/pdf' });
+      if (upErr) throw upErr;
+      const fila = { empresa_clave: empresaClave, tipo, nombre: file.name, path, content_type: file.type || null, tamano: file.size };
+      const { data, error } = await supabase.from(T_DOC).insert(fila).select('*').single();
+      if (error || !data) {
+        await supabase.storage.from(BUCKET_DOCS).remove([path]).catch(() => { /* queda suelto; se limpia después */ });
+        throw new Error(error?.message ?? `No se guardó «${file.name}»: sin permiso.`);
+      }
+      return aDoc(data as RowDoc);
+    },
+    async urlDocumento(path) {
+      const { data, error } = await supabase.storage.from(BUCKET_DOCS).createSignedUrl(path, 60 * 10);
+      if (error) throw error;
+      return data.signedUrl;
+    },
+    async borrarDocumento(doc) {
+      const { data, error } = await supabase.from(T_DOC).delete().eq('id', doc.id).select('id');
+      if (error) throw error;
+      if (!data?.length) throw new Error('No se eliminó el documento: sin permiso, o ya no existe.');
+      await supabase.storage.from(BUCKET_DOCS).remove([doc.path]).catch(() => { /* el registro ya no está; el archivo suelto se limpia después */ });
     },
   };
 }

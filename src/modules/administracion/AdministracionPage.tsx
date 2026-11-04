@@ -15,12 +15,15 @@ import { EmpresasModal } from './EmpresasModal';
 import { GastosFijosTab } from './GastosFijosTab';
 import { MovimientosTab } from './MovimientosTab';
 import { ReporteTab } from './ReporteTab';
+import { ConfiguracionTab } from './ConfiguracionTab';
+import { DocumentosEmpresaModal } from './DocumentosEmpresaModal';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
   { id: 'gastos', label: '📌 Gastos fijos' },
   { id: 'movimientos', label: '📒 Movimientos / Histórico' },
   { id: 'reporte', label: '📊 Reporte' },
+  { id: 'config', label: '⚙ Configuración' },
 ];
 
 export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, puedeEscribir = true, puedeFull = true }: {
@@ -41,6 +44,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
   const [empresaSel, setEmpresaSel] = useState<string>(() => prefs.leerEmpresa());
   const [tab, setTab] = useState<TabAdmin>(() => prefs.leerTab());
   const [gestionar, setGestionar] = useState(false);
+  const [documentos, setDocumentos] = useState(false);
 
   const cargarEmpresas = useCallback(async () => {
     setError(null);
@@ -60,6 +64,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
 
   const activas = useMemo(() => empresas.filter((e) => e.activa), [empresas]);
   const empresaClave = empresaSel === TODAS ? null : empresaSel;
+  const empresaActual = useMemo(() => empresas.find((e) => e.clave === empresaClave) ?? null, [empresas, empresaClave]);
 
   const elegirEmpresa = (v: string) => { setEmpresaSel(v); prefs.guardarEmpresa(v); };
   const elegirTab = (t: TabAdmin) => { setTab(t); prefs.guardarTab(t); };
@@ -80,6 +85,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
               {activas.map((e) => <option key={e.id} value={e.clave}>{e.nombre}</option>)}
             </select>
           </label>
+          {empresaActual && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDocumentos(true)} title={`Papeles legales de ${empresaActual.nombre}`}>📎 Documentos</button>}
           {puedeFull && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setGestionar(true)}>⚙ Gestionar empresas</button>}
           <div className="view-toggle" role="tablist" aria-label="Vista de administración">
             {PESTANAS.map((p) => (
@@ -98,8 +104,10 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab === 'config' && <ConfiguracionTab empresas={empresas} puedeFull={puedeFull} onGestionarEmpresas={() => setGestionar(true)} />}
 
       {gestionar && puedeFull && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
+      {documentos && empresaActual && <DocumentosEmpresaModal repo={repo} empresa={empresaActual} puedeEscribir={puedeEscribir} onClose={() => setDocumentos(false)} />}
     </div>
   );
 }
