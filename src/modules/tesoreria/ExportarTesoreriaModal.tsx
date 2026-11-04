@@ -402,39 +402,46 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
               Cuánto hay que pagar en cada moneda, nativo y por separado (divisa y bolívares, sin conversión). Apágalo para el reporte como lista simple.
             </div>
             {incluirPreparar && cargando && <div className="muted" style={{ fontSize: '.76rem', marginTop: '.5rem' }}>Cargando…</div>}
-            {incluirPreparar && !cargando && datosPP?.preparacion && (
-              <div style={{ marginTop: '.6rem', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
-                  {datosPP.preparacion.totalesPorMoneda.map((t) => (
-                    <div key={t.moneda} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.4rem .7rem', minWidth: 130 }}>
-                      <div className="muted" style={{ fontSize: '.64rem', fontWeight: 600 }}>{esMonedaDivisa(t.moneda) ? '💵 DIVISA' : '🪙 BOLÍVARES'} · {t.moneda}</div>
-                      <div style={{ fontSize: '1rem', fontWeight: 700, color: esMonedaDivisa(t.moneda) ? '#22c55e' : '#FF8A00' }}>{fmtNativa(t.moneda, t.monto)}</div>
-                      <div className="muted" style={{ fontSize: '.63rem' }}>{t.nOrdenes} operación(es)</div>
+            {incluirPreparar && !cargando && datosPP?.preparacion && (() => {
+              const prep = datosPP.preparacion;
+              const ver = (m: string) => (esMonedaDivisa(m) ? mostrarUsd : mostrarBs);
+              const totales = prep.totalesPorMoneda.filter((t) => ver(t.moneda));
+              const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && (mostrarUsd || mostrarBs);
+              if (totales.length === 0 && !haySinMetodo) {
+                return <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Nada por preparar con las monedas elegidas.</div>;
+              }
+              return (
+                <div style={{ marginTop: '.6rem', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+                  {totales.map((t) => {
+                    const divisa = esMonedaDivisa(t.moneda);
+                    const metodos = prep.porMetodoMoneda.filter((l) => l.moneda === t.moneda);
+                    return (
+                      <div key={t.moneda} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.45rem .7rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '.6rem', fontWeight: 700, padding: '.05rem .4rem', borderRadius: 999, background: divisa ? 'rgba(34,197,94,.15)' : 'rgba(255,138,0,.15)', color: divisa ? '#22c55e' : '#FF8A00' }}>{divisa ? 'Divisa' : 'Bolívares'}</span>
+                          <strong style={{ fontSize: '.95rem', color: divisa ? '#22c55e' : '#FF8A00' }}>{t.moneda}: {fmtNativa(t.moneda, t.monto)}</strong>
+                          <span className="muted" style={{ fontSize: '.7rem' }}>· {t.nOrdenes} pago(s)</span>
+                        </div>
+                        {metodos.length > 0 && (
+                          <div style={{ marginTop: '.3rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                            {metodos.map((l) => (
+                              <div key={`${l.metodo}|${l.moneda}`} style={{ fontSize: '.75rem', paddingLeft: '.6rem' }}>
+                                • {l.metodoLabel}: <strong>{fmtNativa(l.moneda, l.monto)}</strong> <span className="muted" style={{ fontSize: '.68rem' }}>· {l.nOrdenes} op.</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {haySinMetodo && (
+                    <div className="muted" style={{ fontSize: '.74rem' }}>
+                      ⏳ Sin método asignado (referencia): {[mostrarUsd ? fmtUsd(prep.sinMetodo.usd) : null, mostrarBs ? fmtBs(prep.sinMetodo.bs) : null].filter(Boolean).join(' · ')} · {prep.sinMetodo.nOrdenes} op.
                     </div>
-                  ))}
-                  {datosPP.preparacion.totalesPorMoneda.length === 0 && (
-                    <div className="muted" style={{ fontSize: '.78rem' }}>Todo está sin método asignado todavía.</div>
                   )}
                 </div>
-                {datosPP.preparacion.porMetodoMoneda.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
-                    {datosPP.preparacion.porMetodoMoneda.map((l) => (
-                      <div key={`${l.metodo}|${l.moneda}`} style={{ fontSize: '.76rem', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '.6rem', fontWeight: 700, padding: '.05rem .4rem', borderRadius: 999, background: esMonedaDivisa(l.moneda) ? 'rgba(34,197,94,.15)' : 'rgba(255,138,0,.15)', color: esMonedaDivisa(l.moneda) ? '#22c55e' : '#FF8A00' }}>{esMonedaDivisa(l.moneda) ? 'Divisa' : 'Bolívares'}</span>
-                        <span>{l.metodoLabel} ({l.moneda}):</span>
-                        <strong>{fmtNativa(l.moneda, l.monto)}</strong>
-                        <span className="muted" style={{ fontSize: '.68rem' }}>· {l.nOrdenes} op.</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {datosPP.preparacion.sinMetodo.nOrdenes > 0 && (
-                  <div className="muted" style={{ fontSize: '.74rem' }}>
-                    ⏳ Sin método asignado (referencia): {fmtUsd(datosPP.preparacion.sinMetodo.usd)} · {fmtBs(datosPP.preparacion.sinMetodo.bs)} · {datosPP.preparacion.sinMetodo.nOrdenes} op.
-                  </div>
-                )}
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
 

@@ -94,12 +94,30 @@ describe('textoWhatsappTesoreria', () => {
       sinMetodo: { usd: 0, bs: 0, nOrdenes: 0 },
     };
     const t = textoWhatsappTesoreria(filas, { ambito: 'por_pagar', ...RANGO, preparacion });
-    expect(t).toContain('💵 *Por preparar (por moneda):*');
-    expect(t).toContain('$ 100,00');
-    expect(t).toContain('Bs 3.600,00');
-    expect(t).toContain('*Detalle por método:*');
-    expect(t).toContain('Zelle (USD): $ 100,00');
-    expect(t).not.toContain('💰 *Total');   // no se añade el total bruto reconvertido
+    expect(t).toContain('💵 *Por preparar:*');
+    expect(t).toContain('💵 *USD: 1 pago(s) · $ 100,00*');
+    expect(t).toContain('🪙 *Bs: 1 pago(s) · Bs 3.600,00*');
+    expect(t).toContain('• Zelle: $ 100,00 · 1 op.');     // método agrupado bajo su moneda
+    expect(t).not.toContain('💰 *Total');                 // no se añade el total bruto reconvertido
+  });
+
+  it('«Por preparar» respeta el check de moneda: con Bs apagado NO muestra la tarjeta de bolívares', () => {
+    const filas = [mkFila({ moneda_original: 'USD', monto_original: 100, monto_usd: 100, monto_bs: 3600 })];
+    const preparacion = {
+      porMetodoMoneda: [
+        { metodo: 'transferencia', metodoLabel: 'Transferencia', moneda: 'Bs', monto: 3600, nOrdenes: 1 },
+        { metodo: 'zelle', metodoLabel: 'Zelle', moneda: 'USD', monto: 100, nOrdenes: 1 },
+      ],
+      totalesPorMoneda: [
+        { moneda: 'USD', monto: 100, nOrdenes: 1 },
+        { moneda: 'Bs', monto: 3600, nOrdenes: 1 },
+      ],
+      sinMetodo: { usd: 0, bs: 0, nOrdenes: 0 },
+    };
+    const t = textoWhatsappTesoreria(filas, { ambito: 'por_pagar', ...RANGO, mostrarBs: false, preparacion });
+    expect(t).toContain('USD: 1 pago(s)');
+    expect(t).not.toContain('🪙');            // sin tarjeta de bolívares
+    expect(t).not.toContain('Bs 3.600,00');
   });
 
   it('sin «Por preparar» (toggle apagado) mantiene el total bruto como antes', () => {
