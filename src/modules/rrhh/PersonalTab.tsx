@@ -1223,8 +1223,14 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
         />
       )}
       {exportando && (
-        <ExportarPersonalModal personas={visibles} total={lista.length}
-          titulo={`Personal · ${labelEmpresa(empresa)}`} onClose={() => setExportando(false)} />
+        <ExportarPersonalModal
+          personas={visibles}
+          total={lista.length}
+          empresa={empresa}
+          familiaresMap={familiares}
+          titulo={`Personal · ${labelEmpresa(empresa)}`}
+          onClose={() => setExportando(false)}
+        />
       )}
       {directorio && (
         <DirectorioFotosModal personas={visibles} empresa={empresa}

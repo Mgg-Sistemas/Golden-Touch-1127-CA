@@ -484,36 +484,56 @@ export async function descargarTesoreriaPdf(
     const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && refPartes.length > 0;
     if (totales.length > 0 || haySinMetodo) {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
+      doc.setFontSize(10);
       doc.setTextColor(...NARANJA);
-      doc.text(pdfSafe('POR PREPARAR — por moneda y método (nativo, sin reconvertir)'), M, y + 2);
-      y += 14;
+      doc.text(pdfSafe('RESUMEN DE PAGOS — por moneda y método (nativo, sin reconvertir)'), M, y + 2);
+      y += 16;
+      const VERDE: [number, number, number] = [34, 197, 94];
       for (const t of totales) {
-        if (y > H - 70) { doc.addPage(); y = 36; }
-        const tipo = esMonedaDivisa(t.moneda) ? 'Divisa' : 'Bolivares';
+        const metodos = prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda);
+        const boxH = 26 + metodos.length * 11;
+        if (y + boxH > H - 36) { doc.addPage(); y = 36; }
+        const acento = esMonedaDivisa(t.moneda) ? VERDE : NARANJA;
+        // Tarjeta por moneda: barra de acento, moneda a la izquierda, total alineado a la derecha.
+        doc.setFillColor(250, 250, 250);
+        doc.setDrawColor(...BORDE);
+        doc.setLineWidth(0.6);
+        doc.roundedRect(M, y, UW, boxH, 4, 4, 'FD');
+        doc.setFillColor(...acento);
+        doc.rect(M, y + 1, 3.5, boxH - 2, 'F');
+        const tipo = esMonedaDivisa(t.moneda) ? 'DIVISA' : 'BOLIVARES';
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
+        doc.setFontSize(10.5);
+        doc.setTextColor(...acento);
+        doc.text(pdfSafe(`${tipo} · ${t.moneda}`), M + 10, y + 14);
+        doc.setFontSize(12);
         doc.setTextColor(...TINTA);
-        doc.text(pdfSafe(`[${tipo}] ${t.moneda}: ${t.nOrdenes} pago(s)  ·  total ${fmtMonedaNativa(t.moneda, t.monto)}`), M, y + 2);
-        y += 12;
+        doc.text(pdfSafe(fmtMonedaNativa(t.moneda, t.monto)), W - M - 8, y + 14, { align: 'right' });
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(90, 90, 90);
-        for (const l of prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda)) {
-          if (y > H - 60) { doc.addPage(); y = 36; }
-          doc.text(pdfSafe(`-  ${l.metodoLabel}: ${fmtMonedaNativa(l.moneda, l.monto)}  ·  ${l.nOrdenes} op.`), M + 16, y + 2);
-          y += 10;
+        doc.setFontSize(7.5);
+        doc.setTextColor(130, 130, 130);
+        doc.text(pdfSafe(`${t.nOrdenes} pago(s)`), M + 10, y + 22);
+        let yy = y + 22;
+        for (const l of metodos) {
+          yy += 11;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(70, 70, 70);
+          doc.text(pdfSafe(`•  ${l.metodoLabel}`), M + 16, yy);
+          doc.setFont('helvetica', 'bold');
+          doc.text(pdfSafe(`${fmtMonedaNativa(l.moneda, l.monto)}  ·  ${l.nOrdenes} op.`), W - M - 8, yy, { align: 'right' });
         }
+        y += boxH + 6;
       }
       if (haySinMetodo) {
-        if (y > H - 60) { doc.addPage(); y = 36; }
-        doc.setFont('helvetica', 'normal');
+        if (y > H - 50) { doc.addPage(); y = 36; }
+        doc.setFont('helvetica', 'italic');
         doc.setFontSize(8);
-        doc.setTextColor(90, 90, 90);
-        doc.text(pdfSafe(`[Sin metodo asignado] referencia: ${refPartes.join(' · ')}  ·  ${prep.sinMetodo.nOrdenes} op.`), M + 10, y + 2);
-        y += 10;
+        doc.setTextColor(120, 120, 120);
+        doc.text(pdfSafe(`Sin método asignado (referencia): ${refPartes.join(' · ')}  ·  ${prep.sinMetodo.nOrdenes} op.`), M, y + 4);
+        y += 12;
       }
-      y += 6;
+      y += 2;
       doc.setDrawColor(...BORDE);
       doc.setLineWidth(0.5);
       doc.line(M, y, W - M, y);
@@ -654,6 +674,8 @@ export async function descargarTesoreriaPdf(
         const partes = [
           f.categoria && f.categoria !== tituloBase ? f.categoria : null,
           f.origen_documento && f.origen_documento !== f.categoria ? f.origen_documento : null,
+          // Código del movimiento (ej. OC-2026-0190): solo si el usuario marcó «N° Código / Ref».
+          columnasClaves.includes('codigo') && f.codigo && f.codigo !== '—' ? f.codigo : null,
           f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
           f.fecha ? fmtFecha(f.fecha) : null,
         ].filter(Boolean);
