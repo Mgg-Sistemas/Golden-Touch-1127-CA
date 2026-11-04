@@ -96,7 +96,7 @@ import { norm } from '@/shared/lib/texto';
 import { mensajeError } from '@/shared/lib/errores';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { enviarMensaje } from '@/modules/pedidos/ordenChat.repository';
-import { construirTextoMotivoPagoWhatsapp, MOTIVOS_NO_PAGO, type MotivoNoPagoTipo } from './motivoPagoWhatsapp';
+import { construirTextoMotivoPagoLote, construirTextoMotivoPagoWhatsapp, MOTIVOS_NO_PAGO, type MotivoNoPagoTipo } from './motivoPagoWhatsapp';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
 import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
 
@@ -3921,6 +3921,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [pagarVarias, setPagarVarias] = useState<OrdenPorPagar[] | null>(null);
   const [editarPrecios, setEditarPrecios] = useState<OrdenPorPagar | null>(null);
+  const [wspLote, setWspLote] = useState(false);
 
   const { user } = useSession();
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
@@ -3964,6 +3965,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       <>
         {/* «↓ Resumen PDF» se quitó a pedido del usuario (03/11/2026); el reporte queda en «📄 Reporte». */}
         <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte" className="btn btn-ghost" />
+        <button className="btn btn-ghost" disabled={!rows.length} onClick={() => setWspLote(true)}
+          title="Un solo WhatsApp con varias OC: código, proveedor, monto a pagar, total y el motivo de pago">💬 WhatsApp por lote</button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -4076,6 +4079,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         />
       )}
 
+      {wspLote && <WhatsappLotePorPagarModal rows={rows} onClose={() => setWspLote(false)} />}
+
       {pagarVarias && (
         <PagarVariasOcModal
           rows={pagarVarias} cajas={cajas} actor={actor} actorName={actorName}
@@ -4089,6 +4094,91 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         cajas={cajas} actor={actor} actorName={actorName}
         onPaid={async () => { await reload(); onPaid(); }}
       />
+    </Modal>
+  );
+}
+
+/* ───────────── WhatsApp por lote de las OC pendientes por pagar (04/11/2026) ─────────────
+   Se marcan todas o una a una (de cualquier proveedor), se elige el motivo de pago como
+   en el aviso individual y sale un solo mensaje con el código, el proveedor y el monto a
+   pagar de cada OC, el total y la fecha en que se arma. */
+
+function WhatsappLotePorPagarModal({ rows, onClose }: { rows: OrdenPorPagar[]; onClose: () => void }) {
+  const [marcadas, setMarcadas] = useState<Set<string>>(() => new Set(rows.map((r) => r.orden.id)));
+  const [sePagara, setSePagara] = useState<'si' | 'no'>('si');
+  const [motivoNoPago, setMotivoNoPago] = useState<MotivoNoPagoTipo>(MOTIVOS_NO_PAGO[0]);
+  const [motivoDetalle, setMotivoDetalle] = useState('');
+  const [fecha] = useState(() => new Date().toISOString());
+  const elegidas = rows.filter((r) => marcadas.has(r.orden.id));
+  const todas = elegidas.length === rows.length;
+  const toggle = (id: string) => setMarcadas((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const texto = construirTextoMotivoPagoLote({
+    ordenes: elegidas.map((r) => ({
+      codigo: r.orden.oc_codigo || r.orden.codigo, proveedor: r.proveedorNombre,
+      monto: Number(r.montoAPagar) || 0, moneda: r.orden.total_moneda ?? 'USD',
+    })),
+    pagada: sePagara === 'si',
+    motivoTipo: sePagara === 'no' ? motivoNoPago : null,
+    motivoDetalle: sePagara === 'no' ? motivoDetalle : null,
+    fecha,
+  });
+  const faltaDetalle = sePagara === 'no' && (motivoNoPago === 'No procede esta compra' || motivoNoPago === 'Otro') && !motivoDetalle.trim();
+  return (
+    <Modal title="💬 WhatsApp por lote · Órdenes pendientes por pagar" size="lg" onClose={onClose}
+      footer={<button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontWeight: 600, cursor: 'pointer' }}>
+          <input type="checkbox" checked={todas} onChange={() => setMarcadas(todas ? new Set() : new Set(rows.map((r) => r.orden.id)))} />
+          Todas ({rows.length})
+        </label>
+        <span className="muted" style={{ fontSize: '.82rem' }}>{elegidas.length} marcada(s) · o márcalas una a una</span>
+      </div>
+      <div className="table-wrap" style={{ maxHeight: '32vh', overflowY: 'auto', marginBottom: '.6rem' }}>
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead><tr><th style={{ width: 34 }} /><th>N°ODC</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>A pagar</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => toggle(r.orden.id)}>
+                <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={marcadas.has(r.orden.id)} onChange={() => toggle(r.orden.id)} aria-label={`Incluir ${r.orden.oc_codigo ?? r.orden.codigo}`} />
+                </td>
+                <td className="mono">{r.orden.oc_codigo ?? r.orden.codigo}</td>
+                <td>{r.proveedorNombre}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{monto(r.montoAPagar, r.orden.total_moneda ?? 'USD')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card" style={{ marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
+        <div className="card-title" style={{ marginBottom: '.4rem' }}>💼 Motivo de Pago</div>
+        <span className="muted" style={{ fontSize: '.84rem', display: 'block', marginBottom: '.3rem' }}>¿Se pagarán estas OC?</span>
+        <div style={{ display: 'inline-flex', gap: '.5rem', alignItems: 'center' }}>
+          <button type="button" className={`btn ${sePagara === 'si' ? 'btn-primary' : 'btn-ghost'}`} style={{ minWidth: 90, fontWeight: 700 }} onClick={() => setSePagara('si')}>✅ SÍ</button>
+          <button type="button" className={`btn ${sePagara === 'no' ? 'btn-danger' : 'btn-ghost'}`} style={{ minWidth: 90, fontWeight: 700 }} onClick={() => setSePagara('no')}>❌ NO</button>
+        </div>
+        {sePagara === 'no' && (
+          <div style={{ marginTop: '.6rem', borderTop: '1px solid var(--border)', paddingTop: '.6rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginBottom: '.5rem' }}>
+              {MOTIVOS_NO_PAGO.map((m) => (
+                <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.88rem', cursor: 'pointer' }}>
+                  <input type="radio" name="motivo_no_pago_lote" checked={motivoNoPago === m} onChange={() => setMotivoNoPago(m)} />
+                  <span>{m}</span>
+                </label>
+              ))}
+            </div>
+            {(motivoNoPago === 'No procede esta compra' || motivoNoPago === 'Otro') && (
+              <textarea className="input" rows={2} value={motivoDetalle} onChange={(e) => setMotivoDetalle(e.target.value)}
+                placeholder={motivoNoPago === 'Otro' ? 'Escribe el motivo…' : 'Justifica por qué no se hará la compra…'} style={{ width: '100%', resize: 'vertical' }} />
+            )}
+          </div>
+        )}
+      </div>
+
+      {!elegidas.length ? <p className="muted">Marca al menos una OC.</p>
+        : faltaDetalle ? <p className="muted">Escribe el motivo para armar el mensaje.</p>
+        : <CompartirWhatsapp texto={texto} />}
     </Modal>
   );
 }

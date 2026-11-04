@@ -82,3 +82,23 @@ describe('construirTextoMotivoPagoWhatsapp', () => {
     expect(txt).toContain('📌 *Estado:* *Esperando firma de autorización especial*');
   });
 });
+
+describe('WhatsApp por lote de las OC pendientes por pagar (04/11/2026)', () => {
+  it('código, proveedor y monto de cada OC, el total, el estado y la fecha', async () => {
+    const { construirTextoMotivoPagoLote } = await import('./motivoPagoWhatsapp');
+    const t = construirTextoMotivoPagoLote({
+      ordenes: [
+        { codigo: 'OC-2026-0189', proveedor: 'HIERROS SAN FELIX', monto: 174.9 },
+        { codigo: 'OC-2026-0191', proveedor: 'HIERROS SAN FELIX', monto: 1510.32 },
+      ],
+      pagada: true, fecha: '2026-11-04T23:15:00Z',
+    });
+    expect(t).toContain('💸 *RESUMEN DE PAGO · ÓRDENES DE COMPRA*');
+    expect(t).toContain('📅 *Fecha:* 04/11/2026');
+    expect(t).toContain('1. *OC-2026-0189* · HIERROS SAN FELIX — $174,90');
+    expect(t).toContain('💵 *Total a pagar (2 OC):* $1.685,22');
+    expect(t).toContain('📌 *Estado:* *SE PAGARÁN POR TESORERÍA*');
+    const no = construirTextoMotivoPagoLote({ ordenes: [{ codigo: 'OC-1', proveedor: 'X', monto: 5 }], pagada: false, motivoTipo: 'Sin fondos en estos momentos.', fecha: '2026-11-04T23:15:00Z' });
+    expect(no).toContain('📌 *Estado:* *Sin fondos en estos momentos.*');
+  });
+});
