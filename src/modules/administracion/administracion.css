@@ -71,6 +71,11 @@
 .adm-venc.pronto { color: var(--warning, #f5b133); font-weight: 700; }
 .adm-venc.vencido { color: var(--danger, #ef4f5e); font-weight: 700; }
 .adm-fila-off { opacity: .55; }
+/* Error de validación bajo un campo del formulario. */
+.adm-err { display: block; margin-top: .2rem; color: var(--danger, #ef4f5e); font-size: .76rem; font-weight: 600; }
+/* Acción tipo enlace (p. ej. «usar la tasa BCV de hoy»). */
+.btn-linkish { align-self: flex-start; margin-top: .2rem; padding: 0; border: 0; background: none; color: var(--gold, #ffd54a); font-size: .76rem; font-weight: 600; cursor: pointer; text-align: left; }
+.btn-linkish:hover { text-decoration: underline; }
 
 @media (max-width: 860px) { .adm-kpis { grid-template-columns: repeat(2, 1fr); } .adm-graficos { grid-template-columns: 1fr; } }
 @media (max-width: 460px) { .adm-kpis { grid-template-columns: 1fr; } }

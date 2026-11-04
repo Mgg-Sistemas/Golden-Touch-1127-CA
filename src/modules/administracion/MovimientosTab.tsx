@@ -10,6 +10,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { norm } from '@/shared/lib/texto';
 import { tokenPeriodo, type Moneda } from './administracionCalculo';
+import { cargarTasaBcv } from './administracionTasa';
 import { ImportarAdminModal } from './ImportarAdminModal';
 import { ParafiscalModal } from './ParafiscalModal';
 import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.repository';
@@ -127,7 +128,7 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
         {cargando ? (
           <p className="muted" style={{ marginTop: '.5rem' }}>Leyendo movimientos…</p>
         ) : movs.length === 0 && !error ? (
-          <EmptyState icon="📒" message="No hay movimientos. Usá «Generar pendientes», «Importar» o «Registrar»." />
+          <EmptyState icon="📒" message="No hay movimientos. Use «Generar pendientes», «Importar» o «Registrar»." />
         ) : vista.length === 0 ? (
           <p className="muted" style={{ marginTop: '.6rem' }}>Ningún movimiento coincide con el filtro.</p>
         ) : (
@@ -215,25 +216,49 @@ function MovimientoFormModal({ repo, empresas, empresaClaveFija, categorias, mov
   const [moneda, setMoneda] = useState<Moneda>(movimiento?.moneda ?? 'USD');
   const [fecha, setFecha] = useState(movimiento?.fecha ?? new Date().toISOString().slice(0, 10));
   const [categoriaGastoId, setCategoria] = useState(movimiento?.categoriaGastoId ?? '');
+  const [tasaRef, setTasaRef] = useState(movimiento?.tasaRef == null ? '' : String(movimiento.tasaRef));
   const [estadoPago, setEstado] = useState<'pagado' | 'pendiente'>(movimiento?.estadoPago === 'pendiente' ? 'pendiente' : 'pagado');
   const [guardando, setGuardando] = useState(false);
+  const [intento, setIntento] = useState(false);
+  const [bcv, setBcv] = useState<number | null>(null);
+
+  // Tasa BCV del día: precarga (alta nueva en USD) y equivalente.
+  useEffect(() => {
+    let vivo = true;
+    void cargarTasaBcv().then((t) => {
+      if (!vivo) return;
+      setBcv(t.tasa);
+      if (!edit && moneda === 'USD') setTasaRef((prev) => (prev.trim() === '' ? String(t.tasa) : prev));
+    });
+    return () => { vivo = false; };
+  }, [edit, moneda]);
+
+  const montoNum = Number(monto.replace(',', '.'));
+  const tasaNum = tasaRef.trim() === '' ? null : Number(tasaRef.replace(',', '.'));
+  const err = {
+    empresa: !empresaClave ? 'Elija la empresa.' : '',
+    concepto: !concepto.trim() ? 'El concepto es obligatorio.' : '',
+    monto: !Number.isFinite(montoNum) || montoNum <= 0 ? 'Indique un monto mayor que cero.' : '',
+    tasa: tasaNum != null && (!Number.isFinite(tasaNum) || tasaNum <= 0) ? 'La tasa debe ser un número positivo.' : '',
+  };
+  const hayError = Object.values(err).some(Boolean);
+  const E = (campo: keyof typeof err) => (intento && err[campo] ? <small className="adm-err">{err[campo]}</small> : null);
+  const equivBs = moneda === 'USD' && montoNum > 0 && tasaNum && tasaNum > 0 ? montoNum * tasaNum : null;
 
   async function guardar() {
-    const m = Number(monto.replace(',', '.'));
-    if (!empresaClave) return toast('Elegí una empresa.', 'error');
-    if (!concepto.trim()) return toast('Poné un concepto.', 'error');
-    if (!Number.isFinite(m) || m < 0) return toast('Monto inválido.', 'error');
+    setIntento(true);
+    if (hayError) { toast('Revise los campos marcados.', 'warning', { silent: true }); return; }
     setGuardando(true);
     try {
       const campos = {
         empresaClave, concepto: concepto.trim(), proveedorNombre: proveedor.trim() || null,
-        categoriaGastoId: categoriaGastoId || null, fecha, monto: Math.round(m * 100) / 100, moneda, estadoPago,
+        categoriaGastoId: categoriaGastoId || null, fecha, monto: Math.round(montoNum * 100) / 100, moneda, tasaRef: tasaNum, estadoPago,
       };
       if (edit && movimiento) {
         await repo.editarMovimiento(movimiento.id, campos); // conserva período, origen y el enlace a Tesorería
         toast('Movimiento actualizado.', 'success');
       } else {
-        await repo.crearMovimiento({ ...campos, gastoFijoId: null, periodo: tokenPeriodo(fecha, 'mensual'), tasaRef: null, origen: 'manual', servicioDirectoId: null });
+        await repo.crearMovimiento({ ...campos, gastoFijoId: null, periodo: tokenPeriodo(fecha, 'mensual'), origen: 'manual', servicioDirectoId: null });
         toast('Movimiento registrado.', 'success');
       }
       onSaved();
@@ -243,7 +268,6 @@ function MovimientoFormModal({ repo, empresas, empresaClaveFija, categorias, mov
     } finally {
       setGuardando(false);
     }
-    return undefined;
   }
 
   return (
@@ -256,6 +280,7 @@ function MovimientoFormModal({ repo, empresas, empresaClaveFija, categorias, mov
         <div className="form-row">
           <label htmlFor="mv-empresa">Empresa</label>
           <select id="mv-empresa" className="input" value={empresaClave} onChange={(e) => setEmpresaClave(e.target.value)}>{activas.map((e) => <option key={e.id} value={e.clave}>{e.nombre}</option>)}</select>
+          {E('empresa')}
         </div>
         <div className="form-row">
           <label htmlFor="mv-fecha">Fecha</label>
@@ -264,6 +289,7 @@ function MovimientoFormModal({ repo, empresas, empresaClaveFija, categorias, mov
         <div className="form-row" style={{ gridColumn: '1 / -1' }}>
           <label htmlFor="mv-concepto">Concepto</label>
           <input id="mv-concepto" className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Agua, alquiler, honorarios…" autoFocus />
+          {E('concepto')}
         </div>
         <div className="form-row">
           <label htmlFor="mv-prov">Proveedor / beneficiario <span className="muted">(opcional)</span></label>
@@ -276,10 +302,20 @@ function MovimientoFormModal({ repo, empresas, empresaClaveFija, categorias, mov
         <div className="form-row">
           <label htmlFor="mv-monto">Monto</label>
           <input id="mv-monto" className="input" type="number" min="0" step="0.01" inputMode="decimal" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0,00" />
+          {equivBs != null ? <small className="muted">≈ Bs {equivBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a la tasa de referencia</small> : null}
+          {E('monto')}
         </div>
         <div className="form-row">
           <label htmlFor="mv-moneda">Moneda</label>
           <select id="mv-moneda" className="input" value={moneda} onChange={(e) => setMoneda(e.target.value as Moneda)}><option value="USD">USD</option><option value="Bs">Bs</option></select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="mv-tasa">Tasa de referencia <span className="muted">(Bs/USD, opcional)</span></label>
+          <input id="mv-tasa" className="input" type="number" min="0" step="0.01" inputMode="decimal" value={tasaRef} onChange={(e) => setTasaRef(e.target.value)} placeholder="p. ej. 40,00" />
+          {bcv != null && tasaRef.trim() !== '' && Number(tasaRef.replace(',', '.')) === bcv
+            ? <small className="muted">Tasa BCV de hoy ({bcv.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}).</small>
+            : bcv != null ? <button type="button" className="btn-linkish" onClick={() => setTasaRef(String(bcv))}>Usar la tasa BCV de hoy ({bcv.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</button> : null}
+          {E('tasa')}
         </div>
         <div className="form-row">
           <label htmlFor="mv-estado">Estado</label>

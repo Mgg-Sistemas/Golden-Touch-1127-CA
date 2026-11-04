@@ -102,7 +102,7 @@ export function DocumentosEmpresaModal({ repo, empresa, puedeEscribir = true, on
       ) : cargando ? (
         <p className="muted" style={{ marginTop: '.5rem' }}>Leyendo documentos…</p>
       ) : docs.length === 0 ? (
-        <EmptyState icon="📄" message={puedeEscribir ? 'Sin documentos. Subí el RIF, las actas o la cédula del representante.' : 'Esta empresa no tiene documentos cargados.'} />
+        <EmptyState icon="📄" message={puedeEscribir ? 'Sin documentos. Suba el RIF, las actas o la cédula del representante.' : 'Esta empresa no tiene documentos cargados.'} />
       ) : (
         <div className="adm-tabla" style={{ marginTop: '.4rem' }}>
           <table>

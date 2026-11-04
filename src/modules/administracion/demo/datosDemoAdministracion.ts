@@ -7,7 +7,7 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminRepo, DocumentoEmpresa, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, DocumentoEmpresa, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 
 const uid = (): string => {
@@ -20,12 +20,17 @@ const EMPRESAS_DEMO: Empresa[] = [
   { id: uid(), clave: 'DEMO2', nombre: 'Servicios Demo del Sur, C.A.', rif: 'J-22222222-2', moneda: 'USD', logoPath: null, activa: true, orden: 3 },
 ];
 
-const CATEGORIAS_DEMO: OpcionRef[] = [
-  { id: 'cat-serv', nombre: 'Servicios públicos' },
-  { id: 'cat-alq', nombre: 'Alquiler' },
-  { id: 'cat-hon', nombre: 'Honorarios profesionales' },
-  { id: 'cat-para', nombre: 'Parafiscales' },
-  { id: 'cat-otros', nombre: 'Otros gastos fijos' },
+// Plan de cuentas curado de gasto fijo (propio del módulo, no el catálogo compartido).
+const CATEGORIAS_DEMO: AdminCategoria[] = [
+  { id: 'cat-serv', nombre: 'Servicios públicos', orden: 1, activa: true },
+  { id: 'cat-alq', nombre: 'Alquileres', orden: 2, activa: true },
+  { id: 'cat-hon', nombre: 'Honorarios profesionales', orden: 3, activa: true },
+  { id: 'cat-para', nombre: 'Parafiscales', orden: 4, activa: true },
+  { id: 'cat-imp', nombre: 'Impuestos y tasas', orden: 5, activa: true },
+  { id: 'cat-seg', nombre: 'Seguros', orden: 6, activa: true },
+  { id: 'cat-mant', nombre: 'Mantenimiento', orden: 7, activa: true },
+  { id: 'cat-fin', nombre: 'Financieros', orden: 8, activa: true },
+  { id: 'cat-otros', nombre: 'Otros', orden: 9, activa: true },
 ];
 
 const PROVEEDORES_DEMO: OpcionRef[] = [
@@ -65,6 +70,7 @@ export function crearRepoDemo(): AdminRepo {
   const gastos: GastoFijo[] = gastosSemilla();
   const movimientos: Movimiento[] = movimientosSemilla();
   const documentos: DocumentoEmpresa[] = [];
+  const categorias: AdminCategoria[] = CATEGORIAS_DEMO.map((c) => ({ ...c }));
   const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
@@ -111,7 +117,27 @@ export function crearRepoDemo(): AdminRepo {
       if (i >= 0) gastos[i] = { ...gastos[i], estado };
       return Promise.resolve();
     },
-    listCategorias: () => Promise.resolve(CATEGORIAS_DEMO.map((c) => ({ ...c }))),
+    listCategorias: () => Promise.resolve(
+      categorias.filter((c) => c.activa).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')).map((c) => ({ id: c.id, nombre: c.nombre })),
+    ),
+    listAdminCategorias: () => Promise.resolve(
+      categorias.map((c) => ({ ...c })).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
+    ),
+    crearAdminCategoria: (nombre) => {
+      const nueva: AdminCategoria = { id: uid(), nombre: nombre.trim(), orden: (categorias.reduce((m, c) => Math.max(m, c.orden), 0) + 1), activa: true };
+      categorias.push(nueva);
+      return Promise.resolve({ ...nueva });
+    },
+    renombrarAdminCategoria: (id, nombre) => {
+      const i = categorias.findIndex((c) => c.id === id);
+      if (i >= 0) categorias[i] = { ...categorias[i], nombre: nombre.trim() };
+      return Promise.resolve();
+    },
+    setActivaAdminCategoria: (id, activa) => {
+      const i = categorias.findIndex((c) => c.id === id);
+      if (i >= 0) categorias[i] = { ...categorias[i], activa };
+      return Promise.resolve();
+    },
     listProveedores: () => Promise.resolve(PROVEEDORES_DEMO.map((p) => ({ ...p }))),
     listMovimientos: (empresaClave) => Promise.resolve(
       movimientos.filter((m) => !empresaClave || m.empresaClave === empresaClave).map((m) => ({ ...m }))

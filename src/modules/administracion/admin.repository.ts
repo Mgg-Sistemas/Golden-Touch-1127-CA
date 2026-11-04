@@ -9,7 +9,7 @@
    camelCase en el dominio; mapeo snake_case en el límite del repo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { listCategoriasGasto } from '@/modules/tesoreria/categoriasGasto.repository';
+import { listCategoriasGasto, soloCategorias } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
 import { crearServicioDirecto, enviarServicioAPagar } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
@@ -84,6 +84,11 @@ export type MovimientoInput = Omit<Movimiento, 'id' | 'createdAt'>;
 /** Opción {id, nombre} para los selectores (categorías, proveedores). */
 export interface OpcionRef { id: string; nombre: string; }
 
+/** Categoría contable de gasto PROPIA del módulo (tabla `admin_categorias`).
+ *  Un plan de cuentas curado para gastos fijos, separado del catálogo compartido
+ *  `categorias_gasto`. Se gestiona desde la pestaña Configuración. */
+export interface AdminCategoria { id: string; nombre: string; orden: number; activa: boolean; }
+
 /** Tipo de papel legal de una empresa. */
 export type TipoDocumento = 'rif' | 'acta_constitutiva' | 'acta_modificacion' | 'cedula' | 'otro';
 export const TIPO_DOCUMENTO_LABEL: Record<TipoDocumento, string> = {
@@ -123,7 +128,13 @@ export interface AdminRepo {
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
   setEstadoGastoFijo(id: string, estado: EstadoGastoFijo): Promise<void>;
+  /** Categorías activas del módulo, para los selectores (id, nombre). */
   listCategorias(): Promise<OpcionRef[]>;
+  /** Todas las categorías del módulo (incluye inactivas), para gestionarlas en Configuración. */
+  listAdminCategorias(): Promise<AdminCategoria[]>;
+  crearAdminCategoria(nombre: string): Promise<AdminCategoria>;
+  renombrarAdminCategoria(id: string, nombre: string): Promise<void>;
+  setActivaAdminCategoria(id: string, activa: boolean): Promise<void>;
   listProveedores(): Promise<OpcionRef[]>;
   listMovimientos(empresaClave?: string): Promise<Movimiento[]>;
   crearMovimiento(m: MovimientoInput): Promise<Movimiento>;
@@ -237,6 +248,7 @@ const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
 const T_DOC = 'admin_empresa_documentos';
+const T_CAT = 'admin_categorias';
 const BUCKET_DOCS = 'admin-documentos';
 
 interface RowDoc {
@@ -249,6 +261,10 @@ function aDoc(r: RowDoc): DocumentoEmpresa {
     path: r.path, contentType: r.content_type ?? null,
     tamano: r.tamano == null ? null : num(r.tamano), createdAt: r.created_at ?? null,
   };
+}
+interface RowCat { id: string; nombre: string; orden: number | string | null; activa: boolean | null; }
+function aCategoria(r: RowCat): AdminCategoria {
+  return { id: r.id, nombre: r.nombre, orden: r.orden == null ? 0 : num(r.orden), activa: r.activa !== false };
 }
 /** Ruta única del archivo en el bucket: <empresa>/<stamp>-<nombre saneado>. */
 function rutaDoc(empresaClave: string, nombre: string): string {
@@ -308,8 +324,40 @@ export function crearRepoSupabase(): AdminRepo {
       if (error) throw error;
     },
     async listCategorias() {
-      const rows = await listCategoriasGasto(true);
-      return rows.map((c) => ({ id: c.id, nombre: c.nombre }));
+      // Lista PROPIA del módulo. Si la base aún no tiene admin_categorias (04 sin aplicar),
+      // cae al catálogo compartido pero solo categorías padre, para no romper mientras tanto.
+      const { data, error } = await supabase.from(T_CAT).select('id,nombre').eq('activa', true).order('orden').order('nombre');
+      if (!error) return (data ?? []).map((r) => ({ id: String((r as { id: string }).id), nombre: String((r as { nombre: string }).nombre) }));
+      if (/relation|does not exist|schema cache/i.test(error.message)) {
+        const rows = await listCategoriasGasto(true);
+        return soloCategorias(rows).map((c) => ({ id: c.id, nombre: c.nombre }));
+      }
+      throw error;
+    },
+    async listAdminCategorias() {
+      const { data, error } = await supabase.from(T_CAT).select('*').order('orden').order('nombre');
+      if (error) {
+        if (/relation|does not exist|schema cache/i.test(error.message)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aCategoria(r as RowCat));
+    },
+    async crearAdminCategoria(nombre) {
+      const n = nombre.trim();
+      if (!n) throw new Error('El nombre de la categoría es obligatorio.');
+      const { data, error } = await supabase.from(T_CAT).insert({ nombre: n }).select('*').single();
+      if (error) throw error;
+      return aCategoria(data as RowCat);
+    },
+    async renombrarAdminCategoria(id, nombre) {
+      const n = nombre.trim();
+      if (!n) throw new Error('El nombre de la categoría es obligatorio.');
+      const { error } = await supabase.from(T_CAT).update({ nombre: n }).eq('id', id);
+      if (error) throw error;
+    },
+    async setActivaAdminCategoria(id, activa) {
+      const { error } = await supabase.from(T_CAT).update({ activa }).eq('id', id);
+      if (error) throw error;
     },
     async listProveedores() {
       const ps = await listProveedoresActivos();
