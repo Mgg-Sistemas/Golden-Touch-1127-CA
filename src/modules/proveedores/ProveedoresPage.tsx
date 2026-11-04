@@ -28,6 +28,9 @@ import { SearchMultiSelect } from '@/shared/ui/SearchMultiSelect';
 import { useSession } from '@/modules/auth/authStore';
 import { norm } from '@/shared/lib/texto';
 import { ExportarProveedoresModal } from './ExportarProveedoresModal';
+import { SelectorUbicacionMapa } from './SelectorUbicacionMapa';
+import { guardarUbicacion, ubicacionDe } from './proveedores.repository';
+import { coordsTxt, type PuntoMapa } from './ubicacionProveedor';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -149,19 +152,32 @@ export function ProveedoresPage() {
 
   const editing = editingId ? proveedores.find((p) => p.id === editingId) ?? null : null;
 
-  async function handleSubmit(payload: ProveedorInput) {
+  async function handleSubmit(payload: ProveedorInput, ubicacion: PuntoMapa | null) {
     const existing = proveedores.find((p) => p.rif === payload.rif && p.id !== editingId);
     if (existing) {
       toast('Ya existe un proveedor con ese RIF', 'error');
       return;
     }
+    // Ubicación en el mapa (03/11/2026): se guarda aparte y solo si cambió; queda para
+    // los próximos pedidos de Delivery (ruta y «proveedor más cercano»).
+    const conUbicacion = async (prov: Proveedor): Promise<Proveedor> => {
+      const antes = ubicacionDe(prov);
+      if (antes?.lat === ubicacion?.lat && antes?.lng === ubicacion?.lng) return prov;
+      try {
+        await guardarUbicacion(prov.id, ubicacion);
+        return { ...prov, lat: ubicacion?.lat ?? null, lng: ubicacion?.lng ?? null } as Proveedor;
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'No se pudo guardar la ubicación', 'warning');
+        return prov;
+      }
+    };
     try {
       if (editingId) {
-        const updated = await updateProv(editingId, payload);
+        const updated = await conUbicacion(await updateProv(editingId, payload));
         setProveedores((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
         notify(`Proveedor actualizado: ${updated.razon_social}`, 'success', { link: '#/app/proveedores' });
       } else {
-        const created = await insertProv(payload);
+        const created = await conUbicacion(await insertProv(payload));
         setProveedores((prev) => [...prev, created].sort((a, b) => a.razon_social.localeCompare(b.razon_social)));
         notify(`Proveedor creado: ${created.razon_social}`, 'success', { link: '#/app/proveedores' });
       }
@@ -412,10 +428,11 @@ interface FormModalProps {
   isEdit: boolean;
   proveedores: Proveedor[];
   onCancel: () => void;
-  onSubmit: (payload: ProveedorInput) => void | Promise<void>;
+  onSubmit: (payload: ProveedorInput, ubicacion: PuntoMapa | null) => void | Promise<void>;
 }
 
 function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }: FormModalProps) {
+  const [ubicacion, setUbicacion] = useState<PuntoMapa | null>(() => ubicacionDe(initial));
   const [form, setForm] = useState<ProveedorInput>(() => {
     if (!initial) return { ...EMPTY_FORM };
     return {
@@ -471,7 +488,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       toast('RIF (con número) y razón social son obligatorios', 'error');
       return;
     }
-    void onSubmit(payload);
+    void onSubmit(payload, ubicacion);
   }
 
   return (
@@ -571,6 +588,11 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             value={form.direccion ?? ''}
             onChange={(e) => update('direccion', e.target.value.toUpperCase())}
           />
+        </div>
+
+        <div className="form-row">
+          <label>📍 Ubicación en el mapa <span className="muted" style={{ fontWeight: 400 }}>(para la ruta de Delivery)</span></label>
+          <SelectorUbicacionMapa value={ubicacion} onChange={setUbicacion} direccion={form.direccion} />
         </div>
 
         <div className="form-row">
@@ -682,6 +704,12 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Teléfono" value={proveedor.telefono || '—'} />
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
+        <DetailRow label="Ubicación en el mapa" value={(() => {
+          const u = ubicacionDe(proveedor);
+          return u
+            ? <a href={`https://www.google.com/maps/search/?api=1&query=${u.lat},${u.lng}`} target="_blank" rel="noopener noreferrer" className="mono">📍 {coordsTxt(u)}</a>
+            : <span className="muted">Sin marcar (se marca en Editar o desde el teléfono del delivery)</span>;
+        })()} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow label="Tlf. de administración" value={proveedor.numero_administracion ? <span className="mono">📞 {proveedor.numero_administracion}</span> : '—'} />
         <DetailRow

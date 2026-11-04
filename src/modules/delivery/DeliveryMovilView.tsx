@@ -51,6 +51,7 @@ import {
 } from './delivery.repository';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
+import { parsearCoordenadas } from '@/modules/proveedores/ubicacionProveedor';
 import { textoReportePedido } from './deliveryReporte';
 import {
   armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref, trabajoEnCurso,
@@ -1032,20 +1033,53 @@ const PRECISION_DUDOSA_M = 80;
 function MarcarProveedorAqui({ proveedorId, nombre, yo }: { proveedorId: string; nombre: string; yo: PosicionGps | null }) {
   const [confirmar, setConfirmar] = useState(false);
   const [guardando, setGuardando] = useState(false);
-  async function guardar() {
-    if (!yo) return;
+  // 03/11/2026: también por coordenadas escritas o un enlace de Google Maps (sin estar en el local).
+  const [porCoords, setPorCoords] = useState(false);
+  const [coordsTexto, setCoordsTexto] = useState('');
+  const punto = parsearCoordenadas(coordsTexto);
+  async function guardarPunto(p: { lat: number; lng: number }) {
     setGuardando(true);
     try {
-      await ubicarProveedorDesdeDelivery(proveedorId, { lat: yo.lat, lng: yo.lng });
-      toast(`Ubicación de ${nombre} guardada. Ya sale en el mapa para todos.`, 'success');
-      setConfirmar(false);
+      await ubicarProveedorDesdeDelivery(proveedorId, p);
+      toast(`Ubicación de ${nombre} guardada. Ya sale en el mapa para todos y queda para los próximos pedidos.`, 'success');
+      setConfirmar(false); setPorCoords(false); setCoordsTexto('');
     } catch (e) {
       toast(errMsg(e, 'No se pudo guardar la ubicación del proveedor'), 'error');
     } finally { setGuardando(false); }
   }
-  if (!yo) return <div className="dlv-sub">📍 Activa el GPS para poder marcar la ubicación del proveedor al llegar.</div>;
+  async function guardar() {
+    if (!yo) return;
+    await guardarPunto({ lat: yo.lat, lng: yo.lng });
+  }
+  if (porCoords) {
+    return (
+      <div className="dlv-marcar">
+        <div>Coordenadas de <strong>{nombre}</strong> (ej. <span className="mono">8.2869, -62.7467</span>) o pega el enlace de Google Maps:</div>
+        <input className="input surt-input mono" value={coordsTexto} onChange={(e) => setCoordsTexto(e.target.value)}
+          placeholder="8.2869, -62.7467" autoComplete="off" inputMode="text" />
+        {coordsTexto.trim() && !punto && <div style={{ color: 'var(--warning)' }}>No se entienden esas coordenadas: escribe «latitud, longitud».</div>}
+        <div className="surt-grid2">
+          <button type="button" className="btn btn-ghost" onClick={() => { setPorCoords(false); setCoordsTexto(''); }} disabled={guardando}>Cancelar</button>
+          <button type="button" className="btn btn-primary" onClick={() => punto && void guardarPunto(punto)} disabled={guardando || !punto}>{guardando ? 'Guardando…' : 'Guardar ubicación'}</button>
+        </div>
+      </div>
+    );
+  }
+  if (!yo) {
+    return (
+      <div className="surt-grid2">
+        <div className="dlv-sub">📍 Activa el GPS para marcarlo al llegar, o escribe sus coordenadas.</div>
+        <button type="button" className="btn btn-ghost" onClick={() => setPorCoords(true)}>⌨ Escribir coordenadas</button>
+      </div>
+    );
+  }
   if (!confirmar) {
-    return <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(true)}>📍 Marcar ubicación del proveedor aquí</button>;
+    return (
+      <div className="surt-grid2">
+        <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(true)}>📍 Marcar ubicación del proveedor aquí</button>
+        <button type="button" className="btn btn-ghost" onClick={() => setPorCoords(true)}>⌨ Escribir coordenadas</button>
+      </div>
+    );
   }
   return (
     <div className="dlv-marcar">

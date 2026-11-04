@@ -8,7 +8,7 @@
    ============================================================ */
 import { describe, it, expect } from 'vitest';
 import type { Orden, Proveedor } from '@/shared/lib/types';
-import { esCuentaCredito, textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
+import { esCuentaCredito, fechaAprobacion, textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
 
 const proveedor = { razon_social: 'MAXI SHOES' } as Proveedor;
 
@@ -266,6 +266,8 @@ describe('quién solicitó, quién autorizó y el analista a cargo', () => {
     const txt = textoOrdenPagar(confirmada, proveedor, personas);
     expect(txt).toContain('👤 *Solicita:* JAIME CAMPO · COCINA');
     expect(txt).toContain('✅ *Autorizó:* JESUS LOZADA');
+    expect(fechaAprobacion('2026-11-03T14:15:00Z')).toContain('03/11/2026');
+    expect(fechaAprobacion(null)).toBeNull();
     expect(txt).toContain('🛒 *Analista encargado:* MARIA PEREZ');
     expect(txt.indexOf('🏭')).toBeLessThan(txt.indexOf('👤'));
     expect(txt.indexOf('✅')).toBeLessThan(txt.indexOf('💵'));

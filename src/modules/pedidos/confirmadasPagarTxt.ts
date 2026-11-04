@@ -72,6 +72,16 @@ function nombreDe(identificador: string | null | undefined, personas?: Map<strin
  * analista de compras encargado (el que elaboró la OC o indicó el método de pago).
  * Se muestra siempre Nombre y Apellido, nunca correo electrónico.
  */
+/** Fecha y hora de aprobación en hora de Venezuela (dd/mm/aaaa hh:mm a. m.). */
+export function fechaAprobacion(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('es-VE', {
+    timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+
 function lineasPersonas(o: Orden, personas: Map<string, string> | undefined, conAutorizo: boolean): string[] {
   const L: string[] = [];
   const unidad = o.unidad_solicitante?.trim();
@@ -82,6 +92,9 @@ function lineasPersonas(o: Orden, personas: Map<string, string> | undefined, con
   if (conAutorizo) {
     const autorizo = nombreDe(o.oc_aprobada_por || o.aprobada_por, personas);
     if (autorizo) L.push(`✅ *Autorizó:* ${autorizo}`);
+    // 03/11/2026: cuándo se aprobó la orden (lo pidió la usuaria para la orden pendiente por pagar).
+    const aprobada = fechaAprobacion(o.oc_aprobada_en || o.aprobada_en);
+    if (aprobada) L.push(`📅 *Aprobada el:* ${aprobada}`);
   }
   const analistaRaw = o.oc_creada_por || o.oc_emitida_por || o.metodo_pago_por;
   if (analistaRaw) {
