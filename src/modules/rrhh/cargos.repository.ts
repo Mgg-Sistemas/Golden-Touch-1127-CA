@@ -21,6 +21,14 @@ export async function listHistorialCargo(personalId: string): Promise<PersonalCa
   return (data ?? []) as PersonalCargo[];
 }
 
+/** Todos los cambios de cargo del personal (para «🔁 Histórico de cargos», como en MGG). */
+export async function listTodosCambiosCargo(): Promise<PersonalCargo[]> {
+  const { data, error } = await supabase.from(TABLE).select('*')
+    .order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(5000);
+  if (error) throw new Error(mensaje(error));
+  return (data ?? []) as PersonalCargo[];
+}
+
 /** Cambia el cargo (y el departamento, si se indica) y deja el renglón con su motivo. */
 export async function cambiarCargo(input: {
   personalId: string; cargoNuevo: string; motivo: string; fecha?: string | null;

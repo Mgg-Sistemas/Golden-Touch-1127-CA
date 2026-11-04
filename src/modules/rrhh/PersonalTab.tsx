@@ -134,6 +134,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [sueldoPersona, setSueldoPersona] = useState<Personal | null>(null);
   const [cargoPersona, setCargoPersona] = useState<Personal | null>(null);
+  const [generandoCargos, setGenerandoCargos] = useState(false);
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
   const [constanciaPersona, setConstanciaPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -582,6 +583,17 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
             title="Fotos con nombre y cargo de la gente de la lista (con sus filtros); se imprime una debajo de la otra">
             📸 Directorio de fotos
           </button>
+          <button className="btn btn-ghost" disabled={!visibles.length || generandoCargos}
+            title="Todos los cambios de cargo del personal de la lista, con su fecha y su motivo, en PDF"
+            onClick={() => {
+              setGenerandoCargos(true);
+              void Promise.all([import('./cargos.repository'), import('./historialCargoPdf')])
+                .then(async ([r, pdf]) => pdf.verHistoricoCargosTodosPdf(visibles, await r.listTodosCambiosCargo()))
+                .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo armar el PDF', 'error'))
+                .finally(() => setGenerandoCargos(false));
+            }}>
+            {generandoCargos ? 'Generando…' : '🔁 Histórico de cargos'}
+          </button>
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>}
         </div>
       </div>
@@ -771,7 +783,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   <button className="btn btn-sm btn-ghost" onClick={() => setSueldoPersona(p)}
                     title="Historial de sueldo: de cuánto a cuánto, cuándo y por qué">💵</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setCargoPersona(p)}
-                    title="Historial de cargos: de cuál a cuál, la fecha del cambio y el motivo (con PDF)">🧭</button>
+                    title="Histórico de cargos: de cuál a cuál, la fecha del cambio y el motivo (con PDF)">🧭</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Generar carnet con QR">🪪</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>

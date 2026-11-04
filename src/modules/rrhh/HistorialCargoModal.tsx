@@ -110,7 +110,7 @@ export function HistorialCargoModal({
 
   return (
     <Modal
-      title={`Historial de cargos · ${nombre}`}
+      title={`Histórico de cargos · ${nombre}`}
       size="lg"
       onClose={() => { if (!guardando) onClose(); }}
       footer={

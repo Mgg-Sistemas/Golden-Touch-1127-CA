@@ -95,3 +95,58 @@ export async function verHistorialCargoPdf(persona: Personal, filas: PersonalCar
   const archivo = `historial-cargos-${nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}.pdf`;
   previewPdf(doc, archivo);
 }
+
+/** «🔁 Histórico de cargos» de todo el personal de la lista (como en MGG): un renglón por
+ *  cambio, con la persona, su cédula, la fecha, de qué cargo a cuál, el motivo y quién lo cargó. */
+export async function verHistoricoCargosTodosPdf(personas: Personal[], cambios: PersonalCargo[]): Promise<void> {
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa }, { identidadEmpresa }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+    import('@/shared/lib/pdfLogo'),
+    import('@/shared/lib/empresa'),
+  ]);
+  const porId = new Map(personas.map((p) => [p.id, p]));
+  const filas = cambios.filter((c) => porId.has(c.personal_id));
+  const emp = identidadEmpresa(personas[0]?.empresa);
+  const logo = await loadLogoPdfEmpresa(personas[0]?.empresa).catch(() => null);
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
+  const W = doc.internal.pageSize.getWidth();
+  const MARGIN = 40;
+  let y = MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 36); }
+  doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  doc.text(pdfSafe('HISTÓRICO DE CAMBIOS DE CARGO'), W / 2, y + 14, { align: 'center' });
+  doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  doc.text(pdfSafe(`${emp.nombre}  ·  RIF ${emp.rif}  ·  Personal de la lista: ${personas.length}  ·  Cambios: ${filas.length}`), W / 2, y + 29, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  y += 48;
+
+  const orden = [...filas].sort((a, b) => {
+    const f = String(b.fecha).localeCompare(String(a.fecha));
+    return f !== 0 ? f : String(b.created_at).localeCompare(String(a.created_at));
+  });
+  autoTable(doc, {
+    startY: y,
+    head: [['FECHA', 'PERSONA', 'C.I.', 'CARGO ANTERIOR', 'CARGO NUEVO', 'DEPARTAMENTO', 'MOTIVO', 'REGISTRÓ']],
+    body: orden.length ? orden.map((r) => {
+      const p = porId.get(r.personal_id)!;
+      return [
+        dia(r.fecha),
+        pdfSafe(`${p.nombre} ${p.apellido ?? ''}`.trim()),
+        pdfSafe(p.cedula || '—'),
+        pdfSafe(r.cargo_anterior || '—'),
+        pdfSafe(r.cargo_nuevo || '—'),
+        pdfSafe((r.departamento_anterior || '') === (r.departamento_nuevo || '')
+          ? (r.departamento_nuevo || '—')
+          : `${r.departamento_anterior || '—'} -> ${r.departamento_nuevo || '—'}`),
+        pdfSafe(r.motivo === MOTIVO_CARGO_SIN_REGISTRAR ? 'Sin motivo registrado' : r.motivo),
+        pdfSafe(r.created_by || r.actor_name ? quienSync(r.actor_name, r.created_by) : '—'),
+      ];
+    }) : [[{ content: pdfSafe('Todavía no hay cambios de cargo registrados.'), colSpan: 8, styles: { halign: 'center' } }]],
+    styles: { fontSize: 7.5, cellPadding: 3, overflow: 'linebreak' },
+    headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
+    columnStyles: { 0: { cellWidth: 56 }, 2: { cellWidth: 64 }, 4: { fontStyle: 'bold' } },
+    margin: MARGIN,
+  });
+  previewPdf(doc, 'historico-cambios-de-cargo.pdf');
+}
