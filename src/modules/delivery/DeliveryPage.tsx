@@ -51,6 +51,7 @@ import { DeliveryMapa } from './DeliveryMapa';
 import { pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelivery } from './deliveryPdf';
 import { WhatsappDeliveryModal } from './WhatsappDeliveryModal';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
+import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
 
 type Vista = 'tablero' | 'mapa' | 'historico' | 'por_delivery';
 
@@ -312,7 +313,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                       <td>
                         <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                           {!retiro && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>}
-                          <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos && p.estado !== 'entregado'} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : p.estado === 'entregado' ? 'Sin fotos: puedes agregarlas' : 'Sin fotos todavía'}>📷 {nFotos}</button>
                           {msg && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWhatsapp(msg)}>💬 WhatsApp</button>}
                           <button type="button" className="btn btn-ghost btn-sm" disabled={generando === clave} onClick={() => pdfPedido(p)}
                             title="Reporte del pedido en PDF (vista previa)">
@@ -336,7 +337,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
         )}
       </div>
 
-      {fotos && <FotosModal pedido={fotos} onClose={() => setFotos(null)} />}
+      {fotos && <FotosModal pedido={fotos} onClose={() => setFotos(null)} onCambio={onCambio} />}
       {comprobante && <ComprobanteModal pedido={comprobante} onClose={() => setComprobante(null)} />}
       {whatsapp && <WhatsappDeliveryModal titulo={whatsapp.titulo} texto={whatsapp.texto} onClose={() => setWhatsapp(null)} />}
       {cancelar && (
@@ -349,8 +350,11 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
 
 /* ───────────── Fotos del pedido ───────────── */
 
-function FotosModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () => void }) {
+function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onClose: () => void; onCambio: () => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const { can, isAdmin } = usePermissions();
+  const [editar, setEditar] = useState(false);
+  const titulo = esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido);
   useEffect(() => {
     let vivo = true;
     const todas = [...pedido.fotos_recibo, ...pedido.fotos_entrega];
@@ -381,8 +385,19 @@ function FotosModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () =
   );
 
   return (
-    <Modal title={`📷 Fotos · ${esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido)}`} size="lg" onClose={onClose}
-      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal title={`📷 Fotos · ${titulo}`} size="lg" onClose={onClose}
+      footer={<>
+        {/* 03/11/2026: pedido entregado → se pueden corregir las fotos (agregar / quitar). */}
+        {puedeEditarFotosDelivery(pedido, isAdmin, can('delivery', 'escritura')) && (
+          <button type="button" className="btn btn-ghost" onClick={() => setEditar(true)}>✏ Editar fotos</button>
+        )}
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      </>}>
+      {editar && pedido.pedido_id && (
+        <EditarFotosDeliveryModal pedidoId={pedido.pedido_id} origen={pedido.origen} titulo={titulo}
+          fotosRecibo={pedido.fotos_recibo} fotosEntrega={pedido.fotos_entrega}
+          onClose={() => setEditar(false)} onGuardado={() => { onCambio(); onClose(); }} />
+      )}
       {grupo(rotuloFotos(pedido.origen, 'recibo'), pedido.fotos_recibo)}
       {grupo(rotuloFotos(pedido.origen, 'entrega'), pedido.fotos_entrega)}
       {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}

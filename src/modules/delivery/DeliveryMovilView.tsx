@@ -50,6 +50,7 @@ import {
   rechazarPedido, subirFotosDelivery, tomarPedido, ubicarProveedorDesdeDelivery, urlFotoDelivery, useDeliveryConectado, useUbicacionesRuta,
 } from './delivery.repository';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
+import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
 import { textoReportePedido } from './deliveryReporte';
 import {
   armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref, trabajoEnCurso,
@@ -404,6 +405,8 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
 }) {
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [verOrden, setVerOrden] = useState(false);
+  const [editarFotos, setEditarFotos] = useState(false);
+  const { isAdmin } = usePermissions();
   function verPdf() {
     setGenerandoPdf(true);
     import('./deliveryPdf').then((m) => m.pdfPedidoDelivery(f.p))
@@ -561,6 +564,10 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
         {puedeVerMensaje && (
           <button type="button" className="btn btn-ghost" onClick={onVerMensaje}>💬 Ver mensaje de WhatsApp</button>
         )}
+        {/* 03/11/2026: el motorizado que lo entregó (o admin) corrige las fotos de un pedido entregado. */}
+        {!disponible && puedeEditarFotosDelivery(p, isAdmin, false) && (
+          <button type="button" className="btn btn-ghost" onClick={() => setEditarFotos(true)}>✏ Editar fotos</button>
+        )}
         {/* GT: reporte del pedido (PDF con vista previa y WhatsApp) en cuanto alguien lo tomó. */}
         {!!p.pedido_id && !disponible && (
           <div className="surt-grid2">
@@ -569,6 +576,11 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
           </div>
         )}
       </div>
+      {editarFotos && p.pedido_id && (
+        <EditarFotosDeliveryModal pedidoId={p.pedido_id} origen={p.origen} titulo={retiro ? p.codigo : ocDe(p)}
+          fotosRecibo={p.fotos_recibo} fotosEntrega={p.fotos_entrega}
+          onClose={() => setEditarFotos(false)} onGuardado={onFotos} />
+      )}
     </article>
   );
 }

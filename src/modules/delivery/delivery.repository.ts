@@ -143,6 +143,38 @@ export async function subirFotosDelivery(
   return fotos;
 }
 
+/**
+ * 03/11/2026 · Editar las fotos de un pedido YA ENTREGADO (supabase/2026-11-03-delivery-editar-fotos.sql):
+ * sube las nuevas (comprimidas), anota la lista final con `delivery_editar_fotos` (admin, escritura en
+ * Delivery o el motorizado que lo entregó; queda en el historial) y recién después borra del bucket los
+ * archivos quitados — desde la app, porque Supabase no deja borrar storage.objects desde SQL.
+ */
+export async function editarFotosDelivery(
+  pedidoId: string, tipo: 'recibo' | 'entrega', quedan: FotoDelivery[], nuevos: File[], quitadas: FotoDelivery[],
+): Promise<{ fotos: FotoDelivery[]; sinBorrar: number }> {
+  if (quedan.length + nuevos.length > MAX_FOTOS_DELIVERY) throw new Error(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`);
+  const subidas = await Promise.all(nuevos.map(async (original) => {
+    const f = await comprimirImagen(original).catch(() => original);
+    const path = `${pedidoId}/${tipo}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${seguro(f.name)}`;
+    const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert: false, contentType: f.type || 'image/jpeg' });
+    if (error) throw new Error(`No se pudo subir «${original.name}»: ${error.message}`);
+    return { path, filename: original.name };
+  }));
+  const fotos = [...quedan, ...subidas];
+  const { error } = await supabase.rpc('delivery_editar_fotos', { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos });
+  if (error) {
+    // No quedaron anotadas: se limpian las recién subidas para no dejar huérfanas.
+    if (subidas.length) await supabase.storage.from(BUCKET).remove(subidas.map((s) => s.path)).catch(() => {});
+    throw err(error, 'No se pudieron guardar las fotos.');
+  }
+  let sinBorrar = 0;
+  if (quitadas.length) {
+    const { data, error: e2 } = await supabase.storage.from(BUCKET).remove(quitadas.map((q) => q.path));
+    sinBorrar = e2 ? quitadas.length : Math.max(0, quitadas.length - (data?.length ?? 0));
+  }
+  return { fotos, sinBorrar };
+}
+
 export async function urlFotoDelivery(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw new Error('No se pudo abrir la foto.');
