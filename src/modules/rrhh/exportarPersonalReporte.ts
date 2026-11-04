@@ -26,6 +26,7 @@ import type {
 } from './personalMoldeable';
 import {
   CAMPOS_REPORTE_PERSONAL,
+  calcularKpisCabeceraDinamicos,
   obtenerMetricasFichaPersonal,
 } from './personalMoldeable';
 
@@ -49,6 +50,16 @@ export interface MetadatosExportacionPersonal {
 function formatearValorCelda(fila: FilaReportePersonal, col: CampoColumnaPersonal): string {
   const val = (fila as unknown as Record<string, unknown>)[col.clave];
   if (val == null || val === '') return '—';
+
+  if (col.clave === 'variacion_sueldo_usd') {
+    const num = Number(val || 0);
+    const pref = num > 0 ? '+$ ' : num < 0 ? '-$ ' : '$ ';
+    return `${pref}${Math.abs(num).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  if (col.clave === 'variacion_sueldo_pct') {
+    const num = Number(val || 0);
+    return `${num > 0 ? '+' : ''}${num.toFixed(1)}%`;
+  }
 
   switch (col.formato) {
     case 'moneda':
@@ -107,16 +118,13 @@ export async function descargarPersonalExcel(
   r3.value = `Generado: ${hoyStr()}  |  Agrupado por: ${meta.agrupacion.toUpperCase()}  |  Total personas: ${resumen.totalPersonal}`;
   r3.font = { name: 'Calibri', size: 9.5, italic: true, color: { argb: 'FF64748B' } };
 
-  // Tarjetas KPI
-  const kpis: { celda: string; titulo: string; valor: string | number; sub: string }[] = [
-    { celda: 'B5', titulo: 'TOTAL PERSONAL', valor: resumen.totalPersonal, sub: `${resumen.totalActivos} activos · ${resumen.totalInactivos} inactivos` },
-    { celda: 'C5', titulo: 'MASA SALARIAL (USD)', valor: `$ ${resumen.masaSalarialTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`, sub: `Promedio: $ ${resumen.sueldoPromedioUsd.toFixed(2)}` },
-    { celda: 'D5', titulo: 'ANTIGÜEDAD PROMEDIO', valor: `${resumen.antiguedadPromedioAnos.toFixed(1)} años`, sub: `${resumen.edadPromedio ? `Edad prom: ${resumen.edadPromedio}a` : 'Demografía GT'}` },
-    { celda: 'E5', titulo: 'CARGA FAMILIAR', valor: `${resumen.conHijos} con hijos`, sub: `${resumen.totalHijosRegistrados} hijo(s) en total` },
-  ];
+  // Tarjetas KPI dinámicas según checks
+  const kpisDinamicos = calcularKpisCabeceraDinamicos(filas, resumen, columnasClaves, meta.ambito);
+  const celdas = ['B5', 'C5', 'D5', 'E5'];
 
-  kpis.forEach((k) => {
-    const c = wsRes.getCell(k.celda);
+  kpisDinamicos.forEach((k, idx) => {
+    if (idx >= celdas.length) return;
+    const c = wsRes.getCell(celdas[idx]);
     c.value = `${k.titulo}\n${k.valor}\n${k.sub}`;
     c.alignment = { wrapText: true, horizontal: 'center', vertical: 'middle' };
     c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1E293B' } };
@@ -338,31 +346,9 @@ export async function descargarPersonalPdf(
 
   // 2. Banner de KPIs (si está activado)
   if (meta.incluirResumen) {
-    const kpis = [
-      {
-        titulo: 'TOTAL PERSONAL',
-        valor: `${resumen.totalPersonal} pers.`,
-        sub: `${resumen.totalActivos} activos · ${resumen.totalInactivos} inact.`,
-      },
-      {
-        titulo: 'MASA SALARIAL (USD)',
-        valor: `$ ${resumen.masaSalarialTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`,
-        sub: `Promedio: $ ${resumen.sueldoPromedioUsd.toFixed(2)}`,
-      },
-      {
-        titulo: 'ANTIGÜEDAD PROMEDIO',
-        valor: `${resumen.antiguedadPromedioAnos.toFixed(1)} años`,
-        sub: resumen.edadPromedio ? `Edad prom: ${resumen.edadPromedio} años` : 'Trayectoria GT',
-      },
-      {
-        titulo: 'CARGA FAMILIAR',
-        valor: `${resumen.conHijos} con hijos`,
-        sub: `${resumen.totalHijosRegistrados} hijo(s) registrados`,
-      },
-    ];
-
+    const kpis = calcularKpisCabeceraDinamicos(filas, resumen, columnasClaves, meta.ambito);
     const cardGap = 8;
-    const cardW = (UW - cardGap * 3) / 4;
+    const cardW = (UW - cardGap * (kpis.length - 1)) / Math.max(1, kpis.length);
     const cardH = 38;
 
     kpis.forEach((k, idx) => {
@@ -372,8 +358,8 @@ export async function descargarPersonalPdf(
       doc.setLineWidth(0.5);
       doc.roundedRect(cx, y, cardW, cardH, 3, 3, 'FD');
 
-      // Borde naranja superior
-      doc.setFillColor(...NARANJA);
+      // Borde superior con el color del KPI
+      doc.setFillColor(...k.colorRgb);
       doc.rect(cx, y, cardW, 2.5, 'F');
 
       doc.setFont('helvetica', 'bold');
@@ -383,7 +369,7 @@ export async function descargarPersonalPdf(
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10.5);
-      doc.setTextColor(...TINTA);
+      doc.setTextColor(...k.colorRgb);
       doc.text(pdfSafe(k.valor), cx + 6, y + 23);
 
       doc.setFont('helvetica', 'normal');
@@ -424,29 +410,45 @@ export async function descargarPersonalPdf(
         doc.setFillColor(...NARANJA);
         doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
 
-        // Badge superior derecho (Estado o Empresa)
-        const badgeTexto = f.activo ? 'ACTIVO' : 'INACTIVO';
-        const badgeSub = f.empresa_nombre;
-        const badgeW = Math.min(cardW * 0.38, 92);
+        // Badge superior derecho (Estado o Empresa) - SOLO si están marcados
+        const mostrarEstado = columnasClaves.includes('estado_texto') || columnasClaves.includes('activo');
+        const mostrarEmpresa = columnasClaves.includes('empresa') || columnasClaves.includes('empresa_nombre');
+        const tieneBadge = mostrarEstado || mostrarEmpresa;
+
+        const badgeW = tieneBadge ? Math.min(cardW * 0.38, 92) : 0;
         const badgeH = 15;
         const bx = cx + cardW - badgeW - 6;
         const by = cy + 4;
 
-        doc.setFillColor(f.activo ? 240 : 254, f.activo ? 253 : 242, f.activo ? 244 : 242);
-        doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+        if (tieneBadge) {
+          doc.setFillColor(f.activo ? 240 : 254, f.activo ? 253 : 242, f.activo ? 244 : 242);
+          doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
 
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.5);
-        doc.setTextColor(f.activo ? 22 : 220, f.activo ? 101 : 38, f.activo ? 52 : 38);
-        doc.text(badgeTexto, bx + badgeW / 2, by + 6, { align: 'center' });
+          if (mostrarEstado && mostrarEmpresa) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.5);
+            doc.setTextColor(f.activo ? 22 : 220, f.activo ? 101 : 38, f.activo ? 52 : 38);
+            doc.text(f.activo ? 'ACTIVO' : 'INACTIVO', bx + badgeW / 2, by + 6, { align: 'center' });
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(5.2);
-        doc.setTextColor(100, 116, 139);
-        doc.text(pdfSafe(badgeSub), bx + badgeW / 2, by + 12, { align: 'center' });
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(5.2);
+            doc.setTextColor(100, 116, 139);
+            doc.text(pdfSafe(f.empresa_nombre), bx + badgeW / 2, by + 12, { align: 'center' });
+          } else if (mostrarEstado) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7);
+            doc.setTextColor(f.activo ? 22 : 220, f.activo ? 101 : 38, f.activo ? 52 : 38);
+            doc.text(f.activo ? 'ACTIVO' : 'INACTIVO', bx + badgeW / 2, by + 10, { align: 'center' });
+          } else {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.8);
+            doc.setTextColor(71, 85, 105);
+            doc.text(pdfSafe(f.empresa_nombre), bx + badgeW / 2, by + 10, { align: 'center' });
+          }
+        }
 
         // Título de la Persona (Nombre Completo)
-        const maxTitleW = Math.max(60, (bx - 6) - (cx + 10));
+        const maxTitleW = tieneBadge ? Math.max(60, (bx - 6) - (cx + 10)) : cardW - 20;
         let titleFontSize = 9.5;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(titleFontSize);
@@ -467,17 +469,19 @@ export async function descargarPersonalPdf(
         doc.setTextColor(...TINTA);
         doc.text(titleFinal, cx + 10, cy + 13);
 
-        // Subtítulo con Ficha, Cédula, Cargo y Departamento
+        // Subtítulo con Ficha, Cédula, Cargo y Departamento según checks
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
         doc.setTextColor(100, 116, 139);
-        const partesMeta = [
-          f.ficha_nro ? `Ficha ${f.ficha_nro}` : null,
-          f.cedula,
-          f.cargo,
-          f.departamento,
-        ].filter(Boolean);
-        const metaTxt = pdfSafe(partesMeta.join(' · '));
+        const partesMeta: string[] = [];
+        if (columnasClaves.includes('ficha_nro') && f.ficha_nro) partesMeta.push(`Ficha ${f.ficha_nro}`);
+        if (columnasClaves.includes('cedula')) partesMeta.push(f.cedula || 'Sin cédula');
+        if (columnasClaves.includes('cargo')) partesMeta.push(f.cargo || 'Sin cargo');
+        if (columnasClaves.includes('departamento')) partesMeta.push(f.departamento || 'Sin dpto.');
+        if (partesMeta.length === 0 && columnasClaves.includes('fecha_ingreso') && f.fecha_ingreso) {
+          partesMeta.push(`Ingreso: ${f.fecha_ingreso}`);
+        }
+        const metaTxt = pdfSafe(partesMeta.length > 0 ? partesMeta.join(' · ') : '—');
         const maxMetaW = cardW - 20;
         let metaFinal = metaTxt;
         if (doc.getTextWidth(metaFinal) > maxMetaW) {

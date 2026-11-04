@@ -7,6 +7,15 @@ import { listMovimientosTanque, type ReporteTanque } from './tanques.repository'
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import { descargarReporteExistenciasPdf } from './reporteExistenciasPdf';
 import { descargarReporteExistenciasExcel } from './reporteExistenciasExcel';
+import {
+  calcularCorteTanque,
+  calcularTotalesCierre,
+  hoyIsoVE,
+  nombreMesEs,
+  obtenerPresetRango,
+  type PresetPeriodoCombustible,
+  type SaldoCorteTanque,
+} from './reporteExistenciasCorte';
 
 interface Props {
   tanques: TanqueCombustible[];
@@ -14,7 +23,6 @@ interface Props {
   onClose: () => void;
 }
 
-type PeriodoFiltro = 'mes_actual' | '7dias' | '15dias' | '30dias' | 'todos';
 type TipoFiltro = 'uso_traslado' | 'uso' | 'traslado' | 'todos';
 
 function fechaHoraActualVE(): string {
@@ -23,25 +31,6 @@ function fechaHoraActualVE(): string {
     dateStyle: 'full',
     timeStyle: 'short',
   }).format(new Date());
-}
-
-function hoyIso(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Caracas',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
-function restarDias(iso: string, dias: number): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  const date = new Date(y, (m || 1) - 1, d);
-  date.setDate(date.getDate() - dias);
-  const resY = date.getFullYear();
-  const resM = String(date.getMonth() + 1).padStart(2, '0');
-  const resD = String(date.getDate()).padStart(2, '0');
-  return `${resY}-${resM}-${resD}`;
 }
 
 export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
@@ -81,7 +70,11 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
 
   const seleccionarSoloConStock = () => {
     const conStock = reporte
-      .filter((r) => (Number(r.disponible) || 0) > 0)
+      .filter((r) => {
+        const corte = cortesPorTanque.get(r.tanque.id);
+        const ltrs = corte ? corte.saldoCierreLitros : Number(r.disponible) || 0;
+        return ltrs > 0;
+      })
       .map((r) => r.tanque.id);
     setTanquesSeleccionados(new Set(conStock));
   };
@@ -90,35 +83,56 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     setTanquesSeleccionados(new Set());
   };
 
-  // 2. Filtros de periodo y tipo de movimiento
-  const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes_actual');
+  // 2. Filtros de periodo y rango de fechas (Desde / Hasta)
+  const hoy = useMemo(() => hoyIsoVE(), []);
+  const [periodo, setPeriodo] = useState<PresetPeriodoCombustible>('mes_actual');
+  const [fechaDesde, setFechaDesde] = useState<string>(() => obtenerPresetRango('mes_actual').desde);
+  const [fechaHasta, setFechaHasta] = useState<string>(() => obtenerPresetRango('mes_actual').hasta);
+
+  // 3. Vista de presentación: Fichas vs Tabla Comparativa
+  const [formatoVista, setFormatoVista] = useState<'tarjetas' | 'tabla'>('tarjetas');
+
+  // 4. Tipo de movimiento en detalle
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>('uso_traslado');
 
-  // 3. Cache de movimientos por tanque
+  // 5. Cache de movimientos por tanque
   const [movsMap, setMovsMap] = useState<Record<string, MovimientoTanque[]>>({});
   const [cargandoMovs, setCargandoMovs] = useState<boolean>(false);
   const [generandoPdf, setGenerandoPdf] = useState<boolean>(false);
   const [generandoExcel, setGenerandoExcel] = useState<boolean>(false);
 
-  const hoy = useMemo(() => hoyIso(), []);
-  const mesActual = useMemo(() => hoy.slice(0, 7), [hoy]);
-  const fechaDesdeFiltro = useMemo(() => {
-    if (periodo === 'mes_actual') return `${mesActual}-01`;
-    if (periodo === '7dias') return restarDias(hoy, 7);
-    if (periodo === '15dias') return restarDias(hoy, 15);
-    if (periodo === '30dias') return restarDias(hoy, 30);
-    return '';
-  }, [periodo, mesActual, hoy]);
+  // Aplicar un preset de fechas rápido
+  const aplicarPreset = (p: PresetPeriodoCombustible) => {
+    setPeriodo(p);
+    const r = obtenerPresetRango(p, hoy);
+    setFechaDesde(r.desde);
+    setFechaHasta(r.hasta);
+  };
 
+  const cambiarFechaDesde = (val: string) => {
+    setFechaDesde(val);
+    setPeriodo('personalizado');
+  };
+
+  const cambiarFechaHasta = (val: string) => {
+    setFechaHasta(val);
+    setPeriodo('personalizado');
+  };
+
+  // Etiqueta legible del periodo activo
   const periodoLabel = useMemo(() => {
-    switch (periodo) {
-      case 'mes_actual': return 'Mes en curso';
-      case '7dias': return 'Últimos 7 días';
-      case '15dias': return 'Últimos 15 días';
-      case '30dias': return 'Últimos 30 días';
-      case 'todos': return 'Historial completo';
-    }
-  }, [periodo]);
+    if (periodo === 'mes_actual') return `Mes actual (${nombreMesEs(Number(hoy.slice(5, 7)))})`;
+    if (periodo === 'mes_anterior') return obtenerPresetRango('mes_anterior', hoy).label;
+    if (periodo === '7dias') return 'Últimos 7 días';
+    if (periodo === '15dias') return 'Últimos 15 días';
+    if (periodo === '30dias') return 'Últimos 30 días';
+    if (periodo === 'este_ano') return `Año ${hoy.slice(0, 4)}`;
+    if (periodo === 'todos') return 'Historial completo';
+    if (fechaDesde && fechaHasta) return `Del ${isoAVe(fechaDesde)} al ${isoAVe(fechaHasta)}`;
+    if (fechaHasta) return `Corte al ${isoAVe(fechaHasta)}`;
+    if (fechaDesde) return `Desde el ${isoAVe(fechaDesde)}`;
+    return 'Periodo seleccionado';
+  }, [periodo, fechaDesde, fechaHasta, hoy]);
 
   // Mapa rápido de id -> TanqueCombustible
   const tanqueById = useMemo(() => {
@@ -165,36 +179,41 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     };
   }, [reporte, movsMap]);
 
-  // Subconjunto de reporte solo con los tanques seleccionados
-  const reporteSeleccionado = useMemo(() => {
-    return reporte.filter((r) => tanquesSeleccionados.has(r.tanque.id));
-  }, [reporte, tanquesSeleccionados]);
+  // Cálculo de corte (apertura, flujo en periodo, cierre y valoración) para cada tanque
+  const cortesPorTanque = useMemo(() => {
+    const map = new Map<string, SaldoCorteTanque>();
+    for (const r of reporte) {
+      const t = r.tanque;
+      const movs = movsMap[t.id] ?? [];
+      const corte = calcularCorteTanque(t, movs, fechaDesde || null, fechaHasta || null, hoy);
+      // Fallback si aún no hay movimientos cargados y estamos en tiempo real sin fecha límite
+      if (movs.length === 0 && !fechaDesde && !fechaHasta && r.disponible != null) {
+        corte.saldoCierreLitros = Number(r.disponible) || 0;
+        corte.saldoCierreUsd = corte.saldoCierreLitros * (Number(t.tasa_usd_litro) || 0);
+      }
+      map.set(t.id, corte);
+    }
+    return map;
+  }, [reporte, movsMap, fechaDesde, fechaHasta, hoy]);
 
-  // Totales acumulados calculados exclusivamente sobre los tanques seleccionados
+  // Subconjunto de cortes solo con los tanques seleccionados por casillas (checks)
+  const cortesSeleccionados = useMemo(() => {
+    return reporte
+      .filter((r) => tanquesSeleccionados.has(r.tanque.id))
+      .map((r) => cortesPorTanque.get(r.tanque.id)!)
+      .filter(Boolean);
+  }, [reporte, tanquesSeleccionados, cortesPorTanque]);
+
+  // Totales acumulados calculados dinámicamente sobre los tanques seleccionados y el corte de fecha
   const totales = useMemo(() => {
-    const totalLitros = reporteSeleccionado.reduce((acc, r) => acc + (Number(r.disponible) || 0), 0);
-    const totalValor = reporteSeleccionado.reduce(
-      (acc, r) => acc + (Number(r.disponible) || 0) * (Number(r.tanque.tasa_usd_litro) || 0),
-      0,
-    );
-    const tasaProm = totalLitros > 0 ? totalValor / totalLitros : 0;
-    return {
-      litros: totalLitros,
-      valor: totalValor,
-      tasaProm,
-      count: reporteSeleccionado.length,
-      totalTanques: reporte.length,
-    };
-  }, [reporteSeleccionado, reporte.length]);
+    return calcularTotalesCierre(cortesSeleccionados, reporte.length, fechaHasta || null, hoy);
+  }, [cortesSeleccionados, reporte.length, fechaHasta, hoy]);
 
   // Movimientos filtrados por cada tanque según periodo y tipo (solo tanques seleccionados)
   const detallePorTanque = useMemo(() => {
-    return reporteSeleccionado.map((rep) => {
-      const todosMovs = movsMap[rep.tanque.id] ?? [];
+    return cortesSeleccionados.map((corte) => {
+      const todosMovs = corte.movimientos;
       const filtrados = todosMovs.filter((m) => {
-        // Filtro de periodo
-        if (fechaDesdeFiltro && (m.fecha ?? '') < fechaDesdeFiltro) return false;
-        // Filtro de tipo
         if (tipoFiltro === 'uso_traslado') {
           return m.tipo === 'uso' || m.tipo === 'traslado';
         }
@@ -203,45 +222,42 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         return true;
       });
 
-      // Subtotales del periodo para este tanque
-      const surtidosLitros = filtrados
-        .filter((m) => m.tipo === 'uso')
-        .reduce((acc, m) => acc + (Number(m.litros) || 0), 0);
-      const surtidosCount = filtrados.filter((m) => m.tipo === 'uso').length;
-
-      const trasladosLitros = filtrados
-        .filter((m) => m.tipo === 'traslado')
-        .reduce((acc, m) => acc + (Number(m.litros) || 0), 0);
-      const trasladosCount = filtrados.filter((m) => m.tipo === 'traslado').length;
-
-      const entradasLitros = filtrados
-        .filter((m) => m.tipo === 'entrada' || m.tipo === 'retorno')
-        .reduce((acc, m) => acc + (Number(m.litros) || 0), 0);
-
       return {
-        tanque: rep.tanque,
-        disponible: rep.disponible,
+        tanque: corte.tanque,
+        disponible: corte.saldoCierreLitros,
         movimientos: filtrados,
-        surtidosLitros,
-        surtidosCount,
-        trasladosLitros,
-        trasladosCount,
-        entradasLitros,
+        surtidosLitros: corte.surtidosLitros,
+        surtidosCount: corte.surtidosCount,
+        trasladosLitros: corte.trasladosLitros,
+        trasladosCount: corte.trasladosCount,
+        entradasLitros: corte.entradasLitros,
+        saldoInicialLitros: corte.saldoInicialLitros,
+        saldoCierreLitros: corte.saldoCierreLitros,
+        saldoCierreUsd: corte.saldoCierreUsd,
+        tasaCierre: corte.tasaCierre,
+        porcentajeLleno: corte.porcentajeLleno,
       };
     });
-  }, [reporteSeleccionado, movsMap, fechaDesdeFiltro, tipoFiltro]);
+  }, [cortesSeleccionados, tipoFiltro]);
 
   const emitido = useMemo(() => fechaHoraActualVE(), []);
 
   // Exportar a PDF (solo tanques seleccionados)
   async function handleExportPdf() {
-    if (!reporteSeleccionado.length) return;
+    if (!cortesSeleccionados.length) return;
     setGenerandoPdf(true);
     try {
       await descargarReporteExistenciasPdf({
-        reportes: reporteSeleccionado,
+        reportes: cortesSeleccionados.map((c) => ({
+          tanque: c.tanque,
+          disponible: c.saldoCierreLitros,
+          entradas: c.entradasLitros,
+          uso: c.surtidosLitros,
+          traslados: c.trasladosLitros,
+        })),
         detallePorTanque,
         periodoLabel,
+        totalesCorte: totales,
       });
     } finally {
       setGenerandoPdf(false);
@@ -250,13 +266,20 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
 
   // Exportar a Excel (solo tanques seleccionados)
   async function handleExportExcel() {
-    if (!reporteSeleccionado.length) return;
+    if (!cortesSeleccionados.length) return;
     setGenerandoExcel(true);
     try {
       await descargarReporteExistenciasExcel({
-        reportes: reporteSeleccionado,
+        reportes: cortesSeleccionados.map((c) => ({
+          tanque: c.tanque,
+          disponible: c.saldoCierreLitros,
+          entradas: c.entradasLitros,
+          uso: c.surtidosLitros,
+          traslados: c.trasladosLitros,
+        })),
         detallePorTanque,
         periodoLabel,
+        totalesCorte: totales,
       });
     } finally {
       setGenerandoExcel(false);
@@ -304,21 +327,19 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
 
   return (
     <Modal
-      title="📄 Reporte de existencias y movimientos de combustible"
+      title="📄 Reporte Dinámico de Existencias y Movimientos de Combustible"
       size="xl"
       onClose={onClose}
       footer={footer}
     >
       <div style={{ color: 'var(--text)' }}>
-        {/* Cabecera / Barra de herramientas superior */}
+        {/* 1. SECCIÓN: Barra de Herramientas Superior (Rango de Fechas + Tipo de Movimiento + Vista) */}
         <div
           className="no-print"
           style={{
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '.75rem',
+            flexDirection: 'column',
+            gap: '.65rem',
             padding: '.75rem 1rem',
             background: 'var(--surface-2)',
             borderRadius: 'var(--r-md)',
@@ -326,70 +347,148 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
             marginBottom: '.75rem',
           }}
         >
-          {/* Selector de periodo estilizado */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-            <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>
-              📅 Movimientos:
-            </span>
-            <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+          {/* Fila 1: Presets rápidos de Periodo */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+              <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>
+                📅 Rango de Fechas:
+              </span>
               <button
                 type="button"
                 className={`btn btn-xs ${periodo === 'mes_actual' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPeriodo('mes_actual')}
+                onClick={() => aplicarPreset('mes_actual')}
               >
-                Mes actual
+                Mes actual ({nombreMesEs(Number(hoy.slice(5, 7)))})
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${periodo === 'mes_anterior' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => aplicarPreset('mes_anterior')}
+                title="Cierre histórico del mes anterior (Octubre)"
+              >
+                Mes anterior (Octubre)
               </button>
               <button
                 type="button"
                 className={`btn btn-xs ${periodo === '7dias' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPeriodo('7dias')}
+                onClick={() => aplicarPreset('7dias')}
               >
                 7 días
               </button>
               <button
                 type="button"
                 className={`btn btn-xs ${periodo === '15dias' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPeriodo('15dias')}
+                onClick={() => aplicarPreset('15dias')}
               >
                 15 días
               </button>
               <button
                 type="button"
                 className={`btn btn-xs ${periodo === '30dias' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPeriodo('30dias')}
+                onClick={() => aplicarPreset('30dias')}
               >
                 30 días
               </button>
               <button
                 type="button"
-                className={`btn btn-xs ${periodo === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPeriodo('todos')}
+                className={`btn btn-xs ${periodo === 'este_ano' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => aplicarPreset('este_ano')}
               >
-                Todos
+                Año {hoy.slice(0, 4)}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${periodo === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => aplicarPreset('todos')}
+              >
+                Historial completo
+              </button>
+            </div>
+
+            {/* Alternador de Vista: Tarjetas vs Tabla */}
+            <div style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
+              <span className="muted" style={{ fontSize: '.76rem', fontWeight: 600 }}>Vista:</span>
+              <button
+                type="button"
+                className={`btn btn-xs ${formatoVista === 'tarjetas' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setFormatoVista('tarjetas')}
+                style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+              >
+                🏢 Fichas
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${formatoVista === 'tabla' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setFormatoVista('tabla')}
+                style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+              >
+                📊 Tabla
               </button>
             </div>
           </div>
 
-          {/* Filtro de tipo de movimiento */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-            <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>
-              Filtrar:
-            </span>
-            <select
-              className="input input-sm"
-              value={tipoFiltro}
-              onChange={(e) => setTipoFiltro(e.target.value as TipoFiltro)}
-              style={{ minWidth: 180, fontSize: '.8rem' }}
-            >
-              <option value="uso_traslado">⛽ Surtidos y ↔ Traslados</option>
-              <option value="uso">Solo Surtidos (Equipos)</option>
-              <option value="traslado">Solo Traslados</option>
-              <option value="todos">Todos los movimientos</option>
-            </select>
+          {/* Fila 2: Selectores de fecha Desde - Hasta e Input de Tipo de Movimiento */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem', borderTop: '1px solid var(--border)', paddingTop: '.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', fontSize: '.78rem' }}>
+                <span className="muted">Desde:</span>
+                <input
+                  type="date"
+                  className="input input-xs"
+                  value={fechaDesde}
+                  onChange={(e) => cambiarFechaDesde(e.target.value)}
+                  style={{ width: '135px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', fontSize: '.78rem' }}>
+                <span className="muted">Hasta:</span>
+                <input
+                  type="date"
+                  className="input input-xs"
+                  value={fechaHasta}
+                  onChange={(e) => cambiarFechaHasta(e.target.value)}
+                  style={{ width: '135px' }}
+                />
+              </div>
+
+              {totales.esHistorico && (
+                <span
+                  className="badge"
+                  style={{
+                    background: 'rgba(255, 138, 0, 0.15)',
+                    color: 'var(--primary)',
+                    borderColor: 'var(--primary)',
+                    fontSize: '.72rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  📅 Corte histórico: {isoAVe(fechaHasta)}
+                </span>
+              )}
+            </div>
+
+            {/* Filtro de tipo de movimiento */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span className="muted" style={{ fontSize: '.78rem', fontWeight: 600 }}>
+                Filtrar detalle:
+              </span>
+              <select
+                className="input input-xs"
+                value={tipoFiltro}
+                onChange={(e) => setTipoFiltro(e.target.value as TipoFiltro)}
+                style={{ minWidth: 175, fontSize: '.78rem' }}
+              >
+                <option value="uso_traslado">⛽ Surtidos y ↔ Traslados</option>
+                <option value="uso">Solo Surtidos (Equipos)</option>
+                <option value="traslado">Solo Traslados</option>
+                <option value="todos">Todos los movimientos</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        {/* Barra selectora de tanques con estilos nativos del sistema */}
+        {/* 2. SECCIÓN: Barra Selectora de Tanques a Incluir (Checks interactivos) */}
         <div
           className="no-print"
           style={{
@@ -423,7 +522,10 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
               onClick={seleccionarSoloConStock}
               style={{ fontSize: '.75rem', padding: '.2rem .55rem' }}
             >
-              Solo con combustible ({reporte.filter((r) => (Number(r.disponible) || 0) > 0).length})
+              Solo con combustible ({reporte.filter((r) => {
+                const c = cortesPorTanque.get(r.tanque.id);
+                return (c ? c.saldoCierreLitros : Number(r.disponible) || 0) > 0;
+              }).length})
             </button>
             <button
               type="button"
@@ -435,11 +537,11 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
             </button>
           </div>
           <div className="muted" style={{ fontSize: '.74rem' }}>
-            💡 Haz clic en cualquier tarjeta de tanque para incluirlo o excluirlo del reporte
+            💡 Haz clic en cualquier tarjeta o fila de tanque para incluirlo o excluirlo del reporte
           </div>
         </div>
 
-        {/* Encabezado del documento para vista previa y para impresión */}
+        {/* 3. SECCIÓN: Encabezado del Documento */}
         <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
           <div style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--primary)' }}>
             Golden Touch 1127 C.A. · Control de Combustible
@@ -450,11 +552,15 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
           <div className="muted" style={{ fontSize: '.8rem', textTransform: 'capitalize' }}>
             {emitido} · {periodoLabel}
           </div>
+          {totales.esHistorico && (
+            <div style={{ fontSize: '.76rem', color: 'var(--primary)', marginTop: '.25rem', fontWeight: 600 }}>
+              📌 Existencias históricas determinadas al cierre del {isoAVe(fechaHasta)}
+            </div>
+          )}
         </div>
 
-        {/* ================= BLOQUE 1: TARJETAS DE LO QUE QUEDA ================= */}
+        {/* 4. SECCIÓN: Tarjetas Resumen Dinámicas en la Cabecera (Hero Banner de KPIs) */}
         <div style={{ marginBottom: '1.75rem' }}>
-          {/* Tarjeta Hero Resumen Consolidado */}
           <div
             className="card"
             style={{
@@ -463,177 +569,341 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
               borderWidth: 2,
               background: 'linear-gradient(135deg, var(--surface-2), var(--surface))',
               padding: '1.1rem',
-              display: 'flex',
-              justifyContent: 'space-around',
-              alignItems: 'center',
-              flexWrap: 'wrap',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
               gap: '1.25rem',
             }}
           >
-            {/* Total Litros */}
-            <div style={{ textAlign: 'center', minWidth: 150 }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
-                Total disponible en tanques
+            {/* KPI 1: Existencia al Cierre */}
+            <div style={{ textAlign: 'center', padding: '.4rem .5rem', borderTop: '3px solid var(--primary)', borderRadius: '4px' }}>
+              <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                {totales.esHistorico ? 'Existencia al Cierre' : 'Total Disponible en Tanques'}
               </div>
-              <div className="mono" style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--primary)', marginTop: '.15rem' }}>
-                {num(totales.litros)} <span style={{ fontSize: '.85rem', fontWeight: 500 }} className="muted">ltrs</span>
+              <div className="mono" style={{ fontSize: '1.85rem', fontWeight: 800, color: 'var(--primary)', marginTop: '.15rem' }}>
+                {num(totales.totalLitrosCierre)} <span style={{ fontSize: '.82rem', fontWeight: 500 }} className="muted">ltrs</span>
               </div>
-            </div>
-
-            <div style={{ width: 1, height: 42, background: 'var(--border)' }} className="hide-sm" />
-
-            {/* Total Valor USD */}
-            <div style={{ textAlign: 'center', minWidth: 150 }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
-                Valor total disponible
-              </div>
-              <div className="mono" style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--success)', marginTop: '.15rem' }}>
-                {money(totales.valor)}
+              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>
+                {totales.esHistorico ? `Cierre al ${isoAVe(fechaHasta)}` : 'Saldo actual disponible'}
+                {totales.totalLitrosApertura > 0 && ` · Apertura: ${num(totales.totalLitrosApertura)} L`}
               </div>
             </div>
 
-            <div style={{ width: 1, height: 42, background: 'var(--border)' }} className="hide-sm" />
-
-            {/* Tasa Ponderada Promedio */}
-            <div style={{ textAlign: 'center', minWidth: 130 }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
-                Tasa ponderada promedio
+            {/* KPI 2: Valor Monetario al Cierre */}
+            <div style={{ textAlign: 'center', padding: '.4rem .5rem', borderTop: '3px solid #22c55e', borderRadius: '4px' }}>
+              <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                {totales.esHistorico ? 'Valor Total al Cierre' : 'Valor Total Disponible'}
               </div>
-              <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--text)', marginTop: '.25rem' }}>
-                {money(totales.tasaProm)} <span style={{ fontSize: '.75rem' }} className="muted">/ ltr</span>
+              <div className="mono" style={{ fontSize: '1.85rem', fontWeight: 800, color: 'var(--success)', marginTop: '.15rem' }}>
+                {money(totales.totalValorCierre)}
+              </div>
+              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>
+                Tasa ponderada: <strong>{money(totales.tasaPromedioCierre)}</strong> / ltr
               </div>
             </div>
 
-            <div style={{ width: 1, height: 42, background: 'var(--border)' }} className="hide-sm" />
-
-            {/* Tanques seleccionados */}
-            <div style={{ textAlign: 'center', minWidth: 110 }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
-                Tanques en reporte
+            {/* KPI 3: Consumo / Surtidos en el Periodo */}
+            <div style={{ textAlign: 'center', padding: '.4rem .5rem', borderTop: '3px solid #f59e0b', borderRadius: '4px' }}>
+              <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                Consumo en el Periodo
               </div>
-              <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 700, color: 'var(--text)', marginTop: '.25rem' }}>
-                {totales.count} <span style={{ fontSize: '.75rem' }} className="muted">de {totales.totalTanques}</span>
+              <div className="mono" style={{ fontSize: '1.85rem', fontWeight: 800, color: '#f59e0b', marginTop: '.15rem' }}>
+                {num(totales.totalSurtidosLitros)} <span style={{ fontSize: '.82rem', fontWeight: 500 }} className="muted">ltrs</span>
+              </div>
+              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>
+                {money(totales.totalSurtidosUsd)} · {totales.totalSurtidosCount} surtidos a equipos
+              </div>
+            </div>
+
+            {/* KPI 4: Movilización / Traslados y Tanques */}
+            <div style={{ textAlign: 'center', padding: '.4rem .5rem', borderTop: '3px solid #3b82f6', borderRadius: '4px' }}>
+              <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                Traslados y Nómina Tanques
+              </div>
+              <div className="mono" style={{ fontSize: '1.85rem', fontWeight: 800, color: '#3b82f6', marginTop: '.15rem' }}>
+                {num(totales.totalTrasladosLitros)} <span style={{ fontSize: '.82rem', fontWeight: 500 }} className="muted">ltrs</span>
+              </div>
+              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>
+                Entradas: +{num(totales.totalEntradasLitros)} L · {totales.tanquesSeleccionadosCount} de {totales.totalTanquesCatalogo} tanques
               </div>
             </div>
           </div>
 
-          {/* Grid de tarjetas individuales por tanque (con selección interactiva) */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
-              gap: '.75rem',
-            }}
-          >
-            {reporte.map((r) => {
-              const cap = Number(r.tanque.capacidad_litros) || 0;
-              const disp = Number(r.disponible) || 0;
-              const tasa = Number(r.tanque.tasa_usd_litro) || 0;
-              const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
-              const colorBarra = pct < 12 ? 'var(--danger)' : pct < 30 ? 'var(--warning)' : 'var(--primary)';
-              const seleccionado = tanquesSeleccionados.has(r.tanque.id);
+          {/* 5. SECCIÓN: Vista de Fichas Ejecutivas vs Vista de Tabla Tabular */}
+          {formatoVista === 'tarjetas' ? (
+            /* ================= VISTA DE TARJETAS ================= */
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))',
+                gap: '.75rem',
+              }}
+            >
+              {reporte.map((r) => {
+                const corte = cortesPorTanque.get(r.tanque.id);
+                const cap = Number(r.tanque.capacidad_litros) || 0;
+                const disp = corte ? corte.saldoCierreLitros : Number(r.disponible) || 0;
+                const valorUsd = corte ? corte.saldoCierreUsd : disp * (Number(r.tanque.tasa_usd_litro) || 0);
+                const tasa = corte ? corte.tasaCierre : Number(r.tanque.tasa_usd_litro) || 0;
+                const pct = corte ? corte.porcentajeLleno : cap > 0 ? (disp / cap) * 100 : 0;
+                const colorBarra = pct < 12 ? 'var(--danger)' : pct < 30 ? 'var(--warning)' : 'var(--primary)';
+                const seleccionado = tanquesSeleccionados.has(r.tanque.id);
 
-              return (
-                <div
-                  key={r.tanque.id}
-                  onClick={() => toggleTanque(r.tanque.id)}
-                  className={`card ${!seleccionado ? 'no-print' : ''}`}
-                  style={{
-                    margin: 0,
-                    padding: '.85rem',
-                    border: seleccionado ? '2px solid var(--primary)' : '1px dashed var(--border)',
-                    background: seleccionado ? 'var(--surface)' : 'rgba(255, 255, 255, 0.02)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    pageBreakInside: 'avoid',
-                    opacity: seleccionado ? 1 : 0.45,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    position: 'relative',
-                    userSelect: 'none',
-                    boxShadow: seleccionado ? '0 0 0 1px rgba(255, 138, 0, 0.2)' : 'none',
-                  }}
-                  title={seleccionado ? 'Clic para excluir del reporte' : 'Clic para incluir en el reporte'}
-                >
-                  {/* Badge superior derecho de estado en reporte */}
-                  <div style={{ position: 'absolute', top: '.5rem', right: '.5rem' }} className="no-print">
-                    {seleccionado ? (
-                      <span
-                        className="badge"
+                return (
+                  <div
+                    key={r.tanque.id}
+                    onClick={() => toggleTanque(r.tanque.id)}
+                    className={`card ${!seleccionado ? 'no-print' : ''}`}
+                    style={{
+                      margin: 0,
+                      padding: '.85rem',
+                      border: seleccionado ? '2px solid var(--primary)' : '1px dashed var(--border)',
+                      background: seleccionado ? 'var(--surface)' : 'rgba(255, 255, 255, 0.02)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      pageBreakInside: 'avoid',
+                      opacity: seleccionado ? 1 : 0.45,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      position: 'relative',
+                      userSelect: 'none',
+                      boxShadow: seleccionado ? '0 0 0 1px rgba(255, 138, 0, 0.2)' : 'none',
+                    }}
+                    title={seleccionado ? 'Clic para excluir del reporte' : 'Clic para incluir en el reporte'}
+                  >
+                    {/* Badge superior derecho de estado en reporte */}
+                    <div style={{ position: 'absolute', top: '.5rem', right: '.5rem' }} className="no-print">
+                      {seleccionado ? (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.2)',
+                            color: 'var(--success)',
+                            borderColor: 'var(--success)',
+                            fontSize: '.68rem',
+                            fontWeight: 700,
+                            padding: '.15rem .45rem',
+                          }}
+                        >
+                          ✓ Incluido
+                        </span>
+                      ) : (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            color: 'var(--text-muted)',
+                            borderColor: 'var(--border)',
+                            fontSize: '.68rem',
+                            padding: '.15rem .45rem',
+                          }}
+                        >
+                          ✕ Excluido
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.4rem', marginBottom: '.35rem', paddingRight: '4.5rem' }}>
+                        <strong style={{ fontSize: '.9rem', color: seleccionado ? 'var(--text)' : 'var(--text-muted)' }}>
+                          {esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
+                        </strong>
+                      </div>
+
+                      <div style={{ display: 'inline-flex', gap: '.25rem', marginBottom: '.35rem' }}>
+                        {esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>bidón</span>}
+                        {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>móvil</span>}
+                        {r.tanque.estado !== 'activo' && <span className="badge" style={{ fontSize: '.68rem' }}>inactivo</span>}
+                      </div>
+
+                      {/* Litros al corte / cierre */}
+                      <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text)' }}>
+                        {num(disp)} <span style={{ fontSize: '.78rem', fontWeight: 500 }} className="muted">ltrs</span>
+                      </div>
+
+                      <div style={{ fontSize: '.72rem', color: totales.esHistorico ? 'var(--primary)' : 'var(--text-muted)', marginBottom: '.3rem', fontWeight: 600 }}>
+                        {totales.esHistorico ? `Cierre al ${isoAVe(fechaHasta)}` : 'Saldo actual disponible'}
+                      </div>
+
+                      {/* Barra de progreso de llenado */}
+                      <div
                         style={{
-                          background: 'rgba(16, 185, 129, 0.2)',
-                          color: 'var(--success)',
-                          borderColor: 'var(--success)',
-                          fontSize: '.68rem',
-                          fontWeight: 700,
-                          padding: '.15rem .45rem',
+                          height: 7,
+                          borderRadius: 4,
+                          background: 'var(--surface-2)',
+                          margin: '.45rem 0',
+                          overflow: 'hidden',
+                          border: '1px solid var(--border)',
                         }}
                       >
-                        ✓ Incluido
-                      </span>
-                    ) : (
-                      <span
-                        className="badge"
+                        <div style={{ width: `${pct}%`, height: '100%', background: colorBarra }} />
+                      </div>
+                    </div>
+
+                    {/* Capacidad y métricas monetarias */}
+                    <div>
+                      <div className="muted" style={{ fontSize: '.74rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.35rem', marginTop: '.2rem' }}>
+                        <span>Cap. <strong className="mono">{num(cap)}</strong> l ({pct.toFixed(0)}%)</span>
+                        <span>Tasa <strong className="mono">{money(tasa)}</strong></span>
+                        <span style={{ color: 'var(--success)' }}>Valor <strong className="mono">{money(valorUsd)}</strong></span>
+                      </div>
+
+                      {/* Chips con el flujo en el periodo */}
+                      {corte && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem', marginTop: '.45rem', borderTop: '1px solid var(--border)', paddingTop: '.4rem', fontSize: '.68rem' }}>
+                          <span className="badge" style={{ background: 'rgba(255, 255, 255, 0.05)', color: '#94a3b8' }}>
+                            Apertura: {num(corte.saldoInicialLitros)} L
+                          </span>
+                          {corte.surtidosLitros > 0 && (
+                            <span className="badge" style={{ background: 'rgba(255, 138, 0, 0.12)', color: 'var(--primary)' }}>
+                              ⛽ Surtidos: -{num(corte.surtidosLitros)} L
+                            </span>
+                          )}
+                          {corte.trasladosLitros > 0 && (
+                            <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6' }}>
+                              ↔ Traslados: -{num(corte.trasladosLitros)} L
+                            </span>
+                          )}
+                          {corte.entradasLitros > 0 && (
+                            <span className="badge" style={{ background: 'rgba(34, 197, 94, 0.12)', color: 'var(--success)' }}>
+                              ⬇ Entradas: +{num(corte.entradasLitros)} L
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* ================= VISTA DE TABLA TABULAR ================= */
+            <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: 'var(--surface)' }}>
+              <table className="table" style={{ width: '100%', fontSize: '.8rem', margin: 0 }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-2)', borderBottom: '2px solid var(--primary)' }}>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'center', width: '40px' }}>Inc.</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'left' }}>Tanque</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'left', width: '90px' }}>Tipo</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'right', width: '100px' }}>Apertura (L)</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'right', width: '95px', color: 'var(--success)' }}>Entradas (+)</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'right', width: '95px', color: 'var(--primary)' }}>Surtidos (-)</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'right', width: '95px', color: '#3b82f6' }}>Traslados (-)</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'right', width: '115px', background: 'rgba(255, 138, 0, 0.08)' }}>
+                      {totales.esHistorico ? `Cierre (${isoAVe(fechaHasta)})` : 'Saldo Actual (L)'}
+                    </th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'center', width: '80px' }}>% Cap.</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'right', width: '85px' }}>Tasa ($/L)</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'right', width: '110px', color: 'var(--success)' }}>Valor ($ USD)</th>
+                    <th style={{ padding: '.55rem .7rem', textAlign: 'center', width: '75px' }}>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reporte.map((r, idx) => {
+                    const corte = cortesPorTanque.get(r.tanque.id);
+                    const cap = Number(r.tanque.capacidad_litros) || 0;
+                    const disp = corte ? corte.saldoCierreLitros : Number(r.disponible) || 0;
+                    const valorUsd = corte ? corte.saldoCierreUsd : disp * (Number(r.tanque.tasa_usd_litro) || 0);
+                    const tasa = corte ? corte.tasaCierre : Number(r.tanque.tasa_usd_litro) || 0;
+                    const pct = corte ? corte.porcentajeLleno : cap > 0 ? (disp / cap) * 100 : 0;
+                    const seleccionado = tanquesSeleccionados.has(r.tanque.id);
+
+                    return (
+                      <tr
+                        key={r.tanque.id}
+                        onClick={() => toggleTanque(r.tanque.id)}
                         style={{
-                          background: 'rgba(255, 255, 255, 0.05)',
-                          color: 'var(--text-muted)',
-                          borderColor: 'var(--border)',
-                          fontSize: '.68rem',
-                          padding: '.15rem .45rem',
+                          background: idx % 2 === 1 ? 'rgba(255, 255, 255, 0.02)' : 'transparent',
+                          opacity: seleccionado ? 1 : 0.45,
+                          cursor: 'pointer',
+                          borderBottom: '1px solid var(--border)',
                         }}
                       >
-                        ✕ Excluido
-                      </span>
-                    )}
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.4rem', marginBottom: '.35rem', paddingRight: '4.5rem' }}>
-                      <strong style={{ fontSize: '.9rem', color: seleccionado ? 'var(--text)' : 'var(--text-muted)' }}>
-                        {esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
-                      </strong>
-                    </div>
-
-                    <div style={{ display: 'inline-flex', gap: '.25rem', marginBottom: '.35rem' }}>
-                      {esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>bidón</span>}
-                      {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" style={{ fontSize: '.68rem' }}>móvil</span>}
-                      {r.tanque.estado !== 'activo' && <span className="badge" style={{ fontSize: '.68rem' }}>inactivo</span>}
-                    </div>
-
-                    {/* Litros disponibles */}
-                    <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text)' }}>
-                      {num(disp)} <span style={{ fontSize: '.78rem', fontWeight: 500 }} className="muted">ltrs</span>
-                    </div>
-
-                    {/* Barra de progreso de llenado */}
-                    <div
-                      style={{
-                        height: 7,
-                        borderRadius: 4,
-                        background: 'var(--surface-2)',
-                        margin: '.45rem 0',
-                        overflow: 'hidden',
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      <div style={{ width: `${pct}%`, height: '100%', background: colorBarra }} />
-                    </div>
-                  </div>
-
-                  {/* Capacidad y métricas monetarias */}
-                  <div className="muted" style={{ fontSize: '.74rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.35rem', marginTop: '.2rem' }}>
-                    <span>Cap. <strong className="mono">{num(cap)}</strong> l ({pct.toFixed(0)}%)</span>
-                    <span>Tasa <strong className="mono">{money(tasa)}</strong></span>
-                    <span style={{ color: 'var(--success)' }}>Valor <strong className="mono">{money(disp * tasa)}</strong></span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                        <td style={{ textAlign: 'center', padding: '.45rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={seleccionado}
+                            readOnly
+                            style={{ margin: 0, pointerEvents: 'none', accentColor: 'var(--primary)' }}
+                          />
+                        </td>
+                        <td style={{ padding: '.45rem .7rem', fontWeight: 600 }}>
+                          {esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
+                        </td>
+                        <td style={{ padding: '.45rem .7rem' }}>
+                          <span className="badge" style={{ fontSize: '.68rem' }}>
+                            {esBidon(r.tanque.nombre) ? 'Bidón' : r.tanque.es_movil ? 'Móvil' : 'Estacionario'}
+                          </span>
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .7rem', textAlign: 'right' }}>
+                          {num(corte?.saldoInicialLitros || 0)}
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .7rem', textAlign: 'right', color: 'var(--success)' }}>
+                          {corte && corte.entradasLitros > 0 ? `+${num(corte.entradasLitros)}` : '—'}
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .7rem', textAlign: 'right', color: 'var(--primary)' }}>
+                          {corte && corte.surtidosLitros > 0 ? `-${num(corte.surtidosLitros)}` : '—'}
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .7rem', textAlign: 'right', color: '#3b82f6' }}>
+                          {corte && corte.trasladosLitros > 0 ? `-${num(corte.trasladosLitros)}` : '—'}
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .7rem', textAlign: 'right', fontWeight: 700, color: 'var(--text)', background: 'rgba(255, 138, 0, 0.06)' }}>
+                          {num(disp)} L
+                        </td>
+                        <td style={{ padding: '.45rem .7rem', textAlign: 'center', fontWeight: 600 }}>
+                          {pct.toFixed(0)}%
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .7rem', textAlign: 'right' }}>
+                          {money(tasa)}
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .7rem', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>
+                          {money(valorUsd)}
+                        </td>
+                        <td style={{ padding: '.45rem .7rem', textAlign: 'center' }}>
+                          <span className="badge" style={{ fontSize: '.68rem' }}>
+                            {r.tanque.estado === 'activo' ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--surface-2)', borderTop: '2px solid var(--primary)', fontWeight: 800 }}>
+                    <td colSpan={3} style={{ padding: '.6rem .7rem' }}>
+                      TOTAL CONSOLIDADO ({totales.tanquesSeleccionadosCount} tanques)
+                    </td>
+                    <td className="mono" style={{ padding: '.6rem .7rem', textAlign: 'right' }}>
+                      {num(totales.totalLitrosApertura)}
+                    </td>
+                    <td className="mono" style={{ padding: '.6rem .7rem', textAlign: 'right', color: 'var(--success)' }}>
+                      +{num(totales.totalEntradasLitros)}
+                    </td>
+                    <td className="mono" style={{ padding: '.6rem .7rem', textAlign: 'right', color: 'var(--primary)' }}>
+                      -{num(totales.totalSurtidosLitros)}
+                    </td>
+                    <td className="mono" style={{ padding: '.6rem .7rem', textAlign: 'right', color: '#3b82f6' }}>
+                      -{num(totales.totalTrasladosLitros)}
+                    </td>
+                    <td className="mono" style={{ padding: '.6rem .7rem', textAlign: 'right', color: 'var(--primary)', fontSize: '.9rem', background: 'rgba(255, 138, 0, 0.12)' }}>
+                      {num(totales.totalLitrosCierre)} L
+                    </td>
+                    <td style={{ padding: '.6rem .7rem', textAlign: 'center' }}>—</td>
+                    <td className="mono" style={{ padding: '.6rem .7rem', textAlign: 'right' }}>
+                      {money(totales.tasaPromedioCierre)}
+                    </td>
+                    <td className="mono" style={{ padding: '.6rem .7rem', textAlign: 'right', color: 'var(--success)', fontSize: '.9rem' }}>
+                      {money(totales.totalValorCierre)}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
         </div>
 
-        {/* ================= BLOQUE 2: DETALLE POR TANQUE DE SURTIDOS Y TRASLADOS ================= */}
+        {/* 6. SECCIÓN: Detalle de Movimientos por Tanque en el Periodo */}
         <div style={{ marginTop: '2rem' }}>
           <div style={{ borderBottom: '2px solid var(--primary)', paddingBottom: '.4rem', marginBottom: '1.25rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>
@@ -651,7 +921,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
               <span>{periodoLabel}</span>
               {' · '}
               <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
-                {reporteSeleccionado.length} tanque(s) en reporte
+                {cortesSeleccionados.length} tanque(s) en reporte
               </span>
             </div>
           </div>
@@ -716,7 +986,8 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
                         <div>
                           <strong style={{ fontSize: '.95rem' }}>{item.tanque.nombre}</strong>
                           <div className="muted" style={{ fontSize: '.75rem' }}>
-                            Capacidad: {num(item.tanque.capacidad_litros)} ltrs · Saldo disponible: <strong className="mono" style={{ color: 'var(--primary)' }}>{num(item.disponible)} ltrs</strong>
+                            Capacidad: {num(item.tanque.capacidad_litros)} ltrs · Saldo al corte: <strong className="mono" style={{ color: 'var(--primary)' }}>{num(item.disponible)} ltrs</strong>
+                            {totales.esHistorico && ` (Cierre al ${isoAVe(fechaHasta)})`}
                           </div>
                         </div>
                       </div>
@@ -878,10 +1149,12 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
           )}
         </div>
 
-        {/* Pie de página */}
+        {/* Pie de página institucional */}
         <div style={{ marginTop: '2.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem', textAlign: 'center', fontSize: '.75rem' }} className="muted">
           <div>Golden Touch 1127 C.A. · Sistema de Gestión de Combustible</div>
-          <div style={{ marginTop: '.2rem' }}>Valores calculados con la tasa promedio ponderada ($/L) vigente de cada tanque.</div>
+          <div style={{ marginTop: '.2rem' }}>
+            Valores y saldos de combustible calculados al corte del periodo ({periodoLabel}) con su tasa ponderada correspondiente.
+          </div>
         </div>
       </div>
     </Modal>

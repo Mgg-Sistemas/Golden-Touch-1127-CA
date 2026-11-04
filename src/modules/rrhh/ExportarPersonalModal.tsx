@@ -17,16 +17,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
-import type { EmpresaRrhh, Personal, PersonalFamiliar } from '@/shared/lib/types';
+import type { EmpresaRrhh, Personal, PersonalFamiliar, PersonalSueldo } from '@/shared/lib/types';
+import type { PersonalCargo } from './cargos';
 import { useEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { listFamiliaresDeTodos } from './familiares.repository';
 import { listPersonal } from './personal.repository';
+import { listTodosCambiosSueldo } from './sueldos.repository';
+import { listTodosCambiosCargo } from './cargos.repository';
 import {
   CAMPOS_POR_DEFECTO_POR_MODO,
+  CAMPOS_POR_DEFECTO_POR_AMBITO,
   CAMPOS_PRINCIPALES_PERSONAL,
   CAMPOS_REPORTE_PERSONAL,
+  calcularKpisCabeceraDinamicos,
   filtrarFilasPersonal,
   normalizarPersonal,
+  normalizarHistoricoSalarial,
+  normalizarHistoricoCargos,
   obtenerMetricasFichaPersonal,
   procesarFilasReportePersonal,
   type AmbitoReportePersonal,
@@ -83,7 +90,7 @@ export function ExportarPersonalModal({
 }: Props) {
   const catalogoEmpresas = useEmpresasRrhh();
 
-  // Ámbito del reporte (Directorio o futuros históricos)
+  // Ámbito del reporte (Directorio o históricos operativos)
   const [ambito, setAmbito] = useState<AmbitoReportePersonal>('directorio');
 
   // Estado de datos base
@@ -91,6 +98,11 @@ export function ExportarPersonalModal({
   const [familiaresMap, setFamiliaresMap] = useState<Map<string, PersonalFamiliar[]>>(
     familiaresProp || new Map(),
   );
+
+  // Estados de datos históricos operativos
+  const [cambiosSueldo, setCambiosSueldo] = useState<PersonalSueldo[] | null>(null);
+  const [cambiosCargo, setCambiosCargo] = useState<PersonalCargo[] | null>(null);
+  const [cargandoHistorico, setCargandoHistorico] = useState<boolean>(false);
 
   // Preferencias persistidas
   const [agrupacion, setAgrupacion] = useState<ModoAgrupacionPersonal>(() => {
@@ -166,6 +178,29 @@ export function ExportarPersonalModal({
     }
   }, [familiaresProp]);
 
+  // Carga reactiva de históricos al activar un ámbito operativo
+  useEffect(() => {
+    if (ambito === 'historico_salarial' && cambiosSueldo === null) {
+      setCargandoHistorico(true);
+      listTodosCambiosSueldo()
+        .then(setCambiosSueldo)
+        .catch((err) => {
+          console.error(err);
+          toast('No se pudo cargar el histórico salarial', 'error');
+        })
+        .finally(() => setCargandoHistorico(false));
+    } else if (ambito === 'historico_cargos' && cambiosCargo === null) {
+      setCargandoHistorico(true);
+      listTodosCambiosCargo()
+        .then(setCambiosCargo)
+        .catch((err) => {
+          console.error(err);
+          toast('No se pudo cargar el histórico de cargos', 'error');
+        })
+        .finally(() => setCargandoHistorico(false));
+    }
+  }, [ambito, cambiosSueldo, cambiosCargo]);
+
   // Si el usuario quiere ver todas las empresas o desmarca la empresa inicial, traemos la nómina completa
   useEffect(() => {
     if (empresasSel.length === 0 || empresasSel.length > 1 || (empresasSel.length === 1 && empresasSel[0] !== empresaProp)) {
@@ -212,10 +247,23 @@ export function ExportarPersonalModal({
     };
   }, [personalCompleto, catalogoEmpresas]);
 
-  // Normalización plana
+  // Diccionario id -> Personal para enriquecer históricos
+  const personasMap = useMemo(() => {
+    return new Map(personalCompleto.map((p) => [p.id, p]));
+  }, [personalCompleto]);
+
+  // Normalización plana según el ámbito activo
   const filasNormalizadas = useMemo(() => {
-    return personalCompleto.map((p) => normalizarPersonal(p, familiaresMap, ambito));
-  }, [personalCompleto, familiaresMap, ambito]);
+    if (ambito === 'historico_salarial') {
+      if (!cambiosSueldo) return [];
+      return normalizarHistoricoSalarial(cambiosSueldo, personasMap, familiaresMap);
+    }
+    if (ambito === 'historico_cargos') {
+      if (!cambiosCargo) return [];
+      return normalizarHistoricoCargos(cambiosCargo, personasMap, familiaresMap);
+    }
+    return personalCompleto.map((p) => normalizarPersonal(p, familiaresMap, 'directorio'));
+  }, [ambito, cambiosSueldo, cambiosCargo, personalCompleto, personasMap, familiaresMap]);
 
   // Filtrado
   const filasFiltradas = useMemo(() => {
@@ -262,6 +310,14 @@ export function ExportarPersonalModal({
 
   const limpiarColumnas = () => {
     setMarcados([]);
+  };
+
+  const cambiarAmbito = (nuevoAmbito: AmbitoReportePersonal) => {
+    setAmbito(nuevoAmbito);
+    const sugeridas = CAMPOS_POR_DEFECTO_POR_AMBITO[nuevoAmbito];
+    if (sugeridas && sugeridas.length > 0) {
+      setMarcados(sugeridas);
+    }
   };
 
   const cambiarModoAgrupacion = (modo: ModoAgrupacionPersonal) => {
@@ -375,42 +431,43 @@ export function ExportarPersonalModal({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
 
-        {/* 1. SECCIÓN: Ámbito del Reporte (Directorio / Históricos preparados) */}
+        {/* 1. SECCIÓN: Ámbito del Reporte (Directorio / Históricos operativos) */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.5rem .8rem', flexWrap: 'wrap', gap: '.4rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
             <span style={{ fontSize: '.82rem', fontWeight: 600 }}>Ámbito:</span>
             <button
               type="button"
               className={`btn btn-xs ${ambito === 'directorio' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setAmbito('directorio')}
+              onClick={() => cambiarAmbito('directorio')}
             >
               👥 Directorio Activo
             </button>
             <button
               type="button"
               className={`btn btn-xs ${ambito === 'historico_salarial' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => {
-                setAmbito('historico_salarial');
-                toast('Ámbito Histórico Salarial seleccionado (en preparación)', 'info');
-              }}
+              onClick={() => cambiarAmbito('historico_salarial')}
               title="Histórico de aumentos, variaciones salariales y motivos"
             >
-              📈 Histórico Salarial <small style={{ opacity: 0.7, marginLeft: 2 }}>(Próx.)</small>
+              📈 Histórico Salarial {cambiosSueldo ? `(${cambiosSueldo.length})` : ''}
             </button>
             <button
               type="button"
               className={`btn btn-xs ${ambito === 'historico_cargos' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => {
-                setAmbito('historico_cargos');
-                toast('Ámbito Histórico de Cargos seleccionado (en preparación)', 'info');
-              }}
+              onClick={() => cambiarAmbito('historico_cargos')}
               title="Histórico de cargos, promociones y ascensos"
             >
-              🎖️ Histórico de Cargos <small style={{ opacity: 0.7, marginLeft: 2 }}>(Próx.)</small>
+              🎖️ Histórico de Cargos {cambiosCargo ? `(${cambiosCargo.length})` : ''}
             </button>
+            {cargandoHistorico && (
+              <span className="muted" style={{ fontSize: '.74rem', marginLeft: '.4rem' }}>
+                ⏳ Cargando datos…
+              </span>
+            )}
           </div>
           <span className="muted" style={{ fontSize: '.76rem' }}>
-            {total} personas en catálogo inicial
+            {ambito === 'directorio'
+              ? `${total} personas en catálogo`
+              : `${filasFiltradas.length} registros en historial`}
           </span>
         </div>
 
@@ -858,50 +915,34 @@ export function ExportarPersonalModal({
           </div>
         </div>
 
-        {/* 6. SECCIÓN: Banner de KPIs en Vivo */}
-        {incluirResumen && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.6rem' }}>
-            <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderTop: '3px solid #ff8a00', borderRadius: '6px', padding: '.5rem .7rem' }}>
-              <div style={{ fontSize: '.68rem', color: '#94a3b8', fontWeight: 600 }}>TOTAL PERSONAL</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text, #f1f5f9)' }}>
-                {resultado.resumen.totalPersonal} <span style={{ fontSize: '.75rem', fontWeight: 400 }}>personas</span>
-              </div>
-              <div style={{ fontSize: '.68rem', color: '#64748b' }}>
-                {resultado.resumen.totalActivos} activos · {resultado.resumen.totalInactivos} inactivos
-              </div>
+        {/* 6. SECCIÓN: Banner de KPIs en Vivo (100% dinámico según checks) */}
+        {incluirResumen && (() => {
+          const kpisDinamicos = calcularKpisCabeceraDinamicos(filasFiltradas, resultado.resumen, marcados, ambito);
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.6rem' }}>
+              {kpisDinamicos.map((kpi) => (
+                <div
+                  key={kpi.id}
+                  style={{
+                    background: 'var(--surface-2, #182230)',
+                    border: '1px solid var(--border)',
+                    borderTop: `3px solid ${kpi.colorHex}`,
+                    borderRadius: '6px',
+                    padding: '.5rem .7rem',
+                  }}
+                >
+                  <div style={{ fontSize: '.68rem', color: '#94a3b8', fontWeight: 600 }}>{kpi.titulo}</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: kpi.colorHex }}>
+                    {kpi.valor}
+                  </div>
+                  <div style={{ fontSize: '.68rem', color: '#64748b' }}>
+                    {kpi.sub}
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderTop: '3px solid #22c55e', borderRadius: '6px', padding: '.5rem .7rem' }}>
-              <div style={{ fontSize: '.68rem', color: '#94a3b8', fontWeight: 600 }}>MASA SALARIAL TOTAL ($)</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#22c55e' }}>
-                ${resultado.resumen.masaSalarialTotalUsd.toLocaleString('es-VE')}
-              </div>
-              <div style={{ fontSize: '.68rem', color: '#64748b' }}>
-                Promedio: ${resultado.resumen.sueldoPromedioUsd.toFixed(2)} USD
-              </div>
-            </div>
-
-            <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderTop: '3px solid #f59e0b', borderRadius: '6px', padding: '.5rem .7rem' }}>
-              <div style={{ fontSize: '.68rem', color: '#94a3b8', fontWeight: 600 }}>ANTIGÜEDAD PROMEDIO</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b' }}>
-                {resultado.resumen.antiguedadPromedioAnos.toFixed(1)} <span style={{ fontSize: '.75rem', fontWeight: 400 }}>años</span>
-              </div>
-              <div style={{ fontSize: '.68rem', color: '#64748b' }}>
-                {resultado.resumen.edadPromedio ? `Edad prom: ${resultado.resumen.edadPromedio} años` : 'Trayectoria GT'}
-              </div>
-            </div>
-
-            <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderTop: '3px solid #a855f7', borderRadius: '6px', padding: '.5rem .7rem' }}>
-              <div style={{ fontSize: '.68rem', color: '#94a3b8', fontWeight: 600 }}>CARGA FAMILIAR</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#a855f7' }}>
-                {resultado.resumen.conHijos} <span style={{ fontSize: '.75rem', fontWeight: 400 }}>con hijos</span>
-              </div>
-              <div style={{ fontSize: '.68rem', color: '#64748b' }}>
-                {resultado.resumen.totalHijosRegistrados} hijo(s) registrados
-              </div>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 7. SECCIÓN: Vista Previa en Vivo (Live Preview) */}
         <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' }}>
@@ -926,7 +967,7 @@ export function ExportarPersonalModal({
                 No hay personas que coincidan con los filtros seleccionados.
               </div>
             ) : formatoPresentacion === 'fichas' ? (
-              /* RENDERIZADO EN FICHAS EJECUTIVAS */
+              /* RENDERIZADO EN FICHAS EJECUTIVAS (100% dinámico según checks) */
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '.6rem' }}>
                 {filasParaPreview.map((f) => {
                   const metricas = obtenerMetricasFichaPersonal(f, marcados);
@@ -950,23 +991,53 @@ export function ExportarPersonalModal({
                           <div style={{ fontSize: '.88rem', fontWeight: 700, color: 'var(--text, #f1f5f9)' }}>
                             {f.nombre_completo}
                           </div>
-                          <div style={{ fontSize: '.72rem', color: '#94a3b8' }}>
-                            {f.ficha_nro ? `Ficha ${f.ficha_nro} · ` : ''}{f.cedula} · {f.cargo} · {f.departamento}
-                          </div>
+                          {(() => {
+                            const partes: string[] = [];
+                            if (marcados.includes('ficha_nro') && f.ficha_nro) partes.push(`Ficha ${f.ficha_nro}`);
+                            if (marcados.includes('cedula')) partes.push(f.cedula || 'Sin cédula');
+                            if (marcados.includes('cargo')) partes.push(f.cargo || 'Sin cargo');
+                            if (marcados.includes('departamento')) partes.push(f.departamento || 'Sin dpto.');
+                            if (partes.length === 0 && marcados.includes('fecha_ingreso') && f.fecha_ingreso) {
+                              partes.push(`Ingreso: ${f.fecha_ingreso}`);
+                            }
+                            return (
+                              <div style={{ fontSize: '.72rem', color: '#94a3b8', minHeight: '1.1rem' }}>
+                                {partes.length > 0 ? partes.join(' · ') : <span style={{ opacity: 0.5 }}>—</span>}
+                              </div>
+                            );
+                          })()}
                         </div>
-                        <span
-                          style={{
-                            fontSize: '.66rem',
-                            fontWeight: 700,
-                            padding: '.15rem .45rem',
-                            borderRadius: '4px',
-                            background: f.activo ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                            color: f.activo ? '#22c55e' : '#ef4444',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {f.activo ? 'ACTIVO' : 'INACTIVO'}
-                        </span>
+                        <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+                          {marcados.includes('empresa') && (
+                            <span
+                              style={{
+                                fontSize: '.64rem',
+                                fontWeight: 600,
+                                padding: '.12rem .4rem',
+                                borderRadius: '4px',
+                                background: 'rgba(255, 255, 255, 0.06)',
+                                color: '#cbd5e1',
+                              }}
+                            >
+                              {f.empresa_nombre || f.empresa}
+                            </span>
+                          )}
+                          {marcados.includes('estado_texto') && (
+                            <span
+                              style={{
+                                fontSize: '.66rem',
+                                fontWeight: 700,
+                                padding: '.15rem .45rem',
+                                borderRadius: '4px',
+                                background: f.activo ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                color: f.activo ? '#22c55e' : '#ef4444',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {f.activo ? 'ACTIVO' : 'INACTIVO'}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {/* Métricas dinámicas */}
@@ -984,14 +1055,14 @@ export function ExportarPersonalModal({
                 })}
               </div>
             ) : (
-              /* RENDERIZADO EN TABLA TABULAR */
+              /* RENDERIZADO EN TABLA TABULAR (100% dinámico según checks) */
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.78rem' }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-3, #334155)', color: '#fff', textAlign: 'left' }}>
                     {marcados.map((cKey) => {
                       const col = CAMPOS_REPORTE_PERSONAL.find((x) => x.clave === cKey);
                       return (
-                        <th key={cKey} style={{ padding: '.45rem .6rem', borderBottom: '2px solid #ff8a00' }}>
+                        <th key={cKey} style={{ padding: '.45rem .6rem', borderBottom: '2px solid #ff8a00', textAlign: col?.alineacion || 'left' }}>
                           {col?.etiqueta || cKey}
                         </th>
                       );
@@ -1008,11 +1079,33 @@ export function ExportarPersonalModal({
                       }}
                     >
                       {marcados.map((cKey) => {
+                        const colDef = CAMPOS_REPORTE_PERSONAL.find((x) => x.clave === cKey);
                         const val = (f as unknown as Record<string, unknown>)[cKey];
-                        const esSueldo = cKey === 'sueldo_base';
+                        let displayVal = '—';
+                        if (val != null && val !== '') {
+                          if (colDef?.formato === 'moneda') {
+                            displayVal = `$ ${Number(val || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                          } else if (cKey === 'variacion_sueldo_usd') {
+                            const num = Number(val || 0);
+                            const pref = num > 0 ? '+$ ' : num < 0 ? '-$ ' : '$ ';
+                            displayVal = `${pref}${Math.abs(num).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                          } else if (cKey === 'variacion_sueldo_pct') {
+                            const num = Number(val);
+                            displayVal = `${num > 0 ? '+' : ''}${num.toFixed(1)}%`;
+                          } else {
+                            displayVal = String(val);
+                          }
+                        }
                         return (
-                          <td key={cKey} style={{ padding: '.4rem .6rem', textAlign: esSueldo ? 'right' : 'left' }}>
-                            {esSueldo ? `$ ${Number(val || 0).toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : String(val ?? '—')}
+                          <td
+                            key={cKey}
+                            style={{
+                              padding: '.4rem .6rem',
+                              textAlign: colDef?.alineacion || 'left',
+                              color: val == null || val === '' ? 'var(--text-muted, #64748b)' : 'inherit',
+                            }}
+                          >
+                            {displayVal}
                           </td>
                         );
                       })}
