@@ -133,3 +133,33 @@ export async function descargarFotosSalidaMina(s: Pick<SalidaMina, 'fotos'>): Pr
   }));
   return archivos.filter((f): f is File => !!f);
 }
+
+/** Salida con VARIOS materiales (04/11/2026): todos en una transacción
+ *  (`deposito_mina_registrar_salidas`); si uno no alcanza, no se guarda ninguno. */
+export async function registrarSalidasMina(d: {
+  items: { productoId: string; cantidad: number }[];
+  motivo: string; autorizadoPor: string; retorna: boolean; actor: string; actorName: string | null; almacen: string;
+}): Promise<SalidaMina[]> {
+  const { data, error } = await supabase.rpc('deposito_mina_registrar_salidas', {
+    p: {
+      items: d.items.map((it) => ({ producto_id: it.productoId, cantidad: it.cantidad })),
+      motivo: d.motivo.trim(), autorizado_por: d.autorizadoPor.trim(), retorna: d.retorna,
+      actor: d.actor, actor_name: d.actorName, almacen: d.almacen,
+    },
+  });
+  if (error) throw err(error, 'No se pudo registrar la salida.');
+  return ((data ?? []) as Record<string, unknown>[]).map(normalizar);
+}
+
+/** Las fotos de una salida de varios materiales: se suben UNA vez (en la primera) y
+ *  las demás filas apuntan a los mismos archivos. */
+export async function subirFotosSalidasMina(ss: SalidaMina[], archivos: File[]): Promise<SalidaMina[]> {
+  if (!ss.length) return ss;
+  const primera = await subirFotosSalidaMina(ss[0], archivos);
+  const resto = ss.slice(1);
+  if (!resto.length) return [primera];
+  const { data, error } = await supabase.from(TABLE).update({ fotos: primera.fotos }).in('id', resto.map((s) => s.id)).select('*');
+  if (error) throw err(error, 'No se pudieron anotar las fotos.');
+  const porId = new Map(((data ?? []) as Record<string, unknown>[]).map((r) => [String(r.id), normalizar(r)]));
+  return [primera, ...resto.map((s) => porId.get(s.id) ?? { ...s, fotos: primera.fotos })];
+}

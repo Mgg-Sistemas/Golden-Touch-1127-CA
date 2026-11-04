@@ -243,3 +243,9 @@
 .surt-historicos { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .75rem; }
 .surt-historicos .surt-btn { min-height: 120px; height: 100%; }
 @media (max-width: 359px) { .surt-historicos { grid-template-columns: 1fr; } }
+
+/* Varios productos en una salida o un traslado del teléfono (04/11/2026) */
+.surt-lote-item { display: flex; flex-direction: column; gap: .3rem; padding: .6rem .7rem; margin-bottom: .5rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.surt-lote-cab { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.surt-lote-cab strong { min-width: 0; overflow-wrap: anywhere; }
+.surt-lote-agregar { display: flex; flex-direction: column; gap: .4rem; padding: .6rem; border: 1px dashed var(--border); border-radius: var(--r-md); }

@@ -170,3 +170,51 @@ export async function verDocMovilPdf(d: DocMovilPdf): Promise<void> {
   const quien = await resolverQuien().catch(() => null);
   await descargarOrdenSalidaPdf(d.sol, (email) => (email && quien ? quien(null, email) : email ?? ''), d.opciones);
 }
+
+/** Salida con VARIOS productos (04/11/2026): una sola Orden de Salida con un renglón por
+ *  material. `producto(id)` da el SKU y el costo de cada uno. */
+export function docSalidasMovil(
+  ss: SalidaMina[],
+  producto: (id: string) => Pick<Producto, 'sku' | 'unidad' | 'precio' | 'precio_promedio'> | null | undefined,
+  almacen: string,
+  q: Quien,
+): DocMovilPdf {
+  const primero = docSalidaMovil(ss[0], producto(ss[0].producto_id) ?? null, almacen, q);
+  if (ss.length === 1) return primero;
+  const codigos = ss.map((s) => s.codigo);
+  primero.sol.codigo = codigos.length <= 4 ? codigos.join(', ') : `${codigos[0]} … ${codigos[codigos.length - 1]}`;
+  primero.sol.items = ss.map((s) => {
+    const p = producto(s.producto_id) ?? null;
+    return {
+      producto_id: s.producto_id,
+      producto_nombre: s.producto_nombre,
+      producto_sku: p?.sku ?? null,
+      unidad: s.unidad ?? p?.unidad ?? null,
+      cantidad: Number(s.cantidad) || 0,
+      precio_unit: costoProducto(p),
+    };
+  });
+  return primero;
+}
+
+/** Traslado con VARIOS productos (04/11/2026): una sola Orden de Traslado. */
+export function docTrasladosMovil(ts: TrasladoAlmacen[], precioUnit: (productoId: string) => number, q: Quien): DocMovilPdf {
+  const primero = docTrasladoMovil(ts[0], precioUnit(ts[0].producto_origen_id), q);
+  if (ts.length === 1) return primero;
+  const codigos = ts.map((t) => t.codigo);
+  primero.sol.codigo = codigos.length <= 4 ? codigos.join(', ') : `${codigos[0]} … ${codigos[codigos.length - 1]}`;
+  const nuevos = ts.filter((t) => t.creado_en_destino).map((t) => `${t.nombre} (${t.sku_destino})`);
+  primero.sol.motivo = [
+    ts[0].nota?.trim(),
+    nuevos.length ? `Se crearon en ${nombreDepositoChat(ts[0].destino)}: ${nuevos.join(', ')}` : '',
+  ].filter(Boolean).join(' · ') || null;
+  primero.sol.items = ts.map((t) => ({
+    producto_id: t.producto_origen_id,
+    producto_nombre: t.nombre,
+    producto_sku: t.sku_origen,
+    unidad: t.unidad,
+    cantidad: Number(t.cantidad) || 0,
+    precio_unit: Number(precioUnit(t.producto_origen_id)) || 0,
+  }));
+  return primero;
+}

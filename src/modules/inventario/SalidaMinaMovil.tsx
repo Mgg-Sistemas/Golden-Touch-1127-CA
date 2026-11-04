@@ -14,13 +14,89 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
-  MAX_FOTOS_SALIDA_MINA, errorFotosSalidaMina, errorRetornoMina, errorSalidaMina, fechaHoraVE, filtrarPorRetornar, leerCantidad,
-  mensajeRetornoMina, mensajeSalidaMina, num, pendienteRetorno, type FotoSalidaMina, type SalidaMina,
+  MAX_FOTOS_SALIDA_MINA, MAX_ITEMS_LOTE_MOVIL, errorFotosSalidaMina, errorItemsLote, errorRetornoMina, errorSalidaMina, fechaHoraVE, filtrarPorRetornar, leerCantidad,
+  mensajeRetornoMina, mensajeSalidasMina, num, pendienteRetorno, type FotoSalidaMina, type SalidaMina,
 } from './salidasMina';
-import { registrarSalidaMina, retornarSalidaMina, subirFotosSalidaMina, urlFotoSalidaMina } from './salidasMina.repository';
-import { docRetornoMovil, docSalidaMovil, verDocMovilPdf, type DocMovilPdf } from './inventarioMovilPdf';
+import { registrarSalidaMina, registrarSalidasMina, retornarSalidaMina, subirFotosSalidaMina, subirFotosSalidasMina, urlFotoSalidaMina } from './salidasMina.repository';
+import { docRetornoMovil, docSalidasMovil, verDocMovilPdf, type DocMovilPdf } from './inventarioMovilPdf';
 
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
+const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/** Un renglón de una salida o un traslado del teléfono: el producto y lo que se escribió. */
+export interface ItemLoteMovil { producto: Producto; cantidad: string }
+
+/** Los renglones con su número, para validar y para la base. */
+export const itemsLoteListos = (items: ItemLoteMovil[]) => items.map((it) => ({
+  producto: it.producto, nombre: it.producto.nombre, unidad: it.producto.unidad,
+  cantidad: leerCantidad(it.cantidad), stock: Number(it.producto.stock) || 0,
+}));
+
+/** Varios productos en una salida o un traslado (04/11/2026): la cantidad de cada uno,
+ *  quitarlo y «＋ Agregar otro producto» (buscador con lo que tiene stock y no está ya). */
+export function ItemsLoteMovil({ items, onChange, productos, lugar, disabled }: {
+  items: ItemLoteMovil[]; onChange: (items: ItemLoteMovil[]) => void; productos: Producto[]; lugar: string; disabled?: boolean;
+}) {
+  const [agregando, setAgregando] = useState(false);
+  const [busca, setBusca] = useState('');
+  const candidatos = useMemo(() => {
+    const ya = new Set(items.map((it) => it.producto.id));
+    const base = productos.filter((p) => !ya.has(p.id) && Number(p.stock) > 0);
+    const q = sinAcentos(busca.trim());
+    return (q ? base.filter((p) => sinAcentos(`${p.nombre} ${p.sku} ${p.categoria}`).includes(q)) : base).slice(0, 15);
+  }, [items, productos, busca]);
+  const cambiar = (i: number, cantidad: string) => onChange(items.map((it, j) => (j === i ? { ...it, cantidad } : it)));
+  const cerrar = () => { setAgregando(false); setBusca(''); };
+
+  return (
+    <div className="surt-campo">
+      <span className="surt-rotulo">{items.length === 1 ? 'Producto' : `Productos (${items.length})`}</span>
+      {items.map((it, i) => {
+        const stock = Number(it.producto.stock) || 0;
+        const cant = leerCantidad(it.cantidad);
+        return (
+          <div key={it.producto.id} className="surt-lote-item">
+            <div className="surt-lote-cab">
+              <strong>{it.producto.nombre}</strong>
+              {items.length > 1 && (
+                <button type="button" className="btn btn-ghost btn-sm" aria-label={`Quitar ${it.producto.nombre}`} disabled={disabled}
+                  onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
+              )}
+            </div>
+            <div className="muted" style={{ fontSize: '.8rem' }}>{it.producto.sku} · hay {num(stock)} {it.producto.unidad} en {lugar}</div>
+            <input className="input surt-litros" inputMode="decimal" value={it.cantidad} placeholder="0" disabled={disabled}
+              aria-label={`Cantidad de ${it.producto.nombre} (${it.producto.unidad})`} autoFocus={i === items.length - 1}
+              onChange={(e) => cambiar(i, e.target.value)} />
+            {cant > 0 && (cant > stock
+              ? <small className="surt-alerta">No alcanza: hay {num(stock)} {it.producto.unidad}.</small>
+              : <small className="muted">Quedan {num(stock - cant)} {it.producto.unidad}.</small>)}
+          </div>
+        );
+      })}
+      {agregando ? (
+        <div className="surt-lote-agregar">
+          <input className="input surt-input" type="search" placeholder="🔍 Buscar otro producto…" value={busca} autoFocus
+            onChange={(e) => setBusca(e.target.value)} autoComplete="off" aria-label="Buscar otro producto" />
+          {!candidatos.length && <small className="muted">{busca.trim() ? 'Ningún producto con stock coincide.' : 'No hay más productos con stock.'}</small>}
+          {candidatos.map((p) => (
+            <button key={p.id} type="button" className="surt-mov"
+              onClick={() => { onChange([...items, { producto: p, cantidad: '' }]); cerrar(); }}>
+              <span className="icono" aria-hidden>📦</span>
+              <span style={{ minWidth: 0 }}>
+                <div className="titulo">{p.nombre}</div>
+                <div className="sub">{p.sku} · {p.categoria}</div>
+              </span>
+              <span className="litros">{num(Number(p.stock) || 0)} <small>{p.unidad}</small></span>
+            </button>
+          ))}
+          <button type="button" className="btn btn-ghost" onClick={cerrar}>Cancelar</button>
+        </div>
+      ) : items.length < MAX_ITEMS_LOTE_MOVIL && (
+        <button type="button" className="btn btn-ghost btn-grande" disabled={disabled} onClick={() => setAgregando(true)}>＋ Agregar otro producto</button>
+      )}
+    </div>
+  );
+}
 
 /** Aviso ya guardado: el texto para WhatsApp (con las fotos de la salida, 02/11/2026),
  *  el PDF en vista previa (30/10/2026, mismo formato que Salidas y Traslados) y el botón para seguir. */
@@ -47,21 +123,21 @@ export function Listo({ titulo, texto, onListo, pdf, fotos }: { titulo: string; 
   );
 }
 
-export function FormSalidaMina({ producto, almacen, actor, actorName, onCancel, onSaved }: {
-  producto: Producto; almacen: string; actor: string; actorName: string | null;
+export function FormSalidaMina({ producto, productos = [], almacen, actor, actorName, onCancel, onSaved }: {
+  producto: Producto; productos?: Producto[]; almacen: string; actor: string; actorName: string | null;
   onCancel: () => void; onSaved: () => void;
 }) {
   const lugar = almacen === 'General' ? 'el inventario' : 'el depósito';
-  const [cantidad, setCantidad] = useState('');
+  const [items, setItems] = useState<ItemLoteMovil[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
   const [autorizadores, setAutorizadores] = useState<string[]>([]);
   const [retorna, setRetorna] = useState<boolean | null>(null);
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
-  const [hecha, setHecha] = useState<SalidaMina | null>(null);
-  const cant = leerCantidad(cantidad);
-  const stock = Number(producto.stock) || 0;
+  const [hechas, setHechas] = useState<SalidaMina[] | null>(null);
+  const listos = itemsLoteListos(items);
+  const malItems = errorItemsLote(listos);
   // Quién autoriza: la MISMA lista que Combustible (Catálogos › Autorizado por).
   const cargarAutorizadores = () => listCatalogos()
     .then((cs) => setAutorizadores(cs.filter((c) => c.tipo === 'autorizado' && c.activo).map((c) => c.valor)))
@@ -81,39 +157,50 @@ export function FormSalidaMina({ producto, almacen, actor, actorName, onCancel, 
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    const problema = errorSalidaMina({ productoId: producto.id, cantidad: cant, stock, motivo, autorizado, retorna });
+    const problema = malItems
+      ?? errorSalidaMina({ productoId: listos[0].producto.id, cantidad: listos[0].cantidad, stock: listos[0].stock, motivo, autorizado, retorna });
     if (problema) return toast(problema, 'error');
     setGuardando(true);
     try {
-      let s = await registrarSalidaMina({ productoId: producto.id, cantidad: cant, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName, almacen });
-      if (fotos.length) {
-        try { s = await subirFotosSalidaMina(s, fotos); }
-        catch (err) { toast(`La salida quedó registrada, pero las fotos no subieron: ${errMsg(err, 'error')}`, 'warning'); }
+      let ss: SalidaMina[];
+      if (listos.length === 1) {
+        const it = listos[0];
+        let s = await registrarSalidaMina({ productoId: it.producto.id, cantidad: it.cantidad, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName, almacen });
+        if (fotos.length) {
+          try { s = await subirFotosSalidaMina(s, fotos); }
+          catch (err) { toast(`La salida quedó registrada, pero las fotos no subieron: ${errMsg(err, 'error')}`, 'warning'); }
+        }
+        ss = [s];
+        toast(`Salida ${s.codigo}: -${num(it.cantidad)} ${it.unidad} de ${it.nombre}`, 'success');
+      } else {
+        // Varios materiales: todos en una transacción (si uno no alcanza, no se guarda ninguno).
+        ss = await registrarSalidasMina({
+          items: listos.map((it) => ({ productoId: it.producto.id, cantidad: it.cantidad })),
+          motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName, almacen,
+        });
+        if (fotos.length) {
+          try { ss = await subirFotosSalidasMina(ss, fotos); }
+          catch (err) { toast(`La salida quedó registrada, pero las fotos no subieron: ${errMsg(err, 'error')}`, 'warning'); }
+        }
+        toast(`Salida de ${ss.length} productos registrada`, 'success');
       }
-      toast(`Salida ${s.codigo}: -${num(cant)} ${producto.unidad} de ${producto.nombre}`, 'success');
-      setHecha(s);
+      setHechas(ss);
     } catch (err) {
       toast(errMsg(err, 'No se pudo registrar la salida'), 'error');
     } finally { setGuardando(false); }
   }
 
-  if (hecha) {
-    return <Listo titulo={`Salida ${hecha.codigo} registrada`} texto={mensajeSalidaMina(hecha, actorName ?? actor)} onListo={onSaved} fotos={fotos}
-      pdf={docSalidaMovil(hecha, producto, almacen, { actor, nombre: actorName })} />;
+  if (hechas?.length) {
+    const porId = new Map(items.map((it) => [it.producto.id, it.producto]));
+    return <Listo titulo={hechas.length === 1 ? `Salida ${hechas[0].codigo} registrada` : `Salida de ${hechas.length} productos registrada`}
+      texto={mensajeSalidasMina(hechas, actorName ?? actor)} onListo={onSaved} fotos={fotos}
+      pdf={docSalidasMovil(hechas, (id) => porId.get(id), almacen, { actor, nombre: actorName })} />;
   }
 
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
-      <div className="surt-form-titulo"><span className="icono" aria-hidden>⬆</span><strong>Salida · {producto.nombre}</strong></div>
-      <div className="muted">{producto.sku} · hay {num(stock)} {producto.unidad} en {lugar}</div>
-      <div className="surt-campo">
-        <label htmlFor="mina-salida-cant">Cantidad ({producto.unidad})</label>
-        <input id="mina-salida-cant" className="input surt-litros" inputMode="decimal" value={cantidad}
-          onChange={(e) => setCantidad(e.target.value)} placeholder="0" autoFocus />
-        {cant > 0 && (cant > stock
-          ? <small className="surt-alerta">No alcanza: hay {num(stock)} {producto.unidad}.</small>
-          : <small className="muted">Quedan {num(stock - cant)} {producto.unidad}.</small>)}
-      </div>
+      <div className="surt-form-titulo"><span className="icono" aria-hidden>⬆</span><strong>Salida · {items.length === 1 ? items[0].producto.nombre : `${items.length} productos`}</strong></div>
+      <ItemsLoteMovil items={items} onChange={setItems} productos={productos} lugar={lugar} disabled={guardando} />
       <div className="surt-campo">
         <label htmlFor="mina-salida-motivo">Motivo</label>
         <input id="mina-salida-motivo" className="input surt-input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
@@ -156,8 +243,8 @@ export function FormSalidaMina({ producto, almacen, actor, actorName, onCancel, 
           </div>
         )}
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || cant <= 0 || cant > stock || retorna === null || !autorizado.trim()}>
-        {guardando ? 'Guardando…' : '✓ Guardar salida'}
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || retorna === null || !autorizado.trim()}>
+        {guardando ? 'Guardando…' : items.length === 1 ? '✓ Guardar salida' : `✓ Guardar salida (${items.length} productos)`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro material</button>
     </form>
