@@ -92,6 +92,15 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
   // 3. Vista de presentación: Fichas vs Tabla Comparativa
   const [formatoVista, setFormatoVista] = useState<'tarjetas' | 'tabla'>('tarjetas');
 
+  // Orientación de impresión y reporte PDF: Horizontal (Landscape) vs Vertical (Portrait)
+  const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
+
+  // Opciones de contenido en reporte e impresión:
+  // - incluirTarjetas: muestra las fichas de saldo puntual en cabecera
+  // - incluirMovimientos: muestra el libro detallado cronológico de surtidos/traslados
+  const [incluirTarjetas, setIncluirTarjetas] = useState<boolean>(true);
+  const [incluirMovimientos, setIncluirMovimientos] = useState<boolean>(true);
+
   // 4. Tipo de movimiento en detalle
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>('uso_traslado');
 
@@ -258,6 +267,10 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         detallePorTanque,
         periodoLabel,
         totalesCorte: totales,
+        orientacion,
+        fechaHasta,
+        incluirTarjetas,
+        incluirMovimientos,
       });
     } finally {
       setGenerandoPdf(false);
@@ -280,6 +293,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         detallePorTanque,
         periodoLabel,
         totalesCorte: totales,
+        incluirMovimientos,
       });
     } finally {
       setGenerandoExcel(false);
@@ -405,25 +419,50 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
               </button>
             </div>
 
-            {/* Alternador de Vista: Tarjetas vs Tabla */}
-            <div style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
-              <span className="muted" style={{ fontSize: '.76rem', fontWeight: 600 }}>Vista:</span>
-              <button
-                type="button"
-                className={`btn btn-xs ${formatoVista === 'tarjetas' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setFormatoVista('tarjetas')}
-                style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
-              >
-                🏢 Fichas
-              </button>
-              <button
-                type="button"
-                className={`btn btn-xs ${formatoVista === 'tabla' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setFormatoVista('tabla')}
-                style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
-              >
-                📊 Tabla
-              </button>
+            {/* Alternador de Vista y Orientación */}
+            <div style={{ display: 'inline-flex', gap: '.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
+                <span className="muted" style={{ fontSize: '.76rem', fontWeight: 600 }}>Vista:</span>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${formatoVista === 'tarjetas' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setFormatoVista('tarjetas')}
+                  style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+                >
+                  🏢 Fichas
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${formatoVista === 'tabla' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setFormatoVista('tabla')}
+                  style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+                >
+                  📊 Tabla
+                </button>
+              </div>
+
+              {/* Selector de Orientación Vertical / Horizontal */}
+              <div style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
+                <span className="muted" style={{ fontSize: '.76rem', fontWeight: 600 }}>Orientación:</span>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${orientacion === 'landscape' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setOrientacion('landscape')}
+                  style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+                  title="Formato horizontal (apaisado)"
+                >
+                  📜 Horizontal
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${orientacion === 'portrait' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setOrientacion('portrait')}
+                  style={{ borderRadius: '999px', padding: '.2rem .6rem' }}
+                  title="Formato vertical (carta)"
+                >
+                  📄 Vertical
+                </button>
+              </div>
             </div>
           </div>
 
@@ -468,22 +507,47 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
               )}
             </div>
 
-            {/* Filtro de tipo de movimiento */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              <span className="muted" style={{ fontSize: '.78rem', fontWeight: 600 }}>
-                Filtrar detalle:
-              </span>
-              <select
-                className="input input-xs"
-                value={tipoFiltro}
-                onChange={(e) => setTipoFiltro(e.target.value as TipoFiltro)}
-                style={{ minWidth: 175, fontSize: '.78rem' }}
-              >
-                <option value="uso_traslado">⛽ Surtidos y ↔ Traslados</option>
-                <option value="uso">Solo Surtidos (Equipos)</option>
-                <option value="traslado">Solo Traslados</option>
-                <option value="todos">Todos los movimientos</option>
-              </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.8rem', flexWrap: 'wrap' }}>
+              {/* Filtro de tipo de movimiento */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                <span className="muted" style={{ fontSize: '.78rem', fontWeight: 600 }}>
+                  Filtrar detalle:
+                </span>
+                <select
+                  className="input input-xs"
+                  value={tipoFiltro}
+                  onChange={(e) => setTipoFiltro(e.target.value as TipoFiltro)}
+                  style={{ minWidth: 175, fontSize: '.78rem' }}
+                >
+                  <option value="uso_traslado">⛽ Surtidos y ↔ Traslados</option>
+                  <option value="uso">Solo Surtidos (Equipos)</option>
+                  <option value="traslado">Solo Traslados</option>
+                  <option value="todos">Todos los movimientos</option>
+                </select>
+              </div>
+
+              {/* Checks de contenido para el Reporte / Impresión */}
+              <div style={{ display: 'inline-flex', gap: '.65rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.76rem', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={incluirTarjetas}
+                    onChange={(e) => setIncluirTarjetas(e.target.checked)}
+                    style={{ accentColor: 'var(--primary)' }}
+                  />
+                  <span>Fichas de saldo puntual</span>
+                </label>
+
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.76rem', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={incluirMovimientos}
+                    onChange={(e) => setIncluirMovimientos(e.target.checked)}
+                    style={{ accentColor: 'var(--primary)' }}
+                  />
+                  <span>Detalle de movimientos</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -541,7 +605,110 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
           </div>
         </div>
 
-        {/* 3. SECCIÓN: Encabezado del Documento */}
+        {/* Estilos dedicados para impresión directa (@media print) */}
+        <style>{`
+          @media print {
+            @page {
+              size: ${orientacion === 'portrait' ? 'letter portrait' : 'letter landscape'};
+              margin: 8mm;
+            }
+            html, body {
+              background: #ffffff !important;
+              color: #0f172a !important;
+              overflow: visible !important;
+              height: auto !important;
+            }
+            /* Desactivar backdrop y contenedor fijo del modal para permitir paginación limpia */
+            .modal-backdrop {
+              position: static !important;
+              inset: auto !important;
+              display: block !important;
+              background: transparent !important;
+              backdrop-filter: none !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              overflow: visible !important;
+              height: auto !important;
+              max-height: none !important;
+            }
+            .modal {
+              position: static !important;
+              display: block !important;
+              background: #ffffff !important;
+              border: none !important;
+              box-shadow: none !important;
+              width: 100% !important;
+              max-width: 100% !important;
+              height: auto !important;
+              max-height: none !important;
+              overflow: visible !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            .modal-header, .modal-footer {
+              display: none !important;
+            }
+            .modal-body {
+              overflow: visible !important;
+              height: auto !important;
+              max-height: none !important;
+              display: block !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            body * {
+              visibility: hidden !important;
+            }
+            .reporte-print, .reporte-print * {
+              visibility: visible !important;
+            }
+            .reporte-print {
+              position: static !important;
+              display: block !important;
+              width: 100% !important;
+              max-width: 100% !important;
+              background: #ffffff !important;
+              color: #0f172a !important;
+              --text: #0f172a !important;
+              --text-muted: #475569 !important;
+              --surface: #ffffff !important;
+              --surface-2: #f8fafc !important;
+              --border: #cbd5e1 !important;
+              --border-strong: #94a3b8 !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .no-print, .no-print * {
+              display: none !important;
+              visibility: hidden !important;
+            }
+            .reporte-print .card {
+              background: #ffffff !important;
+              border: 1.5px solid #cbd5e1 !important;
+              color: #0f172a !important;
+              box-shadow: none !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+            .reporte-print .muted {
+              color: #475569 !important;
+            }
+            .reporte-print .mono {
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+            }
+            .reporte-print .badge {
+              border: 1px solid #cbd5e1 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+          }
+        `}</style>
+
+        {/* Contenedor imprimible: clase .reporte-print para que @media print lo dibuje */}
+        <div className="reporte-print">
+          {/* 3. SECCIÓN: Encabezado del Documento */}
         <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
           <div style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--primary)' }}>
             Golden Touch 1127 C.A. · Control de Combustible
@@ -903,8 +1070,9 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
           )}
         </div>
 
-        {/* 6. SECCIÓN: Detalle de Movimientos por Tanque en el Periodo */}
-        <div style={{ marginTop: '2rem' }}>
+        {/* 6. SECCIÓN: Detalle de Movimientos por Tanque en el Periodo (condicionada al check de movimientos) */}
+        {incluirMovimientos && (
+          <div className="detalle-movimientos-seccion" style={{ marginTop: '2rem' }}>
           <div style={{ borderBottom: '2px solid var(--primary)', paddingBottom: '.4rem', marginBottom: '1.25rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>
               📋 Detalle de Movimientos por Tanque
@@ -1148,6 +1316,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
             </div>
           )}
         </div>
+      )}
 
         {/* Pie de página institucional */}
         <div style={{ marginTop: '2.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem', textAlign: 'center', fontSize: '.75rem' }} className="muted">
@@ -1157,6 +1326,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
           </div>
         </div>
       </div>
-    </Modal>
+    </div>
+  </Modal>
   );
 }

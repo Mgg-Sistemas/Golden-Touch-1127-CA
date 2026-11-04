@@ -60,6 +60,7 @@ export interface ReporteExistenciasExcelArgs {
   detallePorTanque: DetalleTanqueReporteExcel[];
   periodoLabel: string;
   totalesCorte?: TotalesCorteCombustible;
+  incluirMovimientos?: boolean;
 }
 
 export async function descargarReporteExistenciasExcel({
@@ -67,8 +68,10 @@ export async function descargarReporteExistenciasExcel({
   detallePorTanque,
   periodoLabel,
   totalesCorte,
+  incluirMovimientos = true,
 }: ReporteExistenciasExcelArgs): Promise<void> {
   void _reportes;
+  void totalesCorte;
   const [XLSXmod, { dateTime }] = await Promise.all([
     import('xlsx-js-style'),
     import('@/shared/lib/format'),
@@ -103,12 +106,12 @@ export async function descargarReporteExistenciasExcel({
     'Estado',
   ];
 
-  let sumAperturaCalc = 0;
-  let sumEntradasCalc = 0;
-  let sumSurtidosCalc = 0;
-  let sumTrasladosCalc = 0;
-  let sumCierreCalc = 0;
-  let sumValorCalc = 0;
+  let sumApertura = 0;
+  let sumEntradas = 0;
+  let sumSurtidos = 0;
+  let sumTraslados = 0;
+  let sumCierre = 0;
+  let sumValor = 0;
 
   const filasExistencias = detallePorTanque.map((d, i) => {
     const cap = n(d.tanque.capacidad_litros);
@@ -121,12 +124,12 @@ export async function descargarReporteExistenciasExcel({
     const valor = d.saldoCierreUsd != null ? n(d.saldoCierreUsd) : cierre * tasa;
     const pct = cap > 0 ? Math.min(100, Math.max(0, (cierre / cap) * 100)) : 0;
 
-    sumAperturaCalc += inicial;
-    sumEntradasCalc += entradas;
-    sumSurtidosCalc += surtidos;
-    sumTrasladosCalc += traslados;
-    sumCierreCalc += cierre;
-    sumValorCalc += valor;
+    sumApertura += inicial;
+    sumEntradas += entradas;
+    sumSurtidos += surtidos;
+    sumTraslados += traslados;
+    sumCierre += cierre;
+    sumValor += valor;
 
     const tipoLabel = esBidon(d.tanque.nombre)
       ? 'Bidón'
@@ -151,15 +154,7 @@ export async function descargarReporteExistenciasExcel({
     ];
   });
 
-  const sumApertura = totalesCorte?.totalLitrosApertura ?? sumAperturaCalc;
-  const sumEntradas = totalesCorte?.totalEntradasLitros ?? sumEntradasCalc;
-  const sumSurtidos = totalesCorte?.totalSurtidosLitros ?? sumSurtidosCalc;
-  const sumTraslados = totalesCorte?.totalTrasladosLitros ?? sumTrasladosCalc;
-  const sumCierre = totalesCorte?.totalLitrosCierre ?? sumCierreCalc;
-  const sumValor = totalesCorte?.totalValorCierre ?? sumValorCalc;
-  const tasaProm =
-    totalesCorte?.tasaPromedioCierre ?? (sumCierre > 0 ? sumValor / sumCierre : 0);
-
+  const tasaProm = sumCierre > 0 ? sumValor / sumCierre : 0;
   const filaTotales = [
     'TOTAL',
     `${detallePorTanque.length} tanque(s)`,
@@ -318,7 +313,9 @@ export async function descargarReporteExistenciasExcel({
     if (cell) cell.z = 'dd/mm/yyyy';
   });
 
-  XLSX.utils.book_append_sheet(wb, wsMovs, 'Movimientos');
+  if (incluirMovimientos) {
+    XLSX.utils.book_append_sheet(wb, wsMovs, 'Movimientos');
+  }
 
   previewExcel(wb, `reporte-combustible-corte-${dateTime(new Date().toISOString()).slice(0, 10)}.xlsx`);
 }
