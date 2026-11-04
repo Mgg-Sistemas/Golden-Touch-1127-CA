@@ -1271,6 +1271,8 @@ export interface Orden {
   solicitante?: string | null;
   /** Unidad / área que solicita (separada del solicitante persona). */
   unidad_solicitante?: string | null;
+  /** Dónde entrega el delivery (04/11/2026): Almacén Los Pinos o Matanza. */
+  sede_entrega?: 'los_pinos' | 'matanza' | null;
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;
@@ -2068,3 +2070,11 @@ export interface PlanificacionGeodesta {
   modificado_por?: string | null;
   modificado_en?: string | null;
 }
+
+/* ── Sede de entrega del delivery (04/11/2026) ── */
+export const SEDES_ENTREGA: { sede: 'los_pinos' | 'matanza'; etiqueta: string }[] = [
+  { sede: 'los_pinos', etiqueta: 'Los Pinos' },
+  { sede: 'matanza', etiqueta: 'Matanza' },
+];
+export const etiquetaSedeEntrega = (s: string | null | undefined): string | null =>
+  SEDES_ENTREGA.find((x) => x.sede === s)?.etiqueta ?? null;

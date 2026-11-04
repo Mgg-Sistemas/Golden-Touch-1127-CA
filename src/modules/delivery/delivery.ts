@@ -22,6 +22,7 @@
    misma SP puede tener su retiro y, después, su OC pagada (origen
    'compra'). Ver supabase/2026-11-02-delivery-retiro-almacen.sql.
    ============================================================ */
+import { etiquetaSedeEntrega } from '@/shared/lib/types';
 
 /** Clave del interruptor en `sistema_interruptores` (GT; en MGG es config compras.delivery). */
 export const INTERRUPTOR_DELIVERY = 'compras_delivery';
@@ -52,6 +53,8 @@ export interface PedidoDelivery {
   motivo: string | null;
   finalidad: string | null;
   almacen_destino: string | null;
+  /** Dónde entregar (04/11/2026, se elige en la solicitud): 'los_pinos' o 'matanza'. */
+  sede_entrega?: 'los_pinos' | 'matanza' | null;
   proveedor_id: string | null;
   proveedor_nombre: string | null;
   proveedor_telefono: string | null;
@@ -278,6 +281,7 @@ export function mensajeAceptado(p: PedidoDelivery, repartidor: string, cuando?: 
     const destino = destinoRetiro(p);
     if (destino) l.push(`🏬 *Entregar a:* ${destino}`);
   } else if (p.almacen_destino) l.push(`🏬 *Entregar en:* ${p.almacen_destino}`);
+  if (!retiro && etiquetaSedeEntrega(p.sede_entrega)) l.push(`📍 *Entregar en la sede:* ${etiquetaSedeEntrega(p.sede_entrega)}`);
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
   l.push('', `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
@@ -349,6 +353,7 @@ export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: st
     const destino = destinoRetiro(p);
     if (destino) l.push(`🏬 *Va hacia:* ${destino}`);
   } else if (p.almacen_destino) l.push(`🏬 *Va hacia:* ${p.almacen_destino}`);
+  if (!retiro && etiquetaSedeEntrega(p.sede_entrega)) l.push(`📍 *Entregar en la sede:* ${etiquetaSedeEntrega(p.sede_entrega)}`);
   l.push(`🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
   return l.join('\n');
 }
@@ -398,3 +403,4 @@ export function resumenPorDelivery(pedidos: PedidoDelivery[]): Array<{
     minutosPromedio: a.minutos.length ? Math.round(a.minutos.reduce((s, x) => s + x, 0) / a.minutos.length) : null,
   })).sort((x, y) => y.entregados - x.entregados || x.repartidor.localeCompare(y.repartidor, 'es'));
 }
+

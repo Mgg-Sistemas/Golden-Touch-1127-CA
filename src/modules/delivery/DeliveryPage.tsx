@@ -21,6 +21,7 @@
    queda directo «En camino»; los «No disponible» del motorizado se ven con
    su motivo en el Tablero.
    ============================================================ */
+import { etiquetaSedeEntrega } from '@/shared/lib/types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -282,6 +283,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                         <strong>{retiro ? p.codigo : ocDe(p)}</strong>
                         {p.urgente && <> <span className="badge danger">URGENTE</span></>}
                         {destino && <div className="muted" style={{ fontSize: '.75rem' }}>🏬 {retiro ? `Entregar a: ${destino}` : destino}</div>}
+                        {!retiro && etiquetaSedeEntrega(p.sede_entrega) && <div className="muted" style={{ fontSize: '.75rem' }}>📍 Entregar en la sede: <strong>{etiquetaSedeEntrega(p.sede_entrega)}</strong></div>}
                       </td>
                       <td>
                         {retiro ? <span className="badge info">{ORIGEN_DELIVERY.almacen.emoji} Retiro en {ALMACEN_RETIRO}</span> : (p.proveedor_nombre ?? '—')}

@@ -29,6 +29,7 @@
      General): ya no se elige almacén. Si Almacén la recibió antes por su
      cuenta, el pedido se cierra («Recibida por Almacén») y sale del teléfono.
    ============================================================ */
+import { etiquetaSedeEntrega } from '@/shared/lib/types';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
@@ -508,6 +509,9 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
       {!retiro && <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
       {!retiro && (p.almacen_entrega || p.almacen_destino) && (
         <div className="dlv-sub">🏬 {p.estado === 'entregado' ? 'Entregado en' : 'Entregar en'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
+      )}
+      {!retiro && etiquetaSedeEntrega(p.sede_entrega) && (
+        <div className="dlv-sub">📍 Entregar en la sede: <strong>{etiquetaSedeEntrega(p.sede_entrega)}</strong></div>
       )}
       {retiro && p.estado === 'entregado' && p.almacen_entrega && (
         <div className="dlv-sub">🏬 Entregado a: <strong>{p.almacen_entrega}</strong></div>

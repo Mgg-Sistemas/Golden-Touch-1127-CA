@@ -172,6 +172,8 @@ export interface CrearOrdenInput {
   tipo?: 'producto' | 'servicio';
   /** Detalle del servicio (piezas + descripción). Solo para tipo='servicio'. */
   detalle_servicio?: DetalleServicioItem[] | null;
+  /** Dónde entrega el delivery (04/11/2026): Almacén Los Pinos o Matanza. */
+  sede_entrega?: 'los_pinos' | 'matanza' | null;
 }
 
 /** Actualiza SOLO el detalle del servicio (piezas + descripción) de una orden de servicio.
@@ -276,6 +278,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     urgente: input.urgente ?? false,
     imagen_path: input.imagen_path ?? null,
     detalle_servicio: esServicio ? (input.detalle_servicio ?? []) : null,
+    sede_entrega: esServicio ? null : (input.sede_entrega ?? null),
     historial,
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();

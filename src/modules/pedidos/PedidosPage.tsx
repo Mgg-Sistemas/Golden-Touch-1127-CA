@@ -33,7 +33,7 @@ import type {
   RetencionMomento,
   Usuario,
 } from '@/shared/lib/types';
-import { INTERRUPTOR_RETENCION_MOMENTO } from '@/shared/lib/types';
+import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega } from '@/shared/lib/types';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
@@ -3984,6 +3984,8 @@ function CrearOrdenModal({
   const [submitting, setSubmitting] = useState(false);
   // Prioridad: marca la OP como URGENTE. En MERCADO arranca marcada (editable).
   const [urgente, setUrgente] = useState(!!mercadoInicial);
+  // 04/11/2026: dónde entrega el delivery (le sale «Entregar en la sede: …»).
+  const [sedeEntrega, setSedeEntrega] = useState<'los_pinos' | 'matanza'>('los_pinos');
   // Imágenes/PDF adjuntos opcionales (fotos del repuesto/equipo solicitado): hasta 4.
   // La 1ª va como imagen principal (imagen_path); el resto a los adjuntos de la OP.
   const MAX_IMG_SOLICITUD = 4;
@@ -4351,6 +4353,7 @@ function CrearOrdenModal({
         solicitante: solicitanteFinal || null,
         unidad_solicitante: unidadSolicitante.trim() || null,
         ci_solicitante: null,
+        sede_entrega: sedeEntrega,
       });
       // Imágenes extra (2ª a 4ª) → adjuntos de la OP (se ven en la vista de la solicitud).
       for (const f of imagenFiles.slice(1)) {
@@ -4472,6 +4475,21 @@ function CrearOrdenModal({
           )}
         </div>
       )}
+
+      <div className="form-row">
+        <label>¿Dónde se entrega? *</label>
+        <div className="view-toggle" role="radiogroup" aria-label="Sede donde entrega el delivery" style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}>
+          {SEDES_ENTREGA.map((x) => (
+            <button key={x.sede} type="button" role="radio" aria-checked={sedeEntrega === x.sede}
+              className={sedeEntrega === x.sede ? 'active' : ''} onClick={() => setSedeEntrega(x.sede)}>
+              📍 {x.etiqueta}
+            </button>
+          ))}
+        </div>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>
+          Para el delivery: le sale «Entregar en la sede: {etiquetaSedeEntrega(sedeEntrega)}».
+        </small>
+      </div>
 
       <div className="form-row">
         <label>Productos solicitados</label>

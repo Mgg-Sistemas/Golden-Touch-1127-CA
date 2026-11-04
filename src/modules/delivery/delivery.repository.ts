@@ -74,7 +74,15 @@ export function useDeliveryConectado(): boolean | null {
 export async function listPedidosDelivery(incluirCerrados = false): Promise<PedidoDelivery[]> {
   const { data, error } = await supabase.rpc('delivery_listado', { p_incluir_cerrados: incluirCerrados });
   if (error) throw err(error, 'No se pudieron leer los pedidos.');
-  return ((data ?? []) as Record<string, unknown>[]).map(normalizar);
+  const pedidos = ((data ?? []) as Record<string, unknown>[]).map(normalizar);
+  // 04/11/2026: la sede donde entregar (Los Pinos / Matanza), elegida en la solicitud.
+  const ids = Array.from(new Set(pedidos.filter((p) => p.origen !== 'almacen').map((p) => p.orden_id).filter(Boolean)));
+  if (ids.length) {
+    const { data: sedes } = await supabase.rpc('delivery_sedes_entrega', { p_orden_ids: ids });
+    const porId = new Map(((sedes ?? []) as Array<{ orden_id: string; sede_entrega: 'los_pinos' | 'matanza' | null }>).map((x) => [x.orden_id, x.sede_entrega]));
+    for (const p of pedidos) if (p.origen !== 'almacen') p.sede_entrega = porId.get(p.orden_id) ?? null;
+  }
+  return pedidos;
 }
 
 /**
