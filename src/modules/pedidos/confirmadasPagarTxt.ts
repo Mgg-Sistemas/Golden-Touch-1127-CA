@@ -24,6 +24,7 @@
    paga necesita a quién, cuánto y por dónde; el detalle de qué se compró vive
    en la OC y en su PDF, que es donde se revisa.
    ============================================================ */
+import { documentoIdentidad } from '@/shared/lib/rif';
 import type { OfertaProveedor, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { lineasCotizacionesAprobacion } from './cotizacionesAprobacion';
@@ -122,22 +123,27 @@ function descripcionDe(o: Orden): string {
  * separada por «·» porque el que paga los copia de a uno —el número de
  * cuenta, el teléfono— y buscarlos dentro de un renglón largo es pedir error.
  */
-function lineasDatosPago(metodo: string, d: Record<string, string> | undefined): string[] {
+function lineasDatosPago(metodo: string, d: Record<string, string> | undefined, rifProveedor?: string | null): string[] {
   const dd = d ?? {};
   const par = (etiqueta: string, valor?: string | null): string[] =>
     valor?.trim() ? [`* ${etiqueta}: ${valor.trim()}`] : [];
+  // 04/11/2026: «RIF: J-50046044-9» o «CI: V-12345678», con su letra (ver documentoIdentidad).
+  const doc = (valor?: string | null): string[] => {
+    const x = documentoIdentidad(valor, rifProveedor);
+    return x ? [`* ${x.etiqueta}: ${x.valor}`] : [];
+  };
 
   if (metodo === 'pago_movil') {
     return [
       ...par('Banco', dd.banco ? banco(dd.banco) : ''),
-      ...par('CI/RIF', dd.ci_rif),
+      ...doc(dd.ci_rif),
       ...par('Tlf', dd.telefono),
     ];
   }
   if (metodo === 'transferencia') {
     return [
       ...par('Titular', dd.nombre),
-      ...par('CI/RIF', dd.ci),
+      ...doc(dd.ci),
       ...par('Banco', dd.banco ? banco(dd.banco) : ''),
       ...par('Cuenta', dd.cuenta),
     ];
@@ -256,7 +262,7 @@ export function textoOrdenPagar(
       const partido = metodos.length > 1;
       for (const m of metodos) {
         L.push(`💳 *${labelMetodoPago(m.metodo)}:*${partido ? ` ${montoPata(m)}` : ''}`);
-        L.push(...lineasDatosPago(m.metodo, m.datos));
+        L.push(...lineasDatosPago(m.metodo, m.datos, proveedor?.rif));
       }
     }
   }

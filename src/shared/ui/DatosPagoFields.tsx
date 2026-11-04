@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { BANCOS_VE, labelBanco } from '@/shared/lib/bancos';
+import { documentoIdentidad } from '@/shared/lib/rif';
 import type { DatosPago } from '@/modules/pedidos/datosPago.repository';
 import { norm } from '@/shared/lib/texto';
 
@@ -161,8 +162,10 @@ export function validarDatosPago(metodo: string, d: DatosPago): string | null {
 /** Resumen legible de los datos guardados (para mostrar en el detalle). */
 export function resumenDatosPago(metodo: string, d: DatosPago): string {
   if (!d || !Object.keys(d).length) return '';
-  if (metodo === 'pago_movil') return `${d.ci_rif ?? ''} · ${labelBanco(d.banco)} · ${d.telefono ?? ''}`;
-  if (metodo === 'transferencia') return `${d.nombre ?? ''} · ${d.ci ?? ''} · ${labelBanco(d.banco)} · Cta ${d.cuenta ?? ''}`;
+  // CI/RIF con su letra: «J-50046044-9», «V-12345678» (04/11/2026).
+  const doc = (v?: string | null) => documentoIdentidad(v)?.valor ?? '';
+  if (metodo === 'pago_movil') return `${doc(d.ci_rif)} · ${labelBanco(d.banco)} · ${d.telefono ?? ''}`;
+  if (metodo === 'transferencia') return `${d.nombre ?? ''} · ${doc(d.ci)} · ${labelBanco(d.banco)} · Cta ${d.cuenta ?? ''}`;
   if (metodo === 'zelle') return `${d.nombre ?? ''} · ${d.email ?? ''}`;
   if (metodo === 'binance_usdt') return `${d.email_o_id ?? ''}`;
   return '';

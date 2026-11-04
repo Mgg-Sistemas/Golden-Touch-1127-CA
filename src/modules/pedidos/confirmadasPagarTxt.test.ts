@@ -35,7 +35,7 @@ describe('textoOrdenPagar', () => {
         '💵 *Total:* $79,00',
         '💳 *Pago móvil:*',
         '* Banco: Banco de Venezuela (0102)',
-        '* CI/RIF: P1131881',
+        '* Pasaporte: P-1131881',
         '* Tlf: 04249692172',
         '',
         '🏢 GOLDEN TOUCH 1127 C.A.',

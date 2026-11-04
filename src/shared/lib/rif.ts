@@ -67,3 +67,30 @@ export function formatearRif(rif: string | null | undefined): string {
   if (!/^[A-Z]\d{9}$/.test(v)) return String(rif ?? '');
   return `${v[0]}-${v.slice(1, 9)}-${v[9]}`;
 }
+
+/**
+ * El CI o RIF de unos datos de pago, como se escribe (04/11/2026): «RIF: J-50046044-9»,
+ * «CI: V-12345678», «Pasaporte: P-1131881». Si no trae letra, se toma la del RIF del
+ * proveedor cuando son los mismos números; si no, 9 números = RIF jurídico (J) y
+ * hasta 8 = cédula venezolana (V). Lo que no tiene forma de documento se deja tal cual.
+ */
+export function documentoIdentidad(
+  raw: string | null | undefined,
+  rifProveedor?: string | null,
+): { etiqueta: 'RIF' | 'CI' | 'Pasaporte' | 'CI/RIF'; valor: string } | null {
+  const texto = String(raw ?? '').trim();
+  if (!texto) return null;
+  const m = /^([JGVEPC])?(\d{5,10})$/.exec(normalizarRif(texto));
+  if (!m) return { etiqueta: 'CI/RIF', valor: texto };
+  const digitos = m[2];
+  let letra = m[1];
+  if (!letra) {
+    const prov = normalizarRif(rifProveedor);
+    if (/^[JGVEPC]\d+$/.test(prov) && (prov.slice(1) === digitos || prov.slice(1, 9) === digitos)) letra = prov[0];
+    else letra = digitos.length >= 9 ? 'J' : 'V';
+  }
+  if (letra === 'P') return { etiqueta: 'Pasaporte', valor: `P-${digitos}` };
+  if (digitos.length === 9) return { etiqueta: 'RIF', valor: `${letra}-${digitos.slice(0, 8)}-${digitos[8]}` };
+  if (letra === 'J' || letra === 'G' || letra === 'C') return { etiqueta: 'RIF', valor: `${letra}-${digitos}` };
+  return { etiqueta: 'CI', valor: `${letra}-${digitos}` };
+}
