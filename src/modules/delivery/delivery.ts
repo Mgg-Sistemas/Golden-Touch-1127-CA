@@ -364,7 +364,8 @@ export function mensajeEntregado(p: PedidoDelivery, repartidor: string, almacen:
     retiro ? `🏬 *Entregado a:* ${almacen}` : `🏬 *Almacén:* ${almacen}`,
   ];
   // 02/11/2026: la OC entregada queda recibida en Inventario (el retiro no mueve stock).
-  if (!retiro) l.push('📥 *Recibida en Inventario* (entra al stock del almacén)');
+  // 04/11/2026: ya no entra sola: el almacenista la recepciona desde su teléfono.
+  if (!retiro) l.push('📥 *Por recepcionar en almacén* (el almacenista la recibe en Inventario)');
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
   if (p.fotos_entrega?.length) l.push(`📷 *Fotos de la entrega:* ${p.fotos_entrega.length}`);

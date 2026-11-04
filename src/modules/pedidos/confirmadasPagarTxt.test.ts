@@ -208,7 +208,7 @@ describe('textoOrdenAprobacion (aviso al Gerente General)', () => {
   it('sale exactamente con el formato acordado', () => {
     expect(textoOrdenAprobacion(pendiente, proveedor)).toBe(
       [
-        '⏳ *ORDEN PENDIENTE POR APROBACIÓN*',
+        '⏳ *ORDEN PENDIENTE POR APROBAR*',
         '',
         '🔹 *ORDEN:* OC-2026-0130',
         '🏭 *Proveedor:* MAXI SHOES',
@@ -241,7 +241,7 @@ describe('textoOrdenAprobacion (aviso al Gerente General)', () => {
 
   it('un servicio se titula Control de Servicio y no usa selectores de emoji', () => {
     const txt = textoOrdenAprobacion({ ...pendiente, tipo: 'servicio' } as unknown as Orden, proveedor);
-    expect(txt.startsWith('⏳ *CONTROL DE SERVICIO PENDIENTE POR APROBACIÓN*')).toBe(true);
+    expect(txt.startsWith('⏳ *CONTROL DE SERVICIO PENDIENTE POR APROBAR*')).toBe(true);
     expect(txt).not.toContain('\uFE0F');
   });
 });

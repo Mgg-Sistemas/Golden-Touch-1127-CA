@@ -39,7 +39,7 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
   // Las cotizaciones cargadas para la solicitud (solo en el aviso de aprobación).
   const [ofertas, setOfertas] = useState<OfertaProveedor[]>([]);
   useEffect(() => {
-    if (modo !== 'aprobacion') return;
+    // 04/11/2026: también en el aviso para pagar (las cotizaciones y cuál se escogió).
     let cancel = false;
     listOfertasByOrden(orden.id).then((of) => { if (!cancel) setOfertas(of); }).catch(() => { /* sin cotizaciones */ });
     return () => { cancel = true; };
@@ -51,7 +51,10 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
         nombreProveedor: (id) => proveedorMap?.get(id)?.razon_social ?? (id === proveedor?.id ? proveedor?.razon_social : null),
         tasaUsd,
       })
-      : textoOrdenPagar(orden, proveedor, personas, tasaUsd)),
+      : textoOrdenPagar(orden, proveedor, personas, tasaUsd, {
+        ofertas,
+        nombreProveedor: (id) => proveedorMap?.get(id)?.razon_social ?? (id === proveedor?.id ? proveedor?.razon_social : null),
+      })),
     [orden, proveedor, modo, personas, tasaUsd, ofertas, proveedorMap],
   );
   return (

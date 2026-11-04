@@ -249,3 +249,4 @@
 .surt-lote-cab { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
 .surt-lote-cab strong { min-width: 0; overflow-wrap: anywhere; }
 .surt-lote-agregar { display: flex; flex-direction: column; gap: .4rem; padding: .6rem; border: 1px dashed var(--border); border-radius: var(--r-md); }
+.surt-historicos .surt-btn:nth-child(3):last-child { grid-column: 1 / -1; min-height: 96px; }

@@ -192,6 +192,8 @@ export function esCuentaCredito(orden: Partial<Pick<Orden, 'condiciones_pago' | 
  */
 export function textoOrdenPagar(
   o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>, tasaUsd?: number | null,
+  /** 04/11/2026: las cotizaciones de la solicitud, como en el aviso de aprobación. */
+  cotizaciones?: { ofertas: OfertaProveedor[]; nombreProveedor: (proveedorId: string) => string | null | undefined },
 ): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
@@ -217,6 +219,11 @@ export function textoOrdenPagar(
   const nota = o.notas?.trim();
   // 📌 y no 🗒: ese es símbolo de TEXTO y necesita el selector invisible U+FE0F, que WhatsApp pierde.
   if (nota) L.push(`📌 *Nota:* ${nota}`);
+  // Las cotizaciones y cuál escogió el analista (04/11/2026), igual que al aprobar.
+  const lineasCotPagar = cotizaciones
+    ? lineasCotizacionesAprobacion(o, cotizaciones.ofertas, { ...cotizaciones, personas, tasaUsd })
+    : [];
+  if (lineasCotPagar.length) L.push('', ...lineasCotPagar, '');
   // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
   // IGTF o un descuento por encima de las líneas.
   const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
@@ -290,7 +297,7 @@ export function textoOrdenAprobacion(
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
   const esServicio = o.tipo === 'servicio';
 
-  L.push(`⏳ *${esServicio ? 'CONTROL DE SERVICIO' : 'ORDEN'} PENDIENTE POR APROBACIÓN*`, '');
+  L.push(`⏳ *${esServicio ? 'CONTROL DE SERVICIO' : 'ORDEN'} PENDIENTE POR APROBAR*`, '');
   L.push(`🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`);
   L.push(`🏭 *Proveedor:* ${proveedor?.razon_social?.trim() || '—'}`);
   L.push(...lineasPersonas(o, personas, false));

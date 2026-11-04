@@ -147,7 +147,7 @@ describe('Delivery · recepción en Inventario (02/11/2026)', () => {
   });
 
   it('el WhatsApp de la OC entregada dice que quedó recibida en Inventario (el retiro no)', () => {
-    expect(mensajeEntregado(base, 'CARLOS', 'Almacén Los Pinos (General)')).toContain('📥 *Recibida en Inventario*');
-    expect(mensajeEntregado({ ...base, origen: 'almacen' }, 'CARLOS', 'PRODUCCION')).not.toContain('Recibida en Inventario');
+    expect(mensajeEntregado(base, 'CARLOS', 'Almacén Los Pinos (General)')).toContain('📥 *Por recepcionar en almacén*');
+    expect(mensajeEntregado({ ...base, origen: 'almacen' }, 'CARLOS', 'PRODUCCION')).not.toContain('Por recepcionar');
   });
 });

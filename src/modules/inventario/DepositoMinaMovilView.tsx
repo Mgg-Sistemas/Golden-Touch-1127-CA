@@ -41,6 +41,7 @@ import {
 import { listAlmacenes } from './almacenes.repository';
 import { FormSalidaMina, ItemsLoteMovil, Listo, PorRetornarMina, itemsLoteListos, type ItemLoteMovil } from './SalidaMinaMovil';
 import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovilView';
+import { HistoricoRecepcionesMovil, RecepcionDeliveryMovil, usePorRecepcionar } from './RecepcionMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
 import type { SalidaMina } from './salidasMina';
 import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stockMinaWhatsapp';
@@ -59,7 +60,7 @@ const SIN_BUSCAR = 15;
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones';
 
 /** Vista de teléfono del Inventario General. */
 export function InventarioMovilView() {
@@ -99,6 +100,9 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const [elegido, setElegido] = useState<Producto | null>(null);
   const [busca, setBusca] = useState('');
   const [porRetornar, setPorRetornar] = useState<SalidaMina[]>([]);
+  // 04/11/2026: lo que el delivery entregó en el almacén (Los Pinos = Inventario General) y falta recepcionar.
+  const esGeneral = DEP.almacen === DEPOSITOS_FIJOS.general.almacen;
+  const porRecepcionar = usePorRecepcionar(esGeneral && canWrite);
 
   const reload = useCallback(async () => {
     const ps = await listProductos(deposito);
@@ -221,6 +225,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           </button>
           )}
           </>}
+          {esGeneral && canWrite && (
+          <button type="button" className="surt-btn entrada" onClick={() => setPaso('recepcion')}>
+            <span className="icono" aria-hidden>📥</span>
+            <span>Recepción ({porRecepcionar.lista.length})</span>
+            <small>{porRecepcionar.lista.length ? 'Lo que entregó el delivery' : 'Nada por recepcionar'}</small>
+          </button>
+          )}
           <button type="button" className="surt-btn retorno"
             onClick={() => setPaso('retornos')}>
             <span className="icono" aria-hidden>🔄</span>
@@ -250,6 +261,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
               <span>Histórico de traslados</span>
               <small>Los traslados de {DEP.nombre}: su PDF y su WhatsApp</small>
             </button>
+            {esGeneral && (
+              <button type="button" className="surt-btn entrada" onClick={() => setPaso('histRecepciones')}>
+                <span className="icono" aria-hidden>📥</span>
+                <span>Histórico de recepciones</span>
+                <small>Lo recibido en {DEP.nombre}: su PDF y su WhatsApp</small>
+              </button>
+            )}
           </div>
 
           {/* Enlaces a los demás depósitos */}
@@ -293,6 +311,15 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
 
       {paso === 'histTraslados' && puedeVerAlmacen(DEP.almacen) && (
         <HistoricoTrasladosMovil almacen={DEP.almacen} nombre={DEP.nombre} onVolver={volver} />
+      )}
+
+      {paso === 'recepcion' && esGeneral && (
+        <RecepcionDeliveryMovil pendientes={porRecepcionar.lista} actor={actor} actorName={actorName} canWrite={canWrite}
+          onVolver={volver} onCambio={() => { void porRecepcionar.recargar(); void reload().catch(() => {}); }} />
+      )}
+
+      {paso === 'histRecepciones' && esGeneral && (
+        <HistoricoRecepcionesMovil almacen={DEP.almacen} nombre={DEP.nombre} onVolver={volver} />
       )}
 
       {paso === 'nuevo' && (

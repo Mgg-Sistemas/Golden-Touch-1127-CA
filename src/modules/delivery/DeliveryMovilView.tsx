@@ -847,7 +847,7 @@ function FormEntregarAlmacen({ p, quien, onCancel, onHecho }: {
     setGuardando(true);
     try {
       await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
-      toast(`Orden ${ocDe(p)} entregada y recibida en Inventario (${almacenVisible(almacen)}).`, 'success');
+      toast(`Orden ${ocDe(p)} entregada en ${almacenVisible(almacen)}: el almacenista la recepciona.`, 'success');
       onHecho('Entregado en almacén', mensajeEntregado(p, quien, almacenVisible(almacen), nota));
     } catch (err) {
       toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
@@ -862,8 +862,8 @@ function FormEntregarAlmacen({ p, quien, onCancel, onHecho }: {
       </div>
       <div className="aviso info sm">
         <span className="aviso-icono">📥</span>
-        <div>Al confirmar, la orden queda <strong>recibida en Inventario</strong> en <strong>{almacenVisible(almacen)}</strong> con todas sus cantidades
-          (los servicios no suman stock). Si llegó incompleta, no la confirmes: avisa a Almacén para que la reciba desde Pedidos.</div>
+        <div>Al confirmar, la orden queda <strong>entregada en {almacenVisible(almacen)}</strong> y le llega el aviso al almacenista, que la
+          <strong> recepciona desde su teléfono</strong> (revisa lo que llegó y lo suma al inventario).</div>
       </div>
       <div className="surt-campo">
         <label htmlFor="dlv-ent-nota">Nota (opcional)</label>

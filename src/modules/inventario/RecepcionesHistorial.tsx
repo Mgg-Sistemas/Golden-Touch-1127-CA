@@ -18,10 +18,41 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime, money, num } from '@/shared/lib/format';
 import type { Producto } from '@/shared/lib/types';
 import { listMovimientosRecepcion } from './movimientos.repository';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { quienSync } from '@/shared/lib/directorioUsuarios';
+import { verDocMovilPdf } from './inventarioMovilPdf';
+import { docRecepcionHistorica, mensajeRecepcionHistorica } from './recepcionMovil';
+import { detallarRecepcion } from './recepcionMovil.repository';
 import {
   filtrarRecepciones, recepcionesDesdeMovimientos,
   type Recepcion,
 } from './recepcionesHistorico';
+
+/** 04/11/2026: cada recepción con su PDF (Orden de Entrada) y su aviso de WhatsApp. */
+function PdfYWhatsappRecepcion({ r }: { r: Recepcion }) {
+  const [abriendo, setAbriendo] = useState(false);
+  const [texto, setTexto] = useState<string | null>(null);
+  async function pdf() {
+    setAbriendo(true);
+    try { await verDocMovilPdf(docRecepcionHistorica(await detallarRecepcion(r))); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    finally { setAbriendo(false); }
+  }
+  async function wsp() {
+    if (texto) { setTexto(null); return; }
+    try { setTexto(mensajeRecepcionHistorica(await detallarRecepcion(r), quienSync(r.actor_name, r.actor))); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo armar el mensaje', 'error'); }
+  }
+  return (
+    <div style={{ margin: '.3rem 0 .5rem' }}>
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => void pdf()} disabled={abriendo}>{abriendo ? 'Armando…' : '📄 Ver PDF'}</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => void wsp()}>💬 WhatsApp</button>
+      </div>
+      {texto && <div style={{ marginTop: '.4rem' }}><CompartirWhatsapp texto={texto} /></div>}
+    </div>
+  );
+}
 
 /** Hace `n` días, en ISO corto. */
 function hace(n: number): string {
@@ -158,6 +189,7 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
                       {abierto && (
                         <tr>
                           <td colSpan={7} style={{ paddingTop: 0 }}>
+                            <PdfYWhatsappRecepcion r={r} />
                             <table className="table" style={{ fontSize: '.78rem', margin: '.2rem 0 .5rem' }}>
                               <tbody>
                                 {r.items.map((it) => {

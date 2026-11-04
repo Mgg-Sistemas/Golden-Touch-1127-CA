@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { lineasCotizacionesAprobacion, totalOfertaConImpuestos, montoDosMonedas } from './cotizacionesAprobacion';
-import { textoOrdenAprobacion } from './confirmadasPagarTxt';
+import { textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
 
 const PROVS: Record<string, string> = {
   pA: 'AGRODEPORTES GORGONES',
@@ -62,7 +62,7 @@ describe('textoOrdenAprobacion con cotizaciones', () => {
       ofertas: [ofB, ofA], nombreProveedor, tasaUsd: 36.5,
     });
     expect(txt).toBe([
-      '⏳ *ORDEN PENDIENTE POR APROBACIÓN*',
+      '⏳ *ORDEN PENDIENTE POR APROBAR*',
       '',
       '🔹 *ORDEN:* OC-2026-0180',
       '🏭 *Proveedor:* AGRODEPORTES GORGONES',
@@ -154,5 +154,15 @@ describe('lineasCotizacionesAprobacion', () => {
     const L = lineasCotizacionesAprobacion(orden, [{ ...ofA, estado: 'pendiente' }, ofB], { nombreProveedor, tasaUsd: null });
     expect(L[1].startsWith('✅ *COTIZACIÓN 1:*')).toBe(true);
     expect(L[2].startsWith('🔸 *COTIZACIÓN 2:*')).toBe(true);
+  });
+});
+
+describe('el aviso para pagar también trae las cotizaciones (04/11/2026)', () => {
+  it('las cotizaciones y quién la escogió, antes del total', () => {
+    const txt = textoOrdenPagar(orden, { razon_social: 'AGRODEPORTES GORGONES' } as Proveedor, undefined, 36.5, { ofertas: [ofB, ofA], nombreProveedor });
+    expect(txt).toContain('📊 *COTIZACIONES RECIBIDAS (2):*');
+    expect(txt).toContain('👤 El analista *JAVIER LEIVA* escogió la *COTIZACIÓN 1* (AGRODEPORTES GORGONES)');
+    expect(txt.indexOf('COTIZACIONES')).toBeLessThan(txt.indexOf('💵 *Total:*'));
+    expect(textoOrdenPagar(orden, null, undefined, 36.5, { ofertas: [], nombreProveedor })).toBe(textoOrdenPagar(orden, null, undefined, 36.5));
   });
 });

@@ -316,3 +316,8 @@ begin
 end $function$;
 revoke execute on function public.delivery_recepcionar(uuid, jsonb, text) from anon;
 grant execute on function public.delivery_recepcionar(uuid, jsonb, text) to authenticated;
+
+-- El almacenista (lectura de Inventario) ve las fotos del delivery al recepcionar.
+create policy "delivery-fotos read inventario" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'delivery-fotos' and (select public.puede_leer('inventario')));
