@@ -37,18 +37,6 @@ function useCostos(ids: string[]): Costos {
   return costos;
 }
 
-/** Los materiales de una salida o un traslado de varios productos, uno por renglón. */
-function ListaMateriales({ items }: { items: { nombre: string; cantidad: number; unidad?: string | null }[] }) {
-  if (items.length < 2) return null;
-  return (
-    <div className="surt-detalle" style={{ margin: '.4rem 0 0' }}>
-      {items.map((it, i) => (
-        <div key={`${it.nombre}-${i}`} className="surt-fila"><span>{i + 1}. {it.nombre}</span><span>{num(it.cantidad)} {it.unidad ?? ''}</span></div>
-      ))}
-    </div>
-  );
-}
-
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
 /** Fechas + buscador comunes a los dos históricos. */
@@ -135,7 +123,6 @@ function DetalleSalidaTelefono({ salidas, almacen, costos }: { salidas: SalidaMi
   }, [s]);
   return (
     <>
-      <ListaMateriales items={salidas.map((x) => ({ nombre: x.producto_nombre, cantidad: x.cantidad, unidad: x.unidad }))} />
       <Miniaturas fotos={s.fotos} />
       <Acciones pdf={docSalidasMovil(salidas, (id) => costos.get(id), almacen, { actor: s.actor, nombre: s.actor_name })}
         texto={mensajeSalidasMina(salidas, quienSync(s.actor_name, s.actor))} fotos={fotos} />
@@ -267,7 +254,6 @@ export function HistoricoTrasladosMovil({ almacen, nombre, onVolver }: { almacen
               <span className="litros">{varios ? <>{g.length} <small>prod.</small></> : <>{num(t.cantidad)} <small>{t.unidad}</small></>}</span>
             </button>
             {abiertaEsta && <>
-              <ListaMateriales items={g.map((x) => ({ nombre: x.nombre, cantidad: x.cantidad, unidad: x.unidad }))} />
               <Acciones pdf={docTrasladosMovil(g, (id) => costoProducto(costos.get(id)), { actor: t.actor, nombre: t.actor_name })} texto={mensajeTraslados(g, quien)} />
             </>}
           </div>
