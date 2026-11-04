@@ -1,11 +1,11 @@
 /* ============================================================
    Golden Touch · Combustible · Export Excel de Existencias y Movimientos
-   Genera libro con 2 hojas:
-     1. Existencias actuales por tanque
-     2. Movimientos de surtidos y traslados
+   (Actualizado 04/11/2026: Arqueo histórico por rango de fechas,
+    saldos de apertura y cierre por tanque, y valuación USD)
    ============================================================ */
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import type { ReporteTanque } from './tanques.repository';
+import type { TotalesCorteCombustible } from './reporteExistenciasCorte';
 import { previewExcel } from '@/shared/lib/reportePreview';
 import { fechaParaExcel } from './horaMovimiento';
 import { esBidon } from './bidonCombustible';
@@ -39,23 +39,36 @@ const TOTAL_STYLE = {
   },
 };
 
+export interface DetalleTanqueReporteExcel {
+  tanque: TanqueCombustible;
+  disponible: number;
+  movimientos: MovimientoTanque[];
+  surtidosLitros: number;
+  surtidosCount?: number;
+  trasladosLitros?: number;
+  trasladosCount?: number;
+  entradasLitros?: number;
+  saldoInicialLitros?: number;
+  saldoCierreLitros?: number;
+  saldoCierreUsd?: number;
+  tasaCierre?: number;
+  porcentajeLleno?: number;
+}
+
 export interface ReporteExistenciasExcelArgs {
-  reportes: ReporteTanque[];
-  detallePorTanque: Array<{
-    tanque: TanqueCombustible;
-    disponible: number;
-    movimientos: MovimientoTanque[];
-    surtidosLitros: number;
-    trasladosLitros: number;
-  }>;
+  reportes?: ReporteTanque[];
+  detallePorTanque: DetalleTanqueReporteExcel[];
   periodoLabel: string;
+  totalesCorte?: TotalesCorteCombustible;
 }
 
 export async function descargarReporteExistenciasExcel({
-  reportes,
+  reportes: _reportes,
   detallePorTanque,
   periodoLabel,
+  totalesCorte,
 }: ReporteExistenciasExcelArgs): Promise<void> {
+  void _reportes;
   const [XLSXmod, { dateTime }] = await Promise.all([
     import('xlsx-js-style'),
     import('@/shared/lib/format'),
@@ -73,50 +86,89 @@ export async function descargarReporteExistenciasExcel({
 
   const wb = XLSX.utils.book_new();
 
-  // ================= HOJA 1: EXISTENCIAS =================
+  // ================= HOJA 1: EXISTENCIAS Y ARQUEO =================
   const headExistencias = [
     '#',
     'Tanque',
     'Tipo',
-    'Litros Disponibles',
-    'Capacidad (L)',
-    '% Lleno',
+    'Saldo Apertura (L)',
+    'Entradas (+) (L)',
+    'Surtidos (-) (L)',
+    'Traslados (-) (L)',
+    'Saldo Cierre (L)',
+    'Capacidad Nominal (L)',
+    '% Capacidad',
     'Tasa ($/L)',
-    'Valor Total ($)',
+    'Valor al Cierre ($)',
     'Estado',
   ];
 
-  let sumLitros = 0;
-  let sumValor = 0;
+  let sumAperturaCalc = 0;
+  let sumEntradasCalc = 0;
+  let sumSurtidosCalc = 0;
+  let sumTrasladosCalc = 0;
+  let sumCierreCalc = 0;
+  let sumValorCalc = 0;
 
-  const filasExistencias = reportes.map((r, i) => {
-    const cap = n(r.tanque.capacidad_litros);
-    const disp = n(r.disponible);
-    const tasa = n(r.tanque.tasa_usd_litro);
-    const valor = disp * tasa;
-    const pct = cap > 0 ? Math.min(100, Math.max(0, (disp / cap) * 100)) : 0;
-    sumLitros += disp;
-    sumValor += valor;
+  const filasExistencias = detallePorTanque.map((d, i) => {
+    const cap = n(d.tanque.capacidad_litros);
+    const inicial = d.saldoInicialLitros != null ? n(d.saldoInicialLitros) : 0;
+    const entradas = d.entradasLitros != null ? n(d.entradasLitros) : 0;
+    const surtidos = d.surtidosLitros != null ? n(d.surtidosLitros) : 0;
+    const traslados = d.trasladosLitros != null ? n(d.trasladosLitros) : 0;
+    const cierre = d.saldoCierreLitros != null ? n(d.saldoCierreLitros) : n(d.disponible);
+    const tasa = d.tasaCierre != null ? n(d.tasaCierre) : n(d.tanque.tasa_usd_litro);
+    const valor = d.saldoCierreUsd != null ? n(d.saldoCierreUsd) : cierre * tasa;
+    const pct = cap > 0 ? Math.min(100, Math.max(0, (cierre / cap) * 100)) : 0;
+
+    sumAperturaCalc += inicial;
+    sumEntradasCalc += entradas;
+    sumSurtidosCalc += surtidos;
+    sumTrasladosCalc += traslados;
+    sumCierreCalc += cierre;
+    sumValorCalc += valor;
+
+    const tipoLabel = esBidon(d.tanque.nombre)
+      ? 'Bidón'
+      : d.tanque.es_movil
+        ? 'Móvil'
+        : 'Estacionario';
 
     return [
       i + 1,
-      r.tanque.nombre,
-      esBidon(r.tanque.nombre) ? 'Bidón' : r.tanque.es_movil ? 'Móvil' : 'Estacionario',
-      disp,
+      d.tanque.nombre,
+      tipoLabel,
+      inicial,
+      entradas,
+      surtidos,
+      traslados,
+      cierre,
       cap,
       `${pct.toFixed(0)}%`,
       tasa,
       valor,
-      r.tanque.estado === 'activo' ? 'Activo' : 'Inactivo',
+      d.tanque.estado === 'activo' ? 'Activo' : 'Inactivo',
     ];
   });
 
-  const tasaProm = sumLitros > 0 ? sumValor / sumLitros : 0;
+  const sumApertura = totalesCorte?.totalLitrosApertura ?? sumAperturaCalc;
+  const sumEntradas = totalesCorte?.totalEntradasLitros ?? sumEntradasCalc;
+  const sumSurtidos = totalesCorte?.totalSurtidosLitros ?? sumSurtidosCalc;
+  const sumTraslados = totalesCorte?.totalTrasladosLitros ?? sumTrasladosCalc;
+  const sumCierre = totalesCorte?.totalLitrosCierre ?? sumCierreCalc;
+  const sumValor = totalesCorte?.totalValorCierre ?? sumValorCalc;
+  const tasaProm =
+    totalesCorte?.tasaPromedioCierre ?? (sumCierre > 0 ? sumValor / sumCierre : 0);
+
   const filaTotales = [
     'TOTAL',
-    `${reportes.length} tanques`,
+    `${detallePorTanque.length} tanque(s)`,
     '',
-    sumLitros,
+    sumApertura,
+    sumEntradas,
+    sumSurtidos,
+    sumTraslados,
+    sumCierre,
     '',
     '',
     tasaProm,
@@ -125,8 +177,8 @@ export async function descargarReporteExistenciasExcel({
   ];
 
   const aoaExistencias: unknown[][] = [
-    ['GOLDEN TOUCH 1127 C.A. · EXISTENCIAS DE COMBUSTIBLE'],
-    [`Emitido: ${dateTime(new Date().toISOString())} · Periodo: ${periodoLabel}`],
+    ['GOLDEN TOUCH 1127 C.A. · EXISTENCIAS Y SALDOS AL CORTE DE COMBUSTIBLE'],
+    [`Periodo / Corte: ${periodoLabel} · Emitido: ${dateTime(new Date().toISOString())}`],
     [],
     headExistencias,
     ...filasExistencias,
@@ -136,13 +188,17 @@ export async function descargarReporteExistenciasExcel({
   const wsExistencias = XLSX.utils.aoa_to_sheet(aoaExistencias);
   (wsExistencias as Record<string, unknown>)['!cols'] = [
     { wch: 5 },
-    { wch: 30 },
-    { wch: 15 },
+    { wch: 28 },
+    { wch: 14 },
     { wch: 18 },
     { wch: 16 },
-    { wch: 12 },
-    { wch: 14 },
     { wch: 16 },
+    { wch: 16 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 18 },
     { wch: 12 },
   ];
   (wsExistencias as Record<string, unknown>)['!merges'] = [
@@ -164,7 +220,7 @@ export async function descargarReporteExistenciasExcel({
     if (cell) cell.s = TOTAL_STYLE;
   });
 
-  XLSX.utils.book_append_sheet(wb, wsExistencias, 'Existencias Actuales');
+  XLSX.utils.book_append_sheet(wb, wsExistencias, 'Existencias al Cierre');
 
   // ================= HOJA 2: MOVIMIENTOS =================
   const headMovs = [
@@ -220,8 +276,8 @@ export async function descargarReporteExistenciasExcel({
   }
 
   const aoaMovs: unknown[][] = [
-    ['GOLDEN TOUCH 1127 C.A. · MOVIMIENTOS DE SURTIDOS Y TRASLADOS DE COMBUSTIBLE'],
-    [`Periodo: ${periodoLabel} · ${filasMovs.length} movimiento(s) registrados · ${dateTime(new Date().toISOString())}`],
+    ['GOLDEN TOUCH 1127 C.A. · MOVIMIENTOS EN EL PERIODO'],
+    [`Periodo: ${periodoLabel} · ${filasMovs.length} movimiento(s) registrados · Emitido: ${dateTime(new Date().toISOString())}`],
     [],
     headMovs,
     ...filasMovs,
@@ -262,7 +318,7 @@ export async function descargarReporteExistenciasExcel({
     if (cell) cell.z = 'dd/mm/yyyy';
   });
 
-  XLSX.utils.book_append_sheet(wb, wsMovs, 'Surtidos y Traslados');
+  XLSX.utils.book_append_sheet(wb, wsMovs, 'Movimientos');
 
-  previewExcel(wb, 'reporte-existencias-movimientos-combustible.xlsx');
+  previewExcel(wb, `reporte-combustible-corte-${dateTime(new Date().toISOString()).slice(0, 10)}.xlsx`);
 }
