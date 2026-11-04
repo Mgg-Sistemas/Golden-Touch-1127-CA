@@ -38,3 +38,20 @@ describe('Histórico del teléfono', () => {
     expect(m).not.toMatch(/️/);
   });
 });
+
+describe('Histórico del teléfono · una salida o un traslado de varios productos es una sola fila (04/11/2026)', () => {
+  it('agrupa por la misma transacción (hora exacta, quién, motivo…)', async () => {
+    const { agruparSalidasTelefono, agruparLotesTraslado } = await import('./historicoMovil');
+    const base = { actor: 'isner@gt.com', created_at: '2026-11-04T15:47:53.267Z', almacen: 'General', motivo: 'AGUAS', autorizado_por: 'EDINSON', retorna: false } as SalidaMina;
+    const g = agruparSalidasTelefono([
+      { ...base, id: 'b', codigo: 'SIG-ISO-0002' },
+      { ...base, id: 'a', codigo: 'SIG-ISO-0001' },
+      { ...base, id: 'c', codigo: 'SIG-ISO-0010' },
+      { ...base, id: 'd', codigo: 'SIG-ISO-0016', created_at: '2026-11-04T16:00:00Z' },
+    ]);
+    expect(g.map((x) => x.map((y) => y.codigo))).toEqual([['SIG-ISO-0001', 'SIG-ISO-0002', 'SIG-ISO-0010'], ['SIG-ISO-0016']]);
+    const t = { actor: 'isner@gt.com', at: '2026-11-04T15:00:00Z', origen: 'General', destino: 'Depósito Mina', nota: null } as unknown as Parameters<typeof agruparLotesTraslado>[0][number];
+    const lotes = agruparLotesTraslado([{ ...t, codigo: 'TRA-ISO-0002' }, { ...t, codigo: 'TRA-ISO-0001' }, { ...t, codigo: 'TRA-ISO-0003', at: '2026-11-04T16:00:00Z' }]);
+    expect(lotes.map((x) => x.map((y) => y.codigo))).toEqual([['TRA-ISO-0003'], ['TRA-ISO-0001', 'TRA-ISO-0002']]);
+  });
+});

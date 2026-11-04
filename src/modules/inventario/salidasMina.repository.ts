@@ -163,3 +163,16 @@ export async function subirFotosSalidasMina(ss: SalidaMina[], archivos: File[]):
   const porId = new Map(((data ?? []) as Record<string, unknown>[]).map((r) => [String(r.id), normalizar(r)]));
   return [primera, ...resto.map((s) => porId.get(s.id) ?? { ...s, fotos: primera.fotos })];
 }
+
+/** SKU, unidad y costo de unos productos (04/11/2026: el PDF del histórico del teléfono
+ *  salía con precio $0,00 porque no los buscaba). Lo que no se pueda leer se salta. */
+export async function costosDeProductos(ids: string[]): Promise<Map<string, { sku: string; unidad: string; precio: number; precio_promedio: number | null }>> {
+  const unicos = Array.from(new Set(ids.filter(Boolean)));
+  const out = new Map<string, { sku: string; unidad: string; precio: number; precio_promedio: number | null }>();
+  if (!unicos.length) return out;
+  const { data } = await supabase.from('productos').select('id, sku, unidad, precio, precio_promedio').in('id', unicos);
+  for (const r of (data ?? []) as Array<{ id: string; sku: string; unidad: string; precio: number | string | null; precio_promedio: number | string | null }>) {
+    out.set(r.id, { sku: r.sku, unidad: r.unidad, precio: Number(r.precio) || 0, precio_promedio: r.precio_promedio == null ? null : Number(r.precio_promedio) });
+  }
+  return out;
+}

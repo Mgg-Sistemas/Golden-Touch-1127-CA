@@ -12,15 +12,42 @@ import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
-import { fechaHoraVE, mensajeSalidaMina, num, type FotoSalidaMina } from './salidasMina';
-import { descargarFotosSalidaMina, listMisSalidasPcEjecutadas, listSalidasMinaHistorico, urlFotoSalidaMina } from './salidasMina.repository';
+import { fechaHoraVE, mensajeSalidasMina, num, rangoCodigos, type FotoSalidaMina, type SalidaMina } from './salidasMina';
+import { costosDeProductos, descargarFotosSalidaMina, listMisSalidasPcEjecutadas, listSalidasMinaHistorico, urlFotoSalidaMina } from './salidasMina.repository';
 import { listTrasladosMovil } from './trasladoAlmacen.repository';
-import { mensajeTraslado, nombreDepositoChat } from './inventarioMovil';
-import { docSalidaMovil, docSalidaPc, docTrasladoMovil, verDocMovilPdf, type DocMovilPdf } from './inventarioMovilPdf';
+import { mensajeTraslados, nombreDepositoChat } from './inventarioMovil';
+import { costoProducto, docSalidaPc, docSalidasMovil, docTrasladosMovil, verDocMovilPdf, type DocMovilPdf } from './inventarioMovilPdf';
 import {
-  LIMITE_HISTORICO, errorRangoHistorico, filtrarHistoricoSalidas, filtrarHistoricoTraslados, limitesIsoRango, mensajeSalidaPc,
+  LIMITE_HISTORICO, agruparLotesTraslado, errorRangoHistorico, filtrarHistoricoSalidas, filtrarLotesTraslado, limitesIsoRango, mensajeSalidaPc,
   rangoHistoricoPorDefecto, resumenItemsSalidaPc, unirHistoricoSalidas, type FilaHistoricoSalida, type TrasladoHistorico,
 } from './historicoMovil';
+
+type Costos = Awaited<ReturnType<typeof costosDeProductos>>;
+
+/** Costos de los productos que aparecen en el histórico (04/11/2026: el PDF salía en $0,00). */
+function useCostos(ids: string[]): Costos {
+  const [costos, setCostos] = useState<Costos>(new Map());
+  const clave = Array.from(new Set(ids)).sort().join(',');
+  useEffect(() => {
+    let vivo = true;
+    if (!clave) { setCostos(new Map()); return; }
+    void costosDeProductos(clave.split(',')).then((m) => { if (vivo) setCostos(m); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [clave]);
+  return costos;
+}
+
+/** Los materiales de una salida o un traslado de varios productos, uno por renglón. */
+function ListaMateriales({ items }: { items: { nombre: string; cantidad: number; unidad?: string | null }[] }) {
+  if (items.length < 2) return null;
+  return (
+    <div className="surt-detalle" style={{ margin: '.4rem 0 0' }}>
+      {items.map((it, i) => (
+        <div key={`${it.nombre}-${i}`} className="surt-fila"><span>{i + 1}. {it.nombre}</span><span>{num(it.cantidad)} {it.unidad ?? ''}</span></div>
+      ))}
+    </div>
+  );
+}
 
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
@@ -98,8 +125,8 @@ function Miniaturas({ fotos }: { fotos: FotoSalidaMina[] }) {
 }
 
 /** Detalle de una salida del teléfono: baja sus fotos para mandarlas por WhatsApp. */
-function DetalleSalidaTelefono({ fila, almacen }: { fila: Extract<FilaHistoricoSalida, { tipo: 'telefono' }>; almacen: string }) {
-  const s = fila.salida;
+function DetalleSalidaTelefono({ salidas, almacen, costos }: { salidas: SalidaMina[]; almacen: string; costos: Costos }) {
+  const s = salidas[0];
   const [fotos, setFotos] = useState<File[]>([]);
   useEffect(() => {
     let vivo = true;
@@ -108,9 +135,10 @@ function DetalleSalidaTelefono({ fila, almacen }: { fila: Extract<FilaHistoricoS
   }, [s]);
   return (
     <>
+      <ListaMateriales items={salidas.map((x) => ({ nombre: x.producto_nombre, cantidad: x.cantidad, unidad: x.unidad }))} />
       <Miniaturas fotos={s.fotos} />
-      <Acciones pdf={docSalidaMovil(s, null, almacen, { actor: s.actor, nombre: s.actor_name })}
-        texto={mensajeSalidaMina(s, quienSync(s.actor_name, s.actor))} fotos={fotos} />
+      <Acciones pdf={docSalidasMovil(salidas, (id) => costos.get(id), almacen, { actor: s.actor, nombre: s.actor_name })}
+        texto={mensajeSalidasMina(salidas, quienSync(s.actor_name, s.actor))} fotos={fotos} />
     </>
   );
 }
@@ -137,7 +165,8 @@ export function HistoricoSalidasMovil({ almacen, nombre, actor, onVolver }: { al
   useEffect(() => { void cargar(); }, [cargar]);
 
   const lista = useMemo(() => filtrarHistoricoSalidas(filas ?? [], f.busca).slice(0, LIMITE_HISTORICO), [filas, f.busca]);
-  const llenas = (filas?.length ?? 0) >= LIMITE_HISTORICO;
+  const llenas = (filas ?? []).reduce((n, x) => n + (x.tipo === 'telefono' ? x.salidas.length : 1), 0) >= LIMITE_HISTORICO;
+  const costos = useCostos((filas ?? []).flatMap((x) => (x.tipo === 'telefono' ? x.salidas.map((y) => y.producto_id) : [])));
 
   return (
     <section className="surt-lista">
@@ -150,23 +179,25 @@ export function HistoricoSalidasMovil({ almacen, nombre, actor, onVolver }: { al
       {filas && <h2>{lista.length ? `${lista.length} salida(s)` : 'No hay salidas en esas fechas'}</h2>}
       {llenas && <small className="muted">Se muestran las {LIMITE_HISTORICO} más recientes: acorta las fechas para ver las demás.</small>}
       {lista.map((fila) => {
-        const id = fila.tipo === 'telefono' ? fila.salida.id : fila.sol.id;
+        const id = fila.tipo === 'telefono' ? fila.salidas[0].id : fila.sol.id;
         const abiertaEsta = abierta === id;
         if (fila.tipo === 'telefono') {
-          const s = fila.salida;
+          const ss = fila.salidas;
+          const s = ss[0];
+          const varios = ss.length > 1;
           return (
             <div key={id}>
               <button type="button" className="surt-mov" onClick={() => setAbierta(abiertaEsta ? null : id)} aria-expanded={abiertaEsta}>
                 <span className="icono" aria-hidden>{s.fotos.length ? '📷' : '📤'}</span>
                 <span style={{ minWidth: 0 }}>
-                  <div className="titulo">{s.producto_nombre}</div>
-                  <div className="sub">{s.codigo} · {fechaHoraVE(s.created_at)}</div>
+                  <div className="titulo">{varios ? `${ss.length} productos · ${s.producto_nombre} y más` : s.producto_nombre}</div>
+                  <div className="sub">{rangoCodigos(ss.map((x) => x.codigo))} · {fechaHoraVE(s.created_at)}</div>
                   <div className="sub">{s.motivo} · Retorna: {s.retorna ? 'SÍ' : 'NO'}{s.fotos.length ? ` · ${s.fotos.length} foto(s)` : ''}</div>
                   {s.autorizado_por && <div className="sub">Autorizó: {s.autorizado_por}</div>}
                 </span>
-                <span className="litros">{num(s.cantidad)} <small>{s.unidad}</small></span>
+                <span className="litros">{varios ? <>{ss.length} <small>prod.</small></> : <>{num(s.cantidad)} <small>{s.unidad}</small></>}</span>
               </button>
-              {abiertaEsta && <DetalleSalidaTelefono fila={fila} almacen={almacen} />}
+              {abiertaEsta && <DetalleSalidaTelefono salidas={ss} almacen={almacen} costos={costos} />}
             </div>
           );
         }
@@ -205,7 +236,9 @@ export function HistoricoTrasladosMovil({ almacen, nombre, onVolver }: { almacen
   }, [almacen, f.desde, f.hasta, f.problema]);
   useEffect(() => { void cargar(); }, [cargar]);
 
-  const lista = useMemo(() => filtrarHistoricoTraslados(ts ?? [], f.busca), [ts, f.busca]);
+  const lotes = useMemo(() => agruparLotesTraslado(ts ?? []), [ts]);
+  const lista = useMemo(() => filtrarLotesTraslado(lotes, f.busca), [lotes, f.busca]);
+  const costos = useCostos((ts ?? []).map((t) => t.producto_origen_id));
 
   return (
     <section className="surt-lista">
@@ -217,7 +250,9 @@ export function HistoricoTrasladosMovil({ almacen, nombre, onVolver }: { almacen
       {ts === null && !f.problema && <p className="muted">Cargando…</p>}
       {ts && <h2>{lista.length ? `${lista.length} traslado(s)` : 'No hay traslados en esas fechas'}</h2>}
       {(ts?.length ?? 0) >= LIMITE_HISTORICO && <small className="muted">Se muestran los {LIMITE_HISTORICO} más recientes: acorta las fechas para ver los demás.</small>}
-      {lista.map((t) => {
+      {lista.map((g) => {
+        const t = g[0];
+        const varios = g.length > 1;
         const abiertaEsta = abierta === t.codigo;
         const quien = quienSync(t.actor_name, t.actor);
         return (
@@ -225,13 +260,16 @@ export function HistoricoTrasladosMovil({ almacen, nombre, onVolver }: { almacen
             <button type="button" className="surt-mov" onClick={() => setAbierta(abiertaEsta ? null : t.codigo)} aria-expanded={abiertaEsta}>
               <span className="icono" aria-hidden>🔁</span>
               <span style={{ minWidth: 0 }}>
-                <div className="titulo">{t.nombre}</div>
-                <div className="sub">{t.codigo} · {fechaHoraVE(t.at)}</div>
+                <div className="titulo">{varios ? `${g.length} productos · ${t.nombre} y más` : t.nombre}</div>
+                <div className="sub">{rangoCodigos(g.map((x) => x.codigo))} · {fechaHoraVE(t.at)}</div>
                 <div className="sub">{nombreDepositoChat(t.origen)} → {nombreDepositoChat(t.destino)}{t.nota ? ` · ${t.nota}` : ''}</div>
               </span>
-              <span className="litros">{num(t.cantidad)} <small>{t.unidad}</small></span>
+              <span className="litros">{varios ? <>{g.length} <small>prod.</small></> : <>{num(t.cantidad)} <small>{t.unidad}</small></>}</span>
             </button>
-            {abiertaEsta && <Acciones pdf={docTrasladoMovil(t, 0, { actor: t.actor, nombre: t.actor_name })} texto={mensajeTraslado(t, quien)} />}
+            {abiertaEsta && <>
+              <ListaMateriales items={g.map((x) => ({ nombre: x.nombre, cantidad: x.cantidad, unidad: x.unidad }))} />
+              <Acciones pdf={docTrasladosMovil(g, (id) => costoProducto(costos.get(id)), { actor: t.actor, nombre: t.actor_name })} texto={mensajeTraslados(g, quien)} />
+            </>}
           </div>
         );
       })}

@@ -134,7 +134,8 @@ export function textoBuscableTraslado(t: TrasladoHistorico): string {
 /* ── Salidas: teléfono + módulo Salidas (PC) ───────────────── */
 
 export type FilaHistoricoSalida =
-  | { tipo: 'telefono'; at: string; salida: SalidaMina }
+  /** Una salida del teléfono con TODOS sus materiales (04/11/2026: varios productos en una). */
+  | { tipo: 'telefono'; at: string; salidas: SalidaMina[] }
   | { tipo: 'pc'; at: string; sol: SolicitudSalida };
 
 /** Renglones de una salida del módulo Salidas (varios materiales o uno solo). */
@@ -165,10 +166,40 @@ export function textoBuscableSalidaPc(sol: SolicitudSalida): string {
   ].filter(Boolean).join(' '));
 }
 
+/** Las filas de una misma salida de varios materiales: se guardan en una sola transacción,
+ *  así que comparten la hora exacta, quién, el depósito, el motivo, quién autorizó y si retorna. */
+const claveLoteSalida = (s: SalidaMina) =>
+  [s.actor ?? '', s.created_at, s.almacen ?? '', s.motivo, s.autorizado_por ?? '', s.retorna ? 1 : 0].join('|');
+
+/** Agrupa las salidas del teléfono por salida (cada grupo en el orden de su N°). */
+export function agruparSalidasTelefono(salidas: SalidaMina[]): SalidaMina[][] {
+  const grupos = new Map<string, SalidaMina[]>();
+  for (const s of salidas) {
+    const k = claveLoteSalida(s);
+    const g = grupos.get(k);
+    if (g) g.push(s); else grupos.set(k, [s]);
+  }
+  return Array.from(grupos.values()).map((g) => g.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true })));
+}
+
+/** Los traslados de un mismo envío de varios productos (misma hora exacta, quién, origen,
+ *  destino y nota), cada grupo en el orden de su N°; del más reciente al más viejo. */
+export function agruparLotesTraslado(ts: TrasladoHistorico[]): TrasladoHistorico[][] {
+  const grupos = new Map<string, TrasladoHistorico[]>();
+  for (const t of ts) {
+    const k = [t.actor ?? '', t.at, t.origen, t.destino, t.nota ?? ''].join('|');
+    const g = grupos.get(k);
+    if (g) g.push(t); else grupos.set(k, [t]);
+  }
+  return Array.from(grupos.values())
+    .map((g) => g.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true })))
+    .sort((a, b) => (a[0].at < b[0].at ? 1 : a[0].at > b[0].at ? -1 : 0));
+}
+
 /** Junta las dos fuentes, de la más reciente a la más vieja. */
 export function unirHistoricoSalidas(telefono: SalidaMina[], pc: SolicitudSalida[]): FilaHistoricoSalida[] {
   const filas: FilaHistoricoSalida[] = [
-    ...telefono.map((salida) => ({ tipo: 'telefono' as const, at: salida.created_at, salida })),
+    ...agruparSalidasTelefono(telefono).map((salidas) => ({ tipo: 'telefono' as const, at: salidas[0].created_at, salidas })),
     ...pc.map((sol) => ({ tipo: 'pc' as const, at: sol.created_at, sol })),
   ];
   return filas.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
@@ -183,10 +214,14 @@ function filtrar<T>(xs: T[], buscar: string, texto: (x: T) => string): T[] {
 }
 
 export const filtrarHistoricoSalidas = (filas: FilaHistoricoSalida[], buscar: string) =>
-  filtrar(filas, buscar, (f) => (f.tipo === 'telefono' ? textoBuscableSalidaMina(f.salida) : textoBuscableSalidaPc(f.sol)));
+  filtrar(filas, buscar, (f) => (f.tipo === 'telefono' ? f.salidas.map(textoBuscableSalidaMina).join(' ') : textoBuscableSalidaPc(f.sol)));
 
 export const filtrarHistoricoTraslados = (ts: TrasladoHistorico[], buscar: string) =>
   filtrar(ts, buscar, textoBuscableTraslado);
+
+/** Igual, pero con los traslados ya agrupados por envío: basta que un producto coincida. */
+export const filtrarLotesTraslado = (lotes: TrasladoHistorico[][], buscar: string) =>
+  filtrar(lotes, buscar, (g) => g.map(textoBuscableTraslado).join(' '));
 
 /** El aviso de una salida del módulo Salidas (PC), con el estilo del de la salida del teléfono. */
 export function mensajeSalidaPc(sol: SolicitudSalida, quien?: string | null): string {
