@@ -16,10 +16,31 @@ function round2(n: number): number { return Math.round(n * 100) / 100; }
 
 /* ───────────── Cajas (CRUD) ───────────── */
 
+/**
+ * 04/11/2026: el saldo VIVO de cada caja está en `caja_saldos` (una fila por cuenta y
+ * moneda: general, jurídica, personal…); la columna `cajas.saldo` quedó vieja (la Caja Bs
+ * decía Bs 492 con Bs 1,88 millones disponibles). Se muestra la suma de las cuentas en la
+ * moneda de la caja; si la caja no tiene filas ahí, queda lo que dice `cajas.saldo`.
+ */
+async function conSaldoVivo(cajas: Caja[]): Promise<Caja[]> {
+  if (!cajas.length) return cajas;
+  const { data, error } = await supabase.from('caja_saldos').select('caja_id, moneda, saldo').in('caja_id', cajas.map((c) => c.id));
+  if (error || !data) return cajas;
+  const suma = new Map<string, number>();
+  for (const r of data as Array<{ caja_id: string; moneda: string; saldo: number | string | null }>) {
+    const k = `${r.caja_id}|${r.moneda}`;
+    suma.set(k, round2((suma.get(k) ?? 0) + (Number(r.saldo) || 0)));
+  }
+  return cajas.map((c) => {
+    const k = `${c.id}|${c.moneda}`;
+    return suma.has(k) ? { ...c, saldo: suma.get(k) as number } : c;
+  });
+}
+
 export async function listCajas(): Promise<Caja[]> {
   const { data, error } = await supabase.from(TABLE).select('*').order('nombre', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as Caja[];
+  return conSaldoVivo((data ?? []) as Caja[]);
 }
 
 export async function listCajasActivas(): Promise<Caja[]> {
@@ -33,7 +54,7 @@ export async function listCajasActivas(): Promise<Caja[]> {
     .or('tipo.is.null,tipo.neq.centro_acopio')
     .order('nombre', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as Caja[];
+  return conSaldoVivo((data ?? []) as Caja[]);
 }
 
 /** Centros de acopio activos (manejan saldo propio; destino del traslado de dinero). */
