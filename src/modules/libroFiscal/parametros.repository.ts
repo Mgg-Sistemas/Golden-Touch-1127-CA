@@ -219,11 +219,16 @@ export async function historialValor(impuesto: string | null, clave: string, lim
 export async function configDeFecha(base: ConfigRetencion, fecha: string, tipos: TipoImpuesto[] = []): Promise<ConfigRetencion> {
   const f = String(fecha ?? '').trim().slice(0, 10);
   if (!FECHA.test(f) || !(await r3Disponible())) return base;
-  const [ut, pctIva, pctArt5, igtf] = await Promise.all([
+  // D3 (una sola autoridad): los valores NACIONALES —UT, % de retención de IVA 75/100,
+  // alícuota del IVA, alícuota del IGTF— salen de retencion_parametros por fecha para
+  // TODAS las empresas (Parámetros → Valores gobierna). Lo único por-empresa es la
+  // alícuota municipal (ISAE), que viaja en `base` desde la ficha y no se toca aquí.
+  const [ut, pctIva, pctArt5, igtf, aliIva] = await Promise.all([
     parametroEnFecha(null, 'ut', f),
     parametroEnFecha('IVA', 'pct_retencion', f),
     parametroEnFecha('IVA', 'pct_retencion_art5', f),
     parametroEnFecha('IGTF', 'alicuota', f),
+    parametroEnFecha('IVA', 'alicuota', f),
   ]);
   const dia = ddmmaaaa(f);
   if (typeof ut !== 'number' || !(ut > 0)) {
@@ -241,6 +246,7 @@ export async function configDeFecha(base: ConfigRetencion, fecha: string, tipos:
     pctIvaGeneral: typeof pctIva === 'number' ? pctIva : base.pctIvaGeneral,
     pctIvaEspecial: typeof pctArt5 === 'number' ? pctArt5 : base.pctIvaEspecial,
     pctIgtf: typeof igtf === 'number' ? igtf : base.pctIgtf,
+    ivaAlicuota: typeof aliIva === 'number' && aliIva > 0 ? aliIva : base.ivaAlicuota,
   };
 }
 

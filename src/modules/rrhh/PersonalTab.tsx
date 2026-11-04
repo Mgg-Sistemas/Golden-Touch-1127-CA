@@ -52,6 +52,7 @@ import { VigenciaCarnetCampo } from './VigenciaCarnetCampo';
 import { CARNET_VENCE_POR_DEFECTO } from './vigenciaCarnet';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import { EstadoPersonalModal } from './EstadoPersonalModal';
+import { DatosBancariosPersona } from './DatosBancariosPersona';
 
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
@@ -1131,6 +1132,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
               onPendientes={setFamPendientes}
               onCambio={cargarFamiliares}
             />
+
+            <div className="divider" />
+            <div className="card-title" style={{ marginBottom: '.5rem' }}>🏦 Datos bancarios</div>
+            <DatosBancariosPersona personalId={editId} canWrite={canWrite} />
 
             <div className="divider" />
             <div className="card-title" style={{ marginBottom: '.5rem' }}>📎 Documentación</div>

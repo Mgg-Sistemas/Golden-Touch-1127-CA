@@ -170,15 +170,15 @@ export function SolicitudesAlmacenMovilView() {
                   style={x.orden.urgente ? { borderColor: 'var(--danger)' } : undefined}>
                   <span className="icono" aria-hidden>{x.orden.urgente ? '🚨' : '📝'}</span>
                   <span style={{ minWidth: 0 }}>
-                    <div className="titulo mono" style={{ color: 'var(--primary-3)' }}>{x.orden.codigo}</div>
-                    <div className="sub">
-                      {x.orden.solicitante?.trim() || <Quien correo={x.orden.solicitante_email} vacio="—" />}
-                      {x.orden.unidad_solicitante ? ` · ${x.orden.unidad_solicitante}` : ''} · {relTime(x.orden.created_at)}
+                    {/* 03/11/2026 · como MGG: «SP · UNIDAD — SOLICITANTE» y «N producto(s) · hace …». */}
+                    <div className="titulo">
+                      <span className="mono" style={{ color: 'var(--primary-3)' }}>{x.orden.codigo}</span>
+                      {x.orden.unidad_solicitante ? ` · ${x.orden.unidad_solicitante}` : ''}
+                      {' — '}{x.orden.solicitante?.trim() || <Quien correo={x.orden.solicitante_email} vacio="—" />}
                     </div>
+                    <div className="sub">{n} producto{n === 1 ? '' : 's'} · {relTime(x.orden.created_at)}</div>
                   </span>
-                  <span style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.1rem' }}>
-                    {n} <small style={{ fontWeight: 600 }}>{n === 1 ? 'renglón' : 'renglones'}</small>
-                  </span>
+                  <span style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.3rem' }}>{n}</span>
                 </button>
               );
             })}

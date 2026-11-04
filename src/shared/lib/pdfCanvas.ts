@@ -15,12 +15,19 @@ export function navegadorSinVisorPdf(): boolean {
 
 let workerListo = false;
 
+/*
+ * Build «legacy» de pdf.js (03/11/2026). El build normal usa Promise.withResolvers y otras
+ * novedades que solo trae Chrome 119+ (fines de 2023): en los teléfonos con Chrome o
+ * WebView sin actualizar la vista previa caía en «No se pudo mostrar la vista previa…» y el
+ * PDF de las salidas del teléfono «no se veía». El legacy trae esos polyfills, también
+ * dentro del worker (que es otro contexto: un polyfill en la página no le llega).
+ */
 async function cargarPdfjs() {
-  const pdfjs = await import('pdfjs-dist');
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   if (!workerListo) {
     // Como worker de Vite (sale como .js): el .mjs suelto podría servirse con un tipo MIME
     // que el navegador rechaza para un worker.
-    const { default: PdfWorker } = await import('pdfjs-dist/build/pdf.worker.min.mjs?worker');
+    const { default: PdfWorker } = await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker');
     pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
     workerListo = true;
   }

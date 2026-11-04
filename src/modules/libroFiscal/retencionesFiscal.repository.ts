@@ -35,7 +35,7 @@ import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
 import { serieDeImpuesto } from './impuestos.repository';
-import { tablaDisponible, v2rDisponible } from './disponibilidad';
+import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_RETENCIONES = 'retenciones';
@@ -106,8 +106,14 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     pctIvaEspecial: n(j.iva_retencion_especial) || 100,
     valorUt: n(j.unidad_tributaria),
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
+    ivaAlicuota: n(j.iva_alicuota) || CONFIG_RETENCION_DEFECTO.ivaAlicuota,
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
     imprimirOriginalYCopia: bool('imprimir_original_copia', true),
+    incluirLogo: bool('comprobante_logo', true),
+    incluirFirma: bool('comprobante_firma', true),
+    incluirSello: bool('comprobante_sello', true),
+    incluirQr: bool('comprobante_qr', true),
+    buzonActivo: bool('buzon_activo', true),
   };
 }
 
@@ -133,6 +139,11 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
     imprimir_original_copia: c.imprimirOriginalYCopia !== false,
+    comprobante_logo: c.incluirLogo !== false,
+    comprobante_firma: c.incluirFirma !== false,
+    comprobante_sello: c.incluirSello !== false,
+    comprobante_qr: c.incluirQr !== false,
+    buzon_activo: c.buzonActivo !== false,
   };
 }
 
@@ -508,6 +519,8 @@ export interface FiltroRetenciones {
   hasta?: string;
   docId?: string;
   incluirAnuladas?: boolean;
+  /** Multi-empresa: filtra al libro de ESA empresa. Solo surte efecto si viene (en single-empresa no se pasa). */
+  empresaId?: string | null;
 }
 
 /**
@@ -532,6 +545,8 @@ export async function listRetenciones(f: FiltroRetenciones = {}): Promise<Retenc
     if (f.desde) q = q.gte('factura_fecha', f.desde);
     if (f.hasta) q = q.lte('factura_fecha', f.hasta);
     if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
+    // Multi-empresa: la columna la pone/copia la base (R13). Solo filtra si se pidió.
+    if (f.empresaId) q = q.eq('empresa_id', f.empresaId);
     if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
     return q;
   });
@@ -581,6 +596,13 @@ export interface NuevaRetencion {
   sustraendo?: number;
   montoRetenido: number;
   observacion?: string | null;
+  /**
+   * Multi-empresa: la empresa receptora. El registro suelto inserta una línea SIN
+   * documento cabecera, así que la empresa elegida se marca directamente en la
+   * línea (D1b). Solo viaja si viene (single-empresa no la manda). El camino de
+   * factura marca la empresa en la cabecera (ver FacturaNueva).
+   */
+  empresaId?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -639,6 +661,9 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     servicio_directo_id: input.docKind === 'servicio_directo' ? input.docId ?? null : null,
     actor: input.actor, actor_name: input.actorName ?? null,
     updated_at: new Date().toISOString(),
+    // Multi-empresa (D1b): el registro suelto inserta una línea SIN cabecera, así que la
+    // empresa elegida se marca aquí mismo. Solo viaja si viene (single-empresa no la manda).
+    ...(input.empresaId ? { empresa_id: input.empresaId } : {}),
   };
 }
 
@@ -681,19 +706,12 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
   // R3: la UT (y los % del IVA) de la fecha de la factura. Antes de pedir el número: si falta, no se gasta.
   const vigente = await configDeFecha(config, (input.facturaFecha ?? '').slice(0, 10), [input.tipo]);
 
-  // Con V2R, el número de una practicada lo asigna la base. Solo viaja si se escribió a mano: «dado».
-  // Sin V2R (la base de hoy), el front lo pide con siguiente_numero_retencion y lo arma AAAAMM + 8.
-  let numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
-  if (!(await v2rDisponible())) {
-    if (llevaNumeroPropio(input)) {
-      const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(input.tipo), p_periodo: input.periodo });
-      if (error) throw error;
-      const entero = Number(data);
-      if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
-      numero = { entero, texto: formatoComprobante(input.periodo, entero, input.tipo) };
-    }
-  } else if (numero.texto && input.direccion === 'practicada') {
-    // V2R: la serie (si numera y su formato) sale de retencion_impuestos; sin R2, las reglas fijas.
+  // La base numera cada practicada al insertar (único lugar donde dos usuarios no
+  // sacan el mismo). El número solo viaja desde el front si se escribió a mano: «dado».
+  const numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
+  if (numero.texto && input.direccion === 'practicada') {
+    // El número «dado» se valida con la serie (si numera y su formato) de
+    // retencion_impuestos; sin R2, con las reglas fijas del impuesto.
     const serie = await serieDeImpuesto(tipoAGt(input.tipo));
     const numera = serie ? serie.numera : llevaNumeroPropio(input);
     const formato = serie ? serie.formato : formatoSerie(input.tipo);
@@ -781,6 +799,8 @@ export interface CorrelativoEstimado {
 export async function consultarCorrelativoEstimado(
   tipo: TipoImpuesto,
   periodo: string,
+  formatoFicha?: ReturnType<typeof formatoSerie>,
+  empresaId?: string | null,
 ): Promise<CorrelativoEstimado> {
   if (tipo === 'igtf') {
     return {
@@ -792,8 +812,10 @@ export async function consultarCorrelativoEstimado(
   }
 
   const tipoGt = tipoAGt(tipo);
-  const esIva = tipo === 'iva';
-  const fmt = formatoSerie(tipo);
+  // El formato sale de la ficha (R2) si el front lo pasa; si no, el mapeo fijo del tipo.
+  const fmt = formatoFicha !== undefined ? formatoFicha : formatoSerie(tipo);
+  // Con formato AAAAMM8 el número lleva el período adelante (hoy solo el IVA).
+  const esIva = fmt === 'AAAAMM8';
 
   try {
     let q = supabase
@@ -804,6 +826,11 @@ export async function consultarCorrelativoEstimado(
 
     if (esIva && periodo) {
       q = q.eq('comprobante_periodo', periodo);
+    }
+    // B2 (multi-empresa): cada empresa lleva su propia serie (R14). Si viene la empresa,
+    // el estimado cuenta solo sus retenciones, para que coincida con el número que asignará la base.
+    if (empresaId) {
+      q = q.eq('empresa_id', empresaId);
     }
 
     const { data } = await q
@@ -831,7 +858,7 @@ export async function consultarCorrelativoEstimado(
     }
 
     const siguienteNumero = maxNum + 1;
-    const compTexto = formatoComprobante(periodo, siguienteNumero, tipo);
+    const compTexto = formatoComprobante(periodo, siguienteNumero, tipo, fmt);
 
     return {
       numero: siguienteNumero,
@@ -842,7 +869,7 @@ export async function consultarCorrelativoEstimado(
         : `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} (${compTexto}).`,
     };
   } catch {
-    const compTexto = formatoComprobante(periodo, 1, tipo);
+    const compTexto = formatoComprobante(periodo, 1, tipo, fmt);
     return {
       numero: 1,
       comprobante: compTexto,

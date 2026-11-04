@@ -40,7 +40,7 @@ vi.mock('@/shared/lib/supabase', () => {
   };
 });
 
-import { cargarFacturaBuzon, crearFacturaBuzon, faltaEnFacturaBuzon, listFacturasBuzon, actualizarEstatusFacturaBuzon, eliminarFacturaBuzon, type NuevaFacturaBuzonInput } from './facturasBuzon.repository';
+import { cargarFacturaBuzon, crearFacturaBuzon, faltaEnFacturaBuzon, listFacturasBuzon, actualizarEstatusFacturaBuzon, eliminarFacturaBuzon, rotuloNumeroFactura, numeralFactura, ultimaCreacionBuzon, type NuevaFacturaBuzonInput } from './facturasBuzon.repository';
 import { listEmpresasReceptoras, guardarEmpresaReceptora, eliminarEmpresaReceptora, faltaEnEmpresa, claveDeEmpresa } from './empresasReceptoras.repository';
 import { obtenerUrlAdjunto, prepararImagenesParaSubida } from './adjuntosBuzon';
 
@@ -257,5 +257,36 @@ describe('Empresas receptoras · solo las de la base', () => {
 
   it('la clave sale del nombre, en minúsculas y sin acentos', () => {
     expect(claveDeEmpresa('  Compañía Ñandú, C.A. ')).toBe('compania_nandu_c_a');
+  });
+});
+
+describe('Buzón · rótulo del número de factura (C-i: R12 lo hizo opcional)', () => {
+  it('con número: «N° X» / «#X»', () => {
+    expect(rotuloNumeroFactura('000123')).toBe('N° 000123');
+    expect(numeralFactura('000123')).toBe('#000123');
+    expect(rotuloNumeroFactura('  45 ')).toBe('N° 45');
+  });
+  it('sin número (vacío/espacios/null/undefined): «(sin número)», no un rótulo colgando', () => {
+    for (const v of ['', '   ', null, undefined]) {
+      expect(rotuloNumeroFactura(v)).toBe('(sin número)');
+      expect(numeralFactura(v)).toBe('(sin número)');
+    }
+  });
+});
+
+describe('Buzón · sello de creación más reciente (C-i: avisar por sello, no por conteo)', () => {
+  const f = (createdAt: string) => ({ createdAt });
+  it('devuelve el createdAt máximo, sin depender del orden', () => {
+    expect(ultimaCreacionBuzon([f('2026-10-20T10:00:00Z'), f('2026-10-21T08:00:00Z'), f('2026-10-19T23:00:00Z')]))
+      .toBe('2026-10-21T08:00:00Z');
+  });
+  it('lista vacía → cadena vacía', () => {
+    expect(ultimaCreacionBuzon([])).toBe('');
+  });
+  it('detecta una nueva aunque el conteo no cambie (entra 1, sale 1)', () => {
+    // Antes: [A(20), B(21)] → sello 21. Después: [A(20), C(22)] (B borrada, C nueva) → sello 22 > 21.
+    const antes = ultimaCreacionBuzon([f('2026-10-20T10:00:00Z'), f('2026-10-21T10:00:00Z')]);
+    const despues = ultimaCreacionBuzon([f('2026-10-20T10:00:00Z'), f('2026-10-22T10:00:00Z')]);
+    expect(despues > antes).toBe(true);
   });
 });

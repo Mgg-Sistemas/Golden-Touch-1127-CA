@@ -21,6 +21,7 @@ import type { CuentaCaja } from '@/shared/lib/types';
 import type { VehiculoCatalogo } from '@/modules/asignaciones/vehiculosCatalogo';
 import {
   tipoViajeDe, cantidadViajes, tasasDeConductor, codificarObservacionesConTasas, esCargoDeChofer,
+  CLASIFICACIONES_BASE, claveDeClasificacion, type ClasificacionViaje,
   type Liquidacion, type LineaRecibo, type Parada, type ReciboCalculado, type TipoViaje, type TasasChofer,
 } from './choferes';
 import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from './archivosChofer';
@@ -34,7 +35,7 @@ const T_DOCS = 'choferes_documentos';
 /** Bucket privado del módulo (lee quien ve Choferes; sube quien escribe). */
 const BUCKET_DOCS = 'choferes-documentos';
 
-export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_DOCS, T_FLOTA, 'personal', 'rrhh_descansos', 'choferes_descansos_config'];
+export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_DOCS, T_FLOTA, 'personal', 'rrhh_descansos', 'choferes_descansos_config', 'choferes_clasificaciones_viaje'];
 
 /* ───────────── Tipos ───────────── */
 
@@ -475,8 +476,10 @@ function filaViaje(i: ViajeInput) {
 
   const notaOriginal = limpio(i.nota) || '';
   let notaFinal = notaOriginal;
-  if (i.categoria_viaje && !notaFinal.includes('[CAT:')) {
-    notaFinal = `${notaFinal ? notaFinal + ' ' : ''}[CAT: ${i.categoria_viaje.trim().toUpperCase()}]`;
+  if (i.categoria_viaje) {
+    // Al cambiar la clasificación se reemplaza la marca vieja (antes quedaba la primera).
+    const tag = `[CAT: ${i.categoria_viaje.trim().toUpperCase()}]`;
+    notaFinal = /\[CAT:[^\]]*\]/i.test(notaFinal) ? notaFinal.replace(/\[CAT:[^\]]*\]/i, tag) : `${notaFinal ? notaFinal + ' ' : ''}${tag}`;
   }
   if (i.pagado_at && !notaFinal.includes('[PAGADO:')) {
     notaFinal = `${notaFinal ? notaFinal + ' ' : ''}[PAGADO: ${i.pagado_at.slice(0, 10)}]`;
@@ -1108,4 +1111,76 @@ export async function eliminarConductor(c: Pick<Conductor, 'id'>): Promise<void>
   if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
   // Desde la base no se pueden borrar archivos del Storage: se quitan desde acá, ya borrado el expediente.
   if (paths.length) await supabase.storage.from(BUCKET_DOCS).remove(paths).catch(() => undefined);
+}
+
+/* ───────────── Clasificaciones de viaje (03-11-2026) ─────────────
+   Catálogo editable (corto, largo, interno y las nuevas) con su tarifa. La clave
+   es la que queda en choferes_viajes.categoria_viaje y la base no deja cambiarla. */
+
+const T_CLASIF = 'choferes_clasificaciones_viaje';
+
+function normClasif(c: Record<string, unknown>): ClasificacionViaje {
+  return {
+    id: String(c.id),
+    clave: String(c.clave ?? '').trim().toUpperCase(),
+    nombre: String(c.nombre ?? ''),
+    icono: String(c.icono ?? '') || '🏷',
+    tarifa_usd: Number(c.tarifa_usd) || 0,
+    activo: c.activo !== false,
+    orden: Number(c.orden) || 0,
+  };
+}
+
+/** Todas (activas e inactivas), en orden. Si la tabla aún no está, las tres de siempre. */
+export async function listClasificacionesViaje(): Promise<ClasificacionViaje[]> {
+  const { data, error } = await supabase.from(T_CLASIF).select('*').order('orden').order('nombre');
+  if (error) {
+    if (esTablaFaltante(error)) return CLASIFICACIONES_BASE.map((c) => ({ ...c }));
+    throw err(error, 'No se pudieron cargar las clasificaciones de viaje.');
+  }
+  const lista = (data ?? []).map((c) => normClasif(c as Record<string, unknown>));
+  return lista.length ? lista : CLASIFICACIONES_BASE.map((c) => ({ ...c }));
+}
+
+export interface ClasificacionInput {
+  nombre: string;
+  icono: string;
+  tarifa_usd: number | null;
+  activo: boolean;
+  orden: number | null;
+}
+
+function validarClasif(i: ClasificacionInput, existentes: readonly ClasificacionViaje[], id?: string) {
+  const nombre = limpio(i.nombre);
+  if (!nombre) throw new Error('Indica el nombre de la clasificación (ej. «Viaje mina»).');
+  if (nombre.length > 60) throw new Error('El nombre es muy largo (máximo 60 caracteres).');
+  const tarifa = r2(i.tarifa_usd);
+  if (!(tarifa >= 0)) throw new Error('La tarifa no puede ser negativa.');
+  const repetido = existentes.find((c) => c.id !== id && c.nombre.trim().toLowerCase() === nombre.toLowerCase());
+  if (repetido) throw new Error(`Ya existe la clasificación «${repetido.nombre}».`);
+  return { nombre, icono: limpio(i.icono) || '🏷', tarifa_usd: tarifa, activo: i.activo, orden: Math.round(Number(i.orden) || 0) };
+}
+
+export async function crearClasificacionViaje(i: ClasificacionInput, existentes: readonly ClasificacionViaje[], actor: string): Promise<ClasificacionViaje> {
+  const f = validarClasif(i, existentes);
+  const clave = claveDeClasificacion(f.nombre);
+  if (existentes.some((c) => c.clave === clave)) throw new Error(`Ya existe una clasificación con la clave «${clave}».`);
+  const orden = f.orden || (Math.max(0, ...existentes.map((c) => c.orden)) + 1);
+  const { data, error } = await supabase.from(T_CLASIF).insert({ ...f, orden, clave, created_by: actor, updated_by: actor }).select('*').single();
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error('Ya existe una clasificación con ese nombre.');
+    throw err(error, 'No se pudo crear la clasificación.');
+  }
+  return normClasif(data as Record<string, unknown>);
+}
+
+/** Cambia nombre, ícono, tarifa, orden o la activa/desactiva. La clave no se toca. */
+export async function editarClasificacionViaje(id: string, i: ClasificacionInput, existentes: readonly ClasificacionViaje[], actor: string): Promise<void> {
+  const f = validarClasif(i, existentes, id);
+  const { data, error } = await supabase.from(T_CLASIF).update({ ...f, updated_by: actor }).eq('id', id).select('id');
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error('Ya existe una clasificación con ese nombre.');
+    throw err(error, 'No se pudo guardar la clasificación.');
+  }
+  if (!data?.length) throw new Error('No se pudo guardar: sin permiso o la clasificación ya no existe.');
 }

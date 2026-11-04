@@ -1,5 +1,9 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { AdjuntoOferta, FichaOferta, ItemOrden, OfertaProveedor } from '@/shared/lib/types';
+import type { AdjuntoOferta, FichaOferta, ItemOrden, OfertaProveedor, Producto } from '@/shared/lib/types';
+import { aplicarPlan, claveNombreFicha, planFichas, renglonesBase, type ConSkuOrden, type EleccionNombreInventario, type FichaMin } from './nombreInventario';
+import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
+import { asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -42,6 +46,55 @@ export interface CrearOfertaInput {
   adjuntos?: AdjuntoOferta[] | null;
   /** Ficha del producto ofertado + costos logísticos. */
   ficha?: FichaOferta | null;
+}
+
+/** Producto ACTIVO fuera del Depósito Mina que se llama igual (sin acentos ni mayúsculas), o null. */
+async function productoActivoPorNombre(nombre: string): Promise<Producto | null> {
+  const patron = nombre.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data, error } = await supabase
+    .from('productos').select('*')
+    .eq('estado', 'activo').neq('almacen', ALMACEN_MINA)
+    .ilike('nombre', patron).limit(5);
+  if (error) throw error;
+  const k = claveNombreFicha(nombre);
+  return ((data ?? []) as Producto[]).find((p) => claveNombreFicha(p.nombre) === k) ?? null;
+}
+
+/**
+ * «Se guarda en inventario como» (03/11/2026, de MGG): antes de guardar la cotización,
+ * cada renglón queda ligado al producto del inventario con que va a entrar al recibir.
+ *  · El que eligió un producto existente toma su id, SKU, nombre y unidad.
+ *  · El que necesita un producto nuevo lo crea UNA vez (Inventario General, stock 0, SKU
+ *    correlativo de su categoría); si en la base ya hay uno activo que se llama igual
+ *    (alguien lo creó mientras tanto), se usa ese.
+ * Nunca renombra un producto existente. `elecciones` va por el sku que el renglón tiene
+ * ahora (las variantes de marca siguen a su renglón base).
+ */
+export async function ligarRenglonesAInventario<T extends ItemOrden>(
+  items: T[],
+  elecciones: Record<string, EleccionNombreInventario | undefined>,
+  catalogo: FichaMin[],
+  actorEmail: string,
+): Promise<{ items: ConSkuOrden<T>[]; creadas: Producto[] }> {
+  const plan = planFichas(renglonesBase(items).map((item) => ({ item, eleccion: elecciones[item.sku] })), catalogo);
+  if (plan.error) throw new Error(plan.error);
+  const fichaPorSku = new Map<string, FichaMin>();
+  for (const [sku, d] of plan.destinos) if (d.tipo === 'ficha') fichaPorSku.set(sku, d.ficha);
+  const creadas: Producto[] = [];
+  for (const c of plan.crear) {
+    let ficha = await productoActivoPorNombre(c.nombre);
+    if (!ficha) {
+      const categoria = await asegurarCategoria(c.categoria, actorEmail);
+      const sku = await nextSku(categoria);
+      ficha = await createProducto({
+        sku, nombre: c.nombre, categoria, unidad: c.unidad,
+        stock: 0, stock_min: 0, precio: 0, almacen: 'General', estado: 'activo',
+      });
+      creadas.push(ficha);
+    }
+    for (const sku of c.skus) fichaPorSku.set(sku, ficha);
+  }
+  return { items: aplicarPlan(items, fichaPorSku), creadas };
 }
 
 /** Etiquetas legibles de las condiciones de pago. */

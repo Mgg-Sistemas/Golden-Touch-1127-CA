@@ -383,7 +383,7 @@ export async function generarDocComprobanteArcPdf(
   const canonicoArc = `SENIAT|ARC|ISLR|${config.rif || EMPRESA_RIF}|${datos.proveedorRif}|${datos.anio}|${datos.totalBaseBs.toFixed(2)}|${datos.totalRetenidoBs.toFixed(2)}`;
   let hashSha256 = '';
   let qrDataUrl: string | null = null;
-  const conQr = opciones.incluirQr ?? true;
+  const conQr = opciones.incluirQr ?? config?.incluirQr ?? true;
 
   if (conQr) {
     try {
@@ -526,10 +526,10 @@ export async function verComprobanteArcPdf(
   const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
     ?? (!permitirDoble ? 'estandar' : ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos'));
-  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
-  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true));
-  let conSello = disp.tieneSello && (opciones.incluirSello ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true));
-  let conQr = opciones.incluirQr ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConQr') !== 'false' : true);
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (config?.incluirLogo ?? true));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (config?.incluirFirma ?? true));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (config?.incluirSello ?? true));
+  let conQr = opciones.incluirQr ?? (config?.incluirQr ?? true);
 
   const generarDoc = () => anexarPaginasArcPdf(datos, config, {
     modoEjemplar,
@@ -633,24 +633,20 @@ export async function verComprobanteArcPdf(
       if (disp.tieneLogo) {
         toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
           conLogo = v;
-          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneFirma) {
         toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
           conFirma = v;
-          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch { /* ignorar */ }
         }));
       }
       if (disp.tieneSello) {
         toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
           conSello = v;
-          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch { /* ignorar */ }
         }));
       }
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
-        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch { /* ignorar */ }
       }));
 
       container.appendChild(toolbar);

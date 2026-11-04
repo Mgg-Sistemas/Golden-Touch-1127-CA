@@ -9,7 +9,7 @@
    cargarlas primero. Ninguna empresa es especial por su nombre.
    ============================================================ */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -18,13 +18,13 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { num, date, money } from '@/shared/lib/format';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
-import { rotuloImpuesto } from '@/modules/libroFiscal/rotulos';
 import {
-  listEmpresasReceptoras, guardarEmpresaReceptora, eliminarEmpresaReceptora, faltaEnEmpresa,
-  type EmpresaReceptora, type EmpresaReceptoraInput,
+  listEmpresasReceptoras, eliminarEmpresaReceptora,
+  type EmpresaReceptora,
 } from './empresasReceptoras.repository';
 import {
   listFacturasBuzon, actualizarEstatusFacturaBuzon, eliminarFacturaBuzon,
+  numeralFactura, ultimaCreacionBuzon,
   type FacturaBuzon, type EstatusFacturaBuzon,
 } from './facturasBuzon.repository';
 import { obtenerUrlAdjunto, type AdjuntoFacturaItem } from './adjuntosBuzon';
@@ -41,6 +41,8 @@ import {
   lanzarAvisoFactura,
 } from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
+import { EmpresaEditor } from './EmpresaEditor';
+import { estadoRetencionDeBuzon, badgeEstadoRetencion } from './estadoRetencion';
 
 /** Cómo se dice cada estado del buzón en pantalla (la clave interna no se muestra). */
 const ROTULO_ESTADO_BUZON: Record<EstatusFacturaBuzon, string> = {
@@ -63,12 +65,6 @@ const rotuloEstadoBuzon = (e: string) => ROTULO_ESTADO_BUZON[e as EstatusFactura
 const motivoDeError = (e: unknown, porDefecto = 'No se pudo completar la operación. Vuelve a intentarlo.') =>
   (e instanceof Error && e.message.trim() ? e.message : porDefecto);
 
-const COLOR_POR_DEFECTO = '#2563eb';
-const esColorValido = (c: string | null | undefined) => /^#[0-9a-fA-F]{6}$/.test(String(c ?? ''));
-
-/** Límites de la base para la ficha de la empresa. */
-const LARGO = { nombre: 200, nombreCorto: 60, telefono: 40, direccion: 500, municipio: 100, estado: 100, licencia: 60 } as const;
-
 /** Totales en Bs (sin las descartadas). El equivalente en $ solo si todas lo tienen. */
 function totalizar(facs: readonly FacturaBuzon[]) {
   const vigentes = facs.filter((f) => f.estatus !== 'descartada');
@@ -78,7 +74,7 @@ function totalizar(facs: readonly FacturaBuzon[]) {
   return { bs, usd, vigentes: vigentes.length };
 }
 
-export function BuzonFacturasExternasView() {
+export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac: FacturaBuzon) => void } = {}) {
   const { can } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
 
@@ -105,7 +101,9 @@ export function BuzonFacturasExternasView() {
   const [sonidoActivo, setSonidoActivo] = useState(isSonidoRetencionesHabilitado());
   const [avisosActivos, setAvisosActivos] = useState(isAvisosPantallaHabilitados());
   const [permisoNotif, setPermisoNotif] = useState(getEstadoPermisoNotificacion());
-  const prevCountRef = useRef<number | null>(null);
+  // Por el SELLO de creación más reciente, no por el conteo: si entra 1 y se borra 1
+  // en la misma recarga el conteo no cambia pero el sello sí, y el aviso no se pierde (C-i).
+  const prevUltimaCreacionRef = useRef<string | null>(null);
 
   const cargarDatos = useCallback(async (reproducirSonido = false) => {
     try {
@@ -115,13 +113,14 @@ export function BuzonFacturasExternasView() {
       ]);
       setEmpresas(empr);
 
-      // Si llegaron nuevas facturas desde el último render, sonar arpegio y alertar en pantalla/móvil
-      if (reproducirSonido && prevCountRef.current !== null && facs.length > prevCountRef.current) {
+      // Si llegaron nuevas facturas desde el último render (sello más nuevo), sonar arpegio y alertar.
+      const ultima = ultimaCreacionBuzon(facs);
+      if (reproducirSonido && prevUltimaCreacionRef.current !== null && ultima > prevUltimaCreacionRef.current) {
         const facMasReciente = facs[0];
         lanzarAvisoFactura(facMasReciente, { conSonido: true });
         toast('🔔 Llegó una factura nueva al buzón', 'info');
       }
-      prevCountRef.current = facs.length;
+      prevUltimaCreacionRef.current = ultima;
       setFacturas(facs);
       setErrorCarga(null);
     } catch (e) {
@@ -500,7 +499,7 @@ export function BuzonFacturasExternasView() {
                           </small>
                         </td>
                         <td style={{ padding: '0.65rem 0.8rem' }}>
-                          <strong style={{ fontFamily: 'var(--font-mono)' }}>#{fac.facturaNumero}</strong>
+                          <strong style={{ fontFamily: 'var(--font-mono)' }}>{numeralFactura(fac.facturaNumero)}</strong>
                           {fac.facturaControl && (
                             <small className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
                               N° de control: {fac.facturaControl}
@@ -557,9 +556,23 @@ export function BuzonFacturasExternasView() {
                               {rotuloEstadoBuzon(fac.estatus)}
                             </span>
                           )}
+                          {(() => {
+                            const b = badgeEstadoRetencion(estadoRetencionDeBuzon(fac.estatus));
+                            return <div style={{ marginTop: '0.3rem' }}><span className={b.className} title={b.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px' }}>{b.label}</span></div>;
+                          })()}
                         </td>
                         <td style={{ padding: '0.65rem 0.8rem', textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center' }}>
+                            {onRegistrar && canWrite && fac.estatus !== 'retenida' && fac.estatus !== 'descartada' && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-primary"
+                                onClick={() => onRegistrar(fac)}
+                                title="Registrar la retención de esta factura en el Libro Fiscal de su empresa"
+                              >
+                                ✍ Retener
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="btn btn-sm"
@@ -612,7 +625,7 @@ export function BuzonFacturasExternasView() {
       {/* Modal: Compartir WhatsApp directo */}
       {whatsappFac && (
         <Modal
-          title={`WhatsApp · Factura #${whatsappFac.facturaNumero}`}
+          title={`WhatsApp · Factura ${numeralFactura(whatsappFac.facturaNumero)}`}
           onClose={() => setWhatsappFac(null)}
           size="md"
         >
@@ -629,7 +642,7 @@ export function BuzonFacturasExternasView() {
       {facturaABorrar && canWrite && (
         <ConfirmDialog
           title="¿Borrar esta factura del buzón?"
-          message={`Se borrará la factura #${facturaABorrar.facturaNumero} de ${facturaABorrar.proveedorNombre} con todos sus soportes.`}
+          message={`Se borrará la factura ${numeralFactura(facturaABorrar.facturaNumero)} de ${facturaABorrar.proveedorNombre} con todos sus soportes.`}
           confirmText={borrandoFactura ? 'Borrando...' : 'Sí, borrar la factura'}
           danger
           onCancel={() => { if (!borrandoFactura) setFacturaABorrar(null); }}
@@ -671,17 +684,20 @@ export function BuzonFacturasExternasView() {
         />
       )}
 
-      {/* Modal de Ficha Fiscal Completa de una Empresa (para Retención / Impuestos) */}
+      {/* Identidad de la empresa — editor ÚNICO EmpresaEditor (C4b, modo identidad). Lo fiscal, en Parámetros. */}
       {empresaFichaEditar && canWrite && (
-        <ModalFichaFiscalEmpresa
-          empresa={empresaFichaEditar}
-          onClose={() => setEmpresaFichaEditar(null)}
-          onGuardada={(actualizada) => {
-            setEmpresaFichaEditar(null);
-            void cargarDatos(false);
-            toast(`Ficha fiscal de ${actualizada.nombreCorto || actualizada.nombre} guardada`, 'success');
-          }}
-        />
+        <Modal title={`Empresa · ${empresaFichaEditar.nombreCorto || empresaFichaEditar.nombre}`} onClose={() => setEmpresaFichaEditar(null)} size="md">
+          <EmpresaEditor
+            modo="identidad"
+            empresa={empresaFichaEditar}
+            onClose={() => setEmpresaFichaEditar(null)}
+            onGuardada={(actualizada) => {
+              setEmpresaFichaEditar(null);
+              void cargarDatos(false);
+              toast(`Datos de ${actualizada.nombreCorto || actualizada.nombre} guardados`, 'success');
+            }}
+          />
+        </Modal>
       )}
 
       {/* Modal de Reporte Fiscal por Empresa */}
@@ -751,7 +767,7 @@ function ModalDetalleFactura({
 
   return (
     <Modal
-      title={`Factura #${factura.facturaNumero} · ${factura.proveedorNombre}`}
+      title={`Factura ${numeralFactura(factura.facturaNumero)} · ${factura.proveedorNombre}`}
       onClose={onClose}
       size="lg"
     >
@@ -790,7 +806,7 @@ function ModalDetalleFactura({
           </div>
           <div>
             <small className="muted" style={{ display: 'block' }}>NÚMERO / CONTROL</small>
-            <strong>Factura #{factura.facturaNumero}</strong>
+            <strong>Factura {numeralFactura(factura.facturaNumero)}</strong>
             {factura.facturaControl && (
               <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>N° de control: {factura.facturaControl}</div>
             )}
@@ -901,41 +917,9 @@ function ModalGestionEmpresas({
   onEditarFichaFiscal: (emp: EmpresaReceptora) => void;
   onVerReporte: (emp: EmpresaReceptora) => void;
 }) {
-  const [nuevaNombre, setNuevaNombre] = useState('');
-  const [nuevaRif, setNuevaRif] = useState('');
-  const [errorNueva, setErrorNueva] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
+  // C4b: el alta rápida usa el editor único EmpresaEditor (modo rápido); acá solo el padrón (lista + borrar).
   const [empresaABorrar, setEmpresaABorrar] = useState<EmpresaReceptora | null>(null);
   const [borrando, setBorrando] = useState(false);
-
-  const handleCrearRapida = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!canWrite) return;
-    const input: EmpresaReceptoraInput = {
-      nombre: nuevaNombre.trim(),
-      rif: nuevaRif.trim(),
-      colorBadge: COLOR_POR_DEFECTO,
-      activo: true,
-    };
-    const falta = faltaEnEmpresa(input);
-    if (falta) {
-      setErrorNueva(falta);
-      return;
-    }
-    setErrorNueva(null);
-    setGuardando(true);
-    try {
-      const emp = await guardarEmpresaReceptora(input);
-      setNuevaNombre('');
-      setNuevaRif('');
-      toast(`Empresa ${emp.nombreCorto || emp.nombre} agregada`, 'success');
-      onActualizado();
-    } catch (err) {
-      setErrorNueva(motivoDeError(err));
-    } finally {
-      setGuardando(false);
-    }
-  };
 
   const confirmarBorrado = async () => {
     if (!empresaABorrar || borrando) return;
@@ -1007,8 +991,6 @@ function ModalGestionEmpresas({
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
                         RIF: <strong>{emp.rif || 'Sin RIF'}</strong>
                         {emp.municipio && ` · ${emp.municipio}${emp.estado ? `, ${emp.estado}` : ''}`}
-                        {emp.esAgenteRetencionIva && ` · Agente de retención de ${rotuloImpuesto('IVA')}`}
-                        {emp.esContribuyenteEspecial && ' · Contribuyente especial'}
                         {` · ${cantidad} ${cantidad === 1 ? 'factura' : 'facturas'}`}
                       </div>
                     </div>
@@ -1050,42 +1032,15 @@ function ModalGestionEmpresas({
           </div>
         )}
 
-        {/* Agregar una empresa nueva */}
+        {/* Agregar una empresa nueva — editor ÚNICO EmpresaEditor (C4b, modo rápido, crear) */}
         {canWrite && (
-          <form onSubmit={handleCrearRapida} style={{ background: 'var(--surface-1)', padding: '0.85rem', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
-            <strong style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.4rem' }}>
-              ➕ Agregar una empresa
-            </strong>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', alignItems: 'center' }}>
-              <input
-                type="text"
-                className="input sm"
-                placeholder="Razón social (ej. Minera del Sur C.A.)"
-                value={nuevaNombre}
-                maxLength={LARGO.nombre}
-                onChange={(e) => { setNuevaNombre(e.target.value); setErrorNueva(null); }}
-                required
-              />
-              <input
-                type="text"
-                className="input sm"
-                placeholder="RIF (ej. J123456789)"
-                value={nuevaRif}
-                onChange={(e) => { setNuevaRif(e.target.value); setErrorNueva(null); }}
-                required
-              />
-              <button type="submit" className="btn btn-sm btn-primary" disabled={guardando}>
-                {guardando ? 'Guardando...' : 'Agregar'}
-              </button>
-            </div>
-            {errorNueva && (
-              <small style={{ display: 'block', color: 'var(--danger)', fontSize: '0.78rem', marginTop: '0.35rem' }}>{errorNueva}</small>
-            )}
+          <div style={{ background: 'var(--surface-1)', padding: '0.85rem', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+            <strong style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.4rem' }}>➕ Agregar una empresa</strong>
+            <EmpresaEditor modo="rapido" onGuardada={(emp) => { toast(`Empresa ${emp.nombreCorto || emp.nombre} agregada`, 'success'); onActualizado(); }} />
             <small className="muted" style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.78rem' }}>
-              El RIF se puede escribir con o sin guiones: se guarda completo. Después toca «✏️ Ficha fiscal» para completar el domicilio, la licencia municipal y el régimen.
+              El RIF se puede escribir con o sin guiones: se guarda completo. Después toca «✏️ Ficha fiscal» para el domicilio y contacto, y en Parámetros → Config fiscal por empresa la alícuota municipal, la licencia y la emisión.
             </small>
-          </form>
+          </div>
         )}
       </div>
 
@@ -1103,322 +1058,6 @@ function ModalGestionEmpresas({
   );
 }
 
-/* ────────────────────────────────────────────────────────────
-   Modal de Ficha Fiscal Completa de una Empresa (Impuestos/Retención)
-   ──────────────────────────────────────────────────────────── */
-function ModalFichaFiscalEmpresa({
-  empresa, onClose, onGuardada,
-}: {
-  empresa: EmpresaReceptora;
-  onClose: () => void;
-  onGuardada: (emp: EmpresaReceptora) => void;
-}) {
-  const [nombre, setNombre] = useState(empresa.nombre);
-  const [nombreCorto, setNombreCorto] = useState(empresa.nombreCorto || '');
-  const [rif, setRif] = useState(empresa.rif || '');
-  const [colorBadge, setColorBadge] = useState(esColorValido(empresa.colorBadge) ? empresa.colorBadge : COLOR_POR_DEFECTO);
-  const [activo, setActivo] = useState(empresa.activo);
-  const [email, setEmail] = useState(empresa.email || '');
-  const [telefono, setTelefono] = useState(empresa.telefono || '');
-
-  const [direccionFiscal, setDireccionFiscal] = useState(empresa.direccionFiscal || '');
-  const [municipio, setMunicipio] = useState(empresa.municipio || '');
-  const [estado, setEstado] = useState(empresa.estado || '');
-  const [licenciaMunicipal, setLicenciaMunicipal] = useState(empresa.licenciaMunicipal || '');
-
-  const [esAgenteRetencionIva, setEsAgenteRetencionIva] = useState(empresa.esAgenteRetencionIva ?? true);
-  const [esContribuyenteEspecial, setEsContribuyenteEspecial] = useState(empresa.esContribuyenteEspecial ?? false);
-  const [retieneIslr, setRetieneIslr] = useState(empresa.retieneIslr ?? true);
-  const [retieneMunicipal, setRetieneMunicipal] = useState(empresa.retieneMunicipal ?? false);
-  const [pctIvaGeneral, setPctIvaGeneral] = useState(empresa.pctIvaGeneral ?? 75);
-  const [imprimirOriginalYCopia, setImprimirOriginalYCopia] = useState(empresa.imprimirOriginalYCopia ?? true);
-
-  const [error, setError] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
-
-  // Las opciones de % de retención de IVA; si la ficha trae otro valor, también se muestra.
-  const opcionesPct = pctIvaGeneral === 75 || pctIvaGeneral === 100 ? [75, 100] : [75, 100, pctIvaGeneral];
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-
-    const input: EmpresaReceptoraInput = {
-      id: empresa.id,
-      clave: empresa.clave,
-      nombre: nombre.trim(),
-      nombreCorto: nombreCorto.trim() || undefined,
-      rif: rif.trim(),
-      colorBadge,
-      activo,
-      orden: empresa.orden,
-      email: email.trim() || undefined,
-      telefono: telefono.trim() || undefined,
-      direccionFiscal: direccionFiscal.trim() || undefined,
-      municipio: municipio.trim() || undefined,
-      estado: estado.trim() || undefined,
-      licenciaMunicipal: licenciaMunicipal.trim() || undefined,
-      esAgenteRetencionIva,
-      esContribuyenteEspecial,
-      retieneIslr,
-      retieneMunicipal,
-      pctIvaGeneral,
-      imprimirOriginalYCopia,
-    };
-
-    const falta = !esColorValido(colorBadge) ? 'Elige el color de la empresa.' : faltaEnEmpresa(input);
-    if (falta) {
-      setError(falta);
-      return;
-    }
-
-    setGuardando(true);
-    setError(null);
-
-    try {
-      const emp = await guardarEmpresaReceptora(input);
-      onGuardada(emp);
-    } catch (err) {
-      setError(motivoDeError(err));
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  const etiqueta = { display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.2rem' } as const;
-
-  return (
-    <Modal title={`Ficha fiscal · ${empresa.nombreCorto || empresa.nombre}`} onClose={onClose} size="lg">
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
-        {/* 1. Identificación Principal */}
-        <div className="buzon-ficha-fiscal-seccion">
-          <h4>🏢 Identificación fiscal</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.6rem', marginBottom: '0.5rem' }}>
-            <div>
-              <label style={etiqueta}>Razón social *</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                value={nombre}
-                maxLength={LARGO.nombre}
-                onChange={(e) => { setNombre(e.target.value); setError(null); }}
-                required
-              />
-            </div>
-            <div>
-              <label style={etiqueta}>Nombre corto (cómo se ve en las listas)</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                value={nombreCorto}
-                maxLength={LARGO.nombreCorto}
-                onChange={(e) => { setNombreCorto(e.target.value); setError(null); }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.6rem' }}>
-            <div>
-              <label style={etiqueta}>RIF *</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                placeholder="J123456789"
-                value={rif}
-                onChange={(e) => { setRif(e.target.value); setError(null); }}
-                required
-              />
-              <small className="muted" style={{ fontSize: '0.72rem' }}>Con o sin guiones: se guarda completo.</small>
-            </div>
-
-            <div>
-              <label style={etiqueta}>Correo de la empresa</label>
-              <input
-                type="email"
-                className="input sm"
-                style={{ width: '100%' }}
-                placeholder="impuestos@empresa.com"
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); setError(null); }}
-              />
-            </div>
-
-            <div>
-              <label style={etiqueta}>Teléfono de contacto</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                placeholder="+58 414..."
-                value={telefono}
-                maxLength={LARGO.telefono}
-                onChange={(e) => setTelefono(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* 2. Domicilio Fiscal */}
-        <div className="buzon-ficha-fiscal-seccion">
-          <h4>📍 Domicilio fiscal</h4>
-          <div style={{ marginBottom: '0.5rem' }}>
-            <label style={etiqueta}>Dirección fiscal completa (sale en los comprobantes)</label>
-            <input
-              type="text"
-              className="input sm"
-              style={{ width: '100%' }}
-              placeholder="Av. Principal, Edificio..., Ciudad"
-              value={direccionFiscal}
-              maxLength={LARGO.direccion}
-              onChange={(e) => setDireccionFiscal(e.target.value)}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.6rem' }}>
-            <div>
-              <label style={etiqueta}>Municipio</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                placeholder="Ej. Caroní"
-                value={municipio}
-                maxLength={LARGO.municipio}
-                onChange={(e) => setMunicipio(e.target.value)}
-              />
-            </div>
-            <div>
-              <label style={etiqueta}>Estado</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                placeholder="Ej. Bolívar"
-                value={estado}
-                maxLength={LARGO.estado}
-                onChange={(e) => setEstado(e.target.value)}
-              />
-            </div>
-            <div>
-              <label style={etiqueta}>N° de licencia municipal (patente)</label>
-              <input
-                type="text"
-                className="input sm"
-                style={{ width: '100%' }}
-                value={licenciaMunicipal}
-                maxLength={LARGO.licencia}
-                onChange={(e) => setLicenciaMunicipal(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* 3. Régimen Tributario y Retenciones */}
-        <div className="buzon-ficha-fiscal-seccion">
-          <h4>⚖️ Régimen y condición de agente de retención</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.6rem', marginBottom: '0.6rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={esAgenteRetencionIva}
-                onChange={(e) => setEsAgenteRetencionIva(e.target.checked)}
-              />
-              <span>Agente de retención de {rotuloImpuesto('IVA')}</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={esContribuyenteEspecial}
-                onChange={(e) => setEsContribuyenteEspecial(e.target.checked)}
-              />
-              <span>Contribuyente especial</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={retieneIslr}
-                onChange={(e) => setRetieneIslr(e.target.checked)}
-              />
-              <span>Retiene {rotuloImpuesto('ISLR')}</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={retieneMunicipal}
-                onChange={(e) => setRetieneMunicipal(e.target.checked)}
-              />
-              <span>Retiene {rotuloImpuesto('MUNICIPAL')}</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={imprimirOriginalYCopia}
-                onChange={(e) => setImprimirOriginalYCopia(e.target.checked)}
-              />
-              <span>Comprobantes con original y copia</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={activo}
-                onChange={(e) => setActivo(e.target.checked)}
-              />
-              <span>Activa (aparece al cargar facturas)</span>
-            </label>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.82rem', fontWeight: 700 }}>% de retención de {rotuloImpuesto('IVA')}:</label>
-              <select
-                className="select sm"
-                value={pctIvaGeneral}
-                onChange={(e) => setPctIvaGeneral(Number(e.target.value))}
-              >
-                {opcionesPct.map((p) => (
-                  <option key={p} value={p}>
-                    {p === 75 ? '75 % (general)' : `${num(p)} %`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <label style={{ fontSize: '0.82rem', fontWeight: 700 }}>Color de la empresa:</label>
-              <input
-                type="color"
-                value={colorBadge}
-                onChange={(e) => setColorBadge(e.target.value)}
-                style={{ width: '36px', height: '36px', padding: 0, border: 'none', borderRadius: 'var(--r-sm)' }}
-                title="Color que identifica sus facturas y reportes"
-              />
-            </div>
-          </div>
-        </div>
-
-        {error && (
-          <div className="aviso danger sm">{error}</div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.6rem', marginTop: '0.4rem' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={guardando} style={{ fontWeight: 800 }}>
-            {guardando ? 'Guardando la ficha...' : '💾 Guardar la ficha fiscal'}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
 
 /* ────────────────────────────────────────────────────────────
    Modal de Reporte Fiscal por Empresa

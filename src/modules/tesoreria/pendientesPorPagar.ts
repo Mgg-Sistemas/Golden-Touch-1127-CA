@@ -60,6 +60,116 @@ export interface SegmentoPendiente {
   subBs: number;
 }
 
+/* ───────────── «Por preparar»: cuánto se paga, NATIVO por moneda ─────────────
+   Cada compromiso cuenta en UNA sola moneda: la de su método de pago. NO se
+   reconvierte (el total en Bs no es el total en $ por la tasa). Así Tesorería sabe
+   cuánto preparar realmente en divisa (USD/USDT) y cuánto en bolívares, por separado.
+   Lo que aún no tiene método elegido va a «Sin método asignado» (ahí sí $ y Bs de
+   referencia, porque no se sabe en qué moneda se pagará). */
+
+/** Una combinación método × moneda con su total NATIVO (en esa moneda). */
+export interface PreparacionLinea {
+  metodo: string;
+  metodoLabel: string;
+  moneda: string;      // USD, USDT, Bs, COP…
+  monto: number;       // en `moneda`, nativo (sin reconversión)
+  nOrdenes: number;
+}
+
+/** Total por moneda (suma de las líneas de esa moneda), nativo e independiente. */
+export interface PreparacionTotalMoneda {
+  moneda: string;
+  monto: number;
+  nOrdenes: number;
+}
+
+export interface PreparacionPorPagar {
+  /** Desglose por método y moneda, cada monto en su moneda. */
+  porMetodoMoneda: PreparacionLinea[];
+  /** Totales por moneda (USD, USDT, Bs…), independientes entre sí. */
+  totalesPorMoneda: PreparacionTotalMoneda[];
+  /** Compromisos aún sin método elegido: en $ y Bs como referencia (no entran en los totales nativos). */
+  sinMetodo: { usd: number; bs: number; nOrdenes: number };
+}
+
+/** true si la moneda es divisa (todo lo que no es Bs). Para el badge Divisa/Bolívares. */
+export function esMonedaDivisa(moneda: string): boolean {
+  return (moneda || '').toUpperCase() !== 'BS';
+}
+
+const ORDEN_MONEDA = ['USD', 'USDT', 'Bs', 'COP'];
+const ordenMoneda = (m: string): number => {
+  const i = ORDEN_MONEDA.indexOf(m);
+  return i < 0 ? ORDEN_MONEDA.length : i;
+};
+
+/**
+ * Calcula «Por preparar» a partir de las filas ya filtradas por pagar. Reglas:
+ *  · OC/CS con UN solo método → el total de la orden va a (método, su moneda), nativo
+ *    (si la moneda es Bs usa el equivalente Bs; si es divisa usa el monto en $).
+ *  · OC/CS con pago PARTIDO → cada pata suma su `monto` en su `moneda`.
+ *  · OC/CS esperando método, y toda compra/servicio directo → «Sin método asignado».
+ *  Los totales por moneda son independientes: un pago en Bs NO aparece en el total de divisa.
+ */
+export function calcularPreparacion(input: {
+  ocRows: OrdenPorPagar[];       // OC + CS (ambas `OrdenPorPagar`)
+  comprasPP: CompraDirecta[];
+  serviciosPP: ServicioDirecto[];
+  tasa: number;
+}): PreparacionPorPagar {
+  const { ocRows, comprasPP, serviciosPP } = input;
+  const tasa = Number(input.tasa) || 0;
+  const map = new Map<string, PreparacionLinea>();
+  const sinMetodo = { usd: 0, bs: 0, nOrdenes: 0 };
+
+  const add = (metodo: string, moneda: string, monto: number) => {
+    const mon = moneda || 'USD';
+    const key = `${metodo}|${mon}`;
+    const cur = map.get(key);
+    if (cur) { cur.monto = redondear2(cur.monto + monto); cur.nOrdenes += 1; }
+    else map.set(key, { metodo, metodoLabel: labelMetodoPago(metodo), moneda: mon, monto: redondear2(monto), nOrdenes: 1 });
+  };
+  const aSinMetodo = (usd: number, bs: number) => {
+    sinMetodo.usd = redondear2(sinMetodo.usd + usd);
+    sinMetodo.bs = redondear2(sinMetodo.bs + bs);
+    sinMetodo.nOrdenes += 1;
+  };
+
+  for (const r of ocRows) {
+    const usd = Number(r.montoAPagar || 0);
+    const bs = tasa > 0 ? redondear2(usd * tasa) : 0;
+    const metodos = (r.orden.metodo_pago ?? []).filter(Boolean);
+    if (r.esperandoMetodo || metodos.length === 0) { aSinMetodo(usd, bs); continue; }
+    if (metodos.length === 1) {
+      const m = metodos[0];
+      const moneda = m.moneda || 'USD';
+      add(m.metodo, moneda, moneda === 'Bs' ? bs : usd);   // nativo, sin reconvertir
+    } else {
+      for (const m of metodos) add(m.metodo, m.moneda || 'USD', Number(m.monto) || 0);
+    }
+  }
+  // Los directos aún no eligen método: van a «Sin método asignado».
+  for (const c of comprasPP) { const { usd, bs } = normMonto(c.gasto, c.moneda, tasa); aSinMetodo(usd, bs); }
+  for (const s of serviciosPP) {
+    const total = Number(s.gasto) || 0;
+    const pend = s.con_abonos ? Math.max(0, total - (Number(s.abonado_total) || 0)) : total;
+    const { usd, bs } = normMonto(pend, s.moneda, tasa);
+    aSinMetodo(usd, bs);
+  }
+
+  const porMetodoMoneda = Array.from(map.values()).sort(
+    (a, b) => ordenMoneda(a.moneda) - ordenMoneda(b.moneda) || a.metodoLabel.localeCompare(b.metodoLabel, 'es-VE'),
+  );
+  const totMap = new Map<string, PreparacionTotalMoneda>();
+  for (const l of porMetodoMoneda) {
+    const t = totMap.get(l.moneda);
+    if (t) { t.monto = redondear2(t.monto + l.monto); t.nOrdenes += l.nOrdenes; }
+    else totMap.set(l.moneda, { moneda: l.moneda, monto: l.monto, nOrdenes: l.nOrdenes });
+  }
+  const totalesPorMoneda = Array.from(totMap.values()).sort((a, b) => ordenMoneda(a.moneda) - ordenMoneda(b.moneda));
+  return { porMetodoMoneda, totalesPorMoneda, sinMetodo };
+}
+
 export interface DatosPendientesPorPagar {
   /** Lo por pagar (SIN el crédito), solo los segmentos con filas. */
   segmentos: SegmentoPendiente[];
@@ -71,6 +181,8 @@ export interface DatosPendientesPorPagar {
   totUsd: number;
   totBs: number;
   totCant: number;
+  /** «Por preparar»: cuánto pagar nativo por método y moneda (sin reconversión). */
+  preparacion: PreparacionPorPagar;
   /** ISO del momento en que se armó. */
   generadoEn: string;
 }
@@ -226,6 +338,7 @@ export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPo
     totUsd: segmentos.reduce((a, s) => a + s.subUsd, 0),
     totBs: segmentos.reduce((a, s) => a + s.subBs, 0),
     totCant: segmentos.reduce((a, s) => a + s.filas.length, 0),
+    preparacion: calcularPreparacion({ ocRows: [...ocRows, ...csRows], comprasPP, serviciosPP, tasa }),
     generadoEn: e.generadoEn ?? new Date().toISOString(),
   };
 }

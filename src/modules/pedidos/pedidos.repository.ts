@@ -9,6 +9,8 @@ import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, reco
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
+import { errorRenglonesSinFicha } from './nombreInventario';
+import { columnasRetencionesCompras, normalizarRetencionesCompras, type RetencionesCompras } from './retencionesCompras';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { rotuloMarcaModelo, descripcionConMarcaModelo, marcaRecibida, cambioDeMarca } from '@/shared/lib/marcaModelo';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
@@ -1156,6 +1158,9 @@ export async function indicarMetodoPago(
     conDescuento?: boolean; descuentoMonto?: number;
     /** Número de administración del proveedor (lo ven Retenciones y Tesorería). */
     numeroAdministracion?: string | null;
+    /** Retenciones por tipo (03/11/2026): solo con factura y «¿cuándo se retiene?» marcado.
+     *  NO tocan `total`: neto = total − retenciones (ver retencionesCompras.ts). */
+    retenciones?: RetencionesCompras | null;
   },
   /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
    *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
@@ -1231,6 +1236,12 @@ export async function indicarMetodoPago(
       )
     : 0;
   const totalFinal = Math.max(0, Math.round((baseTotal + ivaMonto + igtfMonto - descuentoMonto) * 100) / 100);
+  // Retenciones por tipo (03/11/2026): solo con factura y con «¿cuándo se retiene?» marcado;
+  // si no, se limpian. El total NO cambia (sigue siendo el de la factura): el neto a pagar
+  // es total − retenciones y Tesorería lo precarga cuando se retiene ANTES de pagar.
+  const retencionesCompras = comprobanteTipo === 'factura' && retencionMomento
+    ? normalizarRetencionesCompras(soporte?.retenciones, totalFinal)
+    : null;
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
@@ -1254,7 +1265,8 @@ export async function indicarMetodoPago(
     // El `total` SIEMPRE se reescribe con base + IVA + IGTF − descuento: si solo se escribiera
     // al aplicar algo, quitar un impuesto dejaba el total viejo con el impuesto adentro.
     total: totalFinal,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, retencion_momento: retencionMomento, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa }),
+    ...columnasRetencionesCompras(retencionesCompras && retencionesCompras.total > 0 ? retencionesCompras : null),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, retencion_momento: retencionMomento, ...(retencionesCompras && retencionesCompras.total > 0 ? { retenciones_compras: retencionesCompras } : {}), iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -2478,6 +2490,14 @@ export async function recibirOrdenParcial(
   }
   if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
     throw new Error('Indica al menos una cantidad recibida.');
+  // «Se guarda en inventario como» (03/11/2026): un renglón con nombre genérico de la SP o
+  // un repuesto de Maquinaria que nunca recibió su producto NO se da por recibido. Abajo el
+  // alta de stock se salta los renglones sin `productoId`: la mercancía quedaba «recibida»
+  // y nunca entraba al inventario. Solo cuando la recepción mueve inventario.
+  if (ordenAfectaInventario(o)) {
+    const errFicha = errorRenglonesSinFicha(o.items, recMap);
+    if (errFicha) throw new Error(errFicha);
+  }
 
   // El despiece se revisa ANTES de mover un solo kilo: si los cortes no cuadran
   // con la canal, la recepción no empieza. Al revés quedaría la res adentro del

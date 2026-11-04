@@ -40,6 +40,7 @@ import {
 } from './depositos';
 import { listAlmacenes } from './almacenes.repository';
 import { FormSalidaMina, Listo, PorRetornarMina } from './SalidaMinaMovil';
+import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
 import type { SalidaMina } from './salidasMina';
 import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stockMinaWhatsapp';
@@ -57,7 +58,7 @@ const SIN_BUSCAR = 15;
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte' | 'traslado';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados';
 
 /** Vista de teléfono del Inventario General. */
 export function InventarioMovilView() {
@@ -236,6 +237,20 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             <small>Lo que hay en {DEP.nombre}, filtrado por fechas</small>
           </button>
 
+          {/* Histórico (03/11/2026): uno al lado del otro; en pantallas muy angostas se apilan. */}
+          <div className="surt-historicos">
+            <button type="button" className="surt-btn salida" onClick={() => setPaso('histSalidas')}>
+              <span className="icono" aria-hidden>🧾</span>
+              <span>Histórico de salidas</span>
+              <small>Las salidas de {DEP.nombre}: su PDF y su WhatsApp</small>
+            </button>
+            <button type="button" className="surt-btn traslado" onClick={() => setPaso('histTraslados')}>
+              <span className="icono" aria-hidden>🔁</span>
+              <span>Histórico de traslados</span>
+              <small>Los traslados de {DEP.nombre}: su PDF y su WhatsApp</small>
+            </button>
+          </div>
+
           {/* Enlaces a los demás depósitos */}
           {depositosDisponibles.filter((d) => d.almacen.toLowerCase() !== DEP.almacen.toLowerCase()).length > 0 && (
             <div style={{ marginTop: '1.25rem' }}>
@@ -269,6 +284,14 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
 
       {paso === 'reporte' && (
         <ReporteStock dep={DEP} productos={productos} quien={actorName ?? actor} onVolver={volver} />
+      )}
+
+      {paso === 'histSalidas' && puedeVerAlmacen(DEP.almacen) && (
+        <HistoricoSalidasMovil almacen={DEP.almacen} nombre={DEP.nombre} actor={actor} onVolver={volver} />
+      )}
+
+      {paso === 'histTraslados' && puedeVerAlmacen(DEP.almacen) && (
+        <HistoricoTrasladosMovil almacen={DEP.almacen} nombre={DEP.nombre} onVolver={volver} />
       )}
 
       {paso === 'nuevo' && (

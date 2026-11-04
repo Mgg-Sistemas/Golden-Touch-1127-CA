@@ -73,3 +73,32 @@
 .dlv-switch:disabled { opacity: .5; cursor: not-allowed; }
 .dlv-gps small { display: block; margin-top: .35rem; font-size: .8rem; }
 .dlv-gps .error { color: var(--warning); }
+
+/* 03/11/2026 · Mapa del motorizado, proveedor más cercano y ruta */
+.dlv-mapa { position: relative; margin-bottom: .75rem; }
+.dlv-mapa-lienzo {
+  height: clamp(220px, 38vh, 360px); border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--border);
+  isolation: isolate; position: relative; background: var(--surface-3);
+}
+.dlv-mapa-botones { position: absolute; top: .5rem; left: .5rem; z-index: 2; display: flex; gap: .35rem; }
+.dlv-mapa-botones .btn { background: var(--surface-2); box-shadow: 0 1px 4px rgba(0, 0, 0, .25); min-height: 34px; }
+.dlv-gps-aviso { margin: 0 0 .75rem; }
+.dlv-cercano {
+  display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+  border: 2px solid var(--success); border-radius: var(--r-lg); padding: .65rem .8rem; margin-bottom: .75rem;
+  background: color-mix(in srgb, var(--success) 10%, var(--surface-2));
+}
+.dlv-cercano .grande { font-size: 1.6rem; line-height: 1; }
+.dlv-cercano strong { display: block; font-size: 1rem; }
+.dlv-cercano small { color: var(--text-muted); font-size: .8rem; }
+.dlv-dist { display: inline-flex; align-items: center; gap: .25rem; font-size: .85rem; font-weight: 700; color: var(--primary-2); }
+.dlv-dist.sin { color: var(--text-muted); font-weight: 500; }
+.dlv-ruta {
+  border: 1px solid var(--primary); border-radius: var(--r-lg); background: var(--surface-2);
+  padding: .7rem .85rem; margin-bottom: .85rem; display: flex; flex-direction: column; gap: .5rem;
+}
+.dlv-ruta-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
+.dlv-ruta-tramos { margin: 0; padding-left: 1.1rem; font-size: .88rem; }
+.dlv-ruta-total { font-weight: 800; font-size: 1.05rem; }
+.dlv-ruta .btn { min-height: 48px; font-weight: 700; justify-content: center; text-decoration: none; }
+.dlv-marcar { border: 1px dashed var(--warning); border-radius: var(--r-md); padding: .55rem .65rem; display: grid; gap: .45rem; font-size: .88rem; }

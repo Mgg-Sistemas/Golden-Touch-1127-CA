@@ -24,9 +24,11 @@
    paga necesita a quién, cuánto y por dónde; el detalle de qué se compró vive
    en la OC y en su PDF, que es donde se revisa.
    ============================================================ */
-import type { Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
+import type { OfertaProveedor, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
+import { lineasCotizacionesAprobacion } from './cotizacionesAprobacion';
 import { BANCOS_VE } from '@/shared/lib/bancos';
+import { leerRetencionesCompras, lineasRetencion, netoAPagarCompras, pctTexto, type CamposRetencionesCompras } from './retencionesCompras';
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
 function num(n: number | null | undefined): string {
@@ -70,6 +72,16 @@ function nombreDe(identificador: string | null | undefined, personas?: Map<strin
  * analista de compras encargado (el que elaboró la OC o indicó el método de pago).
  * Se muestra siempre Nombre y Apellido, nunca correo electrónico.
  */
+/** Fecha y hora de aprobación en hora de Venezuela (dd/mm/aaaa hh:mm a. m.). */
+export function fechaAprobacion(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('es-VE', {
+    timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+
 function lineasPersonas(o: Orden, personas: Map<string, string> | undefined, conAutorizo: boolean): string[] {
   const L: string[] = [];
   const unidad = o.unidad_solicitante?.trim();
@@ -80,6 +92,9 @@ function lineasPersonas(o: Orden, personas: Map<string, string> | undefined, con
   if (conAutorizo) {
     const autorizo = nombreDe(o.oc_aprobada_por || o.aprobada_por, personas);
     if (autorizo) L.push(`✅ *Autorizó:* ${autorizo}`);
+    // 03/11/2026: cuándo se aprobó la orden (lo pidió la usuaria para la orden pendiente por pagar).
+    const aprobada = fechaAprobacion(o.oc_aprobada_en || o.aprobada_en);
+    if (aprobada) L.push(`📅 *Aprobada el:* ${aprobada}`);
   }
   const analistaRaw = o.oc_creada_por || o.oc_emitida_por || o.metodo_pago_por;
   if (analistaRaw) {
@@ -200,10 +215,19 @@ export function textoOrdenPagar(
   // IGTF o un descuento por encima de las líneas.
   const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
   L.push(`💵 *Total:* ${monto(totalOrden, moneda)}`);
+  // Retenciones por tipo que indicó Compras (03/11/2026). ANTES de pagar: bajan el monto
+  // (neto a pagar). DESPUÉS: se informan y se paga el total completo.
+  const ret = leerRetencionesCompras(o as Orden & CamposRetencionesCompras);
+  if (ret && !esCredito) {
+    for (const r of lineasRetencion(ret)) L.push(`🔻 *Retención ${r.corta}${r.pct > 0 ? ` (${pctTexto(r.pct)})` : ''}:* −${monto(r.monto, moneda)}`);
+    if (ret.momento === 'antes_de_pagar') L.push(`✅ *Neto a pagar:* ${monto(netoAPagarCompras(totalOrden, ret.total), moneda)}`);
+    else L.push(`🧾 *Se paga completo:* ${monto(totalOrden, moneda)} (retenciones después del pago)`);
+  }
   // Lo que se paga en bolívares a la tasa BCV del día (29/10/2026). En crédito con
   // abonos se convierte el saldo, que es lo que de verdad se manda a pagar.
   const aPagar = esCredito && (Number(o.abonado_total) || 0) > 0
     ? Math.max(0, totalOrden - (Number(o.abonado_total) || 0))
+    : ret && !esCredito && ret.momento === 'antes_de_pagar' ? netoAPagarCompras(totalOrden, ret.total)
     : totalOrden;
   const lineaBs = lineaMontoBs(aPagar, moneda, tasaUsd);
   if (lineaBs) L.push(lineaBs);
@@ -246,7 +270,16 @@ export function textoOrdenPagar(
  * aprobación. Lleva lo que se necesita para decidir —quién pide, a quién se le compra,
  * qué y cuánto cuesta— y nada del pago, que todavía no se indica en esta etapa.
  */
-export function textoOrdenAprobacion(o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>): string {
+export function textoOrdenAprobacion(
+  o: Orden, proveedor: Proveedor | null, personas?: Map<string, string>,
+  /** Todas las cotizaciones de la solicitud (02/11/2026): numeradas, en $ y Bs, la elegida
+   *  y qué analista la escogió. Sin ofertas el aviso sale como antes. */
+  cotizaciones?: {
+    ofertas: OfertaProveedor[];
+    nombreProveedor: (proveedorId: string) => string | null | undefined;
+    tasaUsd?: number | null;
+  },
+): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
   const esServicio = o.tipo === 'servicio';
@@ -266,6 +299,10 @@ export function textoOrdenAprobacion(o: Orden, proveedor: Proveedor | null, pers
 
   const nota = o.notas?.trim();
   if (nota) L.push(`📌 *Nota:* ${nota}`);
+  const lineasCot = cotizaciones
+    ? lineasCotizacionesAprobacion(o, cotizaciones.ofertas, { ...cotizaciones, personas })
+    : [];
+  if (lineasCot.length) L.push('', ...lineasCot, '');
   const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
   L.push(`💵 *Total:* ${monto(totalOrden, moneda)}`);
   L.push('', '🏢 GOLDEN TOUCH 1127 C.A.');

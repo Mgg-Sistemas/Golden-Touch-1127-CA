@@ -8,7 +8,7 @@
    solo_documento) y sobre él la decisión. Sin R10, no se ofrece.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { tablaDisponible } from './disponibilidad';
+import { tablaDisponible, regimenPorEmpresaDisponible } from './disponibilidad';
 import { errorRetencion } from './erroresRetencion';
 import { pFacturaDe } from './retencionFacturas.repository';
 import { tipoDeGt } from './retencionesFiscal.repository';
@@ -42,13 +42,18 @@ export async function noAplicaPorOrden(
 }
 
 /**
- * Los impuestos que la empresa practica a esa fecha, según su Régimen (R1, vía R10).
- * Sin R10 devuelve null: la pantalla sigue mostrando todos, como antes.
+ * Los impuestos que la empresa practica a esa fecha, según su Régimen (L6), leídos de
+ * la ÚNICA fuente: la RPC retencion_empresa_practica (la base decide IVA=agente|especial,
+ * IGTF=especial|percepción, resto=agente_retención). D2: con el régimen por empresa en la
+ * base (detector) y una empresa dada, se consulta por ESA empresa (RPC de 3 args); si no,
+ * la global de GT (2 args), como hoy. Sin R10 devuelve null: la pantalla muestra todos.
  */
-export async function impuestosQuePractica(claves: string[], fecha: string): Promise<Set<string> | null> {
+export async function impuestosQuePractica(claves: string[], fecha: string, empresaId?: string | null): Promise<Set<string> | null> {
   if (!(await noAplicaDisponible())) return null;
+  const porEmpresa = !!empresaId && (await regimenPorEmpresaDisponible());
   const res = await Promise.all(claves.map(async (c) => {
-    const { data, error } = await supabase.rpc('retencion_empresa_practica', { p_impuesto: c, p_fecha: fecha });
+    const args = porEmpresa ? { p_empresa: empresaId, p_impuesto: c, p_fecha: fecha } : { p_impuesto: c, p_fecha: fecha };
+    const { data, error } = await supabase.rpc('retencion_empresa_practica', args);
     if (error) throw errorRetencion(error, 'No se pudo leer el régimen de la empresa.');
     return data === true ? c : null;
   }));

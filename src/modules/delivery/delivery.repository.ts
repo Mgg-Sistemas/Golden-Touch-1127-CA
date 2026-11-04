@@ -25,6 +25,7 @@ import type { PagoMetodo } from '@/shared/lib/types';
 import {
   INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, type FotoDelivery, type OrigenDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';
+import { puntoValido, type LugarDelivery, type PuntoMapa, type UbicacionesProveedores } from './deliveryRutas';
 
 const BUCKET = 'delivery-fotos';
 
@@ -142,6 +143,38 @@ export async function subirFotosDelivery(
   return fotos;
 }
 
+/**
+ * 03/11/2026 · Editar las fotos de un pedido YA ENTREGADO (supabase/2026-11-03-delivery-editar-fotos.sql):
+ * sube las nuevas (comprimidas), anota la lista final con `delivery_editar_fotos` (admin, escritura en
+ * Delivery o el motorizado que lo entregó; queda en el historial) y recién después borra del bucket los
+ * archivos quitados — desde la app, porque Supabase no deja borrar storage.objects desde SQL.
+ */
+export async function editarFotosDelivery(
+  pedidoId: string, tipo: 'recibo' | 'entrega', quedan: FotoDelivery[], nuevos: File[], quitadas: FotoDelivery[],
+): Promise<{ fotos: FotoDelivery[]; sinBorrar: number }> {
+  if (quedan.length + nuevos.length > MAX_FOTOS_DELIVERY) throw new Error(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`);
+  const subidas = await Promise.all(nuevos.map(async (original) => {
+    const f = await comprimirImagen(original).catch(() => original);
+    const path = `${pedidoId}/${tipo}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${seguro(f.name)}`;
+    const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert: false, contentType: f.type || 'image/jpeg' });
+    if (error) throw new Error(`No se pudo subir «${original.name}»: ${error.message}`);
+    return { path, filename: original.name };
+  }));
+  const fotos = [...quedan, ...subidas];
+  const { error } = await supabase.rpc('delivery_editar_fotos', { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos });
+  if (error) {
+    // No quedaron anotadas: se limpian las recién subidas para no dejar huérfanas.
+    if (subidas.length) await supabase.storage.from(BUCKET).remove(subidas.map((s) => s.path)).catch(() => {});
+    throw err(error, 'No se pudieron guardar las fotos.');
+  }
+  let sinBorrar = 0;
+  if (quitadas.length) {
+    const { data, error: e2 } = await supabase.storage.from(BUCKET).remove(quitadas.map((q) => q.path));
+    sinBorrar = e2 ? quitadas.length : Math.max(0, quitadas.length - (data?.length ?? 0));
+  }
+  return { fotos, sinBorrar };
+}
+
 export async function urlFotoDelivery(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw new Error('No se pudo abrir la foto.');
@@ -166,6 +199,90 @@ export async function listUbicaciones(): Promise<UbicacionDelivery[]> {
   return ((data ?? []) as UbicacionDelivery[]).map((u) => ({ ...u, lat: Number(u.lat), lng: Number(u.lng) }));
 }
 
+/* ───────────── 03/11/2026 · Mapa, rutas y proveedor más cercano ───────────── */
+
+/**
+ * Ubicación de esos proveedores (id → punto). Los que no la tienen no salen.
+ * (proveedores se puede leer con cualquier sesión; supabase/2026-11-03-delivery-mapa-rutas.sql)
+ */
+export async function listUbicacionesProveedores(ids: (string | null | undefined)[]): Promise<UbicacionesProveedores> {
+  const unicos = [...new Set(ids.filter((x): x is string => !!x))];
+  const out: UbicacionesProveedores = new Map();
+  if (!unicos.length) return out;
+  const { data, error } = await supabase.from('proveedores').select('id, lat, lng').in('id', unicos).not('lat', 'is', null);
+  if (error) throw err(error, 'No se pudieron leer las ubicaciones de los proveedores.');
+  for (const r of (data ?? []) as Array<{ id: string; lat: unknown; lng: unknown }>) {
+    const p = puntoValido(r.lat, r.lng);
+    if (p) out.set(r.id, p);
+  }
+  return out;
+}
+
+/** El motorizado marca la ubicación del proveedor (sin ubicación) donde está parado. */
+export async function ubicarProveedorDesdeDelivery(proveedorId: string, punto: PuntoMapa): Promise<void> {
+  const { error } = await supabase.rpc('delivery_ubicar_proveedor', { p_proveedor_id: proveedorId, p_lat: punto.lat, p_lng: punto.lng });
+  if (error) throw err(error, 'No se pudo guardar la ubicación del proveedor.');
+}
+
+/** Puntos fijos de la ruta (Almacén Los Pinos). */
+export async function listLugaresDelivery(): Promise<LugarDelivery[]> {
+  const { data, error } = await supabase.from('delivery_lugares').select('clave, nombre, lat, lng, actualizado_en, actualizado_por');
+  if (error) throw err(error, 'No se pudieron leer los lugares de Delivery.');
+  return ((data ?? []) as LugarDelivery[]).map((l) => ({
+    ...l, lat: l.lat == null ? null : Number(l.lat), lng: l.lng == null ? null : Number(l.lng),
+  }));
+}
+
+/** Marca (o mueve) un punto fijo. Moverlo ya marcado: admin o Delivery con permiso completo. */
+export async function fijarLugarDelivery(clave: string, punto: PuntoMapa): Promise<void> {
+  const { error } = await supabase.rpc('delivery_fijar_lugar', { p_clave: clave, p_lat: punto.lat, p_lng: punto.lng });
+  if (error) throw err(error, 'No se pudo guardar el lugar.');
+}
+
+/**
+ * Lo que hace falta para las rutas, en vivo: la ubicación de esos proveedores y
+ * los puntos fijos (Almacén Los Pinos). Se vuelve a leer si cambian los
+ * proveedores (realtime de `proveedores` / `delivery_lugares`) o la lista de ids.
+ */
+export function useUbicacionesRuta(proveedorIds: (string | null | undefined)[]): {
+  provs: UbicacionesProveedores; lugares: LugarDelivery[]; recargar: () => void;
+} {
+  const clave = [...new Set(proveedorIds.filter(Boolean))].sort().join(',');
+  const [provs, setProvs] = useState<UbicacionesProveedores>(() => new Map());
+  const [lugares, setLugares] = useState<LugarDelivery[]>([]);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    void listUbicacionesProveedores(clave ? clave.split(',') : []).then((m) => { if (vivo) setProvs(m); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [clave, n]);
+  useEffect(() => {
+    let vivo = true;
+    void listLugaresDelivery().then((l) => { if (vivo) setLugares(l); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [n]);
+  useRealtime(['proveedores', 'delivery_lugares'], () => setN((x) => x + 1));
+  return { provs, lugares, recargar: () => setN((x) => x + 1) };
+}
+
+export interface PuntoRastro { pedido_id: string; lat: number; lng: number; en: string }
+
+/** El recorrido de esos pedidos (en orden), para dibujarlo en el mapa de la PC. */
+export async function listRastroDelivery(pedidoIds: (string | null | undefined)[]): Promise<Map<string, PuntoRastro[]>> {
+  const ids = [...new Set(pedidoIds.filter((x): x is string => !!x))];
+  const out = new Map<string, PuntoRastro[]>();
+  if (!ids.length) return out;
+  const { data, error } = await supabase.from('delivery_rastro').select('pedido_id, lat, lng, en')
+    .in('pedido_id', ids).order('en', { ascending: true }).limit(2000);
+  if (error) throw err(error, 'No se pudo leer el recorrido.');
+  for (const r of (data ?? []) as PuntoRastro[]) {
+    const lista = out.get(r.pedido_id) ?? [];
+    lista.push({ ...r, lat: Number(r.lat), lng: Number(r.lng) });
+    out.set(r.pedido_id, lista);
+  }
+  return out;
+}
+
 /** Fila cruda del histórico (cada toma, incluidas las canceladas aunque la OC se haya retomado). */
 export interface FilaHistorialCruda {
   id: string; orden_id: string; estado: string; repartidor_nombre: string | null; repartidor_email: string | null;
@@ -178,13 +295,15 @@ export interface FilaHistorialCruda {
   orden: {
     oc_codigo: string | null; codigo: string; total: number; moneda: string | null; proveedor_id: string | null;
     unidad_solicitante?: string | null; solicitante?: string | null;
+    /** 02/11/2026: si Almacén la recibió por su cuenta, la toma viva se ve cerrada «Recibida por Almacén». */
+    recibida_en?: string | null;
   } | null;
 }
 
 /** Histórico directo de la tabla (incluye cada cancelación aunque la OC se haya retomado). */
 export async function listHistorialDelivery(desde: string, hasta: string): Promise<FilaHistorialCruda[]> {
   const { data, error } = await supabase.from('delivery_pedidos')
-    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id, unidad_solicitante, solicitante)')
+    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id, unidad_solicitante, solicitante, recibida_en)')
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59.999-04:00`)
     .order('aceptado_en', { ascending: false });
   if (error) throw err(error, 'No se pudo leer el histórico.');

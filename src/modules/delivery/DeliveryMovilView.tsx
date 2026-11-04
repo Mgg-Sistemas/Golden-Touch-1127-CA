@@ -25,35 +25,44 @@
      pedido sigue libre para los demás (al que lo marcó ya no le sale).
    · La tarjeta ya no trae la lista de renglones: dice «📦 N productos» y
      «📋 Ver orden» la despliega (y «Ocultar orden» la pliega).
+   · «Entregado» de una OC la deja RECIBIDA en Inventario (Almacén Los Pinos /
+     General): ya no se elige almacén. Si Almacén la recibió antes por su
+     cuenta, el pedido se cierra («Recibida por Almacén») y sale del teléfono.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { nombreYApellido, quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
-import type { Almacen } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { Quien } from '@/shared/ui/Quien';
 import {
-  ALMACEN_RETIRO, ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery, destinoRetiro,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, almacenRecepcion, almacenVisible, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery, destinoRetiro,
   esRetiroAlmacen, etiquetaEstado, fechaHoraVE, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
   mensajeNoDisponible, montoTxt, motivoNoDisponible, ocDe, type FotoDelivery, type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, compartirUbicacion, listPedidosDelivery, listRechazosDelivery, marcarEnRuta, marcarEntregado,
-  rechazarPedido, subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado,
+  cancelarPedido, compartirUbicacion, fijarLugarDelivery, listPedidosDelivery, listRechazosDelivery, marcarEnRuta, marcarEntregado,
+  rechazarPedido, subirFotosDelivery, tomarPedido, ubicarProveedorDesdeDelivery, urlFotoDelivery, useDeliveryConectado, useUbicacionesRuta,
 } from './delivery.repository';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
+import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
+import { parsearCoordenadas } from '@/modules/proveedores/ubicacionProveedor';
 import { textoReportePedido } from './deliveryReporte';
 import {
-  armarFeed, debeEnviarUbicacion, enChip, errorUbicacion, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref, trabajoEnCurso,
+  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref, trabajoEnCurso,
   type ChipDelivery, type EnvioGps, type PedidoFeed,
 } from './deliveryMovil';
+import {
+  LUGAR_LOS_PINOS, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, masCercano, ordenarDisponibles, paradasRuta,
+  entregaEnLosPinos, puntoLugar, puntoRecogida, urlGoogleMapsRuta, yaRecogido, type ParadaRuta, type PuntoMapa, type RutaCalculada,
+} from './deliveryRutas';
+import { MapaMotorizado, type DestinoMapa } from './MapaMotorizado';
+import { usePosicionGps, type PosicionGps } from './usePosicionGps';
 import './deliveryMovil.css';
 
 /** GT no tiene sedes: el almacén se muestra con su nombre. */
@@ -94,7 +103,6 @@ export function DeliveryMovilView() {
   const [activos, setActivos] = useState<PedidoDelivery[]>([]);
   const [cerrados, setCerrados] = useState<PedidoDelivery[]>([]);
   const [rechazos, setRechazos] = useState<RechazoDelivery[]>([]);
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [chip, setChip] = useState<ChipDelivery>('todos');
   const [accion, setAccion] = useState<Accion | null>(null);
@@ -127,24 +135,86 @@ export function DeliveryMovilView() {
   }, [reload]);
   useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => { void reload().catch(() => {}); });
 
-  useEffect(() => {
-    let vivo = true;
-    // GT: el almacén principal (General · Peramanal) y los depósitos activos; sin subalmacenes.
-    listAlmacenes()
-      .then((as) => {
-        if (!vivo) return;
-        setAlmacenes(as.filter((a) => a.estado === 'activo' && !a.parent_id)
-          .sort((a, b) => (a.sede ?? '').localeCompare(b.sede ?? '', 'es') || a.nombre.localeCompare(b.nombre, 'es')));
-      })
-      .catch(() => { /* sin lista: se entrega en el almacén de la OC */ });
-    return () => { vivo = false; };
-  }, []);
 
   const uid = user?.id ?? null;
-  const feed = useMemo(() => armarFeed(activos, cerrados, rechazadosPor(rechazos, uid)), [activos, cerrados, rechazos, uid]);
+  const feedBase = useMemo(() => armarFeed(activos, cerrados, rechazadosPor(rechazos, uid)), [activos, cerrados, rechazos, uid]);
+
+  /* 03/11/2026 · Mi ubicación, proveedor más cercano y ruta. */
+  const gps = usePosicionGps(true);
+  const yo = gps.pos;
+  const idsProveedores = useMemo(() => activos.map((p) => p.proveedor_id), [activos]);
+  const { provs, lugares } = useUbicacionesRuta(idsProveedores);
+  const losPinos = useMemo(() => puntoLugar(lugares, LUGAR_LOS_PINOS), [lugares]);
+  // Distancia de donde estoy a donde se busca cada pedido (proveedor o Los Pinos).
+  const distancias = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const f of feedBase) {
+      const punto = puntoRecogida(f.p, provs, losPinos);
+      m.set(claveDelivery(f.p), yo && punto ? distanciaMetros(yo, punto) : null);
+    }
+    return m;
+  }, [feedBase, provs, losPinos, yo]);
+  const distDe = useCallback((p: PedidoDelivery) => distancias.get(claveDelivery(p)) ?? null, [distancias]);
+  // «Por tomar»: urgentes primero y, dentro, del más cercano al más lejano (los disponibles van seguidos en el feed).
+  const feed = useMemo(() => {
+    const orden = ordenarDisponibles(feedBase.filter((f) => f.disponible), (f) => distDe(f.p));
+    let i = 0;
+    return feedBase.map((f) => (f.disponible ? orden[i++] : f));
+  }, [feedBase, distDe]);
+  const cercano = useMemo(() => masCercano(feed.filter((f) => f.disponible).map((f) => ({ item: f, metros: distDe(f.p) }))), [feed, distDe]);
+  // Proveedores con OC por tomar en el mapa (uno por proveedor; los retiros van en Los Pinos).
+  const destinosMapa = useMemo<DestinoMapa[]>(() => {
+    const porProv = new Map<string, DestinoMapa>();
+    for (const f of feed) {
+      if (!f.disponible || esRetiroAlmacen(f.p) || !f.p.proveedor_id || porProv.has(f.p.proveedor_id)) continue;
+      const punto = provs.get(f.p.proveedor_id);
+      if (!punto) continue;
+      porProv.set(f.p.proveedor_id, {
+        clave: claveDelivery(f.p), nombre: f.p.proveedor_nombre ?? 'Proveedor', punto, metros: distDe(f.p),
+        cercano: !!cercano && cercano.item.p.proveedor_id === f.p.proveedor_id && !esRetiroAlmacen(cercano.item.p),
+      });
+    }
+    return [...porProv.values()];
+  }, [feed, provs, distDe, cercano]);
+
   const visibles = useMemo(() => feed.filter((f) => enChip(f, chip)), [feed, chip]);
   const cuenta = useMemo(() => Object.fromEntries(CHIPS.map((c) => [c.key, feed.filter((f) => enChip(f, c.key)).length])) as Record<ChipDelivery, number>, [feed]);
   const enCurso = trabajoEnCurso(feed);
+
+  // Ruta: la que se eligió con «🧭 Ver ruta» o, si no, la del pedido en curso.
+  const [rutaClave, setRutaClave] = useState<string | null>(null);
+  const [rutaOculta, setRutaOculta] = useState(false);
+  const claveRutaActiva = rutaClave ?? (!rutaOculta && enCurso ? claveDelivery(enCurso) : null);
+  const feedRuta = claveRutaActiva ? feed.find((f) => claveDelivery(f.p) === claveRutaActiva) ?? null : null;
+  // Lo entregado o cancelado ya no lleva ruta.
+  const pedidoRuta = feedRuta && (feedRuta.disponible || feedRuta.p.estado === 'aceptado' || feedRuta.p.estado === 'en_ruta') ? feedRuta.p : null;
+  // El punto de partida solo se mueve al andar más de 400 m (no se le pide a OSRM a cada paso).
+  const [yoRuta, setYoRuta] = useState<PuntoMapa | null>(null);
+  useEffect(() => {
+    if (!yo) return;
+    setYoRuta((prev) => (!prev || distanciaMetros(prev, yo) > RECALCULAR_RUTA_M ? { lat: yo.lat, lng: yo.lng } : prev));
+  }, [yo]);
+  const paradas = useMemo(() => (pedidoRuta ? paradasRuta(pedidoRuta, yoRuta, provs, losPinos) : []), [pedidoRuta, yoRuta, provs, losPinos]);
+  const claveParadas = claveRuta(paradas.map((x) => x.punto));
+  const paradasRef = useRef(paradas);
+  useEffect(() => { paradasRef.current = paradas; });
+  const [rutaCalc, setRutaCalc] = useState<{ clave: string; ruta: RutaCalculada } | null>(null);
+  useEffect(() => {
+    const ps = paradasRef.current;
+    if (ps.length < 2) return;
+    let vivo = true;
+    void calcularRuta(ps.map((x) => x.punto)).then((r) => { if (vivo) setRutaCalc({ clave: claveParadas, ruta: r }); });
+    return () => { vivo = false; };
+  }, [claveParadas]);
+  const rutaVigente = rutaCalc && rutaCalc.clave === claveParadas && paradas.length >= 2 ? rutaCalc.ruta : null;
+  const rutaMapa = useMemo(() => (pedidoRuta ? { ruta: rutaVigente, paradas } : null), [pedidoRuta, rutaVigente, paradas]);
+
+  function verRuta(p: PedidoDelivery) {
+    setRutaClave(claveDelivery(p));
+    setRutaOculta(false);
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* navegador viejo */ }
+  }
+  function quitarRuta() { setRutaClave(null); setRutaOculta(true); }
   const accionFeed = accion ? feed.find((f) => claveDelivery(f.p) === accion.clave) ?? null : null;
   const pedidoAccion = accionFeed?.p ?? null;
 
@@ -170,6 +240,9 @@ export function DeliveryMovilView() {
     try {
       await tomarPedido(p.orden_id, p.origen ?? 'compra');
       toast(`Aceptaste ${esRetiroAlmacen(p) ? `el retiro ${p.codigo}` : `la orden ${ocDe(p)}`}: va en camino.`, 'success');
+      // 03/11/2026: tras aceptarlo, el mapa muestra su ruta.
+      setRutaClave(claveDelivery(p));
+      setRutaOculta(false);
       hecho('En camino', mensajeAceptado(p, quien));
     } catch (e) {
       toast(errMsg(e, 'No se pudo aceptar el pedido'), 'error');
@@ -223,7 +296,21 @@ export function DeliveryMovilView() {
         </div>
       )}
 
-      {canWrite && <CompartirUbicacion pedido={enCurso} />}
+      {/* 03/11/2026: mapa con mi ubicación, los proveedores por tomar y la ruta. */}
+      <MapaMotorizado yo={yo} destinos={destinosMapa} losPinos={losPinos} ruta={rutaMapa}
+        onElegir={(k) => { const f = feed.find((x) => claveDelivery(x.p) === k); if (f) verRuta(f.p); }} />
+      {gps.error && !yo && (
+        <div className="aviso warning sm dlv-gps-aviso">
+          <span className="aviso-icono">📍</span>
+          <div>{gps.error} <span className="muted">Puedes seguir trabajando: los pedidos salen igual, sin distancias ni «más cercano».</span></div>
+        </div>
+      )}
+      {pedidoRuta && (
+        <PanelRuta p={pedidoRuta} paradas={paradas} ruta={rutaVigente} yo={yo} losPinos={losPinos}
+          puedeMarcarPinos={canWrite} onQuitar={quitarRuta} />
+      )}
+
+      {canWrite && <CompartirUbicacion pedido={enCurso} gps={gps} />}
 
       {listo && (
         <div className="surt-form">
@@ -237,7 +324,7 @@ export function DeliveryMovilView() {
         <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
       {accion?.tipo === 'entregar' && pedidoAccion && (
-        <FormEntregar p={pedidoAccion} almacenes={almacenes} quien={quien} onCancel={volver} onHecho={hecho} />
+        <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
       {accion?.tipo === 'no_disponible' && pedidoAccion && (
         <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
@@ -264,10 +351,27 @@ export function DeliveryMovilView() {
             </p>
           )}
 
+          {/* 03/11/2026: el más cercano de lo que está por tomar, como en las apps de delivery. */}
+          {cercano && (chip === 'todos' || chip === 'por_tomar') && (
+            <button type="button" className="dlv-cercano" onClick={() => verRuta(cercano.item.p)}>
+              <span className="grande" aria-hidden>📍</span>
+              <span style={{ minWidth: 0 }}>
+                <small>Más cercano a ti</small>
+                <strong>
+                  {esRetiroAlmacen(cercano.item.p) ? `📦 Retiro en ${ALMACEN_RETIRO}` : (cercano.item.p.proveedor_nombre ?? 'Proveedor')} · {distanciaTxt(cercano.metros)}
+                </strong>
+                <small>{esRetiroAlmacen(cercano.item.p) ? cercano.item.p.codigo : ocDe(cercano.item.p)} · toca para ver la ruta</small>
+              </span>
+            </button>
+          )}
+
           {visibles.map((f) => {
             const k = claveDelivery(f.p);
+            const sinPunto = !esRetiroAlmacen(f.p) && !!f.p.proveedor_id && !provs.has(f.p.proveedor_id);
             return (
               <TarjetaPedido key={k} f={f} canWrite={canWrite} ocupado={ocupado === k} bloqueado={!!ocupado}
+                metros={distDe(f.p)} sinPunto={sinPunto} yo={yo} rutaActiva={claveRutaActiva === k && !!pedidoRuta}
+                onRuta={() => verRuta(f.p)}
                 onTomar={() => void tomar(f.p)}
                 onNoDisponible={() => { setListo(null); setAccion({ tipo: 'no_disponible', clave: k }); }}
                 onEnRuta={() => void enRuta(f.p)}
@@ -293,13 +397,17 @@ export function DeliveryMovilView() {
 
 /* ── Una orden en el listado ── */
 
-function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponible, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onReporte, onFotos }: {
+function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, rutaActiva, onRuta, onTomar, onNoDisponible, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onReporte, onFotos }: {
   f: PedidoFeed; canWrite: boolean; ocupado: boolean; bloqueado: boolean;
+  /** 03/11/2026: distancia de donde estoy a donde se busca (null = sin GPS o sin punto). */
+  metros: number | null; sinPunto: boolean; yo: PosicionGps | null; rutaActiva: boolean; onRuta: () => void;
   onTomar: () => void; onNoDisponible: () => void; onEnRuta: () => void; onCancelar: () => void; onEntregar: () => void;
   onVerMensaje: () => void; onComprobante: () => void; onReporte: () => void; onFotos: () => void;
 }) {
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [verOrden, setVerOrden] = useState(false);
+  const [editarFotos, setEditarFotos] = useState(false);
+  const { isAdmin } = usePermissions();
   function verPdf() {
     setGenerandoPdf(true);
     import('./deliveryPdf').then((m) => m.pdfPedidoDelivery(f.p))
@@ -330,7 +438,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponibl
         </div>
         <div className="dlv-badges">
           {p.urgente && <span className="badge danger">🚨 Urgente</span>}
-          <span className={`badge ${estado.badge}`}>{estado.emoji} {disponible ? estado.label : etiquetaEstado(p.estado, p.origen)}</span>
+          <span className={`badge ${estado.badge}`}>{estado.emoji} {disponible ? estado.label : etiquetaEstado(p.estado, p.origen, p.motivo_cancel)}</span>
         </div>
       </div>
 
@@ -349,6 +457,15 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponibl
             : <div className="dlv-sub">📍 {p.proveedor_direccion}</div>)}
           {!p.proveedor_direccion && <div className="dlv-sub">Sin dirección cargada: pregúntale al analista.</div>}
         </div>
+      )}
+      {/* 03/11/2026: a cuánto está (proveedor o Los Pinos) y, si el proveedor no está en el mapa, marcarlo al llegar. */}
+      {(disponible || enCurso) && (
+        metros != null
+          ? <div className="dlv-dist">📍 a {distanciaTxt(metros)}{retiro ? ` de ${ALMACEN_RETIRO}` : ''}</div>
+          : sinPunto ? <div className="dlv-dist sin">📍 Proveedor sin ubicación en el mapa</div> : null
+      )}
+      {mioEnCurso && !retiro && sinPunto && canWrite && p.proveedor_id && (
+        <MarcarProveedorAqui proveedorId={p.proveedor_id} nombre={p.proveedor_nombre ?? 'el proveedor'} yo={yo} />
       )}
 
       {mioEnCurso && !retiro && (
@@ -414,6 +531,11 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponibl
       )}
 
       <div className="dlv-acciones">
+        {(disponible || mioEnCurso) && (
+          <button type="button" className={`btn ${rutaActiva ? 'btn-primary' : 'btn-ghost'}`} onClick={onRuta}>
+            {rutaActiva ? '🧭 Ruta en el mapa ↑' : '🧭 Ver ruta'}
+          </button>
+        )}
         {!retiro && <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>}
         {canWrite && disponible && (
           <div className="surt-grid2">
@@ -443,6 +565,10 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponibl
         {puedeVerMensaje && (
           <button type="button" className="btn btn-ghost" onClick={onVerMensaje}>💬 Ver mensaje de WhatsApp</button>
         )}
+        {/* 03/11/2026: el motorizado que lo entregó (o admin) corrige las fotos de un pedido entregado. */}
+        {!disponible && puedeEditarFotosDelivery(p, isAdmin, false) && (
+          <button type="button" className="btn btn-ghost" onClick={() => setEditarFotos(true)}>✏ Editar fotos</button>
+        )}
         {/* GT: reporte del pedido (PDF con vista previa y WhatsApp) en cuanto alguien lo tomó. */}
         {!!p.pedido_id && !disponible && (
           <div className="surt-grid2">
@@ -451,6 +577,11 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onNoDisponibl
           </div>
         )}
       </div>
+      {editarFotos && p.pedido_id && (
+        <EditarFotosDeliveryModal pedidoId={p.pedido_id} origen={p.origen} titulo={retiro ? p.codigo : ocDe(p)}
+          fotosRecibo={p.fotos_recibo} fotosEntrega={p.fotos_entrega}
+          onClose={() => setEditarFotos(false)} onGuardado={onFotos} />
+      )}
     </article>
   );
 }
@@ -582,12 +713,12 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
 
 /* ── Entregado en almacén ── */
 
-function FormEntregar({ p, almacenes, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; almacenes: Almacen[]; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+function FormEntregar({ p, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
   // 02/11/2026: el retiro de Almacén se entrega A una unidad / persona, no en un almacén.
   if (esRetiroAlmacen(p)) return <FormEntregarRetiro p={p} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
-  return <FormEntregarAlmacen p={p} almacenes={almacenes} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
+  return <FormEntregarAlmacen p={p} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
 }
 
 function FormEntregarRetiro({ p, quien, onCancel, onHecho }: {
@@ -698,28 +829,26 @@ function NoDisponibleModal({ p, quien, onCancel, onHecho }: {
   );
 }
 
-function FormEntregarAlmacen({ p, almacenes, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; almacenes: Almacen[]; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+/**
+ * 02/11/2026: la OC entregada queda RECIBIDA en Inventario (la base hace la recepción completa:
+ * stock, kardex y estado de la orden). Entra al almacén de la OC; sin almacén, al General
+ * = Almacén Los Pinos. Por eso ya no se elige el almacén aquí.
+ */
+function FormEntregarAlmacen({ p, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
-  const [almacen, setAlmacen] = useState(p.almacen_destino ?? '');
+  const almacen = almacenRecepcion(p);
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
-
-  // La OC trae su almacén; si no está entre los activos, igual se ofrece.
-  const opciones = useMemo(() => {
-    const ns = almacenes.map((a) => a.nombre);
-    return p.almacen_destino && !ns.includes(p.almacen_destino) ? [p.almacen_destino, ...ns] : ns;
-  }, [almacenes, p.almacen_destino]);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (!p.pedido_id) return;
-    if (!almacen) { toast('Elige el almacén donde lo entregaste.', 'error'); return; }
     setGuardando(true);
     try {
       await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
-      toast(`Orden ${ocDe(p)} entregada.`, 'success');
-      onHecho('Entregado en almacén', mensajeEntregado(p, quien, nombreAlmacenVisible(almacen), nota));
+      toast(`Orden ${ocDe(p)} entregada y recibida en Inventario (${almacenVisible(almacen)}).`, 'success');
+      onHecho('Entregado en almacén', mensajeEntregado(p, quien, almacenVisible(almacen), nota));
     } catch (err) {
       toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
     } finally { setGuardando(false); }
@@ -731,13 +860,10 @@ function FormEntregarAlmacen({ p, almacenes, quien, onCancel, onHecho }: {
         <span className="icono" aria-hidden>📦</span>
         <div><strong>Entregado en almacén</strong><div className="muted" style={{ fontSize: '.85rem' }}>{ocDe(p)} · {p.proveedor_nombre ?? '—'}</div></div>
       </div>
-      <div className="surt-campo">
-        <label htmlFor="dlv-ent-almacen">Almacén</label>
-        <select id="dlv-ent-almacen" className="select input surt-input" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-          {!almacen && <option value="">Elegir…</option>}
-          {opciones.map((n) => <option key={n} value={n}>{nombreAlmacenVisible(n)}</option>)}
-        </select>
-        {p.almacen_destino && <small className="muted">La OC indica entregar en {nombreAlmacenVisible(p.almacen_destino)}.</small>}
+      <div className="aviso info sm">
+        <span className="aviso-icono">📥</span>
+        <div>Al confirmar, la orden queda <strong>recibida en Inventario</strong> en <strong>{almacenVisible(almacen)}</strong> con todas sus cantidades
+          (los servicios no suman stock). Si llegó incompleta, no la confirmes: avisa a Almacén para que la reciba desde Pedidos.</div>
       </div>
       <div className="surt-campo">
         <label htmlFor="dlv-ent-nota">Nota (opcional)</label>
@@ -749,7 +875,7 @@ function FormEntregarAlmacen({ p, almacenes, quien, onCancel, onHecho }: {
       )}
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
-        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando || !almacen}>
+        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando}>
           {guardando ? 'Guardando…' : '✅ Confirmar entrega'}
         </button>
       </div>
@@ -770,42 +896,54 @@ function ComprobantePago({ p, onClose }: { p: PedidoDelivery; onClose: () => voi
 
 /* ── Compartir mi ubicación ── */
 
-function CompartirUbicacion({ pedido }: { pedido: PedidoDelivery | null }) {
+/** Una lectura del GPS más vieja que esto no se reenvía como «sigo aquí». */
+const GPS_VIGENTE_MS = 2 * 60_000;
+
+/**
+ * 03/11/2026: el GPS ya lo lee usePosicionGps (uno solo para el mapa, la cercanía y esto);
+ * acá solo se MANDA a la oficina mientras hay un pedido en curso: al moverse (50 m) o cada
+ * 30 s. Quieto, el teléfono no manda lecturas nuevas: cada 30 s se reenvía la última (si
+ * tiene menos de 2 min) para que la PC no lo vea «sin señal».
+ */
+function CompartirUbicacion({ pedido, gps }: { pedido: PedidoDelivery | null; gps: { pos: PosicionGps | null; error: string | null } }) {
   const [quiere, setQuiere] = useState(leerGps);
   const [enviado, setEnviado] = useState<{ t: number; precision: number | null } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
   const activo = quiere && !!pedido;
+  const error = errorEnvio ?? gps.error;
 
   const pedidoId = useRef<string | null>(null);
   useEffect(() => { pedidoId.current = pedido?.pedido_id ?? null; }, [pedido?.pedido_id]);
+  const ultimo = useRef<EnvioGps | null>(null);
+  const enviando = useRef(false);
+  const posRef = useRef<PosicionGps | null>(gps.pos);
+  useEffect(() => { posRef.current = gps.pos; }, [gps.pos]);
+
+  const enviar = useCallback((pos: PosicionGps, forzarHora = false) => {
+    const punto: EnvioGps = { lat: pos.lat, lng: pos.lng, t: forzarHora ? Date.now() : pos.t };
+    if (enviando.current || !debeEnviarUbicacion(ultimo.current, punto)) return;
+    enviando.current = true;
+    ultimo.current = punto;
+    compartirUbicacion({ lat: pos.lat, lng: pos.lng, precision: pos.precision, velocidad: pos.velocidad, rumbo: pos.rumbo }, pedidoId.current)
+      .then(() => { setEnviado({ t: punto.t, precision: pos.precision }); setErrorEnvio(null); })
+      .catch((e) => setErrorEnvio(errMsg(e, 'No se pudo compartir la ubicación.')))
+      .finally(() => { enviando.current = false; });
+  }, []);
 
   useEffect(() => {
-    if (!activo) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setError('Este teléfono o navegador no permite compartir la ubicación.');
-      return;
-    }
-    if (typeof window !== 'undefined' && window.isSecureContext === false) {
-      setError('La ubicación solo funciona cuando la página abre con https.');
-      return;
-    }
-    let ultimo: EnvioGps | null = null;
-    let enviando = false;
-    const id = navigator.geolocation.watchPosition((pos) => {
-      const punto: EnvioGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: Date.now() };
-      if (enviando || !debeEnviarUbicacion(ultimo, punto)) return;
-      enviando = true;
-      ultimo = punto;
-      compartirUbicacion({
-        lat: punto.lat, lng: punto.lng, precision: pos.coords.accuracy ?? null,
-        velocidad: pos.coords.speed ?? null, rumbo: pos.coords.heading ?? null,
-      }, pedidoId.current)
-        .then(() => { setEnviado({ t: punto.t, precision: pos.coords.accuracy ?? null }); setError(null); })
-        .catch((e) => setError(errMsg(e, 'No se pudo compartir la ubicación.')))
-        .finally(() => { enviando = false; });
-    }, (e) => setError(errorUbicacion(e.code)), { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 });
-    return () => navigator.geolocation.clearWatch(id);
-  }, [activo]);
+    if (activo && gps.pos) enviar(gps.pos);
+  }, [activo, gps.pos, enviar]);
+
+  useEffect(() => {
+    if (!activo) { ultimo.current = null; return; }
+    const t = setInterval(() => {
+      const p = posRef.current;
+      if (p && Date.now() - p.t < GPS_VIGENTE_MS) enviar(p, true);
+    }, 30_000);
+    return () => clearInterval(t);
+  }, [activo, enviar]);
+
+  function setError(v: string | null) { setErrorEnvio(v); }
 
   function cambiar() {
     const v = !quiere;
@@ -832,5 +970,156 @@ function CompartirUbicacion({ pedido }: { pedido: PedidoDelivery | null }) {
       {activo && !hora && !error && <small className="muted">Buscando señal de GPS…</small>}
       {activo && error && <small className="error">{error}</small>}
     </section>
+  );
+}
+
+/* ── 03/11/2026 · La ruta elegida (debajo del mapa) ── */
+
+function PanelRuta({ p, paradas, ruta, yo, losPinos, puedeMarcarPinos, onQuitar }: {
+  p: PedidoDelivery; paradas: ParadaRuta[]; ruta: RutaCalculada | null; yo: PosicionGps | null; losPinos: PuntoMapa | null;
+  puedeMarcarPinos: boolean; onQuitar: () => void;
+}) {
+  const retiro = esRetiroAlmacen(p);
+  const destinos = paradas.filter((x) => x.tipo !== 'yo');
+  const conYo = paradas[0]?.tipo === 'yo';
+  const google = urlGoogleMapsRuta(paradas.map((x) => x.punto), conYo)
+    ?? (!retiro && !yaRecogido(p) ? mapaHref(p.proveedor_direccion) : null);
+  const faltaProveedor = !retiro && !yaRecogido(p) && !destinos.some((x) => x.tipo === 'recogida');
+  const faltaPinos = !losPinos && (retiro ? !yaRecogido(p) : entregaEnLosPinos(p));
+  const calculando = paradas.length >= 2 && !ruta;
+
+  return (
+    <section className="dlv-ruta" aria-label="Ruta">
+      <div className="dlv-ruta-cab">
+        <div style={{ minWidth: 0 }}>
+          <strong>🧭 Ruta · {retiro ? p.codigo : ocDe(p)}</strong>
+          {destinos.length > 0 && (
+            <ol className="dlv-ruta-tramos">
+              {!conYo && <li className="muted">Sin tu ubicación: arranca en la primera parada.</li>}
+              {destinos.map((x) => <li key={`${x.tipo}-${x.nombre}`}>{x.tipo === 'entrega' ? '🏬 Entregar en' : retiro ? '📦 Retirar en' : '🏭 Buscar en'} {x.nombre}</li>)}
+            </ol>
+          )}
+        </div>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onQuitar} aria-label="Quitar la ruta" style={{ minHeight: 36 }}>✕</button>
+      </div>
+      {ruta && (
+        <div className="dlv-ruta-total">
+          {distanciaTxt(ruta.metros)}{ruta.segundos != null ? ` · ${duracionTxt(ruta.segundos)}` : ''}
+          {ruta.fuente === 'recta' && <div className="muted" style={{ fontSize: '.8rem', fontWeight: 500 }}>Sin servicio de rutas: línea recta (por calle es más). Usa Google Maps para navegar.</div>}
+        </div>
+      )}
+      {calculando && <div className="muted" style={{ fontSize: '.85rem' }}>Calculando la ruta…</div>}
+      {paradas.length < 2 && destinos.length === 0 && (
+        <div className="muted" style={{ fontSize: '.85rem' }}>Todavía no hay puntos en el mapa para trazar esta ruta.</div>
+      )}
+      {faltaProveedor && (
+        <div className="dlv-sub">📍 Este proveedor no está ubicado en el mapa. Al llegar, márcalo desde su tarjeta («Marcar ubicación del proveedor aquí»).</div>
+      )}
+      {faltaPinos && (
+        <div className="dlv-sub">🏬 El {ALMACEN_RETIRO} todavía no está marcado en el mapa.</div>
+      )}
+      {faltaPinos && puedeMarcarPinos && <MarcarLosPinosAqui yo={yo} />}
+      {google && (
+        <a className="btn btn-primary" href={google} target="_blank" rel="noopener noreferrer">🗺 Abrir en Google Maps (paso a paso)</a>
+      )}
+    </section>
+  );
+}
+
+/** Precisión del GPS con la que ya no conviene marcar un local (se avisa, no se bloquea). */
+const PRECISION_DUDOSA_M = 80;
+
+/** El motorizado llegó donde el proveedor (que no estaba en el mapa) y lo marca con su GPS. */
+function MarcarProveedorAqui({ proveedorId, nombre, yo }: { proveedorId: string; nombre: string; yo: PosicionGps | null }) {
+  const [confirmar, setConfirmar] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  // 03/11/2026: también por coordenadas escritas o un enlace de Google Maps (sin estar en el local).
+  const [porCoords, setPorCoords] = useState(false);
+  const [coordsTexto, setCoordsTexto] = useState('');
+  const punto = parsearCoordenadas(coordsTexto);
+  async function guardarPunto(p: { lat: number; lng: number }) {
+    setGuardando(true);
+    try {
+      await ubicarProveedorDesdeDelivery(proveedorId, p);
+      toast(`Ubicación de ${nombre} guardada. Ya sale en el mapa para todos y queda para los próximos pedidos.`, 'success');
+      setConfirmar(false); setPorCoords(false); setCoordsTexto('');
+    } catch (e) {
+      toast(errMsg(e, 'No se pudo guardar la ubicación del proveedor'), 'error');
+    } finally { setGuardando(false); }
+  }
+  async function guardar() {
+    if (!yo) return;
+    await guardarPunto({ lat: yo.lat, lng: yo.lng });
+  }
+  if (porCoords) {
+    return (
+      <div className="dlv-marcar">
+        <div>Coordenadas de <strong>{nombre}</strong> (ej. <span className="mono">8.2869, -62.7467</span>) o pega el enlace de Google Maps:</div>
+        <input className="input surt-input mono" value={coordsTexto} onChange={(e) => setCoordsTexto(e.target.value)}
+          placeholder="8.2869, -62.7467" autoComplete="off" inputMode="text" />
+        {coordsTexto.trim() && !punto && <div style={{ color: 'var(--warning)' }}>No se entienden esas coordenadas: escribe «latitud, longitud».</div>}
+        <div className="surt-grid2">
+          <button type="button" className="btn btn-ghost" onClick={() => { setPorCoords(false); setCoordsTexto(''); }} disabled={guardando}>Cancelar</button>
+          <button type="button" className="btn btn-primary" onClick={() => punto && void guardarPunto(punto)} disabled={guardando || !punto}>{guardando ? 'Guardando…' : 'Guardar ubicación'}</button>
+        </div>
+      </div>
+    );
+  }
+  if (!yo) {
+    return (
+      <div className="surt-grid2">
+        <div className="dlv-sub">📍 Activa el GPS para marcarlo al llegar, o escribe sus coordenadas.</div>
+        <button type="button" className="btn btn-ghost" onClick={() => setPorCoords(true)}>⌨ Escribir coordenadas</button>
+      </div>
+    );
+  }
+  if (!confirmar) {
+    return (
+      <div className="surt-grid2">
+        <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(true)}>📍 Marcar ubicación del proveedor aquí</button>
+        <button type="button" className="btn btn-ghost" onClick={() => setPorCoords(true)}>⌨ Escribir coordenadas</button>
+      </div>
+    );
+  }
+  return (
+    <div className="dlv-marcar">
+      <div>¿Estás en el local de <strong>{nombre}</strong>? Se guarda tu ubicación actual como la del proveedor
+        {yo.precision != null ? ` (precisión ± ${Math.round(yo.precision)} m)` : ''}.</div>
+      {yo.precision != null && yo.precision > PRECISION_DUDOSA_M && (
+        <div style={{ color: 'var(--warning)' }}>La señal está imprecisa: si puedes, sal a un lugar abierto y espera unos segundos.</div>
+      )}
+      <div className="surt-grid2">
+        <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(false)} disabled={guardando}>Cancelar</button>
+        <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Sí, marcar aquí'}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Igual, para el Almacén Los Pinos (solo si todavía no está marcado). */
+function MarcarLosPinosAqui({ yo }: { yo: PosicionGps | null }) {
+  const [confirmar, setConfirmar] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  async function guardar() {
+    if (!yo) return;
+    setGuardando(true);
+    try {
+      await fijarLugarDelivery(LUGAR_LOS_PINOS, { lat: yo.lat, lng: yo.lng });
+      toast(`${ALMACEN_RETIRO} marcado en el mapa.`, 'success');
+      setConfirmar(false);
+    } catch (e) {
+      toast(errMsg(e, 'No se pudo marcar el almacén'), 'error');
+    } finally { setGuardando(false); }
+  }
+  if (!yo) return null;
+  if (!confirmar) return <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(true)}>📍 Estoy en {ALMACEN_RETIRO}: marcarlo aquí</button>;
+  return (
+    <div className="dlv-marcar">
+      <div>¿Estás en el <strong>{ALMACEN_RETIRO}</strong>? Se guarda tu ubicación actual{yo.precision != null ? ` (± ${Math.round(yo.precision)} m)` : ''}.</div>
+      <div className="surt-grid2">
+        <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(false)} disabled={guardando}>Cancelar</button>
+        <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Sí, marcar aquí'}</button>
+      </div>
+    </div>
   );
 }

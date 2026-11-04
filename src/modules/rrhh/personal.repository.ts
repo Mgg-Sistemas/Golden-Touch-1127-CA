@@ -9,6 +9,7 @@
    histórico. Por eso el payload de actualización no lleva sueldo_base: si lo
    llevara, cualquier edición de un teléfono volvería a escribir el sueldo.
    ============================================================ */
+import { leerCuentas, type CuentaPago } from './datosBancarios';
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { compararFicha, errorFicha, normalizarFicha } from './fichaNro';
@@ -381,4 +382,20 @@ export async function fotoPersonalDataUrl(path: string): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(data);
   });
+}
+
+/* ── Datos bancarios (03/11/2026): personal.datos_pago = { cuentas: CuentaPago[] } ── */
+
+/** Las formas de pago de una persona (pago móvil, transferencia, Binance, TRC20). */
+export async function listCuentasPago(id: string): Promise<CuentaPago[]> {
+  const { data, error } = await supabase.from(TABLE).select('datos_pago').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return leerCuentas((data as { datos_pago?: unknown } | null)?.datos_pago);
+}
+
+/** Reemplaza la lista completa. Pide la fila de vuelta: sin permiso la base no toca nada y no da error. */
+export async function guardarCuentasPago(id: string, cuentas: CuentaPago[]): Promise<void> {
+  const { data, error } = await supabase.from(TABLE).update({ datos_pago: { cuentas } }).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('No se pudieron guardar los datos bancarios: no tienes permiso de escritura en RRHH.');
 }

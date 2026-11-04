@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
-import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, configDesdeFicha, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, lineaEquivalenteBs, partesComprobante,
@@ -51,6 +51,20 @@ describe('comprobante de retención · quién es el agente y quién el sujeto', 
     expect(p.agente).toContain('RIF: J-00000003-0');
     expect(p.sujeto[0]).toBe('Empresa de Prueba C.A.');
     expect(p.sujeto).toContain('RIF: J-00000000-0');
+  });
+
+  it('multi-empresa: con la config de una empresa NO-GT, el agente es ESA empresa', () => {
+    // La config sale de la ficha de la empresa (Fase C-1): el comprobante la usa como agente.
+    const configMto = configDesdeFicha(CONFIG_RETENCION_DEFECTO, {
+      rif: 'J-50000000-0', nombre: 'Minería Tin Oxide, C.A.', direccionFiscal: 'Zona Industrial', municipio: 'Caroní', estado: 'Bolívar',
+      esAgenteRetencionIva: true,
+    });
+    const p = partesComprobante(retencion({
+      direccion: 'practicada', contraparteNombre: 'Proveedor de Prueba C.A.', contraparteRif: 'J-00000002-0',
+    }), configMto);
+    expect(p.agente[0]).toBe('Minería Tin Oxide, C.A.');
+    expect(p.agente).toContain('RIF: J-50000000-0');
+    expect(p.agente).toContain('Caroní · Bolívar');
   });
 
   it('el tipo de sujeto va con el sujeto retenido, nunca con el agente', () => {

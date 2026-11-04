@@ -26,10 +26,10 @@ import { DescansosTab } from '@/modules/rrhh/DescansosTab';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
-  importarConductoresDesdeRrhh,
+  importarConductoresDesdeRrhh, listClasificacionesViaje,
   type Conductor, type DocumentoChofer, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
 } from './choferes.repository';
-import { esCargoDeChofer, fusionarDocumentosChofer, hoyVE, nombreDeConductor } from './choferes';
+import { CLASIFICACIONES_BASE, esCargoDeChofer, fusionarDocumentosChofer, hoyVE, nombreDeConductor, type ClasificacionViaje } from './choferes';
 import { TableroTab } from './TableroTab';
 import { ExpedienteTab } from './ExpedienteTab';
 import { ViaticosTab } from './ViaticosTab';
@@ -62,6 +62,8 @@ export interface DatosChoferes {
   documentos: DocumentoChofer[];
   /** La tabla de documentos todavía no existe en la base (falta correr choferes-documentos.sql). */
   docsSinInstalar: boolean;
+  /** Clasificaciones de viaje (activas e inactivas) con su tarifa: choferes_clasificaciones_viaje. */
+  clasificaciones: ClasificacionViaje[];
   tasa: number | null;
   hoy: string;
   loading: boolean;
@@ -92,6 +94,7 @@ export function ChoferesPage() {
   const [descansos, setDescansos] = useState<Descanso[]>([]);
   const [documentos, setDocumentos] = useState<DocumentoChofer[]>([]);
   const [docsSinInstalar, setDocsSinInstalar] = useState(false);
+  const [clasificaciones, setClasificaciones] = useState<ClasificacionViaje[]>(() => CLASIFICACIONES_BASE.map((c) => ({ ...c })));
   const [tasa, setTasa] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [sinInstalar, setSinInstalar] = useState(false);
@@ -101,9 +104,11 @@ export function ChoferesPage() {
     try {
       // Las dos nóminas (GT y MTO): un chofer puede estar en cualquiera.
       const ps = await listPersonal(false).catch(() => [] as Personal[]);
-      let [cs, fl, vj, vt, pg, t] = await Promise.all([
+      let [cs, fl, vj, vt, pg, t, cl] = await Promise.all([
         listConductores(), listFlota(), listViajes(), listViaticos(), listPagos(),
         getTasaHoy().then((x) => x.usd ?? null).catch(() => null),
+        // Si el catálogo no carga, se trabaja con las tres de siempre (no tumba el módulo).
+        listClasificacionesViaje().catch(() => null),
       ]);
       // Sincronización automática de RRHH a Choferes:
       // Todo personal activo con cargo de chofer/conductor (de cualquier empresa)
@@ -125,6 +130,8 @@ export function ChoferesPage() {
       setPersonal(ps);
       setConductores(cs.map((c) => ({ ...c, personal: c.personal_id ? (porId.get(c.personal_id) ?? null) : null })));
       setFlota(fl); setViajes(vj); setViaticos(vt); setPagos(pg); setDescansos(ds); setTasa(t);
+      if (cl) setClasificaciones(cl);
+      if (cl) setClasificaciones(cl);
       setDocumentos(docs); if (docs.length) setDocsSinInstalar(false);
       setSinInstalar(false);
     } catch (e) {
@@ -138,8 +145,8 @@ export function ChoferesPage() {
 
 
   const datos: DatosChoferes = useMemo(() => ({
-    conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar,
-  }), [conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar]);
+    conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, clasificaciones, tasa, hoy, loading, recargar,
+  }), [conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, clasificaciones, tasa, hoy, loading, recargar]);
 
   // Para la pestaña Descansos: solo las fichas con expediente de conductor activo.
   const idsConductores = useMemo(() => new Set(conductores.filter((c) => c.activo && c.personal_id).map((c) => c.personal_id as string)), [conductores]);

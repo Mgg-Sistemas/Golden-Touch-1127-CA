@@ -16,6 +16,7 @@ import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { date as fmtDate, formatoCI } from '@/shared/lib/format';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import type { GrupoChoferNomina } from './nominaViajesPdf';
+import { resumenPorCategoria } from './choferes';
 import type { Conductor, VehiculoFlota } from './choferes.repository';
 
 const usd = (n: number | null | undefined) =>
@@ -110,31 +111,15 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
     y += 10;
 
     // ── 5 Cajas Resumen (KPI Cards) ──
-    const totLargos = g.filas
-      .filter((f) => f.observaciones === 'VIAJE LARGO')
-      .reduce((a, f) => a + f.viajes, 0);
-    const montoLargos = g.filas
-      .filter((f) => f.observaciones === 'VIAJE LARGO')
-      .reduce((a, f) => a + f.totalPagar, 0);
-
-    const totCortos = g.filas
-      .filter((f) => f.observaciones === 'VIAJE CORTO')
-      .reduce((a, f) => a + f.viajes, 0);
-    const montoCortos = g.filas
-      .filter((f) => f.observaciones === 'VIAJE CORTO')
-      .reduce((a, f) => a + f.totalPagar, 0);
-
-    const totInternos = g.filas
-      .filter((f) => f.observaciones === 'VIAJE INTERNO')
-      .reduce((a, f) => a + f.viajes, 0);
-    const montoInternos = g.filas
-      .filter((f) => f.observaciones === 'VIAJE INTERNO')
-      .reduce((a, f) => a + f.totalPagar, 0);
+    // Por clasificación: las tres de siempre (aunque den 0) + cada clasificación nueva con viajes.
+    const porTipo = resumenPorCategoria(g.filas);
+    const COLORES_TIPO: Record<string, [number, number, number]> = { 'VIAJE LARGO': NARANJA, 'VIAJE CORTO': VERDE, 'VIAJE INTERNO': PURPURA };
 
     const totalViajesChofer = g.filas.reduce((a, f) => a + f.viajes, 0);
 
+    const nKpi = porTipo.length + 2;
     const gapKpi = 6;
-    const anchoKpi = (CONTENT_W - 4 * gapKpi) / 5;
+    const anchoKpi = (CONTENT_W - (nKpi - 1) * gapKpi) / nKpi;
     const altoKpi = 40;
 
     const kpiCards: Array<{
@@ -144,9 +129,7 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
       valColor: [number, number, number];
     }> = [
       { label: 'TOTAL VIAJES', valor: `${totalViajesChofer} viajes`, topColor: AZUL, valColor: TINTA },
-      { label: 'VIAJES LARGOS', valor: `${totLargos} (${usd(montoLargos)})`, topColor: NARANJA, valColor: TINTA },
-      { label: 'VIAJES CORTOS', valor: `${totCortos} (${usd(montoCortos)})`, topColor: VERDE, valColor: TINTA },
-      { label: 'VIAJES INTERNOS', valor: `${totInternos} (${usd(montoInternos)})`, topColor: PURPURA, valColor: TINTA },
+      ...porTipo.map((t) => ({ label: t.etiqueta, valor: `${t.viajes} (${usd(t.monto)})`, topColor: COLORES_TIPO[t.clave] ?? AZUL, valColor: TINTA })),
       { label: 'TOTAL A PAGAR', valor: usd(g.totalGeneral), topColor: NARANJA, valColor: NARANJA },
     ];
 

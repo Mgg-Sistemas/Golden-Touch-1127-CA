@@ -24,7 +24,10 @@ export interface FilaNominaViaje {
   viajes: number;
   monto: number;
   totalPagar: number;
+  /** Etiqueta de la clasificación para mostrar («VIAJE CORTO», «VIAJE MINA»…). */
   observaciones: string;
+  /** Clave guardada de la clasificación (para contar por tipo aunque se renombre). */
+  categoria?: string;
   pagado: boolean;
   fechaPago: string | null;
   fechaCorteDesde?: string | null;

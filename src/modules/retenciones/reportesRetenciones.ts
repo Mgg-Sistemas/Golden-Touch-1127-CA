@@ -105,6 +105,15 @@ export const IMPUESTOS_REPORTE: { key: string; label: string; tipo: TipoImpuesto
   { key: 'igtf', label: 'IGTF', tipo: 'igtf' },
 ];
 
+/**
+ * Los impuestos del filtro del reporte, solo los ACTIVOS de la tabla (por su `tipo`).
+ * Sin datos (`null`: no se pudo leer o la tabla está vacía) devuelve la lista fija
+ * completa: degradación segura, como el resto del módulo.
+ */
+export function impuestosReporteActivos(activos: Set<TipoImpuesto> | null): typeof IMPUESTOS_REPORTE {
+  return activos ? IMPUESTOS_REPORTE.filter((i) => activos.has(i.tipo)) : IMPUESTOS_REPORTE;
+}
+
 export type EstadoFiltro = '' | 'ok' | 'declarada' | 'anulada' | 'todas';
 export type FechaBase = 'factura' | 'registro';
 export type Agrupar = 'ninguno' | 'proveedor' | 'periodo' | 'tipo' | 'semana' | 'quincena' | 'mes' | 'anio';
