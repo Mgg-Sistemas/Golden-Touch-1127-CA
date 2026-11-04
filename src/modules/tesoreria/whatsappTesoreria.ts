@@ -111,7 +111,9 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
     // Sin Bs en el reporte (04/11/2026): lo pagado en bolívares se muestra por su equivalente en $.
     const enBs = (f.moneda_original || '').toUpperCase() === 'BS';
     const monto = enBs && !mostrarBs ? `$ ${num(f.monto_usd || 0)}` : `${f.moneda_original} ${num(f.monto_original)}`;
-    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${etiquetaFila(f)} — *${monto}*`);
+    // El código de la OC (u otro documento) delante, para ubicarla (04/11/2026).
+    const cod = f.codigo && f.codigo.trim() && f.codigo !== '—' ? `${f.codigo.trim()} · ` : '';
+    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${cod}${etiquetaFila(f)} — *${monto}*`);
   });
   if (filas.length > LIMITE_ITEMS) {
     L.push(`… (+${filas.length - LIMITE_ITEMS} ítem(s) más)`);

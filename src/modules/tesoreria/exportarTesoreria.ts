@@ -672,10 +672,10 @@ export async function descargarTesoreriaPdf(
         doc.setFontSize(7.2);
         doc.setTextColor(100, 116, 139);
         const partes = [
+          // Código del movimiento (ej. OC-2026-0190): siempre, primero (04/11/2026).
+          f.codigo && f.codigo !== '—' ? f.codigo : null,
           f.categoria && f.categoria !== tituloBase ? f.categoria : null,
           f.origen_documento && f.origen_documento !== f.categoria ? f.origen_documento : null,
-          // Código del movimiento (ej. OC-2026-0190): solo si el usuario marcó «N° Código / Ref».
-          columnasClaves.includes('codigo') && f.codigo && f.codigo !== '—' ? f.codigo : null,
           f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
           f.fecha ? fmtFecha(f.fecha) : null,
         ].filter(Boolean);

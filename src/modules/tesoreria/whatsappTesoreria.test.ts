@@ -71,6 +71,11 @@ describe('textoWhatsappTesoreria', () => {
     expect(t).not.toContain('Bs');
   });
 
+  it('lleva el código de la OC delante de cada renglón (04/11/2026)', () => {
+    const t = textoWhatsappTesoreria([mkFila({ contraparte: 'HIERROS SAN FELIX', codigo: 'OC-2026-0191', moneda_original: 'USD', monto_original: 10, monto_usd: 10 })], { ambito: 'por_pagar', ...RANGO });
+    expect(t).toContain('OC-2026-0191 · HIERROS SAN FELIX — *USD 10,00*');
+  });
+
   it('usa la categoría cuando no hay proveedor', () => {
     const filas = [mkFila({ contraparte: '—', categoria: 'Combustible', tipo_movimiento: 'egreso', moneda_original: 'USD', monto_original: 12, monto_usd: 12, monto_bs: 432 })];
     const t = textoWhatsappTesoreria(filas, { ambito: 'movimientos', ...RANGO });
