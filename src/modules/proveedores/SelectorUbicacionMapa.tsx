@@ -90,7 +90,7 @@ export function SelectorUbicacionMapa({ value, onChange, direccion }: {
     try {
       const r = await buscarDireccion(texto, EMPRESA_EMAIL);
       setResultados(r);
-      if (!r.length) toast('No se encontró esa dirección. Prueba con menos palabras (sector y ciudad) o marca el punto en el mapa.', 'error');
+      if (!r.length) toast('No se encontró esa dirección. Prueba con menos palabras (sector y ciudad), pega el código de Google Maps (ej. 76MV+CR) o marca el punto en el mapa.', 'error');
       else if (r.length === 1) elegir(r[0]);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo buscar la dirección.', 'error');

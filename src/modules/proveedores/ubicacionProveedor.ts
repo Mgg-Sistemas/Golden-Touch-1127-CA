@@ -41,7 +41,73 @@ export function parsearCoordenadas(texto: string | null | undefined): PuntoMapa 
   if (q) return puntoValido(q[1], q[2]);
   const par = t.match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
   if (par) return puntoValido(par[1], par[2]);
+  // 04/11/2026: el «código» que da Google Maps al compartir un punto (Plus Code), p. ej.
+  // «76MV+CR Ciudad Guayana, Bolívar, Venezuela» o el completo «67WV76MV+CR».
+  const plus = decodificarPlusCode(t);
+  if (plus) return plus;
   return null;
+}
+
+/* ── Plus Codes (Open Location Code, el «76MV+CR» de Google Maps) ── */
+
+const OLC = '23456789CFGHJMPQRVWX';
+/** Referencia para los códigos cortos: Ciudad Guayana (Puerto Ordaz). Un código corto de
+ *  4+2 se resuelve en ±0,5° alrededor, que cubre de sobra la zona donde opera GT. */
+export const REFERENCIA_PLUS_CODE: PuntoMapa = { lat: 8.2869, lng: -62.7467 };
+
+function olcCentro(codigo: string): PuntoMapa | null {
+  const [antes, despues = ''] = codigo.toUpperCase().split('+');
+  const digitos = (antes + despues).replace(/0/g, '');
+  let lat = -90; let lng = -180; let res = 20;
+  let latRes = 20; let lngRes = 20;
+  for (let i = 0; i < Math.min(digitos.length, 10); i += 2) {
+    const a = OLC.indexOf(digitos[i]); const b = OLC.indexOf(digitos[i + 1] ?? '');
+    if (a < 0 || b < 0) return null;
+    lat += a * res; lng += b * res; latRes = res; lngRes = res;
+    res /= 20;
+  }
+  // Del 11.º en adelante: grilla de 5 filas × 4 columnas.
+  for (let i = 10; i < digitos.length; i++) {
+    const v = OLC.indexOf(digitos[i]);
+    if (v < 0) return null;
+    latRes /= 5; lngRes /= 4;
+    lat += Math.floor(v / 4) * latRes; lng += (v % 4) * lngRes;
+  }
+  return { lat: lat + latRes / 2, lng: lng + lngRes / 2 };
+}
+
+function olcPrefijo(p: PuntoMapa, largo: number): string {
+  let lat = Math.min(Math.max(p.lat, -90), 89.999999) + 90;
+  let lng = ((((p.lng + 180) % 360) + 360) % 360);
+  let res = 20; let out = '';
+  while (out.length < largo) {
+    const a = Math.floor(lat / res); const b = Math.floor(lng / res);
+    out += OLC[a] + OLC[b];
+    lat -= a * res; lng -= b * res; res /= 20;
+  }
+  return out.slice(0, largo);
+}
+
+/** Un Plus Code (completo o corto) dentro del texto → su punto; `null` si no hay. */
+export function decodificarPlusCode(texto: string, ref: PuntoMapa = REFERENCIA_PLUS_CODE): PuntoMapa | null {
+  const m = String(texto ?? '').toUpperCase().match(/(?:^|[\s,])([23456789CFGHJMPQRVWX]{2,8}\+[23456789CFGHJMPQRVWX]{0,4})(?=$|[\s,])/);
+  if (!m) return null;
+  const codigo = m[1];
+  const sep = codigo.indexOf('+');
+  if (sep % 2 !== 0 || codigo.length - sep - 1 === 1) return null;
+  if (sep === 8) { const c = olcCentro(codigo); return c ? puntoValido(c.lat, c.lng) : null; }
+  // Corto: se completa con el prefijo de la referencia y se toma el más cercano a ella.
+  const relleno = 8 - sep;
+  const c = olcCentro(olcPrefijo(ref, relleno) + codigo);
+  if (!c) return null;
+  const resolucion = 20 ** (2 - relleno / 2);
+  const mitad = resolucion / 2;
+  let { lat, lng } = c;
+  if (ref.lat + mitad < lat && lat - resolucion >= -90) lat -= resolucion;
+  else if (ref.lat - mitad > lat && lat + resolucion <= 90) lat += resolucion;
+  if (ref.lng + mitad < lng) lng -= resolucion;
+  else if (ref.lng - mitad > lng) lng += resolucion;
+  return puntoValido(lat, lng);
 }
 
 /* ── Búsqueda de direcciones (Nominatim de OpenStreetMap) ── */

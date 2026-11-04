@@ -66,3 +66,20 @@ describe('Proveedores · ubicación en el mapa', () => {
     await expect(buscarDireccion('ab', null, f as unknown as typeof fetch)).rejects.toThrow(/al menos 3 letras/);
   });
 });
+
+describe('Plus Codes de Google Maps (04/11/2026)', () => {
+  it('el código corto con la ciudad, el completo y lo que no es código', async () => {
+    const { parsearCoordenadas, decodificarPlusCode } = await import('./ubicacionProveedor');
+    const corto = parsearCoordenadas('76MV+CR Ciudad Guayana, Bolívar, Venezuela');
+    const completo = parsearCoordenadas('67WV76MV+CR');
+    expect(corto).not.toBeNull();
+    expect(completo).not.toBeNull();
+    expect(Math.abs(corto!.lat - completo!.lat)).toBeLessThan(1e-9);
+    expect(Math.abs(corto!.lng - completo!.lng)).toBeLessThan(1e-9);
+    expect(corto!.lat).toBeGreaterThan(8.2); expect(corto!.lat).toBeLessThan(8.4);
+    expect(corto!.lng).toBeGreaterThan(-62.85); expect(corto!.lng).toBeLessThan(-62.6);
+    console.log('PLUS', JSON.stringify(corto));
+    expect(decodificarPlusCode('PUERTO ORDAZ, REDOMA DE LA PIÑA')).toBeNull();
+    expect(parsearCoordenadas('8.2869, -62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+  });
+});
