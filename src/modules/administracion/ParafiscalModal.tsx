@@ -46,9 +46,9 @@ export function ParafiscalModal({ repo, empresas, empresaClaveFija, categorias, 
 
   async function guardar() {
     const t = Number(tasaRef.replace(',', '.'));
-    if (!empresaClave) return toast('Elegí una empresa.', 'error');
-    if (!trabajadores.trim()) return toast('Indicá el número de trabajadores.', 'error');
-    if (!Number.isFinite(t) || t <= 0) return toast('Indicá la tasa de referencia.', 'error');
+    if (!empresaClave) return toast('Elija una empresa.', 'error');
+    if (!trabajadores.trim()) return toast('Indique el número de trabajadores.', 'error');
+    if (!Number.isFinite(t) || t <= 0) return toast('Indique la tasa de referencia.', 'error');
     if (total <= 0) return toast('El total no puede ser 0.', 'error');
     setGuardando(true);
     try {

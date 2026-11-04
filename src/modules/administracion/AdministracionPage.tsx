@@ -104,7 +104,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
-      {tab === 'config' && <ConfiguracionTab empresas={empresas} puedeFull={puedeFull} onGestionarEmpresas={() => setGestionar(true)} />}
+      {tab === 'config' && <ConfiguracionTab repo={repo} empresas={empresas} puedeFull={puedeFull} onGestionarEmpresas={() => setGestionar(true)} />}
 
       {gestionar && puedeFull && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
       {documentos && empresaActual && <DocumentosEmpresaModal repo={repo} empresa={empresaActual} puedeEscribir={puedeEscribir} onClose={() => setDocumentos(false)} />}

@@ -138,7 +138,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
       {cargando ? (
         <div className="card"><p className="muted">Calculando el reporte…</p></div>
       ) : !filtrados.length && !error ? (
-        <div className="card"><EmptyState icon="📊" message="No hay movimientos en este alcance. Ajustá los filtros o cargá el histórico en «Movimientos»." /></div>
+        <div className="card"><EmptyState icon="📊" message="No hay movimientos en este alcance. Ajuste los filtros o cargue el histórico en «Movimientos»." /></div>
       ) : (
         <>
           <div className="adm-kpis">

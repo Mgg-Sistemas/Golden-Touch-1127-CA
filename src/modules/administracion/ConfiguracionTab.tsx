@@ -1,26 +1,37 @@
 /* ============================================================
    Golden Touch · Administración · pestaña «Configuración»
-   Referencia y transparencia del módulo (no duplica catálogos de otros
-   sitios): la tasa BCV del día que usan los equivalentes, la base legal de
-   los parafiscales (FAOV) que calcula la calculadora, de dónde salen las
-   categorías/proveedores (compartidos con Tesorería/Pedidos) y el acceso a
-   la lista de empresas. Solo lectura, salvo el botón de empresas (full).
+   Lo que el módulo deja configurar de verdad + la referencia que ata todo:
+   · Categorías contables de gasto fijo (plan de cuentas PROPIO del módulo):
+     agregar, renombrar, activar/desactivar. Gestionarlas aquí (full control).
+   · Tasa BCV del día en uso (la misma de Tesorería) — referencia.
+   · Base legal de los parafiscales FAOV — referencia.
+   · Empresas del módulo (conteo + acceso a «Gestionar empresas»).
    ============================================================ */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { toast } from '@/shared/ui/Toast';
+import { EmptyState } from '@/shared/ui/EmptyState';
 import { FAOV_TIERS } from './administracionParafiscal';
-import type { Empresa } from './admin.repository';
+import type { AdminCategoria, AdminRepo, Empresa } from './admin.repository';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fFecha = (s: string | null) => (s ? new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${s}T00:00:00`)) : '—');
 
-export function ConfiguracionTab({ empresas, puedeFull = true, onGestionarEmpresas }: {
+export function ConfiguracionTab({ repo, empresas, puedeFull = true, onGestionarEmpresas }: {
+  repo: AdminRepo;
   empresas: Empresa[];
   puedeFull?: boolean;
   onGestionarEmpresas?: () => void;
 }) {
   const [tasa, setTasa] = useState<{ usd: number; eur: number; fecha: string | null } | null>(null);
   const [cargandoTasa, setCargandoTasa] = useState(true);
+
+  const [cats, setCats] = useState<AdminCategoria[]>([]);
+  const [cargandoCats, setCargandoCats] = useState(true);
+  const [nueva, setNueva] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editNombre, setEditNombre] = useState('');
+  const [ocupado, setOcupado] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -31,15 +42,102 @@ export function ConfiguracionTab({ empresas, puedeFull = true, onGestionarEmpres
     return () => { vivo = false; };
   }, []);
 
+  const cargarCats = useCallback(async () => {
+    setCargandoCats(true);
+    try { setCats(await repo.listAdminCategorias()); }
+    catch { setCats([]); }
+    finally { setCargandoCats(false); }
+  }, [repo]);
+  useEffect(() => { void cargarCats(); }, [cargarCats]);
+
+  async function agregar() {
+    const n = nueva.trim();
+    if (!n) { toast('Escriba el nombre de la categoría.', 'warning', { silent: true }); return; }
+    if (cats.some((c) => c.nombre.toLowerCase() === n.toLowerCase())) { toast('Ya existe una categoría con ese nombre.', 'warning', { silent: true }); return; }
+    setOcupado(true);
+    try { await repo.crearAdminCategoria(n); setNueva(''); toast('Categoría agregada.', 'success'); await cargarCats(); }
+    catch (e) { toast(`No se pudo agregar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setOcupado(false); }
+  }
+  async function guardarNombre() {
+    if (!editId) return;
+    const n = editNombre.trim();
+    if (!n) { toast('El nombre no puede quedar vacío.', 'warning', { silent: true }); return; }
+    setOcupado(true);
+    try { await repo.renombrarAdminCategoria(editId, n); setEditId(null); setEditNombre(''); toast('Categoría renombrada.', 'success'); await cargarCats(); }
+    catch (e) { toast(`No se pudo renombrar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setOcupado(false); }
+  }
+  async function alternar(c: AdminCategoria) {
+    setOcupado(true);
+    try { await repo.setActivaAdminCategoria(c.id, !c.activa); await cargarCats(); }
+    catch (e) { toast(`No se pudo cambiar el estado: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setOcupado(false); }
+  }
+
   const activas = empresas.filter((e) => e.activa).length;
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
+      {/* Categorías del módulo (lo que se configura de verdad) */}
+      <div className="card">
+        <div className="card-title">🗂 Categorías de gasto del módulo</div>
+        <p className="muted hint" style={{ marginTop: '.2rem' }}>
+          El plan de cuentas propio de Administración: lo que aparece al clasificar un gasto fijo o un movimiento. Es independiente del catálogo general del sistema.
+        </p>
+        {puedeFull && (
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', margin: '.6rem 0' }}>
+            <input className="input" style={{ flex: '1 1 220px' }} value={nueva} onChange={(e) => setNueva(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} placeholder="Nueva categoría (p. ej. Seguros)" disabled={ocupado} />
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => void agregar()} disabled={ocupado}>+ Agregar</button>
+          </div>
+        )}
+        {cargandoCats ? (
+          <p className="muted" style={{ marginTop: '.4rem' }}>Leyendo categorías…</p>
+        ) : cats.length === 0 ? (
+          <EmptyState icon="🗂" message={puedeFull ? 'Sin categorías todavía. Agregue la primera arriba.' : 'El módulo no tiene categorías cargadas.'} />
+        ) : (
+          <div className="adm-tabla" style={{ marginTop: '.2rem' }}>
+            <table>
+              <thead><tr><th>Categoría</th><th>Estado</th><th aria-label="Acciones" /></tr></thead>
+              <tbody>
+                {cats.map((c) => (
+                  <tr key={c.id} className={c.activa ? undefined : 'adm-fila-off'}>
+                    <td>
+                      {editId === c.id ? (
+                        <input className="input" value={editNombre} onChange={(e) => setEditNombre(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void guardarNombre(); if (e.key === 'Escape') setEditId(null); }} autoFocus disabled={ocupado} />
+                      ) : c.nombre}
+                    </td>
+                    <td><span className={`adm-badge ${c.activa ? 'activo' : 'suspendido'}`}>{c.activa ? 'Activa' : 'Inactiva'}</span></td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      {puedeFull ? (
+                        editId === c.id ? (
+                          <>
+                            <button type="button" className="btn btn-sm btn-primary" onClick={() => void guardarNombre()} disabled={ocupado}>Guardar</button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setEditId(null); setEditNombre(''); }} disabled={ocupado}>Cancelar</button>
+                          </>
+                        ) : (
+                          <>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setEditId(c.id); setEditNombre(c.nombre); }}>Renombrar</button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void alternar(c)} disabled={ocupado}>{c.activa ? 'Desactivar' : 'Activar'}</button>
+                          </>
+                        )
+                      ) : <span className="muted">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Tasa BCV en uso */}
       <div className="card">
         <div className="card-title">💱 Tasa BCV del día</div>
         <p className="muted hint" style={{ marginTop: '.2rem' }}>
-          Es la tasa que usan los equivalentes del tablero, el reporte y la calculadora de parafiscales. Sale de Tesorería (la misma de todo el sistema).
+          La tasa que usan los equivalentes del tablero, el reporte y la calculadora de parafiscales. Sale de Tesorería (la misma de todo el sistema).
         </p>
         {cargandoTasa ? (
           <p className="muted" style={{ marginTop: '.4rem' }}>Leyendo la tasa…</p>
@@ -50,7 +148,7 @@ export function ConfiguracionTab({ empresas, puedeFull = true, onGestionarEmpres
             <div className="adm-kpi"><span className="adm-kpi-lbl">Fecha</span><span className="adm-kpi-num" style={{ fontSize: '1.05rem' }}>{fFecha(tasa.fecha)}</span><span className="adm-kpi-sub">última publicada</span></div>
           </div>
         ) : (
-          <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No hay tasa cargada (inicia sesión o cárgala en Tesorería). Mientras tanto, los equivalentes usan 40 Bs/USD de respaldo.</div>
+          <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No hay tasa cargada (inicie sesión o cárguela en Tesorería). Mientras tanto, los equivalentes usan 40 Bs/USD de respaldo.</div>
         )}
       </div>
 
@@ -77,12 +175,12 @@ export function ConfiguracionTab({ empresas, puedeFull = true, onGestionarEmpres
         )}
       </div>
 
-      {/* Catálogos compartidos */}
+      {/* Empresas y proveedores */}
       <div className="card">
-        <div className="card-title">🗂 Catálogos y empresas</div>
+        <div className="card-title">🏢 Empresas y proveedores</div>
         <ul style={{ margin: '.4rem 0 0', paddingLeft: '1.1rem', display: 'grid', gap: '.4rem', lineHeight: 1.5 }}>
-          <li><b>Categorías de gasto</b> y <b>proveedores</b>: se comparten con Tesorería y Pedidos. Se agregan y editan desde allá para que todo el sistema use los mismos.</li>
           <li><b>Empresas del módulo</b>: {empresas.length} registrada(s), {activas} activa(s). Es la lista propia de Administración (razón social, RIF, moneda, logo).</li>
+          <li><b>Proveedores</b>: se comparten con Pedidos; se agregan y editan desde allá para que todo el sistema use los mismos.</li>
         </ul>
         {puedeFull && onGestionarEmpresas && (
           <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '.4rem' }} onClick={onGestionarEmpresas}>⚙ Gestionar empresas</button>

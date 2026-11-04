@@ -1,14 +1,16 @@
 /* ============================================================
    Golden Touch · Administración · alta/edición de un GASTO FIJO (plantilla)
-   Formulario en Modal (estilo del sistema). Labels visibles, feedback de
-   guardado (cargando → ok/error), proveedor «catálogo o libre». Sin lógica
-   de recurrencia: solo define la plantilla. empresa_clave = la elegida.
+   Formulario en Modal (estilo del sistema). Validación por campo en línea,
+   tasa BCV precargada con su equivalente en Bs, y el vencimiento guiado según
+   la periodicidad, con vista previa del próximo vencimiento. Define solo la
+   plantilla (no mueve dinero). empresa_clave = la elegida.
    ============================================================ */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
-import type { Moneda, Periodicidad } from './administracionCalculo';
+import { proximoVencimiento, type Moneda, type Periodicidad } from './administracionCalculo';
+import { cargarTasaBcv } from './administracionTasa';
 import type { AdminRepo, Empresa, GastoFijo, GastoFijoInput, OpcionRef } from './admin.repository';
 
 const PERIODICIDADES: { v: Periodicidad; label: string }[] = [
@@ -16,20 +18,22 @@ const PERIODICIDADES: { v: Periodicidad; label: string }[] = [
   { v: 'semestral', label: 'Semestral' }, { v: 'anual', label: 'Anual' },
 ];
 const MONEDAS: Moneda[] = ['Bs', 'USD'];
+/** Dónde cae el día de vencimiento, según la periodicidad (para explicarlo). */
+const VENC_CTX: Record<Periodicidad, string> = {
+  mensual: 'de cada mes',
+  bimensual: 'del primer mes de cada bimestre',
+  trimestral: 'del primer mes de cada trimestre',
+  semestral: 'del primer mes de cada semestre',
+  anual: 'del primer mes de cada año',
+};
 const hoyISO = () => new Date().toISOString().slice(0, 10);
+const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface Draft {
-  empresaClave: string;
-  concepto: string;
-  proveedorNombre: string;
-  categoriaGastoId: string;
-  monto: string;
-  moneda: Moneda;
-  tasaRef: string;
-  periodicidad: Periodicidad;
-  diaVencimiento: string;
-  vigenteDesde: string;
-  estado: 'activo' | 'suspendido';
+  empresaClave: string; concepto: string; proveedorNombre: string; categoriaGastoId: string;
+  monto: string; moneda: Moneda; tasaRef: string; periodicidad: Periodicidad;
+  diaVencimiento: string; vigenteDesde: string; estado: 'activo' | 'suspendido';
 }
 
 function draftDe(g: GastoFijo | null | undefined, empresaClaveFija: string | null, monedaEmpresa: Moneda | null): Draft {
@@ -65,27 +69,55 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
   );
   const [d, setD] = useState<Draft>(() => draftDe(gasto, empresaClaveFija, monedaEmpresa));
   const [guardando, setGuardando] = useState(false);
+  const [intento, setIntento] = useState(false);
+  const [bcv, setBcv] = useState<number | null>(null);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
+
+  // Tasa BCV del día: para precargar la referencia (alta nueva en USD) y el equivalente.
+  useEffect(() => {
+    let vivo = true;
+    void cargarTasaBcv().then((t) => {
+      if (!vivo) return;
+      setBcv(t.tasa);
+      setD((p) => (!gasto && p.tasaRef.trim() === '' && p.moneda === 'USD' ? { ...p, tasaRef: String(t.tasa) } : p));
+    });
+    return () => { vivo = false; };
+  }, [gasto]);
 
   const empresasActivas = useMemo(() => empresas.filter((e) => e.activa || e.clave === d.empresaClave), [empresas, d.empresaClave]);
 
+  const montoNum = Number(d.monto);
+  const tasaNum = d.tasaRef.trim() === '' ? null : Number(d.tasaRef);
+  const diaNum = d.diaVencimiento.trim() === '' ? null : Number(d.diaVencimiento);
+
+  // Validación por campo (se muestra tras el primer intento de guardar, y se actualiza en vivo).
+  const err = {
+    empresa: !d.empresaClave ? 'Elija la empresa del gasto.' : '',
+    concepto: !d.concepto.trim() ? 'El concepto es obligatorio.' : '',
+    monto: !Number.isFinite(montoNum) || montoNum <= 0 ? 'Indique un monto mayor que cero.' : '',
+    tasa: tasaNum != null && (!Number.isFinite(tasaNum) || tasaNum <= 0) ? 'La tasa debe ser un número positivo.' : '',
+    dia: diaNum != null && (!Number.isInteger(diaNum) || diaNum < 1 || diaNum > 31) ? 'El día va de 1 a 31.' : '',
+  };
+  const hayError = Object.values(err).some(Boolean);
+  const E = (campo: keyof typeof err) => (intento && err[campo] ? <small className="adm-err">{err[campo]}</small> : null);
+
+  // Equivalente en Bs cuando el gasto es en USD y hay tasa.
+  const equivBs = d.moneda === 'USD' && montoNum > 0 && tasaNum && tasaNum > 0 ? montoNum * tasaNum : null;
+  // Próximo vencimiento según el borrador (guía lo que significa el «día»).
+  const prox = useMemo(() => {
+    try { return proximoVencimiento({ periodicidad: d.periodicidad, diaVencimiento: diaNum, vigenteDesde: d.vigenteDesde }); }
+    catch { return null; }
+  }, [d.periodicidad, diaNum, d.vigenteDesde]);
+
   async function guardar() {
-    const concepto = d.concepto.trim();
-    const monto = Number(d.monto);
-    if (!d.empresaClave) { toast('Elige la empresa del gasto.', 'warning', { silent: true }); return; }
-    if (!concepto) { toast('El concepto es obligatorio.', 'warning', { silent: true }); return; }
-    if (!Number.isFinite(monto) || monto <= 0) { toast('El monto debe ser mayor que cero.', 'warning', { silent: true }); return; }
-    const dia = d.diaVencimiento.trim() === '' ? null : Math.trunc(Number(d.diaVencimiento));
-    if (dia != null && (!Number.isFinite(dia) || dia < 1 || dia > 31)) { toast('El día de vencimiento va de 1 a 31.', 'warning', { silent: true }); return; }
-    const tasaRef = d.tasaRef.trim() === '' ? null : Number(d.tasaRef);
-    if (tasaRef != null && (!Number.isFinite(tasaRef) || tasaRef <= 0)) { toast('La tasa de referencia debe ser un número positivo.', 'warning', { silent: true }); return; }
+    setIntento(true);
+    if (hayError) { toast('Revise los campos marcados.', 'warning', { silent: true }); return; }
     const provNombre = d.proveedorNombre.trim();
     const proveedorId = provNombre ? proveedores.find((p) => p.nombre.toLowerCase() === provNombre.toLowerCase())?.id ?? null : null;
-
     const entrada: GastoFijoInput = {
-      empresaClave: d.empresaClave, concepto, proveedorId, proveedorNombre: provNombre || null,
-      categoriaGastoId: d.categoriaGastoId || null, monto, moneda: d.moneda, tasaRef,
-      periodicidad: d.periodicidad, diaVencimiento: dia, vigenteDesde: d.vigenteDesde, estado: d.estado,
+      empresaClave: d.empresaClave, concepto: d.concepto.trim(), proveedorId, proveedorNombre: provNombre || null,
+      categoriaGastoId: d.categoriaGastoId || null, monto: Math.round(montoNum * 100) / 100, moneda: d.moneda, tasaRef: tasaNum,
+      periodicidad: d.periodicidad, diaVencimiento: diaNum == null ? null : Math.trunc(diaNum), vigenteDesde: d.vigenteDesde, estado: d.estado,
     };
     setGuardando(true);
     try {
@@ -120,18 +152,20 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
           {empresaClaveFija ? (
             <input id="gf-empresa" className="input" value={empresas.find((e) => e.clave === empresaClaveFija)?.nombre ?? empresaClaveFija} disabled />
           ) : (
-            <SearchSelect id="gf-empresa" placeholder="Elige la empresa…"
+            <SearchSelect id="gf-empresa" placeholder="Elija la empresa…"
               options={empresasActivas.map((e) => ({ value: e.clave, label: e.nombre, hint: e.clave }))}
               value={d.empresaClave} onChange={(v) => set('empresaClave', v)} />
           )}
+          {E('empresa')}
         </div>
         <div className="form-row">
           <label htmlFor="gf-concepto">Concepto</label>
           <input id="gf-concepto" className="input" value={d.concepto} onChange={(e) => set('concepto', e.target.value)} placeholder="Agua, alquiler, honorarios…" autoFocus />
+          {E('concepto')}
         </div>
         <div className="form-row">
           <label htmlFor="gf-prov">Proveedor / beneficiario <span className="muted">(catálogo o libre)</span></label>
-          <SearchCreateSelect id="gf-prov" placeholder="Escribe o elige…" options={proveedores.map((p) => p.nombre)}
+          <SearchCreateSelect id="gf-prov" placeholder="Escriba o elija…" options={proveedores.map((p) => p.nombre)}
             value={d.proveedorNombre} onChange={(v) => set('proveedorNombre', v)} />
         </div>
         <div className="form-row">
@@ -143,6 +177,8 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
           <label htmlFor="gf-monto">Monto</label>
           <input id="gf-monto" className="input" type="number" min="0" step="0.01" inputMode="decimal"
             value={d.monto} onChange={(e) => set('monto', e.target.value)} placeholder="0,00" />
+          {equivBs != null ? <small className="muted">≈ Bs {num2(equivBs)} a la tasa de referencia</small> : null}
+          {E('monto')}
         </div>
         <div className="form-row">
           <label htmlFor="gf-moneda">Moneda</label>
@@ -154,6 +190,10 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
           <label htmlFor="gf-tasa">Tasa de referencia <span className="muted">(Bs/USD, opcional)</span></label>
           <input id="gf-tasa" className="input" type="number" min="0" step="0.01" inputMode="decimal"
             value={d.tasaRef} onChange={(e) => set('tasaRef', e.target.value)} placeholder="p. ej. 40,00" />
+          {bcv != null && d.tasaRef.trim() !== '' && Number(d.tasaRef) === bcv
+            ? <small className="muted">Tasa BCV de hoy ({num2(bcv)}).</small>
+            : bcv != null ? <button type="button" className="btn-linkish" onClick={() => set('tasaRef', String(bcv))}>Usar la tasa BCV de hoy ({num2(bcv)})</button> : null}
+          {E('tasa')}
         </div>
         <div className="form-row">
           <label htmlFor="gf-periodicidad">Periodicidad</label>
@@ -162,13 +202,16 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
           </select>
         </div>
         <div className="form-row">
-          <label htmlFor="gf-dia">Día de vencimiento <span className="muted">(1–31, opcional)</span></label>
+          <label htmlFor="gf-dia">Vence el día <span className="muted">(opcional)</span></label>
           <input id="gf-dia" className="input" type="number" min="1" max="31" step="1" inputMode="numeric"
             value={d.diaVencimiento} onChange={(e) => set('diaVencimiento', e.target.value)} placeholder="1" />
+          <small className="muted">Día {d.diaVencimiento.trim() || '1'} {VENC_CTX[d.periodicidad]}{prox ? ` · próximo: ${fFecha.format(prox)}` : ''}.</small>
+          {E('dia')}
         </div>
         <div className="form-row">
           <label htmlFor="gf-desde">Vigente desde</label>
           <input id="gf-desde" className="input" type="date" value={d.vigenteDesde} onChange={(e) => set('vigenteDesde', e.target.value)} />
+          <small className="muted">Ancla para calcular los períodos.</small>
         </div>
         <div className="form-row">
           <label htmlFor="gf-estado">Estado</label>
