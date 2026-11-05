@@ -34,6 +34,7 @@ import type {
   RetencionMomento,
   Usuario,
 } from '@/shared/lib/types';
+import type { ModalidadEntrega } from '@/shared/lib/types';
 
 /** Bucket de Storage para los adjuntos de pago de OC (factura / retención). */
 const BUCKET_OC = 'compras-oc';
@@ -1164,6 +1165,8 @@ export async function indicarMetodoPago(
     /** Retenciones por tipo (03/11/2026): solo con factura y «¿cuándo se retiene?» marcado.
      *  NO tocan `total`: neto = total − retenciones (ver retencionesCompras.ts). */
     retenciones?: RetencionesCompras | null;
+    /** 04/11/2026: quién entrega la OC pagada (Delivery / Carga pesada / el proveedor a domicilio). */
+    modalidadEntrega?: ModalidadEntrega | null;
   },
   /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
    *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
@@ -1256,6 +1259,7 @@ export async function indicarMetodoPago(
     retencion_modo: retencionModo,
     retencion_momento: retencionMomento,
     numero_administracion: numeroAdministracion,
+    ...(soporte?.modalidadEntrega !== undefined ? { modalidad_entrega: soporte.modalidadEntrega } : {}),
     iva_aplicado: aplicaIva,
     iva_pct: ivaPct,
     iva_monto: aplicaIva ? ivaMonto : null,

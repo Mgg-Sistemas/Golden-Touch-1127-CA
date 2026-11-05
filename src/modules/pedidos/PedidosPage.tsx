@@ -33,7 +33,7 @@ import type {
   RetencionMomento,
   Usuario,
 } from '@/shared/lib/types';
-import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega } from '@/shared/lib/types';
+import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, type ModalidadEntrega } from '@/shared/lib/types';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
@@ -1603,7 +1603,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null; retenciones?: RetencionesCompras | null }, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null; retenciones?: RetencionesCompras | null; modalidadEntrega?: ModalidadEntrega | null }, imagenPath?: string | null) => Promise<void> | void;
   /** Cambiar de proveedor: reabre la elección de oferta (volver a cotizar). Lleva el motivo. */
   onCambiarProveedor: (motivo: string) => Promise<void>;
 }) {
@@ -1616,6 +1616,9 @@ function MetodoPagoModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 04/11/2026 · Segmento DELIVERY: quién entrega la OC una vez pagada (solo productos).
+  const esProducto = (orden.tipo ?? 'producto') !== 'servicio';
+  const [modalidadEntrega, setModalidadEntrega] = useState<ModalidadEntrega | null>(orden.modalidad_entrega ?? null);
   // Cambio de proveedor = volver a cotizar. Solo mientras se indica el método de pago
   // (OC «Confirmada · indicar método de pago»), antes de enviarla a Tesorería.
   const proveedorActual = proveedores.find((p) => p.id === orden.proveedor_id) ?? null;
@@ -1804,6 +1807,7 @@ function MetodoPagoModal({
       const errRet = errorRetencionesCompras(totalFinal, retTotal);
       if (errRet) { setError(errRet); return; }
     }
+    if (esProducto && !modalidadEntrega) { setError('Marca en DELIVERY quién entrega la orden: Delivery, Carga pesada o Con entrega a domicilio.'); return; }
     if (esContraEntrega && !notaEntrega) { setError('Confirma la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
     // 01/11/2026: «¿cuándo se retiene?» es opcional; sin marcar nada la OC sigue a Tesorería.
     // Validar datos del proveedor en los métodos que los requieren.
@@ -1839,6 +1843,7 @@ function MetodoPagoModal({
         conDescuento, descuentoMonto,
         numeroAdministracion: numeroAdmLimpio,
         retenciones: usaRetenciones && retTotal > 0 ? retenciones : null,
+        modalidadEntrega: esProducto ? modalidadEntrega : null,
       }, imagenPath);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
@@ -1953,6 +1958,21 @@ function MetodoPagoModal({
           )}
         </div>
       </div>
+
+      {/* 04/11/2026 · DELIVERY: quién entrega la orden una vez pagada */}
+      {esProducto && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: modalidadEntrega ? 'var(--border)' : 'var(--brand, #ff8a00)' }}>
+          <div className="card-title" style={{ marginBottom: '.45rem' }}>🚚 DELIVERY <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· ¿quién entrega la orden una vez pagada? *</span></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem' }}>
+            {MODALIDADES_ENTREGA.map((m) => (
+              <label key={m.key} className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', margin: 0, padding: '.55rem .7rem', cursor: 'pointer', borderColor: modalidadEntrega === m.key ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+                <input type="checkbox" checked={modalidadEntrega === m.key} onChange={() => setModalidadEntrega(modalidadEntrega === m.key ? null : m.key)} style={{ marginTop: '.2rem' }} />
+                <span style={{ fontSize: '.86rem' }}><strong>{m.icono} {m.label.toUpperCase()}</strong><br /><span className="muted" style={{ fontSize: '.78rem' }}>{m.ayuda}</span></span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Soporte: Nota de entrega (directo a Tesorería) vs Factura (pasa por Retenciones) */}
       <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>

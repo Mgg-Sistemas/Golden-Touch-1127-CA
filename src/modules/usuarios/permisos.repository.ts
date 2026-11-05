@@ -8,6 +8,7 @@ export type ModuleKey =
   | 'compras'
   | 'pedidos'
   | 'delivery'
+  | 'carga_pesada'
   | 'proveedores'
   | 'inventario'
   | 'produccion'
@@ -52,6 +53,8 @@ export const MODULES: { key: ModuleKey; label: string; ayuda?: string }[] = [
     ayuda: 'Permiso de escritura en la base que usan Tesorería, Recepción e Impuestos. Ya no decide quién ve Compras.',
   },
   { key: 'delivery',    label: 'Delivery' },
+  // 04/11/2026: mismo flujo que Delivery, solo para las OC marcadas «Carga pesada» en el método de pago.
+  { key: 'carga_pesada', label: 'Carga pesada', ayuda: 'Ve y entrega solo las OC marcadas «Carga pesada» al cargar el método de pago. Delivery no las ve.' },
   { key: 'proveedores', label: 'Proveedores' },
   { key: 'inventario',  label: 'Inventario' },
   { key: 'produccion',  label: 'Producción' },

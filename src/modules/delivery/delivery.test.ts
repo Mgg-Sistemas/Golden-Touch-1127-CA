@@ -151,3 +151,15 @@ describe('Delivery · recepción en Inventario (02/11/2026)', () => {
     expect(mensajeEntregado({ ...base, origen: 'almacen' }, 'CARLOS', 'PRODUCCION')).not.toContain('Por recepcionar');
   });
 });
+
+describe('canales Delivery / Carga pesada (04/11/2026)', () => {
+  it('cada canal ve lo suyo; «a domicilio» no es de carga pesada y sin dato es Delivery', async () => {
+    const { esDelCanal, CANALES_DELIVERY } = await import('./delivery');
+    expect(esDelCanal(null, 'delivery')).toBe(true);
+    expect(esDelCanal('delivery', 'carga_pesada')).toBe(false);
+    expect(esDelCanal('carga_pesada', 'carga_pesada')).toBe(true);
+    expect(esDelCanal('carga_pesada', 'delivery')).toBe(false);
+    expect(esDelCanal('proveedor', 'carga_pesada')).toBe(false);
+    expect(CANALES_DELIVERY.carga_pesada.rutaTelefono).toBe('/app/carga-pesada/telefono');
+  });
+});

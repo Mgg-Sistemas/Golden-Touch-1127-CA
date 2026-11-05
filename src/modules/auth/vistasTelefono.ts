@@ -16,7 +16,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'inventario' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes' | 'delivery';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'inventario' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes' | 'delivery' | 'carga_pesada';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -71,6 +71,11 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     // 30/10/2026 · el motorizado acepta, busca y entrega las OC pagadas (interruptor compras_delivery).
     key: 'delivery', label: 'Delivery', icono: '🛵', modulo: 'delivery',
     ruta: '/app/delivery/telefono', descripcion: 'Aceptar, ir a buscar y entregar pedidos pagados',
+  },
+  {
+    // 04/11/2026 · igual que Delivery, solo con las OC marcadas «Carga pesada» en el método de pago.
+    key: 'carga_pesada', label: 'Carga pesada', icono: '🚛', modulo: 'carga_pesada',
+    ruta: '/app/carga-pesada/telefono', descripcion: 'Aceptar, ir a buscar y entregar los pedidos de carga pesada',
   },
 ];
 

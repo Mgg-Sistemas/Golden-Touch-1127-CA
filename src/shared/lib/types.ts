@@ -1273,6 +1273,8 @@ export interface Orden {
   unidad_solicitante?: string | null;
   /** Dónde entrega el delivery (04/11/2026): Almacén Los Pinos o Matanza. */
   sede_entrega?: 'los_pinos' | 'matanza' | null;
+  /** 04/11/2026: quién entrega la OC pagada (null = delivery). Se marca en el método de pago. */
+  modalidad_entrega?: ModalidadEntrega | null;
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;
@@ -2078,3 +2080,19 @@ export const SEDES_ENTREGA: { sede: 'los_pinos' | 'matanza'; etiqueta: string }[
 ];
 export const etiquetaSedeEntrega = (s: string | null | undefined): string | null =>
   SEDES_ENTREGA.find((x) => x.sede === s)?.etiqueta ?? null;
+
+/* ───────────── 04/11/2026 · ¿Quién entrega la OC? (segmento DELIVERY del método de pago) ───────────── */
+
+export type ModalidadEntrega = 'delivery' | 'carga_pesada' | 'proveedor';
+
+export const MODALIDADES_ENTREGA: { key: ModalidadEntrega; label: string; icono: string; ayuda: string }[] = [
+  { key: 'delivery', label: 'Delivery', icono: '🛵', ayuda: 'Una vez pagada, la orden va a la vista Delivery.' },
+  { key: 'carga_pesada', label: 'Carga pesada', icono: '🚛', ayuda: 'Una vez pagada, la orden va a la vista CARGA PESADA (solo la ve ese rol).' },
+  { key: 'proveedor', label: 'Con entrega a domicilio', icono: '🏠', ayuda: 'La trae el mismo proveedor: NO va a Delivery ni a Carga pesada.' },
+];
+
+/** Etiqueta de la modalidad (sin dato = Delivery, como las OC de antes). */
+export function etiquetaModalidadEntrega(m: ModalidadEntrega | null | undefined): string {
+  const x = MODALIDADES_ENTREGA.find((v) => v.key === (m ?? 'delivery'));
+  return x ? `${x.icono} ${x.label}` : '🛵 Delivery';
+}

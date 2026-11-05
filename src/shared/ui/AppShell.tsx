@@ -60,7 +60,7 @@ export function AppShell() {
   const verPedidos = MODULOS_PANTALLA_PEDIDOS.some((m) => can(m));
   const labelPedidos = !can('compras') && can('solicitud_pedido') ? 'Solicitud de Pedido' : 'Pedidos / Compras';
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
-  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('administracion') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
+  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('carga_pesada') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('administracion') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -171,7 +171,7 @@ export function AppShell() {
     const rutas = ([
       ['dashboard', '/app/dashboard'],
       ['solicitud_pedido', '/app/pedidos'], ['compras', '/app/pedidos'], ['pedidos', '/app/pedidos'], ['compras', '/app/pedidos/historico'],
-      ['delivery', '/app/delivery'], ['inventario', '/app/inventario'], ['inventario', '/app/inventario/deposito-mina'],
+      ['delivery', '/app/delivery'], ['carga_pesada', '/app/carga-pesada'], ['inventario', '/app/inventario'], ['inventario', '/app/inventario/deposito-mina'],
       ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],
       ['ventas', '/app/ventas'], ['administracion', '/app/administracion'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
@@ -336,6 +336,7 @@ export function AppShell() {
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
           {verPedidos && <NavItem to="/app/pedidos" icon="✉" label={labelPedidos} />}
           {can('delivery') && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
+          {can('carga_pesada') && <NavItem to="/app/carga-pesada" icon="🚛" label="Carga pesada" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
           {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
           {puedeVerAlmacen(ALMACEN_MINA) && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}

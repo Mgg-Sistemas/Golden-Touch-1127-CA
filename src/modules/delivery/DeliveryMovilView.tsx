@@ -36,6 +36,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { CANALES_DELIVERY, type CanalDelivery } from './delivery';
 import { nombreYApellido, quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
@@ -91,11 +92,13 @@ const CHIPS: Array<{ key: ChipDelivery; label: string }> = [
 /** `clave` = orden + origen (la misma SP puede traer su retiro de Almacén y su OC). */
 type Accion = { tipo: 'cancelar' | 'entregar' | 'no_disponible'; clave: string };
 
-export function DeliveryMovilView() {
+export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDelivery } = {}) {
+  // 04/11/2026: la misma pantalla sirve a Carga pesada (su rol solo ve sus pedidos).
+  const cfgCanal = CANALES_DELIVERY[canal];
   const { user } = useSession();
   const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const quienDe = useQuien();
-  const canWrite = can('delivery', 'escritura');
+  const canWrite = can(cfgCanal.modulo, 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = nombreYApellido(appUser?.nombre, appUser?.apellido) || user?.email || null;
   const quien = quienDe(null, actor) || actorName || actor;
@@ -116,8 +119,8 @@ export function DeliveryMovilView() {
   const reload = useCallback(async () => {
     const mio = ++turno.current;
     const [a, c] = await Promise.all([
-      listPedidosDelivery(false),
-      listPedidosDelivery(true).catch(() => [] as PedidoDelivery[]),
+      listPedidosDelivery(false, canal),
+      listPedidosDelivery(true, canal).catch(() => [] as PedidoDelivery[]),
     ]);
     // Los «No disponible» de lo que está por tomar (lo que yo marqué ya no me sale).
     const r = await listRechazosDelivery(a.filter((p) => p.estado === 'por_tomar' || p.estado === 'cancelado').map((p) => p.orden_id))
@@ -126,7 +129,7 @@ export function DeliveryMovilView() {
     setActivos(a);
     setCerrados(c);
     setRechazos(r);
-  }, []);
+  }, [canal]);
 
   useEffect(() => {
     let vivo = true;
@@ -275,11 +278,11 @@ export function DeliveryMovilView() {
     <div className="surtidor">
       <header className="surt-head">
         <div>
-          <h1>🛵 Delivery</h1>
+          <h1>{cfgCanal.icono} {cfgCanal.titulo}</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}><Quien nombre={null} correo={actor} vacio={actorName ?? actor} /></div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {!soloTelefono && <Link to="/app/delivery" className="btn btn-ghost">🖥 Módulo completo</Link>}
+          {!soloTelefono && <Link to={cfgCanal.ruta} className="btn btn-ghost">🖥 Módulo completo</Link>}
           {soloTelefono && vistasTelefono.length > 1 && <Link to={RUTA_TELEFONO} className="btn btn-ghost">📱 Mis pantallas</Link>}
         </div>
       </header>

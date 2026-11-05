@@ -27,6 +27,7 @@ import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { CANALES_DELIVERY, type CanalDelivery } from './delivery';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { Modal } from '@/shared/ui/Modal';
@@ -71,11 +72,14 @@ function filasConNombres(rows: FilaHistorialCruda[], proveedores: Map<string, st
     ? { ...f, repartidor: quienSync(null, f.repartidor) || f.repartidor } : f));
 }
 
-export function DeliveryPage() {
+export function DeliveryPage({ canal = 'delivery' }: { canal?: CanalDelivery } = {}) {
+  // 04/11/2026: la misma página para Carga pesada; arriba se cambia de una a otra.
+  const cfgCanal = CANALES_DELIVERY[canal];
   const { can, isAdmin, vistasTelefono } = usePermissions();
   const conectado = useDeliveryConectado();
-  const supervisor = isAdmin || can('delivery', 'full');
-  const tieneTelefono = vistasTelefono.some((v) => v.key === 'delivery');
+  const supervisor = isAdmin || can(cfgCanal.modulo, 'full');
+  const tieneTelefono = vistasTelefono.some((v) => v.key === canal);
+  const puedeAmbos = can('delivery') && can('carga_pesada');
   const [vista, setVista] = useState<Vista>('tablero');
 
   /* ── Tablero: pedidos actuales (y cerrados si se piden) + lo de hoy ── */
@@ -102,7 +106,7 @@ export function DeliveryPage() {
 
   const recargarTablero = useCallback(async () => {
     try {
-      const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados), listHistorialDelivery(hoy, hoy)]);
+      const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados, canal), listHistorialDelivery(hoy, hoy, canal)]);
       // Los «No disponible» de lo que se ve (no frenan el tablero si fallan).
       setRechazos(await listRechazosDelivery(ps.map((p) => p.orden_id)).catch(() => []));
       setPedidos(ps);
@@ -111,7 +115,7 @@ export function DeliveryPage() {
     } catch (e) {
       setErrorCarga(msgError(e, 'No se pudieron leer los pedidos de Delivery.'));
     } finally { setCargando(false); }
-  }, [verCerrados, hoy, proveedores]);
+  }, [verCerrados, hoy, proveedores, canal]);
   useEffect(() => { void recargarTablero(); }, [recargarTablero]);
 
   const enHistorico = vista === 'historico' || vista === 'por_delivery';
@@ -119,11 +123,11 @@ export function DeliveryPage() {
     if (!desde || !hasta || desde > hasta) return;
     setCargandoHist(true);
     try {
-      setHistorial(filasConNombres(await listHistorialDelivery(desde, hasta), proveedores));
+      setHistorial(filasConNombres(await listHistorialDelivery(desde, hasta, canal), proveedores));
     } catch (e) {
       toast(msgError(e, 'No se pudo leer el histórico.'), 'error');
     } finally { setCargandoHist(false); }
-  }, [desde, hasta, proveedores]);
+  }, [desde, hasta, proveedores, canal]);
   useEffect(() => { if (enHistorico) void recargarHistorial(); }, [enHistorico, recargarHistorial]);
 
   // Tiempo real: lo que hace el motorizado en su teléfono (o Tesorería al pagar) se ve sin recargar.
@@ -137,13 +141,21 @@ export function DeliveryPage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div style={{ flex: '1 1 320px' }}>
-          <h1 style={{ margin: 0 }}>🛵 Delivery</h1>
+          <h1 style={{ margin: 0 }}>{cfgCanal.icono} {cfgCanal.titulo}</h1>
+          {puedeAmbos && (
+            <div className="view-toggle" role="tablist" aria-label="Delivery o Carga pesada" style={{ marginTop: '.4rem' }}>
+              {(Object.keys(CANALES_DELIVERY) as CanalDelivery[]).map((k) => (
+                <Link key={k} to={CANALES_DELIVERY[k].ruta} role="tab" aria-selected={k === canal}
+                  className={`btn btn-sm ${k === canal ? 'btn-primary' : 'btn-ghost'}`}>{CANALES_DELIVERY[k].icono} {CANALES_DELIVERY[k].titulo}</Link>
+              ))}
+            </div>
+          )}
           <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
             Órdenes de productos pagadas por Tesorería que un motorizado acepta, busca donde el proveedor y entrega en el almacén, y retiros en {ALMACEN_RETIRO} de lo que
             Almacén tiene para una solicitud, con fotos y aviso por WhatsApp.
           </p>
         </div>
-        {tieneTelefono && <Link to="/app/delivery/telefono" className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
+        {tieneTelefono && <Link to={cfgCanal.rutaTelefono} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
       </div>
 
       {conectado === false && (
@@ -390,7 +402,7 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
     <Modal title={`📷 Fotos · ${titulo}`} size="lg" onClose={onClose}
       footer={<>
         {/* 03/11/2026: pedido entregado → se pueden corregir las fotos (agregar / quitar). */}
-        {puedeEditarFotosDelivery(pedido, isAdmin, can('delivery', 'escritura')) && (
+        {puedeEditarFotosDelivery(pedido, isAdmin, can('delivery', 'escritura') || can('carga_pesada', 'escritura')) && (
           <button type="button" className="btn btn-ghost" onClick={() => setEditar(true)}>✏ Editar fotos</button>
         )}
         <button className="btn btn-primary" onClick={onClose}>Cerrar</button>

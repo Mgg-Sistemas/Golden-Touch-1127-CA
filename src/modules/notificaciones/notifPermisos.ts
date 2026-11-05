@@ -29,6 +29,7 @@ const RUTA_A_MODULO: Record<string, ModuleKey> = {
   solicitudes: 'inventario',
   'solicitudes-almacen': 'inventario',
   delivery: 'delivery',
+  'carga-pesada': 'carga_pesada',
   proveedores: 'proveedores',
   inventario: 'inventario',
   produccion: 'produccion',

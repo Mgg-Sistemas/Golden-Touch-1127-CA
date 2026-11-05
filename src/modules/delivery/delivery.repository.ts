@@ -14,6 +14,7 @@
    retiro-almacen.sql): el listado sale de `delivery_listado` (trae `origen`
    y el destino del retiro) y se toma con `delivery_tomar_origen`.
    ============================================================ */
+import { esDelCanal, type CanalDelivery } from './delivery';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
@@ -71,8 +72,9 @@ export function useDeliveryConectado(): boolean | null {
  * los retiros en Almacén Los Pinos), los en curso y, con `incluirCerrados`,
  * los entregados y cancelados (histórico).
  */
-export async function listPedidosDelivery(incluirCerrados = false): Promise<PedidoDelivery[]> {
-  const { data, error } = await supabase.rpc('delivery_listado', { p_incluir_cerrados: incluirCerrados });
+export async function listPedidosDelivery(incluirCerrados = false, canal: CanalDelivery = 'delivery'): Promise<PedidoDelivery[]> {
+  // 04/11/2026: por canal (Delivery / Carga pesada); la base solo deja ver el canal del rol.
+  const { data, error } = await supabase.rpc('delivery_listado_canal', { p_incluir_cerrados: incluirCerrados, p_canal: canal });
   if (error) throw err(error, 'No se pudieron leer los pedidos.');
   const pedidos = ((data ?? []) as Record<string, unknown>[]).map(normalizar);
   // 04/11/2026: la sede donde entregar (Los Pinos / Matanza), elegida en la solicitud.
@@ -305,17 +307,20 @@ export interface FilaHistorialCruda {
     unidad_solicitante?: string | null; solicitante?: string | null;
     /** 02/11/2026: si Almacén la recibió por su cuenta, la toma viva se ve cerrada «Recibida por Almacén». */
     recibida_en?: string | null;
+    modalidad_entrega?: string | null;
   } | null;
 }
 
 /** Histórico directo de la tabla (incluye cada cancelación aunque la OC se haya retomado). */
-export async function listHistorialDelivery(desde: string, hasta: string): Promise<FilaHistorialCruda[]> {
+export async function listHistorialDelivery(desde: string, hasta: string, canal: CanalDelivery = 'delivery'): Promise<FilaHistorialCruda[]> {
   const { data, error } = await supabase.from('delivery_pedidos')
-    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id, unidad_solicitante, solicitante, recibida_en)')
+    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda:total_moneda, proveedor_id, unidad_solicitante, solicitante, recibida_en, modalidad_entrega)')
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59.999-04:00`)
     .order('aceptado_en', { ascending: false });
   if (error) throw err(error, 'No se pudo leer el histórico.');
-  return (data ?? []) as unknown as FilaHistorialCruda[];
+  // 04/11/2026: cada canal ve su histórico (los retiros de Almacén son de Delivery).
+  return ((data ?? []) as unknown as FilaHistorialCruda[])
+    .filter((f) => (f.origen === 'almacen' ? canal === 'delivery' : esDelCanal(f.orden?.modalidad_entrega, canal)));
 }
 
 export interface ArchivoComprobanteDelivery { url: string; nombre: string; etiqueta: string; esPdf: boolean }

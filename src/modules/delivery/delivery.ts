@@ -404,3 +404,18 @@ export function resumenPorDelivery(pedidos: PedidoDelivery[]): Array<{
   })).sort((x, y) => y.entregados - x.entregados || x.repartidor.localeCompare(y.repartidor, 'es'));
 }
 
+
+/* ───────────── 04/11/2026 · Canales: Delivery y Carga pesada (mismo flujo, rol propio) ───────────── */
+
+export type CanalDelivery = 'delivery' | 'carga_pesada';
+
+export const CANALES_DELIVERY: Record<CanalDelivery, { titulo: string; icono: string; modulo: 'delivery' | 'carga_pesada'; ruta: string; rutaTelefono: string }> = {
+  delivery: { titulo: 'Delivery', icono: '🛵', modulo: 'delivery', ruta: '/app/delivery', rutaTelefono: '/app/delivery/telefono' },
+  carga_pesada: { titulo: 'Carga pesada', icono: '🚛', modulo: 'carga_pesada', ruta: '/app/carga-pesada', rutaTelefono: '/app/carga-pesada/telefono' },
+};
+
+/** ¿La OC (por su modalidad de entrega) es de este canal? Sin dato = Delivery; «a domicilio» = ninguno. */
+export function esDelCanal(modalidad: string | null | undefined, canal: CanalDelivery): boolean {
+  const m = modalidad === 'carga_pesada' || modalidad === 'proveedor' ? modalidad : 'delivery';
+  return canal === 'carga_pesada' ? m === 'carga_pesada' : m !== 'carga_pesada';
+}

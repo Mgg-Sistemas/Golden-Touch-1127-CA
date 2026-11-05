@@ -120,6 +120,9 @@ export function App() {
           {/* Delivery (30/10/2026): el motorizado busca las OC pagadas y las entrega en el almacén. Interruptor compras_delivery. */}
           <Route path="delivery" element={<RequireModule module="delivery"><Suspense fallback={<PageLoader />}><DeliveryPage /></Suspense></RequireModule>} />
           <Route path="delivery/telefono" element={<RequireVistaTelefono vista="delivery"><Suspense fallback={<PageLoader />}><DeliveryMovilView /></Suspense></RequireVistaTelefono>} />
+          {/* Carga pesada (04/11/2026): el mismo flujo de Delivery para las OC marcadas «Carga pesada»; rol propio. */}
+          <Route path="carga-pesada" element={<RequireModule module="carga_pesada"><Suspense fallback={<PageLoader />}><DeliveryPage canal="carga_pesada" /></Suspense></RequireModule>} />
+          <Route path="carga-pesada/telefono" element={<RequireVistaTelefono vista="carga_pesada"><Suspense fallback={<PageLoader />}><DeliveryMovilView canal="carga_pesada" /></Suspense></RequireVistaTelefono>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
           {/* Depósitos independientes: catálogo propio, misma funcionalidad. Cada uno se da
