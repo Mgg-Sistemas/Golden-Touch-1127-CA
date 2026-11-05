@@ -310,3 +310,19 @@ describe('obtenerMetricasFichaTesoreria', () => {
     expect(m.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('método y datos de pago en el reporte (04/11/2026)', () => {
+  it('el pago de una OC trae el método de la orden y el grupo por proveedor lo conserva', () => {
+    const pagos = new Map([['oc1', 'Transferencia — Banesco 0134 · J-12345678-9']]);
+    const detalle = normalizarMovimientosTesoreria(
+      [mkMov({ id: 'm1', tipo: 'salida', monto: 10, moneda: 'USD', saldo_antes: 20, saldo_despues: 10, ref_orden_id: 'oc1', beneficiario: 'CIUDAD ESCOLAR' })],
+      CTX, 'bcv_dia', pagos,
+    );
+    expect(detalle[0].metodo_pago).toBe('Transferencia — Banesco 0134 · J-12345678-9');
+    const { filas } = procesarFilasReporteTesoreria(detalle, 'contraparte');
+    expect(filas[0].metodo_pago).toBe('Transferencia — Banesco 0134 · J-12345678-9');
+    const met = obtenerMetricasFichaTesoreria(filas[0], ['monto_usd', 'metodo_pago'], { mostrarUsd: true, mostrarBs: false }).find((x) => x.clave === 'metodo_pago');
+    expect(met?.valor).toBe('Transferencia');
+    expect(met?.sub).toBe('Banesco 0134 · J-12345678-9');
+  });
+});

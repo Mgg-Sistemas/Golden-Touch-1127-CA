@@ -20,7 +20,9 @@ import { toast } from '@/shared/ui/Toast';
 import { mensajeError } from '@/shared/lib/errores';
 import type { MovimientoCaja } from '@/shared/lib/types';
 import { listLibroMayor } from './tesoreria.repository';
-import { cargarPendientesPorPagar, esMonedaDivisa, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import { cargarPendientesPorPagar, esMonedaDivisa, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import { supabase } from '@/shared/lib/supabase';
+import type { PagoMetodo } from '@/shared/lib/types';
 import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
 import { listCuentasPorCobrar, type CuentaPorCobrar } from './cuentasPorCobrar.repository';
 import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
@@ -155,6 +157,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   const [cargando, setCargando] = useState(true);
   const [ocupado, setOcupado] = useState<'pdf' | 'xlsx' | 'csv' | null>(null);
   const [movs, setMovs] = useState<MovimientoCaja[]>([]);
+  const [pagoPorOrden, setPagoPorOrden] = useState<Map<string, string>>(new Map());
   const [datosPP, setDatosPP] = useState<DatosPendientesPorPagar | null>(null);
   const [cxp, setCxp] = useState<CuentaPorPagar[]>([]);
   const [cxc, setCxc] = useState<CuentaPorCobrar[]>([]);
@@ -177,7 +180,19 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             const dias = [...new Set(lista.map((m) => diaDe(m.at)).filter(Boolean))];
             tasasPorFecha = await getTasasUsdDeFechas(dias);
           } catch { tasasPorFecha = undefined; }
-          if (!cancelado) { setMovs(lista); setCtx({ tasaBcvHoy, tasaFecha, tasasPorFecha }); }
+          // 04/11/2026: el método y los datos de pago de las OC pagadas (columna «Método y Datos de Pago»).
+          const pagos = new Map<string, string>();
+          try {
+            const ids = [...new Set(lista.map((m) => m.ref_orden_id).filter((x): x is string => !!x))];
+            for (let i = 0; i < ids.length; i += 150) {
+              const { data } = await supabase.from('ordenes').select('id, metodo_pago, proveedor_id').in('id', ids.slice(i, i + 150));
+              for (const o of (data ?? []) as Array<{ id: string; metodo_pago: PagoMetodo[] | null; proveedor_id: string | null }>) {
+                const t = lineasDePago(o.metodo_pago, o.proveedor_id, {}).map((l) => l.texto).join(' · ');
+                if (t) pagos.set(o.id, t);
+              }
+            }
+          } catch { /* sin método: la columna sale vacía */ }
+          if (!cancelado) { setMovs(lista); setPagoPorOrden(pagos); setCtx({ tasaBcvHoy, tasaFecha, tasasPorFecha }); }
         } else if (ambito === 'por_pagar') {
           const datos = await cargarPendientesPorPagar();
           if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
@@ -197,10 +212,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
   // Normalización a filas de detalle según el ámbito
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
-    if (ambito === 'movimientos') return normalizarMovimientosTesoreria(movs, ctx, baseTasa);
+    if (ambito === 'movimientos') return normalizarMovimientosTesoreria(movs, ctx, baseTasa, pagoPorOrden);
     if (ambito === 'por_pagar') return datosPP ? normalizarPendientesPorPagar(datosPP) : [];
     return normalizarCreditosCartera(cxp, cxc, ctx, baseTasa);
-  }, [ambito, movs, datosPP, cxp, cxc, ctx, baseTasa]);
+  }, [ambito, movs, pagoPorOrden, datosPP, cxp, cxc, ctx, baseTasa]);
 
   // Catálogos presentes (para los filtros)
   const catalogos = useMemo(() => {

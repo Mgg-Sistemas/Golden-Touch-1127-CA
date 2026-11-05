@@ -324,8 +324,11 @@ export function normalizarMovimientosTesoreria(
   movs: MovimientoCaja[],
   ctx: ContextoTasas,
   base: BaseTasaTesoreria = 'bcv_dia',
+  /** 04/11/2026: método y datos de pago de la OC que pagó cada movimiento (por ref_orden_id). */
+  pagoPorOrden?: Map<string, string>,
 ): FilaReporteTesoreria[] {
   return movs.map((m, idx) => {
+    const pago = (m.ref_orden_id && pagoPorOrden?.get(m.ref_orden_id)) || null;
     const fecha = diaDe(m.at);
     const R = tasaDeFecha(ctx, fecha, base);
     const conv = convertirMonto(m.monto, m.moneda, R, m.tasa_bs);
@@ -347,8 +350,8 @@ export function normalizarMovimientosTesoreria(
       concepto: (m.motivo ?? '').trim(),
       origen_documento: origenDeMovimiento(m),
       estado: null,
-      metodo_pago: null,
-      datos_pago_resumen: null,
+      metodo_pago: pago,
+      datos_pago_resumen: pago,
       tasa_bcv_aplicada: R,
       monto_usd: conv.usd,
       monto_bs: conv.bs,
@@ -380,7 +383,8 @@ export function normalizarPendientesPorPagar(datos: DatosPendientesPorPagar): Fi
     const origen = ORIGEN_POR_SEGMENTO[seg.clave] ?? seg.titulo;
     for (let i = 0; i < seg.filas.length; i++) {
       const f = seg.filas[i];
-      const linea = f.pagos[0];
+      // 04/11/2026: todas las patas del pago (no solo la primera).
+      const textoPago = f.pagos.map((l) => l.texto).filter(Boolean).join(' · ') || null;
       filas.push({
         id: `pp-${seg.clave}-${f.codigo || i}`,
         ambito: 'por_pagar',
@@ -398,8 +402,8 @@ export function normalizarPendientesPorPagar(datos: DatosPendientesPorPagar): Fi
         concepto: seg.titulo,
         origen_documento: origen,
         estado: f.estado,
-        metodo_pago: linea ? linea.texto : null,
-        datos_pago_resumen: linea ? linea.texto : null,
+        metodo_pago: textoPago,
+        datos_pago_resumen: textoPago,
         tasa_bcv_aplicada: R,
         monto_usd: round2(f.usd),
         monto_bs: round2(f.bs),
@@ -580,7 +584,7 @@ interface AcumuladorTesoreria {
   origen: string;
   monedasUsadas: Set<string>;
   /** Valores distintos del grupo: si hay más de uno, la fila no puede mostrar solo el primero. */
-  distintos: { caja: Set<string>; categoria: Set<string>; contraparte: Set<string>; origen: Set<string>; fecha: Set<string> };
+  distintos: { caja: Set<string>; categoria: Set<string>; contraparte: Set<string>; origen: Set<string>; fecha: Set<string>; metodo: Set<string>; estado: Set<string> };
   usd: number;
   bs: number;
   original: number;
@@ -665,7 +669,7 @@ export function procesarFilasReporteTesoreria(
         contraparte: f.contraparte,
         origen: f.origen_documento,
         monedasUsadas: new Set<string>(),
-        distintos: { caja: new Set(), categoria: new Set(), contraparte: new Set(), origen: new Set(), fecha: new Set() },
+        distintos: { caja: new Set(), categoria: new Set(), contraparte: new Set(), origen: new Set(), fecha: new Set(), metodo: new Set(), estado: new Set() },
         usd: 0, bs: 0, original: 0, operaciones: 0,
         porTipo: { ingreso: 0, egreso: 0, traslado: 0 },
       };
@@ -681,6 +685,8 @@ export function procesarFilasReporteTesoreria(
     g.distintos.contraparte.add(f.contraparte ?? '');
     g.distintos.origen.add(f.origen_documento ?? '');
     g.distintos.fecha.add(f.fecha ?? '');
+    if (f.metodo_pago) g.distintos.metodo.add(f.metodo_pago);
+    if (f.estado) g.distintos.estado.add(f.estado);
     g.porTipo[f.tipo_movimiento] += Math.abs(f.monto_usd);
   }
 
@@ -689,6 +695,7 @@ export function procesarFilasReporteTesoreria(
     // 03/11/2026: un grupo que junta varios proveedores (o categorías, cajas, orígenes)
     // ya no se titula con el de la primera fila: dice cuántos son.
     const uno = (set: Set<string>, valor: string, plural: string) => (set.size > 1 ? `${set.size} ${plural}` : valor);
+    const unico = (set: Set<string>, plural: string): string | null => (set.size === 0 ? null : set.size === 1 ? [...set][0] : `${set.size} ${plural}`);
     const dom = tipoDominante(g.porTipo);
     return {
       id: g.clave || g.etiqueta,
@@ -706,9 +713,10 @@ export function procesarFilasReporteTesoreria(
       contraparte: agrupacion === 'contraparte' ? g.etiqueta : uno(g.distintos.contraparte, g.contraparte, 'proveedores / beneficiarios'),
       concepto: g.etiqueta,
       origen_documento: agrupacion === 'origen_documento' ? g.etiqueta : uno(g.distintos.origen, g.origen, 'orígenes'),
-      estado: null,
-      metodo_pago: null,
-      datos_pago_resumen: null,
+      // 04/11/2026: el grupo conserva el método/datos de pago y el estado (antes salía «—»).
+      estado: unico(g.distintos.estado, 'estados'),
+      metodo_pago: unico(g.distintos.metodo, 'métodos de pago'),
+      datos_pago_resumen: unico(g.distintos.metodo, 'métodos de pago'),
       tasa_bcv_aplicada: tasaRef,
       monto_usd: round2(g.usd),
       monto_bs: round2(g.bs),
@@ -811,13 +819,19 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 6. Método / estado de pago
+  // 6. Método / estado de pago. 04/11/2026: con «Método y Datos de Pago» marcado, el
+  //    valor es el método (Transferencia, Pago móvil…) y debajo van sus datos y el estado.
   if ((columnasClaves.includes('metodo_pago') || columnasClaves.includes('estado')) && metricas.length < 4) {
+    const conMetodo = columnasClaves.includes('metodo_pago');
+    const textoPago = (f.datos_pago_resumen || f.metodo_pago || '').trim();
+    const corte = textoPago.indexOf(' — ');
+    const metodo = corte >= 0 ? textoPago.slice(0, corte) : textoPago;
+    const datos = corte >= 0 ? textoPago.slice(corte + 3) : '';
     metricas.push({
       clave: 'metodo_pago',
-      etiqueta: 'MÉTODO / ESTADO',
-      valor: f.estado || '—',
-      sub: f.datos_pago_resumen || f.metodo_pago || '',
+      etiqueta: conMetodo ? 'MÉTODO / DATOS DE PAGO' : 'MÉTODO / ESTADO',
+      valor: conMetodo ? (metodo || f.estado || 'Sin método cargado') : (f.estado || '—'),
+      sub: conMetodo ? [datos, metodo ? f.estado : null].filter(Boolean).join(' · ') : textoPago,
       colorHex: '#10b981',
       colorRgb: [16, 185, 129],
     });
