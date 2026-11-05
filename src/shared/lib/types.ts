@@ -1302,6 +1302,8 @@ export interface Orden {
   imagen_path?: string | null;
   /** OC por factura: si se aplicó IVA (16%) sobre el monto y cuánto. */
   iva_aplicado?: boolean | null;
+  /** 05/11/2026: los precios ya traen el IVA: se guarda pero no suma al total. */
+  iva_incluido?: boolean | null;
   /** % de IVA aplicado a la OC (16 por defecto, editable al confirmar el método de pago). */
   iva_pct?: number | null;
   iva_monto?: number | null;
@@ -1818,6 +1820,8 @@ export interface OfertaProveedor {
   iva_pct?: number | null;
   iva_monto?: number | null;
   iva_aplicado?: boolean | null;
+  /** 05/11/2026: los precios ya traen el IVA: se guarda pero no suma al total. */
+  iva_incluido?: boolean | null;
   /** IGTF (impuesto a las grandes transacciones financieras): por % o monto manual.
    *  También se suma al total y se arrastra a Tesorería. */
   igtf_pct?: number | null;

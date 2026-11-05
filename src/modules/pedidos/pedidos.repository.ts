@@ -450,6 +450,7 @@ export async function actualizarOrdenEditable(
       upd.iva_aplicado = conIvaEditado.ivaAplicado;
       upd.iva_pct = conIvaEditado.ivaPct;
       upd.iva_monto = conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : null;
+      upd.iva_incluido = conIvaEditado.ivaIncluido;
     } else if (o.iva_aplicado) upd.iva_monto = imp.ivaMonto;
     if (o.igtf_aplicado) upd.igtf_monto = imp.igtfMonto;
     if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = imp.total;
@@ -485,6 +486,7 @@ export async function actualizarOrdenEditable(
       iva_aplicado: conIvaEditado.ivaAplicado,
       iva_pct: conIvaEditado.ivaPct,
       iva_monto: conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : 0,
+      iva_incluido: conIvaEditado.ivaIncluido,
     }).eq('orden_id', o.id).eq('estado', 'aceptada');
     if (eOf) throw eOf;
   }
@@ -561,7 +563,9 @@ export async function editarPreciosOrdenPorPagar(
   //     total = base (ya con descuento) + IVA + IGTF
   const ivaPrev = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
   const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
-  const basePrev = Math.max(0, r2((Number(o.total) || 0) - ivaPrev - igtfPrev));
+  // 05/11/2026: el IVA que ya viene en los precios no está sumado al total.
+  const ivaIncl = !!o.iva_incluido;
+  const basePrev = Math.max(0, r2((Number(o.total) || 0) - (ivaIncl ? 0 : ivaPrev) - igtfPrev));
   const baseNueva = Math.max(0, r2(basePrev + (enDivisa ? deltaUsd : deltaBs)));
   const ivaPct = Math.max(0, Number(o.iva_pct) || 0);
   const igtfPct = Math.max(0, Number(o.igtf_pct) || 0);
@@ -574,7 +578,7 @@ export async function editarPreciosOrdenPorPagar(
   // El recálculo vive en un solo lugar (impuestosOrden.ts), así los dos caminos
   // que mueven la base —editar la orden y editar los precios— dan lo mismo.
   const recompuesto = recomponerImpuestos(basePrev, baseNueva, {
-    ivaAplicado: ivaAp, ivaPct: ivaPctFinal, ivaMonto: ivaPrev,
+    ivaAplicado: ivaAp, ivaPct: ivaPctFinal, ivaMonto: ivaPrev, ivaIncluido: ivaIncl,
     igtfAplicado: igtfAp, igtfPct: igtfPctFinal, igtfMonto: igtfPrev,
   });
   const ivaNuevo = !ivaAp ? 0
@@ -584,7 +588,7 @@ export async function editarPreciosOrdenPorPagar(
     : impuestos ? Math.max(0, r2(impuestos.igtfMonto))
     : recompuesto.igtfMonto;
   // El `total` que paga Tesorería está en divisa cuando el pago es en divisa; si no, en Bs.
-  const totalNuevo = Math.max(0, r2(baseNueva + ivaNuevo + igtfNuevo));
+  const totalNuevo = Math.max(0, r2(baseNueva + (ivaIncl ? 0 : ivaNuevo) + igtfNuevo));
   if (comprados(items).some((i) => !(Number(i.cantidad) > 0))) {
     throw new Error('La cantidad de cada producto debe ser mayor que 0.');
   }
@@ -726,7 +730,7 @@ export async function aprobarOrdenConOferta(
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
     .from('ofertas_proveedor')
-    .select('condiciones_pago, anticipo_monto, anticipo_moneda, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, igtf_pct, igtf_monto, igtf_aplicado')
+    .select('condiciones_pago, anticipo_monto, anticipo_moneda, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, iva_incluido, igtf_pct, igtf_monto, igtf_aplicado')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -752,7 +756,9 @@ export async function aprobarOrdenConOferta(
   const igtfAplicado = !!(ofRow?.igtf_aplicado);
   const igtfPct = igtfAplicado ? Math.max(0, Math.min(100, Number((ofRow?.igtf_pct as number | null) ?? 0) || 0)) : 0;
   const igtfMonto = igtfAplicado ? Math.max(0, Math.round((Number((ofRow?.igtf_monto as number | null) ?? 0) || 0) * 100) / 100) : 0;
-  const impuestos = ivaMonto + igtfMonto;
+  // 05/11/2026: si los precios cotizados ya traen el IVA, se guarda pero no suma.
+  const ivaIncluido = ivaAplicado && !!(ofRow?.iva_incluido);
+  const impuestos = (ivaIncluido ? 0 : ivaMonto) + igtfMonto;
   const totalBruto = override
     ? (pagaEnDivisa && override.precioDivisa != null ? override.precioDivisa : override.precioTotal)
     : (usaDescuento ? precioDivisa! : ofertaPrecioTotal);
@@ -776,6 +782,7 @@ export async function aprobarOrdenConOferta(
     iva_aplicado: ivaAplicado,
     iva_pct: ivaPct,
     iva_monto: ivaAplicado ? ivaMonto : null,
+    iva_incluido: ivaIncluido,
     igtf_aplicado: igtfAplicado,
     igtf_pct: igtfPct,
     igtf_monto: igtfAplicado ? igtfMonto : null,
@@ -1158,6 +1165,8 @@ export async function indicarMetodoPago(
     /** Nuevo flujo: retener antes de pagar (Retenciones primero) o después (Tesorería primero). */
     retencionMomento?: RetencionMomento | null;
     conIva?: boolean; ivaPct?: number; ivaMonto?: number;
+    /** 05/11/2026: los precios ya traen el IVA (se guarda, no suma). */
+    ivaIncluido?: boolean;
     conIgtf?: boolean; igtfPct?: number; igtfMonto?: number;
     conDescuento?: boolean; descuentoMonto?: number;
     /** Número de administración del proveedor (lo ven Retenciones y Tesorería). */
@@ -1211,7 +1220,8 @@ export async function indicarMetodoPago(
   // Base NETA: `o.total`/`total_divisa` ya pueden traer IVA/IGTF sumados desde la oferta.
   // Los restamos para no duplicarlos al re-sumar los del método de pago (que llegan
   // precargados desde la oferta y pueden ajustarse aquí). Fuente única: la oferta.
-  const ivaPrev = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
+  // El IVA incluido en los precios nunca se sumó: no se resta.
+  const ivaPrev = o.iva_aplicado && !o.iva_incluido ? Math.max(0, Number(o.iva_monto) || 0) : 0;
   const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
   const grossBase = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
   const baseTotal = Math.max(0, Math.round((grossBase - ivaPrev - igtfPrev) * 100) / 100);
@@ -1225,6 +1235,8 @@ export async function indicarMetodoPago(
     ? Math.max(0, Math.min(100, Math.round((Number(soporte?.ivaPct ?? 16) || 0) * 100) / 100))
     : 0;
   const ivaMonto = aplicaIva ? Math.max(0, Math.round((Number(soporte?.ivaMonto ?? 0) || 0) * 100) / 100) : 0;
+  const ivaIncluido = aplicaIva && ivaMonto > 0 && (soporte?.ivaIncluido ?? !!o.iva_incluido);
+  const ivaSuma = ivaIncluido ? 0 : ivaMonto;
   // IGTF (impuesto a las grandes transacciones financieras): independiente del comprobante
   // (aplica al pagar en divisa). También por % (3 sugerido) o monto manual; suma al total.
   const aplicaIgtf = !!soporte?.conIgtf;
@@ -1238,10 +1250,10 @@ export async function indicarMetodoPago(
   const descuentoMonto = aplicaDescuento
     ? Math.min(
         Math.max(0, Math.round((Number(soporte?.descuentoMonto ?? 0) || 0) * 100) / 100),
-        Math.round((baseTotal + ivaMonto + igtfMonto) * 100) / 100,
+        Math.round((baseTotal + ivaSuma + igtfMonto) * 100) / 100,
       )
     : 0;
-  const totalFinal = Math.max(0, Math.round((baseTotal + ivaMonto + igtfMonto - descuentoMonto) * 100) / 100);
+  const totalFinal = Math.max(0, Math.round((baseTotal + ivaSuma + igtfMonto - descuentoMonto) * 100) / 100);
   // Retenciones por tipo (03/11/2026): solo con factura y con «¿cuándo se retiene?» marcado;
   // si no, se limpian. El total NO cambia (sigue siendo el de la factura): el neto a pagar
   // es total − retenciones y Tesorería lo precarga cuando se retiene ANTES de pagar.
@@ -1263,6 +1275,7 @@ export async function indicarMetodoPago(
     iva_aplicado: aplicaIva,
     iva_pct: ivaPct,
     iva_monto: aplicaIva ? ivaMonto : null,
+    iva_incluido: ivaIncluido,
     igtf_aplicado: aplicaIgtf,
     igtf_pct: igtfPct,
     igtf_monto: aplicaIgtf ? igtfMonto : null,

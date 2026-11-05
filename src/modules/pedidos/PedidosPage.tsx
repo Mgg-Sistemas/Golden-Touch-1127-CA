@@ -1,4 +1,5 @@
 import { Quien } from '@/shared/ui/Quien';
+import { ivaDesdePorcentaje, porcentajeDesdeIva } from './impuestosOc';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -103,7 +104,7 @@ import { coincideOrden, personasQueRealizaron, realizadaPor } from './buscarOrde
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
-import { agregarAdjuntoDirecto, listAdjuntosDirectos } from './adjuntosDirectos.repository';
+import { agregarAdjuntoDirecto, listAdjuntosDirectos, urlAdjuntoDirecto, type AdjuntoDirecto } from './adjuntosDirectos.repository';
 import { useP03 } from './useP03';
 import { DetalleServicioBloque } from './DetalleServicioBloque';
 import { AnticipoServicioBloque } from './AnticipoServicioBloque';
@@ -1603,7 +1604,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null; retenciones?: RetencionesCompras | null; modalidadEntrega?: ModalidadEntrega | null }, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; ivaIncluido?: boolean; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null; retenciones?: RetencionesCompras | null; modalidadEntrega?: ModalidadEntrega | null }, imagenPath?: string | null) => Promise<void> | void;
   /** Cambiar de proveedor: reabre la elección de oferta (volver a cotizar). Lleva el motivo. */
   onCambiarProveedor: (motivo: string) => Promise<void>;
 }) {
@@ -1661,6 +1662,8 @@ function MetodoPagoModal({
   const [ivaPct, setIvaPct] = useState(String(Number(orden.iva_pct) > 0 ? orden.iva_pct : 16));
   const [ivaMontoStr, setIvaMontoStr] = useState(Number(orden.iva_monto) > 0 ? String(orden.iva_monto) : '');
   const ivaManualRef = useRef<boolean>(Number(orden.iva_monto) > 0);
+  // 05/11/2026: los precios ya traen el IVA (viene de la cotización; se puede corregir aquí).
+  const [ivaIncluido, setIvaIncluido] = useState<boolean>(!!orden.iva_incluido);
   // IGTF (impuesto a las grandes transacciones financieras): independiente del comprobante.
   // Por % (3 sugerido) o monto manual (se sincronizan). Suma al total.
   const [conIgtf, setConIgtf] = useState(!!orden.igtf_aplicado);
@@ -1686,7 +1689,7 @@ function MetodoPagoModal({
   const baseTotal = usaRecibido ? orden.recibido_total! : orden.total;
   // Base NETA: si la OC ya trae IVA/IGTF sumados desde la oferta (arrastrados), los restamos
   // para no duplicarlos — aquí se vuelven a mostrar (precargados) y sumar. Fuente: la oferta.
-  const ivaPrevOc = !usaRecibido && orden.iva_aplicado ? Math.max(0, Number(orden.iva_monto) || 0) : 0;
+  const ivaPrevOc = !usaRecibido && orden.iva_aplicado && !orden.iva_incluido ? Math.max(0, Number(orden.iva_monto) || 0) : 0;
   const igtfPrevOc = !usaRecibido && orden.igtf_aplicado ? Math.max(0, Number(orden.igtf_monto) || 0) : 0;
   const baseNum = Math.max(0, Math.round(((Number(baseTotal) || 0) - ivaPrevOc - igtfPrevOc) * 100) / 100);
   // IVA: % ↔ monto sincronizados. Con % cargado, el monto se recalcula sobre la base
@@ -1695,8 +1698,8 @@ function MetodoPagoModal({
   useEffect(() => {
     if (ivaManualRef.current) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && baseNum > 0 ? String(Math.round(baseNum * (p / 100) * 100) / 100) : '');
-  }, [ivaPct, baseNum]);
+    setIvaMontoStr(p > 0 && baseNum > 0 ? String(ivaDesdePorcentaje(baseNum, p, ivaIncluido)) : '');
+  }, [ivaPct, baseNum, ivaIncluido]);
   // El IVA NO depende del comprobante (05/10/2026): con nota de entrega el proveedor
   // también cobra el IVA de su oferta y Tesorería lo paga. Antes, elegir nota de entrega
   // lo borraba de la OC mientras el total lo seguía trayendo, y el kanban/PDF/Tesorería
@@ -1708,10 +1711,11 @@ function MetodoPagoModal({
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && baseNum > 0 ? String(Math.round((m / baseNum) * 10000) / 100) : '0');
+    setIvaPct(m > 0 && baseNum > 0 ? String(porcentajeDesdeIva(baseNum, m, ivaIncluido)) : '0');
   }
   // IGTF: se calcula sobre la base + IVA (lo que realmente se paga). % ↔ monto sincronizados.
-  const baseIgtf = Math.round((baseNum + ivaMonto) * 100) / 100;
+  const ivaSumaMp = ivaIncluido ? 0 : ivaMonto;
+  const baseIgtf = Math.round((baseNum + ivaSumaMp) * 100) / 100;
   const igtfPctNum = Math.max(0, Math.min(100, Math.round((Number(igtfPct) || 0) * 100) / 100));
   useEffect(() => {
     if (igtfManualRef.current) return;
@@ -1727,7 +1731,7 @@ function MetodoPagoModal({
   }
   // Descuento del método de pago: RESTA del total (acotado al total con impuestos).
   // Se calcula sobre el total con impuestos (base + IVA + IGTF). % ↔ monto sincronizados.
-  const totalConImp = Math.round((baseNum + ivaMonto + igtfMonto) * 100) / 100;
+  const totalConImp = Math.round((baseNum + ivaSumaMp + igtfMonto) * 100) / 100;
   const descPctNum = Math.max(0, Math.min(100, Math.round((Number(descPct) || 0) * 100) / 100));
   useEffect(() => {
     if (descManualRef.current) return;
@@ -1838,7 +1842,7 @@ function MetodoPagoModal({
           : momentoActivo && retencionMomento ? (retencionMomento === 'antes_de_pagar' ? 'se_paga_despues' : 'completo_reembolso')
           : retencionModo,
         retencionMomento: momentoActivo && comprobanteTipo === 'factura' ? retencionMomento : null,
-        conIva: ivaActivo, ivaPct: ivaPctNum, ivaMonto,
+        conIva: ivaActivo, ivaPct: ivaPctNum, ivaMonto, ivaIncluido: ivaActivo && ivaIncluido,
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
         conDescuento, descuentoMonto,
         numeroAdministracion: numeroAdmLimpio,
@@ -2011,10 +2015,19 @@ function MetodoPagoModal({
                     title="Monto del IVA (editable a mano)" placeholder="0,00"
                     style={{ width: 92, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
                   <span>{simboloMoneda}</span>
-                  <span>= {mm(baseNum + ivaMonto)}</span>
+                  <span>= {mm(baseNum + ivaSumaMp)}{ivaIncluido ? ' (IVA incluido)' : ''}</span>
                 </span>
               </label>
             </div>
+            {conIva && (
+              <div style={{ marginTop: '-.3rem', marginBottom: '.5rem' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.82rem', cursor: 'pointer' }}
+                    title="Factura de punto de venta: cada renglón ya trae el IVA adentro. El IVA se guarda (retención, libro fiscal) pero NO se suma otra vez al total.">
+                    <input type="checkbox" checked={ivaIncluido} onChange={(e) => setIvaIncluido(e.target.checked)} />
+                    <span>Los precios cotizados <strong>ya traen el IVA</strong></span>
+                  </label>
+              </div>
+            )}
             {conIva && ivaPctNum !== 16 && (
               <div className="muted" style={{ fontSize: '.74rem', marginTop: '-.3rem', marginBottom: '.6rem' }}>
                 ⚠ Estás aplicando <strong>{ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}%</strong> en vez del 16% general — verifica que coincida con la factura.
@@ -2917,6 +2930,24 @@ function OrdenDetailModal({
   const canCerrarSolicitudObrero = finalizableRecibida && usuarioRole === 'obrero';
 
   const [enviarOpen, setEnviarOpen] = useState(false);
+  // 05/11/2026: facturas del proveedor cargadas al recibir (adjuntos «orden_factura»),
+  // para descargarlas desde el detalle (sobre todo con la orden finalizada).
+  const [facturasProv, setFacturasProv] = useState<AdjuntoDirecto[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    listAdjuntosDirectos('orden_factura', o.id)
+      .then((l) => { if (vivo) setFacturasProv(l.filter((a) => a.es_factura !== false)); })
+      .catch(() => { if (vivo) setFacturasProv([]); });
+    return () => { vivo = false; };
+  }, [o.id, o.estado]);
+  async function abrirFacturaProv(a: AdjuntoDirecto) {
+    try {
+      const url = await urlAdjuntoDirecto('orden_factura', a.path);
+      previewArchivo(url, a.nombre || (a.path.split('/').pop() ?? 'factura'));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir la factura', 'error');
+    }
+  }
   // Editar precios / agregar productos a una OC ya «Confirmada pagar» (o esperando método),
   // sin devolverla a aprobación. El total se recalcula y se sincroniza a Tesorería.
   const [editarPreciosOpen, setEditarPreciosOpen] = useState(false);
@@ -3199,6 +3230,11 @@ function OrdenDetailModal({
           🧾 Factura
         </button>
       )}
+      {facturasProv.map((a, i) => (
+        <button key={a.id} className="btn btn-ghost" onClick={() => void abrirFacturaProv(a)} title={a.nombre ?? 'Factura del proveedor'}>
+          ↓ Factura del proveedor{facturasProv.length > 1 ? ` ${i + 1}` : ''}
+        </button>
+      ))}
       {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.
           En contra entrega la recepción ocurrió ANTES del pago, así que no se repite. */}
       {isPagada && !o.recibida_en && canManageProcurement && (
@@ -3603,7 +3639,9 @@ function OrdenDetailModal({
           const igtfM = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
           const descM = o.descuento_pago_aplicado ? Math.max(0, Number(o.descuento_pago_monto) || 0) : 0;
           const hayDesglose = ivaM > 0 || igtfM > 0 || descM > 0;
-          const subtotal = r2((Number(o.total) || 0) - ivaM - igtfM + descM);
+          // 05/11/2026: el IVA que ya viene en los precios no está sumado: no se resta.
+          const ivaIncl = !!o.iva_incluido;
+          const subtotal = r2((Number(o.total) || 0) - (ivaIncl ? 0 : ivaM) - igtfM + descM);
           const pct = (v: unknown) => {
             const n = Number(v) || 0;
             return n > 0 ? ` (${n.toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : '';
@@ -3626,8 +3664,8 @@ function OrdenDetailModal({
                   )}
                   {ivaM > 0 && (
                     <tr>
-                      <td colSpan={6} className="num muted">IVA{pct(o.iva_pct)}</td>
-                      <td className="num muted">+ {montoMoneda(ivaM, o.total_moneda)}</td>
+                      <td colSpan={6} className="num muted">IVA{pct(o.iva_pct)}{ivaIncl ? ' · incluido en los precios' : ''}</td>
+                      <td className="num muted">{ivaIncl ? '' : '+ '}{montoMoneda(ivaM, o.total_moneda)}</td>
                       <td></td>
                     </tr>
                   )}
@@ -4874,6 +4912,8 @@ function EditarOrdenModal({
   const [ivaMontoStr, setIvaMontoStr] = useState(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0 ? String(impPreviosOrden.ivaMonto) : '');
   // Un monto guardado sin % se escribió a mano: no se recalcula solo.
   const ivaManualRef = useRef(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0 && !(impPreviosOrden.ivaPct > 0));
+  // 05/11/2026: precios con el IVA adentro (se guarda pero no suma).
+  const [ivaIncluido, setIvaIncluidoState] = useState<boolean>(!!impPreviosOrden.ivaIncluido);
   // Mientras no se toque el IVA ni cambie la base, se respeta el monto guardado tal cual:
   // abrir la orden y guardar otra cosa (una nota) no puede mover el IVA por un centavo de
   // redondeo, porque en una OC ya firmada eso la devolvería al Gerente General.
@@ -4882,8 +4922,9 @@ function EditarOrdenModal({
     if (!ivaEditable || !conIva || ivaManualRef.current) return;
     if (!ivaTocadoRef.current && Math.abs(totalEditado - baseOrdenPrev) < 0.005) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && totalEditado > 0 ? String(Math.round(totalEditado * p) / 100) : '');
-  }, [ivaEditable, conIva, ivaPct, totalEditado, baseOrdenPrev]);
+    setIvaMontoStr(p > 0 && totalEditado > 0 ? String(ivaDesdePorcentaje(totalEditado, p, ivaIncluido)) : '');
+  }, [ivaEditable, conIva, ivaPct, totalEditado, baseOrdenPrev, ivaIncluido]);
+  function setIvaIncluido(v: boolean) { ivaTocadoRef.current = true; setIvaIncluidoState(v); }
   const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
   const ivaMontoNum = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
   function onConIva(activo: boolean) {
@@ -4895,9 +4936,9 @@ function EditarOrdenModal({
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && totalEditado > 0 ? String(Math.round((m / totalEditado) * 10000) / 100) : '0');
+    setIvaPct(m > 0 && totalEditado > 0 ? String(porcentajeDesdeIva(totalEditado, m, ivaIncluido)) : '0');
   }
-  const ivaEditado = ivaEditable ? { aplicado: conIva, pct: ivaPctNum, monto: ivaMontoNum } : null;
+  const ivaEditado = ivaEditable ? { aplicado: conIva, pct: ivaPctNum, monto: ivaMontoNum, incluido: ivaIncluido } : null;
   const impRecalculados = ivaEditado
     ? recomponerConIva(baseOrdenPrev, totalEditado, impPreviosOrden, ivaEditado)
     : recomponerImpuestos(baseOrdenPrev, totalEditado, impPreviosOrden);
@@ -5333,6 +5374,15 @@ function EditarOrdenModal({
                     value={conIva ? ivaMontoStr : ''} onChange={(e) => onIvaMonto(e.target.value)} disabled={saving}
                     title="Monto del IVA (se puede escribir a mano)" placeholder="0,00" />
                 </div>
+                {conIva && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.2rem' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.82rem', cursor: 'pointer' }}
+                    title="Factura de punto de venta: cada renglón ya trae el IVA adentro. El IVA se guarda (retención, libro fiscal) pero NO se suma otra vez al total.">
+                    <input type="checkbox" checked={ivaIncluido} onChange={(e) => setIvaIncluido(e.target.checked)} disabled={saving} />
+                    <span>Los precios cotizados <strong>ya traen el IVA</strong></span>
+                  </label>
+                  </div>
+                )}
                 <div className="muted" style={{ fontSize: '.74rem', textAlign: 'right', marginTop: '.15rem' }}>
                   {conIva && ivaMontoNum > 0
                     ? <>IVA sobre base {money(totalEditado)}{ivaPctNum > 0 && ivaPctNum !== 16 ? ` · estás aplicando ${ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}% en vez del 16% general` : ''}</>

@@ -29,6 +29,8 @@ export interface CrearOfertaInput {
   iva_pct?: number | null;
   iva_monto?: number | null;
   iva_aplicado?: boolean | null;
+  /** 05/11/2026: los precios cotizados ya traen el IVA (se guarda, no suma). */
+  iva_incluido?: boolean | null;
   igtf_pct?: number | null;
   igtf_monto?: number | null;
   igtf_aplicado?: boolean | null;
@@ -170,6 +172,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       iva_pct: Math.max(0, Number(input.iva_pct) || 0),
       iva_monto: Math.max(0, Number(input.iva_monto) || 0),
       iva_aplicado: !!input.iva_aplicado,
+      iva_incluido: !!input.iva_aplicado && !!input.iva_incluido,
       igtf_pct: Math.max(0, Number(input.igtf_pct) || 0),
       igtf_monto: Math.max(0, Number(input.igtf_monto) || 0),
       igtf_aplicado: !!input.igtf_aplicado,
@@ -194,7 +197,7 @@ export async function actualizarOferta(
   id: string,
   patch: Partial<Pick<CrearOfertaInput,
     'proveedor_id' | 'actividad_economica' | 'items' | 'precio_total' | 'precio_divisa' | 'descuento_obtenido' |
-    'iva_pct' | 'iva_monto' | 'iva_aplicado' | 'igtf_pct' | 'igtf_monto' | 'igtf_aplicado' |
+    'iva_pct' | 'iva_monto' | 'iva_aplicado' | 'iva_incluido' | 'igtf_pct' | 'igtf_monto' | 'igtf_aplicado' |
     'fecha_entrega_prometida' | 'condiciones_pago' | 'anticipo_monto' | 'anticipo_moneda' |
     'notas' | 'ficha' | 'adjuntos' | 'pdf_path' | 'pdf_filename'>>
 ): Promise<OfertaProveedor> {
@@ -221,13 +224,13 @@ export async function actualizarOferta(
 async function sincronizarImpuestosOrdenDesdeOferta(oferta: OfertaProveedor): Promise<void> {
   const { data } = await supabase
     .from('ordenes')
-    .select('id, estado, total, total_divisa, iva_aplicado, iva_monto, igtf_aplicado, igtf_monto')
+    .select('id, estado, total, total_divisa, iva_aplicado, iva_monto, iva_incluido, igtf_aplicado, igtf_monto')
     .eq('id', oferta.orden_id)
     .maybeSingle();
   if (!data) return;
   const o = data as {
     id: string; estado: string; total: number | null; total_divisa: number | null;
-    iva_aplicado: boolean | null; iva_monto: number | null; igtf_aplicado: boolean | null; igtf_monto: number | null;
+    iva_aplicado: boolean | null; iva_monto: number | null; iva_incluido: boolean | null; igtf_aplicado: boolean | null; igtf_monto: number | null;
   };
   // Nunca tocar una OC ya pagada/cerrada (el monto es histórico).
   if (['pagada', 'recibida', 'finalizada'].includes(o.estado)) return;
@@ -240,11 +243,14 @@ async function sincronizarImpuestosOrdenDesdeOferta(oferta: OfertaProveedor): Pr
   if (!ivaAp && !igtfAp) return;
   const ivaM = ivaAp ? Math.max(0, num(oferta.iva_monto)) : 0;
   const igtfM = igtfAp ? Math.max(0, num(oferta.igtf_monto)) : 0;
-  const prevImp = (o.iva_aplicado ? num(o.iva_monto) : 0) + (o.igtf_aplicado ? num(o.igtf_monto) : 0);
-  const newImp = ivaM + igtfM;
-  if (r2(prevImp) === r2(newImp) && !!o.iva_aplicado === ivaAp && !!o.igtf_aplicado === igtfAp) return; // sin cambios
+  // 05/11/2026: el IVA que ya viene en los precios no suma (ni se resta).
+  const incl = ivaAp && !!oferta.iva_incluido;
+  const prevImp = (o.iva_aplicado && !o.iva_incluido ? num(o.iva_monto) : 0) + (o.igtf_aplicado ? num(o.igtf_monto) : 0);
+  const newImp = (incl ? 0 : ivaM) + igtfM;
+  if (r2(prevImp) === r2(newImp) && !!o.iva_aplicado === ivaAp && !!o.igtf_aplicado === igtfAp
+    && !!o.iva_incluido === incl && r2(num(o.iva_monto)) === r2(ivaM)) return; // sin cambios
   const patch: Record<string, unknown> = {
-    iva_aplicado: ivaAp, iva_pct: ivaAp ? num(oferta.iva_pct) : 0, iva_monto: ivaAp ? ivaM : null,
+    iva_aplicado: ivaAp, iva_pct: ivaAp ? num(oferta.iva_pct) : 0, iva_monto: ivaAp ? ivaM : null, iva_incluido: incl,
     igtf_aplicado: igtfAp, igtf_pct: igtfAp ? num(oferta.igtf_pct) : 0, igtf_monto: igtfAp ? igtfM : null,
     total: r2(num(o.total) - prevImp + newImp),
   };

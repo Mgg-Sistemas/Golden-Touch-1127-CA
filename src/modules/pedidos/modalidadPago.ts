@@ -5,7 +5,8 @@ export type ModalidadPagoAnalista = 'divisa' | 'bcv';
 
 /** Impuestos absolutos ($) de una oferta (IVA + IGTF) */
 export function impuestosOferta(of: OfertaProveedor): number {
-  const iva = of.iva_aplicado ? Math.max(0, Number(of.iva_monto) || 0) : 0;
+  // 05/11/2026: el IVA que ya viene en los precios no se vuelve a sumar.
+  const iva = of.iva_aplicado && !of.iva_incluido ? Math.max(0, Number(of.iva_monto) || 0) : 0;
   const igtf = of.igtf_aplicado ? Math.max(0, Number(of.igtf_monto) || 0) : 0;
   return Math.round((iva + igtf) * 100) / 100;
 }
@@ -72,7 +73,7 @@ export interface InfoModalidadPagoOrden {
  * (BCV vs Divisa) de una orden ya creada.
  */
 export function obtenerInfoModalidadPago(
-  orden: Pick<Orden, 'total' | 'total_divisa' | 'pago_en_divisa' | 'historial' | 'iva_aplicado' | 'iva_monto' | 'igtf_aplicado' | 'igtf_monto'>,
+  orden: Pick<Orden, 'total' | 'total_divisa' | 'pago_en_divisa' | 'historial' | 'iva_aplicado' | 'iva_monto' | 'iva_incluido' | 'igtf_aplicado' | 'igtf_monto'>,
   ofertaAceptada?: OfertaProveedor | null,
 ): InfoModalidadPagoOrden {
   const esDivisa = !!orden.pago_en_divisa;
@@ -85,7 +86,7 @@ export function obtenerInfoModalidadPago(
     if (evOc && (evOc as any).precio_bcv != null) {
       const p = Number((evOc as any).precio_bcv);
       if (p > 0) {
-        const imp = (orden.iva_aplicado ? Number(orden.iva_monto) || 0 : 0)
+        const imp = (orden.iva_aplicado && !orden.iva_incluido ? Number(orden.iva_monto) || 0 : 0)
           + (orden.igtf_aplicado ? Number(orden.igtf_monto) || 0 : 0);
         bcvHistorial = Math.round((p + imp) * 100) / 100;
       }

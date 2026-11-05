@@ -101,7 +101,7 @@ describe('recomponerImpuestos · impuesto apagado', () => {
 
   it('una orden sin impuestos: el total es la base', () => {
     const r = recomponerImpuestos(500, 800, {
-      ivaAplicado: false, ivaPct: 0, ivaMonto: 0,
+      ivaAplicado: false, ivaIncluido: false, ivaPct: 0, ivaMonto: 0,
       igtfAplicado: false, igtfPct: 0, igtfMonto: 0,
     });
     expect(r.total).toBe(800);
@@ -168,14 +168,14 @@ describe('baseNetaDesdeTotal', () => {
 describe('impuestosDeOrden', () => {
   it('lee la orden tal como viene de la base', () => {
     expect(impuestosDeOrden({ iva_aplicado: true, iva_pct: 16, iva_monto: 17.6 })).toEqual({
-      ivaAplicado: true, ivaPct: 16, ivaMonto: 17.6,
+      ivaAplicado: true, ivaIncluido: false, ivaPct: 16, ivaMonto: 17.6,
       igtfAplicado: false, igtfPct: 0, igtfMonto: 0,
     });
   });
 
   it('los nulos no rompen nada', () => {
     expect(impuestosDeOrden({ iva_aplicado: null, iva_pct: null, iva_monto: null })).toEqual({
-      ivaAplicado: false, ivaPct: 0, ivaMonto: 0,
+      ivaAplicado: false, ivaIncluido: false, ivaPct: 0, ivaMonto: 0,
       igtfAplicado: false, igtfPct: 0, igtfMonto: 0,
     });
   });
@@ -186,12 +186,12 @@ describe('recomponerConIva · el IVA se edita a mano en los servicios', () => {
 
   it('agrega el IVA a un servicio que no lo tenía', () => {
     const r = recomponerConIva(500, 500, sinImpuestos, { aplicado: true, pct: 16, monto: 80 });
-    expect(r).toEqual({ ivaAplicado: true, ivaPct: 16, ivaMonto: 80, igtfMonto: 0, impuestos: 80, total: 580 });
+    expect(r).toEqual({ ivaAplicado: true, ivaPct: 16, ivaMonto: 80, ivaIncluido: false, igtfMonto: 0, impuestos: 80, total: 580 });
   });
 
   it('quita el IVA y el total vuelve a la base', () => {
     const r = recomponerConIva(500, 500, soloIva(16, 80), { aplicado: false, pct: 16, monto: 80 });
-    expect(r).toEqual({ ivaAplicado: false, ivaPct: 0, ivaMonto: 0, igtfMonto: 0, impuestos: 0, total: 500 });
+    expect(r).toEqual({ ivaAplicado: false, ivaPct: 0, ivaMonto: 0, ivaIncluido: false, igtfMonto: 0, impuestos: 0, total: 500 });
   });
 
   it('manda el monto escrito, aunque no coincida con el %', () => {

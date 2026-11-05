@@ -130,7 +130,7 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
   if (orden.pago_en_divisa && orden.total_divisa != null) {
     ficha.push(['Pago en divisa / efectivo', money(Number(orden.total_divisa))]);
   }
-  if (iva > 0) ficha.push([`IVA (${Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)`, money(iva)]);
+  if (iva > 0) ficha.push([`IVA (${Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)${orden.iva_incluido ? ' incluido en los precios' : ''}`, money(iva)]);
   if (igtf > 0) ficha.push([`IGTF (${Number(orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)`, money(igtf)]);
   if (descPago > 0) ficha.push(['Descuento (pronto pago)', `- ${money(descPago)}`]);
   // En crédito se distingue el total de la orden, lo pagado y el saldo pendiente.

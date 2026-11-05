@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ivaDesdePorcentaje, porcentajeDesdeIva } from './impuestosOc';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
@@ -283,6 +284,8 @@ export function AgregarOfertaModal({
   const [ivaPct, setIvaPct] = useState(String(Number(ofertaEditar?.iva_pct) > 0 ? ofertaEditar!.iva_pct : 16));
   const [ivaMontoStr, setIvaMontoStr] = useState(Number(ofertaEditar?.iva_monto) > 0 ? String(ofertaEditar!.iva_monto) : '');
   const ivaManualRef = useRef<boolean>(Number(ofertaEditar?.iva_monto) > 0);
+  // 05/11/2026 (de MGG): los precios cotizados ya traen el IVA → se guarda pero no suma.
+  const [ivaIncluido, setIvaIncluido] = useState<boolean>(!!ofertaEditar?.iva_incluido);
   // IGTF (impuesto a las grandes transacciones financieras): por % (3 sugerido) o monto manual.
   const [conIgtf, setConIgtf] = useState<boolean>(!!ofertaEditar?.igtf_aplicado);
   const [igtfPct, setIgtfPct] = useState(String(Number(ofertaEditar?.igtf_pct) > 0 ? ofertaEditar!.igtf_pct : 3));
@@ -394,17 +397,18 @@ export function AgregarOfertaModal({
   useEffect(() => {
     if (ivaManualRef.current) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && baseImp > 0 ? String(Math.round(baseImp * (p / 100) * 100) / 100) : '');
-  }, [ivaPct, baseImp]);
+    setIvaMontoStr(p > 0 && baseImp > 0 ? String(ivaDesdePorcentaje(baseImp, p, ivaIncluido)) : '');
+  }, [ivaPct, baseImp, ivaIncluido]);
   const ivaMonto = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
   function onIvaPct(v: string) { ivaManualRef.current = false; setConIva(true); setIvaPct(v); }
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && baseImp > 0 ? String(Math.round((m / baseImp) * 10000) / 100) : '0');
+    setIvaPct(m > 0 && baseImp > 0 ? String(porcentajeDesdeIva(baseImp, m, ivaIncluido)) : '0');
   }
   // IGTF: se calcula sobre la base + IVA (lo que realmente se paga).
-  const baseIgtf = Math.round((baseImp + ivaMonto) * 100) / 100;
+  const ivaSuma = ivaIncluido ? 0 : ivaMonto;
+  const baseIgtf = Math.round((baseImp + ivaSuma) * 100) / 100;
   const igtfPctNum = Math.max(0, Math.min(100, Math.round((Number(igtfPct) || 0) * 100) / 100));
   useEffect(() => {
     if (igtfManualRef.current) return;
@@ -418,7 +422,7 @@ export function AgregarOfertaModal({
     const m = Number(v) || 0;
     setIgtfPct(m > 0 && baseIgtf > 0 ? String(Math.round((m / baseIgtf) * 10000) / 100) : '0');
   }
-  const totalConImp = Math.round((baseImp + ivaMonto + igtfMonto) * 100) / 100;
+  const totalConImp = Math.round((baseImp + ivaSuma + igtfMonto) * 100) / 100;
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
@@ -626,6 +630,7 @@ export function AgregarOfertaModal({
           iva_pct: conIva ? ivaPctNum : 0,
           iva_monto: conIva ? ivaMonto : 0,
           iva_aplicado: conIva && ivaMonto > 0,
+          iva_incluido: conIva && ivaMonto > 0 && ivaIncluido,
           igtf_pct: conIgtf ? igtfPctNum : 0,
           igtf_monto: conIgtf ? igtfMonto : 0,
           igtf_aplicado: conIgtf && igtfMonto > 0,
@@ -665,6 +670,7 @@ export function AgregarOfertaModal({
         iva_pct: conIva ? ivaPctNum : 0,
         iva_monto: conIva ? ivaMonto : 0,
         iva_aplicado: conIva && ivaMonto > 0,
+          iva_incluido: conIva && ivaMonto > 0 && ivaIncluido,
         igtf_pct: conIgtf ? igtfPctNum : 0,
         igtf_monto: conIgtf ? igtfMonto : 0,
         igtf_aplicado: conIgtf && igtfMonto > 0,
@@ -1185,8 +1191,17 @@ export function AgregarOfertaModal({
             <input className="input mono" type="number" min={0} step="any" value={ivaMontoStr}
               onChange={(e) => onIvaMonto(e.target.value)} disabled={!conIva}
               title="Monto del IVA (editable a mano)" placeholder="0,00" style={{ width: 120 }} />
-            <span className="muted">= +{money(ivaMonto)}</span>
+            <span className="muted">= {ivaIncluido ? 'incluido ' : '+'}{money(ivaMonto)}</span>
           </div>
+          {conIva && (
+            <div style={{ marginLeft: 92 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.82rem', cursor: 'pointer' }}
+                    title="Factura de punto de venta: cada renglón ya trae el IVA adentro. El IVA se guarda (retención, libro fiscal) pero NO se suma otra vez al total.">
+                    <input type="checkbox" checked={ivaIncluido} onChange={(e) => setIvaIncluido(e.target.checked)} />
+                    <span>Los precios cotizados <strong>ya traen el IVA</strong></span>
+                  </label>
+            </div>
+          )}
           {/* IGTF */}
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem', minWidth: 92 }}>
@@ -1205,7 +1220,7 @@ export function AgregarOfertaModal({
           </div>
           {(ivaMonto > 0 || igtfMonto > 0) && (
             <small className="muted">
-              Base {money(baseImp)}{ivaMonto > 0 ? ` · IVA +${money(ivaMonto)}` : ''}{igtfMonto > 0 ? ` · IGTF +${money(igtfMonto)}` : ''}
+              Base {money(baseImp)}{ivaMonto > 0 ? (ivaIncluido ? ` · IVA ${money(ivaMonto)} ya incluido` : ` · IVA +${money(ivaMonto)}`) : ''}{igtfMonto > 0 ? ` · IGTF +${money(igtfMonto)}` : ''}
               {' '}→ <strong className="mono">Total con impuestos {money(totalConImp)}</strong>.
               {' '}Se arrastra a la OC y a Tesorería.
             </small>

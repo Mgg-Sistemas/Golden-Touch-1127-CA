@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ivaDesdePorcentaje, porcentajeDesdeIva } from './impuestosOc';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { editarPreciosOrdenPorPagar } from './pedidos.repository';
@@ -68,7 +69,9 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   // calculado sobre ese IVA— no había forma de arreglarla desde el sistema.
   const ivaPrev = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
   const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
-  const basePrev = Math.max(0, r2((Number(o.total) || 0) - ivaPrev - igtfPrev));
+  // 05/11/2026: con precios que ya traen el IVA, el IVA no está sumado al total.
+  const ivaIncl = !!o.iva_incluido;
+  const basePrev = Math.max(0, r2((Number(o.total) || 0) - (ivaIncl ? 0 : ivaPrev) - igtfPrev));
   const baseNueva = Math.max(0, r2(basePrev + r2(baseNew - baseOld)));
 
   const [conIva, setConIva] = useState(!!o.iva_aplicado);
@@ -85,11 +88,12 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   useEffect(() => {
     if (ivaManualRef.current) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && baseNueva > 0 ? String(r2(baseNueva * (p / 100))) : '');
+    setIvaMontoStr(p > 0 && baseNueva > 0 ? String(ivaDesdePorcentaje(baseNueva, p, ivaIncl)) : '');
   }, [ivaPct, baseNueva]);
   const ivaMonto = conIva ? Math.max(0, r2(Number(ivaMontoStr) || 0)) : 0;
   // El IGTF se calcula sobre lo que realmente se paga: base + IVA.
-  const baseIgtf = r2(baseNueva + ivaMonto);
+  const ivaSuma = ivaIncl ? 0 : ivaMonto;
+  const baseIgtf = r2(baseNueva + ivaSuma);
   const igtfPctNum = Math.max(0, Math.min(100, r2(Number(igtfPct) || 0)));
   useEffect(() => {
     if (igtfManualRef.current) return;
@@ -102,7 +106,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && baseNueva > 0 ? String(Math.round((m / baseNueva) * 10000) / 100) : '0');
+    setIvaPct(m > 0 && baseNueva > 0 ? String(porcentajeDesdeIva(baseNueva, m, ivaIncl)) : '0');
   }
   function onIgtfPct(v: string) { igtfManualRef.current = false; setConIgtf(true); setIgtfPct(v); }
   function onIgtfMonto(v: string) {
@@ -111,7 +115,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
     setIgtfPct(m > 0 && baseIgtf > 0 ? String(Math.round((m / baseIgtf) * 10000) / 100) : '0');
   }
 
-  const totalNuevo = Math.max(0, r2(baseNueva + ivaMonto + igtfMonto));
+  const totalNuevo = Math.max(0, r2(baseNueva + ivaSuma + igtfMonto));
 
   async function guardar() {
     setError(null);
@@ -210,7 +214,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
             onChange={(e) => onIvaMonto(e.target.value)} disabled={saving}
             title="Monto del IVA (se puede escribir a mano)" placeholder="0,00"
             style={{ width: 104, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
-          <span className="mono muted">= {monto(ivaMonto, moneda)}</span>
+          <span className="mono muted">= {monto(ivaMonto, moneda)}{ivaIncl ? ' · incluido en los precios' : ''}</span>
         </label>
         {conIva && ivaPctNum !== 16 && ivaPctNum > 0 && (
           <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>
@@ -235,7 +239,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
         </label>
         {conIgtf && (
           <div className="muted" style={{ fontSize: '.74rem', marginTop: '.35rem' }}>
-            El IGTF se calcula sobre {monto(baseIgtf, moneda)} (base{ivaMonto > 0 ? ' + IVA' : ''}), que es lo que de verdad se paga.
+            El IGTF se calcula sobre {monto(baseIgtf, moneda)} (base{ivaSuma > 0 ? ' + IVA' : ''}), que es lo que de verdad se paga.
           </div>
         )}
       </div>
@@ -246,7 +250,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
           <br />
           <span className="mono">
             {monto(baseNueva, moneda)}
-            {ivaMonto > 0 ? ` + ${monto(ivaMonto, moneda)} IVA` : ''}
+            {ivaMonto > 0 ? (ivaIncl ? ` (IVA ${monto(ivaMonto, moneda)} incluido)` : ` + ${monto(ivaMonto, moneda)} IVA`) : ''}
             {igtfMonto > 0 ? ` + ${monto(igtfMonto, moneda)} IGTF` : ''}
           </span>
         </div>

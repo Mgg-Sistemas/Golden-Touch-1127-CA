@@ -344,10 +344,11 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   if (orden.comprobante_tipo === 'factura') {
     cond.push(['Tipo de soporte', 'Factura']);
     if (orden.iva_aplicado) {
+      // 05/11/2026: con precios que ya traen el IVA el total no lo suma, pero la base sin IVA sigue siendo total − IVA − IGTF.
       const base = Number(orden.total) - iva - igtf;
       const pct = Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 });
       cond.push(['Base imponible', money(base)]);
-      cond.push([`IVA (${pct}%)`, money(iva)]);
+      cond.push([orden.iva_incluido ? `IVA (${pct}%) incluido en los precios` : `IVA (${pct}%)`, money(iva)]);
     } else {
       cond.push(['IVA', 'Sin IVA']);
     }

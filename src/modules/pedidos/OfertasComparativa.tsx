@@ -25,7 +25,8 @@ import { calcularDesgloseModalidadesOferta, type ModalidadPagoAnalista } from '.
 /** Impuestos absolutos ($) de una oferta (IVA + IGTF) que se SUMAN al total al pasar
  *  a la OC. Se muestran en la comparación para que el total refleje lo que se pagará. */
 function impuestosOferta(of: OfertaProveedor): number {
-  const iva = of.iva_aplicado ? Math.max(0, Number(of.iva_monto) || 0) : 0;
+  // 05/11/2026: el IVA que ya viene en los precios no se vuelve a sumar.
+  const iva = of.iva_aplicado && !of.iva_incluido ? Math.max(0, Number(of.iva_monto) || 0) : 0;
   const igtf = of.igtf_aplicado ? Math.max(0, Number(of.igtf_monto) || 0) : 0;
   return Math.round((iva + igtf) * 100) / 100;
 }

@@ -21,6 +21,9 @@
 
 export interface ImpuestosOrden {
   ivaAplicado: boolean;
+  /** 05/11/2026: los precios ya traen el IVA adentro: se guarda (retención, libro
+   *  fiscal) pero NO se suma al total, y el % va sobre la base sin IVA. */
+  ivaIncluido?: boolean;
   /** % de referencia. Si es > 0, manda sobre el monto guardado. */
   ivaPct: number;
   ivaMonto: number;
@@ -44,6 +47,10 @@ const r2 = (v: unknown): number => {
 };
 
 const noNegativo = (v: number): number => (v > 0 ? v : 0);
+
+/** IVA a partir de un %: con precios que ya lo traen, base × p / (100 + p). */
+const ivaDePct = (base: number, p: number, incluido?: boolean): number =>
+  r2(incluido ? (base * p) / (100 + p) : (base * p) / 100);
 
 /** El % acotado a algo que tenga sentido como alícuota. */
 const pct = (v: unknown): number => {
@@ -77,19 +84,22 @@ export function recomponerImpuestos(
   const escala = anterior > 0 ? nueva / anterior : 1;
 
   const ivaMonto = !prev.ivaAplicado ? 0
-    : ivaPct > 0 ? r2((nueva * ivaPct) / 100)
+    : ivaPct > 0 ? ivaDePct(nueva, ivaPct, prev.ivaIncluido)
     : r2(ivaPrev * escala);
+  // Con precios que ya traen el IVA, el IVA no suma (ya está en la base).
+  const ivaSuma = prev.ivaIncluido ? 0 : ivaMonto;
+  const ivaPrevSuma = prev.ivaIncluido ? 0 : ivaPrev;
 
   // El IGTF se paga sobre lo que efectivamente sale de la caja: base + IVA.
-  const baseIgtfPrev = r2(anterior + ivaPrev);
-  const baseIgtfNueva = r2(nueva + ivaMonto);
+  const baseIgtfPrev = r2(anterior + ivaPrevSuma);
+  const baseIgtfNueva = r2(nueva + ivaSuma);
   const escalaIgtf = baseIgtfPrev > 0 ? baseIgtfNueva / baseIgtfPrev : 1;
 
   const igtfMonto = !prev.igtfAplicado ? 0
     : igtfPct > 0 ? r2((baseIgtfNueva * igtfPct) / 100)
     : r2(igtfPrev * escalaIgtf);
 
-  const impuestos = r2(ivaMonto + igtfMonto);
+  const impuestos = r2(ivaSuma + igtfMonto);
   return { ivaMonto, igtfMonto, impuestos, total: r2(nueva + impuestos) };
 }
 
@@ -100,9 +110,10 @@ export function recomponerImpuestos(
  */
 export function baseNetaDesdeTotal(
   total: number | null | undefined,
-  prev: Pick<ImpuestosOrden, 'ivaAplicado' | 'ivaMonto' | 'igtfAplicado' | 'igtfMonto'>,
+  prev: Pick<ImpuestosOrden, 'ivaAplicado' | 'ivaMonto' | 'igtfAplicado' | 'igtfMonto' | 'ivaIncluido'>,
 ): number {
-  const ivaPrev = prev.ivaAplicado ? noNegativo(r2(prev.ivaMonto)) : 0;
+  // El IVA incluido no se había sumado: no se resta.
+  const ivaPrev = prev.ivaAplicado && !prev.ivaIncluido ? noNegativo(r2(prev.ivaMonto)) : 0;
   const igtfPrev = prev.igtfAplicado ? noNegativo(r2(prev.igtfMonto)) : 0;
   return noNegativo(r2((Number(total) || 0) - ivaPrev - igtfPrev));
 }
@@ -111,9 +122,11 @@ export function baseNetaDesdeTotal(
 export function impuestosDeOrden(o: {
   iva_aplicado?: boolean | null; iva_pct?: number | null; iva_monto?: number | null;
   igtf_aplicado?: boolean | null; igtf_pct?: number | null; igtf_monto?: number | null;
+  iva_incluido?: boolean | null;
 }): ImpuestosOrden {
   return {
     ivaAplicado: !!o.iva_aplicado,
+    ivaIncluido: !!o.iva_incluido,
     ivaPct: r2(o.iva_pct),
     ivaMonto: r2(o.iva_monto),
     igtfAplicado: !!o.igtf_aplicado,
@@ -134,11 +147,14 @@ export interface IvaEditado {
   /** % de referencia (queda guardado; el monto es el que manda). */
   pct: number;
   monto: number;
+  /** Los precios ya traen el IVA (sin dato = lo que tenía la orden). */
+  incluido?: boolean;
 }
 
 export interface ImpuestosConIva extends ImpuestosRecompuestos {
   ivaAplicado: boolean;
   ivaPct: number;
+  ivaIncluido: boolean;
 }
 
 /**
@@ -156,27 +172,31 @@ export function recomponerConIva(
   const nueva = noNegativo(r2(baseNueva));
   const ivaMonto = iva.aplicado ? noNegativo(r2(iva.monto)) : 0;
   const ivaAplicado = ivaMonto > 0;
+  const ivaIncluido = ivaAplicado && (iva.incluido ?? !!prev.ivaIncluido);
+  const ivaSuma = ivaIncluido ? 0 : ivaMonto;
 
-  const ivaPrev = prev.ivaAplicado ? noNegativo(r2(prev.ivaMonto)) : 0;
+  const ivaPrev = prev.ivaAplicado && !prev.ivaIncluido ? noNegativo(r2(prev.ivaMonto)) : 0;
   const igtfPrev = prev.igtfAplicado ? noNegativo(r2(prev.igtfMonto)) : 0;
   const igtfPct = pct(prev.igtfPct);
   const baseIgtfPrev = r2(anterior + ivaPrev);
-  const baseIgtfNueva = r2(nueva + ivaMonto);
+  const baseIgtfNueva = r2(nueva + ivaSuma);
   const escalaIgtf = baseIgtfPrev > 0 ? baseIgtfNueva / baseIgtfPrev : 1;
   const igtfMonto = !prev.igtfAplicado ? 0
     : igtfPct > 0 ? r2((baseIgtfNueva * igtfPct) / 100)
     : r2(igtfPrev * escalaIgtf);
 
-  const impuestos = r2(ivaMonto + igtfMonto);
+  const impuestos = r2(ivaSuma + igtfMonto);
   return {
-    ivaAplicado, ivaPct: ivaAplicado ? pct(iva.pct) : 0, ivaMonto,
+    ivaAplicado, ivaPct: ivaAplicado ? pct(iva.pct) : 0, ivaMonto, ivaIncluido,
     igtfMonto, impuestos, total: r2(nueva + impuestos),
   };
 }
 
 /** ¿El IVA escrito es distinto del que la orden tiene guardado? (cambia el total a pagar) */
-export function ivaCambio(prev: ImpuestosOrden, nuevo: { ivaAplicado: boolean; ivaMonto: number }): boolean {
+export function ivaCambio(prev: ImpuestosOrden, nuevo: { ivaAplicado: boolean; ivaMonto: number; ivaIncluido?: boolean }): boolean {
   const antes = prev.ivaAplicado ? noNegativo(r2(prev.ivaMonto)) : 0;
   const ahora = nuevo.ivaAplicado ? noNegativo(r2(nuevo.ivaMonto)) : 0;
-  return Math.round(antes * 100) !== Math.round(ahora * 100);
+  // Pasar a «precios con IVA incluido» (o volver) también cambia el total a pagar.
+  const inclCambia = ahora > 0 && nuevo.ivaIncluido !== undefined && !!nuevo.ivaIncluido !== !!prev.ivaIncluido;
+  return Math.round(antes * 100) !== Math.round(ahora * 100) || inclCambia;
 }
