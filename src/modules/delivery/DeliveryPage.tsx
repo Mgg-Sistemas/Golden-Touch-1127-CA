@@ -141,7 +141,7 @@ export function DeliveryPage({ canal = 'delivery' }: { canal?: CanalDelivery } =
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div style={{ flex: '1 1 320px' }}>
-          <h1 style={{ margin: 0 }}>{cfgCanal.icono} {cfgCanal.titulo}</h1>
+          <h1 style={{ margin: 0 }}>🛵 Delivery</h1>
           {puedeAmbos && (
             <div className="view-toggle" role="tablist" aria-label="Delivery o Carga pesada" style={{ marginTop: '.4rem' }}>
               {(Object.keys(CANALES_DELIVERY) as CanalDelivery[]).map((k) => (
