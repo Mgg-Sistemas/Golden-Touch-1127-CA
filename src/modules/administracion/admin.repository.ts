@@ -119,7 +119,8 @@ export type CarpetaDocumento =
   | 'otros';
 
 export interface InfoCarpetaDoc {
-  id: CarpetaDocumento;
+  id: string;
+  esPersonalizada?: boolean;
   icon: string;
   label: string;
   descripcion: string;

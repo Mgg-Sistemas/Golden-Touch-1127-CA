@@ -1,18 +1,20 @@
 /* ============================================================
    Golden Touch · Administración · Pestaña «Documentos y Permisos»
-   (04/11/2026)
+   (05/11/2026)
 
    Pilar principal del módulo de Administración para empresas mineras:
      1. Gestión de Documentos y Permisos (Rupdae, Ragda, Mintras, Inces,
         IVSS, Carta Constitutiva, Cédulas de N socios, etc.).
-     2. Carpetas organizativas con badges dinámicos de estado.
-     3. Dimension de Vencimiento y Caducidad (Vigente, Por Vencer,
+     2. Carpetas organizativas personalizables con notas, íconos y badges dinámicos.
+     3. Dimensión de Vencimiento y Caducidad (Vigente, Por Vencer,
         Vencido, Vencido en Trámite, No Vence).
-     4. Alertas y advertencias individuales y agrupadas con filtros rápidos.
-     5. Carga masiva con Drag & Drop (límite seguro de 10 archivos por intento).
-     6. Historial ligero de auditoría por documento (quién modificó qué y cuándo).
-     7. Multi-empresa (reacciona al selector de cabecera de la página).
-     8. Generación de avisos y alertas ejecutivas para WhatsApp.
+     4. Ingreso dual: Fecha de Vencimiento directa o Tiempo de Vigencia sugerido.
+     5. Selectores con barra de búsqueda SearchSelect para Carpetas y Tipos.
+     6. Alertas con cuenta regresiva en Hover y detalle al item.
+     7. Carga masiva con Drag & Drop (límite seguro de 10 archivos por intento).
+     8. Historial ligero de auditoría por documento.
+     9. Multi-empresa (reacciona al selector de cabecera).
+     10. Reporte dinámico moldeable y mensaje de WhatsApp listos.
    ============================================================ */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -20,9 +22,18 @@ import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { SearchSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { ExportarDocumentosModal } from './ExportarDocumentosModal';
+import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
 import {
-  CARPETAS_DOCUMENTOS,
+  GestionarCarpetasModal,
+  leerCarpetasPersonalizadas,
+  guardarCarpetasPersonalizadas,
+} from './GestionarCarpetasModal';
+import {
+  obtenerDetalleHoverVigencia,
+} from './administracionVigencia';
+import {
   ETIQUETA_CARPETA,
   TIPO_DOCUMENTO_LABEL,
   STATUS_VENCIMIENTO_LABEL,
@@ -30,9 +41,9 @@ import {
   diasRestantes,
   inferirCarpetaYTipo,
   type AdminRepo,
-  type CarpetaDocumento,
   type DocumentoEmpresa,
   type Empresa,
+  type InfoCarpetaDoc,
   type StatusVencimiento,
   type TipoDocumento,
 } from './admin.repository';
@@ -60,7 +71,7 @@ interface StagedFile {
   id: string;
   file: File;
   empresaClave: string;
-  carpeta: CarpetaDocumento;
+  carpeta: string;
   tipo: TipoDocumento;
   nombre: string;
   fechaEmision: string;
@@ -71,6 +82,32 @@ interface StagedFile {
   numeroRegistro: string;
   notaTramite: string;
 }
+
+const OPCIONES_TIPO_DOC: SearchOption[] = [
+  // Permisos Mineros y Ambientales
+  { value: 'rupdae', label: 'RUPDAE · Registro Único de Actividades Económicas', hint: 'Min. Minas', group: 'Permisos Mineros y Ambientales', groupIcon: '⛏️' },
+  { value: 'ragda', label: 'RAGDA · Registro Ambiental y Degradación', hint: 'MinEc', group: 'Permisos Mineros y Ambientales', groupIcon: '⛏️' },
+  { value: 'permiso_minero', label: 'Permiso / Concesión Minera Oficial', hint: 'Minas', group: 'Permisos Mineros y Ambientales', groupIcon: '⛏️' },
+  { value: 'permiso_ambiental', label: 'Permiso Ambiental / MINEC / Rasda', hint: 'Ambiental', group: 'Permisos Mineros y Ambientales', groupIcon: '⛏️' },
+  // Laboral y Parafiscales
+  { value: 'mintras', label: 'MINTRAS · Registro Laboral Obligatorio', hint: 'Trabajo', group: 'Laboral y Parafiscales', groupIcon: '⚖️' },
+  { value: 'inces', label: 'INCES · Solvencia / Certificado de Aporte', hint: 'Parafiscal', group: 'Laboral y Parafiscales', groupIcon: '⚖️' },
+  { value: 'ivss', label: 'IVSS · Solvencia de Seguro Social Obligatorio', hint: 'Parafiscal', group: 'Laboral y Parafiscales', groupIcon: '⚖️' },
+  { value: 'faov', label: 'FAOV / BANAVIH · Solvencia Fondo de Vivienda', hint: 'Parafiscal', group: 'Laboral y Parafiscales', groupIcon: '⚖️' },
+  // Legal y Estatutario
+  { value: 'acta_constitutiva', label: 'Carta / Acta Constitutiva de la Empresa', hint: 'Registro', group: 'Legal y Estatutario', groupIcon: '📜' },
+  { value: 'acta_modificacion', label: 'Acta de Asamblea / Modificación Estatutos', hint: 'Estatutos', group: 'Legal y Estatutario', groupIcon: '📜' },
+  { value: 'rif', label: 'RIF Jurídico de la Empresa (SENIAT)', hint: 'SENIAT', group: 'Legal y Estatutario', groupIcon: '📜' },
+  // Socios y Representantes
+  { value: 'cedula_socio', label: 'Cédula de Identidad de Socio', hint: 'Identificación', group: 'Socios y Representantes', groupIcon: '👥' },
+  { value: 'rif_socio', label: 'RIF Personal de Socio (SENIAT)', hint: 'SENIAT', group: 'Socios y Representantes', groupIcon: '👥' },
+  { value: 'cedula', label: 'Cédula de Identidad Representante Legal', hint: 'Identificación', group: 'Socios y Representantes', groupIcon: '👥' },
+  // Tributario y Municipal
+  { value: 'patente_municipal', label: 'Patente de Industria y Comercio', hint: 'Alcaldía', group: 'Tributario y Municipal', groupIcon: '🏛️' },
+  { value: 'solvencia_municipal', label: 'Solvencia Municipal / Aseo / Inmuebles', hint: 'Alcaldía', group: 'Tributario y Municipal', groupIcon: '🏛️' },
+  // Otros
+  { value: 'otro', label: 'Otro Documento / Respaldo General', hint: 'General', group: 'Otros Archivos', groupIcon: '📁' },
+];
 
 export function DocumentosTab({
   repo,
@@ -86,6 +123,10 @@ export function DocumentosTab({
   const [docs, setDocs] = useState<DocumentoEmpresa[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Carpetas configuradas (estándar + personalizadas con notas)
+  const [carpetas, setCarpetas] = useState<InfoCarpetaDoc[]>(() => leerCarpetasPersonalizadas(empresaClave));
+  const [modalCarpetas, setModalCarpetas] = useState(false);
 
   // Filtros activos
   const [carpetaActiva, setCarpetaActiva] = useState<string>('todas');
@@ -106,6 +147,25 @@ export function DocumentosTab({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nombreEmpMap = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
+
+  // Mapa de carpetas para lookup rápido
+  const mapaCarpetas = useMemo(() => {
+    const map = new Map<string, InfoCarpetaDoc>();
+    for (const c of carpetas) {
+      map.set(c.id, c);
+    }
+    return map;
+  }, [carpetas]);
+
+  // Opciones para SearchSelect de Carpetas
+  const opcionesCarpetas: SearchOption[] = useMemo(() => {
+    return carpetas.map((c) => ({
+      value: c.id,
+      label: `${c.icon} ${c.label}`,
+      hint: c.descripcion || undefined,
+      keywords: [c.label, c.descripcion || ''],
+    }));
+  }, [carpetas]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -155,7 +215,7 @@ export function DocumentosTab({
   const carpetasStats = useMemo(() => {
     const map = new Map<string, { total: number; vencidos: number; enTramite: number; porVencer: number; vigentes: number }>();
 
-    for (const c of CARPETAS_DOCUMENTOS) {
+    for (const c of carpetas) {
       map.set(c.id, { total: 0, vencidos: 0, enTramite: 0, porVencer: 0, vigentes: 0 });
     }
 
@@ -171,7 +231,7 @@ export function DocumentosTab({
     }
 
     return map;
-  }, [docs]);
+  }, [carpetas, docs]);
 
   // Lista de documentos filtrada
   const docsFiltrados = useMemo(() => {
@@ -431,6 +491,16 @@ export function DocumentosTab({
           {puedeEscribir && (
             <button
               type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setModalCarpetas(true)}
+              title="Añadir, modificar nombres, íconos y notas de carpetas"
+            >
+              ⚙ Carpetas
+            </button>
+          )}
+          {puedeEscribir && (
+            <button
+              type="button"
               className="btn btn-primary btn-sm"
               onClick={() => fileInputRef.current?.click()}
               title="Seleccionar archivos desde su equipo"
@@ -493,7 +563,7 @@ export function DocumentosTab({
           </div>
         </div>
 
-        {CARPETAS_DOCUMENTOS.map((c) => {
+        {carpetas.map((c) => {
           const stats = carpetasStats.get(c.id) || { total: 0, vencidos: 0, enTramite: 0, porVencer: 0, vigentes: 0 };
           const activa = carpetaActiva === c.id;
 
@@ -514,7 +584,7 @@ export function DocumentosTab({
                 gap: '.4rem',
                 transition: 'all 0.15s ease',
               }}
-              title={c.descripcion}
+              title={c.descripcion || c.label}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.3rem' }}>
                 <span style={{ fontSize: '.84rem', fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -648,7 +718,7 @@ export function DocumentosTab({
               <tr>
                 <th>Documento / Archivo</th>
                 <th>Carpeta</th>
-                <th>Vigencia / Vencimiento</th>
+                <th>Vigencia / Vencimiento (Hover para Cuenta Regresiva)</th>
                 <th>Socio / Organismo</th>
                 <th>Tamaño</th>
                 <th style={{ textAlign: 'right' }}>Acciones</th>
@@ -656,8 +726,9 @@ export function DocumentosTab({
             </thead>
             <tbody>
               {docsFiltrados.map((d) => {
-                const statusStyle = STATUS_VENCIMIENTO_COLOR[d.statusVencimiento];
-                const dias = diasRestantes(d.fechaVencimiento);
+                const hoverInfo = obtenerDetalleHoverVigencia(d.fechaVencimiento, d.statusVencimiento, d.notaTramite);
+                const carpetaInfo = mapaCarpetas.get(d.carpeta);
+                const nombreCarpeta = carpetaInfo ? `${carpetaInfo.icon} ${carpetaInfo.label}` : (ETIQUETA_CARPETA[d.carpeta] || d.carpeta);
 
                 return (
                   <tr key={d.id}>
@@ -683,41 +754,56 @@ export function DocumentosTab({
                     </td>
 
                     <td>
-                      <span className="muted" style={{ fontSize: '.78rem' }}>
-                        {ETIQUETA_CARPETA[d.carpeta] || d.carpeta}
+                      <span className="muted" style={{ fontSize: '.78rem' }} title={carpetaInfo?.descripcion}>
+                        {nombreCarpeta}
                       </span>
                     </td>
 
-                    <td>
-                      <div>
-                        <span
-                          className="badge"
-                          style={{
-                            background: statusStyle.bg,
-                            color: statusStyle.color,
-                            borderColor: statusStyle.border,
-                            fontSize: '.72rem',
-                            fontWeight: 700,
-                          }}
-                        >
-                          {STATUS_VENCIMIENTO_LABEL[d.statusVencimiento]}
-                        </span>
-                        <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>
-                          {d.fechaVencimiento ? (
-                            <span>
-                              {fFecha.format(new Date(`${d.fechaVencimiento}T00:00:00`))}
-                              {dias != null && (
-                                <strong style={{ marginLeft: '.3rem', color: dias < 0 ? '#ef4444' : dias <= 30 ? '#f59e0b' : 'inherit' }}>
-                                  ({dias < 0 ? `venció hace ${Math.abs(dias)}d` : `vence en ${dias}d`})
-                                </strong>
-                              )}
+                    {/* VIGENCIA CON HOVER Y CUENTA REGRESIVA PRECISA */}
+                    <td title={`${hoverInfo.titulo}\n${hoverInfo.tiempoRestanteTexto}${d.notaTramite ? `\nTrámite: ${d.notaTramite}` : ''}`}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                          <span
+                            className="badge"
+                            style={{
+                              background: hoverInfo.bg,
+                              color: hoverInfo.color,
+                              borderColor: hoverInfo.border,
+                              fontSize: '.72rem',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {hoverInfo.badge}
+                          </span>
+                          {hoverInfo.dias !== null && (
+                            <span
+                              className="badge"
+                              style={{
+                                fontSize: '.68rem',
+                                background: 'rgba(255,255,255,0.06)',
+                                borderColor: hoverInfo.border,
+                                color: hoverInfo.color,
+                                fontWeight: 600,
+                              }}
+                              title={hoverInfo.tiempoRestanteTexto}
+                            >
+                              ⏳ {hoverInfo.tiempoRestanteTexto}
                             </span>
-                          ) : (
-                            'Permanente'
                           )}
                         </div>
+
+                        <div className="muted mono" style={{ fontSize: '.72rem' }}>
+                          {d.fechaVencimiento ? (
+                            <span>
+                              Vence: {fFecha.format(new Date(`${d.fechaVencimiento}T00:00:00`))}
+                            </span>
+                          ) : (
+                            'Permanente (No vence)'
+                          )}
+                        </div>
+
                         {d.notaTramite && (
-                          <div style={{ fontSize: '.7rem', color: '#a855f7', marginTop: '.15rem' }}>
+                          <div style={{ fontSize: '.7rem', color: '#a855f7' }}>
                             📋 {d.notaTramite}
                           </div>
                         )}
@@ -744,9 +830,9 @@ export function DocumentosTab({
                         type="button"
                         className="btn btn-xs btn-ghost"
                         onClick={() => setDocDetalle(d)}
-                        title="Ver detalle, historial y editar metadatos"
+                        title="Ver detalle, vigencia interactiva e historial"
                       >
-                        ✏️ Detalle / Historial
+                        ✏️ Detalle
                       </button>
                       {puedeEscribir && (
                         <button type="button" className="btn btn-xs btn-ghost" style={{ color: '#ef4444' }} onClick={() => setDocBorrar(d)} title="Eliminar documento">
@@ -766,7 +852,7 @@ export function DocumentosTab({
       {archivosEnEspera && (
         <Modal
           title={`⬆ Subir Lote de Documentos (${archivosEnEspera.length} archivos)`}
-          size="lg"
+          size="xl"
           onClose={() => { if (!subiendoLote) setArchivosEnEspera(null); }}
           footer={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -786,14 +872,14 @@ export function DocumentosTab({
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
             <p className="muted hint" style={{ margin: 0, fontSize: '.78rem' }}>
-              Revisa y ajusta la carpeta, tipo y fecha de vencimiento antes de subir. Los valores fueron inferidos automáticamente por los nombres de los archivos.
+              Revisa y ajusta la carpeta, el tipo y la vigencia con los selectores buscables o presets rápidos antes de subir.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem', maxHeight: '420px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem', maxHeight: '460px', overflowY: 'auto', paddingRight: '.25rem' }}>
               {archivosEnEspera.map((item, idx) => (
-                <div key={item.id} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '.65rem .8rem', background: 'var(--surface-1)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
-                    <div style={{ fontWeight: 700, fontSize: '.84rem', color: 'var(--text)' }}>
+                <div key={item.id} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.75rem .85rem', background: 'var(--surface-1)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '.86rem', color: 'var(--text)' }}>
                       {idx + 1}. {item.file.name} <span className="muted mono" style={{ fontSize: '.74rem' }}>({tamanoFmt(item.file.size)})</span>
                     </div>
                     <button
@@ -807,69 +893,74 @@ export function DocumentosTab({
                     </button>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '.45rem' }}>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.6rem', alignItems: 'flex-start' }}>
+                    {/* Carpeta con Barra de Búsqueda */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                       <span className="muted hint" style={{ fontSize: '.7rem' }}>Carpeta</span>
-                      <select
-                        className="input"
-                        style={{ fontSize: '.78rem', padding: '.25rem .45rem' }}
+                      <SearchSelect
+                        options={opcionesCarpetas}
                         value={item.carpeta}
-                        onChange={(e) => {
-                          const val = e.target.value as CarpetaDocumento;
+                        onChange={(val) => {
                           setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, carpeta: val } : x));
                         }}
-                      >
-                        {CARPETAS_DOCUMENTOS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                      </select>
-                    </label>
+                        placeholder="Buscar carpeta…"
+                      />
+                    </div>
 
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                    {/* Tipo Documento con Barra de Búsqueda */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                       <span className="muted hint" style={{ fontSize: '.7rem' }}>Tipo Documento</span>
-                      <select
-                        className="input"
-                        style={{ fontSize: '.78rem', padding: '.25rem .45rem' }}
+                      <SearchSelect
+                        options={OPCIONES_TIPO_DOC}
                         value={item.tipo}
-                        onChange={(e) => {
-                          const val = e.target.value as TipoDocumento;
-                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, tipo: val } : x));
+                        onChange={(val) => {
+                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, tipo: val as TipoDocumento } : x));
                         }}
-                      >
-                        {(Object.keys(TIPO_DOCUMENTO_LABEL) as TipoDocumento[]).map((t) => (
-                          <option key={t} value={t}>{TIPO_DOCUMENTO_LABEL[t]}</option>
-                        ))}
-                      </select>
-                    </label>
+                        placeholder="Buscar tipo de documento…"
+                      />
+                    </div>
 
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
-                      <span className="muted hint" style={{ fontSize: '.7rem' }}>Fecha Vencimiento</span>
+                    {/* Nombre del Socio si aplica */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                      <span className="muted hint" style={{ fontSize: '.7rem' }}>Socio / Titular (Opcional)</span>
                       <input
-                        type="date"
+                        type="text"
                         className="input"
-                        style={{ fontSize: '.78rem', padding: '.2rem .4rem' }}
-                        value={item.fechaVencimiento}
+                        style={{ fontSize: '.78rem', padding: '.3rem .5rem' }}
+                        placeholder="Ej: Pedro Pérez"
+                        value={item.socioNombre}
                         onChange={(e) => {
                           const val = e.target.value;
-                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, fechaVencimiento: val } : x));
+                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, socioNombre: val } : x));
                         }}
                       />
-                    </label>
+                    </div>
+                  </div>
 
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
-                      <span className="muted hint" style={{ fontSize: '.7rem' }}>Status Vigencia</span>
-                      <select
-                        className="input"
-                        style={{ fontSize: '.78rem', padding: '.25rem .45rem' }}
-                        value={item.statusVencimiento}
-                        onChange={(e) => {
-                          const val = e.target.value as StatusVencimiento;
-                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, statusVencimiento: val } : x));
-                        }}
-                      >
-                        {(Object.keys(STATUS_VENCIMIENTO_LABEL) as StatusVencimiento[]).map((s) => (
-                          <option key={s} value={s}>{STATUS_VENCIMIENTO_LABEL[s]}</option>
-                        ))}
-                      </select>
-                    </label>
+                  {/* Campo Dual de Vigencia y Presets */}
+                  <div style={{ marginTop: '.65rem', paddingTop: '.6rem', borderTop: '1px dashed var(--border)' }}>
+                    <CampoVigenciaVencimiento
+                      fechaEmision={item.fechaEmision || null}
+                      fechaVencimiento={item.fechaVencimiento || null}
+                      statusVencimiento={item.statusVencimiento}
+                      notaTramite={item.notaTramite || null}
+                      disabled={subiendoLote}
+                      compacto
+                      onChange={(v) => {
+                        setArchivosEnEspera(
+                          archivosEnEspera.map((x) =>
+                            x.id === item.id
+                              ? {
+                                  ...x,
+                                  fechaVencimiento: v.fechaVencimiento || '',
+                                  statusVencimiento: v.statusVencimiento,
+                                  notaTramite: v.notaTramite ?? x.notaTramite,
+                                }
+                              : x,
+                          ),
+                        );
+                      }}
+                    />
                   </div>
                 </div>
               ))}
@@ -882,7 +973,7 @@ export function DocumentosTab({
       {docDetalle && (
         <Modal
           title={`📄 ${docDetalle.nombre}`}
-          size="lg"
+          size="xl"
           onClose={() => setDocDetalle(null)}
           footer={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
@@ -896,164 +987,210 @@ export function DocumentosTab({
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* Formulario de actualización rápida */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '.8rem', background: 'var(--surface-1)' }}>
+            {/* Banner de Estado de Vigencia y Cuenta Regresiva al Item */}
+            {(() => {
+              const hover = obtenerDetalleHoverVigencia(docDetalle.fechaVencimiento, docDetalle.statusVencimiento, docDetalle.notaTramite);
+              return (
+                <div
+                  style={{
+                    padding: '.8rem 1rem',
+                    borderRadius: 8,
+                    background: hover.bg,
+                    border: `1.5px solid ${hover.border}`,
+                    color: hover.color,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '.3rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem' }}>
+                    <strong style={{ fontSize: '.92rem' }}>
+                      {docDetalle.statusVencimiento === 'vencido' ? '🔴 ALERTA DE CADUCIDAD' : docDetalle.statusVencimiento === 'vencido_en_tramite' ? '🟣 RENOVACIÓN EN CURSO' : docDetalle.statusVencimiento === 'por_vencer' ? '🟡 PRÓXIMO A VENCER' : '🟢 DOCUMENTO VIGENTE'}
+                    </strong>
+                    <span className="badge" style={{ fontSize: '.76rem', background: 'rgba(0,0,0,0.25)', color: hover.color, borderColor: hover.border }}>
+                      {hover.badge}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '.84rem', fontWeight: 600 }}>
+                    {hover.titulo}
+                  </div>
+                  <div style={{ fontSize: '.76rem', opacity: 0.9 }}>
+                    ⏱️ <strong>Cuenta Regresiva:</strong> {hover.tiempoRestanteTexto}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Clasificación y Organización con SearchSelects */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>
               <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.6rem', color: 'var(--text)' }}>
-                Metadatos y Estado de Vencimiento
+                🗂 Organización y Clasificación
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '.75rem' }}>
+                <div>
+                  <span className="muted hint" style={{ fontSize: '.72rem', display: 'block', marginBottom: '.25rem' }}>Carpeta</span>
+                  <SearchSelect
+                    options={opcionesCarpetas}
+                    value={docDetalle.carpeta}
+                    disabled={!puedeEscribir}
+                    onChange={async (val) => {
+                      try {
+                        const act = await repo.editarDocumento(
+                          docDetalle.id,
+                          { carpeta: val },
+                          undefined,
+                          `Carpeta cambiada a: ${mapaCarpetas.get(val)?.label || val}`,
+                        );
+                        setDocDetalle(act);
+                        toast('Carpeta actualizada.', 'success');
+                        await cargar();
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
+                      }
+                    }}
+                    placeholder="Buscar carpeta…"
+                  />
+                </div>
+
+                <div>
+                  <span className="muted hint" style={{ fontSize: '.72rem', display: 'block', marginBottom: '.25rem' }}>Tipo Documento</span>
+                  <SearchSelect
+                    options={OPCIONES_TIPO_DOC}
+                    value={docDetalle.tipo}
+                    disabled={!puedeEscribir}
+                    onChange={async (val) => {
+                      try {
+                        const act = await repo.editarDocumento(
+                          docDetalle.id,
+                          { tipo: val as TipoDocumento },
+                          undefined,
+                          `Tipo cambiado a: ${TIPO_DOCUMENTO_LABEL[val as TipoDocumento] || val}`,
+                        );
+                        setDocDetalle(act);
+                        toast('Tipo actualizado.', 'success');
+                        await cargar();
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
+                      }
+                    }}
+                    placeholder="Buscar tipo de documento…"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Formulario Interactivo de Vigencia y Presets */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>
+              <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.6rem', color: 'var(--text)' }}>
+                ⏳ Vigencia, Vencimiento y Tiempos Sugeridos
+              </div>
+
+              <CampoVigenciaVencimiento
+                fechaEmision={docDetalle.fechaEmision}
+                fechaVencimiento={docDetalle.fechaVencimiento}
+                statusVencimiento={docDetalle.statusVencimiento}
+                notaTramite={docDetalle.notaTramite}
+                disabled={!puedeEscribir}
+                onChange={async (vals) => {
+                  try {
+                    const act = await repo.editarDocumento(
+                      docDetalle.id,
+                      {
+                        fechaVencimiento: vals.fechaVencimiento,
+                        statusVencimiento: vals.statusVencimiento,
+                        notaTramite: vals.notaTramite !== undefined ? vals.notaTramite : docDetalle.notaTramite,
+                      },
+                      undefined,
+                      `Vigencia ajustada: ${STATUS_VENCIMIENTO_LABEL[vals.statusVencimiento]} (Vence: ${vals.fechaVencimiento || 'Sin vencimiento'})`,
+                    );
+                    setDocDetalle(act);
+                    toast('Vigencia actualizada.', 'success');
+                    await cargar();
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
+                  }
+                }}
+              />
+            </div>
+
+            {/* Metadatos Adicionales */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>
+              <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.6rem', color: 'var(--text)' }}>
+                📋 Metadatos del Documento
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.6rem' }}>
-                <div>
-                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Status Actual</span>
-                  <div style={{ marginTop: '.2rem' }}>
-                    <select
-                      className="input"
-                      value={docDetalle.statusVencimiento}
-                      disabled={!puedeEscribir}
-                      onChange={async (e) => {
-                        const val = e.target.value as StatusVencimiento;
-                        try {
-                          const act = await repo.editarDocumento(
-                            docDetalle.id,
-                            { statusVencimiento: val },
-                            undefined,
-                            `Status cambiado manualmente a: ${STATUS_VENCIMIENTO_LABEL[val]}`,
-                          );
-                          setDocDetalle(act);
-                          toast('Status actualizado.', 'success');
-                          await cargar();
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
-                        }
-                      }}
-                    >
-                      {(Object.keys(STATUS_VENCIMIENTO_LABEL) as StatusVencimiento[]).map((s) => (
-                        <option key={s} value={s}>{STATUS_VENCIMIENTO_LABEL[s]}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Socio o Titular</span>
+                  <input
+                    className="input"
+                    defaultValue={docDetalle.socioNombre || ''}
+                    disabled={!puedeEscribir}
+                    placeholder="Ej: Carlos Silva"
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val === (docDetalle.socioNombre || '')) return;
+                      try {
+                        const act = await repo.editarDocumento(docDetalle.id, { socioNombre: val || null });
+                        setDocDetalle(act);
+                        toast('Socio actualizado.', 'success');
+                        await cargar();
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Error', 'error');
+                      }
+                    }}
+                  />
+                </label>
 
-                <div>
-                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Fecha de Vencimiento</span>
-                  <div style={{ marginTop: '.2rem' }}>
-                    <input
-                      type="date"
-                      className="input"
-                      value={docDetalle.fechaVencimiento || ''}
-                      disabled={!puedeEscribir}
-                      onChange={async (e) => {
-                        const val = e.target.value;
-                        try {
-                          const act = await repo.editarDocumento(
-                            docDetalle.id,
-                            { fechaVencimiento: val || null },
-                            undefined,
-                            `Fecha de vencimiento actualizada a: ${val || 'Sin vencimiento'}`,
-                          );
-                          setDocDetalle(act);
-                          toast('Fecha de vencimiento actualizada.', 'success');
-                          await cargar();
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Entidad u Organismo Emisor</span>
+                  <input
+                    className="input"
+                    defaultValue={docDetalle.entidadEmisora || ''}
+                    disabled={!puedeEscribir}
+                    placeholder="Ej: Ministerio de Desarrollo Minero Ecológico"
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val === (docDetalle.entidadEmisora || '')) return;
+                      try {
+                        const act = await repo.editarDocumento(docDetalle.id, { entidadEmisora: val || null });
+                        setDocDetalle(act);
+                        toast('Entidad emisora actualizada.', 'success');
+                        await cargar();
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Error', 'error');
+                      }
+                    }}
+                  />
+                </label>
 
-                <div>
-                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Carpeta</span>
-                  <div style={{ marginTop: '.2rem' }}>
-                    <select
-                      className="input"
-                      value={docDetalle.carpeta}
-                      disabled={!puedeEscribir}
-                      onChange={async (e) => {
-                        const val = e.target.value as CarpetaDocumento;
-                        try {
-                          const act = await repo.editarDocumento(
-                            docDetalle.id,
-                            { carpeta: val },
-                            undefined,
-                            `Carpeta cambiada a: ${ETIQUETA_CARPETA[val]}`,
-                          );
-                          setDocDetalle(act);
-                          toast('Carpeta actualizada.', 'success');
-                          await cargar();
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
-                        }
-                      }}
-                    >
-                      {CARPETAS_DOCUMENTOS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Tipo Documento</span>
-                  <div style={{ marginTop: '.2rem' }}>
-                    <select
-                      className="input"
-                      value={docDetalle.tipo}
-                      disabled={!puedeEscribir}
-                      onChange={async (e) => {
-                        const val = e.target.value as TipoDocumento;
-                        try {
-                          const act = await repo.editarDocumento(
-                            docDetalle.id,
-                            { tipo: val },
-                            undefined,
-                            `Tipo cambiado a: ${TIPO_DOCUMENTO_LABEL[val]}`,
-                          );
-                          setDocDetalle(act);
-                          toast('Tipo actualizado.', 'success');
-                          await cargar();
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
-                        }
-                      }}
-                    >
-                      {(Object.keys(TIPO_DOCUMENTO_LABEL) as TipoDocumento[]).map((t) => (
-                        <option key={t} value={t}>{TIPO_DOCUMENTO_LABEL[t]}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Nota de trámite si está vencido en trámite */}
-              <div style={{ marginTop: '.6rem' }}>
-                <span className="muted hint" style={{ fontSize: '.72rem' }}>Nota de Trámite en Curso (Radicado, TAQUILLA, N° Expediente)</span>
-                <input
-                  className="input"
-                  placeholder="Ej: Trámite ingresado el 25/10/2026 taquilla 3, recibo N° 928391..."
-                  defaultValue={docDetalle.notaTramite || ''}
-                  disabled={!puedeEscribir}
-                  onBlur={async (e) => {
-                    const val = e.target.value.trim();
-                    if (val === (docDetalle.notaTramite || '')) return;
-                    try {
-                      const act = await repo.editarDocumento(
-                        docDetalle.id,
-                        { notaTramite: val || null },
-                        undefined,
-                        `Nota de trámite actualizada: ${val || 'Borrada'}`,
-                      );
-                      setDocDetalle(act);
-                      toast('Nota de trámite guardada.', 'success');
-                      await cargar();
-                    } catch (err) {
-                      toast(err instanceof Error ? err.message : 'Error al guardar nota', 'error');
-                    }
-                  }}
-                />
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>N° de Registro o Expediente</span>
+                  <input
+                    className="input"
+                    defaultValue={docDetalle.numeroRegistro || ''}
+                    disabled={!puedeEscribir}
+                    placeholder="Ej: EXP-2026-99128"
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val === (docDetalle.numeroRegistro || '')) return;
+                      try {
+                        const act = await repo.editarDocumento(docDetalle.id, { numeroRegistro: val || null });
+                        setDocDetalle(act);
+                        toast('N° de registro actualizado.', 'success');
+                        await cargar();
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Error', 'error');
+                      }
+                    }}
+                  />
+                </label>
               </div>
             </div>
 
             {/* Historial Ligero de Cambios y Auditoría */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '.8rem', background: 'var(--surface-1)' }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>
               <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.4rem', color: 'var(--text)' }}>
                 📜 Historial de Cambios y Modificaciones
               </div>
@@ -1119,6 +1256,19 @@ export function DocumentosTab({
           empresas={empresas}
           empresaClaveInicial={empresaClave}
           onClose={() => setModalReporte(false)}
+        />
+      )}
+
+      {/* 10. MODAL: Gestión de Carpetas Personalizadas */}
+      {modalCarpetas && (
+        <GestionarCarpetasModal
+          carpetas={carpetas}
+          empresaClave={empresaClave}
+          onClose={() => setModalCarpetas(false)}
+          onGuardar={(nuevas) => {
+            setCarpetas(nuevas);
+            guardarCarpetasPersonalizadas(nuevas);
+          }}
         />
       )}
     </div>
