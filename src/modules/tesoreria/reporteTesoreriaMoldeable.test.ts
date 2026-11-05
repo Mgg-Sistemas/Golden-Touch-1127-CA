@@ -308,9 +308,46 @@ describe('obtenerMetricasFichaTesoreria', () => {
     expect(m.some((x) => x.clave === 'monto_bs')).toBe(true);
   });
 
-  it('siempre devuelve al menos un recuadro de respaldo', () => {
+  it('siempre devuelve al menos un recuadro de respaldo si no se marcaron columnas', () => {
     const m = obtenerMetricasFichaTesoreria(fila, [], { mostrarUsd: false, mostrarBs: false });
     expect(m.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('respeta estrictamente la selección cuando solo se marca Estado: devuelve únicamente 1 métrica', () => {
+    const filaConEstado: FilaReporteTesoreria = {
+      ...fila,
+      estado: 'Esperando método',
+      metodo_pago: 'Transferencia — FERRE-MAX C.A.',
+      datos_pago_resumen: 'Transferencia — FERRE-MAX C.A.',
+    };
+    const m = obtenerMetricasFichaTesoreria(filaConEstado, ['estado'], { mostrarUsd: true, mostrarBs: true });
+    expect(m).toHaveLength(1);
+    expect(m[0].clave).toBe('estado');
+    expect(m[0].etiqueta).toBe('ESTADO');
+    expect(m[0].valor).toBe('Esperando método');
+    expect(m[0].sub).toBeUndefined();
+  });
+
+  it('respeta selección de solo Monto USD: no inyecta operaciones ni método/estado', () => {
+    const m = obtenerMetricasFichaTesoreria(fila, ['monto_usd'], { mostrarUsd: true, mostrarBs: true });
+    expect(m).toHaveLength(1);
+    expect(m[0].clave).toBe('monto_usd');
+    expect(m[0].etiqueta).toBe('MONTO ($ USD)');
+  });
+
+  it('respeta selección de solo Método de Pago sin Estado', () => {
+    const filaConPago: FilaReporteTesoreria = {
+      ...fila,
+      estado: 'Esperando método',
+      metodo_pago: 'Transferencia — FERRE-MAX C.A.',
+      datos_pago_resumen: 'Transferencia — FERRE-MAX C.A.',
+    };
+    const m = obtenerMetricasFichaTesoreria(filaConPago, ['metodo_pago'], { mostrarUsd: true, mostrarBs: true });
+    expect(m).toHaveLength(1);
+    expect(m[0].clave).toBe('metodo_pago');
+    expect(m[0].etiqueta).toBe('MÉTODO Y DATOS DE PAGO');
+    expect(m[0].valor).toBe('Transferencia');
+    expect(m[0].sub).toBe('FERRE-MAX C.A.');
   });
 });
 
@@ -416,6 +453,18 @@ describe('resolverCabeceraTarjetaTesoreria (claridad y rótulos en tarjetas)', (
     expect(cab.rotulo).toBe('Op: OC-2026-0181');
     expect(cab.titulo).toBe('Inversiones Los Andes C.A.');
     expect(cab.subtitulo).toContain('Cat: Orden de compra');
+  });
+
+  it('Detallado con solo Estado seleccionado: subtítulo queda vacío y no inventa categorías ni fechas', () => {
+    const filaDet: FilaReporteTesoreria = {
+      ...filaGrupoCategoria,
+      codigo: 'OC-2026-0181',
+      contraparte: 'Inversiones Los Andes C.A.',
+      categoria: 'Orden de compra',
+      fecha: '2026-11-05',
+    };
+    const cab = resolverCabeceraTarjetaTesoreria(filaDet, 'detallado', (d) => d, ['estado']);
+    expect(cab.subtitulo).toBe('');
   });
 
   it('ETIQUETA_MODO_TESORERIA traduce los identificadores internos para el membrete', () => {

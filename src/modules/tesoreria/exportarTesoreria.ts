@@ -702,7 +702,10 @@ export async function descargarTesoreriaPdf(
     const cardGap = 10;
     const cardW = (UW - (cols - 1) * cardGap) / cols;
     const tieneMuchasMetricas = filas.some((f) => obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).length > 4);
-    const cardH = orient === 'landscape' ? (tieneMuchasMetricas ? 92 : 76) : (tieneMuchasMetricas ? 86 : 68);
+    const pocasMetricas = filas.every((f) => obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).length <= 1);
+    const cardH = orient === 'landscape'
+      ? (tieneMuchasMetricas ? 92 : pocasMetricas ? 58 : 74)
+      : (tieneMuchasMetricas ? 86 : pocasMetricas ? 54 : 68);
 
     for (let i = 0; i < filas.length; i += cols) {
       if (y + cardH > H - 36) { doc.addPage(); y = 36; }
@@ -720,43 +723,42 @@ export async function descargarTesoreriaPdf(
         doc.setFillColor(...acento);
         doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
 
-        // Badge superior derecho: % del total + tipo de flujo
-        const txtPct = f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}% · ${ETIQUETA_FLUJO[f.tipo_movimiento]}` : ETIQUETA_FLUJO[f.tipo_movimiento];
-        const txtSubBadge = f.estado ? pdfSafe(f.estado) : pdfSafe(f.origen_documento);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.8);
-        const w1 = doc.getTextWidth(txtPct);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(5.5);
-        const w2 = doc.getTextWidth(txtSubBadge);
-        const badgeW = Math.min(cardW * 0.44, Math.max(90, Math.max(w1, w2) + 12));
-        const badgeH = 15;
-        const bx = cx + cardW - badgeW - 6;
-        const by = cy + 4;
+        // Badge superior derecho: % del total + tipo de flujo (SOLO si están marcados en columnasClaves)
+        const tienePct = columnasClaves.includes('pct_total') && f.pct_del_total != null;
+        const tieneTipo = columnasClaves.includes('tipo_mov');
+        const partesBadge: string[] = [];
+        if (tienePct) partesBadge.push(`${f.pct_del_total!.toFixed(1)}%`);
+        if (tieneTipo) partesBadge.push(ETIQUETA_FLUJO[f.tipo_movimiento]);
+        const txtPct = partesBadge.join(' · ');
+        const mostrarBadge = Boolean(txtPct);
 
-        // Fondo del badge coloreado por el acento (suave)
-        const [ar, ag, ab] = acento;
-        doc.setFillColor(Math.min(255, ar + 180), Math.min(255, ag + 70), Math.min(255, ab + 60));
-        doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+        let badgeW = 0;
+        let bx = cx + cardW - 6;
+        let by = cy + 4;
+        if (mostrarBadge) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.8);
+          const w1 = doc.getTextWidth(txtPct);
+          badgeW = Math.min(cardW * 0.44, Math.max(50, w1 + 12));
+          const badgeH = 14;
+          bx = cx + cardW - badgeW - 6;
+          by = cy + 4;
 
-        let fontPct = 6.8;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(fontPct);
-        doc.setTextColor(...acento);
-        while (doc.getTextWidth(txtPct) > badgeW - 6 && fontPct > 5.4) { fontPct -= 0.2; doc.setFontSize(fontPct); }
-        doc.text(txtPct, bx + badgeW / 2, by + 5.8, { align: 'center' });
+          const [ar, ag, ab] = acento;
+          doc.setFillColor(Math.min(255, ar + 180), Math.min(255, ag + 70), Math.min(255, ab + 60));
+          doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
 
-        let fontSub = 5.5;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(fontSub);
-        doc.setTextColor(100, 116, 139);
-        while (doc.getTextWidth(txtSubBadge) > badgeW - 6 && fontSub > 4.4) { fontSub -= 0.2; doc.setFontSize(fontSub); }
-        doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
+          let fontPct = 6.8;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(fontPct);
+          doc.setTextColor(...acento);
+          while (doc.getTextWidth(txtPct) > badgeW - 6 && fontPct > 5.2) { fontPct -= 0.2; doc.setFontSize(fontPct); }
+          doc.text(txtPct, bx + badgeW / 2, by + 9.5, { align: 'center' });
+        }
 
         // Cabecera ejecutiva con rótulo explícito de la dimensión seleccionada:
-        // ¿Por categoría, qué categoría? ¿Por documento, qué documento? ¿Por tipo, qué tipo?
-        // ¿Por moneda, qué moneda? ¿Por caja, qué caja? ¿Por mes, qué mes? ¿Por día, qué día?
-        const cab = resolverCabeceraTarjetaTesoreria(f, meta.agrupacion, fmtFecha);
+        // Respeta las columnas seleccionadas en columnasClaves (no inventa metadatos desmarcados)
+        const cab = resolverCabeceraTarjetaTesoreria(f, meta.agrupacion, fmtFecha, columnasClaves);
 
         // 1. Rótulo superior en mayúsculas pequeñas (ej: CATEGORÍA, CAJA / BANCO, TIPO DE FLUJO, etc.)
         doc.setFont('helvetica', 'bold');
@@ -765,7 +767,7 @@ export async function descargarTesoreriaPdf(
         doc.text(pdfSafe(cab.rotulo.toUpperCase()), cx + 10, cy + 9);
 
         // 2. Título principal (el valor específico de la dimensión seleccionada)
-        const maxTitleW = Math.max(60, (bx - 8) - (cx + 10));
+        const maxTitleW = mostrarBadge ? Math.max(60, (bx - 8) - (cx + 10)) : (cardW - 20);
         const titulo = pdfSafe(cab.titulo);
         let titleFontSize = 9.8;
         doc.setFont('helvetica', 'bold');
@@ -784,36 +786,41 @@ export async function descargarTesoreriaPdf(
         doc.setTextColor(...TINTA);
         doc.text(titleFinal, cx + 10, cy + 17);
 
-        // 3. Subtítulo: metadatos secundarios delimitados
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.8);
-        doc.setTextColor(100, 116, 139);
-        const metaTxt = pdfSafe(cab.subtitulo);
-        const maxMetaW = cardW - 20;
-        let metaFinal = metaTxt;
-        if (doc.getTextWidth(metaFinal) > maxMetaW) {
-          while (metaFinal.length > 3 && doc.getTextWidth(metaFinal + '…') > maxMetaW) {
-            metaFinal = metaFinal.slice(0, -1);
+        // 3. Subtítulo: metadatos secundarios (solo si existen y fueron seleccionados)
+        const haySub = Boolean(cab.subtitulo && cab.subtitulo.trim());
+        if (haySub) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(100, 116, 139);
+          const metaTxt = pdfSafe(cab.subtitulo);
+          const maxMetaW = cardW - 20;
+          let metaFinal = metaTxt;
+          if (doc.getTextWidth(metaFinal) > maxMetaW) {
+            while (metaFinal.length > 3 && doc.getTextWidth(metaFinal + '…') > maxMetaW) {
+              metaFinal = metaFinal.slice(0, -1);
+            }
+            metaFinal += '…';
           }
-          metaFinal += '…';
+          doc.text(metaFinal, cx + 10, cy + 24);
         }
-        doc.text(metaFinal, cx + 10, cy + 24);
 
+        const sepY = haySub ? cy + 29 : cy + 23;
         doc.setDrawColor(241, 245, 249);
         doc.setLineWidth(0.5);
-        doc.line(cx + 8, cy + 29, cx + cardW - 8, cy + 29);
+        doc.line(cx + 8, sepY, cx + cardW - 8, sepY);
 
-        // Métricas dinámicas (respetan los toggles de moneda)
+        // Métricas dinámicas (respetan rigurosamente las columnas marcadas por el usuario)
         const metricas = obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs });
         const maxPorFila = metricas.length <= 4 ? metricas.length : Math.ceil(metricas.length / 2);
         const innerW = cardW - 16;
+        const myBase = haySub ? cy + 39 : cy + 33;
         metricas.forEach((m, idx) => {
           const filaIdx = metricas.length <= 4 ? 0 : Math.floor(idx / maxPorFila);
           const colEnFila = metricas.length <= 4 ? idx : idx % maxPorFila;
           const itemsEnEstaFila = filaIdx === 0 ? maxPorFila : (metricas.length - maxPorFila);
           const colW = innerW / Math.max(1, itemsEnEstaFila);
           const mx = cx + 8 + colW * colEnFila;
-          const my = cy + 39 + filaIdx * 25;
+          const my = myBase + filaIdx * 25;
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(5.8);
           doc.setTextColor(71, 85, 105);

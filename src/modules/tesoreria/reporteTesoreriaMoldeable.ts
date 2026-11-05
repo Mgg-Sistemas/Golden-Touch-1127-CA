@@ -695,20 +695,23 @@ export function resolverCabeceraTarjetaTesoreria(
   f: FilaReporteTesoreria,
   modo: ModoAgrupacionTesoreria,
   fmtFechaFn: (d: string) => string = (d) => d,
+  columnasClaves?: string[],
 ): CabeceraTarjetaTesoreria {
   let rotulo = 'Movimiento';
   let titulo = '';
   let partesSub: (string | null | undefined)[] = [];
+
+  const permitirCampo = (clave: string) => !columnasClaves || columnasClaves.includes(clave);
 
   switch (modo) {
     case 'categoria_gasto': {
       rotulo = 'Categoría';
       titulo = f.categoria || f.concepto || 'Sin categoría';
       partesSub = [
-        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
-        f.origen_documento && f.origen_documento !== titulo && f.origen_documento !== 'Sin clasificar' ? f.origen_documento : null,
-        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
-        f.fecha ? fmtFechaFn(f.fecha) : null,
+        permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        permitirCampo('origen_documento') && f.origen_documento && f.origen_documento !== titulo && f.origen_documento !== 'Sin clasificar' ? f.origen_documento : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        permitirCampo('fecha') && f.fecha ? fmtFechaFn(f.fecha) : null,
       ];
       break;
     }
@@ -716,10 +719,10 @@ export function resolverCabeceraTarjetaTesoreria(
       rotulo = 'Documento';
       titulo = f.origen_documento || f.concepto || 'Sin documento';
       partesSub = [
-        f.categoria && f.categoria !== titulo ? ('Cat: ' + f.categoria) : null,
-        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
-        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
-        f.fecha ? fmtFechaFn(f.fecha) : null,
+        permitirCampo('categoria') && f.categoria && f.categoria !== titulo ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        permitirCampo('fecha') && f.fecha ? fmtFechaFn(f.fecha) : null,
       ];
       break;
     }
@@ -727,10 +730,10 @@ export function resolverCabeceraTarjetaTesoreria(
       rotulo = 'Tipo de Flujo';
       titulo = ETIQUETA_FLUJO[f.tipo_movimiento] || f.tipo_movimiento;
       partesSub = [
-        f.categoria ? ('Cat: ' + f.categoria) : null,
-        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
-        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
-        f.fecha ? fmtFechaFn(f.fecha) : null,
+        permitirCampo('categoria') && f.categoria ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        permitirCampo('fecha') && f.fecha ? fmtFechaFn(f.fecha) : null,
       ];
       break;
     }
@@ -739,10 +742,10 @@ export function resolverCabeceraTarjetaTesoreria(
       const m = (f.moneda_original || '').toUpperCase();
       titulo = m === 'USD' ? 'USD · Dólares Americanos' : (m === 'BS' ? 'Bs · Bolívares' : (f.moneda_original || 'Moneda'));
       partesSub = [
-        f.caja_origen && f.caja_origen !== '—' ? ('Caja: ' + f.caja_origen) : null,
-        f.categoria ? ('Cat: ' + f.categoria) : null,
-        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
-        f.fecha ? fmtFechaFn(f.fecha) : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? ('Caja: ' + f.caja_origen) : null,
+        permitirCampo('categoria') && f.categoria ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        permitirCampo('fecha') && f.fecha ? fmtFechaFn(f.fecha) : null,
       ];
       break;
     }
@@ -750,10 +753,10 @@ export function resolverCabeceraTarjetaTesoreria(
       rotulo = 'Caja / Banco';
       titulo = f.caja_origen || 'Sin caja asignada';
       partesSub = [
-        f.moneda_original && f.moneda_original !== 'Varias' ? ('Moneda: ' + f.moneda_original) : null,
-        f.categoria ? ('Cat: ' + f.categoria) : null,
-        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
-        f.fecha ? fmtFechaFn(f.fecha) : null,
+        permitirCampo('moneda') && f.moneda_original && f.moneda_original !== 'Varias' ? ('Moneda: ' + f.moneda_original) : null,
+        permitirCampo('categoria') && f.categoria ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        permitirCampo('fecha') && f.fecha ? fmtFechaFn(f.fecha) : null,
       ];
       break;
     }
@@ -763,9 +766,9 @@ export function resolverCabeceraTarjetaTesoreria(
         ? f.concepto
         : (f.fecha ? mesEtiqueta(f.fecha) : (f.concepto || 'Sin mes'));
       partesSub = [
-        f.categoria ? ('Cat: ' + f.categoria) : null,
-        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
-        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        permitirCampo('categoria') && f.categoria ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
       ];
       break;
     }
@@ -773,9 +776,9 @@ export function resolverCabeceraTarjetaTesoreria(
       rotulo = 'Día / Fecha';
       titulo = f.fecha ? fmtFechaFn(f.fecha) : (f.concepto || 'Sin fecha');
       partesSub = [
-        f.categoria ? ('Cat: ' + f.categoria) : null,
-        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
-        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        permitirCampo('categoria') && f.categoria ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
       ];
       break;
     }
@@ -783,29 +786,40 @@ export function resolverCabeceraTarjetaTesoreria(
       rotulo = 'Proveedor';
       titulo = f.contraparte && f.contraparte !== '—' ? f.contraparte : (f.concepto || 'Sin proveedor / beneficiario');
       partesSub = [
-        f.codigo && f.codigo !== '—' ? f.codigo : null,
-        f.categoria ? ('Cat: ' + f.categoria) : null,
-        f.origen_documento ? f.origen_documento : null,
-        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
-        f.fecha ? fmtFechaFn(f.fecha) : null,
+        permitirCampo('codigo') && f.codigo && f.codigo !== '—' ? f.codigo : null,
+        permitirCampo('categoria') && f.categoria ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('origen_documento') && f.origen_documento ? f.origen_documento : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        permitirCampo('fecha') && f.fecha ? fmtFechaFn(f.fecha) : null,
       ];
       break;
     }
     case 'detallado':
     default: {
-      rotulo = f.codigo && f.codigo !== '—' ? ('Op: ' + f.codigo) : (f.origen_documento || 'Movimiento');
-      titulo = f.contraparte && f.contraparte !== '—' ? f.contraparte : (f.categoria || f.concepto || 'Movimiento');
+      rotulo = permitirCampo('codigo') && f.codigo && f.codigo !== '—'
+        ? ('Op: ' + f.codigo)
+        : (permitirCampo('origen_documento') ? (f.origen_documento || 'Movimiento') : 'Movimiento');
+      titulo = permitirCampo('contraparte') && f.contraparte && f.contraparte !== '—'
+        ? f.contraparte
+        : (permitirCampo('concepto') && f.concepto
+          ? f.concepto
+          : (permitirCampo('categoria') && f.categoria
+            ? f.categoria
+            : (permitirCampo('codigo') && f.codigo && f.codigo !== '—'
+              ? f.codigo
+              : (f.origen_documento || f.contraparte || 'Movimiento'))));
       partesSub = [
-        f.categoria && f.categoria !== titulo ? ('Cat: ' + f.categoria) : null,
-        f.origen_documento && f.origen_documento !== rotulo && f.origen_documento !== titulo ? f.origen_documento : null,
-        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
-        f.fecha ? fmtFechaFn(f.fecha) : null,
+        permitirCampo('categoria') && f.categoria && f.categoria !== titulo ? ('Cat: ' + f.categoria) : null,
+        permitirCampo('concepto') && f.concepto && f.concepto !== titulo ? f.concepto : null,
+        permitirCampo('origen_documento') && f.origen_documento && f.origen_documento !== rotulo && f.origen_documento !== titulo ? f.origen_documento : null,
+        permitirCampo('caja') && f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        permitirCampo('fecha') && f.fecha ? fmtFechaFn(f.fecha) : null,
       ];
       break;
     }
   }
 
-  const subtitulo = partesSub.filter(Boolean).join(' · ') || 'Tesorería';
+  const subtitulo = partesSub.filter(Boolean).join(' · ');
   const tituloCompleto = rotulo + ': ' + titulo;
 
   return { rotulo, titulo, subtitulo, tituloCompleto };
@@ -956,7 +970,7 @@ export function obtenerMetricasFichaTesoreria(
       clave: 'monto_usd',
       etiqueta: 'MONTO ($ USD)',
       valor: `$ ${f.monto_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      sub: tasaTxt,
+      sub: columnasClaves.includes('tasa_bcv') ? tasaTxt : undefined,
       colorHex: '#22c55e',
       colorRgb: [22, 163, 74],
     });
@@ -968,7 +982,7 @@ export function obtenerMetricasFichaTesoreria(
       clave: 'monto_bs',
       etiqueta: 'MONTO (Bs)',
       valor: `Bs ${f.monto_bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      sub: 'Total consolidado',
+      sub: undefined,
       colorHex: '#FF8A00',
       colorRgb: [255, 138, 0],
     });
@@ -986,8 +1000,8 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 4. Operaciones (si está marcado en columnas o el grupo tiene operaciones acumuladas)
-  if ((columnasClaves.includes('operaciones') || f.total_operaciones != null) && f.total_operaciones != null) {
+  // 4. Operaciones (SOLO si está marcado explícitamente en columnasClaves)
+  if (columnasClaves.includes('operaciones') && f.total_operaciones != null) {
     metricas.push({
       clave: 'operaciones',
       etiqueta: 'OPERACIONES',
@@ -998,7 +1012,7 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 5. % del total
+  // 5. % del total (solo si está marcado explícitamente en columnasClaves)
   if (columnasClaves.includes('pct_total') && f.pct_del_total != null) {
     metricas.push({
       clave: 'pct_total',
@@ -1010,7 +1024,7 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 6. Tasa BCV aplicada
+  // 6. Tasa BCV aplicada (solo si está marcada explícitamente en columnasClaves)
   if (columnasClaves.includes('tasa_bcv') && f.tasa_bcv_aplicada > 0) {
     metricas.push({
       clave: 'tasa_bcv',
@@ -1022,31 +1036,70 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 7. Método / estado de pago. 04/11/2026: con «Método y Datos de Pago» marcado, el
-  //    valor es el método (Transferencia, Pago móvil…) y debajo van sus datos y el estado.
-  if (columnasClaves.includes('metodo_pago') || columnasClaves.includes('estado')) {
-    const conMetodo = columnasClaves.includes('metodo_pago');
+  // 7. Método y datos de pago vs Estado (separados de forma estricta según columnasClaves)
+  const conMetodo = columnasClaves.includes('metodo_pago');
+  const conEstado = columnasClaves.includes('estado');
+
+  if (conMetodo && conEstado) {
     const textoPago = (f.datos_pago_resumen || f.metodo_pago || '').trim();
     const corte = textoPago.indexOf(' — ');
     const metodo = corte >= 0 ? textoPago.slice(0, corte) : textoPago;
     const datos = corte >= 0 ? textoPago.slice(corte + 3) : '';
     metricas.push({
       clave: 'metodo_pago',
-      etiqueta: conMetodo ? 'MÉTODO / DATOS DE PAGO' : 'MÉTODO / ESTADO',
-      valor: conMetodo ? (metodo || f.estado || 'Sin método cargado') : (f.estado || '—'),
-      sub: conMetodo ? [datos, metodo ? f.estado : null].filter(Boolean).join(' · ') : textoPago,
+      etiqueta: 'MÉTODO / ESTADO',
+      valor: metodo || f.estado || 'Sin método cargado',
+      sub: [datos, f.estado].filter(Boolean).join(' · '),
+      colorHex: '#10b981',
+      colorRgb: [16, 185, 129],
+    });
+  } else if (conMetodo) {
+    const textoPago = (f.datos_pago_resumen || f.metodo_pago || '').trim();
+    const corte = textoPago.indexOf(' — ');
+    const metodo = corte >= 0 ? textoPago.slice(0, corte) : textoPago;
+    const datos = corte >= 0 ? textoPago.slice(corte + 3) : '';
+    metricas.push({
+      clave: 'metodo_pago',
+      etiqueta: 'MÉTODO Y DATOS DE PAGO',
+      valor: metodo || 'Sin método cargado',
+      sub: datos || undefined,
+      colorHex: '#10b981',
+      colorRgb: [16, 185, 129],
+    });
+  } else if (conEstado) {
+    metricas.push({
+      clave: 'estado',
+      etiqueta: 'ESTADO',
+      valor: f.estado || '—',
       colorHex: '#10b981',
       colorRgb: [16, 185, 129],
     });
   }
 
-  // Respaldo de seguridad ejecutiva: si ningún monto financiero entró en métricas
-  // pero hay moneda activa, colocamos el monto consolidado al frente para que la tarjeta
-  // ejecutiva siempre tenga protagonismo financiero claro.
-  const tieneMonto = metricas.some((m) => m.clave === 'monto_usd' || m.clave === 'monto_bs' || m.clave === 'monto_original');
-  if (!tieneMonto) {
+  // 8. Otras columnas que el usuario haya seleccionado para ver en la tarjeta
+  if (columnasClaves.includes('hora') && f.hora) {
+    metricas.push({
+      clave: 'hora',
+      etiqueta: 'HORA',
+      valor: f.hora,
+      colorHex: '#94a3b8',
+      colorRgb: [148, 163, 184],
+    });
+  }
+  if (columnasClaves.includes('saldo_caja') && f.saldo_resultante != null) {
+    metricas.push({
+      clave: 'saldo_caja',
+      etiqueta: 'SALDO RESULTANTE',
+      valor: `$ ${f.saldo_resultante.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      colorHex: '#38bdf8',
+      colorRgb: [56, 189, 248],
+    });
+  }
+
+  // Respaldo de seguridad ejecutiva: ÚNICAMENTE si no se especificaron columnas (array vacío)
+  if (columnasClaves.length === 0 && metricas.length === 0) {
     if (toggles.mostrarUsd) {
-      metricas.unshift({
+      metricas.push({
         clave: 'monto_usd',
         etiqueta: 'MONTO ($ USD)',
         valor: `$ ${f.monto_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
@@ -1055,7 +1108,7 @@ export function obtenerMetricasFichaTesoreria(
         colorRgb: [22, 163, 74],
       });
     } else if (toggles.mostrarBs) {
-      metricas.unshift({
+      metricas.push({
         clave: 'monto_bs',
         etiqueta: 'MONTO (Bs)',
         valor: `Bs ${f.monto_bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
@@ -1063,19 +1116,16 @@ export function obtenerMetricasFichaTesoreria(
         colorHex: '#FF8A00',
         colorRgb: [255, 138, 0],
       });
+    } else {
+      metricas.push({
+        clave: 'monto_usd',
+        etiqueta: 'MONTO ($ USD)',
+        valor: `$ ${f.monto_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        sub: tasaTxt,
+        colorHex: '#22c55e',
+        colorRgb: [22, 163, 74],
+      });
     }
-  }
-
-  // Respaldo absoluto: si aun así nada quedó marcado
-  if (metricas.length === 0) {
-    metricas.push({
-      clave: 'monto_usd',
-      etiqueta: 'MONTO ($ USD)',
-      valor: `$ ${f.monto_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      sub: tasaTxt,
-      colorHex: '#22c55e',
-      colorRgb: [22, 163, 74],
-    });
   }
 
   return metricas;
