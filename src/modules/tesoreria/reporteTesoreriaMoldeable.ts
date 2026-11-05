@@ -183,7 +183,7 @@ export function esColumnaAplicableModoTesoreria(
   modo: ModoAgrupacionTesoreria,
 ): boolean {
   if (modo === 'detallado') {
-    return colClave !== 'operaciones'; // En detallado cada fila es 1 op individual
+    return true; // En detallado cada fila es 1 op individual
   }
 
   // En modos agrupados:

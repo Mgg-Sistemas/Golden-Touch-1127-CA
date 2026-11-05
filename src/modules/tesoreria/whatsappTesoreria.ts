@@ -125,11 +125,15 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   // moneda (cada una con su total y su nº de pagos) y debajo el desglose por método.
   const prep = opts.preparacion;
   if (opts.ambito === 'por_pagar' && prep) {
-    const ver = (m: string) => (esMonedaDivisa(m) ? mostrarUsd : mostrarBs);
-    const totales = prep.totalesPorMoneda.filter((t) => ver(t.moneda));
+    const filtrados = prep.totalesPorMoneda.filter((t) => (esMonedaDivisa(t.moneda) ? mostrarUsd : mostrarBs));
+    const totales = (filtrados.length > 0 || (mostrarUsd && mostrarBs)) ? filtrados : prep.totalesPorMoneda;
     const refPartes: string[] = [];
-    if (mostrarUsd) refPartes.push(`$ ${num(prep.sinMetodo.usd)}`);
-    if (mostrarBs) refPartes.push(`Bs ${num(prep.sinMetodo.bs)}`);
+    if (mostrarUsd && prep.sinMetodo.usd > 0) refPartes.push(`$ ${num(prep.sinMetodo.usd)}`);
+    if (mostrarBs && prep.sinMetodo.bs > 0) refPartes.push(`Bs ${num(prep.sinMetodo.bs)}`);
+    if (refPartes.length === 0) {
+      if (prep.sinMetodo.usd > 0) refPartes.push(`$ ${num(prep.sinMetodo.usd)}`);
+      else if (prep.sinMetodo.bs > 0) refPartes.push(`Bs ${num(prep.sinMetodo.bs)}`);
+    }
     const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && refPartes.length > 0;
     if (totales.length > 0 || haySinMetodo) {
       L.push('');

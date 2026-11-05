@@ -15,17 +15,18 @@
    La salida es no meterlo en una dirección: `navigator.share` le pasa el
    TEXTO al menú de compartir del teléfono, que se lo entrega a WhatsApp tal
    cual. Emojis y saltos de línea llegan enteros y se elige el chat de una.
-   Donde ese menú no existe —una PC— se sigue usando el enlace, que para eso
-   abre WhatsApp Web y ahí el texto sí entra bien en la caja del mensaje.
+   Donde ese menú no existe —una PC— se usa `enlaceWhatsappInteligente`, que
+   en escritorio abre directamente WhatsApp Web (`web.whatsapp.com`) sin pasar
+   por la pantalla intermedia de Meta que corrompe los emojis UTF-8 en rombos ().
 
    FOTOS (02/11/2026). Con `fotos`, el mismo menú de compartir lleva las
    imágenes junto con el texto (en WhatsApp el texto queda como pie de foto).
-   Un enlace `wa.me` no puede llevar archivos: donde el menú no acepta fotos
+   Un enlace web no puede llevar archivos: donde el menú no acepta fotos
    se abre el enlace y las fotos se descargan para arrastrarlas al chat.
    ============================================================ */
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { toast } from '@/shared/ui/Toast';
-import { enlaceWhatsapp } from '@/shared/lib/whatsapp';
+import { enlaceWhatsappInteligente } from '@/shared/lib/whatsapp';
 
 /** Baja cada foto como archivo, para soltarla en el chat de WhatsApp Web. */
 function descargarFotos(fotos: File[]) {
@@ -59,7 +60,7 @@ export function CompartirWhatsapp({ texto, fotos = SIN_FOTOS }: { texto: string;
       toast(`Se descargaron ${fotos.length === 1 ? 'la foto' : `las ${fotos.length} fotos`}: arrástralas al chat de WhatsApp.`, 'info');
       return;
     }
-    if (!puedeCompartir) return;   // sin menú nativo, que siga el href de siempre
+    if (!puedeCompartir) return;   // sin menú nativo, que siga el href de siempre (WhatsApp Web en PC)
     e.preventDefault();
     try {
       await navigator.share(puedeConFotos ? { text: texto, files: fotos } : { text: texto });
@@ -67,7 +68,7 @@ export function CompartirWhatsapp({ texto, fotos = SIN_FOTOS }: { texto: string;
       // Cancelar el menú NO es un error: no se le avisa nada a nadie. Cualquier
       // otra falla cae al enlace de siempre, que es lo que había antes.
       if ((err as { name?: string })?.name === 'AbortError') return;
-      window.open(enlaceWhatsapp(texto), '_blank', 'noopener,noreferrer');
+      window.open(enlaceWhatsappInteligente(texto), '_blank', 'noopener,noreferrer');
       if (fotos.length) descargarFotos(fotos);
     }
   }
@@ -98,7 +99,7 @@ export function CompartirWhatsapp({ texto, fotos = SIN_FOTOS }: { texto: string;
         </div>
       )}
       <div className="surt-compartir-btns">
-        <a className="btn btn-wsp btn-grande" href={enlaceWhatsapp(texto)} target="_blank" rel="noopener noreferrer"
+        <a className="btn btn-wsp btn-grande" href={enlaceWhatsappInteligente(texto)} target="_blank" rel="noopener noreferrer"
           onClick={(e) => void compartir(e)}>
           {fotos.length ? `📲 Enviar por WhatsApp con ${fotos.length === 1 ? 'la foto' : `${fotos.length} fotos`}` : '📲 Enviar por WhatsApp'}
         </a>
