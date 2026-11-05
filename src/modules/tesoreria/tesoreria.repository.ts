@@ -218,6 +218,37 @@ export async function registrarIngresoCaja(input: {
   return data as MovimientoCaja;
 }
 
+/* ───────────── Saldo VIVO de la caja (05/11/2026) ─────────────
+   El saldo real está en caja_saldos (cuenta «general» de la moneda de la caja);
+   cajas.saldo quedó viejo (Caja Bs decía 492 con Bs 3.496.653,70 reales) y el pago
+   de OC y el pago a personal lo usaban para validar: «Saldo insuficiente… 492 Bs».
+   Se descuenta con lock en la base (aplicar_saldo_divisa), que también valida fondos.
+   Sin fila en caja_saldos, cae al saldo legado (aplicar_saldo_caja). */
+async function descontarSaldoVivo(caja: { id: string; nombre: string; moneda: string }, monto: number): Promise<{
+  saldoAntes: number; saldoDespues: number; cuenta: string | null; revertir: () => Promise<void>;
+}> {
+  const { data: row } = await supabase.from(SALDOS)
+    .select('id').eq('caja_id', caja.id).eq('cuenta', 'general').eq('moneda', caja.moneda).maybeSingle();
+  if (row) {
+    const { data: r, error } = await supabase.rpc('aplicar_saldo_divisa', {
+      p_caja_id: caja.id, p_cuenta: 'general', p_moneda: caja.moneda, p_delta: -monto, p_permitir_negativo: false,
+    });
+    if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
+    const res = r as { saldo_antes: number; saldo_despues: number };
+    return {
+      saldoAntes: Number(res.saldo_antes) || 0, saldoDespues: Number(res.saldo_despues) || 0, cuenta: 'general',
+      revertir: async () => { await supabase.rpc('aplicar_saldo_divisa', { p_caja_id: caja.id, p_cuenta: 'general', p_moneda: caja.moneda, p_delta: monto, p_permitir_negativo: true }); },
+    };
+  }
+  const { data: r, error } = await supabase.rpc('aplicar_saldo_caja', { p_caja_id: caja.id, p_delta: -monto, p_permitir_negativo: false });
+  if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
+  const res = r as { saldo_antes: number; saldo_despues: number };
+  return {
+    saldoAntes: Number(res.saldo_antes) || 0, saldoDespues: Number(res.saldo_despues) || 0, cuenta: null,
+    revertir: async () => { await supabase.rpc('aplicar_saldo_caja', { p_caja_id: caja.id, p_delta: monto, p_permitir_negativo: true }); },
+  };
+}
+
 /* ───────────── Pago a personal (multipagos a usuarios del sistema) ───────────── */
 
 export async function pagarPersonal(input: {
@@ -232,8 +263,9 @@ export async function pagarPersonal(input: {
   const total = round2(pagos.reduce((a, p) => a + p.monto, 0));
 
   const caja = await getCaja(input.cajaId);
-  let saldo = Number(caja.saldo) || 0;
-  if (total > saldo) throw new Error(`Saldo insuficiente en ${caja.nombre}. Disponible: ${saldo} ${caja.moneda}.`);
+  // 05/11/2026: contra el saldo vivo (caja_saldos), descontado de una vez en la base.
+  const desc = await descontarSaldoVivo(caja, total);
+  let saldo = desc.saldoAntes;
 
   const filas = pagos.map((p) => {
     const antes = saldo;
@@ -244,14 +276,13 @@ export async function pagarPersonal(input: {
       saldo_antes: antes, saldo_despues: despues,
       motivo: input.concepto.trim() || 'Pago a personal', categoria: 'pago_personal',
       beneficiario: p.nombre, beneficiario_id: p.usuarioId,
+      cuenta: desc.cuenta,
       actor: input.actor, actor_name: input.actorName ?? null,
     };
   });
 
   const { error } = await supabase.from(LIBRO).insert(filas);
-  if (error) throw error;
-  const { error: uErr } = await supabase.from(TABLE).update({ saldo, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
-  if (uErr) throw uErr;
+  if (error) { await desc.revertir(); throw error; }
 }
 
 /* ───────────── Pago de una orden (puente Compras → Tesorería) ───────────── */
@@ -268,22 +299,21 @@ export async function pagarOrden(input: {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   const caja = await getCaja(input.cajaId);
-  const saldoAntes = Number(caja.saldo) || 0;
-  if (monto > saldoAntes) throw new Error(`Saldo insuficiente en ${caja.nombre}. Disponible: ${saldoAntes} ${caja.moneda}.`);
-  const saldoDespues = round2(saldoAntes - monto);
+  // 05/11/2026: contra el saldo vivo (caja_saldos), descontado de una vez en la base.
+  const desc = await descontarSaldoVivo(caja, monto);
+  const saldoAntes = desc.saldoAntes;
+  const saldoDespues = desc.saldoDespues;
 
   const { data, error } = await supabase.from(LIBRO).insert({
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    saldo_antes: saldoAntes, saldo_despues: saldoDespues, cuenta: desc.cuenta,
     motivo: input.concepto?.trim() || 'Pago de compra', categoria: input.categoria || 'pago_oc',
     gasto_categoria: input.gastoCategoria?.trim() || null,
     gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
     ref_orden_id: input.ordenId,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
-  if (error) throw error;
-  const { error: uErr } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
-  if (uErr) throw uErr;
+  if (error) { await desc.revertir(); throw error; }
   return data as MovimientoCaja;
 }
 
