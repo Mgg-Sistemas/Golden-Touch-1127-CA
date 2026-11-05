@@ -49,6 +49,8 @@ export interface GastoFijo {
   /** Ancla para calcular los períodos ('AAAA-MM-DD'). */
   vigenteDesde: string;
   estado: EstadoGastoFijo;
+  centroAcopioId?: string | null;
+  responsable?: string | null;
   createdAt?: string | null;
 }
 export type GastoFijoInput = Omit<GastoFijo, 'id' | 'createdAt'>;
@@ -125,16 +127,17 @@ export interface InfoCarpetaDoc {
   label: string;
   descripcion: string;
   centroAcopioId?: string | null;
+  responsable?: string | null;
 }
 
 export const CARPETAS_DOCUMENTOS: InfoCarpetaDoc[] = [
-  { id: 'permisos_mineros', icon: '⛏️', label: 'Permisos Mineros y Ambientales', descripcion: 'Rupdae, Ragda, Minería, MinEc y providencias', centroAcopioId: null },
-  { id: 'laboral_parafiscal', icon: '⚖️', label: 'Laboral y Parafiscales', descripcion: 'Mintras, Inces, IVSS, FAOV y solvencias laborales', centroAcopioId: null },
-  { id: 'legal_constitutivo', icon: '📜', label: 'Legal y Estatutario', descripcion: 'Carta / Acta Constitutiva, Asambleas y RIF', centroAcopioId: null },
-  { id: 'socios_representantes', icon: '👥', label: 'Socios y Representantes', descripcion: 'Cédulas, RIFs y fichas de N socios', centroAcopioId: null },
-  { id: 'tributario_fiscal', icon: '🏛️', label: 'Tributario y Municipal', descripcion: 'Patentes de Industria y Comercio, SENIAT y solvencias', centroAcopioId: null },
-  { id: 'contratos_servicios', icon: '📑', label: 'Contratos y Acuerdos', descripcion: 'Convenios, arrendamientos y acuerdos operativos', centroAcopioId: null },
-  { id: 'otros', icon: '📁', label: 'Otros Archivos', descripcion: 'Documentación general y respaldos', centroAcopioId: null },
+  { id: 'permisos_mineros', icon: '⛏️', label: 'Permisos Mineros y Ambientales', descripcion: 'Rupdae, Ragda, Minería, MinEc y providencias', centroAcopioId: null, responsable: null },
+  { id: 'laboral_parafiscal', icon: '⚖️', label: 'Laboral y Parafiscales', descripcion: 'Mintras, Inces, IVSS, FAOV y solvencias laborales', centroAcopioId: null, responsable: null },
+  { id: 'legal_constitutivo', icon: '📜', label: 'Legal y Estatutario', descripcion: 'Carta / Acta Constitutiva, Asambleas y RIF', centroAcopioId: null, responsable: null },
+  { id: 'socios_representantes', icon: '👥', label: 'Socios y Representantes', descripcion: 'Cédulas, RIFs y fichas de N socios', centroAcopioId: null, responsable: null },
+  { id: 'tributario_fiscal', icon: '🏛️', label: 'Tributario y Municipal', descripcion: 'Patentes de Industria y Comercio, SENIAT y solvencias', centroAcopioId: null, responsable: null },
+  { id: 'contratos_servicios', icon: '📑', label: 'Contratos y Acuerdos', descripcion: 'Convenios, arrendamientos y acuerdos operativos', centroAcopioId: null, responsable: null },
+  { id: 'otros', icon: '📁', label: 'Otros Archivos', descripcion: 'Documentación general y respaldos', centroAcopioId: null, responsable: null },
 ];
 
 export const ETIQUETA_CARPETA: Record<string, string> = {
@@ -203,6 +206,7 @@ export interface DocumentoEmpresa {
   empresaClave: string;
   carpeta: string;
   centroAcopioId?: string | null;
+  responsable?: string | null;
   tipo: TipoDocumento;
   nombre: string;
   /** Ruta en el bucket; con ella se pide la URL firmada. */
@@ -225,6 +229,7 @@ export interface DocumentoEmpresaInput {
   empresaClave: string;
   carpeta?: string;
   centroAcopioId?: string | null;
+  responsable?: string | null;
   tipo: TipoDocumento;
   nombre: string;
   fechaEmision?: string | null;
@@ -333,7 +338,8 @@ interface RowEmpresa {
 interface RowGasto {
   id: string; empresa_clave: string; concepto: string; proveedor_id: string | null; proveedor_nombre: string | null;
   categoria_gasto_id: string | null; monto: number | string; moneda: string; tasa_ref: number | string | null;
-  periodicidad: string; dia_vencimiento: number | null; vigente_desde: string; estado: string; created_at?: string | null;
+  periodicidad: string; dia_vencimiento: number | null; vigente_desde: string; estado: string;
+  centro_acopio_id?: string | null; responsable?: string | null; created_at?: string | null;
 }
 const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
@@ -362,7 +368,10 @@ function aGasto(r: RowGasto): GastoFijo {
     categoriaGastoId: r.categoria_gasto_id ?? null, monto: num(r.monto), moneda: r.moneda as Moneda,
     tasaRef: r.tasa_ref == null ? null : num(r.tasa_ref), periodicidad: r.periodicidad as Periodicidad,
     diaVencimiento: r.dia_vencimiento ?? null, vigenteDesde: (r.vigente_desde ?? '').slice(0, 10),
-    estado: (r.estado as EstadoGastoFijo) ?? 'activo', createdAt: r.created_at ?? null,
+    estado: (r.estado as EstadoGastoFijo) ?? 'activo',
+    centroAcopioId: r.centro_acopio_id ?? null,
+    responsable: r.responsable ?? null,
+    createdAt: r.created_at ?? null,
   };
 }
 function deGasto(g: Partial<GastoFijoInput>): Record<string, unknown> {
@@ -379,6 +388,8 @@ function deGasto(g: Partial<GastoFijoInput>): Record<string, unknown> {
   if (g.diaVencimiento !== undefined) o.dia_vencimiento = g.diaVencimiento;
   if (g.vigenteDesde !== undefined) o.vigente_desde = g.vigenteDesde;
   if (g.estado !== undefined) o.estado = g.estado;
+  if (g.centroAcopioId !== undefined) o.centro_acopio_id = g.centroAcopioId;
+  if (g.responsable !== undefined) o.responsable = g.responsable;
   return o;
 }
 
@@ -431,6 +442,7 @@ interface RowDoc {
   tamano: number | string | null;
   carpeta?: string | null;
   centro_acopio_id?: string | null;
+  responsable?: string | null;
   fecha_vencimiento?: string | null;
   fecha_emision?: string | null;
   status_vencimiento?: string | null;
@@ -460,6 +472,7 @@ function aDoc(r: RowDoc): DocumentoEmpresa {
     empresaClave: r.empresa_clave,
     carpeta: r.carpeta || 'otros',
     centroAcopioId: r.centro_acopio_id ?? null,
+    responsable: r.responsable ?? null,
     tipo: (r.tipo as TipoDocumento) || 'otro',
     nombre: r.nombre,
     path: r.path,
@@ -526,12 +539,25 @@ export function crearRepoSupabase(): AdminRepo {
       return (data ?? []).map((r) => aGasto(r as RowGasto));
     },
     async crearGastoFijo(g) {
-      const { data, error } = await supabase.from(T_GF).insert(deGasto(g)).select('*').single();
+      const payload = deGasto(g);
+      let { data, error } = await supabase.from(T_GF).insert(payload).select('*').single();
+      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
+        const { centro_acopio_id, responsable, ...basePayload } = payload;
+        const resBase = await supabase.from(T_GF).insert(basePayload).select('*').single();
+        data = resBase.data;
+        error = resBase.error;
+      }
       if (error) throw error;
       return aGasto(data as RowGasto);
     },
     async editarGastoFijo(id, cambios) {
-      const { error } = await supabase.from(T_GF).update(deGasto(cambios)).eq('id', id);
+      const payload = deGasto(cambios);
+      let { error } = await supabase.from(T_GF).update(payload).eq('id', id);
+      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
+        const { centro_acopio_id, responsable, ...basePayload } = payload;
+        const resBase = await supabase.from(T_GF).update(basePayload).eq('id', id);
+        error = resBase.error;
+      }
       if (error) throw error;
     },
     async setEstadoGastoFijo(id, estado) {
@@ -708,6 +734,7 @@ export function crearRepoSupabase(): AdminRepo {
         tamano: file.size,
         carpeta: meta?.carpeta || 'otros',
         centro_acopio_id: meta?.centroAcopioId || null,
+        responsable: meta?.responsable || null,
         fecha_vencimiento: meta?.fechaVencimiento || null,
         fecha_emision: meta?.fechaEmision || null,
         status_vencimiento: status,
@@ -770,6 +797,7 @@ export function crearRepoSupabase(): AdminRepo {
       if (cambios.tipo !== undefined) payloadCompleto.tipo = cambios.tipo;
       if (cambios.carpeta !== undefined) payloadCompleto.carpeta = cambios.carpeta;
       if (cambios.centroAcopioId !== undefined) payloadCompleto.centro_acopio_id = cambios.centroAcopioId;
+      if (cambios.responsable !== undefined) payloadCompleto.responsable = cambios.responsable;
       if (cambios.fechaVencimiento !== undefined) payloadCompleto.fecha_vencimiento = cambios.fechaVencimiento;
       if (cambios.fechaEmision !== undefined) payloadCompleto.fecha_emision = cambios.fechaEmision;
       if (cambios.statusVencimiento !== undefined || cambios.fechaVencimiento !== undefined) payloadCompleto.status_vencimiento = nuevoStatus;

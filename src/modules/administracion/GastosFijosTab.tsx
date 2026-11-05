@@ -15,6 +15,7 @@ import { filasTablero } from './administracionTablero';
 import { cargarTasaBcv, TASA_FALLBACK } from './administracionTasa';
 import { reporteGastosFijosTxt } from './administracionWhatsApp';
 import { WhatsAppReporteModal } from './WhatsAppReporteModal';
+import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
 
 const PERIOD_LABEL: Record<Periodicidad, string> = {
   mensual: 'Mensual', bimensual: 'Bimensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual',
@@ -48,9 +49,11 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
   const [modal, setModal] = useState<{ gasto: GastoFijo | null } | null>(null);
   const [wsp, setWsp] = useState<string | null>(null);
   const [tasa, setTasa] = useState(TASA_FALLBACK);
+  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
 
   const nombreCat = useMemo(() => new Map(categorias.map((c) => [c.id, c.nombre])), [categorias]);
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
+  const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -138,7 +141,43 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
                   return (
                     <tr key={g.id} className={g.estado === 'activo' ? undefined : 'adm-fila-off'}>
                       {mostrarEmpresa && <td className="mono">{g.empresaClave}</td>}
-                      <td>{g.concepto}</td>
+                      <td>
+                        <strong>{g.concepto}</strong>
+                        {(g.centroAcopioId || g.responsable) && (
+                          <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', marginTop: '.2rem', flexWrap: 'wrap' }}>
+                            {g.centroAcopioId && (
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: '.66rem',
+                                  background: 'rgba(234, 179, 8, 0.12)',
+                                  color: '#eab308',
+                                  borderColor: '#eab308',
+                                  padding: '.05rem .3rem',
+                                }}
+                                title="Centro de acopio asignado"
+                              >
+                                🏭 {mapaCentros.get(g.centroAcopioId) || g.centroAcopioId}
+                              </span>
+                            )}
+                            {g.responsable && (
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: '.66rem',
+                                  background: 'rgba(168, 85, 247, 0.12)',
+                                  color: '#c084fc',
+                                  borderColor: '#c084fc',
+                                  padding: '.05rem .3rem',
+                                }}
+                                title="Responsable / Analista asignado"
+                              >
+                                👤 {g.responsable}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td>{g.proveedorNombre ?? '—'}</td>
                       <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoFmt(g.monto)} {g.moneda}</td>
                       <td>{PERIOD_LABEL[g.periodicidad]}</td>

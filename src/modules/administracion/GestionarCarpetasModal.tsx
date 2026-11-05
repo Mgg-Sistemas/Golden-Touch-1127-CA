@@ -12,8 +12,9 @@
 import { useState, useMemo } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { CARPETAS_DOCUMENTOS, type InfoCarpetaDoc } from './admin.repository';
-import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
+import { leerCentrosAcopio, obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 
 const EMOJIS_SUGERIDOS = [
   '📁', '⛏️', '👷', '⚖️', '👥', '🏛️', '📑', '📜', '🛡️',
@@ -42,9 +43,11 @@ export function GestionarCarpetasModal({
   const [label, setLabel] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [centroAcopioId, setCentroAcopioId] = useState<string>('');
+  const [responsable, setResponsable] = useState<string>('');
 
   const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
+  const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, [], [], lista), [centros, lista]);
 
   const abrirCrear = () => {
     setEditId(null);
@@ -52,6 +55,7 @@ export function GestionarCarpetasModal({
     setLabel('');
     setDescripcion('');
     setCentroAcopioId('');
+    setResponsable('');
     setModoFormulario(true);
   };
 
@@ -61,6 +65,7 @@ export function GestionarCarpetasModal({
     setLabel(c.label);
     setDescripcion(c.descripcion || '');
     setCentroAcopioId(c.centroAcopioId || '');
+    setResponsable(c.responsable || '');
     setModoFormulario(true);
   };
 
@@ -72,6 +77,7 @@ export function GestionarCarpetasModal({
     }
 
     const cIdLimpio = centroAcopioId.trim() || null;
+    const respLimpio = responsable.trim() || null;
     if (editId) {
       // Modificar existente
       const nuevaLista = lista.map((c) =>
@@ -82,6 +88,7 @@ export function GestionarCarpetasModal({
               label: nombreTrim,
               descripcion: descripcion.trim(),
               centroAcopioId: cIdLimpio,
+              responsable: respLimpio,
             }
           : c,
       );
@@ -97,6 +104,7 @@ export function GestionarCarpetasModal({
         label: nombreTrim,
         descripcion: descripcion.trim(),
         centroAcopioId: cIdLimpio,
+        responsable: respLimpio,
         esPersonalizada: true,
       };
       const nuevaLista = [...lista, nuevaCarpeta];
@@ -269,6 +277,22 @@ export function GestionarCarpetasModal({
               </span>
             </label>
 
+            {/* Responsable / Analista asignado a la carpeta */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>
+                👤 Responsable / Analista a Cargo de la Carpeta (opcional):
+              </span>
+              <SearchCreateSelect
+                placeholder="Elija o escriba el analista/responsable…"
+                options={opcionesResponsables}
+                value={responsable}
+                onChange={setResponsable}
+              />
+              <span className="muted hint" style={{ fontSize: '.68rem' }}>
+                Los documentos que pertenezcan a esta carpeta se asignarán a este analista/responsable por defecto.
+              </span>
+            </div>
+
             {/* Breve descripción o nota («e incluso colocar una breve descripción/nota») */}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
               <span className="muted hint" style={{ fontSize: '.7rem' }}>
@@ -356,6 +380,21 @@ export function GestionarCarpetasModal({
                           title="Asociada al Centro de Acopio"
                         >
                           🏭 {mapaCentros.get(c.centroAcopioId) || c.centroAcopioId}
+                        </span>
+                      )}
+                      {c.responsable && (
+                        <span
+                          style={{
+                            fontSize: '.62rem',
+                            padding: '.08rem .35rem',
+                            borderRadius: 4,
+                            background: 'rgba(168, 85, 247, 0.15)',
+                            color: '#c084fc',
+                            fontWeight: 600,
+                          }}
+                          title="Responsable / Analista a Cargo"
+                        >
+                          👤 {c.responsable}
                         </span>
                       )}
                       {c.esPersonalizada && (

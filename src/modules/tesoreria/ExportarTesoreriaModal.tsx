@@ -29,6 +29,7 @@ import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
 import {
   CAMPOS_REPORTE_TESORERIA,
   CAMPOS_POR_DEFECTO_POR_MODO,
+  COLUMNAS_SOLO_DETALLE_TESORERIA,
   esColumnaAplicableModoTesoreria,
   ETIQUETA_FLUJO,
   diaDe,
@@ -804,7 +805,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
               {filas.map((f) => {
                 const acento = f.tipo_movimiento === 'ingreso' ? '#10b981' : f.tipo_movimiento === 'traslado' ? '#38bdf8' : '#FF8A00';
                 const metricas = obtenerMetricasFichaTesoreria(f, marcados, { mostrarUsd, mostrarBs });
-                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta);
+                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta, marcados);
+                const tienePct = marcados.includes('pct_total') && f.pct_del_total != null;
+                const tieneTipo = marcados.includes('tipo_mov');
+                const mostrarBadge = tienePct || tieneTipo;
                 return (
                   <div key={f.id} style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border, #334155)', borderLeft: `4px solid ${acento}`, borderRadius: '6px', padding: '.55rem .7rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.5rem' }}>
@@ -836,23 +840,30 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                             {cab.titulo}
                           </span>
                         </div>
-                        <div className="muted" style={{ fontSize: '.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cab.subtitulo}>
-                          {cab.subtitulo}
-                        </div>
+                        {cab.subtitulo ? (
+                          <div className="muted" style={{ fontSize: '.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cab.subtitulo}>
+                            {cab.subtitulo}
+                          </div>
+                        ) : null}
                       </div>
-                      <div style={{ flexShrink: 0, textAlign: 'right', background: 'rgba(255,255,255,0.05)', border: `1px solid ${acento}55`, borderRadius: '6px', padding: '.25rem .55rem', lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '.82rem', fontWeight: 700, color: acento }}>{f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}%` : montoPrincipal(f)}</div>
-                        <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>{ETIQUETA_FLUJO[f.tipo_movimiento]}</div>
-                      </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
-                      {metricas.map((m) => (
-                        <div key={m.clave}>
-                          <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
-                          <div style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>{m.valor}</div>
+                      {mostrarBadge && (
+                        <div style={{ flexShrink: 0, textAlign: 'right', background: 'rgba(255,255,255,0.05)', border: `1px solid ${acento}55`, borderRadius: '6px', padding: '.25rem .55rem', lineHeight: 1.2 }}>
+                          {tienePct && <div style={{ fontSize: '.82rem', fontWeight: 700, color: acento }}>{`${f.pct_del_total!.toFixed(1)}%`}</div>}
+                          {tieneTipo && <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>{ETIQUETA_FLUJO[f.tipo_movimiento]}</div>}
                         </div>
-                      ))}
+                      )}
                     </div>
+                    {metricas.length > 0 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(105px, 1fr))`, gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
+                        {metricas.map((m) => (
+                          <div key={m.clave}>
+                            <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
+                            <div style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>{m.valor}</div>
+                            {m.sub && <div style={{ fontSize: '.58rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -192,6 +192,8 @@ export function crearRepoDemo(): AdminRepo {
         id: uid(),
         empresaClave,
         carpeta: meta?.carpeta || 'otros',
+        centroAcopioId: meta?.centroAcopioId || null,
+        responsable: meta?.responsable || null,
         tipo,
         nombre: meta?.nombre || file.name,
         path,

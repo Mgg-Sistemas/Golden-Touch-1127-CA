@@ -22,10 +22,10 @@ import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
-import { SearchSelect, type SearchOption } from '@/shared/ui/SearchSelect';
+import { SearchSelect, SearchCreateSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
-import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
+import { leerCentrosAcopio, obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 import {
   GestionarCarpetasModal,
   leerCarpetasPersonalizadas,
@@ -74,6 +74,7 @@ interface StagedFile {
   empresaClave: string;
   carpeta: string;
   centroAcopioId?: string;
+  responsable?: string;
   tipo: TipoDocumento;
   nombre: string;
   fechaEmision: string;
@@ -134,11 +135,13 @@ export function DocumentosTab({
   const [carpetaActiva, setCarpetaActiva] = useState<string>('todas');
   const [filtroStatus, setFiltroStatus] = useState<string>('todos');
   const [filtroCentro, setFiltroCentro] = useState<string>('todos');
+  const [filtroResponsable, setFiltroResponsable] = useState<string>('todos');
   const [buscar, setBuscar] = useState('');
 
   // Centros de Acopio disponibles para asociación y filtrado
   const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
+  const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, docs, [], carpetas), [centros, docs, carpetas]);
 
   // Drag & drop staging
   const [isDragging, setIsDragging] = useState(false);
@@ -253,6 +256,12 @@ export function DocumentosTab({
         if (cIdDoc !== filtroCentro) return false;
       }
 
+      // Filtro por Responsable / Analista
+      if (filtroResponsable !== 'todos') {
+        const respDoc = (d.responsable || mapaCarpetas.get(d.carpeta)?.responsable || d.socioNombre || '').trim().toLowerCase();
+        if (respDoc !== filtroResponsable.toLowerCase()) return false;
+      }
+
       // Filtro por status
       if (filtroStatus === 'atencion' && !['vencido', 'vencido_en_tramite', 'por_vencer'].includes(d.statusVencimiento)) return false;
       if (filtroStatus === 'vencido' && d.statusVencimiento !== 'vencido') return false;
@@ -312,6 +321,7 @@ export function DocumentosTab({
         empresaClave: empresaClave || empresas[0]?.clave || 'GT',
         carpeta,
         centroAcopioId: carpetaObj?.centroAcopioId || (filtroCentro !== 'todos' ? filtroCentro : undefined),
+        responsable: carpetaObj?.responsable || (filtroResponsable !== 'todos' ? filtroResponsable : ''),
         tipo,
         nombre: f.name,
         fechaEmision: '',
@@ -360,6 +370,7 @@ export function DocumentosTab({
             nombre: item.nombre,
             carpeta: item.carpeta,
             centroAcopioId: item.centroAcopioId || mapaCarpetas.get(item.carpeta)?.centroAcopioId || null,
+            responsable: item.responsable || mapaCarpetas.get(item.carpeta)?.responsable || null,
             fechaEmision: item.fechaEmision || null,
             fechaVencimiento: item.fechaVencimiento || null,
             statusVencimiento: item.statusVencimiento,
@@ -694,6 +705,20 @@ export function DocumentosTab({
               </option>
             ))}
           </select>
+          <select
+            className="select select-sm"
+            style={{ fontSize: '.8rem', maxWidth: 210, background: 'var(--surface-2)' }}
+            value={filtroResponsable}
+            onChange={(e) => setFiltroResponsable(e.target.value)}
+            title="Filtrar por Responsable o Analista a cargo"
+          >
+            <option value="todos">👤 Todos los Responsables</option>
+            {opcionesResponsables.map((r) => (
+              <option key={r} value={r}>
+                👤 {r}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             className={`btn btn-xs ${filtroStatus === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
@@ -793,6 +818,36 @@ export function DocumentosTab({
                           {!empresaClave && (
                             <span className="badge" style={{ fontSize: '.68rem', background: 'rgba(255,255,255,0.06)' }}>
                               🏢 {d.empresaClave}
+                            </span>
+                          )}
+                          {(d.centroAcopioId || carpetaInfo?.centroAcopioId) && (
+                            <span
+                              className="badge"
+                              style={{
+                                fontSize: '.66rem',
+                                background: 'rgba(234, 179, 8, 0.12)',
+                                color: '#eab308',
+                                borderColor: '#eab308',
+                                padding: '.05rem .3rem',
+                              }}
+                              title="Centro de Acopio Asignado"
+                            >
+                              🏭 {mapaCentros.get(d.centroAcopioId || carpetaInfo?.centroAcopioId!) || d.centroAcopioId || carpetaInfo?.centroAcopioId}
+                            </span>
+                          )}
+                          {(d.responsable || carpetaInfo?.responsable) && (
+                            <span
+                              className="badge"
+                              style={{
+                                fontSize: '.66rem',
+                                background: 'rgba(168, 85, 247, 0.12)',
+                                color: '#c084fc',
+                                borderColor: '#c084fc',
+                                padding: '.05rem .3rem',
+                              }}
+                              title="Responsable / Analista a Cargo"
+                            >
+                              👤 {d.responsable || carpetaInfo?.responsable}
                             </span>
                           )}
                           {d.numeroRegistro && (
@@ -944,7 +999,7 @@ export function DocumentosTab({
                     </button>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.6rem', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.6rem', alignItems: 'flex-start' }}>
                     {/* Carpeta con Barra de Búsqueda */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                       <span className="muted hint" style={{ fontSize: '.7rem' }}>Carpeta</span>
@@ -952,7 +1007,19 @@ export function DocumentosTab({
                         options={opcionesCarpetas}
                         value={item.carpeta}
                         onChange={(val) => {
-                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, carpeta: val } : x));
+                          const cp = mapaCarpetas.get(val);
+                          setArchivosEnEspera(
+                            archivosEnEspera.map((x) =>
+                              x.id === item.id
+                                ? {
+                                    ...x,
+                                    carpeta: val,
+                                    centroAcopioId: cp?.centroAcopioId ?? x.centroAcopioId,
+                                    responsable: cp?.responsable ?? x.responsable,
+                                  }
+                                : x,
+                            ),
+                          );
                         }}
                         placeholder="Buscar carpeta…"
                       />
@@ -968,6 +1035,40 @@ export function DocumentosTab({
                           setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, tipo: val as TipoDocumento } : x));
                         }}
                         placeholder="Buscar tipo de documento…"
+                      />
+                    </div>
+
+                    {/* Centro de Acopio */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                      <span className="muted hint" style={{ fontSize: '.7rem' }}>Centro de Acopio</span>
+                      <select
+                        className="select select-sm"
+                        style={{ fontSize: '.78rem' }}
+                        value={item.centroAcopioId || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, centroAcopioId: val || undefined } : x));
+                        }}
+                      >
+                        <option value="">🏢 General / Toda la empresa</option>
+                        {centros.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            🏭 {c.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Analista / Responsable */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                      <span className="muted hint" style={{ fontSize: '.7rem' }}>Analista / Responsable</span>
+                      <SearchCreateSelect
+                        options={opcionesResponsables}
+                        value={item.responsable || ''}
+                        onChange={(val) => {
+                          setArchivosEnEspera(archivosEnEspera.map((x) => x.id === item.id ? { ...x, responsable: val } : x));
+                        }}
+                        placeholder="Elija o escriba responsable…"
                       />
                     </div>
 
@@ -1126,6 +1227,69 @@ export function DocumentosTab({
                       }
                     }}
                     placeholder="Buscar tipo de documento…"
+                  />
+                </div>
+
+                <div>
+                  <span className="muted hint" style={{ fontSize: '.72rem', display: 'block', marginBottom: '.25rem' }}>
+                    🏭 Centro de Acopio Asociado
+                  </span>
+                  <select
+                    className="select select-sm"
+                    style={{ width: '100%', fontSize: '.8rem' }}
+                    value={docDetalle.centroAcopioId || ''}
+                    disabled={!puedeEscribir}
+                    onChange={async (e) => {
+                      const val = e.target.value.trim() || null;
+                      try {
+                        const act = await repo.editarDocumento(
+                          docDetalle.id,
+                          { centroAcopioId: val },
+                          undefined,
+                          val ? `Centro de acopio asignado: ${mapaCentros.get(val) || val}` : 'Desvinculado de centro de acopio específico',
+                        );
+                        setDocDetalle(act);
+                        toast('Centro de acopio actualizado.', 'success');
+                        await cargar();
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
+                      }
+                    }}
+                  >
+                    <option value="">🏢 General / Toda la empresa</option>
+                    {centros.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        🏭 {c.nombre} ({c.empresaClave})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <span className="muted hint" style={{ fontSize: '.72rem', display: 'block', marginBottom: '.25rem' }}>
+                    👤 Analista / Responsable Asignado
+                  </span>
+                  <SearchCreateSelect
+                    options={opcionesResponsables}
+                    value={docDetalle.responsable || ''}
+                    disabled={!puedeEscribir}
+                    placeholder="Elija o escriba responsable…"
+                    onChange={async (val) => {
+                      const respVal = val.trim() || null;
+                      try {
+                        const act = await repo.editarDocumento(
+                          docDetalle.id,
+                          { responsable: respVal },
+                          undefined,
+                          respVal ? `Responsable asignado: ${respVal}` : 'Sin responsable explícito',
+                        );
+                        setDocDetalle(act);
+                        toast('Responsable asignado.', 'success');
+                        await cargar();
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Error al actualizar', 'error');
+                      }
+                    }}
                   />
                 </div>
               </div>

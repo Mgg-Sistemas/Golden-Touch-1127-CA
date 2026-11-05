@@ -3,6 +3,8 @@ import {
   calcularMatrizCentrosAcopio,
   calcularMatrizResponsables,
   extraerHistorialGlobalDocumentos,
+  obtenerListaResponsables,
+  normalizarNombreResponsable,
   CENTROS_ACOPIO_DEFECTO,
   FASES_OPERATIVAS,
 } from './administracionCentrosResponsables';
@@ -193,5 +195,108 @@ describe('administracionCentrosResponsables', () => {
     const jefePatio = resp.find((r) => r.responsable === 'Jefe de Patio y Maquinaria');
     expect(jefePatio).toBeDefined();
     expect(jefePatio?.documentosTotal).toBe(1); // Tiene 1 doc a cargo
+  });
+
+  it('normaliza nombres de responsables canónicos para evitar duplicados', () => {
+    expect(normalizarNombreResponsable('Administración / Finanzas')).toBe('Administración y Finanzas');
+    expect(normalizarNombreResponsable('administración y finanzas')).toBe('Administración y Finanzas');
+    expect(normalizarNombreResponsable('Dirección de Operaciones')).toBe('Dirección de Operaciones');
+    expect(normalizarNombreResponsable('Jefe de Patio y Maquinaria')).toBe('Jefe de Patio y Maquinaria');
+    expect(normalizarNombreResponsable('Lic. Ana Rojas')).toBe('Lic. Ana Rojas');
+  });
+
+  it('genera una lista completa y única de opciones de responsables desde centros, documentos y gastos', () => {
+    const carpetas: InfoCarpetaDoc[] = [
+      { id: 'c1', icon: '📁', label: 'Carpeta 1', descripcion: '', responsable: 'Ing. Supervisor Norte' },
+    ];
+    const docs: DocumentoEmpresa[] = [
+      {
+        ...MOCK_DOCS[0],
+        responsable: 'Abg. Legal Externo',
+      },
+    ];
+    const gastos: GastoFijo[] = [
+      {
+        ...MOCK_GASTOS[0],
+        responsable: 'Coordinador de Compras',
+      },
+    ];
+
+    const lista = obtenerListaResponsables(CENTROS_ACOPIO_DEFECTO, docs, gastos, carpetas);
+    expect(lista).toContain('Dirección de Operaciones');
+    expect(lista).toContain('Jefe de Planta');
+    expect(lista).toContain('Administración y Finanzas');
+    expect(lista).toContain('Ing. Supervisor Norte');
+    expect(lista).toContain('Abg. Legal Externo');
+    expect(lista).toContain('Coordinador de Compras');
+    // Sin duplicados
+    const set = new Set(lista);
+    expect(set.size).toBe(lista.length);
+  });
+
+  it('asigna un gasto fijo puntualmente a un centro de acopio y a un analista específico sin triplicar montos', () => {
+    const gastosConAsignacion: GastoFijo[] = [
+      {
+        id: 'gf-patio',
+        empresaClave: 'GT',
+        concepto: 'Reparación de Cargador Frontal',
+        proveedorId: null,
+        proveedorNombre: 'Taller Central',
+        categoriaGastoId: null,
+        monto: 350,
+        moneda: 'USD',
+        tasaRef: null,
+        periodicidad: 'mensual',
+        diaVencimiento: 15,
+        vigenteDesde: '2026-01-01',
+        estado: 'activo',
+        centroAcopioId: 'patio_brasilero',
+        responsable: 'Jefe de Patio y Maquinaria',
+      },
+      {
+        id: 'gf-planta',
+        empresaClave: 'GT',
+        concepto: 'Reactivos de Molienda y Cal',
+        proveedorId: null,
+        proveedorNombre: 'Química Industrial',
+        categoriaGastoId: null,
+        monto: 1200,
+        moneda: 'USD',
+        tasaRef: null,
+        periodicidad: 'mensual',
+        diaVencimiento: 20,
+        vigenteDesde: '2026-01-01',
+        estado: 'activo',
+        centroAcopioId: 'planta_molinos',
+        responsable: 'Jefe de Planta',
+      },
+    ];
+
+    const matriz = calcularMatrizCentrosAcopio({
+      centros: CENTROS_ACOPIO_DEFECTO,
+      empresas: MOCK_EMPRESAS,
+      documentos: [],
+      gastosFijos: gastosConAsignacion,
+    });
+
+    const patio = matriz.find((c) => c.centroId === 'patio_brasilero');
+    expect(patio?.gastosFijosTotal).toBe(1);
+    expect(patio?.montoMensualUsd).toBe(350);
+
+    const planta = matriz.find((c) => c.centroId === 'planta_molinos');
+    expect(planta?.gastosFijosTotal).toBe(1);
+    expect(planta?.montoMensualUsd).toBe(1200);
+
+    const resp = calcularMatrizResponsables({
+      documentos: [],
+      gastosFijos: gastosConAsignacion,
+      centros: CENTROS_ACOPIO_DEFECTO,
+    });
+
+    const jefePatio = resp.find((r) => r.responsable === 'Jefe de Patio y Maquinaria');
+    expect(jefePatio?.presupuestoMensualUsd).toBe(350);
+
+    const jefePlanta = resp.find((r) => r.responsable === 'Jefe de Planta');
+    expect(jefePlanta?.presupuestoMensualUsd).toBe(1200);
   });
 });

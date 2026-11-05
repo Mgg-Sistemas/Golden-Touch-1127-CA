@@ -11,6 +11,7 @@ import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { proximoVencimiento, type Moneda, type Periodicidad } from './administracionCalculo';
 import { cargarTasaBcv } from './administracionTasa';
+import { leerCentrosAcopio, obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 import type { AdminRepo, Empresa, GastoFijo, GastoFijoInput, OpcionRef } from './admin.repository';
 
 const PERIODICIDADES: { v: Periodicidad; label: string }[] = [
@@ -34,6 +35,7 @@ interface Draft {
   empresaClave: string; concepto: string; proveedorNombre: string; categoriaGastoId: string;
   monto: string; moneda: Moneda; tasaRef: string; periodicidad: Periodicidad;
   diaVencimiento: string; vigenteDesde: string; estado: 'activo' | 'suspendido';
+  centroAcopioId: string; responsable: string;
 }
 
 function draftDe(g: GastoFijo | null | undefined, empresaClaveFija: string | null, monedaEmpresa: Moneda | null): Draft {
@@ -43,12 +45,14 @@ function draftDe(g: GastoFijo | null | undefined, empresaClaveFija: string | nul
       categoriaGastoId: g.categoriaGastoId ?? '', monto: String(g.monto), moneda: g.moneda,
       tasaRef: g.tasaRef == null ? '' : String(g.tasaRef), periodicidad: g.periodicidad,
       diaVencimiento: g.diaVencimiento == null ? '' : String(g.diaVencimiento), vigenteDesde: g.vigenteDesde, estado: g.estado,
+      centroAcopioId: g.centroAcopioId ?? '', responsable: g.responsable ?? '',
     };
   }
   return {
     empresaClave: empresaClaveFija ?? '', concepto: '', proveedorNombre: '', categoriaGastoId: '',
     monto: '', moneda: monedaEmpresa ?? 'USD', tasaRef: '', periodicidad: 'mensual',
     diaVencimiento: '', vigenteDesde: hoyISO(), estado: 'activo',
+    centroAcopioId: '', responsable: '',
   };
 }
 
@@ -71,6 +75,9 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
   const [guardando, setGuardando] = useState(false);
   const [intento, setIntento] = useState(false);
   const [bcv, setBcv] = useState<number | null>(null);
+  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, [], gasto ? [gasto] : []), [centros, gasto]);
+
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
 
   // Tasa BCV del día: para precargar la referencia (alta nueva en USD) y el equivalente.
@@ -118,6 +125,7 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
       empresaClave: d.empresaClave, concepto: d.concepto.trim(), proveedorId, proveedorNombre: provNombre || null,
       categoriaGastoId: d.categoriaGastoId || null, monto: Math.round(montoNum * 100) / 100, moneda: d.moneda, tasaRef: tasaNum,
       periodicidad: d.periodicidad, diaVencimiento: diaNum == null ? null : Math.trunc(diaNum), vigenteDesde: d.vigenteDesde, estado: d.estado,
+      centroAcopioId: d.centroAcopioId.trim() || null, responsable: d.responsable.trim() || null,
     };
     setGuardando(true);
     try {
@@ -172,6 +180,40 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
           <label htmlFor="gf-cat">Categoría de gasto</label>
           <SearchSelect id="gf-cat" placeholder="Sin categoría" options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
             value={d.categoriaGastoId} onChange={(v) => set('categoriaGastoId', v)} />
+        </div>
+        <div className="form-row">
+          <label htmlFor="gf-centro">🏭 Centro de acopio <span className="muted">(opcional)</span></label>
+          <select
+            id="gf-centro"
+            className="input"
+            value={d.centroAcopioId}
+            onChange={(e) => {
+              const cid = e.target.value;
+              const c = centros.find((x) => x.id === cid);
+              setD((p) => ({
+                ...p,
+                centroAcopioId: cid,
+                responsable: !p.responsable.trim() && c?.responsablePrincipal ? c.responsablePrincipal : p.responsable,
+              }));
+            }}
+          >
+            <option value="">🏢 General / Toda la empresa</option>
+            {centros.map((c) => (
+              <option key={c.id} value={c.id}>
+                🏭 {c.nombre} ({c.empresaClave})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="gf-responsable">👤 Responsable / Analista a cargo <span className="muted">(catálogo o libre)</span></label>
+          <SearchCreateSelect
+            id="gf-responsable"
+            placeholder="Elija o escriba el analista/responsable…"
+            options={opcionesResponsables}
+            value={d.responsable}
+            onChange={(v) => set('responsable', v)}
+          />
         </div>
         <div className="form-row">
           <label htmlFor="gf-monto">Monto</label>

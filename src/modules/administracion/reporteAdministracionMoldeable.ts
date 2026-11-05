@@ -806,7 +806,7 @@ export function obtenerMetricasFichaAdmin(
     });
   }
 
-  if (fila.totalOperaciones != null) {
+  if (fila.totalOperaciones != null && (camposMarcados.includes('operaciones') || camposMarcados.length === 0)) {
     metricas.push({
       clave: 'ops',
       etiqueta: 'MOVIMIENTOS',

@@ -225,6 +225,18 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
     return Array.from(new Set(matrizResponsables.map((r) => r.responsable))).filter(Boolean);
   }, [matrizResponsables]);
 
+  const matrizResponsablesFiltrada = useMemo(() => {
+    return matrizResponsables.filter((r) => {
+      if (filtroResponsable !== 'todos' && r.responsable !== filtroResponsable) return false;
+      if (filtroCentroId !== 'todos') {
+        const centroNombre = centros.find((c) => c.id === filtroCentroId)?.nombre;
+        const matchesCentro = r.centrosAcopio.includes(centroNombre || '') || r.centrosAcopio.includes(filtroCentroId);
+        if (!matchesCentro) return false;
+      }
+      return true;
+    });
+  }, [matrizResponsables, filtroResponsable, filtroCentroId, centros]);
+
   const historialAuditoria = useMemo(() => {
     return extraerHistorialGlobalDocumentos(docs, busquedaHistorial);
   }, [docs, busquedaHistorial]);
@@ -408,7 +420,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
                   className={`btn btn-xs ${subVistaCentros === 'responsables' ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => setSubVistaCentros('responsables')}
                 >
-                  👥 Responsables y Asignaciones ({matrizResponsables.length})
+                  👥 Responsables y Asignaciones ({matrizResponsablesFiltrada.length})
                 </button>
                 <button
                   type="button"
@@ -572,8 +584,13 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
           {/* VISTA 4: DIRECTORIO DE RESPONSABLES (¿Quién es responsable de qué?) */}
           {subVistaCentros === 'responsables' && (
             <div style={{ marginTop: '.75rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '.75rem' }}>
-              {matrizResponsables.map((r) => {
-                const tieneCriticos = r.itemsCriticos > 0;
+              {matrizResponsablesFiltrada.length === 0 ? (
+                <div className="card" style={{ gridColumn: '1 / -1' }}>
+                  <EmptyState icon="👥" message="No se encontraron responsables con los filtros seleccionados." />
+                </div>
+              ) : (
+                matrizResponsablesFiltrada.map((r) => {
+                  const tieneCriticos = r.itemsCriticos > 0;
                 return (
                   <div
                     key={r.responsable}
@@ -636,7 +653,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
                     </div>
                   </div>
                 );
-              })}
+              }))}
             </div>
           )}
 
