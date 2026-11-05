@@ -191,9 +191,9 @@ export async function descargarTesoreriaExcel(
   // 0. Hoja «Por preparar» (solo por_pagar, si el usuario dejó su toggle encendido).
   if (meta.ambito === 'por_pagar' && meta.preparacion) {
     const prep = meta.preparacion;
-    const ver = (m: string) => (esMonedaDivisa(m) ? meta.mostrarUsd : meta.mostrarBs);
-    const totales = prep.totalesPorMoneda.filter((t) => ver(t.moneda));
-    const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && (meta.mostrarUsd || meta.mostrarBs);
+    const filtrados = prep.totalesPorMoneda.filter((t) => (esMonedaDivisa(t.moneda) ? meta.mostrarUsd : meta.mostrarBs));
+    const totales = filtrados.length > 0 ? filtrados : prep.totalesPorMoneda;
+    const haySinMetodo = prep.sinMetodo.nOrdenes > 0;
     if (totales.length > 0 || haySinMetodo) {
       const wp = wb.addWorksheet('Por preparar', { views: [{ showGridLines: false }] });
       wp.columns = [{ width: 32 }, { width: 16 }, { width: 20 }, { width: 14 }];
@@ -486,11 +486,15 @@ export async function descargarTesoreriaPdf(
   // Totales NATIVOS por moneda (divisa y bolívares independientes, sin reconversión).
   if (meta.ambito === 'por_pagar' && meta.preparacion) {
     const prep = meta.preparacion;
-    const ver = (m: string) => (esMonedaDivisa(m) ? meta.mostrarUsd : meta.mostrarBs);
-    const totales = prep.totalesPorMoneda.filter((t) => ver(t.moneda));
+    const filtrados = prep.totalesPorMoneda.filter((t) => (esMonedaDivisa(t.moneda) ? meta.mostrarUsd : meta.mostrarBs));
+    const totales = filtrados.length > 0 ? filtrados : prep.totalesPorMoneda;
     const refPartes: string[] = [];
-    if (meta.mostrarUsd) refPartes.push(`$ ${fmtNum(prep.sinMetodo.usd, 2)}`);
-    if (meta.mostrarBs) refPartes.push(`Bs ${fmtNum(prep.sinMetodo.bs, 2)}`);
+    if (meta.mostrarUsd && prep.sinMetodo.usd > 0) refPartes.push(`$ ${fmtNum(prep.sinMetodo.usd, 2)}`);
+    if (meta.mostrarBs && prep.sinMetodo.bs > 0) refPartes.push(`Bs ${fmtNum(prep.sinMetodo.bs, 2)}`);
+    if (refPartes.length === 0) {
+      if (prep.sinMetodo.usd > 0) refPartes.push(`$ ${fmtNum(prep.sinMetodo.usd, 2)}`);
+      else if (prep.sinMetodo.bs > 0) refPartes.push(`Bs ${fmtNum(prep.sinMetodo.bs, 2)}`);
+    }
     const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && refPartes.length > 0;
     if (totales.length > 0 || haySinMetodo) {
       doc.setFont('helvetica', 'bold');

@@ -420,9 +420,9 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             {incluirPreparar && cargando && <div className="muted" style={{ fontSize: '.76rem', marginTop: '.5rem' }}>Cargando…</div>}
             {incluirPreparar && !cargando && datosPP?.preparacion && (() => {
               const prep = datosPP.preparacion;
-              const ver = (m: string) => (esMonedaDivisa(m) ? mostrarUsd : mostrarBs);
-              const totales = prep.totalesPorMoneda.filter((t) => ver(t.moneda));
-              const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && (mostrarUsd || mostrarBs);
+              const filtrados = prep.totalesPorMoneda.filter((t) => (esMonedaDivisa(t.moneda) ? mostrarUsd : mostrarBs));
+              const totales = filtrados.length > 0 ? filtrados : prep.totalesPorMoneda;
+              const haySinMetodo = prep.sinMetodo.nOrdenes > 0;
               if (totales.length === 0 && !haySinMetodo) {
                 return <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Nada por preparar con las monedas elegidas.</div>;
               }
@@ -648,7 +648,6 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                   onClick={(e) => {
                     if (!aplicable) {
                       e.preventDefault();
-                      toast(`La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (transacción individual).`, 'info');
                     }
                   }}
                 >
@@ -661,7 +660,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                   <span>{col.etiqueta}</span>
                   {!aplicable && (
                     <span style={{ fontSize: '.6rem', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', padding: '.05rem .28rem', borderRadius: 3, marginLeft: '.15rem' }}>
-                      Solo Detallado
+                      {col.clave === 'fecha' ? 'Solo Día/Mes' : 'Solo en Detallado'}
                     </span>
                   )}
                 </label>

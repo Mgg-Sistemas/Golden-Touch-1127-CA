@@ -125,7 +125,7 @@ export function esColumnaAplicableModoAdmin(
   modo: ModoAgrupacionAdmin,
 ): boolean {
   if (modo === 'detallado') {
-    return colClave !== 'operaciones'; // En detallado cada fila es 1 movimiento
+    return true; // En detallado cada fila es 1 movimiento
   }
 
   // En modos agrupados:

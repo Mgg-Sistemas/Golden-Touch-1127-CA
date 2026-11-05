@@ -1002,7 +1002,6 @@ export function ExportarAdministracionModal({
                     onClick={(e) => {
                       if (!aplicable) {
                         e.preventDefault();
-                        toast(`La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (movimiento individual).`, 'info');
                       }
                     }}
                   >
@@ -1015,7 +1014,7 @@ export function ExportarAdministracionModal({
                     <span>{col.etiqueta}</span>
                     {!aplicable && (
                       <span style={{ fontSize: '.58rem', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', padding: '.04rem .25rem', borderRadius: 3, marginLeft: '.15rem' }}>
-                        Solo Detallado
+                        {col.clave === 'fecha' ? 'Solo Día/Mes' : 'Solo en Detallado'}
                       </span>
                     )}
                   </label>

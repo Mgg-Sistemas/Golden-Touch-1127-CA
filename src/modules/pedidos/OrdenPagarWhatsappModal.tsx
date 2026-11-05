@@ -66,12 +66,13 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
   useEffect(() => {
     if (modo === 'solicitud' || (!orden.oc_codigo && ['pendiente', 'aprobada'].includes(orden.estado))) {
       let cancel = false;
-      supabase
-        .from('solicitudes_revision_almacen')
-        .select('*')
-        .eq('orden_id', orden.id)
-        .maybeSingle()
-        .then(({ data }) => {
+      async function cargarRev() {
+        try {
+          const { data } = await supabase
+            .from('solicitudes_revision_almacen')
+            .select('*')
+            .eq('orden_id', orden.id)
+            .maybeSingle();
           if (!cancel && data) {
             setRevision(data as RevisionAlmacenRow);
             setSubTipo('revision');
@@ -79,13 +80,14 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
             setRevision(null);
             setSubTipo('solicitud');
           }
-        })
-        .catch(() => {
+        } catch {
           if (!cancel) {
             setRevision(null);
             setSubTipo('solicitud');
           }
-        });
+        }
+      }
+      void cargarRev();
       return () => { cancel = true; };
     }
   }, [orden.id, modo, orden.estado, orden.oc_codigo]);
@@ -98,7 +100,7 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
         const items = orden.items ?? [];
         const res = resumenRevision(items, revisionGuardada(revision.items_revision));
         return (guardadoEsValido ? guardado : null)
-          || textoWhatsappRevision(orden, res, revision.revisada_por_nombre, revision.nota);
+          || textoWhatsappRevision(orden, res, revision.revisada_por_nombre || 'Almacén', revision.nota || undefined);
       }
       return textoWhatsappSolicitud({
         codigo: orden.codigo,
