@@ -7,6 +7,7 @@
    modales de pago de Compra/Servicio Directo.
    ============================================================ */
 import { Quien } from '@/shared/ui/Quien';
+import { supabase } from '@/shared/lib/supabase';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { money, dateTime } from '@/shared/lib/format';
@@ -42,9 +43,23 @@ function equivConversion(gasto: number | null | undefined, moneda: string | null
   return `≈ ${montoMoneda(Math.round(val * 100) / 100, otra)} · tasa ${t.toLocaleString('es-VE', { maximumFractionDigits: 2 })}`;
 }
 
-export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
-  cajas: Caja[]; actor: string; actorName: string | null; onPaid: () => void;
-}) {
+export interface DirectosPorPagarPanelProps {
+  cajas: Caja[];
+  actor: string;
+  actorName: string | null;
+  onPaid: () => void;
+  onCountsChange?: (counts: { total: number; operacion: number; gastosFijos: number }) => void;
+  sinBorde?: boolean;
+}
+
+export function DirectosPorPagarPanel({
+  cajas,
+  actor,
+  actorName,
+  onPaid,
+  onCountsChange,
+  sinBorde = false,
+}: DirectosPorPagarPanelProps) {
   const [compras, setCompras] = useState<CompraDirecta[]>([]);
   const [servicios, setServicios] = useState<ServicioDirecto[]>([]);
   const [pagarC, setPagarC] = useState<CompraDirecta | null>(null);
@@ -58,12 +73,62 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   const [vista, setVista] = useState<'operacion' | 'gastos_fijos'>('operacion');
 
   const reload = useCallback(async () => {
-    const [cs, ss] = await Promise.all([
+    const [cs, ss, anuladosRes] = await Promise.all([
       listComprasDirectas().catch(() => [] as CompraDirecta[]),
       listServiciosDirectos().catch(() => [] as ServicioDirecto[]),
+      supabase
+        .from('admin_gasto_fijo_movimientos')
+        .select('id, servicio_directo_id, empresa_clave, periodo, concepto, estado_pago')
+        .eq('estado_pago', 'anulado')
+        .then(
+          (r) => r,
+          () => ({ data: null }),
+        ),
     ]);
-    setCompras(cs.filter((c) => c.estado === 'por_pagar'));
-    setServicios(ss.filter((s) => s.estado === 'por_pagar'));
+
+    const movsAnulados = (anuladosRes?.data ?? []) as Array<{
+      id: string;
+      servicio_directo_id: string | null;
+      empresa_clave: string;
+      periodo: string;
+      concepto: string;
+    }>;
+
+    const idsAnuladosDirectos = new Set(movsAnulados.map((m) => m.servicio_directo_id).filter(Boolean));
+
+    // Identificar y purgar servicios directos cuyos gastos fueron anulados en Administración
+    const ssPorPagar = ss.filter((s: ServicioDirecto) => s.estado === 'por_pagar');
+    const huerfanosPurgar: string[] = [];
+
+    const ssFiltrados = ssPorPagar.filter((s: ServicioDirecto) => {
+      if (idsAnuladosDirectos.has(s.id)) {
+        huerfanosPurgar.push(s.id);
+        return false;
+      }
+      if (s.empresa_clave) {
+        const coincideAnulado = movsAnulados.some((m) => {
+          if (m.empresa_clave !== s.empresa_clave) return false;
+          const nota = (s.nota || '').toLowerCase();
+          const desc = (s.descripcion || '').toLowerCase();
+          const periodo = (m.periodo || '').toLowerCase();
+          const conc = (m.concepto || '').toLowerCase();
+          return (periodo && (nota.includes(periodo) || desc.includes(periodo)))
+            || (conc && (nota.includes(conc) || desc.includes(conc)));
+        });
+        if (coincideAnulado) {
+          huerfanosPurgar.push(s.id);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (huerfanosPurgar.length > 0) {
+      void supabase.from('servicios_directos').delete().in('id', huerfanosPurgar).then(() => {}, () => {});
+    }
+
+    setCompras(cs.filter((c: CompraDirecta) => c.estado === 'por_pagar'));
+    setServicios(ssFiltrados);
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
@@ -77,10 +142,31 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   const serviciosVista = vista === 'operacion' ? serviciosOp : serviciosGF;
   const total = comprasVista.reduce((a, c) => a + (c.gasto ?? 0), 0) + serviciosVista.reduce((a, s) => a + (s.gasto ?? 0), 0);
 
-  if (!compras.length && !servicios.length) return null;
+  useEffect(() => {
+    onCountsChange?.({
+      total: compras.length + servicios.length,
+      operacion: compras.length + serviciosOp.length,
+      gastosFijos: serviciosGF.length,
+    });
+  }, [compras.length, servicios.length, serviciosOp.length, serviciosGF.length, onCountsChange]);
+
+  if (!compras.length && !servicios.length) {
+    if (sinBorde) {
+      return (
+        <div style={{ padding: '2.5rem 1rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '2.2rem', marginBottom: '.4rem' }}>✅</div>
+          <strong style={{ fontSize: '1.05rem', color: '#10b981' }}>No hay compras directas ni gastos fijos por pagar</strong>
+          <p className="muted" style={{ fontSize: '.84rem', marginTop: '.35rem', maxWidth: 460, marginInline: 'auto' }}>
+            Todos los servicios directos y gastos fijos de las empresas están pagados y al día en Tesorería.
+          </p>
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
-    <div className="card" style={{ marginTop: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
+    <div className={sinBorde ? '' : 'card'} style={sinBorde ? { display: 'flex', flexDirection: 'column', gap: '.4rem' } : { marginTop: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
         <strong>🧾 Directos por pagar{' '}
           <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#1a1a1a' }}>DIRECTO</span>

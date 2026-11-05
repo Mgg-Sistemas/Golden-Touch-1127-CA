@@ -25,6 +25,7 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { SearchSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
+import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
 import {
   GestionarCarpetasModal,
   leerCarpetasPersonalizadas,
@@ -72,6 +73,7 @@ interface StagedFile {
   file: File;
   empresaClave: string;
   carpeta: string;
+  centroAcopioId?: string;
   tipo: TipoDocumento;
   nombre: string;
   fechaEmision: string;
@@ -131,7 +133,12 @@ export function DocumentosTab({
   // Filtros activos
   const [carpetaActiva, setCarpetaActiva] = useState<string>('todas');
   const [filtroStatus, setFiltroStatus] = useState<string>('todos');
+  const [filtroCentro, setFiltroCentro] = useState<string>('todos');
   const [buscar, setBuscar] = useState('');
+
+  // Centros de Acopio disponibles para asociación y filtrado
+  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
 
   // Drag & drop staging
   const [isDragging, setIsDragging] = useState(false);
@@ -240,6 +247,12 @@ export function DocumentosTab({
       // Filtro por carpeta
       if (carpetaActiva !== 'todas' && d.carpeta !== carpetaActiva) return false;
 
+      // Filtro por Centro de Acopio
+      if (filtroCentro !== 'todos') {
+        const cIdDoc = d.centroAcopioId || mapaCarpetas.get(d.carpeta)?.centroAcopioId;
+        if (cIdDoc !== filtroCentro) return false;
+      }
+
       // Filtro por status
       if (filtroStatus === 'atencion' && !['vencido', 'vencido_en_tramite', 'por_vencer'].includes(d.statusVencimiento)) return false;
       if (filtroStatus === 'vencido' && d.statusVencimiento !== 'vencido') return false;
@@ -255,7 +268,7 @@ export function DocumentosTab({
 
       return true;
     });
-  }, [docs, carpetaActiva, filtroStatus, buscar]);
+  }, [docs, carpetaActiva, filtroStatus, filtroCentro, buscar, mapaCarpetas]);
 
   // Manejo de Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
@@ -292,11 +305,13 @@ export function DocumentosTab({
       }
 
       const { carpeta, tipo } = inferirCarpetaYTipo(f.name);
+      const carpetaObj = carpetas.find((cp) => cp.id === carpeta);
       validos.push({
         id: `staged-${Math.random().toString(36).slice(2)}`,
         file: f,
         empresaClave: empresaClave || empresas[0]?.clave || 'GT',
         carpeta,
+        centroAcopioId: carpetaObj?.centroAcopioId || (filtroCentro !== 'todos' ? filtroCentro : undefined),
         tipo,
         nombre: f.name,
         fechaEmision: '',
@@ -344,6 +359,7 @@ export function DocumentosTab({
           {
             nombre: item.nombre,
             carpeta: item.carpeta,
+            centroAcopioId: item.centroAcopioId || mapaCarpetas.get(item.carpeta)?.centroAcopioId || null,
             fechaEmision: item.fechaEmision || null,
             fechaVencimiento: item.fechaVencimiento || null,
             statusVencimiento: item.statusVencimiento,
@@ -594,6 +610,27 @@ export function DocumentosTab({
                   {stats.total}
                 </span>
               </div>
+              {c.centroAcopioId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
+                  <span
+                    className="badge"
+                    style={{
+                      fontSize: '.62rem',
+                      padding: '.05rem .35rem',
+                      background: 'rgba(234, 179, 8, 0.15)',
+                      color: '#eab308',
+                      fontWeight: 600,
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Asociada a: ${mapaCentros.get(c.centroAcopioId) || c.centroAcopioId}`}
+                  >
+                    🏭 {mapaCentros.get(c.centroAcopioId) || c.centroAcopioId}
+                  </span>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
                 {stats.vencidos > 0 && <span className="badge" style={{ ...STATUS_VENCIMIENTO_COLOR.vencido, fontSize: '.65rem' }}>{stats.vencidos} 🔴</span>}
                 {stats.enTramite > 0 && <span className="badge" style={{ ...STATUS_VENCIMIENTO_COLOR.vencido_en_tramite, fontSize: '.65rem' }}>{stats.enTramite} 🟣</span>}
@@ -638,11 +675,25 @@ export function DocumentosTab({
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
           <input
             className="input"
-            style={{ maxWidth: 280, fontSize: '.8rem', padding: '.3rem .6rem' }}
+            style={{ maxWidth: 260, fontSize: '.8rem', padding: '.3rem .6rem' }}
             placeholder="🔍 Buscar por nombre, socio, N° registro…"
             value={buscar}
             onChange={(e) => setBuscar(e.target.value)}
           />
+          <select
+            className="select select-sm"
+            style={{ fontSize: '.8rem', maxWidth: 210, background: 'var(--surface-2)' }}
+            value={filtroCentro}
+            onChange={(e) => setFiltroCentro(e.target.value)}
+            title="Filtrar por Centro de Acopio asociado"
+          >
+            <option value="todos">🏭 Todos los Centros</option>
+            {centros.map((c) => (
+              <option key={c.id} value={c.id}>
+                🏭 {c.nombre}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             className={`btn btn-xs ${filtroStatus === 'todos' ? 'btn-primary' : 'btn-ghost'}`}

@@ -17,7 +17,8 @@
         - Trazabilidad y auditoría ligera de quién modificó qué, cuándo y qué acción realizó.
    ============================================================ */
 
-import type { DocumentoEmpresa, Empresa, GastoFijo } from './admin.repository';
+import type { DocumentoEmpresa, Empresa, GastoFijo, InfoCarpetaDoc } from './admin.repository';
+import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
 import { TIPO_DOCUMENTO_LABEL } from './admin.repository';
 
 export interface CentroAcopio {
@@ -172,24 +173,44 @@ export function calcularMatrizCentrosAcopio({
   empresas,
   documentos,
   gastosFijos = [],
+  carpetas,
 }: {
   centros: CentroAcopio[];
   empresas: Empresa[];
   documentos: DocumentoEmpresa[];
   gastosFijos?: GastoFijo[];
+  carpetas?: InfoCarpetaDoc[];
 }): MetricasCentroAcopio[] {
   const empMap = new Map(empresas.map((e) => [e.clave, e.nombre]));
+  const carpetasEfectivas = carpetas || leerCarpetasPersonalizadas();
+  const carpetasPorId = new Map(carpetasEfectivas.map((cp) => [cp.id, cp]));
 
   return centros.map((c) => {
     const empNombre = empMap.get(c.empresaClave) || c.empresaClave;
 
-    // Documentos asociados a este centro o a la empresa
+    // Documentos asociados a este centro (por documento directo, por carpeta asociada o por empresa)
     const docsCentro = documentos.filter((d) => {
-      // Coincide por centro específico si lo trae, o por empresa
-      const cAcopioDoc = ((d as unknown as { centroAcopio?: string }).centroAcopio || '').trim().toLowerCase();
+      // 1. Coincide por centro específico asignado al documento
+      const cAcopioDoc = (
+        (d as unknown as { centroAcopioId?: string; centroAcopio?: string }).centroAcopioId ||
+        (d as unknown as { centroAcopioId?: string; centroAcopio?: string }).centroAcopio ||
+        ''
+      ).trim().toLowerCase();
+
       if (cAcopioDoc) {
         return cAcopioDoc === c.nombre.toLowerCase() || cAcopioDoc === c.id.toLowerCase();
       }
+
+      // 2. Coincide por centro asociado a la carpeta del documento
+      const carpetaDoc = carpetasPorId.get(d.carpeta);
+      if (carpetaDoc?.centroAcopioId) {
+        return (
+          carpetaDoc.centroAcopioId.toLowerCase() === c.id.toLowerCase() ||
+          carpetaDoc.centroAcopioId.toLowerCase() === c.nombre.toLowerCase()
+        );
+      }
+
+      // 3. Documentos generales sin centro específico: si coinciden en la empresa
       return d.empresaClave === c.empresaClave;
     });
 
@@ -289,11 +310,16 @@ export function calcularMatrizResponsables({
   documentos,
   gastosFijos = [],
   centros = [],
+  carpetas,
 }: {
   documentos: DocumentoEmpresa[];
   gastosFijos?: GastoFijo[];
   centros?: CentroAcopio[];
+  carpetas?: InfoCarpetaDoc[];
 }): MetricasResponsable[] {
+  const carpetasEfectivas = carpetas || leerCarpetasPersonalizadas();
+  const carpetasPorId = new Map(carpetasEfectivas.map((cp) => [cp.id, cp]));
+
   const mapa = new Map<string, {
     responsable: string;
     empresas: Set<string>;
@@ -316,7 +342,10 @@ export function calcularMatrizResponsables({
     return mapa.get(key)!;
   }
 
-  // 1. Asignaciones de Centros de Acopio
+  // 1. Asignaciones de Centros de Acopio y sus responsables principales
+  const centroPorId = new Map(centros.map((c) => [c.id.toLowerCase(), c]));
+  const centroPorNombre = new Map(centros.map((c) => [c.nombre.toLowerCase(), c]));
+
   for (const c of centros) {
     if (c.responsablePrincipal) {
       const r = obtenerOcrear(c.responsablePrincipal);
@@ -325,17 +354,67 @@ export function calcularMatrizResponsables({
     }
   }
 
-  // 2. Documentos
+  // 2. Documentos: asignación por socio/titular Y por responsable del centro de acopio
   for (const d of documentos) {
-    const respDoc = (d as unknown as { responsable?: string }).responsable || d.socioNombre || 'Sin responsable asignado';
-    const r = obtenerOcrear(respDoc);
-    r.empresas.add(d.empresaClave);
-    r.docs.push(d);
+    const responsablesAsignar = new Set<string>();
+
+    // A) Titular / socio o responsable explícito anotado en el documento
+    const titular = (d as unknown as { responsable?: string }).responsable || d.socioNombre;
+    if (titular) {
+      responsablesAsignar.add(titular);
+    }
+
+    // B) Responsable del Centro de Acopio (si el documento o su carpeta tienen centro asignado)
+    let centroAsociado: CentroAcopio | undefined;
+    const cAcopioDoc = (
+      (d as unknown as { centroAcopioId?: string; centroAcopio?: string }).centroAcopioId ||
+      (d as unknown as { centroAcopioId?: string; centroAcopio?: string }).centroAcopio ||
+      ''
+    ).trim().toLowerCase();
+
+    if (cAcopioDoc) {
+      centroAsociado = centroPorId.get(cAcopioDoc) || centroPorNombre.get(cAcopioDoc);
+    } else {
+      const cp = carpetasPorId.get(d.carpeta);
+      if (cp?.centroAcopioId) {
+        centroAsociado =
+          centroPorId.get(cp.centroAcopioId.toLowerCase()) ||
+          centroPorNombre.get(cp.centroAcopioId.toLowerCase());
+      }
+    }
+
+    if (centroAsociado?.responsablePrincipal) {
+      responsablesAsignar.add(centroAsociado.responsablePrincipal);
+    }
+
+    // C) Si no tiene ni titular ni centro asignado, atribuir a Administración / Finanzas
+    if (responsablesAsignar.size === 0) {
+      responsablesAsignar.add('Administración y Finanzas');
+    }
+
+    for (const resp of responsablesAsignar) {
+      const r = obtenerOcrear(resp);
+      r.empresas.add(d.empresaClave);
+      r.docs.push(d);
+    }
   }
 
-  // 3. Gastos Fijos
+  // 3. Gastos Fijos: asignación por centro o responsable
   for (const g of gastosFijos) {
-    const respGasto = (g as unknown as { responsable?: string }).responsable || 'Administración / Finanzas';
+    let respGasto: string | null = null;
+    const cAcopioG = (
+      (g as unknown as { centroAcopioId?: string; centroAcopio?: string }).centroAcopioId ||
+      (g as unknown as { centroAcopioId?: string; centroAcopio?: string }).centroAcopio ||
+      ''
+    ).trim().toLowerCase();
+
+    if (cAcopioG) {
+      const c = centroPorId.get(cAcopioG) || centroPorNombre.get(cAcopioG);
+      if (c?.responsablePrincipal) respGasto = c.responsablePrincipal;
+    }
+    if (!respGasto) {
+      respGasto = (g as unknown as { responsable?: string }).responsable || 'Administración / Finanzas';
+    }
     const r = obtenerOcrear(respGasto);
     r.empresas.add(g.empresaClave);
     r.gastos.push(g);

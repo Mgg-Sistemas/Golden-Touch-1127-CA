@@ -33,6 +33,7 @@ import {
   leerCentrosAcopio,
   type CentroAcopio,
 } from './administracionCentrosResponsables';
+import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
 import type { AdminRepo, Empresa, Movimiento, OpcionRef, DocumentoEmpresa, GastoFijo } from './admin.repository';
 
 const num0 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 0 });
@@ -78,6 +79,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   const [filtroCentroId, setFiltroCentroId] = useState<string>('todos');
   const [filtroResponsable, setFiltroResponsable] = useState<string>('todos');
   const [busquedaHistorial, setBusquedaHistorial] = useState('');
+  const [carpetas] = useState(() => leerCarpetasPersonalizadas(empresaClave));
 
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
   const centros: CentroAcopio[] = useMemo(() => leerCentrosAcopio(), []);
@@ -198,8 +200,9 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
       empresas,
       documentos: docs,
       gastosFijos,
+      carpetas,
     });
-  }, [centrosFiltradosEmpresa, empresas, docs, gastosFijos]);
+  }, [centrosFiltradosEmpresa, empresas, docs, gastosFijos, carpetas]);
 
   const matrizCentrosFiltrada = useMemo(() => {
     return matrizCentros.filter((m) => {
@@ -214,8 +217,9 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
       documentos: docs,
       gastosFijos,
       centros: centrosFiltradosEmpresa,
+      carpetas,
     });
-  }, [docs, gastosFijos, centrosFiltradosEmpresa]);
+  }, [docs, gastosFijos, centrosFiltradosEmpresa, carpetas]);
 
   const listaResponsablesUnicos = useMemo(() => {
     return Array.from(new Set(matrizResponsables.map((r) => r.responsable))).filter(Boolean);
