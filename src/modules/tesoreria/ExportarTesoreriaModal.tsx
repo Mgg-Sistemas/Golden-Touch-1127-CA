@@ -37,6 +37,7 @@ import {
   filtrarFilasTesoreria,
   procesarFilasReporteTesoreria,
   obtenerMetricasFichaTesoreria,
+  resolverCabeceraTarjetaTesoreria,
   type ContextoTasas,
   type AmbitoTesoreria,
   type ModoAgrupacionTesoreria,
@@ -627,21 +628,81 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
         </div>
 
         {/* KPIs */}
-        <div style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.5rem .8rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.5rem' }}>
-          <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>FILAS EN REPORTE</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b' }}>{filas.length}</div></div>
-          {kpisSimplificados ? (
-            <>
-              {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>TOTAL $</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>{fmtUsd(resumen.totalEgresosUsd + resumen.totalIngresosUsd)}</div></div>}
-              {mostrarBs && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>TOTAL Bs</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtBs(resumen.totalEgresosBs + resumen.totalIngresosBs)}</div></div>}
-            </>
-          ) : (
-            <>
-              {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>EGRESOS ($)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtUsd(resumen.totalEgresosUsd)}</div></div>}
-              {mostrarUsd && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>INGRESOS ($)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>{fmtUsd(resumen.totalIngresosUsd)}</div></div>}
-              {mostrarBs && <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>EGRESOS (Bs)</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FF8A00' }}>{fmtBs(resumen.totalEgresosBs)}</div></div>}
-              <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>SALDO NETO</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: (mostrarUsd ? resumen.saldoNetoUsd : resumen.saldoNetoBs) >= 0 ? '#22c55e' : '#ef4444' }}>{mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs)}</div></div>
-            </>
-          )}
+        {/* Barra de Totales Ejecutivos con máximo protagonismo */}
+        <div style={{
+          background: 'linear-gradient(135deg, var(--surface-1, #0f172a) 0%, rgba(30, 41, 59, 0.75) 100%)',
+          border: '1.5px solid rgba(255, 138, 0, 0.35)',
+          borderRadius: '8px',
+          padding: '.65rem 1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '.75rem',
+          boxShadow: '0 3px 10px rgba(0,0,0,0.2)',
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem' }}>
+              <span style={{
+                fontSize: '.65rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: '#ff8a00',
+                background: 'rgba(255, 138, 0, 0.15)',
+                padding: '.15rem .45rem',
+                borderRadius: '4px',
+              }}>
+                TOTAL CONSOLIDADO DEL REPORTE
+              </span>
+              <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1' }}>
+                {filas.length} {filas.length === 1 ? 'grupo / fila' : 'grupos / filas'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.2rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
+              {mostrarUsd && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '.4rem' }}>
+                  <span style={{ fontSize: '.85rem', fontWeight: 700, color: '#22c55e' }}>USD</span>
+                  <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#22c55e', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                    {fmtUsd(resumen.totalEgresosUsd + resumen.totalIngresosUsd)}
+                  </span>
+                </div>
+              )}
+              {mostrarBs && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '.4rem' }}>
+                  <span style={{ fontSize: '.85rem', fontWeight: 700, color: '#ff8a00' }}>Bs</span>
+                  <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#ff8a00', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                    {fmtBs(resumen.totalEgresosBs + resumen.totalIngresosBs)}
+                  </span>
+                </div>
+              )}
+              {!mostrarUsd && !mostrarBs && (
+                <span className="muted" style={{ fontSize: '.82rem' }}>Activa al menos una moneda arriba para visualizar los totales</span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', padding: '.3rem .6rem', textAlign: 'right' }}>
+              <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>OPERACIONES</div>
+              <div style={{ fontSize: '.9rem', fontWeight: 800, color: '#f8fafc' }}>{resumen.totalOperaciones} ops</div>
+            </div>
+            {resumen.tasaBcvReferencia > 0 && (
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', padding: '.3rem .6rem', textAlign: 'right' }}>
+                <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>TASA BCV</div>
+                <div style={{ fontSize: '.9rem', fontWeight: 800, color: '#38bdf8' }}>{fmtBs(resumen.tasaBcvReferencia)}</div>
+              </div>
+            )}
+            {!kpisSimplificados && (
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', padding: '.3rem .6rem', textAlign: 'right' }}>
+                <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>SALDO NETO</div>
+                <div style={{ fontSize: '.9rem', fontWeight: 800, color: (mostrarUsd ? resumen.saldoNetoUsd : resumen.saldoNetoBs) >= 0 ? '#22c55e' : '#ef4444' }}>
+                  {mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs)}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Vista previa */}
@@ -663,13 +724,41 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
               {filas.map((f) => {
                 const acento = f.tipo_movimiento === 'ingreso' ? '#10b981' : f.tipo_movimiento === 'traslado' ? '#38bdf8' : '#FF8A00';
                 const metricas = obtenerMetricasFichaTesoreria(f, marcados, { mostrarUsd, mostrarBs });
-                const titulo = f.contraparte && f.contraparte !== '—' ? f.contraparte : (f.categoria || f.concepto || 'Sin clasificar');
+                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta);
                 return (
                   <div key={f.id} style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border, #334155)', borderLeft: `4px solid ${acento}`, borderRadius: '6px', padding: '.55rem .7rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.5rem' }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: '.86rem', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={titulo}>{titulo}</div>
-                        <div className="muted" style={{ fontSize: '.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[f.codigo && f.codigo !== '—' ? f.codigo : null, f.categoria !== titulo ? f.categoria : null, f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null, f.fecha ? fmtFechaCorta(f.fecha) : null].filter(Boolean).join(' · ')}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.15rem' }}>
+                          <span style={{
+                            fontSize: '.62rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: acento,
+                            background: 'rgba(255, 255, 255, 0.06)',
+                            border: `1px solid ${acento}44`,
+                            padding: '.08rem .32rem',
+                            borderRadius: '3px',
+                            display: 'inline-block',
+                            flexShrink: 0,
+                          }}>
+                            {cab.rotulo}
+                          </span>
+                          <span style={{
+                            fontWeight: 700,
+                            fontSize: '.88rem',
+                            color: '#f8fafc',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }} title={cab.titulo}>
+                            {cab.titulo}
+                          </span>
+                        </div>
+                        <div className="muted" style={{ fontSize: '.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cab.subtitulo}>
+                          {cab.subtitulo}
+                        </div>
                       </div>
                       <div style={{ flexShrink: 0, textAlign: 'right', background: 'rgba(255,255,255,0.05)', border: `1px solid ${acento}55`, borderRadius: '6px', padding: '.25rem .55rem', lineHeight: 1.2 }}>
                         <div style={{ fontSize: '.82rem', fontWeight: 700, color: acento }}>{f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}%` : montoPrincipal(f)}</div>

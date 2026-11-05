@@ -12,6 +12,8 @@ import {
   procesarFilasReporteTesoreria,
   resumenTesoreria,
   obtenerMetricasFichaTesoreria,
+  resolverCabeceraTarjetaTesoreria,
+  ETIQUETA_MODO_TESORERIA,
   type ContextoTasas,
   type FilaReporteTesoreria,
 } from './reporteTesoreriaMoldeable';
@@ -324,5 +326,108 @@ describe('método y datos de pago en el reporte (04/11/2026)', () => {
     const met = obtenerMetricasFichaTesoreria(filas[0], ['monto_usd', 'metodo_pago'], { mostrarUsd: true, mostrarBs: false }).find((x) => x.clave === 'metodo_pago');
     expect(met?.valor).toBe('Transferencia');
     expect(met?.sub).toBe('Banesco 0134 · J-12345678-9');
+  });
+});
+
+
+describe('resolverCabeceraTarjetaTesoreria (claridad y rótulos en tarjetas)', () => {
+  const filaGrupoCategoria: FilaReporteTesoreria = {
+    id: 'g-cat-1',
+    ambito: 'movimientos',
+    fecha: '2026-11-05',
+    caja_origen: 'Banesco USD',
+    moneda_original: 'USD',
+    monto_original: 2554.32,
+    tipo_movimiento: 'egreso',
+    categoria: 'Orden de compra',
+    contraparte: '4 proveedores / beneficiarios',
+    concepto: 'Orden de compra',
+    origen_documento: 'Orden de compra',
+    tasa_bcv_aplicada: 894.89,
+    monto_usd: 2554.32,
+    monto_bs: 2285835.53,
+    total_operaciones: 7,
+    pct_del_total: 100,
+  };
+
+  it('¿Por categoría? Debe mostrar rótulo Categoría y el nombre de la categoría como título, no los proveedores', () => {
+    const cab = resolverCabeceraTarjetaTesoreria(filaGrupoCategoria, 'categoria_gasto');
+    expect(cab.rotulo).toBe('Categoría');
+    expect(cab.titulo).toBe('Orden de compra');
+    expect(cab.subtitulo).toContain('4 proveedores / beneficiarios');
+    expect(cab.tituloCompleto).toBe('Categoría: Orden de compra');
+  });
+
+  it('¿Por caja? Debe rotular Caja / Banco y titular con la caja', () => {
+    const cab = resolverCabeceraTarjetaTesoreria(filaGrupoCategoria, 'caja');
+    expect(cab.rotulo).toBe('Caja / Banco');
+    expect(cab.titulo).toBe('Banesco USD');
+    expect(cab.subtitulo).toContain('Cat: Orden de compra');
+  });
+
+  it('¿Por tipo? Debe rotular Tipo de Flujo y titular con el tipo', () => {
+    const cab = resolverCabeceraTarjetaTesoreria(filaGrupoCategoria, 'tipo_movimiento');
+    expect(cab.rotulo).toBe('Tipo de Flujo');
+    expect(cab.titulo).toBe('Egreso / Pago');
+  });
+
+  it('¿Por moneda? Debe rotular Moneda y detallar la divisa', () => {
+    const cab = resolverCabeceraTarjetaTesoreria(filaGrupoCategoria, 'moneda');
+    expect(cab.rotulo).toBe('Moneda');
+    expect(cab.titulo).toBe('USD · Dólares Americanos');
+  });
+
+  it('¿Por documento? Debe rotular Documento y titular con el origen', () => {
+    const cab = resolverCabeceraTarjetaTesoreria(filaGrupoCategoria, 'origen_documento');
+    expect(cab.rotulo).toBe('Documento');
+    expect(cab.titulo).toBe('Orden de compra');
+  });
+
+  it('¿Por mes? Debe rotular Mes y formatear a mes legible', () => {
+    const cab = resolverCabeceraTarjetaTesoreria(filaGrupoCategoria, 'mes');
+    expect(cab.rotulo).toBe('Mes');
+    expect(cab.titulo).toBe('Nov 2026');
+  });
+
+  it('¿Por día? Debe rotular Día / Fecha y titular con la fecha', () => {
+    const cab = resolverCabeceraTarjetaTesoreria(filaGrupoCategoria, 'dia');
+    expect(cab.rotulo).toBe('Día / Fecha');
+    expect(cab.titulo).toBe('2026-11-05');
+  });
+
+  it('¿Por proveedor? Debe rotular Proveedor y titular con la contraparte', () => {
+    const filaProv: FilaReporteTesoreria = {
+      ...filaGrupoCategoria,
+      contraparte: 'Inversiones Los Andes C.A.',
+    };
+    const cab = resolverCabeceraTarjetaTesoreria(filaProv, 'contraparte');
+    expect(cab.rotulo).toBe('Proveedor');
+    expect(cab.titulo).toBe('Inversiones Los Andes C.A.');
+  });
+
+  it('Detallado: muestra el código del movimiento y contraparte como protagonista', () => {
+    const filaDet: FilaReporteTesoreria = {
+      ...filaGrupoCategoria,
+      codigo: 'OC-2026-0181',
+      contraparte: 'Inversiones Los Andes C.A.',
+    };
+    const cab = resolverCabeceraTarjetaTesoreria(filaDet, 'detallado');
+    expect(cab.rotulo).toBe('Op: OC-2026-0181');
+    expect(cab.titulo).toBe('Inversiones Los Andes C.A.');
+    expect(cab.subtitulo).toContain('Cat: Orden de compra');
+  });
+
+  it('ETIQUETA_MODO_TESORERIA traduce los identificadores internos para el membrete', () => {
+    expect(ETIQUETA_MODO_TESORERIA.categoria_gasto).toBe('Categoría de Gasto');
+    expect(ETIQUETA_MODO_TESORERIA.tipo_movimiento).toBe('Tipo de Flujo');
+    expect(ETIQUETA_MODO_TESORERIA.caja).toBe('Caja / Banco');
+    expect(ETIQUETA_MODO_TESORERIA.origen_documento).toBe('Documento / Tipo de Comprobante');
+  });
+
+  it('tarjeta ejecutiva siempre rescata el monto financiero consolidado al frente', () => {
+    // Caso de la imagen donde solo se marcó operaciones: el monto USD debe estar al inicio
+    const met = obtenerMetricasFichaTesoreria(filaGrupoCategoria, [], { mostrarUsd: true, mostrarBs: false });
+    expect(met[0].clave).toBe('monto_usd');
+    expect(met[0].valor).toBe('$ 2.554,32');
   });
 });
