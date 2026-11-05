@@ -621,6 +621,169 @@ export const ETIQUETA_FLUJO: Record<TipoFlujoTesoreria, string> = {
 };
 
 /**
+ * Nombre formal y amigable de cada dimensión de agrupación para membretes y títulos.
+ */
+export const ETIQUETA_MODO_TESORERIA: Record<ModoAgrupacionTesoreria, string> = {
+  caja: 'Caja / Banco',
+  moneda: 'Moneda',
+  tipo_movimiento: 'Tipo de Flujo',
+  categoria_gasto: 'Categoría de Gasto',
+  contraparte: 'Proveedor / Contraparte',
+  origen_documento: 'Documento / Tipo de Comprobante',
+  dia: 'Día / Fecha',
+  mes: 'Mes / Período',
+  detallado: 'Detallado (sin agrupar)',
+};
+
+/**
+ * Rótulo corto para tarjetas ejecutivas (fichas).
+ */
+export const ROTULO_DIMENSION_TESORERIA: Record<ModoAgrupacionTesoreria, string> = {
+  caja: 'Caja / Banco',
+  moneda: 'Moneda',
+  tipo_movimiento: 'Tipo de Flujo',
+  categoria_gasto: 'Categoría',
+  contraparte: 'Proveedor',
+  origen_documento: 'Documento',
+  dia: 'Día',
+  mes: 'Mes',
+  detallado: 'Movimiento',
+};
+
+export interface CabeceraTarjetaTesoreria {
+  rotulo: string;
+  titulo: string;
+  subtitulo: string;
+  tituloCompleto: string;
+}
+
+/**
+ * Resuelve el rótulo explícito, el título protagónico de la dimensión y su contexto secundario
+ * para que cada ficha ejecutiva responda con exactitud: ¿Por categoría, qué categoría?
+ * ¿Por documento, qué documento? ¿Por tipo, qué tipo? ¿Por moneda, qué moneda?
+ * ¿Por caja, qué caja? ¿Por mes, qué mes? ¿Por día, qué día?
+ */
+export function resolverCabeceraTarjetaTesoreria(
+  f: FilaReporteTesoreria,
+  modo: ModoAgrupacionTesoreria,
+  fmtFechaFn: (d: string) => string = (d) => d,
+): CabeceraTarjetaTesoreria {
+  let rotulo = 'Movimiento';
+  let titulo = '';
+  let partesSub: (string | null | undefined)[] = [];
+
+  switch (modo) {
+    case 'categoria_gasto': {
+      rotulo = 'Categoría';
+      titulo = f.categoria || f.concepto || 'Sin categoría';
+      partesSub = [
+        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        f.origen_documento && f.origen_documento !== titulo && f.origen_documento !== 'Sin clasificar' ? f.origen_documento : null,
+        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        f.fecha ? fmtFechaFn(f.fecha) : null,
+      ];
+      break;
+    }
+    case 'origen_documento': {
+      rotulo = 'Documento';
+      titulo = f.origen_documento || f.concepto || 'Sin documento';
+      partesSub = [
+        f.categoria && f.categoria !== titulo ? ('Cat: ' + f.categoria) : null,
+        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        f.fecha ? fmtFechaFn(f.fecha) : null,
+      ];
+      break;
+    }
+    case 'tipo_movimiento': {
+      rotulo = 'Tipo de Flujo';
+      titulo = ETIQUETA_FLUJO[f.tipo_movimiento] || f.tipo_movimiento;
+      partesSub = [
+        f.categoria ? ('Cat: ' + f.categoria) : null,
+        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        f.fecha ? fmtFechaFn(f.fecha) : null,
+      ];
+      break;
+    }
+    case 'moneda': {
+      rotulo = 'Moneda';
+      const m = (f.moneda_original || '').toUpperCase();
+      titulo = m === 'USD' ? 'USD · Dólares Americanos' : (m === 'BS' ? 'Bs · Bolívares' : (f.moneda_original || 'Moneda'));
+      partesSub = [
+        f.caja_origen && f.caja_origen !== '—' ? ('Caja: ' + f.caja_origen) : null,
+        f.categoria ? ('Cat: ' + f.categoria) : null,
+        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        f.fecha ? fmtFechaFn(f.fecha) : null,
+      ];
+      break;
+    }
+    case 'caja': {
+      rotulo = 'Caja / Banco';
+      titulo = f.caja_origen || 'Sin caja asignada';
+      partesSub = [
+        f.moneda_original && f.moneda_original !== 'Varias' ? ('Moneda: ' + f.moneda_original) : null,
+        f.categoria ? ('Cat: ' + f.categoria) : null,
+        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        f.fecha ? fmtFechaFn(f.fecha) : null,
+      ];
+      break;
+    }
+    case 'mes': {
+      rotulo = 'Mes';
+      titulo = f.concepto && /^[A-Z][a-z]{2}\s\d{4}$/.test(f.concepto)
+        ? f.concepto
+        : (f.fecha ? mesEtiqueta(f.fecha) : (f.concepto || 'Sin mes'));
+      partesSub = [
+        f.categoria ? ('Cat: ' + f.categoria) : null,
+        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+      ];
+      break;
+    }
+    case 'dia': {
+      rotulo = 'Día / Fecha';
+      titulo = f.fecha ? fmtFechaFn(f.fecha) : (f.concepto || 'Sin fecha');
+      partesSub = [
+        f.categoria ? ('Cat: ' + f.categoria) : null,
+        f.contraparte && f.contraparte !== '—' ? f.contraparte : null,
+        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+      ];
+      break;
+    }
+    case 'contraparte': {
+      rotulo = 'Proveedor';
+      titulo = f.contraparte && f.contraparte !== '—' ? f.contraparte : (f.concepto || 'Sin proveedor / beneficiario');
+      partesSub = [
+        f.codigo && f.codigo !== '—' ? f.codigo : null,
+        f.categoria ? ('Cat: ' + f.categoria) : null,
+        f.origen_documento ? f.origen_documento : null,
+        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        f.fecha ? fmtFechaFn(f.fecha) : null,
+      ];
+      break;
+    }
+    case 'detallado':
+    default: {
+      rotulo = f.codigo && f.codigo !== '—' ? ('Op: ' + f.codigo) : (f.origen_documento || 'Movimiento');
+      titulo = f.contraparte && f.contraparte !== '—' ? f.contraparte : (f.categoria || f.concepto || 'Movimiento');
+      partesSub = [
+        f.categoria && f.categoria !== titulo ? ('Cat: ' + f.categoria) : null,
+        f.origen_documento && f.origen_documento !== rotulo && f.origen_documento !== titulo ? f.origen_documento : null,
+        f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
+        f.fecha ? fmtFechaFn(f.fecha) : null,
+      ];
+      break;
+    }
+  }
+
+  const subtitulo = partesSub.filter(Boolean).join(' · ') || 'Tesorería';
+  const tituloCompleto = rotulo + ': ' + titulo;
+
+  return { rotulo, titulo, subtitulo, tituloCompleto };
+}
+
+/**
  * Genera las filas del reporte según la dimensión de agrupación, más el resumen.
  * El % del total se calcula sobre el |USD| de todas las filas del período.
  * El resumen (KPIs) siempre sale del detalle completo, no de los grupos.
@@ -837,7 +1000,33 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // Respaldo: si nada quedó marcado, al menos el monto en USD o Bs.
+  // Respaldo de seguridad ejecutiva: si ningún monto financiero entró en métricas
+  // pero hay moneda activa, colocamos el monto consolidado al frente para que la tarjeta
+  // ejecutiva siempre tenga protagonismo financiero claro.
+  const tieneMonto = metricas.some((m) => m.clave === 'monto_usd' || m.clave === 'monto_bs' || m.clave === 'monto_original');
+  if (!tieneMonto) {
+    if (toggles.mostrarUsd) {
+      metricas.unshift({
+        clave: 'monto_usd',
+        etiqueta: 'MONTO ($ USD)',
+        valor: `$ ${f.monto_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        sub: tasaTxt,
+        colorHex: '#22c55e',
+        colorRgb: [22, 163, 74],
+      });
+    } else if (toggles.mostrarBs) {
+      metricas.unshift({
+        clave: 'monto_bs',
+        etiqueta: 'MONTO (Bs)',
+        valor: `Bs ${f.monto_bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        sub: 'Total consolidado',
+        colorHex: '#FF8A00',
+        colorRgb: [255, 138, 0],
+      });
+    }
+  }
+
+  // Respaldo absoluto: si aun así nada quedó marcado
   if (metricas.length === 0) {
     metricas.push({
       clave: 'monto_usd',

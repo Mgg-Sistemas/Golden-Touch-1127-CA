@@ -30,7 +30,13 @@ import type {
   MonedaConsolidacion,
   TipoFlujoTesoreria,
 } from './reporteTesoreriaMoldeable';
-import { CAMPOS_REPORTE_TESORERIA, ETIQUETA_FLUJO, obtenerMetricasFichaTesoreria } from './reporteTesoreriaMoldeable';
+import {
+  CAMPOS_REPORTE_TESORERIA,
+  ETIQUETA_FLUJO,
+  ETIQUETA_MODO_TESORERIA,
+  resolverCabeceraTarjetaTesoreria,
+  obtenerMetricasFichaTesoreria,
+} from './reporteTesoreriaMoldeable';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const VERDE: [number, number, number] = [16, 185, 129];
@@ -328,7 +334,7 @@ export async function descargarTesoreriaExcel(
 
   ws.mergeCells(3, 2, 3, columnas.length + 1);
   const sub = ws.getCell(3, 2);
-  sub.value = `Período: ${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)} | Agrupación: ${meta.agrupacion.toUpperCase()}${meta.subtituloFiltros ? ` | ${meta.subtituloFiltros}` : ''} | Tasa BCV: ${fmtNum(resumen.tasaBcvReferencia, 2)} ($/Bs) ${meta.baseTasa === 'historica' ? '(histórica)' : '(del día)'}`;
+  sub.value = `Período: ${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)} | Agrupación: ${ETIQUETA_MODO_TESORERIA[meta.agrupacion] || meta.agrupacion}${meta.subtituloFiltros ? ` | ${meta.subtituloFiltros}` : ''} | Tasa BCV: ${fmtNum(resumen.tasaBcvReferencia, 2)} ($/Bs) ${meta.baseTasa === 'historica' ? '(histórica)' : '(del día)'}`;
   sub.font = { name: 'Arial', size: 8.5, italic: true, color: { argb: 'FF64748B' } };
 
   const headerRow = ws.getRow(5);
@@ -460,7 +466,7 @@ export async function descargarTesoreriaPdf(
   doc.setFontSize(8.5);
   doc.setTextColor(80, 80, 80);
   const subLineas = doc.splitTextToSize(
-    `${idEmp.nombre} · RIF ${idEmp.rif} · Período: ${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)} · Agrupado por: ${meta.agrupacion.toUpperCase()} · Tasa BCV: ${fmtNum(resumen.tasaBcvReferencia, 2)} $/Bs · ${filas.length} registros`,
+    `${idEmp.nombre} · RIF ${idEmp.rif} · Período: ${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)} · Agrupado por: ${ETIQUETA_MODO_TESORERIA[meta.agrupacion] || meta.agrupacion} · Tasa BCV: ${fmtNum(resumen.tasaBcvReferencia, 2)} $/Bs · ${filas.length} registros`,
     anchoTexto,
   ) as string[];
   doc.text(subLineas, tx, yy + 12);
@@ -565,7 +571,98 @@ export async function descargarTesoreriaPdf(
     }
 
     const cards = kpis.slice(0, 4);
-    if (cards.length > 0) {
+    if (cards.length === 1) {
+      const k = cards[0];
+      const boxH = 46;
+      if (y + boxH > H - 36) { doc.addPage(); y = 36; }
+
+      // Hero banner destacado cuando el Total está solo: máximo protagonismo al monto
+      doc.setFillColor(252, 253, 255);
+      doc.setDrawColor(...BORDE);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(M, y, UW, boxH, 4, 4, 'FD');
+
+      const esBs = k.label.includes('Bs');
+      const acentoTotal: [number, number, number] = esBs ? NARANJA : [22, 163, 74];
+      doc.setFillColor(...acentoTotal);
+      doc.rect(M, y + 1, 4.5, boxH - 2, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.0);
+      doc.setTextColor(71, 85, 105);
+      const rotuloTotal = esBs ? 'TOTAL CONSOLIDADO (BOLÍVARES - Bs)' : 'TOTAL CONSOLIDADO (DÓLARES - $ USD)';
+      doc.text(pdfSafe(rotuloTotal), M + 14, y + 13);
+
+      // MONTO GRANDE Y PROTAGÓNICO (22pt)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(22);
+      doc.setTextColor(...acentoTotal);
+      doc.text(pdfSafe(k.val), M + 14, y + 33);
+
+      if (k.sub) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(pdfSafe(k.sub), M + 14, y + 41);
+      }
+
+      // Pastilla ejecutiva a la derecha
+      const chipW = 145;
+      const chipH = 26;
+      const chipX = W - M - chipW - 8;
+      const chipY = y + (boxH - chipH) / 2;
+      doc.setFillColor(241, 245, 249);
+      doc.setDrawColor(...BORDE);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(chipX, chipY, chipW, chipH, 3, 3, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(30, 41, 59);
+      doc.text(pdfSafe(`${resumen.totalOperaciones} operaciones · ${filas.length} ${filas.length === 1 ? 'grupo' : 'grupos'}`), chipX + chipW / 2, chipY + 11, { align: 'center' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(100, 116, 139);
+      const txtTasa = resumen.tasaBcvReferencia > 0 ? `Tasa BCV ref: Bs ${fmtNum(resumen.tasaBcvReferencia, 2)}/$` : 'Valuación oficial';
+      doc.text(pdfSafe(txtTasa), chipX + chipW / 2, chipY + 20, { align: 'center' });
+
+      y += boxH + 12;
+    } else if (cards.length === 2) {
+      const cardGap = 10;
+      const cardW = (UW - cardGap) / 2;
+      const cardH = 42;
+      if (y + cardH > H - 36) { doc.addPage(); y = 36; }
+      cards.forEach((k, i) => {
+        const cx = M + i * (cardW + cardGap);
+        const esBs = k.label.includes('Bs');
+        const acentoTotal: [number, number, number] = esBs ? NARANJA : [22, 163, 74];
+
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(...BORDE);
+        doc.setLineWidth(0.7);
+        doc.roundedRect(cx, y, cardW, cardH, 4, 4, 'FD');
+        doc.setFillColor(...acentoTotal);
+        doc.rect(cx, y + 1, 3.5, cardH - 2, 'F');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(pdfSafe(k.label), cx + 10, y + 12);
+
+        doc.setFontSize(17);
+        doc.setTextColor(...acentoTotal);
+        doc.text(pdfSafe(k.val), cx + 10, y + 29);
+
+        if (k.sub) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(148, 163, 184);
+          doc.text(pdfSafe(k.sub), cx + 10, y + 37);
+        }
+      });
+      y += cardH + 12;
+    } else if (cards.length > 0) {
       const cardGap = 8;
       const cardW = (UW - cardGap * (cards.length - 1)) / cards.length;
       const cardH = 38;
@@ -651,39 +748,48 @@ export async function descargarTesoreriaPdf(
         while (doc.getTextWidth(txtSubBadge) > badgeW - 6 && fontSub > 4.4) { fontSub -= 0.2; doc.setFontSize(fontSub); }
         doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
 
-        // Título: contraparte (o categoría), delimitado antes del badge
+        // Cabecera ejecutiva con rótulo explícito de la dimensión seleccionada:
+        // ¿Por categoría, qué categoría? ¿Por documento, qué documento? ¿Por tipo, qué tipo?
+        // ¿Por moneda, qué moneda? ¿Por caja, qué caja? ¿Por mes, qué mes? ¿Por día, qué día?
+        const cab = resolverCabeceraTarjetaTesoreria(f, meta.agrupacion, fmtFecha);
+
+        // 1. Rótulo superior en mayúsculas pequeñas (ej: CATEGORÍA, CAJA / BANCO, TIPO DE FLUJO, etc.)
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(...acento);
+        doc.text(pdfSafe(cab.rotulo.toUpperCase()), cx + 10, cy + 9);
+
+        // 2. Título principal (el valor específico de la dimensión seleccionada)
         const maxTitleW = Math.max(60, (bx - 8) - (cx + 10));
-        const tituloBase = (f.contraparte && f.contraparte !== '—') ? f.contraparte : (f.categoria || f.concepto || 'Sin clasificar');
-        const titulo = pdfSafe(tituloBase);
-        let titleFontSize = 9.5;
+        const titulo = pdfSafe(cab.titulo);
+        let titleFontSize = 9.8;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(titleFontSize);
-        while (doc.getTextWidth(titulo) > maxTitleW && titleFontSize > 7.4) { titleFontSize -= 0.3; doc.setFontSize(titleFontSize); }
+        while (doc.getTextWidth(titulo) > maxTitleW && titleFontSize > 7.4) {
+          titleFontSize -= 0.3;
+          doc.setFontSize(titleFontSize);
+        }
         let titleFinal = titulo;
         if (doc.getTextWidth(titleFinal) > maxTitleW) {
-          while (titleFinal.length > 3 && doc.getTextWidth(titleFinal + '…') > maxTitleW) titleFinal = titleFinal.slice(0, -1);
+          while (titleFinal.length > 3 && doc.getTextWidth(titleFinal + '…') > maxTitleW) {
+            titleFinal = titleFinal.slice(0, -1);
+          }
           titleFinal += '…';
         }
         doc.setTextColor(...TINTA);
-        doc.text(titleFinal, cx + 10, cy + 13);
+        doc.text(titleFinal, cx + 10, cy + 17);
 
-        // Subtítulo: categoría · documento · caja · fecha
+        // 3. Subtítulo: metadatos secundarios delimitados
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.2);
+        doc.setFontSize(6.8);
         doc.setTextColor(100, 116, 139);
-        const partes = [
-          // Código del movimiento (ej. OC-2026-0190): siempre, primero (04/11/2026).
-          f.codigo && f.codigo !== '—' ? f.codigo : null,
-          f.categoria && f.categoria !== tituloBase ? f.categoria : null,
-          f.origen_documento && f.origen_documento !== f.categoria ? f.origen_documento : null,
-          f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,
-          f.fecha ? fmtFecha(f.fecha) : null,
-        ].filter(Boolean);
-        const metaTxt = pdfSafe(partes.join(' · ') || 'Tesorería');
+        const metaTxt = pdfSafe(cab.subtitulo);
         const maxMetaW = cardW - 20;
         let metaFinal = metaTxt;
         if (doc.getTextWidth(metaFinal) > maxMetaW) {
-          while (metaFinal.length > 3 && doc.getTextWidth(metaFinal + '…') > maxMetaW) metaFinal = metaFinal.slice(0, -1);
+          while (metaFinal.length > 3 && doc.getTextWidth(metaFinal + '…') > maxMetaW) {
+            metaFinal = metaFinal.slice(0, -1);
+          }
           metaFinal += '…';
         }
         doc.text(metaFinal, cx + 10, cy + 24);
