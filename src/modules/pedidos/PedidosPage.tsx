@@ -1,4 +1,5 @@
 import { Quien } from '@/shared/ui/Quien';
+import { supabase } from '@/shared/lib/supabase';
 import { ivaDesdePorcentaje, porcentajeDesdeIva } from './impuestosOc';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -329,6 +330,9 @@ export function PedidosPage() {
   const [offersReloadKey, setOffersReloadKey] = useState(0);
   // Mensajes de chat NO leídos por orden (chip 💬 N en tarjetas/filas).
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
+  // 05/11/2026: en «Pendiente» la orden todavía no tiene analista guardado: es quien
+  // cargó la última cotización (para mostrarlo en la tarjeta del kanban).
+  const [analistaOferta, setAnalistaOferta] = useState<Map<string, string>>(new Map());
   // Alertas de Cocina: "hay que restablecer el mercado" (tarjeta para Compras).
   const [alertasMercado, setAlertasMercado] = useState<AlertaMercado[]>([]);
   // Contador liviano de pendientes por pagar (para el badge del botón, en vivo).
@@ -395,6 +399,21 @@ export function PedidosPage() {
     } catch { /* best-effort */ }
   }, [ordenes, user?.id, user?.email]);
   useEffect(() => { void refreshNoLeidos(); }, [refreshNoLeidos]);
+  const refreshAnalistaOferta = useCallback(async () => {
+    const ids = ordenes.filter((o) => !o.oc_creada_por && !o.aprobada_por && ['pendiente', 'revision_almacen', 'aprobada'].includes(o.estado)).map((o) => o.id);
+    if (!ids.length) { setAnalistaOferta(new Map()); return; }
+    try {
+      const { data } = await supabase.from('ofertas_proveedor').select('orden_id, registrada_por_email, registrada_en')
+        .in('orden_id', ids.slice(0, 300)).order('registrada_en', { ascending: false });
+      const m = new Map<string, string>();
+      for (const r of (data ?? []) as Array<{ orden_id: string; registrada_por_email: string | null }>) {
+        if (r.registrada_por_email && !m.has(r.orden_id)) m.set(r.orden_id, r.registrada_por_email);
+      }
+      setAnalistaOferta(m);
+    } catch { /* best-effort */ }
+  }, [ordenes]);
+  useEffect(() => { void refreshAnalistaOferta(); }, [refreshAnalistaOferta]);
+  useRealtime(['ofertas_proveedor'], () => { void refreshAnalistaOferta(); });
   // orden_chat_lecturas: si lo leyó en otra pestaña o equipo, el chip se apaga aquí también.
   useRealtime(['orden_mensajes', 'orden_chat_lecturas'], () => { void refreshNoLeidos(); });
 
@@ -945,6 +964,7 @@ export function PedidosPage() {
           cols={kanbanColsVisibles}
           onOpen={openDetail}
           noLeidos={noLeidos}
+          analistaOferta={analistaOferta}
         />
       ) : (
         <OrdenesTable
@@ -2631,12 +2651,13 @@ interface KanbanBoardProps {
   cols: KanbanCol[];
   onOpen: (id: string) => void;
   noLeidos?: Map<string, number>;
+  analistaOferta?: Map<string, string>;
 }
 
 // Máximo de tarjetas visibles por columna del Kanban (salvo columnas `sinLimite`).
 // El resto de las órdenes sigue disponible en el Histórico.
 const KANBAN_MAX_POR_COL = 10;
-function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBoardProps) {
+function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOferta }: KanbanBoardProps) {
   const byState = useMemo(() => {
     const map = new Map<EstadoOrden, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
@@ -2673,6 +2694,7 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBo
                       proveedor={o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null}
                       onOpen={onOpen}
                       noLeidos={noLeidos?.get(o.id) ?? 0}
+                      analista={o.oc_creada_por || o.aprobada_por || analistaOferta?.get(o.id) || null}
                     />
                   ))}
                   {ocultas > 0 && (
@@ -2696,11 +2718,14 @@ const KanbanCard = memo(function KanbanCard({
   proveedor,
   onOpen,
   noLeidos = 0,
+  analista = null,
 }: {
   orden: Orden;
   proveedor: Proveedor | null;
   onOpen: (id: string) => void;
   noLeidos?: number;
+  /** Correo del analista que trabaja la solicitud. */
+  analista?: string | null;
 }) {
   const changes = (orden.historial ?? []).filter((h) => esCambioProveedor(h as { evento: string; cambioProveedor?: boolean })).length;
   // Crédito pagado en su totalidad (cuenta abierta saldada) → tarjeta resaltada.
@@ -2762,6 +2787,13 @@ const KanbanCard = memo(function KanbanCard({
         <span>👤 <Quien nombre={orden.solicitante} correo={orden.solicitante_email} vacio="—" /></span>
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
+      {/* 05/11/2026: el analista que trabaja la solicitud (quien creó la OC o, antes, quien la
+          aprobó para cotizar; la misma regla que usa Delivery). En Compras y en Servicios. */}
+      {analista && (
+        <div className="meta" style={{ fontSize: '.72rem', marginTop: '.1rem' }} title="Analista que trabaja la solicitud">
+          <span>🧑‍💼 Analista: <strong><Quien correo={analista} vacio="—" /></strong></span>
+        </div>
+      )}
       <div className="foot">
         <span className="total">{montoMoneda(orden.total, orden.total_moneda)}</span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
