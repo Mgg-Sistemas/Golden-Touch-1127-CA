@@ -13,6 +13,7 @@ import { tokenPeriodo, type Moneda } from './administracionCalculo';
 import { cargarTasaBcv } from './administracionTasa';
 import { ImportarAdminModal } from './ImportarAdminModal';
 import { ParafiscalModal } from './ParafiscalModal';
+import { ExportarAdministracionModal } from './ExportarAdministracionModal';
 import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.repository';
 
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -38,6 +39,8 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
   const [generando, setGenerando] = useState(false);
   const [form, setForm] = useState<{ mov: Movimiento | null } | null>(null);
   const [importar, setImportar] = useState(false);
+  const [reporteModal, setReporteModal] = useState(false);
+  const [tasaBcv, setTasaBcv] = useState(50);
   const [parafiscal, setParafiscal] = useState(false);
   const [anular, setAnular] = useState<Movimiento | null>(null);
   const [buscar, setBuscar] = useState('');
@@ -51,9 +54,14 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
     setCargando(true);
     setError(null);
     try {
-      const [ms, cats] = await Promise.all([repo.listMovimientos(empresaClave ?? undefined), repo.listCategorias().catch(() => [] as OpcionRef[])]);
+      const [ms, cats, tasa] = await Promise.all([
+        repo.listMovimientos(empresaClave ?? undefined),
+        repo.listCategorias().catch(() => [] as OpcionRef[]),
+        cargarTasaBcv().catch(() => ({ tasa: 50 })),
+      ]);
       setMovs(ms);
       setCategorias(cats);
+      setTasaBcv(tasa.tasa);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron leer los movimientos.');
     } finally {
@@ -102,6 +110,7 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => void generar()} disabled={generando}
                 title={`Crea los pendientes que falten hasta ${periodoLabel} y los manda a Tesorería`}>⚙ Generar pendientes</button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setImportar(true)}>⬆ Importar</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReporteModal(true)} disabled={!movs.length} title="Abrir reporte dinámico y exportación">📊 Reporte Dinámico</button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setParafiscal(true)}
                 title="Calcular y registrar un parafiscal (FAOV / BANAVIH)">⚖ Parafiscal</button>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => setForm({ mov: null })}>+ Registrar</button>
@@ -179,6 +188,17 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
         <MovimientoFormModal repo={repo} empresas={empresas} empresaClaveFija={empresaClave} categorias={categorias}
           movimiento={form.mov} onClose={() => setForm(null)} onSaved={() => void cargar()} />
       )}
+      {reporteModal && (
+        <ExportarAdministracionModal
+          movimientos={movs}
+          empresas={empresas}
+          categorias={categorias}
+          empresaClaveInicial={empresaClave}
+          tasaBcvHoy={tasaBcv}
+          onClose={() => setReporteModal(false)}
+        />
+      )}
+
       {importar && (
         <ImportarAdminModal repo={repo} empresas={empresas} categorias={categorias}
           existentes={movs.map((m) => ({ empresaClave: m.empresaClave, periodo: m.periodo, concepto: m.concepto }))}

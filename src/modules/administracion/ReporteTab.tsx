@@ -16,6 +16,7 @@ import { descargarReporteAdminPdf } from './administracionReportePdf';
 import { descargarReporteAdminExcel } from './administracionReporteExcel';
 import { reporteMovimientosTxt } from './administracionWhatsApp';
 import { WhatsAppReporteModal } from './WhatsAppReporteModal';
+import { ExportarAdministracionModal } from './ExportarAdministracionModal';
 import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.repository';
 
 const num0 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 0 });
@@ -40,6 +41,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   const [agruparPor, setAgruparPor] = useState<DimensionReporte>('categoria');
   const [tasa, setTasa] = useState(TASA_FALLBACK);
   const [wsp, setWsp] = useState<string | null>(null);
+  const [modalExportar, setModalExportar] = useState(false);
 
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
 
@@ -126,6 +128,7 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
           )}
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setModalExportar(true)} disabled={!movs.length} title="Abrir reporte dinámico con fichas ejecutivas, orientación y filtros">✨ Reporte Dinámico / Exportar</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void descargarPdf()} disabled={!filtrados.length}>📄 PDF</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void descargarExcel()} disabled={!filtrados.length}>📊 Excel</button>
           <button type="button" className="btn btn-primary btn-sm" onClick={abrirWhatsApp} disabled={!filtrados.length}
@@ -198,6 +201,17 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
             </div>
           </div>
         </>
+      )}
+
+      {modalExportar && (
+        <ExportarAdministracionModal
+          movimientos={movs}
+          empresas={empresas}
+          categorias={categorias}
+          empresaClaveInicial={empresaClave}
+          tasaBcvHoy={tasa}
+          onClose={() => setModalExportar(false)}
+        />
       )}
 
       {wsp != null && (
