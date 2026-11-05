@@ -3087,6 +3087,15 @@ function OrdenDetailModal({
           ↓ Lista {esServicioOrd ? 'de servicios' : 'de materiales'}
         </button>
       )}
+      {(isPendiente || o.estado === 'aprobada') && !isOcCreada && (
+        <button
+          className="btn btn-ghost"
+          onClick={() => setWhatsappPagarOpen(true)}
+          title="Mensaje de WhatsApp con formato y emojis para enviar o copiar"
+        >
+          💬 WhatsApp
+        </button>
+      )}
       {puedeTrazabilidad && (
         <button className="btn btn-ghost" onClick={handleDownloadPdf} title="Descargar trazabilidad en PDF">
           ↓ Trazabilidad PDF
@@ -3749,7 +3758,7 @@ function OrdenDetailModal({
       />
     )}
     {whatsappPagarOpen && (
-      <OrdenPagarWhatsappModal orden={o} proveedor={proveedor} modo={isOcCreada ? 'aprobacion' : 'pagar'} personas={personaMap} proveedorMap={proveedorMap} onClose={() => setWhatsappPagarOpen(false)} />
+      <OrdenPagarWhatsappModal orden={o} proveedor={proveedor} modo={isOcCreada ? 'aprobacion' : (isPendiente || o.estado === 'aprobada') ? 'solicitud' : 'pagar'} personas={personaMap} proveedorMap={proveedorMap} onClose={() => setWhatsappPagarOpen(false)} />
     )}
     {editarPreciosOpen && (
       <EditarPreciosOcModal
