@@ -1086,11 +1086,11 @@ export function obtenerMetricasFichaTesoreria(
       colorRgb: [148, 163, 184],
     });
   }
-  if (columnasClaves.includes('saldo_caja') && f.saldo_resultante != null) {
+  if (columnasClaves.includes('saldo_caja') && f.saldo_caja_momento != null) {
     metricas.push({
       clave: 'saldo_caja',
       etiqueta: 'SALDO RESULTANTE',
-      valor: `$ ${f.saldo_resultante.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      valor: `$ ${f.saldo_caja_momento.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       colorHex: '#38bdf8',
       colorRgb: [56, 189, 248],
     });

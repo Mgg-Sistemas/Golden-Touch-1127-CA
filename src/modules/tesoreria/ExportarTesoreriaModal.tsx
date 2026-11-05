@@ -29,7 +29,6 @@ import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
 import {
   CAMPOS_REPORTE_TESORERIA,
   CAMPOS_POR_DEFECTO_POR_MODO,
-  COLUMNAS_SOLO_DETALLE_TESORERIA,
   esColumnaAplicableModoTesoreria,
   ETIQUETA_FLUJO,
   diaDe,
@@ -348,8 +347,6 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
       </div>
     </div>
   );
-
-  const montoPrincipal = (f: FilaReporteTesoreria) => (mostrarUsd ? fmtUsd(f.monto_usd) : fmtBs(f.monto_bs));
 
   // Aviso puntual para WhatsApp: ítems en su moneda + total consolidado, por ámbito.
   const textoWsp = useMemo(
