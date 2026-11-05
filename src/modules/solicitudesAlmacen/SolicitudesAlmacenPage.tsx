@@ -257,7 +257,9 @@ function TarjetaRevisada({ s, isAdmin, quienActual, onWhatsapp, onDevolver }: {
   const r = s.revision;
   const items = renglonesDe(s);
   const resumen = resumenRevision(items, revisionGuardada(r?.items_revision));
-  const texto = r?.texto_whatsapp?.trim()
+  const guardado = r?.texto_whatsapp?.trim();
+  const guardadoEsValido = guardado && !guardado.includes('�') && !guardado.includes('');
+  const texto = (guardadoEsValido ? guardado : null)
     || textoWhatsappRevision(s.orden, resumen, r?.revisada_por_nombre || quienActual, r?.nota);
   return (
     <section className="card spa-sp revisada" aria-label={`Solicitud ${s.orden.codigo} revisada`}>
