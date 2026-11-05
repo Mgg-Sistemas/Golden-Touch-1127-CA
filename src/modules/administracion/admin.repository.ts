@@ -89,29 +89,193 @@ export interface OpcionRef { id: string; nombre: string; }
  *  `categorias_gasto`. Se gestiona desde la pestaña Configuración. */
 export interface AdminCategoria { id: string; nombre: string; orden: number; activa: boolean; }
 
-/** Tipo de papel legal de una empresa. */
-export type TipoDocumento = 'rif' | 'acta_constitutiva' | 'acta_modificacion' | 'cedula' | 'otro';
-export const TIPO_DOCUMENTO_LABEL: Record<TipoDocumento, string> = {
-  rif: 'RIF',
-  acta_constitutiva: 'Acta constitutiva',
-  acta_modificacion: 'Acta de modificación',
-  cedula: 'Cédula del representante',
-  otro: 'Otro documento',
+/** Status de vigencia y vencimiento (Documentos y Gastos). */
+export type StatusVencimiento = 'vigente' | 'por_vencer' | 'vencido' | 'vencido_en_tramite' | 'no_vence';
+
+export const STATUS_VENCIMIENTO_LABEL: Record<StatusVencimiento, string> = {
+  vigente: 'Vigente',
+  por_vencer: 'Por vencer',
+  vencido: 'Vencido',
+  vencido_en_tramite: 'Vencido en trámite',
+  no_vence: 'No vence',
 };
 
+export const STATUS_VENCIMIENTO_COLOR: Record<StatusVencimiento, { color: string; bg: string; border: string }> = {
+  vigente: { color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', border: '#10b981' },
+  por_vencer: { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)', border: '#f59e0b' },
+  vencido: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)', border: '#ef4444' },
+  vencido_en_tramite: { color: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)', border: '#a855f7' },
+  no_vence: { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)', border: '#94a3b8' },
+};
+
+/** Carpetas organizativas de archivos de Administración y Permisología Minera. */
+export type CarpetaDocumento =
+  | 'permisos_mineros'
+  | 'laboral_parafiscal'
+  | 'legal_constitutivo'
+  | 'socios_representantes'
+  | 'tributario_fiscal'
+  | 'contratos_servicios'
+  | 'otros';
+
+export interface InfoCarpetaDoc {
+  id: CarpetaDocumento;
+  icon: string;
+  label: string;
+  descripcion: string;
+}
+
+export const CARPETAS_DOCUMENTOS: InfoCarpetaDoc[] = [
+  { id: 'permisos_mineros', icon: '⛏️', label: 'Permisos Mineros y Ambientales', descripcion: 'Rupdae, Ragda, Minería, MinEc y providencias' },
+  { id: 'laboral_parafiscal', icon: '⚖️', label: 'Laboral y Parafiscales', descripcion: 'Mintras, Inces, IVSS, FAOV y solvencias laborales' },
+  { id: 'legal_constitutivo', icon: '📜', label: 'Legal y Estatutario', descripcion: 'Carta / Acta Constitutiva, Asambleas y RIF' },
+  { id: 'socios_representantes', icon: '👥', label: 'Socios y Representantes', descripcion: 'Cédulas, RIFs y fichas de N socios' },
+  { id: 'tributario_fiscal', icon: '🏛️', label: 'Tributario y Municipal', descripcion: 'Patentes de Industria y Comercio, SENIAT y solvencias' },
+  { id: 'contratos_servicios', icon: '📑', label: 'Contratos y Acuerdos', descripcion: 'Convenios, arrendamientos y acuerdos operativos' },
+  { id: 'otros', icon: '📁', label: 'Otros Archivos', descripcion: 'Documentación general y respaldos' },
+];
+
+export const ETIQUETA_CARPETA: Record<string, string> = {
+  permisos_mineros: 'Permisos Mineros y Ambientales',
+  laboral_parafiscal: 'Laboral y Parafiscales',
+  legal_constitutivo: 'Legal y Estatutario',
+  socios_representantes: 'Socios y Representantes',
+  tributario_fiscal: 'Tributario y Municipal',
+  contratos_servicios: 'Contratos y Acuerdos',
+  otros: 'Otros Archivos',
+};
+
+/** Tipo de papel legal, permiso minero o solvencia. */
+export type TipoDocumento =
+  | 'rupdae'
+  | 'ragda'
+  | 'mintras'
+  | 'inces'
+  | 'ivss'
+  | 'faov'
+  | 'acta_constitutiva'
+  | 'acta_modificacion'
+  | 'rif'
+  | 'cedula'
+  | 'cedula_socio'
+  | 'rif_socio'
+  | 'patente_municipal'
+  | 'solvencia_municipal'
+  | 'permiso_ambiental'
+  | 'permiso_minero'
+  | 'otro';
+
+export const TIPO_DOCUMENTO_LABEL: Record<TipoDocumento, string> = {
+  rupdae: 'RUPDAE (Actividades Económicas)',
+  ragda: 'RAGDA (Degradación Ambiental)',
+  mintras: 'MINTRAS (Ministerio del Trabajo)',
+  inces: 'INCES (Solvencia / Certificado)',
+  ivss: 'IVSS (Seguro Social)',
+  faov: 'FAOV / BANAVIH (Vivienda)',
+  acta_constitutiva: 'Acta / Carta Constitutiva',
+  acta_modificacion: 'Acta de Asamblea / Modificación',
+  rif: 'RIF Jurídico',
+  cedula: 'Cédula del Representante',
+  cedula_socio: 'Cédula de Identidad (Socio)',
+  rif_socio: 'RIF Personal (Socio)',
+  patente_municipal: 'Patente de Industria y Comercio',
+  solvencia_municipal: 'Solvencia Municipal',
+  permiso_ambiental: 'Permiso Ambiental / MINEC',
+  permiso_minero: 'Permiso / Concesión Minera',
+  otro: 'Otro Documento',
+};
+
+/** Registro individual de historial ligero de cambios / auditoría por documento. */
+export interface HistorialCambioDoc {
+  id: string;
+  fecha: string;
+  actor: string;
+  accion: 'creacion' | 'modificacion' | 'cambio_status' | 'renovacion' | 'archivo_reemplazado';
+  detalle: string;
+}
+
 /** Documento (PDF/imagen) adjunto a una empresa (tabla `admin_empresa_documentos`
- *  + Storage bucket `admin-documentos`). El RIF, las actas, la cédula del
- *  representante: los papeles que la empresa necesita tener a mano. */
+ *  + Storage bucket `admin-documentos`). Incluye vigencia, carpeta, metadatos mineros y auditoría. */
 export interface DocumentoEmpresa {
   id: string;
   empresaClave: string;
+  carpeta: string;
   tipo: TipoDocumento;
   nombre: string;
   /** Ruta en el bucket; con ella se pide la URL firmada. */
   path: string;
   contentType: string | null;
   tamano: number | null;
+  fechaEmision: string | null;
+  fechaVencimiento: string | null;
+  statusVencimiento: StatusVencimiento;
+  socioNombre: string | null;
+  entidadEmisora: string | null;
+  numeroRegistro: string | null;
+  notaTramite: string | null;
+  historial: HistorialCambioDoc[];
   createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface DocumentoEmpresaInput {
+  empresaClave: string;
+  carpeta?: string;
+  tipo: TipoDocumento;
+  nombre: string;
+  fechaEmision?: string | null;
+  fechaVencimiento?: string | null;
+  statusVencimiento?: StatusVencimiento;
+  socioNombre?: string | null;
+  entidadEmisora?: string | null;
+  numeroRegistro?: string | null;
+  notaTramite?: string | null;
+}
+
+export function diasRestantes(fechaVencimiento: string | null | undefined, hoyRef?: string): number | null {
+  if (!fechaVencimiento) return null;
+  const hoyStr = hoyRef || new Date().toISOString().slice(0, 10);
+  const [y1, m1, d1] = fechaVencimiento.split('-').map(Number);
+  const [y2, m2, d2] = hoyStr.split('-').map(Number);
+  if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return null;
+  const f1 = Date.UTC(y1, m1 - 1, d1);
+  const f2 = Date.UTC(y2, m2 - 1, d2);
+  return Math.round((f1 - f2) / (1000 * 60 * 60 * 24));
+}
+
+export function calcularStatusVencimiento(
+  fechaVencimiento: string | null | undefined,
+  statusManual?: StatusVencimiento,
+  diasUmbralAlerta = 30,
+  hoyRef?: string,
+): StatusVencimiento {
+  if (statusManual === 'vencido_en_tramite') return 'vencido_en_tramite';
+  if (statusManual === 'no_vence' || !fechaVencimiento) return 'no_vence';
+  const dias = diasRestantes(fechaVencimiento, hoyRef);
+  if (dias === null) return 'no_vence';
+  if (dias < 0) return 'vencido';
+  if (dias <= diasUmbralAlerta) return 'por_vencer';
+  return 'vigente';
+}
+
+/** Infiere automáticamente carpeta y tipo de documento a partir del nombre del archivo. */
+export function inferirCarpetaYTipo(nombreArchivo: string): { carpeta: CarpetaDocumento; tipo: TipoDocumento } {
+  const s = nombreArchivo.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/rupdae/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'rupdae' };
+  if (/ragda/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'ragda' };
+  if (/miner|concesion|minec|ambient/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'permiso_minero' };
+  if (/mintra/i.test(s)) return { carpeta: 'laboral_parafiscal', tipo: 'mintras' };
+  if (/inces/i.test(s)) return { carpeta: 'laboral_parafiscal', tipo: 'inces' };
+  if (/ivss|seguro/i.test(s)) return { carpeta: 'laboral_parafiscal', tipo: 'ivss' };
+  if (/faov|banavih|habitat/i.test(s)) return { carpeta: 'laboral_parafiscal', tipo: 'faov' };
+  if (/carta.*const|acta.*const/i.test(s)) return { carpeta: 'legal_constitutivo', tipo: 'acta_constitutiva' };
+  if (/asamble|modific/i.test(s)) return { carpeta: 'legal_constitutivo', tipo: 'acta_modificacion' };
+  if (/rif.*socio|rif.*personal/i.test(s)) return { carpeta: 'socios_representantes', tipo: 'rif_socio' };
+  if (/rif/i.test(s)) return { carpeta: 'legal_constitutivo', tipo: 'rif' };
+  if (/socio|accionista|cedula/i.test(s)) return { carpeta: 'socios_representantes', tipo: 'cedula_socio' };
+  if (/patente|alcald|municip/i.test(s)) return { carpeta: 'tributario_fiscal', tipo: 'patente_municipal' };
+  if (/contrat|arrendam/i.test(s)) return { carpeta: 'contratos_servicios', tipo: 'otro' };
+  return { carpeta: 'otros', tipo: 'otro' };
 }
 
 /** Puerto de datos del módulo. La página lo recibe inyectado: Supabase en la
@@ -144,10 +308,12 @@ export interface AdminRepo {
   /** Genera los pendientes que faltan hasta `hasta` (default hoy), idempotente. Devuelve cuántos creó. */
   generarPendientes(empresaClave?: string, hasta?: Date): Promise<{ creados: number }>;
   marcarPagado(id: string): Promise<void>;
-  /** Papeles legales de una empresa (RIF, actas, cédula…), más recientes primero. */
-  listDocumentos(empresaClave: string): Promise<DocumentoEmpresa[]>;
-  /** Sube un PDF/imagen al bucket y lo registra. Si el registro falla, borra el archivo. */
-  subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File): Promise<DocumentoEmpresa>;
+  /** Papeles legales y permisos (RIF, actas, Rupdae, Mintras…), más recientes primero. */
+  listDocumentos(empresaClave?: string): Promise<DocumentoEmpresa[]>;
+  /** Sube un PDF/imagen al bucket y lo registra con metadatos y auditoría inicial. */
+  subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File, meta?: Partial<DocumentoEmpresaInput>, actor?: string): Promise<DocumentoEmpresa>;
+  /** Actualiza metadatos de un documento y registra un cambio en su historial ligero de auditoría. */
+  editarDocumento(id: string, cambios: Partial<DocumentoEmpresaInput>, actor?: string, detalle?: string): Promise<DocumentoEmpresa>;
   /** URL firmada (10 min) para previsualizar/descargar. */
   urlDocumento(path: string): Promise<string>;
   /** Borra el registro y luego el archivo del bucket. */
@@ -252,14 +418,57 @@ const T_CAT = 'admin_categorias';
 const BUCKET_DOCS = 'admin-documentos';
 
 interface RowDoc {
-  id: string; empresa_clave: string; tipo: string; nombre: string; path: string;
-  content_type: string | null; tamano: number | string | null; created_at?: string | null;
+  id: string;
+  empresa_clave: string;
+  tipo: string;
+  nombre: string;
+  path: string;
+  content_type: string | null;
+  tamano: number | string | null;
+  carpeta?: string | null;
+  fecha_vencimiento?: string | null;
+  fecha_emision?: string | null;
+  status_vencimiento?: string | null;
+  socio_nombre?: string | null;
+  entidad_emisora?: string | null;
+  numero_registro?: string | null;
+  nota_tramite?: string | null;
+  historial?: unknown;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
+
 function aDoc(r: RowDoc): DocumentoEmpresa {
+  const fVenc = r.fecha_vencimiento ? r.fecha_vencimiento.slice(0, 10) : null;
+  const statusRaw = (r.status_vencimiento as StatusVencimiento) || undefined;
+  const status = calcularStatusVencimiento(fVenc, statusRaw);
+
+  let hist: HistorialCambioDoc[] = [];
+  if (Array.isArray(r.historial)) {
+    hist = r.historial as HistorialCambioDoc[];
+  } else if (typeof r.historial === 'string') {
+    try { hist = JSON.parse(r.historial); } catch { hist = []; }
+  }
+
   return {
-    id: r.id, empresaClave: r.empresa_clave, tipo: (r.tipo as TipoDocumento) ?? 'otro', nombre: r.nombre,
-    path: r.path, contentType: r.content_type ?? null,
-    tamano: r.tamano == null ? null : num(r.tamano), createdAt: r.created_at ?? null,
+    id: r.id,
+    empresaClave: r.empresa_clave,
+    carpeta: r.carpeta || 'otros',
+    tipo: (r.tipo as TipoDocumento) || 'otro',
+    nombre: r.nombre,
+    path: r.path,
+    contentType: r.content_type ?? null,
+    tamano: r.tamano == null ? null : num(r.tamano),
+    fechaEmision: r.fecha_emision ? r.fecha_emision.slice(0, 10) : null,
+    fechaVencimiento: fVenc,
+    statusVencimiento: status,
+    socioNombre: r.socio_nombre ?? null,
+    entidadEmisora: r.entidad_emisora ?? null,
+    numeroRegistro: r.numero_registro ?? null,
+    notaTramite: r.nota_tramite ?? null,
+    historial: hist,
+    createdAt: r.created_at ?? null,
+    updatedAt: r.updated_at ?? null,
   };
 }
 interface RowCat { id: string; nombre: string; orden: number | string | null; activa: boolean | null; }
@@ -442,23 +651,119 @@ export function crearRepoSupabase(): AdminRepo {
       if (error) throw error;
     },
     async listDocumentos(empresaClave) {
-      if (!empresaClave) return [];
-      const { data, error } = await supabase.from(T_DOC).select('*').eq('empresa_clave', empresaClave).order('created_at', { ascending: false });
+      let q = supabase.from(T_DOC).select('*').order('created_at', { ascending: false });
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []).map((r) => aDoc(r as RowDoc));
     },
-    async subirDocumento(empresaClave, tipo, file) {
+    async subirDocumento(empresaClave, tipo, file, meta, actor) {
       if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
         throw new Error('El documento debe ser un PDF o una imagen.');
       const path = rutaDoc(empresaClave, file.name);
       const { error: upErr } = await supabase.storage.from(BUCKET_DOCS).upload(path, file, { upsert: false, contentType: file.type || 'application/pdf' });
       if (upErr) throw upErr;
-      const fila = { empresa_clave: empresaClave, tipo, nombre: file.name, path, content_type: file.type || null, tamano: file.size };
-      const { data, error } = await supabase.from(T_DOC).insert(fila).select('*').single();
+
+      const nowIso = new Date().toISOString();
+      const histItem: HistorialCambioDoc = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        fecha: nowIso,
+        actor: actor || 'usuario',
+        accion: 'creacion',
+        detalle: 'Documento subido y registrado en el sistema',
+      };
+
+      const status = calcularStatusVencimiento(meta?.fechaVencimiento, meta?.statusVencimiento);
+
+      const filaCompleta: Record<string, unknown> = {
+        empresa_clave: empresaClave,
+        tipo,
+        nombre: meta?.nombre || file.name,
+        path,
+        content_type: file.type || 'application/pdf',
+        tamano: file.size,
+        carpeta: meta?.carpeta || 'otros',
+        fecha_vencimiento: meta?.fechaVencimiento || null,
+        fecha_emision: meta?.fechaEmision || null,
+        status_vencimiento: status,
+        socio_nombre: meta?.socioNombre || null,
+        entidad_emisora: meta?.entidadEmisora || null,
+        numero_registro: meta?.numeroRegistro || null,
+        nota_tramite: meta?.notaTramite || null,
+        historial: [histItem],
+        updated_at: nowIso,
+      };
+
+      let { data, error } = await supabase.from(T_DOC).insert(filaCompleta).select('*').single();
+
+      // Si la BD aún no tiene columnas extendidas, reintentar con las base
+      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
+        const filaBase = {
+          empresa_clave: empresaClave,
+          tipo,
+          nombre: meta?.nombre || file.name,
+          path,
+          content_type: file.type || null,
+          tamano: file.size,
+        };
+        const resBase = await supabase.from(T_DOC).insert(filaBase).select('*').single();
+        data = resBase.data;
+        error = resBase.error;
+      }
+
       if (error || !data) {
         await supabase.storage.from(BUCKET_DOCS).remove([path]).catch(() => { /* queda suelto; se limpia después */ });
         throw new Error(error?.message ?? `No se guardó «${file.name}»: sin permiso.`);
       }
+      return aDoc(data as RowDoc);
+    },
+    async editarDocumento(id, cambios, actor, detalle) {
+      const { data: actualRow, error: errGet } = await supabase.from(T_DOC).select('*').eq('id', id).single();
+      if (errGet || !actualRow) throw new Error('No se encontró el documento a editar.');
+
+      const doc = aDoc(actualRow as RowDoc);
+      const nowIso = new Date().toISOString();
+      const histItem: HistorialCambioDoc = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        fecha: nowIso,
+        actor: actor || 'usuario',
+        accion: cambios.statusVencimiento ? 'cambio_status' : cambios.fechaVencimiento ? 'renovacion' : 'modificacion',
+        detalle: detalle || 'Metadatos del documento actualizados',
+      };
+
+      const nuevoHist = [...doc.historial, histItem];
+      const nuevoStatus = calcularStatusVencimiento(
+        cambios.fechaVencimiento !== undefined ? cambios.fechaVencimiento : doc.fechaVencimiento,
+        cambios.statusVencimiento !== undefined ? cambios.statusVencimiento : doc.statusVencimiento,
+      );
+
+      const payloadCompleto: Record<string, unknown> = {
+        updated_at: nowIso,
+        historial: nuevoHist,
+      };
+      if (cambios.nombre !== undefined) payloadCompleto.nombre = cambios.nombre;
+      if (cambios.tipo !== undefined) payloadCompleto.tipo = cambios.tipo;
+      if (cambios.carpeta !== undefined) payloadCompleto.carpeta = cambios.carpeta;
+      if (cambios.fechaVencimiento !== undefined) payloadCompleto.fecha_vencimiento = cambios.fechaVencimiento;
+      if (cambios.fechaEmision !== undefined) payloadCompleto.fecha_emision = cambios.fechaEmision;
+      if (cambios.statusVencimiento !== undefined || cambios.fechaVencimiento !== undefined) payloadCompleto.status_vencimiento = nuevoStatus;
+      if (cambios.socioNombre !== undefined) payloadCompleto.socio_nombre = cambios.socioNombre;
+      if (cambios.entidadEmisora !== undefined) payloadCompleto.entidad_emisora = cambios.entidadEmisora;
+      if (cambios.numeroRegistro !== undefined) payloadCompleto.numero_registro = cambios.numeroRegistro;
+      if (cambios.notaTramite !== undefined) payloadCompleto.nota_tramite = cambios.notaTramite;
+
+      let { data, error } = await supabase.from(T_DOC).update(payloadCompleto).eq('id', id).select('*').single();
+
+      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
+        const payloadBase: Record<string, unknown> = {};
+        if (cambios.nombre !== undefined) payloadBase.nombre = cambios.nombre;
+        if (cambios.tipo !== undefined) payloadBase.tipo = cambios.tipo;
+        const resBase = await supabase.from(T_DOC).update(payloadBase).eq('id', id).select('*').single();
+        data = resBase.data;
+        error = resBase.error;
+      }
+
+      if (error || !data) throw error || new Error('No se pudo actualizar el documento.');
       return aDoc(data as RowDoc);
     },
     async urlDocumento(path) {

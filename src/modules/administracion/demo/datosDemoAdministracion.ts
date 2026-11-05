@@ -7,7 +7,8 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminCategoria, AdminRepo, DocumentoEmpresa, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
+import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 
 const uid = (): string => {
@@ -177,18 +178,72 @@ export function crearRepoDemo(): AdminRepo {
       return Promise.resolve();
     },
     listDocumentos: (empresaClave) => Promise.resolve(
-      documentos.filter((d) => d.empresaClave === empresaClave).map((d) => ({ ...d }))
+      documentos
+        .filter((d) => !empresaClave || d.empresaClave === empresaClave)
+        .map((d) => ({ ...d }))
         .sort((a, b) => (a.createdAt && b.createdAt && a.createdAt < b.createdAt ? 1 : -1)),
     ),
-    subirDocumento: (empresaClave, tipo: TipoDocumento, file: File) => {
+    subirDocumento: (empresaClave, tipo: TipoDocumento, file: File, meta?: Partial<DocumentoEmpresaInput>, actor?: string) => {
       const path = `demo/${empresaClave}/${uid()}-${file.name}`;
       try { urlsDemo.set(path, URL.createObjectURL(file)); } catch { /* sin createObjectURL: la previsualización queda vacía */ }
+      const nowIso = new Date().toISOString();
+      const status = calcularStatusVencimiento(meta?.fechaVencimiento, meta?.statusVencimiento);
       const nuevo: DocumentoEmpresa = {
-        id: uid(), empresaClave, tipo, nombre: file.name, path,
-        contentType: file.type || null, tamano: file.size, createdAt: new Date().toISOString(),
+        id: uid(),
+        empresaClave,
+        carpeta: meta?.carpeta || 'otros',
+        tipo,
+        nombre: meta?.nombre || file.name,
+        path,
+        contentType: file.type || null,
+        tamano: file.size,
+        fechaEmision: meta?.fechaEmision || null,
+        fechaVencimiento: meta?.fechaVencimiento || null,
+        statusVencimiento: status,
+        socioNombre: meta?.socioNombre || null,
+        entidadEmisora: meta?.entidadEmisora || null,
+        numeroRegistro: meta?.numeroRegistro || null,
+        notaTramite: meta?.notaTramite || null,
+        historial: [
+          {
+            id: uid(),
+            fecha: nowIso,
+            actor: actor || 'demo@goldentouch.com',
+            accion: 'creacion',
+            detalle: 'Documento subido en modo demo',
+          },
+        ],
+        createdAt: nowIso,
+        updatedAt: nowIso,
       };
       documentos.push(nuevo);
       return Promise.resolve({ ...nuevo });
+    },
+    editarDocumento: (id: string, cambios: Partial<DocumentoEmpresaInput>, actor?: string, detalle?: string) => {
+      const idx = documentos.findIndex((d) => d.id === id);
+      if (idx < 0) return Promise.reject(new Error('Documento demo no encontrado.'));
+      const d = documentos[idx];
+      const nowIso = new Date().toISOString();
+      const nuevoStatus = calcularStatusVencimiento(
+        cambios.fechaVencimiento !== undefined ? cambios.fechaVencimiento : d.fechaVencimiento,
+        cambios.statusVencimiento !== undefined ? cambios.statusVencimiento : d.statusVencimiento,
+      );
+      const histItem = {
+        id: uid(),
+        fecha: nowIso,
+        actor: actor || 'demo@goldentouch.com',
+        accion: cambios.statusVencimiento ? ('cambio_status' as const) : ('modificacion' as const),
+        detalle: detalle || 'Metadatos actualizados en demo',
+      };
+      const actualizado: DocumentoEmpresa = {
+        ...d,
+        ...cambios,
+        statusVencimiento: nuevoStatus,
+        historial: [...d.historial, histItem],
+        updatedAt: nowIso,
+      };
+      documentos[idx] = actualizado;
+      return Promise.resolve({ ...actualizado });
     },
     urlDocumento: (path) => Promise.resolve(urlsDemo.get(path) ?? ''),
     borrarDocumento: (doc) => {

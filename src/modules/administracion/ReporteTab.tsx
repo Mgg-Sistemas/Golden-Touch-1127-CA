@@ -17,7 +17,10 @@ import { descargarReporteAdminExcel } from './administracionReporteExcel';
 import { reporteMovimientosTxt } from './administracionWhatsApp';
 import { WhatsAppReporteModal } from './WhatsAppReporteModal';
 import { ExportarAdministracionModal } from './ExportarAdministracionModal';
-import type { AdminRepo, Empresa, Movimiento, OpcionRef } from './admin.repository';
+import { ExportarDocumentosModal } from './ExportarDocumentosModal';
+import { descargarDocumentosPdf, descargarDocumentosExcel, generarTextoWhatsappDocs } from './exportarDocumentos';
+import { normalizarDocumentosAdmin, calcularResumenDocs, agruparDocumentosAdmin, CAMPOS_DEFECTO_DOC } from './reporteDocumentosMoldeable';
+import type { AdminRepo, Empresa, Movimiento, OpcionRef, DocumentoEmpresa } from './admin.repository';
 
 const num0 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 0 });
 const monto2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -30,6 +33,9 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   empresaClave: string | null;
   empresas: Empresa[];
 }) {
+  const [ambito, setAmbito] = useState<'gastos' | 'documentos'>('gastos');
+  const [docs, setDocs] = useState<DocumentoEmpresa[]>([]);
+  const [modalExportarDocs, setModalExportarDocs] = useState(false);
   const [movs, setMovs] = useState<Movimiento[]>([]);
   const [categorias, setCategorias] = useState<OpcionRef[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -49,12 +55,18 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
     setCargando(true);
     setError(null);
     try {
-      const [ms, cats, t] = await Promise.all([repo.listMovimientos(empresaClave ?? undefined), repo.listCategorias().catch(() => [] as OpcionRef[]), cargarTasaBcv()]);
+      const [ms, cats, t, ds] = await Promise.all([
+        repo.listMovimientos(empresaClave ?? undefined),
+        repo.listCategorias().catch(() => [] as OpcionRef[]),
+        cargarTasaBcv(),
+        repo.listDocumentos(empresaClave ?? undefined).catch(() => [] as DocumentoEmpresa[]),
+      ]);
       setMovs(ms);
       setCategorias(cats);
       setTasa(t.tasa);
+      setDocs(ds);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudieron leer los movimientos.');
+      setError(e instanceof Error ? e.message : 'No se pudieron leer los datos.');
     } finally {
       setCargando(false);
     }
@@ -92,9 +104,195 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
     try { await descargarReporteAdminExcel(data); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el Excel.', 'error'); }
   }
 
+  const docsNormalizados = useMemo(() => normalizarDocumentosAdmin(docs, empresas), [docs, empresas]);
+  const resumenDocs = useMemo(() => calcularResumenDocs(docsNormalizados), [docsNormalizados]);
+  const gruposDocs = useMemo(() => agruparDocumentosAdmin(docsNormalizados, 'carpeta'), [docsNormalizados]);
+
+  async function descargarDocsPdf() {
+    try {
+      await descargarDocumentosPdf({
+        filas: docsNormalizados,
+        grupos: gruposDocs,
+        resumen: resumenDocs,
+        columnas: CAMPOS_DEFECTO_DOC,
+        tituloRango: `Reporte de Cumplimiento Legal y Permisología`,
+        periodoLabel: 'Inventario General',
+        empresaNombre,
+        empresaClave,
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF de documentos.', 'error');
+    }
+  }
+
+  async function descargarDocsExcel() {
+    try {
+      await descargarDocumentosExcel({
+        filas: docsNormalizados,
+        grupos: gruposDocs,
+        resumen: resumenDocs,
+        periodoLabel: 'Inventario General',
+        empresaNombre,
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el Excel de documentos.', 'error');
+    }
+  }
+
+  function abrirDocsWhatsApp() {
+    setWsp(
+      generarTextoWhatsappDocs({
+        filas: docsNormalizados,
+        grupos: gruposDocs,
+        resumen: resumenDocs,
+        periodoLabel: 'Inventario General',
+        empresaNombre,
+      }),
+    );
+  }
+
   return (
     <div className="adm-tablero">
-      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '.75rem', flexWrap: 'wrap' }}>
+      {/* Switcher de Ámbito del Reporte */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.75rem', flexWrap: 'wrap', gap: '.5rem' }}>
+        <div className="view-toggle" role="tablist">
+          <button
+            type="button"
+            className={ambito === 'gastos' ? 'active' : ''}
+            onClick={() => setAmbito('gastos')}
+          >
+            📌 Gastos y Movimientos ({movs.length})
+          </button>
+          <button
+            type="button"
+            className={ambito === 'documentos' ? 'active' : ''}
+            onClick={() => setAmbito('documentos')}
+          >
+            📁 Documentos, Permisos y Vencimientos ({docs.length})
+          </button>
+        </div>
+      </div>
+
+      {ambito === 'documentos' ? (
+        <>
+          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
+            <div>
+              <strong style={{ fontSize: '1.05rem', color: '#ff8a00' }}>
+                📁 Control de Cumplimiento Legal, Permisos Mineros y Vencimientos
+              </strong>
+              <div className="muted" style={{ fontSize: '.78rem', marginTop: '.2rem' }}>
+                {empresaNombre || 'Todas las empresas'} · {docs.length} documentos registrados · {resumenDocs.cumplimientoPct}% cumplimiento general
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => setModalExportarDocs(true)}
+                disabled={!docs.length}
+                style={{ background: '#ff8a00', color: '#000', fontWeight: 700 }}
+                title="Abrir reporte interactivo con fichas ejecutivas, orientación y filtros"
+              >
+                ✨ Reporte Dinámico / Exportar
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => void descargarDocsPdf()}
+                disabled={!docs.length}
+              >
+                📄 PDF
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => void descargarDocsExcel()}
+                disabled={!docs.length}
+              >
+                📊 Excel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={abrirDocsWhatsApp}
+                disabled={!docs.length}
+                title="Compartir alerta de cumplimiento por WhatsApp"
+              >
+                💬 WhatsApp
+              </button>
+            </div>
+          </div>
+
+          {/* KPIs de Cumplimiento de Documentos */}
+          <div className="adm-kpis" style={{ marginTop: '.75rem' }}>
+            <div className="adm-kpi oro">
+              <span className="adm-kpi-lbl">Total Documentos</span>
+              <span className="adm-kpi-num">{resumenDocs.totalDocs}</span>
+              <span className="adm-kpi-sub">{resumenDocs.cumplimientoPct}% cumplimiento legal</span>
+            </div>
+            <div className="adm-kpi">
+              <span className="adm-kpi-lbl" style={{ color: '#10b981' }}>Vigentes al Día</span>
+              <span className="adm-kpi-num" style={{ color: '#10b981' }}>{resumenDocs.vigentes}</span>
+              <span className="adm-kpi-sub">+{resumenDocs.noVence} permanentes</span>
+            </div>
+            <div className="adm-kpi">
+              <span className="adm-kpi-lbl" style={{ color: '#f59e0b' }}>Por Vencer (30d)</span>
+              <span className="adm-kpi-num" style={{ color: '#f59e0b' }}>{resumenDocs.porVencer}</span>
+              <span className="adm-kpi-sub">Atención preventiva</span>
+            </div>
+            <div className="adm-kpi">
+              <span className="adm-kpi-lbl" style={{ color: '#ef4444' }}>Caducados / En Trámite</span>
+              <span className="adm-kpi-num" style={{ color: resumenDocs.vencidos > 0 ? '#ef4444' : '#a855f7' }}>
+                {resumenDocs.vencidos + resumenDocs.vencidosEnTramite}
+              </span>
+              <span className="adm-kpi-sub">
+                {resumenDocs.vencidos} vencidos · {resumenDocs.vencidosEnTramite} en trámite
+              </span>
+            </div>
+          </div>
+
+          {/* Tabla Resumen por Carpetas */}
+          <div className="card" style={{ marginTop: '.75rem' }}>
+            <h3 style={{ margin: '0 0 .5rem', fontSize: '.95rem' }}>📂 Estado de Permisología por Carpetas</h3>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="adm-tabla">
+                <thead>
+                  <tr>
+                    <th>Carpeta</th>
+                    <th style={{ textAlign: 'center' }}>Total</th>
+                    <th style={{ textAlign: 'center' }}>Vigentes</th>
+                    <th style={{ textAlign: 'center' }}>Por Vencer</th>
+                    <th style={{ textAlign: 'center' }}>Caducados</th>
+                    <th style={{ textAlign: 'center' }}>En Trámite</th>
+                    <th style={{ textAlign: 'center' }}>Cumplimiento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gruposDocs.map((g) => (
+                    <tr key={g.claveGrupo}>
+                      <td>
+                        <strong>{g.icono} {g.tituloGrupo}</strong>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>{g.totalDocs}</td>
+                      <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600 }}>{g.vigentes}</td>
+                      <td style={{ textAlign: 'center', color: '#f59e0b', fontWeight: 600 }}>{g.porVencer}</td>
+                      <td style={{ textAlign: 'center', color: '#ef4444', fontWeight: 700 }}>{g.vencidos}</td>
+                      <td style={{ textAlign: 'center', color: '#a855f7', fontWeight: 600 }}>{g.vencidosEnTramite}</td>
+                      <td style={{ textAlign: 'center', fontWeight: 700 }}>
+                        <span style={{ color: g.cumplimientoPct === 100 ? '#10b981' : g.vencidos > 0 ? '#ef4444' : '#f59e0b' }}>
+                          {g.cumplimientoPct}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '.75rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={{ display: 'inline-flex', flexDirection: 'column', gap: '.2rem' }}>
             <span className="muted hint">Desde</span>
@@ -202,6 +400,8 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
           </div>
         </>
       )}
+      </>
+      )}
 
       {modalExportar && (
         <ExportarAdministracionModal
@@ -211,6 +411,15 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
           empresaClaveInicial={empresaClave}
           tasaBcvHoy={tasa}
           onClose={() => setModalExportar(false)}
+        />
+      )}
+
+      {modalExportarDocs && (
+        <ExportarDocumentosModal
+          documentos={docs}
+          empresas={empresas}
+          empresaClaveInicial={empresaClave}
+          onClose={() => setModalExportarDocs(false)}
         />
       )}
 
