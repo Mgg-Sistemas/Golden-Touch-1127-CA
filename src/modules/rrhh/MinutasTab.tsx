@@ -10,6 +10,9 @@ import { tieneAcuerdosVencidos } from './minutaModelo';
 import { FILTROS_VACIOS, contarMinutas, filtrarMinutas, recortar, type FiltrosMinutas } from './minutaFiltros';
 import { MinutaEditorModal } from './MinutaEditorModal';
 import { MinutaDetalleModal } from './MinutaDetalleModal';
+import { CargarMinutaModal } from './CargarMinutaModal';
+import { listAdjuntos, urlAdjunto } from './minutaAdjuntos.repository';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 
 /** Minutas de reunión: histórico con filtros. Son de toda la organización, no de una nómina. */
 export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: string }) {
@@ -19,6 +22,24 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
   // undefined = editor cerrado, null = minuta nueva, Minuta = editando esa.
   const [editando, setEditando] = useState<Minuta | null | undefined>(undefined);
   const [viendoId, setViendoId] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [abriendoPdf, setAbriendoPdf] = useState<string | null>(null);
+
+  /** Vista previa: la cargada muestra su documento original; la del sistema, su PDF. */
+  async function verPdf(m: MinutaConAdjuntos) {
+    setAbriendoPdf(m.id);
+    try {
+      if (m.origen === 'cargada') {
+        const adj = (await listAdjuntos(m.id))[0];
+        if (!adj) { toast('Esta minuta no tiene documento cargado', 'error'); return; }
+        previewArchivo(await urlAdjunto(adj.path), adj.nombre || `${m.numero}.pdf`);
+      } else {
+        await generarMinutaPdf(m);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir la vista previa', 'error');
+    } finally { setAbriendoPdf(null); }
+  }
 
   const recargar = useCallback(async () => {
     try { setLista(await listMinutas()); }
@@ -56,6 +77,7 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
 
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         {canWrite && <button type="button" className="btn btn-primary" onClick={() => setEditando(null)}>+ Nueva minuta</button>}
+        {canWrite && <button type="button" className="btn" onClick={() => setCargando(true)} title="Subir una minuta que ya existe (papel u otro sistema) con su documento">📤 Cargar minuta ya hecha</button>}
         <button type="button" className="btn"
           onClick={() => { generarMinutaPdf(null).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el formato', 'error')); }}>
           🖨 Imprimir formato en blanco
@@ -80,6 +102,17 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
               <option value="finalizada">Finalizada</option>
             </select>
           </div>
+          <div className="form-row"><label>N.º de minuta</label><input className="input mono" value={filtros.numero} onChange={(e) => set('numero', e.target.value)} placeholder="Ej.: MIN-2026-0003" /></div>
+          <div className="form-row"><label>Tema / objetivo</label><input className="input" value={filtros.tema} onChange={(e) => set('tema', e.target.value)} placeholder="Ej.: seguridad" /></div>
+          <div className="form-row"><label>Lugar</label><input className="input" value={filtros.lugar} onChange={(e) => set('lugar', e.target.value)} /></div>
+          <div className="form-row">
+            <label>Origen</label>
+            <select className="select" value={filtros.origen} onChange={(e) => set('origen', e.target.value as FiltrosMinutas['origen'])}>
+              <option value="">Todas</option>
+              <option value="sistema">Hechas en el sistema</option>
+              <option value="cargada">Cargadas (ya hechas)</option>
+            </select>
+          </div>
           <div className="form-row"><label>Participante o responsable</label><input className="input" value={filtros.persona} onChange={(e) => set('persona', e.target.value)} placeholder="Nombre…" /></div>
           <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Buscar por palabra</label><input className="input" value={filtros.palabra} onChange={(e) => set('palabra', e.target.value)} placeholder="🔍 Objetivo, acuerdos, avances…" /></div>
         </div>
@@ -87,6 +120,10 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
           <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>
             <input type="checkbox" checked={filtros.soloPendientes} onChange={(e) => set('soloPendientes', e.target.checked)} /> Solo con acuerdos pendientes
           </label>
+          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>
+            <input type="checkbox" checked={filtros.conAdjuntos} onChange={(e) => set('conAdjuntos', e.target.checked)} /> Solo con documentos adjuntos
+          </label>
+          <span className="muted" style={{ fontSize: '.8rem' }}>{visibles.length} de {lista.length}</span>
           {hayFiltros && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFiltros(FILTROS_VACIOS)}>Limpiar filtros</button>}
         </div>
       </div>
@@ -101,10 +138,13 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
               <tr key={m.id}>
                 <td className="mono">{m.numero}</td>
                 <td>{date(m.fecha)}</td>
-                <td>{recortar(m.objetivo) || <span className="muted">—</span>}{m.tiene_adjuntos && <span title="Tiene adjuntos" style={{ marginLeft: '.4rem' }}>📎</span>}{tieneAcuerdosVencidos(m) && <span title="Tiene acuerdos con fecha de compromiso vencida" aria-label="Acuerdos vencidos" style={{ marginLeft: '.4rem', color: 'var(--warning)' }}>⚠</span>}</td>
+                <td>{m.origen === 'cargada' && <span className="badge" title="Minuta ya hecha, cargada con su documento" style={{ marginRight: '.35rem', fontSize: '.65rem' }}>📤 Cargada</span>}{recortar(m.objetivo) || <span className="muted">—</span>}{m.tiene_adjuntos && <span title="Tiene adjuntos" style={{ marginLeft: '.4rem' }}>📎</span>}{tieneAcuerdosVencidos(m) && <span title="Tiene acuerdos con fecha de compromiso vencida" aria-label="Acuerdos vencidos" style={{ marginLeft: '.4rem', color: 'var(--warning)' }}>⚠</span>}</td>
                 <td style={{ textAlign: 'center' }}>{(m.participantes ?? []).length}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: m.estado === 'borrador' ? 'var(--warning)' : 'var(--success)' }}>{m.estado === 'borrador' ? 'Borrador' : 'Finalizada'}</span></td>
-                <td style={{ textAlign: 'center' }}><button type="button" className="btn btn-sm" onClick={() => setViendoId(m.id)}>Ver</button></td>
+                <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  <button type="button" className="btn btn-sm btn-ghost" disabled={abriendoPdf === m.id} onClick={() => void verPdf(m)} title="Vista previa del PDF">{abriendoPdf === m.id ? '…' : '👁 PDF'}</button>{' '}
+                  <button type="button" className="btn btn-sm" onClick={() => setViendoId(m.id)}>Ver</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -116,6 +156,10 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
           onClose={() => setViendoId(null)}
           onEditar={() => setEditando(viendo)}
           onBorrada={() => { setViendoId(null); void recargar(); }} />
+      )}
+      {cargando && (
+        <CargarMinutaModal actor={actor} onClose={() => setCargando(false)}
+          onCargada={() => { setCargando(false); void recargar(); }} />
       )}
       {editando !== undefined && (
         <MinutaEditorModal minuta={editando} actor={actor}

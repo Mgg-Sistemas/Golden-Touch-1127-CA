@@ -7,8 +7,9 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Minuta, MinutaAcuerdo, MinutaAvance, MinutaParticipante } from '@/shared/lib/types';
-import { borrarArchivosDeMinuta } from './minutaAdjuntos.repository';
+import { borrarArchivosDeMinuta, subirAdjunto } from './minutaAdjuntos.repository';
 import { componerBusq, hoyVE, numeroMinuta, type BorradorMinuta } from './minutaModelo';
+import { borradorDesdeMinuta } from './minutaBorrador';
 
 const TABLE = 'minutas';
 
@@ -107,6 +108,51 @@ export async function crearMinuta(b: BorradorMinuta, actor: string): Promise<Min
     .select('*').single();
   if (error) throw error;
   return data as Minuta;
+}
+
+/* ───────── 05/11/2026 · Cargar una minuta ya hecha (papel u otro sistema) ───────── */
+
+export interface DatosMinutaCargada {
+  /** Vacío = el siguiente correlativo del año. */
+  numero?: string | null;
+  fecha: string;
+  objetivo: string;
+  lugar?: string | null;
+  participantes: string[];
+  observaciones?: string | null;
+}
+
+/** Crea la minuta «cargada» (finalizada) y sube su documento. Si el archivo no sube, no queda a medias. */
+export async function crearMinutaCargada(d: DatosMinutaCargada, archivos: File[], actor: string): Promise<Minuta> {
+  if (!archivos.length) throw new Error('Adjunta el documento de la minuta.');
+  const b: BorradorMinuta = {
+    ...borradorDesdeMinuta(null),
+    fecha: d.fecha,
+    objetivo: d.objetivo,
+    lugar: d.lugar ?? '',
+    observaciones: d.observaciones ?? '',
+    participantes: d.participantes.map((nombre) => ({ personal_id: null, nombre, cargo: '' })),
+    orden_dia: [], acuerdos: [], avances: [], proximos_puntos: [],
+    estado: 'finalizada',
+  };
+  const anio = Number((d.fecha || '').slice(0, 4)) || Number(hoyVE().slice(0, 4));
+  const numero = (d.numero ?? '').trim().toUpperCase() || await proximoNumero(anio);
+  const { data, error } = await supabase
+    .from(TABLE)
+    .insert({ ...filasAGuardar(b), numero, origen: 'cargada', creada_por: actor })
+    .select('*').single();
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error(`Ya existe una minuta con el número ${numero}.`);
+    throw error;
+  }
+  const m = data as Minuta;
+  try {
+    for (const f of archivos) await subirAdjunto(m.id, f, actor);
+  } catch (e) {
+    await borrarMinuta(m.id).catch(() => { /* se informa el error de la subida */ });
+    throw e;
+  }
+  return m;
 }
 
 export async function actualizarMinuta(id: string, b: BorradorMinuta, actor: string): Promise<Minuta> {

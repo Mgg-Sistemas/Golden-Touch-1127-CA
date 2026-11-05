@@ -1937,6 +1937,8 @@ export interface Minuta {
   avances: MinutaAvance[];
   observaciones: string | null;
   anexar_adjuntos_pdf: boolean;
+  /** 05/11/2026: 'cargada' = minuta ya hecha subida con su documento (sin dato = del sistema). */
+  origen?: 'sistema' | 'cargada' | null;
   busq?: string | null;
   creada_por?: string | null;
   creada_en: string;

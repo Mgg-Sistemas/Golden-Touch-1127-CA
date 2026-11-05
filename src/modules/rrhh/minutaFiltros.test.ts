@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Minuta } from '@/shared/lib/types';
-import { FILTROS_VACIOS, contarMinutas, filtrarMinutas, recortar } from './minutaFiltros';
+import { FILTROS_VACIOS, contarMinutas, filtrarMinutas, recortar, type FiltrosMinutas } from './minutaFiltros';
 
 const HOY = new Date('2026-10-01T16:00:00Z');
 
@@ -66,5 +66,27 @@ describe('recortar', () => {
     const r = recortar('x'.repeat(100));
     expect(r.length).toBe(60);
     expect(r.endsWith('…')).toBe(true);
+  });
+});
+
+describe('filtros nuevos: número, tema, lugar, origen y adjuntos (05/11/2026)', () => {
+  const mk = (p: Partial<Minuta & { tiene_adjuntos: boolean }>) => ({
+    id: p.id ?? 'x', numero: p.numero ?? 'MIN-2026-0001', estado: 'finalizada', lugar: p.lugar ?? null, fecha: '2026-10-01',
+    hora_inicio: null, objetivo: p.objetivo ?? null, orden_dia: [], participantes: [], acuerdos: [], otros_asuntos: null,
+    proxima_fecha: null, proximos_puntos: [], avances: [], observaciones: null, anexar_adjuntos_pdf: false,
+    creada_en: '2026-10-01T00:00:00Z', origen: p.origen ?? null, tiene_adjuntos: p.tiene_adjuntos ?? false,
+  }) as Minuta & { tiene_adjuntos: boolean };
+  const lista = [
+    mk({ id: 'a', numero: 'MIN-2026-0001', objetivo: 'Seguridad en mina', lugar: 'Peramanal' }),
+    mk({ id: 'b', numero: 'ACTA-15', objetivo: 'Compras del mes', lugar: 'Los Pinos', origen: 'cargada', tiene_adjuntos: true }),
+  ];
+  const ids = (f: Partial<FiltrosMinutas>) => filtrarMinutas(lista, { ...FILTROS_VACIOS, ...f }).map((m) => m.id);
+  it('filtra por cada campo', () => {
+    expect(ids({ numero: 'acta' })).toEqual(['b']);
+    expect(ids({ tema: 'seguridad' })).toEqual(['a']);
+    expect(ids({ lugar: 'pinos' })).toEqual(['b']);
+    expect(ids({ origen: 'sistema' })).toEqual(['a']);
+    expect(ids({ origen: 'cargada' })).toEqual(['b']);
+    expect(ids({ conAdjuntos: true })).toEqual(['b']);
   });
 });
