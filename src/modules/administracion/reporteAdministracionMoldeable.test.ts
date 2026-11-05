@@ -8,6 +8,7 @@ import {
   agruparFilasAdmin,
   obtenerMetricasFichaAdmin,
   ordenarFilasAdmin,
+  esColumnaAplicableModoAdmin,
 } from './reporteAdministracionMoldeable';
 import type { Movimiento, Empresa, OpcionRef } from './admin.repository';
 
@@ -247,6 +248,25 @@ describe('reporteAdministracionMoldeable', () => {
 
     const ordFecha = ordenarFilasAdmin(normalizadas, 'fecha', false);
     expect(ordFecha[0].fecha <= ordFecha[ordFecha.length - 1].fecha).toBe(true);
+  });
+
+  it('esColumnaAplicableModoAdmin distingue campos de detalle vs consolidados', () => {
+    // En detallado concepto aplica
+    expect(esColumnaAplicableModoAdmin('concepto', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoAdmin('fecha', 'detallado')).toBe(true);
+
+    // En agrupaciones consolidadas concepto no aplica
+    expect(esColumnaAplicableModoAdmin('concepto', 'categoria')).toBe(false);
+    expect(esColumnaAplicableModoAdmin('concepto', 'empresa')).toBe(false);
+
+    // Operaciones aplica en agrupaciones
+    expect(esColumnaAplicableModoAdmin('operaciones', 'categoria')).toBe(true);
+    expect(esColumnaAplicableModoAdmin('operaciones', 'empresa')).toBe(true);
+
+    // Fecha solo en mes, dia o detallado
+    expect(esColumnaAplicableModoAdmin('fecha', 'dia')).toBe(true);
+    expect(esColumnaAplicableModoAdmin('fecha', 'mes')).toBe(true);
+    expect(esColumnaAplicableModoAdmin('fecha', 'categoria')).toBe(false);
   });
 });
 

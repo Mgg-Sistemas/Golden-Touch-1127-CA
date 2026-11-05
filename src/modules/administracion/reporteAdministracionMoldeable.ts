@@ -89,7 +89,8 @@ export interface CampoColumnaAdmin {
 export const CAMPOS_REPORTE_ADMIN: CampoColumnaAdmin[] = [
   { clave: 'fecha', etiqueta: 'Fecha', anchoPdf: 14, anchoExcel: 13, alineacion: 'center', formato: 'texto', descripcion: 'Fecha efectiva del movimiento' },
   { clave: 'empresa', etiqueta: 'Empresa', anchoPdf: 22, anchoExcel: 24, alineacion: 'left', formato: 'texto', descripcion: 'Razón social de la empresa' },
-  { clave: 'concepto', etiqueta: 'Concepto / Servicio', anchoPdf: 28, anchoExcel: 30, alineacion: 'left', formato: 'texto', descripcion: 'Descripción del gasto administrativo' },
+  { clave: 'operaciones', etiqueta: 'N° Operaciones', anchoPdf: 15, anchoExcel: 14, alineacion: 'center', formato: 'numero', descripcion: 'Cantidad de movimientos u operaciones en el grupo' },
+  { clave: 'concepto', etiqueta: 'Concepto / Servicio', anchoPdf: 28, anchoExcel: 30, alineacion: 'left', formato: 'texto', descripcion: 'Descripción del gasto administrativo (solo detallado)' },
   { clave: 'categoria', etiqueta: 'Categoría', anchoPdf: 20, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Rubro / categoría contable' },
   { clave: 'proveedor', etiqueta: 'Proveedor / Beneficiario', anchoPdf: 24, anchoExcel: 26, alineacion: 'left', formato: 'texto', descripcion: 'Proveedor o beneficiario del pago' },
   { clave: 'periodo', etiqueta: 'Período', anchoPdf: 14, anchoExcel: 14, alineacion: 'center', formato: 'texto', descripcion: 'Token del período (ej. 2026-11)' },
@@ -104,17 +105,38 @@ export const CAMPOS_REPORTE_ADMIN: CampoColumnaAdmin[] = [
 ];
 
 export const CAMPOS_POR_DEFECTO_ADMIN_POR_MODO: Record<ModoAgrupacionAdmin, string[]> = {
-  empresa: ['empresa', 'monto_usd', 'monto_bs', 'pct_total'],
-  categoria: ['categoria', 'monto_usd', 'monto_bs', 'pct_total'],
-  proveedor: ['proveedor', 'categoria', 'monto_usd', 'monto_bs', 'pct_total'],
-  periodo: ['periodo', 'monto_usd', 'monto_bs', 'pct_total'],
-  mes: ['fecha', 'monto_usd', 'monto_bs', 'pct_total'],
-  dia: ['fecha', 'monto_usd', 'monto_bs', 'pct_total'],
-  moneda: ['moneda_orig', 'monto_orig', 'monto_usd', 'monto_bs', 'pct_total'],
-  estado: ['estado', 'monto_usd', 'monto_bs', 'pct_total'],
-  origen: ['origen', 'monto_usd', 'monto_bs', 'pct_total'],
+  empresa: ['empresa', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  categoria: ['categoria', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  proveedor: ['proveedor', 'operaciones', 'categoria', 'monto_usd', 'monto_bs', 'pct_total'],
+  periodo: ['periodo', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  mes: ['fecha', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  dia: ['fecha', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  moneda: ['moneda_orig', 'operaciones', 'monto_orig', 'monto_usd', 'monto_bs', 'pct_total'],
+  estado: ['estado', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  origen: ['origen', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
   detallado: ['fecha', 'empresa', 'concepto', 'categoria', 'proveedor', 'estado', 'monto_usd', 'monto_bs'],
 };
+
+/**
+ * Determina si una columna es aplicable según el modo de agrupación activo en Administración.
+ */
+export function esColumnaAplicableModoAdmin(
+  colClave: string,
+  modo: ModoAgrupacionAdmin,
+): boolean {
+  if (modo === 'detallado') {
+    return colClave !== 'operaciones'; // En detallado cada fila es 1 movimiento
+  }
+
+  // En modos agrupados:
+  if (colClave === 'concepto') {
+    return false; // El concepto individual aplica a nivel de movimiento detallado
+  }
+  if (colClave === 'fecha') {
+    return modo === 'dia' || modo === 'mes';
+  }
+  return true;
+}
 
 /* ───────────── Fila normalizada del reporte ───────────── */
 

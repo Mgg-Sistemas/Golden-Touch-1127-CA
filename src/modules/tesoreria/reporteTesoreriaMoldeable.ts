@@ -139,8 +139,9 @@ export interface CampoColumnaTesoreria {
 
 export const CAMPOS_REPORTE_TESORERIA: CampoColumnaTesoreria[] = [
   { clave: 'fecha', etiqueta: 'Fecha', anchoPdf: 14, anchoExcel: 13, alineacion: 'center', formato: 'texto', descripcion: 'Fecha de emisión o ejecución' },
-  { clave: 'hora', etiqueta: 'Hora', anchoPdf: 11, anchoExcel: 11, alineacion: 'center', formato: 'texto', descripcion: 'Hora exacta del registro' },
+  { clave: 'hora', etiqueta: 'Hora', anchoPdf: 11, anchoExcel: 11, alineacion: 'center', formato: 'texto', descripcion: 'Hora exacta del registro (solo detallado)' },
   { clave: 'codigo', etiqueta: 'N° Código / Ref', anchoPdf: 18, anchoExcel: 18, alineacion: 'left', formato: 'texto', descripcion: 'Código OC/CS/SD o referencia' },
+  { clave: 'operaciones', etiqueta: 'N° Operaciones', anchoPdf: 15, anchoExcel: 14, alineacion: 'center', formato: 'numero', descripcion: 'Cantidad de registros u operaciones en el grupo' },
   { clave: 'caja', etiqueta: 'Caja / Banco', anchoPdf: 20, anchoExcel: 20, alineacion: 'left', formato: 'texto', descripcion: 'Cuenta bancaria o billetera de origen' },
   { clave: 'contraparte', etiqueta: 'Proveedor / Beneficiario', anchoPdf: 26, anchoExcel: 26, alineacion: 'left', formato: 'texto', descripcion: 'Razón social de la contraparte' },
   { clave: 'tipo_mov', etiqueta: 'Tipo de Movimiento', anchoPdf: 16, anchoExcel: 16, alineacion: 'center', formato: 'texto', descripcion: 'Ingreso, Egreso o Traslado' },
@@ -157,16 +158,43 @@ export const CAMPOS_REPORTE_TESORERIA: CampoColumnaTesoreria[] = [
 ];
 
 export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionTesoreria, string[]> = {
-  caja: ['caja', 'tipo_mov', 'monto_usd', 'monto_bs', 'pct_total'],
-  moneda: ['monto_original', 'monto_usd', 'monto_bs', 'pct_total'],
-  tipo_movimiento: ['tipo_mov', 'monto_usd', 'monto_bs', 'pct_total'],
-  categoria_gasto: ['categoria', 'monto_usd', 'monto_bs', 'pct_total'],
-  contraparte: ['contraparte', 'categoria', 'monto_usd', 'monto_bs', 'pct_total'],
-  origen_documento: ['origen_documento', 'monto_usd', 'monto_bs', 'pct_total'],
-  dia: ['fecha', 'monto_usd', 'monto_bs', 'pct_total'],
-  mes: ['fecha', 'monto_usd', 'monto_bs', 'pct_total'],
+  caja: ['caja', 'operaciones', 'tipo_mov', 'monto_usd', 'monto_bs', 'pct_total'],
+  moneda: ['monto_original', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  tipo_movimiento: ['tipo_mov', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  categoria_gasto: ['categoria', 'operaciones', 'tipo_mov', 'monto_usd', 'monto_bs', 'pct_total'],
+  contraparte: ['contraparte', 'operaciones', 'categoria', 'monto_usd', 'monto_bs', 'pct_total'],
+  origen_documento: ['origen_documento', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  dia: ['fecha', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
+  mes: ['fecha', 'operaciones', 'monto_usd', 'monto_bs', 'pct_total'],
   detallado: ['fecha', 'codigo', 'caja', 'contraparte', 'tipo_mov', 'categoria', 'estado', 'metodo_pago', 'monto_usd', 'monto_bs'],
 };
+
+/** Columnas que solo tienen sentido a nivel de transacción individual (no en resúmenes consolidados). */
+export const COLUMNAS_SOLO_DETALLE_TESORERIA = ['hora', 'codigo', 'saldo_caja', 'concepto'] as const;
+
+/**
+ * Determina si una columna es aplicable según el modo de agrupación activo.
+ * En agrupaciones consolidadas (Por Categoría, Caja, etc.), campos individuales
+ * como Hora, Código o Saldo Resultante no tienen significado y se descartan
+ * para evitar llenar la tabla con columnas de guiones vacíos ('-').
+ */
+export function esColumnaAplicableModoTesoreria(
+  colClave: string,
+  modo: ModoAgrupacionTesoreria,
+): boolean {
+  if (modo === 'detallado') {
+    return colClave !== 'operaciones'; // En detallado cada fila es 1 op individual
+  }
+
+  // En modos agrupados:
+  if (colClave === 'hora' || colClave === 'codigo' || colClave === 'saldo_caja' || colClave === 'concepto') {
+    return false;
+  }
+  if (colClave === 'fecha') {
+    return modo === 'dia' || modo === 'mes';
+  }
+  return true;
+}
 
 /* ───────────── Opciones del reporte ───────────── */
 
@@ -874,7 +902,7 @@ export function procesarFilasReporteTesoreria(
       categoria: agrupacion === 'categoria_gasto' ? g.etiqueta : uno(g.distintos.categoria, g.categoria, 'categorías'),
       subcategoria: null,
       contraparte: agrupacion === 'contraparte' ? g.etiqueta : uno(g.distintos.contraparte, g.contraparte, 'proveedores / beneficiarios'),
-      concepto: g.etiqueta,
+      concepto: agrupacion === 'categoria_gasto' ? `Consolidado (${g.operaciones} ops)` : g.etiqueta,
       origen_documento: agrupacion === 'origen_documento' ? g.etiqueta : uno(g.distintos.origen, g.origen, 'orígenes'),
       // 04/11/2026: el grupo conserva el método/datos de pago y el estado (antes salía «—»).
       estado: unico(g.distintos.estado, 'estados'),
@@ -947,7 +975,7 @@ export function obtenerMetricasFichaTesoreria(
   }
 
   // 3. Monto en moneda original (si está marcado y la moneda no es ya USD/Bs)
-  if (columnasClaves.includes('monto_original') && metricas.length < 4 && f.moneda_original !== 'USD' && f.moneda_original !== 'Bs') {
+  if (columnasClaves.includes('monto_original') && f.moneda_original !== 'USD' && f.moneda_original !== 'Bs') {
     metricas.push({
       clave: 'monto_original',
       etiqueta: `MONTO (${f.moneda_original})`,
@@ -958,8 +986,8 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 4. Operaciones (si está agrupado o se marcó)
-  if (metricas.length < 4 && (f.total_operaciones != null)) {
+  // 4. Operaciones (si está marcado en columnas o el grupo tiene operaciones acumuladas)
+  if ((columnasClaves.includes('operaciones') || f.total_operaciones != null) && f.total_operaciones != null) {
     metricas.push({
       clave: 'operaciones',
       etiqueta: 'OPERACIONES',
@@ -971,7 +999,7 @@ export function obtenerMetricasFichaTesoreria(
   }
 
   // 5. % del total
-  if (columnasClaves.includes('pct_total') && metricas.length < 4 && f.pct_del_total != null) {
+  if (columnasClaves.includes('pct_total') && f.pct_del_total != null) {
     metricas.push({
       clave: 'pct_total',
       etiqueta: '% DEL TOTAL',
@@ -982,9 +1010,21 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 6. Método / estado de pago. 04/11/2026: con «Método y Datos de Pago» marcado, el
+  // 6. Tasa BCV aplicada
+  if (columnasClaves.includes('tasa_bcv') && f.tasa_bcv_aplicada > 0) {
+    metricas.push({
+      clave: 'tasa_bcv',
+      etiqueta: 'TASA BCV',
+      valor: `Bs ${f.tasa_bcv_aplicada.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/$`,
+      sub: 'Tasa aplicada',
+      colorHex: '#38bdf8',
+      colorRgb: [56, 189, 248],
+    });
+  }
+
+  // 7. Método / estado de pago. 04/11/2026: con «Método y Datos de Pago» marcado, el
   //    valor es el método (Transferencia, Pago móvil…) y debajo van sus datos y el estado.
-  if ((columnasClaves.includes('metodo_pago') || columnasClaves.includes('estado')) && metricas.length < 4) {
+  if (columnasClaves.includes('metodo_pago') || columnasClaves.includes('estado')) {
     const conMetodo = columnasClaves.includes('metodo_pago');
     const textoPago = (f.datos_pago_resumen || f.metodo_pago || '').trim();
     const corte = textoPago.indexOf(' — ');
@@ -1038,5 +1078,5 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  return metricas.slice(0, 4);
+  return metricas;
 }

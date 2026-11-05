@@ -13,6 +13,7 @@ import {
   resumenTesoreria,
   obtenerMetricasFichaTesoreria,
   resolverCabeceraTarjetaTesoreria,
+  esColumnaAplicableModoTesoreria,
   ETIQUETA_MODO_TESORERIA,
   type ContextoTasas,
   type FilaReporteTesoreria,
@@ -429,5 +430,47 @@ describe('resolverCabeceraTarjetaTesoreria (claridad y rótulos en tarjetas)', (
     const met = obtenerMetricasFichaTesoreria(filaGrupoCategoria, [], { mostrarUsd: true, mostrarBs: false });
     expect(met[0].clave).toBe('monto_usd');
     expect(met[0].valor).toBe('$ 2.554,32');
+  });
+
+  it('obtenerMetricasFichaTesoreria no trunca a 4 cuando el usuario marca múltiples métricas válidas', () => {
+    const met = obtenerMetricasFichaTesoreria(
+      filaGrupoCategoria,
+      ['monto_usd', 'monto_bs', 'operaciones', 'pct_total', 'tasa_bcv', 'metodo_pago'],
+      { mostrarUsd: true, mostrarBs: true },
+    );
+    // Debe incluir todas las métricas seleccionadas que apliquen a la fila
+    const claves = met.map((m) => m.clave);
+    expect(claves).toContain('monto_usd');
+    expect(claves).toContain('monto_bs');
+    expect(claves).toContain('operaciones');
+    expect(claves).toContain('pct_total');
+    expect(claves).toContain('tasa_bcv');
+    expect(claves).toContain('metodo_pago');
+    expect(met.length).toBe(6);
+  });
+
+  it('esColumnaAplicableModoTesoreria distingue columnas de detalle vs consolidadas', () => {
+    // En detallado aplican las columnas de transacción individual
+    expect(esColumnaAplicableModoTesoreria('hora', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('codigo', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('saldo_caja', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('concepto', 'detallado')).toBe(true);
+
+    // En agrupaciones consolidadas (categoria_gasto, caja, contraparte, etc.) NO aplican
+    expect(esColumnaAplicableModoTesoreria('hora', 'categoria_gasto')).toBe(false);
+    expect(esColumnaAplicableModoTesoreria('codigo', 'categoria_gasto')).toBe(false);
+    expect(esColumnaAplicableModoTesoreria('saldo_caja', 'categoria_gasto')).toBe(false);
+    expect(esColumnaAplicableModoTesoreria('concepto', 'categoria_gasto')).toBe(false);
+
+    // Operaciones y montos sí aplican a grupos
+    expect(esColumnaAplicableModoTesoreria('operaciones', 'categoria_gasto')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('monto_usd', 'categoria_gasto')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('monto_bs', 'categoria_gasto')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('pct_total', 'categoria_gasto')).toBe(true);
+
+    // Fecha solo aplica a dia, mes o detallado
+    expect(esColumnaAplicableModoTesoreria('fecha', 'dia')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('fecha', 'mes')).toBe(true);
+    expect(esColumnaAplicableModoTesoreria('fecha', 'categoria_gasto')).toBe(false);
   });
 });
