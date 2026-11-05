@@ -298,7 +298,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                         <strong>{retiro ? p.codigo : ocDe(p)}</strong>
                         {p.urgente && <> <span className="badge danger">URGENTE</span></>}
                         {destino && <div className="muted" style={{ fontSize: '.75rem' }}>🏬 {retiro ? `Entregar a: ${destino}` : destino}</div>}
-                        {!retiro && etiquetaSedeEntrega(p.sede_entrega) && <div className="muted" style={{ fontSize: '.75rem' }}>📍 Entregar en la sede: <strong>{etiquetaSedeEntrega(p.sede_entrega)}</strong></div>}
+                        {!retiro && etiquetaSedeEntrega(p.sede_entrega) && <div className="muted" style={{ fontSize: '.75rem' }}>📍 Dirección de recepción: <strong>Almacén {etiquetaSedeEntrega(p.sede_entrega)}</strong></div>}
                       </td>
                       <td>
                         {retiro ? <span className="badge info">{ORIGEN_DELIVERY.almacen.emoji} Retiro en {ALMACEN_RETIRO}</span> : (p.proveedor_nombre ?? '—')}

@@ -4594,7 +4594,7 @@ function CrearOrdenModal({
           ))}
         </div>
         <small className="hint muted" style={{ fontSize: '.72rem' }}>
-          Para el delivery: le sale «Entregar en la sede: {etiquetaSedeEntrega(sedeEntrega)}».
+          Para el delivery: le sale «Dirección de recepción: Almacén {etiquetaSedeEntrega(sedeEntrega)}». Se puede cambiar al cotizar.
         </small>
       </div>
 

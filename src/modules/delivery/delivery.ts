@@ -281,7 +281,7 @@ export function mensajeAceptado(p: PedidoDelivery, repartidor: string, cuando?: 
     const destino = destinoRetiro(p);
     if (destino) l.push(`🏬 *Entregar a:* ${destino}`);
   } else if (p.almacen_destino) l.push(`🏬 *Entregar en:* ${p.almacen_destino}`);
-  if (!retiro && etiquetaSedeEntrega(p.sede_entrega)) l.push(`📍 *Entregar en la sede:* ${etiquetaSedeEntrega(p.sede_entrega)}`);
+  if (!retiro && etiquetaSedeEntrega(p.sede_entrega)) l.push(`📍 *Dirección de recepción:* Almacén ${etiquetaSedeEntrega(p.sede_entrega)}`);
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
   l.push('', `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
@@ -353,7 +353,7 @@ export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: st
     const destino = destinoRetiro(p);
     if (destino) l.push(`🏬 *Va hacia:* ${destino}`);
   } else if (p.almacen_destino) l.push(`🏬 *Va hacia:* ${p.almacen_destino}`);
-  if (!retiro && etiquetaSedeEntrega(p.sede_entrega)) l.push(`📍 *Entregar en la sede:* ${etiquetaSedeEntrega(p.sede_entrega)}`);
+  if (!retiro && etiquetaSedeEntrega(p.sede_entrega)) l.push(`📍 *Dirección de recepción:* Almacén ${etiquetaSedeEntrega(p.sede_entrega)}`);
   l.push(`🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
   return l.join('\n');
 }

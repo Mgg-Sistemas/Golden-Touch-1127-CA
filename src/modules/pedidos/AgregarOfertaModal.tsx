@@ -8,6 +8,8 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, OrigenProveedor, Proveedor } from '@/shared/lib/types';
+import { SEDES_ENTREGA, etiquetaSedeEntrega } from '@/shared/lib/types';
+import { supabase } from '@/shared/lib/supabase';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO, ligarRenglonesAInventario } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { hayVariantes, totalesRepresentativos } from './variantesOferta';
@@ -158,6 +160,15 @@ export function AgregarOfertaModal({
   onCreated,
 }: Props) {
   const editando = !!ofertaEditar;
+  // 05/11/2026: al cotizar se indica a dónde va la entrega (Los Pinos / Matanza); el delivery
+  // lo ve como «Dirección de recepción». Queda en la orden (la misma de la solicitud).
+  const pideSede = (orden.tipo ?? 'producto') !== 'servicio';
+  const [sedeEntrega, setSedeEntrega] = useState<'los_pinos' | 'matanza'>(orden.sede_entrega ?? 'los_pinos');
+  async function guardarSede() {
+    if (!pideSede || sedeEntrega === orden.sede_entrega) return;
+    const { error } = await supabase.from('ordenes').update({ sede_entrega: sedeEntrega }).eq('id', orden.id);
+    if (error) toast('La cotización se guardó, pero no se pudo guardar a dónde va la entrega.', 'error');
+  }
   const opcionesProveedor = useMemo(
     // Al editar, el proveedor de la oferta debe seguir disponible para elegir.
     () => proveedores.filter((p) => p.estado === 'activo' && (p.id === ofertaEditar?.proveedor_id || !proveedoresYaOfertados.has(p.id))),
@@ -646,6 +657,7 @@ export function AgregarOfertaModal({
         });
         notify(`Oferta actualizada · ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
         await recordarPiezasEnOrden(itemsGuardar);
+        await guardarSede();
         onCreated();
         return;
       }
@@ -677,6 +689,7 @@ export function AgregarOfertaModal({
       });
       notify(`Oferta registrada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
       await recordarPiezasEnOrden(itemsGuardar);
+      await guardarSede();
       onCreated();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al registrar', 'error');
@@ -1168,6 +1181,24 @@ export function AgregarOfertaModal({
           </div>
           <small className="muted">
             Se aplica al <strong>aceptar la oferta</strong>: el anticipo <strong>no descuenta caja</strong>, se resta del total y el <strong>resto queda a crédito</strong> (aparece en Tesorería y en el saldo pendiente). Si lo dejas en blanco, es <strong>prepago total</strong>.
+          </small>
+        </div>
+      )}
+
+      {/* 05/11/2026: a dónde va la entrega (lo ve el delivery como dirección de recepción). */}
+      {pideSede && (
+        <div className="form-row">
+          <label>📍 ¿A dónde va la entrega? *</label>
+          <div className="view-toggle" role="radiogroup" aria-label="Dirección de recepción" style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}>
+            {SEDES_ENTREGA.map((x) => (
+              <button key={x.sede} type="button" role="radio" aria-checked={sedeEntrega === x.sede}
+                className={sedeEntrega === x.sede ? 'active' : ''} onClick={() => setSedeEntrega(x.sede)}>
+                📍 {x.etiqueta.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <small className="hint muted" style={{ fontSize: '.72rem' }}>
+            Al delivery le sale «Dirección de recepción: Almacén {etiquetaSedeEntrega(sedeEntrega)}». Vale para toda la orden.
           </small>
         </div>
       )}

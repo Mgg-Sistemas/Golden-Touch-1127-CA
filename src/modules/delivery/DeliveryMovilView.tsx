@@ -514,7 +514,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
         <div className="dlv-sub">🏬 {p.estado === 'entregado' ? 'Entregado en' : 'Entregar en'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
       )}
       {!retiro && etiquetaSedeEntrega(p.sede_entrega) && (
-        <div className="dlv-sub">📍 Entregar en la sede: <strong>{etiquetaSedeEntrega(p.sede_entrega)}</strong></div>
+        <div className="dlv-sub">📍 Dirección de recepción: <strong>Almacén {etiquetaSedeEntrega(p.sede_entrega)}</strong></div>
       )}
       {retiro && p.estado === 'entregado' && p.almacen_entrega && (
         <div className="dlv-sub">🏬 Entregado a: <strong>{p.almacen_entrega}</strong></div>
