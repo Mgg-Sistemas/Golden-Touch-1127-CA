@@ -16,6 +16,26 @@ export function enlaceWhatsapp(texto: string): string {
   return `https://wa.me/?text=${encodeURIComponent(sinSelectorDeEmoji(texto))}`;
 }
 
+/**
+ * Enlace directo a WhatsApp Web en PC de escritorio.
+ * Evita la pantalla intermedia de `api.whatsapp.com` (wa.me) que decodifica
+ * erróneamente los emojis UTF-8 multibyte convirtiéndolos en rombos ().
+ */
+export function enlaceWhatsappWeb(texto: string): string {
+  return `https://web.whatsapp.com/send?text=${encodeURIComponent(sinSelectorDeEmoji(texto))}`;
+}
+
+/**
+ * Enlace inteligente según dispositivo:
+ * En teléfonos móviles usa `wa.me/?text=` para abrir de inmediato la app nativa instalada.
+ * En PC / escritorio usa `web.whatsapp.com/send?text=` para abrir WhatsApp Web directamente,
+ * preservando el 100% de los emojis y saltos de línea sin pasar por la pasarela rota de Meta.
+ */
+export function enlaceWhatsappInteligente(texto: string): string {
+  const esMovil = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  return esMovil ? enlaceWhatsapp(texto) : enlaceWhatsappWeb(texto);
+}
+
 /** Quita el selector de presentación de emoji (U+FE0F), que WhatsApp pierde. */
 export function sinSelectorDeEmoji(texto: string): string {
   return texto.replace(/️/g, '');

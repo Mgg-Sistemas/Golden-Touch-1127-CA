@@ -86,7 +86,9 @@ export function SolicitudesAlmacenMovilView() {
   /** Revisada: se vuelve a abrir el WhatsApp de la revisión (el guardado o, si no, el armado). */
   function abrirRevisada(x: SolicitudConRevision) {
     const r = x.revision;
-    const texto = r?.texto_whatsapp?.trim()
+    const guardado = r?.texto_whatsapp?.trim();
+    const guardadoEsValido = guardado && !guardado.includes('�') && !guardado.includes('');
+    const texto = (guardadoEsValido ? guardado : null)
       || textoWhatsappRevision(x.orden, resumenRevision(renglonesDe(x), revisionGuardada(r?.items_revision)), r?.revisada_por_nombre || quien, r?.nota);
     setWspRevision({ titulo: `📲 Revisión de ${x.orden.codigo}`, texto });
   }
