@@ -203,8 +203,9 @@ export async function compartirUbicacion(
   if (error) throw err(error, 'No se pudo compartir la ubicación.');
 }
 
-export async function listUbicaciones(): Promise<UbicacionDelivery[]> {
-  const { data, error } = await supabase.from('delivery_ubicaciones').select('*').order('actualizado_en', { ascending: false });
+export async function listUbicaciones(canal: CanalDelivery = 'delivery'): Promise<UbicacionDelivery[]> {
+  // 05/11/2026: cada flota ve en el mapa solo a los suyos (la base marca la flota de cada ubicación).
+  const { data, error } = await supabase.from('delivery_ubicaciones').select('*').eq('flota', canal).order('actualizado_en', { ascending: false });
   if (error) throw err(error, 'No se pudieron leer las ubicaciones.');
   return ((data ?? []) as UbicacionDelivery[]).map((u) => ({ ...u, lat: Number(u.lat), lng: Number(u.lng) }));
 }

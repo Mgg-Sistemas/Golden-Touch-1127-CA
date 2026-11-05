@@ -336,7 +336,7 @@ export function AppShell() {
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
           {verPedidos && <NavItem to="/app/pedidos" icon="✉" label={labelPedidos} />}
           {/* 05/11/2026: Carga pesada es un segmento DENTRO de Delivery, no otro módulo del menú. */}
-          {(can('delivery') || can('carga_pesada')) && <NavItem to={can('delivery') ? '/app/delivery' : '/app/carga-pesada'} icon="🛵" label="Delivery" />}
+          {(can('delivery') || can('carga_pesada')) && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
           {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
           {puedeVerAlmacen(ALMACEN_MINA) && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}

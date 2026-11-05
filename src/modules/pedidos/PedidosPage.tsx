@@ -34,7 +34,7 @@ import type {
   RetencionMomento,
   Usuario,
 } from '@/shared/lib/types';
-import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, type ModalidadEntrega } from '@/shared/lib/types';
+import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, etiquetaModalidadEntrega, type ModalidadEntrega } from '@/shared/lib/types';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
@@ -1618,7 +1618,8 @@ function MetodoPagoModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 04/11/2026 · Segmento DELIVERY: quién entrega la OC una vez pagada (solo productos).
-  const esProducto = (orden.tipo ?? 'producto') !== 'servicio';
+  // Los servicios no se entregan y la contra entrega ya llegó (se recibió antes de pagar).
+  const esProducto = (orden.tipo ?? 'producto') !== 'servicio' && orden.condiciones_pago !== 'contra_entrega';
   const [modalidadEntrega, setModalidadEntrega] = useState<ModalidadEntrega | null>(orden.modalidad_entrega ?? null);
   // Cambio de proveedor = volver a cotizar. Solo mientras se indica el método de pago
   // (OC «Confirmada · indicar método de pago»), antes de enviarla a Tesorería.
@@ -3410,6 +3411,13 @@ function OrdenDetailModal({
           </div>
         );
       })()}
+      {/* 05/11/2026: quién entrega (se elige al indicar el método de pago). */}
+      {o.oc_codigo && o.modalidad_entrega && (
+        <div className="detail-row">
+          <div className="k">Entrega</div>
+          <div className="v"><span className="badge">{etiquetaModalidadEntrega(o.modalidad_entrega)}</span></div>
+        </div>
+      )}
       {o.metodo_pago && o.metodo_pago.length > 0 && (
         <div className="detail-row">
           <div className="k">Método de pago</div>

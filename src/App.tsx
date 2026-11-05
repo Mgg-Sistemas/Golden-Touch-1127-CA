@@ -118,7 +118,7 @@ export function App() {
           <Route path="pedidos" element={<RequireModule module={MODULOS_PANTALLA_PEDIDOS}><Suspense fallback={<PageLoader />}><PedidosPage /></Suspense></RequireModule>} />
           <Route path="pedidos/historico" element={<RequireModule module="compras"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
           {/* Delivery (30/10/2026): el motorizado busca las OC pagadas y las entrega en el almacén. Interruptor compras_delivery. */}
-          <Route path="delivery" element={<RequireModule module="delivery"><Suspense fallback={<PageLoader />}><DeliveryPage /></Suspense></RequireModule>} />
+          <Route path="delivery" element={<RequireModule module={['delivery', 'carga_pesada']}><Suspense fallback={<PageLoader />}><DeliveryPage /></Suspense></RequireModule>} />
           <Route path="delivery/telefono" element={<RequireVistaTelefono vista="delivery"><Suspense fallback={<PageLoader />}><DeliveryMovilView /></Suspense></RequireVistaTelefono>} />
           {/* Carga pesada (04/11/2026): el mismo flujo de Delivery para las OC marcadas «Carga pesada»; rol propio. */}
           <Route path="carga-pesada" element={<RequireModule module="carga_pesada"><Suspense fallback={<PageLoader />}><DeliveryPage canal="carga_pesada" /></Suspense></RequireModule>} />

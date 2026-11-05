@@ -411,7 +411,7 @@ export type CanalDelivery = 'delivery' | 'carga_pesada';
 
 export const CANALES_DELIVERY: Record<CanalDelivery, { titulo: string; icono: string; modulo: 'delivery' | 'carga_pesada'; ruta: string; rutaTelefono: string }> = {
   delivery: { titulo: 'Delivery', icono: '🛵', modulo: 'delivery', ruta: '/app/delivery', rutaTelefono: '/app/delivery/telefono' },
-  carga_pesada: { titulo: 'Carga pesada', icono: '🚛', modulo: 'carga_pesada', ruta: '/app/carga-pesada', rutaTelefono: '/app/carga-pesada/telefono' },
+  carga_pesada: { titulo: 'Carga pesada', icono: '🚚', modulo: 'carga_pesada', ruta: '/app/carga-pesada', rutaTelefono: '/app/carga-pesada/telefono' },
 };
 
 /** ¿La OC (por su modalidad de entrega) es de este canal? Sin dato = Delivery; «a domicilio» = ninguno. */

@@ -109,55 +109,95 @@ export function construirTextoMotivoPagoWhatsapp({
    proveedor y el monto a pagar de cada una, el total, el motivo de pago (el mismo
    del aviso individual) y la fecha en que se arma el mensaje. */
 
+/* 05/11/2026 · Formato como MGG: «🧾 RESUMEN · ÓRDENES POR PAGAR», cada orden con su
+   propio motivo de pago (✅ Se pagará / ⏸ No se pagará · motivo), el total y la empresa. */
+
+/** 'si' = se pagará; si no, uno de los motivos de «no se pagará». */
+export type MotivoLote = 'si' | MotivoNoPagoTipo;
+
 export interface OrdenLoteWhatsapp {
   codigo: string;
   proveedor: string | null;
   monto: number;
   /** 'USD' (por defecto) o 'Bs'. */
   moneda?: string | null;
+  /** Motivo de pago de ESTA orden (sin dato = lo general del lote). */
+  motivo?: MotivoLote | null;
+  /** Lo escrito con «No procede esta compra» u «Otro». */
+  motivoDetalle?: string | null;
 }
 
 const montoMoneda = (n: number, moneda?: string | null) => (String(moneda ?? 'USD').toUpperCase() === 'BS' ? `Bs ${num(n)}` : `$${num(n)}`);
+const unaLinea = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
 
-function estadoMotivo(pagada: boolean, motivoTipo?: MotivoNoPagoTipo | null, motivoDetalle?: string | null): string {
-  if (pagada) return 'SE PAGARÁN POR TESORERÍA';
-  if (motivoTipo === 'No procede esta compra') {
-    const just = motivoDetalle?.trim();
-    return just ? `No procede esta compra (${just})` : 'No procede esta compra';
-  }
-  if (motivoTipo === 'Otro') return motivoDetalle?.trim() || 'Otro motivo especificado por tesorería';
-  return motivoTipo || 'Pendiente de pago';
+/** «05/11/2026 09:12 a. m.» en la hora de Venezuela. */
+export function fechaHoraResumen(d: Date): string {
+  const f = d.toLocaleDateString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const h = d.toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true });
+  return `${f} ${h}`;
 }
 
-export function construirTextoMotivoPagoLote(opts: {
-  ordenes: OrdenLoteWhatsapp[];
-  pagada: boolean;
-  motivoTipo?: MotivoNoPagoTipo | null;
-  motivoDetalle?: string | null;
-  /** Cuándo se arma el mensaje (ISO). */
-  fecha: string;
-}): string {
-  const { ordenes } = opts;
-  const L: string[] = [];
-  L.push(opts.pagada ? '💸 *RESUMEN DE PAGO · ÓRDENES DE COMPRA*' : '⚠️ *NOTIFICACIÓN DE PAGO · ÓRDENES DE COMPRA*');
-  const f = new Date(opts.fecha);
-  const fecha = Number.isNaN(f.getTime()) ? '' : f.toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  if (fecha) L.push(`📅 *Fecha:* ${fecha}`);
-  L.push('', `📋 *Órdenes (${ordenes.length}):*`);
-  ordenes.forEach((o, i) => {
-    L.push(`${i + 1}. *${o.codigo}* · ${o.proveedor?.trim() || '—'} — ${montoMoneda(o.monto, o.moneda)}`);
-  });
+/** El estado de una orden: «✅ *Se pagará*» o «⏸ *No se pagará* · motivo». */
+export function estadoItemLote(motivo: MotivoLote, detalle?: string | null): string {
+  if (motivo === 'si') return '✅ *Se pagará*';
+  const det = unaLinea(detalle);
+  const desc = motivo === 'Otro' ? (det || 'Otro motivo')
+    : motivo === 'No procede esta compra' ? (det ? `No procede esta compra (${det})` : 'No procede esta compra')
+    : motivo.replace(/\.$/, '');
+  return `⏸ *No se pagará* · ${desc}`;
+}
+
+/** Qué falta para armar el resumen (null si está bien). */
+export function errorResumenLote(ordenes: OrdenLoteWhatsapp[]): string | null {
+  if (!ordenes.length) return 'Marca al menos una OC.';
+  const falta = ordenes.find((o) => (o.motivo === 'Otro' || o.motivo === 'No procede esta compra') && !unaLinea(o.motivoDetalle));
+  return falta ? `Escribe el motivo de ${falta.codigo}.` : null;
+}
+
+function totalesTxt(ordenes: OrdenLoteWhatsapp[]): string {
   const porMoneda = new Map<string, number>();
   for (const o of ordenes) {
     const m = String(o.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : 'USD';
     porMoneda.set(m, Math.round(((porMoneda.get(m) ?? 0) + (Number(o.monto) || 0)) * 100) / 100);
   }
-  const totales = [...porMoneda.entries()].map(([m, n]) => montoMoneda(n, m)).join(' + ');
-  L.push('', `💵 *Total a pagar (${ordenes.length} OC):* ${totales || '$0,00'}`);
-  L.push(`📌 *Estado:* *${estadoMotivo(opts.pagada, opts.motivoTipo, opts.motivoDetalle)}*`);
-  if (!opts.pagada && opts.motivoTipo === 'No procede esta compra') {
-    L.push('', '🚨 *ACCIÓN REQUERIDA:* Notificación a los analistas encargados para que cancelen las órdenes o busquen otra cotización.');
+  return [...porMoneda.entries()].map(([m, n]) => montoMoneda(n, m)).join(' + ') || '$0,00';
+}
+
+export function construirTextoMotivoPagoLote(opts: {
+  ordenes: OrdenLoteWhatsapp[];
+  /** Motivo general (para las órdenes sin motivo propio). */
+  pagada?: boolean;
+  motivoTipo?: MotivoNoPagoTipo | null;
+  motivoDetalle?: string | null;
+  /** Cuándo se arma el mensaje (ISO). */
+  fecha: string;
+}): string {
+  const general: MotivoLote = opts.pagada === false ? (opts.motivoTipo ?? 'Sin fondos en estos momentos.') : 'si';
+  const items = opts.ordenes.map((o) => ({
+    ...o,
+    motivo: (o.motivo ?? general) as MotivoLote,
+    motivoDetalle: o.motivo ? o.motivoDetalle : (o.motivoDetalle ?? opts.motivoDetalle),
+  }));
+  const L: string[] = [];
+  L.push('🧾 *RESUMEN · ÓRDENES POR PAGAR*');
+  const f = new Date(opts.fecha);
+  if (!Number.isNaN(f.getTime())) L.push(`📅 *Generado:* ${fechaHoraResumen(f)}`);
+  L.push('');
+  items.forEach((o, i) => {
+    L.push(`${i + 1}. 🔹 *${unaLinea(o.codigo) || '—'}* · ${unaLinea(o.proveedor) || '—'}`);
+    L.push(`    💵 *A pagar:* ${montoMoneda(Number(o.monto) || 0, o.moneda)} · ${estadoItemLote(o.motivo, o.motivoDetalle)}`);
+  });
+  const si = items.filter((o) => o.motivo === 'si');
+  L.push('');
+  L.push(`💰 *Total (${items.length} ${items.length === 1 ? 'orden' : 'órdenes'}):* *${totalesTxt(items)}*`);
+  // Si no todas se pagan, cuánto sí sale hoy.
+  if (si.length !== items.length) {
+    L.push(`✅ *Se pagarán (${si.length}):* *${totalesTxt(si)}*`);
+    L.push(`⏸ *No se pagarán (${items.length - si.length}):* *${totalesTxt(items.filter((o) => o.motivo !== 'si'))}*`);
   }
-  L.push('', '🏢 GOLDEN TOUCH 1127 C.A. · Tesorería');
+  if (items.some((o) => o.motivo === 'No procede esta compra')) {
+    L.push('🚨 *ACCIÓN REQUERIDA:* los analistas encargados deben cancelar esas órdenes o buscar otra cotización.');
+  }
+  L.push('🏢 *GOLDEN TOUCH 1127 C.A.*');
   return L.join('\n');
 }

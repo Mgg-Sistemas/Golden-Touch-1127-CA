@@ -74,7 +74,7 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
   },
   {
     // 04/11/2026 · igual que Delivery, solo con las OC marcadas «Carga pesada» en el método de pago.
-    key: 'carga_pesada', label: 'Carga pesada', icono: '🚛', modulo: 'carga_pesada',
+    key: 'carga_pesada', label: 'Carga pesada', icono: '🚚', modulo: 'carga_pesada',
     ruta: '/app/carga-pesada/telefono', descripcion: 'Aceptar, ir a buscar y entregar los pedidos de carga pesada',
   },
 ];

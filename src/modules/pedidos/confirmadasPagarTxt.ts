@@ -26,6 +26,7 @@
    ============================================================ */
 import { documentoIdentidad } from '@/shared/lib/rif';
 import type { OfertaProveedor, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
+import { MODALIDADES_ENTREGA } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { lineasCotizacionesAprobacion } from './cotizacionesAprobacion';
 import { BANCOS_VE } from '@/shared/lib/bancos';
@@ -207,6 +208,8 @@ export function textoOrdenPagar(
   L.push(...lineasPersonas(o, personas, true));
   // Tipo de requerimiento, siempre (29/10/2026): quien paga ordena por urgencia.
   L.push(o.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal');
+  // 05/11/2026 (como MGG): quién entrega la orden una vez pagada.
+  if (o.modalidad_entrega) L.push(`🚚 *Entrega:* ${MODALIDADES_ENTREGA.find((x) => x.key === o.modalidad_entrega)?.label ?? o.modalidad_entrega}`);
   if (o.retencion_momento === 'antes_de_pagar') L.push('🔻 *Retención:* ANTES de pagar (se paga el neto)');
   else if (o.retencion_momento === 'despues_de_pagar') L.push('🔺 *Retención:* DESPUÉS de pagar (se paga completo)');
   // El detalle solo si existe: un «Detalle: —» no informa nada y aleja el

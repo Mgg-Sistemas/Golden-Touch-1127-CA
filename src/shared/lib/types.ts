@@ -2091,7 +2091,7 @@ export type ModalidadEntrega = 'delivery' | 'carga_pesada' | 'proveedor';
 
 export const MODALIDADES_ENTREGA: { key: ModalidadEntrega; label: string; icono: string; ayuda: string }[] = [
   { key: 'delivery', label: 'Delivery', icono: '🛵', ayuda: 'Una vez pagada, la orden va a la vista Delivery.' },
-  { key: 'carga_pesada', label: 'Carga pesada', icono: '🚛', ayuda: 'Una vez pagada, la orden va a la vista CARGA PESADA (solo la ve ese rol).' },
+  { key: 'carga_pesada', label: 'Carga pesada', icono: '🚚', ayuda: 'Una vez pagada, la orden va a la vista CARGA PESADA (solo la ve ese rol).' },
   { key: 'proveedor', label: 'Con entrega a domicilio', icono: '🏠', ayuda: 'La trae el mismo proveedor: NO va a Delivery ni a Carga pesada.' },
 ];
 

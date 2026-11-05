@@ -72,14 +72,17 @@ function filasConNombres(rows: FilaHistorialCruda[], proveedores: Map<string, st
     ? { ...f, repartidor: quienSync(null, f.repartidor) || f.repartidor } : f));
 }
 
-export function DeliveryPage({ canal = 'delivery' }: { canal?: CanalDelivery } = {}) {
-  // 04/11/2026: la misma página para Carga pesada; arriba se cambia de una a otra.
-  const cfgCanal = CANALES_DELIVERY[canal];
+export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: CanalDelivery } = {}) {
+  // 05/11/2026 (como MGG): Delivery y Carga pesada son dos segmentos de esta misma
+  // página; cada quien ve las flotas que su rol tiene.
   const { can, isAdmin, vistasTelefono } = usePermissions();
+  const flotas = (Object.keys(CANALES_DELIVERY) as CanalDelivery[]).filter((f) => isAdmin || can(CANALES_DELIVERY[f].modulo));
+  const [canal, setCanal] = useState<CanalDelivery>(() => (flotas.includes(canalInicial) ? canalInicial : (flotas[0] ?? 'delivery')));
+  const cfgCanal = CANALES_DELIVERY[canal];
   const conectado = useDeliveryConectado();
   const supervisor = isAdmin || can(cfgCanal.modulo, 'full');
   const tieneTelefono = vistasTelefono.some((v) => v.key === canal);
-  const puedeAmbos = can('delivery') && can('carga_pesada');
+  const puedeAmbos = flotas.length > 1;
   const [vista, setVista] = useState<Vista>('tablero');
 
   /* ── Tablero: pedidos actuales (y cerrados si se piden) + lo de hoy ── */
@@ -144,9 +147,9 @@ export function DeliveryPage({ canal = 'delivery' }: { canal?: CanalDelivery } =
           <h1 style={{ margin: 0 }}>🛵 Delivery</h1>
           {puedeAmbos && (
             <div className="view-toggle" role="tablist" aria-label="Delivery o Carga pesada" style={{ marginTop: '.4rem' }}>
-              {(Object.keys(CANALES_DELIVERY) as CanalDelivery[]).map((k) => (
-                <Link key={k} to={CANALES_DELIVERY[k].ruta} role="tab" aria-selected={k === canal}
-                  className={`btn btn-sm ${k === canal ? 'btn-primary' : 'btn-ghost'}`}>{CANALES_DELIVERY[k].icono} {CANALES_DELIVERY[k].titulo}</Link>
+              {flotas.map((k) => (
+                <button key={k} type="button" role="tab" aria-selected={k === canal} onClick={() => setCanal(k)}
+                  className={`btn btn-sm ${k === canal ? 'btn-primary' : 'btn-ghost'}`}>{CANALES_DELIVERY[k].icono} {CANALES_DELIVERY[k].titulo}</button>
               ))}
             </div>
           )}
@@ -185,7 +188,7 @@ export function DeliveryPage({ canal = 'delivery' }: { canal?: CanalDelivery } =
         <TableroTab pedidos={pedidos} rechazos={rechazos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
           verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()} />
       )}
-      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} />}
+      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} canal={canal} />}
       {enHistorico && (
         <BarraRango hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} cargando={cargandoHist} />
       )}

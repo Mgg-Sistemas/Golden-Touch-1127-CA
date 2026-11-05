@@ -16,6 +16,7 @@
      (delivery_lugares; moverlo ya marcado: admin o Delivery completo);
    · leyenda debajo del mapa.
    ============================================================ */
+import type { CanalDelivery } from './delivery';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Link } from 'react-router-dom';
@@ -92,7 +93,7 @@ function globo(u: UbicacionDelivery, pedido: PedidoDelivery | undefined, vieja: 
 
 const enCurso = (p: PedidoDelivery | undefined) => !!p && (p.estado === 'aceptado' || p.estado === 'en_ruta');
 
-export function DeliveryMapa({ pedidos }: { pedidos: PedidoDelivery[] }) {
+export function DeliveryMapa({ pedidos, canal = 'delivery' }: { pedidos: PedidoDelivery[]; /** 05/11/2026: solo los repartidores de esta flota. */ canal?: CanalDelivery }) {
   const puedeMarcar = usePermissions().can('delivery', 'escritura');
   const contenedor = useRef<HTMLDivElement | null>(null);
   const mapa = useRef<L.Map | null>(null);
@@ -119,7 +120,7 @@ export function DeliveryMapa({ pedidos }: { pedidos: PedidoDelivery[] }) {
   const cargar = useCallback(async () => {
     try {
       const [u, r] = await Promise.all([
-        listUbicaciones(),
+        listUbicaciones(canal),
         listRastroDelivery(idsEnCurso ? idsEnCurso.split(',') : []).catch(() => new Map<string, PuntoRastro[]>()),
       ]);
       setUbicaciones(u);
@@ -128,7 +129,7 @@ export function DeliveryMapa({ pedidos }: { pedidos: PedidoDelivery[] }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron leer las ubicaciones.');
     }
-  }, [idsEnCurso]);
+  }, [idsEnCurso, canal]);
   useEffect(() => { void cargar(); }, [cargar]);
   // El rastro se anota junto con cada ubicación: basta con escuchar delivery_ubicaciones.
   useRealtime(['delivery_ubicaciones'], () => { void cargar(); });

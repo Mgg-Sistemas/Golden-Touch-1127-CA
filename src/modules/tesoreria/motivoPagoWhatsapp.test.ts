@@ -93,12 +93,21 @@ describe('WhatsApp por lote de las OC pendientes por pagar (04/11/2026)', () => 
       ],
       pagada: true, fecha: '2026-11-04T23:15:00Z',
     });
-    expect(t).toContain('💸 *RESUMEN DE PAGO · ÓRDENES DE COMPRA*');
-    expect(t).toContain('📅 *Fecha:* 04/11/2026');
-    expect(t).toContain('1. *OC-2026-0189* · HIERROS SAN FELIX — $174,90');
-    expect(t).toContain('💵 *Total a pagar (2 OC):* $1.685,22');
-    expect(t).toContain('📌 *Estado:* *SE PAGARÁN POR TESORERÍA*');
-    const no = construirTextoMotivoPagoLote({ ordenes: [{ codigo: 'OC-1', proveedor: 'X', monto: 5 }], pagada: false, motivoTipo: 'Sin fondos en estos momentos.', fecha: '2026-11-04T23:15:00Z' });
-    expect(no).toContain('📌 *Estado:* *Sin fondos en estos momentos.*');
+    const l = t.split('\n');
+    expect(l[0]).toBe('🧾 *RESUMEN · ÓRDENES POR PAGAR*');
+    expect(l[1]).toMatch(/^📅 \*Generado:\* 04\/11\/2026 07:15/);
+    expect(t).toContain('1. 🔹 *OC-2026-0189* · HIERROS SAN FELIX\n    💵 *A pagar:* $174,90 · ✅ *Se pagará*');
+    expect(t).toContain('💰 *Total (2 órdenes):* *$1.685,22*');
+    expect(t.endsWith('🏢 *GOLDEN TOUCH 1127 C.A.*')).toBe(true);
+    const mix = construirTextoMotivoPagoLote({
+      ordenes: [
+        { codigo: 'OC-1', proveedor: 'X', monto: 5, motivo: 'si' },
+        { codigo: 'OC-2', proveedor: 'Y', monto: 10, motivo: 'Sin fondos en estos momentos.' },
+      ],
+      fecha: '2026-11-04T23:15:00Z',
+    });
+    expect(mix).toContain('💵 *A pagar:* $10,00 · ⏸ *No se pagará* · Sin fondos en estos momentos');
+    expect(mix).toContain('✅ *Se pagarán (1):* *$5,00*');
+    expect(mix).toContain('⏸ *No se pagarán (1):* *$10,00*');
   });
 });
