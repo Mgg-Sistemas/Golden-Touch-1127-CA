@@ -124,16 +124,17 @@ export interface InfoCarpetaDoc {
   icon: string;
   label: string;
   descripcion: string;
+  centroAcopioId?: string | null;
 }
 
 export const CARPETAS_DOCUMENTOS: InfoCarpetaDoc[] = [
-  { id: 'permisos_mineros', icon: '⛏️', label: 'Permisos Mineros y Ambientales', descripcion: 'Rupdae, Ragda, Minería, MinEc y providencias' },
-  { id: 'laboral_parafiscal', icon: '⚖️', label: 'Laboral y Parafiscales', descripcion: 'Mintras, Inces, IVSS, FAOV y solvencias laborales' },
-  { id: 'legal_constitutivo', icon: '📜', label: 'Legal y Estatutario', descripcion: 'Carta / Acta Constitutiva, Asambleas y RIF' },
-  { id: 'socios_representantes', icon: '👥', label: 'Socios y Representantes', descripcion: 'Cédulas, RIFs y fichas de N socios' },
-  { id: 'tributario_fiscal', icon: '🏛️', label: 'Tributario y Municipal', descripcion: 'Patentes de Industria y Comercio, SENIAT y solvencias' },
-  { id: 'contratos_servicios', icon: '📑', label: 'Contratos y Acuerdos', descripcion: 'Convenios, arrendamientos y acuerdos operativos' },
-  { id: 'otros', icon: '📁', label: 'Otros Archivos', descripcion: 'Documentación general y respaldos' },
+  { id: 'permisos_mineros', icon: '⛏️', label: 'Permisos Mineros y Ambientales', descripcion: 'Rupdae, Ragda, Minería, MinEc y providencias', centroAcopioId: null },
+  { id: 'laboral_parafiscal', icon: '⚖️', label: 'Laboral y Parafiscales', descripcion: 'Mintras, Inces, IVSS, FAOV y solvencias laborales', centroAcopioId: null },
+  { id: 'legal_constitutivo', icon: '📜', label: 'Legal y Estatutario', descripcion: 'Carta / Acta Constitutiva, Asambleas y RIF', centroAcopioId: null },
+  { id: 'socios_representantes', icon: '👥', label: 'Socios y Representantes', descripcion: 'Cédulas, RIFs y fichas de N socios', centroAcopioId: null },
+  { id: 'tributario_fiscal', icon: '🏛️', label: 'Tributario y Municipal', descripcion: 'Patentes de Industria y Comercio, SENIAT y solvencias', centroAcopioId: null },
+  { id: 'contratos_servicios', icon: '📑', label: 'Contratos y Acuerdos', descripcion: 'Convenios, arrendamientos y acuerdos operativos', centroAcopioId: null },
+  { id: 'otros', icon: '📁', label: 'Otros Archivos', descripcion: 'Documentación general y respaldos', centroAcopioId: null },
 ];
 
 export const ETIQUETA_CARPETA: Record<string, string> = {
@@ -201,6 +202,7 @@ export interface DocumentoEmpresa {
   id: string;
   empresaClave: string;
   carpeta: string;
+  centroAcopioId?: string | null;
   tipo: TipoDocumento;
   nombre: string;
   /** Ruta en el bucket; con ella se pide la URL firmada. */
@@ -222,6 +224,7 @@ export interface DocumentoEmpresa {
 export interface DocumentoEmpresaInput {
   empresaClave: string;
   carpeta?: string;
+  centroAcopioId?: string | null;
   tipo: TipoDocumento;
   nombre: string;
   fechaEmision?: string | null;
@@ -427,6 +430,7 @@ interface RowDoc {
   content_type: string | null;
   tamano: number | string | null;
   carpeta?: string | null;
+  centro_acopio_id?: string | null;
   fecha_vencimiento?: string | null;
   fecha_emision?: string | null;
   status_vencimiento?: string | null;
@@ -455,6 +459,7 @@ function aDoc(r: RowDoc): DocumentoEmpresa {
     id: r.id,
     empresaClave: r.empresa_clave,
     carpeta: r.carpeta || 'otros',
+    centroAcopioId: r.centro_acopio_id ?? null,
     tipo: (r.tipo as TipoDocumento) || 'otro',
     nombre: r.nombre,
     path: r.path,
@@ -590,8 +595,26 @@ export function crearRepoSupabase(): AdminRepo {
       if (error) throw error;
     },
     async anularMovimiento(id) {
+      // 1. Obtener datos del movimiento para desvincular Tesorería si aplica
+      const { data: movPre } = await supabase.from(T_MOV).select('*').eq('id', id).maybeSingle();
+
       const { error } = await supabase.from(T_MOV).update({ estado_pago: 'anulado' }).eq('id', id);
       if (error) throw error;
+
+      // 2. Si tenía servicio directo asociado en Tesorería, eliminarlo para que no siga en pendientes por pagar
+      if (movPre?.servicio_directo_id) {
+        try {
+          await supabase.from('servicios_directos').delete().eq('id', movPre.servicio_directo_id);
+        } catch { /* ignorar si ya no existe */ }
+      } else if (movPre?.empresa_clave && movPre?.periodo) {
+        const notaClave = `Gasto fijo · ${movPre.empresa_clave} · ${movPre.periodo}`;
+        try {
+          await supabase.from('servicios_directos').delete()
+            .eq('empresa_clave', movPre.empresa_clave)
+            .eq('estado', 'por_pagar')
+            .ilike('nota', `%${notaClave}%`);
+        } catch { /* ignorar */ }
+      }
     },
     async generarPendientes(empresaClave, hasta = new Date()) {
       let qg = supabase.from(T_GF).select('*');
@@ -684,6 +707,7 @@ export function crearRepoSupabase(): AdminRepo {
         content_type: file.type || 'application/pdf',
         tamano: file.size,
         carpeta: meta?.carpeta || 'otros',
+        centro_acopio_id: meta?.centroAcopioId || null,
         fecha_vencimiento: meta?.fechaVencimiento || null,
         fecha_emision: meta?.fechaEmision || null,
         status_vencimiento: status,
@@ -745,6 +769,7 @@ export function crearRepoSupabase(): AdminRepo {
       if (cambios.nombre !== undefined) payloadCompleto.nombre = cambios.nombre;
       if (cambios.tipo !== undefined) payloadCompleto.tipo = cambios.tipo;
       if (cambios.carpeta !== undefined) payloadCompleto.carpeta = cambios.carpeta;
+      if (cambios.centroAcopioId !== undefined) payloadCompleto.centro_acopio_id = cambios.centroAcopioId;
       if (cambios.fechaVencimiento !== undefined) payloadCompleto.fecha_vencimiento = cambios.fechaVencimiento;
       if (cambios.fechaEmision !== undefined) payloadCompleto.fecha_emision = cambios.fechaEmision;
       if (cambios.statusVencimiento !== undefined || cambios.fechaVencimiento !== undefined) payloadCompleto.status_vencimiento = nuevoStatus;

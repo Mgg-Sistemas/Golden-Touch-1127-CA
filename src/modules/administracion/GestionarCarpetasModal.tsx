@@ -9,10 +9,11 @@
      4. Eliminar carpetas que no contengan archivos activos.
    ============================================================ */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { CARPETAS_DOCUMENTOS, type InfoCarpetaDoc } from './admin.repository';
+import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
 
 const EMOJIS_SUGERIDOS = [
   '📁', '⛏️', '👷', '⚖️', '👥', '🏛️', '📑', '📜', '🛡️',
@@ -40,12 +41,17 @@ export function GestionarCarpetasModal({
   const [icon, setIcon] = useState('📁');
   const [label, setLabel] = useState('');
   const [descripcion, setDescripcion] = useState('');
+  const [centroAcopioId, setCentroAcopioId] = useState<string>('');
+
+  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
 
   const abrirCrear = () => {
     setEditId(null);
     setIcon('📁');
     setLabel('');
     setDescripcion('');
+    setCentroAcopioId('');
     setModoFormulario(true);
   };
 
@@ -54,6 +60,7 @@ export function GestionarCarpetasModal({
     setIcon(c.icon);
     setLabel(c.label);
     setDescripcion(c.descripcion || '');
+    setCentroAcopioId(c.centroAcopioId || '');
     setModoFormulario(true);
   };
 
@@ -64,6 +71,7 @@ export function GestionarCarpetasModal({
       return;
     }
 
+    const cIdLimpio = centroAcopioId.trim() || null;
     if (editId) {
       // Modificar existente
       const nuevaLista = lista.map((c) =>
@@ -73,6 +81,7 @@ export function GestionarCarpetasModal({
               icon: icon || '📁',
               label: nombreTrim,
               descripcion: descripcion.trim(),
+              centroAcopioId: cIdLimpio,
             }
           : c,
       );
@@ -87,6 +96,7 @@ export function GestionarCarpetasModal({
         icon: icon || '📁',
         label: nombreTrim,
         descripcion: descripcion.trim(),
+        centroAcopioId: cIdLimpio,
         esPersonalizada: true,
       };
       const nuevaLista = [...lista, nuevaCarpeta];
@@ -236,6 +246,29 @@ export function GestionarCarpetasModal({
               ))}
             </div>
 
+            {/* Asociación a Centro de Acopio */}
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>
+                🏭 Centro de Acopio Asociado (opcional):
+              </span>
+              <select
+                className="select select-sm"
+                value={centroAcopioId}
+                onChange={(e) => setCentroAcopioId(e.target.value)}
+                style={{ fontSize: '.8rem' }}
+              >
+                <option value="">🏢 General / Toda la empresa (sin centro asignado)</option>
+                {centros.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    🏭 {c.nombre} ({c.empresaClave})
+                  </option>
+                ))}
+              </select>
+              <span className="muted hint" style={{ fontSize: '.68rem' }}>
+                Los archivos guardados en esta carpeta se contabilizarán bajo la custodia del centro de acopio y su responsable asignado.
+              </span>
+            </label>
+
             {/* Breve descripción o nota («e incluso colocar una breve descripción/nota») */}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
               <span className="muted hint" style={{ fontSize: '.7rem' }}>
@@ -310,6 +343,21 @@ export function GestionarCarpetasModal({
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
                       <strong style={{ fontSize: '.84rem', color: 'var(--text)' }}>{c.label}</strong>
+                      {c.centroAcopioId && (
+                        <span
+                          style={{
+                            fontSize: '.62rem',
+                            padding: '.08rem .35rem',
+                            borderRadius: 4,
+                            background: 'rgba(234, 179, 8, 0.15)',
+                            color: '#eab308',
+                            fontWeight: 600,
+                          }}
+                          title="Asociada al Centro de Acopio"
+                        >
+                          🏭 {mapaCentros.get(c.centroAcopioId) || c.centroAcopioId}
+                        </span>
+                      )}
                       {c.esPersonalizada && (
                         <span
                           style={{

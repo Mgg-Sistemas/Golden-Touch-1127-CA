@@ -29,6 +29,7 @@ import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
 import {
   CAMPOS_REPORTE_TESORERIA,
   CAMPOS_POR_DEFECTO_POR_MODO,
+  esColumnaAplicableModoTesoreria,
   ETIQUETA_FLUJO,
   diaDe,
   normalizarMovimientosTesoreria,
@@ -259,12 +260,13 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   // así el usuario entiende que el nº de tarjetas/filas = nº de grupos de ESA dimensión.
   const nombreDimension = (MODOS.find((m) => m.id === agrupacion)?.label ?? '').replace(/^Por\s+/, '');
 
-  // Columnas visibles en pantalla (respetan los toggles de moneda)
+  // Columnas visibles en pantalla (respetan los toggles de moneda y la aplicabilidad al modo)
   const marcadosVisibles = useMemo(() => marcados.filter((c) => {
     if (c === 'monto_usd' && !mostrarUsd) return false;
     if (c === 'monto_bs' && !mostrarBs) return false;
+    if (agrupacion !== 'detallado' && !esColumnaAplicableModoTesoreria(c, agrupacion)) return false;
     return true;
-  }), [marcados, mostrarUsd, mostrarBs]);
+  }), [marcados, mostrarUsd, mostrarBs, agrupacion]);
 
   const cambiarAgrupacion = (modo: ModoAgrupacionTesoreria) => { setAgrupacion(modo); setMarcados(CAMPOS_POR_DEFECTO_POR_MODO[modo]); };
 
@@ -568,24 +570,102 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
           </div>
         </div>
 
+        {/* Banner explicativo de claridad sobre la dimensión activa */}
+        {agrupacion !== 'detallado' && (
+          <div style={{
+            background: 'rgba(249, 115, 22, 0.08)',
+            border: '1px solid rgba(249, 115, 22, 0.3)',
+            borderRadius: 6,
+            padding: '.45rem .75rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '.4rem',
+          }}>
+            <div style={{ fontSize: '.76rem', color: '#fed7aa', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span style={{ fontSize: '.9rem' }}>💡</span>
+              <span>
+                Estás agrupando por <strong>{nombreDimension}</strong>: reporte en <strong>resumen consolidado</strong> ({filas.length} grupo/s). Los campos individuales (Hora, Código, Saldo) aplican en la dimensión <strong>Detallado</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-xs btn-primary"
+              onClick={() => cambiarAgrupacion('detallado')}
+              style={{ fontSize: '.72rem', padding: '.2rem .55rem', borderRadius: 4 }}
+            >
+              📋 Cambiar a vista Detallada
+            </button>
+          </div>
+        )}
+
         {/* Columnas */}
         <div style={surf2}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
-            <span style={tituloSec}>☑️ Columnas a mostrar ({marcados.length} seleccionadas)</span>
+            <span style={tituloSec}>
+              ☑️ Columnas a mostrar ({marcadosVisibles.length} {agrupacion !== 'detallado' ? 'aplicables' : 'seleccionadas'})
+            </span>
             <div style={{ display: 'flex', gap: '.3rem' }}>
               <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMarcados(CAMPOS_POR_DEFECTO_POR_MODO[agrupacion])}>Principales</button>
-              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMarcados(CAMPOS_REPORTE_TESORERIA.map((c) => c.clave))}>Todas</button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={() => {
+                  const cols = CAMPOS_REPORTE_TESORERIA
+                    .filter((c) => esColumnaAplicableModoTesoreria(c.clave, agrupacion))
+                    .map((c) => c.clave);
+                  setMarcados(cols);
+                }}
+              >
+                {agrupacion === 'detallado' ? 'Todas' : 'Todas aplicables'}
+              </button>
               <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMarcados([])}>Ninguna</button>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '.35rem .5rem', maxHeight: '160px', overflowY: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(185px, 1fr))', gap: '.35rem .5rem', maxHeight: '160px', overflowY: 'auto' }}>
             {CAMPOS_REPORTE_TESORERIA.map((col) => {
+              const aplicable = esColumnaAplicableModoTesoreria(col.clave, agrupacion);
               const marcado = marcados.includes(col.clave);
               const ocultoPorToggle = (col.clave === 'monto_usd' && !mostrarUsd) || (col.clave === 'monto_bs' && !mostrarBs);
               return (
-                <label key={col.clave} style={{ display: 'flex', alignItems: 'center', gap: '.35rem', fontSize: '.78rem', cursor: 'pointer', color: marcado ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)', opacity: ocultoPorToggle ? 0.45 : 1 }} title={ocultoPorToggle ? 'Oculta por el interruptor de moneda' : col.descripcion}>
-                  <input type="checkbox" checked={marcado} onChange={() => alternarColumna(col.clave)} />
+                <label
+                  key={col.clave}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '.35rem',
+                    fontSize: '.78rem',
+                    cursor: aplicable ? 'pointer' : 'help',
+                    color: marcado && aplicable ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                    opacity: ocultoPorToggle ? 0.45 : !aplicable ? 0.45 : 1,
+                  }}
+                  title={
+                    !aplicable
+                      ? `La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (transacción individual)`
+                      : ocultoPorToggle
+                        ? 'Oculta por el interruptor de moneda'
+                        : col.descripcion
+                  }
+                  onClick={(e) => {
+                    if (!aplicable) {
+                      e.preventDefault();
+                      toast(`La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (transacción individual).`, 'info');
+                    }
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={marcado && aplicable}
+                    disabled={!aplicable}
+                    onChange={() => alternarColumna(col.clave)}
+                  />
                   <span>{col.etiqueta}</span>
+                  {!aplicable && (
+                    <span style={{ fontSize: '.6rem', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', padding: '.05rem .28rem', borderRadius: 3, marginLeft: '.15rem' }}>
+                      Solo Detallado
+                    </span>
+                  )}
                 </label>
               );
             })}
@@ -765,7 +845,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                         <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>{ETIQUETA_FLUJO[f.tipo_movimiento]}</div>
                       </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${metricas.length}, 1fr)`, gap: '.25rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem', borderRadius: '4px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
                       {metricas.map((m) => (
                         <div key={m.clave}>
                           <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
@@ -797,6 +877,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                         if (cKey === 'monto_usd') txt = fmtUsd(f.monto_usd);
                         else if (cKey === 'monto_bs') txt = fmtBs(f.monto_bs);
                         else if (cKey === 'monto_original') txt = f.monto_original.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        else if (cKey === 'operaciones') txt = `${f.total_operaciones ?? 1} ops`;
                         else if (cKey === 'tasa_bcv') txt = f.tasa_bcv_aplicada ? f.tasa_bcv_aplicada.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
                         else if (cKey === 'pct_total') txt = f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}%` : '—';
                         else if (cKey === 'saldo_caja') txt = f.saldo_caja_momento != null ? f.saldo_caja_momento.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';

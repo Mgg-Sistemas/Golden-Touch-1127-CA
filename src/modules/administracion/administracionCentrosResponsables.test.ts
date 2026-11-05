@@ -6,7 +6,7 @@ import {
   CENTROS_ACOPIO_DEFECTO,
   FASES_OPERATIVAS,
 } from './administracionCentrosResponsables';
-import type { DocumentoEmpresa, Empresa, GastoFijo } from './admin.repository';
+import type { DocumentoEmpresa, Empresa, GastoFijo, InfoCarpetaDoc } from './admin.repository';
 
 const MOCK_EMPRESAS: Empresa[] = [
   { id: '1', clave: 'GT', nombre: 'Golden Touch 1127 C.A.', rif: 'J-50129993-5', moneda: 'USD', logoPath: null, activa: true, orden: 1 },
@@ -130,5 +130,68 @@ describe('administracionCentrosResponsables', () => {
     const filtradoSofia = extraerHistorialGlobalDocumentos(MOCK_DOCS, 'Sofia');
     expect(filtradoSofia.length).toBe(2);
     expect(filtradoSofia.every((h) => h.actor.includes('Sofia'))).toBe(true);
+  });
+  it('asocia documentos a un centro de acopio a través de la carpeta configurada y asigna custodia a su responsable', () => {
+    const carpetasConCentro: InfoCarpetaDoc[] = [
+      { id: 'permisos_mineros', icon: '⛏️', label: 'Permisos Mineros', descripcion: 'Minas', centroAcopioId: 'planta_molinos' },
+      { id: 'contratos_servicios', icon: '📑', label: 'Contratos', descripcion: 'Maquinaria', centroAcopioId: 'patio_brasilero' },
+    ];
+
+    const docsTest: DocumentoEmpresa[] = [
+      ...MOCK_DOCS, // d1 y d2 en carpeta 'permisos_mineros'
+      {
+        id: 'd3',
+        empresaClave: 'GT',
+        carpeta: 'contratos_servicios',
+        tipo: 'otro',
+        nombre: 'Contrato Alquiler Patio.pdf',
+        path: 'GT/contrato.pdf',
+        contentType: 'application/pdf',
+        tamano: 1024,
+        fechaEmision: '2026-01-01',
+        fechaVencimiento: '2027-01-01',
+        statusVencimiento: 'vigente',
+        socioNombre: null,
+        entidadEmisora: null,
+        numeroRegistro: null,
+        notaTramite: null,
+        historial: [],
+        createdAt: '2026-01-01',
+        updatedAt: null,
+      },
+    ];
+
+    // Matriz de centros
+    const matriz = calcularMatrizCentrosAcopio({
+      centros: CENTROS_ACOPIO_DEFECTO,
+      empresas: MOCK_EMPRESAS,
+      documentos: docsTest,
+      gastosFijos: MOCK_GASTOS,
+      carpetas: carpetasConCentro,
+    });
+
+    const planta = matriz.find((c) => c.centroId === 'planta_molinos');
+    expect(planta?.docsTotal).toBe(2); // d1 y d2
+    expect(planta?.responsablePrincipal).toBe('Jefe de Planta');
+
+    const patio = matriz.find((c) => c.centroId === 'patio_brasilero');
+    expect(patio?.docsTotal).toBe(1); // d3
+    expect(patio?.responsablePrincipal).toBe('Jefe de Patio y Maquinaria');
+
+    // Matriz de responsables
+    const resp = calcularMatrizResponsables({
+      documentos: docsTest,
+      gastosFijos: MOCK_GASTOS,
+      centros: CENTROS_ACOPIO_DEFECTO,
+      carpetas: carpetasConCentro,
+    });
+
+    const jefePlanta = resp.find((r) => r.responsable === 'Jefe de Planta');
+    expect(jefePlanta).toBeDefined();
+    expect(jefePlanta?.documentosTotal).toBe(2); // Tiene 2 docs a cargo
+
+    const jefePatio = resp.find((r) => r.responsable === 'Jefe de Patio y Maquinaria');
+    expect(jefePatio).toBeDefined();
+    expect(jefePatio?.documentosTotal).toBe(1); // Tiene 1 doc a cargo
   });
 });

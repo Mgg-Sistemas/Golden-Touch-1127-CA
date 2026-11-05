@@ -3914,6 +3914,8 @@ function GraficoTasasModal({ onClose }: { onClose: () => void }) {
 function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
 }) {
+  const [tab, setTab] = useState<'ordenes' | 'directos'>('ordenes');
+  const [directosCount, setDirectosCount] = useState(0);
   const [rows, setRows] = useState<OrdenPorPagar[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<OrdenPorPagar | null>(null);
@@ -3961,106 +3963,144 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const checkDisabled = (r: OrdenPorPagar) => provSel != null && r.orden.proveedor_id !== provSel;
 
   return (
-    <Modal title="Órdenes pendientes por pagar" size="xl" onClose={onClose} footer={
+    <Modal title="Pendientes por pagar · Tesorería" size="xl" onClose={onClose} footer={
       <>
         {/* «↓ Resumen PDF» se quitó a pedido del usuario (03/11/2026); el reporte queda en «📄 Reporte». */}
         <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte" className="btn btn-ghost" />
-        <button className="btn btn-ghost" disabled={!rows.length} onClick={() => setWspLote(true)}
-          title="Un solo WhatsApp con varias OC: código, proveedor, monto a pagar, total y el motivo de pago">💬 WhatsApp por lote</button>
+        {tab === 'ordenes' && (
+          <button className="btn btn-ghost" disabled={!rows.length} onClick={() => setWspLote(true)}
+            title="Un solo WhatsApp con varias OC: código, proveedor, monto a pagar, total y el motivo de pago">💬 WhatsApp por lote</button>
+        )}
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Órdenes de compra aprobadas por el Gerente. Haz clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
-        compra y registrar el pago, o <strong>marca varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>
-        (un egreso por OC). Se pueden incluir las que están <strong>⏳ Esperando método de pago</strong>: Tesorería las paga
-        directo eligiendo la caja, aunque el analista todavía no haya indicado el método.
-      </p>
-      {seleccionadas.length > 0 && (
-        <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .85rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
-          <strong>{seleccionadas.length}</strong> OC de <strong>{provNombreSel}</strong> · total <strong className="mono">{monto(totalSel, 'USD')}</strong>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
-            <button className="btn btn-sm btn-ghost" onClick={() => setSeleccion(new Set())}>Limpiar</button>
-            <button className="btn btn-sm btn-primary" onClick={() => setPagarVarias(seleccionadas)}>💳 Pagar {seleccionadas.length} seleccionadas</button>
+      {/* Switch principal que alterna entre Órdenes de Compra y Gastos Directos/Fijos */}
+      <div className="view-toggle" role="tablist" aria-label="Tipo de pendientes" style={{ marginBottom: '.85rem' }}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'ordenes'}
+          className={tab === 'ordenes' ? 'active' : ''}
+          onClick={() => setTab('ordenes')}
+        >
+          📦 Órdenes de Compra ({rows.length})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'directos'}
+          className={tab === 'directos' ? 'active' : ''}
+          onClick={() => setTab('directos')}
+        >
+          ⚡ Directos y Gastos Fijos {directosCount > 0 ? `(${directosCount})` : ''}
+        </button>
+      </div>
+
+      {tab === 'ordenes' && (
+        <>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+            Órdenes de compra aprobadas por el Gerente. Haz clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
+            compra y registrar el pago, o <strong>marca varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>
+            (un egreso por OC). Se pueden incluir las que están <strong>⏳ Esperando método de pago</strong>: Tesorería las paga
+            directo eligiendo la caja, aunque el analista todavía no haya indicado el método.
+          </p>
+          {seleccionadas.length > 0 && (
+            <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .85rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
+              <strong>{seleccionadas.length}</strong> OC de <strong>{provNombreSel}</strong> · total <strong className="mono">{monto(totalSel, 'USD')}</strong>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => setSeleccion(new Set())}>Limpiar</button>
+                <button className="btn btn-sm btn-primary" onClick={() => setPagarVarias(seleccionadas)}>💳 Pagar {seleccionadas.length} seleccionadas</button>
+              </div>
+            </div>
+          )}
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr>
+                <th style={{ width: 34 }}></th>
+                <th>N°ODC</th><th>OP</th><th>Proveedor</th><th>Condición</th>
+                <th style={{ textAlign: 'right' }}>A pagar $</th><th>OC creada</th><th>Confirmada GG</th><th></th>
+              </tr></thead>
+              <tbody>
+                {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+                {!loading && !rows.length && <tr><td colSpan={9}><EmptyState message="No hay órdenes aprobadas por pagar" icon="✅" /></td></tr>}
+                {!loading && rows.map((r) => {
+                  const espera = r.esperandoMetodo;
+                  return (
+                  <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
+                    <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+                      <input type="checkbox" checked={seleccion.has(r.orden.id)} disabled={checkDisabled(r)}
+                        title={checkDisabled(r) ? `Solo se pueden pagar juntas las OC de ${provNombreSel}` : 'Seleccionar para pago múltiple (mismo proveedor)'}
+                        onChange={() => toggleSel(r)} />
+                    </td>
+                    <td className="mono">{r.orden.oc_codigo ?? '—'}
+                      {r.orden.tipo === 'servicio' && (
+                        <span className="badge" style={{ marginLeft: '.35rem', background: '#0ea5e9', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                          title="Control de Servicio (no es compra de producto)">🔧 Servicio</span>
+                      )}
+                      {(noLeidos.get(r.orden.id) ?? 0) > 0 && (
+                        <span className="badge" style={{ marginLeft: '.35rem', background: '#ff8a00', color: '#111', fontWeight: 700 }}
+                          title="Mensajes sin leer en el chat de esta OC">💬 {noLeidos.get(r.orden.id)}</span>
+                      )}
+                      {r.orden.iva_aplicado && (
+                        <span className="badge" style={{ marginLeft: '.35rem', background: '#6d28d9', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                          title={`Incluye IVA (${Number(r.orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%): ${monto(Number(r.orden.iva_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>IVA</span>
+                      )}
+                      {r.orden.igtf_aplicado && (
+                        <span className="badge" style={{ marginLeft: '.35rem', background: '#b45309', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                          title={`Incluye IGTF (${Number(r.orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%): ${monto(Number(r.orden.igtf_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>IGTF</span>
+                      )}
+                      {r.orden.descuento_pago_aplicado && Number(r.orden.descuento_pago_monto) > 0 && (
+                        <span className="badge" style={{ marginLeft: '.35rem', background: '#15803d', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                          title={`Incluye descuento: −${monto(Number(r.orden.descuento_pago_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>DESC</span>
+                      )}
+                    </td>
+                    <td className="mono">{r.orden.codigo}</td>
+                    <td>
+                      {r.proveedorNombre}
+                      {r.orden.notas?.trim() && (
+                        <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap', maxWidth: 420 }} title="Nota de la solicitud de pedido">📝 {r.orden.notas.trim()}</div>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '.78rem' }}>
+                      {labelCondicionPago(r.orden.condiciones_pago)}
+                      {espera && (
+                        <div style={{ marginTop: '.25rem' }}>
+                          <span className="badge warning" title="Aprobada por el Gerente. Compras aún no indicó el método de pago; Tesorería igual puede pagarla eligiendo la caja.">⏳ Esperando método de pago</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {monto(r.montoAPagar, r.orden.total_moneda ?? 'USD')}
+                      {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
+                        <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, r.orden.total_moneda ?? 'USD')}</div>
+                      )}
+                    </td>
+                    <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
+                    <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-ghost" title="Editar los precios de esta OC (se ajusta el total y queda en la traza)"
+                        onClick={(e) => { e.stopPropagation(); setEditarPrecios(r); }}>✏️ Precios</button>{' '}
+                      <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>
+                        {espera ? 'Ver' : 'Ver / Pagar'}
+                      </button>
+                    </td>
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
+        </>
       )}
-      <div className="table-wrap">
-        <table className="table" style={{ fontSize: '.82rem' }}>
-          <thead><tr>
-            <th style={{ width: 34 }}></th>
-            <th>N°ODC</th><th>OP</th><th>Proveedor</th><th>Condición</th>
-            <th style={{ textAlign: 'right' }}>A pagar $</th><th>OC creada</th><th>Confirmada GG</th><th></th>
-          </tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={9}><EmptyState message="No hay órdenes aprobadas por pagar" icon="✅" /></td></tr>}
-            {!loading && rows.map((r) => {
-              const espera = r.esperandoMetodo;
-              return (
-              <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
-                <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-                  <input type="checkbox" checked={seleccion.has(r.orden.id)} disabled={checkDisabled(r)}
-                    title={checkDisabled(r) ? `Solo se pueden pagar juntas las OC de ${provNombreSel}` : 'Seleccionar para pago múltiple (mismo proveedor)'}
-                    onChange={() => toggleSel(r)} />
-                </td>
-                <td className="mono">{r.orden.oc_codigo ?? '—'}
-                  {r.orden.tipo === 'servicio' && (
-                    <span className="badge" style={{ marginLeft: '.35rem', background: '#0ea5e9', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
-                      title="Control de Servicio (no es compra de producto)">🔧 Servicio</span>
-                  )}
-                  {(noLeidos.get(r.orden.id) ?? 0) > 0 && (
-                    <span className="badge" style={{ marginLeft: '.35rem', background: '#ff8a00', color: '#111', fontWeight: 700 }}
-                      title="Mensajes sin leer en el chat de esta OC">💬 {noLeidos.get(r.orden.id)}</span>
-                  )}
-                  {r.orden.iva_aplicado && (
-                    <span className="badge" style={{ marginLeft: '.35rem', background: '#6d28d9', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
-                      title={`Incluye IVA (${Number(r.orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%): ${monto(Number(r.orden.iva_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>IVA</span>
-                  )}
-                  {r.orden.igtf_aplicado && (
-                    <span className="badge" style={{ marginLeft: '.35rem', background: '#b45309', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
-                      title={`Incluye IGTF (${Number(r.orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%): ${monto(Number(r.orden.igtf_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>IGTF</span>
-                  )}
-                  {r.orden.descuento_pago_aplicado && Number(r.orden.descuento_pago_monto) > 0 && (
-                    <span className="badge" style={{ marginLeft: '.35rem', background: '#15803d', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
-                      title={`Incluye descuento: −${monto(Number(r.orden.descuento_pago_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>DESC</span>
-                  )}
-                </td>
-                <td className="mono">{r.orden.codigo}</td>
-                <td>
-                  {r.proveedorNombre}
-                  {r.orden.notas?.trim() && (
-                    <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap', maxWidth: 420 }} title="Nota de la solicitud de pedido">📝 {r.orden.notas.trim()}</div>
-                  )}
-                </td>
-                <td style={{ fontSize: '.78rem' }}>
-                  {labelCondicionPago(r.orden.condiciones_pago)}
-                  {espera && (
-                    <div style={{ marginTop: '.25rem' }}>
-                      <span className="badge warning" title="Aprobada por el Gerente. Compras aún no indicó el método de pago; Tesorería igual puede pagarla eligiendo la caja.">⏳ Esperando método de pago</span>
-                    </div>
-                  )}
-                </td>
-                <td className="mono" style={{ textAlign: 'right' }}>
-                  {monto(r.montoAPagar, r.orden.total_moneda ?? 'USD')}
-                  {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
-                    <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, r.orden.total_moneda ?? 'USD')}</div>
-                  )}
-                </td>
-                <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
-                <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button className="btn btn-sm btn-ghost" title="Editar los precios de esta OC (se ajusta el total y queda en la traza)"
-                    onClick={(e) => { e.stopPropagation(); setEditarPrecios(r); }}>✏️ Precios</button>{' '}
-                  <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>
-                    {espera ? 'Ver' : 'Ver / Pagar'}
-                  </button>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
+
+      {/* Compras directas montadas por el analista y gastos fijos de Administración */}
+      <div style={{ display: tab === 'directos' ? 'block' : 'none' }}>
+        <DirectosPorPagarPanel
+          cajas={cajas} actor={actor} actorName={actorName}
+          sinBorde
+          onCountsChange={(c) => setDirectosCount(c.total)}
+          onPaid={async () => { await reload(); onPaid(); }}
+        />
       </div>
 
       {sel && (
@@ -4088,12 +4128,6 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
           onPaid={async () => { setPagarVarias(null); setSeleccion(new Set()); await reload(); onPaid(); }}
         />
       )}
-
-      {/* Compras directas montadas por el analista, pendientes de pago por Tesorería. */}
-      <DirectosPorPagarPanel
-        cajas={cajas} actor={actor} actorName={actorName}
-        onPaid={async () => { await reload(); onPaid(); }}
-      />
     </Modal>
   );
 }

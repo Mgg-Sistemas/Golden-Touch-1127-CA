@@ -24,6 +24,7 @@ import type {
 import {
   CAMPOS_REPORTE_ADMIN,
   ETIQUETA_MODO_ADMIN,
+  esColumnaAplicableModoAdmin,
   ESTADO_PAGO_LABEL,
   ORIGEN_LABEL,
   fmtMontoUsd,
@@ -346,6 +347,7 @@ export async function descargarAdministracionPdf(opts: OpcionesExportarAdminPdf)
       .filter((c) => {
         if (c.clave === 'monto_usd' && !mostrarUsd) return false;
         if (c.clave === 'monto_bs' && !mostrarBs) return false;
+        if (modoAgrupacion !== 'detallado' && !esColumnaAplicableModoAdmin(c.clave, modoAgrupacion)) return false;
         return true;
       });
 
@@ -358,6 +360,8 @@ export async function descargarAdministracionPdf(opts: OpcionesExportarAdminPdf)
             return f.fecha || '—';
           case 'empresa':
             return f.empresaNombre || f.empresaClave || '—';
+          case 'operaciones':
+            return `${f.totalOperaciones ?? 1} ops`;
           case 'concepto':
             return f.titulo || f.concepto || '—';
           case 'categoria':
@@ -391,6 +395,7 @@ export async function descargarAdministracionPdf(opts: OpcionesExportarAdminPdf)
     // Fila de totales al pie de la tabla
     const totalRow = colDefs.map((col, cIdx) => {
       if (cIdx === 0) return 'TOTAL CONSOLIDADO';
+      if (col.clave === 'operaciones') return `${resumen.totalOperaciones} ops`;
       if (col.clave === 'monto_usd') return fmtMontoUsd(resumen.totalUsd);
       if (col.clave === 'monto_bs') return fmtMontoBs(resumen.totalBs);
       if (col.clave === 'pct_total') return '100.0%';
@@ -543,6 +548,7 @@ export async function descargarAdministracionExcel(opts: {
     .filter((c) => {
       if (c.clave === 'monto_usd' && !mostrarUsd) return false;
       if (c.clave === 'monto_bs' && !mostrarBs) return false;
+      if (modoAgrupacion !== 'detallado' && !esColumnaAplicableModoAdmin(c.clave, modoAgrupacion)) return false;
       return true;
     });
 
@@ -556,6 +562,8 @@ export async function descargarAdministracionExcel(opts: {
           return f.fecha;
         case 'empresa':
           return f.empresaNombre || f.empresaClave;
+        case 'operaciones':
+          return f.totalOperaciones ?? 1;
         case 'concepto':
           return f.titulo || f.concepto;
         case 'categoria':
@@ -625,8 +633,9 @@ export function descargarAdministracionCsv(opts: {
   columnas: string[];
   mostrarUsd: boolean;
   mostrarBs: boolean;
+  modoAgrupacion?: ModoAgrupacionAdmin;
 }): void {
-  const { filas, columnas, mostrarUsd, mostrarBs } = opts;
+  const { filas, columnas, mostrarUsd, mostrarBs, modoAgrupacion } = opts;
 
   const colDefs = columnas
     .map((cKey) => CAMPOS_REPORTE_ADMIN.find((c) => c.clave === cKey))
@@ -634,6 +643,7 @@ export function descargarAdministracionCsv(opts: {
     .filter((c) => {
       if (c.clave === 'monto_usd' && !mostrarUsd) return false;
       if (c.clave === 'monto_bs' && !mostrarBs) return false;
+      if (modoAgrupacion && modoAgrupacion !== 'detallado' && !esColumnaAplicableModoAdmin(c.clave, modoAgrupacion)) return false;
       return true;
     });
 
@@ -648,6 +658,9 @@ export function descargarAdministracionCsv(opts: {
             break;
           case 'empresa':
             v = f.empresaNombre || f.empresaClave;
+            break;
+          case 'operaciones':
+            v = f.totalOperaciones ?? 1;
             break;
           case 'concepto':
             v = f.titulo || f.concepto;

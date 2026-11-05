@@ -34,6 +34,7 @@ import {
   CAMPOS_REPORTE_TESORERIA,
   ETIQUETA_FLUJO,
   ETIQUETA_MODO_TESORERIA,
+  esColumnaAplicableModoTesoreria,
   resolverCabeceraTarjetaTesoreria,
   obtenerMetricasFichaTesoreria,
 } from './reporteTesoreriaMoldeable';
@@ -119,6 +120,7 @@ function rawDeColumna(f: FilaReporteTesoreria, clave: string): unknown {
   switch (clave) {
     case 'caja': return f.caja_origen;
     case 'tipo_mov': return ETIQUETA_FLUJO[f.tipo_movimiento];
+    case 'operaciones': return f.total_operaciones ?? 1;
     case 'tasa_bcv': return f.tasa_bcv_aplicada;
     case 'pct_total': return f.pct_del_total;
     case 'saldo_caja': return f.saldo_caja_momento;
@@ -129,6 +131,7 @@ function rawDeColumna(f: FilaReporteTesoreria, clave: string): unknown {
 /** El número subyacente de una columna numérica (para Excel), o null si no aplica. */
 function numeroDeColumna(f: FilaReporteTesoreria, clave: string): number | null {
   switch (clave) {
+    case 'operaciones': return f.total_operaciones ?? 1;
     case 'monto_usd': return f.monto_usd;
     case 'monto_bs': return f.monto_bs;
     case 'monto_original': return f.monto_original;
@@ -154,14 +157,15 @@ function textoCelda(f: FilaReporteTesoreria, col: CampoColumnaTesoreria): string
   }
 }
 
-/** Columnas seleccionadas (en el orden del catálogo), respetando los toggles de moneda. */
-function columnasVisibles(columnasClaves: string[], meta: { mostrarUsd: boolean; mostrarBs: boolean }): CampoColumnaTesoreria[] {
+/** Columnas seleccionadas (en el orden del catálogo), respetando los toggles de moneda y la aplicabilidad a la dimensión. */
+function columnasVisibles(columnasClaves: string[], meta: { mostrarUsd: boolean; mostrarBs: boolean; agrupacion?: ModoAgrupacionTesoreria }): CampoColumnaTesoreria[] {
   return columnasClaves
     .map((c) => CAMPOS_REPORTE_TESORERIA.find((col) => col.clave === c))
     .filter((c): c is CampoColumnaTesoreria => {
       if (!c) return false;
       if (c.clave === 'monto_usd' && !meta.mostrarUsd) return false;
       if (c.clave === 'monto_bs' && !meta.mostrarBs) return false;
+      if (meta.agrupacion && meta.agrupacion !== 'detallado' && !esColumnaAplicableModoTesoreria(c.clave, meta.agrupacion)) return false;
       return true;
     });
 }
@@ -697,7 +701,8 @@ export async function descargarTesoreriaPdf(
     const cols = orient === 'landscape' ? 2 : 1;
     const cardGap = 10;
     const cardW = (UW - (cols - 1) * cardGap) / cols;
-    const cardH = orient === 'landscape' ? 76 : 68;
+    const tieneMuchasMetricas = filas.some((f) => obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).length > 4);
+    const cardH = orient === 'landscape' ? (tieneMuchasMetricas ? 92 : 76) : (tieneMuchasMetricas ? 86 : 68);
 
     for (let i = 0; i < filas.length; i += cols) {
       if (y + cardH > H - 36) { doc.addPage(); y = 36; }
@@ -800,31 +805,47 @@ export async function descargarTesoreriaPdf(
 
         // Métricas dinámicas (respetan los toggles de moneda)
         const metricas = obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs });
+        const maxPorFila = metricas.length <= 4 ? metricas.length : Math.ceil(metricas.length / 2);
         const innerW = cardW - 16;
-        const colW = innerW / Math.max(1, metricas.length);
-        const my = cy + 39;
         metricas.forEach((m, idx) => {
-          const mx = cx + 8 + colW * idx;
+          const filaIdx = metricas.length <= 4 ? 0 : Math.floor(idx / maxPorFila);
+          const colEnFila = metricas.length <= 4 ? idx : idx % maxPorFila;
+          const itemsEnEstaFila = filaIdx === 0 ? maxPorFila : (metricas.length - maxPorFila);
+          const colW = innerW / Math.max(1, itemsEnEstaFila);
+          const mx = cx + 8 + colW * colEnFila;
+          const my = cy + 39 + filaIdx * 25;
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.2);
+          doc.setFontSize(5.8);
           doc.setTextColor(71, 85, 105);
           doc.text(pdfSafe(m.etiqueta), mx, my);
-          doc.setFontSize(9.5);
+          doc.setFontSize(8.8);
           doc.setTextColor(...m.colorRgb);
           const valFit = doc.splitTextToSize(pdfSafe(m.valor), colW - 4) as string[];
-          doc.text(valFit[0] ?? '', mx, my + 13);
-          if (m.sub) {
+          doc.text(valFit[0] ?? '', mx, my + 11);
+          if (m.sub && (metricas.length <= 4 || filaIdx === 1)) {
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.0);
+            doc.setFontSize(5.5);
             doc.setTextColor(148, 163, 184);
             const subFit = doc.splitTextToSize(pdfSafe(m.sub), colW - 4) as string[];
-            doc.text(subFit[0] ?? '', mx, my + 23);
+            doc.text(subFit[0] ?? '', mx, my + 19);
           }
         });
       }
       y += cardH + cardGap;
     }
   } else {
+    if (meta.agrupacion !== 'detallado') {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...TINTA);
+      doc.text(
+        pdfSafe(`Resumen consolidado agrupado por ${ETIQUETA_MODO_TESORERIA[meta.agrupacion]} (${filas.length} grupos · ${resumen.totalOperaciones} operaciones)`),
+        M,
+        y - 4,
+      );
+      y += 6;
+    }
+
     const headCols = columnas.map((c) => pdfSafe(c.etiqueta));
     const bodyRows = filas.map((f) => columnas.map((c) => pdfSafe(textoCelda(f, c))));
 
@@ -832,8 +853,10 @@ export async function descargarTesoreriaPdf(
     const totBs = filas.reduce((a, f) => a + (f.monto_bs || 0), 0);
     const footRow = columnas.map((col, idx) => {
       if (idx === 0) return 'TOTALES';
+      if (col.clave === 'operaciones') return `${resumen.totalOperaciones} ops`;
       if (col.clave === 'monto_usd') return fmtUsd(totUsd);
       if (col.clave === 'monto_bs') return fmtBs(totBs);
+      if (col.clave === 'pct_total') return '100.0 %';
       return '';
     });
 

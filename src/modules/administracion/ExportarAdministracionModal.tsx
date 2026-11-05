@@ -26,6 +26,7 @@ import {
   CAMPOS_POR_DEFECTO_ADMIN_POR_MODO,
   MODOS_AGRUPACION_ADMIN,
   ETIQUETA_MODO_ADMIN,
+  esColumnaAplicableModoAdmin,
   ESTADO_PAGO_LABEL,
   ORIGEN_LABEL,
   obtenerPresetRangoAdmin,
@@ -356,6 +357,7 @@ export function ExportarAdministracionModal({
       columnas,
       mostrarUsd,
       mostrarBs,
+      modoAgrupacion: agrupacion,
     });
   };
 
@@ -377,9 +379,10 @@ export function ExportarAdministracionModal({
     return columnas.filter((cKey) => {
       if (cKey === 'monto_usd' && !mostrarUsd) return false;
       if (cKey === 'monto_bs' && !mostrarBs) return false;
+      if (agrupacion !== 'detallado' && !esColumnaAplicableModoAdmin(cKey, agrupacion)) return false;
       return true;
     });
-  }, [columnas, mostrarUsd, mostrarBs]);
+  }, [columnas, mostrarUsd, mostrarBs, agrupacion]);
 
   const surf2 = {
     background: 'var(--surface-2, #182230)',
@@ -921,23 +924,100 @@ export function ExportarAdministracionModal({
             </div>
           </div>
 
+          {/* Banner explicativo de claridad sobre la dimensión activa */}
+          {agrupacion !== 'detallado' && (
+            <div style={{
+              background: 'rgba(249, 115, 22, 0.08)',
+              border: '1px solid rgba(249, 115, 22, 0.3)',
+              borderRadius: 6,
+              padding: '.45rem .75rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '.4rem',
+              marginBottom: '.5rem',
+            }}>
+              <div style={{ fontSize: '.76rem', color: '#fed7aa', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                <span style={{ fontSize: '.9rem' }}>💡</span>
+                <span>
+                  Estás agrupando por <strong>{ETIQUETA_MODO_ADMIN[agrupacion]}</strong>: reporte en <strong>resumen consolidado</strong> ({filasActivas.length} grupo/s). Los campos de transacción (Concepto detallado) aplican en la dimensión <strong>Detallado</strong>.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-xs btn-primary"
+                onClick={() => cambiarAgrupacion('detallado')}
+                style={{ fontSize: '.72rem', padding: '.2rem .55rem', borderRadius: 4 }}
+              >
+                📋 Cambiar a vista Detallada
+              </button>
+            </div>
+          )}
+
           {/* Selector de columnas */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.35rem' }}>
-              <span style={{ fontSize: '.78rem', fontWeight: 600 }}>☑️ Columnas a mostrar ({columnas.length} seleccionadas)</span>
+              <span style={{ fontSize: '.78rem', fontWeight: 600 }}>
+                ☑️ Columnas a mostrar ({columnasVisibles.length} {agrupacion !== 'detallado' ? 'aplicables' : 'seleccionadas'})
+              </span>
               <div style={{ display: 'flex', gap: '.3rem' }}>
                 <button type="button" className="btn btn-ghost btn-xs" onClick={() => setColumnas(CAMPOS_POR_DEFECTO_ADMIN_POR_MODO[agrupacion] || [])}>Principales</button>
-                <button type="button" className="btn btn-ghost btn-xs" onClick={() => setColumnas(CAMPOS_REPORTE_ADMIN.map((c) => c.clave))}>Todas</button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => {
+                    const cols = CAMPOS_REPORTE_ADMIN
+                      .filter((c) => esColumnaAplicableModoAdmin(c.clave, agrupacion))
+                      .map((c) => c.clave);
+                    setColumnas(cols);
+                  }}
+                >
+                  {agrupacion === 'detallado' ? 'Todas' : 'Todas aplicables'}
+                </button>
                 <button type="button" className="btn btn-ghost btn-xs" onClick={() => setColumnas([])}>Ninguna</button>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '.25rem .45rem', maxHeight: '110px', overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))', gap: '.25rem .45rem', maxHeight: '120px', overflowY: 'auto' }}>
               {CAMPOS_REPORTE_ADMIN.map((col) => {
+                const aplicable = esColumnaAplicableModoAdmin(col.clave, agrupacion);
                 const marcado = columnas.includes(col.clave);
                 return (
-                  <label key={col.clave} style={{ display: 'flex', alignItems: 'center', gap: '.35rem', fontSize: '.75rem', cursor: 'pointer', color: marcado ? '#f1f5f9' : '#94a3b8' }}>
-                    <input type="checkbox" checked={marcado} onChange={() => alternarColumna(col.clave)} />
+                  <label
+                    key={col.clave}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '.35rem',
+                      fontSize: '.75rem',
+                      cursor: aplicable ? 'pointer' : 'help',
+                      color: marcado && aplicable ? '#f1f5f9' : '#94a3b8',
+                      opacity: !aplicable ? 0.45 : 1,
+                    }}
+                    title={
+                      !aplicable
+                        ? `La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (movimiento individual)`
+                        : col.descripcion
+                    }
+                    onClick={(e) => {
+                      if (!aplicable) {
+                        e.preventDefault();
+                        toast(`La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (movimiento individual).`, 'info');
+                      }
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={marcado && aplicable}
+                      disabled={!aplicable}
+                      onChange={() => alternarColumna(col.clave)}
+                    />
                     <span>{col.etiqueta}</span>
+                    {!aplicable && (
+                      <span style={{ fontSize: '.58rem', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', padding: '.04rem .25rem', borderRadius: 3, marginLeft: '.15rem' }}>
+                        Solo Detallado
+                      </span>
+                    )}
                   </label>
                 );
               })}
@@ -1118,7 +1198,7 @@ export function ExportarAdministracionModal({
                     </div>
 
                     {/* Chips de métricas */}
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${metricas.length || 1}, 1fr)`, gap: '.3rem', marginTop: '.6rem', background: 'rgba(0,0,0,0.25)', padding: '.35rem .5rem', borderRadius: '4px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.35rem', marginTop: '.6rem', background: 'rgba(0,0,0,0.25)', padding: '.35rem .5rem', borderRadius: '4px' }}>
                       {metricas.map((m) => (
                         <div key={m.clave} style={{ textAlign: 'center' }}>
                           <div className="muted" style={{ fontSize: '.58rem', fontWeight: 600 }}>{m.etiqueta}</div>
@@ -1158,6 +1238,7 @@ export function ExportarAdministracionModal({
                         let val: string | number = '—';
                         if (cKey === 'fecha') val = f.fecha;
                         else if (cKey === 'empresa') val = f.empresaNombre || f.empresaClave;
+                        else if (cKey === 'operaciones') val = `${f.totalOperaciones ?? 1} ops`;
                         else if (cKey === 'concepto') val = f.titulo || f.concepto;
                         else if (cKey === 'categoria') val = f.categoriaNombre;
                         else if (cKey === 'proveedor') val = f.proveedorNombre;
