@@ -8,7 +8,7 @@ import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import type { ReporteTanque } from './tanques.repository';
-import type { TotalesCorteCombustible } from './reporteExistenciasCorte';
+import { type TotalesCorteCombustible, obtenerTituloRangoReporte } from './reporteExistenciasCorte';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { isoAVe } from '@/shared/lib/fechaVE';
 import { esBidon } from './bidonCombustible';
@@ -35,7 +35,9 @@ export interface ReporteExistenciasPdfArgs {
   periodoLabel: string;
   totalesCorte?: TotalesCorteCombustible;
   orientacion?: 'landscape' | 'portrait';
+  fechaDesde?: string | null;
   fechaHasta?: string | null;
+  tituloRango?: string;
   incluirTarjetas?: boolean;
   incluirMovimientos?: boolean;
 }
@@ -46,7 +48,9 @@ export async function descargarReporteExistenciasPdf({
   periodoLabel,
   totalesCorte,
   orientacion = 'landscape',
+  fechaDesde,
   fechaHasta,
+  tituloRango,
   incluirTarjetas = true,
   incluirMovimientos = true,
 }: ReporteExistenciasPdfArgs): Promise<void> {
@@ -64,34 +68,50 @@ export async function descargarReporteExistenciasPdf({
   const MARGIN = esLandscape ? 36 : 30;
   let y = MARGIN;
 
+  const tituloPrincipal =
+    tituloRango ||
+    obtenerTituloRangoReporte(fechaDesde, fechaHasta);
+
   // 1. Membrete oficial
-  const logoH = esLandscape ? 38 : 34;
+  const logoH = esLandscape ? 36 : 32;
   if (logo) {
     dibujarLogoPdf(doc, logo, MARGIN, y, logoH);
   }
   const tx = logo ? MARGIN + anchoLogoPdf(logoH) + 12 : MARGIN;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(esLandscape ? 13 : 11.5);
+  doc.setFontSize(esLandscape ? 11 : 10);
   doc.setTextColor(30, 41, 59);
-  doc.text('GOLDEN TOUCH 1127 C.A. · REPORTE DE COMBUSTIBLE', tx, y + 13);
+  doc.text('GOLDEN TOUCH 1127 C.A. · CONTROL DE COMBUSTIBLE', tx, y + 12);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(esLandscape ? 9 : 8);
+  doc.setFontSize(esLandscape ? 7.5 : 7);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Existencias, Saldos al Corte y Arqueo de Movimientos · ${periodoLabel}`, tx, y + 25);
+  doc.text('J-50129993-5 · Existencias, Saldos al Corte y Arqueo', tx, y + 23);
 
   const ahora = dateTime(new Date().toISOString());
-  doc.setFontSize(esLandscape ? 8.5 : 7.5);
+  doc.setFontSize(esLandscape ? 7.5 : 7);
   doc.setTextColor(71, 85, 105);
-  doc.text(`Emitido: ${ahora}`, PAGE_W - MARGIN, y + 13, { align: 'right' });
-  doc.text(`${detallePorTanque.length} tanque(s) seleccionados`, PAGE_W - MARGIN, y + 25, { align: 'right' });
+  doc.text(`Emitido: ${ahora}`, PAGE_W - MARGIN, y + 12, { align: 'right' });
+  doc.text(`${detallePorTanque.length} tanque(s) en reporte`, PAGE_W - MARGIN, y + 23, { align: 'right' });
 
-  y += esLandscape ? 38 : 34;
+  // TÍTULO FORMAL CENTRADO EN GRANDE CON LAS FECHAS DEL REPORTE (ej. "Reporte del 01 al 31 de Octubre 2026")
+  y += esLandscape ? 32 : 28;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(esLandscape ? 14 : 12.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(tituloPrincipal, PAGE_W / 2, y + 10, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(esLandscape ? 8 : 7.2);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Existencias, Saldos al Corte y Arqueo de Movimientos · ${periodoLabel}`, PAGE_W / 2, y + 21, { align: 'center' });
+
+  y += 27;
   doc.setDrawColor(234, 88, 12); // Naranja corporativo
   doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 10;
+  y += 9;
 
   // 2. Tarjetas resumen de totales consolidados (KPIs dinámicos)
   const totalLitrosCierre =
@@ -200,14 +220,16 @@ export async function descargarReporteExistenciasPdf({
 
   // 3. SECCIÓN: SALDO PUNTUAL POR TANQUE EN CABECERA (activada por check de tarjetas)
   if (incluirTarjetas) {
-    const fechaCorteLabel =
+    const rawCorte =
       totalesCorte?.cierreFechaLabel ||
-      (fechaHasta ? isoAVe(fechaHasta) : 'al corte');
+      (fechaHasta ? isoAVe(fechaHasta) : 'Corte actual');
+    const fechaLimpia = rawCorte.replace(/^cierre\s+(al\s+)?/i, '').trim();
+    const fechaCorteLabel = fechaLimpia ? `AL ${fechaLimpia.toUpperCase()}` : 'AL CORTE';
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(30, 41, 59);
-    doc.text(`SALDO PUNTUAL POR TANQUE · CIERRE ${fechaCorteLabel.toUpperCase()}`, MARGIN, y + 2);
+    doc.text(`SALDO PUNTUAL POR TANQUE · CIERRE ${fechaCorteLabel}`, MARGIN, y + 2);
     y += 7;
 
     // Cuadrícula dinámica de fichas por tanque (como en la vista de selección)
@@ -289,7 +311,7 @@ export async function descargarReporteExistenciasPdf({
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(esLandscape ? 5.8 : 5.2);
       doc.setTextColor(100, 116, 139);
-      doc.text(`Cierre al ${fechaCorteLabel}`, cardX + 7, cardY + (esLandscape ? 30 : 31));
+      doc.text(`Cierre: ${fechaLimpia || 'al corte'}`, cardX + 7, cardY + (esLandscape ? 30 : 31));
 
       const subtasa =
         cap > 0

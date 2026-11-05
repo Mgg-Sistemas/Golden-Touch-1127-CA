@@ -164,6 +164,54 @@ export function obtenerPresetRango(
 }
 
 /**
+ * Genera el título formal y explícito para la cabecera del reporte (p. ej. "Reporte del 01 al 31 de Octubre 2026").
+ */
+export function obtenerTituloRangoReporte(
+  desde?: string | null,
+  hasta?: string | null,
+  preset?: PresetPeriodoCombustible,
+): string {
+  if (preset === 'todos') {
+    return 'Reporte Histórico Completo de Combustible';
+  }
+
+  const d = (desde || '').trim();
+  const h = (hasta || '').trim();
+
+  if (d && h) {
+    const [yD, mD, diaD] = d.split('-').map(Number);
+    const [yH, mH, diaH] = h.split('-').map(Number);
+    const padD = String(diaD).padStart(2, '0');
+    const padH = String(diaH).padStart(2, '0');
+
+    if (yD === yH && mD === mH) {
+      // Mismo mes y año: "Reporte del 01 al 31 de Octubre 2026"
+      return `Reporte del ${padD} al ${padH} de ${nombreMesEs(mD)} ${yH}`;
+    }
+    if (yD === yH) {
+      // Mismo año, distinto mes: "Reporte del 25 de Octubre al 04 de Noviembre 2026"
+      return `Reporte del ${padD} de ${nombreMesEs(mD)} al ${padH} de ${nombreMesEs(mH)} ${yH}`;
+    }
+    // Distinto año
+    return `Reporte del ${padD} de ${nombreMesEs(mD)} ${yD} al ${padH} de ${nombreMesEs(mH)} ${yH}`;
+  }
+
+  if (h) {
+    const [yH, mH, diaH] = h.split('-').map(Number);
+    const padH = String(diaH).padStart(2, '0');
+    return `Reporte de Combustible al ${padH} de ${nombreMesEs(mH)} ${yH}`;
+  }
+
+  if (d) {
+    const [yD, mD, diaD] = d.split('-').map(Number);
+    const padD = String(diaD).padStart(2, '0');
+    return `Reporte de Combustible desde el ${padD} de ${nombreMesEs(mD)} ${yD}`;
+  }
+
+  return 'Reporte de Existencias y Movimientos de Combustible';
+}
+
+/**
  * Calcula para un tanque sus saldos de apertura, movimientos del periodo y saldo al corte/cierre.
  */
 export function calcularCorteTanque(

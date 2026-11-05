@@ -13,6 +13,7 @@ import {
   hoyIsoVE,
   nombreMesEs,
   obtenerPresetRango,
+  obtenerTituloRangoReporte,
   type PresetPeriodoCombustible,
   type SaldoCorteTanque,
 } from './reporteExistenciasCorte';
@@ -143,6 +144,11 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     return 'Periodo seleccionado';
   }, [periodo, fechaDesde, fechaHasta, hoy]);
 
+  // Título formal centrado en grande con las fechas explícitas (ej. "Reporte del 01 al 31 de Octubre 2026")
+  const tituloRangoGrande = useMemo(() => {
+    return obtenerTituloRangoReporte(fechaDesde, fechaHasta, periodo);
+  }, [fechaDesde, fechaHasta, periodo]);
+
   // Mapa rápido de id -> TanqueCombustible
   const tanqueById = useMemo(() => {
     const map = new Map<string, TanqueCombustible>();
@@ -268,7 +274,9 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
         periodoLabel,
         totalesCorte: totales,
         orientacion,
+        fechaDesde,
         fechaHasta,
+        tituloRango: tituloRangoGrande,
         incluirTarjetas,
         incluirMovimientos,
       });
@@ -899,11 +907,11 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
           <div style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--primary)' }}>
             Golden Touch 1127 C.A. · Control de Combustible
           </div>
-          <h2 style={{ margin: '.25rem 0 .2rem 0', fontSize: '1.4rem' }}>
-            Reporte de Existencias y Movimientos
+          <h2 style={{ margin: '.25rem 0 .2rem 0', fontSize: '1.45rem', fontWeight: 800 }}>
+            {tituloRangoGrande}
           </h2>
-          <div className="muted subtitle" style={{ fontSize: '.8rem', textTransform: 'capitalize' }}>
-            {emitido} · {periodoLabel}
+          <div className="muted subtitle" style={{ fontSize: '.82rem' }}>
+            Existencias, Saldos al Corte y Arqueo de Movimientos · Emitido: {emitido}
           </div>
           {totales.esHistorico && (
             <div className="historical-badge" style={{ fontSize: '.76rem', color: 'var(--primary)', marginTop: '.25rem', fontWeight: 600 }}>
