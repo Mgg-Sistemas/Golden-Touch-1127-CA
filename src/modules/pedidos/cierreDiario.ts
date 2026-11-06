@@ -1,19 +1,17 @@
 /* ============================================================
    Golden Touch · Compras · «Cierre diario» (lógica, sin pantalla)
 
-   Un resumen de cuatro números —solo los títulos con sus cantidades— que sale
+   Un resumen de tres números —solo los títulos con sus cantidades— que sale
    en PDF, Excel y WhatsApp:
 
      · Pedidos                        solicitudes hechas en el período
-     · Órdenes pendientes por aprobar OC que esperan al Gerente General
      · Órdenes por pagar              aprobadas, con el método indicado o por indicar
      · Órdenes pagadas                pagadas en el período
 
    EL FILTRO DE FECHAS cuenta cada cosa por SU fecha: si se marca HOY, solo entra
-   lo que HOY quedó pendiente por aprobar, lo que HOY pasó a por pagar, lo que HOY
-   se pagó y los pedidos que HOY se hicieron. Se puede filtrar por día, semana
-   (lunes a domingo), mes o un rango cualquiera. Las fechas son las de Venezuela
-   (America/Caracas), no las del navegador.
+   lo que HOY pasó a por pagar, lo que HOY se pagó y los pedidos que HOY se hicieron.
+   Se puede filtrar por día, semana (lunes a domingo), mes o un rango cualquiera.
+   Las fechas son las de Venezuela (America/Caracas), no las del navegador.
 
    Vive aquí, sin pantalla ni base de datos, para poder probarlo.
    ============================================================ */
@@ -68,7 +66,7 @@ export interface AnalistaCierre {
   finalizadas: number;
 }
 
-export type ClaveMetricaCierre = 'pedidos' | 'porAprobar' | 'porPagar' | 'pagadas';
+export type ClaveMetricaCierre = 'pedidos' | 'porPagar' | 'pagadas';
 
 /** Una OC que quedó por pagar: su código, el proveedor y el monto en $. */
 export interface OcPorPagarCierre {
@@ -79,7 +77,6 @@ export interface OcPorPagarCierre {
 
 export interface ResumenCierre {
   pedidos: number;
-  porAprobar: number;
   porPagar: number;
   pagadas: number;
   analistas: AnalistaCierre[];
@@ -107,10 +104,9 @@ export interface TituloCierre {
   emoji: string;
 }
 
-/** Los cuatro títulos, en el orden en que salen en los tres formatos. */
+/** Los tres títulos, en el orden en que salen en los tres formatos. */
 export const TITULOS_CIERRE: readonly TituloCierre[] = [
   { clave: 'pedidos', titulo: 'Pedidos', emoji: '📥' },
-  { clave: 'porAprobar', titulo: 'Órdenes pendientes por aprobar', emoji: '⏳' },
   { clave: 'porPagar', titulo: 'Órdenes por pagar', emoji: '💵' },
   { clave: 'pagadas', titulo: 'Órdenes pagadas', emoji: '✅' },
 ];
@@ -208,7 +204,7 @@ export function calcularCierre(
     const d = fechaCaracas(v);
     return d !== '' && d >= p.desde && d <= p.hasta;
   };
-  const r: ResumenCierre = { pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0, analistas: [], ocPorPagar: [], totalPorPagarUsd: 0 };
+  const r: ResumenCierre = { pedidos: 0, porPagar: 0, pagadas: 0, analistas: [], ocPorPagar: [], totalPorPagarUsd: 0 };
   const analistasMap = new Map<string, { cotizaciones: number; finalizadas: number }>();
   const getAnalista = (email: string) => {
     const norm = email.toLowerCase().trim();
@@ -223,7 +219,6 @@ export function calcularCierre(
   for (const o of filas) {
     // Una OC hija de un reparto no es otro pedido: es parte del mismo.
     if (!o.op_padre_id && en(o.created_at)) r.pedidos += 1;
-    if (o.estado === 'oc_creada' && en(o.oc_creada_en ?? o.created_at)) r.porAprobar += 1;
     if ((o.estado === 'oc_aprobada' || o.estado === 'confirmada_metodo') && en(o.oc_aprobada_en ?? o.aprobada_en ?? o.created_at)) {
       r.porPagar += 1;
       r.ocPorPagar.push({

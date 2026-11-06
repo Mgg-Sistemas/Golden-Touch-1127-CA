@@ -1,11 +1,10 @@
 /* ============================================================
    Golden Touch · Compras · «Cierre diario»
 
-   El botón «Cierre diario» de Pedidos abre este modal: un RESUMEN de cuatro
-   números —Pedidos, Órdenes pendientes por aprobar, Órdenes por pagar y Órdenes
-   pagadas— que se filtra por día, semana, mes o un rango de fechas, y se saca en
-   PDF (con 🖨 Imprimir), Excel o WhatsApp. Cada salida lleva el período y la
-   fecha y hora en que se imprime.
+   El botón «Cierre diario» de Pedidos abre este modal: un RESUMEN de tres
+   números —Pedidos, Órdenes por pagar y Órdenes pagadas— que se filtra por día,
+   semana, mes o un rango de fechas, y se saca en PDF (con 🖨 Imprimir), Excel o
+   WhatsApp. Cada salida lleva el período y la fecha y hora en que se imprime.
 
    Las órdenes se leen UNA vez al abrir (solo las columnas necesarias) y el filtro
    se aplica en pantalla: cambiar de día o de mes no vuelve a pedir nada.
