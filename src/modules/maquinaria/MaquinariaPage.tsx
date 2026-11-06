@@ -517,7 +517,16 @@ export function MaquinariaPage() {
 
         {/* Fila 5: Tipo de equipo (pills) */}
         {tipos.length > 0 && (
-          <div className="flo-pills" role="group" aria-label="Tipo de equipo">
+          <div
+            className="flo-pills"
+            role="group"
+            aria-label="Tipo de equipo"
+            onWheel={(e) => {
+              if (e.deltaY !== 0 && !e.shiftKey) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
             {tipos.map(([t, n]) => (
               <button key={t} type="button" className="flo-pill" aria-pressed={tipo === t} onClick={() => setTipo(tipo === t ? '' : t)}>
                 {t}<span className="n">{n}</span>

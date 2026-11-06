@@ -102,27 +102,31 @@
   overflow-x: auto !important;
   overflow-y: hidden !important;
   scrollbar-width: thin !important;
-  scrollbar-color: color-mix(in srgb, var(--primary) 40%, var(--border-strong)) transparent !important;
-  padding-bottom: 4px;
+  scrollbar-color: var(--primary) var(--surface-2) !important;
+  padding-bottom: 6px;
   -webkit-overflow-scrolling: touch;
 }
 .flo-cinta-scroll::-webkit-scrollbar {
   height: 6px;
 }
+.flo-cinta-scroll::-webkit-scrollbar-track {
+  background: var(--surface-2);
+  border-radius: 999px;
+}
 .flo-cinta-scroll::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--primary) 40%, var(--border-strong));
+  background: var(--primary);
   border-radius: 999px;
 }
 .flo-cinta-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--primary);
-}
-.flo-cinta-scroll::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--primary-hover, #ea580c);
 }
 .flo-cinta-scroll .flo-seg {
   display: inline-flex !important;
   flex-wrap: nowrap !important;
   flex: 0 0 auto !important;
+  max-width: none !important;
+  width: max-content !important;
+  overflow: visible !important;
   grid-template-columns: none !important;
 }
 .flo-cinta-scroll .flo-seg button {
@@ -463,6 +467,7 @@
   .flo .btn.btn-sm { min-height: 44px; }
   .flo-filtros .fila > * { flex: 1 1 100%; }
   .flo-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flo-cinta-scroll .flo-seg { display: inline-flex !important; grid-template-columns: none !important; width: max-content !important; max-width: none !important; }
   .flo-seg button { white-space: normal; text-align: center; line-height: 1.2; padding: .4rem .5rem; }
   .flo-seg button + button { border-left: 0; }
   .flo-seg button:nth-child(even) { border-left: 1px solid var(--border); }
