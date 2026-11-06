@@ -303,7 +303,6 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const solicitud: Array<[string, string]> = [
     ['Unidad solicitante', pdfSafe(orden.unidad_solicitante) || '—'],
     ['Solicitado por', pdfSafe(orden.solicitante || quien(orden.solicitante_email, orden.created_at))],
-    ...(orden.ci_solicitante ? ([['Cédula del solicitante', orden.ci_solicitante]] as Array<[string, string]>) : []),
     [`Fecha de solicitud (${SOL_ABBR})`, orden.created_at ? dateTime(orden.created_at) : '—'],
     [`${SOL_ABBR} aprobada el`, orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
