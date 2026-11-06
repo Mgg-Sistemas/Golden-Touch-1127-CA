@@ -20,7 +20,7 @@ import { toast } from '@/shared/ui/Toast';
 import { mensajeError } from '@/shared/lib/errores';
 import type { MovimientoCaja } from '@/shared/lib/types';
 import { listLibroMayor } from './tesoreria.repository';
-import { cargarPendientesPorPagar, esMonedaDivisa, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import { cargarPendientesPorPagar, generarBloquesPreparacion, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
 import { supabase } from '@/shared/lib/supabase';
 import type { PagoMetodo } from '@/shared/lib/types';
 import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
@@ -109,13 +109,6 @@ function leerPrefs() {
 
 const fmtUsd = (v: number) => `$ ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtBs = (v: number) => `Bs ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-/** Monto en su moneda nativa (para «Por preparar»): Bs …, $ …, USDT … */
-const fmtNativa = (moneda: string, monto: number) => {
-  const m = (moneda || '').toUpperCase();
-  if (m === 'BS') return fmtBs(monto);
-  if (m === 'USD') return fmtUsd(monto);
-  return `${moneda} ${monto.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
 const fmtFechaCorta = (f: string) => { const [y, m, d] = (f || '').split('-'); return y && m && d ? `${d}/${m}` : f; };
 
 interface Props {
@@ -352,9 +345,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   const textoWsp = useMemo(
     () => textoWhatsappTesoreria(filtradas, {
       ambito, desde, hasta, mostrarUsd, mostrarBs,
+      tasaRef: resumen.tasaBcvReferencia,
       preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
     }),
-    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP],
+    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia],
   );
 
   return (
@@ -419,40 +413,37 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             </div>
             {incluirPreparar && cargando && <div className="muted" style={{ fontSize: '.76rem', marginTop: '.5rem' }}>Cargando…</div>}
             {incluirPreparar && !cargando && datosPP?.preparacion && (() => {
-              const prep = datosPP.preparacion;
-              const filtrados = prep.totalesPorMoneda.filter((t) => (esMonedaDivisa(t.moneda) ? mostrarUsd : mostrarBs));
-              const totales = filtrados.length > 0 ? filtrados : prep.totalesPorMoneda;
-              const haySinMetodo = prep.sinMetodo.nOrdenes > 0;
-              if (totales.length === 0 && !haySinMetodo) {
-                return <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Nada por preparar con las monedas elegidas.</div>;
+              const prepRes = generarBloquesPreparacion(datosPP.preparacion, resumen.tasaBcvReferencia, { mostrarUsd, mostrarBs });
+              if (prepRes.bloques.length === 0 && !prepRes.sinMetodoTexto) {
+                return <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Nada por preparar con las opciones elegidas.</div>;
               }
               return (
                 <div style={{ marginTop: '.6rem', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
-                  {totales.map((t) => {
-                    const divisa = esMonedaDivisa(t.moneda);
-                    const metodos = prep.porMetodoMoneda.filter((l) => l.moneda === t.moneda);
-                    return (
-                      <div key={t.moneda} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.45rem .7rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '.6rem', fontWeight: 700, padding: '.05rem .4rem', borderRadius: 999, background: divisa ? 'rgba(34,197,94,.15)' : 'rgba(255,138,0,.15)', color: divisa ? '#22c55e' : '#FF8A00' }}>{divisa ? 'Divisa' : 'Bolívares'}</span>
-                          <strong style={{ fontSize: '.95rem', color: divisa ? '#22c55e' : '#FF8A00' }}>{t.moneda}: {fmtNativa(t.moneda, t.monto)}</strong>
-                          <span className="muted" style={{ fontSize: '.7rem' }}>· {t.nOrdenes} pago(s)</span>
-                        </div>
-                        {metodos.length > 0 && (
-                          <div style={{ marginTop: '.3rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-                            {metodos.map((l) => (
-                              <div key={`${l.metodo}|${l.moneda}`} style={{ fontSize: '.75rem', paddingLeft: '.6rem' }}>
-                                • {l.metodoLabel}: <strong>{fmtNativa(l.moneda, l.monto)}</strong> <span className="muted" style={{ fontSize: '.68rem' }}>· {l.nOrdenes} op.</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                  {prepRes.bloques.map((b) => (
+                    <div key={b.clave} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.45rem .7rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '.6rem', fontWeight: 700, padding: '.05rem .4rem', borderRadius: 999, background: b.esDivisa ? 'rgba(34,197,94,.15)' : 'rgba(255,138,0,.15)', color: b.esDivisa ? '#22c55e' : '#FF8A00' }}>
+                          {b.etiqueta}
+                        </span>
+                        <strong style={{ fontSize: '.95rem', color: b.esDivisa ? '#22c55e' : '#FF8A00' }}>
+                          {b.totalTexto}
+                        </strong>
+                        <span className="muted" style={{ fontSize: '.7rem' }}>· {b.nOrdenes} pago(s)</span>
                       </div>
-                    );
-                  })}
-                  {haySinMetodo && (
+                      {b.metodos.length > 0 && (
+                        <div style={{ marginTop: '.3rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                          {b.metodos.map((m) => (
+                            <div key={m.label} style={{ fontSize: '.75rem', paddingLeft: '.6rem' }}>
+                              • {m.label}: <strong>{m.montoTexto}</strong> <span className="muted" style={{ fontSize: '.68rem' }}>· {m.nOrdenes} op.</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {prepRes.sinMetodoTexto && (
                     <div className="muted" style={{ fontSize: '.74rem' }}>
-                      ⏳ Sin método asignado (referencia): {[mostrarUsd ? fmtUsd(prep.sinMetodo.usd) : null, mostrarBs ? fmtBs(prep.sinMetodo.bs) : null].filter(Boolean).join(' · ')} · {prep.sinMetodo.nOrdenes} op.
+                      ⏳ {prepRes.sinMetodoTexto}
                     </div>
                   )}
                 </div>
@@ -502,6 +493,32 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
           </div>
           <div style={surf2}>
             <div style={{ ...tituloSec, marginBottom: '.4rem' }}>💱 Valuación y monedas</div>
+            <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+              <button
+                type="button"
+                className={`btn btn-xs ${!mostrarUsd && mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: '999px', padding: '.25rem .75rem', fontWeight: !mostrarUsd && mostrarBs ? 700 : 500 }}
+                onClick={() => { setMostrarBs(true); setMostrarUsd(false); if (ordenarPor === 'usd') setOrdenarPor('bs'); }}
+              >
+                🇻🇪 Solo Bolívares (Bs)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${mostrarUsd && !mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: '999px', padding: '.25rem .75rem', fontWeight: mostrarUsd && !mostrarBs ? 700 : 500 }}
+                onClick={() => { setMostrarUsd(true); setMostrarBs(false); if (ordenarPor === 'bs') setOrdenarPor('usd'); }}
+              >
+                💵 Solo Dólares ($)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${mostrarUsd && mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: '999px', padding: '.25rem .75rem', fontWeight: mostrarUsd && mostrarBs ? 700 : 500 }}
+                onClick={() => { setMostrarUsd(true); setMostrarBs(true); }}
+              >
+                💱 Ambos (Bs y $)
+              </button>
+            </div>
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600, color: mostrarUsd ? '#22c55e' : '#94a3b8' }}>
                 <input type="checkbox" checked={mostrarUsd} onChange={(e) => alternarUsd(e.target.checked)} /><span>Mostrar $ USD</span>
@@ -800,10 +817,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.55rem', maxHeight: '260px', overflowY: 'auto', paddingRight: '.2rem' }}>
               {filas.map((f) => {
                 const acento = f.tipo_movimiento === 'ingreso' ? '#10b981' : f.tipo_movimiento === 'traslado' ? '#38bdf8' : '#FF8A00';
-                const metricas = obtenerMetricasFichaTesoreria(f, marcados, { mostrarUsd, mostrarBs });
-                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta, marcados);
-                const tienePct = marcados.includes('pct_total') && f.pct_del_total != null;
-                const tieneTipo = marcados.includes('tipo_mov');
+                const metricas = obtenerMetricasFichaTesoreria(f, marcadosVisibles, { mostrarUsd, mostrarBs });
+                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta, marcadosVisibles);
+                const tienePct = marcadosVisibles.includes('pct_total') && f.pct_del_total != null;
+                const tieneTipo = marcadosVisibles.includes('tipo_mov');
                 const mostrarBadge = tienePct || tieneTipo;
                 return (
                   <div key={f.id} style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border, #334155)', borderLeft: `4px solid ${acento}`, borderRadius: '6px', padding: '.55rem .7rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
@@ -849,17 +866,38 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                         </div>
                       )}
                     </div>
-                    {metricas.length > 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(105px, 1fr))`, gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
-                        {metricas.map((m) => (
-                          <div key={m.clave}>
-                            <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
-                            <div style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>{m.valor}</div>
-                            {m.sub && <div style={{ fontSize: '.58rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {(() => {
+                      const metPago = metricas.find((m) => m.clave === 'metodo_pago');
+                      const metricasGrid = metricas.filter((m) => m.clave !== 'metodo_pago');
+                      return (
+                        <>
+                          {metricasGrid.length > 0 && (
+                            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(105px, 1fr))`, gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
+                              {metricasGrid.map((m) => (
+                                <div key={m.clave}>
+                                  <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
+                                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>{m.valor}</div>
+                                  {m.sub && <div style={{ fontSize: '.58rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {metPago && (
+                            <div style={{ marginTop: '.25rem', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '4px', padding: '.35rem .55rem', borderLeft: '3px solid #10b981' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                                <span className="muted" style={{ fontSize: '.62rem', fontWeight: 700, textTransform: 'uppercase' }}>Método y Datos de Pago:</span>
+                                <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#10b981' }}>{metPago.valor}</span>
+                              </div>
+                              {metPago.sub && (
+                                <div style={{ fontSize: '.68rem', color: '#cbd5e1', marginTop: '.15rem', wordBreak: 'break-word', lineHeight: 1.25 }}>
+                                  {metPago.sub}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 );
               })}

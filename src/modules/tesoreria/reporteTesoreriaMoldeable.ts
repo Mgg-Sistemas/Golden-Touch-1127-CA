@@ -1036,24 +1036,8 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 7. Método y datos de pago vs Estado (separados de forma estricta según columnasClaves)
-  const conMetodo = columnasClaves.includes('metodo_pago');
-  const conEstado = columnasClaves.includes('estado');
-
-  if (conMetodo && conEstado) {
-    const textoPago = (f.datos_pago_resumen || f.metodo_pago || '').trim();
-    const corte = textoPago.indexOf(' — ');
-    const metodo = corte >= 0 ? textoPago.slice(0, corte) : textoPago;
-    const datos = corte >= 0 ? textoPago.slice(corte + 3) : '';
-    metricas.push({
-      clave: 'metodo_pago',
-      etiqueta: 'MÉTODO / ESTADO',
-      valor: metodo || f.estado || 'Sin método cargado',
-      sub: [datos, f.estado].filter(Boolean).join(' · '),
-      colorHex: '#10b981',
-      colorRgb: [16, 185, 129],
-    });
-  } else if (conMetodo) {
+  // 7. Método y datos de pago (si está marcado)
+  if (columnasClaves.includes('metodo_pago')) {
     const textoPago = (f.datos_pago_resumen || f.metodo_pago || '').trim();
     const corte = textoPago.indexOf(' — ');
     const metodo = corte >= 0 ? textoPago.slice(0, corte) : textoPago;
@@ -1066,7 +1050,10 @@ export function obtenerMetricasFichaTesoreria(
       colorHex: '#10b981',
       colorRgb: [16, 185, 129],
     });
-  } else if (conEstado) {
+  }
+
+  // 8. Estado (si está marcado)
+  if (columnasClaves.includes('estado')) {
     metricas.push({
       clave: 'estado',
       etiqueta: 'ESTADO',
@@ -1076,7 +1063,20 @@ export function obtenerMetricasFichaTesoreria(
     });
   }
 
-  // 8. Otras columnas que el usuario haya seleccionado para ver en la tarjeta
+  // 9. Fecha
+  if (columnasClaves.includes('fecha') && f.fecha) {
+    const [y, m, d] = (f.fecha || '').split('-');
+    const fechaFmt = y && m && d ? `${d}/${m}/${y}` : f.fecha;
+    metricas.push({
+      clave: 'fecha',
+      etiqueta: 'FECHA',
+      valor: fechaFmt,
+      colorHex: '#94a3b8',
+      colorRgb: [148, 163, 184],
+    });
+  }
+
+  // 10. Hora (solo transacciones con hora)
   if (columnasClaves.includes('hora') && f.hora) {
     metricas.push({
       clave: 'hora',
@@ -1086,6 +1086,76 @@ export function obtenerMetricasFichaTesoreria(
       colorRgb: [148, 163, 184],
     });
   }
+
+  // 11. Código / Ref
+  if (columnasClaves.includes('codigo') && (f.codigo || f.origen_documento)) {
+    metricas.push({
+      clave: 'codigo',
+      etiqueta: 'N° CÓDIGO / REF',
+      valor: f.codigo && f.codigo !== '—' ? f.codigo : (f.origen_documento || '—'),
+      colorHex: '#6366f1',
+      colorRgb: [99, 102, 241],
+    });
+  }
+
+  // 12. Caja / Banco
+  if (columnasClaves.includes('caja') && (f.caja_origen || f.caja_destino)) {
+    metricas.push({
+      clave: 'caja',
+      etiqueta: 'CAJA / BANCO',
+      valor: f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : (f.caja_destino || '—'),
+      colorHex: '#0284c7',
+      colorRgb: [2, 132, 199],
+    });
+  }
+
+  // 13. Proveedor / Beneficiario (Contraparte)
+  if (columnasClaves.includes('contraparte') && f.contraparte) {
+    metricas.push({
+      clave: 'contraparte',
+      etiqueta: 'PROVEEDOR / BENEFICIARIO',
+      valor: f.contraparte,
+      colorHex: '#ea580c',
+      colorRgb: [234, 88, 12],
+    });
+  }
+
+  // 14. Tipo de Movimiento (Flujo)
+  if (columnasClaves.includes('tipo_mov') && f.tipo_movimiento) {
+    const acentoHex = f.tipo_movimiento === 'ingreso' ? '#10b981' : f.tipo_movimiento === 'traslado' ? '#38bdf8' : '#FF8A00';
+    const acentoRgb: [number, number, number] = f.tipo_movimiento === 'ingreso' ? [16, 185, 129] : f.tipo_movimiento === 'traslado' ? [56, 189, 248] : [255, 138, 0];
+    metricas.push({
+      clave: 'tipo_mov',
+      etiqueta: 'TIPO DE FLUJO',
+      valor: ETIQUETA_FLUJO[f.tipo_movimiento] || f.tipo_movimiento,
+      colorHex: acentoHex,
+      colorRgb: acentoRgb,
+    });
+  }
+
+  // 15. Categoría de Gasto
+  if (columnasClaves.includes('categoria') && f.categoria) {
+    metricas.push({
+      clave: 'categoria',
+      etiqueta: 'CATEGORÍA DE GASTO',
+      valor: f.categoria,
+      colorHex: '#d97706',
+      colorRgb: [217, 119, 6],
+    });
+  }
+
+  // 16. Concepto / Motivo
+  if (columnasClaves.includes('concepto') && f.concepto) {
+    metricas.push({
+      clave: 'concepto',
+      etiqueta: 'CONCEPTO / MOTIVO',
+      valor: f.concepto,
+      colorHex: '#64748b',
+      colorRgb: [100, 116, 139],
+    });
+  }
+
+  // 17. Saldo Resultante
   if (columnasClaves.includes('saldo_caja') && f.saldo_caja_momento != null) {
     metricas.push({
       clave: 'saldo_caja',
