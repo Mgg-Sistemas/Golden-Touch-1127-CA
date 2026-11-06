@@ -404,21 +404,21 @@ export function obtenerMetricasFichaProveedor(
     });
   }
 
-  if (marca('num_ordenes') && f.num_ordenes != null && metricas.length < 4) {
+  if (marca('num_ordenes') && f.num_ordenes != null) {
     metricas.push({
       clave: 'num_ordenes', etiqueta: 'COMPRAS', valor: `${f.num_ordenes}`,
       sub: f.num_ordenes === 1 ? 'orden' : 'órdenes', colorHex: '#38bdf8', colorRgb: [2, 132, 199],
     });
   }
 
-  if (marca('pct_total') && f.pct_del_total != null && metricas.length < 4) {
+  if (marca('pct_total') && f.pct_del_total != null) {
     metricas.push({
       clave: 'pct_total', etiqueta: '% DEL TOTAL', valor: `${f.pct_del_total.toFixed(1)}%`,
       sub: 'del directorio', colorHex: '#eab308', colorRgb: [202, 138, 4],
     });
   }
 
-  if (marca('estado') && f.estado && metricas.length < 4) {
+  if (marca('estado') && f.estado) {
     metricas.push({
       clave: 'estado', etiqueta: 'ESTADO', valor: f.estado, sub: f.origen || '',
       colorHex: f.estado === 'Activo' ? '#10b981' : '#ef4444', colorRgb: f.estado === 'Activo' ? [16, 185, 129] : [239, 68, 68],
@@ -432,7 +432,7 @@ export function obtenerMetricasFichaProveedor(
     });
   }
 
-  return metricas.slice(0, 4);
+  return metricas;
 }
 
 /** Valor de texto plano de una columna para una fila (para tabla, CSV y Excel/PDF). */

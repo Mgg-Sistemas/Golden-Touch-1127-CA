@@ -823,7 +823,7 @@ export function obtenerMetricasFichaPersonal(
   }
 
   // 2. Variación Salarial / Diferencia (Histórico Salarial)
-  if ((cols.has('variacion_sueldo_usd') || cols.has('variacion_sueldo_pct') || cols.has('sueldo_anterior')) && metricas.length < 4) {
+  if ((cols.has('variacion_sueldo_usd') || cols.has('variacion_sueldo_pct') || cols.has('sueldo_anterior'))) {
     const delta = f.variacion_sueldo_usd;
     const txtValor = delta != null
       ? (delta >= 0 ? `+$ ${delta.toLocaleString('es-VE')}` : `-$ ${Math.abs(delta).toLocaleString('es-VE')}`)
@@ -843,7 +843,7 @@ export function obtenerMetricasFichaPersonal(
   }
 
   // 3. Cargo Anterior / Motivo Cambio (Histórico de Cargos)
-  if ((cols.has('cargo_anterior') || cols.has('motivo_cambio_cargo') || cols.has('fecha_cambio_cargo')) && metricas.length < 4) {
+  if ((cols.has('cargo_anterior') || cols.has('motivo_cambio_cargo') || cols.has('fecha_cambio_cargo'))) {
     metricas.push({
       clave: 'cargo_anterior',
       etiqueta: 'CARGO PREVIO',
@@ -855,7 +855,7 @@ export function obtenerMetricasFichaPersonal(
   }
 
   // 4. Antigüedad / Fecha Ingreso
-  if ((cols.has('antiguedad_texto') || cols.has('fecha_ingreso')) && metricas.length < 4) {
+  if ((cols.has('antiguedad_texto') || cols.has('fecha_ingreso'))) {
     metricas.push({
       clave: 'antiguedad',
       etiqueta: 'ANTIGÜEDAD',
@@ -867,7 +867,7 @@ export function obtenerMetricasFichaPersonal(
   }
 
   // 5. Carga Familiar / Hijos
-  if ((cols.has('hijos_texto') || cols.has('cantidad_hijos') || cols.has('nombres_hijos')) && metricas.length < 4) {
+  if ((cols.has('hijos_texto') || cols.has('cantidad_hijos') || cols.has('nombres_hijos'))) {
     metricas.push({
       clave: 'hijos',
       etiqueta: 'CARGA FAMILIAR',
@@ -881,7 +881,7 @@ export function obtenerMetricasFichaPersonal(
   }
 
   // 6. Edad / Sociodemográfico
-  if ((cols.has('edad') || cols.has('fecha_nacimiento') || cols.has('genero_texto')) && metricas.length < 4) {
+  if ((cols.has('edad') || cols.has('fecha_nacimiento') || cols.has('genero_texto'))) {
     metricas.push({
       clave: 'edad',
       etiqueta: 'EDAD / GÉNERO',
@@ -893,7 +893,7 @@ export function obtenerMetricasFichaPersonal(
   }
 
   // 7. Teléfono / Contacto
-  if ((cols.has('telefono') || cols.has('correo')) && metricas.length < 4) {
+  if ((cols.has('telefono') || cols.has('correo'))) {
     metricas.push({
       clave: 'contacto',
       etiqueta: 'CONTACTO',
@@ -905,7 +905,7 @@ export function obtenerMetricasFichaPersonal(
   }
 
   // 8. Grado de Instrucción
-  if ((cols.has('grado_instruccion_texto') || cols.has('titulo_obtenido')) && metricas.length < 4) {
+  if ((cols.has('grado_instruccion_texto') || cols.has('titulo_obtenido'))) {
     metricas.push({
       clave: 'instruccion',
       etiqueta: 'INSTRUCCIÓN',

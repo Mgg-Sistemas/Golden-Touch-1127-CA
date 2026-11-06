@@ -14,6 +14,7 @@
    ============================================================ */
 
 import { previewExcel, previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { loadLogoPdfEmpresa, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type {
   FilaReporteAdmin,
@@ -30,6 +31,7 @@ import {
   fmtMontoUsd,
   fmtMontoBs,
   fmtMontoNum,
+  obtenerMetricasFichaAdmin,
   r2,
 } from './reporteAdministracionMoldeable';
 
@@ -236,86 +238,146 @@ export async function descargarAdministracionPdf(opts: OpcionesExportarAdminPdf)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(...TINTA);
-    doc.text(`Fichas Ejecutivas Resumen · Por ${ETIQUETA_MODO_ADMIN[modoAgrupacion]}`, MARGIN, y);
+    doc.text(pdfSafe(`Fichas Ejecutivas Resumen · Por ${ETIQUETA_MODO_ADMIN[modoAgrupacion]}`), MARGIN, y);
     y += 10;
 
-    const numColsGrid = esLandscape ? 3 : 2;
+    const cols = esLandscape ? 2 : 1;
     const fGap = 8;
-    const fWidth = (PAGE_W - 2 * MARGIN - (numColsGrid - 1) * fGap) / numColsGrid;
-    const fHeight = 62;
+    const fWidth = (PAGE_W - 2 * MARGIN - (cols - 1) * fGap) / cols;
+    const innerW = fWidth - 16;
 
-    filas.forEach((f, idx) => {
-      // Control de salto de página
+    // Calcular la cantidad máxima de métricas que puede tener una ficha en el reporte
+    const maxMetricas = Math.max(
+      ...filas.map((f) => obtenerMetricasFichaAdmin(f, columnas, { mostrarUsd, mostrarBs }).length),
+      1,
+    );
+    const colsPorFila = esLandscape
+      ? (maxMetricas <= 3 ? Math.max(1, maxMetricas) : maxMetricas === 4 ? 4 : 3)
+      : (maxMetricas <= 4 ? Math.max(1, maxMetricas) : 4);
+    const numFilasMetricas = Math.ceil(maxMetricas / colsPorFila);
+    const haySubAlguna = filas.some((f) => Boolean(f.subtitulo?.trim() || f.periodo?.trim()));
+    const altoHeader = haySubAlguna ? 34 : 28;
+    const altoFilaMetrica = 25;
+    const fHeight = altoHeader + numFilasMetricas * altoFilaMetrica + 8;
+
+    for (let i = 0; i < filas.length; i += cols) {
       if (y + fHeight > PAGE_H - MARGIN - 20) {
         doc.addPage();
         y = MARGIN;
       }
 
-      const colIdx = idx % numColsGrid;
-      const fX = MARGIN + colIdx * (fWidth + fGap);
+      for (let c = 0; c < cols; c++) {
+        const idx = i + c;
+        if (idx >= filas.length) break;
+        const f = filas[idx];
+        const fX = MARGIN + c * (fWidth + fGap);
 
-      // Fondo tarjeta ejecutiva
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(255, 138, 0); // Borde naranja característico
-      doc.setLineWidth(1.2);
-      doc.roundedRect(fX, y, fWidth, fHeight, 4, 4, 'FD');
+        // Fondo tarjeta ejecutiva
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(255, 138, 0); // Borde naranja característico
+        doc.setLineWidth(1.2);
+        doc.roundedRect(fX, y, fWidth, fHeight, 4, 4, 'FD');
 
-      // Título de la ficha
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...TINTA);
-      const titFicha = doc.splitTextToSize(f.titulo || f.concepto || f.empresaNombre, fWidth - 16);
-      doc.text(titFicha[0] || '—', fX + 8, y + 14);
+        // Borde izquierdo de acento
+        doc.setFillColor(...NARANJA);
+        doc.rect(fX, y + 1, 3.5, fHeight - 2, 'F');
 
-      // Subtítulo
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.8);
-      doc.setTextColor(100, 116, 139);
-      const sub = `${f.subtitulo || f.periodo || ''} · ${f.totalOperaciones ?? 1} op.`;
-      doc.text(sub, fX + 8, y + 25);
+        // Badge superior derecho: % del total (si está en columnas)
+        if (columnas.includes('pct_total') && f.pctDelTotal != null) {
+          const badgeTxt = `${f.pctDelTotal.toFixed(1)}%`;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.2);
+          doc.setFillColor(255, 247, 237);
+          doc.setDrawColor(...NARANJA);
+          doc.setLineWidth(0.5);
+          const bW = doc.getTextWidth(badgeTxt) + 8;
+          doc.roundedRect(fX + fWidth - bW - 8, y + 6, bW, 12, 3, 3, 'FD');
+          doc.setTextColor(...NARANJA);
+          doc.text(badgeTxt, fX + fWidth - bW - 4, y + 14.5);
+        }
 
-      // Franja de métricas en la ficha
-      const chipsY = y + 32;
-      const chipW = (fWidth - 16) / 3;
-
-      // Chip USD
-      if (mostrarUsd) {
+        // Título de la ficha
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6);
+        doc.setFontSize(8.5);
+        doc.setTextColor(...TINTA);
+        const titFicha = doc.splitTextToSize(pdfSafe(f.titulo || f.concepto || f.empresaNombre), fWidth - 55);
+        doc.text(titFicha[0] || '—', fX + 10, y + 14);
+
+        // Subtítulo
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.8);
         doc.setTextColor(100, 116, 139);
-        doc.text('TOTAL $', fX + 8, chipsY);
-        doc.setFontSize(8);
-        doc.setTextColor(...VERDE);
-        doc.text(fmtMontoUsd(f.montoUsd), fX + 8, chipsY + 11);
+        const sub = pdfSafe(`${f.subtitulo || f.periodo || ''}${f.totalOperaciones != null ? ` · ${f.totalOperaciones} op.` : ''}`);
+        doc.text(sub, fX + 10, y + 24);
+
+        // Separador interior
+        const sepY = y + (haySubAlguna ? 30 : 25);
+        doc.setDrawColor(...BORDE);
+        doc.setLineWidth(0.5);
+        doc.line(fX + 8, sepY, fX + fWidth - 8, sepY);
+
+        // Métricas dinámicas según las columnas marcadas
+        const metricas = obtenerMetricasFichaAdmin(f, columnas, { mostrarUsd, mostrarBs });
+        const myBase = sepY + 9;
+        const colW = innerW / colsPorFila;
+        const maxTextW = colW - 6;
+
+        metricas.forEach((m, mIdx) => {
+          const filaIdx = Math.floor(mIdx / colsPorFila);
+          const colEnFila = mIdx % colsPorFila;
+          const mx = fX + 8 + colW * colEnFila;
+          const my = myBase + filaIdx * altoFilaMetrica;
+
+          // Etiqueta
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(5.8);
+          doc.setTextColor(71, 85, 105);
+          let lblTxt = pdfSafe(m.etiqueta);
+          if (doc.getTextWidth(lblTxt) > maxTextW) {
+            while (lblTxt.length > 3 && doc.getTextWidth(lblTxt + '…') > maxTextW) {
+              lblTxt = lblTxt.slice(0, -1);
+            }
+            lblTxt += '…';
+          }
+          doc.text(lblTxt, mx, my);
+
+          // Valor
+          doc.setFont('helvetica', 'bold');
+          let valSize = 8.2;
+          doc.setFontSize(valSize);
+          doc.setTextColor(...m.colorRgb);
+          let valTxt = pdfSafe(m.valor);
+          while (doc.getTextWidth(valTxt) > maxTextW && valSize > 6.0) {
+            valSize -= 0.3;
+            doc.setFontSize(valSize);
+          }
+          if (doc.getTextWidth(valTxt) > maxTextW) {
+            while (valTxt.length > 3 && doc.getTextWidth(valTxt + '…') > maxTextW) {
+              valTxt = valTxt.slice(0, -1);
+            }
+            valTxt += '…';
+          }
+          doc.text(valTxt, mx, my + 8.5);
+
+          // Subtítulo
+          if (m.sub) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(5.4);
+            doc.setTextColor(148, 163, 184);
+            let subTxt = pdfSafe(m.sub);
+            if (doc.getTextWidth(subTxt) > maxTextW) {
+              while (subTxt.length > 3 && doc.getTextWidth(subTxt + '…') > maxTextW) {
+                subTxt = subTxt.slice(0, -1);
+              }
+              subTxt += '…';
+            }
+            doc.text(subTxt, mx, my + 14.5);
+          }
+        });
       }
 
-      // Chip Bs
-      if (mostrarBs) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6);
-        doc.setTextColor(100, 116, 139);
-        doc.text('TOTAL BS', fX + 8 + chipW, chipsY);
-        doc.setFontSize(8);
-        doc.setTextColor(...NARANJA);
-        doc.text(fmtMontoBs(f.montoBs), fX + 8 + chipW, chipsY + 11);
-      }
-
-      // Chip Participación o tasa
-      const valTercero = f.pctDelTotal != null ? `${f.pctDelTotal.toFixed(1)}%` : `${fmtMontoNum(f.tasaAplicada, 1)} $/Bs`;
-      const lblTercero = f.pctDelTotal != null ? 'PARTICIPACIÓN' : 'TASA';
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6);
-      doc.setTextColor(100, 116, 139);
-      doc.text(lblTercero, fX + 8 + chipW * 2, chipsY);
-      doc.setFontSize(8);
-      doc.setTextColor(...AZUL);
-      doc.text(valTercero, fX + 8 + chipW * 2, chipsY + 11);
-
-      // Al completar la fila de la cuadrícula
-      if (colIdx === numColsGrid - 1 || idx === filas.length - 1) {
-        y += fHeight + fGap;
-      }
-    });
+      y += fHeight + fGap;
+    }
 
     y += 10;
   }
@@ -751,26 +813,62 @@ export function generarTextoWhatsappAdmin(opts: {
     `*RESUMEN CONSOLIDADO:*`,
   ];
 
-  if (mostrarUsd) lines.push(`💵 Total USD: *${fmtMontoUsd(resumen.totalUsd)}*`);
-  if (mostrarBs) lines.push(`🧾 Total Bs: *${fmtMontoBs(resumen.totalBs)}*`);
-  lines.push(`📈 Tasa promedio: *${fmtMontoNum(resumen.tasaPromedioPonderada, 2)} $/Bs*`);
+  if (mostrarUsd && !mostrarBs) {
+    lines.push(`💰 Total consolidado: *${fmtMontoUsd(resumen.totalUsd)}*`);
+  } else if (mostrarBs && !mostrarUsd) {
+    lines.push(`💰 Total consolidado: *${fmtMontoBs(resumen.totalBs)}*`);
+  } else {
+    lines.push(`💰 Total consolidado: *${fmtMontoUsd(resumen.totalUsd)}*  (Bs ${fmtMontoNum(resumen.totalBs, 2)})`);
+  }
+
+  if (resumen.tasaPromedioPonderada > 0) {
+    lines.push(`📈 Tasa ref: *${fmtMontoNum(resumen.tasaPromedioPonderada, 2)} $/Bs*`);
+  }
   lines.push(`🔢 Movimientos: *${resumen.totalOperaciones}*`);
-  lines.push(`✅ Pagado: *${fmtMontoUsd(resumen.totalPagadoUsd)}* · ⏳ Pendiente: *${fmtMontoUsd(resumen.totalPendienteUsd)}*`);
+
+  const partesEstado: string[] = [];
+  if (resumen.totalPagadoUsd > 0) {
+    partesEstado.push(`✅ Pagado: *${mostrarUsd ? fmtMontoUsd(resumen.totalPagadoUsd) : fmtMontoBs(resumen.totalPagadoBs)}*`);
+  }
+  if (resumen.totalPendienteUsd > 0) {
+    partesEstado.push(`⏳ Pendiente: *${mostrarUsd ? fmtMontoUsd(resumen.totalPendienteUsd) : fmtMontoBs(resumen.totalPendienteBs)}*`);
+  }
+  if (partesEstado.length > 0) {
+    lines.push(partesEstado.join(' · '));
+  }
+
   lines.push('');
   lines.push(`*DESGLOSE (${ETIQUETA_MODO_ADMIN[modoAgrupacion].toUpperCase()}):*`);
 
-  const topFilas = filas.slice(0, 15);
+  const topFilas = filas.slice(0, 20);
   topFilas.forEach((f, idx) => {
     const tit = f.titulo || f.concepto || f.empresaNombre;
-    const montos: string[] = [];
-    if (mostrarUsd) montos.push(fmtMontoUsd(f.montoUsd));
-    if (mostrarBs) montos.push(fmtMontoBs(f.montoBs));
-    const pct = f.pctDelTotal != null ? ` (${f.pctDelTotal.toFixed(1)}%)` : '';
-    lines.push(`${idx + 1}. *${tit}*: ${montos.join(' · ')}${pct}`);
+    let montoFmt = '';
+    if (mostrarUsd && !mostrarBs) {
+      montoFmt = `*${fmtMontoUsd(f.montoUsd)}*`;
+    } else if (mostrarBs && !mostrarUsd) {
+      montoFmt = `*${fmtMontoBs(f.montoBs)}*`;
+    } else {
+      montoFmt = `*${fmtMontoUsd(f.montoUsd)}* (${fmtMontoBs(f.montoBs)})`;
+    }
+    const pct = f.pctDelTotal != null ? ` · ${f.pctDelTotal.toFixed(1)}%` : '';
+    lines.push(`${idx + 1}. *${tit}* — ${montoFmt}${pct}`);
+
+    // Subdetalles organizados en segunda línea sangrada
+    const subdetalles: string[] = [];
+    if (f.categoriaNombre && f.categoriaNombre !== tit) subdetalles.push(`📁 ${f.categoriaNombre}`);
+    if (f.proveedorNombre && f.proveedorNombre !== tit) subdetalles.push(`👤 ${f.proveedorNombre}`);
+    if (f.empresaNombre && f.empresaNombre !== tit && modoAgrupacion !== 'empresa') subdetalles.push(`🏢 ${f.empresaNombre}`);
+    if (f.estadoPago) {
+      subdetalles.push(f.estadoPago === 'pagado' ? '✅ Pagado' : f.estadoPago === 'pendiente' ? '⏳ Pendiente' : '❌ Anulado');
+    }
+    if (subdetalles.length > 0) {
+      lines.push(`   ${subdetalles.join(' · ')}`);
+    }
   });
 
-  if (filas.length > 15) {
-    lines.push(`_... y ${filas.length - 15} registro(s) más._`);
+  if (filas.length > 20) {
+    lines.push(`_... y ${filas.length - 20} registro(s) más._`);
   }
 
   lines.push('');

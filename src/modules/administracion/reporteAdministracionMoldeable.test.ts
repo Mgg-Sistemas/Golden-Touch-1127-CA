@@ -268,5 +268,31 @@ describe('reporteAdministracionMoldeable', () => {
     expect(esColumnaAplicableModoAdmin('fecha', 'mes')).toBe(true);
     expect(esColumnaAplicableModoAdmin('fecha', 'categoria')).toBe(false);
   });
+
+  it('obtenerMetricasFichaAdmin representa fielmente todas las columnas marcadas sin truncar a 4', () => {
+    const normalizadas = normalizarMovimientosAdmin(movsMock, empresasMock, categoriasMock, 50);
+    const f = normalizadas[0];
+
+    const todas = [
+      'fecha', 'empresa', 'operaciones', 'concepto', 'categoria',
+      'proveedor', 'periodo', 'estado', 'origen', 'moneda_orig',
+      'monto_orig', 'monto_usd', 'monto_bs', 'tasa', 'pct_total',
+    ];
+
+    const metricas = obtenerMetricasFichaAdmin(f, todas, { mostrarUsd: true, mostrarBs: true });
+    // Debe contener las métricas de las columnas solicitadas
+    expect(metricas.length).toBeGreaterThan(4);
+    expect(metricas.some((m) => m.clave === 'fecha')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'empresa')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'concepto')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'categoria')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'proveedor')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'estado')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'origen')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'moneda_orig')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'monto_orig')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'usd')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'bs')).toBe(true);
+  });
 });
 

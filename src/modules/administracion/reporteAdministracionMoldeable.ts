@@ -775,8 +775,10 @@ export function obtenerMetricasFichaAdmin(
   opts: { mostrarUsd: boolean; mostrarBs: boolean },
 ): MetricaFichaAdmin[] {
   const metricas: MetricaFichaAdmin[] = [];
+  const hayMarcas = camposMarcados.length > 0;
 
-  if (opts.mostrarUsd && (camposMarcados.includes('monto_usd') || camposMarcados.length === 0)) {
+  // 1. Monto USD
+  if (opts.mostrarUsd && (camposMarcados.includes('monto_usd') || !hayMarcas)) {
     metricas.push({
       clave: 'usd',
       etiqueta: 'TOTAL $',
@@ -786,7 +788,8 @@ export function obtenerMetricasFichaAdmin(
     });
   }
 
-  if (opts.mostrarBs && (camposMarcados.includes('monto_bs') || camposMarcados.length === 0)) {
+  // 2. Monto Bs
+  if (opts.mostrarBs && (camposMarcados.includes('monto_bs') || !hayMarcas)) {
     metricas.push({
       clave: 'bs',
       etiqueta: 'TOTAL BS',
@@ -796,7 +799,8 @@ export function obtenerMetricasFichaAdmin(
     });
   }
 
-  if (fila.pctDelTotal != null && (camposMarcados.includes('pct_total') || camposMarcados.length === 0)) {
+  // 3. % Participación
+  if (fila.pctDelTotal != null && (camposMarcados.includes('pct_total') || !hayMarcas)) {
     metricas.push({
       clave: 'pct',
       etiqueta: '% PARTICIPACIÓN',
@@ -806,7 +810,8 @@ export function obtenerMetricasFichaAdmin(
     });
   }
 
-  if (fila.totalOperaciones != null && (camposMarcados.includes('operaciones') || camposMarcados.length === 0)) {
+  // 4. Cantidad de movimientos / operaciones
+  if (fila.totalOperaciones != null && (camposMarcados.includes('operaciones') || !hayMarcas)) {
     metricas.push({
       clave: 'ops',
       etiqueta: 'MOVIMIENTOS',
@@ -814,7 +819,10 @@ export function obtenerMetricasFichaAdmin(
       colorHex: '#a855f7',
       colorRgb: [168, 85, 247],
     });
-  } else if (fila.tasaAplicada > 0 && camposMarcados.includes('tasa')) {
+  }
+
+  // 5. Tasa de cambio aplicada
+  if (camposMarcados.includes('tasa') && fila.tasaAplicada > 0) {
     metricas.push({
       clave: 'tasa',
       etiqueta: 'TASA APLICADA',
@@ -822,6 +830,144 @@ export function obtenerMetricasFichaAdmin(
       colorHex: '#94a3b8',
       colorRgb: [148, 163, 184],
     });
+  }
+
+  // 6. Fecha
+  if (camposMarcados.includes('fecha') && fila.fecha) {
+    const [y, m, d] = (fila.fecha || '').split('-');
+    const fechaFmt = y && m && d ? `${d}/${m}/${y}` : fila.fecha;
+    metricas.push({
+      clave: 'fecha',
+      etiqueta: 'FECHA',
+      valor: fechaFmt,
+      colorHex: '#94a3b8',
+      colorRgb: [148, 163, 184],
+    });
+  }
+
+  // 7. Empresa
+  if (camposMarcados.includes('empresa') && (fila.empresaNombre || fila.empresaClave)) {
+    metricas.push({
+      clave: 'empresa',
+      etiqueta: 'EMPRESA',
+      valor: fila.empresaNombre || fila.empresaClave,
+      colorHex: '#3b82f6',
+      colorRgb: [59, 130, 246],
+    });
+  }
+
+  // 8. Concepto / Servicio
+  if (camposMarcados.includes('concepto') && fila.concepto) {
+    metricas.push({
+      clave: 'concepto',
+      etiqueta: 'CONCEPTO / SERVICIO',
+      valor: fila.concepto,
+      colorHex: '#64748b',
+      colorRgb: [100, 116, 139],
+    });
+  }
+
+  // 9. Categoría de Gasto
+  if (camposMarcados.includes('categoria') && (fila.categoriaNombre || fila.categoriaId)) {
+    metricas.push({
+      clave: 'categoria',
+      etiqueta: 'CATEGORÍA',
+      valor: fila.categoriaNombre || 'Sin categoría',
+      colorHex: '#d97706',
+      colorRgb: [217, 119, 6],
+    });
+  }
+
+  // 10. Proveedor / Beneficiario
+  if (camposMarcados.includes('proveedor') && fila.proveedorNombre) {
+    metricas.push({
+      clave: 'proveedor',
+      etiqueta: 'PROVEEDOR / BENEFICIARIO',
+      valor: fila.proveedorNombre,
+      colorHex: '#ea580c',
+      colorRgb: [234, 88, 12],
+    });
+  }
+
+  // 11. Período
+  if (camposMarcados.includes('periodo') && fila.periodo) {
+    metricas.push({
+      clave: 'periodo',
+      etiqueta: 'PERÍODO',
+      valor: fila.periodo,
+      colorHex: '#6366f1',
+      colorRgb: [99, 102, 241],
+    });
+  }
+
+  // 12. Estado de Pago
+  if (camposMarcados.includes('estado') && fila.estadoPago) {
+    const lbl = fila.estadoPago === 'pagado' ? 'Pagado' : fila.estadoPago === 'pendiente' ? 'Pendiente' : 'Anulado';
+    const hex = fila.estadoPago === 'pagado' ? '#10b981' : fila.estadoPago === 'pendiente' ? '#f59e0b' : '#ef4444';
+    const rgb: [number, number, number] = fila.estadoPago === 'pagado' ? [16, 185, 129] : fila.estadoPago === 'pendiente' ? [245, 158, 11] : [239, 68, 68];
+    metricas.push({
+      clave: 'estado',
+      etiqueta: 'ESTADO',
+      valor: lbl,
+      colorHex: hex,
+      colorRgb: rgb,
+    });
+  }
+
+  // 13. Origen
+  if (camposMarcados.includes('origen') && fila.origen) {
+    const lbl = fila.origen === 'generado' ? 'Generado' : fila.origen === 'importado' ? 'Importado' : 'Manual';
+    metricas.push({
+      clave: 'origen',
+      etiqueta: 'ORIGEN',
+      valor: lbl,
+      colorHex: '#0284c7',
+      colorRgb: [2, 132, 199],
+    });
+  }
+
+  // 14. Moneda original
+  if (camposMarcados.includes('moneda_orig') && fila.monedaOriginal) {
+    metricas.push({
+      clave: 'moneda_orig',
+      etiqueta: 'DIVISA ORIG.',
+      valor: fila.monedaOriginal,
+      colorHex: '#8b5cf6',
+      colorRgb: [139, 92, 246],
+    });
+  }
+
+  // 15. Monto original
+  if (camposMarcados.includes('monto_orig') && fila.montoOriginal != null) {
+    const pref = fila.monedaOriginal === 'Bs' ? 'Bs ' : '$ ';
+    metricas.push({
+      clave: 'monto_orig',
+      etiqueta: 'MONTO ORIG.',
+      valor: `${pref}${fmtMontoNum(fila.montoOriginal, 2)}`,
+      colorHex: '#06b6d4',
+      colorRgb: [6, 182, 212],
+    });
+  }
+
+  // Fallback seguro si nada quedó marcado o visible
+  if (metricas.length === 0) {
+    if (opts.mostrarUsd) {
+      metricas.push({
+        clave: 'usd',
+        etiqueta: 'TOTAL $',
+        valor: fmtMontoUsd(fila.montoUsd),
+        colorHex: '#22c55e',
+        colorRgb: [34, 197, 94],
+      });
+    } else {
+      metricas.push({
+        clave: 'bs',
+        etiqueta: 'TOTAL BS',
+        valor: fmtMontoBs(fila.montoBs),
+        colorHex: '#ff8a00',
+        colorRgb: [255, 138, 0],
+      });
+    }
   }
 
   return metricas;

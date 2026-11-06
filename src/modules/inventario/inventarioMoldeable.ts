@@ -615,7 +615,7 @@ export function obtenerMetricasFichaInventario(
     });
   }
 
-  if (f.ambito === 'existencias' && columnasClaves.includes('stock') && f.stock != null && metricas.length < 4) {
+  if (f.ambito === 'existencias' && columnasClaves.includes('stock') && f.stock != null) {
     metricas.push({
       clave: 'stock',
       etiqueta: 'EXISTENCIA',
@@ -626,7 +626,7 @@ export function obtenerMetricasFichaInventario(
     });
   }
 
-  if (f.ambito === 'movimientos' && columnasClaves.includes('cantidad') && f.cantidad != null && metricas.length < 4) {
+  if (f.ambito === 'movimientos' && columnasClaves.includes('cantidad') && f.cantidad != null) {
     metricas.push({
       clave: 'cantidad',
       etiqueta: 'CANTIDAD',
@@ -637,7 +637,7 @@ export function obtenerMetricasFichaInventario(
     });
   }
 
-  if (f.total_items != null && metricas.length < 4) {
+  if (f.total_items != null) {
     metricas.push({
       clave: 'items',
       etiqueta: f.ambito === 'movimientos' ? 'MOVIMIENTOS' : 'PRODUCTOS',
@@ -648,7 +648,7 @@ export function obtenerMetricasFichaInventario(
     });
   }
 
-  if (columnasClaves.includes('pct_total') && f.pct_del_total != null && metricas.length < 4) {
+  if (columnasClaves.includes('pct_total') && f.pct_del_total != null) {
     metricas.push({
       clave: 'pct_total',
       etiqueta: '% DEL TOTAL',

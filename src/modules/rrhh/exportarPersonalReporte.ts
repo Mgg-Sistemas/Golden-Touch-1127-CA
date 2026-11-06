@@ -386,7 +386,17 @@ export async function descargarPersonalPdf(
     const cols = orient === 'landscape' ? 2 : 1;
     const cardGap = 10;
     const cardW = (UW - (cols - 1) * cardGap) / cols;
-    const cardH = orient === 'landscape' ? 76 : 68;
+    const maxMetricas = Math.max(
+      ...filas.map((f) => obtenerMetricasFichaPersonal(f, columnasClaves).length),
+      1,
+    );
+    const colsPorFila = orient === 'landscape'
+      ? (maxMetricas <= 3 ? Math.max(1, maxMetricas) : maxMetricas === 4 ? 4 : 3)
+      : (maxMetricas <= 4 ? Math.max(1, maxMetricas) : 4);
+    const numFilasMetricas = Math.ceil(maxMetricas / colsPorFila);
+    const altoHeader = 32;
+    const altoFilaMetrica = 25;
+    const cardH = altoHeader + numFilasMetricas * altoFilaMetrica + 8;
 
     for (let i = 0; i < filas.length; i += cols) {
       if (y + cardH > H - 36) {
@@ -500,26 +510,51 @@ export async function descargarPersonalPdf(
         // Métricas dinámicas inferiores según las columnas marcadas
         const metricasCard = obtenerMetricasFichaPersonal(f, columnasClaves);
         const innerW = cardW - 16;
-        const colW = innerW / Math.max(1, metricasCard.length);
-        const my = cy + 39;
+        const myBase = cy + 38;
+        const colW = innerW / colsPorFila;
+        const maxTextW = colW - 6;
 
         metricasCard.forEach((m, idx) => {
-          const mx = cx + 8 + colW * idx;
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6);
-          doc.setTextColor(71, 85, 105);
-          doc.text(pdfSafe(m.etiqueta), mx, my);
+          const filaIdx = Math.floor(idx / colsPorFila);
+          const colEnFila = idx % colsPorFila;
+          const mx = cx + 8 + colW * colEnFila;
+          const my = myBase + filaIdx * altoFilaMetrica;
 
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9);
+          doc.setFontSize(5.8);
+          doc.setTextColor(71, 85, 105);
+          let lblTxt = pdfSafe(m.etiqueta);
+          if (doc.getTextWidth(lblTxt) > maxTextW) {
+            while (lblTxt.length > 3 && doc.getTextWidth(lblTxt + '…') > maxTextW) lblTxt = lblTxt.slice(0, -1);
+            lblTxt += '…';
+          }
+          doc.text(lblTxt, mx, my);
+
+          doc.setFont('helvetica', 'bold');
+          let valSize = 8.2;
+          doc.setFontSize(valSize);
           doc.setTextColor(...m.colorRgb);
-          doc.text(pdfSafe(m.valor), mx, my + 11);
+          let valTxt = pdfSafe(m.valor);
+          while (doc.getTextWidth(valTxt) > maxTextW && valSize > 6.0) {
+            valSize -= 0.3;
+            doc.setFontSize(valSize);
+          }
+          if (doc.getTextWidth(valTxt) > maxTextW) {
+            while (valTxt.length > 3 && doc.getTextWidth(valTxt + '…') > maxTextW) valTxt = valTxt.slice(0, -1);
+            valTxt += '…';
+          }
+          doc.text(valTxt, mx, my + 8.5);
 
           if (m.sub) {
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(5.5);
+            doc.setFontSize(5.4);
             doc.setTextColor(148, 163, 184);
-            doc.text(pdfSafe(m.sub), mx, my + 19);
+            let subTxt = pdfSafe(m.sub);
+            if (doc.getTextWidth(subTxt) > maxTextW) {
+              while (subTxt.length > 3 && doc.getTextWidth(subTxt + '…') > maxTextW) subTxt = subTxt.slice(0, -1);
+              subTxt += '…';
+            }
+            doc.text(subTxt, mx, my + 14.5);
           }
         });
       }

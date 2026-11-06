@@ -754,7 +754,7 @@ export function obtenerMetricasFicha(
   }
 
   // 5. Rendimiento (si se marco y hay espacio)
-  if (columnasClaves.includes('rendimiento') && metricas.length < 4) {
+  if (columnasClaves.includes('rendimiento')) {
     metricas.push({
       clave: 'rendimiento',
       etiqueta: 'REND. (L/h)',
@@ -766,7 +766,7 @@ export function obtenerMetricasFicha(
   }
 
   // 6. % Capacidad fisica (si se marco y hay espacio)
-  if (columnasClaves.includes('pct_capacidad') && metricas.length < 4) {
+  if (columnasClaves.includes('pct_capacidad')) {
     metricas.push({
       clave: 'pct_capacidad',
       etiqueta: '% CAP. FISICA',
@@ -778,7 +778,7 @@ export function obtenerMetricasFicha(
   }
 
   // 7. Surtidos / Despachos (si se marco y hay espacio)
-  if (columnasClaves.includes('surtidos') && metricas.length < 4) {
+  if (columnasClaves.includes('surtidos')) {
     metricas.push({
       clave: 'surtidos',
       etiqueta: 'DESPACHOS',

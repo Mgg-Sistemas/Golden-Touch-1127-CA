@@ -599,23 +599,43 @@ export function ExportarAdministracionModal({
         <div className="no-print" style={surf2}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.5rem' }}>
             <span style={tituloSec}>📊 Dimensión de Agrupación</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-              <span style={{ fontSize: '.76rem', color: '#94a3b8' }}>Monedas visibles:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '.76rem', color: '#94a3b8' }}>Monedas:</span>
               <button
                 type="button"
-                className={`btn btn-xs ${mostrarUsd ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ borderRadius: '999px', padding: '.15rem .6rem' }}
-                onClick={() => setMostrarUsd((v) => !v)}
+                className={`btn btn-xs ${mostrarBs && !mostrarUsd ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 999, padding: '.15rem .6rem', fontSize: '.74rem', fontWeight: 600 }}
+                onClick={() => {
+                  setMostrarBs(true);
+                  setMostrarUsd(false);
+                }}
+                title="Mostrar exclusivamente en Bolívares (Bs)"
               >
-                💵 Dólares ($)
+                🇻🇪 Solo Bs
               </button>
               <button
                 type="button"
-                className={`btn btn-xs ${mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ borderRadius: '999px', padding: '.15rem .6rem' }}
-                onClick={() => setMostrarBs((v) => !v)}
+                className={`btn btn-xs ${mostrarUsd && !mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 999, padding: '.15rem .6rem', fontSize: '.74rem', fontWeight: 600 }}
+                onClick={() => {
+                  setMostrarUsd(true);
+                  setMostrarBs(false);
+                }}
+                title="Mostrar exclusivamente en Dólares ($)"
               >
-                🧾 Bolívares (Bs)
+                💵 Solo $
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${mostrarUsd && mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 999, padding: '.15rem .6rem', fontSize: '.74rem', fontWeight: 600 }}
+                onClick={() => {
+                  setMostrarUsd(true);
+                  setMostrarBs(true);
+                }}
+                title="Mostrar ambas monedas (Bs y $)"
+              >
+                💱 Ambos (Bs y $)
               </button>
             </div>
           </div>
@@ -982,6 +1002,7 @@ export function ExportarAdministracionModal({
               {CAMPOS_REPORTE_ADMIN.map((col) => {
                 const aplicable = esColumnaAplicableModoAdmin(col.clave, agrupacion);
                 const marcado = columnas.includes(col.clave);
+                const ocultoPorToggle = (col.clave === 'monto_usd' && !mostrarUsd) || (col.clave === 'monto_bs' && !mostrarBs);
                 return (
                   <label
                     key={col.clave}
@@ -992,12 +1013,14 @@ export function ExportarAdministracionModal({
                       fontSize: '.75rem',
                       cursor: aplicable ? 'pointer' : 'help',
                       color: marcado && aplicable ? '#f1f5f9' : '#94a3b8',
-                      opacity: !aplicable ? 0.45 : 1,
+                      opacity: ocultoPorToggle ? 0.45 : !aplicable ? 0.45 : 1,
                     }}
                     title={
                       !aplicable
                         ? `La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (movimiento individual)`
-                        : col.descripcion
+                        : ocultoPorToggle
+                          ? 'Oculta por la selección de moneda'
+                          : col.descripcion
                     }
                     onClick={(e) => {
                       if (!aplicable) {
@@ -1201,9 +1224,14 @@ export function ExportarAdministracionModal({
                       {metricas.map((m) => (
                         <div key={m.clave} style={{ textAlign: 'center' }}>
                           <div className="muted" style={{ fontSize: '.58rem', fontWeight: 600 }}>{m.etiqueta}</div>
-                          <div className="mono" style={{ fontSize: '.82rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div className="mono" style={{ fontSize: '.82rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>
                             {m.valor}
                           </div>
+                          {m.sub && (
+                            <div className="muted" style={{ fontSize: '.55rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.sub}>
+                              {m.sub}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
