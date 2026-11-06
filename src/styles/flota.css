@@ -71,13 +71,25 @@
 .flo-filtros .fila { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .flo-filtros .input, .flo-filtros .select { min-width: 0; }
 .flo-buscar { flex: 1 1 260px; }
-.flo-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; flex-wrap: wrap; }
+.flo-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; flex-wrap: wrap; max-width: 100%; }
 .flo-seg button {
   border: 0; background: var(--surface); color: var(--text-muted); font: inherit; font-size: .82rem; font-weight: 600;
   padding: .45rem .7rem; cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+  transition: background var(--t-fast, .15s ease), color var(--t-fast, .15s ease);
+}
+.flo-seg button:hover:not([aria-pressed="true"]) {
+  background: var(--surface-2);
+  color: var(--text);
 }
 .flo-seg button + button { border-left: 1px solid var(--border); }
-.flo-seg button[aria-pressed="true"] { background: var(--grad-primary-soft), var(--surface-2); color: var(--text); }
+.flo-seg button[aria-pressed="true"] { background: var(--grad-primary-soft), var(--surface-2); color: var(--text); font-weight: 700; }
+.flo-seg .n {
+  color: var(--text-dim); font-size: .75rem; font-weight: 700; margin-left: .25rem;
+}
+.flo-seg button[aria-pressed="true"] .n {
+  color: var(--primary);
+}
 .flo-pills { display: flex; gap: .4rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .flo-pills::-webkit-scrollbar { display: none; }
 .flo-pill {
@@ -408,6 +420,7 @@
   .flo .btn.btn-sm { min-height: 44px; }
   .flo-filtros .fila > * { flex: 1 1 100%; }
   .flo-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flo-seg button { white-space: normal; text-align: center; line-height: 1.2; padding: .4rem .5rem; }
   .flo-seg button + button { border-left: 0; }
   .flo-seg button:nth-child(even) { border-left: 1px solid var(--border); }
   .flo-seg button:nth-child(n+3) { border-top: 1px solid var(--border); }
