@@ -24,7 +24,7 @@ import type {
 import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 export const RENGLONES_HOJA = {
-  ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
+  ordenDia: 7, participantes: 20, acuerdos: 6, avances: 4, observaciones: 7,
   proximosPuntos: 7, otrosAsuntos: 7,
 } as const;
 
@@ -185,7 +185,13 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   /* 3. Orden del día */
   listaNumerada('ORDEN DEL DÍA', m?.orden_dia ?? [], 'ordenDia');
 
-  /* 4. Participantes (firma siempre vacía) */
+  /* 4. Participantes (firma siempre vacía): SIEMPRE en su propia página, con lugar para
+     20 (24 pt por renglón: 20 renglones + encabezado caben con holgura en una carta). */
+  doc.addPage(); y = MARGIN;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
+  doc.text(pdfSafe(`MINUTA DE REUNIÓN  ·  ${m ? m.numero : 'N.º ________________'}`), MARGIN, y);
+  doc.setTextColor(20, 20, 20);
+  y += 12;
   tabla(
     ['PARTICIPANTES', 'CARGO', 'FIRMA'],
     filasConRenglones(
@@ -198,7 +204,8 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
     { minCellHeight: 24 },
   );
 
-  /* 5. Acuerdos */
+  /* 5. Acuerdos: la página de participantes no se comparte, sigue en una nueva */
+  doc.addPage(); y = MARGIN;
   tabla(
     ['RESPONSABLE', 'ACTIVIDAD', 'FECHA COMPROMISO'],
     filasConRenglones(

@@ -9,7 +9,7 @@ const vacia = () => ({ a: '' });
 describe('filasConRenglones', () => {
   it('la hoja en blanco sale con los renglones del formato de papel', () => {
     expect(filasConRenglones([], RENGLONES_HOJA.ordenDia, vacia)).toHaveLength(7);
-    expect(filasConRenglones([], RENGLONES_HOJA.participantes, vacia)).toHaveLength(6);
+    expect(filasConRenglones([], RENGLONES_HOJA.participantes, vacia)).toHaveLength(20);
     expect(filasConRenglones([], RENGLONES_HOJA.acuerdos, vacia)).toHaveLength(6);
     expect(filasConRenglones([], RENGLONES_HOJA.avances, vacia)).toHaveLength(4);
   });
@@ -33,7 +33,7 @@ describe('filasConRenglones', () => {
 describe('RENGLONES_HOJA', () => {
   it('coincide con el formato en papel de la empresa', () => {
     expect(RENGLONES_HOJA).toEqual({
-      ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
+      ordenDia: 7, participantes: 20, acuerdos: 6, avances: 4, observaciones: 7,
       proximosPuntos: 7, otrosAsuntos: 7,
     });
   });
@@ -85,6 +85,53 @@ describe('construirMinutaPdf', () => {
     const doc = await construirMinutaPdf(minutaBase({ acuerdos, avances }));
     expect(doc.getNumberOfPages()).toBeGreaterThan(1);
   });
+  /** Texto dibujado en la página n (1 = primera) del PDF. */
+  const textoPagina = (doc: Awaited<ReturnType<typeof construirMinutaPdf>>, n: number) =>
+    (doc.internal as unknown as { pages: string[][] }).pages[n].join('\n');
+  const paginaDe = (doc: Awaited<ReturnType<typeof construirMinutaPdf>>, patron: RegExp) => {
+    for (let n = 1; n <= doc.getNumberOfPages(); n++) if (patron.test(textoPagina(doc, n))) return n;
+    return -1;
+  };
+
+  it('los participantes van en su propia página: sin orden del día ni acuerdos con ellos', async () => {
+    for (const m of [null, minutaBase()]) {
+      const doc = await construirMinutaPdf(m);
+      const n = paginaDe(doc, /PARTICIPANTES/);
+      expect(n).toBeGreaterThan(1); // no comparte la primera hoja con el encabezado
+      const pagina = textoPagina(doc, n);
+      expect(pagina).not.toMatch(/ORDEN DEL/);
+      expect(pagina).not.toMatch(/RESPONSABLE/);
+      expect(pagina).toContain('FIRMA');
+      // el orden del día queda antes y los acuerdos en la página siguiente
+      expect(paginaDe(doc, /ORDEN DEL/)).toBe(n - 1);
+      expect(paginaDe(doc, /RESPONSABLE/)).toBe(n + 1);
+    }
+  }, 30000);
+
+  it('en esa página caben 20 participantes (y la hoja en blanco trae 20 renglones)', async () => {
+    const veinte = Array.from({ length: 20 }, (_, i) => ({
+      personal_id: null, nombre: `Persona ${String(i + 1).padStart(2, '0')}`, cargo: 'Cargo',
+    }));
+    const doc = await construirMinutaPdf(minutaBase({ participantes: veinte }));
+    const n = paginaDe(doc, /PARTICIPANTES/);
+    const pagina = textoPagina(doc, n);
+    expect(pagina).toContain('Persona 01');
+    expect(pagina).toContain('Persona 20');
+    // los 20 + los renglones de cortesía siguen en UNA sola página: la siguiente ya es de acuerdos
+    expect(paginaDe(doc, /RESPONSABLE/)).toBe(n + 1);
+    expect(textoPagina(doc, n)).toContain('MIN-2026-001'); // la página dice a qué minuta pertenece
+    expect(minimoFilas('participantes', 0)).toBe(20);
+  }, 30000);
+
+  it('más de 20 participantes no se recortan: se pagina la lista', async () => {
+    const treinta = Array.from({ length: 40 }, (_, i) => ({
+      personal_id: null, nombre: `Persona ${String(i + 1).padStart(2, '0')}`, cargo: 'Cargo',
+    }));
+    const doc = await construirMinutaPdf(minutaBase({ participantes: treinta }));
+    const todo = Array.from({ length: doc.getNumberOfPages() }, (_, i) => textoPagina(doc, i + 1)).join('\n');
+    expect(todo).toContain('Persona 40');
+  }, 30000);
+
   it('la hoja en blanco y una minuta vacía ocupan las mismas páginas', async () => {
     const blanca = await construirMinutaPdf(null);
     const vacia = await construirMinutaPdf(minutaBase({
@@ -98,7 +145,7 @@ describe('construirMinutaPdf', () => {
 describe('minimoFilas', () => {
   it('sin filas cargadas devuelve el mínimo del papel de cada sección', () => {
     expect(minimoFilas('ordenDia', 0)).toBe(7);
-    expect(minimoFilas('participantes', 0)).toBe(6);
+    expect(minimoFilas('participantes', 0)).toBe(20);
     expect(minimoFilas('acuerdos', 0)).toBe(6);
     expect(minimoFilas('avances', 0)).toBe(4);
     expect(minimoFilas('observaciones', 0)).toBe(7);
