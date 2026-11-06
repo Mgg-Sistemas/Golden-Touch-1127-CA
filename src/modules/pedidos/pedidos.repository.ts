@@ -1636,10 +1636,23 @@ export async function listOrdenesReporteCompras(): Promise<Orden[]> {
 export async function listOrdenesCierreDiario(): Promise<FilaCierre[]> {
   return todasLasFilas<FilaCierre>((d, h) => supabase
     .from(TABLE)
-    .select('id, estado, created_at, op_padre_id, oc_creada_en, oc_aprobada_en, aprobada_en, pagada_en, finalizada_en, finalizada_por, oc_creada_por, oc_emitida_por')
+    .select('id, estado, created_at, op_padre_id, oc_creada_en, oc_aprobada_en, aprobada_en, pagada_en, finalizada_en, finalizada_por, oc_creada_por, oc_emitida_por, oc_codigo, codigo, proveedor_id, total, condiciones_pago, recibido_total')
     .order('created_at', { ascending: true })
     .order('id')
     .range(d, h));
+}
+
+/**
+ * Nombres de los proveedores (id → razón social) para el detalle de «Órdenes por pagar»
+ * del «Cierre diario». Solo dos columnas.
+ */
+export async function listNombresProveedoresCierreDiario(): Promise<Map<string, string>> {
+  const filas = await todasLasFilas<{ id: string; razon_social: string | null }>((d, h) => supabase
+    .from('proveedores')
+    .select('id, razon_social')
+    .order('id')
+    .range(d, h));
+  return new Map(filas.map((p) => [p.id, p.razon_social ?? '']));
 }
 
 /**

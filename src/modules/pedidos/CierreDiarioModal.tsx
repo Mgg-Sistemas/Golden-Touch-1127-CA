@@ -14,8 +14,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { toast } from '@/shared/ui/Toast';
-import { listOrdenesCierreDiario, listCotizacionesCierreDiario } from './pedidos.repository';
+import { listOrdenesCierreDiario, listCotizacionesCierreDiario, listNombresProveedoresCierreDiario } from './pedidos.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { money } from '@/shared/lib/format';
 import {
   TITULOS_CIERRE, calcularCierre, etiquetaPeriodo, hoyCaracas, momentoImpresion, periodoDe,
   type FilaCierre, type FilaCotizacionCierre, type ModoPeriodo,
@@ -39,6 +40,7 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
   const [filas, setFilas] = useState<FilaCierre[] | null>(null);
   const [cotizaciones, setCotizaciones] = useState<FilaCotizacionCierre[] | null>(null);
   const [personasMap, setPersonasMap] = useState<Map<string, string>>(new Map());
+  const [proveedoresMap, setProveedoresMap] = useState<Map<string, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [modo, setModo] = useState<ModoPeriodo>('dia');
   const [fecha, setFecha] = useState(hoy);
@@ -53,12 +55,15 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
       listOrdenesCierreDiario(),
       listCotizacionesCierreDiario(),
       listUsuarios().catch(() => []),
+      // Sin los nombres el detalle diría «Sin proveedor» en todo: mejor avisar que no cargó.
+      listNombresProveedoresCierreDiario(),
     ])
-      .then(([f, c, usrs]) => {
+      .then(([f, c, usrs, provs]) => {
         if (!vivo) return;
         setFilas(f);
         setCotizaciones(c);
         setPersonasMap(crearMapaPersonasCompras(usrs));
+        setProveedoresMap(provs);
       })
       .catch((e) => {
         if (vivo) setError(e instanceof Error ? e.message : 'No se pudo cargar el cierre');
@@ -71,8 +76,8 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
     [modo, fecha, mes, hasta, hoy],
   );
   const resumen = useMemo(
-    () => calcularCierre(filas ?? [], periodo, cotizaciones ?? [], personasMap),
-    [filas, periodo, cotizaciones, personasMap],
+    () => calcularCierre(filas ?? [], periodo, cotizaciones ?? [], personasMap, proveedoresMap),
+    [filas, periodo, cotizaciones, personasMap, proveedoresMap],
   );
 
   async function generar(salida: Salida) {
@@ -169,6 +174,38 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
               </li>
             ))}
           </ul>
+
+          <div style={{ margin: '1rem 0 .8rem', borderTop: '1px solid var(--border, rgba(255,255,255,.08))', paddingTop: '.75rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.5rem' }}>
+              💵 Detalle de órdenes por pagar ({resumen.ocPorPagar.length})
+            </div>
+            {resumen.ocPorPagar.length === 0 ? (
+              <p className="muted" style={{ margin: '0 0 .4rem', fontSize: '.82rem' }}>
+                No quedaron órdenes por pagar en este período.
+              </p>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gap: '.3rem' }}>
+                  {resumen.ocPorPagar.map((o, i) => (
+                    <div
+                      key={`${o.codigo}-${i}`}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '.5rem', padding: '.4rem .65rem', background: 'var(--surface-hover, rgba(255,255,255,.03))', borderRadius: '6px', border: '1px solid var(--border, rgba(255,255,255,.06))' }}
+                    >
+                      <span style={{ fontSize: '.88rem' }}>
+                        <strong>{o.proveedor}</strong>
+                        {o.codigo && <span className="muted"> · {o.codigo}</span>}
+                      </span>
+                      <strong className="mono">{money(o.montoUsd)}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem', padding: '.55rem .65rem 0', fontSize: '1rem' }}>
+                  <strong>Total pendiente por pagar</strong>
+                  <strong className="mono" style={{ fontSize: '1.15rem' }}>{money(resumen.totalPorPagarUsd)}</strong>
+                </div>
+              </>
+            )}
+          </div>
 
           <div style={{ margin: '1rem 0 .8rem', borderTop: '1px solid var(--border, rgba(255,255,255,.08))', paddingTop: '.75rem' }}>
             <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.5rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
