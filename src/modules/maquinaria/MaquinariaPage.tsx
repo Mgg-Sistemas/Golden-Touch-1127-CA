@@ -364,141 +364,158 @@ export function MaquinariaPage() {
       )}
 
       <div className="flo-filtros">
-        {/* Fila 1: Búsqueda y alternador de Clase / Apartados */}
-        <div className="fila">
-          <input className="input flo-buscar" type="search" value={filtro} onChange={(e) => setFiltro(e.target.value)}
-            placeholder="🔍 Buscar equipo, marca, serial, placa, ubicación…" aria-label="Buscar equipo" />
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-            <div className="flo-seg" role="group" aria-label="Clase de equipo">
-              <button type="button" aria-pressed={clase === 'todos'} onClick={() => setClase('todos')}>
-                Todos <span className="n">{conteosClases.total}</span>
-              </button>
-              {apartados.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  aria-pressed={clase === c.id}
-                  onClick={() => setClase(clase === c.id ? 'todos' : c.id)}
-                >
-                  {c.icon} {c.label} <span className="n">{conteosClases.map.get(c.id) ?? 0}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => setGestionarApartadosOpen(true)}
-              title="Administrar o agregar apartados de la flota"
-              style={{ padding: '.35rem .65rem', fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem', whiteSpace: 'nowrap' }}
-            >
-              ➕ Apartados
-            </button>
-          </div>
+        {/* Fila 1: Búsqueda rápida */}
+        <div className="fila" style={{ width: '100%', minWidth: 0 }}>
+          <input
+            className="input flo-buscar"
+            type="search"
+            value={filtro}
+            onChange={(e) => setFiltro(e.target.value)}
+            placeholder="🔍 Buscar equipo, marca, serial, placa, ubicación…"
+            aria-label="Buscar equipo"
+            style={{ width: '100%', flex: '1 1 auto', minWidth: 0 }}
+          />
         </div>
 
-        {/* Fila 2: Alternador por Ubicación con scroll lateral */}
+        {/* Fila 2: Cinta de Clases / Apartados (Maquinaria, Vehículos, Motos...) con scroll lateral */}
+        <div
+          className="flo-cinta-scroll"
+          onWheel={(e) => {
+            if (e.deltaY !== 0 && !e.shiftKey) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+        >
+          <div className="flo-seg" role="group" aria-label="Clase de equipo">
+            <button
+              type="button"
+              aria-pressed={clase === 'todos'}
+              onClick={() => setClase('todos')}
+            >
+              Todos <span className="n">{conteosClases.total}</span>
+            </button>
+            {apartados.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                aria-pressed={clase === c.id}
+                onClick={() => setClase(clase === c.id ? 'todos' : c.id)}
+                title={`Filtrar por ${c.label}`}
+              >
+                {c.icon} {c.label} <span className="n">{conteosClases.map.get(c.id) ?? 0}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => setGestionarApartadosOpen(true)}
+            title="Administrar o agregar apartados de la flota"
+            style={{ padding: '.35rem .65rem', fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem', whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            ➕ Apartados
+          </button>
+        </div>
+
+        {/* Fila 3: Cinta de Ubicaciones con scroll lateral */}
         {listaUbicaciones.length > 0 && (
-          <div className="fila" style={{ width: '100%' }}>
-            <div
-              className="flo-seg-scroll"
-              onWheel={(e) => {
-                if (e.deltaY !== 0 && !e.shiftKey) {
-                  e.currentTarget.scrollLeft += e.deltaY;
-                }
-              }}
-            >
-              <div className="flo-seg" role="group" aria-label="Ubicación del equipo">
+          <div
+            className="flo-cinta-scroll"
+            onWheel={(e) => {
+              if (e.deltaY !== 0 && !e.shiftKey) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
+            <div className="flo-seg" role="group" aria-label="Ubicación del equipo">
+              <button
+                type="button"
+                aria-pressed={ubicacion === 'todos'}
+                onClick={() => setUbicacion('todos')}
+                title="Mostrar todas las ubicaciones"
+              >
+                Todas las ubicaciones <span className="n">{conteosUbicaciones.total}</span>
+              </button>
+              {listaUbicaciones.map((u) => {
+                const n = conteosUbicaciones.map.get(u) ?? 0;
+                return (
+                  <button
+                    key={u}
+                    type="button"
+                    aria-pressed={ubicacion === u}
+                    onClick={() => setUbicacion(ubicacion === u ? 'todos' : u)}
+                    title={`Filtrar por ubicación: ${u}`}
+                    style={n === 0 && ubicacion !== u ? { opacity: 0.55 } : undefined}
+                  >
+                    📍 {u} <span className="n">{n}</span>
+                  </button>
+                );
+              })}
+              {hasSinUbicGlobal && (
                 <button
                   type="button"
-                  aria-pressed={ubicacion === 'todos'}
-                  onClick={() => setUbicacion('todos')}
-                  title="Mostrar todas las ubicaciones"
+                  aria-pressed={ubicacion === '__sin__'}
+                  onClick={() => setUbicacion(ubicacion === '__sin__' ? 'todos' : '__sin__')}
+                  title="Equipos sin ubicación asignada"
+                  style={conteosUbicaciones.sinUbic === 0 && ubicacion !== '__sin__' ? { opacity: 0.55 } : undefined}
                 >
-                  Todas las ubicaciones <span className="n">{conteosUbicaciones.total}</span>
+                  📍 Sin ubicación <span className="n">{conteosUbicaciones.sinUbic}</span>
                 </button>
-                {listaUbicaciones.map((u) => {
-                  const n = conteosUbicaciones.map.get(u) ?? 0;
-                  return (
-                    <button
-                      key={u}
-                      type="button"
-                      aria-pressed={ubicacion === u}
-                      onClick={() => setUbicacion(ubicacion === u ? 'todos' : u)}
-                      title={`Filtrar por ubicación: ${u}`}
-                      style={n === 0 && ubicacion !== u ? { opacity: 0.55 } : undefined}
-                    >
-                      📍 {u} <span className="n">{n}</span>
-                    </button>
-                  );
-                })}
-                {hasSinUbicGlobal && (
-                  <button
-                    type="button"
-                    aria-pressed={ubicacion === '__sin__'}
-                    onClick={() => setUbicacion(ubicacion === '__sin__' ? 'todos' : '__sin__')}
-                    title="Equipos sin ubicación asignada"
-                    style={conteosUbicaciones.sinUbic === 0 && ubicacion !== '__sin__' ? { opacity: 0.55 } : undefined}
-                  >
-                    📍 Sin ubicación <span className="n">{conteosUbicaciones.sinUbic}</span>
-                  </button>
-                )}
-              </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Fila 3: Alternador por Propietario con scroll lateral */}
+        {/* Fila 4: Cinta de Propietarios con scroll lateral */}
         {listaPropietarios.length > 0 && (
-          <div className="fila" style={{ width: '100%' }}>
-            <div
-              className="flo-seg-scroll"
-              onWheel={(e) => {
-                if (e.deltaY !== 0 && !e.shiftKey) {
-                  e.currentTarget.scrollLeft += e.deltaY;
-                }
-              }}
-            >
-              <div className="flo-seg" role="group" aria-label="Propietario del equipo">
+          <div
+            className="flo-cinta-scroll"
+            onWheel={(e) => {
+              if (e.deltaY !== 0 && !e.shiftKey) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
+            <div className="flo-seg" role="group" aria-label="Propietario del equipo">
+              <button
+                type="button"
+                aria-pressed={propietario === ''}
+                onClick={() => setPropietario('')}
+                title="Mostrar todos los propietarios"
+              >
+                Todos los propietarios <span className="n">{conteosPropietarios.total}</span>
+              </button>
+              {listaPropietarios.map((p) => {
+                const n = conteosPropietarios.map.get(p) ?? 0;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    aria-pressed={propietario === p}
+                    onClick={() => setPropietario(propietario === p ? '' : p)}
+                    title={`Filtrar por propietario: ${p}`}
+                    style={n === 0 && propietario !== p ? { opacity: 0.55 } : undefined}
+                  >
+                    🏢 {p} <span className="n">{n}</span>
+                  </button>
+                );
+              })}
+              {hasSinPropGlobal && (
                 <button
                   type="button"
-                  aria-pressed={propietario === ''}
-                  onClick={() => setPropietario('')}
-                  title="Mostrar todos los propietarios"
+                  aria-pressed={propietario === '__sin__'}
+                  onClick={() => setPropietario(propietario === '__sin__' ? '' : '__sin__')}
+                  title="Equipos sin propietario registrado"
+                  style={conteosPropietarios.sinProp === 0 && propietario !== '__sin__' ? { opacity: 0.55 } : undefined}
                 >
-                  Todos los propietarios <span className="n">{conteosPropietarios.total}</span>
+                  🏢 Sin propietario <span className="n">{conteosPropietarios.sinProp}</span>
                 </button>
-                {listaPropietarios.map((p) => {
-                  const n = conteosPropietarios.map.get(p) ?? 0;
-                  return (
-                    <button
-                      key={p}
-                      type="button"
-                      aria-pressed={propietario === p}
-                      onClick={() => setPropietario(propietario === p ? '' : p)}
-                      title={`Filtrar por propietario: ${p}`}
-                      style={n === 0 && propietario !== p ? { opacity: 0.55 } : undefined}
-                    >
-                      🏢 {p} <span className="n">{n}</span>
-                    </button>
-                  );
-                })}
-                {hasSinPropGlobal && (
-                  <button
-                    type="button"
-                    aria-pressed={propietario === '__sin__'}
-                    onClick={() => setPropietario(propietario === '__sin__' ? '' : '__sin__')}
-                    title="Equipos sin propietario registrado"
-                    style={conteosPropietarios.sinProp === 0 && propietario !== '__sin__' ? { opacity: 0.55 } : undefined}
-                  >
-                    🏢 Sin propietario <span className="n">{conteosPropietarios.sinProp}</span>
-                  </button>
-                )}
-              </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Fila 4: Tipo de equipo (pills) */}
+        {/* Fila 5: Tipo de equipo (pills) */}
         {tipos.length > 0 && (
           <div className="flo-pills" role="group" aria-label="Tipo de equipo">
             {tipos.map(([t, n]) => (

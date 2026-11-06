@@ -67,8 +67,8 @@
 .flo-fleet button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* ───────── Filtros ───────── */
-.flo-filtros { display: grid; gap: .55rem; margin-bottom: .8rem; }
-.flo-filtros .fila { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.flo-filtros { display: grid; gap: .55rem; margin-bottom: .8rem; min-width: 0; max-width: 100%; }
+.flo-filtros .fila { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; min-width: 0; max-width: 100%; }
 .flo-filtros .input, .flo-filtros .select { min-width: 0; }
 .flo-buscar { flex: 1 1 260px; }
 .flo-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; flex-wrap: wrap; max-width: 100%; }
@@ -91,42 +91,45 @@
   color: var(--primary);
 }
 
-/* Scroll lateral para alternadores segmentados (Ubicación, Propietarios) */
-.flo-seg-scroll {
-  display: flex;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--primary) 35%, var(--border-strong)) transparent;
+/* Cinta de alternadores con scroll lateral (Clase, Ubicación, Propietarios) */
+.flo-cinta-scroll {
+  display: flex !important;
+  align-items: center;
+  gap: .4rem;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: color-mix(in srgb, var(--primary) 40%, var(--border-strong)) transparent !important;
   padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
 }
-.flo-seg-scroll::-webkit-scrollbar {
-  height: 5px;
+.flo-cinta-scroll::-webkit-scrollbar {
+  height: 6px;
 }
-.flo-seg-scroll::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--primary) 35%, var(--border-strong));
+.flo-cinta-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--primary) 40%, var(--border-strong));
   border-radius: 999px;
 }
-.flo-seg-scroll::-webkit-scrollbar-thumb:hover {
+.flo-cinta-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--primary);
 }
-.flo-seg-scroll::-webkit-scrollbar-track {
+.flo-cinta-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.flo-seg-scroll .flo-seg {
+.flo-cinta-scroll .flo-seg {
   display: inline-flex !important;
   flex-wrap: nowrap !important;
-  flex: none !important;
+  flex: 0 0 auto !important;
   grid-template-columns: none !important;
 }
-.flo-seg-scroll .flo-seg button {
+.flo-cinta-scroll .flo-seg button {
   white-space: nowrap !important;
   flex-shrink: 0 !important;
 }
-.flo-seg-scroll .flo-seg button + button {
+.flo-cinta-scroll .flo-seg button + button {
   border-left: 1px solid var(--border) !important;
   border-top: 0 !important;
 }
