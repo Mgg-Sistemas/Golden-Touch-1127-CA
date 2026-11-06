@@ -7,6 +7,7 @@ import {
   textoFichaFiltrosWhatsapp,
   textoEstadoEquipoWhatsapp,
   textoAlertaMantenimientoWhatsapp,
+  textoReporteFlotaWhatsapp,
 } from './maquinariaWhatsapp';
 
 describe('maquinariaWhatsapp', () => {
@@ -220,4 +221,68 @@ describe('maquinariaWhatsapp', () => {
       expect(txt).not.toContain('Placa');
     });
   });
+  describe('textoReporteFlotaWhatsapp', () => {
+    const eq1: any = {
+      id: 'eq-1',
+      equipo: 'CAT 320D',
+      tipo: 'EXCAVADORA',
+      status: 'OPERATIVA',
+      marca: 'CATERPILLAR',
+      modelo: '320D',
+      placa: 'CAT-01',
+      ubicacion: 'Mina Peramanal',
+      propietario: 'GOLDEN TOUCH',
+      activo: true,
+    };
+    const eq2: any = {
+      id: 'eq-2',
+      equipo: 'CAMIÓN MACK',
+      tipo: 'CAMIÓN VOLTEO',
+      status: 'MANTENIMIENTO',
+      marca: 'MACK',
+      modelo: 'GRANITE',
+      placa: 'A99ZZ1X',
+      ubicacion: 'Garaje Central',
+      propietario: 'GOLDEN TOUCH',
+      activo: true,
+    };
+
+    it('genera reporte con conteos de flota y lista de equipos', () => {
+      const ctxMap = new Map([
+        ['eq-1', { horometro: 4500, encargado: 'Pedro' }],
+        ['eq-2', { kilometraje: 85000, encargado: 'Luis' }],
+      ]);
+
+      const txt = textoReporteFlotaWhatsapp({
+        equipos: [eq1, eq2],
+        categoriaSel: 'todas',
+        propietarioSel: 'todos',
+        estatusSel: 'todos',
+        contextoMap: ctxMap,
+      });
+
+      expect(txt).toContain('Reporte de Flota y Maquinaria');
+      expect(txt).toContain('Resumen de Flota (2 equipos):');
+      expect(txt).toContain('Operativas: 1');
+      expect(txt).toContain('En taller / Mantenimiento: 1');
+      expect(txt).toContain('CAT 320D');
+      expect(txt).toContain('4.500 h');
+      expect(txt).toContain('CAMIÓN MACK');
+      expect(txt).toContain('85.000 km');
+      expect(txt).not.toContain('\uFE0F');
+    });
+
+    it('incluye filtros activos cuando se especifican', () => {
+      const txt = textoReporteFlotaWhatsapp({
+        equipos: [eq1],
+        categoriaSel: 'maquinaria',
+        propietarioSel: 'GOLDEN TOUCH',
+        estatusSel: 'operativa',
+      });
+
+      expect(txt).toContain('Filtros activos: Categoría: MAQUINARIA · Propietario: GOLDEN TOUCH · Estatus: OPERATIVA');
+      expect(txt).toContain('CAT 320D');
+    });
+  });
+
 });

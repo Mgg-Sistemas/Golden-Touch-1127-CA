@@ -963,7 +963,15 @@ export async function descargarEquiposPdfPersonalizado(
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(7.5);
           doc.setTextColor(30, 41, 59);
-          doc.text(pdfSafe(val), x + lw, lineY);
+          const maxValW = Math.max(20, specW1 - lw - 4);
+          let safeVal = pdfSafe(val);
+          if (doc.getTextWidth(safeVal) > maxValW) {
+            while (safeVal.length > 3 && doc.getTextWidth(safeVal + '…') > maxValW) {
+              safeVal = safeVal.slice(0, -1);
+            }
+            safeVal = safeVal + '…';
+          }
+          doc.text(safeVal, x + lw, lineY);
         };
 
         let ly = y + 31;

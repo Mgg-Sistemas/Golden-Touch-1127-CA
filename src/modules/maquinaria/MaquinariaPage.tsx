@@ -13,6 +13,7 @@ import { MaquinariaCatalogoModal } from './MaquinariaCatalogoModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { ExportarEquiposModal } from './ExportarEquiposModal';
+import { normalizarUbicacion, UBICACION_UNIFICADA_GT } from './exportarEquipos';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, reiniciarMantenimientoDeEquipo, extraerEncargado, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
@@ -67,6 +68,7 @@ export function MaquinariaPage() {
   const [clase, setClase] = useState<ClaseEquipo | 'todos'>('todos');
   const [apartados, setApartados] = useState<ApartadoEquipo[]>(() => listarApartados());
   const [gestionarApartadosOpen, setGestionarApartadosOpen] = useState(false);
+  const [ubicacion, setUbicacion] = useState<string>('todos');
   const [propietario, setPropietario] = useState('');
   const [tipo, setTipo] = useState('');
 
@@ -150,26 +152,45 @@ export function MaquinariaPage() {
     });
   }, [equipos, combEquipos]);
 
-  const filtrar = useCallback((ignorar: 'bucket' | 'tipo' | null) => equipos.filter((e) => {
+  const filtrar = useCallback((ignorar: 'bucket' | 'clase' | 'ubicacion' | 'propietario' | 'tipo' | null) => equipos.filter((e) => {
     const i = info.get(e.id);
     if (!i) return false;
     const b = ESTADOS_EQUIPO[i.estado].bucket;
     if (ignorar !== 'bucket') {
       if (bucket ? b !== bucket : b === 'retiradas') return false;
     }
-    if (clase !== 'todos') {
+    if (ignorar !== 'clase' && clase !== 'todos') {
       const coincideClase = i.clase === clase || (clase === 'maquinaria' && (i.clase as string) === 'equipo');
       if (!coincideClase) return false;
     }
-    if (propietario && (e.propietario ?? '') !== propietario) return false;
+    if (ignorar !== 'ubicacion' && ubicacion !== 'todos') {
+      const uNorm = normalizarUbicacion(e.ubicacion);
+      if (ubicacion === '__sin__') {
+        if (uNorm !== '') return false;
+      } else if (uNorm !== ubicacion) {
+        return false;
+      }
+    }
+    if (ignorar !== 'propietario' && propietario) {
+      const pNorm = (e.propietario ?? '').trim();
+      if (propietario === '__sin__') {
+        if (pNorm !== '') return false;
+      } else if (pNorm !== propietario) {
+        return false;
+      }
+    }
     if (ignorar !== 'tipo' && tipo && norm(e.tipo) !== norm(tipo)) return false;
     return coincideEquipo(e, filtro);
-  }), [equipos, info, bucket, clase, propietario, tipo, filtro]);
+  }), [equipos, info, bucket, clase, ubicacion, propietario, tipo, filtro]);
 
   const lista = useMemo(() => filtrar(null), [filtrar]);
   const baseFlota = useMemo(() => filtrar('bucket'), [filtrar]);
+  const baseClases = useMemo(() => filtrar('clase'), [filtrar]);
+  const baseUbicaciones = useMemo(() => filtrar('ubicacion'), [filtrar]);
+  const basePropietarios = useMemo(() => filtrar('propietario'), [filtrar]);
   const baseTipos = useMemo(() => filtrar('tipo'), [filtrar]);
   const disponibles = baseFlota.filter((e) => info.get(e.id)?.estado !== 'retirada').length;
+
   // Equipos activos (no retirados) con el servicio PRÓXIMO o VENCIDO, para el banner de
   // alertas (26/10/2026). La lectura va en la unidad del aviso más urgente (horas o km).
   const alertas = useMemo<EquipoConAviso[]>(() => {
@@ -183,10 +204,78 @@ export function MaquinariaPage() {
     return out;
   }, [equipos, info]);
 
-  const propietarios = useMemo(
-    () => [...new Set(equipos.map((e) => e.propietario).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es')),
-    [equipos],
-  );
+  // Listas de catálogo globales (para tener siempre las opciones de los alternadores)
+  const listaPropietarios = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of equipos) {
+      const p = (e.propietario ?? '').trim();
+      if (p) s.add(p);
+    }
+    return Array.from(s).sort((a, b) => {
+      const aGT = a.toUpperCase().includes('GOLDEN TOUCH');
+      const bGT = b.toUpperCase().includes('GOLDEN TOUCH');
+      if (aGT && !bGT) return -1;
+      if (!aGT && bGT) return 1;
+      return a.localeCompare(b, 'es');
+    });
+  }, [equipos]);
+
+  const listaUbicaciones = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of equipos) {
+      const u = normalizarUbicacion(e.ubicacion);
+      if (u) s.add(u);
+    }
+    return Array.from(s).sort((a, b) => {
+      if (a === UBICACION_UNIFICADA_GT) return -1;
+      if (b === UBICACION_UNIFICADA_GT) return 1;
+      return a.localeCompare(b, 'es');
+    });
+  }, [equipos]);
+
+  const hasSinUbicGlobal = useMemo(() => equipos.some((e) => !normalizarUbicacion(e.ubicacion)), [equipos]);
+  const hasSinPropGlobal = useMemo(() => equipos.some((e) => !(e.propietario ?? '').trim()), [equipos]);
+
+  // Conteos calculados en combinación cruzada
+  const conteosClases = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of baseClases) {
+      const i = info.get(e.id);
+      if (!i) continue;
+      const c = (i.clase as string) === 'equipo' ? 'maquinaria' : i.clase;
+      map.set(c, (map.get(c) ?? 0) + 1);
+    }
+    return { map, total: baseClases.length };
+  }, [baseClases, info]);
+
+  const conteosUbicaciones = useMemo(() => {
+    const map = new Map<string, number>();
+    let sinUbic = 0;
+    for (const e of baseUbicaciones) {
+      const u = normalizarUbicacion(e.ubicacion);
+      if (u) {
+        map.set(u, (map.get(u) ?? 0) + 1);
+      } else {
+        sinUbic++;
+      }
+    }
+    return { map, sinUbic, total: baseUbicaciones.length };
+  }, [baseUbicaciones]);
+
+  const conteosPropietarios = useMemo(() => {
+    const map = new Map<string, number>();
+    let sinProp = 0;
+    for (const e of basePropietarios) {
+      const p = (e.propietario ?? '').trim();
+      if (p) {
+        map.set(p, (map.get(p) ?? 0) + 1);
+      } else {
+        sinProp++;
+      }
+    }
+    return { map, sinProp, total: basePropietarios.length };
+  }, [basePropietarios]);
+
   const tipos = useMemo(() => {
     const m = new Map<string, number>();
     for (const e of baseTipos) {
@@ -195,6 +284,13 @@ export function MaquinariaPage() {
     }
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'));
   }, [baseTipos]);
+
+  // Si el tipo activo no existe en la combinación actual, se apaga
+  useEffect(() => {
+    if (tipo && tipos.length > 0 && !tipos.some(([t]) => norm(t) === norm(tipo))) {
+      setTipo('');
+    }
+  }, [tipo, tipos]);
 
   // Agrupado por propietario.
   const grupos = useMemo(() => {
@@ -268,35 +364,173 @@ export function MaquinariaPage() {
       )}
 
       <div className="flo-filtros">
-        <div className="fila">
-          <input className="input flo-buscar" type="search" value={filtro} onChange={(e) => setFiltro(e.target.value)}
-            placeholder="🔍 Buscar equipo, marca, serial, placa, ubicación…" aria-label="Buscar equipo" />
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-            <div className="flo-seg" role="group" aria-label="Clase de equipo">
-              <button type="button" aria-pressed={clase === 'todos'} onClick={() => setClase('todos')}>Todos</button>
-              {apartados.map((c) => <button key={c.id} type="button" aria-pressed={clase === c.id} onClick={() => setClase(c.id)}>{c.icon} {c.label}</button>)}
-            </div>
+        {/* Fila 1: Búsqueda rápida */}
+        <div className="fila" style={{ width: '100%', minWidth: 0 }}>
+          <input
+            className="input flo-buscar"
+            type="search"
+            value={filtro}
+            onChange={(e) => setFiltro(e.target.value)}
+            placeholder="🔍 Buscar equipo, marca, serial, placa, ubicación…"
+            aria-label="Buscar equipo"
+            style={{ width: '100%', flex: '1 1 auto', minWidth: 0 }}
+          />
+        </div>
+
+        {/* Fila 2: Cinta de Clases / Apartados (Maquinaria, Vehículos, Motos...) con scroll lateral */}
+        <div
+          className="flo-cinta-scroll"
+          onWheel={(e) => {
+            if (e.deltaY !== 0 && !e.shiftKey) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+        >
+          <div className="flo-seg" role="group" aria-label="Clase de equipo">
             <button
               type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => setGestionarApartadosOpen(true)}
-              title="Administrar o agregar apartados de la flota"
-              style={{ padding: '.35rem .65rem', fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem', whiteSpace: 'nowrap' }}
+              aria-pressed={clase === 'todos'}
+              onClick={() => setClase('todos')}
             >
-              ➕ Apartados
+              Todos <span className="n">{conteosClases.total}</span>
             </button>
+            {apartados.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                aria-pressed={clase === c.id}
+                onClick={() => setClase(clase === c.id ? 'todos' : c.id)}
+                title={`Filtrar por ${c.label}`}
+              >
+                {c.icon} {c.label} <span className="n">{conteosClases.map.get(c.id) ?? 0}</span>
+              </button>
+            ))}
           </div>
-          {propietarios.length > 1 && (
-            <select className="select" value={propietario} onChange={(e) => setPropietario(e.target.value)} aria-label="Propietario" style={{ maxWidth: '100%' }}>
-              <option value="">Todos los propietarios</option>
-              {propietarios.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          )}
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => setGestionarApartadosOpen(true)}
+            title="Administrar o agregar apartados de la flota"
+            style={{ padding: '.35rem .65rem', fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem', whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            ➕ Apartados
+          </button>
         </div>
-        {tipos.length > 1 && (
-          <div className="flo-pills" role="group" aria-label="Tipo de equipo">
+
+        {/* Fila 3: Cinta de Ubicaciones con scroll lateral */}
+        {listaUbicaciones.length > 0 && (
+          <div
+            className="flo-cinta-scroll"
+            onWheel={(e) => {
+              if (e.deltaY !== 0 && !e.shiftKey) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
+            <div className="flo-seg" role="group" aria-label="Ubicación del equipo">
+              <button
+                type="button"
+                aria-pressed={ubicacion === 'todos'}
+                onClick={() => setUbicacion('todos')}
+                title="Mostrar todas las ubicaciones"
+              >
+                Todas las ubicaciones <span className="n">{conteosUbicaciones.total}</span>
+              </button>
+              {listaUbicaciones.map((u) => {
+                const n = conteosUbicaciones.map.get(u) ?? 0;
+                return (
+                  <button
+                    key={u}
+                    type="button"
+                    aria-pressed={ubicacion === u}
+                    onClick={() => setUbicacion(ubicacion === u ? 'todos' : u)}
+                    title={`Filtrar por ubicación: ${u}`}
+                    style={n === 0 && ubicacion !== u ? { opacity: 0.55 } : undefined}
+                  >
+                    📍 {u} <span className="n">{n}</span>
+                  </button>
+                );
+              })}
+              {hasSinUbicGlobal && (
+                <button
+                  type="button"
+                  aria-pressed={ubicacion === '__sin__'}
+                  onClick={() => setUbicacion(ubicacion === '__sin__' ? 'todos' : '__sin__')}
+                  title="Equipos sin ubicación asignada"
+                  style={conteosUbicaciones.sinUbic === 0 && ubicacion !== '__sin__' ? { opacity: 0.55 } : undefined}
+                >
+                  📍 Sin ubicación <span className="n">{conteosUbicaciones.sinUbic}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Fila 4: Cinta de Propietarios con scroll lateral */}
+        {listaPropietarios.length > 0 && (
+          <div
+            className="flo-cinta-scroll"
+            onWheel={(e) => {
+              if (e.deltaY !== 0 && !e.shiftKey) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
+            <div className="flo-seg" role="group" aria-label="Propietario del equipo">
+              <button
+                type="button"
+                aria-pressed={propietario === ''}
+                onClick={() => setPropietario('')}
+                title="Mostrar todos los propietarios"
+              >
+                Todos los propietarios <span className="n">{conteosPropietarios.total}</span>
+              </button>
+              {listaPropietarios.map((p) => {
+                const n = conteosPropietarios.map.get(p) ?? 0;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    aria-pressed={propietario === p}
+                    onClick={() => setPropietario(propietario === p ? '' : p)}
+                    title={`Filtrar por propietario: ${p}`}
+                    style={n === 0 && propietario !== p ? { opacity: 0.55 } : undefined}
+                  >
+                    🏢 {p} <span className="n">{n}</span>
+                  </button>
+                );
+              })}
+              {hasSinPropGlobal && (
+                <button
+                  type="button"
+                  aria-pressed={propietario === '__sin__'}
+                  onClick={() => setPropietario(propietario === '__sin__' ? '' : '__sin__')}
+                  title="Equipos sin propietario registrado"
+                  style={conteosPropietarios.sinProp === 0 && propietario !== '__sin__' ? { opacity: 0.55 } : undefined}
+                >
+                  🏢 Sin propietario <span className="n">{conteosPropietarios.sinProp}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Fila 5: Tipo de equipo (pills) */}
+        {tipos.length > 0 && (
+          <div
+            className="flo-pills"
+            role="group"
+            aria-label="Tipo de equipo"
+            onWheel={(e) => {
+              if (e.deltaY !== 0 && !e.shiftKey) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
             {tipos.map(([t, n]) => (
-              <button key={t} type="button" className="flo-pill" aria-pressed={tipo === t} onClick={() => setTipo(tipo === t ? '' : t)}>{t}<span className="n">{n}</span></button>
+              <button key={t} type="button" className="flo-pill" aria-pressed={tipo === t} onClick={() => setTipo(tipo === t ? '' : t)}>
+                {t}<span className="n">{n}</span>
+              </button>
             ))}
           </div>
         )}
@@ -305,7 +539,26 @@ export function MaquinariaPage() {
       {loading ? (
         <EmptyState message="Cargando…" />
       ) : !lista.length ? (
-        <EmptyState message={equipos.length ? 'Sin resultados con estos filtros.' : 'Aún no hay equipos registrados.'} icon="🔎" />
+        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+          <EmptyState message={equipos.length ? 'Sin resultados con estos filtros combinados.' : 'Aún no hay equipos registrados.'} icon="🔎" />
+          {equipos.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ marginTop: '.8rem' }}
+              onClick={() => {
+                setFiltro('');
+                setBucket(null);
+                setClase('todos');
+                setUbicacion('todos');
+                setPropietario('');
+                setTipo('');
+              }}
+            >
+              🔄 Limpiar todos los filtros
+            </button>
+          )}
+        </div>
       ) : grupos.map(([g, eqs]) => (
         <div key={g}>
           <div className="flo-grupo"><span>🏢 {g}</span><span className="n">{eqs.length}</span></div>

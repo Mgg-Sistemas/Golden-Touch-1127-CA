@@ -25,6 +25,8 @@
    ============================================================ */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { textoReporteFlotaWhatsapp } from './maquinariaWhatsapp';
 import { toast } from '@/shared/ui/Toast';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import {
@@ -134,6 +136,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
   const [estatusSel, setEstatusSel] = useState<string>('todos');
   const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | null>(null);
   const [orientacion, setOrientacion] = useState<OrientacionHoja>('auto');
+  const [verWhatsapp, setVerWhatsapp] = useState(false);
   // Resumen de flota en tarjetas (sale como lo primero del PDF / hoja «Resumen» del Excel)
   const [resumenActivo, setResumenActivo] = useState<boolean>(() => resumenGuardado().activo);
   const [resumenAgrupar, setResumenAgrupar] = useState<AgrupacionResumen>(() => resumenGuardado().agruparPor);
@@ -378,7 +381,19 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     }
   }
 
-  // Con «Solo el resumen» se puede descargar aunque no haya datos marcados.
+  const textoWsp = useMemo(() => {
+    return textoReporteFlotaWhatsapp({
+      equipos: equiposAExportar,
+      categoriaSel,
+      propietarioSel,
+      ubicacionesSel,
+      estatusSel,
+      modoAgrupacion,
+      contextoMap,
+    });
+  }, [equiposAExportar, categoriaSel, propietarioSel, ubicacionesSel, estatusSel, modoAgrupacion, contextoMap]);
+
+    // Con «Solo el resumen» se puede descargar aunque no haya datos marcados.
   const nada = marcados.length === 0 && !soloResumen;
 
   return (
@@ -397,6 +412,14 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
             {ocupado === 'xlsx' ? 'Generando…' : '📊 Excel'}
           </button>
           <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setVerWhatsapp((v) => !v)}
+            disabled={!!ocupado || !equiposAExportar.length}
+          >
+            💬 WhatsApp
+          </button>
+          <button
             className={`btn ${formatoInicial !== 'xlsx' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => void descargar('pdf')}
             disabled={nada || !!ocupado || !equiposAExportar.length}
@@ -406,6 +429,26 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         </>
       }
     >
+      {/* Panel de WhatsApp */}
+      {verWhatsapp && (
+        <div style={{
+          background: 'var(--surface-2, #182230)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          padding: '.75rem',
+          marginBottom: '.75rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+            <span style={{ fontSize: '.86rem', fontWeight: 600 }}>💬 Enviar por WhatsApp — Reporte de Flota</span>
+            <button type="button" className="btn btn-ghost btn-xs" onClick={() => setVerWhatsapp(false)}>← Volver a opciones</button>
+          </div>
+          <p className="muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.5rem' }}>
+            Aviso directo para chat: resumen de operatividad y estado de cada equipo con lectura y ubicación.
+          </p>
+          <CompartirWhatsapp texto={textoWsp} />
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.6rem' }}>
         <p className="muted" style={{ fontSize: '.84rem', margin: 0 }}>
           Se exportarán <strong style={{ color: 'var(--primary, #f97316)' }}>{equiposAExportar.length}</strong> de {total || equipos.length} equipo(s) disponible(s)
