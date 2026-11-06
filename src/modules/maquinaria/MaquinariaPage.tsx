@@ -211,7 +211,13 @@ export function MaquinariaPage() {
       const p = (e.propietario ?? '').trim();
       if (p) s.add(p);
     }
-    return Array.from(s).sort((a, b) => a.localeCompare(b, 'es'));
+    return Array.from(s).sort((a, b) => {
+      const aGT = a.toUpperCase().includes('GOLDEN TOUCH');
+      const bGT = b.toUpperCase().includes('GOLDEN TOUCH');
+      if (aGT && !bGT) return -1;
+      if (!aGT && bGT) return 1;
+      return a.localeCompare(b, 'es');
+    });
   }, [equipos]);
 
   const listaUbicaciones = useMemo(() => {
@@ -390,82 +396,104 @@ export function MaquinariaPage() {
           </div>
         </div>
 
-        {/* Fila 2: Alternador por Ubicación */}
+        {/* Fila 2: Alternador por Ubicación con scroll lateral */}
         {listaUbicaciones.length > 0 && (
-          <div className="fila">
-            <div className="flo-seg" role="group" aria-label="Ubicación del equipo">
-              <button
-                type="button"
-                aria-pressed={ubicacion === 'todos'}
-                onClick={() => setUbicacion('todos')}
-                title="Mostrar todas las ubicaciones"
-              >
-                Todas las ubicaciones <span className="n">{conteosUbicaciones.total}</span>
-              </button>
-              {listaUbicaciones.map((u) => {
-                const n = conteosUbicaciones.map.get(u) ?? 0;
-                return (
-                  <button
-                    key={u}
-                    type="button"
-                    aria-pressed={ubicacion === u}
-                    onClick={() => setUbicacion(ubicacion === u ? 'todos' : u)}
-                    title={`Filtrar por ubicación: ${u}`}
-                  >
-                    📍 {u} <span className="n">{n}</span>
-                  </button>
-                );
-              })}
-              {hasSinUbicGlobal && (
+          <div className="fila" style={{ width: '100%' }}>
+            <div
+              className="flo-seg-scroll"
+              onWheel={(e) => {
+                if (e.deltaY !== 0 && !e.shiftKey) {
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
+            >
+              <div className="flo-seg" role="group" aria-label="Ubicación del equipo">
                 <button
                   type="button"
-                  aria-pressed={ubicacion === '__sin__'}
-                  onClick={() => setUbicacion(ubicacion === '__sin__' ? 'todos' : '__sin__')}
-                  title="Equipos sin ubicación asignada"
+                  aria-pressed={ubicacion === 'todos'}
+                  onClick={() => setUbicacion('todos')}
+                  title="Mostrar todas las ubicaciones"
                 >
-                  📍 Sin ubicación <span className="n">{conteosUbicaciones.sinUbic}</span>
+                  Todas las ubicaciones <span className="n">{conteosUbicaciones.total}</span>
                 </button>
-              )}
+                {listaUbicaciones.map((u) => {
+                  const n = conteosUbicaciones.map.get(u) ?? 0;
+                  return (
+                    <button
+                      key={u}
+                      type="button"
+                      aria-pressed={ubicacion === u}
+                      onClick={() => setUbicacion(ubicacion === u ? 'todos' : u)}
+                      title={`Filtrar por ubicación: ${u}`}
+                      style={n === 0 && ubicacion !== u ? { opacity: 0.55 } : undefined}
+                    >
+                      📍 {u} <span className="n">{n}</span>
+                    </button>
+                  );
+                })}
+                {hasSinUbicGlobal && (
+                  <button
+                    type="button"
+                    aria-pressed={ubicacion === '__sin__'}
+                    onClick={() => setUbicacion(ubicacion === '__sin__' ? 'todos' : '__sin__')}
+                    title="Equipos sin ubicación asignada"
+                    style={conteosUbicaciones.sinUbic === 0 && ubicacion !== '__sin__' ? { opacity: 0.55 } : undefined}
+                  >
+                    📍 Sin ubicación <span className="n">{conteosUbicaciones.sinUbic}</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Fila 3: Alternador por Propietario */}
+        {/* Fila 3: Alternador por Propietario con scroll lateral */}
         {listaPropietarios.length > 0 && (
-          <div className="fila">
-            <div className="flo-seg" role="group" aria-label="Propietario del equipo">
-              <button
-                type="button"
-                aria-pressed={propietario === ''}
-                onClick={() => setPropietario('')}
-                title="Mostrar todos los propietarios"
-              >
-                Todos los propietarios <span className="n">{conteosPropietarios.total}</span>
-              </button>
-              {listaPropietarios.map((p) => {
-                const n = conteosPropietarios.map.get(p) ?? 0;
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    aria-pressed={propietario === p}
-                    onClick={() => setPropietario(propietario === p ? '' : p)}
-                    title={`Filtrar por propietario: ${p}`}
-                  >
-                    🏢 {p} <span className="n">{n}</span>
-                  </button>
-                );
-              })}
-              {hasSinPropGlobal && (
+          <div className="fila" style={{ width: '100%' }}>
+            <div
+              className="flo-seg-scroll"
+              onWheel={(e) => {
+                if (e.deltaY !== 0 && !e.shiftKey) {
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
+            >
+              <div className="flo-seg" role="group" aria-label="Propietario del equipo">
                 <button
                   type="button"
-                  aria-pressed={propietario === '__sin__'}
-                  onClick={() => setPropietario(propietario === '__sin__' ? '' : '__sin__')}
-                  title="Equipos sin propietario registrado"
+                  aria-pressed={propietario === ''}
+                  onClick={() => setPropietario('')}
+                  title="Mostrar todos los propietarios"
                 >
-                  🏢 Sin propietario <span className="n">{conteosPropietarios.sinProp}</span>
+                  Todos los propietarios <span className="n">{conteosPropietarios.total}</span>
                 </button>
-              )}
+                {listaPropietarios.map((p) => {
+                  const n = conteosPropietarios.map.get(p) ?? 0;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      aria-pressed={propietario === p}
+                      onClick={() => setPropietario(propietario === p ? '' : p)}
+                      title={`Filtrar por propietario: ${p}`}
+                      style={n === 0 && propietario !== p ? { opacity: 0.55 } : undefined}
+                    >
+                      🏢 {p} <span className="n">{n}</span>
+                    </button>
+                  );
+                })}
+                {hasSinPropGlobal && (
+                  <button
+                    type="button"
+                    aria-pressed={propietario === '__sin__'}
+                    onClick={() => setPropietario(propietario === '__sin__' ? '' : '__sin__')}
+                    title="Equipos sin propietario registrado"
+                    style={conteosPropietarios.sinProp === 0 && propietario !== '__sin__' ? { opacity: 0.55 } : undefined}
+                  >
+                    🏢 Sin propietario <span className="n">{conteosPropietarios.sinProp}</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

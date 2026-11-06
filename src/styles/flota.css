@@ -90,6 +90,46 @@
 .flo-seg button[aria-pressed="true"] .n {
   color: var(--primary);
 }
+
+/* Scroll lateral para alternadores segmentados (Ubicación, Propietarios) */
+.flo-seg-scroll {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--primary) 35%, var(--border-strong)) transparent;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.flo-seg-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+.flo-seg-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--primary) 35%, var(--border-strong));
+  border-radius: 999px;
+}
+.flo-seg-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+.flo-seg-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.flo-seg-scroll .flo-seg {
+  display: inline-flex !important;
+  flex-wrap: nowrap !important;
+  flex: none !important;
+  grid-template-columns: none !important;
+}
+.flo-seg-scroll .flo-seg button {
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+}
+.flo-seg-scroll .flo-seg button + button {
+  border-left: 1px solid var(--border) !important;
+  border-top: 0 !important;
+}
 .flo-pills { display: flex; gap: .4rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .flo-pills::-webkit-scrollbar { display: none; }
 .flo-pill {
