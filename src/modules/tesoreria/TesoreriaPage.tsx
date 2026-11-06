@@ -3926,7 +3926,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [editarPrecios, setEditarPrecios] = useState<OrdenPorPagar | null>(null);
   const [wspLote, setWspLote] = useState(false);
   // 06/11/2026: marcar pagada sin descontar saldo de cajas (con motivo).
-  const [sinCaja, setSinCaja] = useState<OrdenPorPagar | null>(null);
+  const [sinCaja, setSinCaja] = useState<OrdenPorPagar[] | null>(null);
 
   const { user } = useSession();
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
@@ -3950,7 +3950,6 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
 
   // Filas seleccionadas, proveedor "bloqueado" (el de la primera marcada) y total.
   const seleccionadas = useMemo(() => rows.filter((r) => seleccion.has(r.orden.id)), [rows, seleccion]);
-  const provSel = seleccionadas[0]?.orden.proveedor_id ?? null;
   const provNombreSel = seleccionadas[0]?.proveedorNombre ?? '';
   const totalSel = round2(seleccionadas.reduce((a, r) => a + Number(r.montoAPagar || 0), 0));
   function toggleSel(r: OrdenPorPagar) {
@@ -3960,10 +3959,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       return n;
     });
   }
-  // Se puede marcar cualquier OC (incluso "esperando método") siempre que sea del MISMO
-  // proveedor que la primera marcada. Al pagar varias del mismo proveedor, las que aún no
-  // tenían método de pago se pagan igual (no hace falta esperar a Compras).
-  const checkDisabled = (r: OrdenPorPagar) => provSel != null && r.orden.proveedor_id !== provSel;
+  // Se puede marcar cualquier OC (incluso "esperando método"). PAGAR juntas exige el MISMO
+  // proveedor; «pagadas sin caja» (06/11/2026) admite varias de distintos proveedores.
+  const provsSel = new Set(seleccionadas.map((r) => r.orden.proveedor_id)).size;
+  const mismoProveedor = provsSel <= 1;
 
   return (
     <Modal title="Pendientes por pagar · Tesorería" size="xl" onClose={onClose} footer={
@@ -4009,10 +4008,13 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
           </p>
           {seleccionadas.length > 0 && (
             <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .85rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
-              <strong>{seleccionadas.length}</strong> OC de <strong>{provNombreSel}</strong> · total <strong className="mono">{monto(totalSel, 'USD')}</strong>
+              <strong>{seleccionadas.length}</strong> OC de <strong>{mismoProveedor ? provNombreSel : `${provsSel} proveedores`}</strong> · total <strong className="mono">{monto(totalSel, 'USD')}</strong>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
                 <button className="btn btn-sm btn-ghost" onClick={() => setSeleccion(new Set())}>Limpiar</button>
-                <button className="btn btn-sm btn-primary" onClick={() => setPagarVarias(seleccionadas)}>💳 Pagar {seleccionadas.length} seleccionadas</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => setSinCaja(seleccionadas)}
+                  title="Marcarlas pagadas SIN descontar dinero de ninguna caja (con motivo). Siguen al delivery y al almacén como siempre.">🧾 Marcar {seleccionadas.length} pagadas sin caja</button>
+                <button className="btn btn-sm btn-primary" disabled={!mismoProveedor} onClick={() => setPagarVarias(seleccionadas)}
+                  title={mismoProveedor ? undefined : 'Para pagar juntas, todas deben ser del mismo proveedor'}>💳 Pagar {seleccionadas.length} seleccionadas</button>
               </div>
             </div>
           )}
@@ -4031,8 +4033,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                   return (
                   <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
                     <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-                      <input type="checkbox" checked={seleccion.has(r.orden.id)} disabled={checkDisabled(r)}
-                        title={checkDisabled(r) ? `Solo se pueden pagar juntas las OC de ${provNombreSel}` : 'Seleccionar para pago múltiple (mismo proveedor)'}
+                      <input type="checkbox" checked={seleccion.has(r.orden.id)}
+                        title="Seleccionar: pagar varias juntas (mismo proveedor) o marcar varias pagadas sin caja"
                         onChange={() => toggleSel(r)} />
                     </td>
                     <td className="mono">{r.orden.oc_codigo ?? '—'}
@@ -4084,7 +4086,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                       <button className="btn btn-sm btn-ghost" title="Editar los precios de esta OC (se ajusta el total y queda en la traza)"
                         onClick={(e) => { e.stopPropagation(); setEditarPrecios(r); }}>✏️ Precios</button>{' '}
                       <button className="btn btn-sm btn-ghost" title="Marcarla pagada SIN descontar dinero de ninguna caja (con motivo). Sigue al delivery y al almacén como siempre."
-                        onClick={(e) => { e.stopPropagation(); setSinCaja(r); }}>🧾 Pagada sin caja</button>{' '}
+                        onClick={(e) => { e.stopPropagation(); setSinCaja([r]); }}>🧾 Pagada sin caja</button>{' '}
                       <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>
                         {espera ? 'Ver' : 'Ver / Pagar'}
                       </button>
@@ -4128,7 +4130,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
 
       {sinCaja && (
         <PagadaSinCajaModal
-          row={sinCaja} actor={actor}
+          rows={sinCaja} actor={actor}
           onClose={() => setSinCaja(null)}
           onDone={async () => { setSinCaja(null); setSeleccion(new Set()); await reload(); onPaid(); }}
         />
@@ -4148,51 +4150,96 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
 /* ───────────── OC pagada SIN descontar saldo de cajas (06/11/2026) ─────────────
    Se paga por fuera (otra empresa, un socio, un cruce…): queda 'pagada' sin egreso en el
    Libro Mayor, con el motivo obligatorio. Pasa al delivery y al almacén como siempre. */
-function PagadaSinCajaModal({ row, actor, onClose, onDone }: {
-  row: OrdenPorPagar; actor: string; onClose: () => void; onDone: () => void;
+function PagadaSinCajaModal({ rows, actor, onClose, onDone }: {
+  rows: OrdenPorPagar[]; actor: string; onClose: () => void; onDone: () => void;
 }) {
-  const o = row.orden;
-  const etiqueta = o.oc_codigo ?? o.codigo;
+  const varias = rows.length > 1;
+  const etiquetaDe = (r: OrdenPorPagar) => r.orden.oc_codigo ?? r.orden.codigo;
   const [tipo, setTipo] = useState<string>('');
   const [detalle, setDetalle] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
+  const [progreso, setProgreso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const motivo = tipo === 'Otro' ? detalle.trim() : [tipo, detalle.trim()].filter(Boolean).join(' · ');
+  // Total por moneda (las OC pueden estar en $ o en Bs).
+  const totales = new Map<string, number>();
+  for (const r of rows) {
+    const m = r.orden.total_moneda ?? 'USD';
+    totales.set(m, round2((totales.get(m) ?? 0) + Number(r.montoAPagar || 0)));
+  }
 
   async function guardar() {
     setError(null);
     if (!tipo) { setError('Elige el motivo.'); return; }
     if (motivo.length < 5) { setError('Escribe el motivo (al menos 5 letras).'); return; }
     setSaving(true);
-    try {
-      await marcarOcPagadaSinCaja({ orden: o, motivo, comprobantes: files, actorEmail: actor });
-      notify(`OC ${etiqueta} marcada pagada sin descontar caja · ${motivo}`, 'success', { link: '#/app/tesoreria' });
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo marcar la OC como pagada.');
-      setSaving(false);
+    const hechas: string[] = [];
+    const fallas: string[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      setProgreso(`Marcando ${etiquetaDe(r)}… (${i + 1}/${rows.length})`);
+      try {
+        // El mismo comprobante (si hay) queda en cada OC del lote.
+        await marcarOcPagadaSinCaja({ orden: r.orden, motivo, comprobantes: files, actorEmail: actor });
+        hechas.push(etiquetaDe(r));
+      } catch (e) {
+        fallas.push(`${etiquetaDe(r)}: ${e instanceof Error ? e.message : 'error'}`);
+      }
     }
+    setProgreso(null);
+    if (hechas.length) {
+      notify(`${hechas.length === 1 ? `OC ${hechas[0]} marcada pagada` : `${hechas.length} OC marcadas pagadas`} sin descontar caja · ${motivo}`, 'success', { link: '#/app/tesoreria' });
+    }
+    if (fallas.length) {
+      setError(`No se pudieron marcar ${fallas.length}: ${fallas.join(' · ')}`);
+      setSaving(false);
+      if (hechas.length) toast(`${hechas.length} quedaron pagadas sin caja; revisa las que fallaron.`, 'warning');
+      return;
+    }
+    onDone();
   }
 
   return (
-    <Modal title={`🧾 OC ${etiqueta} · pagada sin descontar caja`} size="md" onClose={saving ? () => {} : onClose}
+    <Modal title={varias ? `🧾 ${rows.length} OC · pagadas sin descontar caja` : `🧾 OC ${etiquetaDe(rows[0])} · pagada sin descontar caja`} size="md"
+      onClose={saving ? () => {} : onClose}
       footer={<>
-        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>{error && !saving ? 'Cerrar' : 'Cancelar'}</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !tipo || motivo.length < 5}>
-          {saving ? 'Guardando…' : 'Marcar pagada sin caja'}
+          {saving ? (progreso ?? 'Guardando…') : varias ? `Marcar ${rows.length} pagadas sin caja` : 'Marcar pagada sin caja'}
         </button>
       </>}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p style={{ marginTop: 0 }}>
-        <strong>{row.proveedorNombre}</strong> · a pagar <strong className="mono">{monto(row.montoAPagar, o.total_moneda ?? 'USD')}</strong>
-      </p>
+      {varias ? (
+        <div className="table-wrap" style={{ maxHeight: 220, overflow: 'auto', marginBottom: '.6rem' }}>
+          <table className="table" style={{ fontSize: '.8rem' }}>
+            <thead><tr><th>N°ODC</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>A pagar</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.orden.id}>
+                  <td className="mono">{etiquetaDe(r)}</td>
+                  <td>{r.proveedorNombre}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(r.montoAPagar, r.orden.total_moneda ?? 'USD')}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr>
+              <td colSpan={2}><strong>Total ({rows.length} OC)</strong></td>
+              <td className="mono" style={{ textAlign: 'right' }}><strong>{[...totales].map(([m, v]) => monto(v, m)).join(' + ')}</strong></td>
+            </tr></tfoot>
+          </table>
+        </div>
+      ) : (
+        <p style={{ marginTop: 0 }}>
+          <strong>{rows[0].proveedorNombre}</strong> · a pagar <strong className="mono">{monto(rows[0].montoAPagar, rows[0].orden.total_moneda ?? 'USD')}</strong>
+        </p>
+      )}
       <div className="card" style={{ padding: '.55rem .8rem', marginBottom: '.75rem', borderLeft: '3px solid var(--warning, #f59e0b)', fontSize: '.84rem' }}>
-        La OC queda <strong>pagada</strong> pero <strong>no se descuenta dinero de ninguna caja</strong> (no hay egreso en el Libro Mayor).
-        Sigue el flujo de siempre: pasa al <strong>delivery</strong> y entra al <strong>almacén</strong> al recibirse.
+        {varias ? 'Las OC quedan' : 'La OC queda'} <strong>{varias ? 'pagadas' : 'pagada'}</strong> pero <strong>no se descuenta dinero de ninguna caja</strong> (no hay egreso en el Libro Mayor).
+        Siguen el flujo de siempre: pasan al <strong>delivery</strong> y entran al <strong>almacén</strong> al recibirse.
       </div>
       <div className="form-row">
-        <label>¿Por qué no se descuenta de la caja? *</label>
+        <label>¿Por qué no se descuenta de la caja? *{varias ? ' (vale para todas)' : ''}</label>
         <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value)} disabled={saving}>
           <option value="">— Elige el motivo —</option>
           {MOTIVOS_PAGADA_SIN_CAJA.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -4204,7 +4251,7 @@ function PagadaSinCajaModal({ row, actor, onClose, onDone }: {
           placeholder={tipo === 'Otro' ? 'Explica por qué no sale dinero de la caja' : 'Ej.: la pagó MGG con transferencia del 05/11'} />
       </div>
       <div className="form-row">
-        <label>Comprobante <span className="muted">(opcional · PDF o imagen)</span></label>
+        <label>Comprobante <span className="muted">(opcional · PDF o imagen{varias ? '; queda en cada OC' : ''})</span></label>
         <input className="input" type="file" multiple accept="application/pdf,image/*" disabled={saving}
           onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, MAX_COMPROBANTES_PAGO))} />
         {files.length > 0 && <small className="muted">{files.map((f) => f.name).join(' · ')}</small>}
