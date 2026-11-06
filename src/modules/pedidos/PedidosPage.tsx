@@ -238,6 +238,7 @@ function eventLabel(ev: string): string {
       anticipo_quitado: 'Pago anticipado quitado',
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
+      pagada_sin_caja: 'Pagada sin descontar caja (Tesorería)',
       recibida: 'Recepción confirmada',
       res_despiezada: 'Res en canal despiezada',
       marca_distinta: 'Llegó otra marca',
@@ -3520,6 +3521,12 @@ function OrdenDetailModal({
         <div className="detail-row">
           <div className="k">Pagada</div>
           <div className="v">{dateTime(o.pagada_en)} <span className="muted">por {persona(o.pagada_por, personaMap)}</span></div>
+        </div>
+      )}
+      {o.pagada_sin_caja && (
+        <div className="detail-row">
+          <div className="k">Pago sin caja</div>
+          <div className="v"><span className="badge warning">🧾 Sin descontar caja</span> {o.pagada_sin_caja_motivo ?? ''}</div>
         </div>
       )}
       {o.notas && (

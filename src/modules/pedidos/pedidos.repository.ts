@@ -2023,6 +2023,61 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     centavos(input.retencionMontoBs), Number(input.retencionTasa) || 0);
 }
 
+/** Motivos sugeridos para marcar una OC pagada sin descontar caja (06/11/2026). */
+export const MOTIVOS_PAGADA_SIN_CAJA = [
+  'Pagada por otra empresa del grupo',
+  'Pagada por un socio o directivo',
+  'Pago hecho fuera del sistema',
+  'Cruce de cuentas o canje con el proveedor',
+  'Otro',
+] as const;
+
+/**
+ * 06/11/2026: marca una OC aprobada como PAGADA SIN DESCONTAR SALDO DE CAJAS. No hay
+ * egreso en el Libro Mayor; el MOTIVO es obligatorio y queda en la orden y en su
+ * trazabilidad. Sigue el flujo de siempre: al quedar 'pagada' pasa al delivery (trigger
+ * ordenes_a_delivery) y después entra al almacén al recibirse.
+ * El cierre es atómico (solo si sigue en su estado), así un doble clic no la marca dos veces.
+ */
+export async function marcarOcPagadaSinCaja(input: {
+  orden: Orden; motivo: string; comprobantes?: File[] | null; actorEmail: string;
+}): Promise<Orden> {
+  const o = input.orden;
+  if (o.estado !== 'oc_aprobada' && o.estado !== 'confirmada_metodo')
+    throw new Error('Solo se marcan pagadas las órdenes de compra aprobadas por el Gerente General.');
+  const motivo = (input.motivo ?? '').trim();
+  if (motivo.length < 5) throw new Error('Indica el motivo por el que no se descuenta dinero de la caja.');
+  const ahora = new Date().toISOString();
+  const { data, error } = await supabase.from(TABLE).update({
+    estado: 'pagada' as EstadoOrden,
+    pagada_por: input.actorEmail,
+    pagada_en: ahora,
+    pagada_sin_caja: true,
+    pagada_sin_caja_motivo: motivo,
+    caja_id: null,
+    caja_mov_id: null,
+    ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: ahora } : {}),
+    historial: appendHistorial(o, 'pagada_sin_caja', input.actorEmail, { oc_codigo: o.oc_codigo, motivo }),
+  }).eq('id', o.id).eq('estado', o.estado).select('*');
+  if (error) throw error;
+  const pagada = (data ?? [])[0] as Orden | undefined;
+  if (!pagada) throw new Error('Esta OC ya no está por pagar (alguien la pagó o la cambió). Recarga la lista.');
+  // Comprobantes opcionales, best-effort: la OC ya quedó pagada.
+  const files = (input.comprobantes ?? []).filter(Boolean);
+  if (files.length) {
+    try {
+      const comprobantes = await subirComprobantesOc(o.id, files);
+      if (comprobantes.length) {
+        const r = await guardarDatosDelPago(o.id, {
+          comprobantes_pago: comprobantes, factura_path: comprobantes[0].path, factura_nombre: comprobantes[0].nombre,
+        });
+        if (r) return r;
+      }
+    } catch { /* se pueden subir luego desde el detalle */ }
+  }
+  return pagada;
+}
+
 export interface PagarOcMultiLeg {
   cuenta: CuentaCaja;
   moneda: string;

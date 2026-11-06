@@ -69,6 +69,7 @@ import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
 import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, MAX_COMPROBANTES_PAGO, type OrdenPorPagar,
+  marcarOcPagadaSinCaja, MOTIVOS_PAGADA_SIN_CAJA,
   listOrdenesEnCredito, resumenPendientesPorPagar, contarCreditosPendientes, reconciliarPagosOcHuerfanos,
   registrarAbonoMulti, listAbonos, type AbonoLeg, type AbonoComision,
   getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
@@ -3924,6 +3925,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [pagarVarias, setPagarVarias] = useState<OrdenPorPagar[] | null>(null);
   const [editarPrecios, setEditarPrecios] = useState<OrdenPorPagar | null>(null);
   const [wspLote, setWspLote] = useState(false);
+  // 06/11/2026: marcar pagada sin descontar saldo de cajas (con motivo).
+  const [sinCaja, setSinCaja] = useState<OrdenPorPagar | null>(null);
 
   const { user } = useSession();
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
@@ -4080,6 +4083,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button className="btn btn-sm btn-ghost" title="Editar los precios de esta OC (se ajusta el total y queda en la traza)"
                         onClick={(e) => { e.stopPropagation(); setEditarPrecios(r); }}>✏️ Precios</button>{' '}
+                      <button className="btn btn-sm btn-ghost" title="Marcarla pagada SIN descontar dinero de ninguna caja (con motivo). Sigue al delivery y al almacén como siempre."
+                        onClick={(e) => { e.stopPropagation(); setSinCaja(r); }}>🧾 Pagada sin caja</button>{' '}
                       <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>
                         {espera ? 'Ver' : 'Ver / Pagar'}
                       </button>
@@ -4121,6 +4126,14 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
 
       {wspLote && <WhatsappLotePorPagarModal rows={rows} onClose={() => setWspLote(false)} />}
 
+      {sinCaja && (
+        <PagadaSinCajaModal
+          row={sinCaja} actor={actor}
+          onClose={() => setSinCaja(null)}
+          onDone={async () => { setSinCaja(null); setSeleccion(new Set()); await reload(); onPaid(); }}
+        />
+      )}
+
       {pagarVarias && (
         <PagarVariasOcModal
           rows={pagarVarias} cajas={cajas} actor={actor} actorName={actorName}
@@ -4128,6 +4141,74 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
           onPaid={async () => { setPagarVarias(null); setSeleccion(new Set()); await reload(); onPaid(); }}
         />
       )}
+    </Modal>
+  );
+}
+
+/* ───────────── OC pagada SIN descontar saldo de cajas (06/11/2026) ─────────────
+   Se paga por fuera (otra empresa, un socio, un cruce…): queda 'pagada' sin egreso en el
+   Libro Mayor, con el motivo obligatorio. Pasa al delivery y al almacén como siempre. */
+function PagadaSinCajaModal({ row, actor, onClose, onDone }: {
+  row: OrdenPorPagar; actor: string; onClose: () => void; onDone: () => void;
+}) {
+  const o = row.orden;
+  const etiqueta = o.oc_codigo ?? o.codigo;
+  const [tipo, setTipo] = useState<string>('');
+  const [detalle, setDetalle] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const motivo = tipo === 'Otro' ? detalle.trim() : [tipo, detalle.trim()].filter(Boolean).join(' · ');
+
+  async function guardar() {
+    setError(null);
+    if (!tipo) { setError('Elige el motivo.'); return; }
+    if (motivo.length < 5) { setError('Escribe el motivo (al menos 5 letras).'); return; }
+    setSaving(true);
+    try {
+      await marcarOcPagadaSinCaja({ orden: o, motivo, comprobantes: files, actorEmail: actor });
+      notify(`OC ${etiqueta} marcada pagada sin descontar caja · ${motivo}`, 'success', { link: '#/app/tesoreria' });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo marcar la OC como pagada.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={`🧾 OC ${etiqueta} · pagada sin descontar caja`} size="md" onClose={saving ? () => {} : onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !tipo || motivo.length < 5}>
+          {saving ? 'Guardando…' : 'Marcar pagada sin caja'}
+        </button>
+      </>}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <p style={{ marginTop: 0 }}>
+        <strong>{row.proveedorNombre}</strong> · a pagar <strong className="mono">{monto(row.montoAPagar, o.total_moneda ?? 'USD')}</strong>
+      </p>
+      <div className="card" style={{ padding: '.55rem .8rem', marginBottom: '.75rem', borderLeft: '3px solid var(--warning, #f59e0b)', fontSize: '.84rem' }}>
+        La OC queda <strong>pagada</strong> pero <strong>no se descuenta dinero de ninguna caja</strong> (no hay egreso en el Libro Mayor).
+        Sigue el flujo de siempre: pasa al <strong>delivery</strong> y entra al <strong>almacén</strong> al recibirse.
+      </div>
+      <div className="form-row">
+        <label>¿Por qué no se descuenta de la caja? *</label>
+        <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value)} disabled={saving}>
+          <option value="">— Elige el motivo —</option>
+          {MOTIVOS_PAGADA_SIN_CAJA.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+      <div className="form-row">
+        <label>{tipo === 'Otro' ? 'Motivo *' : 'Detalle (opcional)'}</label>
+        <textarea className="input" rows={2} value={detalle} onChange={(e) => setDetalle(e.target.value)} disabled={saving}
+          placeholder={tipo === 'Otro' ? 'Explica por qué no sale dinero de la caja' : 'Ej.: la pagó MGG con transferencia del 05/11'} />
+      </div>
+      <div className="form-row">
+        <label>Comprobante <span className="muted">(opcional · PDF o imagen)</span></label>
+        <input className="input" type="file" multiple accept="application/pdf,image/*" disabled={saving}
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, MAX_COMPROBANTES_PAGO))} />
+        {files.length > 0 && <small className="muted">{files.map((f) => f.name).join(' · ')}</small>}
+      </div>
     </Modal>
   );
 }

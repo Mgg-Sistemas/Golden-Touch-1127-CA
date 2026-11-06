@@ -27,7 +27,7 @@ import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { CANALES_DELIVERY, type CanalDelivery } from './delivery';
+import { CANALES_DELIVERY, tituloPantallaCanal, type CanalDelivery } from './delivery';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { Modal } from '@/shared/ui/Modal';
@@ -144,12 +144,12 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div style={{ flex: '1 1 320px' }}>
-          <h1 style={{ margin: 0 }}>🛵 Delivery</h1>
+          <h1 style={{ margin: 0 }}>{cfgCanal.icono} {tituloPantallaCanal(canal)}</h1>
           {puedeAmbos && (
-            <div className="view-toggle" role="tablist" aria-label="Delivery o Carga pesada" style={{ marginTop: '.4rem' }}>
+            <div className="view-toggle canal-toggle" role="tablist" aria-label="Delivery o Carga pesada" style={{ marginTop: '.4rem' }}>
               {flotas.map((k) => (
                 <button key={k} type="button" role="tab" aria-selected={k === canal} onClick={() => setCanal(k)}
-                  className={`btn btn-sm ${k === canal ? 'btn-primary' : 'btn-ghost'}`}>{CANALES_DELIVERY[k].icono} {CANALES_DELIVERY[k].titulo}</button>
+                  className={k === canal ? 'active' : ''}>{CANALES_DELIVERY[k].icono} {CANALES_DELIVERY[k].titulo}</button>
               ))}
             </div>
           )}

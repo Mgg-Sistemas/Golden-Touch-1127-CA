@@ -1344,6 +1344,9 @@ export interface Orden {
   /** Pago de la OC desde Tesorería. */
   pagada_por?: string | null;
   pagada_en?: string | null;
+  /** 06/11/2026: marcada pagada SIN descontar saldo de cajas (sin egreso), con su motivo. */
+  pagada_sin_caja?: boolean | null;
+  pagada_sin_caja_motivo?: string | null;
   caja_id?: string | null;
   caja_mov_id?: string | null;
   factura_path?: string | null;

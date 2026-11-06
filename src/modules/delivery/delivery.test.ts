@@ -162,4 +162,10 @@ describe('canales Delivery / Carga pesada (04/11/2026)', () => {
     expect(esDelCanal('proveedor', 'carga_pesada')).toBe(false);
     expect(CANALES_DELIVERY.carga_pesada.rutaTelefono).toBe('/app/carga-pesada/telefono');
   });
+
+  it('el título de la pantalla: «CARGA PESADA» en Carga pesada y «Delivery» en Delivery', async () => {
+    const { tituloPantallaCanal } = await import('./delivery');
+    expect(tituloPantallaCanal('carga_pesada')).toBe('CARGA PESADA');
+    expect(tituloPantallaCanal('delivery')).toBe('Delivery');
+  });
 });
