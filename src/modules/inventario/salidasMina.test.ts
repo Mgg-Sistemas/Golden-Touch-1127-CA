@@ -92,7 +92,7 @@ describe('aviso de WhatsApp', () => {
   it('Inventario General (30/10/2026): el aviso dice de dónde salió y adónde vuelve', () => {
     const g = salida({ almacen: 'General', codigo: 'SIG-0001' });
     const s = mensajeSalidaMina(g);
-    expect(s).toContain('📤 *SALIDA DE INVENTARIO GENERAL*');
+    expect(s).toContain('📤 *SALIDA DE INVENTARIO LOS PINOS*');
     expect(s).toContain('🔖 *N°:* SIG-0001');
     expect(s).toContain('GOLDEN TOUCH 1127 C.A. · Inventario General');
     expect(s).not.toContain('Depósito Mina');

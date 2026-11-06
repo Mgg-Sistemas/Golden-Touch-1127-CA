@@ -228,7 +228,7 @@ export function mensajeSalidaPc(sol: SolicitudSalida, quien?: string | null): st
   const almacen = nombreDepositoChat(sol.almacen_origen || 'General');
   const items = itemsSalidaPc(sol);
   const lineas = [
-    almacen === 'Inventario General' ? '📤 *SALIDA DE INVENTARIO GENERAL*' : '📤 *SALIDA DE DEPÓSITO*',
+    almacen === 'Inventario General' ? '📤 *SALIDA DE INVENTARIO LOS PINOS*' : '📤 *SALIDA DE DEPÓSITO*',
     `🔖 *N°:* ${sol.codigo}`,
     '',
   ];

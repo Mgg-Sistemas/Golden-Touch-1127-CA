@@ -31,7 +31,7 @@ describe('Histórico del teléfono', () => {
     const tel = { id: 's', codigo: 'SIG-0001', created_at: '2026-11-03T10:00:00Z' } as SalidaMina;
     expect(unirHistoricoSalidas([tel], [sol]).map((f) => f.tipo)).toEqual(['telefono', 'pc']);
     const m = mensajeSalidaPc(sol, 'Isner Orence');
-    expect(m).toContain('📤 *SALIDA DE INVENTARIO GENERAL*');
+    expect(m).toContain('📤 *SALIDA DE INVENTARIO LOS PINOS*');
     expect(m).toContain('🔖 *N°:* SAL-0100');
     expect(m).toContain('🔢 *Cantidad:* 4 lt');
     expect(m).toContain('👷 *Registrado por:* Isner Orence');

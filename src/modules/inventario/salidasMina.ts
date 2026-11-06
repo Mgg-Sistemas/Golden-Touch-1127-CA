@@ -152,7 +152,7 @@ export function mensajeSalidaMina(s: SalidaMina, quien?: string | null): string 
   const u = s.unidad ? ` ${s.unidad}` : '';
   const general = esSalidaGeneral(s);
   const lineas = [
-    general ? '📤 *SALIDA DE INVENTARIO GENERAL*' : '📤 *SALIDA DE DEPÓSITO*',
+    general ? '📤 *SALIDA DE INVENTARIO LOS PINOS*' : '📤 *SALIDA DE DEPÓSITO*',
     `🔖 *N°:* ${s.codigo}`,
     '',
     `📦 *Material:* ${s.producto_nombre}`,
@@ -215,7 +215,7 @@ export function mensajeSalidasMina(ss: SalidaMina[], quien?: string | null): str
   const s = ss[0];
   const general = esSalidaGeneral(s);
   const lineas = [
-    general ? '📤 *SALIDA DE INVENTARIO GENERAL*' : '📤 *SALIDA DE DEPÓSITO*',
+    general ? '📤 *SALIDA DE INVENTARIO LOS PINOS*' : '📤 *SALIDA DE DEPÓSITO*',
     `🔖 *N°:* ${rangoCodigos(ss.map((x) => x.codigo))}`,
     '',
     `📦 *Materiales (${ss.length}):*`,
