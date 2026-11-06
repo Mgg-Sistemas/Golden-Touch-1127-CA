@@ -19,7 +19,7 @@ import type { Orden } from '@/shared/lib/types';
 import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 import type { CompraDirecta } from '@/modules/pedidos/compras.repository';
 import type { ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
-import { armarPendientesPorPagar, lineasDePago, calcularPreparacion } from './pendientesPorPagar';
+import { armarPendientesPorPagar, lineasDePago, calcularPreparacion, generarBloquesPreparacion, type PreparacionPorPagar } from './pendientesPorPagar';
 import { textoPendientesPorPagarWhatsapp } from './pendientesPorPagarWhatsapp';
 import { construirPendientesPorPagarExcel } from './pendientesPorPagarExcel';
 import { descargarPendientesPorPagarPdf } from './ordenesPorPagarPdf';
@@ -331,5 +331,60 @@ describe('descargarPendientesPorPagarPdf (los mismos datos, ahora dibujados desd
     previa.doc = null;
     await descargarPendientesPorPagarPdf(armarPendientesPorPagar({ rows: muchas, tasa: 36, generadoEn: GEN }));
     expect(previa.doc!.getNumberOfPages()).toBeGreaterThan(1);
+  });
+});
+
+describe('generarBloquesPreparacion · representación opcional (Bs, USD o Ambos)', () => {
+  const prepEjemplo: PreparacionPorPagar = {
+    totalesPorMoneda: [
+      { moneda: 'Bs', monto: 1928638.42, nOrdenes: 9 },
+    ],
+    porMetodoMoneda: [
+      { metodo: 'pago_movil', metodoLabel: 'Pago móvil', moneda: 'Bs', monto: 413398.08, nOrdenes: 3 },
+      { metodo: 'transferencia', metodoLabel: 'Transferencia', moneda: 'Bs', monto: 1515240.34, nOrdenes: 6 },
+    ],
+    sinMetodo: { usd: 183.28, bs: 164240.87, nOrdenes: 1 },
+  };
+  const tasaRef = 896.12;
+
+  it('Modo Solo Bolívares (Bs): título en Bolívares, montos en Bs nativo, sin conversión a dólares', () => {
+    const res = generarBloquesPreparacion(prepEjemplo, tasaRef, { mostrarUsd: false, mostrarBs: true });
+    expect(res.tituloSeccion).toBe('RESUMEN DE PAGOS — por método (expresado en Bolívares)');
+    expect(res.bloques).toHaveLength(1);
+    const b = res.bloques[0];
+    expect(b.etiqueta).toBe('BOLIVARES · Bs');
+    expect(b.totalTexto).toBe('Bs 1.928.638,42');
+    expect(b.totalTexto).not.toContain('$');
+    expect(b.metodos[0].montoTexto).toBe('Bs 413.398,08');
+    expect(b.metodos[1].montoTexto).toBe('Bs 1.515.240,34');
+    expect(res.sinMetodoTexto).toContain('Bs 164.240,87');
+    expect(res.sinMetodoTexto).not.toContain('$');
+  });
+
+  it('Modo Solo Dólares ($): título en USD, montos convertidos a USD a tasa BCV, sin Bolívares', () => {
+    const res = generarBloquesPreparacion(prepEjemplo, tasaRef, { mostrarUsd: true, mostrarBs: false });
+    expect(res.tituloSeccion).toBe('RESUMEN DE PAGOS — por método (expresado en $ USD)');
+    expect(res.bloques).toHaveLength(1);
+    const b = res.bloques[0];
+    expect(b.etiqueta).toBe('DÓLARES ($ USD · ref. BCV)');
+    expect(b.totalTexto).toBe('$ 2.152,21');
+    expect(b.totalTexto).not.toContain('Bs');
+    expect(b.metodos[0].montoTexto).toBe('$ 461,32');
+    expect(b.metodos[1].montoTexto).toBe('$ 1.690,89');
+    expect(res.sinMetodoTexto).toContain('$ 183,28');
+  });
+
+  it('Modo Ambos (Bs y $): título con ambas monedas, monto nativo con equivalente en paréntesis limpio sin ≈', () => {
+    const res = generarBloquesPreparacion(prepEjemplo, tasaRef, { mostrarUsd: true, mostrarBs: true });
+    expect(res.tituloSeccion).toBe('RESUMEN DE PAGOS — por moneda y método (Bolívares y $ USD)');
+    expect(res.bloques).toHaveLength(1);
+    const b = res.bloques[0];
+    expect(b.etiqueta).toBe('BOLIVARES · Bs');
+    expect(b.totalTexto).toBe('Bs 1.928.638,42  ($ 2.152,21)');
+    expect(b.totalTexto).not.toContain('≈');
+    expect(b.metodos[0].montoTexto).toBe('Bs 413.398,08  ($ 461,32)');
+    expect(b.metodos[1].montoTexto).toBe('Bs 1.515.240,34  ($ 1.690,89)');
+    expect(res.sinMetodoTexto).toContain('$ 183,28');
+    expect(res.sinMetodoTexto).toContain('Bs 164.240,87');
   });
 });

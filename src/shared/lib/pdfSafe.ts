@@ -12,6 +12,7 @@ export function pdfSafe(s: string | null | undefined): string {
   return String(s ?? '')
     .replace(/→/g, '->')
     .replace(/←/g, '<-')
+    .replace(/[≈≃≅]/g, '~')
     .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')            // emojis / pictogramas (🛞, 🍽, 🚜…)
     .replace(/[\u{2600}-\u{27BF}]/gu, '')              // símbolos misceláneos y dingbats
     .replace(/[\u{2B00}-\u{2BFF}]/gu, '')              // flechas/estrellas suplementarias
@@ -23,7 +24,7 @@ export function pdfSafe(s: string | null | undefined): string {
     // eslint-disable-next-line no-misleading-character-class
     .replace(/[\u{FE00}-\u{FE0F}\u{200D}\u{20E3}]/gu, '') // selectores de variación / ZWJ / keycap
     .replace(/[\u{E000}-\u{F8FF}]/gu, '')              // uso privado (íconos de fuentes)
-    .replace(/�/g, '')                            // carácter de reemplazo
+    .replace(/\uFFFD/g, '')                            // carácter de reemplazo
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }

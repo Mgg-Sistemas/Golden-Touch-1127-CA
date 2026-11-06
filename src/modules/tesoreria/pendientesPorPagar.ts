@@ -170,6 +170,218 @@ export function calcularPreparacion(input: {
   return { porMetodoMoneda, totalesPorMoneda, sinMetodo };
 }
 
+export interface BloquePreparacionReporte {
+  clave: string;
+  etiqueta: string;
+  esDivisa: boolean;
+  totalTexto: string;
+  totalNum: number;
+  monedaCol: string;
+  numFmt: string;
+  nOrdenes: number;
+  metodos: Array<{
+    label: string;
+    montoTexto: string;
+    montoNum: number;
+    nOrdenes: number;
+  }>;
+}
+
+export interface ResultadoBloquesPreparacion {
+  tituloSeccion: string;
+  bloques: BloquePreparacionReporte[];
+  sinMetodoTexto?: string;
+}
+
+const fmtNumVE = (n: number) => Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * Prepara los bloques del «Resumen de Pagos / Por preparar» según la preferencia del usuario:
+ * - Solo Bolívares (Bs): representa los pagos estrictamente en Bs, sin dólares.
+ * - Solo Dólares ($): representa los pagos en $ USD (convirtiendo Bs a tasa BCV).
+ * - Ambos (Bs y $): muestra el monto nativo junto a su equivalente entre paréntesis, ej: ($ 1.234,56).
+ */
+export function generarBloquesPreparacion(
+  prep: PreparacionPorPagar,
+  tasaRef: number,
+  opciones: { mostrarUsd: boolean; mostrarBs: boolean },
+): ResultadoBloquesPreparacion {
+  const { mostrarUsd, mostrarBs } = opciones;
+  const soloUsd = Boolean(mostrarUsd && !mostrarBs);
+  const soloBs = Boolean(!mostrarUsd && mostrarBs);
+
+  const tituloSeccion = soloUsd
+    ? 'RESUMEN DE PAGOS — por método (expresado en $ USD)'
+    : soloBs
+      ? 'RESUMEN DE PAGOS — por método (expresado en Bolívares)'
+      : 'RESUMEN DE PAGOS — por moneda y método (Bolívares y $ USD)';
+
+  const bloques: BloquePreparacionReporte[] = [];
+
+  for (const t of prep.totalesPorMoneda) {
+    const esDivisa = esMonedaDivisa(t.moneda);
+    const metodosOrig = prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda);
+
+    if (soloBs) {
+      if (!esDivisa) {
+        bloques.push({
+          clave: t.moneda,
+          etiqueta: `BOLIVARES · ${t.moneda}`,
+          esDivisa: false,
+          totalTexto: `Bs ${fmtNumVE(t.monto)}`,
+          totalNum: t.monto,
+          monedaCol: 'Bs',
+          numFmt: '#,##0.00',
+          nOrdenes: t.nOrdenes,
+          metodos: metodosOrig.map((m) => ({
+            label: m.metodoLabel,
+            montoTexto: `Bs ${fmtNumVE(m.monto)}`,
+            montoNum: m.monto,
+            nOrdenes: m.nOrdenes,
+          })),
+        });
+      } else if (tasaRef > 0) {
+        const montoEnBs = t.monto * tasaRef;
+        bloques.push({
+          clave: t.moneda,
+          etiqueta: `DIVISA (${t.moneda}) · al cambio BCV`,
+          esDivisa: false,
+          totalTexto: `Bs ${fmtNumVE(montoEnBs)}`,
+          totalNum: montoEnBs,
+          monedaCol: 'Bs',
+          numFmt: '#,##0.00',
+          nOrdenes: t.nOrdenes,
+          metodos: metodosOrig.map((m) => ({
+            label: m.metodoLabel,
+            montoTexto: `Bs ${fmtNumVE(m.monto * tasaRef)}`,
+            montoNum: m.monto * tasaRef,
+            nOrdenes: m.nOrdenes,
+          })),
+        });
+      }
+    } else if (soloUsd) {
+      if (esDivisa) {
+        bloques.push({
+          clave: t.moneda,
+          etiqueta: `DIVISA · ${t.moneda}`,
+          esDivisa: true,
+          totalTexto: `$ ${fmtNumVE(t.monto)}`,
+          totalNum: t.monto,
+          monedaCol: 'USD',
+          numFmt: '$#,##0.00',
+          nOrdenes: t.nOrdenes,
+          metodos: metodosOrig.map((m) => ({
+            label: m.metodoLabel,
+            montoTexto: `$ ${fmtNumVE(m.monto)}`,
+            montoNum: m.monto,
+            nOrdenes: m.nOrdenes,
+          })),
+        });
+      } else if (tasaRef > 0) {
+        const montoEnUsd = t.monto / tasaRef;
+        bloques.push({
+          clave: t.moneda,
+          etiqueta: 'DÓLARES ($ USD · ref. BCV)',
+          esDivisa: true,
+          totalTexto: `$ ${fmtNumVE(montoEnUsd)}`,
+          totalNum: montoEnUsd,
+          monedaCol: 'USD',
+          numFmt: '$#,##0.00',
+          nOrdenes: t.nOrdenes,
+          metodos: metodosOrig.map((m) => ({
+            label: m.metodoLabel,
+            montoTexto: `$ ${fmtNumVE(m.monto / tasaRef)}`,
+            montoNum: m.monto / tasaRef,
+            nOrdenes: m.nOrdenes,
+          })),
+        });
+      }
+    } else {
+      // Ambos
+      if (!esDivisa) {
+        const equivUsd = tasaRef > 0 ? t.monto / tasaRef : null;
+        const totalTxt = equivUsd != null
+          ? `Bs ${fmtNumVE(t.monto)}  ($ ${fmtNumVE(equivUsd)})`
+          : `Bs ${fmtNumVE(t.monto)}`;
+        bloques.push({
+          clave: t.moneda,
+          etiqueta: `BOLIVARES · ${t.moneda}`,
+          esDivisa: false,
+          totalTexto: totalTxt,
+          totalNum: t.monto,
+          monedaCol: 'Bs',
+          numFmt: '#,##0.00',
+          nOrdenes: t.nOrdenes,
+          metodos: metodosOrig.map((m) => {
+            const eqL = tasaRef > 0 ? m.monto / tasaRef : null;
+            const mTxt = eqL != null
+              ? `Bs ${fmtNumVE(m.monto)}  ($ ${fmtNumVE(eqL)})`
+              : `Bs ${fmtNumVE(m.monto)}`;
+            return {
+              label: m.metodoLabel,
+              montoTexto: mTxt,
+              montoNum: m.monto,
+              nOrdenes: m.nOrdenes,
+            };
+          }),
+        });
+      } else {
+        const equivBs = tasaRef > 0 ? t.monto * tasaRef : null;
+        const totalTxt = equivBs != null
+          ? `$ ${fmtNumVE(t.monto)}  (Bs ${fmtNumVE(equivBs)})`
+          : `$ ${fmtNumVE(t.monto)}`;
+        bloques.push({
+          clave: t.moneda,
+          etiqueta: `DIVISA · ${t.moneda}`,
+          esDivisa: true,
+          totalTexto: totalTxt,
+          totalNum: t.monto,
+          monedaCol: 'USD',
+          numFmt: '$#,##0.00',
+          nOrdenes: t.nOrdenes,
+          metodos: metodosOrig.map((m) => {
+            const eqL = tasaRef > 0 ? m.monto * tasaRef : null;
+            const mTxt = eqL != null
+              ? `$ ${fmtNumVE(m.monto)}  (Bs ${fmtNumVE(eqL)})`
+              : `$ ${fmtNumVE(m.monto)}`;
+            return {
+              label: m.metodoLabel,
+              montoTexto: mTxt,
+              montoNum: m.monto,
+              nOrdenes: m.nOrdenes,
+            };
+          }),
+        });
+      }
+    }
+  }
+
+  // Sin método asignado
+  let sinMetodoTexto: string | undefined;
+  if (prep.sinMetodo.nOrdenes > 0) {
+    if (soloBs) {
+      const bsMonto = prep.sinMetodo.bs > 0 ? prep.sinMetodo.bs : (tasaRef > 0 ? prep.sinMetodo.usd * tasaRef : 0);
+      if (bsMonto > 0) {
+        sinMetodoTexto = `Sin método asignado (referencia): Bs ${fmtNumVE(bsMonto)}  ·  ${prep.sinMetodo.nOrdenes} op.`;
+      }
+    } else if (soloUsd) {
+      const usdMonto = prep.sinMetodo.usd > 0 ? prep.sinMetodo.usd : (tasaRef > 0 ? prep.sinMetodo.bs / tasaRef : 0);
+      if (usdMonto > 0) {
+        sinMetodoTexto = `Sin método asignado (referencia): $ ${fmtNumVE(usdMonto)}  ·  ${prep.sinMetodo.nOrdenes} op.`;
+      }
+    } else {
+      const partes: string[] = [];
+      if (prep.sinMetodo.usd > 0) partes.push(`$ ${fmtNumVE(prep.sinMetodo.usd)}`);
+      if (prep.sinMetodo.bs > 0) partes.push(`Bs ${fmtNumVE(prep.sinMetodo.bs)}`);
+      if (partes.length > 0) {
+        sinMetodoTexto = `Sin método asignado (referencia): ${partes.join(' · ')}  ·  ${prep.sinMetodo.nOrdenes} op.`;
+      }
+    }
+  }
+
+  return { tituloSeccion, bloques, sinMetodoTexto };
+}
+
 export interface DatosPendientesPorPagar {
   /** Lo por pagar (SIN el crédito), solo los segmentos con filas. */
   segmentos: SegmentoPendiente[];

@@ -19,7 +19,7 @@ import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
-import { esMonedaDivisa, type PreparacionPorPagar } from './pendientesPorPagar';
+import { generarBloquesPreparacion, type PreparacionPorPagar } from './pendientesPorPagar';
 import type {
   FilaReporteTesoreria,
   ResumenReporteTesoreria,
@@ -99,13 +99,6 @@ export interface MetadatosExportacionTesoreria {
   preparacion?: PreparacionPorPagar;
 }
 
-/** Formatea un monto en su moneda nativa para «Por preparar» (Bs 1.234,56 · $ 12,34 · USDT 5,00). */
-function fmtMonedaNativa(moneda: string, monto: number): string {
-  const m = (moneda || '').toUpperCase();
-  if (m === 'BS') return `Bs ${fmtNum(monto, 2)}`;
-  if (m === 'USD') return `$ ${fmtNum(monto, 2)}`;
-  return `${moneda} ${fmtNum(monto, 2)}`;   // USDT, COP…
-}
 
 /** Total bruto por moneda: egresos + ingresos (positivo, sirve para los 3 ámbitos). */
 function kpisSimples(resumen: ResumenReporteTesoreria, meta: MetadatosExportacionTesoreria): Array<{ label: string; val: string }> {
@@ -191,44 +184,43 @@ export async function descargarTesoreriaExcel(
   // 0. Hoja «Por preparar» (solo por_pagar, si el usuario dejó su toggle encendido).
   if (meta.ambito === 'por_pagar' && meta.preparacion) {
     const prep = meta.preparacion;
-    const filtrados = prep.totalesPorMoneda.filter((t) => (esMonedaDivisa(t.moneda) ? meta.mostrarUsd : meta.mostrarBs));
-    const totales = filtrados.length > 0 ? filtrados : prep.totalesPorMoneda;
-    const haySinMetodo = prep.sinMetodo.nOrdenes > 0;
-    if (totales.length > 0 || haySinMetodo) {
+    const tasaRefExcel = resumen.tasaBcvReferencia;
+    const prepRes = generarBloquesPreparacion(prep, tasaRefExcel, {
+      mostrarUsd: Boolean(meta.mostrarUsd),
+      mostrarBs: Boolean(meta.mostrarBs),
+    });
+
+    if (prepRes.bloques.length > 0 || prepRes.sinMetodoTexto) {
       const wp = wb.addWorksheet('Por preparar', { views: [{ showGridLines: false }] });
-      wp.columns = [{ width: 32 }, { width: 16 }, { width: 20 }, { width: 14 }, { width: 20 }];
+      wp.columns = [{ width: 34 }, { width: 16 }, { width: 22 }, { width: 14 }];
       let r = 1;
       const tit = wp.getCell(r, 1);
-      tit.value = 'POR PREPARAR — por moneda y método (nativo + equivalente en USD)';
+      tit.value = prepRes.tituloSeccion;
       tit.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFF8A00' } };
-      wp.mergeCells(r, 1, r, 5); r += 2;
+      wp.mergeCells(r, 1, r, 4); r += 2;
       const head = wp.getRow(r);
-      head.values = ['Concepto', 'Moneda', 'Monto (nativo)', 'Pagos / Op.', 'Equiv. USD (ref.)'];
+      head.values = ['Concepto', 'Moneda / Ref.', 'Monto', 'Pagos / Op.'];
       head.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' } };
       head.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } }; });
       r += 1;
-      const tasaRefExcel = resumen.tasaBcvReferencia;
-      for (const t of totales) {
+      for (const b of prepRes.bloques) {
         const hr = wp.getRow(r);
-        const eqT = (!esMonedaDivisa(t.moneda) && tasaRefExcel > 0) ? t.monto / tasaRefExcel : null;
-        hr.values = [`${esMonedaDivisa(t.moneda) ? '[Divisa]' : '[Bolívares]'} TOTAL ${t.moneda}`, t.moneda, t.monto, t.nOrdenes, eqT != null ? eqT : ''];
+        hr.values = [b.etiqueta, b.monedaCol, b.totalNum, b.nOrdenes];
         hr.font = { name: 'Arial', bold: true };
-        hr.getCell(3).numFmt = '#,##0.00';
-        if (eqT != null) hr.getCell(5).numFmt = '$#,##0.00';
+        hr.getCell(3).numFmt = b.numFmt;
         r += 1;
-        for (const l of prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda)) {
+        for (const l of b.metodos) {
           const row = wp.getRow(r);
-          const eqL = (!esMonedaDivisa(l.moneda) && tasaRefExcel > 0) ? l.monto / tasaRefExcel : null;
-          row.values = [`   ${l.metodoLabel}`, l.moneda, l.monto, l.nOrdenes, eqL != null ? eqL : ''];
-          row.getCell(3).numFmt = '#,##0.00';
-          if (eqL != null) row.getCell(5).numFmt = '$#,##0.00';
+          row.values = [`   ${l.label}`, b.monedaCol, l.montoNum, l.nOrdenes];
+          row.getCell(3).numFmt = b.numFmt;
           r += 1;
         }
       }
-      if (haySinMetodo) {
+      if (prepRes.sinMetodoTexto) {
         r += 1;
-        if (meta.mostrarUsd) { const rx = wp.getRow(r); rx.values = ['Sin método asignado (ref.)', 'USD', prep.sinMetodo.usd, prep.sinMetodo.nOrdenes]; rx.getCell(3).numFmt = '#,##0.00'; r += 1; }
-        if (meta.mostrarBs) { const rx = wp.getRow(r); rx.values = ['Sin método asignado (ref.)', 'Bs', prep.sinMetodo.bs, '']; rx.getCell(3).numFmt = '#,##0.00'; r += 1; }
+        const sRow = wp.getRow(r);
+        sRow.values = [prepRes.sinMetodoTexto];
+        sRow.font = { name: 'Arial', italic: true, color: { argb: 'FF64748B' } };
       }
     }
   }
@@ -489,32 +481,27 @@ export async function descargarTesoreriaPdf(
   y += 12;
 
   // 1b. «Por preparar» (solo por_pagar, si el usuario dejó su toggle encendido).
-  // Totales NATIVOS por moneda (divisa y bolívares independientes, sin reconversión).
+  // Totales por moneda/método respetando la elección de moneda (Bs, Dólar o Ambos).
   if (meta.ambito === 'por_pagar' && meta.preparacion) {
     const prep = meta.preparacion;
-    const filtrados = prep.totalesPorMoneda.filter((t) => (esMonedaDivisa(t.moneda) ? meta.mostrarUsd : meta.mostrarBs));
-    const totales = filtrados.length > 0 ? filtrados : prep.totalesPorMoneda;
-    const refPartes: string[] = [];
-    if (meta.mostrarUsd && prep.sinMetodo.usd > 0) refPartes.push(`$ ${fmtNum(prep.sinMetodo.usd, 2)}`);
-    if (meta.mostrarBs && prep.sinMetodo.bs > 0) refPartes.push(`Bs ${fmtNum(prep.sinMetodo.bs, 2)}`);
-    if (refPartes.length === 0) {
-      if (prep.sinMetodo.usd > 0) refPartes.push(`$ ${fmtNum(prep.sinMetodo.usd, 2)}`);
-      else if (prep.sinMetodo.bs > 0) refPartes.push(`Bs ${fmtNum(prep.sinMetodo.bs, 2)}`);
-    }
-    const haySinMetodo = prep.sinMetodo.nOrdenes > 0 && refPartes.length > 0;
-    if (totales.length > 0 || haySinMetodo) {
+    const tasaRefPdf = resumen.tasaBcvReferencia;
+    const prepRes = generarBloquesPreparacion(prep, tasaRefPdf, {
+      mostrarUsd: Boolean(meta.mostrarUsd),
+      mostrarBs: Boolean(meta.mostrarBs),
+    });
+
+    if (prepRes.bloques.length > 0 || prepRes.sinMetodoTexto) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(...NARANJA);
-      doc.text(pdfSafe('RESUMEN DE PAGOS — por moneda y método (nativo + equivalente en $ USD)'), M, y + 2);
+      doc.text(pdfSafe(prepRes.tituloSeccion), M, y + 2);
       y += 16;
       const VERDE: [number, number, number] = [34, 197, 94];
-      const tasaRefPdf = resumen.tasaBcvReferencia;
-      for (const t of totales) {
-        const metodos = prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda);
-        const boxH = 26 + metodos.length * 12;
+
+      for (const b of prepRes.bloques) {
+        const boxH = 26 + b.metodos.length * 12;
         if (y + boxH > H - 36) { doc.addPage(); y = 36; }
-        const acento = esMonedaDivisa(t.moneda) ? VERDE : NARANJA;
+        const acento: [number, number, number] = b.esDivisa ? VERDE : NARANJA;
         // Tarjeta por moneda: barra de acento, moneda a la izquierda, total alineado a la derecha.
         doc.setFillColor(250, 250, 250);
         doc.setDrawColor(...BORDE);
@@ -522,48 +509,38 @@ export async function descargarTesoreriaPdf(
         doc.roundedRect(M, y, UW, boxH, 4, 4, 'FD');
         doc.setFillColor(...acento);
         doc.rect(M, y + 1, 3.5, boxH - 2, 'F');
-        const tipo = esMonedaDivisa(t.moneda) ? 'DIVISA' : 'BOLIVARES';
+
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10.5);
         doc.setTextColor(...acento);
-        doc.text(pdfSafe(`${tipo} · ${t.moneda}`), M + 10, y + 14);
-
-        const equivTUsd = (!esMonedaDivisa(t.moneda) && tasaRefPdf > 0) ? t.monto / tasaRefPdf : null;
-        const txtTotalPdf = equivTUsd != null
-          ? `${fmtMonedaNativa(t.moneda, t.monto)}  (≈ $ ${fmtNum(equivTUsd, 2)})`
-          : fmtMonedaNativa(t.moneda, t.monto);
+        doc.text(pdfSafe(b.etiqueta), M + 10, y + 14);
 
         doc.setFontSize(11);
         doc.setTextColor(...TINTA);
-        doc.text(pdfSafe(txtTotalPdf), W - M - 8, y + 14, { align: 'right' });
+        doc.text(pdfSafe(b.totalTexto), W - M - 8, y + 14, { align: 'right' });
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(130, 130, 130);
-        doc.text(pdfSafe(`${t.nOrdenes} pago(s)`), M + 10, y + 22);
+        doc.text(pdfSafe(`${b.nOrdenes} pago(s)`), M + 10, y + 22);
         let yy = y + 22;
-        for (const l of metodos) {
+        for (const l of b.metodos) {
           yy += 12;
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(8.5);
           doc.setTextColor(70, 70, 70);
-          doc.text(pdfSafe(`•  ${l.metodoLabel}`), M + 16, yy);
-
-          const equivLUsd = (!esMonedaDivisa(l.moneda) && tasaRefPdf > 0) ? l.monto / tasaRefPdf : null;
-          const txtLPdf = equivLUsd != null
-            ? `${fmtMonedaNativa(l.moneda, l.monto)}  (≈ $ ${fmtNum(equivLUsd, 2)})  ·  ${l.nOrdenes} op.`
-            : `${fmtMonedaNativa(l.moneda, l.monto)}  ·  ${l.nOrdenes} op.`;
+          doc.text(pdfSafe(`•  ${l.label}`), M + 16, yy);
 
           doc.setFont('helvetica', 'bold');
-          doc.text(pdfSafe(txtLPdf), W - M - 8, yy, { align: 'right' });
+          doc.text(pdfSafe(`${l.montoTexto}  ·  ${l.nOrdenes} op.`), W - M - 8, yy, { align: 'right' });
         }
         y += boxH + 6;
       }
-      if (haySinMetodo) {
+      if (prepRes.sinMetodoTexto) {
         if (y > H - 50) { doc.addPage(); y = 36; }
         doc.setFont('helvetica', 'italic');
         doc.setFontSize(8);
         doc.setTextColor(120, 120, 120);
-        doc.text(pdfSafe(`Sin método asignado (referencia): ${refPartes.join(' · ')}  ·  ${prep.sinMetodo.nOrdenes} op.`), M, y + 4);
+        doc.text(pdfSafe(prepRes.sinMetodoTexto), M, y + 4);
         y += 12;
       }
       y += 2;
