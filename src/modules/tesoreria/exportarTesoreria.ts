@@ -433,6 +433,7 @@ export async function descargarTesoreriaPdf(
   const columnas = columnasVisibles(columnasClaves, meta);
   if (!columnas.length) throw new Error('Selecciona al menos una columna.');
   if (!filas.length) throw new Error('No hay datos de tesorería para el período seleccionado.');
+  const colsClavesValidas = columnas.map((c) => c.clave);
 
   const esFichas = meta.formatoPresentacion !== 'tabla';
   const orient = meta.orientacion === 'portrait'
@@ -705,11 +706,24 @@ export async function descargarTesoreriaPdf(
     const cols = orient === 'landscape' ? 2 : 1;
     const cardGap = 10;
     const cardW = (UW - (cols - 1) * cardGap) / cols;
-    const tieneMuchasMetricas = filas.some((f) => obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).length > 4);
-    const pocasMetricas = filas.every((f) => obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).length <= 1);
-    const cardH = orient === 'landscape'
-      ? (tieneMuchasMetricas ? 92 : pocasMetricas ? 58 : 74)
-      : (tieneMuchasMetricas ? 86 : pocasMetricas ? 54 : 68);
+    const innerW = cardW - 16;
+
+    // Calcular la cantidad máxima de métricas que puede tener una ficha en el reporte
+    const maxMetricas = Math.max(
+      ...filas.map((f) => obtenerMetricasFichaTesoreria(f, colsClavesValidas, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).length),
+      1,
+    );
+    // Distribución de columnas de métricas:
+    // En horizontal (cardW ~355): 4 columnas si son exactamente 4 métricas, o 3 columnas si son 5 o más (113pt por chip).
+    // En vertical (cardW ~540): 4 columnas (131pt por chip).
+    const colsPorFila = orient === 'landscape'
+      ? (maxMetricas <= 3 ? Math.max(1, maxMetricas) : maxMetricas === 4 ? 4 : 3)
+      : (maxMetricas <= 4 ? Math.max(1, maxMetricas) : 4);
+    const numFilasMetricas = Math.ceil(maxMetricas / colsPorFila);
+    const haySubAlguna = filas.some((f) => Boolean(resolverCabeceraTarjetaTesoreria(f, meta.agrupacion, fmtFecha, colsClavesValidas).subtitulo?.trim()));
+    const altoHeader = haySubAlguna ? 34 : 28;
+    const altoFilaMetrica = 25;
+    const cardH = altoHeader + numFilasMetricas * altoFilaMetrica + 8;
 
     for (let i = 0; i < filas.length; i += cols) {
       if (y + cardH > H - 36) { doc.addPage(); y = 36; }
@@ -727,9 +741,9 @@ export async function descargarTesoreriaPdf(
         doc.setFillColor(...acento);
         doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
 
-        // Badge superior derecho: % del total + tipo de flujo (SOLO si están marcados en columnasClaves)
-        const tienePct = columnasClaves.includes('pct_total') && f.pct_del_total != null;
-        const tieneTipo = columnasClaves.includes('tipo_mov');
+        // Badge superior derecho: % del total + tipo de flujo (SOLO si están marcados en colsClavesValidas)
+        const tienePct = colsClavesValidas.includes('pct_total') && f.pct_del_total != null;
+        const tieneTipo = colsClavesValidas.includes('tipo_mov');
         const partesBadge: string[] = [];
         if (tienePct) partesBadge.push(`${f.pct_del_total!.toFixed(1)}%`);
         if (tieneTipo) partesBadge.push(ETIQUETA_FLUJO[f.tipo_movimiento]);
@@ -761,8 +775,8 @@ export async function descargarTesoreriaPdf(
         }
 
         // Cabecera ejecutiva con rótulo explícito de la dimensión seleccionada:
-        // Respeta las columnas seleccionadas en columnasClaves (no inventa metadatos desmarcados)
-        const cab = resolverCabeceraTarjetaTesoreria(f, meta.agrupacion, fmtFecha, columnasClaves);
+        // Respeta rigurosamente las columnas válidas marcadas (colsClavesValidas)
+        const cab = resolverCabeceraTarjetaTesoreria(f, meta.agrupacion, fmtFecha, colsClavesValidas);
 
         // 1. Rótulo superior en mayúsculas pequeñas (ej: CATEGORÍA, CAJA / BANCO, TIPO DE FLUJO, etc.)
         doc.setFont('helvetica', 'bold');
@@ -814,31 +828,61 @@ export async function descargarTesoreriaPdf(
         doc.line(cx + 8, sepY, cx + cardW - 8, sepY);
 
         // Métricas dinámicas (respetan rigurosamente las columnas marcadas por el usuario)
-        const metricas = obtenerMetricasFichaTesoreria(f, columnasClaves, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs });
-        const maxPorFila = metricas.length <= 4 ? metricas.length : Math.ceil(metricas.length / 2);
-        const innerW = cardW - 16;
-        const myBase = haySub ? cy + 39 : cy + 33;
+        const metricas = obtenerMetricasFichaTesoreria(f, colsClavesValidas, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs });
+        const myBase = sepY + 9;
+        const colW = innerW / colsPorFila;
+        const maxTextW = colW - 6;
+
         metricas.forEach((m, idx) => {
-          const filaIdx = metricas.length <= 4 ? 0 : Math.floor(idx / maxPorFila);
-          const colEnFila = metricas.length <= 4 ? idx : idx % maxPorFila;
-          const itemsEnEstaFila = filaIdx === 0 ? maxPorFila : (metricas.length - maxPorFila);
-          const colW = innerW / Math.max(1, itemsEnEstaFila);
+          const filaIdx = Math.floor(idx / colsPorFila);
+          const colEnFila = idx % colsPorFila;
           const mx = cx + 8 + colW * colEnFila;
-          const my = myBase + filaIdx * 25;
+          const my = myBase + filaIdx * altoFilaMetrica;
+
+          // Etiqueta
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(5.8);
           doc.setTextColor(71, 85, 105);
-          doc.text(pdfSafe(m.etiqueta), mx, my);
-          doc.setFontSize(8.8);
+          let lblTxt = pdfSafe(m.etiqueta);
+          if (doc.getTextWidth(lblTxt) > maxTextW) {
+            while (lblTxt.length > 3 && doc.getTextWidth(lblTxt + '…') > maxTextW) {
+              lblTxt = lblTxt.slice(0, -1);
+            }
+            lblTxt += '…';
+          }
+          doc.text(lblTxt, mx, my);
+
+          // Valor
+          doc.setFont('helvetica', 'bold');
+          let valSize = 8.2;
+          doc.setFontSize(valSize);
           doc.setTextColor(...m.colorRgb);
-          const valFit = doc.splitTextToSize(pdfSafe(m.valor), colW - 4) as string[];
-          doc.text(valFit[0] ?? '', mx, my + 11);
-          if (m.sub && (metricas.length <= 4 || filaIdx === 1)) {
+          let valTxt = pdfSafe(m.valor);
+          while (doc.getTextWidth(valTxt) > maxTextW && valSize > 6.0) {
+            valSize -= 0.3;
+            doc.setFontSize(valSize);
+          }
+          if (doc.getTextWidth(valTxt) > maxTextW) {
+            while (valTxt.length > 3 && doc.getTextWidth(valTxt + '…') > maxTextW) {
+              valTxt = valTxt.slice(0, -1);
+            }
+            valTxt += '…';
+          }
+          doc.text(valTxt, mx, my + 8.5);
+
+          // Subtítulo
+          if (m.sub) {
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(5.5);
+            doc.setFontSize(5.4);
             doc.setTextColor(148, 163, 184);
-            const subFit = doc.splitTextToSize(pdfSafe(m.sub), colW - 4) as string[];
-            doc.text(subFit[0] ?? '', mx, my + 19);
+            let subTxt = pdfSafe(m.sub);
+            if (doc.getTextWidth(subTxt) > maxTextW) {
+              while (subTxt.length > 3 && doc.getTextWidth(subTxt + '…') > maxTextW) {
+                subTxt = subTxt.slice(0, -1);
+              }
+              subTxt += '…';
+            }
+            doc.text(subTxt, mx, my + 14.5);
           }
         });
       }

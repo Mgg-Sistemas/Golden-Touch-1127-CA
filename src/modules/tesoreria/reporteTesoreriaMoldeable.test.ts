@@ -522,4 +522,109 @@ describe('resolverCabeceraTarjetaTesoreria (claridad y rótulos en tarjetas)', (
     expect(esColumnaAplicableModoTesoreria('fecha', 'mes')).toBe(true);
     expect(esColumnaAplicableModoTesoreria('fecha', 'categoria_gasto')).toBe(false);
   });
+
+  it('obtenerMetricasFichaTesoreria representa fielmente todos los 17 checks del catálogo', () => {
+    const filaCompleta: FilaReporteTesoreria = {
+      id: 'm-all',
+      ambito: 'movimientos',
+      fecha: '2026-11-05',
+      hora: '14:30',
+      codigo: 'OC-2026-0203',
+      caja_origen: 'Banesco Operativa',
+      contraparte: 'FERREMAX C.A.',
+      tipo_movimiento: 'egreso',
+      categoria: 'Repuestos',
+      concepto: 'Filtros y mangueras',
+      origen_documento: 'Orden de compra',
+      estado: 'Listo para pagar',
+      metodo_pago: 'Transferencia — FERRE-MAX C.A. · 0134',
+      datos_pago_resumen: 'Transferencia — FERRE-MAX C.A. · 0134',
+      moneda_original: 'EUR',
+      monto_original: 500,
+      tasa_bcv_aplicada: 894.89,
+      monto_usd: 550,
+      monto_bs: 492189.5,
+      total_operaciones: 2,
+      pct_del_total: 15.5,
+      saldo_caja_momento: 12500,
+    };
+
+    const todasLasColumnas = [
+      'fecha', 'hora', 'codigo', 'operaciones', 'caja', 'contraparte',
+      'tipo_mov', 'categoria', 'concepto', 'estado', 'metodo_pago',
+      'monto_usd', 'monto_bs', 'monto_original', 'tasa_bcv', 'pct_total', 'saldo_caja',
+    ];
+
+    const met = obtenerMetricasFichaTesoreria(filaCompleta, todasLasColumnas, { mostrarUsd: true, mostrarBs: true });
+    const claves = met.map((x) => x.clave);
+
+    for (const col of todasLasColumnas) {
+      expect(claves, `Debe incluir la métrica de ${col}`).toContain(col);
+    }
+    expect(met.length).toBe(17);
+  });
+
+  it('representa columnas descriptivas individuales sin forzar Monto USD cuando no está seleccionado', () => {
+    const filaDesc: FilaReporteTesoreria = {
+      id: 'm-desc',
+      ambito: 'movimientos',
+      fecha: '2026-11-05',
+      codigo: 'OC-2026-0188',
+      caja_origen: 'Caja Chica',
+      contraparte: 'EURO BOMBAS',
+      tipo_movimiento: 'egreso',
+      categoria: 'Mantenimiento',
+      concepto: 'Reparación bomba',
+      origen_documento: 'Orden de compra',
+      monto_usd: 425.77,
+      monto_bs: 381000,
+      moneda_original: 'USD',
+      monto_original: 425.77,
+      tasa_bcv_aplicada: 894.89,
+    };
+
+    // Selección de solo 3 columnas descriptivas
+    const met = obtenerMetricasFichaTesoreria(
+      filaDesc,
+      ['categoria', 'caja', 'fecha'],
+      { mostrarUsd: true, mostrarBs: true },
+    );
+    expect(met).toHaveLength(3);
+    const claves = met.map((x) => x.clave);
+    expect(claves).toContain('categoria');
+    expect(claves).toContain('caja');
+    expect(claves).toContain('fecha');
+    expect(claves).not.toContain('monto_usd');
+  });
+
+  it('cuando se seleccionan Método de Pago y Estado a la vez, genera 2 fichas distintas', () => {
+    const filaConAmbos: FilaReporteTesoreria = {
+      id: 'm-pago-estado',
+      ambito: 'movimientos',
+      fecha: '2026-11-05',
+      tipo_movimiento: 'egreso',
+      categoria: 'Gasto',
+      contraparte: 'FERREMAX',
+      concepto: 'Pago',
+      origen_documento: 'Comprobante',
+      moneda_original: 'USD',
+      monto_original: 100,
+      tasa_bcv_aplicada: 894.89,
+      monto_usd: 100,
+      monto_bs: 89489,
+      estado: 'Esperando método',
+      metodo_pago: 'Transferencia — FERRE-MAX C.A.',
+      datos_pago_resumen: 'Transferencia — FERRE-MAX C.A.',
+    };
+
+    const met = obtenerMetricasFichaTesoreria(
+      filaConAmbos,
+      ['metodo_pago', 'estado'],
+      { mostrarUsd: true, mostrarBs: true },
+    );
+    expect(met).toHaveLength(2);
+    expect(met.find((x) => x.clave === 'metodo_pago')?.valor).toBe('Transferencia');
+    expect(met.find((x) => x.clave === 'metodo_pago')?.sub).toBe('FERRE-MAX C.A.');
+    expect(met.find((x) => x.clave === 'estado')?.valor).toBe('Esperando método');
+  });
 });

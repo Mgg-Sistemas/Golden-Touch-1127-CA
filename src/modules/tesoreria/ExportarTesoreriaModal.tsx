@@ -800,10 +800,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.55rem', maxHeight: '260px', overflowY: 'auto', paddingRight: '.2rem' }}>
               {filas.map((f) => {
                 const acento = f.tipo_movimiento === 'ingreso' ? '#10b981' : f.tipo_movimiento === 'traslado' ? '#38bdf8' : '#FF8A00';
-                const metricas = obtenerMetricasFichaTesoreria(f, marcados, { mostrarUsd, mostrarBs });
-                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta, marcados);
-                const tienePct = marcados.includes('pct_total') && f.pct_del_total != null;
-                const tieneTipo = marcados.includes('tipo_mov');
+                const metricas = obtenerMetricasFichaTesoreria(f, marcadosVisibles, { mostrarUsd, mostrarBs });
+                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta, marcadosVisibles);
+                const tienePct = marcadosVisibles.includes('pct_total') && f.pct_del_total != null;
+                const tieneTipo = marcadosVisibles.includes('tipo_mov');
                 const mostrarBadge = tienePct || tieneTipo;
                 return (
                   <div key={f.id} style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border, #334155)', borderLeft: `4px solid ${acento}`, borderRadius: '6px', padding: '.55rem .7rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
