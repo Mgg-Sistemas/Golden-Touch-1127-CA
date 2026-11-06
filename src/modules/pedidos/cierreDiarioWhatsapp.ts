@@ -1,6 +1,6 @@
 /* ============================================================
    Golden Touch · Compras · «Cierre diario» para WhatsApp
-   Los cuatro títulos con sus cantidades, en texto con emojis para el chat,
+   Los tres títulos con sus cantidades, en texto con emojis para el chat,
    con espacios entre líneas para facilitar la lectura rápida en el teléfono.
    Se fija con tests: es un acuerdo con quien lo lee en el teléfono.
    ============================================================ */

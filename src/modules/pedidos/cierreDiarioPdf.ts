@@ -1,6 +1,6 @@
 /* ============================================================
    Golden Touch · Compras · PDF «Cierre diario»
-   Una hoja: los cuatro títulos con sus cantidades, el período y la fecha y hora
+   Una hoja: los tres títulos con sus cantidades, el período y la fecha y hora
    en que se imprime. `construirCierreDiarioPdf` solo arma el documento (es la que
    se prueba); la descarga trae el logo y abre la vista previa con 🖨 Imprimir.
    ============================================================ */

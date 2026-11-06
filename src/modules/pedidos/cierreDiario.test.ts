@@ -90,17 +90,17 @@ describe('calcularCierre', () => {
   ];
 
   it('con HOY solo cuenta lo de hoy', () => {
-    expect(calcularCierre(filas, periodoDe('dia', '2026-10-21'))).toMatchObject({ pedidos: 2, porAprobar: 1, porPagar: 2, pagadas: 2 });
+    expect(calcularCierre(filas, periodoDe('dia', '2026-10-21'))).toMatchObject({ pedidos: 2, porPagar: 2, pagadas: 2 });
   });
   it('con la semana suma también los días anteriores de esa semana', () => {
     // Pedidos: hoy 2 (la hija no cuenta) + ayer 1; oc_creada del 15 queda fuera de la semana 19-25
-    expect(calcularCierre(filas, periodoDe('semana', '2026-10-21'))).toMatchObject({ pedidos: 3, porAprobar: 1, porPagar: 2, pagadas: 2 });
+    expect(calcularCierre(filas, periodoDe('semana', '2026-10-21'))).toMatchObject({ pedidos: 3, porPagar: 2, pagadas: 2 });
   });
   it('con el mes entra todo lo de octubre', () => {
-    expect(calcularCierre(filas, periodoDe('mes', '2026-10'))).toMatchObject({ pedidos: 13, porAprobar: 2, porPagar: 3, pagadas: 3 });
+    expect(calcularCierre(filas, periodoDe('mes', '2026-10'))).toMatchObject({ pedidos: 13, porPagar: 3, pagadas: 3 });
   });
   it('un rango sin nada da ceros', () => {
-    expect(calcularCierre(filas, periodoDe('dia', '2026-01-05'))).toMatchObject({ pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0 });
+    expect(calcularCierre(filas, periodoDe('dia', '2026-01-05'))).toMatchObject({ pedidos: 0, porPagar: 0, pagadas: 0 });
   });
   it('usa la fecha de Venezuela: lo de las 11 p. m. del 20 no cae en el 21', () => {
     const f = [fila({ created_at: '2026-10-21T03:30:00Z' })]; // 20/10 11:30 p. m. en Caracas
@@ -169,7 +169,6 @@ describe('calcularCierre', () => {
 describe('salidas', () => {
   const r = {
     pedidos: 12,
-    porAprobar: 5,
     porPagar: 3,
     pagadas: 7,
     analistas: [
@@ -193,8 +192,6 @@ describe('salidas', () => {
       '🕒 *Impreso:* 21/10/2026 · 08:45 a. m.',
       '',
       '📥 *Pedidos:* 12',
-      '',
-      '⏳ *Órdenes pendientes por aprobar:* 5',
       '',
       '💵 *Órdenes por pagar:* 3',
       '',
@@ -236,17 +233,17 @@ describe('salidas', () => {
       expect(celda(7 + i, 1)).toBe(t.titulo);
       expect(Number(ws.getCell(7 + i, 2).value)).toBe(r[t.clave]);
     });
-    expect(celda(12, 1)).toBe('DETALLE · ÓRDENES POR PAGAR (3)');
-    expect([celda(13, 1), celda(13, 2), celda(13, 3)]).toEqual(['PROVEEDOR', 'OC', 'MONTO ($)']);
-    expect([celda(14, 1), celda(14, 2), Number(ws.getCell(14, 3).value)]).toEqual(['Ferretería El Tornillo', 'OC-0102', 1250.5]);
-    expect([celda(16, 1), celda(16, 2), Number(ws.getCell(16, 3).value)]).toEqual(['Transporte Rápido', 'OC-0110', 80.25]);
-    expect(celda(17, 1)).toBe('TOTAL PENDIENTE POR PAGAR');
-    expect(Number(ws.getCell(17, 3).value)).toBe(1630.75);
-    expect(celda(19, 1)).toBe('POR ANALISTA');
-    expect([celda(20, 1), celda(20, 2), celda(20, 3)]).toEqual(['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']);
-    expect(celda(21, 1)).toBe('Nazareth Salazar');
-    expect(Number(ws.getCell(21, 2).value)).toBe(4);
-    expect(Number(ws.getCell(21, 3).value)).toBe(2);
+    expect(celda(11, 1)).toBe('DETALLE · ÓRDENES POR PAGAR (3)');
+    expect([celda(12, 1), celda(12, 2), celda(12, 3)]).toEqual(['PROVEEDOR', 'OC', 'MONTO ($)']);
+    expect([celda(13, 1), celda(13, 2), Number(ws.getCell(13, 3).value)]).toEqual(['Ferretería El Tornillo', 'OC-0102', 1250.5]);
+    expect([celda(15, 1), celda(15, 2), Number(ws.getCell(15, 3).value)]).toEqual(['Transporte Rápido', 'OC-0110', 80.25]);
+    expect(celda(16, 1)).toBe('TOTAL PENDIENTE POR PAGAR');
+    expect(Number(ws.getCell(16, 3).value)).toBe(1630.75);
+    expect(celda(18, 1)).toBe('POR ANALISTA');
+    expect([celda(19, 1), celda(19, 2), celda(19, 3)]).toEqual(['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']);
+    expect(celda(20, 1)).toBe('Nazareth Salazar');
+    expect(Number(ws.getCell(20, 2).value)).toBe(4);
+    expect(Number(ws.getCell(20, 3).value)).toBe(2);
   }, 30000);
 
   it('PDF: se arma con el título, el período, los números y los analistas', async () => {
@@ -255,7 +252,7 @@ describe('salidas', () => {
     expect(pdf).toContain('CIERRE DIARIO');
     expect(pdf).toContain('21/10/2026');
     expect(pdf).toContain('08:45');
-    expect(pdf).toContain('pendientes por aprobar');
+    expect(pdf).not.toContain('pendientes por aprobar');
     expect(pdf).toContain('POR ANALISTA');
     expect(pdf).toContain('Nazareth Salazar');
     // Detalle de las OC por pagar: proveedor, código, monto y total

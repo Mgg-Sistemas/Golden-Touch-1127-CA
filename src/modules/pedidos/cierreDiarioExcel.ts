@@ -1,6 +1,6 @@
 /* ============================================================
    Golden Touch · Compras · Excel «Cierre diario»
-   Los cuatro títulos con sus cantidades, con el período y el momento en que se
+   Los tres títulos con sus cantidades, con el período y el momento en que se
    imprime. Mismos tonos pastel de «Compras por estado». Vista previa.
    ============================================================ */
 import { previewExcelArchivo } from '@/shared/lib/reportePreview';
