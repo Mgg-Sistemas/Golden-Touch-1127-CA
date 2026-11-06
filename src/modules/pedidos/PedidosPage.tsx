@@ -36,7 +36,7 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, etiquetaModalidadEntrega, type ModalidadEntrega } from '@/shared/lib/types';
-import { COL_POR_RETIRAR, esperaRetiro, textoEventoDelivery } from './retiroOc';
+import { COL_POR_RETIRAR, enPendientePorRecibir, esperaRetiro, textoEventoDelivery } from './retiroOc';
 import { confirmarRetiroOc } from './pedidos.repository';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
@@ -174,20 +174,22 @@ const KANBAN_COLS_PEDIDOS: KanbanCol[] = [
   { key: 'cancelada', label: 'Cancelada' },
 ];
 
+// 06/11/2026 (pedido de la administradora): estas tarjetas, en este orden y con estos nombres.
+// Ya no hay «Pagada», «Pendiente por recepción» ni «Proveedor desistió»:
+//  · «Pendiente por recibir» junta la OC pagada sin recibir (confirme o no el retiro) y la que
+//    espera recepción por contra entrega / crédito saldado (estado por_recibir).
+//  · La pagada que ya se recibió (contra entrega pagada después) va a «Recibida».
+//  · La de proveedor desistido va a «Pendiente por cargar ofertas», donde se vuelve a cotizar.
 const KANBAN_COLS_OC: KanbanCol[] = [
-  { key: 'aprobada', label: 'Pendiente (cargar ofertas)', sinLimite: true }, // OP aprobada → cargar cotizaciones
-  { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' }, // oferta elegida → espera aprobación
-  { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
-  { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
-  { key: 'oc_aprobada', label: 'Confirmada pagar' },                     // método indicado → Tesorería
-  { key: 'por_recibir', label: 'Pendiente por recepción' },             // contra entrega / crédito saldado
-  { key: 'pagada', label: 'Pagada' },
+  { key: 'aprobada', label: 'Pendiente por cargar ofertas', sinLimite: true }, // OP aprobada → cargar cotizaciones
+  { key: 'oc_creada', label: 'Pendientes por aprobar' },                      // oferta elegida → espera aprobación
+  { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },             // a crédito → abonos hasta saldar
+  { key: 'confirmada_metodo', label: 'Pendiente método de pago' },            // gerente confirmó → falta método
+  { key: 'oc_aprobada', label: 'Confirmada pagar' },                          // método indicado → Tesorería
+  { key: COL_POR_RETIRAR, label: 'Pendiente por recibir', sinLimite: true },  // pagada → confirmar retiro → delivery → almacén
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
-  // 06/11/2026: antes «Proveedor desistió» (esas órdenes se ven en «Pendiente (cargar ofertas)»,
-  // donde se vuelven a cotizar). Ahora: OC pagadas que esperan que el analista confirme el retiro.
-  { key: COL_POR_RETIRAR, label: 'Pendientes por recibir', sinLimite: true },
-  { key: 'cancelada', label: 'Cancelada' },
+  { key: 'cancelada', label: 'Canceladas' },
 ];
 
 // Columnas del kanban de SERVICIOS. Mismo procedimiento/flujo que la OC
@@ -596,7 +598,7 @@ export function PedidosPage() {
       const esServicio = o.tipo === 'servicio';
       if (scope === 'servicios') { if (!esServicio) return false; }
       else if (esServicio && canVerCompras) return false;
-      if (filterEstado && (filterEstado === COL_POR_RETIRAR ? !esperaRetiro(o) : o.estado !== filterEstado)) return false;
+      if (filterEstado && (filterEstado === COL_POR_RETIRAR ? !enPendientePorRecibir(o) : o.estado !== filterEstado)) return false;
       if (filterPersona && realizadaPor(o) !== filterPersona) return false;
       // Busca por TODAS las características de la orden (código, proveedor, quién la hizo,
       // productos, montos, fechas, estado, método de pago…). 17/10/2026.
@@ -2682,7 +2684,8 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOf
     // 06/11/2026: la OC pagada que espera la confirmación del retiro va a «Pendientes por recibir»;
     // la de «proveedor desistió» (sin columna propia en Compras) a «Pendiente (cargar ofertas)».
     const colDe = (o: Orden): ColKey => {
-      if (map.has(COL_POR_RETIRAR) && esperaRetiro(o)) return COL_POR_RETIRAR;
+      if (map.has(COL_POR_RETIRAR) && enPendientePorRecibir(o)) return COL_POR_RETIRAR;
+      if (o.estado === 'pagada' && o.recibida_en && !map.has('pagada') && map.has('recibida')) return 'recibida';
       if (o.estado === 'desistida_proveedor' && !map.has('desistida_proveedor') && map.has('aprobada')) return 'aprobada';
       return o.estado;
     };
@@ -2822,6 +2825,11 @@ const KanbanCard = memo(function KanbanCard({
       {esperaRetiro(orden) && (
         <div className="meta" style={{ fontSize: '.72rem', marginTop: '.1rem' }} title="Pagada: falta que Compras confirme el retiro para que le llegue al delivery">
           <span className="badge warning">📦 Confirmar retiro · {etiquetaModalidadEntrega(orden.modalidad_entrega)}</span>
+        </div>
+      )}
+      {orden.estado === 'pagada' && !orden.recibida_en && orden.retiro_confirmado_en && (
+        <div className="meta" style={{ fontSize: '.72rem', marginTop: '.1rem' }} title="Retiro confirmado por Compras: esperando que llegue al almacén">
+          <span className="badge">✅ Retiro confirmado · {etiquetaModalidadEntrega(orden.modalidad_entrega)}</span>
         </div>
       )}
       <div className="foot">

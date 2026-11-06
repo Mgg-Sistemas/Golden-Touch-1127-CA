@@ -20,6 +20,15 @@ export function esperaRetiro(o: Pick<Orden, 'estado' | 'tipo' | 'oc_codigo' | 'r
     && !o.retiro_confirmado_en;
 }
 
+/**
+ * Va a la tarjeta «Pendiente por recibir» del kanban de Compras (06/11/2026): la OC pagada que
+ * todavía no se recibió (falte o no confirmar el retiro) y la que espera recepción por contra
+ * entrega o crédito saldado (`por_recibir`).
+ */
+export function enPendientePorRecibir(o: Pick<Orden, 'estado' | 'recibida_en'>): boolean {
+  return (o.estado === 'pagada' && !o.recibida_en) || o.estado === 'por_recibir';
+}
+
 /** Texto del evento de delivery en la trazabilidad («🛵 Delivery · tomado por HECTOR ALAGAL»). */
 export function textoEventoDelivery(ev: { evento: string; repartidor?: string | null; canal?: string | null; almacen?: string | null; motivo?: string | null }): string | null {
   const canal = ev.canal === 'carga_pesada' ? '🚚 Carga pesada' : '🛵 Delivery';
