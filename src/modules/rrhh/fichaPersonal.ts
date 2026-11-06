@@ -92,6 +92,23 @@ export function antiguedad(fechaIngreso: string | null | undefined, hasta?: stri
   return { anios, meses, texto };
 }
 
+/** ¿Es el cumpleaños de la persona hoy (mes y día coinciden)? */
+export function esCumpleanosHoy(fechaNacimiento: string | null | undefined, fechaReferencia?: string): boolean {
+  const nac = partes(fechaNacimiento);
+  if (!nac) return false;
+  const ref = partes(fechaReferencia) ?? partes(hoyISO());
+  if (!ref) return false;
+  return nac[1] === ref[1] && nac[2] === ref[2];
+}
+
+/** Filtra los trabajadores activos que cumplen años en la fecha dada (hoy por defecto). */
+export function cumpleanerosHoy<T extends { fecha_nacimiento?: string | null; activo?: boolean }>(
+  personal: T[],
+  fechaReferencia?: string,
+): T[] {
+  return personal.filter((p) => (p.activo !== false) && esCumpleanosHoy(p.fecha_nacimiento, fechaReferencia));
+}
+
 /* ───────── Carga familiar ───────── */
 
 /** Los hijos de una persona dentro de su carga familiar. */

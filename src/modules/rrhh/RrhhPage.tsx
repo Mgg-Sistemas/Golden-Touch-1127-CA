@@ -8,6 +8,9 @@ import { EmpresasModal } from './EmpresasModal';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { listPersonal } from './personal.repository';
+import type { Personal } from '@/shared/lib/types';
+import { CumpleaneroAlerta } from './CumpleaneroAlerta';
 import { PersonalTab } from './PersonalTab';
 import { AnticiposTab } from './AnticiposTab';
 import { NominaTab } from './NominaTab';
@@ -76,6 +79,16 @@ export function RrhhPage() {
   const emp = identidadEmpresa(empresa);
   const [verEmpresas, setVerEmpresas] = useState(false);
 
+  // Cumpleañeros: lista de personal activo para detectar cumpleaños hoy
+  const [personalActivo, setPersonalActivo] = useState<Personal[]>([]);
+  const cargarCumpleaneros = useCallback(() => {
+    listPersonal(true)
+      .then(setPersonalActivo)
+      .catch(() => setPersonalActivo([]));
+  }, []);
+  useEffect(() => { cargarCumpleaneros(); }, [cargarCumpleaneros]);
+  useRealtime(['personal'], cargarCumpleaneros);
+
   return (
     <div>
       {/* Encabezado: título a la izquierda, switch de nómina a la derecha y la
@@ -130,6 +143,8 @@ export function RrhhPage() {
         </p>
       </header>
       {verEmpresas && <EmpresasModal conteo={conteo} actor={actor} onClose={() => setVerEmpresas(false)} onElegir={(c) => setEmpresa(c)} />}
+
+      <CumpleaneroAlerta personal={personalActivo} />
 
       <div className="view-toggle" role="tablist" aria-label="Vista de RRHH" style={{ marginBottom: '1rem', flexWrap: 'wrap' }}>
         {TABS.map((t) => (
