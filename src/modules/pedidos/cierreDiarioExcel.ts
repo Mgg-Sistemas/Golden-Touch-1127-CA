@@ -64,6 +64,50 @@ export async function construirCierreDiarioExcel(r: ResumenCierre, p: PeriodoCie
     });
   });
 
+  // Detalle de las órdenes que quedaron por pagar: proveedor, OC y monto en $, con el total.
+  ws.addRow([]); // fila vacía separadora
+  const secPagar = ws.addRow([`DETALLE · ÓRDENES POR PAGAR (${r.ocPorPagar.length})`]);
+  secPagar.height = 24;
+  ws.mergeCells(secPagar.number, 1, secPagar.number, 3);
+  secPagar.getCell(1).font = { name: 'Arial', size: 12, bold: true, color: { argb: PASTEL.titulo } };
+  secPagar.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  if (r.ocPorPagar.length === 0) {
+    const vacia = ws.addRow(['No quedaron órdenes por pagar en este período.']);
+    ws.mergeCells(vacia.number, 1, vacia.number, 3);
+    vacia.getCell(1).font = { name: 'Arial', size: 10, color: { argb: 'FF5C6673' } };
+    vacia.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  } else {
+    const cabPagar = ws.addRow(['PROVEEDOR', 'OC', 'MONTO ($)']);
+    cabPagar.height = 24;
+    cabPagar.eachCell((c) => {
+      c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cabecera } };
+      c.alignment = { horizontal: 'center', vertical: 'middle' };
+      c.border = bordes;
+    });
+    r.ocPorPagar.forEach((o, i) => {
+      const row = ws.addRow([o.proveedor, o.codigo, o.montoUsd]);
+      row.height = 22;
+      row.eachCell((c, col) => {
+        c.font = { name: 'Arial', size: 11, bold: col === 3 };
+        c.border = bordes;
+        c.alignment = { vertical: 'middle', horizontal: col === 1 ? 'left' : col === 2 ? 'center' : 'right', indent: col === 1 ? 1 : 0 };
+        if (col === 3) c.numFmt = '"$" #,##0.00';
+        if (i % 2 === 1) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cebra } };
+      });
+    });
+    const tot = ws.addRow(['TOTAL PENDIENTE POR PAGAR', '', r.totalPorPagarUsd]);
+    tot.height = 24;
+    ws.mergeCells(tot.number, 1, tot.number, 2);
+    tot.eachCell((c, col) => {
+      c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cabecera } };
+      c.border = bordes;
+      c.alignment = { vertical: 'middle', horizontal: col === 3 ? 'right' : 'left', indent: col === 1 ? 1 : 0 };
+      if (col === 3) c.numFmt = '"$" #,##0.00';
+    });
+  }
+
   if (r.analistas && r.analistas.length > 0) {
     ws.addRow([]); // fila vacía separadora
     const secRow = ws.addRow(['POR ANALISTA']);

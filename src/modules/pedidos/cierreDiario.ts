@@ -52,6 +52,13 @@ export type FilaCierre = Pick<
   | 'finalizada_por'
   | 'oc_creada_por'
   | 'oc_emitida_por'
+  // Para el detalle de «Órdenes por pagar»: qué OC es, de quién y cuánto.
+  | 'oc_codigo'
+  | 'codigo'
+  | 'proveedor_id'
+  | 'total'
+  | 'condiciones_pago'
+  | 'recibido_total'
 >;
 
 export interface AnalistaCierre {
@@ -63,12 +70,34 @@ export interface AnalistaCierre {
 
 export type ClaveMetricaCierre = 'pedidos' | 'porAprobar' | 'porPagar' | 'pagadas';
 
+/** Una OC que quedó por pagar: su código, el proveedor y el monto en $. */
+export interface OcPorPagarCierre {
+  codigo: string;
+  proveedor: string;
+  montoUsd: number;
+}
+
 export interface ResumenCierre {
   pedidos: number;
   porAprobar: number;
   porPagar: number;
   pagadas: number;
   analistas: AnalistaCierre[];
+  /** Detalle de las OC contadas en «Órdenes por pagar» (ordenadas por proveedor). */
+  ocPorPagar: OcPorPagarCierre[];
+  /** Suma en $ de `ocPorPagar`. */
+  totalPorPagarUsd: number;
+}
+
+export const SIN_PROVEEDOR_CIERRE = 'Sin proveedor';
+
+const redondear2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Lo que se debe pagar de una OC: lo recibido si es contra entrega, y el total en el resto (igual que Tesorería). */
+export function montoPorPagarOc(o: Pick<FilaCierre, 'total' | 'condiciones_pago' | 'recibido_total'>): number {
+  const esContraEntrega = o.condiciones_pago === 'contra_entrega';
+  const n = esContraEntrega && o.recibido_total != null ? Number(o.recibido_total) : Number(o.total);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export interface TituloCierre {
@@ -173,12 +202,13 @@ export function calcularCierre(
   p: PeriodoCierre,
   cotizaciones: readonly FilaCotizacionCierre[] = [],
   personas?: Map<string, string>,
+  proveedores?: Map<string, string>,
 ): ResumenCierre {
   const en = (v: string | null | undefined) => {
     const d = fechaCaracas(v);
     return d !== '' && d >= p.desde && d <= p.hasta;
   };
-  const r: ResumenCierre = { pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0, analistas: [] };
+  const r: ResumenCierre = { pedidos: 0, porAprobar: 0, porPagar: 0, pagadas: 0, analistas: [], ocPorPagar: [], totalPorPagarUsd: 0 };
   const analistasMap = new Map<string, { cotizaciones: number; finalizadas: number }>();
   const getAnalista = (email: string) => {
     const norm = email.toLowerCase().trim();
@@ -194,7 +224,14 @@ export function calcularCierre(
     // Una OC hija de un reparto no es otro pedido: es parte del mismo.
     if (!o.op_padre_id && en(o.created_at)) r.pedidos += 1;
     if (o.estado === 'oc_creada' && en(o.oc_creada_en ?? o.created_at)) r.porAprobar += 1;
-    if ((o.estado === 'oc_aprobada' || o.estado === 'confirmada_metodo') && en(o.oc_aprobada_en ?? o.aprobada_en ?? o.created_at)) r.porPagar += 1;
+    if ((o.estado === 'oc_aprobada' || o.estado === 'confirmada_metodo') && en(o.oc_aprobada_en ?? o.aprobada_en ?? o.created_at)) {
+      r.porPagar += 1;
+      r.ocPorPagar.push({
+        codigo: (o.oc_codigo || o.codigo || '').trim(),
+        proveedor: (o.proveedor_id && proveedores?.get(o.proveedor_id)?.trim()) || SIN_PROVEEDOR_CIERRE,
+        montoUsd: redondear2(montoPorPagarOc(o)),
+      });
+    }
     if (o.pagada_en && !SIN_PAGO_VALIDO.has(o.estado) && en(o.pagada_en)) r.pagadas += 1;
 
     // Órdenes finalizadas por analista en el período
@@ -227,6 +264,9 @@ export function calcularCierre(
       };
     })
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  r.ocPorPagar.sort((a, b) => a.proveedor.localeCompare(b.proveedor, 'es') || a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
+  r.totalPorPagarUsd = redondear2(r.ocPorPagar.reduce((s, x) => s + x.montoUsd, 0));
 
   return r;
 }

@@ -6,6 +6,7 @@
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
+import { money } from '@/shared/lib/format';
 import { TITULOS_CIERRE, etiquetaPeriodo, fechaCaracas, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
 
 const PASTEL: Record<'titulo' | 'cabecera' | 'cabeceraTexto' | 'cebra', [number, number, number]> = {
@@ -61,7 +62,35 @@ export async function construirCierreDiarioPdf(
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = ((doc.lastAutoTable?.finalY ?? y) as number) + 24;
 
+  // Detalle de las órdenes que quedaron por pagar: proveedor, OC y monto en $, con el total.
+  if (y > H - 140) { doc.addPage(); y = MARGIN; }
+  doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text(pdfSafe(`DETALLE · ÓRDENES POR PAGAR (${r.ocPorPagar.length})`), MARGIN, y);
+  y += 10;
+  if (r.ocPorPagar.length === 0) {
+    doc.setTextColor(90, 90, 90); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.text(pdfSafe('No quedaron órdenes por pagar en este período.'), MARGIN, y + 12);
+    y += 36;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      head: [['PROVEEDOR', 'OC', 'MONTO ($)']],
+      body: r.ocPorPagar.map((o) => [pdfSafe(o.proveedor), pdfSafe(o.codigo || '—'), pdfSafe(money(o.montoUsd))]),
+      foot: [[{ content: pdfSafe('TOTAL PENDIENTE POR PAGAR'), colSpan: 2, styles: { halign: 'right' } }, pdfSafe(money(r.totalPorPagarUsd))]],
+      showFoot: 'lastPage',
+      styles: { fontSize: 10, cellPadding: 7, valign: 'middle' },
+      headStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', fontSize: 11 },
+      alternateRowStyles: { fillColor: PASTEL.cebra },
+      columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'center', cellWidth: 100 }, 2: { halign: 'right', cellWidth: 110, fontStyle: 'bold' } },
+      margin: MARGIN,
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin
+    y = ((doc.lastAutoTable?.finalY ?? y) as number) + 24;
+  }
+
   if (r.analistas && r.analistas.length > 0) {
+    if (y > H - 120) { doc.addPage(); y = MARGIN; }
     doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text(pdfSafe('POR ANALISTA'), MARGIN, y);
     y += 10;

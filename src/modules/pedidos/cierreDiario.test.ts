@@ -15,7 +15,8 @@ const AHORA = new Date('2026-10-21T12:45:00Z');
 
 const fila = (o: Partial<FilaCierre>): FilaCierre => ({
   id: Math.random().toString(36).slice(2), estado: 'pendiente', created_at: '2026-10-21T13:00:00Z',
-  op_padre_id: null, oc_creada_en: null, oc_aprobada_en: null, aprobada_en: null, pagada_en: null, ...o,
+  op_padre_id: null, oc_creada_en: null, oc_aprobada_en: null, aprobada_en: null, pagada_en: null,
+  oc_codigo: null, codigo: 'SP-1', proveedor_id: null, total: 0, condiciones_pago: null, recibido_total: null, ...o,
 } as FilaCierre);
 
 describe('fechas de Venezuela', () => {
@@ -128,6 +129,41 @@ describe('calcularCierre', () => {
       { email: 'nazareth@goldentouch.com', nombre: 'Nazareth Salazar', cotizaciones: 2, finalizadas: 1 },
     ]);
   });
+
+  it('detalle de por pagar: proveedor, monto en $ y total; solo las que cuentan en «Órdenes por pagar»', () => {
+    const provs = new Map([['p1', 'Zeta Suministros'], ['p2', 'Alfa Repuestos']]);
+    const oc = (o: Partial<FilaCierre>) => fila({ created_at: '2026-10-01T12:00:00Z', oc_aprobada_en: '2026-10-21T17:00:00Z', ...o });
+    const ordenes = [
+      oc({ estado: 'oc_aprobada', oc_codigo: 'OC-0020', proveedor_id: 'p1', total: 100.1 }),
+      oc({ estado: 'confirmada_metodo', oc_codigo: 'OC-0003', proveedor_id: 'p2', total: 50.2 }),
+      oc({ estado: 'oc_aprobada', oc_codigo: 'OC-0004', proveedor_id: 'p2', total: 10 }),
+      // Contra entrega: se debe lo recibido, no el total
+      oc({ estado: 'oc_aprobada', oc_codigo: 'OC-0005', proveedor_id: 'p1', total: 500, condiciones_pago: 'contra_entrega', recibido_total: 120 }),
+      // Sin proveedor conocido y sin código de OC (cae al de la solicitud)
+      oc({ estado: 'oc_aprobada', oc_codigo: null, codigo: 'SP-9', proveedor_id: 'otro', total: 7 }),
+      // No cuentan: otro día, ya pagada, pendiente por aprobar
+      oc({ estado: 'oc_aprobada', oc_codigo: 'OC-0099', proveedor_id: 'p1', total: 999, oc_aprobada_en: '2026-10-15T17:00:00Z' }),
+      oc({ estado: 'finalizada', oc_codigo: 'OC-0098', proveedor_id: 'p1', total: 999, pagada_en: '2026-10-21T19:00:00Z' }),
+      oc({ estado: 'oc_creada', oc_codigo: 'OC-0097', proveedor_id: 'p1', total: 999, oc_creada_en: '2026-10-21T16:00:00Z' }),
+    ];
+    const res = calcularCierre(ordenes, periodoDe('dia', '2026-10-21'), [], undefined, provs);
+    expect(res.porPagar).toBe(5);
+    expect(res.ocPorPagar.length).toBe(res.porPagar); // el detalle y el número dicen lo mismo
+    expect(res.ocPorPagar).toEqual([
+      { codigo: 'OC-0003', proveedor: 'Alfa Repuestos', montoUsd: 50.2 },
+      { codigo: 'OC-0004', proveedor: 'Alfa Repuestos', montoUsd: 10 },
+      { codigo: 'SP-9', proveedor: 'Sin proveedor', montoUsd: 7 },
+      { codigo: 'OC-0005', proveedor: 'Zeta Suministros', montoUsd: 120 },
+      { codigo: 'OC-0020', proveedor: 'Zeta Suministros', montoUsd: 100.1 },
+    ]);
+    expect(res.totalPorPagarUsd).toBe(287.3);
+  });
+
+  it('sin órdenes por pagar el detalle queda vacío y el total en cero', () => {
+    const res = calcularCierre([], periodoDe('dia', '2026-10-21'));
+    expect(res.ocPorPagar).toEqual([]);
+    expect(res.totalPorPagarUsd).toBe(0);
+  });
 });
 
 describe('salidas', () => {
@@ -139,6 +175,12 @@ describe('salidas', () => {
     analistas: [
       { email: 'nazareth@goldentouch.com', nombre: 'Nazareth Salazar', cotizaciones: 4, finalizadas: 2 },
     ],
+    ocPorPagar: [
+      { codigo: 'OC-0102', proveedor: 'Ferretería El Tornillo', montoUsd: 1250.5 },
+      { codigo: 'OC-0107', proveedor: 'Ferretería El Tornillo', montoUsd: 300 },
+      { codigo: 'OC-0110', proveedor: 'Transporte Rápido', montoUsd: 80.25 },
+    ],
+    totalPorPagarUsd: 1630.75,
   };
   const p = periodoDe('dia', '2026-10-21');
 
@@ -157,6 +199,14 @@ describe('salidas', () => {
       '💵 *Órdenes por pagar:* 3',
       '',
       '✅ *Órdenes pagadas:* 7',
+      '',
+      '🧾 *DETALLE · ÓRDENES POR PAGAR (3)*',
+      '',
+      '• Ferretería El Tornillo · OC-0102: *$ 1.250,50*',
+      '• Ferretería El Tornillo · OC-0107: *$ 300,00*',
+      '• Transporte Rápido · OC-0110: *$ 80,25*',
+      '',
+      '💰 *Total pendiente por pagar:* $ 1.630,75',
       '',
       '👥 *POR ANALISTA*',
       '',
@@ -186,11 +236,17 @@ describe('salidas', () => {
       expect(celda(7 + i, 1)).toBe(t.titulo);
       expect(Number(ws.getCell(7 + i, 2).value)).toBe(r[t.clave]);
     });
-    expect(celda(12, 1)).toBe('POR ANALISTA');
-    expect([celda(13, 1), celda(13, 2), celda(13, 3)]).toEqual(['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']);
-    expect(celda(14, 1)).toBe('Nazareth Salazar');
-    expect(Number(ws.getCell(14, 2).value)).toBe(4);
-    expect(Number(ws.getCell(14, 3).value)).toBe(2);
+    expect(celda(12, 1)).toBe('DETALLE · ÓRDENES POR PAGAR (3)');
+    expect([celda(13, 1), celda(13, 2), celda(13, 3)]).toEqual(['PROVEEDOR', 'OC', 'MONTO ($)']);
+    expect([celda(14, 1), celda(14, 2), Number(ws.getCell(14, 3).value)]).toEqual(['Ferretería El Tornillo', 'OC-0102', 1250.5]);
+    expect([celda(16, 1), celda(16, 2), Number(ws.getCell(16, 3).value)]).toEqual(['Transporte Rápido', 'OC-0110', 80.25]);
+    expect(celda(17, 1)).toBe('TOTAL PENDIENTE POR PAGAR');
+    expect(Number(ws.getCell(17, 3).value)).toBe(1630.75);
+    expect(celda(19, 1)).toBe('POR ANALISTA');
+    expect([celda(20, 1), celda(20, 2), celda(20, 3)]).toEqual(['ANALISTA', 'COTIZACIONES REALIZADAS', 'ÓRDENES FINALIZADAS']);
+    expect(celda(21, 1)).toBe('Nazareth Salazar');
+    expect(Number(ws.getCell(21, 2).value)).toBe(4);
+    expect(Number(ws.getCell(21, 3).value)).toBe(2);
   }, 30000);
 
   it('PDF: se arma con el título, el período, los números y los analistas', async () => {
@@ -202,5 +258,12 @@ describe('salidas', () => {
     expect(pdf).toContain('pendientes por aprobar');
     expect(pdf).toContain('POR ANALISTA');
     expect(pdf).toContain('Nazareth Salazar');
+    // Detalle de las OC por pagar: proveedor, código, monto y total
+    expect(pdf).toContain('ÓRDENES POR PAGAR \\(3\\)'); // los paréntesis salen escapados en el PDF
+    expect(pdf).toContain('Transporte Rápido');
+    expect(pdf).toContain('OC-0102');
+    expect(pdf).toContain('1.250,50');
+    expect(pdf).toContain('TOTAL PENDIENTE POR PAGAR');
+    expect(pdf).toContain('1.630,75');
   }, 30000);
 });

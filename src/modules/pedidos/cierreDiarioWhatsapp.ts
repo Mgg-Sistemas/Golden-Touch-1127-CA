@@ -4,6 +4,7 @@
    con espacios entre líneas para facilitar la lectura rápida en el teléfono.
    Se fija con tests: es un acuerdo con quien lo lee en el teléfono.
    ============================================================ */
+import { money } from '@/shared/lib/format';
 import { TITULOS_CIERRE, etiquetaPeriodo, fechaCaracas, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
 
 export function textoCierreDiarioWhatsapp(r: ResumenCierre, p: PeriodoCierre, ahora: Date = new Date()): string {
@@ -14,6 +15,14 @@ export function textoCierreDiarioWhatsapp(r: ResumenCierre, p: PeriodoCierre, ah
 
   for (const t of TITULOS_CIERRE) {
     L.push(`${t.emoji} *${t.titulo}:* ${r[t.clave]}`, '');
+  }
+
+  L.push(`🧾 *DETALLE · ÓRDENES POR PAGAR (${r.ocPorPagar.length})*`, '');
+  if (r.ocPorPagar.length === 0) {
+    L.push('No quedaron órdenes por pagar en este período.', '');
+  } else {
+    for (const o of r.ocPorPagar) L.push(`• ${o.proveedor}${o.codigo ? ` · ${o.codigo}` : ''}: *${money(o.montoUsd)}*`);
+    L.push('', `💰 *Total pendiente por pagar:* ${money(r.totalPorPagarUsd)}`, '');
   }
 
   if (r.analistas && r.analistas.length > 0) {
