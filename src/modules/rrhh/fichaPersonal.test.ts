@@ -3,6 +3,7 @@ import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
 import {
   agruparPersonal, antiguedad, edad, esPadre, filtrarPersonal, FILTROS_VACIOS,
   hayFiltros, hijosDe, labelEstadoCivil, labelGenero, opcionesDe, resumenPersonal,
+  esCumpleanosHoy, cumpleanerosHoy,
 } from './fichaPersonal';
 
 const HOY = '2026-09-22';
@@ -46,6 +47,27 @@ describe('edad', () => {
 
   it('acepta una marca de tiempo completa', () => {
     expect(edad('2000-01-15T10:00:00Z', HOY)).toBe(26);
+  });
+});
+
+describe('cumpleaños', () => {
+  it('detecta si el cumpleaños coincide en mes y día', () => {
+    expect(esCumpleanosHoy('1990-09-22', '2026-09-22')).toBe(true);
+    expect(esCumpleanosHoy('1985-09-22', '2026-09-22')).toBe(true);
+    expect(esCumpleanosHoy('1990-09-21', '2026-09-22')).toBe(false);
+    expect(esCumpleanosHoy('1990-10-22', '2026-09-22')).toBe(false);
+    expect(esCumpleanosHoy(null, '2026-09-22')).toBe(false);
+    expect(esCumpleanosHoy('', '2026-09-22')).toBe(false);
+  });
+
+  it('cumpleanerosHoy filtra solo trabajadores activos que cumplen años', () => {
+    const p1 = gente({ id: '1', nombre: 'JUAN', fecha_nacimiento: '1995-09-22', activo: true });
+    const p2 = gente({ id: '2', nombre: 'MARIA', fecha_nacimiento: '1988-09-22', activo: false }); // inactivo no entra
+    const p3 = gente({ id: '3', nombre: 'PEDRO', fecha_nacimiento: '1992-05-10', activo: true });
+    const p4 = gente({ id: '4', nombre: 'ANA', fecha_nacimiento: null, activo: true });
+
+    const cumple = cumpleanerosHoy([p1, p2, p3, p4], '2026-09-22');
+    expect(cumple).toEqual([p1]);
   });
 });
 
