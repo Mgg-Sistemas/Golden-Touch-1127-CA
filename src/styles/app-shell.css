@@ -480,6 +480,11 @@
   font-weight: 600;
   box-shadow: var(--shadow-sm);
 }
+/* Interruptor Delivery | Carga pesada: el activo va en AMARILLO (los demás tabs siguen en naranja) */
+.view-toggle.canal-toggle button.active {
+  background: linear-gradient(135deg, #ffe66d, #f5c518);
+  color: #2b2200;
+}
 
 /* Kanban board */
 .kanban {

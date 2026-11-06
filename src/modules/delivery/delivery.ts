@@ -414,6 +414,11 @@ export const CANALES_DELIVERY: Record<CanalDelivery, { titulo: string; icono: st
   carga_pesada: { titulo: 'Carga pesada', icono: '🚚', modulo: 'carga_pesada', ruta: '/app/carga-pesada', rutaTelefono: '/app/carga-pesada/telefono' },
 };
 
+/** Título grande de la pantalla: en Carga pesada dice «CARGA PESADA» (en mayúsculas); en Delivery, «Delivery». */
+export function tituloPantallaCanal(canal: CanalDelivery): string {
+  return canal === 'carga_pesada' ? 'CARGA PESADA' : CANALES_DELIVERY[canal].titulo;
+}
+
 /** ¿La OC (por su modalidad de entrega) es de este canal? Sin dato = Delivery; «a domicilio» = ninguno. */
 export function esDelCanal(modalidad: string | null | undefined, canal: CanalDelivery): boolean {
   const m = modalidad === 'carga_pesada' || modalidad === 'proveedor' ? modalidad : 'delivery';

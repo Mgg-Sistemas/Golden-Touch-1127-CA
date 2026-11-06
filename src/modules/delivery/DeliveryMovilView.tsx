@@ -36,7 +36,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { CANALES_DELIVERY, type CanalDelivery } from './delivery';
+import { CANALES_DELIVERY, tituloPantallaCanal, type CanalDelivery } from './delivery';
 import { nombreYApellido, quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
@@ -278,7 +278,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
     <div className="surtidor">
       <header className="surt-head">
         <div>
-          <h1>{cfgCanal.icono} {cfgCanal.titulo}</h1>
+          <h1>{cfgCanal.icono} {tituloPantallaCanal(canal)}</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}><Quien nombre={null} correo={actor} vacio={actorName ?? actor} /></div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
