@@ -13,6 +13,8 @@
    4. Solicitud de Compra de Repuestos para Equipo
    ============================================================ */
 import { num as fmtNum } from '@/shared/lib/format';
+import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { estadoEfectivo, ESTADOS_EQUIPO } from './flota';
 
 /** Limpia cualquier selector invisible U+FE0F que descompone emojis en WhatsApp. */
 const sinSelector = (s: string) => s.replace(/\uFE0F/g, '');
@@ -366,3 +368,106 @@ export function textoAlertaMantenimientoWhatsapp(d: DatosAlertaMantenimientoWhat
   lineas.push(sinSelector(`_Enviado desde el Sistema Golden Touch_`));
   return lineas.join('\n');
 }
+
+/* ── 7. Reporte General de Flota / Equipos para WhatsApp ── */
+
+export interface DatosReporteFlotaWhatsapp {
+  equipos: MaquinariaEquipo[];
+  categoriaSel?: string;
+  propietarioSel?: string;
+  ubicacionesSel?: string[];
+  estatusSel?: string;
+  modoAgrupacion?: 'empresa' | 'ubicacion' | 'ninguno';
+  contextoMap?: Map<string, {
+    horometro?: number | null;
+    kilometraje?: number | null;
+    encargado?: string | null;
+    avisoServicio?: string | null;
+  }>;
+}
+
+/**
+ * Genera el mensaje estructurado de WhatsApp para el reporte de equipos/flota.
+ * Directo, simple de leer, organizado y neutro, con emojis estándar.
+ */
+export function textoReporteFlotaWhatsapp(d: DatosReporteFlotaWhatsapp): string {
+  const equipos = d.equipos || [];
+  const fecha = fechaHoraVE(new Date());
+
+  // Conteo de estados efectivos
+  let op = 0;
+  let tal = 0;
+  let ave = 0;
+  let esp = 0;
+  let ret = 0;
+
+  for (const eq of equipos) {
+    const st = estadoEfectivo(eq);
+    if (st === 'operativa') op++;
+    else if (st === 'taller' || st === 'repuestos') tal++;
+    else if (st === 'averiada' || st === 'parada') ave++;
+    else if (st === 'retirada') ret++;
+    else esp++;
+  }
+
+  const lineas: string[] = [
+    sinSelector('🚜 *Reporte de Flota y Maquinaria*'),
+    sinSelector(`_GOLDEN TOUCH 1127 C.A. · ${fecha}_`),
+    '',
+    sinSelector(`📊 *Resumen de Flota (${equipos.length} equipo${equipos.length === 1 ? '' : 's'}):*`),
+    sinSelector(`• ✅ Operativas: ${op}`),
+    sinSelector(`• 🔧 En taller / Mantenimiento: ${tal}`),
+    sinSelector(`• 🔴 Averiadas / Paradas: ${ave}`),
+    sinSelector(`• ⏳ En espera / Por confirmar: ${esp}`),
+  ];
+
+  if (ret > 0) {
+    lineas.push(sinSelector(`• ⬛ Retiradas: ${ret}`));
+  }
+
+  // Filtros aplicados si alguno está activo
+  const filtros: string[] = [];
+  if (d.categoriaSel && d.categoriaSel !== 'todas') filtros.push(`Categoría: ${d.categoriaSel.toUpperCase()}`);
+  if (d.propietarioSel && d.propietarioSel !== 'todos') filtros.push(`Propietario: ${d.propietarioSel}`);
+  if (d.estatusSel && d.estatusSel !== 'todos') filtros.push(`Estatus: ${d.estatusSel.toUpperCase()}`);
+  if (d.ubicacionesSel && d.ubicacionesSel.length > 0 && !d.ubicacionesSel.includes('__ninguna__')) {
+    filtros.push(`Ubicaciones seleccionadas (${d.ubicacionesSel.length})`);
+  }
+  if (filtros.length > 0) {
+    lineas.push('');
+    lineas.push(sinSelector(`🔍 _Filtros activos: ${filtros.join(' · ')}_`));
+  }
+
+  lineas.push('');
+  lineas.push(sinSelector('📋 *Listado de Equipos:*'));
+
+  const LIMITE = 35;
+  const mostrar = equipos.slice(0, LIMITE);
+
+  mostrar.forEach((eq, idx) => {
+    const ctx = d.contextoMap?.get(eq.id);
+    const st = estadoEfectivo(eq);
+    const stLabel = ESTADOS_EQUIPO[st]?.label || eq.status || 'Operativa';
+    const stIcon = ESTADOS_EQUIPO[st]?.icon || '•';
+
+    const detalles: string[] = [];
+    if (eq.marca || eq.modelo) detalles.push([eq.marca, eq.modelo].filter(Boolean).join(' '));
+    if (eq.placa) detalles.push(`Placa ${eq.placa}`);
+    if (ctx?.horometro != null) detalles.push(`⏱ ${fmtNum(ctx.horometro)} h`);
+    else if (ctx?.kilometraje != null) detalles.push(`🛣 ${fmtNum(ctx.kilometraje)} km`);
+    if (eq.ubicacion) detalles.push(`📍 ${eq.ubicacion}`);
+
+    const detStr = detalles.length ? ` · ${detalles.join(' · ')}` : '';
+    lineas.push(sinSelector(`${idx + 1}. *${eq.equipo.toUpperCase()}* — ${stIcon} ${stLabel}${detStr}`));
+  });
+
+  if (equipos.length > LIMITE) {
+    lineas.push(sinSelector(`_… y ${equipos.length - LIMITE} equipo(s) más en el PDF adjunto._`));
+  }
+
+  lineas.push('');
+  lineas.push(sinSelector('_Enviado desde el Sistema Golden Touch_'));
+
+  return lineas.join('\n');
+}
+
