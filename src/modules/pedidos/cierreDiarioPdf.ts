@@ -89,6 +89,32 @@ export async function construirCierreDiarioPdf(
     y = ((doc.lastAutoTable?.finalY ?? y) as number) + 24;
   }
 
+  // 06/11/2026: OC pagadas que esperan que Compras confirme el retiro.
+  if (r.ocPorRetirar) {
+    if (y > H - 140) { doc.addPage(); y = MARGIN; }
+    doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(pdfSafe(`PENDIENTES POR RETIRAR (${r.ocPorRetirar.length})`), MARGIN, y);
+    y += 10;
+    if (r.ocPorRetirar.length === 0) {
+      doc.setTextColor(90, 90, 90); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(pdfSafe('No hay órdenes pagadas esperando que se confirme el retiro.'), MARGIN, y + 12);
+      y += 36;
+    } else {
+      autoTable(doc, {
+        startY: y,
+        head: [['PROVEEDOR', 'OC', 'ENTREGA', 'PAGADA']],
+        body: r.ocPorRetirar.map((o) => [pdfSafe(o.proveedor), pdfSafe(o.codigo || '—'), pdfSafe(o.entrega), pdfSafe(o.pagada)]),
+        styles: { fontSize: 10, cellPadding: 7, valign: 'middle' },
+        headStyles: { fillColor: PASTEL.cabecera, textColor: PASTEL.cabeceraTexto, fontStyle: 'bold', halign: 'center' },
+        alternateRowStyles: { fillColor: PASTEL.cebra },
+        columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'center', cellWidth: 95 }, 2: { halign: 'center', cellWidth: 110 }, 3: { halign: 'center', cellWidth: 75 } },
+        margin: MARGIN,
+      });
+      // @ts-expect-error lastAutoTable lo agrega el plugin
+      y = ((doc.lastAutoTable?.finalY ?? y) as number) + 24;
+    }
+  }
+
   if (r.analistas && r.analistas.length > 0) {
     if (y > H - 120) { doc.addPage(); y = MARGIN; }
     doc.setTextColor(...PASTEL.titulo); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);

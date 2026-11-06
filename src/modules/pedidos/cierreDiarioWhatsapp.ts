@@ -25,6 +25,16 @@ export function textoCierreDiarioWhatsapp(r: ResumenCierre, p: PeriodoCierre, ah
     L.push('', `💰 *Total pendiente por pagar:* ${money(r.totalPorPagarUsd)}`, '');
   }
 
+  if (r.ocPorRetirar) {
+    L.push(`🚚 *PENDIENTES POR RETIRAR (${r.ocPorRetirar.length})*`, '');
+    if (r.ocPorRetirar.length === 0) {
+      L.push('No hay órdenes pagadas esperando que se confirme el retiro.', '');
+    } else {
+      for (const o of r.ocPorRetirar) L.push(`• ${o.proveedor}${o.codigo ? ` · ${o.codigo}` : ''}: ${o.entrega} · pagada ${o.pagada}`);
+      L.push('');
+    }
+  }
+
   if (r.analistas && r.analistas.length > 0) {
     L.push('👥 *POR ANALISTA*', '');
     for (const a of r.analistas) {

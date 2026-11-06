@@ -206,6 +206,32 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
 
+          {resumen.ocPorRetirar && (
+            <div style={{ margin: '1rem 0 .8rem', borderTop: '1px solid var(--border, rgba(255,255,255,.08))', paddingTop: '.75rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.5rem' }}>
+                🚚 Pendientes por retirar ({resumen.ocPorRetirar.length})
+              </div>
+              {resumen.ocPorRetirar.length === 0 ? (
+                <p className="muted" style={{ margin: '0 0 .4rem', fontSize: '.82rem' }}>
+                  No hay órdenes pagadas esperando que se confirme el retiro.
+                </p>
+              ) : (
+                <div style={{ display: 'grid', gap: '.3rem' }}>
+                  {resumen.ocPorRetirar.map((o, i) => (
+                    <div key={`${o.codigo}-${i}`}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '.5rem', padding: '.4rem .65rem', background: 'var(--surface-hover, rgba(255,255,255,.03))', borderRadius: '6px', border: '1px solid var(--border, rgba(255,255,255,.06))' }}>
+                      <span style={{ fontSize: '.88rem' }}>
+                        <strong>{o.proveedor}</strong>
+                        {o.codigo && <span className="muted"> · {o.codigo}</span>}
+                      </span>
+                      <span className="muted" style={{ fontSize: '.8rem' }}>{o.entrega} · pagada {o.pagada}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ margin: '1rem 0 .8rem', borderTop: '1px solid var(--border, rgba(255,255,255,.08))', paddingTop: '.75rem' }}>
             <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.5rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
               <span>👥 Por analista</span>

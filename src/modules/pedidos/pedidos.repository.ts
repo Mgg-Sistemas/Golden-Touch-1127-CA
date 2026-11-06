@@ -1636,7 +1636,7 @@ export async function listOrdenesReporteCompras(): Promise<Orden[]> {
 export async function listOrdenesCierreDiario(): Promise<FilaCierre[]> {
   return todasLasFilas<FilaCierre>((d, h) => supabase
     .from(TABLE)
-    .select('id, estado, created_at, op_padre_id, oc_creada_en, oc_aprobada_en, aprobada_en, pagada_en, finalizada_en, finalizada_por, oc_creada_por, oc_emitida_por, oc_codigo, codigo, proveedor_id, total, condiciones_pago, recibido_total')
+    .select('id, estado, created_at, op_padre_id, oc_creada_en, oc_aprobada_en, aprobada_en, pagada_en, finalizada_en, finalizada_por, oc_creada_por, oc_emitida_por, oc_codigo, codigo, proveedor_id, total, condiciones_pago, recibido_total, tipo, recibida_en, retiro_confirmado_en, modalidad_entrega')
     .order('created_at', { ascending: true })
     .order('id')
     .range(d, h));
@@ -2021,6 +2021,25 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   if (!guardada) throw new PagoRegistradoSinDatos(o.id, null);
   return anotarRetencionYReembolso(o, guardada, retencion, centavos(input.reembolsoUsd), reembolsoMovIds,
     centavos(input.retencionMontoBs), Number(input.retencionTasa) || 0);
+}
+
+/**
+ * 06/11/2026 · «Pendientes por recibir»: el analista confirma que la OC pagada se retira y cómo
+ * (delivery, carga pesada o a domicilio). Recién entonces le llega al delivery (la base avisa
+ * y la lista). Atómico: solo si sigue pagada y sin confirmar.
+ */
+export async function confirmarRetiroOc(o: Orden, modalidad: NonNullable<Orden['modalidad_entrega']>, actorEmail: string): Promise<Orden> {
+  if (o.estado !== 'pagada' || o.recibida_en) throw new Error('Solo se confirma el retiro de una OC pagada y sin recibir.');
+  const { data, error } = await supabase.from(TABLE).update({
+    modalidad_entrega: modalidad,
+    retiro_confirmado_en: new Date().toISOString(),
+    retiro_confirmado_por: actorEmail,
+    historial: appendHistorial(o, 'retiro_confirmado', actorEmail, { modalidad, antes: o.modalidad_entrega ?? null }),
+  }).eq('id', o.id).eq('estado', 'pagada').is('retiro_confirmado_en', null).select('*');
+  if (error) throw error;
+  const r = (data ?? [])[0] as Orden | undefined;
+  if (!r) throw new Error('El retiro de esta OC ya fue confirmado (o la OC cambió). Recarga la lista.');
+  return r;
 }
 
 /** Motivos sugeridos para marcar una OC pagada sin descontar caja (06/11/2026). */

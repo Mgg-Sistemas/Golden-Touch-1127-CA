@@ -36,6 +36,8 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, etiquetaModalidadEntrega, type ModalidadEntrega } from '@/shared/lib/types';
+import { COL_POR_RETIRAR, esperaRetiro, textoEventoDelivery } from './retiroOc';
+import { confirmarRetiroOc } from './pedidos.repository';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
@@ -159,7 +161,9 @@ type Scope = 'pedidos' | 'almacen' | 'oc' | 'compra_directa' | 'oc_lote' | 'serv
 // disponible en el Histórico (que lista TODAS las órdenes). Las columnas de
 // "cola activa" (cargar ofertas / intake que espera acción) se marcan
 // `sinLimite` para mostrarlas completas y no ocultar trabajo pendiente.
-type KanbanCol = { key: EstadoOrden; label: string; sinLimite?: boolean };
+// 06/11/2026: «por_retirar» es una columna virtual (OC pagada que espera que Compras confirme el retiro).
+type ColKey = EstadoOrden | typeof COL_POR_RETIRAR;
+type KanbanCol = { key: ColKey; label: string; sinLimite?: boolean };
 const KANBAN_COLS_PEDIDOS: KanbanCol[] = [
   // 31/10/2026: con el flujo nuevo la SP pasa primero por Almacén (interruptor compras_revision_almacen).
   { key: 'revision_almacen', label: 'En revisión de Almacén', sinLimite: true },
@@ -180,7 +184,9 @@ const KANBAN_COLS_OC: KanbanCol[] = [
   { key: 'pagada', label: 'Pagada' },
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
-  { key: 'desistida_proveedor', label: 'Proveedor desistió' },
+  // 06/11/2026: antes «Proveedor desistió» (esas órdenes se ven en «Pendiente (cargar ofertas)»,
+  // donde se vuelven a cotizar). Ahora: OC pagadas que esperan que el analista confirme el retiro.
+  { key: COL_POR_RETIRAR, label: 'Pendientes por recibir', sinLimite: true },
   { key: 'cancelada', label: 'Cancelada' },
 ];
 
@@ -238,6 +244,11 @@ function eventLabel(ev: string): string {
       anticipo_quitado: 'Pago anticipado quitado',
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
+      retiro_confirmado: 'Retiro confirmado por Compras',
+      delivery_tomado: 'Delivery tomado',
+      delivery_en_ruta: 'Delivery en ruta',
+      delivery_entregado: 'Delivery entregado',
+      delivery_cancelado: 'Delivery cancelado',
       pagada_sin_caja: 'Pagada sin descontar caja (Tesorería)',
       recibida: 'Recepción confirmada',
       res_despiezada: 'Res en canal despiezada',
@@ -278,6 +289,11 @@ function eventClass(ev: string): string {
       anticipo_quitado: 'warn',
       credito_saldado: 'ok',
       pagada: 'ok',
+      retiro_confirmado: 'info',
+      delivery_tomado: 'info',
+      delivery_en_ruta: 'info',
+      delivery_entregado: 'ok',
+      delivery_cancelado: 'warn',
       recibida: 'ok',
       res_despiezada: 'info',
       marca_distinta: 'warn',
@@ -317,7 +333,7 @@ export function PedidosPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [filterText, setFilterText] = useState('');
-  const [filterEstado, setFilterEstado] = useState<EstadoOrden | ''>('');
+  const [filterEstado, setFilterEstado] = useState<ColKey | ''>('');
   // «Realizadas por»: correo del analista de Compras que hizo la OC ('' = todos). 17/10/2026.
   const [filterPersona, setFilterPersona] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -580,7 +596,7 @@ export function PedidosPage() {
       const esServicio = o.tipo === 'servicio';
       if (scope === 'servicios') { if (!esServicio) return false; }
       else if (esServicio && canVerCompras) return false;
-      if (filterEstado && o.estado !== filterEstado) return false;
+      if (filterEstado && (filterEstado === COL_POR_RETIRAR ? !esperaRetiro(o) : o.estado !== filterEstado)) return false;
       if (filterPersona && realizadaPor(o) !== filterPersona) return false;
       // Busca por TODAS las características de la orden (código, proveedor, quién la hizo,
       // productos, montos, fechas, estado, método de pago…). 17/10/2026.
@@ -612,7 +628,7 @@ export function PedidosPage() {
   // más los demás estados que puede tener una orden. 17/10/2026: antes el filtro estaba
   // apagado en Kanban; ahora deja solo la columna elegida.
   const estadoOpciones = useMemo(() => {
-    const extra: { key: EstadoOrden; label: string }[] = [
+    const extra: { key: ColKey; label: string }[] = [
       { key: 'pendiente', label: 'Pendientes' }, { key: 'aprobada', label: 'Aprobadas (OP)' }, { key: 'oc_creada', label: 'OC creada' },
       { key: 'oc_aprobada', label: 'OC confirmada' }, { key: 'pagada', label: 'Pagadas' }, { key: 'desistida_proveedor', label: 'Proveedor desistió' },
       { key: 'recibida', label: 'Recibidas' }, { key: 'finalizada', label: 'Finalizadas' }, { key: 'cancelada', label: 'Canceladas' },
@@ -933,7 +949,7 @@ export function PedidosPage() {
           className="select"
           style={{ maxWidth: 220 }}
           value={filterEstado}
-          onChange={(e) => setFilterEstado(e.target.value as EstadoOrden | '')}
+          onChange={(e) => setFilterEstado(e.target.value as ColKey | '')}
           title={viewMode === 'kanban' ? 'En Kanban deja solo la columna de ese estado' : 'Filtra la lista por estado'}
         >
           <option value="">Todos los estados</option>
@@ -2661,10 +2677,17 @@ interface KanbanBoardProps {
 const KANBAN_MAX_POR_COL = 10;
 function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOferta }: KanbanBoardProps) {
   const byState = useMemo(() => {
-    const map = new Map<EstadoOrden, Orden[]>();
+    const map = new Map<ColKey, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
+    // 06/11/2026: la OC pagada que espera la confirmación del retiro va a «Pendientes por recibir»;
+    // la de «proveedor desistió» (sin columna propia en Compras) a «Pendiente (cargar ofertas)».
+    const colDe = (o: Orden): ColKey => {
+      if (map.has(COL_POR_RETIRAR) && esperaRetiro(o)) return COL_POR_RETIRAR;
+      if (o.estado === 'desistida_proveedor' && !map.has('desistida_proveedor') && map.has('aprobada')) return 'aprobada';
+      return o.estado;
+    };
     ordenes.forEach((o) => {
-      const list = map.get(o.estado);
+      const list = map.get(colDe(o));
       if (list) list.push(o);
     });
     return map;
@@ -2794,6 +2817,11 @@ const KanbanCard = memo(function KanbanCard({
       {analista && (
         <div className="meta" style={{ fontSize: '.72rem', marginTop: '.1rem' }} title="Analista que trabaja la solicitud">
           <span>🧑‍💼 Analista: <strong><Quien correo={analista} vacio="—" /></strong></span>
+        </div>
+      )}
+      {esperaRetiro(orden) && (
+        <div className="meta" style={{ fontSize: '.72rem', marginTop: '.1rem' }} title="Pagada: falta que Compras confirme el retiro para que le llegue al delivery">
+          <span className="badge warning">📦 Confirmar retiro · {etiquetaModalidadEntrega(orden.modalidad_entrega)}</span>
         </div>
       )}
       <div className="foot">
@@ -3461,6 +3489,23 @@ function OrdenDetailModal({
           <div className="v"><span className="badge">{etiquetaModalidadEntrega(o.modalidad_entrega)}</span></div>
         </div>
       )}
+      {/* 06/11/2026: «Pendientes por recibir» — el analista confirma el retiro antes del delivery. */}
+      {esperaRetiro(o) && (
+        canManageProcurement
+          ? <ConfirmarRetiroBox orden={o} actorEmail={actorEmail} onDone={onAcceptedOffer} />
+          : (
+            <div className="detail-row">
+              <div className="k">Retiro</div>
+              <div className="v"><span className="badge warning">📦 Pendiente: Compras confirma el retiro</span></div>
+            </div>
+          )
+      )}
+      {o.retiro_confirmado_en && (
+        <div className="detail-row">
+          <div className="k">Retiro confirmado</div>
+          <div className="v">{dateTime(o.retiro_confirmado_en)} <span className="muted">por {o.retiro_confirmado_por === 'sistema' ? 'el sistema (ya estaba con el delivery)' : persona(o.retiro_confirmado_por, personaMap)}</span></div>
+        </div>
+      )}
       {o.metodo_pago && o.metodo_pago.length > 0 && (
         <div className="detail-row">
           <div className="k">Método de pago</div>
@@ -3903,6 +3948,46 @@ function EnviarPorCorreoModal({
   );
 }
 
+/* 06/11/2026 · «Pendientes por recibir»: el analista confirma que la OC pagada se retira y cómo.
+   Recién al confirmar le llega al delivery / carga pesada (a domicilio no va a ninguno). */
+function ConfirmarRetiroBox({ orden: o, actorEmail, onDone }: { orden: Orden; actorEmail: string; onDone: () => void }) {
+  const [modalidad, setModalidad] = useState<ModalidadEntrega | null>(o.modalidad_entrega ?? null);
+  const [saving, setSaving] = useState(false);
+  async function confirmar() {
+    if (!modalidad || saving) return;
+    setSaving(true);
+    try {
+      await confirmarRetiroOc(o, modalidad, actorEmail);
+      notify(modalidad === 'proveedor'
+        ? `OC ${o.oc_codigo} · retiro confirmado: la trae el proveedor`
+        : `OC ${o.oc_codigo} · retiro confirmado: enviada a ${modalidad === 'carga_pesada' ? 'Carga pesada' : 'Delivery'}`, 'success', { link: '#/app/pedidos' });
+      onDone();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo confirmar el retiro', 'error');
+    } finally { setSaving(false); }
+  }
+  return (
+    <div className="card" style={{ margin: '.5rem 0', padding: '.65rem .85rem', borderLeft: `3px solid ${modalidad ? 'var(--warning, #f59e0b)' : 'var(--danger, #ef4444)'}` }}>
+      <div style={{ fontSize: '.8rem', fontWeight: 700, letterSpacing: '.04em', marginBottom: '.25rem' }}>📦 PENDIENTE POR RECIBIR · CONFIRMAR RETIRO</div>
+      <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.45rem' }}>
+        La OC está pagada. Confirma cómo se retira: al confirmar le llega al delivery o a carga pesada (a domicilio la trae el proveedor).
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+        {MODALIDADES_ENTREGA.map((m) => (
+          <label key={m.key} className="card" title={m.ayuda}
+            style={{ display: 'flex', alignItems: 'center', gap: '.4rem', margin: 0, padding: '.4rem .7rem', cursor: 'pointer', borderColor: modalidad === m.key ? 'var(--warning, #f59e0b)' : 'var(--border)' }}>
+            <input type="radio" name={`retiro-${o.id}`} checked={modalidad === m.key} onChange={() => setModalidad(m.key)} disabled={saving} />
+            <strong>{m.icono} {m.label.toUpperCase()}</strong>
+          </label>
+        ))}
+      </div>
+      <button className="btn btn-primary btn-sm" disabled={!modalidad || saving} onClick={() => void confirmar()}>
+        {saving ? 'Confirmando…' : '✓ Confirmar retiro'}
+      </button>
+    </div>
+  );
+}
+
 /** Muestra el Nombre y Apellido de la persona a partir de su email o ID; nunca el correo plano. */
 function persona(email: string | null | undefined, map: Map<string, string>): string {
   if (!email) return '—';
@@ -3942,6 +4027,11 @@ function Timeline({
           const nuevo = ext.proveedorNuevoId ? proveedorMap.get(ext.proveedorNuevoId) : null;
           if (h.motivo) extra = ` · ${h.motivo}`;
           if (anterior && nuevo) extra = ` · de ${anterior.razon_social} → ${nuevo.razon_social}${h.motivo ? ' · ' + h.motivo : ''}`;
+          // 06/11/2026: lo que hizo el delivery (quién lo tomó, entregó…) y la confirmación del retiro.
+          const ev = h as EventoHistorial & { repartidor?: string | null; canal?: string | null; almacen?: string | null; modalidad?: ModalidadEntrega | null };
+          const td = textoEventoDelivery({ ...ev, motivo: h.motivo ?? null });
+          if (td) { titulo = td; extra = ''; }
+          if (h.evento === 'retiro_confirmado') extra = ` · ${etiquetaModalidadEntrega(ev.modalidad)}`;
         }
         return (
           <div className="tl-item" key={`${h.at}-${i}`}>

@@ -540,6 +540,7 @@
 .kanban-col[data-state="pendiente"]           { --col-accent: var(--warning); }
 .kanban-col[data-state="aprobada"]            { --col-accent: var(--success); }
 .kanban-col[data-state="desistida_proveedor"] { --col-accent: var(--warning); }
+.kanban-col[data-state="por_retirar"] { --col-accent: var(--warning); }
 .kanban-col[data-state="rechazada"]           { --col-accent: var(--danger); }
 .kanban-col[data-state="cancelada"]           { --col-accent: var(--danger); }
 .kanban-col[data-state="recibida"]            { --col-accent: var(--info); }

@@ -17,6 +17,8 @@
    ============================================================ */
 import type { Orden } from '@/shared/lib/types';
 import { nombrePersonaCompras } from './personasCompras';
+import { esperaRetiro } from './retiroOc';
+import { MODALIDADES_ENTREGA } from '@/shared/lib/types';
 
 export const ZONA_CIERRE = 'America/Caracas';
 
@@ -57,6 +59,11 @@ export type FilaCierre = Pick<
   | 'total'
   | 'condiciones_pago'
   | 'recibido_total'
+  // 06/11/2026: para «Pendientes por retirar» (OC pagada sin confirmar el retiro).
+  | 'tipo'
+  | 'recibida_en'
+  | 'retiro_confirmado_en'
+  | 'modalidad_entrega'
 >;
 
 export interface AnalistaCierre {
@@ -75,6 +82,16 @@ export interface OcPorPagarCierre {
   montoUsd: number;
 }
 
+/** Una OC pagada que espera que Compras confirme el retiro (06/11/2026). */
+export interface OcPorRetirarCierre {
+  codigo: string;
+  proveedor: string;
+  /** Cómo se indicó que se retira (Delivery, Carga pesada, Con entrega a domicilio o «Sin indicar»). */
+  entrega: string;
+  /** dd/mm/aaaa del pago. */
+  pagada: string;
+}
+
 export interface ResumenCierre {
   pedidos: number;
   porPagar: number;
@@ -84,6 +101,8 @@ export interface ResumenCierre {
   ocPorPagar: OcPorPagarCierre[];
   /** Suma en $ de `ocPorPagar`. */
   totalPorPagarUsd: number;
+  /** OC pagadas que esperan la confirmación del retiro (las pendientes a la fecha de cierre). */
+  ocPorRetirar?: OcPorRetirarCierre[];
 }
 
 export const SIN_PROVEEDOR_CIERRE = 'Sin proveedor';
@@ -204,7 +223,7 @@ export function calcularCierre(
     const d = fechaCaracas(v);
     return d !== '' && d >= p.desde && d <= p.hasta;
   };
-  const r: ResumenCierre = { pedidos: 0, porPagar: 0, pagadas: 0, analistas: [], ocPorPagar: [], totalPorPagarUsd: 0 };
+  const r: ResumenCierre = { pedidos: 0, porPagar: 0, pagadas: 0, analistas: [], ocPorPagar: [], totalPorPagarUsd: 0, ocPorRetirar: [] };
   const analistasMap = new Map<string, { cotizaciones: number; finalizadas: number }>();
   const getAnalista = (email: string) => {
     const norm = email.toLowerCase().trim();
@@ -228,6 +247,15 @@ export function calcularCierre(
       });
     }
     if (o.pagada_en && !SIN_PAGO_VALIDO.has(o.estado) && en(o.pagada_en)) r.pagadas += 1;
+    // Pendientes por retirar: pagadas hasta el cierre y todavía sin confirmar el retiro.
+    if (esperaRetiro(o) && fechaCaracas(o.pagada_en) !== '' && fechaCaracas(o.pagada_en) <= p.hasta) {
+      r.ocPorRetirar!.push({
+        codigo: (o.oc_codigo || o.codigo || '').trim(),
+        proveedor: (o.proveedor_id && proveedores?.get(o.proveedor_id)?.trim()) || SIN_PROVEEDOR_CIERRE,
+        entrega: MODALIDADES_ENTREGA.find((m) => m.key === o.modalidad_entrega)?.label ?? 'Sin indicar',
+        pagada: fechaCorta(fechaCaracas(o.pagada_en)),
+      });
+    }
 
     // Órdenes finalizadas por analista en el período
     if (o.estado === 'finalizada' && en(o.finalizada_en ?? o.created_at)) {
@@ -262,6 +290,7 @@ export function calcularCierre(
 
   r.ocPorPagar.sort((a, b) => a.proveedor.localeCompare(b.proveedor, 'es') || a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   r.totalPorPagarUsd = redondear2(r.ocPorPagar.reduce((s, x) => s + x.montoUsd, 0));
+  r.ocPorRetirar!.sort((a, b) => a.proveedor.localeCompare(b.proveedor, 'es') || a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
 
   return r;
 }

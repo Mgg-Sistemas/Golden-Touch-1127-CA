@@ -1347,6 +1347,9 @@ export interface Orden {
   /** 06/11/2026: marcada pagada SIN descontar saldo de cajas (sin egreso), con su motivo. */
   pagada_sin_caja?: boolean | null;
   pagada_sin_caja_motivo?: string | null;
+  /** 06/11/2026: Compras confirmó el retiro de la OC pagada (sin esto el delivery no la ve). */
+  retiro_confirmado_en?: string | null;
+  retiro_confirmado_por?: string | null;
   caja_id?: string | null;
   caja_mov_id?: string | null;
   factura_path?: string | null;
@@ -2095,8 +2098,8 @@ export const etiquetaSedeEntrega = (s: string | null | undefined): string | null
 export type ModalidadEntrega = 'delivery' | 'carga_pesada' | 'proveedor';
 
 export const MODALIDADES_ENTREGA: { key: ModalidadEntrega; label: string; icono: string; ayuda: string }[] = [
-  { key: 'delivery', label: 'Delivery', icono: '🛵', ayuda: 'Una vez pagada, la orden va a la vista Delivery.' },
-  { key: 'carga_pesada', label: 'Carga pesada', icono: '🚚', ayuda: 'Una vez pagada, la orden va a la vista CARGA PESADA (solo la ve ese rol).' },
+  { key: 'delivery', label: 'Delivery', icono: '🛵', ayuda: 'Una vez pagada y con el retiro confirmado por Compras, la orden va a la vista Delivery.' },
+  { key: 'carga_pesada', label: 'Carga pesada', icono: '🚚', ayuda: 'Una vez pagada y con el retiro confirmado por Compras, la orden va a la vista CARGA PESADA (solo la ve ese rol).' },
   { key: 'proveedor', label: 'Con entrega a domicilio', icono: '🏠', ayuda: 'La trae el mismo proveedor: NO va a Delivery ni a Carga pesada.' },
 ];
 

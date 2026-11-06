@@ -108,6 +108,40 @@ export async function construirCierreDiarioExcel(r: ResumenCierre, p: PeriodoCie
     });
   }
 
+  // 06/11/2026: OC pagadas que esperan que Compras confirme el retiro.
+  if (r.ocPorRetirar) {
+    ws.addRow([]);
+    const secRet = ws.addRow([`PENDIENTES POR RETIRAR (${r.ocPorRetirar.length})`]);
+    secRet.height = 24;
+    ws.mergeCells(secRet.number, 1, secRet.number, 3);
+    secRet.getCell(1).font = { name: 'Arial', size: 12, bold: true, color: { argb: PASTEL.titulo } };
+    secRet.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    if (r.ocPorRetirar.length === 0) {
+      const vacia = ws.addRow(['No hay órdenes pagadas esperando que se confirme el retiro.']);
+      ws.mergeCells(vacia.number, 1, vacia.number, 3);
+      vacia.getCell(1).font = { name: 'Arial', size: 10, color: { argb: 'FF5C6673' } };
+    } else {
+      const cab = ws.addRow(['PROVEEDOR', 'OC', 'ENTREGA · PAGADA']);
+      cab.height = 24;
+      cab.eachCell((c) => {
+        c.font = { name: 'Arial', size: 11, bold: true, color: { argb: PASTEL.cabeceraTexto } };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cabecera } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = bordes;
+      });
+      r.ocPorRetirar.forEach((o, i) => {
+        const row = ws.addRow([o.proveedor, o.codigo, `${o.entrega} · ${o.pagada}`]);
+        row.height = 22;
+        row.eachCell((c, col) => {
+          c.font = { name: 'Arial', size: 11 };
+          c.border = bordes;
+          c.alignment = { vertical: 'middle', horizontal: col === 1 ? 'left' : 'center', indent: col === 1 ? 1 : 0 };
+          if (i % 2 === 1) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PASTEL.cebra } };
+        });
+      });
+    }
+  }
+
   if (r.analistas && r.analistas.length > 0) {
     ws.addRow([]); // fila vacía separadora
     const secRow = ws.addRow(['POR ANALISTA']);
