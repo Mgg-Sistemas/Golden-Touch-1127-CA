@@ -6,6 +6,8 @@ import {
   filtrarMovimientos,
   procesarFilasReporte,
   obtenerMetricasFicha,
+  esColumnaAplicableModoCombustible,
+  resolverCabeceraTarjetaCombustible,
 } from './reporteMoldeable';
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import type { MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
@@ -373,5 +375,77 @@ describe('reporteMoldeable', () => {
     expect(m3.find((m) => m.clave === 'hora')?.valor).toBe('14:30');
     expect(m3.find((m) => m.clave === 'autorizado')?.valor).toBe('Juan Pérez');
     expect(m3.find((m) => m.clave === 'observacion')?.valor).toBe('Carga completa');
+  });
+
+  it('esColumnaAplicableModoCombustible restringe checks no aplicables según la dimensión principal', () => {
+    // 1. En detallado aplican todas las 20 columnas
+    expect(esColumnaAplicableModoCombustible('hora', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('autorizado', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('observacion', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('fecha', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('equipo', 'detallado')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('litros', 'detallado')).toBe(true);
+
+    // 2. En modo Por Equipo (consumo por equipo)
+    expect(esColumnaAplicableModoCombustible('hora', 'equipo')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('autorizado', 'equipo')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('observacion', 'equipo')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('fecha', 'equipo')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('equipo', 'equipo')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('litros', 'equipo')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('horas', 'equipo')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('rendimiento', 'equipo')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('horometro_ini', 'equipo')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('horometro_fin', 'equipo')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('usd', 'equipo')).toBe(true);
+
+    // 3. En modo Por Empresa o Tanque
+    expect(esColumnaAplicableModoCombustible('hora', 'empresa')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('horometro_ini', 'empresa')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('fecha', 'empresa')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('empresa', 'empresa')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('litros', 'empresa')).toBe(true);
+
+    // 4. En modo Por Día
+    expect(esColumnaAplicableModoCombustible('fecha', 'dia')).toBe(true);
+    expect(esColumnaAplicableModoCombustible('hora', 'dia')).toBe(false);
+    expect(esColumnaAplicableModoCombustible('autorizado', 'dia')).toBe(false);
+  });
+
+  it('resolverCabeceraTarjetaCombustible adapta rótulo, título y subtítulo a la dimensión y checks activos', () => {
+    const fila = {
+      equipo: 'YAMAGRO 60KVA',
+      empresa: 'GOLDEN TOUCH 1127',
+      tipo: 'GENERADOR',
+      ubicacion: 'CAMPAMENTO',
+      tanque: 'Tanque #3 (Mina)',
+      fecha: '2026-11-06',
+      hora: '10:00',
+    } as any;
+
+    // Caso Por Equipo con empresa y tipo marcados
+    const cab1 = resolverCabeceraTarjetaCombustible(fila, 'equipo', ['empresa', 'tipo', 'litros']);
+    expect(cab1.rotulo).toBe('Equipo');
+    expect(cab1.titulo).toBe('YAMAGRO 60KVA');
+    expect(cab1.subtitulo).toContain('GOLDEN TOUCH 1127');
+    expect(cab1.subtitulo).toContain('GENERADOR');
+    expect(cab1.subtitulo).not.toContain('CAMPAMENTO'); // Desmarcado
+
+    // Caso Por Equipo desmarcando empresa (la ficha responde ocultando empresa)
+    const cab2 = resolverCabeceraTarjetaCombustible(fila, 'equipo', ['tipo', 'litros']);
+    expect(cab2.subtitulo).toBe('GENERADOR');
+    expect(cab2.subtitulo).not.toContain('GOLDEN TOUCH');
+
+    // Caso Por Tanque
+    const cab3 = resolverCabeceraTarjetaCombustible(fila, 'tanque', ['empresa', 'litros']);
+    expect(cab3.rotulo).toBe('Tanque');
+    expect(cab3.titulo).toBe('Tanque #3');
+    expect(cab3.subtitulo).toBe('GOLDEN TOUCH 1127');
+
+    // Caso Por Empresa
+    const cab4 = resolverCabeceraTarjetaCombustible(fila, 'empresa', ['tipo', 'litros']);
+    expect(cab4.rotulo).toBe('Empresa');
+    expect(cab4.titulo).toBe('GOLDEN TOUCH 1127');
+    expect(cab4.subtitulo).toBe('GENERADOR');
   });
 });

@@ -24,7 +24,12 @@ import type {
   ModoAgrupacionCombustible,
   BaseTasaUsd,
 } from './reporteMoldeable';
-import { CAMPOS_REPORTE_COMBUSTIBLE, obtenerMetricasFicha } from './reporteMoldeable';
+import {
+  CAMPOS_REPORTE_COMBUSTIBLE,
+  esColumnaAplicableModoCombustible,
+  resolverCabeceraTarjetaCombustible,
+  obtenerMetricasFicha,
+} from './reporteMoldeable';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const TINTA: [number, number, number] = [30, 41, 59];
@@ -97,7 +102,8 @@ export async function descargarCombustibleExcel(
   wb.created = new Date();
 
   const idEmp = identidadEmpresa('GT');
-  const columnas = columnasClaves
+  const colsAplicables = columnasClaves.filter((c) => esColumnaAplicableModoCombustible(c, meta.agrupacion));
+  const columnas = colsAplicables
     .map((c) => CAMPOS_REPORTE_COMBUSTIBLE.find((col) => col.clave === c))
     .filter(Boolean) as CampoColumnaCombustible[];
 
@@ -332,11 +338,12 @@ export async function descargarCombustiblePdf(
     import('jspdf-autotable'),
   ]);
 
-  const columnas = columnasClaves
+  const colsAplicables = columnasClaves.filter((c) => esColumnaAplicableModoCombustible(c, meta.agrupacion));
+  const columnas = colsAplicables
     .map((c) => CAMPOS_REPORTE_COMBUSTIBLE.find((col) => col.clave === c))
     .filter(Boolean) as CampoColumnaCombustible[];
 
-  if (!columnas.length) throw new Error('Selecciona al menos una columna.');
+  if (!columnas.length) throw new Error('Selecciona al menos una columna aplicable.');
   if (!filas.length) throw new Error('No hay datos de combustible para el período seleccionado.');
 
   const esFichas = meta.formatoPresentacion !== 'tabla';
@@ -482,8 +489,20 @@ export async function descargarCombustiblePdf(
     const cols = orient === 'landscape' ? 2 : 1;
     const cardGap = 10;
     const cardW = (UW - (cols - 1) * cardGap) / cols;
+    // Filtrar columnas para no duplicar datos de cabecera en modos agrupados
+    const colsMetricas = colsAplicables.filter((c) => {
+      if (meta.agrupacion === 'equipo' && c === 'equipo') return false;
+      if (meta.agrupacion === 'empresa' && c === 'empresa') return false;
+      if (meta.agrupacion === 'tipo' && c === 'tipo') return false;
+      if (meta.agrupacion === 'tanque' && c === 'tanque') return false;
+      if (meta.agrupacion === 'ubicacion' && c === 'ubicacion') return false;
+      if ((meta.agrupacion === 'dia' || meta.agrupacion === 'mes') && c === 'fecha') return false;
+      if (meta.agrupacion !== 'detallado' && (c === 'empresa' || c === 'tipo' || c === 'ubicacion' || c === 'tanque')) return false;
+      return true;
+    });
+
     const maxMetricas = Math.max(
-      ...filas.map((f) => obtenerMetricasFicha(f, columnasClaves).length),
+      ...filas.map((f) => obtenerMetricasFicha(f, colsMetricas).length),
       1,
     );
     const colsPorFila = orient === 'landscape'
@@ -512,14 +531,19 @@ export async function descargarCombustiblePdf(
         doc.setLineWidth(0.6);
         doc.roundedRect(cx, cy, cardW, cardH, 4, 4, 'FD');
 
-        // Borde izquierdo naranja
-        doc.setFillColor(...NARANJA);
+        // Borde izquierdo naranja o azul si es traslado
+        const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
+        doc.setFillColor(esTraslado ? 2 : 255, esTraslado ? 132 : 138, esTraslado ? 199 : 0);
         doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
 
-        // Badge % Consumo con respecto al Tanque (calculado si está en columnas marcadas)
-        const tieneBadge = columnasClaves.includes('pct_tanque') || columnasClaves.includes('pct_total');
+        // Badge % Consumo con respecto al Tanque o Total (según checks marcados)
+        const tienePctTanque = colsAplicables.includes('pct_tanque');
+        const tienePctTotal = colsAplicables.includes('pct_total');
+        const tieneBadge = tienePctTanque || tienePctTotal;
         const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
-        const txtPctTanque = `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% con respecto a ${pdfSafe(tanqueCorto)}`;
+        const txtPctTanque = tienePctTanque
+          ? `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% con respecto a ${pdfSafe(tanqueCorto)}`
+          : `${f.pct_total.toFixed(1)}% del total período`;
         const txtSubBadge = f.pct_capacidad > 0
           ? `${f.pct_capacidad.toFixed(1)}% de la capacidad física (${fmtNum(f.capacidad_tanque || 0)} L)`
           : `${f.pct_total.toFixed(1)}% del consumo total del período`;
@@ -536,7 +560,6 @@ export async function descargarCombustiblePdf(
         const badgeH = 15;
         const bx = cx + cardW - badgeW - 6;
         const by = cy + 4;
-        const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
 
         if (tieneBadge) {
           if (esTraslado) {
@@ -573,9 +596,10 @@ export async function descargarCombustiblePdf(
           doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
         }
 
-        // Nombre de Equipo: delimitado exactamente antes del badge para evitar todo solapado
+        // Cabecera: Rótulo, Título y Subtítulo según la dimensión activa y checks marcados
+        const cab = resolverCabeceraTarjetaCombustible(f, meta.agrupacion, colsAplicables);
         const maxTitleW = tieneBadge ? Math.max(60, (bx - 8) - (cx + 10)) : cardW - 20;
-        const eqNombre = pdfSafe(f.equipo || 'Sin clasificar');
+        const eqNombre = pdfSafe(cab.titulo);
         let titleFontSize = 9.5;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(titleFontSize);
@@ -595,16 +619,11 @@ export async function descargarCombustiblePdf(
         doc.setTextColor(...TINTA);
         doc.text(titleFinal, cx + 10, cy + 13);
 
-        // Subtitulo con Empresa / Tipo / Ubicacion
+        // Subtítulo con los datos secundarios marcados
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.2);
         doc.setTextColor(100, 116, 139);
-        const partesMeta = [
-          f.empresa,
-          f.tipo && f.tipo !== f.empresa && f.tipo !== f.equipo ? f.tipo : null,
-          f.ubicacion && f.ubicacion !== f.equipo ? f.ubicacion : null,
-        ].filter(Boolean);
-        const metaTxt = pdfSafe(partesMeta.join(' · ') || 'Flota General');
+        const metaTxt = pdfSafe(cab.subtitulo || '');
         const maxMetaW = cardW - 20;
         let metaFinal = metaTxt;
         if (doc.getTextWidth(metaFinal) > maxMetaW) {
@@ -613,15 +632,17 @@ export async function descargarCombustiblePdf(
           }
           metaFinal += '…';
         }
-        doc.text(metaFinal, cx + 10, cy + 24);
+        if (metaFinal) {
+          doc.text(metaFinal, cx + 10, cy + 24);
+        }
 
         // Divisor interior
         doc.setDrawColor(241, 245, 249);
         doc.setLineWidth(0.5);
         doc.line(cx + 8, cy + 29, cx + cardW - 8, cy + 29);
 
-        // Metricas dinamicas de la tarjeta segun las columnas seleccionadas
-        const metricasCard = obtenerMetricasFicha(f, columnasClaves);
+        // Métricas dinámicas de la tarjeta según las columnas seleccionadas
+        const metricasCard = obtenerMetricasFicha(f, colsMetricas);
         const innerW = cardW - 16;
         const myBase = cy + 38;
         const colW = innerW / colsPorFila;
@@ -763,7 +784,8 @@ export function descargarCombustibleCsv(
   columnasClaves: string[],
   meta: MetadatosExportacion
 ): void {
-  const columnas = columnasClaves
+  const colsAplicables = columnasClaves.filter((c) => esColumnaAplicableModoCombustible(c, meta.agrupacion));
+  const columnas = colsAplicables
     .map((c) => CAMPOS_REPORTE_COMBUSTIBLE.find((col) => col.clave === c))
     .filter(Boolean) as CampoColumnaCombustible[];
 

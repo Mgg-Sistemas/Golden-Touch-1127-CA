@@ -144,6 +144,134 @@ export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionCombustible, stri
   detallado: ['fecha', 'hora', 'equipo', 'horas', 'litros', 'pct_tanque', 'pct_capacidad', 'rendimiento', 'tanque', 'empresa', 'usd'],
 };
 
+/** Columnas que solo tienen sentido a nivel de transacción individual (no en resúmenes consolidados). */
+export const COLUMNAS_SOLO_DETALLE_COMBUSTIBLE = ['hora', 'autorizado', 'observacion'] as const;
+
+/**
+ * Determina si una columna es aplicable según el modo de agrupación activo.
+ * En agrupaciones consolidadas (Por Equipo, Empresa, etc.), campos individuales
+ * como Hora, Autorizado u Observación no tienen significado y se descartan
+ * para evitar llenar la tabla con guiones vacíos o tarjetas con datos inexistentes.
+ */
+export function esColumnaAplicableModoCombustible(
+  colClave: string,
+  modo: ModoAgrupacionCombustible,
+): boolean {
+  if (modo === 'detallado') {
+    return true; // En detallado cada fila es 1 despacho individual
+  }
+
+  // Despacho individual único
+  if (colClave === 'hora' || colClave === 'autorizado' || colClave === 'observacion') {
+    return false;
+  }
+
+  // Fecha solo aplica a nivel temporal (día o mes)
+  if (colClave === 'fecha') {
+    return modo === 'dia' || modo === 'mes';
+  }
+
+  // Horómetros y equipo solo aplican a nivel de máquina individual (equipo) o detallado
+  if (colClave === 'horometro_ini' || colClave === 'horometro_fin' || colClave === 'equipo') {
+    return modo === 'equipo';
+  }
+
+  return true;
+}
+
+export interface CabeceraTarjetaCombustible {
+  rotulo: string;
+  titulo: string;
+  subtitulo: string | null;
+}
+
+/**
+ * Resuelve rótulo, título y subtítulo para una ficha ejecutiva de Combustible según
+ * la dimensión principal activa, respetando fielmente los checks que el usuario marcó.
+ */
+export function resolverCabeceraTarjetaCombustible(
+  f: FilaReporteCombustible,
+  modo: ModoAgrupacionCombustible,
+  columnasClaves?: string[],
+): CabeceraTarjetaCombustible {
+  let rotulo = 'Equipo';
+  let titulo = f.equipo || 'Sin clasificar';
+  const permitir = (k: string) => !columnasClaves || columnasClaves.includes(k);
+
+  switch (modo) {
+    case 'equipo': {
+      rotulo = 'Equipo';
+      titulo = f.equipo || 'Sin clasificar';
+      break;
+    }
+    case 'dia': {
+      rotulo = 'Día / Fecha';
+      const fechaFmt = f.fecha ? f.fecha.split('-').reverse().join('/') : (f.equipo || 'Sin fecha');
+      titulo = fechaFmt;
+      break;
+    }
+    case 'mes': {
+      rotulo = 'Mes';
+      titulo = f.mes || f.equipo || 'Sin mes';
+      break;
+    }
+    case 'empresa': {
+      rotulo = 'Empresa';
+      titulo = f.empresa || f.equipo || 'Sin empresa';
+      break;
+    }
+    case 'tipo': {
+      rotulo = 'Tipo Máquina';
+      titulo = f.tipo || f.equipo || 'Otros / No clasificado';
+      break;
+    }
+    case 'ubicacion': {
+      rotulo = 'Ubicación';
+      titulo = f.ubicacion || f.equipo || 'Sin ubicación';
+      break;
+    }
+    case 'tanque': {
+      rotulo = 'Tanque';
+      const tke = f.tanque ? f.tanque.split('(')[0].trim() : (f.equipo || 'Tanque origen');
+      titulo = tke;
+      break;
+    }
+    case 'detallado': {
+      rotulo = f.es_traslado ? 'Traslado' : 'Despacho';
+      titulo = f.equipo || 'Sin clasificar';
+      break;
+    }
+  }
+
+  // Partes del subtítulo (respetando si el check está marcado y sin repetir el título principal)
+  const partesSub: (string | null | undefined)[] = [];
+
+  if (modo !== 'empresa' && permitir('empresa') && f.empresa && f.empresa !== titulo && f.empresa !== 'Sin empresa asignada') {
+    partesSub.push(f.empresa);
+  }
+  if (modo !== 'tipo' && permitir('tipo') && f.tipo && f.tipo !== titulo && f.tipo !== f.empresa && f.tipo !== 'Otros / No clasificado') {
+    partesSub.push(f.tipo);
+  }
+  if (modo !== 'ubicacion' && permitir('ubicacion') && f.ubicacion && f.ubicacion !== titulo && f.ubicacion !== 'Sin ubicación') {
+    partesSub.push(f.ubicacion);
+  }
+  if (modo !== 'tanque' && permitir('tanque') && f.tanque) {
+    const tkeCorto = f.tanque.split('(')[0].trim();
+    if (tkeCorto !== titulo) {
+      partesSub.push('Tanque: ' + tkeCorto);
+    }
+  }
+  if (modo === 'detallado' && permitir('fecha') && f.fecha) {
+    const fStr = f.fecha.split('-').reverse().join('/');
+    const hStr = permitir('hora') && f.hora ? (' ' + f.hora) : '';
+    partesSub.push(fStr + hStr);
+  }
+
+  const subtitulo = partesSub.filter(Boolean).join(' · ') || null;
+
+  return { rotulo, titulo, subtitulo };
+}
+
 const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 export function mesEtiqueta(fechaIso: string): string {

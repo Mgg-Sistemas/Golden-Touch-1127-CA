@@ -26,6 +26,8 @@ import {
   type MetricaFichaCombustible,
   CAMPOS_POR_DEFECTO_POR_MODO,
   CAMPOS_REPORTE_COMBUSTIBLE,
+  esColumnaAplicableModoCombustible,
+  resolverCabeceraTarjetaCombustible,
   enriquecerMovimientos,
   filtrarMovimientos,
   procesarFilasReporte,
@@ -325,13 +327,24 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
     return procesarFilasReporte(filtrados, agrupacion, ordenarPor);
   }, [filtrados, agrupacion, ordenarPor]);
 
+  // Columnas visibles en pantalla (respetan el toggle de USD y la aplicabilidad a la dimensión activa)
+  const marcadosVisibles = useMemo(() => {
+    return marcados.filter((c) => {
+      if ((c === 'usd' || c === 'tasa_promedio') && !tieneUsd) return false;
+      return esColumnaAplicableModoCombustible(c, agrupacion);
+    });
+  }, [marcados, tieneUsd, agrupacion]);
+
   // Manejadores de columnas (checks)
   const alternarColumna = (clave: string) => {
     setMarcados((prev) => (prev.includes(clave) ? prev.filter((c) => c !== clave) : [...prev, clave]));
   };
 
   const seleccionarTodasColumnas = () => {
-    setMarcados(CAMPOS_REPORTE_COMBUSTIBLE.map((c) => c.clave));
+    const cols = CAMPOS_REPORTE_COMBUSTIBLE
+      .filter((c) => esColumnaAplicableModoCombustible(c.clave, agrupacion))
+      .map((c) => c.clave);
+    setMarcados(cols);
   };
 
   const seleccionarPrincipalesColumnas = () => {
@@ -388,7 +401,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
 
   // Descarga en los distintos formatos
   const descargar = async (formato: 'pdf' | 'xlsx' | 'csv') => {
-    if (marcados.length === 0) {
+    if (marcadosVisibles.length === 0) {
       toast('Marca al menos una columna para exportar.', 'warning');
       return;
     }
@@ -432,11 +445,11 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
       };
 
       if (formato === 'pdf') {
-        await descargarCombustiblePdf(filas, resumen, marcados, meta);
+        await descargarCombustiblePdf(filas, resumen, marcadosVisibles, meta);
       } else if (formato === 'xlsx') {
-        await descargarCombustibleExcel(filas, resumen, marcados, meta);
+        await descargarCombustibleExcel(filas, resumen, marcadosVisibles, meta);
       } else if (formato === 'csv') {
-        descargarCombustibleCsv(filas, marcados, meta);
+        descargarCombustibleCsv(filas, marcadosVisibles, meta);
       }
     } catch (e) {
       toast(mensajeError(e, 'No se pudo generar la exportación'), 'error');
@@ -462,7 +475,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
             <button
               className="btn btn-ghost"
               onClick={() => void descargar('csv')}
-              disabled={!!ocupado || cargando || filas.length === 0 || marcados.length === 0}
+              disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}
               title="Descargar archivo plano CSV (compatible con Excel)"
             >
               {ocupado === 'csv' ? 'Generando...' : '📝 CSV'}
@@ -470,7 +483,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
             <button
               className="btn btn-ghost"
               onClick={() => void descargar('xlsx')}
-              disabled={!!ocupado || cargando || filas.length === 0 || marcados.length === 0}
+              disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}
               title="Descargar libro Excel con formatos, fórmulas y resumen"
             >
               {ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}
@@ -478,7 +491,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
             <button
               className="btn btn-primary"
               onClick={() => void descargar('pdf')}
-              disabled={!!ocupado || cargando || filas.length === 0 || marcados.length === 0}
+              disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}
               title="Descargar PDF institucional estilo Maquinaria GT"
             >
               {ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}
@@ -1062,18 +1075,26 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
         <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
             <span style={{ fontSize: '.84rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' }}>
-              ☑️ Columnas y Datos a Mostrar ({marcados.length} seleccionadas)
+              ☑️ Columnas y Datos a Mostrar ({marcadosVisibles.length} {agrupacion !== 'detallado' ? 'aplicables' : 'seleccionadas'})
             </span>
             <div style={{ display: 'flex', gap: '.3rem' }}>
               <button type="button" className="btn btn-ghost btn-xs" onClick={seleccionarPrincipalesColumnas}>Principales</button>
-              <button type="button" className="btn btn-ghost btn-xs" onClick={seleccionarTodasColumnas}>Todas</button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={seleccionarTodasColumnas}
+              >
+                {agrupacion === 'detallado' ? 'Todas' : 'Todas aplicables'}
+              </button>
               <button type="button" className="btn btn-ghost btn-xs" onClick={limpiarColumnas}>Ninguna</button>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '.35rem .5rem', maxHeight: '160px', overflowY: 'auto' }}>
             {CAMPOS_REPORTE_COMBUSTIBLE.map((col) => {
+              const aplicable = esColumnaAplicableModoCombustible(col.clave, agrupacion);
               const estaMarcado = marcados.includes(col.clave);
+              const ocultoPorToggle = (col.clave === 'usd' || col.clave === 'tasa_promedio') && !tieneUsd;
               return (
                 <label
                   key={col.clave}
@@ -1082,16 +1103,43 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                     alignItems: 'center',
                     gap: '.35rem',
                     fontSize: '.78rem',
-                    cursor: 'pointer',
-                    color: estaMarcado ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                    cursor: aplicable ? 'pointer' : 'help',
+                    color: estaMarcado && aplicable ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                    opacity: ocultoPorToggle ? 0.45 : !aplicable ? 0.45 : 1,
+                  }}
+                  title={
+                    !aplicable
+                      ? (col.clave === 'fecha'
+                          ? 'Aplica en dimensión Día, Mes o Detallado'
+                          : col.clave === 'horometro_ini' || col.clave === 'horometro_fin' || col.clave === 'equipo'
+                            ? 'Aplica en dimensión Por Equipo o Detallado'
+                            : 'Aplica en la dimensión Detallado (despacho individual)')
+                      : ocultoPorToggle
+                        ? 'Oculta por el interruptor de valuación en USD'
+                        : col.descripcion
+                  }
+                  onClick={(e) => {
+                    if (!aplicable) {
+                      e.preventDefault();
+                    }
                   }}
                 >
                   <input
                     type="checkbox"
-                    checked={estaMarcado}
+                    checked={estaMarcado && aplicable}
+                    disabled={!aplicable}
                     onChange={() => alternarColumna(col.clave)}
                   />
                   <span>{col.etiqueta}</span>
+                  {!aplicable && (
+                    <span style={{ fontSize: '.6rem', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', padding: '.05rem .28rem', borderRadius: 3, marginLeft: '.15rem' }}>
+                      {col.clave === 'fecha'
+                        ? 'Solo Día/Mes'
+                        : col.clave === 'horometro_ini' || col.clave === 'horometro_fin' || col.clave === 'equipo'
+                          ? 'Solo Equipo/Det.'
+                          : 'Solo en Detallado'}
+                    </span>
+                  )}
                 </label>
               );
             })}
@@ -1353,6 +1401,11 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
             }}>
               {filas.map((f) => {
                 const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
+                const cab = resolverCabeceraTarjetaCombustible(f, agrupacion, marcadosVisibles);
+                const tienePctTanque = marcadosVisibles.includes('pct_tanque');
+                const tienePctTotal = marcadosVisibles.includes('pct_total');
+                const mostrarBadge = tienePctTanque || tienePctTotal;
+
                 return (
                   <div
                     key={f.id}
@@ -1369,33 +1422,49 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.5rem' }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div
-                          style={{
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.15rem' }}>
+                          <span style={{
+                            fontSize: '.62rem',
                             fontWeight: 700,
-                            fontSize: '.86rem',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: esTraslado ? '#38bdf8' : 'var(--primary, #f97316)',
+                            background: 'rgba(255, 255, 255, 0.06)',
+                            border: `1px solid ${esTraslado ? 'rgba(56, 189, 248, 0.3)' : 'rgba(249, 115, 22, 0.3)'}`,
+                            padding: '.08rem .32rem',
+                            borderRadius: '3px',
+                            display: 'inline-block',
+                            flexShrink: 0,
+                          }}>
+                            {cab.rotulo}
+                          </span>
+                          <span style={{
+                            fontWeight: 700,
+                            fontSize: '.88rem',
                             color: '#f8fafc',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
-                          }}
-                          title={f.equipo || 'Sin clasificar'}
-                        >
-                          {f.equipo || 'Sin clasificar'}
+                          }} title={cab.titulo}>
+                            {cab.titulo}
+                          </span>
                         </div>
-                        <div
-                          className="muted"
-                          style={{
-                            fontSize: '.72rem',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={`${f.empresa || ''} ${f.tipo && f.tipo !== f.equipo && f.tipo !== f.empresa ? '· ' + f.tipo : ''}`}
-                        >
-                          {f.empresa || ''} {f.tipo && f.tipo !== f.equipo && f.tipo !== f.empresa ? `· ${f.tipo}` : ''}
-                        </div>
+                        {cab.subtitulo ? (
+                          <div
+                            className="muted"
+                            style={{
+                              fontSize: '.72rem',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={cab.subtitulo}
+                          >
+                            {cab.subtitulo}
+                          </div>
+                        ) : null}
                       </div>
-                      {(marcados.includes('pct_tanque') || marcados.includes('pct_total')) && (
+                      {mostrarBadge && (
                         <div style={{
                           flexShrink: 0,
                           textAlign: 'right',
@@ -1410,17 +1479,32 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                             fontWeight: 700,
                             color: esTraslado ? '#38bdf8' : 'var(--primary, #f97316)'
                           }}>
-                            {(f.pct_tanque ?? f.pct_total).toFixed(1)}%
+                            {tienePctTanque
+                              ? `${(f.pct_tanque ?? f.pct_total).toFixed(1)}%`
+                              : `${f.pct_total.toFixed(1)}%`}
                           </div>
                           <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>
-                            con respecto a {f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque'}
+                            {tienePctTanque
+                              ? `con respecto a ${f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque'}`
+                              : 'del período'}
                           </div>
                         </div>
                       )}
                     </div>
 
                     {(() => {
-                      const metricasFicha = obtenerMetricasFicha(f, marcados);
+                      const colsMetricas = marcadosVisibles.filter((c) => {
+                        if (agrupacion === 'equipo' && c === 'equipo') return false;
+                        if (agrupacion === 'empresa' && c === 'empresa') return false;
+                        if (agrupacion === 'tipo' && c === 'tipo') return false;
+                        if (agrupacion === 'tanque' && c === 'tanque') return false;
+                        if (agrupacion === 'ubicacion' && c === 'ubicacion') return false;
+                        if ((agrupacion === 'dia' || agrupacion === 'mes') && c === 'fecha') return false;
+                        if (agrupacion !== 'detallado' && (c === 'empresa' || c === 'tipo' || c === 'ubicacion' || c === 'tanque')) return false;
+                        return true;
+                      });
+                      const metricasFicha = obtenerMetricasFicha(f, colsMetricas);
+                      if (metricasFicha.length === 0) return null;
                       return (
                         <div style={{
                           display: 'grid',
@@ -1456,7 +1540,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.76rem' }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-1, #0f172a)', borderBottom: '1px solid var(--border)' }}>
-                    {marcados.map((cKey) => {
+                    {marcadosVisibles.map((cKey) => {
                       const cDef = CAMPOS_REPORTE_COMBUSTIBLE.find((c) => c.clave === cKey);
                       return (
                         <th
@@ -1484,7 +1568,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                         background: idx % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent'
                       }}
                     >
-                      {marcados.map((cKey) => {
+                      {marcadosVisibles.map((cKey) => {
                         const cDef = CAMPOS_REPORTE_COMBUSTIBLE.find((c) => c.clave === cKey);
                         const raw = (f as unknown as Record<string, unknown>)[cKey];
                         let txt = raw != null ? String(raw) : '—';
