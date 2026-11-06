@@ -705,20 +705,234 @@ export function obtenerMetricasFicha(
   const metricas: MetricaFichaCombustible[] = [];
   const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
 
-  // 1. Horas trabajadas (solo si esta marcado)
-  if (columnasClaves.includes('horas')) {
-    metricas.push({
-      clave: 'horas',
-      etiqueta: 'HORAS TRAB.',
-      valor: f.horas > 0 ? `${f.horas.toLocaleString('es-VE')} h` : '—',
-      sub: f.rendimiento ? `${f.rendimiento.toFixed(1)} L/h rend.` : (f.clase === 'vehiculo' ? 'Vehiculo (odom.)' : 'Sin horom.'),
-      colorHex: '#38bdf8',
-      colorRgb: [2, 132, 199],
-    });
+  for (const c of columnasClaves) {
+    switch (c) {
+      case 'horas':
+        metricas.push({
+          clave: 'horas',
+          etiqueta: 'HORAS TRAB.',
+          valor: f.horas > 0 ? `${f.horas.toLocaleString('es-VE')} h` : '—',
+          sub: f.rendimiento ? `${f.rendimiento.toFixed(1)} L/h rend.` : (f.clase === 'vehiculo' ? 'Vehículo (odom.)' : 'Sin horóm.'),
+          colorHex: '#38bdf8',
+          colorRgb: [2, 132, 199],
+        });
+        break;
+
+      case 'litros':
+        metricas.push({
+          clave: 'litros',
+          etiqueta: 'CONSUMO (L)',
+          valor: `${f.litros.toLocaleString('es-VE')} L`,
+          sub: `${f.surtidos} despacho(s)`,
+          colorHex: 'var(--primary, #f97316)',
+          colorRgb: [234, 88, 12],
+        });
+        break;
+
+      case 'pct_tanque':
+        metricas.push({
+          clave: 'pct_tanque',
+          etiqueta: '% DEL TANQUE',
+          valor: `${(f.pct_tanque ?? f.pct_total).toFixed(1)}%`,
+          sub: `del ${tanqueCorto}`,
+          colorHex: '#a855f7',
+          colorRgb: [147, 51, 234],
+        });
+        break;
+
+      case 'pct_capacidad':
+        metricas.push({
+          clave: 'pct_capacidad',
+          etiqueta: '% CAP. FÍSICA',
+          valor: f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}%` : '—',
+          sub: f.capacidad_tanque ? `de ${f.capacidad_tanque.toLocaleString('es-VE')} L` : 'Cap. nominal',
+          colorHex: '#eab308',
+          colorRgb: [202, 138, 4],
+        });
+        break;
+
+      case 'rendimiento':
+        metricas.push({
+          clave: 'rendimiento',
+          etiqueta: 'REND. (L/h)',
+          valor: f.rendimiento != null && f.rendimiento > 0 ? `${f.rendimiento.toFixed(2)} L/h` : '—',
+          sub: 'Consumo horario',
+          colorHex: '#10b981',
+          colorRgb: [16, 185, 129],
+        });
+        break;
+
+      case 'usd':
+        metricas.push({
+          clave: 'usd',
+          etiqueta: 'VALOR ($ USD)',
+          valor: `$ ${f.usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          sub: f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}% cap. física` : (f.tasa_promedio > 0 ? `Tasa: ${f.tasa_promedio.toFixed(2)}/L` : 'Costo USD'),
+          colorHex: '#22c55e',
+          colorRgb: [22, 163, 74],
+        });
+        break;
+
+      case 'pct_total':
+        metricas.push({
+          clave: 'pct_total',
+          etiqueta: '% TOTAL PERÍODO',
+          valor: f.pct_total > 0 ? `${f.pct_total.toFixed(1)}%` : '—',
+          sub: 'Del período',
+          colorHex: '#8b5cf6',
+          colorRgb: [139, 92, 246],
+        });
+        break;
+
+      case 'surtidos':
+        metricas.push({
+          clave: 'surtidos',
+          etiqueta: 'DESPACHOS',
+          valor: `${f.surtidos}`,
+          sub: 'Despachos reg.',
+          colorHex: '#f59e0b',
+          colorRgb: [217, 119, 6],
+        });
+        break;
+
+      case 'horometro_ini':
+        metricas.push({
+          clave: 'horometro_ini',
+          etiqueta: 'HORÓM. INICIAL',
+          valor: f.horometro_ini != null ? `${f.horometro_ini.toLocaleString('es-VE')} h` : '—',
+          sub: 'Lectura inicio',
+          colorHex: '#06b6d4',
+          colorRgb: [6, 182, 212],
+        });
+        break;
+
+      case 'horometro_fin':
+        metricas.push({
+          clave: 'horometro_fin',
+          etiqueta: 'HORÓM. FINAL',
+          valor: f.horometro_fin != null ? `${f.horometro_fin.toLocaleString('es-VE')} h` : '—',
+          sub: 'Lectura fin',
+          colorHex: '#0ea5e9',
+          colorRgb: [14, 165, 233],
+        });
+        break;
+
+      case 'tasa_promedio':
+        metricas.push({
+          clave: 'tasa_promedio',
+          etiqueta: 'TASA PROM. ($/L)',
+          valor: f.tasa_promedio > 0 ? `$ ${f.tasa_promedio.toFixed(2)}/L` : '—',
+          sub: 'Costo unitario',
+          colorHex: '#14b8a6',
+          colorRgb: [20, 184, 166],
+        });
+        break;
+
+      case 'tanque':
+        metricas.push({
+          clave: 'tanque',
+          etiqueta: 'TANQUE ORIGEN',
+          valor: f.tanque ? f.tanque.split('(')[0].trim() : '—',
+          sub: 'Tanque origen',
+          colorHex: '#64748b',
+          colorRgb: [100, 116, 139],
+        });
+        break;
+
+      case 'empresa':
+        metricas.push({
+          clave: 'empresa',
+          etiqueta: 'EMPRESA',
+          valor: f.empresa || '—',
+          sub: 'Propietario',
+          colorHex: '#3b82f6',
+          colorRgb: [59, 130, 246],
+        });
+        break;
+
+      case 'tipo':
+        metricas.push({
+          clave: 'tipo',
+          etiqueta: 'TIPO MÁQUINA',
+          valor: f.tipo || '—',
+          sub: 'Categoría',
+          colorHex: '#64748b',
+          colorRgb: [100, 116, 139],
+        });
+        break;
+
+      case 'ubicacion':
+        metricas.push({
+          clave: 'ubicacion',
+          etiqueta: 'UBICACIÓN / MINA',
+          valor: f.ubicacion || '—',
+          sub: 'Frente trabajo',
+          colorHex: '#64748b',
+          colorRgb: [100, 116, 139],
+        });
+        break;
+
+      case 'fecha': {
+        const fechaStr = f.fecha ? f.fecha.split('-').reverse().join('/') : (f.mes || '—');
+        metricas.push({
+          clave: 'fecha',
+          etiqueta: 'FECHA',
+          valor: fechaStr,
+          sub: 'Fecha reg.',
+          colorHex: '#64748b',
+          colorRgb: [100, 116, 139],
+        });
+        break;
+      }
+
+      case 'hora':
+        metricas.push({
+          clave: 'hora',
+          etiqueta: 'HORA',
+          valor: f.hora || '—',
+          sub: 'Hora despacho',
+          colorHex: '#64748b',
+          colorRgb: [100, 116, 139],
+        });
+        break;
+
+      case 'autorizado':
+        metricas.push({
+          clave: 'autorizado',
+          etiqueta: 'AUTORIZADO POR',
+          valor: f.autorizado || '—',
+          sub: 'Responsable',
+          colorHex: '#64748b',
+          colorRgb: [100, 116, 139],
+        });
+        break;
+
+      case 'observacion':
+        metricas.push({
+          clave: 'observacion',
+          etiqueta: 'OBSERVACIÓN',
+          valor: f.observacion || '—',
+          sub: 'Nota despacho',
+          colorHex: '#64748b',
+          colorRgb: [100, 116, 139],
+        });
+        break;
+
+      case 'equipo':
+        metricas.push({
+          clave: 'equipo',
+          etiqueta: 'EQUIPO',
+          valor: f.equipo || '—',
+          sub: f.clase || 'Máquina',
+          colorHex: 'var(--primary, #f97316)',
+          colorRgb: [234, 88, 12],
+        });
+        break;
+    }
   }
 
-  // 2. Consumo en Litros (si esta marcado o por defecto)
-  if (columnasClaves.includes('litros') || metricas.length === 0) {
+  // Fallback si no hay ninguna métrica marcada
+  if (metricas.length === 0) {
     metricas.push({
       clave: 'litros',
       etiqueta: 'CONSUMO (L)',
@@ -729,76 +943,5 @@ export function obtenerMetricasFicha(
     });
   }
 
-  // 3. % con respecto al tanque
-  if (columnasClaves.includes('pct_tanque') || columnasClaves.includes('pct_total')) {
-    metricas.push({
-      clave: 'pct_tanque',
-      etiqueta: '% DEL TANQUE',
-      valor: `${(f.pct_tanque ?? f.pct_total).toFixed(1)}%`,
-      sub: `del ${tanqueCorto}`,
-      colorHex: '#a855f7',
-      colorRgb: [147, 51, 234],
-    });
-  }
-
-  // 4. Valor en USD (SOLO SI 'usd' esta marcado)
-  if (columnasClaves.includes('usd')) {
-    metricas.push({
-      clave: 'usd',
-      etiqueta: 'VALOR ($ USD)',
-      valor: `$ ${f.usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      sub: f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}% cap. fisica` : `Tasa: $${f.tasa_promedio.toFixed(2)}/L`,
-      colorHex: '#22c55e',
-      colorRgb: [22, 163, 74],
-    });
-  }
-
-  // 5. Rendimiento (si se marco y hay espacio)
-  if (columnasClaves.includes('rendimiento')) {
-    metricas.push({
-      clave: 'rendimiento',
-      etiqueta: 'REND. (L/h)',
-      valor: f.rendimiento != null ? `${f.rendimiento.toFixed(2)} L/h` : '—',
-      sub: 'Consumo horario',
-      colorHex: '#10b981',
-      colorRgb: [16, 185, 129],
-    });
-  }
-
-  // 6. % Capacidad fisica (si se marco y hay espacio)
-  if (columnasClaves.includes('pct_capacidad')) {
-    metricas.push({
-      clave: 'pct_capacidad',
-      etiqueta: '% CAP. FISICA',
-      valor: f.pct_capacidad > 0 ? `${f.pct_capacidad.toFixed(1)}%` : '—',
-      sub: f.capacidad_tanque ? `de ${f.capacidad_tanque.toLocaleString('es-VE')} L` : 'Cap. nominal',
-      colorHex: '#eab308',
-      colorRgb: [202, 138, 4],
-    });
-  }
-
-  // 7. Surtidos / Despachos (si se marco y hay espacio)
-  if (columnasClaves.includes('surtidos')) {
-    metricas.push({
-      clave: 'surtidos',
-      etiqueta: 'DESPACHOS',
-      valor: `${f.surtidos}`,
-      sub: 'Surtidos reg.',
-      colorHex: '#f59e0b',
-      colorRgb: [217, 119, 6],
-    });
-  }
-
-  // Fallback si no hay ninguna metrica marcada
-  if (metricas.length === 0) {
-    metricas.push({
-      clave: 'litros',
-      etiqueta: 'CONSUMO (L)',
-      valor: `${f.litros.toLocaleString('es-VE')} L`,
-      colorHex: 'var(--primary, #f97316)',
-      colorRgb: [234, 88, 12],
-    });
-  }
-
-  return metricas.slice(0, 4);
+  return metricas;
 }

@@ -346,5 +346,32 @@ describe('reporteMoldeable', () => {
     expect(m2.some((m) => m.clave === 'horas')).toBe(false);
     expect(m2.find((m) => m.clave === 'rendimiento')?.valor).toContain('56.40');
     expect(m2.find((m) => m.clave === 'pct_capacidad')?.valor).toBe('199.7%');
+    // Caso 3: Usuario selecciona todas las 20 columnas sin truncamiento artificial a 4
+    const todasLasColumnas = [
+      'equipo', 'horas', 'litros', 'pct_tanque', 'pct_capacidad', 'rendimiento',
+      'tanque', 'empresa', 'tipo', 'usd', 'pct_total', 'surtidos', 'horometro_ini',
+      'horometro_fin', 'tasa_promedio', 'ubicacion', 'fecha', 'hora', 'autorizado', 'observacion'
+    ];
+    const m3 = obtenerMetricasFicha({
+      ...fila,
+      horometro_ini: 1000,
+      horometro_fin: 1070.8,
+      ubicacion: 'Mina Peramanal',
+      fecha: '2026-11-06',
+      hora: '14:30',
+      autorizado: 'Juan Pérez',
+      observacion: 'Carga completa'
+    }, todasLasColumnas);
+
+    expect(m3.length).toBe(20);
+    expect(m3.map((m) => m.clave)).toEqual(todasLasColumnas);
+    expect(m3.find((m) => m.clave === 'horometro_ini')?.valor).toContain('1.000 h');
+    expect(m3.find((m) => m.clave === 'horometro_fin')?.valor).toContain('1.070,8 h');
+    expect(m3.find((m) => m.clave === 'tasa_promedio')?.valor).toContain('$ 0.62/L');
+    expect(m3.find((m) => m.clave === 'ubicacion')?.valor).toBe('Mina Peramanal');
+    expect(m3.find((m) => m.clave === 'fecha')?.valor).toBe('06/11/2026');
+    expect(m3.find((m) => m.clave === 'hora')?.valor).toBe('14:30');
+    expect(m3.find((m) => m.clave === 'autorizado')?.valor).toBe('Juan Pérez');
+    expect(m3.find((m) => m.clave === 'observacion')?.valor).toBe('Carga completa');
   });
 });

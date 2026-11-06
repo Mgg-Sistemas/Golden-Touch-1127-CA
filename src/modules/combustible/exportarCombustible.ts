@@ -516,7 +516,8 @@ export async function descargarCombustiblePdf(
         doc.setFillColor(...NARANJA);
         doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
 
-        // Badge % Consumo con respecto al Tanque (calculado primero para delimitar el ancho del titulo)
+        // Badge % Consumo con respecto al Tanque (calculado si está en columnas marcadas)
+        const tieneBadge = columnasClaves.includes('pct_tanque') || columnasClaves.includes('pct_total');
         const tanqueCorto = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
         const txtPctTanque = `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% con respecto a ${pdfSafe(tanqueCorto)}`;
         const txtSubBadge = f.pct_capacidad > 0
@@ -537,41 +538,43 @@ export async function descargarCombustiblePdf(
         const by = cy + 4;
         const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
 
-        if (esTraslado) {
-          doc.setFillColor(224, 242, 254); // azul suave
-          doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(3, 105, 161);
-        } else {
-          doc.setFillColor(254, 243, 199); // ambar suave
-          doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(217, 119, 6);
-        }
+        if (tieneBadge) {
+          if (esTraslado) {
+            doc.setFillColor(224, 242, 254); // azul suave
+            doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(3, 105, 161);
+          } else {
+            doc.setFillColor(254, 243, 199); // ambar suave
+            doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(217, 119, 6);
+          }
 
-        // Texto 1 del badge (auto-ajustable al ancho del badge)
-        let fontPct = 6.8;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(fontPct);
-        while (doc.getTextWidth(txtPctTanque) > badgeW - 6 && fontPct > 5.4) {
-          fontPct -= 0.2;
+          // Texto 1 del badge (auto-ajustable al ancho del badge)
+          let fontPct = 6.8;
+          doc.setFont('helvetica', 'bold');
           doc.setFontSize(fontPct);
-        }
-        doc.text(txtPctTanque, bx + badgeW / 2, by + 5.8, { align: 'center' });
+          while (doc.getTextWidth(txtPctTanque) > badgeW - 6 && fontPct > 5.4) {
+            fontPct -= 0.2;
+            doc.setFontSize(fontPct);
+          }
+          doc.text(txtPctTanque, bx + badgeW / 2, by + 5.8, { align: 'center' });
 
-        // Texto 2 del badge (auto-ajustable al ancho del badge)
-        let fontSub = 5.5;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(fontSub);
-        doc.setTextColor(100, 116, 139);
-        while (doc.getTextWidth(txtSubBadge) > badgeW - 6 && fontSub > 4.4) {
-          fontSub -= 0.2;
+          // Texto 2 del badge (auto-ajustable al ancho del badge)
+          let fontSub = 5.5;
+          doc.setFont('helvetica', 'normal');
           doc.setFontSize(fontSub);
+          doc.setTextColor(100, 116, 139);
+          while (doc.getTextWidth(txtSubBadge) > badgeW - 6 && fontSub > 4.4) {
+            fontSub -= 0.2;
+            doc.setFontSize(fontSub);
+          }
+          doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
         }
-        doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
 
         // Nombre de Equipo: delimitado exactamente antes del badge para evitar todo solapado
-        const maxTitleW = Math.max(60, (bx - 8) - (cx + 10));
+        const maxTitleW = tieneBadge ? Math.max(60, (bx - 8) - (cx + 10)) : cardW - 20;
         const eqNombre = pdfSafe(f.equipo || 'Sin clasificar');
         let titleFontSize = 9.5;
         doc.setFont('helvetica', 'bold');

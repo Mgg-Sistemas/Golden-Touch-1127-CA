@@ -1345,9 +1345,9 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
           ) : formatoPresentacion === 'fichas' ? (
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: '.55rem',
-              maxHeight: '260px',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+              gap: '.65rem',
+              maxHeight: '380px',
               overflowY: 'auto',
               paddingRight: '.2rem'
             }}>
@@ -1395,26 +1395,28 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                           {f.empresa || ''} {f.tipo && f.tipo !== f.equipo && f.tipo !== f.empresa ? `· ${f.tipo}` : ''}
                         </div>
                       </div>
-                      <div style={{
-                        flexShrink: 0,
-                        textAlign: 'right',
-                        background: esTraslado ? 'rgba(2, 132, 199, 0.15)' : 'rgba(249, 115, 22, 0.15)',
-                        border: `1px solid ${esTraslado ? 'rgba(2, 132, 199, 0.3)' : 'rgba(249, 115, 22, 0.3)'}`,
-                        borderRadius: '6px',
-                        padding: '.25rem .55rem',
-                        lineHeight: 1.2
-                      }}>
+                      {(marcados.includes('pct_tanque') || marcados.includes('pct_total')) && (
                         <div style={{
-                          fontSize: '.82rem',
-                          fontWeight: 700,
-                          color: esTraslado ? '#38bdf8' : 'var(--primary, #f97316)'
+                          flexShrink: 0,
+                          textAlign: 'right',
+                          background: esTraslado ? 'rgba(2, 132, 199, 0.15)' : 'rgba(249, 115, 22, 0.15)',
+                          border: `1px solid ${esTraslado ? 'rgba(2, 132, 199, 0.3)' : 'rgba(249, 115, 22, 0.3)'}`,
+                          borderRadius: '6px',
+                          padding: '.25rem .55rem',
+                          lineHeight: 1.2
                         }}>
-                          {(f.pct_tanque ?? f.pct_total).toFixed(1)}%
+                          <div style={{
+                            fontSize: '.82rem',
+                            fontWeight: 700,
+                            color: esTraslado ? '#38bdf8' : 'var(--primary, #f97316)'
+                          }}>
+                            {(f.pct_tanque ?? f.pct_total).toFixed(1)}%
+                          </div>
+                          <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>
+                            con respecto a {f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque'}
+                          </div>
                         </div>
-                        <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>
-                          con respecto a {f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque'}
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     {(() => {
@@ -1422,19 +1424,24 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
                       return (
                         <div style={{
                           display: 'grid',
-                          gridTemplateColumns: `repeat(${metricasFicha.length}, 1fr)`,
-                          gap: '.25rem',
-                          marginTop: '.2rem',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))',
+                          gap: '.35rem',
+                          marginTop: '.35rem',
                           background: 'rgba(0,0,0,0.2)',
-                          padding: '.35rem',
-                          borderRadius: '4px'
+                          padding: '.45rem',
+                          borderRadius: '6px'
                         }}>
                           {metricasFicha.map((m: MetricaFichaCombustible) => (
-                            <div key={m.clave}>
-                              <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
-                              <div style={{ fontSize: '.82rem', fontWeight: 700, color: m.colorHex }}>
+                            <div key={m.clave} style={{ minWidth: 0 }}>
+                              <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.etiqueta}>{m.etiqueta}</div>
+                              <div style={{ fontSize: '.82rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>
                                 {m.valor}
                               </div>
+                              {m.sub && (
+                                <div style={{ fontSize: '.58rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.sub}>
+                                  {m.sub}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
