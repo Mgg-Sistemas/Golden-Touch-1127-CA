@@ -196,27 +196,32 @@ export async function descargarTesoreriaExcel(
     const haySinMetodo = prep.sinMetodo.nOrdenes > 0;
     if (totales.length > 0 || haySinMetodo) {
       const wp = wb.addWorksheet('Por preparar', { views: [{ showGridLines: false }] });
-      wp.columns = [{ width: 32 }, { width: 16 }, { width: 20 }, { width: 14 }];
+      wp.columns = [{ width: 32 }, { width: 16 }, { width: 20 }, { width: 14 }, { width: 20 }];
       let r = 1;
       const tit = wp.getCell(r, 1);
-      tit.value = 'POR PREPARAR — por moneda y método (nativo, sin reconversión)';
+      tit.value = 'POR PREPARAR — por moneda y método (nativo + equivalente en USD)';
       tit.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFF8A00' } };
-      wp.mergeCells(r, 1, r, 4); r += 2;
+      wp.mergeCells(r, 1, r, 5); r += 2;
       const head = wp.getRow(r);
-      head.values = ['Concepto', 'Moneda', 'Monto (nativo)', 'Pagos / Op.'];
+      head.values = ['Concepto', 'Moneda', 'Monto (nativo)', 'Pagos / Op.', 'Equiv. USD (ref.)'];
       head.font = { name: 'Arial', bold: true, color: { argb: 'FFFFFFFF' } };
       head.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } }; });
       r += 1;
+      const tasaRefExcel = resumen.tasaBcvReferencia;
       for (const t of totales) {
         const hr = wp.getRow(r);
-        hr.values = [`${esMonedaDivisa(t.moneda) ? '[Divisa]' : '[Bolívares]'} TOTAL ${t.moneda}`, t.moneda, t.monto, t.nOrdenes];
+        const eqT = (!esMonedaDivisa(t.moneda) && tasaRefExcel > 0) ? t.monto / tasaRefExcel : null;
+        hr.values = [`${esMonedaDivisa(t.moneda) ? '[Divisa]' : '[Bolívares]'} TOTAL ${t.moneda}`, t.moneda, t.monto, t.nOrdenes, eqT != null ? eqT : ''];
         hr.font = { name: 'Arial', bold: true };
         hr.getCell(3).numFmt = '#,##0.00';
+        if (eqT != null) hr.getCell(5).numFmt = '$#,##0.00';
         r += 1;
         for (const l of prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda)) {
           const row = wp.getRow(r);
-          row.values = [`   ${l.metodoLabel}`, l.moneda, l.monto, l.nOrdenes];
+          const eqL = (!esMonedaDivisa(l.moneda) && tasaRefExcel > 0) ? l.monto / tasaRefExcel : null;
+          row.values = [`   ${l.metodoLabel}`, l.moneda, l.monto, l.nOrdenes, eqL != null ? eqL : ''];
           row.getCell(3).numFmt = '#,##0.00';
+          if (eqL != null) row.getCell(5).numFmt = '$#,##0.00';
           r += 1;
         }
       }
@@ -501,12 +506,13 @@ export async function descargarTesoreriaPdf(
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(...NARANJA);
-      doc.text(pdfSafe('RESUMEN DE PAGOS — por moneda y método (nativo, sin reconvertir)'), M, y + 2);
+      doc.text(pdfSafe('RESUMEN DE PAGOS — por moneda y método (nativo + equivalente en $ USD)'), M, y + 2);
       y += 16;
       const VERDE: [number, number, number] = [34, 197, 94];
+      const tasaRefPdf = resumen.tasaBcvReferencia;
       for (const t of totales) {
         const metodos = prep.porMetodoMoneda.filter((x) => x.moneda === t.moneda);
-        const boxH = 26 + metodos.length * 11;
+        const boxH = 26 + metodos.length * 12;
         if (y + boxH > H - 36) { doc.addPage(); y = 36; }
         const acento = esMonedaDivisa(t.moneda) ? VERDE : NARANJA;
         // Tarjeta por moneda: barra de acento, moneda a la izquierda, total alineado a la derecha.
@@ -521,22 +527,34 @@ export async function descargarTesoreriaPdf(
         doc.setFontSize(10.5);
         doc.setTextColor(...acento);
         doc.text(pdfSafe(`${tipo} · ${t.moneda}`), M + 10, y + 14);
-        doc.setFontSize(12);
+
+        const equivTUsd = (!esMonedaDivisa(t.moneda) && tasaRefPdf > 0) ? t.monto / tasaRefPdf : null;
+        const txtTotalPdf = equivTUsd != null
+          ? `${fmtMonedaNativa(t.moneda, t.monto)}  (≈ $ ${fmtNum(equivTUsd, 2)})`
+          : fmtMonedaNativa(t.moneda, t.monto);
+
+        doc.setFontSize(11);
         doc.setTextColor(...TINTA);
-        doc.text(pdfSafe(fmtMonedaNativa(t.moneda, t.monto)), W - M - 8, y + 14, { align: 'right' });
+        doc.text(pdfSafe(txtTotalPdf), W - M - 8, y + 14, { align: 'right' });
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(130, 130, 130);
         doc.text(pdfSafe(`${t.nOrdenes} pago(s)`), M + 10, y + 22);
         let yy = y + 22;
         for (const l of metodos) {
-          yy += 11;
+          yy += 12;
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(8.5);
           doc.setTextColor(70, 70, 70);
           doc.text(pdfSafe(`•  ${l.metodoLabel}`), M + 16, yy);
+
+          const equivLUsd = (!esMonedaDivisa(l.moneda) && tasaRefPdf > 0) ? l.monto / tasaRefPdf : null;
+          const txtLPdf = equivLUsd != null
+            ? `${fmtMonedaNativa(l.moneda, l.monto)}  (≈ $ ${fmtNum(equivLUsd, 2)})  ·  ${l.nOrdenes} op.`
+            : `${fmtMonedaNativa(l.moneda, l.monto)}  ·  ${l.nOrdenes} op.`;
+
           doc.setFont('helvetica', 'bold');
-          doc.text(pdfSafe(`${fmtMonedaNativa(l.moneda, l.monto)}  ·  ${l.nOrdenes} op.`), W - M - 8, yy, { align: 'right' });
+          doc.text(pdfSafe(txtLPdf), W - M - 8, yy, { align: 'right' });
         }
         y += boxH + 6;
       }
@@ -708,22 +726,25 @@ export async function descargarTesoreriaPdf(
     const cardW = (UW - (cols - 1) * cardGap) / cols;
     const innerW = cardW - 16;
 
-    // Calcular la cantidad máxima de métricas que puede tener una ficha en el reporte
-    const maxMetricas = Math.max(
-      ...filas.map((f) => obtenerMetricasFichaTesoreria(f, colsClavesValidas, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).length),
-      1,
+    // Separar las métricas de la cuadrícula estándar del método de pago, el cual
+    // posee datos bancarios largos (banco, titular, RIF, número de cuenta o pago móvil)
+    // que deben ocupar todo el ancho de la tarjeta para jamás cortarse.
+    const hayMetPago = colsClavesValidas.includes('metodo_pago');
+    const maxMetricasGrid = Math.max(
+      ...filas.map((f) => obtenerMetricasFichaTesoreria(f, colsClavesValidas, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs }).filter((m) => m.clave !== 'metodo_pago').length),
+      hayMetPago ? 0 : 1,
     );
-    // Distribución de columnas de métricas:
-    // En horizontal (cardW ~355): 4 columnas si son exactamente 4 métricas, o 3 columnas si son 5 o más (113pt por chip).
-    // En vertical (cardW ~540): 4 columnas (131pt por chip).
+
     const colsPorFila = orient === 'landscape'
-      ? (maxMetricas <= 3 ? Math.max(1, maxMetricas) : maxMetricas === 4 ? 4 : 3)
-      : (maxMetricas <= 4 ? Math.max(1, maxMetricas) : 4);
-    const numFilasMetricas = Math.ceil(maxMetricas / colsPorFila);
+      ? (maxMetricasGrid <= 3 ? Math.max(1, maxMetricasGrid) : maxMetricasGrid === 4 ? 4 : 3)
+      : (maxMetricasGrid <= 4 ? Math.max(1, maxMetricasGrid) : 4);
+    const numFilasGrid = Math.ceil(maxMetricasGrid / colsPorFila);
     const haySubAlguna = filas.some((f) => Boolean(resolverCabeceraTarjetaTesoreria(f, meta.agrupacion, fmtFecha, colsClavesValidas).subtitulo?.trim()));
     const altoHeader = haySubAlguna ? 34 : 28;
     const altoFilaMetrica = 25;
-    const cardH = altoHeader + numFilasMetricas * altoFilaMetrica + 8;
+    const altoGrid = numFilasGrid > 0 ? numFilasGrid * altoFilaMetrica : 0;
+    const altoPagoBloque = hayMetPago ? 26 : 0;
+    const cardH = altoHeader + altoGrid + (numFilasGrid > 0 && hayMetPago ? 4 : 0) + altoPagoBloque + 8;
 
     for (let i = 0; i < filas.length; i += cols) {
       if (y + cardH > H - 36) { doc.addPage(); y = 36; }
@@ -827,13 +848,16 @@ export async function descargarTesoreriaPdf(
         doc.setLineWidth(0.5);
         doc.line(cx + 8, sepY, cx + cardW - 8, sepY);
 
-        // Métricas dinámicas (respetan rigurosamente las columnas marcadas por el usuario)
+        // Métricas dinámicas: separamos las métricas regulares de la de método de pago
         const metricas = obtenerMetricasFichaTesoreria(f, colsClavesValidas, { mostrarUsd: meta.mostrarUsd, mostrarBs: meta.mostrarBs });
+        const metPago = metricas.find((m) => m.clave === 'metodo_pago');
+        const metricasGrid = metricas.filter((m) => m.clave !== 'metodo_pago');
+
         const myBase = sepY + 9;
         const colW = innerW / colsPorFila;
         const maxTextW = colW - 6;
 
-        metricas.forEach((m, idx) => {
+        metricasGrid.forEach((m, idx) => {
           const filaIdx = Math.floor(idx / colsPorFila);
           const colEnFila = idx % colsPorFila;
           const mx = cx + 8 + colW * colEnFila;
@@ -885,6 +909,43 @@ export async function descargarTesoreriaPdf(
             doc.text(subTxt, mx, my + 14.5);
           }
         });
+
+        // Bloque de Método y Datos de Pago a ANCHO COMPLETO:
+        // Asegura que el beneficiario, RIF, número de cuenta y banco no se corten.
+        if (metPago) {
+          const py = myBase + (numFilasGrid > 0 ? numFilasGrid * altoFilaMetrica + 2 : 0);
+          const pW = innerW;
+          const pH = 24;
+
+          doc.setFillColor(248, 250, 252);
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.5);
+          doc.roundedRect(cx + 8, py, pW, pH, 3, 3, 'FD');
+          doc.setFillColor(16, 185, 129);
+          doc.rect(cx + 8, py + 1, 2.5, pH - 2, 'F');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(5.8);
+          doc.setTextColor(71, 85, 105);
+          doc.text('MÉTODO Y DATOS DE PAGO:', cx + 14, py + 7.5);
+
+          doc.setFontSize(7.6);
+          doc.setTextColor(16, 185, 129);
+          const offsetMetodo = doc.getTextWidth('MÉTODO Y DATOS DE PAGO: ') + 3;
+          doc.text(pdfSafe(metPago.valor), cx + 14 + offsetMetodo, py + 7.5);
+
+          if (metPago.sub) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(6.4);
+            doc.setTextColor(51, 65, 85);
+            const maxSubW = pW - 14;
+            const subLineas = doc.splitTextToSize(pdfSafe(metPago.sub), maxSubW) as string[];
+            doc.text(subLineas[0] ?? '', cx + 14, py + 15.5);
+            if (subLineas[1]) {
+              doc.text(subLineas[1], cx + 14, py + 21.5);
+            }
+          }
+        }
       }
       y += cardH + cardGap;
     }

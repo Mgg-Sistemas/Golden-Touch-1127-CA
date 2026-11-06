@@ -435,14 +435,27 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                       <div key={t.moneda} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.45rem .7rem' }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '.6rem', fontWeight: 700, padding: '.05rem .4rem', borderRadius: 999, background: divisa ? 'rgba(34,197,94,.15)' : 'rgba(255,138,0,.15)', color: divisa ? '#22c55e' : '#FF8A00' }}>{divisa ? 'Divisa' : 'Bolívares'}</span>
-                          <strong style={{ fontSize: '.95rem', color: divisa ? '#22c55e' : '#FF8A00' }}>{t.moneda}: {fmtNativa(t.moneda, t.monto)}</strong>
+                          <strong style={{ fontSize: '.95rem', color: divisa ? '#22c55e' : '#FF8A00' }}>
+                            {t.moneda}: {fmtNativa(t.moneda, t.monto)}
+                            {!divisa && resumen.tasaBcvReferencia > 0 && (
+                              <span style={{ fontSize: '.8rem', fontWeight: 600, color: '#22c55e', marginLeft: '.35rem' }}>
+                                (≈ $ {fmtUsd(t.monto / resumen.tasaBcvReferencia)})
+                              </span>
+                            )}
+                          </strong>
                           <span className="muted" style={{ fontSize: '.7rem' }}>· {t.nOrdenes} pago(s)</span>
                         </div>
                         {metodos.length > 0 && (
                           <div style={{ marginTop: '.3rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
                             {metodos.map((l) => (
                               <div key={`${l.metodo}|${l.moneda}`} style={{ fontSize: '.75rem', paddingLeft: '.6rem' }}>
-                                • {l.metodoLabel}: <strong>{fmtNativa(l.moneda, l.monto)}</strong> <span className="muted" style={{ fontSize: '.68rem' }}>· {l.nOrdenes} op.</span>
+                                • {l.metodoLabel}: <strong>{fmtNativa(l.moneda, l.monto)}</strong>
+                                {!divisa && resumen.tasaBcvReferencia > 0 && (
+                                  <span style={{ fontSize: '.7rem', fontWeight: 600, color: '#22c55e', marginLeft: '.3rem' }}>
+                                    (≈ $ {fmtUsd(l.monto / resumen.tasaBcvReferencia)})
+                                  </span>
+                                )}
+                                <span className="muted" style={{ fontSize: '.68rem' }}> · {l.nOrdenes} op.</span>
                               </div>
                             ))}
                           </div>
@@ -849,17 +862,38 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                         </div>
                       )}
                     </div>
-                    {metricas.length > 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(105px, 1fr))`, gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
-                        {metricas.map((m) => (
-                          <div key={m.clave}>
-                            <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
-                            <div style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>{m.valor}</div>
-                            {m.sub && <div style={{ fontSize: '.58rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {(() => {
+                      const metPago = metricas.find((m) => m.clave === 'metodo_pago');
+                      const metricasGrid = metricas.filter((m) => m.clave !== 'metodo_pago');
+                      return (
+                        <>
+                          {metricasGrid.length > 0 && (
+                            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(105px, 1fr))`, gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
+                              {metricasGrid.map((m) => (
+                                <div key={m.clave}>
+                                  <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
+                                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>{m.valor}</div>
+                                  {m.sub && <div style={{ fontSize: '.58rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {metPago && (
+                            <div style={{ marginTop: '.25rem', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '4px', padding: '.35rem .55rem', borderLeft: '3px solid #10b981' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                                <span className="muted" style={{ fontSize: '.62rem', fontWeight: 700, textTransform: 'uppercase' }}>Método y Datos de Pago:</span>
+                                <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#10b981' }}>{metPago.valor}</span>
+                              </div>
+                              {metPago.sub && (
+                                <div style={{ fontSize: '.68rem', color: '#cbd5e1', marginTop: '.15rem', wordBreak: 'break-word', lineHeight: 1.25 }}>
+                                  {metPago.sub}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 );
               })}
