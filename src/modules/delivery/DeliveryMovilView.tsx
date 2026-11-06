@@ -83,7 +83,6 @@ const guardarGps = (v: boolean) => { try { localStorage.setItem(CLAVE_GPS, v ? '
 const cant = (n: number) => (Number(n) || 0).toLocaleString('es-VE', { maximumFractionDigits: 3 });
 
 const CHIPS: Array<{ key: ChipDelivery; label: string }> = [
-  { key: 'todos', label: 'Todos' },
   { key: 'por_tomar', label: '💰 Por tomar' },
   { key: 'en_ruta', label: '🚚 En camino' },
   { key: 'entregados', label: '✅ Entregados' },
@@ -108,7 +107,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   const [cerrados, setCerrados] = useState<PedidoDelivery[]>([]);
   const [rechazos, setRechazos] = useState<RechazoDelivery[]>([]);
   const [loading, setLoading] = useState(true);
-  const [chip, setChip] = useState<ChipDelivery>('todos');
+  const [chip, setChip] = useState<ChipDelivery>('por_tomar');
   const [accion, setAccion] = useState<Accion | null>(null);
   const [listo, setListo] = useState<{ titulo: string; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
@@ -356,7 +355,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
           )}
 
           {/* 03/11/2026: el más cercano de lo que está por tomar, como en las apps de delivery. */}
-          {cercano && (chip === 'todos' || chip === 'por_tomar') && (
+          {cercano && chip === 'por_tomar' && (
             <button type="button" className="dlv-cercano" onClick={() => verRuta(cercano.item.p)}>
               <span className="grande" aria-hidden>📍</span>
               <span style={{ minWidth: 0 }}>
