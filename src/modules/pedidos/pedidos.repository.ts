@@ -3273,3 +3273,18 @@ export async function sincronizarOrdenesFinalizadas(): Promise<{ revisadas: numb
   }
 }
 
+/**
+ * 05/11/2026 (como MGG 53863938): a dónde se entrega la compra, elegido al ACEPTAR la cotización
+ * (LOS PINOS o MATANZA). Queda en `sede_entrega` —lo que el delivery ve como «Dirección de
+ * recepción»— y en la trazabilidad de la orden. Devuelve la orden actualizada para que el paso
+ * siguiente (crear la OC) no pise el historial con una copia vieja.
+ */
+export async function fijarSedeEntregaOc(o: Orden, sede: 'los_pinos' | 'matanza', actorEmail: string): Promise<Orden> {
+  const upd: Record<string, unknown> = { sede_entrega: sede };
+  if (o.sede_entrega !== sede) {
+    upd.historial = appendHistorial(o, 'sede_entrega', actorEmail, { antes: o.sede_entrega ?? null, despues: sede });
+  }
+  const { data, error } = await supabase.from(TABLE).update(upd).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}

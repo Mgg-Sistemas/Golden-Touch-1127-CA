@@ -16,7 +16,8 @@ import type {
 import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, eliminarOferta, subirAdjuntosOferta } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
-import { aprobarOrdenConOferta } from './pedidos.repository';
+import { aprobarOrdenConOferta, fijarSedeEntregaOc } from './pedidos.repository';
+import { SEDES_ENTREGA, etiquetaSedeEntrega } from '@/shared/lib/types';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
@@ -90,6 +91,14 @@ export function OfertasComparativa({
   const [obs, setObs] = useState('');
   const [obsFiles, setObsFiles] = useState<File[]>([]);
   const [subiendo, setSubiendo] = useState(false);
+  // 05/11/2026 (como MGG): al aceptar la cotización se indica, obligatorio, a dónde se entrega.
+  // Viene precargado con lo que dijo la SP; el delivery lo ve como «Dirección de recepción».
+  const pideSede = (orden.tipo ?? 'producto') !== 'servicio';
+  const [sedeAceptar, setSedeAceptar] = useState<'los_pinos' | 'matanza' | null>(null);
+  useEffect(() => {
+    if (confirmando) setSedeAceptar(orden.sede_entrega === 'los_pinos' || orden.sede_entrega === 'matanza' ? orden.sede_entrega : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmando?.oferta.id]);
   // Selección de marca cuando un producto tiene varias alternativas (mismo sku).
   const [seleccion, setSeleccion] = useState<{ s: ScoredOferta; elecciones: Record<string, number>; observacion: string; adjuntos: AdjuntoOferta[]; modalidadPago: ModalidadPagoAnalista } | null>(null);
   // Modalidad de pago elegida por el analista para la oferta que está confirmando.
@@ -207,9 +216,11 @@ export function OfertasComparativa({
     modalidadPago: ModalidadPagoAnalista,
   ) {
     try {
+      if (pideSede && !sedeAceptar) { toast('Elige a dónde se entrega (Los Pinos o Matanza).', 'error'); return; }
+      const ordenAct = pideSede && sedeAceptar ? await fijarSedeEntregaOc(orden, sedeAceptar, actorEmail) : orden;
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       await aprobarOrdenConOferta(
-        orden,
+        ordenAct,
         s.oferta.proveedor_id,
         s.oferta.items,
         s.oferta.precio_total,
@@ -700,6 +711,23 @@ export function OfertasComparativa({
             {hayVariantes(confirmando.oferta.items ?? []) && ' Como hay productos con varias marcas, a continuación eliges cuál comprar.'}
           </p>
 
+          {pideSede && (
+            <div className="card" style={{ margin: '0 0 .8rem', padding: '.6rem .8rem', borderLeft: `3px solid ${sedeAceptar ? 'var(--primary, #3b82f6)' : 'var(--danger, #ef4444)'}` }}>
+              <div style={{ fontSize: '.8rem', fontWeight: 700, letterSpacing: '.04em', marginBottom: '.4rem' }}>📍 ¿A DÓNDE SE ENTREGA? *</div>
+              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                {SEDES_ENTREGA.map((x) => (
+                  <label key={x.sede} className="card" style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: 0, padding: '.45rem .75rem', cursor: 'pointer', borderColor: sedeAceptar === x.sede ? 'var(--primary, #3b82f6)' : 'var(--border)' }}>
+                    <input type="radio" name="sede-entrega-aceptar" checked={sedeAceptar === x.sede} onChange={() => setSedeAceptar(x.sede)} />
+                    <strong>{x.etiqueta.toUpperCase()}</strong>
+                  </label>
+                ))}
+              </div>
+              {sedeAceptar
+                ? <small className="muted" style={{ fontSize: '.72rem' }}>El delivery lo verá como «📍 Dirección de recepción: Almacén {etiquetaSedeEntrega(sedeAceptar)}».</small>
+                : <small style={{ color: 'var(--danger, #ef4444)' }}>Elige a dónde se entrega para poder aceptar la oferta.</small>}
+            </div>
+          )}
+
           {/* Selector de Modalidad de Pago: Divisa ($) vs Bs (tasa BCV) */}
           <div className="form-row" style={{ marginTop: '.6rem', marginBottom: '.6rem', background: 'var(--surface-2)', padding: '.75rem', borderRadius: 8, border: '1px solid var(--border)' }}>
             <label style={{ fontWeight: 700, display: 'block', marginBottom: '.4rem', fontSize: '.86rem' }}>
@@ -819,7 +847,7 @@ export function OfertasComparativa({
           </div>
           <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '.8rem' }}>
             <button className="btn btn-ghost" disabled={subiendo} onClick={() => { setConfirmando(null); setObs(''); setObsFiles([]); }}>Cancelar</button>
-            <button className="btn btn-primary" disabled={subiendo} onClick={() => confirmarAceptacion(confirmando, modalidadSeleccionada)}>
+            <button className="btn btn-primary" disabled={subiendo || (pideSede && !sedeAceptar)} onClick={() => confirmarAceptacion(confirmando, modalidadSeleccionada)}>
               {subiendo ? 'Subiendo…' : hayVariantes(confirmando.oferta.items ?? []) ? 'Elegir marca…' : 'Elegir oferta'}
             </button>
           </div>

@@ -226,6 +226,7 @@ function eventLabel(ev: string): string {
       op_repartida: 'Repartida entre varios proveedores',
       op_repartida_parcial: 'Repartida en parte (quedaron ítems sin asignar)',
       oc_creada_reparto: 'OC creada por reparto',
+      sede_entrega: 'Destino de entrega indicado',
       reparto_revertido: 'Reparto revertido (vuelve a la orden madre)',
       iva_restituido: 'IVA de la oferta restituido (el total ya lo incluía)',
       // Escritos así antes de corregir el nombre del evento; se siguen traduciendo.
@@ -4594,7 +4595,7 @@ function CrearOrdenModal({
           ))}
         </div>
         <small className="hint muted" style={{ fontSize: '.72rem' }}>
-          Para el delivery: le sale «Dirección de recepción: Almacén {etiquetaSedeEntrega(sedeEntrega)}». Se puede cambiar al cotizar.
+          Para el delivery: le sale «Dirección de recepción: Almacén {etiquetaSedeEntrega(sedeEntrega)}». Se confirma al aceptar la cotización.
         </small>
       </div>
 
