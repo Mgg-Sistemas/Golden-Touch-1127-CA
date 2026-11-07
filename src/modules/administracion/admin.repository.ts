@@ -86,6 +86,24 @@ export interface Gestion {
 }
 export type GestionInput = Omit<Gestion, 'id'>;
 
+/** Estado de un envío a Tesorería. `enviado` = cuenta por pagar creada (reversible);
+ *  `pagado` = Tesorería lo pagó (se refleja); `reversado` = se deshizo antes de pagar. */
+export type EstadoEnvio = 'enviado' | 'pagado' | 'reversado';
+/** Envío atómico de (parte de) una gestión a Tesorería (tabla `admin_envios_tesoreria`).
+ *  Una gestión : N envíos. Cada envío = un servicio directo en Tesorería. */
+export interface EnvioTesoreria {
+  id: string;
+  gestionId: string;
+  empresaClave: string;
+  monto: number;
+  moneda: Moneda;
+  fechaEnvio: string;
+  estado: EstadoEnvio;
+  servicioDirectoId: string | null;
+  enviadoPor: string | null;
+  pagadoEn: string | null;
+}
+
 /** Plantilla recurrente de gasto fijo (tabla `admin_gastos_fijos`). */
 export interface GastoFijo {
   id: string;
