@@ -14,6 +14,7 @@ import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
 import { crearServicioDirecto, enviarServicioAPagar } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
+import { esErrorTablaAusente } from './adminErrores';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
 
@@ -619,7 +620,10 @@ export function crearRepoSupabase(): AdminRepo {
       let q = supabase.from(T_CEN).select('*').order('orden').order('nombre');
       if (empresaClave) q = q.eq('empresa_clave', empresaClave);
       const { data, error } = await q;
-      if (error) throw error;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
       return (data ?? []).map((r) => aCentro(r as RowCentro));
     },
     async crearCentro(c) {
@@ -637,7 +641,10 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async listProfesionales() {
       const { data, error } = await supabase.from(T_PROF).select('*').order('nombre');
-      if (error) throw error;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
       return (data ?? []).map((r) => aProfesional(r as RowProfesional));
     },
     async crearProfesional(p) {
@@ -657,7 +664,10 @@ export function crearRepoSupabase(): AdminRepo {
       let q = supabase.from(T_CARP).select('*').order('orden').order('nombre');
       if (empresaClave) q = q.eq('empresa_clave', empresaClave);
       const { data, error } = await q;
-      if (error) throw error;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
       return (data ?? []).map((r) => aCarpeta(r as RowCarpeta));
     },
     async crearCarpeta(c) {
@@ -711,7 +721,7 @@ export function crearRepoSupabase(): AdminRepo {
       // cae al catálogo compartido pero solo categorías padre, para no romper mientras tanto.
       const { data, error } = await supabase.from(T_CAT).select('id,nombre').eq('activa', true).order('orden').order('nombre');
       if (!error) return (data ?? []).map((r) => ({ id: String((r as { id: string }).id), nombre: String((r as { nombre: string }).nombre) }));
-      if (/relation|does not exist|schema cache/i.test(error.message)) {
+      if (esErrorTablaAusente(error)) {
         const rows = await listCategoriasGasto(true);
         return soloCategorias(rows).map((c) => ({ id: c.id, nombre: c.nombre }));
       }
@@ -720,7 +730,7 @@ export function crearRepoSupabase(): AdminRepo {
     async listAdminCategorias() {
       const { data, error } = await supabase.from(T_CAT).select('*').order('orden').order('nombre');
       if (error) {
-        if (/relation|does not exist|schema cache/i.test(error.message)) return [];
+        if (esErrorTablaAusente(error)) return [];
         throw error;
       }
       return (data ?? []).map((r) => aCategoria(r as RowCat));
