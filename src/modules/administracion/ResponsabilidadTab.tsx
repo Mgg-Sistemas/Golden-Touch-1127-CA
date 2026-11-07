@@ -23,10 +23,11 @@ const ORDEN_LABEL: Record<OrdenMisResp, string> = {
   prioridad: 'Prioridad', estatus: 'Estatus', vigencia_asc: 'Más próximo a vencer', vigencia_desc: 'Mayor vigencia',
 };
 
-export function ResponsabilidadTab({ repo, empresaClave }: {
+export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }: {
   repo: AdminRepo;
   empresaClave: string | null;
   empresas: Empresa[];
+  puedeEscribir?: boolean;
 }) {
   const [items, setItems] = useState<ItemAgenda[]>([]);
   const [docs, setDocs] = useState<DocumentoEmpresa[]>([]);
@@ -87,6 +88,7 @@ export function ResponsabilidadTab({ repo, empresaClave }: {
   }, [docs, items]);
 
   async function asignar() {
+    if (!puedeEscribir) { toast('Sin permiso de escritura.', 'warning', { silent: true }); return; }
     if (!objetivoSel || !usuarioSel) { toast('Elige el objetivo y el responsable.', 'warning', { silent: true }); return; }
     const [tipo, ...rest] = objetivoSel.split(':');
     const objetivoId = rest.join(':');
@@ -100,12 +102,14 @@ export function ResponsabilidadTab({ repo, empresaClave }: {
     finally { setOcupado(false); }
   }
   async function quitar(id: string) {
+    if (!puedeEscribir) { toast('Sin permiso de escritura.', 'warning', { silent: true }); return; }
     setOcupado(true);
     try { await repo.quitarResponsabilidad(id); toast('Responsable quitado.', 'info'); await cargar(); }
     catch (e) { toast(`No se pudo quitar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
     finally { setOcupado(false); }
   }
   async function generarAvisos() {
+    if (!puedeEscribir) { toast('Sin permiso de escritura.', 'warning', { silent: true }); return; }
     setOcupado(true);
     try {
       const nuevos = construirAvisos(items, resp, docPorId, avisos);
@@ -116,6 +120,7 @@ export function ResponsabilidadTab({ repo, empresaClave }: {
     finally { setOcupado(false); }
   }
   async function alternarLeido(a: Aviso) {
+    if (!puedeEscribir) { toast('Sin permiso de escritura.', 'warning', { silent: true }); return; }
     try { await repo.marcarAvisoLeido(a.id, !a.leido); await cargar(); }
     catch (e) { toast(`No se pudo marcar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
   }
@@ -126,7 +131,7 @@ export function ResponsabilidadTab({ repo, empresaClave }: {
         <button className={vista === 'carga' ? 'active' : ''} onClick={() => setVista('carga')}>👥 Carga por analista</button>
         <button className={vista === 'mias' ? 'active' : ''} onClick={() => setVista('mias')}>🙋 Mis responsabilidades</button>
         <button className={vista === 'avisos' ? 'active' : ''} onClick={() => setVista('avisos')}>🔔 Avisos</button>
-        <button className={vista === 'asignar' ? 'active' : ''} onClick={() => setVista('asignar')}>➕ Asignar</button>
+        {puedeEscribir && <button className={vista === 'asignar' ? 'active' : ''} onClick={() => setVista('asignar')}>➕ Asignar</button>}
       </div>
 
       {error && <div className="adm-aviso">No se pudo leer: {/relation|does not exist|schema cache|jwt|sesi|permission/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>}
@@ -199,7 +204,7 @@ export function ResponsabilidadTab({ repo, empresaClave }: {
       ) : vista === 'avisos' ? (
         <div style={{ display: 'grid', gap: '.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void generarAvisos()} disabled={ocupado}>↻ Generar avisos de lo que vence</button>
+            {puedeEscribir && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void generarAvisos()} disabled={ocupado}>↻ Generar avisos de lo que vence</button>}
           </div>
           {avisos.length === 0 ? <EmptyState icon="🔔" message="Sin avisos. Genera los de lo que está por vencer o vencido." /> : (
             <div style={{ display: 'grid', gap: '.35rem' }}>
@@ -210,7 +215,7 @@ export function ResponsabilidadTab({ repo, empresaClave }: {
                     <strong style={{ fontSize: '.82rem' }}>{a.texto}</strong>
                     {a.responsableEmail && <span className="muted hint" style={{ fontSize: '.72rem', display: 'block' }}>👤 {nombre(a.responsableEmail)}</span>}
                   </div>
-                  <button type="button" className="btn btn-xs btn-ghost" onClick={() => void alternarLeido(a)}>{a.leido ? 'Marcar no leído' : 'Marcar leído'}</button>
+                  {puedeEscribir && <button type="button" className="btn btn-xs btn-ghost" onClick={() => void alternarLeido(a)}>{a.leido ? 'Marcar no leído' : 'Marcar leído'}</button>}
                 </div>
               ))}
             </div>
