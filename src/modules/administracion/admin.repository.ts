@@ -63,6 +63,29 @@ export interface Carpeta {
 }
 export type CarpetaInput = Omit<Carpeta, 'id'>;
 
+/** Estado de una gestión. `abierta`/`anulada` se persisten; `parcial`/`saldada` se
+ *  DERIVAN de los envíos pagados (ver administracionHonorarios.estadoGestion). */
+export type EstadoGestion = 'abierta' | 'parcial' | 'saldada' | 'anulada';
+/** Gestión / honorario (tabla `admin_gestiones`): renglón de nombre libre con costo,
+ *  colgado de un profesional. El estado de cuenta por profesional se arma sobre esto. */
+export interface Gestion {
+  id: string;
+  empresaClave: string;
+  profesionalId: string | null;
+  categoriaId: string | null;
+  centroAcopioId: string | null;
+  documentoId: string | null;
+  concepto: string;
+  costoTotal: number;
+  moneda: Moneda;
+  tasaRef: number | null;
+  fecha: string;
+  fechaPactada: string | null;
+  estado: EstadoGestion;
+  notaAcuerdo: string | null;
+}
+export type GestionInput = Omit<Gestion, 'id'>;
+
 /** Plantilla recurrente de gasto fijo (tabla `admin_gastos_fijos`). */
 export interface GastoFijo {
   id: string;
@@ -343,6 +366,11 @@ export interface AdminRepo {
   crearCarpeta(c: CarpetaInput): Promise<Carpeta>;
   editarCarpeta(id: string, cambios: Partial<CarpetaInput>): Promise<void>;
   borrarCarpeta(id: string): Promise<void>;
+  // Gestiones (honorarios)
+  listGestiones(empresaClave?: string, profesionalId?: string): Promise<Gestion[]>;
+  crearGestion(g: GestionInput): Promise<Gestion>;
+  editarGestion(id: string, cambios: Partial<GestionInput>): Promise<void>;
+  anularGestion(id: string): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -507,9 +535,47 @@ function deCarpeta(c: Partial<CarpetaInput>): Record<string, unknown> {
   if (c.orden !== undefined) o.orden = c.orden;
   return o;
 }
+interface RowGestion {
+  id: string; empresa_clave: string; profesional_id: string | null; categoria_id: string | null;
+  centro_acopio_id: string | null; documento_id: string | null; concepto: string;
+  costo_total: number | string | null; moneda: string | null; tasa_ref: number | string | null;
+  fecha: string; fecha_pactada: string | null; estado: string | null; nota_acuerdo: string | null;
+}
+function aGestion(r: RowGestion): Gestion {
+  return {
+    id: r.id, empresaClave: r.empresa_clave, profesionalId: r.profesional_id ?? null,
+    categoriaId: r.categoria_id ?? null, centroAcopioId: r.centro_acopio_id ?? null,
+    documentoId: r.documento_id ?? null, concepto: r.concepto,
+    costoTotal: r.costo_total == null ? 0 : num(r.costo_total),
+    moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+    tasaRef: r.tasa_ref == null ? null : num(r.tasa_ref),
+    fecha: r.fecha ? r.fecha.slice(0, 10) : r.fecha,
+    fechaPactada: r.fecha_pactada ? r.fecha_pactada.slice(0, 10) : null,
+    estado: (r.estado as EstadoGestion) || 'abierta',
+    notaAcuerdo: r.nota_acuerdo ?? null,
+  };
+}
+function deGestion(g: Partial<GestionInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (g.empresaClave !== undefined) o.empresa_clave = g.empresaClave;
+  if (g.profesionalId !== undefined) o.profesional_id = g.profesionalId;
+  if (g.categoriaId !== undefined) o.categoria_id = g.categoriaId;
+  if (g.centroAcopioId !== undefined) o.centro_acopio_id = g.centroAcopioId;
+  if (g.documentoId !== undefined) o.documento_id = g.documentoId;
+  if (g.concepto !== undefined) o.concepto = g.concepto;
+  if (g.costoTotal !== undefined) o.costo_total = g.costoTotal;
+  if (g.moneda !== undefined) o.moneda = g.moneda;
+  if (g.tasaRef !== undefined) o.tasa_ref = g.tasaRef;
+  if (g.fecha !== undefined) o.fecha = g.fecha;
+  if (g.fechaPactada !== undefined) o.fecha_pactada = g.fechaPactada;
+  if (g.estado !== undefined) o.estado = g.estado;
+  if (g.notaAcuerdo !== undefined) o.nota_acuerdo = g.notaAcuerdo;
+  return o;
+}
 const T_CEN = 'admin_centros_acopio';
 const T_PROF = 'admin_profesionales';
 const T_CARP = 'admin_carpetas';
+const T_GES = 'admin_gestiones';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -681,6 +747,30 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async borrarCarpeta(id) {
       const { error } = await supabase.from(T_CARP).delete().eq('id', id);
+      if (error) throw error;
+    },
+    async listGestiones(empresaClave, profesionalId) {
+      let q = supabase.from(T_GES).select('*').order('fecha', { ascending: false });
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      if (profesionalId) q = q.eq('profesional_id', profesionalId);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aGestion(r as RowGestion));
+    },
+    async crearGestion(g) {
+      const { data, error } = await supabase.from(T_GES).insert(deGestion(g)).select('*').single();
+      if (error) throw error;
+      return aGestion(data as RowGestion);
+    },
+    async editarGestion(id, cambios) {
+      const { error } = await supabase.from(T_GES).update(deGestion(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async anularGestion(id) {
+      const { error } = await supabase.from(T_GES).update({ estado: 'anulada' }).eq('id', id);
       if (error) throw error;
     },
     async listGastosFijos(empresaClave) {

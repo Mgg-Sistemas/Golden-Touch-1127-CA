@@ -7,7 +7,7 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 
@@ -75,6 +75,7 @@ export function crearRepoDemo(): AdminRepo {
   const centros: CentroAcopio[] = [];
   const profesionales: Profesional[] = [];
   const carpetas: Carpeta[] = [];
+  const gestiones: Gestion[] = [];
   const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
@@ -158,6 +159,28 @@ export function crearRepoDemo(): AdminRepo {
     borrarCarpeta: (id) => {
       const i = carpetas.findIndex((c) => c.id === id);
       if (i >= 0) carpetas.splice(i, 1);
+      return Promise.resolve();
+    },
+    listGestiones: (empresaClave, profesionalId) => Promise.resolve(
+      gestiones
+        .filter((g) => !empresaClave || g.empresaClave === empresaClave)
+        .filter((g) => !profesionalId || g.profesionalId === profesionalId)
+        .map((g) => ({ ...g }))
+        .sort((a, b) => b.fecha.localeCompare(a.fecha)),
+    ),
+    crearGestion: (g: GestionInput) => {
+      const nueva: Gestion = { id: uid(), ...g };
+      gestiones.push(nueva);
+      return Promise.resolve({ ...nueva });
+    },
+    editarGestion: (id, cambios) => {
+      const i = gestiones.findIndex((g) => g.id === id);
+      if (i >= 0) gestiones[i] = { ...gestiones[i], ...cambios };
+      return Promise.resolve();
+    },
+    anularGestion: (id) => {
+      const i = gestiones.findIndex((g) => g.id === id);
+      if (i >= 0) gestiones[i] = { ...gestiones[i], estado: 'anulada' };
       return Promise.resolve();
     },
     listGastosFijos: (empresaClave) => Promise.resolve(
