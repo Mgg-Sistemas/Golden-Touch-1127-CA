@@ -38,4 +38,12 @@ describe('AdminRepo · envíos a Tesorería (puente atómico, reversible)', () =
     expect(envios2.find((e) => e.id === env2.id)?.estado).toBe('reversado');
     expect(saldoGestion(g, envios2)).toBe(150);
   });
+
+  it('NO deja sobre-comprometer con envíos pendientes (dos envíos no pagados que sumen más del costo)', async () => {
+    const repo = crearRepoDemo();
+    const g = await repo.crearGestion(gi({ costoTotal: 200, moneda: 'USD' }));
+    await repo.crearEnvio({ gestion: g, monto: 200, profesionalNombre: 'Abg. Ana', actor: 't' }); // 'enviado', no pagado
+    // Aunque el saldo (costo − pagado) siga en 200, ya está TODO comprometido → rechaza.
+    await expect(repo.crearEnvio({ gestion: g, monto: 1, profesionalNombre: 'Abg. Ana', actor: 't' })).rejects.toThrow();
+  });
 });

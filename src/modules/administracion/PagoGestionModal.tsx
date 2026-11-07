@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import type { AdminRepo, EnvioTesoreria, Gestion } from './admin.repository';
-import { saldoGestion, estadoGestion, puedeReversarEnvio } from './administracionHonorarios';
+import { saldoGestion, disponibleParaEnviar, estadoGestion, puedeReversarEnvio } from './administracionHonorarios';
 
 const n2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fFechaHora = (s: string | null) => (s ? new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(s)) : '—');
@@ -46,6 +46,7 @@ export function PagoGestionModal({ repo, gestion, profesionalNombre, puedeEscrib
   useEffect(() => { void cargar(); }, [cargar]);
 
   const saldo = saldoGestion(gestion, envios);
+  const disponible = disponibleParaEnviar(gestion, envios);
   const est = estadoGestion(gestion, envios);
   const anulada = gestion.estado === 'anulada';
 
@@ -101,11 +102,11 @@ export function PagoGestionModal({ repo, gestion, profesionalNombre, puedeEscrib
         </div>
 
         {/* Enviar a Tesorería */}
-        {puedeEscribir && !anulada && saldo > 0 && (
+        {puedeEscribir && !anulada && disponible > 0 && (
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.75rem', background: 'var(--surface-2)' }}>
             <div className="card-title" style={{ fontSize: '.9rem' }}>Enviar a Tesorería (cuenta por pagar)</div>
             <p className="muted hint" style={{ margin: '.2rem 0 .5rem', fontSize: '.76rem' }}>
-              Administración decide y envía; Tesorería paga. Puedes enviar el total o un parcial. Mientras no lo paguen, puedes reversarlo.
+              Administración decide y envía; Tesorería paga. Puedes enviar el total o un parcial. Mientras no lo paguen, puedes reversarlo. Disponible para enviar: <b>{n2(disponible)} {gestion.moneda}</b> (descuenta lo ya enviado y pendiente).
             </p>
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <input
@@ -113,11 +114,11 @@ export function PagoGestionModal({ repo, gestion, profesionalNombre, puedeEscrib
                 type="number" min="0" step="0.01"
                 value={monto}
                 onChange={(e) => setMonto(e.target.value)}
-                placeholder={`Monto en ${gestion.moneda} (saldo ${n2(saldo)})`}
+                placeholder={`Monto en ${gestion.moneda} (disponible ${n2(disponible)})`}
                 disabled={ocupado}
                 style={{ flex: '1 1 200px' }}
               />
-              <button type="button" className="btn btn-xs btn-ghost" onClick={() => setMonto(String(saldo))} disabled={ocupado}>Todo el saldo</button>
+              <button type="button" className="btn btn-xs btn-ghost" onClick={() => setMonto(String(disponible))} disabled={ocupado}>Todo lo disponible</button>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => void enviar()} disabled={ocupado} style={{ background: '#ff8a00', color: '#000', fontWeight: 700 }}>
                 Enviar a Tesorería
               </button>

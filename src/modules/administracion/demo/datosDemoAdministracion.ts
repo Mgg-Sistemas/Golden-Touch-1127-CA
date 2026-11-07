@@ -10,7 +10,7 @@
 import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, CrearEnvioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, EnvioTesoreria, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
-import { saldoGestion, motivoNoReversable } from '../administracionHonorarios';
+import { disponibleParaEnviar, motivoNoReversable } from '../administracionHonorarios';
 
 /** Ganchos SOLO para pruebas de la impl demo (no existen en la impl Supabase). */
 export interface RepoDemoHooks {
@@ -199,8 +199,8 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
       const { gestion } = input;
       const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
       if (monto <= 0) return Promise.reject(new Error('Indica el monto a enviar a Tesorería.'));
-      const saldo = saldoGestion(gestion, envios.filter((e) => e.gestionId === gestion.id));
-      if (monto > saldo + 0.01) return Promise.reject(new Error(`El envío (${monto}) supera el saldo pendiente de la gestión (${saldo}).`));
+      const disponible = disponibleParaEnviar(gestion, envios.filter((e) => e.gestionId === gestion.id));
+      if (monto > disponible + 0.01) return Promise.reject(new Error(`El envío (${monto}) supera lo disponible para enviar de la gestión (${disponible}); ya hay envíos comprometidos.`));
       const nuevo: EnvioTesoreria = {
         id: uid(), gestionId: gestion.id, empresaClave: gestion.empresaClave, monto, moneda: gestion.moneda,
         fechaEnvio: new Date().toISOString(), estado: 'enviado', servicioDirectoId: `demo-sd-${uid()}`,

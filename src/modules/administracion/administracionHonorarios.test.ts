@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Gestion, EnvioTesoreria } from './admin.repository';
 import {
   saldoGestion,
+  disponibleParaEnviar,
   estadoGestion,
   puedeReversarEnvio,
   motivoNoReversable,
@@ -32,6 +33,25 @@ describe('saldoGestion', () => {
   });
   it('nunca es negativo aunque se sobre-pague', () => {
     expect(saldoGestion(g({ costoTotal: 100 }), [e({ monto: 150, estado: 'pagado' })])).toBe(0);
+  });
+});
+
+describe('disponibleParaEnviar (evita sobre-compromiso)', () => {
+  it('descuenta pagados Y enviados-pendientes, no solo pagados', () => {
+    const gestion = g({ id: 'g1', costoTotal: 200 });
+    // Un envío ya ENVIADO (pendiente) de 200 debe dejar 0 disponible, aunque saldo (costo−pagado) sea 200.
+    const envios = [e({ id: 'a', gestionId: 'g1', monto: 200, estado: 'enviado' })];
+    expect(saldoGestion(gestion, envios)).toBe(200); // saldo mira solo pagados
+    expect(disponibleParaEnviar(gestion, envios)).toBe(0); // disponible mira pagados + enviados
+  });
+  it('un reversado libera lo comprometido', () => {
+    const gestion = g({ id: 'g1', costoTotal: 200 });
+    const envios = [
+      e({ id: 'a', gestionId: 'g1', monto: 120, estado: 'pagado' }),
+      e({ id: 'b', gestionId: 'g1', monto: 50, estado: 'enviado' }),
+      e({ id: 'c', gestionId: 'g1', monto: 80, estado: 'reversado' }),
+    ];
+    expect(disponibleParaEnviar(gestion, envios)).toBe(30); // 200 − 120 − 50
   });
 });
 

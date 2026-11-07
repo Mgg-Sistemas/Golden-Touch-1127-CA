@@ -15,7 +15,7 @@ import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio, elimina
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
 import { esErrorTablaAusente } from './adminErrores';
-import { saldoGestion, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
+import { disponibleParaEnviar, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
 
@@ -842,8 +842,10 @@ export function crearRepoSupabase(): AdminRepo {
       const { data: prev, error: ePrev } = await supabase.from(T_ENV).select('*').eq('gestion_id', gestion.id);
       if (ePrev && !esErrorTablaAusente(ePrev)) throw ePrev;
       const enviosActuales = (prev ?? []).map((r) => aEnvio(r as RowEnvio));
-      const saldo = saldoGestion(gestion, enviosActuales);
-      if (monto > saldo + 0.01) throw new Error(`El envío (${monto}) supera el saldo pendiente de la gestión (${saldo}).`);
+      // Tope = lo DISPONIBLE (costo − pagado − enviado-pendiente), no solo el saldo:
+      // así no se compromete dos veces el mismo honorario.
+      const disponible = disponibleParaEnviar(gestion, enviosActuales);
+      if (monto > disponible + 0.01) throw new Error(`El envío (${monto}) supera lo disponible para enviar de la gestión (${disponible}); ya hay envíos comprometidos.`);
       const actor = input.actor ?? (await supabase.auth.getUser()).data.user?.email ?? 'sistema';
       // 1) Crea el servicio directo y lo deja "Por pagar" (flujo estándar de Tesorería).
       const nota = notaAgrupacion(input.profesionalNombre, gestion.concepto, gestion.empresaClave);
@@ -855,12 +857,18 @@ export function crearRepoSupabase(): AdminRepo {
         servicio: sd, items: [{ descripcion: nota, cantidad: 1, gasto: monto }],
         moneda: gestion.moneda, actor, actorName: input.actorName ?? null,
       });
-      // 2) Registra el envío enlazado al servicio directo.
+      // 2) Registra el envío enlazado al servicio directo. Si este insert falla, el
+      //    servicio directo quedaría HUÉRFANO en Tesorería (cuenta por pagar que admin
+      //    no ve). Puente no atómico: compensamos borrando el SD (está 'por_pagar',
+      //    pasa las guardas) antes de propagar el error.
       const { data, error } = await supabase.from(T_ENV).insert({
         gestion_id: gestion.id, empresa_clave: gestion.empresaClave, monto, moneda: gestion.moneda,
         estado: 'enviado', servicio_directo_id: sd.id, enviado_por: actor,
       }).select('*').single();
-      if (error) throw error;
+      if (error) {
+        try { await eliminarServicioDirecto(sd); } catch { /* best-effort: si no se pudo, queda la deuda conocida */ }
+        throw error;
+      }
       return aEnvio(data as RowEnvio);
     },
     async reversarEnvio(id) {
@@ -885,8 +893,11 @@ export function crearRepoSupabase(): AdminRepo {
         }
         throw new Error(motivo);
       }
-      // No pagado: borra el servicio directo CON sus guardas (lanza si tuviera factura
-      // registrada o hubiera pasado a pagado entre tanto), no con un delete crudo.
+      // No pagado: borra el servicio directo vía eliminarServicioDirecto (aplica la guarda
+      // de factura registrada y mapea el error de borrado), no con un delete crudo. Nota:
+      // la guarda de "pagado" de esa función usa el estado que acabamos de leer (líneas
+      // arriba); queda una ventana TOCTOU mínima (sin await que ceda a Tesorería) que este
+      // módulo no cierra —es el mismo patrón del resto del flujo de servicios directos.
       if (servicio) {
         await eliminarServicioDirecto(servicio as unknown as ServicioDirecto);
       }

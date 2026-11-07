@@ -20,6 +20,17 @@ export function saldoGestion(gestion: Gestion, envios: EnvioTesoreria[]): number
   return r2(Math.max(0, (Number(gestion.costoTotal) || 0) - pagado));
 }
 
+/** Lo que aún se puede ENVIAR a Tesorería sin sobre-comprometer la gestión:
+ *  costo − Σ(pagados) − Σ(enviados pendientes). A diferencia de `saldoGestion`
+ *  (que solo mira pagados, para que la reversa cuadre), este tope CUENTA lo ya
+ *  enviado-pendiente, para no comprometer dos veces el mismo honorario. */
+export function disponibleParaEnviar(gestion: Gestion, envios: EnvioTesoreria[]): number {
+  const comprometido = envios
+    .filter((e) => e.gestionId === gestion.id && (e.estado === 'pagado' || e.estado === 'enviado'))
+    .reduce((a, e) => a + (Number(e.monto) || 0), 0);
+  return r2(Math.max(0, (Number(gestion.costoTotal) || 0) - comprometido));
+}
+
 /** Estado mostrado: 'anulada' manda; si saldo 0 → 'saldada'; si hay pago parcial → 'parcial'; si no → 'abierta'. */
 export function estadoGestion(gestion: Gestion, envios: EnvioTesoreria[]): EstadoGestion {
   if (gestion.estado === 'anulada') return 'anulada';
