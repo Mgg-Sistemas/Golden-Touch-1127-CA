@@ -110,7 +110,8 @@ export interface CrearEnvioInput {
   monto: number;
   /** Nombre del profesional, para la nota de agrupación que ve Tesorería. */
   profesionalNombre: string;
-  actor: string;
+  /** Quién envía; si se omite, el repo lo resuelve del usuario autenticado. */
+  actor?: string;
   actorName?: string | null;
 }
 
@@ -843,20 +844,21 @@ export function crearRepoSupabase(): AdminRepo {
       const enviosActuales = (prev ?? []).map((r) => aEnvio(r as RowEnvio));
       const saldo = saldoGestion(gestion, enviosActuales);
       if (monto > saldo + 0.01) throw new Error(`El envío (${monto}) supera el saldo pendiente de la gestión (${saldo}).`);
+      const actor = input.actor ?? (await supabase.auth.getUser()).data.user?.email ?? 'sistema';
       // 1) Crea el servicio directo y lo deja "Por pagar" (flujo estándar de Tesorería).
       const nota = notaAgrupacion(input.profesionalNombre, gestion.concepto, gestion.empresaClave);
       const sd = await crearServicioDirecto({
         lineas: [{ descripcion: nota, cantidad: 1 }],
-        moneda: gestion.moneda, actor: input.actor, actorName: input.actorName ?? null,
+        moneda: gestion.moneda, actor, actorName: input.actorName ?? null,
       });
       await enviarServicioAPagar({
         servicio: sd, items: [{ descripcion: nota, cantidad: 1, gasto: monto }],
-        moneda: gestion.moneda, actor: input.actor, actorName: input.actorName ?? null,
+        moneda: gestion.moneda, actor, actorName: input.actorName ?? null,
       });
       // 2) Registra el envío enlazado al servicio directo.
       const { data, error } = await supabase.from(T_ENV).insert({
         gestion_id: gestion.id, empresa_clave: gestion.empresaClave, monto, moneda: gestion.moneda,
-        estado: 'enviado', servicio_directo_id: sd.id, enviado_por: input.actor,
+        estado: 'enviado', servicio_directo_id: sd.id, enviado_por: actor,
       }).select('*').single();
       if (error) throw error;
       return aEnvio(data as RowEnvio);

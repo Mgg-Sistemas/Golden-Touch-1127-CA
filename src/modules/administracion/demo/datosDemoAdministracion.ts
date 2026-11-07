@@ -204,7 +204,7 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
       const nuevo: EnvioTesoreria = {
         id: uid(), gestionId: gestion.id, empresaClave: gestion.empresaClave, monto, moneda: gestion.moneda,
         fechaEnvio: new Date().toISOString(), estado: 'enviado', servicioDirectoId: `demo-sd-${uid()}`,
-        enviadoPor: input.actor, pagadoEn: null,
+        enviadoPor: input.actor ?? 'demo', pagadoEn: null,
       };
       envios.push(nuevo);
       return Promise.resolve({ ...nuevo });
