@@ -3,6 +3,8 @@ import {
   responsablesDeObjetivo,
   responsablesEfectivosDocumento,
   imputacion,
+  cargaPorAnalista,
+  misResponsabilidades,
 } from './administracionResponsabilidad';
 import type { DocumentoEmpresa, Responsabilidad } from './admin.repository';
 import type { ItemAgenda } from './administracionAgenda';
@@ -51,5 +53,47 @@ describe('imputacion (solo al vencer/incumplir)', () => {
   it('un gasto vencido usa responsabilidad directa', () => {
     const rg = [resp({ usuarioEmail: 'g@gt.com', objetivoTipo: 'gasto', objetivoId: 'mov9' })];
     expect(imputacion(item({ origen: 'gasto', id: 'mov9', status: 'vencido_en_tramite' }), rg, docPorId)).toEqual(['g@gt.com']);
+  });
+});
+
+describe('cargaPorAnalista', () => {
+  const docPorId = new Map<string, DocumentoEmpresa>();
+  it('un ítem compartido cuenta para cada responsable; resume por estado', () => {
+    const rs = [
+      resp({ usuarioEmail: 'ana@gt.com', objetivoTipo: 'gestion', objetivoId: 'g1' }),
+      resp({ usuarioEmail: 'bea@gt.com', objetivoTipo: 'gestion', objetivoId: 'g1' }),
+      resp({ usuarioEmail: 'ana@gt.com', objetivoTipo: 'gasto', objetivoId: 'm1' }),
+    ];
+    const items = [
+      item({ origen: 'gestion', id: 'g1', status: 'vencido' }),
+      item({ origen: 'gasto', id: 'm1', status: 'por_vencer' }),
+    ];
+    const carga = cargaPorAnalista(items, rs, docPorId);
+    const ana = carga.find((c) => c.usuarioEmail === 'ana@gt.com')!;
+    const bea = carga.find((c) => c.usuarioEmail === 'bea@gt.com')!;
+    expect(ana).toMatchObject({ total: 2, vencidos: 1, porVencer: 1 });
+    expect(bea).toMatchObject({ total: 1, vencidos: 1 });
+    expect(carga[0].usuarioEmail).toBe('ana@gt.com'); // más vencidos+porVencer primero
+  });
+});
+
+describe('misResponsabilidades', () => {
+  const docPorId = new Map<string, DocumentoEmpresa>();
+  const rs = [
+    resp({ usuarioEmail: 'ana@gt.com', objetivoTipo: 'gestion', objetivoId: 'g1' }),
+    resp({ usuarioEmail: 'ana@gt.com', objetivoTipo: 'gestion', objetivoId: 'g2' }),
+  ];
+  const items = [
+    item({ origen: 'gestion', id: 'g1', diasRestantes: 40, prioridad: 'baja', status: 'vigente' }),
+    item({ origen: 'gestion', id: 'g2', diasRestantes: 5, prioridad: 'alta', status: 'por_vencer' }),
+  ];
+  it('vigencia_asc pone el más próximo primero', () => {
+    expect(misResponsabilidades('ana@gt.com', items, rs, docPorId, 'vigencia_asc').map((i) => i.id)).toEqual(['g2', 'g1']);
+  });
+  it('prioridad pone alta primero', () => {
+    expect(misResponsabilidades('ana@gt.com', items, rs, docPorId, 'prioridad').map((i) => i.id)).toEqual(['g2', 'g1']);
+  });
+  it('un analista sin responsabilidades ve vacío', () => {
+    expect(misResponsabilidades('nadie@gt.com', items, rs, docPorId, 'estatus')).toEqual([]);
   });
 });
