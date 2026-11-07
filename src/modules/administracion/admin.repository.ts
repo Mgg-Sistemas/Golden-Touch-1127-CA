@@ -146,6 +146,17 @@ export type OrigenMovimiento = 'generado' | 'importado' | 'manual';
 /** Prioridad que fija el analista para ordenar su lista de trabajo. */
 export type Prioridad = 'alta' | 'media' | 'baja';
 
+/** Responsabilidad N:N (tabla `admin_responsabilidades`): un usuario responde de un objetivo. */
+export type ObjetivoResp = 'carpeta' | 'documento' | 'gasto' | 'gestion';
+export interface Responsabilidad {
+  id: string;
+  empresaClave: string;
+  usuarioEmail: string;
+  objetivoTipo: ObjetivoResp;
+  objetivoId: string;
+}
+export type ResponsabilidadInput = Omit<Responsabilidad, 'id'>;
+
 /** Un egreso por período: el pendiente generado, el movimiento importado o el
  *  alta manual (tabla `admin_gasto_fijo_movimientos`). Sobre esto va el reporte. */
 export interface Movimiento {
@@ -432,6 +443,10 @@ export interface AdminRepo {
   refrescarEnvios(gestionId?: string): Promise<void>;
   /** URL firmada del comprobante único del servicio directo del envío (o null). */
   urlAdjuntoEnvio(envio: EnvioTesoreria): Promise<string | null>;
+  // Responsabilidades (N:N)
+  listResponsabilidades(empresaClave?: string): Promise<Responsabilidad[]>;
+  asignarResponsabilidad(input: ResponsabilidadInput): Promise<Responsabilidad>;
+  quitarResponsabilidad(id: string): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -656,11 +671,19 @@ function aEnvio(r: RowEnvio): EnvioTesoreria {
     pagadoEn: r.pagado_en ?? null,
   };
 }
+interface RowResp { id: string; empresa_clave: string; usuario_email: string; objetivo_tipo: string; objetivo_id: string }
+function aResp(r: RowResp): Responsabilidad {
+  return { id: r.id, empresaClave: r.empresa_clave, usuarioEmail: r.usuario_email, objetivoTipo: r.objetivo_tipo as ObjetivoResp, objetivoId: r.objetivo_id };
+}
+function deResp(x: ResponsabilidadInput): Record<string, unknown> {
+  return { empresa_clave: x.empresaClave, usuario_email: x.usuarioEmail, objetivo_tipo: x.objetivoTipo, objetivo_id: x.objetivoId };
+}
 const T_CEN = 'admin_centros_acopio';
 const T_PROF = 'admin_profesionales';
 const T_CARP = 'admin_carpetas';
 const T_GES = 'admin_gestiones';
 const T_ENV = 'admin_envios_tesoreria';
+const T_RESP = 'admin_responsabilidades';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -974,6 +997,28 @@ export function crearRepoSupabase(): AdminRepo {
       if (error) return null;
       const path = (data as { adjunto_path?: string | null } | null)?.adjunto_path ?? null;
       return path ? urlAdjuntoServicio(path) : null;
+    },
+    async listResponsabilidades(empresaClave) {
+      let q = supabase.from(T_RESP).select('*');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aResp(r as RowResp));
+    },
+    async asignarResponsabilidad(input) {
+      // Idempotente contra el único (usuario_email, objetivo_tipo, objetivo_id).
+      const { data, error } = await supabase.from(T_RESP)
+        .upsert(deResp(input), { onConflict: 'usuario_email,objetivo_tipo,objetivo_id' })
+        .select('*').single();
+      if (error) throw error;
+      return aResp(data as RowResp);
+    },
+    async quitarResponsabilidad(id) {
+      const { error } = await supabase.from(T_RESP).delete().eq('id', id);
+      if (error) throw error;
     },
     async listGastosFijos(empresaClave) {
       let q = supabase.from(T_GF).select('*').order('concepto');
