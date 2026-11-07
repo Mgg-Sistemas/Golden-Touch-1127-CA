@@ -157,6 +157,21 @@ export interface Responsabilidad {
 }
 export type ResponsabilidadInput = Omit<Responsabilidad, 'id'>;
 
+/** Aviso interno del módulo (tabla `admin_avisos`): bandeja persistida. */
+export type TipoAviso = 'por_vencer' | 'vencido' | 'incumplido' | 'acuerdo' | 'nota';
+export interface Aviso {
+  id: string;
+  empresaClave: string;
+  tipo: TipoAviso;
+  origen: 'documento' | 'gasto' | 'gestion';
+  origenId: string;
+  responsableEmail: string | null;
+  fecha: string | null;
+  texto: string;
+  leido: boolean;
+}
+export type AvisoInput = Omit<Aviso, 'id' | 'leido'>;
+
 /** Un egreso por período: el pendiente generado, el movimiento importado o el
  *  alta manual (tabla `admin_gasto_fijo_movimientos`). Sobre esto va el reporte. */
 export interface Movimiento {
@@ -447,6 +462,10 @@ export interface AdminRepo {
   listResponsabilidades(empresaClave?: string): Promise<Responsabilidad[]>;
   asignarResponsabilidad(input: ResponsabilidadInput): Promise<Responsabilidad>;
   quitarResponsabilidad(id: string): Promise<void>;
+  // Avisos internos
+  listAvisos(empresaClave?: string): Promise<Aviso[]>;
+  crearAviso(a: AvisoInput): Promise<Aviso>;
+  marcarAvisoLeido(id: string, leido: boolean): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -678,12 +697,27 @@ function aResp(r: RowResp): Responsabilidad {
 function deResp(x: ResponsabilidadInput): Record<string, unknown> {
   return { empresa_clave: x.empresaClave, usuario_email: x.usuarioEmail, objetivo_tipo: x.objetivoTipo, objetivo_id: x.objetivoId };
 }
+interface RowAviso { id: string; empresa_clave: string; tipo: string; origen: string; origen_id: string; responsable_email: string | null; fecha: string | null; texto: string; leido: boolean | null }
+function aAviso(r: RowAviso): Aviso {
+  return {
+    id: r.id, empresaClave: r.empresa_clave, tipo: r.tipo as TipoAviso, origen: r.origen as Aviso['origen'],
+    origenId: r.origen_id, responsableEmail: r.responsable_email ?? null,
+    fecha: r.fecha ? r.fecha.slice(0, 10) : null, texto: r.texto, leido: r.leido === true,
+  };
+}
+function deAviso(a: AvisoInput): Record<string, unknown> {
+  return {
+    empresa_clave: a.empresaClave, tipo: a.tipo, origen: a.origen, origen_id: a.origenId,
+    responsable_email: a.responsableEmail, fecha: a.fecha, texto: a.texto,
+  };
+}
 const T_CEN = 'admin_centros_acopio';
 const T_PROF = 'admin_profesionales';
 const T_CARP = 'admin_carpetas';
 const T_GES = 'admin_gestiones';
 const T_ENV = 'admin_envios_tesoreria';
 const T_RESP = 'admin_responsabilidades';
+const T_AVISO = 'admin_avisos';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -1018,6 +1052,25 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async quitarResponsabilidad(id) {
       const { error } = await supabase.from(T_RESP).delete().eq('id', id);
+      if (error) throw error;
+    },
+    async listAvisos(empresaClave) {
+      let q = supabase.from(T_AVISO).select('*').order('created_at', { ascending: false });
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aAviso(r as RowAviso));
+    },
+    async crearAviso(a) {
+      const { data, error } = await supabase.from(T_AVISO).insert(deAviso(a)).select('*').single();
+      if (error) throw error;
+      return aAviso(data as RowAviso);
+    },
+    async marcarAvisoLeido(id, leido) {
+      const { error } = await supabase.from(T_AVISO).update({ leido }).eq('id', id);
       if (error) throw error;
     },
     async listGastosFijos(empresaClave) {
