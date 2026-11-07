@@ -32,6 +32,16 @@ export interface Empresa {
 }
 export type EmpresaInput = Omit<Empresa, 'id'>;
 
+/** Centro de acopio de una empresa (tabla `admin_centros_acopio`). */
+export interface CentroAcopio {
+  id: string;
+  empresaClave: string;
+  nombre: string;
+  orden: number;
+  activo: boolean;
+}
+export type CentroAcopioInput = Omit<CentroAcopio, 'id'>;
+
 /** Plantilla recurrente de gasto fijo (tabla `admin_gastos_fijos`). */
 export interface GastoFijo {
   id: string;
@@ -297,6 +307,11 @@ export interface AdminRepo {
   contarGastosDeEmpresa(clave: string): Promise<number>;
   desactivarEmpresa(id: string): Promise<void>;
   borrarEmpresa(id: string): Promise<void>;
+  // Centros de acopio
+  listCentros(empresaClave?: string): Promise<CentroAcopio[]>;
+  crearCentro(c: CentroAcopioInput): Promise<CentroAcopio>;
+  editarCentro(id: string, cambios: Partial<CentroAcopioInput>): Promise<void>;
+  setActivoCentro(id: string, activo: boolean): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -425,6 +440,19 @@ function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
   return o;
 }
 
+interface RowCentro { id: string; empresa_clave: string; nombre: string; orden: number | null; activo: boolean | null }
+function aCentro(r: RowCentro): CentroAcopio {
+  return { id: r.id, empresaClave: r.empresa_clave, nombre: r.nombre, orden: r.orden ?? 0, activo: r.activo !== false };
+}
+function deCentro(c: Partial<CentroAcopioInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (c.empresaClave !== undefined) o.empresa_clave = c.empresaClave;
+  if (c.nombre !== undefined) o.nombre = c.nombre;
+  if (c.orden !== undefined) o.orden = c.orden;
+  if (c.activo !== undefined) o.activo = c.activo;
+  return o;
+}
+const T_CEN = 'admin_centros_acopio';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -529,6 +557,26 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async borrarEmpresa(id) {
       const { error } = await supabase.from(T_EMP).delete().eq('id', id);
+      if (error) throw error;
+    },
+    async listCentros(empresaClave) {
+      let q = supabase.from(T_CEN).select('*').order('orden').order('nombre');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []).map((r) => aCentro(r as RowCentro));
+    },
+    async crearCentro(c) {
+      const { data, error } = await supabase.from(T_CEN).insert(deCentro(c)).select('*').single();
+      if (error) throw error;
+      return aCentro(data as RowCentro);
+    },
+    async editarCentro(id, cambios) {
+      const { error } = await supabase.from(T_CEN).update(deCentro(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async setActivoCentro(id, activo) {
+      const { error } = await supabase.from(T_CEN).update({ activo }).eq('id', id);
       if (error) throw error;
     },
     async listGastosFijos(empresaClave) {

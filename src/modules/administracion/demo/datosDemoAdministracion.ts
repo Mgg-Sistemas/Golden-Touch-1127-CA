@@ -7,7 +7,7 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminCategoria, AdminRepo, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, CentroAcopio, CentroAcopioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 
@@ -72,6 +72,7 @@ export function crearRepoDemo(): AdminRepo {
   const movimientos: Movimiento[] = movimientosSemilla();
   const documentos: DocumentoEmpresa[] = [];
   const categorias: AdminCategoria[] = CATEGORIAS_DEMO.map((c) => ({ ...c }));
+  const centros: CentroAcopio[] = [];
   const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
@@ -97,6 +98,26 @@ export function crearRepoDemo(): AdminRepo {
       const clave = claveDe(id);
       const i = empresas.findIndex((e) => e.id === id);
       if (i >= 0 && !(clave && gastos.some((g) => g.empresaClave === clave))) empresas.splice(i, 1);
+      return Promise.resolve();
+    },
+    listCentros: (empresaClave) => Promise.resolve(
+      centros.filter((c) => !empresaClave || c.empresaClave === empresaClave)
+        .map((c) => ({ ...c }))
+        .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
+    ),
+    crearCentro: (c: CentroAcopioInput) => {
+      const nuevo: CentroAcopio = { id: uid(), ...c };
+      centros.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    editarCentro: (id, cambios) => {
+      const i = centros.findIndex((c) => c.id === id);
+      if (i >= 0) centros[i] = { ...centros[i], ...cambios };
+      return Promise.resolve();
+    },
+    setActivoCentro: (id, activo) => {
+      const i = centros.findIndex((c) => c.id === id);
+      if (i >= 0) centros[i] = { ...centros[i], activo };
       return Promise.resolve();
     },
     listGastosFijos: (empresaClave) => Promise.resolve(
