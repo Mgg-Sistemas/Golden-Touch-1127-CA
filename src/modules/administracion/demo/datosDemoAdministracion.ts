@@ -10,7 +10,7 @@
 import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, CrearEnvioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, EnvioTesoreria, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
-import { saldoGestion } from '../administracionHonorarios';
+import { saldoGestion, motivoNoReversable } from '../administracionHonorarios';
 
 /** Ganchos SOLO para pruebas de la impl demo (no existen en la impl Supabase). */
 export interface RepoDemoHooks {
@@ -212,7 +212,9 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
     reversarEnvio: (id) => {
       const i = envios.findIndex((e) => e.id === id);
       if (i < 0) return Promise.reject(new Error('Envío no encontrado.'));
-      if (envios[i].estado !== 'enviado') return Promise.reject(new Error('Solo se puede reversar un envío que aún no se ha pagado.'));
+      // En demo no hay servicio directo real; el estado del propio envío es la fuente.
+      const motivo = motivoNoReversable(envios[i], false);
+      if (motivo) return Promise.reject(new Error(motivo));
       envios[i] = { ...envios[i], estado: 'reversado' };
       return Promise.resolve();
     },

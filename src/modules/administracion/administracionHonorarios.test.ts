@@ -4,6 +4,7 @@ import {
   saldoGestion,
   estadoGestion,
   puedeReversarEnvio,
+  motivoNoReversable,
   notaAgrupacion,
   estadoCuentaProfesional,
 } from './administracionHonorarios';
@@ -50,6 +51,19 @@ describe('puedeReversarEnvio', () => {
     expect(puedeReversarEnvio(e({ estado: 'enviado' }))).toBe(true);
     expect(puedeReversarEnvio(e({ estado: 'pagado' }))).toBe(false);
     expect(puedeReversarEnvio(e({ estado: 'reversado' }))).toBe(false);
+  });
+});
+
+describe('motivoNoReversable (estado AUTORITATIVO del servicio directo)', () => {
+  it('permite reversar un envío enviado cuyo servicio NO está pagado', () => {
+    expect(motivoNoReversable(e({ estado: 'enviado' }), false)).toBeNull();
+  });
+  it('BLOQUEA aunque el envío diga enviado si el servicio directo YA está pagado (estado viejo)', () => {
+    expect(motivoNoReversable(e({ estado: 'enviado' }), true)).toMatch(/pagad/i);
+  });
+  it('bloquea un envío ya marcado pagado o reversado', () => {
+    expect(motivoNoReversable(e({ estado: 'pagado' }), false)).toBeTruthy();
+    expect(motivoNoReversable(e({ estado: 'reversado' }), false)).toBeTruthy();
   });
 });
 

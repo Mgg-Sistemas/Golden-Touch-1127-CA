@@ -11,11 +11,11 @@
 import { supabase } from '@/shared/lib/supabase';
 import { listCategoriasGasto, soloCategorias } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
-import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio } from '@/modules/pedidos/serviciosDirectos.repository';
+import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio, eliminarServicioDirecto, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
 import { esErrorTablaAusente } from './adminErrores';
-import { saldoGestion, notaAgrupacion } from './administracionHonorarios';
+import { saldoGestion, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
 
@@ -865,9 +865,28 @@ export function crearRepoSupabase(): AdminRepo {
       const { data, error } = await supabase.from(T_ENV).select('*').eq('id', id).single();
       if (error) throw error;
       const envio = aEnvio(data as RowEnvio);
-      if (envio.estado !== 'enviado') throw new Error('Solo se puede reversar un envío que aún no se ha pagado.');
+      // Estado AUTORITATIVO: relee el servicio directo (el estado del envío puede estar
+      // viejo si Tesorería ya pagó y aún no se refrescó).
+      type SdLite = { id: string; estado?: string | null; pagada_at?: string | null };
+      let servicio: SdLite | null = null;
       if (envio.servicioDirectoId) {
-        await supabase.from('servicios_directos').delete().eq('id', envio.servicioDirectoId);
+        const { data: sd } = await supabase.from('servicios_directos')
+          .select('id,estado,pagada_at').eq('id', envio.servicioDirectoId).maybeSingle();
+        servicio = (sd as SdLite | null) ?? null;
+      }
+      const servicioPagado = !!servicio && (servicio.estado === 'finalizada' || !!servicio.pagada_at);
+      const motivo = motivoNoReversable(envio, servicioPagado);
+      if (motivo) {
+        // Si en realidad ya estaba pagado, reconcilia el envío para que deje de verse como 'enviado'.
+        if (servicioPagado && envio.estado !== 'pagado') {
+          await supabase.from(T_ENV).update({ estado: 'pagado', pagado_en: servicio?.pagada_at ?? new Date().toISOString() }).eq('id', id);
+        }
+        throw new Error(motivo);
+      }
+      // No pagado: borra el servicio directo CON sus guardas (lanza si tuviera factura
+      // registrada o hubiera pasado a pagado entre tanto), no con un delete crudo.
+      if (servicio) {
+        await eliminarServicioDirecto(servicio as unknown as ServicioDirecto);
       }
       const { error: eUpd } = await supabase.from(T_ENV).update({ estado: 'reversado' }).eq('id', id);
       if (eUpd) throw eUpd;

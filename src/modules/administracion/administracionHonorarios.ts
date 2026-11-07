@@ -4,7 +4,7 @@
    Monedas POR MONEDA NATIVA: USD y Bs se suman por separado, nunca
    se reconvierten (igual criterio que el reporte de Tesorería).
    ============================================================ */
-import type { EnvioTesoreria, EstadoGestion, Gestion } from './admin.repository';
+import type { EnvioTesoreria, EstadoGestion, Gestion, Profesional } from './admin.repository';
 import type { Moneda } from './administracionCalculo';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -30,9 +30,22 @@ export function estadoGestion(gestion: Gestion, envios: EnvioTesoreria[]): Estad
   return 'abierta';
 }
 
-/** Un envío solo se puede reversar si aún NO se ha pagado. */
+/** Un envío solo se puede reversar si aún NO se ha pagado (según su propio estado). */
 export function puedeReversarEnvio(envio: EnvioTesoreria): boolean {
   return envio.estado === 'enviado';
+}
+
+/** Motivo por el que NO se puede reversar, o null si sí se puede. Usa el estado
+ *  AUTORITATIVO del servicio directo (`servicioPagado`), no solo el del envío: si
+ *  Tesorería ya pagó y el envío aún no se refrescó, igual se bloquea. */
+export function motivoNoReversable(envio: EnvioTesoreria, servicioPagado: boolean): string | null {
+  if (envio.estado === 'pagado' || servicioPagado) {
+    return 'Este envío ya fue pagado por Tesorería; no se puede reversar (reábrelo en Tesorería).';
+  }
+  if (envio.estado !== 'enviado') {
+    return 'Solo se puede reversar un envío que aún no se ha pagado.';
+  }
+  return null;
 }
 
 /** Nota que Tesorería ve para reconocer envíos del MISMO honorario (parciales = N cuentas). */
@@ -88,4 +101,24 @@ export function estadoCuentaProfesional(
   }
 
   return { lineas, porMoneda: Array.from(porMonedaMap.values()).sort((a, b) => a.moneda.localeCompare(b.moneda)) };
+}
+
+export interface GrupoProfesional {
+  profesional: Profesional;
+  cuenta: EstadoCuentaProfesional;
+}
+
+/** Agrupa gestiones por profesional para el tablero de honorarios: solo los profesionales
+ *  con al menos una gestión, ordenados por nombre. Las gestiones de un profesional
+ *  desconocido (id nulo o no listado) se omiten (no revientan la vista). */
+export function agrupaPorProfesional(
+  gestiones: Gestion[],
+  envios: EnvioTesoreria[],
+  profesionales: Profesional[],
+): GrupoProfesional[] {
+  const conGestiones = new Set(gestiones.map((g) => g.profesionalId).filter((id): id is string => !!id));
+  return profesionales
+    .filter((p) => conGestiones.has(p.id))
+    .map((profesional) => ({ profesional, cuenta: estadoCuentaProfesional(profesional.id, gestiones, envios) }))
+    .sort((a, b) => a.profesional.nombre.localeCompare(b.profesional.nombre, 'es'));
 }
