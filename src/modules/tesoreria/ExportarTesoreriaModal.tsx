@@ -54,6 +54,7 @@ import {
 } from './exportarTesoreria';
 import { textoWhatsappTesoreria } from './whatsappTesoreria';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { LEYENDA_AL_DIA, TITULO_AL_DIA, descargarTesoreriaAlDiaPdf, textoWhatsappTesoreriaAlDia } from './tesoreriaAlDia';
 
 const CLAVE_CAMPOS = 'tesoreria.reporte.campos.v1';
 const CLAVE_AMBITO = 'tesoreria.reporte.ambito.v1';
@@ -249,6 +250,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   }), [filasDetalle, cajasSel, monedasSel, tiposSel, categoriasSel, contrapartesSel, estadosSel]);
 
   const { filas, resumen } = useMemo(() => procesarFilasReporteTesoreria(filtradas, agrupacion, { ordenarPor }), [filtradas, agrupacion, ordenarPor]);
+  // 07/11/2026: «Por pagar» sin NINGUNA orden pendiente (antes de filtros) → Tesorería al día.
+  const alDia = ambito === 'por_pagar' && !cargando && !!datosPP && filasDetalle.length === 0;
   // Nombre legible de la dimensión activa (sin el prefijo «Por »), para los avisos de claridad:
   // así el usuario entiende que el nº de tarjetas/filas = nº de grupos de ESA dimensión.
   const nombreDimension = (MODOS.find((m) => m.id === agrupacion)?.label ?? '').replace(/^Por\s+/, '');
@@ -278,6 +281,14 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
   const descargar = async (formato: 'pdf' | 'xlsx' | 'csv') => {
     if (marcadosVisibles.length === 0) { toast('Marca al menos una columna visible para exportar.', 'warning'); return; }
+    // 07/11/2026: «Por pagar» sin nada pendiente → PDF «Tesorería al día».
+    if (filas.length === 0 && alDia && formato === 'pdf') {
+      setOcupado('pdf');
+      try { await descargarTesoreriaAlDiaPdf(); }
+      catch (e) { toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'); }
+      finally { setOcupado(null); }
+      return;
+    }
     if (filas.length === 0) { toast('No hay datos con los filtros y período seleccionados.', 'warning'); return; }
     setOcupado(formato);
     try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_TASA, baseTasa); localStorage.setItem(CLAVE_USD, String(mostrarUsd)); localStorage.setItem(CLAVE_BS, String(mostrarBs)); localStorage.setItem(CLAVE_RESUMEN, String(incluirResumen)); localStorage.setItem(CLAVE_KPIS, String(kpisSimplificados)); localStorage.setItem(CLAVE_PREPARAR, String(incluirPreparar)); } catch { /* no crítico */ }
@@ -343,12 +354,12 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
   // Aviso puntual para WhatsApp: ítems en su moneda + total consolidado, por ámbito.
   const textoWsp = useMemo(
-    () => textoWhatsappTesoreria(filtradas, {
+    () => alDia ? textoWhatsappTesoreriaAlDia() : textoWhatsappTesoreria(filtradas, {
       ambito, desde, hasta, mostrarUsd, mostrarBs,
       tasaRef: resumen.tasaBcvReferencia,
       preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
     }),
-    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia],
+    [alDia, filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia],
   );
 
   return (
@@ -363,8 +374,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
             <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
             <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
-            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || filas.length === 0}>💬 WhatsApp</button>
-            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
+            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || (filas.length === 0 && !alDia)}>💬 WhatsApp</button>
+            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || (filas.length === 0 ? !alDia : marcadosVisibles.length === 0)}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
           </div>
         </div>
       }
@@ -811,6 +822,11 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
           {cargando ? (
             <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>Cargando datos de Tesorería...</div>
+          ) : filas.length === 0 && alDia ? (
+            <div style={{ textAlign: 'center', padding: '1.2rem', border: '1px solid #16a34a', borderRadius: 8, background: 'rgba(22,163,74,.08)' }}>
+              <div style={{ fontWeight: 800, fontSize: '1rem' }}>📋 {TITULO_AL_DIA}</div>
+              <div style={{ fontWeight: 800, fontSize: '1rem', color: '#22c55e', marginTop: '.25rem' }}>✅ {LEYENDA_AL_DIA}</div>
+            </div>
           ) : filas.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>No hay datos para el ámbito, período o filtros seleccionados.</div>
           ) : formatoPresentacion === 'fichas' ? (

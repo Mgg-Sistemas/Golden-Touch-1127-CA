@@ -481,6 +481,22 @@ export function PedidosPage() {
   // Callback estable para abrir el detalle: evita re-renderizar todas las tarjetas
   // del kanban en cada render (KanbanCard está memoizado).
   const openDetail = useCallback((id: string) => setModal({ kind: 'detail', ordenId: id }), []);
+  // 07/11/2026 (urgente): confirmar el retiro con un clic desde la tarjeta de «Pendiente por recibir».
+  // Sin modalidad indicada se abre el detalle para elegirla.
+  const [confirmandoRetiro, setConfirmandoRetiro] = useState<string | null>(null);
+  const confirmarRetiroRapido = useCallback(async (o: Orden) => {
+    if (!o.modalidad_entrega) { openDetail(o.id); return; }
+    setConfirmandoRetiro(o.id);
+    try {
+      await confirmarRetiroOc(o, o.modalidad_entrega, user?.email ?? '');
+      notify(o.modalidad_entrega === 'proveedor'
+        ? `OC ${o.oc_codigo} · retiro confirmado: la trae el proveedor`
+        : `OC ${o.oc_codigo} · retiro confirmado: enviada a ${o.modalidad_entrega === 'carga_pesada' ? 'Carga pesada' : 'Delivery'}`, 'success', { link: '#/app/pedidos' });
+      await refresh();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo confirmar el retiro', 'error');
+    } finally { setConfirmandoRetiro(null); }
+  }, [openDetail, refresh, user?.email]);
 
   const proveedorMap = useMemo(
     () => new Map(proveedoresAll.map((p) => [p.id, p])),
@@ -985,6 +1001,8 @@ export function PedidosPage() {
           onOpen={openDetail}
           noLeidos={noLeidos}
           analistaOferta={analistaOferta}
+          onConfirmarRetiro={canManageProcurement ? confirmarRetiroRapido : undefined}
+          confirmandoRetiro={confirmandoRetiro}
         />
       ) : (
         <OrdenesTable
@@ -2672,12 +2690,14 @@ interface KanbanBoardProps {
   onOpen: (id: string) => void;
   noLeidos?: Map<string, number>;
   analistaOferta?: Map<string, string>;
+  onConfirmarRetiro?: (o: Orden) => void;
+  confirmandoRetiro?: string | null;
 }
 
 // Máximo de tarjetas visibles por columna del Kanban (salvo columnas `sinLimite`).
 // El resto de las órdenes sigue disponible en el Histórico.
 const KANBAN_MAX_POR_COL = 10;
-function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOferta }: KanbanBoardProps) {
+function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOferta, onConfirmarRetiro, confirmandoRetiro }: KanbanBoardProps) {
   const byState = useMemo(() => {
     const map = new Map<ColKey, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
@@ -2723,6 +2743,8 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOf
                       onOpen={onOpen}
                       noLeidos={noLeidos?.get(o.id) ?? 0}
                       analista={o.oc_creada_por || o.aprobada_por || analistaOferta?.get(o.id) || null}
+                      onConfirmarRetiro={onConfirmarRetiro}
+                      confirmandoRetiro={confirmandoRetiro === o.id}
                     />
                   ))}
                   {ocultas > 0 && (
@@ -2747,6 +2769,8 @@ const KanbanCard = memo(function KanbanCard({
   onOpen,
   noLeidos = 0,
   analista = null,
+  onConfirmarRetiro,
+  confirmandoRetiro = false,
 }: {
   orden: Orden;
   proveedor: Proveedor | null;
@@ -2754,6 +2778,9 @@ const KanbanCard = memo(function KanbanCard({
   noLeidos?: number;
   /** Correo del analista que trabaja la solicitud. */
   analista?: string | null;
+  /** 07/11/2026: confirmar el retiro desde la tarjeta (solo Compras). */
+  onConfirmarRetiro?: (o: Orden) => void;
+  confirmandoRetiro?: boolean;
 }) {
   const changes = (orden.historial ?? []).filter((h) => esCambioProveedor(h as { evento: string; cambioProveedor?: boolean })).length;
   // Crédito pagado en su totalidad (cuenta abierta saldada) → tarjeta resaltada.
@@ -2825,6 +2852,13 @@ const KanbanCard = memo(function KanbanCard({
       {esperaRetiro(orden) && (
         <div className="meta" style={{ fontSize: '.72rem', marginTop: '.1rem' }} title="Pagada: falta que Compras confirme el retiro para que le llegue al delivery">
           <span className="badge warning">📦 Confirmar retiro · {etiquetaModalidadEntrega(orden.modalidad_entrega)}</span>
+          {onConfirmarRetiro && (
+            <button type="button" className="btn btn-sm btn-primary" style={{ marginTop: '.35rem', width: '100%' }} disabled={confirmandoRetiro}
+              title={orden.modalidad_entrega ? 'Confirmar el retiro: le llega al delivery / carga pesada' : 'Elige cómo se retira en el detalle'}
+              onClick={(e) => { e.stopPropagation(); onConfirmarRetiro(orden); }}>
+              {confirmandoRetiro ? 'Confirmando…' : orden.modalidad_entrega ? `✓ Confirmar retiro (${etiquetaModalidadEntrega(orden.modalidad_entrega)})` : '✓ Confirmar retiro…'}
+            </button>
+          )}
         </div>
       )}
       {orden.estado === 'pagada' && !orden.recibida_en && orden.retiro_confirmado_en && (

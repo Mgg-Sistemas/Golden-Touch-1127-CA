@@ -1,4 +1,5 @@
 import { Quien } from '@/shared/ui/Quien';
+import { LEYENDA_AL_DIA, TITULO_AL_DIA, textoWhatsappTesoreriaAlDia } from './tesoreriaAlDia';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -3970,7 +3971,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         {/* «↓ Resumen PDF» se quitó a pedido del usuario (03/11/2026); el reporte queda en «📄 Reporte». */}
         <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte" className="btn btn-ghost" />
         {tab === 'ordenes' && (
-          <button className="btn btn-ghost" disabled={!rows.length} onClick={() => setWspLote(true)}
+          <button className="btn btn-ghost" onClick={() => setWspLote(true)}
             title="Un solo WhatsApp con varias OC: código, proveedor, monto a pagar, total y el motivo de pago">💬 WhatsApp por lote</button>
         )}
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
@@ -4286,6 +4287,19 @@ function WhatsappLotePorPagarModal({ rows, onClose }: { rows: OrdenPorPagar[]; o
   }));
   const falta = errorResumenLote(ordenes);
   const texto = construirTextoMotivoPagoLote({ ordenes, fecha });
+  // 07/11/2026: sin nada por pagar → «ÓRDENES PENDIENTES POR PAGAR: 0 · TESORERÍA AL DÍA».
+  if (!rows.length) {
+    return (
+      <Modal title="💬 WhatsApp · Órdenes pendientes por pagar" size="md" onClose={onClose}
+        footer={<button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+        <div className="card" style={{ padding: '.8rem 1rem', marginBottom: '.7rem', borderLeft: '3px solid var(--success, #16a34a)', textAlign: 'center' }}>
+          <div style={{ fontWeight: 800 }}>📋 {TITULO_AL_DIA}</div>
+          <div style={{ fontWeight: 800, color: 'var(--success, #16a34a)' }}>✅ {LEYENDA_AL_DIA}</div>
+        </div>
+        <CompartirWhatsapp texto={textoWhatsappTesoreriaAlDia(new Date(fecha))} />
+      </Modal>
+    );
+  }
   return (
     <Modal title="💬 WhatsApp por lote · Órdenes pendientes por pagar" size="lg" onClose={onClose}
       footer={<button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
