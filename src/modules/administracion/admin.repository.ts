@@ -52,6 +52,16 @@ export interface Profesional {
 }
 export type ProfesionalInput = Omit<Profesional, 'id'>;
 
+/** Carpeta de documentos (tabla `admin_carpetas`); anidable por `parentId`. */
+export interface Carpeta {
+  id: string;
+  empresaClave: string | null;
+  nombre: string;
+  parentId: string | null;
+  orden: number;
+}
+export type CarpetaInput = Omit<Carpeta, 'id'>;
+
 /** Plantilla recurrente de gasto fijo (tabla `admin_gastos_fijos`). */
 export interface GastoFijo {
   id: string;
@@ -327,6 +337,11 @@ export interface AdminRepo {
   crearProfesional(p: ProfesionalInput): Promise<Profesional>;
   editarProfesional(id: string, cambios: Partial<ProfesionalInput>): Promise<void>;
   setActivoProfesional(id: string, activo: boolean): Promise<void>;
+  // Carpetas de documentos (anidables)
+  listCarpetas(empresaClave?: string): Promise<Carpeta[]>;
+  crearCarpeta(c: CarpetaInput): Promise<Carpeta>;
+  editarCarpeta(id: string, cambios: Partial<CarpetaInput>): Promise<void>;
+  borrarCarpeta(id: string): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -479,8 +494,21 @@ function deProfesional(p: Partial<ProfesionalInput>): Record<string, unknown> {
   if (p.activo !== undefined) o.activo = p.activo;
   return o;
 }
+interface RowCarpeta { id: string; empresa_clave: string | null; nombre: string; parent_id: string | null; orden: number | null }
+function aCarpeta(r: RowCarpeta): Carpeta {
+  return { id: r.id, empresaClave: r.empresa_clave ?? null, nombre: r.nombre, parentId: r.parent_id ?? null, orden: r.orden ?? 0 };
+}
+function deCarpeta(c: Partial<CarpetaInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (c.empresaClave !== undefined) o.empresa_clave = c.empresaClave;
+  if (c.nombre !== undefined) o.nombre = c.nombre;
+  if (c.parentId !== undefined) o.parent_id = c.parentId;
+  if (c.orden !== undefined) o.orden = c.orden;
+  return o;
+}
 const T_CEN = 'admin_centros_acopio';
 const T_PROF = 'admin_profesionales';
+const T_CARP = 'admin_carpetas';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -623,6 +651,26 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async setActivoProfesional(id, activo) {
       const { error } = await supabase.from(T_PROF).update({ activo }).eq('id', id);
+      if (error) throw error;
+    },
+    async listCarpetas(empresaClave) {
+      let q = supabase.from(T_CARP).select('*').order('orden').order('nombre');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []).map((r) => aCarpeta(r as RowCarpeta));
+    },
+    async crearCarpeta(c) {
+      const { data, error } = await supabase.from(T_CARP).insert(deCarpeta(c)).select('*').single();
+      if (error) throw error;
+      return aCarpeta(data as RowCarpeta);
+    },
+    async editarCarpeta(id, cambios) {
+      const { error } = await supabase.from(T_CARP).update(deCarpeta(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async borrarCarpeta(id) {
+      const { error } = await supabase.from(T_CARP).delete().eq('id', id);
       if (error) throw error;
     },
     async listGastosFijos(empresaClave) {

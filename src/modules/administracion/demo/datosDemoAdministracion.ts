@@ -7,7 +7,7 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminCategoria, AdminRepo, CentroAcopio, CentroAcopioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 
@@ -74,6 +74,7 @@ export function crearRepoDemo(): AdminRepo {
   const categorias: AdminCategoria[] = CATEGORIAS_DEMO.map((c) => ({ ...c }));
   const centros: CentroAcopio[] = [];
   const profesionales: Profesional[] = [];
+  const carpetas: Carpeta[] = [];
   const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
@@ -137,6 +138,26 @@ export function crearRepoDemo(): AdminRepo {
     setActivoProfesional: (id, activo) => {
       const i = profesionales.findIndex((p) => p.id === id);
       if (i >= 0) profesionales[i] = { ...profesionales[i], activo };
+      return Promise.resolve();
+    },
+    listCarpetas: (empresaClave) => Promise.resolve(
+      carpetas.filter((c) => !empresaClave || c.empresaClave === empresaClave)
+        .map((c) => ({ ...c }))
+        .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
+    ),
+    crearCarpeta: (c: CarpetaInput) => {
+      const nueva: Carpeta = { id: uid(), ...c };
+      carpetas.push(nueva);
+      return Promise.resolve({ ...nueva });
+    },
+    editarCarpeta: (id, cambios) => {
+      const i = carpetas.findIndex((c) => c.id === id);
+      if (i >= 0) carpetas[i] = { ...carpetas[i], ...cambios };
+      return Promise.resolve();
+    },
+    borrarCarpeta: (id) => {
+      const i = carpetas.findIndex((c) => c.id === id);
+      if (i >= 0) carpetas.splice(i, 1);
       return Promise.resolve();
     },
     listGastosFijos: (empresaClave) => Promise.resolve(
