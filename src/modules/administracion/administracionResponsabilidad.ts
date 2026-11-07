@@ -11,6 +11,11 @@ import { ordenPrioridad } from './administracionVigencia';
 
 const VENCIDO: StatusVencimiento[] = ['vencido', 'vencido_en_tramite'];
 
+/** Mapa email→nombre para mostrar (cae al email si el nombre viene vacío). */
+export function nombrePorEmail(usuarios: { email: string; nombre: string }[]): Map<string, string> {
+  return new Map(usuarios.map((u) => [u.email, u.nombre?.trim() || u.email]));
+}
+
 /** Emails distintos responsables de un objetivo concreto. */
 export function responsablesDeObjetivo(tipo: ObjetivoResp, objetivoId: string, resp: Responsabilidad[]): string[] {
   const set = new Set<string>();

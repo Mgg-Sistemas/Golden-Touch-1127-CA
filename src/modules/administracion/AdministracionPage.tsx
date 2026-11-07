@@ -16,6 +16,7 @@ import { GastosFijosTab } from './GastosFijosTab';
 import { MovimientosTab } from './MovimientosTab';
 import { HonorariosTab } from './HonorariosTab';
 import { AgendaTab } from './AgendaTab';
+import { ResponsabilidadTab } from './ResponsabilidadTab';
 import { ReporteTab } from './ReporteTab';
 import { DocumentosTab } from './DocumentosTab';
 import { ConfiguracionTab } from './ConfiguracionTab';
@@ -28,6 +29,7 @@ const PESTANAS: { id: TabAdmin; label: string }[] = [
   { id: 'honorarios', label: '💼 Honorarios' },
   { id: 'documentos', label: '📁 Documentos y Permisos' },
   { id: 'agenda', label: '🗓 Agenda' },
+  { id: 'responsabilidad', label: '👥 Responsabilidad' },
   { id: 'reporte', label: '📊 Reporte' },
   { id: 'config', label: '⚙ Configuración' },
 ];
@@ -112,6 +114,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       {tab === 'honorarios' && <HonorariosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'documentos' && <DocumentosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'agenda' && <AgendaTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab === 'responsabilidad' && <ResponsabilidadTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
       {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
       {tab === 'config' && <ConfiguracionTab repo={repo} empresas={empresas} puedeFull={puedeFull} puedeEscribir={puedeEscribir} onGestionarEmpresas={() => setGestionar(true)} />}
 
