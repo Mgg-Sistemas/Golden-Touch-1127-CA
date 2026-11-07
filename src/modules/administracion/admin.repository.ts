@@ -84,6 +84,9 @@ export interface Gestion {
   fechaPactada: string | null;
   estado: EstadoGestion;
   notaAcuerdo: string | null;
+  /** Fase 3 (aditivos): prioridad del analista y aviso configurable. */
+  prioridad?: Prioridad | null;
+  avisoDias?: number | null;
 }
 export type GestionInput = Omit<Gestion, 'id'>;
 
@@ -140,6 +143,8 @@ export type GastoFijoInput = Omit<GastoFijo, 'id' | 'createdAt'>;
 
 export type EstadoPago = 'pendiente' | 'pagado' | 'anulado';
 export type OrigenMovimiento = 'generado' | 'importado' | 'manual';
+/** Prioridad que fija el analista para ordenar su lista de trabajo. */
+export type Prioridad = 'alta' | 'media' | 'baja';
 
 /** Un egreso por período: el pendiente generado, el movimiento importado o el
  *  alta manual (tabla `admin_gasto_fijo_movimientos`). Sobre esto va el reporte. */
@@ -162,6 +167,9 @@ export interface Movimiento {
   origen: OrigenMovimiento;
   /** El pendiente materializado en Tesorería (Opción A); null si aún no. */
   servicioDirectoId: string | null;
+  /** Fase 3 (aditivos): prioridad del analista y aviso configurable. */
+  prioridad?: Prioridad | null;
+  avisoDias?: number | null;
   createdAt?: string | null;
 }
 export type MovimientoInput = Omit<Movimiento, 'id' | 'createdAt'>;
@@ -306,6 +314,15 @@ export interface DocumentoEmpresa {
   historial: HistorialCambioDoc[];
   createdAt: string | null;
   updatedAt: string | null;
+  /** Fase 3 (aditivos): costo de gestión + su moneda, enlace a la gestión que lo
+   *  tramitó, aviso configurable (días), subcarpeta, badge y prioridad. */
+  costoGestion?: number | null;
+  monedaCosto?: Moneda | null;
+  gestionId?: string | null;
+  avisoDias?: number | null;
+  subcarpetaId?: string | null;
+  badgeTexto?: string | null;
+  prioridad?: Prioridad | null;
 }
 
 export interface DocumentoEmpresaInput {
@@ -322,6 +339,13 @@ export interface DocumentoEmpresaInput {
   entidadEmisora?: string | null;
   numeroRegistro?: string | null;
   notaTramite?: string | null;
+  costoGestion?: number | null;
+  monedaCosto?: Moneda | null;
+  gestionId?: string | null;
+  avisoDias?: number | null;
+  subcarpetaId?: string | null;
+  badgeTexto?: string | null;
+  prioridad?: Prioridad | null;
 }
 
 export function diasRestantes(fechaVencimiento: string | null | undefined, hoyRef?: string): number | null {
@@ -508,6 +532,7 @@ interface RowMov {
   id: string; empresa_clave: string; gasto_fijo_id: string | null; concepto: string; proveedor_nombre: string | null;
   categoria_gasto_id: string | null; periodo: string; fecha: string; monto: number | string; moneda: string;
   tasa_ref: number | string | null; estado_pago: string; origen: string; servicio_directo_id: string | null; created_at?: string | null;
+  prioridad?: string | null; aviso_dias?: number | null;
 }
 function aMov(r: RowMov): Movimiento {
   return {
@@ -515,7 +540,8 @@ function aMov(r: RowMov): Movimiento {
     proveedorNombre: r.proveedor_nombre ?? null, categoriaGastoId: r.categoria_gasto_id ?? null,
     periodo: r.periodo, fecha: (r.fecha ?? '').slice(0, 10), monto: num(r.monto), moneda: r.moneda as Moneda,
     tasaRef: r.tasa_ref == null ? null : num(r.tasa_ref), estadoPago: (r.estado_pago as EstadoPago) ?? 'pendiente',
-    origen: (r.origen as OrigenMovimiento) ?? 'manual', servicioDirectoId: r.servicio_directo_id ?? null, createdAt: r.created_at ?? null,
+    origen: (r.origen as OrigenMovimiento) ?? 'manual', servicioDirectoId: r.servicio_directo_id ?? null,
+    prioridad: (r.prioridad as Prioridad) ?? null, avisoDias: r.aviso_dias ?? null, createdAt: r.created_at ?? null,
   };
 }
 function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
@@ -533,6 +559,8 @@ function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
   if (m.estadoPago !== undefined) o.estado_pago = m.estadoPago;
   if (m.origen !== undefined) o.origen = m.origen;
   if (m.servicioDirectoId !== undefined) o.servicio_directo_id = m.servicioDirectoId;
+  if (m.prioridad !== undefined) o.prioridad = m.prioridad;
+  if (m.avisoDias !== undefined) o.aviso_dias = m.avisoDias;
   return o;
 }
 
@@ -577,6 +605,7 @@ interface RowGestion {
   centro_acopio_id: string | null; documento_id: string | null; concepto: string;
   costo_total: number | string | null; moneda: string | null; tasa_ref: number | string | null;
   fecha: string; fecha_pactada: string | null; estado: string | null; nota_acuerdo: string | null;
+  prioridad?: string | null; aviso_dias?: number | null;
 }
 function aGestion(r: RowGestion): Gestion {
   return {
@@ -590,6 +619,8 @@ function aGestion(r: RowGestion): Gestion {
     fechaPactada: r.fecha_pactada ? r.fecha_pactada.slice(0, 10) : null,
     estado: (r.estado as EstadoGestion) || 'abierta',
     notaAcuerdo: r.nota_acuerdo ?? null,
+    prioridad: (r.prioridad as Prioridad) ?? null,
+    avisoDias: r.aviso_dias ?? null,
   };
 }
 function deGestion(g: Partial<GestionInput>): Record<string, unknown> {
@@ -607,6 +638,8 @@ function deGestion(g: Partial<GestionInput>): Record<string, unknown> {
   if (g.fechaPactada !== undefined) o.fecha_pactada = g.fechaPactada;
   if (g.estado !== undefined) o.estado = g.estado;
   if (g.notaAcuerdo !== undefined) o.nota_acuerdo = g.notaAcuerdo;
+  if (g.prioridad !== undefined) o.prioridad = g.prioridad;
+  if (g.avisoDias !== undefined) o.aviso_dias = g.avisoDias;
   return o;
 }
 interface RowEnvio {
@@ -656,6 +689,13 @@ interface RowDoc {
   historial?: unknown;
   created_at?: string | null;
   updated_at?: string | null;
+  costo_gestion?: number | string | null;
+  moneda_costo?: string | null;
+  gestion_id?: string | null;
+  aviso_dias?: number | null;
+  subcarpeta_id?: string | null;
+  badge_texto?: string | null;
+  prioridad?: string | null;
 }
 
 function aDoc(r: RowDoc): DocumentoEmpresa {
@@ -691,6 +731,13 @@ function aDoc(r: RowDoc): DocumentoEmpresa {
     historial: hist,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
+    costoGestion: r.costo_gestion == null ? null : num(r.costo_gestion),
+    monedaCosto: r.moneda_costo === 'Bs' ? 'Bs' : r.moneda_costo === 'USD' ? 'USD' : null,
+    gestionId: r.gestion_id ?? null,
+    avisoDias: r.aviso_dias ?? null,
+    subcarpetaId: r.subcarpeta_id ?? null,
+    badgeTexto: r.badge_texto ?? null,
+    prioridad: (r.prioridad as Prioridad) ?? null,
   };
 }
 interface RowCat { id: string; nombre: string; orden: number | string | null; activa: boolean | null; }
@@ -1139,6 +1186,13 @@ export function crearRepoSupabase(): AdminRepo {
         entidad_emisora: meta?.entidadEmisora || null,
         numero_registro: meta?.numeroRegistro || null,
         nota_tramite: meta?.notaTramite || null,
+        costo_gestion: meta?.costoGestion ?? null,
+        moneda_costo: meta?.monedaCosto ?? null,
+        gestion_id: meta?.gestionId ?? null,
+        aviso_dias: meta?.avisoDias ?? null,
+        subcarpeta_id: meta?.subcarpetaId ?? null,
+        badge_texto: meta?.badgeTexto ?? null,
+        prioridad: meta?.prioridad ?? null,
         historial: [histItem],
         updated_at: nowIso,
       };
@@ -1202,6 +1256,13 @@ export function crearRepoSupabase(): AdminRepo {
       if (cambios.entidadEmisora !== undefined) payloadCompleto.entidad_emisora = cambios.entidadEmisora;
       if (cambios.numeroRegistro !== undefined) payloadCompleto.numero_registro = cambios.numeroRegistro;
       if (cambios.notaTramite !== undefined) payloadCompleto.nota_tramite = cambios.notaTramite;
+      if (cambios.costoGestion !== undefined) payloadCompleto.costo_gestion = cambios.costoGestion;
+      if (cambios.monedaCosto !== undefined) payloadCompleto.moneda_costo = cambios.monedaCosto;
+      if (cambios.gestionId !== undefined) payloadCompleto.gestion_id = cambios.gestionId;
+      if (cambios.avisoDias !== undefined) payloadCompleto.aviso_dias = cambios.avisoDias;
+      if (cambios.subcarpetaId !== undefined) payloadCompleto.subcarpeta_id = cambios.subcarpetaId;
+      if (cambios.badgeTexto !== undefined) payloadCompleto.badge_texto = cambios.badgeTexto;
+      if (cambios.prioridad !== undefined) payloadCompleto.prioridad = cambios.prioridad;
 
       let { data, error } = await supabase.from(T_DOC).update(payloadCompleto).eq('id', id).select('*').single();
 

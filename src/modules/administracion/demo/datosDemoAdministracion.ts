@@ -331,6 +331,13 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
         entidadEmisora: meta?.entidadEmisora || null,
         numeroRegistro: meta?.numeroRegistro || null,
         notaTramite: meta?.notaTramite || null,
+        costoGestion: meta?.costoGestion ?? null,
+        monedaCosto: meta?.monedaCosto ?? null,
+        gestionId: meta?.gestionId ?? null,
+        avisoDias: meta?.avisoDias ?? null,
+        subcarpetaId: meta?.subcarpetaId ?? null,
+        badgeTexto: meta?.badgeTexto ?? null,
+        prioridad: meta?.prioridad ?? null,
         historial: [
           {
             id: uid(),
