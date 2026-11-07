@@ -42,6 +42,16 @@ export interface CentroAcopio {
 }
 export type CentroAcopioInput = Omit<CentroAcopio, 'id'>;
 
+/** Profesional de Administración (abogada, contador…). Lista PROPIA; NO son proveedores. */
+export interface Profesional {
+  id: string;
+  nombre: string;
+  profesion: string | null;
+  contacto: string | null;
+  activo: boolean;
+}
+export type ProfesionalInput = Omit<Profesional, 'id'>;
+
 /** Plantilla recurrente de gasto fijo (tabla `admin_gastos_fijos`). */
 export interface GastoFijo {
   id: string;
@@ -312,6 +322,11 @@ export interface AdminRepo {
   crearCentro(c: CentroAcopioInput): Promise<CentroAcopio>;
   editarCentro(id: string, cambios: Partial<CentroAcopioInput>): Promise<void>;
   setActivoCentro(id: string, activo: boolean): Promise<void>;
+  // Profesionales (abogada, contador…)
+  listProfesionales(): Promise<Profesional[]>;
+  crearProfesional(p: ProfesionalInput): Promise<Profesional>;
+  editarProfesional(id: string, cambios: Partial<ProfesionalInput>): Promise<void>;
+  setActivoProfesional(id: string, activo: boolean): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -452,7 +467,20 @@ function deCentro(c: Partial<CentroAcopioInput>): Record<string, unknown> {
   if (c.activo !== undefined) o.activo = c.activo;
   return o;
 }
+interface RowProfesional { id: string; nombre: string; profesion: string | null; contacto: string | null; activo: boolean | null }
+function aProfesional(r: RowProfesional): Profesional {
+  return { id: r.id, nombre: r.nombre, profesion: r.profesion ?? null, contacto: r.contacto ?? null, activo: r.activo !== false };
+}
+function deProfesional(p: Partial<ProfesionalInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (p.nombre !== undefined) o.nombre = p.nombre;
+  if (p.profesion !== undefined) o.profesion = p.profesion;
+  if (p.contacto !== undefined) o.contacto = p.contacto;
+  if (p.activo !== undefined) o.activo = p.activo;
+  return o;
+}
 const T_CEN = 'admin_centros_acopio';
+const T_PROF = 'admin_profesionales';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -577,6 +605,24 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async setActivoCentro(id, activo) {
       const { error } = await supabase.from(T_CEN).update({ activo }).eq('id', id);
+      if (error) throw error;
+    },
+    async listProfesionales() {
+      const { data, error } = await supabase.from(T_PROF).select('*').order('nombre');
+      if (error) throw error;
+      return (data ?? []).map((r) => aProfesional(r as RowProfesional));
+    },
+    async crearProfesional(p) {
+      const { data, error } = await supabase.from(T_PROF).insert(deProfesional(p)).select('*').single();
+      if (error) throw error;
+      return aProfesional(data as RowProfesional);
+    },
+    async editarProfesional(id, cambios) {
+      const { error } = await supabase.from(T_PROF).update(deProfesional(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async setActivoProfesional(id, activo) {
+      const { error } = await supabase.from(T_PROF).update({ activo }).eq('id', id);
       if (error) throw error;
     },
     async listGastosFijos(empresaClave) {
