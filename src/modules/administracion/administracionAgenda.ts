@@ -93,6 +93,19 @@ export function agendaVencimientos(input: {
   return items;
 }
 
+export interface ResumenAgenda { vencidos: number; porVencer: number; vigentes: number; }
+
+/** Conteo para los KPIs del tablero de agenda. `no_vence` no se cuenta. */
+export function resumenAgenda(items: ItemAgenda[]): ResumenAgenda {
+  const r: ResumenAgenda = { vencidos: 0, porVencer: 0, vigentes: 0 };
+  for (const i of items) {
+    if (i.status === 'vencido' || i.status === 'vencido_en_tramite') r.vencidos += 1;
+    else if (i.status === 'por_vencer') r.porVencer += 1;
+    else if (i.status === 'vigente') r.vigentes += 1;
+  }
+  return r;
+}
+
 export function filtrarAgenda(
   items: ItemAgenda[],
   f: { empresaClave?: string | null; centroAcopioId?: string | null; responsable?: string | null; origen?: OrigenAgenda | null },

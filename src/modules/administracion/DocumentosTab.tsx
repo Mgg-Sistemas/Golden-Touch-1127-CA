@@ -1329,6 +1329,86 @@ export function DocumentosTab({
               />
             </div>
 
+            {/* Gestión, aviso y prioridad (Fase 3) */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>
+              <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.6rem', color: 'var(--text)' }}>
+                💼 Gestión, aviso y prioridad
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '.6rem' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Costo de gestión</span>
+                  <div style={{ display: 'flex', gap: '.3rem' }}>
+                    <input
+                      className="input" type="number" min="0" step="0.01" disabled={!puedeEscribir}
+                      defaultValue={docDetalle.costoGestion ?? ''} placeholder="0.00" style={{ flex: 1 }}
+                      onBlur={async (e) => {
+                        const val = e.target.value.trim() === '' ? null : Math.round((Number(e.target.value) || 0) * 100) / 100;
+                        if (val === (docDetalle.costoGestion ?? null)) return;
+                        try { const act = await repo.editarDocumento(docDetalle.id, { costoGestion: val }); setDocDetalle(act); toast('Costo actualizado.', 'success'); await cargar(); }
+                        catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+                      }}
+                    />
+                    <select
+                      className="input" disabled={!puedeEscribir} style={{ width: 70 }}
+                      defaultValue={docDetalle.monedaCosto ?? 'USD'}
+                      onChange={async (e) => {
+                        try { const act = await repo.editarDocumento(docDetalle.id, { monedaCosto: e.target.value === 'Bs' ? 'Bs' : 'USD' }); setDocDetalle(act); await cargar(); }
+                        catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+                      }}
+                    >
+                      <option value="USD">USD</option>
+                      <option value="Bs">Bs</option>
+                    </select>
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Avisar (días antes)</span>
+                  <input
+                    className="input" type="number" min="0" step="1" disabled={!puedeEscribir}
+                    defaultValue={docDetalle.avisoDias ?? ''} placeholder="30"
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim() === '' ? null : Math.max(0, Math.round(Number(e.target.value) || 0));
+                      if (val === (docDetalle.avisoDias ?? null)) return;
+                      try { const act = await repo.editarDocumento(docDetalle.id, { avisoDias: val }); setDocDetalle(act); toast('Aviso actualizado.', 'success'); await cargar(); }
+                      catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+                    }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Prioridad</span>
+                  <select
+                    className="input" disabled={!puedeEscribir} defaultValue={docDetalle.prioridad ?? ''}
+                    onChange={async (e) => {
+                      const val = e.target.value === '' ? null : (e.target.value as 'alta' | 'media' | 'baja');
+                      try { const act = await repo.editarDocumento(docDetalle.id, { prioridad: val }); setDocDetalle(act); await cargar(); }
+                      catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+                    }}
+                  >
+                    <option value="">Sin prioridad</option>
+                    <option value="alta">🔴 Alta</option>
+                    <option value="media">🟠 Media</option>
+                    <option value="baja">🟢 Baja</option>
+                  </select>
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Etiqueta corta (badge)</span>
+                  <input
+                    className="input" disabled={!puedeEscribir} maxLength={16}
+                    defaultValue={docDetalle.badgeTexto || ''} placeholder="Ej: RUPDAE"
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim() || null;
+                      if (val === (docDetalle.badgeTexto ?? null)) return;
+                      try { const act = await repo.editarDocumento(docDetalle.id, { badgeTexto: val }); setDocDetalle(act); toast('Etiqueta actualizada.', 'success'); await cargar(); }
+                      catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
             {/* Metadatos Adicionales */}
             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>
               <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.6rem', color: 'var(--text)' }}>
