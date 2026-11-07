@@ -7,8 +7,25 @@
    del Status de Vigencia según la cercanía al vencimiento.
    ============================================================ */
 
-import type { StatusVencimiento } from './admin.repository';
-import { STATUS_VENCIMIENTO_COLOR, diasRestantes } from './admin.repository';
+import type { Prioridad, StatusVencimiento } from './admin.repository';
+import { STATUS_VENCIMIENTO_COLOR, calcularStatusVencimiento, diasRestantes } from './admin.repository';
+
+/** Estado de vencimiento usando el aviso propio del ítem como umbral de `por_vencer`
+ *  (en vez del fijo de 30 días). `avisoDias` null/undefined → 30. */
+export function statusConAviso(
+  fechaVencimiento: string | null | undefined,
+  avisoDias: number | null | undefined,
+  opts?: { esTramite?: boolean; statusManual?: StatusVencimiento; hoyRef?: string },
+): StatusVencimiento {
+  const statusManual = opts?.statusManual ?? (opts?.esTramite ? 'vencido_en_tramite' : undefined);
+  const umbral = avisoDias != null && avisoDias > 0 ? avisoDias : 30;
+  return calcularStatusVencimiento(fechaVencimiento, statusManual, umbral, opts?.hoyRef);
+}
+
+/** Orden para listas por prioridad: alta(0) < media(1) < baja(2) < sin prioridad(3). */
+export function ordenPrioridad(p: Prioridad | null | undefined): number {
+  return p === 'alta' ? 0 : p === 'media' ? 1 : p === 'baja' ? 2 : 3;
+}
 
 export type UnidadVigencia = 'dias' | 'meses' | 'anos';
 
