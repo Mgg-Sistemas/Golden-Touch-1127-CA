@@ -11,10 +11,11 @@
 import { supabase } from '@/shared/lib/supabase';
 import { listCategoriasGasto, soloCategorias } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
-import { crearServicioDirecto, enviarServicioAPagar } from '@/modules/pedidos/serviciosDirectos.repository';
+import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
 import { esErrorTablaAusente } from './adminErrores';
+import { saldoGestion, notaAgrupacion } from './administracionHonorarios';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
 
@@ -102,6 +103,15 @@ export interface EnvioTesoreria {
   servicioDirectoId: string | null;
   enviadoPor: string | null;
   pagadoEn: string | null;
+}
+/** Datos para enviar (parte de) una gestión a Tesorería como cuenta por pagar. */
+export interface CrearEnvioInput {
+  gestion: Gestion;
+  monto: number;
+  /** Nombre del profesional, para la nota de agrupación que ve Tesorería. */
+  profesionalNombre: string;
+  actor: string;
+  actorName?: string | null;
 }
 
 /** Plantilla recurrente de gasto fijo (tabla `admin_gastos_fijos`). */
@@ -389,6 +399,14 @@ export interface AdminRepo {
   crearGestion(g: GestionInput): Promise<Gestion>;
   editarGestion(id: string, cambios: Partial<GestionInput>): Promise<void>;
   anularGestion(id: string): Promise<void>;
+  // Envíos a Tesorería (puente atómico, reversible mientras no pagado)
+  listEnvios(gestionId?: string): Promise<EnvioTesoreria[]>;
+  crearEnvio(input: CrearEnvioInput): Promise<EnvioTesoreria>;
+  reversarEnvio(id: string): Promise<void>;
+  /** Relee los servicios directos de los envíos 'enviado' y marca 'pagado' los que Tesorería pagó. */
+  refrescarEnvios(gestionId?: string): Promise<void>;
+  /** URL firmada del comprobante único del servicio directo del envío (o null). */
+  urlAdjuntoEnvio(envio: EnvioTesoreria): Promise<string | null>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -590,10 +608,25 @@ function deGestion(g: Partial<GestionInput>): Record<string, unknown> {
   if (g.notaAcuerdo !== undefined) o.nota_acuerdo = g.notaAcuerdo;
   return o;
 }
+interface RowEnvio {
+  id: string; gestion_id: string; empresa_clave: string; monto: number | string | null;
+  moneda: string | null; fecha_envio: string; estado: string | null;
+  servicio_directo_id: string | null; enviado_por: string | null; pagado_en: string | null;
+}
+function aEnvio(r: RowEnvio): EnvioTesoreria {
+  return {
+    id: r.id, gestionId: r.gestion_id, empresaClave: r.empresa_clave,
+    monto: r.monto == null ? 0 : num(r.monto), moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+    fechaEnvio: r.fecha_envio, estado: (r.estado as EnvioTesoreria['estado']) || 'enviado',
+    servicioDirectoId: r.servicio_directo_id ?? null, enviadoPor: r.enviado_por ?? null,
+    pagadoEn: r.pagado_en ?? null,
+  };
+}
 const T_CEN = 'admin_centros_acopio';
 const T_PROF = 'admin_profesionales';
 const T_CARP = 'admin_carpetas';
 const T_GES = 'admin_gestiones';
+const T_ENV = 'admin_envios_tesoreria';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -790,6 +823,78 @@ export function crearRepoSupabase(): AdminRepo {
     async anularGestion(id) {
       const { error } = await supabase.from(T_GES).update({ estado: 'anulada' }).eq('id', id);
       if (error) throw error;
+    },
+    async listEnvios(gestionId) {
+      let q = supabase.from(T_ENV).select('*').order('fecha_envio', { ascending: false });
+      if (gestionId) q = q.eq('gestion_id', gestionId);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aEnvio(r as RowEnvio));
+    },
+    async crearEnvio(input) {
+      const { gestion } = input;
+      const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
+      if (monto <= 0) throw new Error('Indica el monto a enviar a Tesorería.');
+      const { data: prev, error: ePrev } = await supabase.from(T_ENV).select('*').eq('gestion_id', gestion.id);
+      if (ePrev && !esErrorTablaAusente(ePrev)) throw ePrev;
+      const enviosActuales = (prev ?? []).map((r) => aEnvio(r as RowEnvio));
+      const saldo = saldoGestion(gestion, enviosActuales);
+      if (monto > saldo + 0.01) throw new Error(`El envío (${monto}) supera el saldo pendiente de la gestión (${saldo}).`);
+      // 1) Crea el servicio directo y lo deja "Por pagar" (flujo estándar de Tesorería).
+      const nota = notaAgrupacion(input.profesionalNombre, gestion.concepto, gestion.empresaClave);
+      const sd = await crearServicioDirecto({
+        lineas: [{ descripcion: nota, cantidad: 1 }],
+        moneda: gestion.moneda, actor: input.actor, actorName: input.actorName ?? null,
+      });
+      await enviarServicioAPagar({
+        servicio: sd, items: [{ descripcion: nota, cantidad: 1, gasto: monto }],
+        moneda: gestion.moneda, actor: input.actor, actorName: input.actorName ?? null,
+      });
+      // 2) Registra el envío enlazado al servicio directo.
+      const { data, error } = await supabase.from(T_ENV).insert({
+        gestion_id: gestion.id, empresa_clave: gestion.empresaClave, monto, moneda: gestion.moneda,
+        estado: 'enviado', servicio_directo_id: sd.id, enviado_por: input.actor,
+      }).select('*').single();
+      if (error) throw error;
+      return aEnvio(data as RowEnvio);
+    },
+    async reversarEnvio(id) {
+      const { data, error } = await supabase.from(T_ENV).select('*').eq('id', id).single();
+      if (error) throw error;
+      const envio = aEnvio(data as RowEnvio);
+      if (envio.estado !== 'enviado') throw new Error('Solo se puede reversar un envío que aún no se ha pagado.');
+      if (envio.servicioDirectoId) {
+        await supabase.from('servicios_directos').delete().eq('id', envio.servicioDirectoId);
+      }
+      const { error: eUpd } = await supabase.from(T_ENV).update({ estado: 'reversado' }).eq('id', id);
+      if (eUpd) throw eUpd;
+    },
+    async refrescarEnvios(gestionId) {
+      let q = supabase.from(T_ENV).select('*').eq('estado', 'enviado');
+      if (gestionId) q = q.eq('gestion_id', gestionId);
+      const { data, error } = await q;
+      if (error) { if (esErrorTablaAusente(error)) return; throw error; }
+      for (const row of (data ?? [])) {
+        const envio = aEnvio(row as RowEnvio);
+        if (!envio.servicioDirectoId) continue;
+        const { data: sd } = await supabase.from('servicios_directos')
+          .select('estado,pagada_at').eq('id', envio.servicioDirectoId).maybeSingle();
+        const s = sd as { estado?: string; pagada_at?: string | null } | null;
+        if (s && (s.estado === 'finalizada' || s.pagada_at)) {
+          await supabase.from(T_ENV).update({ estado: 'pagado', pagado_en: s.pagada_at ?? new Date().toISOString() }).eq('id', envio.id);
+        }
+      }
+    },
+    async urlAdjuntoEnvio(envio) {
+      if (!envio.servicioDirectoId) return null;
+      const { data, error } = await supabase.from('servicios_directos')
+        .select('adjunto_path').eq('id', envio.servicioDirectoId).maybeSingle();
+      if (error) return null;
+      const path = (data as { adjunto_path?: string | null } | null)?.adjunto_path ?? null;
+      return path ? urlAdjuntoServicio(path) : null;
     },
     async listGastosFijos(empresaClave) {
       let q = supabase.from(T_GF).select('*').order('concepto');

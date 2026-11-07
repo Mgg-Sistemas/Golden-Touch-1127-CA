@@ -7,9 +7,16 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, CrearEnvioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, EnvioTesoreria, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
+import { saldoGestion } from '../administracionHonorarios';
+
+/** Ganchos SOLO para pruebas de la impl demo (no existen en la impl Supabase). */
+export interface RepoDemoHooks {
+  /** Simula que Tesorería pagó el servicio directo de un envío. */
+  __marcarEnvioPagado(envioId: string): void;
+}
 
 const uid = (): string => {
   try { return crypto.randomUUID(); } catch { return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`; }
@@ -66,7 +73,7 @@ function movimientosSemilla(): Movimiento[] {
 }
 
 /** Repo en memoria para la página de prueba: implementa AdminRepo sin tocar base. */
-export function crearRepoDemo(): AdminRepo {
+export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
   const empresas: Empresa[] = EMPRESAS_DEMO.map((e) => ({ ...e }));
   const gastos: GastoFijo[] = gastosSemilla();
   const movimientos: Movimiento[] = movimientosSemilla();
@@ -76,6 +83,7 @@ export function crearRepoDemo(): AdminRepo {
   const profesionales: Profesional[] = [];
   const carpetas: Carpeta[] = [];
   const gestiones: Gestion[] = [];
+  const envios: EnvioTesoreria[] = [];
   const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
@@ -182,6 +190,37 @@ export function crearRepoDemo(): AdminRepo {
       const i = gestiones.findIndex((g) => g.id === id);
       if (i >= 0) gestiones[i] = { ...gestiones[i], estado: 'anulada' };
       return Promise.resolve();
+    },
+    listEnvios: (gestionId) => Promise.resolve(
+      envios.filter((e) => !gestionId || e.gestionId === gestionId).map((e) => ({ ...e }))
+        .sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio)),
+    ),
+    crearEnvio: (input: CrearEnvioInput) => {
+      const { gestion } = input;
+      const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
+      if (monto <= 0) return Promise.reject(new Error('Indica el monto a enviar a Tesorería.'));
+      const saldo = saldoGestion(gestion, envios.filter((e) => e.gestionId === gestion.id));
+      if (monto > saldo + 0.01) return Promise.reject(new Error(`El envío (${monto}) supera el saldo pendiente de la gestión (${saldo}).`));
+      const nuevo: EnvioTesoreria = {
+        id: uid(), gestionId: gestion.id, empresaClave: gestion.empresaClave, monto, moneda: gestion.moneda,
+        fechaEnvio: new Date().toISOString(), estado: 'enviado', servicioDirectoId: `demo-sd-${uid()}`,
+        enviadoPor: input.actor, pagadoEn: null,
+      };
+      envios.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    reversarEnvio: (id) => {
+      const i = envios.findIndex((e) => e.id === id);
+      if (i < 0) return Promise.reject(new Error('Envío no encontrado.'));
+      if (envios[i].estado !== 'enviado') return Promise.reject(new Error('Solo se puede reversar un envío que aún no se ha pagado.'));
+      envios[i] = { ...envios[i], estado: 'reversado' };
+      return Promise.resolve();
+    },
+    refrescarEnvios: () => Promise.resolve(), // demo no tiene Tesorería real
+    urlAdjuntoEnvio: () => Promise.resolve(null),
+    __marcarEnvioPagado: (envioId: string) => {
+      const i = envios.findIndex((e) => e.id === envioId);
+      if (i >= 0) envios[i] = { ...envios[i], estado: 'pagado', pagadoEn: new Date().toISOString() };
     },
     listGastosFijos: (empresaClave) => Promise.resolve(
       gastos.filter((g) => !empresaClave || g.empresaClave === empresaClave).map((g) => ({ ...g }))
