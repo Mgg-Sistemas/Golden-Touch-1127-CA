@@ -1,29 +1,38 @@
 /* ============================================================
    Golden Touch · Administración · pestaña «Configuración»
+   Reorganizada en acordeón (secciones colapsables) para no abrumar.
+   Orden: arriba Empresas y Profesionales; abajo Tasa BCV, Parafiscales,
+   Categorías (cerrada por defecto) y Carpetas.
    Lo que el módulo deja configurar de verdad + la referencia que ata todo:
-   · Categorías contables de gasto fijo (plan de cuentas PROPIO del módulo):
-     agregar, renombrar, activar/desactivar. Con buscador y contenedor compacto
-     para soportar N categorías sin abrumar la pantalla.
-   · Carpetas organizativas de Documentos y Permisos: añadir, modificar
-     nombres, íconos y notas explicativas.
+   · Empresas del módulo (conteo + acceso a «Gestionar empresas»).
+   · Profesionales de Administración (abogada, contador…): lista PROPIA
+     en la base — base del estado de cuenta por profesional (honorarios).
+   · Categorías contables de gasto fijo (plan de cuentas PROPIO del módulo).
+   · Carpetas organizativas de Documentos y Permisos.
    · Tasa BCV del día en uso (la misma de Tesorería) — referencia.
    · Base legal de los parafiscales FAOV — referencia.
-   · Empresas del módulo (conteo + acceso a «Gestionar empresas»).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { FAOV_TIERS } from './administracionParafiscal';
+import { SeccionColapsable, estadoInicialSecciones } from './SeccionColapsable';
 import {
   GestionarCarpetasModal,
   leerCarpetasPersonalizadas,
   guardarCarpetasPersonalizadas,
 } from './GestionarCarpetasModal';
-import type { AdminCategoria, AdminRepo, Empresa, InfoCarpetaDoc } from './admin.repository';
+import type { AdminCategoria, AdminRepo, Empresa, InfoCarpetaDoc, Profesional } from './admin.repository';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fFecha = (s: string | null) => (s ? new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${s}T00:00:00`)) : '—');
+
+// Estado inicial del acordeón: todas abiertas salvo «categorias».
+const ESTADO_SECCIONES = estadoInicialSecciones(
+  ['empresas', 'profesionales', 'tasa', 'parafiscales', 'categorias', 'carpetas'],
+  { cerradasPorDefecto: ['categorias'] },
+);
 
 export function ConfiguracionTab({
   repo,
@@ -54,6 +63,13 @@ export function ConfiguracionTab({
   const [busquedaCat, setBusquedaCat] = useState('');
   const [filtroCat, setFiltroCat] = useState<'todas' | 'activas' | 'inactivas'>('todas');
 
+  // Profesionales (lista propia en la base: abogada, contador…)
+  const [profs, setProfs] = useState<Profesional[]>([]);
+  const [cargandoProfs, setCargandoProfs] = useState(true);
+  const [profForm, setProfForm] = useState<{ nombre: string; profesion: string; contacto: string }>({ nombre: '', profesion: '', contacto: '' });
+  const [profEditId, setProfEditId] = useState<string | null>(null);
+  const [profOcupado, setProfOcupado] = useState(false);
+
   // Carpetas de Documentos
   const [carpetas, setCarpetas] = useState<InfoCarpetaDoc[]>(() => leerCarpetasPersonalizadas(null));
   const [modalCarpetas, setModalCarpetas] = useState(false);
@@ -75,6 +91,15 @@ export function ConfiguracionTab({
   }, [repo]);
 
   useEffect(() => { void cargarCats(); }, [cargarCats]);
+
+  const cargarProfs = useCallback(async () => {
+    setCargandoProfs(true);
+    try { setProfs(await repo.listProfesionales()); }
+    catch { setProfs([]); }
+    finally { setCargandoProfs(false); }
+  }, [repo]);
+
+  useEffect(() => { void cargarProfs(); }, [cargarProfs]);
 
   async function agregar() {
     const n = nueva.trim();
@@ -103,6 +128,42 @@ export function ConfiguracionTab({
     finally { setOcupado(false); }
   }
 
+  // ─── Profesionales: crear / editar / activar ───
+  function limpiarProfForm() { setProfForm({ nombre: '', profesion: '', contacto: '' }); setProfEditId(null); }
+
+  function editarProf(p: Profesional) {
+    setProfEditId(p.id);
+    setProfForm({ nombre: p.nombre, profesion: p.profesion ?? '', contacto: p.contacto ?? '' });
+  }
+
+  async function guardarProf() {
+    const nombre = profForm.nombre.trim();
+    if (!nombre) { toast('Escriba el nombre del profesional.', 'warning', { silent: true }); return; }
+    const profesion = profForm.profesion.trim() || null;
+    const contacto = profForm.contacto.trim() || null;
+    setProfOcupado(true);
+    try {
+      if (profEditId) {
+        await repo.editarProfesional(profEditId, { nombre, profesion, contacto });
+        toast('Profesional actualizado.', 'success');
+      } else {
+        await repo.crearProfesional({ nombre, profesion, contacto, activo: true });
+        toast('Profesional agregado.', 'success');
+      }
+      limpiarProfForm();
+      await cargarProfs();
+    } catch (e) {
+      toast(`No se pudo guardar: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    } finally { setProfOcupado(false); }
+  }
+
+  async function alternarProf(p: Profesional) {
+    setProfOcupado(true);
+    try { await repo.setActivoProfesional(p.id, !p.activo); await cargarProfs(); }
+    catch (e) { toast(`No se pudo cambiar el estado: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setProfOcupado(false); }
+  }
+
   // Filtrado de categorías para evitar abrumar la pantalla
   const catsFiltradas = useMemo(() => {
     const q = busquedaCat.trim().toLowerCase();
@@ -115,23 +176,194 @@ export function ConfiguracionTab({
   }, [cats, filtroCat, busquedaCat]);
 
   const totalActivas = useMemo(() => cats.filter((c) => c.activa).length, [cats]);
+  const profsActivos = useMemo(() => profs.filter((p) => p.activo).length, [profs]);
   const activas = empresas.filter((e) => e.activa).length;
 
   return (
-    <div style={{ display: 'grid', gap: '1rem' }}>
-      {/* 1. Categorías del módulo (lo que se configura de verdad) */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
-          <div>
-            <div className="card-title">🗂 Categorías de gasto del módulo</div>
-            <p className="muted hint" style={{ marginTop: '.2rem' }}>
-              El plan de cuentas propio de Administración: lo que aparece al clasificar un gasto fijo o un movimiento. Es independiente del catálogo general del sistema.
-            </p>
+    <div style={{ display: 'grid', gap: '.75rem' }}>
+      {/* 1. Empresas y proveedores */}
+      <SeccionColapsable
+        titulo="🏢 Empresas y proveedores"
+        subtitulo={`${empresas.length} empresa(s), ${activas} activa(s)`}
+        abiertoPorDefecto={ESTADO_SECCIONES.empresas}
+      >
+        <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'grid', gap: '.4rem', lineHeight: 1.5 }}>
+          <li><b>Empresas del módulo</b>: {empresas.length} registrada(s), {activas} activa(s). Es la lista propia de Administración (razón social, RIF, moneda, logo).</li>
+          <li><b>Proveedores</b>: se comparten con Pedidos; se agregan y editan desde allá para que todo el sistema use los mismos.</li>
+        </ul>
+        {puedeFull && onGestionarEmpresas && (
+          <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '.5rem' }} onClick={onGestionarEmpresas}>⚙ Gestionar empresas</button>
+        )}
+      </SeccionColapsable>
+
+      {/* 2. Profesionales (lista propia en la base) */}
+      <SeccionColapsable
+        titulo="👤 Profesionales de Administración"
+        subtitulo={`${profs.length} profesional(es) (${profsActivos} activos)`}
+        abiertoPorDefecto={ESTADO_SECCIONES.profesionales}
+      >
+        <p className="muted hint" style={{ marginTop: 0 }}>
+          La lista propia de profesionales del módulo (abogada, contador, gestor…). Es la base del estado de cuenta por profesional y de los honorarios. Es independiente de los Proveedores del sistema.
+        </p>
+
+        {puedeModificar && (
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', margin: '.75rem 0 .5rem', alignItems: 'flex-end' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '2 1 200px' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>Nombre *</span>
+              <input
+                className="input input-sm"
+                value={profForm.nombre}
+                onChange={(e) => setProfForm((f) => ({ ...f, nombre: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') void guardarProf(); }}
+                placeholder="Ej: Abg. Ana Pérez"
+                disabled={profOcupado}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 140px' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>Profesión</span>
+              <input
+                className="input input-sm"
+                value={profForm.profesion}
+                onChange={(e) => setProfForm((f) => ({ ...f, profesion: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') void guardarProf(); }}
+                placeholder="Ej: Abogado"
+                disabled={profOcupado}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 140px' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>Contacto</span>
+              <input
+                className="input input-sm"
+                value={profForm.contacto}
+                onChange={(e) => setProfForm((f) => ({ ...f, contacto: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') void guardarProf(); }}
+                placeholder="Tel / correo"
+                disabled={profOcupado}
+              />
+            </label>
+            <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => void guardarProf()}
+                disabled={profOcupado}
+                style={{ background: '#ff8a00', color: '#000', fontWeight: 700 }}
+              >
+                {profEditId ? 'Guardar' : '+ Agregar'}
+              </button>
+              {profEditId && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={limpiarProfForm} disabled={profOcupado}>
+                  Cancelar
+                </button>
+              )}
+            </div>
           </div>
-          <span className="muted mono" style={{ fontSize: '.78rem' }}>
-            {cats.length} categoría(s) ({totalActivas} activas)
-          </span>
+        )}
+
+        {cargandoProfs ? (
+          <p className="muted" style={{ marginTop: '.4rem' }}>Leyendo profesionales…</p>
+        ) : profs.length === 0 ? (
+          <EmptyState icon="👤" message={puedeModificar ? 'Sin profesionales todavía. Agregue el primero arriba.' : 'El módulo no tiene profesionales cargados.'} />
+        ) : (
+          <div className="adm-tabla" style={{ marginTop: '.2rem', maxHeight: '360px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-2)', zIndex: 2 }}>
+                <tr>
+                  <th>Profesional</th>
+                  <th>Profesión</th>
+                  <th>Contacto</th>
+                  <th>Estado</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profs.map((p) => (
+                  <tr key={p.id} className={p.activo ? undefined : 'adm-fila-off'}>
+                    <td><strong style={{ color: 'var(--text)', fontSize: '.84rem' }}>{p.nombre}</strong></td>
+                    <td style={{ fontSize: '.82rem' }}>{p.profesion || <span className="muted">—</span>}</td>
+                    <td style={{ fontSize: '.82rem' }}>{p.contacto || <span className="muted">—</span>}</td>
+                    <td><span className={`adm-badge ${p.activo ? 'activo' : 'suspendido'}`}>{p.activo ? 'Activo' : 'Inactivo'}</span></td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      {puedeModificar ? (
+                        <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+                          <button type="button" className="btn btn-xs btn-ghost" onClick={() => editarProf(p)} title="Modificar datos del profesional">✏️ Editar</button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={() => void alternarProf(p)}
+                            disabled={profOcupado}
+                            style={{ color: p.activo ? '#f59e0b' : '#10b981' }}
+                          >
+                            {p.activo ? 'Desactivar' : 'Activar'}
+                          </button>
+                        </div>
+                      ) : (<span className="muted">—</span>)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SeccionColapsable>
+
+      {/* 3. Tasa BCV en uso */}
+      <SeccionColapsable
+        titulo="💱 Tasa BCV del día"
+        subtitulo="La misma tasa de Tesorería (referencia)"
+        abiertoPorDefecto={ESTADO_SECCIONES.tasa}
+      >
+        <p className="muted hint" style={{ marginTop: 0 }}>
+          La tasa que usan los equivalentes del tablero, el reporte y la calculadora de parafiscales. Sale de Tesorería (la misma de todo el sistema).
+        </p>
+        {cargandoTasa ? (
+          <p className="muted" style={{ marginTop: '.4rem' }}>Leyendo la tasa…</p>
+        ) : tasa && (tasa.usd > 0 || tasa.eur > 0) ? (
+          <div className="adm-kpis" style={{ marginTop: '.6rem', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+            <div className="adm-kpi oro"><span className="adm-kpi-lbl">USD</span><span className="adm-kpi-num">{num2(tasa.usd)}</span><span className="adm-kpi-sub">Bs por dólar</span></div>
+            <div className="adm-kpi oro"><span className="adm-kpi-lbl">EUR</span><span className="adm-kpi-num">{num2(tasa.eur)}</span><span className="adm-kpi-sub">Bs por euro</span></div>
+            <div className="adm-kpi"><span className="adm-kpi-lbl">Fecha</span><span className="adm-kpi-num" style={{ fontSize: '1.05rem' }}>{fFecha(tasa.fecha)}</span><span className="adm-kpi-sub">última publicada</span></div>
+          </div>
+        ) : (
+          <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No hay tasa cargada (inicie sesión o cárguela en Tesorería). Mientras tanto, los equivalentes usan 40 Bs/USD de respaldo.</div>
+        )}
+      </SeccionColapsable>
+
+      {/* 4. Parafiscales (FAOV) */}
+      <SeccionColapsable
+        titulo="⚖ Parafiscales · FAOV / BANAVIH"
+        subtitulo="Factores legales de la multa FAOV (referencia)"
+        abiertoPorDefecto={ESTADO_SECCIONES.parafiscales}
+      >
+        <p className="muted hint" style={{ marginTop: 0 }}>
+          Base de la calculadora (pestaña Movimientos → «Parafiscal»). Según Gaceta Extra 6.805, art. 98, la multa = <b>factor × la tasa BCV de mayor valor</b>, según el tamaño de la nómina. Los factores son fijos por ley.
+        </p>
+        <div className="adm-tabla" style={{ marginTop: '.6rem' }}>
+          <table>
+            <thead><tr><th>Tamaño de la nómina</th><th style={{ textAlign: 'right' }}>Factor</th></tr></thead>
+            <tbody>
+              {FAOV_TIERS.map((t) => (
+                <tr key={t.nivel}><td>{t.label}</td><td className="mono" style={{ textAlign: 'right' }}><span className="adm-chip">{t.factor}</span></td></tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+        {tasa && (tasa.usd > 0 || tasa.eur > 0) && (
+          <p className="muted hint" style={{ marginTop: '.5rem', fontSize: '.78rem' }}>
+            Ejemplo hoy (≤50 trabajadores): 165 × {num2(Math.max(tasa.usd, tasa.eur))} = <b>Bs {num2(165 * Math.max(tasa.usd, tasa.eur))}</b>.
+          </p>
+        )}
+      </SeccionColapsable>
+
+      {/* 5. Categorías del módulo (CERRADA por defecto) */}
+      <SeccionColapsable
+        titulo="🗂 Categorías de gasto del módulo"
+        subtitulo={`${cats.length} categoría(s) (${totalActivas} activas)`}
+        abiertoPorDefecto={ESTADO_SECCIONES.categorias}
+      >
+        <p className="muted hint" style={{ marginTop: 0 }}>
+          El plan de cuentas propio de Administración: lo que aparece al clasificar un gasto fijo o un movimiento. Es independiente del catálogo general del sistema.
+        </p>
 
         {/* Input para agregar nueva categoría */}
         {puedeModificar && (
@@ -169,27 +401,9 @@ export function ConfiguracionTab({
               style={{ maxWidth: 240, fontSize: '.78rem', padding: '.25rem .5rem' }}
             />
             <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
-              <button
-                type="button"
-                className={`btn btn-xs ${filtroCat === 'todas' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setFiltroCat('todas')}
-              >
-                Todas ({cats.length})
-              </button>
-              <button
-                type="button"
-                className={`btn btn-xs ${filtroCat === 'activas' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setFiltroCat('activas')}
-              >
-                Activas ({totalActivas})
-              </button>
-              <button
-                type="button"
-                className={`btn btn-xs ${filtroCat === 'inactivas' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setFiltroCat('inactivas')}
-              >
-                Inactivas ({cats.length - totalActivas})
-              </button>
+              <button type="button" className={`btn btn-xs ${filtroCat === 'todas' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltroCat('todas')}>Todas ({cats.length})</button>
+              <button type="button" className={`btn btn-xs ${filtroCat === 'activas' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltroCat('activas')}>Activas ({totalActivas})</button>
+              <button type="button" className={`btn btn-xs ${filtroCat === 'inactivas' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltroCat('inactivas')}>Inactivas ({cats.length - totalActivas})</button>
             </div>
           </div>
         )}
@@ -201,17 +415,7 @@ export function ConfiguracionTab({
         ) : catsFiltradas.length === 0 ? (
           <p className="muted" style={{ padding: '1rem 0', fontSize: '.84rem' }}>No se encontraron categorías con «{busquedaCat}».</p>
         ) : (
-          /* Contenedor compacto con desplazamiento vertical controlado para no abrumar la pantalla con N categorías */
-          <div
-            className="adm-tabla"
-            style={{
-              marginTop: '.2rem',
-              maxHeight: '360px',
-              overflowY: 'auto',
-              border: '1px solid var(--border)',
-              borderRadius: '6px',
-            }}
-          >
+          <div className="adm-tabla" style={{ marginTop: '.2rem', maxHeight: '360px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
             <table>
               <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-2)', zIndex: 2 }}>
                 <tr>
@@ -242,45 +446,24 @@ export function ConfiguracionTab({
                       )}
                     </td>
                     <td>
-                      <span className={`adm-badge ${c.activa ? 'activo' : 'suspendido'}`}>
-                        {c.activa ? 'Activa' : 'Inactiva'}
-                      </span>
+                      <span className={`adm-badge ${c.activa ? 'activo' : 'suspendido'}`}>{c.activa ? 'Activa' : 'Inactiva'}</span>
                     </td>
                     <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                       {puedeModificar ? (
                         editId === c.id ? (
                           <div style={{ display: 'inline-flex', gap: '.3rem' }}>
-                            <button type="button" className="btn btn-xs btn-primary" onClick={() => void guardarNombre()} disabled={ocupado}>
-                              Guardar
-                            </button>
-                            <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setEditId(null); setEditNombre(''); }} disabled={ocupado}>
-                              Cancelar
-                            </button>
+                            <button type="button" className="btn btn-xs btn-primary" onClick={() => void guardarNombre()} disabled={ocupado}>Guardar</button>
+                            <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setEditId(null); setEditNombre(''); }} disabled={ocupado}>Cancelar</button>
                           </div>
                         ) : (
                           <div style={{ display: 'inline-flex', gap: '.3rem' }}>
-                            <button
-                              type="button"
-                              className="btn btn-xs btn-ghost"
-                              onClick={() => { setEditId(c.id); setEditNombre(c.nombre); }}
-                              title="Modificar nombre de la categoría"
-                            >
-                              ✏️ Renombrar
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-xs btn-ghost"
-                              onClick={() => void alternar(c)}
-                              disabled={ocupado}
-                              style={{ color: c.activa ? '#f59e0b' : '#10b981' }}
-                            >
+                            <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setEditId(c.id); setEditNombre(c.nombre); }} title="Modificar nombre de la categoría">✏️ Renombrar</button>
+                            <button type="button" className="btn btn-xs btn-ghost" onClick={() => void alternar(c)} disabled={ocupado} style={{ color: c.activa ? '#f59e0b' : '#10b981' }}>
                               {c.activa ? 'Desactivar' : 'Activar'}
                             </button>
                           </div>
                         )
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
+                      ) : (<span className="muted">—</span>)}
                     </td>
                   </tr>
                 ))}
@@ -288,30 +471,27 @@ export function ConfiguracionTab({
             </table>
           </div>
         )}
-      </div>
+      </SeccionColapsable>
 
-      {/* 2. Carpetas de Documentos y Permisos (Personalización con Notas) */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
-          <div>
-            <div className="card-title">📁 Carpetas de Documentos y Permisos</div>
-            <p className="muted hint" style={{ marginTop: '.2rem' }}>
-              Estructura organizativa para archivar y vigilar los documentos mineros, parafiscales y legales. Puedes personalizar nombres, íconos y notas explicativas.
-            </p>
-          </div>
-          {puedeModificar && (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              style={{ background: '#ff8a00', color: '#000', fontWeight: 700 }}
-              onClick={() => setModalCarpetas(true)}
-            >
-              ⚙ Gestionar Carpetas
-            </button>
-          )}
-        </div>
-
-        {/* Lista compacta de carpetas configuradas */}
+      {/* 6. Carpetas de Documentos y Permisos */}
+      <SeccionColapsable
+        titulo="📁 Carpetas de Documentos y Permisos"
+        subtitulo={`${carpetas.length} carpeta(s) configuradas`}
+        abiertoPorDefecto={ESTADO_SECCIONES.carpetas}
+        accionCabecera={puedeModificar ? (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            style={{ background: '#ff8a00', color: '#000', fontWeight: 700 }}
+            onClick={() => setModalCarpetas(true)}
+          >
+            ⚙ Gestionar Carpetas
+          </button>
+        ) : undefined}
+      >
+        <p className="muted hint" style={{ marginTop: 0 }}>
+          Estructura organizativa para archivar y vigilar los documentos mineros, parafiscales y legales. Puedes personalizar nombres, íconos y notas explicativas.
+        </p>
         <div
           style={{
             marginTop: '.75rem',
@@ -342,73 +522,15 @@ export function ConfiguracionTab({
                   {c.label}
                 </strong>
                 {c.descripcion ? (
-                  <span className="muted" style={{ fontSize: '.72rem', lineHeight: 1.25 }}>
-                    {c.descripcion}
-                  </span>
+                  <span className="muted" style={{ fontSize: '.72rem', lineHeight: 1.25 }}>{c.descripcion}</span>
                 ) : (
-                  <span className="muted hint" style={{ fontSize: '.68rem', fontStyle: 'italic' }}>
-                    Sin nota descriptiva
-                  </span>
+                  <span className="muted hint" style={{ fontSize: '.68rem', fontStyle: 'italic' }}>Sin nota descriptiva</span>
                 )}
               </div>
             </div>
           ))}
         </div>
-      </div>
-
-      {/* 3. Tasa BCV en uso */}
-      <div className="card">
-        <div className="card-title">💱 Tasa BCV del día</div>
-        <p className="muted hint" style={{ marginTop: '.2rem' }}>
-          La tasa que usan los equivalentes del tablero, el reporte y la calculadora de parafiscales. Sale de Tesorería (la misma de todo el sistema).
-        </p>
-        {cargandoTasa ? (
-          <p className="muted" style={{ marginTop: '.4rem' }}>Leyendo la tasa…</p>
-        ) : tasa && (tasa.usd > 0 || tasa.eur > 0) ? (
-          <div className="adm-kpis" style={{ marginTop: '.6rem', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-            <div className="adm-kpi oro"><span className="adm-kpi-lbl">USD</span><span className="adm-kpi-num">{num2(tasa.usd)}</span><span className="adm-kpi-sub">Bs por dólar</span></div>
-            <div className="adm-kpi oro"><span className="adm-kpi-lbl">EUR</span><span className="adm-kpi-num">{num2(tasa.eur)}</span><span className="adm-kpi-sub">Bs por euro</span></div>
-            <div className="adm-kpi"><span className="adm-kpi-lbl">Fecha</span><span className="adm-kpi-num" style={{ fontSize: '1.05rem' }}>{fFecha(tasa.fecha)}</span><span className="adm-kpi-sub">última publicada</span></div>
-          </div>
-        ) : (
-          <div className="adm-aviso" style={{ marginTop: '.5rem' }}>No hay tasa cargada (inicie sesión o cárguela en Tesorería). Mientras tanto, los equivalentes usan 40 Bs/USD de respaldo.</div>
-        )}
-      </div>
-
-      {/* 4. Parafiscales (FAOV) */}
-      <div className="card">
-        <div className="card-title">⚖ Parafiscales · FAOV / BANAVIH</div>
-        <p className="muted hint" style={{ marginTop: '.2rem' }}>
-          Base de la calculadora (pestaña Movimientos → «Parafiscal»). Según Gaceta Extra 6.805, art. 98, la multa = <b>factor × la tasa BCV de mayor valor</b>, según el tamaño de la nómina. Los factores son fijos por ley.
-        </p>
-        <div className="adm-tabla" style={{ marginTop: '.6rem' }}>
-          <table>
-            <thead><tr><th>Tamaño de la nómina</th><th style={{ textAlign: 'right' }}>Factor</th></tr></thead>
-            <tbody>
-              {FAOV_TIERS.map((t) => (
-                <tr key={t.nivel}><td>{t.label}</td><td className="mono" style={{ textAlign: 'right' }}><span className="adm-chip">{t.factor}</span></td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {tasa && (tasa.usd > 0 || tasa.eur > 0) && (
-          <p className="muted hint" style={{ marginTop: '.5rem', fontSize: '.78rem' }}>
-            Ejemplo hoy (≤50 trabajadores): 165 × {num2(Math.max(tasa.usd, tasa.eur))} = <b>Bs {num2(165 * Math.max(tasa.usd, tasa.eur))}</b>.
-          </p>
-        )}
-      </div>
-
-      {/* 5. Empresas y proveedores */}
-      <div className="card">
-        <div className="card-title">🏢 Empresas y proveedores</div>
-        <ul style={{ margin: '.4rem 0 0', paddingLeft: '1.1rem', display: 'grid', gap: '.4rem', lineHeight: 1.5 }}>
-          <li><b>Empresas del módulo</b>: {empresas.length} registrada(s), {activas} activa(s). Es la lista propia de Administración (razón social, RIF, moneda, logo).</li>
-          <li><b>Proveedores</b>: se comparten con Pedidos; se agregan y editan desde allá para que todo el sistema use los mismos.</li>
-        </ul>
-        {puedeFull && onGestionarEmpresas && (
-          <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '.4rem' }} onClick={onGestionarEmpresas}>⚙ Gestionar empresas</button>
-        )}
-      </div>
+      </SeccionColapsable>
 
       {/* Modal de Gestión de Carpetas */}
       {modalCarpetas && (
