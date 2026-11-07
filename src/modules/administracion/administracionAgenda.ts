@@ -93,6 +93,15 @@ export function agendaVencimientos(input: {
   return items;
 }
 
+/** Texto corto de la cuenta regresiva, derivado SOLO de diasRestantes (coherente
+ *  con el estado calculado con el aviso propio; no recalcula con umbral fijo). */
+export function textoDiasRestantes(dias: number | null): string {
+  if (dias == null) return 'Sin fecha';
+  if (dias < 0) return `Vencido hace ${-dias} d`;
+  if (dias === 0) return 'Vence hoy';
+  return `Vence en ${dias} d`;
+}
+
 export interface ResumenAgenda { vencidos: number; porVencer: number; vigentes: number; }
 
 /** Conteo para los KPIs del tablero de agenda. `no_vence` no se cuenta. */

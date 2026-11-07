@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { resumenAgenda, type ItemAgenda } from './administracionAgenda';
+import { resumenAgenda, textoDiasRestantes, type ItemAgenda } from './administracionAgenda';
+
+describe('textoDiasRestantes (derivado de diasRestantes, coherente con el aviso)', () => {
+  it('vencido, hoy, por venir y sin fecha', () => {
+    expect(textoDiasRestantes(-5)).toBe('Vencido hace 5 d');
+    expect(textoDiasRestantes(0)).toBe('Vence hoy');
+    expect(textoDiasRestantes(45)).toBe('Vence en 45 d');
+    expect(textoDiasRestantes(null)).toBe('Sin fecha');
+  });
+});
 
 const item = (status: ItemAgenda['status']): ItemAgenda => ({
   origen: 'documento', id: Math.random().toString(36), empresaClave: 'GT', centroAcopioId: null,

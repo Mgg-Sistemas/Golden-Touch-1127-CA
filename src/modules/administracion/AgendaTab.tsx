@@ -7,8 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { STATUS_VENCIMIENTO_COLOR, STATUS_VENCIMIENTO_LABEL, type AdminRepo, type Empresa } from './admin.repository';
-import { agendaVencimientos, filtrarAgenda, resumenAgenda, type ItemAgenda, type OrigenAgenda } from './administracionAgenda';
-import { obtenerDetalleHoverVigencia } from './administracionVigencia';
+import { agendaVencimientos, filtrarAgenda, resumenAgenda, textoDiasRestantes, type ItemAgenda, type OrigenAgenda } from './administracionAgenda';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ORIGEN_LABEL: Record<OrigenAgenda, string> = { documento: '📄 Documento', gasto: '💵 Cuenta por pagar', gestion: '💼 Gestión' };
@@ -83,7 +82,7 @@ export function AgendaTab({ repo, empresaClave }: {
             <tbody>
               {visibles.map((i) => {
                 const cfg = STATUS_VENCIMIENTO_COLOR[i.status];
-                const detalle = obtenerDetalleHoverVigencia(i.fecha, i.status);
+                const cuenta = textoDiasRestantes(i.diasRestantes);
                 return (
                   <tr key={`${i.origen}-${i.id}`}>
                     <td>
@@ -91,10 +90,10 @@ export function AgendaTab({ repo, empresaClave }: {
                       {i.monto != null && <span className="muted hint" style={{ display: 'block', fontSize: '.7rem' }}>{num2(i.monto)} {i.moneda}</span>}
                     </td>
                     <td style={{ fontSize: '.8rem' }}>{ORIGEN_LABEL[i.origen]}</td>
-                    <td style={{ fontSize: '.8rem' }} title={detalle.tiempoRestanteTexto}>{i.fecha ?? '—'}</td>
+                    <td style={{ fontSize: '.8rem' }} title={cuenta}>{i.fecha ?? '—'}</td>
                     <td>
-                      <span className="adm-badge" style={{ color: cfg.color, background: cfg.bg, borderColor: cfg.border }} title={detalle.titulo}>
-                        {STATUS_VENCIMIENTO_LABEL[i.status]}{i.diasRestantes != null ? ` · ${detalle.badge}` : ''}
+                      <span className="adm-badge" style={{ color: cfg.color, background: cfg.bg, borderColor: cfg.border }} title={cuenta}>
+                        {STATUS_VENCIMIENTO_LABEL[i.status]}{i.diasRestantes != null ? ` · ${cuenta}` : ''}
                       </span>
                     </td>
                     <td style={{ fontSize: '.8rem' }}>{i.prioridad ? PRIORIDAD_LABEL[i.prioridad] : <span className="muted">—</span>}</td>
