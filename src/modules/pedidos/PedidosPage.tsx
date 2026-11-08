@@ -91,6 +91,7 @@ import {
   RETENCION_INFO, TIPOS_RETENCION, calcularRetencionesCompras, errorRetencionesCompras, netoAPagarCompras,
   pctTexto, uiInicialRetenciones, type CamposRetencionesCompras, type RetencionesCompras, type RetencionesUi, type TipoRetencion,
 } from './retencionesCompras';
+import { IMPUESTO_LABEL, IMPUESTOS_PAGO, type ImpuestoPago, type MonedaImpuesto } from './impuestosMoneda';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -1662,7 +1663,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; ivaIncluido?: boolean; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null; retenciones?: RetencionesCompras | null; modalidadEntrega?: ModalidadEntrega | null }, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; retencionMomento?: RetencionMomento | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; ivaIncluido?: boolean; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number; numeroAdministracion?: string | null; retenciones?: RetencionesCompras | null; modalidadEntrega?: ModalidadEntrega | null; impuestosMoneda?: Partial<Record<ImpuestoPago, MonedaImpuesto>> | null }, imagenPath?: string | null) => Promise<void> | void;
   /** Cambiar de proveedor: reabre la elección de oferta (volver a cotizar). Lleva el motivo. */
   onCambiarProveedor: (motivo: string) => Promise<void>;
 }) {
@@ -1712,6 +1713,13 @@ function MetodoPagoModal({
   // Retenciones por tipo (03/11/2026): IVA, ISLR, ISAE, IGTF con % o monto. No tocan el total
   // de la OC: neto a pagar = total − retenciones (ver retencionesCompras.ts).
   const [retUi, setRetUi] = useState<RetencionesUi>(() => uiInicialRetenciones(orden as Orden & CamposRetencionesCompras));
+  // 08/11/2026: en qué moneda se paga cada impuesto ($ por defecto). Los que van en Bs
+  // salen SOLO en Tesorería («Pago de impuestos en Bs»), no en el mensaje de WhatsApp.
+  const [impMoneda, setImpMoneda] = useState<Record<ImpuestoPago, MonedaImpuesto>>(() => {
+    const out = {} as Record<ImpuestoPago, MonedaImpuesto>;
+    for (const t of IMPUESTOS_PAGO) out[t] = orden.impuestos_moneda?.[t] === 'Bs' ? 'Bs' : 'USD';
+    return out;
+  });
   function setRetTipo(t: TipoRetencion, patch: Partial<RetencionesUi[TipoRetencion]>) {
     setRetUi((u) => ({ ...u, [t]: { ...u[t], ...patch } }));
   }
@@ -1815,6 +1823,14 @@ function MetodoPagoModal({
   const netoCompras = netoAPagarCompras(totalFinal, retTotal);
   // Lo que paga Tesorería: el neto si se retiene ANTES; el total si es DESPUÉS.
   const aPagarCompras = usaRetenciones && retencionMomento === 'antes_de_pagar' ? netoCompras : totalFinal;
+  // Impuestos presentes en la OC (para preguntar su moneda): IVA/IGTF de la factura o su
+  // retención; ISLR/ISAE solo como retención.
+  const impuestosActivos = IMPUESTOS_PAGO.filter((t) => {
+    const ret = usaRetenciones && retenciones[t].monto > 0;
+    if (t === 'iva') return (ivaActivo && ivaMonto > 0) || ret;
+    if (t === 'igtf') return igtfMonto > 0 || ret;
+    return ret;
+  });
   // Moneda de la orden (Bs o $): los importes del método de pago se muestran en ella.
   const monedaOrden = orden.total_moneda ?? 'USD';
   const simboloMoneda = monedaOrden === 'Bs' ? 'Bs' : '$';
@@ -1907,6 +1923,7 @@ function MetodoPagoModal({
         numeroAdministracion: numeroAdmLimpio,
         retenciones: usaRetenciones && retTotal > 0 ? retenciones : null,
         modalidadEntrega: esProducto ? modalidadEntrega : null,
+        impuestosMoneda: Object.fromEntries(impuestosActivos.map((t) => [t, impMoneda[t]])),
       }, imagenPath);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
@@ -2268,6 +2285,33 @@ function MetodoPagoModal({
           </div>
         )}
       </div>
+
+      {/* 08/11/2026: ¿en qué moneda se pagan los impuestos? En Bs → solo en Tesorería
+          («Pago de impuestos en Bs»), NO en el mensaje de WhatsApp. */}
+      {impuestosActivos.length > 0 && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
+          <div className="card-title" style={{ marginBottom: '.35rem' }}>💱 Moneda de pago de los impuestos</div>
+          <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
+            Los que se paguen en <strong>Bs</strong> aparecen solo en <strong>Tesorería</strong> (pago de impuestos en Bs a tasa BCV) y no en el mensaje de WhatsApp. El total no cambia.
+          </div>
+          <div style={{ display: 'grid', gap: '.3rem' }}>
+            {impuestosActivos.map((t) => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.25rem 0', borderTop: '1px dashed var(--border)' }}>
+                <strong style={{ fontSize: '.88rem' }}>{IMPUESTO_LABEL[t]}</strong>
+                <span role="radiogroup" aria-label={`Moneda de pago del ${IMPUESTO_LABEL[t]}`} style={{ display: 'inline-flex', gap: '.3rem' }}>
+                  {(['USD', 'Bs'] as const).map((mon) => (
+                    <button key={mon} type="button" role="radio" aria-checked={impMoneda[t] === mon}
+                      className={`btn btn-sm ${impMoneda[t] === mon ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={() => setImpMoneda((m) => ({ ...m, [t]: mon }))}>
+                      {mon === 'USD' ? '$ Dólares' : 'Bs Bolívares'}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gap: '.6rem' }}>
         {legs.map((l, i) => (
