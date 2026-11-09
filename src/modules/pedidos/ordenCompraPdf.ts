@@ -534,7 +534,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
     autoTable(doc, {
       startY: y,
-      head: [['SKU', 'Descripción', 'Cantidad', 'Precio unit.', 'Subtotal']],
+      head: [['SKU', 'Descripción', 'Cantidad', 'Unidad', 'Precio unit.', 'Subtotal']],
       body: o.items.map((it) => {
         // Marca/modelo cargados por el usuario (en la oferta) se muestran bajo el nombre.
         // En servicios de recarga se muestran los recipientes y el volumen: bombonas/KG
@@ -549,6 +549,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
           it.sku,
           pdfSafe(ficha ? `${it.nombre}\n${ficha}` : it.nombre),
           num(it.cantidad),
+          pdfSafe(String(it.unidad ?? '').trim()) || 'UND',
           montoMoneda(it.precio, o.total_moneda),
           montoMoneda(it.cantidad * it.precio, o.total_moneda),
         ];
@@ -559,18 +560,18 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         if (desc > 0) {
           const sub = Math.round((Number(o.total) + desc) * 100) / 100;
           return [
-            ['', '', '', 'Subtotal', montoMoneda(sub, o.total_moneda)],
-            ['', '', '', 'Descuento obtenido', `− ${montoMoneda(desc, o.total_moneda)}`],
-            ['', '', '', totalLabel, montoMoneda(o.total, o.total_moneda)],
+            ['', '', '', '', 'Subtotal', montoMoneda(sub, o.total_moneda)],
+            ['', '', '', '', 'Descuento obtenido', `− ${montoMoneda(desc, o.total_moneda)}`],
+            ['', '', '', '', totalLabel, montoMoneda(o.total, o.total_moneda)],
           ];
         }
-        return [['', '', '', totalLabel, montoMoneda(o.total, o.total_moneda)]];
+        return [['', '', '', '', totalLabel, montoMoneda(o.total, o.total_moneda)]];
       })(),
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       styles: { fontSize: 9, cellPadding: 4 },
-      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'center' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
       margin: MARGIN,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
