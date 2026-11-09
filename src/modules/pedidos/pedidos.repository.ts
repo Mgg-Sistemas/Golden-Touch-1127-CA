@@ -1302,6 +1302,43 @@ export async function indicarMetodoPago(
   return data as Orden;
 }
 
+/**
+ * 09/11/2026 · Crédito (cuenta abierta, en Compras y en Servicios): se indica con qué método
+ * se le paga al proveedor —y sus datos— SIN sacarla del crédito: no cambia el estado ni el
+ * total (los abonos se siguen registrando en Tesorería). Sale en el WhatsApp de la orden.
+ */
+export async function indicarMetodoPagoCredito(
+  o: Orden, metodos: PagoMetodo[], actorEmail: string, numeroAdministracion?: string | null,
+): Promise<Orden> {
+  if (o.estado !== 'cuenta_abierta') throw new Error('Solo se indica así el método de pago de una orden a crédito (cuenta abierta).');
+  const limpios = (metodos ?? [])
+    .map((m) => ({
+      metodo: m.metodo, moneda: m.moneda, monto: Math.round((Number(m.monto) || 0) * 100) / 100,
+      ...(m.datos && Object.keys(m.datos).length ? { datos: m.datos } : {}),
+    }))
+    .filter((m) => m.metodo && m.moneda);
+  if (!limpios.length) throw new Error('Indica al menos un método de pago.');
+  const adm = (numeroAdministracion ?? '').replace(/\D/g, '');
+  const { data, error } = await supabase.from(TABLE).update({
+    metodo_pago: limpios,
+    metodo_pago_por: actorEmail,
+    metodo_pago_en: new Date().toISOString(),
+    ...(adm.length >= 7 ? { numero_administracion: adm } : {}),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, credito: true }),
+  }).eq('id', o.id).eq('estado', 'cuenta_abierta').select('*');
+  if (error) throw error;
+  const r = (data ?? [])[0] as Orden | undefined;
+  if (!r) throw new Error('La orden ya no está a crédito (se saldó o cambió). Recarga.');
+  if (o.proveedor_id) {
+    for (const m of limpios) {
+      if (requiereDatos(m.metodo) && 'datos' in m && m.datos) {
+        try { await guardarDatosPago(o.proveedor_id, m.metodo, m.datos as DatosPago, actorEmail); } catch { /* no bloquea */ }
+      }
+    }
+  }
+  return r;
+}
+
 export async function rechazarOrden(
   o: Orden,
   actorEmail: string,

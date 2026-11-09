@@ -171,6 +171,10 @@ export function construirTextoMotivoPagoLote(opts: {
   motivoDetalle?: string | null;
   /** Cuándo se arma el mensaje (ISO). */
   fecha: string;
+  /** 09/11/2026: encabezado (por defecto «RESUMEN · ÓRDENES POR PAGAR»). */
+  titulo?: string;
+  /** Etiqueta del monto de cada línea (por defecto «A pagar»). */
+  etiquetaMonto?: string;
 }): string {
   const general: MotivoLote = opts.pagada === false ? (opts.motivoTipo ?? 'Sin fondos en estos momentos.') : 'si';
   const items = opts.ordenes.map((o) => ({
@@ -179,13 +183,13 @@ export function construirTextoMotivoPagoLote(opts: {
     motivoDetalle: o.motivo ? o.motivoDetalle : (o.motivoDetalle ?? opts.motivoDetalle),
   }));
   const L: string[] = [];
-  L.push('🧾 *RESUMEN · ÓRDENES POR PAGAR*');
+  L.push(`🧾 *${opts.titulo ?? 'RESUMEN · ÓRDENES POR PAGAR'}*`);
   const f = new Date(opts.fecha);
   if (!Number.isNaN(f.getTime())) L.push(`📅 *Generado:* ${fechaHoraResumen(f)}`);
   L.push('');
   items.forEach((o, i) => {
     L.push(`${i + 1}. 🔹 *${unaLinea(o.codigo) || '—'}* · ${unaLinea(o.proveedor) || '—'}`);
-    L.push(`    💵 *A pagar:* ${montoMoneda(Number(o.monto) || 0, o.moneda)} · ${estadoItemLote(o.motivo, o.motivoDetalle)}`);
+    L.push(`    💵 *${opts.etiquetaMonto ?? 'A pagar'}:* ${montoMoneda(Number(o.monto) || 0, o.moneda)} · ${estadoItemLote(o.motivo, o.motivoDetalle)}`);
   });
   const si = items.filter((o) => o.motivo === 'si');
   L.push('');

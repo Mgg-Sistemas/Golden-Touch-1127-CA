@@ -4266,7 +4266,12 @@ function PagadaSinCajaModal({ rows, actor, onClose, onDone }: {
    en el aviso individual y sale un solo mensaje con el código, el proveedor y el monto a
    pagar de cada OC, el total y la fecha en que se arma. */
 
-function WhatsappLotePorPagarModal({ rows, onClose }: { rows: OrdenPorPagar[]; onClose: () => void }) {
+function WhatsappLotePorPagarModal({ rows, onClose, credito = false }: {
+  rows: Pick<OrdenPorPagar, 'orden' | 'proveedorNombre' | 'montoAPagar'>[];
+  onClose: () => void;
+  /** 09/11/2026: lote de las cuentas a CRÉDITO de Compras (el monto es el saldo pendiente). */
+  credito?: boolean;
+}) {
   // 05/11/2026 (formato MGG): cada orden con su propio «¿se pagará?»; arriba se aplica a todas.
   const [marcadas, setMarcadas] = useState<Set<string>>(() => new Set(rows.map((r) => r.orden.id)));
   const [motivos, setMotivos] = useState<Record<string, MotivoLote>>({});
@@ -4286,7 +4291,9 @@ function WhatsappLotePorPagarModal({ rows, onClose }: { rows: OrdenPorPagar[]; o
     motivo: motivoDe(r.orden.id), motivoDetalle: detalles[r.orden.id] ?? '',
   }));
   const falta = errorResumenLote(ordenes);
-  const texto = construirTextoMotivoPagoLote({ ordenes, fecha });
+  const texto = construirTextoMotivoPagoLote(credito
+    ? { ordenes, fecha, titulo: 'RESUMEN · CUENTAS A CRÉDITO POR PAGAR', etiquetaMonto: 'Saldo' }
+    : { ordenes, fecha });
   // 07/11/2026: sin nada por pagar → «ÓRDENES PENDIENTES POR PAGAR: 0 · TESORERÍA AL DÍA».
   if (!rows.length) {
     return (
@@ -4301,7 +4308,7 @@ function WhatsappLotePorPagarModal({ rows, onClose }: { rows: OrdenPorPagar[]; o
     );
   }
   return (
-    <Modal title="💬 WhatsApp por lote · Órdenes pendientes por pagar" size="lg" onClose={onClose}
+    <Modal title={credito ? '💬 WhatsApp por lote · Cuentas a crédito (Compras)' : '💬 WhatsApp por lote · Órdenes pendientes por pagar'} size="lg" onClose={onClose}
       footer={<button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontWeight: 600, cursor: 'pointer' }}>
@@ -4680,6 +4687,8 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [datosPago, setDatosPago] = useState<Record<string, DatosPago>>({});
   const [editarDatosPago, setEditarDatosPago] = useState(false);
   const [loading, setLoading] = useState(true);
+  // 09/11/2026: WhatsApp por lote de las cuentas a crédito de Compras (¿se pagarán o no?).
+  const [wspCreditos, setWspCreditos] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Inputs no controlados (montos/nota): este nonce remonta los campos al
@@ -4777,6 +4786,10 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   return (
     <Modal title="Cuentas por pagar (créditos)" size="xl" onClose={() => !saving && onClose()}
       footer={<button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}>
+      {wspCreditos && (
+        <WhatsappLotePorPagarModal credito onClose={() => setWspCreditos(false)}
+          rows={ordenes.map((x) => ({ orden: x.orden, proveedorNombre: x.proveedorNombre, montoAPagar: round2((Number(x.orden.total) || 0) - (Number(x.orden.abonado_total) || 0)) }))} />
+      )}
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.8rem' }}>
         <button className={vista === 'oc' ? 'active' : ''} onClick={() => setVista('oc')}>🧾 Compras a crédito</button>
         <button className={vista === 'manual' ? 'active' : ''} onClick={() => setVista('manual')}>👥 Cliente / Proveedor</button>
@@ -4808,7 +4821,8 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                       };
                     }), 'ABONADO');
                   } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-                }}>📄 Resumen</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
+                }}>📄 Resumen</button><button className="btn btn-sm btn-ghost" onClick={() => setWspCreditos(true)}
+                  title="Un solo WhatsApp con las cuentas a crédito de Compras: OC, proveedor, saldo y si se pagará o no (todas o una a una)">💬 WhatsApp por lote</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={ordenes.map((x) => ({ value: x.orden.id, label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}` }))} />

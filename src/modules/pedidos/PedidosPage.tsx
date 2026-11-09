@@ -37,6 +37,7 @@ import type {
 } from '@/shared/lib/types';
 import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, etiquetaModalidadEntrega, type ModalidadEntrega } from '@/shared/lib/types';
 import { COL_POR_RETIRAR, enPendientePorRecibir, esperaRetiro, textoEventoDelivery } from './retiroOc';
+import { indicarMetodoPagoCredito } from './pedidos.repository';
 import { confirmarRetiroOc } from './pedidos.repository';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
@@ -312,6 +313,7 @@ type ModalKind =
   | { kind: 'approve'; orden: Orden }
   | { kind: 'confirm-oc'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
+  | { kind: 'metodo-credito'; orden: Orden }
   | { kind: 'cancel'; orden: Orden }
   | { kind: 'desistir'; orden: Orden }
   | { kind: 'receive'; orden: Orden }
@@ -1048,7 +1050,9 @@ export function PedidosPage() {
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
           onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: currentDetail })}
-          onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: currentDetail })}
+          onEnviarPagar={() => setModal(currentDetail.estado === 'cuenta_abierta'
+            ? { kind: 'metodo-credito', orden: currentDetail }
+            : { kind: 'metodo-pago', orden: currentDetail })}
           onCancel={() => setModal({ kind: 'cancel', orden: currentDetail })}
           onDesistir={() => setModal({ kind: 'desistir', orden: currentDetail })}
           onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
@@ -1231,6 +1235,19 @@ export function PedidosPage() {
       )}
 
       {/* Modal: indicar método de pago (multipago) → Enviar para Pagar */}
+      {modal.kind === 'metodo-credito' && (
+        <MetodoPagoCreditoModal
+          orden={modal.orden}
+          proveedores={proveedores}
+          actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
+          onClose={() => setModal({ kind: 'none' })}
+          onSaved={async () => {
+            notify(`${modal.orden.oc_codigo ?? modal.orden.codigo} · método de pago del crédito guardado (sale en el WhatsApp)`, 'success', { link: '#/app/pedidos' });
+            setModal({ kind: 'none' });
+            await refresh();
+          }}
+        />
+      )}
       {modal.kind === 'metodo-pago' && (
         <MetodoPagoModal
           orden={modal.orden}
@@ -1638,6 +1655,104 @@ function FinalizarPedidoModal({
         </div>
       )}
       <small className="muted">Evaluador: {rolEvaluador === 'jefe' ? 'Jefe / analista' : 'Almacenista'}.</small>
+    </Modal>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   09/11/2026 · Modal: método de pago de una orden A CRÉDITO (Compras y Servicios).
+   Solo el/los método(s) y los datos del proveedor: no la saca del crédito ni toca el
+   total (los abonos van por Tesorería). Lo que se indica sale en el WhatsApp.
+   ───────────────────────────────────────────── */
+function MetodoPagoCreditoModal({ orden, proveedores, actorEmail, onClose, onSaved }: {
+  orden: Orden; proveedores: Proveedor[]; actorEmail: string; onClose: () => void; onSaved: () => void | Promise<void>;
+}) {
+  const [legs, setLegs] = useState<PagoMetodo[]>(
+    orden.metodo_pago && orden.metodo_pago.length
+      ? orden.metodo_pago.map((m) => ({ ...m }))
+      : [{ metodo: 'transferencia', moneda: monedaPorMetodo('transferencia'), monto: 0 }],
+  );
+  const [datosGuardados, setDatosGuardados] = useState<Record<string, DatosPago>>({});
+  const numeroAdmFicha = (proveedores.find((p) => p.id === orden.proveedor_id)?.numero_administracion ?? '').replace(/\D/g, '');
+  const [numeroAdm, setNumeroAdm] = useState<string>(orden.numero_administracion || numeroAdmFicha);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!orden.proveedor_id) return;
+    listDatosPago(orden.proveedor_id).then((d) => {
+      setDatosGuardados(d);
+      // Primera vez: precarga los datos guardados del proveedor para el método inicial.
+      setLegs((ls) => ls.map((l) => (requiereDatos(l.metodo) && (!l.datos || !Object.keys(l.datos).length) ? { ...l, datos: d[l.metodo] ?? {} } : l)));
+    }).catch(() => { /* sin datos previos */ });
+  }, [orden.proveedor_id]);
+  const setLeg = (i: number, patch: Partial<PagoMetodo>) => setLegs((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const cambiarMetodo = (i: number, metodo: string) =>
+    setLeg(i, { metodo, moneda: monedaPorMetodo(metodo), datos: requiereDatos(metodo) ? (datosGuardados[metodo] ?? {}) : undefined });
+  const saldo = Math.max(0, Math.round(((Number(orden.total) || 0) - (Number(orden.abonado_total) || 0)) * 100) / 100);
+
+  async function guardar() {
+    setError(null);
+    const validos = legs.filter((l) => l.metodo && l.moneda);
+    if (!validos.length) { setError('Indica al menos un método de pago.'); return; }
+    for (const l of validos) {
+      if (requiereDatos(l.metodo)) {
+        const err = validarDatosPago(l.metodo, l.datos ?? {});
+        if (err) { setError(`${METODOS_PAGO.find((m) => m.value === l.metodo)?.label}: ${err}`); return; }
+      }
+    }
+    const adm = numeroAdm.replace(/\D/g, '');
+    if (adm && adm.length < 7) { setError('El número de administración del proveedor (teléfono) debe tener al menos 7 dígitos.'); return; }
+    setSaving(true);
+    try {
+      if (orden.proveedor_id && adm.length >= 7 && adm !== numeroAdmFicha) await fijarNumeroAdministracion(orden.proveedor_id, adm);
+      await indicarMetodoPagoCredito(orden, validos, actorEmail, adm || null);
+      await onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo guardar el método de pago');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={`💳 Método de pago · crédito ${orden.oc_codigo ?? orden.codigo}`} size="md" onClose={saving ? () => {} : onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : '💾 Guardar método de pago'}</button>
+      </>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
+        Orden <strong>a crédito</strong> · saldo pendiente <strong className="mono">{montoMoneda(saldo, orden.total_moneda)}</strong>.
+        Indica con qué método se le paga al proveedor y sus datos: la orden <strong>sigue a crédito</strong> (los abonos se registran en Tesorería) y el método sale en el <strong>💬 WhatsApp</strong>.
+      </p>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <div style={{ display: 'grid', gap: '.6rem' }}>
+        {legs.map((l, i) => (
+          <div key={i} className="card" style={{ margin: 0, padding: '.7rem' }}>
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ margin: 0, flex: '1 1 220px' }}>
+                <label>Método</label>
+                <select className="select" value={l.metodo} onChange={(e) => cambiarMetodo(i, e.target.value)} disabled={saving}>
+                  {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              {legs.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLegs((ls) => ls.filter((_, k) => k !== i))} disabled={saving}>✕ Quitar</button>}
+            </div>
+            {requiereDatos(l.metodo) && (
+              <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Datos del proveedor para pagarle (se guardan para próximas compras)</div>
+                <DatosPagoFields metodo={l.metodo} value={l.datos ?? {}} onChange={(d) => setLeg(i, { datos: d })} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} disabled={saving}
+        onClick={() => setLegs((ls) => [...ls, { metodo: 'pago_movil', moneda: monedaPorMetodo('pago_movil'), monto: 0, datos: datosGuardados['pago_movil'] ?? {} }])}>
+        + Agregar método
+      </button>
+      <div className="form-row" style={{ marginTop: '.75rem' }}>
+        <label>Número de administración del proveedor (teléfono)</label>
+        <input className="input mono" inputMode="tel" value={numeroAdm} onChange={(e) => setNumeroAdm(e.target.value.replace(/[^\d]/g, ''))} disabled={saving} placeholder="04141234567" />
+      </div>
     </Modal>
   );
 }
@@ -3305,6 +3420,10 @@ function OrdenDetailModal({
           </button>
           <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
             📋 Ver crédito / historial
+          </button>
+          {/* 09/11/2026: el crédito también lleva su método de pago (sale en el WhatsApp). */}
+          <button className="btn btn-primary" onClick={onEnviarPagar} title="Con qué método se le paga al proveedor y sus datos. La orden sigue a crédito; sale en el WhatsApp.">
+            💳 {o.metodo_pago && o.metodo_pago.length ? 'Cambiar método de pago' : 'Indicar método de pago'}
           </button>
           {/* La mercancía llegó antes de terminar de pagar. */}
           {!o.recibida_en && !creditoSaldadoDet && (
