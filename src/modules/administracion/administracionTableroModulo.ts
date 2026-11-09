@@ -43,10 +43,12 @@ export function resumenTablero(input: {
   responsabilidades: Responsabilidad[];
   centros: { id: string; nombre: string }[];
   requeridos: CentroRequerido[];
+  /** Carpetas con su centro asociado: el documento HEREDA el centro de su carpeta. */
+  carpetas?: { id: string; centroAcopioId?: string | null }[];
   hoyRef?: string;
   topCarga?: number;
 }): ResumenTablero {
-  const { documentos, movimientos, gestiones, envios, profesionales, responsabilidades, centros, requeridos, hoyRef } = input;
+  const { documentos, movimientos, gestiones, envios, profesionales, responsabilidades, centros, requeridos, carpetas, hoyRef } = input;
   const items = agendaVencimientos({ documentos, movimientos, gestiones, envios, hoyRef });
   const agenda = resumenAgenda(items);
 
@@ -78,7 +80,7 @@ export function resumenTablero(input: {
     .slice(0, input.topCarga ?? 5)
     .map((c) => ({ usuarioEmail: c.usuarioEmail, vencidos: c.vencidos, total: c.total }));
 
-  const cobertura = coberturaCentro(centros, requeridos, documentos, hoyRef);
+  const cobertura = coberturaCentro(centros, requeridos, documentos, hoyRef, carpetas);
 
   return { agenda, pendientePorMoneda, porEnviar, cargaTop, cobertura };
 }

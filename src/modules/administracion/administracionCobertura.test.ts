@@ -28,4 +28,22 @@ describe('coberturaCentro (N de M contra checklist)', () => {
     const [cob] = coberturaCentro([{ id: 'c1', nombre: 'A' }], [], [], HOY);
     expect(cob).toMatchObject({ requeridos: 0, cubiertos: 0, pct: 100, faltantes: [] });
   });
+
+  it('cuenta el documento cuyo centro se HEREDA de su carpeta (no tiene centro propio)', () => {
+    const centros = [{ id: 'c1', nombre: 'Acopio 1' }];
+    const requeridos = [req('c1', 'rupdae')];
+    // El documento no trae centroAcopioId; su carpeta «legal» sí está asociada al centro c1.
+    const d = { id: 'd9', empresaClave: 'GT', carpeta: 'legal', tipo: 'rupdae', nombre: 'RUPDAE', fechaVencimiento: en(200) } as DocumentoEmpresa;
+    const carpetas = [{ id: 'legal', centroAcopioId: 'c1' }];
+    const [cob] = coberturaCentro(centros, requeridos, [d], HOY, carpetas);
+    expect(cob).toMatchObject({ cubiertos: 1, pct: 100 });
+  });
+
+  it('tolera que centroAcopioId traiga el NOMBRE del centro (datos heredados)', () => {
+    const centros = [{ id: 'c1', nombre: 'Acopio 1' }];
+    const requeridos = [req('c1', 'rupdae')];
+    const d = { id: 'd8', empresaClave: 'GT', carpeta: 'x', centroAcopioId: 'Acopio 1', tipo: 'rupdae', nombre: 'RUPDAE', fechaVencimiento: en(200) } as DocumentoEmpresa;
+    const [cob] = coberturaCentro(centros, requeridos, [d], HOY);
+    expect(cob).toMatchObject({ cubiertos: 1, pct: 100 });
+  });
 });

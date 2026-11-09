@@ -14,6 +14,7 @@ import { TIPO_DOCUMENTO_LABEL, type AdminRepo, type CentroRequerido, type Empres
 import { resumenTablero, colorSemaforoCobertura, type ResumenTablero } from './administracionTableroModulo';
 import { nombrePorEmail } from './administracionResponsabilidad';
 import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
+import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const SEMAFORO_COLOR: Record<'critico' | 'atencion' | 'al_dia', string> = { critico: '#ef4444', atencion: '#eab308', al_dia: '#10b981' };
@@ -53,6 +54,8 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
       setResumen(resumenTablero({
         documentos, movimientos, gestiones, envios, profesionales, responsabilidades,
         centros: cs.map((c) => ({ id: c.id, nombre: c.nombre })), requeridos: reqs,
+        // El documento puede heredar el centro de su carpeta (igual que la matriz de centros).
+        carpetas: leerCarpetasPersonalizadas(empresaClave).map((c) => ({ id: c.id, centroAcopioId: c.centroAcopioId })),
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo armar el tablero.');

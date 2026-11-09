@@ -22,18 +22,36 @@ function docCubre(doc: DocumentoEmpresa, hoyRef?: string): boolean {
   return st === 'vigente' || st === 'por_vencer' || st === 'no_vence';
 }
 
+const norm = (s?: string | null) => (s ?? '').trim().toLowerCase();
+
+/** Centro EFECTIVO del documento: el propio, o el de su carpeta (herencia), como ya
+ *  hace `calcularMatrizCentrosAcopio`. Puede venir como id o como nombre del centro. */
+function perteneceAlCentro(
+  doc: DocumentoEmpresa,
+  centro: { id: string; nombre: string },
+  centroDeCarpeta: Map<string, string>,
+): boolean {
+  const efectivo = norm(doc.centroAcopioId) || norm(centroDeCarpeta.get(doc.carpeta));
+  if (!efectivo) return false;
+  return efectivo === norm(centro.id) || efectivo === norm(centro.nombre);
+}
+
 export function coberturaCentro(
   centros: { id: string; nombre: string }[],
   requeridos: CentroRequerido[],
   documentos: DocumentoEmpresa[],
   hoyRef?: string,
+  carpetas?: { id: string; centroAcopioId?: string | null }[],
 ): CoberturaCentro[] {
+  const centroDeCarpeta = new Map<string, string>();
+  for (const c of carpetas ?? []) if (c.centroAcopioId) centroDeCarpeta.set(c.id, c.centroAcopioId);
+
   return centros.map((centro) => {
     const tipos = requeridos.filter((r) => r.centroId === centro.id).map((r) => r.tipoDocumento);
     const faltantes: TipoDocumento[] = [];
     let cubiertos = 0;
     for (const tipo of tipos) {
-      const cubierto = documentos.some((d) => d.centroAcopioId === centro.id && d.tipo === tipo && docCubre(d, hoyRef));
+      const cubierto = documentos.some((d) => d.tipo === tipo && perteneceAlCentro(d, centro, centroDeCarpeta) && docCubre(d, hoyRef));
       if (cubierto) cubiertos += 1;
       else faltantes.push(tipo);
     }
