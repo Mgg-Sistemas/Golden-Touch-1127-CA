@@ -197,7 +197,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
       )}
 
       {!loading && paso === 'inicio' && (
-        <div className="surt-acciones">
+        <div className="surt-acciones inv-acciones">
           {canWrite && <>
           <button type="button" className="surt-btn primario" onClick={() => setPaso('nuevo')}>
             <span className="icono" aria-hidden>＋</span>
@@ -206,13 +206,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           </button>
           <button type="button" className="surt-btn entrada"
             onClick={() => { setElegido(null); setPaso('entrada'); }}>
-            <span className="icono" aria-hidden>⬇</span>
+            <span className="icono" aria-hidden>⬇️</span>
             <span>Entrada</span>
             <small>Llegó más de un producto que ya está</small>
           </button>
           <button type="button" className="surt-btn salida"
             onClick={() => { setElegido(null); setPaso('salida'); }}>
-            <span className="icono" aria-hidden>⬆</span>
+            <span className="icono" aria-hidden>⬆️</span>
             <span>Salida</span>
             <small>Sale material {esReutilizables ? 'de reutilizables' : esMina ? 'del depósito' : 'del inventario'}</small>
           </button>
@@ -226,7 +226,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           )}
           </>}
           {esGeneral && canWrite && (
-          <button type="button" className="surt-btn entrada" onClick={() => setPaso('recepcion')}>
+          <button type="button" className="surt-btn recepcion" onClick={() => setPaso('recepcion')}>
             <span className="icono" aria-hidden>📥</span>
             <span>Recepción ({porRecepcionar.lista.length})</span>
             <small>{porRecepcionar.lista.length ? 'Lo que entregó el delivery' : 'Nada por recepcionar'}</small>

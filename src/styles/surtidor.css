@@ -250,3 +250,14 @@
 .surt-lote-cab strong { min-width: 0; overflow-wrap: anywhere; }
 .surt-lote-agregar { display: flex; flex-direction: column; gap: .4rem; padding: .6rem; border: 1px dashed var(--border); border-radius: var(--r-md); }
 .surt-historicos .surt-btn:nth-child(3):last-child { grid-column: 1 / -1; min-height: 96px; }
+
+/* 09/11/2026 · Inventario Los Pinos / depósitos (teléfono): botones parejos.
+   Mismo tamaño de título e ícono en todos, «Recepción» con su color y, si el último
+   queda solo en su fila, ocupa todo el ancho (no queda un botón a media fila). */
+.inv-acciones .surt-btn { min-height: 128px; font-size: 1.2rem; }
+.inv-acciones .surt-btn .icono { font-size: 2.1rem; height: 2.4rem; display: flex; align-items: center; justify-content: center; }
+.inv-acciones .surt-btn small { font-size: .82rem; }
+.inv-acciones .surt-btn.primario { font-size: 1.3rem; }
+.inv-acciones .surt-btn:not(.primario):last-child:nth-child(even) { grid-column: 1 / -1; min-height: 104px; }
+.inv-acciones .surt-btn:only-child { grid-column: 1 / -1; }
+.surt-btn.recepcion { border-color: #a855f7; }
