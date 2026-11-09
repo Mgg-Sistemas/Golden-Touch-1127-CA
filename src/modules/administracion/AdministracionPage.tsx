@@ -16,18 +16,22 @@ import { GastosFijosTab } from './GastosFijosTab';
 import { MovimientosTab } from './MovimientosTab';
 import { HonorariosTab } from './HonorariosTab';
 import { AgendaTab } from './AgendaTab';
+import { ResponsabilidadTab } from './ResponsabilidadTab';
 import { ReporteTab } from './ReporteTab';
 import { DocumentosTab } from './DocumentosTab';
 import { ConfiguracionTab } from './ConfiguracionTab';
+import { TableroModuloTab } from './TableroModuloTab';
 import { DocumentosEmpresaModal } from './DocumentosEmpresaModal';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
+  { id: 'tablero', label: '📊 Tablero' },
   { id: 'gastos', label: '📌 Gastos fijos' },
   { id: 'movimientos', label: '📒 Movimientos / Histórico' },
   { id: 'honorarios', label: '💼 Honorarios' },
   { id: 'documentos', label: '📁 Documentos y Permisos' },
   { id: 'agenda', label: '🗓 Agenda' },
+  { id: 'responsabilidad', label: '👥 Responsabilidad' },
   { id: 'reporte', label: '📊 Reporte' },
   { id: 'config', label: '⚙ Configuración' },
 ];
@@ -107,11 +111,13 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
         </div>
       )}
 
+      {tab === 'tablero' && <TableroModuloTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'honorarios' && <HonorariosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'documentos' && <DocumentosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'agenda' && <AgendaTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab === 'responsabilidad' && <ResponsabilidadTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
       {tab === 'config' && <ConfiguracionTab repo={repo} empresas={empresas} puedeFull={puedeFull} puedeEscribir={puedeEscribir} onGestionarEmpresas={() => setGestionar(true)} />}
 

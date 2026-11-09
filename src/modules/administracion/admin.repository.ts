@@ -146,6 +146,42 @@ export type OrigenMovimiento = 'generado' | 'importado' | 'manual';
 /** Prioridad que fija el analista para ordenar su lista de trabajo. */
 export type Prioridad = 'alta' | 'media' | 'baja';
 
+/** Responsabilidad N:N (tabla `admin_responsabilidades`): un usuario responde de un objetivo. */
+export type ObjetivoResp = 'carpeta' | 'documento' | 'gasto' | 'gestion';
+export interface Responsabilidad {
+  id: string;
+  empresaClave: string;
+  usuarioEmail: string;
+  objetivoTipo: ObjetivoResp;
+  objetivoId: string;
+}
+export type ResponsabilidadInput = Omit<Responsabilidad, 'id'>;
+
+/** Aviso interno del módulo (tabla `admin_avisos`): bandeja persistida. */
+export type TipoAviso = 'por_vencer' | 'vencido' | 'incumplido' | 'acuerdo' | 'nota';
+export interface Aviso {
+  id: string;
+  empresaClave: string;
+  tipo: TipoAviso;
+  origen: 'documento' | 'gasto' | 'gestion';
+  origenId: string;
+  responsableEmail: string | null;
+  fecha: string | null;
+  texto: string;
+  leido: boolean;
+}
+export type AvisoInput = Omit<Aviso, 'id' | 'leido'>;
+
+/** Documento requerido de un centro (tabla `admin_centro_requeridos`): el checklist
+ *  editable contra el que se mide la cobertura (fase) del centro. */
+export interface CentroRequerido {
+  id: string;
+  empresaClave: string;
+  centroId: string;
+  tipoDocumento: TipoDocumento;
+}
+export type CentroRequeridoInput = Omit<CentroRequerido, 'id'>;
+
 /** Un egreso por período: el pendiente generado, el movimiento importado o el
  *  alta manual (tabla `admin_gasto_fijo_movimientos`). Sobre esto va el reporte. */
 export interface Movimiento {
@@ -432,6 +468,18 @@ export interface AdminRepo {
   refrescarEnvios(gestionId?: string): Promise<void>;
   /** URL firmada del comprobante único del servicio directo del envío (o null). */
   urlAdjuntoEnvio(envio: EnvioTesoreria): Promise<string | null>;
+  // Responsabilidades (N:N)
+  listResponsabilidades(empresaClave?: string): Promise<Responsabilidad[]>;
+  asignarResponsabilidad(input: ResponsabilidadInput): Promise<Responsabilidad>;
+  quitarResponsabilidad(id: string): Promise<void>;
+  // Avisos internos
+  listAvisos(empresaClave?: string): Promise<Aviso[]>;
+  crearAviso(a: AvisoInput): Promise<Aviso>;
+  marcarAvisoLeido(id: string, leido: boolean): Promise<void>;
+  // Requeridos por centro (checklist de fase)
+  listCentroRequeridos(empresaClave?: string): Promise<CentroRequerido[]>;
+  agregarCentroRequerido(input: CentroRequeridoInput): Promise<CentroRequerido>;
+  quitarCentroRequerido(id: string): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -656,11 +704,42 @@ function aEnvio(r: RowEnvio): EnvioTesoreria {
     pagadoEn: r.pagado_en ?? null,
   };
 }
+interface RowResp { id: string; empresa_clave: string; usuario_email: string; objetivo_tipo: string; objetivo_id: string }
+function aResp(r: RowResp): Responsabilidad {
+  return { id: r.id, empresaClave: r.empresa_clave, usuarioEmail: r.usuario_email, objetivoTipo: r.objetivo_tipo as ObjetivoResp, objetivoId: r.objetivo_id };
+}
+function deResp(x: ResponsabilidadInput): Record<string, unknown> {
+  return { empresa_clave: x.empresaClave, usuario_email: x.usuarioEmail, objetivo_tipo: x.objetivoTipo, objetivo_id: x.objetivoId };
+}
+interface RowAviso { id: string; empresa_clave: string; tipo: string; origen: string; origen_id: string; responsable_email: string | null; fecha: string | null; texto: string; leido: boolean | null }
+function aAviso(r: RowAviso): Aviso {
+  return {
+    id: r.id, empresaClave: r.empresa_clave, tipo: r.tipo as TipoAviso, origen: r.origen as Aviso['origen'],
+    origenId: r.origen_id, responsableEmail: r.responsable_email ?? null,
+    fecha: r.fecha ? r.fecha.slice(0, 10) : null, texto: r.texto, leido: r.leido === true,
+  };
+}
+function deAviso(a: AvisoInput): Record<string, unknown> {
+  return {
+    empresa_clave: a.empresaClave, tipo: a.tipo, origen: a.origen, origen_id: a.origenId,
+    responsable_email: a.responsableEmail, fecha: a.fecha, texto: a.texto,
+  };
+}
 const T_CEN = 'admin_centros_acopio';
 const T_PROF = 'admin_profesionales';
 const T_CARP = 'admin_carpetas';
 const T_GES = 'admin_gestiones';
 const T_ENV = 'admin_envios_tesoreria';
+interface RowCReq { id: string; empresa_clave: string; centro_id: string; tipo_documento: string }
+function aCReq(r: RowCReq): CentroRequerido {
+  return { id: r.id, empresaClave: r.empresa_clave, centroId: r.centro_id, tipoDocumento: r.tipo_documento as TipoDocumento };
+}
+function deCReq(x: CentroRequeridoInput): Record<string, unknown> {
+  return { empresa_clave: x.empresaClave, centro_id: x.centroId, tipo_documento: x.tipoDocumento };
+}
+const T_RESP = 'admin_responsabilidades';
+const T_AVISO = 'admin_avisos';
+const T_CREQ = 'admin_centro_requeridos';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -974,6 +1053,68 @@ export function crearRepoSupabase(): AdminRepo {
       if (error) return null;
       const path = (data as { adjunto_path?: string | null } | null)?.adjunto_path ?? null;
       return path ? urlAdjuntoServicio(path) : null;
+    },
+    async listResponsabilidades(empresaClave) {
+      let q = supabase.from(T_RESP).select('*');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aResp(r as RowResp));
+    },
+    async asignarResponsabilidad(input) {
+      // Idempotente contra el único (usuario_email, objetivo_tipo, objetivo_id).
+      const { data, error } = await supabase.from(T_RESP)
+        .upsert(deResp(input), { onConflict: 'usuario_email,objetivo_tipo,objetivo_id' })
+        .select('*').single();
+      if (error) throw error;
+      return aResp(data as RowResp);
+    },
+    async quitarResponsabilidad(id) {
+      const { error } = await supabase.from(T_RESP).delete().eq('id', id);
+      if (error) throw error;
+    },
+    async listAvisos(empresaClave) {
+      let q = supabase.from(T_AVISO).select('*').order('created_at', { ascending: false });
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aAviso(r as RowAviso));
+    },
+    async crearAviso(a) {
+      const { data, error } = await supabase.from(T_AVISO).insert(deAviso(a)).select('*').single();
+      if (error) throw error;
+      return aAviso(data as RowAviso);
+    },
+    async marcarAvisoLeido(id, leido) {
+      const { error } = await supabase.from(T_AVISO).update({ leido }).eq('id', id);
+      if (error) throw error;
+    },
+    async listCentroRequeridos(empresaClave) {
+      let q = supabase.from(T_CREQ).select('*');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aCReq(r as RowCReq));
+    },
+    async agregarCentroRequerido(input) {
+      const { data, error } = await supabase.from(T_CREQ)
+        .upsert(deCReq(input), { onConflict: 'centro_id,tipo_documento' })
+        .select('*').single();
+      if (error) throw error;
+      return aCReq(data as RowCReq);
+    },
+    async quitarCentroRequerido(id) {
+      const { error } = await supabase.from(T_CREQ).delete().eq('id', id);
+      if (error) throw error;
     },
     async listGastosFijos(empresaClave) {
       let q = supabase.from(T_GF).select('*').order('concepto');
