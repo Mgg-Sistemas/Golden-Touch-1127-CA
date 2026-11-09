@@ -3,8 +3,31 @@ import {
   sumarTiempoVigencia,
   calcularStatusPorCercania,
   obtenerDetalleHoverVigencia,
+  statusConAviso,
+  ordenPrioridad,
   PRESETS_TIEMPO_VIGENCIA,
 } from './administracionVigencia';
+
+describe('statusConAviso (umbral por aviso_dias del ítem)', () => {
+  const HOY = '2026-11-07';
+  const en = (dias: number) => sumarTiempoVigencia(HOY, dias, 'dias');
+  it('con avisoDias=60 y 45 días por vencer → por_vencer (con 30 fijo sería vigente)', () => {
+    expect(statusConAviso(en(45), 60, { hoyRef: HOY })).toBe('por_vencer');
+    expect(statusConAviso(en(45), null, { hoyRef: HOY })).toBe('vigente'); // null → 30
+  });
+  it('vencido, en trámite, sin fecha', () => {
+    expect(statusConAviso(en(-5), 30, { hoyRef: HOY })).toBe('vencido');
+    expect(statusConAviso(en(-5), 30, { hoyRef: HOY, statusManual: 'vencido_en_tramite' })).toBe('vencido_en_tramite');
+    expect(statusConAviso(null, 30, { hoyRef: HOY })).toBe('no_vence');
+  });
+});
+
+describe('ordenPrioridad', () => {
+  it('alta < media < baja < null', () => {
+    const ps: (import('./admin.repository').Prioridad | null)[] = [null, 'baja', 'alta', 'media'];
+    expect(ps.map(ordenPrioridad)).toEqual([3, 2, 0, 1]);
+  });
+});
 
 describe('administracionVigencia', () => {
   it('suma días correctamente a una fecha base', () => {

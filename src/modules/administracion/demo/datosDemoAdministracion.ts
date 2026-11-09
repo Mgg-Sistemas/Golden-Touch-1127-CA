@@ -7,9 +7,16 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminCategoria, AdminRepo, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, GastoFijo, GastoFijoInput, Movimiento, MovimientoInput, OpcionRef, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, CrearEnvioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, EnvioTesoreria, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
+import { disponibleParaEnviar, motivoNoReversable } from '../administracionHonorarios';
+
+/** Ganchos SOLO para pruebas de la impl demo (no existen en la impl Supabase). */
+export interface RepoDemoHooks {
+  /** Simula que Tesorería pagó el servicio directo de un envío. */
+  __marcarEnvioPagado(envioId: string): void;
+}
 
 const uid = (): string => {
   try { return crypto.randomUUID(); } catch { return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`; }
@@ -66,12 +73,17 @@ function movimientosSemilla(): Movimiento[] {
 }
 
 /** Repo en memoria para la página de prueba: implementa AdminRepo sin tocar base. */
-export function crearRepoDemo(): AdminRepo {
+export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
   const empresas: Empresa[] = EMPRESAS_DEMO.map((e) => ({ ...e }));
   const gastos: GastoFijo[] = gastosSemilla();
   const movimientos: Movimiento[] = movimientosSemilla();
   const documentos: DocumentoEmpresa[] = [];
   const categorias: AdminCategoria[] = CATEGORIAS_DEMO.map((c) => ({ ...c }));
+  const centros: CentroAcopio[] = [];
+  const profesionales: Profesional[] = [];
+  const carpetas: Carpeta[] = [];
+  const gestiones: Gestion[] = [];
+  const envios: EnvioTesoreria[] = [];
   const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
@@ -98,6 +110,119 @@ export function crearRepoDemo(): AdminRepo {
       const i = empresas.findIndex((e) => e.id === id);
       if (i >= 0 && !(clave && gastos.some((g) => g.empresaClave === clave))) empresas.splice(i, 1);
       return Promise.resolve();
+    },
+    listCentros: (empresaClave) => Promise.resolve(
+      centros.filter((c) => !empresaClave || c.empresaClave === empresaClave)
+        .map((c) => ({ ...c }))
+        .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
+    ),
+    crearCentro: (c: CentroAcopioInput) => {
+      const nuevo: CentroAcopio = { id: uid(), ...c };
+      centros.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    editarCentro: (id, cambios) => {
+      const i = centros.findIndex((c) => c.id === id);
+      if (i >= 0) centros[i] = { ...centros[i], ...cambios };
+      return Promise.resolve();
+    },
+    setActivoCentro: (id, activo) => {
+      const i = centros.findIndex((c) => c.id === id);
+      if (i >= 0) centros[i] = { ...centros[i], activo };
+      return Promise.resolve();
+    },
+    listProfesionales: () => Promise.resolve(
+      profesionales.map((p) => ({ ...p })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    ),
+    crearProfesional: (p: ProfesionalInput) => {
+      const nuevo: Profesional = { id: uid(), ...p };
+      profesionales.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    editarProfesional: (id, cambios) => {
+      const i = profesionales.findIndex((p) => p.id === id);
+      if (i >= 0) profesionales[i] = { ...profesionales[i], ...cambios };
+      return Promise.resolve();
+    },
+    setActivoProfesional: (id, activo) => {
+      const i = profesionales.findIndex((p) => p.id === id);
+      if (i >= 0) profesionales[i] = { ...profesionales[i], activo };
+      return Promise.resolve();
+    },
+    listCarpetas: (empresaClave) => Promise.resolve(
+      carpetas.filter((c) => !empresaClave || c.empresaClave === empresaClave)
+        .map((c) => ({ ...c }))
+        .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
+    ),
+    crearCarpeta: (c: CarpetaInput) => {
+      const nueva: Carpeta = { id: uid(), ...c };
+      carpetas.push(nueva);
+      return Promise.resolve({ ...nueva });
+    },
+    editarCarpeta: (id, cambios) => {
+      const i = carpetas.findIndex((c) => c.id === id);
+      if (i >= 0) carpetas[i] = { ...carpetas[i], ...cambios };
+      return Promise.resolve();
+    },
+    borrarCarpeta: (id) => {
+      const i = carpetas.findIndex((c) => c.id === id);
+      if (i >= 0) carpetas.splice(i, 1);
+      return Promise.resolve();
+    },
+    listGestiones: (empresaClave, profesionalId) => Promise.resolve(
+      gestiones
+        .filter((g) => !empresaClave || g.empresaClave === empresaClave)
+        .filter((g) => !profesionalId || g.profesionalId === profesionalId)
+        .map((g) => ({ ...g }))
+        .sort((a, b) => b.fecha.localeCompare(a.fecha)),
+    ),
+    crearGestion: (g: GestionInput) => {
+      const nueva: Gestion = { id: uid(), ...g };
+      gestiones.push(nueva);
+      return Promise.resolve({ ...nueva });
+    },
+    editarGestion: (id, cambios) => {
+      const i = gestiones.findIndex((g) => g.id === id);
+      if (i >= 0) gestiones[i] = { ...gestiones[i], ...cambios };
+      return Promise.resolve();
+    },
+    anularGestion: (id) => {
+      const i = gestiones.findIndex((g) => g.id === id);
+      if (i >= 0) gestiones[i] = { ...gestiones[i], estado: 'anulada' };
+      return Promise.resolve();
+    },
+    listEnvios: (gestionId) => Promise.resolve(
+      envios.filter((e) => !gestionId || e.gestionId === gestionId).map((e) => ({ ...e }))
+        .sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio)),
+    ),
+    crearEnvio: (input: CrearEnvioInput) => {
+      const { gestion } = input;
+      const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
+      if (monto <= 0) return Promise.reject(new Error('Indica el monto a enviar a Tesorería.'));
+      const disponible = disponibleParaEnviar(gestion, envios.filter((e) => e.gestionId === gestion.id));
+      if (monto > disponible + 0.01) return Promise.reject(new Error(`El envío (${monto}) supera lo disponible para enviar de la gestión (${disponible}); ya hay envíos comprometidos.`));
+      const nuevo: EnvioTesoreria = {
+        id: uid(), gestionId: gestion.id, empresaClave: gestion.empresaClave, monto, moneda: gestion.moneda,
+        fechaEnvio: new Date().toISOString(), estado: 'enviado', servicioDirectoId: `demo-sd-${uid()}`,
+        enviadoPor: input.actor ?? 'demo', pagadoEn: null,
+      };
+      envios.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    reversarEnvio: (id) => {
+      const i = envios.findIndex((e) => e.id === id);
+      if (i < 0) return Promise.reject(new Error('Envío no encontrado.'));
+      // En demo no hay servicio directo real; el estado del propio envío es la fuente.
+      const motivo = motivoNoReversable(envios[i], false);
+      if (motivo) return Promise.reject(new Error(motivo));
+      envios[i] = { ...envios[i], estado: 'reversado' };
+      return Promise.resolve();
+    },
+    refrescarEnvios: () => Promise.resolve(), // demo no tiene Tesorería real
+    urlAdjuntoEnvio: () => Promise.resolve(null),
+    __marcarEnvioPagado: (envioId: string) => {
+      const i = envios.findIndex((e) => e.id === envioId);
+      if (i >= 0) envios[i] = { ...envios[i], estado: 'pagado', pagadoEn: new Date().toISOString() };
     },
     listGastosFijos: (empresaClave) => Promise.resolve(
       gastos.filter((g) => !empresaClave || g.empresaClave === empresaClave).map((g) => ({ ...g }))
@@ -206,6 +331,13 @@ export function crearRepoDemo(): AdminRepo {
         entidadEmisora: meta?.entidadEmisora || null,
         numeroRegistro: meta?.numeroRegistro || null,
         notaTramite: meta?.notaTramite || null,
+        costoGestion: meta?.costoGestion ?? null,
+        monedaCosto: meta?.monedaCosto ?? null,
+        gestionId: meta?.gestionId ?? null,
+        avisoDias: meta?.avisoDias ?? null,
+        subcarpetaId: meta?.subcarpetaId ?? null,
+        badgeTexto: meta?.badgeTexto ?? null,
+        prioridad: meta?.prioridad ?? null,
         historial: [
           {
             id: uid(),

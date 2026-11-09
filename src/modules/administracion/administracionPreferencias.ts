@@ -9,7 +9,7 @@
 export const PREFIJO_ADMIN = 'gt.administracion.v1.';
 export const PREFIJO_ADMIN_DEMO = 'gt.administracion.demo.v1.';
 
-export type TabAdmin = 'gastos' | 'movimientos' | 'documentos' | 'reporte' | 'config';
+export type TabAdmin = 'gastos' | 'movimientos' | 'honorarios' | 'documentos' | 'agenda' | 'reporte' | 'config';
 /** 'todas' o la clave de una empresa. */
 export const TODAS = 'todas';
 
@@ -27,7 +27,7 @@ function almacenDelNavegador(): Almacen | null {
 }
 
 const esTab = (v: unknown): v is TabAdmin =>
-  v === 'gastos' || v === 'movimientos' || v === 'documentos' || v === 'reporte' || v === 'config';
+  v === 'gastos' || v === 'movimientos' || v === 'honorarios' || v === 'documentos' || v === 'agenda' || v === 'reporte' || v === 'config';
 
 export function crearPreferenciasAdmin(prefijo = PREFIJO_ADMIN, almacen: Almacen | null = almacenDelNavegador()) {
   const leer = (clave: string): string | null => {

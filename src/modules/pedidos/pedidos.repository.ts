@@ -11,6 +11,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { errorRenglonesSinFicha } from './nombreInventario';
 import { columnasRetencionesCompras, normalizarRetencionesCompras, type RetencionesCompras } from './retencionesCompras';
+import { IMPUESTOS_PAGO, normalizarImpuestosMoneda, type ImpuestoPago, type MonedaImpuesto } from './impuestosMoneda';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { rotuloMarcaModelo, descripcionConMarcaModelo, marcaRecibida, cambioDeMarca } from '@/shared/lib/marcaModelo';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
@@ -1176,6 +1177,9 @@ export async function indicarMetodoPago(
     retenciones?: RetencionesCompras | null;
     /** 04/11/2026: quién entrega la OC pagada (Delivery / Carga pesada / el proveedor a domicilio). */
     modalidadEntrega?: ModalidadEntrega | null;
+    /** 08/11/2026: en qué moneda se paga cada impuesto (IVA, IGTF, ISLR, ISAE). Los «Bs»
+     *  salen solo en Tesorería, no en el WhatsApp. Ver impuestosMoneda.ts. */
+    impuestosMoneda?: Partial<Record<ImpuestoPago, MonedaImpuesto>> | null;
   },
   /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
    *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
@@ -1260,9 +1264,22 @@ export async function indicarMetodoPago(
   const retencionesCompras = comprobanteTipo === 'factura' && retencionMomento
     ? normalizarRetencionesCompras(soporte?.retenciones, totalFinal)
     : null;
+  // Moneda de pago de los impuestos (08/11/2026): solo se guardan los que van en Bs y
+  // siguen activos en la OC. La columna se manda solo si hay algo en Bs o hay que limpiar
+  // un valor previo: así la OC se sigue enviando aunque falte aplicar la migración.
+  const activosImp: ImpuestoPago[] = [
+    ...(aplicaIva && ivaMonto > 0 ? ['iva' as const] : []),
+    ...(aplicaIgtf && igtfMonto > 0 ? ['igtf' as const] : []),
+  ];
+  if (retencionesCompras) {
+    for (const t of IMPUESTOS_PAGO) if (retencionesCompras[t].monto > 0 && !activosImp.includes(t)) activosImp.push(t);
+  }
+  const impuestosMoneda = normalizarImpuestosMoneda(soporte?.impuestosMoneda, activosImp);
+  const mandarImpuestosMoneda = impuestosMoneda !== null || o.impuestos_moneda != null;
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
+    ...(mandarImpuestosMoneda ? { impuestos_moneda: impuestosMoneda } : {}),
     metodo_pago_por: actorEmail,
     metodo_pago_en: new Date().toISOString(),
     // Imagen del pago (QR): undefined = no tocar; null = quitar; string = nuevo path.
@@ -1286,10 +1303,15 @@ export async function indicarMetodoPago(
     // al aplicar algo, quitar un impuesto dejaba el total viejo con el impuesto adentro.
     total: totalFinal,
     ...columnasRetencionesCompras(retencionesCompras && retencionesCompras.total > 0 ? retencionesCompras : null),
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, retencion_momento: retencionMomento, ...(retencionesCompras && retencionesCompras.total > 0 ? { retenciones_compras: retencionesCompras } : {}), iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa }),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, retencion_momento: retencionMomento, ...(retencionesCompras && retencionesCompras.total > 0 ? { retenciones_compras: retencionesCompras } : {}), iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa, ...(impuestosMoneda ? { impuestos_moneda: impuestosMoneda } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
-  if (error) throw error;
+  if (error) {
+    if (mandarImpuestosMoneda && /impuestos_moneda/i.test(error.message ?? '')) {
+      throw new Error('Falta aplicar en la base la migración «2026-11-08-impuestos-moneda.sql» para guardar los impuestos en Bs. Deja los impuestos en $ o pide que la apliquen.');
+    }
+    throw error;
+  }
 
   // Guardar/actualizar los datos de pago del proveedor para reutilizarlos en próximas compras.
   if (o.proveedor_id) {

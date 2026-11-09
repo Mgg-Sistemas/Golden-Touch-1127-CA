@@ -31,6 +31,7 @@ import { labelMetodoPago } from './pedidos.repository';
 import { lineasCotizacionesAprobacion } from './cotizacionesAprobacion';
 import { BANCOS_VE } from '@/shared/lib/bancos';
 import { leerRetencionesCompras, lineasRetencion, netoAPagarCompras, pctTexto, type CamposRetencionesCompras } from './retencionesCompras';
+import { impuestoEnBs, type CampoImpuestosMoneda } from './impuestosMoneda';
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
 function num(n: number | null | undefined): string {
@@ -235,7 +236,9 @@ export function textoOrdenPagar(
   // (neto a pagar). DESPUÉS: se informan y se paga el total completo.
   const ret = leerRetencionesCompras(o as Orden & CamposRetencionesCompras);
   if (ret && !esCredito) {
-    for (const r of lineasRetencion(ret)) L.push(`🔻 *Retención ${r.corta}${r.pct > 0 ? ` (${pctTexto(r.pct)})` : ''}:* −${monto(r.monto, moneda)}`);
+    // 08/11/2026: las retenciones de un impuesto que se paga en Bs NO van en el chat:
+    // salen solo en Tesorería («Pago de impuestos en Bs»).
+    for (const r of lineasRetencion(ret).filter((x) => !impuestoEnBs(o as Orden & CampoImpuestosMoneda, x.tipo))) L.push(`🔻 *Retención ${r.corta}${r.pct > 0 ? ` (${pctTexto(r.pct)})` : ''}:* −${monto(r.monto, moneda)}`);
     if (ret.momento === 'antes_de_pagar') L.push(`✅ *Neto a pagar:* ${monto(netoAPagarCompras(totalOrden, ret.total), moneda)}`);
     else L.push(`🧾 *Se paga completo:* ${monto(totalOrden, moneda)} (retenciones después del pago)`);
   }

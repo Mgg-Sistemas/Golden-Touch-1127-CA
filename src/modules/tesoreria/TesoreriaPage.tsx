@@ -77,6 +77,8 @@ import {
 } from '@/modules/pedidos/pedidos.repository';
 import { EditarPreciosOcModal } from '@/modules/pedidos/EditarPreciosOcModal';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
+import { impuestosEnBs, IMPUESTO_LABEL, IMPUESTOS_PAGO, impuestoEnBs } from '@/modules/pedidos/impuestosMoneda';
+import type { CamposRetencionesCompras } from '@/modules/pedidos/retencionesCompras';
 import { ChatOrden } from '@/modules/pedidos/ChatOrden';
 import { noLeidosPorOrden } from '@/modules/pedidos/ordenChat.repository';
 import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
@@ -4055,6 +4057,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                         <span className="badge" style={{ marginLeft: '.35rem', background: '#b45309', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
                           title={`Incluye IGTF (${Number(r.orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%): ${monto(Number(r.orden.igtf_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>IGTF</span>
                       )}
+                      {IMPUESTOS_PAGO.some((t) => impuestoEnBs(r.orden, t)) && (
+                        <span className="badge" style={{ marginLeft: '.35rem', background: '#0f766e', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                          title={`Impuestos a pagar en Bs: ${IMPUESTOS_PAGO.filter((t) => impuestoEnBs(r.orden, t)).map((t) => IMPUESTO_LABEL[t]).join(', ')} (ver detalle al pagar)`}>IMP. Bs</span>
+                      )}
                       {r.orden.descuento_pago_aplicado && Number(r.orden.descuento_pago_monto) > 0 && (
                         <span className="badge" style={{ marginLeft: '.35rem', background: '#15803d', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
                           title={`Incluye descuento: −${monto(Number(r.orden.descuento_pago_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>DESC</span>
@@ -6055,6 +6061,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   // El monto a pagar está en USD. Si se paga con una caja en Bs, se convierte
   // con la tasa BCV del día (editable). Se autocompleta el monto según la moneda.
   const [tasa, setTasa] = useState<number>(0);
+  // Impuestos que Compras marcó «en Bs» (08/11/2026), en bolívares a la tasa del día.
+  const impBs = useMemo(() => impuestosEnBs(o as typeof o & CamposRetencionesCompras, tasa), [o, tasa]);
   // Total de la OC en USD-equivalente: si la OC está en Bs, se divide por la tasa BCV.
   const totalUsd = ordenEnBs ? (tasa > 0 ? round2(baseOrden / tasa) : 0) : baseOrden;
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
@@ -6644,6 +6652,36 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 </a>
               </div>
             )}
+          </div>
+        )}
+
+        {/* 08/11/2026: impuestos que Compras marcó para pagar en Bs. Salen SOLO aquí (no en el
+            WhatsApp de la orden), con su monto en bolívares a la tasa BCV del día. */}
+        {impBs.lineas.length > 0 && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid #6d28d9' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>🧾 Pago de impuestos en Bs</div>
+            <div style={{ display: 'grid', gap: '.2rem', fontSize: '.9rem' }}>
+              {impBs.lineas.map((l, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', alignItems: 'baseline' }}>
+                  <span>{l.concepto}{l.esRetencion && <span className="muted" style={{ fontSize: '.74rem' }}> · se entera al fisco</span>}</span>
+                  <span className="mono" style={{ textAlign: 'right' }}>
+                    <strong>{l.bs != null ? monto(l.bs, 'Bs') : '—'}</strong>
+                    {l.moneda !== 'Bs' && <span className="muted" style={{ fontSize: '.76rem' }}> ({monto(l.monto, l.moneda)})</span>}
+                  </span>
+                </div>
+              ))}
+              {impBs.totalPagarBs != null && impBs.lineas.some((l) => !l.esRetencion) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '.25rem', marginTop: '.15rem' }}>
+                  <strong>Impuestos a pagar en Bs</strong><strong className="mono">{monto(impBs.totalPagarBs, 'Bs')}</strong>
+                </div>
+              )}
+              {impBs.lineas.some((l) => l.bs == null) && (
+                <small className="muted">Sin tasa BCV del día: no se puede expresar en Bs todavía.</small>
+              )}
+              {(o.total_moneda ?? 'USD') !== 'Bs' && tasa > 0 && (
+                <small className="muted">Tasa BCV: Bs {tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} / $</small>
+              )}
+            </div>
           </div>
         )}
 

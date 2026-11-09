@@ -1336,6 +1336,8 @@ export interface Orden {
   condiciones_pago?: string | null;
   /** Método(s) de pago indicados antes de enviar a pagar (multipago). */
   metodo_pago?: PagoMetodo[] | null;
+  /** 08/11/2026: impuestos que se pagan en Bs (solo en Tesorería, no en el WhatsApp). null = todos en $. */
+  impuestos_moneda?: Partial<Record<'iva' | 'igtf' | 'islr' | 'isae', 'Bs'>> | null;
   metodo_pago_por?: string | null;
   metodo_pago_en?: string | null;
   /** Imagen adjunta al método de pago (ej. QR de Binance/CR20). Path en bucket `op-imagenes`;

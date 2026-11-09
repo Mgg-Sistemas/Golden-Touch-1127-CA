@@ -11,9 +11,11 @@
 import { supabase } from '@/shared/lib/supabase';
 import { listCategoriasGasto, soloCategorias } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
-import { crearServicioDirecto, enviarServicioAPagar } from '@/modules/pedidos/serviciosDirectos.repository';
+import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio, eliminarServicioDirecto, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
+import { esErrorTablaAusente } from './adminErrores';
+import { disponibleParaEnviar, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
 
@@ -31,6 +33,90 @@ export interface Empresa {
   orden: number;
 }
 export type EmpresaInput = Omit<Empresa, 'id'>;
+
+/** Centro de acopio de una empresa (tabla `admin_centros_acopio`). */
+export interface CentroAcopio {
+  id: string;
+  empresaClave: string;
+  nombre: string;
+  orden: number;
+  activo: boolean;
+}
+export type CentroAcopioInput = Omit<CentroAcopio, 'id'>;
+
+/** Profesional de Administración (abogada, contador…). Lista PROPIA; NO son proveedores. */
+export interface Profesional {
+  id: string;
+  nombre: string;
+  profesion: string | null;
+  contacto: string | null;
+  activo: boolean;
+}
+export type ProfesionalInput = Omit<Profesional, 'id'>;
+
+/** Carpeta de documentos (tabla `admin_carpetas`); anidable por `parentId`. */
+export interface Carpeta {
+  id: string;
+  empresaClave: string | null;
+  nombre: string;
+  parentId: string | null;
+  orden: number;
+}
+export type CarpetaInput = Omit<Carpeta, 'id'>;
+
+/** Estado de una gestión. `abierta`/`anulada` se persisten; `parcial`/`saldada` se
+ *  DERIVAN de los envíos pagados (ver administracionHonorarios.estadoGestion). */
+export type EstadoGestion = 'abierta' | 'parcial' | 'saldada' | 'anulada';
+/** Gestión / honorario (tabla `admin_gestiones`): renglón de nombre libre con costo,
+ *  colgado de un profesional. El estado de cuenta por profesional se arma sobre esto. */
+export interface Gestion {
+  id: string;
+  empresaClave: string;
+  profesionalId: string | null;
+  categoriaId: string | null;
+  centroAcopioId: string | null;
+  documentoId: string | null;
+  concepto: string;
+  costoTotal: number;
+  moneda: Moneda;
+  tasaRef: number | null;
+  fecha: string;
+  fechaPactada: string | null;
+  estado: EstadoGestion;
+  notaAcuerdo: string | null;
+  /** Fase 3 (aditivos): prioridad del analista y aviso configurable. */
+  prioridad?: Prioridad | null;
+  avisoDias?: number | null;
+}
+export type GestionInput = Omit<Gestion, 'id'>;
+
+/** Estado de un envío a Tesorería. `enviado` = cuenta por pagar creada (reversible);
+ *  `pagado` = Tesorería lo pagó (se refleja); `reversado` = se deshizo antes de pagar. */
+export type EstadoEnvio = 'enviado' | 'pagado' | 'reversado';
+/** Envío atómico de (parte de) una gestión a Tesorería (tabla `admin_envios_tesoreria`).
+ *  Una gestión : N envíos. Cada envío = un servicio directo en Tesorería. */
+export interface EnvioTesoreria {
+  id: string;
+  gestionId: string;
+  empresaClave: string;
+  monto: number;
+  moneda: Moneda;
+  fechaEnvio: string;
+  estado: EstadoEnvio;
+  servicioDirectoId: string | null;
+  enviadoPor: string | null;
+  pagadoEn: string | null;
+}
+/** Datos para enviar (parte de) una gestión a Tesorería como cuenta por pagar. */
+export interface CrearEnvioInput {
+  gestion: Gestion;
+  monto: number;
+  /** Nombre del profesional, para la nota de agrupación que ve Tesorería. */
+  profesionalNombre: string;
+  /** Quién envía; si se omite, el repo lo resuelve del usuario autenticado. */
+  actor?: string;
+  actorName?: string | null;
+}
 
 /** Plantilla recurrente de gasto fijo (tabla `admin_gastos_fijos`). */
 export interface GastoFijo {
@@ -57,6 +143,8 @@ export type GastoFijoInput = Omit<GastoFijo, 'id' | 'createdAt'>;
 
 export type EstadoPago = 'pendiente' | 'pagado' | 'anulado';
 export type OrigenMovimiento = 'generado' | 'importado' | 'manual';
+/** Prioridad que fija el analista para ordenar su lista de trabajo. */
+export type Prioridad = 'alta' | 'media' | 'baja';
 
 /** Un egreso por período: el pendiente generado, el movimiento importado o el
  *  alta manual (tabla `admin_gasto_fijo_movimientos`). Sobre esto va el reporte. */
@@ -79,6 +167,9 @@ export interface Movimiento {
   origen: OrigenMovimiento;
   /** El pendiente materializado en Tesorería (Opción A); null si aún no. */
   servicioDirectoId: string | null;
+  /** Fase 3 (aditivos): prioridad del analista y aviso configurable. */
+  prioridad?: Prioridad | null;
+  avisoDias?: number | null;
   createdAt?: string | null;
 }
 export type MovimientoInput = Omit<Movimiento, 'id' | 'createdAt'>;
@@ -223,6 +314,15 @@ export interface DocumentoEmpresa {
   historial: HistorialCambioDoc[];
   createdAt: string | null;
   updatedAt: string | null;
+  /** Fase 3 (aditivos): costo de gestión + su moneda, enlace a la gestión que lo
+   *  tramitó, aviso configurable (días), subcarpeta, badge y prioridad. */
+  costoGestion?: number | null;
+  monedaCosto?: Moneda | null;
+  gestionId?: string | null;
+  avisoDias?: number | null;
+  subcarpetaId?: string | null;
+  badgeTexto?: string | null;
+  prioridad?: Prioridad | null;
 }
 
 export interface DocumentoEmpresaInput {
@@ -239,6 +339,13 @@ export interface DocumentoEmpresaInput {
   entidadEmisora?: string | null;
   numeroRegistro?: string | null;
   notaTramite?: string | null;
+  costoGestion?: number | null;
+  monedaCosto?: Moneda | null;
+  gestionId?: string | null;
+  avisoDias?: number | null;
+  subcarpetaId?: string | null;
+  badgeTexto?: string | null;
+  prioridad?: Prioridad | null;
 }
 
 export function diasRestantes(fechaVencimiento: string | null | undefined, hoyRef?: string): number | null {
@@ -297,6 +404,34 @@ export interface AdminRepo {
   contarGastosDeEmpresa(clave: string): Promise<number>;
   desactivarEmpresa(id: string): Promise<void>;
   borrarEmpresa(id: string): Promise<void>;
+  // Centros de acopio
+  listCentros(empresaClave?: string): Promise<CentroAcopio[]>;
+  crearCentro(c: CentroAcopioInput): Promise<CentroAcopio>;
+  editarCentro(id: string, cambios: Partial<CentroAcopioInput>): Promise<void>;
+  setActivoCentro(id: string, activo: boolean): Promise<void>;
+  // Profesionales (abogada, contador…)
+  listProfesionales(): Promise<Profesional[]>;
+  crearProfesional(p: ProfesionalInput): Promise<Profesional>;
+  editarProfesional(id: string, cambios: Partial<ProfesionalInput>): Promise<void>;
+  setActivoProfesional(id: string, activo: boolean): Promise<void>;
+  // Carpetas de documentos (anidables)
+  listCarpetas(empresaClave?: string): Promise<Carpeta[]>;
+  crearCarpeta(c: CarpetaInput): Promise<Carpeta>;
+  editarCarpeta(id: string, cambios: Partial<CarpetaInput>): Promise<void>;
+  borrarCarpeta(id: string): Promise<void>;
+  // Gestiones (honorarios)
+  listGestiones(empresaClave?: string, profesionalId?: string): Promise<Gestion[]>;
+  crearGestion(g: GestionInput): Promise<Gestion>;
+  editarGestion(id: string, cambios: Partial<GestionInput>): Promise<void>;
+  anularGestion(id: string): Promise<void>;
+  // Envíos a Tesorería (puente atómico, reversible mientras no pagado)
+  listEnvios(gestionId?: string): Promise<EnvioTesoreria[]>;
+  crearEnvio(input: CrearEnvioInput): Promise<EnvioTesoreria>;
+  reversarEnvio(id: string): Promise<void>;
+  /** Relee los servicios directos de los envíos 'enviado' y marca 'pagado' los que Tesorería pagó. */
+  refrescarEnvios(gestionId?: string): Promise<void>;
+  /** URL firmada del comprobante único del servicio directo del envío (o null). */
+  urlAdjuntoEnvio(envio: EnvioTesoreria): Promise<string | null>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -397,6 +532,7 @@ interface RowMov {
   id: string; empresa_clave: string; gasto_fijo_id: string | null; concepto: string; proveedor_nombre: string | null;
   categoria_gasto_id: string | null; periodo: string; fecha: string; monto: number | string; moneda: string;
   tasa_ref: number | string | null; estado_pago: string; origen: string; servicio_directo_id: string | null; created_at?: string | null;
+  prioridad?: string | null; aviso_dias?: number | null;
 }
 function aMov(r: RowMov): Movimiento {
   return {
@@ -404,7 +540,8 @@ function aMov(r: RowMov): Movimiento {
     proveedorNombre: r.proveedor_nombre ?? null, categoriaGastoId: r.categoria_gasto_id ?? null,
     periodo: r.periodo, fecha: (r.fecha ?? '').slice(0, 10), monto: num(r.monto), moneda: r.moneda as Moneda,
     tasaRef: r.tasa_ref == null ? null : num(r.tasa_ref), estadoPago: (r.estado_pago as EstadoPago) ?? 'pendiente',
-    origen: (r.origen as OrigenMovimiento) ?? 'manual', servicioDirectoId: r.servicio_directo_id ?? null, createdAt: r.created_at ?? null,
+    origen: (r.origen as OrigenMovimiento) ?? 'manual', servicioDirectoId: r.servicio_directo_id ?? null,
+    prioridad: (r.prioridad as Prioridad) ?? null, avisoDias: r.aviso_dias ?? null, createdAt: r.created_at ?? null,
   };
 }
 function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
@@ -422,9 +559,108 @@ function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
   if (m.estadoPago !== undefined) o.estado_pago = m.estadoPago;
   if (m.origen !== undefined) o.origen = m.origen;
   if (m.servicioDirectoId !== undefined) o.servicio_directo_id = m.servicioDirectoId;
+  if (m.prioridad !== undefined) o.prioridad = m.prioridad;
+  if (m.avisoDias !== undefined) o.aviso_dias = m.avisoDias;
   return o;
 }
 
+interface RowCentro { id: string; empresa_clave: string; nombre: string; orden: number | null; activo: boolean | null }
+function aCentro(r: RowCentro): CentroAcopio {
+  return { id: r.id, empresaClave: r.empresa_clave, nombre: r.nombre, orden: r.orden ?? 0, activo: r.activo !== false };
+}
+function deCentro(c: Partial<CentroAcopioInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (c.empresaClave !== undefined) o.empresa_clave = c.empresaClave;
+  if (c.nombre !== undefined) o.nombre = c.nombre;
+  if (c.orden !== undefined) o.orden = c.orden;
+  if (c.activo !== undefined) o.activo = c.activo;
+  return o;
+}
+interface RowProfesional { id: string; nombre: string; profesion: string | null; contacto: string | null; activo: boolean | null }
+function aProfesional(r: RowProfesional): Profesional {
+  return { id: r.id, nombre: r.nombre, profesion: r.profesion ?? null, contacto: r.contacto ?? null, activo: r.activo !== false };
+}
+function deProfesional(p: Partial<ProfesionalInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (p.nombre !== undefined) o.nombre = p.nombre;
+  if (p.profesion !== undefined) o.profesion = p.profesion;
+  if (p.contacto !== undefined) o.contacto = p.contacto;
+  if (p.activo !== undefined) o.activo = p.activo;
+  return o;
+}
+interface RowCarpeta { id: string; empresa_clave: string | null; nombre: string; parent_id: string | null; orden: number | null }
+function aCarpeta(r: RowCarpeta): Carpeta {
+  return { id: r.id, empresaClave: r.empresa_clave ?? null, nombre: r.nombre, parentId: r.parent_id ?? null, orden: r.orden ?? 0 };
+}
+function deCarpeta(c: Partial<CarpetaInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (c.empresaClave !== undefined) o.empresa_clave = c.empresaClave;
+  if (c.nombre !== undefined) o.nombre = c.nombre;
+  if (c.parentId !== undefined) o.parent_id = c.parentId;
+  if (c.orden !== undefined) o.orden = c.orden;
+  return o;
+}
+interface RowGestion {
+  id: string; empresa_clave: string; profesional_id: string | null; categoria_id: string | null;
+  centro_acopio_id: string | null; documento_id: string | null; concepto: string;
+  costo_total: number | string | null; moneda: string | null; tasa_ref: number | string | null;
+  fecha: string; fecha_pactada: string | null; estado: string | null; nota_acuerdo: string | null;
+  prioridad?: string | null; aviso_dias?: number | null;
+}
+function aGestion(r: RowGestion): Gestion {
+  return {
+    id: r.id, empresaClave: r.empresa_clave, profesionalId: r.profesional_id ?? null,
+    categoriaId: r.categoria_id ?? null, centroAcopioId: r.centro_acopio_id ?? null,
+    documentoId: r.documento_id ?? null, concepto: r.concepto,
+    costoTotal: r.costo_total == null ? 0 : num(r.costo_total),
+    moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+    tasaRef: r.tasa_ref == null ? null : num(r.tasa_ref),
+    fecha: r.fecha ? r.fecha.slice(0, 10) : r.fecha,
+    fechaPactada: r.fecha_pactada ? r.fecha_pactada.slice(0, 10) : null,
+    estado: (r.estado as EstadoGestion) || 'abierta',
+    notaAcuerdo: r.nota_acuerdo ?? null,
+    prioridad: (r.prioridad as Prioridad) ?? null,
+    avisoDias: r.aviso_dias ?? null,
+  };
+}
+function deGestion(g: Partial<GestionInput>): Record<string, unknown> {
+  const o: Record<string, unknown> = {};
+  if (g.empresaClave !== undefined) o.empresa_clave = g.empresaClave;
+  if (g.profesionalId !== undefined) o.profesional_id = g.profesionalId;
+  if (g.categoriaId !== undefined) o.categoria_id = g.categoriaId;
+  if (g.centroAcopioId !== undefined) o.centro_acopio_id = g.centroAcopioId;
+  if (g.documentoId !== undefined) o.documento_id = g.documentoId;
+  if (g.concepto !== undefined) o.concepto = g.concepto;
+  if (g.costoTotal !== undefined) o.costo_total = g.costoTotal;
+  if (g.moneda !== undefined) o.moneda = g.moneda;
+  if (g.tasaRef !== undefined) o.tasa_ref = g.tasaRef;
+  if (g.fecha !== undefined) o.fecha = g.fecha;
+  if (g.fechaPactada !== undefined) o.fecha_pactada = g.fechaPactada;
+  if (g.estado !== undefined) o.estado = g.estado;
+  if (g.notaAcuerdo !== undefined) o.nota_acuerdo = g.notaAcuerdo;
+  if (g.prioridad !== undefined) o.prioridad = g.prioridad;
+  if (g.avisoDias !== undefined) o.aviso_dias = g.avisoDias;
+  return o;
+}
+interface RowEnvio {
+  id: string; gestion_id: string; empresa_clave: string; monto: number | string | null;
+  moneda: string | null; fecha_envio: string; estado: string | null;
+  servicio_directo_id: string | null; enviado_por: string | null; pagado_en: string | null;
+}
+function aEnvio(r: RowEnvio): EnvioTesoreria {
+  return {
+    id: r.id, gestionId: r.gestion_id, empresaClave: r.empresa_clave,
+    monto: r.monto == null ? 0 : num(r.monto), moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+    fechaEnvio: r.fecha_envio, estado: (r.estado as EnvioTesoreria['estado']) || 'enviado',
+    servicioDirectoId: r.servicio_directo_id ?? null, enviadoPor: r.enviado_por ?? null,
+    pagadoEn: r.pagado_en ?? null,
+  };
+}
+const T_CEN = 'admin_centros_acopio';
+const T_PROF = 'admin_profesionales';
+const T_CARP = 'admin_carpetas';
+const T_GES = 'admin_gestiones';
+const T_ENV = 'admin_envios_tesoreria';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -453,6 +689,13 @@ interface RowDoc {
   historial?: unknown;
   created_at?: string | null;
   updated_at?: string | null;
+  costo_gestion?: number | string | null;
+  moneda_costo?: string | null;
+  gestion_id?: string | null;
+  aviso_dias?: number | null;
+  subcarpeta_id?: string | null;
+  badge_texto?: string | null;
+  prioridad?: string | null;
 }
 
 function aDoc(r: RowDoc): DocumentoEmpresa {
@@ -488,6 +731,13 @@ function aDoc(r: RowDoc): DocumentoEmpresa {
     historial: hist,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
+    costoGestion: r.costo_gestion == null ? null : num(r.costo_gestion),
+    monedaCosto: r.moneda_costo === 'Bs' ? 'Bs' : r.moneda_costo === 'USD' ? 'USD' : null,
+    gestionId: r.gestion_id ?? null,
+    avisoDias: r.aviso_dias ?? null,
+    subcarpetaId: r.subcarpeta_id ?? null,
+    badgeTexto: r.badge_texto ?? null,
+    prioridad: (r.prioridad as Prioridad) ?? null,
   };
 }
 interface RowCat { id: string; nombre: string; orden: number | string | null; activa: boolean | null; }
@@ -531,6 +781,200 @@ export function crearRepoSupabase(): AdminRepo {
       const { error } = await supabase.from(T_EMP).delete().eq('id', id);
       if (error) throw error;
     },
+    async listCentros(empresaClave) {
+      let q = supabase.from(T_CEN).select('*').order('orden').order('nombre');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aCentro(r as RowCentro));
+    },
+    async crearCentro(c) {
+      const { data, error } = await supabase.from(T_CEN).insert(deCentro(c)).select('*').single();
+      if (error) throw error;
+      return aCentro(data as RowCentro);
+    },
+    async editarCentro(id, cambios) {
+      const { error } = await supabase.from(T_CEN).update(deCentro(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async setActivoCentro(id, activo) {
+      const { error } = await supabase.from(T_CEN).update({ activo }).eq('id', id);
+      if (error) throw error;
+    },
+    async listProfesionales() {
+      const { data, error } = await supabase.from(T_PROF).select('*').order('nombre');
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aProfesional(r as RowProfesional));
+    },
+    async crearProfesional(p) {
+      const { data, error } = await supabase.from(T_PROF).insert(deProfesional(p)).select('*').single();
+      if (error) throw error;
+      return aProfesional(data as RowProfesional);
+    },
+    async editarProfesional(id, cambios) {
+      const { error } = await supabase.from(T_PROF).update(deProfesional(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async setActivoProfesional(id, activo) {
+      const { error } = await supabase.from(T_PROF).update({ activo }).eq('id', id);
+      if (error) throw error;
+    },
+    async listCarpetas(empresaClave) {
+      let q = supabase.from(T_CARP).select('*').order('orden').order('nombre');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aCarpeta(r as RowCarpeta));
+    },
+    async crearCarpeta(c) {
+      const { data, error } = await supabase.from(T_CARP).insert(deCarpeta(c)).select('*').single();
+      if (error) throw error;
+      return aCarpeta(data as RowCarpeta);
+    },
+    async editarCarpeta(id, cambios) {
+      const { error } = await supabase.from(T_CARP).update(deCarpeta(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async borrarCarpeta(id) {
+      const { error } = await supabase.from(T_CARP).delete().eq('id', id);
+      if (error) throw error;
+    },
+    async listGestiones(empresaClave, profesionalId) {
+      let q = supabase.from(T_GES).select('*').order('fecha', { ascending: false });
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      if (profesionalId) q = q.eq('profesional_id', profesionalId);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aGestion(r as RowGestion));
+    },
+    async crearGestion(g) {
+      const { data, error } = await supabase.from(T_GES).insert(deGestion(g)).select('*').single();
+      if (error) throw error;
+      return aGestion(data as RowGestion);
+    },
+    async editarGestion(id, cambios) {
+      const { error } = await supabase.from(T_GES).update(deGestion(cambios)).eq('id', id);
+      if (error) throw error;
+    },
+    async anularGestion(id) {
+      const { error } = await supabase.from(T_GES).update({ estado: 'anulada' }).eq('id', id);
+      if (error) throw error;
+    },
+    async listEnvios(gestionId) {
+      let q = supabase.from(T_ENV).select('*').order('fecha_envio', { ascending: false });
+      if (gestionId) q = q.eq('gestion_id', gestionId);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aEnvio(r as RowEnvio));
+    },
+    async crearEnvio(input) {
+      const { gestion } = input;
+      const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
+      if (monto <= 0) throw new Error('Indica el monto a enviar a Tesorería.');
+      const { data: prev, error: ePrev } = await supabase.from(T_ENV).select('*').eq('gestion_id', gestion.id);
+      if (ePrev && !esErrorTablaAusente(ePrev)) throw ePrev;
+      const enviosActuales = (prev ?? []).map((r) => aEnvio(r as RowEnvio));
+      // Tope = lo DISPONIBLE (costo − pagado − enviado-pendiente), no solo el saldo:
+      // así no se compromete dos veces el mismo honorario.
+      const disponible = disponibleParaEnviar(gestion, enviosActuales);
+      if (monto > disponible + 0.01) throw new Error(`El envío (${monto}) supera lo disponible para enviar de la gestión (${disponible}); ya hay envíos comprometidos.`);
+      const actor = input.actor ?? (await supabase.auth.getUser()).data.user?.email ?? 'sistema';
+      // 1) Crea el servicio directo y lo deja "Por pagar" (flujo estándar de Tesorería).
+      const nota = notaAgrupacion(input.profesionalNombre, gestion.concepto, gestion.empresaClave);
+      const sd = await crearServicioDirecto({
+        lineas: [{ descripcion: nota, cantidad: 1 }],
+        moneda: gestion.moneda, actor, actorName: input.actorName ?? null,
+      });
+      await enviarServicioAPagar({
+        servicio: sd, items: [{ descripcion: nota, cantidad: 1, gasto: monto }],
+        moneda: gestion.moneda, actor, actorName: input.actorName ?? null,
+      });
+      // 2) Registra el envío enlazado al servicio directo. Si este insert falla, el
+      //    servicio directo quedaría HUÉRFANO en Tesorería (cuenta por pagar que admin
+      //    no ve). Puente no atómico: compensamos borrando el SD (está 'por_pagar',
+      //    pasa las guardas) antes de propagar el error.
+      const { data, error } = await supabase.from(T_ENV).insert({
+        gestion_id: gestion.id, empresa_clave: gestion.empresaClave, monto, moneda: gestion.moneda,
+        estado: 'enviado', servicio_directo_id: sd.id, enviado_por: actor,
+      }).select('*').single();
+      if (error) {
+        try { await eliminarServicioDirecto(sd); } catch { /* best-effort: si no se pudo, queda la deuda conocida */ }
+        throw error;
+      }
+      return aEnvio(data as RowEnvio);
+    },
+    async reversarEnvio(id) {
+      const { data, error } = await supabase.from(T_ENV).select('*').eq('id', id).single();
+      if (error) throw error;
+      const envio = aEnvio(data as RowEnvio);
+      // Estado AUTORITATIVO: relee el servicio directo (el estado del envío puede estar
+      // viejo si Tesorería ya pagó y aún no se refrescó).
+      type SdLite = { id: string; estado?: string | null; pagada_at?: string | null };
+      let servicio: SdLite | null = null;
+      if (envio.servicioDirectoId) {
+        const { data: sd } = await supabase.from('servicios_directos')
+          .select('id,estado,pagada_at').eq('id', envio.servicioDirectoId).maybeSingle();
+        servicio = (sd as SdLite | null) ?? null;
+      }
+      const servicioPagado = !!servicio && (servicio.estado === 'finalizada' || !!servicio.pagada_at);
+      const motivo = motivoNoReversable(envio, servicioPagado);
+      if (motivo) {
+        // Si en realidad ya estaba pagado, reconcilia el envío para que deje de verse como 'enviado'.
+        if (servicioPagado && envio.estado !== 'pagado') {
+          await supabase.from(T_ENV).update({ estado: 'pagado', pagado_en: servicio?.pagada_at ?? new Date().toISOString() }).eq('id', id);
+        }
+        throw new Error(motivo);
+      }
+      // No pagado: borra el servicio directo vía eliminarServicioDirecto (aplica la guarda
+      // de factura registrada y mapea el error de borrado), no con un delete crudo. Nota:
+      // la guarda de "pagado" de esa función usa el estado que acabamos de leer (líneas
+      // arriba); queda una ventana TOCTOU mínima (sin await que ceda a Tesorería) que este
+      // módulo no cierra —es el mismo patrón del resto del flujo de servicios directos.
+      if (servicio) {
+        await eliminarServicioDirecto(servicio as unknown as ServicioDirecto);
+      }
+      const { error: eUpd } = await supabase.from(T_ENV).update({ estado: 'reversado' }).eq('id', id);
+      if (eUpd) throw eUpd;
+    },
+    async refrescarEnvios(gestionId) {
+      let q = supabase.from(T_ENV).select('*').eq('estado', 'enviado');
+      if (gestionId) q = q.eq('gestion_id', gestionId);
+      const { data, error } = await q;
+      if (error) { if (esErrorTablaAusente(error)) return; throw error; }
+      for (const row of (data ?? [])) {
+        const envio = aEnvio(row as RowEnvio);
+        if (!envio.servicioDirectoId) continue;
+        const { data: sd } = await supabase.from('servicios_directos')
+          .select('estado,pagada_at').eq('id', envio.servicioDirectoId).maybeSingle();
+        const s = sd as { estado?: string; pagada_at?: string | null } | null;
+        if (s && (s.estado === 'finalizada' || s.pagada_at)) {
+          await supabase.from(T_ENV).update({ estado: 'pagado', pagado_en: s.pagada_at ?? new Date().toISOString() }).eq('id', envio.id);
+        }
+      }
+    },
+    async urlAdjuntoEnvio(envio) {
+      if (!envio.servicioDirectoId) return null;
+      const { data, error } = await supabase.from('servicios_directos')
+        .select('adjunto_path').eq('id', envio.servicioDirectoId).maybeSingle();
+      if (error) return null;
+      const path = (data as { adjunto_path?: string | null } | null)?.adjunto_path ?? null;
+      return path ? urlAdjuntoServicio(path) : null;
+    },
     async listGastosFijos(empresaClave) {
       let q = supabase.from(T_GF).select('*').order('concepto');
       if (empresaClave) q = q.eq('empresa_clave', empresaClave);
@@ -569,7 +1013,7 @@ export function crearRepoSupabase(): AdminRepo {
       // cae al catálogo compartido pero solo categorías padre, para no romper mientras tanto.
       const { data, error } = await supabase.from(T_CAT).select('id,nombre').eq('activa', true).order('orden').order('nombre');
       if (!error) return (data ?? []).map((r) => ({ id: String((r as { id: string }).id), nombre: String((r as { nombre: string }).nombre) }));
-      if (/relation|does not exist|schema cache/i.test(error.message)) {
+      if (esErrorTablaAusente(error)) {
         const rows = await listCategoriasGasto(true);
         return soloCategorias(rows).map((c) => ({ id: c.id, nombre: c.nombre }));
       }
@@ -578,7 +1022,7 @@ export function crearRepoSupabase(): AdminRepo {
     async listAdminCategorias() {
       const { data, error } = await supabase.from(T_CAT).select('*').order('orden').order('nombre');
       if (error) {
-        if (/relation|does not exist|schema cache/i.test(error.message)) return [];
+        if (esErrorTablaAusente(error)) return [];
         throw error;
       }
       return (data ?? []).map((r) => aCategoria(r as RowCat));
@@ -742,6 +1186,13 @@ export function crearRepoSupabase(): AdminRepo {
         entidad_emisora: meta?.entidadEmisora || null,
         numero_registro: meta?.numeroRegistro || null,
         nota_tramite: meta?.notaTramite || null,
+        costo_gestion: meta?.costoGestion ?? null,
+        moneda_costo: meta?.monedaCosto ?? null,
+        gestion_id: meta?.gestionId ?? null,
+        aviso_dias: meta?.avisoDias ?? null,
+        subcarpeta_id: meta?.subcarpetaId ?? null,
+        badge_texto: meta?.badgeTexto ?? null,
+        prioridad: meta?.prioridad ?? null,
         historial: [histItem],
         updated_at: nowIso,
       };
@@ -805,6 +1256,13 @@ export function crearRepoSupabase(): AdminRepo {
       if (cambios.entidadEmisora !== undefined) payloadCompleto.entidad_emisora = cambios.entidadEmisora;
       if (cambios.numeroRegistro !== undefined) payloadCompleto.numero_registro = cambios.numeroRegistro;
       if (cambios.notaTramite !== undefined) payloadCompleto.nota_tramite = cambios.notaTramite;
+      if (cambios.costoGestion !== undefined) payloadCompleto.costo_gestion = cambios.costoGestion;
+      if (cambios.monedaCosto !== undefined) payloadCompleto.moneda_costo = cambios.monedaCosto;
+      if (cambios.gestionId !== undefined) payloadCompleto.gestion_id = cambios.gestionId;
+      if (cambios.avisoDias !== undefined) payloadCompleto.aviso_dias = cambios.avisoDias;
+      if (cambios.subcarpetaId !== undefined) payloadCompleto.subcarpeta_id = cambios.subcarpetaId;
+      if (cambios.badgeTexto !== undefined) payloadCompleto.badge_texto = cambios.badgeTexto;
+      if (cambios.prioridad !== undefined) payloadCompleto.prioridad = cambios.prioridad;
 
       let { data, error } = await supabase.from(T_DOC).update(payloadCompleto).eq('id', id).select('*').single();
 
