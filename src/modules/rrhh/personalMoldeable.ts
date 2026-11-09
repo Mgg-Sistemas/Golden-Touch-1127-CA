@@ -265,6 +265,7 @@ export const CAMPOS_REPORTE_PERSONAL: CampoColumnaPersonal[] = [
   { clave: 'nombres_hijos', etiqueta: 'Detalle Hijos', categoria: 'familia', anchoPdf: 40, anchoExcel: 30, alineacion: 'left', formato: 'texto' },
 
   // Demografía y Salud
+  { clave: 'fecha_nacimiento', etiqueta: 'Fecha de Nacimiento', categoria: 'demografia', anchoPdf: 22, anchoExcel: 14, alineacion: 'center', formato: 'fecha' },
   { clave: 'edad', etiqueta: 'Edad', categoria: 'demografia', anchoPdf: 14, anchoExcel: 8, alineacion: 'right', formato: 'numero' },
   { clave: 'genero_texto', etiqueta: 'Género', categoria: 'demografia', anchoPdf: 18, anchoExcel: 12, alineacion: 'center', formato: 'texto' },
   { clave: 'estado_civil_texto', etiqueta: 'Estado Civil', categoria: 'demografia', anchoPdf: 22, anchoExcel: 14, alineacion: 'center', formato: 'texto' },
