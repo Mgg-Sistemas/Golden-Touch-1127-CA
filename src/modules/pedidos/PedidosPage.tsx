@@ -723,7 +723,7 @@ export function PedidosPage() {
           <h1>{scope === 'almacen' ? 'Revisión de Almacén' : scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicios' ? 'Servicios' : 'Órdenes'}</h1>
           <p className="muted hint">
             {scope === 'almacen'
-              ? 'Almacén revisa cada Solicitud de Pedido antes de Compras: lo que hay en inventario lo entrega Almacén y solo lo que falta pasa a cotizar. Las solicitudes de mercado (comida) van directo a Compras.'
+              ? 'Almacén revisa cada Solicitud de Pedido antes de Compras: lo que hay en inventario lo entrega Almacén y solo lo que falta pasa a cotizar. Las solicitudes de mercado (comida) van directo a cotización: sin revisión de Almacén ni aprobación.'
               : scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
               : scope === 'oc_lote'
