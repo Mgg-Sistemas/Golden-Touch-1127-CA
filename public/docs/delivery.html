@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Golden Touch · Maqueta Dinámica de Delivery & Carga Pesada</title>
+  <style>
+    :root {
+      --bg: #070c14;
+      --bg-surface: #0e1726;
+      --bg-card: #141f33;
+      --bg-card-inner: #09101d;
+      --border: rgba(148, 163, 184, 0.16);
+      --border-glow: rgba(245, 158, 11, 0.45);
+      --gold: #f59e0b;
+      --gold-bright: #fbbf24;
+      --gold-bg: rgba(245, 158, 11, 0.12);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --green: #10b981;
+      --green-glow: rgba(16, 185, 129, 0.35);
+      --orange: #f97316;
+      --blue: #38bdf8;
+      --blue-glow: rgba(56, 189, 248, 0.35);
+      --purple: #a855f7;
+      --red: #ef4444;
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(245, 158, 11, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(56, 189, 248, 0.06) 0%, transparent 45%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 1.25rem;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    /* Animaciones Generales */
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 15px rgba(245, 158, 11, 0.35); }
+      50% { box-shadow: 0 0 30px rgba(245, 158, 11, 0.7); }
+    }
+    @keyframes greenPulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); transform: scale(1); }
+      50% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.8); transform: scale(1.08); }
+    }
+    @keyframes dashMove {
+      to { stroke-dashoffset: -100; }
+    }
+    @keyframes radarScan {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes vehicleBounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Header Principal */
+    header {
+      background: linear-gradient(135deg, rgba(20, 31, 51, 0.95), rgba(10, 16, 28, 0.95));
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 20px;
+      padding: 1.4rem 1.6rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 12px 36px -10px rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(12px);
+    }
+
+    .head-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .title-group {
+      display: flex;
+      align-items: center;
+      gap: .85rem;
+    }
+
+    .icon-badge {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+      animation: vehicleBounce 2.5s infinite ease-in-out;
+    }
+
+    h1 {
+      font-size: 1.55rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    h1 span { color: var(--gold); }
+
+    .tag-maqueta {
+      background: linear-gradient(90deg, #ca8a04, #f59e0b);
+      color: #0b1120;
+      padding: .2rem .6rem;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .subtext {
+      color: var(--text-muted);
+      font-size: .9rem;
+      margin-top: .3rem;
+      max-width: 820px;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: #cbd5e1;
+      padding: .5rem 1rem;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: .86rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      transition: all 0.2s ease;
+    }
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+    .btn-gold {
+      background: linear-gradient(135deg, #d97706, #f59e0b);
+      border-color: #f59e0b;
+      color: #000;
+      font-weight: 700;
+    }
+    .btn-gold:hover {
+      background: linear-gradient(135deg, #b45309, #d97706);
+      color: #000;
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.5);
+    }
+
+    /* Sub-barra de controles de la maqueta */
+    .controls-bar {
+      margin-top: 1.1rem;
+      padding-top: 1.1rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    /* Interruptor Switcher de Vehículo (MOTO vs CARGA PESADA) */
+    .vehicle-switch {
+      display: inline-flex;
+      background: #090e17;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      padding: 4px;
+      position: relative;
+    }
+
+    .switch-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: .55rem 1.25rem;
+      border-radius: 999px;
+      font-size: .88rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      transition: all 0.25s ease;
+    }
+
+    .switch-btn.active.delivery {
+      background: #1e293b;
+      color: var(--gold-bright);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--gold);
+    }
+
+    .switch-btn.active.carga-pesada {
+      background: #ca8a04;
+      color: #000;
+      font-weight: 800;
+      box-shadow: 0 0 18px rgba(234, 179, 8, 0.6);
+      border: 1px solid #fef08a;
+    }
+
+    /* Selector de Vistas (PC Despacho vs Móvil Chofer vs Simulación) */
+    .view-tabs {
+      display: inline-flex;
+      background: #090e17;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 3px;
+      gap: 3px;
+    }
+    .view-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: .45rem .9rem;
+      border-radius: 9px;
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      transition: all 0.2s ease;
+    }
+    .view-tab-btn.active {
+      background: var(--bg-card);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    /* KPIs / Métricas Rápidas */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.2rem;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .stat-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(245, 158, 11, 0.35);
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      opacity: 0.6;
+    }
+    .stat-card.green::before {
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+    }
+    .stat-card.blue::before {
+      background: linear-gradient(90deg, transparent, var(--blue), transparent);
+    }
+    .stat-card.orange::before {
+      background: linear-gradient(90deg, transparent, var(--orange), transparent);
+    }
+    .stat-card .val {
+      font-size: 1.65rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-top: .15rem;
+      display: flex;
+      align-items: baseline;
+      gap: .4rem;
+    }
+    .stat-card .lbl {
+      color: var(--text-muted);
+      font-size: .78rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 700;
+    }
+    .stat-card .change {
+      font-size: .75rem;
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    /* Layout Principal: Dos Columnas (Radar / Mapa Interactivo y Panel de Envíos) */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    @media (max-width: 1100px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Panel de Mapa / Radar */
+    .radar-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      position: relative;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: .5rem;
+    }
+
+    .panel-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: var(--green);
+      font-size: .75rem;
+      font-weight: 700;
+      padding: .2rem .55rem;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--green);
+      animation: greenPulse 1.8s infinite;
+    }
+
+    /* Canvas del Mapa Táctico */
+    .map-canvas-container {
+      position: relative;
+      width: 100%;
+      height: 520px;
+      background: #090e17;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: inset 0 0 40px rgba(0,0,0,0.8);
+    }
+
+    /* Cuadrícula táctica de fondo */
+    .grid-lines {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background-image: 
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    /* Líneas de Radar animadas */
+    .radar-sweep-effect {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 600px; height: 600px;
+      margin-top: -300px; margin-left: -300px;
+      border-radius: 50%;
+      border: 1px solid rgba(56, 189, 248, 0.1);
+      pointer-events: none;
+    }
+    .radar-sweep-effect::after {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 300px; height: 300px;
+      transform-origin: 0 0;
+      background: conic-gradient(from 0deg, rgba(56, 189, 248, 0.18), transparent 75deg);
+      border-radius: 100% 0 0 0;
+      animation: radarScan 8s linear infinite;
+    }
+
+    /* SVG para rutas conectadas */
+    .map-svg-routes {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    .route-path {
+      fill: none;
+      stroke: rgba(245, 158, 11, 0.35);
+      stroke-width: 3;
+      stroke-dasharray: 6 6;
+      stroke-linecap: round;
+      animation: dashMove 4s linear infinite;
+    }
+    .route-path.active {
+      stroke: var(--gold-bright);
+      stroke-width: 4;
+      filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.8));
+    }
+    .route-path.carga {
+      stroke: #f97316;
+      stroke-dasharray: 8 6;
+      filter: drop-shadow(0 0 6px rgba(249, 115, 22, 0.7));
+    }
+
+    /* Nodos y Marcadores en el Mapa */
+    .map-node {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      z-index: 10;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .map-node:hover {
+      transform: translate(-50%, -50%) scale(1.15);
+      z-index: 20;
+    }
+
+    .hub-pin {
+      background: #0f172a;
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: .4rem .7rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+      font-size: .8rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .hub-pin.almacen {
+      border-color: var(--blue);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }
+    .hub-pin.mina {
+      border-color: var(--gold);
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+    }
+    .hub-pin.proveedor {
+      border-color: var(--purple);
+    }
+
+    /* Vehículo en Movimiento sobre el mapa */
+    .vehicle-marker {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 44px; height: 44px;
+      background: #1e293b;
+      border: 2px solid var(--gold);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      box-shadow: 0 0 25px rgba(245, 158, 11, 0.8);
+      cursor: pointer;
+      z-index: 15;
+      transition: all 0.5s ease-out;
+    }
+    .vehicle-marker.pulse-ring::after {
+      content: '';
+      position: absolute;
+      top: -8px; left: -8px; right: -8px; bottom: -8px;
+      border-radius: 50%;
+      border: 2px solid var(--gold);
+      opacity: 0.8;
+      animation: greenPulse 2s infinite;
+    }
+
+    /* Telemetría Flotante sobre el Mapa */
+    .map-telemetry {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      right: 12px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: .65rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      backdrop-filter: blur(8px);
+      font-size: .82rem;
+      flex-wrap: wrap;
+      gap: .6rem;
+      z-index: 25;
+    }
+
+    /* Columna Derecha: Tarjetas de Envíos & Modo Teléfono */
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .orders-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    .filter-chips {
+      display: flex;
+      gap: .4rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .chip {
+      background: #090e17;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: .35rem .75rem;
+      border-radius: 999px;
+      font-size: .78rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .chip.active {
+      background: var(--gold-bg);
+      color: var(--gold-bright);
+      border-color: var(--gold);
+    }
+
+    /* Lista de Tarjetas de Órdenes */
+    .orders-list {
+      display: flex;
+      flex-direction: column;
+      gap: .8rem;
+      max-height: 480px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .orders-list::-webkit-scrollbar {
+      width: 5px;
+    }
+    .orders-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+
+    .order-item {
+      background: #090e17;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: .85rem 1rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .order-item:hover {
+      border-color: rgba(245, 158, 11, 0.4);
+      transform: translateX(4px);
+      background: #0e1624;
+    }
+    .order-item.active {
+      border-color: var(--gold);
+      background: #111b2b;
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+    }
+
+    .order-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: .4rem;
+    }
+    .order-code {
+      font-weight: 800;
+      font-size: .88rem;
+      color: #fff;
+    }
+    .order-badge {
+      font-size: .7rem;
+      font-weight: 800;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+      text-transform: uppercase;
+    }
+    .order-badge.en_camino {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--blue);
+      border: 1px solid var(--blue);
+    }
+    .order-badge.por_tomar {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--gold-bright);
+      border: 1px solid var(--gold);
+    }
+    .order-badge.entregado {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--green);
+      border: 1px solid var(--green);
+    }
+
+    .order-cargo {
+      font-size: .84rem;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin-bottom: .3rem;
+    }
+    .order-route {
+      font-size: .75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: .3rem;
+    }
+    .order-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: .6rem;
+      padding-top: .5rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: .78rem;
+    }
+    .order-price {
+      font-weight: 800;
+      color: var(--gold);
+      font-size: .95rem;
+    }
+
+    /* SIMULADOR TELÉFONO CHÓFER (Móvil View) */
+    .phone-mockup-wrapper {
+      display: none;
+      justify-content: center;
+      margin-top: 1.5rem;
+    }
+    .phone-mockup-wrapper.active {
+      display: flex;
+      animation: slideUp 0.3s ease-out;
+    }
+
+    .phone-frame {
+      width: 380px;
+      height: 720px;
+      background: #000;
+      border-radius: 46px;
+      border: 10px solid #1e293b;
+      box-shadow: 0 25px 60px -15px rgba(0,0,0,0.9), 0 0 30px rgba(245, 158, 11, 0.2);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .phone-notch {
+      position: absolute;
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 140px; height: 26px;
+      background: #1e293b;
+      border-bottom-left-radius: 18px;
+      border-bottom-right-radius: 18px;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .phone-camera {
+      width: 10px; height: 10px;
+      background: #090e17;
+      border-radius: 50%;
+    }
+
+    .phone-screen {
+      flex: 1;
+      background: #090f1d;
+      padding: 34px 14px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      color: #fff;
+    }
+
+    .phone-nav-chips {
+      display: flex;
+      gap: 6px;
+      margin: 10px 0 14px 0;
+    }
+    .p-chip {
+      flex: 1;
+      padding: 8px 4px;
+      font-size: .72rem;
+      font-weight: 700;
+      text-align: center;
+      border-radius: 10px;
+      background: #141f33;
+      border: 1px solid var(--border);
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .p-chip.active {
+      background: var(--gold);
+      color: #000;
+      font-weight: 800;
+      border-color: #fbbf24;
+    }
+
+    .phone-order-card {
+      background: #152238;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .p-btn-action {
+      width: 100%;
+      padding: 10px;
+      border-radius: 12px;
+      border: none;
+      font-weight: 800;
+      font-size: .88rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 10px;
+      transition: all 0.2s;
+    }
+    .p-btn-take {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #000;
+    }
+    .p-btn-finish {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+    }
+
+    /* Modal / Popup de Comprobante / Simulación */
+    .action-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .action-modal.open {
+      display: flex;
+      animation: slideUp 0.25s ease-out;
+    }
+
+    .modal-box {
+      background: #0f172a;
+      border: 1px solid var(--gold);
+      border-radius: 20px;
+      max-width: 520px;
+      width: 100%;
+      padding: 1.6rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(245, 158, 11, 0.3);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .modal-header h3 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--gold-bright);
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 1.4rem;
+      cursor: pointer;
+    }
+
+    /* Banner Animado de Alerta */
+    .alert-banner {
+      background: linear-gradient(90deg, rgba(245, 158, 11, 0.15), rgba(56, 189, 248, 0.15));
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 12px;
+      padding: .75rem 1rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .75rem;
+      font-size: .88rem;
+    }
+
+    /* Animación de Simulación en Vivo */
+    .sim-progress-bar {
+      width: 100%;
+      height: 8px;
+      background: #090e17;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: .8rem;
+      position: relative;
+    }
+    .sim-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #f59e0b, #10b981);
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SELECTOR GLOBAL DE MAQUETAS DOCS -->
+  <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: .65rem 1.1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .75rem;">
+    <div style="display: flex; align-items: center; gap: .6rem;">
+      <span style="font-size: 1.4rem;">📁</span>
+      <span style="font-size: .88rem; font-weight: 700; color: #fff;">Catálogo de Maquetas Interactivas (DOCS):</span>
+    </div>
+    <div style="display: flex; gap: .5rem; flex-wrap: wrap;">
+      <a href="/docs/index.html" style="background: #1e293b; color: #cbd5e1; border: 1px solid var(--border); padding: .35rem .8rem; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: .82rem;">🚜 Maquinaria & Propietarios</a>
+      <a href="/docs/delivery.html" style="background: var(--gold); color: #000; padding: .35rem .8rem; border-radius: 8px; font-weight: 800; text-decoration: none; font-size: .82rem; box-shadow: 0 0 12px rgba(245,158,11,0.4);">🛵 Delivery & Carga Pesada (¡ACTIVA!)</a>
+    </div>
+  </div>
+
+  <!-- ENCABEZADO DE MAQUETA DOCS -->
+  <header>
+    <div class="head-top">
+      <div>
+        <div class="title-group">
+          <div class="icon-badge" id="mainHeaderIcon">🛵</div>
+          <div>
+            <h1>Golden Touch · <span id="headerModeTitle">Delivery & Carga Pesada</span></h1>
+            <div style="display: flex; align-items: center; gap: .5rem; margin-top: .2rem;">
+              <span class="tag-maqueta">MAQUETA DINÁMICA · DOCS</span>
+              <span style="font-size: .78rem; color: var(--gold-bright); font-weight: 700;">★ SISTEMA V2.5 EN TIEMPO REAL</span>
+            </div>
+          </div>
+        </div>
+        <p class="subtext">
+          Diseño interactivo con radar satelital, rastreo dinámico de choferes, cálculo de rutas,
+          telemetría en vivo y simulador dual (<strong>Centro de Despacho PC</strong> vs <strong>Móvil del Chofer</strong>).
+        </p>
+      </div>
+
+      <div class="nav-actions">
+        <a href="/docs/index.html" class="btn">
+          <span>🚜</span> Ver Maqueta Maquinaria
+        </a>
+        <a href="/#/app/delivery" class="btn btn-gold">
+          <span>⚡</span> Ir al Módulo Real en Sistema
+        </a>
+      </div>
+    </div>
+
+    <!-- CONTROLES Y SWITCHERS DINÁMICOS -->
+    <div class="controls-bar">
+      <!-- SWITCHER AMARILLO (DELIVERY VS CARGA PESADA) -->
+      <div>
+        <div style="font-size: .76rem; text-transform: uppercase; color: var(--text-muted); font-weight: 800; margin-bottom: .35rem; letter-spacing: .05em;">
+          Tipo de Transporte Activo:
+        </div>
+        <div class="vehicle-switch">
+          <button type="button" id="btnSwitchDelivery" class="switch-btn active delivery" onclick="setVehicleMode('delivery')">
+            <span>🛵</span>
+            <span>Delivery Moto</span>
+          </button>
+          <button type="button" id="btnSwitchCarga" class="switch-btn carga-pesada" onclick="setVehicleMode('carga')">
+            <span>🚚</span>
+            <span>CARGA PESADA</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- SELECTOR DE VISTAS (PC VS MÓVIL) -->
+      <div>
+        <div style="font-size: .76rem; text-transform: uppercase; color: var(--text-muted); font-weight: 800; margin-bottom: .35rem; letter-spacing: .05em;">
+          Vista de Maqueta:
+        </div>
+        <div class="view-tabs">
+          <button type="button" id="tabViewPC" class="view-tab-btn active" onclick="setViewMode('pc')">
+            <span>🖥️</span> Despacho PC & Radar
+          </button>
+          <button type="button" id="tabViewMobile" class="view-tab-btn" onclick="setViewMode('mobile')">
+            <span>📱</span> Vista Móvil (Chofer)
+          </button>
+          <button type="button" class="view-tab-btn" onclick="iniciarSimulacionCompleta()" style="color: var(--gold-bright);">
+            <span>▶️</span> Simulación en Vivo
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- BANNER DINÁMICO DE ESTADO / ALERTA -->
+  <div class="alert-banner" id="bannerAlerta">
+    <div style="display: flex; align-items: center; gap: .75rem;">
+      <span style="font-size: 1.3rem;">📡</span>
+      <div>
+        <strong>Monitoreo Satelital de Flota Activo:</strong>
+        <span id="bannerText"> 3 unidades en ruta, 5 pedidos entregados hoy sin incidentes.</span>
+      </div>
+    </div>
+    <button type="button" class="btn btn-gold" onclick="despacharNuevoPedidoDemo()" style="padding: .35rem .8rem; font-size: .8rem;">
+      + Simular Nuevo Envío Urgente
+    </button>
+  </div>
+
+  <!-- TARJETAS DE MÉTRICAS Y KPIS -->
+  <section class="stats-row">
+    <div class="stat-card green">
+      <div class="lbl">Envíos Completados Hoy</div>
+      <div class="val" id="kpiCompletados">14 <span class="change">↑ 100% éxito</span></div>
+    </div>
+    <div class="stat-card blue">
+      <div class="lbl">Unidades en Ruta GPS</div>
+      <div class="val" id="kpiEnRuta">3 <span style="font-size: .8rem; color: var(--blue); font-weight: 600;">activas</span></div>
+    </div>
+    <div class="stat-card orange">
+      <div class="lbl">Tiempo Promedio de Entrega</div>
+      <div class="val" id="kpiTiempo">32 <span style="font-size: .85rem; color: var(--text-muted);">minutos</span></div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">Total Fletes / Delivery</div>
+      <div class="val" id="kpiMonto">$ 485,00</div>
+    </div>
+  </section>
+
+  <!-- VISTA 1: RADAR TÁCTICO & DESPACHO (PC) -->
+  <div id="vistaPC" class="main-grid">
+
+    <!-- COLUMNA IZQUIERDA: RADAR / MAPA INTERACTIVO -->
+    <div class="radar-panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <span>🛰️</span> Radar Satelital de Entregas & Rutas
+          <span class="live-indicator"><span class="live-dot"></span> GPS LIVE</span>
+        </div>
+        <div style="display: flex; gap: .4rem;">
+          <button type="button" class="btn" style="padding: .3rem .6rem; font-size: .75rem;" onclick="resetCameraRadar()">
+            🎯 Centrar Radar
+          </button>
+        </div>
+      </div>
+
+      <div class="map-canvas-container" id="radarCanvas">
+        <div class="grid-lines"></div>
+        <div class="radar-sweep-effect"></div>
+
+        <!-- SVG DE RUTAS CONECTADAS CON ANIMACIÓN -->
+        <svg class="map-svg-routes" id="svgRoutes">
+          <!-- Ruta 1: Los Pinos -> Mina Peramanal -->
+          <path id="pathRuta1" class="route-path active" d="M 120 180 Q 280 120 460 210" />
+          <!-- Ruta 2: San Félix -> Almacén Los Pinos -->
+          <path id="pathRuta2" class="route-path" d="M 120 410 Q 180 290 120 180" />
+          <!-- Ruta 3: Almacén Los Pinos -> Mina El Limón (Carga Pesada) -->
+          <path id="pathRuta3" class="route-path carga" d="M 120 180 Q 340 320 520 390" />
+        </svg>
+
+        <!-- NODOS DE UBICACIÓN CLAVE -->
+        <!-- Nodo 1: Almacén Central Los Pinos -->
+        <div class="map-node" style="top: 180px; left: 120px;" onclick="seleccionarPunto('Los Pinos', 'Almacén Central y Despacho')">
+          <div class="hub-pin almacen">
+            <span>🏢</span>
+            <div>
+              <div>LOS PINOS</div>
+              <span style="font-size: .65rem; color: var(--blue);">Almacén Base</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nodo 2: Mina Peramanal -->
+        <div class="map-node" style="top: 210px; left: 460px;" onclick="seleccionarPunto('Mina Peramanal', 'Frente de Explotación Principal')">
+          <div class="hub-pin mina">
+            <span>⛏️</span>
+            <div>
+              <div>MINA PERAMANAL</div>
+              <span style="font-size: .65rem; color: var(--gold);">Destino Minero</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nodo 3: Proveedores San Félix -->
+        <div class="map-node" style="top: 410px; left: 120px;" onclick="seleccionarPunto('San Félix / Unare', 'Zona Industrial de Proveedores')">
+          <div class="hub-pin proveedor">
+            <span>🏪</span>
+            <div>
+              <div>PROVEEDORES</div>
+              <span style="font-size: .65rem; color: var(--purple);">Repuestos & Ferretería</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nodo 4: Mina El Limón (Carga Pesada) -->
+        <div class="map-node" style="top: 390px; left: 520px;" onclick="seleccionarPunto('Mina El Limón', 'Frente de Maquinaria Pesada')">
+          <div class="hub-pin mina">
+            <span>🚧</span>
+            <div>
+              <div>MINA EL LIMÓN</div>
+              <span style="font-size: .65rem; color: var(--orange);">Campamento Carga</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- VEHÍCULO 1 ANIMADO EN RUTA (MOTO) -->
+        <div id="vehiculoMoto" class="vehicle-marker pulse-ring" style="top: 155px; left: 290px;" onclick="verDetallesChofer('Carlos Pérez', 'Moto Bera Socialista', 'En Ruta hacia Peramanal', '18 min')">
+          🛵
+        </div>
+
+        <!-- VEHÍCULO 2 ANIMADO (CAMIÓN CARGA PESADA) -->
+        <div id="vehiculoCamion" class="vehicle-marker" style="top: 285px; left: 320px; border-color: var(--orange);" onclick="verDetallesChofer('Marcos Rivas', 'Camión Mack Granite', 'Transportando Oruga D8', '45 min')">
+          🚚
+        </div>
+
+        <!-- BARRA DE TELEMETRÍA INFERIOR -->
+        <div class="map-telemetry">
+          <div>
+            <span style="color: var(--text-muted);">Unidad en Foco:</span>
+            <strong id="telemetryChofer" style="color: var(--gold-bright);">Carlos Pérez (Moto Bera)</strong>
+          </div>
+          <div>
+            <span style="color: var(--text-muted);">Velocidad:</span>
+            <strong id="telemetryVelocidad">48 km/h</strong>
+          </div>
+          <div>
+            <span style="color: var(--text-muted);">Destino:</span>
+            <strong id="telemetryDestino">Mina Peramanal</strong>
+          </div>
+          <div>
+            <span style="color: var(--text-muted);">ETA:</span>
+            <strong id="telemetryEta" style="color: var(--green);">18 min</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- SIMULACIÓN DE AVANCE EN TIEMPO REAL -->
+      <div style="margin-top: .85rem; padding: .75rem; background: var(--bg-card-inner); border-radius: 12px; border: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; font-size: .8rem;">
+          <span>🚀 Progreso de la ruta actual: <strong>Los Pinos → Mina Peramanal</strong></span>
+          <span id="simPorcentaje" style="font-weight: 800; color: var(--gold-bright);">65%</span>
+        </div>
+        <div class="sim-progress-bar">
+          <div id="simBarFill" class="sim-progress-fill" style="width: 65%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLUMNA DERECHA: TARJETAS DE ÓRDENES Y DESPACHO -->
+    <div class="side-panel">
+      <div class="orders-card">
+        <div class="panel-head">
+          <div class="panel-title">
+            <span>📋</span> Despachos Activos
+          </div>
+          <span style="font-size: .78rem; color: var(--text-muted);" id="ordersCounter">4 órdenes registradas</span>
+        </div>
+
+        <!-- FILTROS DE CHIP -->
+        <div class="filter-chips">
+          <button type="button" class="chip active" onclick="filtrarOrdenes('todos', this)">Todos</button>
+          <button type="button" class="chip" onclick="filtrarOrdenes('por_tomar', this)">Por Tomar (1)</button>
+          <button type="button" class="chip" onclick="filtrarOrdenes('en_camino', this)">En Camino (2)</button>
+          <button type="button" class="chip" onclick="filtrarOrdenes('entregado', this)">Entregados (1)</button>
+        </div>
+
+        <!-- LISTA DE ÓRDENES INTERACTIVAS -->
+        <div class="orders-list" id="listaOrdenes">
+
+          <!-- ORDEN 1: MOTO EN CAMINO -->
+          <div class="order-item active" data-status="en_camino" onclick="seleccionarOrden(1, 'DEL-2026-0089', 'Mina Peramanal', 'Bomba de inyección Caterpillar', 'Carlos Pérez', 45, '18 min')">
+            <div class="order-top">
+              <span class="order-code">DEL-2026-0089</span>
+              <span class="order-badge en_camino">🚚 En Camino</span>
+            </div>
+            <div class="order-cargo">📦 Bomba de inyección Caterpillar + 2 Filtros</div>
+            <div class="order-route">📍 Los Pinos ➔ ⛏️ Mina Peramanal</div>
+            <div class="order-footer">
+              <span>👤 Chofer: <strong>Carlos Pérez (Moto)</strong></span>
+              <span class="order-price">$ 45,00</span>
+            </div>
+          </div>
+
+          <!-- ORDEN 2: CARGA PESADA EN CAMINO -->
+          <div class="order-item" data-status="en_camino" onclick="seleccionarOrden(2, 'CAR-2026-0014', 'Mina El Limón', 'Cilindro Hidráulico Komatsu 350', 'Marcos Rivas', 220, '45 min')">
+            <div class="order-top">
+              <span class="order-code">CAR-2026-0014</span>
+              <span class="order-badge en_camino" style="border-color: var(--orange); color: var(--orange);">🚚 Carga Pesada</span>
+            </div>
+            <div class="order-cargo">🏗️ Cilindro Hidráulico Komatsu 350 (1.2 Ton)</div>
+            <div class="order-route">📍 Proveedores ➔ 🚧 Mina El Limón</div>
+            <div class="order-footer">
+              <span>👤 Chofer: <strong>Marcos Rivas (Mack)</strong></span>
+              <span class="order-price">$ 220,00</span>
+            </div>
+          </div>
+
+          <!-- ORDEN 3: POR TOMAR -->
+          <div class="order-item" data-status="por_tomar" onclick="seleccionarOrden(3, 'DEL-2026-0090', 'Taller Mina', 'Empacaduras y sellos de cobre', 'Por asignar', 25, 'Pendiente')">
+            <div class="order-top">
+              <span class="order-code">DEL-2026-0090</span>
+              <span class="order-badge por_tomar">💰 Por Tomar</span>
+            </div>
+            <div class="order-cargo">📦 Kit de Empacaduras y sellos de cobre</div>
+            <div class="order-route">📍 San Félix ➔ ⛏️ Taller Central Mina</div>
+            <div class="order-footer">
+              <span style="color: var(--gold-bright);">⏳ Sin Chofer Asignado</span>
+              <span class="order-price">$ 25,00</span>
+            </div>
+          </div>
+
+          <!-- ORDEN 4: ENTREGADO -->
+          <div class="order-item" data-status="entregado" onclick="seleccionarOrden(4, 'DEL-2026-0088', 'Los Pinos', 'Almuerzos y refrigerios mina (15 pack)', 'Javier Silva', 35, 'Completado')">
+            <div class="order-top">
+              <span class="order-code">DEL-2026-0088</span>
+              <span class="order-badge entregado">✅ Entregado</span>
+            </div>
+            <div class="order-cargo">🍱 Almuerzos y refrigerios para guardia (15 pack)</div>
+            <div class="order-route">📍 Comedor Central ➔ ⛏️ Guardia Peramanal</div>
+            <div class="order-footer">
+              <span>👤 Entregado por: <strong>Javier Silva</strong></span>
+              <span class="order-price">$ 35,00</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div style="margin-top: 1rem; display: flex; gap: .5rem;">
+          <button type="button" class="btn btn-gold" style="width: 100%; justify-content: center;" onclick="abrirModalDetalles()">
+            📄 Ver Comprobante y Guía Digital
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VISTA 2: SIMULADOR MÓVIL (TELÉFONO DEL CHOFER) -->
+  <div id="vistaMovilWrapper" class="phone-mockup-wrapper">
+    <div class="phone-frame">
+      <div class="phone-notch"><div class="phone-camera"></div></div>
+
+      <div class="phone-screen">
+        <!-- Header Teléfono -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div>
+            <div style="font-size: .75rem; color: #94a3b8;">Golden Touch Móvil</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: var(--gold);">🛵 Mi Delivery</div>
+          </div>
+          <div style="background: rgba(16,185,129,0.2); border: 1px solid var(--green); padding: 3px 8px; border-radius: 999px; font-size: .7rem; color: var(--green); font-weight: 800;">
+            ● GPS ACTIVO
+          </div>
+        </div>
+
+        <!-- Barra de Chips sin botón "Todos" (exactamente como se configuró en producción) -->
+        <div class="phone-nav-chips">
+          <div id="pChipPorTomar" class="p-chip active" onclick="cambiarTabTelefono('por_tomar')">
+            💰 Por tomar
+          </div>
+          <div id="pChipEnCamino" class="p-chip" onclick="cambiarTabTelefono('en_camino')">
+            🚚 En camino
+          </div>
+          <div id="pChipEntregados" class="p-chip" onclick="cambiarTabTelefono('entregados')">
+            ✅ Entregados
+          </div>
+        </div>
+
+        <!-- Contenido Móvil Dinámico -->
+        <div id="contenidoTelefono">
+          <!-- Tarjeta de carrera disponible para tomar -->
+          <div class="phone-order-card">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span style="font-size: .8rem; font-weight: 800; color: #38bdf8;">DEL-2026-0090</span>
+              <span style="font-size: .95rem; font-weight: 900; color: var(--gold);">$ 25,00</span>
+            </div>
+            <div style="font-weight: 700; font-size: .88rem; margin-bottom: 4px;">📦 Kit de Empacaduras y sellos</div>
+            <div style="font-size: .75rem; color: #94a3b8; margin-bottom: 8px;">
+              📍 Recoger: Ferretería San Félix<br>
+              🏁 Entregar: Taller Central Mina (Distancia: 14 km)
+            </div>
+            <button type="button" class="p-btn-action p-btn-take" onclick="tomarCarreraTelefono()">
+              ⚡ ¡Tomar Esta Carrera Ahora!
+            </button>
+          </div>
+
+          <div style="background: rgba(255,255,255,0.03); border: 1px dashed var(--border); border-radius: 12px; padding: 12px; text-align: center; font-size: .75rem; color: var(--text-muted);">
+            🔔 Notificaciones en tiempo real activadas con sonido y vibración.
+          </div>
+        </div>
+
+        <!-- Botón de soporte / WhatsApp -->
+        <div style="margin-top: auto; padding-top: 10px;">
+          <button type="button" class="btn" style="width: 100%; justify-content: center; font-size: .78rem;" onclick="alert('Conectando con despacho de Compras y Almacén...')">
+            💬 Contactar a Despacho Central
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE DETALLES Y GUÍA DE DESPACHO -->
+  <div class="action-modal" id="modalDetalles">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>🧾 Guía de Despacho & Comprobante</h3>
+        <button type="button" class="modal-close" onclick="cerrarModalDetalles()">✕</button>
+      </div>
+
+      <div style="background: var(--bg-card-inner); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; font-size: .85rem;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: .6rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: .4rem;">
+          <span style="color: var(--text-muted);">Número de Guía:</span>
+          <strong id="modalGuiaCodigo" style="color: var(--gold-bright);">DEL-2026-0089</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: .4rem;">
+          <span style="color: var(--text-muted);">Transportista:</span>
+          <strong id="modalGuiaChofer">Carlos Pérez (CI: V-24.819.201)</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: .4rem;">
+          <span style="color: var(--text-muted);">Vehículo:</span>
+          <strong id="modalGuiaVehiculo">Moto Bera Socialista (Placa: AE4X12)</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: .4rem;">
+          <span style="color: var(--text-muted);">Destino:</span>
+          <strong id="modalGuiaDestino">Mina Peramanal · Frente 1</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: .6rem; padding-top: .5rem; border-top: 1px solid rgba(255,255,255,0.08);">
+          <span style="color: var(--text-muted); font-size: .95rem;">Monto a Liquidar:</span>
+          <strong id="modalGuiaMonto" style="color: var(--gold); font-size: 1.15rem;">$ 45,00</strong>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: .6rem;">
+        <button type="button" class="btn btn-gold" style="flex: 1; justify-content: center;" onclick="alert('Generando PDF oficial de despacho...')">
+          🖨️ Imprimir Guía
+        </button>
+        <button type="button" class="btn" style="flex: 1; justify-content: center;" onclick="cerrarModalDetalles()">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ESTADO DE LA MAQUETA
+    let modoVehiculo = 'delivery'; // 'delivery' | 'carga'
+    let vistaActual = 'pc'; // 'pc' | 'mobile'
+    let ordenSeleccionadaId = 1;
+
+    // Cambiar entre Delivery (Moto) y CARGA PESADA
+    function setVehicleMode(modo) {
+      modoVehiculo = modo;
+      const btnDel = document.getElementById('btnSwitchDelivery');
+      const btnCarga = document.getElementById('btnSwitchCarga');
+      const headerTitle = document.getElementById('headerModeTitle');
+      const headerIcon = document.getElementById('mainHeaderIcon');
+      const bannerText = document.getElementById('bannerText');
+
+      if (modo === 'carga') {
+        btnDel.className = 'switch-btn delivery';
+        btnCarga.className = 'switch-btn active carga-pesada';
+        headerTitle.innerHTML = 'Logística · <span style="color: #facc15;">CARGA PESADA</span>';
+        headerIcon.innerText = '🚚';
+        headerIcon.style.background = 'linear-gradient(135deg, #ea580c, #f59e0b)';
+        bannerText.innerText = ' Modo CARGA PESADA: Monitoreando camiones Mack, gandolas y fletes de maquinaria.';
+        
+        // Destacar ruta de carga pesada en el mapa
+        document.getElementById('pathRuta3').classList.add('active');
+        document.getElementById('pathRuta1').classList.remove('active');
+        
+        // Ajustar telemetría
+        document.getElementById('telemetryChofer').innerText = 'Marcos Rivas (Mack Granite)';
+        document.getElementById('telemetryDestino').innerText = 'Mina El Limón';
+        document.getElementById('telemetryVelocidad').innerText = '42 km/h';
+        document.getElementById('telemetryEta').innerText = '45 min';
+      } else {
+        btnDel.className = 'switch-btn active delivery';
+        btnCarga.className = 'switch-btn carga-pesada';
+        headerTitle.innerHTML = 'Delivery & <span style="color: var(--gold);">Carga Pesada</span>';
+        headerIcon.innerText = '🛵';
+        headerIcon.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+        bannerText.innerText = ' Modo DELIVERY MOTO: Envíos express de repuestos, paquetes y provisiones.';
+
+        document.getElementById('pathRuta1').classList.add('active');
+        document.getElementById('pathRuta3').classList.remove('active');
+
+        document.getElementById('telemetryChofer').innerText = 'Carlos Pérez (Moto Bera)';
+        document.getElementById('telemetryDestino').innerText = 'Mina Peramanal';
+        document.getElementById('telemetryVelocidad').innerText = '48 km/h';
+        document.getElementById('telemetryEta').innerText = '18 min';
+      }
+    }
+
+    // Cambiar entre Vista Despacho PC y Simulador Móvil
+    function setViewMode(vista) {
+      vistaActual = vista;
+      const tabPC = document.getElementById('tabViewPC');
+      const tabMob = document.getElementById('tabViewMobile');
+      const vistaPC = document.getElementById('vistaPC');
+      const vistaMovil = document.getElementById('vistaMovilWrapper');
+
+      if (vista === 'mobile') {
+        tabPC.classList.remove('active');
+        tabMob.classList.add('active');
+        vistaPC.style.display = 'none';
+        vistaMovil.classList.add('active');
+      } else {
+        tabMob.classList.remove('active');
+        tabPC.classList.add('active');
+        vistaMovil.classList.remove('active');
+        vistaPC.style.display = 'grid';
+      }
+    }
+
+    // Filtrar tarjetas de órdenes
+    function filtrarOrdenes(estado, btn) {
+      document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+
+      const items = document.querySelectorAll('.orders-list .order-item');
+      items.forEach(item => {
+        if (estado === 'todos' || item.getAttribute('data-status') === estado) {
+          item.style.display = 'block';
+        } else {
+          item.style.display = 'none';
+        }
+      });
+    }
+
+    // Seleccionar Orden
+    function seleccionarOrden(id, codigo, destino, carga, chofer, monto, eta) {
+      ordenSeleccionadaId = id;
+      document.querySelectorAll('.orders-list .order-item').forEach(el => el.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+
+      document.getElementById('telemetryChofer').innerText = chofer;
+      document.getElementById('telemetryDestino').innerText = destino;
+      document.getElementById('telemetryEta').innerText = eta;
+
+      document.getElementById('modalGuiaCodigo').innerText = codigo;
+      document.getElementById('modalGuiaDestino').innerText = destino;
+      document.getElementById('modalGuiaChofer').innerText = chofer;
+      document.getElementById('modalGuiaMonto').innerText = '$ ' + monto.toFixed(2).replace('.', ',');
+    }
+
+    // Seleccionar Punto en el Radar
+    function seleccionarPunto(nombre, desc) {
+      alert(`📍 Ubicación seleccionada: ${nombre}\n${desc}`);
+    }
+
+    // Ver detalles de chofer
+    function verDetallesChofer(nombre, vehiculo, estado, eta) {
+      alert(`👤 Transportista: ${nombre}\n🚜 Vehículo: ${vehiculo}\n📌 Estado: ${estado}\n⏱️ Tiempo estimado: ${eta}`);
+    }
+
+    // Modal
+    function abrirModalDetalles() {
+      document.getElementById('modalDetalles').classList.add('open');
+    }
+    function cerrarModalDetalles() {
+      document.getElementById('modalDetalles').classList.remove('open');
+    }
+
+    // Cambiar Tab en Simulador Teléfono
+    function cambiarTabTelefono(tab) {
+      document.getElementById('pChipPorTomar').classList.remove('active');
+      document.getElementById('pChipEnCamino').classList.remove('active');
+      document.getElementById('pChipEntregados').classList.remove('active');
+
+      const cont = document.getElementById('contenidoTelefono');
+
+      if (tab === 'por_tomar') {
+        document.getElementById('pChipPorTomar').classList.add('active');
+        cont.innerHTML = `
+          <div class="phone-order-card">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span style="font-size: .8rem; font-weight: 800; color: #38bdf8;">DEL-2026-0090</span>
+              <span style="font-size: .95rem; font-weight: 900; color: var(--gold);">$ 25,00</span>
+            </div>
+            <div style="font-weight: 700; font-size: .88rem; margin-bottom: 4px;">📦 Kit de Empacaduras y sellos</div>
+            <div style="font-size: .75rem; color: #94a3b8; margin-bottom: 8px;">
+              📍 Recoger: Ferretería San Félix<br>
+              🏁 Entregar: Taller Central Mina (Distancia: 14 km)
+            </div>
+            <button type="button" class="p-btn-action p-btn-take" onclick="tomarCarreraTelefono()">
+              ⚡ ¡Tomar Esta Carrera Ahora!
+            </button>
+          </div>
+        `;
+      } else if (tab === 'en_camino') {
+        document.getElementById('pChipEnCamino').classList.add('active');
+        cont.innerHTML = `
+          <div class="phone-order-card" style="border-color: var(--blue);">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span style="font-size: .8rem; font-weight: 800; color: var(--blue);">DEL-2026-0089</span>
+              <span style="font-size: .95rem; font-weight: 900; color: var(--gold);">$ 45,00</span>
+            </div>
+            <div style="font-weight: 700; font-size: .88rem; margin-bottom: 4px;">📦 Bomba de inyección Caterpillar</div>
+            <div style="font-size: .75rem; color: #94a3b8; margin-bottom: 8px;">
+              🚚 En tránsito hacia Mina Peramanal (Restante: 6.2 km)
+            </div>
+            <button type="button" class="p-btn-action p-btn-finish" onclick="marcarEntregadoTelefono()">
+              ✅ Marcar Entrega & Subir Foto
+            </button>
+          </div>
+        `;
+      } else {
+        document.getElementById('pChipEntregados').classList.add('active');
+        cont.innerHTML = `
+          <div class="phone-order-card" style="border-color: var(--green); opacity: 0.9;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span style="font-size: .8rem; font-weight: 800; color: var(--green);">DEL-2026-0088</span>
+              <span style="font-size: .95rem; font-weight: 900; color: #fff;">$ 35,00</span>
+            </div>
+            <div style="font-weight: 700; font-size: .88rem; margin-bottom: 4px;">🍱 Almuerzos y refrigerios mina</div>
+            <div style="font-size: .72rem; color: var(--green);">
+              ✓ Entregado a las 12:45 pm con firma de receptor
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    function tomarCarreraTelefono() {
+      alert('🎉 ¡Carrera tomada con éxito! Tu ruta GPS hacia el proveedor ha sido trazada.');
+      cambiarTabTelefono('en_camino');
+    }
+
+    function marcarEntregadoTelefono() {
+      alert('📸 Foto de comprobante capturada. ¡Entrega registrada y lista para liquidación!');
+      cambiarTabTelefono('entregados');
+    }
+
+    // Simulación Dinámica en Vivo
+    function iniciarSimulacionCompleta() {
+      setViewMode('pc');
+      alert('▶️ Iniciando Simulación de Despacho en Vivo. Observa el movimiento del vehículo en el radar y la barra de progreso.');
+      
+      const moto = document.getElementById('vehiculoMoto');
+      const bar = document.getElementById('simBarFill');
+      const porc = document.getElementById('simPorcentaje');
+      let p = 10;
+      
+      const timer = setInterval(() => {
+        p += 15;
+        if (p > 100) {
+          clearInterval(timer);
+          p = 100;
+          bar.style.width = '100%';
+          porc.innerText = '100% (¡ENTREGADO!)';
+          alert('🏁 ¡El vehículo llegó a Mina Peramanal! Orden marcada como completada.');
+        } else {
+          bar.style.width = p + '%';
+          porc.innerText = p + '%';
+          moto.style.left = (120 + p * 3.4) + 'px';
+        }
+      }, 700);
+    }
+
+    function despacharNuevoPedidoDemo() {
+      alert('📦 ¡Nueva solicitud de delivery generada desde Mina Peramanal! Asignando al chofer disponible más cercano...');
+      const lista = document.getElementById('listaOrdenes');
+      const nueva = document.createElement('div');
+      nueva.className = 'order-item';
+      nueva.setAttribute('data-status', 'por_tomar');
+      nueva.innerHTML = `
+        <div class="order-top">
+          <span class="order-code">DEL-2026-0091</span>
+          <span class="order-badge por_tomar">⚡ Urgente</span>
+        </div>
+        <div class="order-cargo">🛠️ Sensor de presión para Jumbo 330</div>
+        <div class="order-route">📍 Los Pinos ➔ ⛏️ Frente Peramanal</div>
+        <div class="order-footer">
+          <span style="color: var(--gold-bright);">⏳ Asignando chofer...</span>
+          <span class="order-price">$ 40,00</span>
+        </div>
+      `;
+      lista.prepend(nueva);
+      document.getElementById('ordersCounter').innerText = '5 órdenes registradas';
+    }
+
+    function resetCameraRadar() {
+      alert('🎯 Radar centrado en el corredor Los Pinos - Mina Peramanal.');
+    }
+  </script>
+</body>
+</html>
