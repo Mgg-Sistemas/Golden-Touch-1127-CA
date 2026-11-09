@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
-import { dateTime } from '@/shared/lib/format';
+import { date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { TasaHoy } from '@/shared/lib/types';
 import {
   getTasaHoy, getBinance3, getTasasMercado, getCripto, getCriptoCache, getMetales, setMetalManual,
-  refrescarTasa, refrescarBinanceP2P, refrescarCop, refrescarMetales,
+  refrescarTasa, refrescarBinanceP2P, refrescarCop, refrescarMetales, nombreMetal,
   type Binance3, type CriptoTasa, type MetalTasa, type TasasMercado,
 } from './tasas.repository';
 
@@ -24,6 +24,13 @@ function cop(n: number | null | undefined): string {
 }
 
 /** Tarjeta de tasa con el estilo kpi del sistema (como el dashboard). */
+/** Precio de metal sin dato o con más de 3 días: se marca en rojo (el admin lo puede cargar a mano). */
+function metalViejo(m: MetalTasa): boolean {
+  if (m.usd == null || !m.at) return true;
+  const t = new Date(m.at).getTime();
+  return !Number.isFinite(t) || Date.now() - t > 3 * 86_400_000;
+}
+
 function RateCard({ icon, label, value, sub, alert, onClick }: {
   icon: string; label: string; value: string; sub?: string; alert?: boolean; onClick?: () => void;
 }) {
@@ -82,12 +89,13 @@ export function TasasView() {
     try {
       // Refresco en vivo de todo: BCV, Binance, TRM, cripto (CoinGecko) y metales.
       let errorMetales: string | null = null;
+      let faltanMetales: { faltantes: string[]; motivo: string | null } | null = null;
       const [, , , criptoLive] = await Promise.all([
         refrescarTasa().catch(() => null),
         refrescarBinanceP2P().catch(() => null),
         refrescarCop().catch(() => null),
         getCripto().catch(() => null),
-        refrescarMetales().catch((e: unknown) => {
+        refrescarMetales().then((r) => { faltanMetales = r; }).catch((e: unknown) => {
           errorMetales = e instanceof Error ? e.message : 'No se pudieron actualizar los metales';
           return null;
         }),
@@ -96,6 +104,14 @@ export function TasasView() {
       if (criptoLive && criptoLive.some((x) => x.usd != null)) setCripto(criptoLive);
       toast('Tasas actualizadas', 'success');
       if (errorMetales) toast(`Metales: ${errorMetales}`, 'error');
+      const fm = faltanMetales as { faltantes: string[]; motivo: string | null } | null;
+      if (fm && fm.faltantes.length) {
+        toast(
+          `Metales: sin precio nuevo para ${fm.faltantes.map(nombreMetal).join(', ')}`
+            + `${fm.motivo ? ` (${fm.motivo})` : ''}.${isAdmin ? ' Puedes cargarlos a mano con un clic en la tarjeta.' : ''}`,
+          'warning',
+        );
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron actualizar las tasas', 'error');
     } finally { setBusy(false); }
@@ -161,9 +177,9 @@ export function TasasView() {
             icon="⛏"
             label={m.label}
             value={usd(m.usd)}
-            sub={m.manual ? `${m.unidad} · ${isAdmin ? 'clic para cargar' : 'manual'}` : m.unidad}
-            alert={m.usd == null}
-            onClick={m.manual && isAdmin ? () => cargarMetalManual(m) : undefined}
+            sub={`${m.unidad} · ${m.at ? `al ${date(m.at)}` : 'sin precio'}${isAdmin && metalViejo(m) ? ' · clic para cargar' : ''}`}
+            alert={metalViejo(m)}
+            onClick={isAdmin ? () => cargarMetalManual(m) : undefined}
           />
         ))}
       </div>

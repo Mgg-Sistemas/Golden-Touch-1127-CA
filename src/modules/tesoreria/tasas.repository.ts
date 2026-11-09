@@ -409,16 +409,24 @@ async function mensajeDeFuncion(error: unknown, porDefecto: string): Promise<str
 
 /** Fuerza la actualización de metales (Edge Function tasa-metales).
  *  Lanza con el motivo real (key no configurada o rechazada, límite del plan,
- *  la API no devolvió precios…) para que la vista lo muestre. */
-export async function refrescarMetales(): Promise<void> {
+ *  la API no devolvió precios…) para que la vista lo muestre.
+ *  Si actualizó solo algunos (oro/plata/cobre por la fuente gratis), devuelve
+ *  los que faltaron y el motivo. */
+export async function refrescarMetales(): Promise<{ faltantes: string[]; motivo: string | null }> {
   const { data, error } = await supabase.functions.invoke<
-    { ok: true; precios: Record<string, number>; faltantes?: string[] } | { ok: false; motivo?: string; error?: string }
+    { ok: true; precios: Record<string, number>; faltantes?: string[]; motivo?: string } | { ok: false; motivo?: string; error?: string }
   >('tasa-metales', { body: {} });
   if (error) throw new Error(await mensajeDeFuncion(error, 'No se pudo actualizar metales'));
   if (!data || data.ok !== true) {
     const d = data as { motivo?: string; error?: string } | null;
     throw new Error(d?.motivo || d?.error || 'No se pudo actualizar metales');
   }
+  return { faltantes: data.faltantes ?? [], motivo: data.motivo ?? null };
+}
+
+/** Nombre visible de un par de metal (METAL_ESTANO → Estaño). */
+export function nombreMetal(par: string): string {
+  return METAL_DEF.find((m) => m.key === par)?.label ?? par;
 }
 
 /* ───────────── Metales (requiere fuente con API key vía Edge Function tasa-metales) ───────────── */

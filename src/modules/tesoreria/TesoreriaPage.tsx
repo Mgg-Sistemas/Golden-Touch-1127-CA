@@ -2272,6 +2272,22 @@ const ESTADO_TRANSFER: Record<string, { label: string; color: string }> = {
   error: { label: 'Pendiente de entrega ⟳', color: 'var(--danger)' },
 };
 
+/** Monedas que trae una transferencia entrante (Bs, USD, USDT…). */
+function monedasEntrante(t: TransferenciaInter): string[] {
+  return [...new Set((t.legs ?? []).filter((l) => Number(l.monto) > 0).map((l) => String(l.moneda)))];
+}
+
+/** Cajas locales que pueden recibir una entrante: la Multimoneda (maneja todas)
+ *  o la caja cuya moneda es la de la transferencia. Nunca un centro de acopio. */
+function cajasQueRecibenEntrante(cajas: Caja[], t: TransferenciaInter): Caja[] {
+  const monedas = monedasEntrante(t);
+  return cajas.filter((c) => {
+    if (c.externo || c.tipo === 'centro_acopio') return false;
+    if (/multimoneda/i.test(c.nombre)) return true;
+    return monedas.length > 0 && monedas.every((m) => m === c.moneda);
+  });
+}
+
 function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName, onChanged }: {
   transfers: TransferenciaInter[]; cajas: Caja[]; canWrite: boolean; actor: string; actorName: string | null; onChanged: () => void | Promise<void>;
 }) {
@@ -2293,6 +2309,12 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
   async function confirmar(t: TransferenciaInter) {
     const cajaId = t.caja_id || sel[t.id];
     if (!cajaId) { toast('Elige la caja que recibe el dinero.', 'error'); return; }
+    // 09/11/2026: un ingreso de Bs 1.000.000 se acreditó en la caja «USDT» y en
+    // Tesorería «no había Bs». La caja elegida debe manejar la moneda que entra.
+    if (!t.caja_id && !cajasQueRecibenEntrante(cajas, t).some((c) => c.id === cajaId)) {
+      toast(`Esa caja no maneja ${monedasEntrante(t).join(' / ')}: elige la caja de esa moneda o la Multimoneda.`, 'error');
+      return;
+    }
     setBusy(t.id);
     try {
       await confirmarTransferenciaEntrante({ row: t, cajaId, actor, actorName });
@@ -2345,7 +2367,7 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
                 </div>
                 {!t.caja_id && (
                   <SearchSelect value={sel[t.id] ?? ''} onChange={(v) => setSel((m) => ({ ...m, [t.id]: v }))} style={{ maxWidth: 200 }}
-                    placeholder="🔍 Caja que recibe…" options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
+                    placeholder="🔍 Caja que recibe…" options={cajasQueRecibenEntrante(cajas, t).map((c) => ({ value: c.id, label: c.nombre }))} />
                 )}
                 {canWrite && (
                   <div style={{ display: 'flex', gap: '.4rem' }}>

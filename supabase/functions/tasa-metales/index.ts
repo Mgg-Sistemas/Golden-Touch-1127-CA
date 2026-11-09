@@ -9,8 +9,8 @@
 // El plan "lite" limita los símbolos por request → se piden en lotes de 2.
 //
 // Respuestas:
-//   200 { ok:true, precios, at, cached, faltantes? }
-//   200 { ok:false, motivo }   ← SOLO "sin API key": es a propósito, no rompe el cron
+//   200 { ok:true, precios, at, cached, faltantes?, motivo? }  ← motivo = por qué faltan
+//   200 { ok:false, motivo }   ← SOLO "sin API key" y sin respaldo: no rompe el cron
 //   502 { ok:false, error }    ← la API rechazó la key / límite / sin precios
 //   500 { ok:false, error }    ← no se pudo guardar
 // Throttle: un metal con snapshot de hace < 10 min no se vuelve a pedir ni a
@@ -37,6 +37,25 @@ const MAPA: Array<{ par: string; sym: string }> = [
   { par: 'METAL_PLATA', sym: 'XAG' },            // USD/onza
 ];
 
+// Respaldo GRATIS y sin key (gold-api.com): oro, plata y cobre. Se usa cuando
+// commoditypriceapi no da precio (09/11/2026: respondía HTTP 402 = plan vencido)
+// o no hay METALES_API_KEY. GET /price/XAU → { price, symbol, updatedAt }.
+// Unidades iguales a las de arriba: oro/plata USD/onza, cobre (HG) USD/libra.
+const RESPALDO: Record<string, string> = { METAL_ORO: 'XAU', METAL_PLATA: 'XAG', METAL_COBRE: 'HG' };
+const RESPALDO_URL = 'https://api.gold-api.com/price/';
+
+async function precioRespaldo(sym: string): Promise<number | null> {
+  try {
+    const resp = await fetchT(RESPALDO_URL + encodeURIComponent(sym), { headers: { accept: 'application/json' } });
+    if (!resp.ok) { console.warn(`tasa-metales: respaldo ${sym} HTTP ${resp.status}`); return null; }
+    const data = await resp.json() as { price?: number };
+    return positivo(data?.price);
+  } catch (e) {
+    console.warn(`tasa-metales: respaldo ${sym}`, e instanceof Error ? e.name : 'error');
+    return null;
+  }
+}
+
 function chunk<T>(arr: T[], n: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
@@ -51,8 +70,8 @@ Deno.serve(async (req) => {
   if (llamador instanceof Response) return llamador;
   const supabase = llamador.db;
 
+  // Sin key igual se intenta el respaldo gratis (oro, plata, cobre).
   const apiKey = Deno.env.get('METALES_API_KEY');
-  if (!apiKey) return json({ ok: false, motivo: 'METALES_API_KEY no configurada' });
 
   const payload = await leerPayload<{ force?: boolean }>(req);
   const forzar = forceDeAdmin(llamador, payload);
@@ -83,15 +102,17 @@ Deno.serve(async (req) => {
   const fallas: string[] = [];
   let keyRechazada = false;
   let limite = false;
-  for (const grupo of chunk(pendientes, 2)) {
+  let sinPago = false;
+  for (const grupo of (apiKey ? chunk(pendientes, 2) : [])) {
     const symbols = grupo.map((g) => g.sym).join(',');
     try {
       const resp = await fetchT(
-        `${base}?apiKey=${encodeURIComponent(apiKey)}&symbols=${encodeURIComponent(symbols)}`,
+        `${base}?apiKey=${encodeURIComponent(apiKey ?? '')}&symbols=${encodeURIComponent(symbols)}`,
         { headers: { accept: 'application/json' } },
       );
       if (resp.status === 401 || resp.status === 403) keyRechazada = true;
       if (resp.status === 429) limite = true;
+      if (resp.status === 402) sinPago = true;
       if (!resp.ok) { fallas.push(`${symbols}: HTTP ${resp.status}`); continue; }
       const data = await resp.json() as { success?: boolean; rates?: Record<string, number> };
       if (data?.success === false) { fallas.push(`${symbols}: success=false`); continue; }
@@ -102,27 +123,43 @@ Deno.serve(async (req) => {
   }
   if (fallas.length) console.warn('tasa-metales: lotes con falla', fallas);
 
+  // Respaldo gratis para oro/plata/cobre que la API paga no trajo.
+  const respaldo: Record<string, number> = {};
+  await Promise.all(pendientes
+    .filter((d) => RESPALDO[d.par] && positivo(rates[d.sym]) == null)
+    .map(async (d) => {
+      const v = await precioRespaldo(RESPALDO[d.par]);
+      if (v != null) respaldo[d.par] = v;
+    }));
+
   const nowIso = new Date().toISOString();
   const snaps: Array<{ par: string; tasa: number; fuente: string; at: string }> = [];
   const out: Record<string, number> = {};
   const faltantes: string[] = [];
   for (const d of pendientes) {
-    const v = positivo(rates[d.sym]);
+    const pago = positivo(rates[d.sym]);
+    const v = pago ?? respaldo[d.par] ?? null;
     if (v != null) {
       const r = round2(v);
-      snaps.push({ par: d.par, tasa: r, fuente: 'commoditypriceapi', at: nowIso });
+      snaps.push({ par: d.par, tasa: r, fuente: pago != null ? 'commoditypriceapi' : 'gold-api', at: nowIso });
       out[d.par] = r;
     } else {
       faltantes.push(d.par);
     }
   }
-  if (!snaps.length) {
-    const error = keyRechazada
+  // Por qué la API paga no trajo precios (se devuelve para que la vista lo explique).
+  const motivoApi = !apiKey
+    ? 'METALES_API_KEY no configurada'
+    : keyRechazada
       ? 'La API de metales rechazó la key (revisá METALES_API_KEY)'
-      : limite
-        ? 'La API de metales llegó al límite del plan; probá más tarde'
-        : 'La API de metales no devolvió precios';
-    return json({ ok: false, error }, 502);
+      : sinPago
+        ? 'El plan de la API de metales (commoditypriceapi) está vencido o sin créditos (pago requerido)'
+        : limite
+          ? 'La API de metales llegó al límite del plan; probá más tarde'
+          : 'La API de metales no devolvió precios';
+  if (!snaps.length) {
+    if (!apiKey) return json({ ok: false, motivo: motivoApi });
+    return json({ ok: false, error: motivoApi }, 502);
   }
   const { error: insErr } = await supabase.from('tasa_snapshot').insert(snaps);
   if (insErr) {
@@ -130,5 +167,8 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: 'No se pudieron guardar los precios de metales' }, 500);
   }
 
-  return json({ ok: true, precios: out, at: nowIso, cached: false, ...(faltantes.length ? { faltantes } : {}) });
+  return json({
+    ok: true, precios: out, at: nowIso, cached: false,
+    ...(faltantes.length ? { faltantes, motivo: motivoApi } : {}),
+  });
 });
