@@ -172,6 +172,16 @@ export interface Aviso {
 }
 export type AvisoInput = Omit<Aviso, 'id' | 'leido'>;
 
+/** Documento requerido de un centro (tabla `admin_centro_requeridos`): el checklist
+ *  editable contra el que se mide la cobertura (fase) del centro. */
+export interface CentroRequerido {
+  id: string;
+  empresaClave: string;
+  centroId: string;
+  tipoDocumento: TipoDocumento;
+}
+export type CentroRequeridoInput = Omit<CentroRequerido, 'id'>;
+
 /** Un egreso por período: el pendiente generado, el movimiento importado o el
  *  alta manual (tabla `admin_gasto_fijo_movimientos`). Sobre esto va el reporte. */
 export interface Movimiento {
@@ -466,6 +476,10 @@ export interface AdminRepo {
   listAvisos(empresaClave?: string): Promise<Aviso[]>;
   crearAviso(a: AvisoInput): Promise<Aviso>;
   marcarAvisoLeido(id: string, leido: boolean): Promise<void>;
+  // Requeridos por centro (checklist de fase)
+  listCentroRequeridos(empresaClave?: string): Promise<CentroRequerido[]>;
+  agregarCentroRequerido(input: CentroRequeridoInput): Promise<CentroRequerido>;
+  quitarCentroRequerido(id: string): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -716,8 +730,16 @@ const T_PROF = 'admin_profesionales';
 const T_CARP = 'admin_carpetas';
 const T_GES = 'admin_gestiones';
 const T_ENV = 'admin_envios_tesoreria';
+interface RowCReq { id: string; empresa_clave: string; centro_id: string; tipo_documento: string }
+function aCReq(r: RowCReq): CentroRequerido {
+  return { id: r.id, empresaClave: r.empresa_clave, centroId: r.centro_id, tipoDocumento: r.tipo_documento as TipoDocumento };
+}
+function deCReq(x: CentroRequeridoInput): Record<string, unknown> {
+  return { empresa_clave: x.empresaClave, centro_id: x.centroId, tipo_documento: x.tipoDocumento };
+}
 const T_RESP = 'admin_responsabilidades';
 const T_AVISO = 'admin_avisos';
+const T_CREQ = 'admin_centro_requeridos';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
 const T_MOV = 'admin_gasto_fijo_movimientos';
@@ -1071,6 +1093,27 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async marcarAvisoLeido(id, leido) {
       const { error } = await supabase.from(T_AVISO).update({ leido }).eq('id', id);
+      if (error) throw error;
+    },
+    async listCentroRequeridos(empresaClave) {
+      let q = supabase.from(T_CREQ).select('*');
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
+      return (data ?? []).map((r) => aCReq(r as RowCReq));
+    },
+    async agregarCentroRequerido(input) {
+      const { data, error } = await supabase.from(T_CREQ)
+        .upsert(deCReq(input), { onConflict: 'centro_id,tipo_documento' })
+        .select('*').single();
+      if (error) throw error;
+      return aCReq(data as RowCReq);
+    },
+    async quitarCentroRequerido(id) {
+      const { error } = await supabase.from(T_CREQ).delete().eq('id', id);
       if (error) throw error;
     },
     async listGastosFijos(empresaClave) {

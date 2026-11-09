@@ -7,7 +7,7 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
-import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, CrearEnvioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, EnvioTesoreria, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, Responsabilidad, ResponsabilidadInput, Aviso, AvisoInput, TipoDocumento } from '../admin.repository';
+import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, CrearEnvioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, EnvioTesoreria, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, Responsabilidad, ResponsabilidadInput, Aviso, AvisoInput, CentroRequerido, CentroRequeridoInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
 import { disponibleParaEnviar, motivoNoReversable } from '../administracionHonorarios';
@@ -86,6 +86,7 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
   const envios: EnvioTesoreria[] = [];
   const responsabilidades: Responsabilidad[] = [];
   const avisos: Aviso[] = [];
+  const centroRequeridos: CentroRequerido[] = [];
   const urlsDemo = new Map<string, string>(); // path → object URL (solo en memoria)
   const claveDe = (id: string) => empresas.find((e) => e.id === id)?.clave;
 
@@ -250,6 +251,21 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
     marcarAvisoLeido: (id, leido) => {
       const i = avisos.findIndex((x) => x.id === id);
       if (i >= 0) avisos[i] = { ...avisos[i], leido };
+      return Promise.resolve();
+    },
+    listCentroRequeridos: (empresaClave) => Promise.resolve(
+      centroRequeridos.filter((x) => !empresaClave || x.empresaClave === empresaClave).map((x) => ({ ...x })),
+    ),
+    agregarCentroRequerido: (input: CentroRequeridoInput) => {
+      const existente = centroRequeridos.find((x) => x.centroId === input.centroId && x.tipoDocumento === input.tipoDocumento);
+      if (existente) return Promise.resolve({ ...existente });
+      const nuevo: CentroRequerido = { id: uid(), ...input };
+      centroRequeridos.push(nuevo);
+      return Promise.resolve({ ...nuevo });
+    },
+    quitarCentroRequerido: (id) => {
+      const i = centroRequeridos.findIndex((x) => x.id === id);
+      if (i >= 0) centroRequeridos.splice(i, 1);
       return Promise.resolve();
     },
     __marcarEnvioPagado: (envioId: string) => {
