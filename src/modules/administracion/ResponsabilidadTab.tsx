@@ -13,7 +13,7 @@ import type { Usuario } from '@/shared/lib/types';
 import { STATUS_VENCIMIENTO_LABEL, type AdminRepo, type Aviso, type DocumentoEmpresa, type Empresa, type ObjetivoResp, type Responsabilidad } from './admin.repository';
 import { agendaVencimientos, textoDiasRestantes, type ItemAgenda } from './administracionAgenda';
 import {
-  cargaPorAnalista, misResponsabilidades, nombrePorEmail,
+  cargaPorAnalista, misResponsabilidades, nombrePorEmail, etiquetaObjetivo,
   type CargaAnalista, type OrdenMisResp,
 } from './administracionResponsabilidad';
 import { construirAvisos } from './administracionAvisos';
@@ -21,6 +21,9 @@ import { construirAvisos } from './administracionAvisos';
 type Vista = 'carga' | 'mias' | 'avisos' | 'asignar';
 const ORDEN_LABEL: Record<OrdenMisResp, string> = {
   prioridad: 'Prioridad', estatus: 'Estatus', vigencia_asc: 'Más próximo a vencer', vigencia_desc: 'Mayor vigencia',
+};
+const TIPO_AVISO_LABEL: Record<string, string> = {
+  por_vencer: 'Por vencer', vencido: 'Vencido', incumplido: 'Incumplido', acuerdo: 'Acuerdo', nota: 'Nota',
 };
 
 export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }: {
@@ -68,6 +71,13 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
 
   const docPorId = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
   const nombres = useMemo(() => nombrePorEmail(usuarios), [usuarios]);
+  // id de objetivo → nombre legible (documentos por nombre; gestiones/gastos por su título de agenda).
+  const nombresObjetivo = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of docs) m.set(d.id, d.nombre);
+    for (const i of items) if (!m.has(i.id)) m.set(i.id, i.titulo);
+    return m;
+  }, [docs, items]);
   const carga = useMemo(() => cargaPorAnalista(items, resp, docPorId), [items, resp, docPorId]);
   const mias = useMemo(() => (analista ? misResponsabilidades(analista, items, resp, docPorId, orden) : []), [analista, items, resp, docPorId, orden]);
 
@@ -211,7 +221,7 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
               {avisos.map((a) => (
                 <div key={a.id} className="card" style={{ padding: '.5rem .75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', opacity: a.leido ? 0.6 : 1 }}>
                   <div style={{ minWidth: 0 }}>
-                    <span className={`adm-badge ${a.tipo === 'vencido' ? 'suspendido' : ''}`} style={{ marginRight: '.4rem' }}>{a.tipo}</span>
+                    <span className={`adm-badge ${a.tipo === 'vencido' ? 'suspendido' : ''}`} style={{ marginRight: '.4rem' }}>{TIPO_AVISO_LABEL[a.tipo] ?? a.tipo}</span>
                     <strong style={{ fontSize: '.82rem' }}>{a.texto}</strong>
                     {a.responsableEmail && <span className="muted hint" style={{ fontSize: '.72rem', display: 'block' }}>👤 {nombre(a.responsableEmail)}</span>}
                   </div>
@@ -241,7 +251,7 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
                   {resp.map((r) => (
                     <tr key={r.id}>
                       <td style={{ fontSize: '.82rem' }}>{nombre(r.usuarioEmail)}</td>
-                      <td style={{ fontSize: '.8rem' }} className="muted">{r.objetivoTipo}: {r.objetivoId}</td>
+                      <td style={{ fontSize: '.8rem' }} className="muted">{etiquetaObjetivo(r.objetivoTipo, r.objetivoId, nombresObjetivo)}</td>
                       <td style={{ textAlign: 'right' }}><button type="button" className="btn btn-xs btn-ghost" style={{ color: '#ef4444' }} onClick={() => void quitar(r.id)} disabled={ocupado}>Quitar</button></td>
                     </tr>
                   ))}

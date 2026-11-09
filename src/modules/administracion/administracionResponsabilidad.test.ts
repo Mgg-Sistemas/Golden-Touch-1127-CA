@@ -96,4 +96,17 @@ describe('misResponsabilidades', () => {
   it('un analista sin responsabilidades ve vacío', () => {
     expect(misResponsabilidades('nadie@gt.com', items, rs, docPorId, 'estatus')).toEqual([]);
   });
+
+  it('los «sin fecha» (null) van al final en asc y al principio en desc («mayor vigencia»)', () => {
+    const rs2 = [
+      resp({ usuarioEmail: 'z@gt.com', objetivoTipo: 'gestion', objetivoId: 'gA' }),
+      resp({ usuarioEmail: 'z@gt.com', objetivoTipo: 'gestion', objetivoId: 'gB' }),
+    ];
+    const its = [
+      item({ origen: 'gestion', id: 'gA', diasRestantes: 10 }),
+      item({ origen: 'gestion', id: 'gB', diasRestantes: null, status: 'no_vence' }),
+    ];
+    expect(misResponsabilidades('z@gt.com', its, rs2, docPorId, 'vigencia_asc').map((i) => i.id)).toEqual(['gA', 'gB']);
+    expect(misResponsabilidades('z@gt.com', its, rs2, docPorId, 'vigencia_desc').map((i) => i.id)).toEqual(['gB', 'gA']);
+  });
 });

@@ -16,6 +16,16 @@ export function nombrePorEmail(usuarios: { email: string; nombre: string }[]): M
   return new Map(usuarios.map((u) => [u.email, u.nombre?.trim() || u.email]));
 }
 
+const ETIQUETA_OBJETIVO: Record<ObjetivoResp, string> = { carpeta: 'Carpeta', documento: 'Documento', gasto: 'Gasto', gestion: 'Gestión' };
+
+/** Etiqueta legible de un objetivo para el front (nunca un uuid crudo): resuelve el
+ *  nombre por id cuando lo hay; para carpeta usa su slug; si no, el tipo sin el uuid. */
+export function etiquetaObjetivo(tipo: ObjetivoResp, objetivoId: string, nombres: Map<string, string>): string {
+  if (tipo === 'carpeta') return `Carpeta: ${objetivoId}`;
+  const n = nombres.get(objetivoId);
+  return n ? `${ETIQUETA_OBJETIVO[tipo]}: ${n}` : `${ETIQUETA_OBJETIVO[tipo]} sin identificar`;
+}
+
 /** Emails distintos responsables de un objetivo concreto. */
 export function responsablesDeObjetivo(tipo: ObjetivoResp, objetivoId: string, resp: Responsabilidad[]): string[] {
   const set = new Set<string>();
