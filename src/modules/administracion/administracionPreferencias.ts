@@ -9,7 +9,7 @@
 export const PREFIJO_ADMIN = 'gt.administracion.v1.';
 export const PREFIJO_ADMIN_DEMO = 'gt.administracion.demo.v1.';
 
-export type TabAdmin = 'gastos' | 'movimientos' | 'honorarios' | 'documentos' | 'agenda' | 'responsabilidad' | 'reporte' | 'config';
+export type TabAdmin = 'tablero' | 'gastos' | 'movimientos' | 'honorarios' | 'documentos' | 'agenda' | 'responsabilidad' | 'reporte' | 'config';
 /** 'todas' o la clave de una empresa. */
 export const TODAS = 'todas';
 
@@ -27,7 +27,7 @@ function almacenDelNavegador(): Almacen | null {
 }
 
 const esTab = (v: unknown): v is TabAdmin =>
-  v === 'gastos' || v === 'movimientos' || v === 'honorarios' || v === 'documentos' || v === 'agenda' || v === 'responsabilidad' || v === 'reporte' || v === 'config';
+  v === 'tablero' || v === 'gastos' || v === 'movimientos' || v === 'honorarios' || v === 'documentos' || v === 'agenda' || v === 'responsabilidad' || v === 'reporte' || v === 'config';
 
 export function crearPreferenciasAdmin(prefijo = PREFIJO_ADMIN, almacen: Almacen | null = almacenDelNavegador()) {
   const leer = (clave: string): string | null => {
@@ -40,7 +40,7 @@ export function crearPreferenciasAdmin(prefijo = PREFIJO_ADMIN, almacen: Almacen
     /** La empresa elegida (clave) o 'todas'; por defecto 'todas'. */
     leerEmpresa: (): string => leer('empresa') ?? TODAS,
     guardarEmpresa: (clave: string) => guardar('empresa', clave),
-    leerTab: (): TabAdmin => { const v = leer('tab'); return esTab(v) ? v : 'gastos'; },
+    leerTab: (): TabAdmin => { const v = leer('tab'); return esTab(v) ? v : 'tablero'; },
     guardarTab: (t: TabAdmin) => guardar('tab', t),
   };
 }

@@ -13,6 +13,13 @@ import { coberturaCentro, type CoberturaCentro } from './administracionCobertura
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Semáforo de cobertura por centro: 100% al día, 60-99 atención, <60 crítico. */
+export function colorSemaforoCobertura(pct: number): 'critico' | 'atencion' | 'al_dia' {
+  if (pct >= 100) return 'al_dia';
+  if (pct >= 60) return 'atencion';
+  return 'critico';
+}
+
 export interface ResumenTablero {
   agenda: { vencidos: number; porVencer: number; vigentes: number };
   pendientePorMoneda: { moneda: Moneda; saldo: number }[];

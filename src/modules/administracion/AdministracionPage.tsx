@@ -20,10 +20,12 @@ import { ResponsabilidadTab } from './ResponsabilidadTab';
 import { ReporteTab } from './ReporteTab';
 import { DocumentosTab } from './DocumentosTab';
 import { ConfiguracionTab } from './ConfiguracionTab';
+import { TableroModuloTab } from './TableroModuloTab';
 import { DocumentosEmpresaModal } from './DocumentosEmpresaModal';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
+  { id: 'tablero', label: '📊 Tablero' },
   { id: 'gastos', label: '📌 Gastos fijos' },
   { id: 'movimientos', label: '📒 Movimientos / Histórico' },
   { id: 'honorarios', label: '💼 Honorarios' },
@@ -109,6 +111,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
         </div>
       )}
 
+      {tab === 'tablero' && <TableroModuloTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'gastos' && <GastosFijosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'movimientos' && <MovimientosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'honorarios' && <HonorariosTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
