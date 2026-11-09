@@ -181,6 +181,9 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
       if (f.encargado_responsable?.trim()) {
         addCatalogoMaquinaria('encargado_responsable', f.encargado_responsable.trim().toUpperCase()).catch(() => {});
       }
+      if (f.propietario?.trim()) {
+        addCatalogoMaquinaria('propietario', f.propietario.trim().toUpperCase()).catch(() => {});
+      }
       toast(esNuevo ? 'Equipo creado' : 'Equipo actualizado', 'success');
       onSaved(); onClose();
     } catch (err) {
@@ -337,7 +340,13 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
         <div className="form-grid">
           <div className="form-row">
             <label>Propietario</label>
-            <SearchSelect value={f.propietario ?? ''} onChange={(v) => set('propietario', v || null)} options={props.map((t) => ({ value: t, label: t }))} placeholder="— elige el propietario —" />
+            <SearchCreateSelect
+              value={f.propietario ?? ''}
+              onChange={(v) => set('propietario', upper(v) || null)}
+              options={props}
+              placeholder="Elige o escribe el propietario…"
+            />
+            <small className="muted">Catálogo de propietarios: al escribir un nombre nuevo se guarda para los demás equipos.</small>
           </div>
           <div className="form-row">
             <label>Status</label>
