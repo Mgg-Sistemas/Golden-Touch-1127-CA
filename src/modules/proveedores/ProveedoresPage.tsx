@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { SearchSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -33,7 +34,6 @@ import { guardarUbicacion, ubicacionDe } from './proveedores.repository';
 import { coordsTxt, type PuntoMapa } from './ubicacionProveedor';
 
 type EstadoFilter = '' | EstadoGenerico;
-type CategoriaFilter = string;
 type ModoVista = 'tarjetas' | 'tabla';
 const VIEW_KEY = 'gt.proveedores.modo_vista';
 
@@ -54,6 +54,212 @@ const EMPTY_FORM: ProveedorInput = {
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const onlyDigits = (v: string, max: number) => v.replace(/\D/g, '').slice(0, max);
 
+interface CategoriaMultiDropdownProps {
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  proveedores: Proveedor[];
+}
+
+function CategoriaMultiDropdown({ options, selected, onChange, proveedores }: CategoriaMultiDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const countsPerCategory = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of proveedores) {
+      for (const c of p.categorias ?? []) {
+        map.set(c, (map.get(c) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [proveedores]);
+
+  const filtered = useMemo(() => {
+    const q = norm(query);
+    if (!q) return options;
+    return options.filter((o) => norm(o).includes(q));
+  }, [options, query]);
+
+  function toggle(cat: string) {
+    if (selected.includes(cat)) {
+      onChange(selected.filter((c) => c !== cat));
+    } else {
+      onChange([...selected, cat]);
+    }
+  }
+
+  const labelBtn =
+    selected.length === 0
+      ? '🏷️ Categorías (Todas)'
+      : selected.length === 1
+      ? `🏷️ ${selected[0]}`
+      : `🏷️ Categorías (${selected.length})`;
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className={`btn btn-sm ${selected.length > 0 ? 'btn-primary' : 'btn-outline'}`}
+        onClick={() => setOpen((prev) => !prev)}
+        style={{
+          height: 38,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '.4rem',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          borderRadius: 'var(--r-md, 8px)',
+        }}
+        title="Filtrar por una o varias categorías (búsqueda interactiva)"
+      >
+        <span>{labelBtn}</span>
+        <span style={{ fontSize: '.7rem', opacity: 0.7 }}>{open ? '▲' : '▾'}</span>
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Filtro de categorías"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            zIndex: 9999,
+            minWidth: 280,
+            maxWidth: 340,
+            width: 'max-content',
+            background: 'var(--surface-2, #182230)',
+            border: '1.5px solid var(--primary, #ff8a00)',
+            borderRadius: 12,
+            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+            padding: '.6rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '.5rem',
+          }}
+        >
+          <input
+            className="input"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="🔍 Buscar categoría…"
+            style={{ fontSize: '.84rem', padding: '.4rem .65rem', height: 34 }}
+          />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.75rem', padding: '0 .2rem' }}>
+            <span className="muted">
+              {filtered.length} de {options.length}
+            </span>
+            <div style={{ display: 'flex', gap: '.3rem' }}>
+              {selected.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-xs btn-ghost"
+                  onClick={() => onChange([])}
+                  style={{ color: 'var(--danger, #ef4444)' }}
+                >
+                  Limpiar ({selected.length})
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost"
+                onClick={() => { setOpen(false); setQuery(''); }}
+              >
+                Cerrar ✕
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              maxHeight: 260,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1px',
+              borderTop: '1px solid var(--border)',
+              paddingTop: '.3rem',
+            }}
+          >
+            {filtered.length === 0 ? (
+              <div className="muted" style={{ padding: '.8rem', fontSize: '.82rem', textAlign: 'center' }}>
+                Sin categorías coincidentes
+              </div>
+            ) : (
+              filtered.map((cat) => {
+                const isSelected = selected.includes(cat);
+                const count = countsPerCategory.get(cat) ?? 0;
+                return (
+                  <div
+                    key={cat}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggle(cat)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '.4rem .6rem',
+                      cursor: 'pointer',
+                      borderRadius: 6,
+                      background: isSelected ? 'rgba(255, 138, 0, 0.15)' : 'transparent',
+                      color: isSelected ? 'var(--primary-2, #ffa733)' : 'var(--text)',
+                      fontWeight: isSelected ? 700 : 400,
+                      fontSize: '.85rem',
+                      transition: 'background 0.1s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                      />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {cat}
+                      </span>
+                    </div>
+                    {count > 0 && (
+                      <span
+                        className="badge mono"
+                        style={{
+                          fontSize: '.68rem',
+                          padding: '1px 6px',
+                          marginLeft: '.5rem',
+                          background: isSelected ? 'var(--primary)' : 'var(--surface-3)',
+                          color: isSelected ? '#fff' : 'var(--text-muted)',
+                        }}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProveedoresPage() {
   const canWrite = usePermissions().can('proveedores', 'escritura');
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -62,7 +268,9 @@ export function ProveedoresPage() {
 
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoFilter>('');
-  const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
+  const [filterCategorias, setFilterCategorias] = useState<string[]>([]);
+  const [filterOrigen, setFilterOrigen] = useState<string>('');
+  const [filterUbicacion, setFilterUbicacion] = useState<string>('');
   const [filterGps, setFilterGps] = useState(false);
   const [categoriasList, setCategoriasList] = useState<string[]>([]);
   useEffect(() => {
@@ -114,15 +322,55 @@ export function ProveedoresPage() {
 
   useEffect(() => {
     setPagina(1);
-  }, [filterText, filterEstado, filterCategoria, filterGps]);
+  }, [filterText, filterEstado, filterCategorias, filterOrigen, filterUbicacion, filterGps]);
 
   const kpis = useMemo(() => {
     const total = proveedores.length;
     const activos = proveedores.filter((p) => p.estado === 'activo').length;
     const inactivos = total - activos;
     const conGps = proveedores.filter((p) => ubicacionDe(p) != null).length;
-    return { total, activos, inactivos, conGps };
+    const nacionales = proveedores.filter((p) => p.origen === 'nacional').length;
+    const internacionales = total - nacionales;
+    return { total, activos, inactivos, conGps, nacionales, internacionales };
   }, [proveedores]);
+
+  const estadoOptions: SearchOption[] = useMemo(() => [
+    { value: '', label: '⚡ Todos los estados' },
+    { value: 'activo', label: '✅ Activos', hint: `${kpis.activos} prov.` },
+    { value: 'inactivo', label: '⛔ Inactivos', hint: `${kpis.inactivos} prov.` },
+  ], [kpis.activos, kpis.inactivos]);
+
+  const origenOptions: SearchOption[] = useMemo(() => [
+    { value: '', label: '🌎 Todos los orígenes' },
+    { value: 'nacional', label: '🇻🇪 Nacional', hint: `${kpis.nacionales} prov.` },
+    { value: 'internacional', label: '🌎 Internacional', hint: `${kpis.internacionales} prov.` },
+  ], [kpis.nacionales, kpis.internacionales]);
+
+  const ubicacionOptions: SearchOption[] = useMemo(() => {
+    const opts: SearchOption[] = [
+      { value: '', label: '📍 Todas las ubicaciones' },
+      { value: 'con_gps', label: '🛰️ Con ubicación GPS', hint: `${kpis.conGps} prov.` },
+      { value: 'sin_gps', label: '📍 Sin ubicación GPS', hint: `${kpis.total - kpis.conGps} prov.` },
+    ];
+    const CIUDADES_CONOCIDAS = [
+      'Puerto Ordaz', 'Ciudad Guayana', 'Ciudad Bolívar', 'San Félix', 'Upata',
+      'Caracas', 'Maturín', 'El Tigre', 'Barcelona', 'Puerto La Cruz',
+      'Lechería', 'Valencia', 'Maracay', 'Barquisimeto', 'Maracaibo',
+      'Peramanal', 'Guasipati', 'El Callao', 'Tumeremo', 'La Esperanza'
+    ];
+    CIUDADES_CONOCIDAS.forEach((ciudad) => {
+      const q = norm(ciudad);
+      const conteo = proveedores.filter((p) => norm(p.direccion ?? '').includes(q)).length;
+      if (conteo > 0) {
+        opts.push({
+          value: `ciudad:${ciudad}`,
+          label: `🏙️ ${ciudad}`,
+          hint: `${conteo} prov.`,
+        });
+      }
+    });
+    return opts;
+  }, [proveedores, kpis.conGps, kpis.total]);
 
   useEffect(() => {
     if (!gestionCatsOpen) return;
@@ -167,17 +415,27 @@ export function ProveedoresPage() {
     const q = norm(filterText);
     return proveedores.filter((p) => {
       if (filterEstado && p.estado !== filterEstado) return false;
-      if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
+      if (filterCategorias.length > 0) {
+        const provCats = p.categorias ?? [];
+        if (!filterCategorias.some((c) => provCats.includes(c))) return false;
+      }
+      if (filterOrigen && p.origen !== filterOrigen) return false;
+      if (filterUbicacion === 'con_gps' && ubicacionDe(p) == null) return false;
+      if (filterUbicacion === 'sin_gps' && ubicacionDe(p) != null) return false;
+      if (filterUbicacion.startsWith('ciudad:')) {
+        const ciudad = filterUbicacion.replace('ciudad:', '');
+        if (!norm(p.direccion ?? '').includes(norm(ciudad))) return false;
+      }
       if (filterGps && ubicacionDe(p) == null) return false;
       if (q) {
-        const hay = [p.razon_social, p.rif, p.contacto, p.email]
+        const hay = [p.razon_social, p.rif, p.contacto, p.email, p.direccion]
           .map((v) => norm(v))
           .some((v) => v.includes(q));
         if (!hay) return false;
       }
       return true;
     });
-  }, [proveedores, filterText, filterEstado, filterCategoria, filterGps]);
+  }, [proveedores, filterText, filterEstado, filterCategorias, filterOrigen, filterUbicacion, filterGps]);
 
   const totalPaginas = Math.max(1, Math.ceil(filtered.length / itemsPorPagina));
   const paginaValida = Math.min(pagina, totalPaginas);
@@ -193,7 +451,9 @@ export function ProveedoresPage() {
   const descripcionFiltro = [
     filterText.trim() && `Búsqueda «${filterText.trim()}»`,
     filterEstado && (filterEstado === 'activo' ? 'Activos' : 'Inactivos'),
-    filterCategoria && `Categoría ${filterCategoria}`,
+    filterCategorias.length > 0 && `Categorías: ${filterCategorias.join(', ')}`,
+    filterOrigen && (filterOrigen === 'nacional' ? 'Origen Nacional' : 'Origen Internacional'),
+    filterUbicacion && (filterUbicacion === 'con_gps' ? 'Con GPS' : filterUbicacion === 'sin_gps' ? 'Sin GPS' : `Ciudad: ${filterUbicacion.replace('ciudad:', '')}`),
     filterGps && 'Con ubicación GPS',
   ].filter(Boolean).join(' · ');
 
@@ -317,17 +577,21 @@ export function ProveedoresPage() {
           onClick={() => {
             setFilterEstado('');
             setFilterGps(false);
+            setFilterOrigen('');
+            setFilterUbicacion('');
+            setFilterCategorias([]);
+            setFilterText('');
           }}
           className="card"
           style={{
             padding: '.75rem 1rem',
-            background: filterEstado === '' && !filterGps ? 'var(--surface-3)' : 'var(--surface-2)',
+            background: filterEstado === '' && !filterGps && !filterOrigen && !filterUbicacion && filterCategorias.length === 0 && !filterText ? 'var(--surface-3)' : 'var(--surface-2)',
             border: '1px solid var(--border)',
             borderLeft: '4px solid var(--border-strong)',
             cursor: 'pointer',
             transition: 'all 0.15s ease',
           }}
-          title="Ver todos los proveedores"
+          title="Ver todos los proveedores (limpiar todos los filtros)"
         >
           <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 700 }}>Total Proveedores</div>
           <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text)' }}>{kpis.total}</div>
@@ -408,53 +672,46 @@ export function ProveedoresPage() {
       >
         <input
           className="input"
-          style={{ maxWidth: 360 }}
-          placeholder="Buscar por razón social, RIF, contacto, email…"
+          style={{ minWidth: 240, flex: '1 1 240px', maxWidth: 340 }}
+          placeholder="Buscar por razón social, RIF, contacto, dirección…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
-        <select
-          className="select"
-          style={{ maxWidth: 180 }}
-          value={filterEstado}
-          onChange={(e) => setFilterEstado(e.target.value as EstadoFilter)}
-        >
-          <option value="">Todos los estados</option>
-          <option value="activo">Activos</option>
-          <option value="inactivo">Inactivos</option>
-        </select>
-        <select
-          className="select"
-          style={{ maxWidth: 220 }}
-          value={filterCategoria}
-          onChange={(e) => setFilterCategoria(e.target.value as CategoriaFilter)}
-        >
-          <option value="">Todas las categorías</option>
-          {categoriasList.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
 
-        {filterGps && (
-          <button
-            type="button"
-            onClick={() => setFilterGps(false)}
-            className="btn btn-xs btn-outline"
-            style={{
-              borderColor: 'var(--primary)',
-              color: 'var(--primary)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '.3rem',
-              fontWeight: 600,
-            }}
-            title="Quitar filtro de GPS"
-          >
-            📍 Con GPS ({kpis.conGps}) ✕
-          </button>
-        )}
+        {/* Buscador de Estado con lista */}
+        <SearchSelect
+          style={{ width: 160 }}
+          options={estadoOptions}
+          value={filterEstado}
+          onChange={(v) => setFilterEstado(v as EstadoFilter)}
+          placeholder="⚡ Estado…"
+        />
+
+        {/* Buscador de Origen (Nacional / Internacional) */}
+        <SearchSelect
+          style={{ width: 175 }}
+          options={origenOptions}
+          value={filterOrigen}
+          onChange={setFilterOrigen}
+          placeholder="🌎 Origen…"
+        />
+
+        {/* Buscador de Ubicación (Con GPS, Sin GPS, Ciudades detectadas) */}
+        <SearchSelect
+          style={{ width: 195 }}
+          options={ubicacionOptions}
+          value={filterUbicacion}
+          onChange={setFilterUbicacion}
+          placeholder="📍 Ubicación…"
+        />
+
+        {/* Buscador de Categorías con multi-selección interactiva */}
+        <CategoriaMultiDropdown
+          options={categoriasList}
+          selected={filterCategorias}
+          onChange={setFilterCategorias}
+          proveedores={proveedores}
+        />
 
         <div className="view-toggle" role="tablist" aria-label="Modo de vista" style={{ marginLeft: 'auto' }}>
           <button
@@ -475,6 +732,88 @@ export function ProveedoresPage() {
           </button>
         </div>
       </div>
+
+      {(filterCategorias.length > 0 || filterOrigen || filterUbicacion || filterGps || filterEstado || filterText) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', marginBottom: '1rem', padding: '.45rem .75rem', background: 'var(--surface-2)', borderRadius: 'var(--r-md, 8px)', border: '1px solid var(--border)' }}>
+          <span className="muted" style={{ fontSize: '.75rem', fontWeight: 700 }}>Filtros activos:</span>
+          {filterText.trim() && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterText('')}
+              title="Quitar búsqueda de texto"
+            >
+              🔍 «{filterText.trim()}» ✕
+            </span>
+          )}
+          {filterEstado && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterEstado('')}
+              title="Quitar filtro de estado"
+            >
+              {filterEstado === 'activo' ? '✅ Activos' : '⛔ Inactivos'} ✕
+            </span>
+          )}
+          {filterOrigen && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterOrigen('')}
+              title="Quitar filtro de origen"
+            >
+              {filterOrigen === 'nacional' ? '🇻🇪 Nacional' : '🌎 Internacional'} ✕
+            </span>
+          )}
+          {filterUbicacion && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterUbicacion('')}
+              title="Quitar filtro de ubicación"
+            >
+              {filterUbicacion === 'con_gps' ? '🛰️ Con GPS' : filterUbicacion === 'sin_gps' ? '📍 Sin GPS' : `🏙️ ${filterUbicacion.replace('ciudad:', '')}`} ✕
+            </span>
+          )}
+          {filterGps && filterUbicacion !== 'con_gps' && (
+            <span
+              className="badge primary"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterGps(false)}
+              title="Quitar filtro de GPS"
+            >
+              📍 Con GPS ✕
+            </span>
+          )}
+          {filterCategorias.map((c) => (
+            <span
+              key={c}
+              className="badge primary"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontWeight: 600 }}
+              onClick={() => setFilterCategorias((prev) => prev.filter((x) => x !== c))}
+              title="Quitar esta categoría"
+            >
+              🏷️ {c} ✕
+            </span>
+          ))}
+          <button
+            type="button"
+            className="btn btn-xs btn-ghost"
+            style={{ fontSize: '.72rem', color: 'var(--primary)', fontWeight: 600, marginLeft: 'auto' }}
+            onClick={() => {
+              setFilterEstado('');
+              setFilterOrigen('');
+              setFilterUbicacion('');
+              setFilterGps(false);
+              setFilterCategorias([]);
+              setFilterText('');
+            }}
+          >
+            Limpiar todos los filtros
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="card">
