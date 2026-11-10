@@ -18,6 +18,11 @@
    `null` llega a pantalla. Los datos faltantes van a buckets con nombre claro.
    ============================================================ */
 
+import type { Orden } from '@/shared/lib/types';
+import type { CompraDirecta } from './compras.repository';
+import type { ServicioDirecto } from './serviciosDirectos.repository';
+import { statusBadge } from '@/shared/lib/format';
+
 /* ───────────── Tipos de configuración ───────────── */
 
 /** Grano del dato que se está reportando. */
@@ -131,4 +136,170 @@ export function mesEtiqueta(fechaIso: string): string {
   const mesIdx = Number(m) - 1;
   if (mesIdx >= 0 && mesIdx < 12 && y) return `${MESES_ES[mesIdx]} ${y}`;
   return fechaIso || 'Sin fecha';
+}
+
+/* ───────────── Fila normalizada ───────────── */
+
+export interface FilaReporteCompras {
+  id: string;
+  ambito: AmbitoCompras;
+  tipo_compra: TipoCompra;
+
+  fecha: string;              // YYYY-MM-DD (ancla: created_at)
+  codigo: string;             // OC-/CD-/SD-… (nunca el uuid)
+  departamento: string;       // unidad_solicitante normalizada o «Sin departamento asignado»
+  proveedor: string;          // razón social o «—»
+  estado: string;             // estado crudo (para agrupar)
+  estado_rotulo: string;      // rótulo en palabras del usuario
+  clase_estado: ClaseEstadoCompra;
+
+  categoria: string;          // categoría de inventario (ámbito ítems) o ''
+  categoria_gasto: string | null; // solo compras directas
+  nombre_item: string;        // nombre del ítem (ámbito ítems) o ''
+  cantidad: number | null;    // cantidad del ítem (ámbito ítems)
+
+  moneda_original: string;
+  monto_original: number;
+  monto_usd: number;
+  monto_bs: number;
+  pagado_usd: number;
+  pagado_bs: number;
+
+  // Métricas de grupo (cuando la fila representa un grupo agregado)
+  total_items?: number;
+  pct_del_total?: number;
+}
+
+/* ───────────── Normalizadores (ámbito órdenes: una fila = una compra) ───────────── */
+
+/** Nombre del proveedor por id (o «—» si no hay). */
+function proveedorDe(id: string | null | undefined, ctx: ContextoCompras): string {
+  const nombre = id ? ctx.nombreProveedor.get(id) : null;
+  return (nombre || '').trim() || '—';
+}
+
+/**
+ * Normaliza las ÓRDENES (`ordenes`) a filas del reporte. Descarta las de clase
+ * `excluida` (canceladas/rechazadas/solicitudes previas a la OC). El monto sale de
+ * `total`/`total_moneda`; lo pagado, de `total` si tiene fecha de pago o de
+ * `abonado_total` si está a crédito.
+ */
+export function normalizarOrdenes(ordenes: Orden[], ctx: ContextoCompras): FilaReporteCompras[] {
+  const filas: FilaReporteCompras[] = [];
+  for (const o of ordenes) {
+    const clase = clasificarEstadoOrden(o.estado);
+    if (clase === 'excluida') continue;
+    const moneda = (o.total_moneda || 'USD').toUpperCase();
+    const monto = Number(o.total) || 0;
+    const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
+    const pagadoNativo = o.pagada_en
+      ? monto
+      : (o.estado === 'cuenta_abierta' ? (Number(o.abonado_total) || 0) : 0);
+    const pagado = montoUsdBs(pagadoNativo, moneda, ctx.tasaBcv);
+    filas.push({
+      id: `oc-${o.id}`,
+      ambito: 'ordenes',
+      tipo_compra: 'orden',
+      fecha: diaDe(o.created_at),
+      codigo: (o.oc_codigo || o.codigo || '—').trim() || '—',
+      departamento: normalizarDepartamento(o.unidad_solicitante),
+      proveedor: proveedorDe(o.proveedor_id, ctx),
+      estado: o.estado,
+      estado_rotulo: statusBadge(o.estado).label,
+      clase_estado: clase,
+      categoria: '',
+      categoria_gasto: null,
+      nombre_item: '',
+      cantidad: null,
+      moneda_original: moneda,
+      monto_original: round2(monto),
+      monto_usd: usd,
+      monto_bs: bs,
+      pagado_usd: pagado.usd,
+      pagado_bs: pagado.bs,
+    });
+  }
+  return filas;
+}
+
+/**
+ * Normaliza las COMPRAS DIRECTAS (`compras_directas`) a filas. Sin departamento
+ * (bucket nombrado); se agrupan por categoría de gasto (`gasto_categoria`).
+ * `en_proceso` queda fuera (sin monto). Lo pagado sale de `gasto` si tiene
+ * `pagada_at`.
+ */
+export function normalizarDirectas(directas: CompraDirecta[], ctx: ContextoCompras): FilaReporteCompras[] {
+  const filas: FilaReporteCompras[] = [];
+  for (const c of directas) {
+    const clase = clasificarEstadoDirectaServicio(c.estado);
+    if (clase === 'excluida') continue;
+    const moneda = (c.moneda || 'USD').toUpperCase();
+    const monto = Number(c.gasto) || 0;
+    const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
+    const pagado = montoUsdBs(c.pagada_at ? monto : 0, moneda, ctx.tasaBcv);
+    filas.push({
+      id: `cd-${c.id}`,
+      ambito: 'ordenes',
+      tipo_compra: 'directa',
+      fecha: diaDe(c.created_at),
+      codigo: (c.codigo || '—').trim() || '—',
+      departamento: SIN_DEPARTAMENTO,
+      proveedor: (c.proveedor_nombre || '').trim() || proveedorDe(c.proveedor_id, ctx),
+      estado: c.estado,
+      estado_rotulo: statusBadge(c.estado).label,
+      clase_estado: clase,
+      categoria: '',
+      categoria_gasto: (c.gasto_categoria || '').trim() || SIN_CATEGORIA_GASTO,
+      nombre_item: '',
+      cantidad: null,
+      moneda_original: moneda,
+      monto_original: round2(monto),
+      monto_usd: usd,
+      monto_bs: bs,
+      pagado_usd: pagado.usd,
+      pagado_bs: pagado.bs,
+    });
+  }
+  return filas;
+}
+
+/**
+ * Normaliza los SERVICIOS DIRECTOS (`servicios_directos`) a filas. Traen
+ * `unidad_solicitante` (departamento). `en_proceso` fuera. Lo pagado sale de
+ * `gasto` si tiene `pagada_at`, o de `abonado_total` (pago con abonos).
+ */
+export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoCompras): FilaReporteCompras[] {
+  const filas: FilaReporteCompras[] = [];
+  for (const s of servicios) {
+    const clase = clasificarEstadoDirectaServicio(s.estado);
+    if (clase === 'excluida') continue;
+    const moneda = (s.moneda || 'USD').toUpperCase();
+    const monto = Number(s.gasto) || 0;
+    const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
+    const pagadoNativo = s.pagada_at ? monto : (Number(s.abonado_total) || 0);
+    const pagado = montoUsdBs(pagadoNativo, moneda, ctx.tasaBcv);
+    filas.push({
+      id: `sd-${s.id}`,
+      ambito: 'ordenes',
+      tipo_compra: 'servicio',
+      fecha: diaDe(s.created_at),
+      codigo: (s.codigo || '—').trim() || '—',
+      departamento: normalizarDepartamento(s.unidad_solicitante),
+      proveedor: (s.proveedor_nombre || '').trim() || proveedorDe(s.proveedor_id, ctx),
+      estado: s.estado,
+      estado_rotulo: statusBadge(s.estado).label,
+      clase_estado: clase,
+      categoria: '',
+      categoria_gasto: null,
+      nombre_item: '',
+      cantidad: null,
+      moneda_original: moneda,
+      monto_original: round2(monto),
+      monto_usd: usd,
+      monto_bs: bs,
+      pagado_usd: pagado.usd,
+      pagado_bs: pagado.bs,
+    });
+  }
+  return filas;
 }
