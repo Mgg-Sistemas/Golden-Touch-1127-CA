@@ -156,12 +156,13 @@ describe('comprasMoldeable · normalización de las 3 fuentes (T2)', () => {
 });
 
 describe('comprasMoldeable · ámbito ítems (T3)', () => {
-  test('normalizarItemsOrdenes explota por ítem y cruza categoría', () => {
+  test('normalizarItemsOrdenes explota por ítem y cruza categoría (orden USD usa precio_usd)', () => {
     const ctx = ctxFix({ tasaBcv: 40, categoriasPorSku: new Map([['SKU-1', 'Ferretería']]) });
     const filas = normalizarItemsOrdenes([
       ordenFix({ estado: 'pagada', total_moneda: 'USD', items: [
-        { sku: 'SKU-1', nombre: 'Tornillo', cantidad: 10, precio: 2 },
-        { sku: 'SKU-9', nombre: 'Flete', cantidad: 1, precio: 5 },
+        // precio es el PRECIO EN Bs a BCV; precio_usd es el USD (types.ts). En orden USD manda precio_usd.
+        { sku: 'SKU-1', nombre: 'Tornillo', cantidad: 10, precio: 80, precio_usd: 2 },
+        { sku: 'SKU-9', nombre: 'Flete', cantidad: 1, precio: 200, precio_usd: 5 },
       ] } as Partial<Orden>),
     ], ctx);
     expect(filas).toHaveLength(2);
@@ -169,6 +170,20 @@ describe('comprasMoldeable · ámbito ítems (T3)', () => {
       ambito: 'items', categoria: 'Ferretería', nombre_item: 'Tornillo', cantidad: 10, monto_usd: 20, monto_bs: 800,
     });
     expect(filas[1].categoria).toBe(SIN_CATEGORIA_INV); // sku desconocido
+  });
+
+  test('ítem en orden USD sin precio_usd convierte el precio (Bs) con la tasa', () => {
+    const filas = normalizarItemsOrdenes([
+      ordenFix({ estado: 'pagada', total_moneda: 'USD', items: [{ sku: 'X', nombre: 'Y', cantidad: 1, precio: 80 }] } as Partial<Orden>),
+    ], ctxFix({ tasaBcv: 40 }));
+    expect(filas[0]).toMatchObject({ monto_usd: 2, monto_bs: 80 }); // 80 Bs / 40 = $2
+  });
+
+  test('ítem en orden en Bs usa el precio (Bs) directo', () => {
+    const filas = normalizarItemsOrdenes([
+      ordenFix({ estado: 'pagada', total_moneda: 'Bs', items: [{ sku: 'X', nombre: 'Y', cantidad: 1, precio: 4000 }] } as Partial<Orden>),
+    ], ctxFix({ tasaBcv: 40 }));
+    expect(filas[0]).toMatchObject({ monto_bs: 4000, monto_usd: 100, moneda_original: 'BS' });
   });
 
   test('normalizarItemsOrdenes descarta órdenes excluidas', () => {
@@ -246,6 +261,16 @@ describe('comprasMoldeable · agrupación, columnas y ficha (T5)', () => {
   test('procesarFilasCompras detallado no agrupa', () => {
     const filas = [filaOrdFix({ monto_usd: 1 }), filaOrdFix({ monto_usd: 2 })];
     expect(procesarFilasCompras(filas, 'detallado', {}).filas).toHaveLength(2);
+  });
+
+  test('procesarFilasCompras por mes muestra la etiqueta del mes, no un día suelto', () => {
+    const filas = [
+      filaOrdFix({ fecha: '2026-11-05', monto_usd: 10 }),
+      filaOrdFix({ fecha: '2026-11-20', monto_usd: 5 }),
+    ];
+    const { filas: g } = procesarFilasCompras(filas, 'mes', {});
+    expect(g).toHaveLength(1);
+    expect(g[0].fecha).toBe('Nov 2026');
   });
 
   test('CAMPOS_REPORTE_COMPRAS trae claves clave y obtenerMetricasFichaCompras nunca queda vacío', () => {

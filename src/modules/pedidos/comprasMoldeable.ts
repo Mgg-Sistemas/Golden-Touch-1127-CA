@@ -242,8 +242,19 @@ export function normalizarItemsOrdenes(ordenes: Orden[], ctx: ContextoCompras): 
     const items = Array.isArray(o.items) ? o.items : [];
     items.forEach((it, idx) => {
       const cantidad = Number(it.cantidad) || 0;
-      const precio = Number(it.precio) || 0;
-      const monto = round2(cantidad * precio);
+      // `it.precio` es el precio EN Bs a BCV; `it.precio_usd` es el USD (types.ts ItemOrden).
+      // En una orden en $ se usa el precio en USD (si falta, se convierte el de Bs con la tasa);
+      // en una orden en Bs se usa el precio en Bs directo. Así el ítem queda en la moneda de la orden.
+      let montoNativo: number;
+      if (moneda === 'BS') {
+        montoNativo = cantidad * (Number(it.precio) || 0);
+      } else {
+        const precioUsd = it.precio_usd != null
+          ? Number(it.precio_usd) || 0
+          : (ctx.tasaBcv > 0 ? (Number(it.precio) || 0) / ctx.tasaBcv : 0);
+        montoNativo = cantidad * precioUsd;
+      }
+      const monto = round2(montoNativo);
       const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
       const categoria = (ctx.categoriasPorSku.get(it.sku) || '').trim() || SIN_CATEGORIA_INV;
       filas.push({
@@ -668,7 +679,9 @@ export function procesarFilasCompras(
     id: g.clave || g.etiqueta,
     ambito,
     tipo_compra: g.tipo_compra,
-    fecha: g.fecha,
+    // En mes/día el rótulo del grupo va en la columna «fecha» (p. ej. «Nov 2026»),
+    // no la fecha suelta de la primera compra del grupo.
+    fecha: (agrupacion === 'mes' || agrupacion === 'dia') ? g.etiqueta : g.fecha,
     codigo: '',
     departamento: agrupacion === 'departamento' ? g.etiqueta : g.departamento,
     proveedor: agrupacion === 'proveedor' ? g.etiqueta : g.proveedor,

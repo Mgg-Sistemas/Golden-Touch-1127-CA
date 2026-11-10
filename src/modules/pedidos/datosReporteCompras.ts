@@ -13,7 +13,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { listOrdenes } from './pedidos.repository';
-import { listComprasDirectas } from './compras.repository';
+import type { CompraDirecta } from './compras.repository';
 import { listServiciosDirectos } from './serviciosDirectos.repository';
 import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
@@ -71,14 +71,18 @@ function unicos(valores: string[]): string[] {
  * los filtros. Solo lectura.
  */
 export async function cargarDatosReporteCompras(desde: string, hasta: string): Promise<DatosReporteCompras> {
-  const [ordenesAll, directasAll, serviciosAll, proveedoresAll, tasaHoy, catRes] = await Promise.all([
+  // Compras directas: SELECT crudo (solo lectura). No se usa `listComprasDirectas()` porque
+  // ese dispara `reconciliarComprasDirectasHuerfanas()`, que ESCRIBE en `compras_directas`
+  // (auto-reparo de pagos huérfanos). El reporte debe ser solo lectura (spec §3).
+  const [ordenesAll, directasRes, serviciosAll, proveedoresAll, tasaHoy, catRes] = await Promise.all([
     listOrdenes(),
-    listComprasDirectas(),
+    supabase.from('compras_directas').select('id, codigo, estado, gasto, moneda, gasto_categoria, pagada_at, created_at, proveedor_id, proveedor_nombre'),
     listServiciosDirectos(),
     listProveedores().catch(() => []),
     getTasaHoy().catch(() => ({ usd: 0 } as { usd: number })),
     supabase.from('productos').select('sku, categoria'),
   ]);
+  const directasAll = (directasRes.data ?? []) as unknown as CompraDirecta[];
 
   const tasaBcv = Number((tasaHoy as { usd?: number })?.usd) || 0;
 
