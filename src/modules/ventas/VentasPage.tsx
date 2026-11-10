@@ -407,21 +407,20 @@ export function VentasPage() {
         </>
       )}
 
-      {/* ── Alta / edición ── */}
+      {/* ── Alta / edición ──
+          VentaForm y PermutaForm YA SON ventanas (traen su propio <Modal> con pie de
+          botones). Envolverlas en otro <Modal> dejaba DOS ventanas a pantalla completa:
+          la de afuera se dibujaba encima y tapaba el formulario («Nueva venta» en blanco). */}
       {modal.kind === 'nueva' && (
-        <Modal title={modal.tipo === 'permuta' ? '🔁 Nueva permuta' : '🧾 Nueva venta'} size="xl" onClose={cerrarForm}>
-          {modal.tipo === 'permuta'
-            ? <PermutaForm onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
-            : <VentaForm onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />}
-        </Modal>
+        modal.tipo === 'permuta'
+          ? <PermutaForm onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
+          : <VentaForm onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
       )}
 
       {modal.kind === 'editar' && (
-        <Modal title={`✏️ Editar ${modal.datos.venta.codigo}`} size="xl" onClose={cerrarForm}>
-          {modal.datos.venta.tipo === 'permuta'
-            ? <PermutaForm venta={modal.datos} onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
-            : <VentaForm venta={modal.datos} onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />}
-        </Modal>
+        modal.datos.venta.tipo === 'permuta'
+          ? <PermutaForm venta={modal.datos} onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
+          : <VentaForm venta={modal.datos} onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
       )}
 
       {/* ── Detalle ── */}
