@@ -131,6 +131,19 @@ export function enChip(f: PedidoFeed, chip: ChipDelivery): boolean {
   return f.p.estado === 'entregado';
 }
 
+/** 10/11/2026 (maqueta): color de la franja de la tarjeta según el estado. */
+export type EstadoTarjeta = 'por_tomar' | 'en_camino' | 'entregado' | 'cancelado';
+export function estadoTarjeta(f: PedidoFeed): EstadoTarjeta {
+  if (f.disponible) return 'por_tomar';
+  if (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta') return 'en_camino';
+  return f.p.estado === 'entregado' ? 'entregado' : 'cancelado';
+}
+
+/** 10/11/2026: en qué tramo va (1 = va a buscarlo, 2 = ya lo recogió y va a entregarlo). */
+export function tramoEnCurso(p: Pick<PedidoDelivery, 'fotos_recibo'>): 1 | 2 {
+  return (p.fotos_recibo?.length ?? 0) > 0 ? 2 : 1;
+}
+
 /** El pedido que este motorizado tiene en curso (en ruta primero). */
 export function trabajoEnCurso(feed: PedidoFeed[]): PedidoDelivery | null {
   const mios = feed.filter((f) => !f.disponible && f.p.es_mio && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta'));

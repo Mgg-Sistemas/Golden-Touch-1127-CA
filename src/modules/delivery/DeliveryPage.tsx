@@ -43,7 +43,7 @@ import {
 } from './delivery.repository';
 import {
   RANGOS_DELIVERY, armarFilasHistorial, conteoPorEstado, duracionTxt, mensajeDelPedido, rangoDelivery,
-  rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, type FilaHistorialDelivery,
+  rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, minutosPromedio, minutosTxt, type FilaHistorialDelivery,
 } from './deliveryPanel';
 import {
   ESTADOS_FILTRO, ORIGENES_FILTRO, filtrarHistorial, textoReporteGeneral, textoReportePedido,
@@ -208,6 +208,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
   const c = conteoPorEstado(pedidos);
   const entregadosHoy = deHoy.filter((f) => f.estado === 'entregado').length;
   const canceladosHoy = deHoy.filter((f) => f.estado === 'cancelado').length;
+  const promedioHoy = minutosPromedio(deHoy);
   const urgentes = pedidos.filter((p) => p.estado === 'por_tomar' && p.urgente).length;
   const retirosPorTomar = pedidos.filter((p) => p.estado === 'por_tomar' && esRetiroAlmacen(p)).length;
 
@@ -261,6 +262,13 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
           <div className="value">{entregadosHoy}</div>
           <div className="muted" style={{ fontSize: '.78rem' }}>{canceladosHoy ? `${canceladosHoy} cancelado(s) hoy` : 'Sin cancelaciones hoy'}</div>
           <div className="icon" aria-hidden="true">✅</div>
+        </div>
+        {/* 10/11/2026 (maqueta): cuánto tardan, en promedio, de tomarlo a entregarlo (lo de hoy). */}
+        <div className="kpi">
+          <div className="label">Tiempo promedio</div>
+          <div className="value">{minutosTxt(promedioHoy)}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>{promedioHoy != null ? 'De tomarlo a entregarlo, hoy' : 'Sin entregas con tiempo hoy'}</div>
+          <div className="icon" aria-hidden="true">⏱️</div>
         </div>
       </div>
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PedidoDelivery } from './delivery';
 import {
   calcularRuta, claveRuta, distanciaTxt, duracionTxt, entregaEnLosPinos, masCercano, ordenarDisponibles, ordenarPorCercania,
-  paradasRuta, parsearOsrm, puntoLugar, puntoRecogida, rutaRecta, urlGoogleMapsRuta, urlOsrm, yaRecogido,
+  paradasRuta, parsearOsrm, puntoLugar, puntoRecogida, rutaRecta, siguienteParada, urlGoogleMapsRuta, urlOsrm, urlWaze, yaRecogido,
   type UbicacionesProveedores,
 } from './deliveryRutas';
 
@@ -165,5 +165,19 @@ describe('Delivery rutas · enlaces y OSRM', () => {
     const falla = vi.fn(async () => { throw new Error('sin red'); });
     const r3 = await calcularRuta([a, { lat: 8.3, lng: -62.8 }], falla as unknown as typeof fetch);
     expect(r3.fuente).toBe('recta');
+  });
+});
+
+describe('Delivery rutas · Waze y siguiente parada (10/11/2026)', () => {
+  it('Waze navega al punto; sin punto válido no hay enlace', () => {
+    expect(urlWaze(provA)).toBe('https://waze.com/ul?ll=8.296900,-62.746700&navigate=yes');
+    expect(urlWaze(null)).toBeNull();
+    expect(urlWaze({ lat: Number.NaN, lng: 1 })).toBeNull();
+  });
+  it('sin recoger, la siguiente parada es el proveedor; ya recogido, el almacén', () => {
+    expect(siguienteParada(P({}), provs, pinos)?.tipo).toBe('recogida');
+    const recogido = siguienteParada(P({ fotos_recibo: [{ path: 'x', filename: 'x.jpg' }] }), provs, pinos);
+    expect(recogido?.tipo).toBe('entrega');
+    expect(siguienteParada(P({ proveedor_id: 'Z' }), provs, null)).toBeNull();
   });
 });

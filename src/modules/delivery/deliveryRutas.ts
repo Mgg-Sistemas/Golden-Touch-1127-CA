@@ -181,6 +181,20 @@ export function urlGoogleMapsRuta(paradas: PuntoMapa[], conOrigen = true): strin
   return `https://www.google.com/maps/dir/?${q.toString()}`;
 }
 
+/** 10/11/2026 (maqueta): navegar con Waze hasta un punto. */
+export function urlWaze(p: PuntoMapa | null | undefined): string | null {
+  if (!p || !puntoValido(p.lat, p.lng)) return null;
+  return `https://waze.com/ul?ll=${ll(p)}&navigate=yes`;
+}
+
+/** 10/11/2026: la próxima parada del pedido (buscar donde el proveedor / Los Pinos, o entregar). */
+export function siguienteParada(
+  p: Pick<PedidoDelivery, 'origen' | 'proveedor_id' | 'proveedor_nombre' | 'almacen_destino' | 'fotos_recibo'>,
+  provs: UbicacionesProveedores, losPinos: PuntoMapa | null,
+): ParadaRuta | null {
+  return paradasRuta(p, null, provs, losPinos)[0] ?? null;
+}
+
 /* ── OSRM ── */
 
 export const OSRM_BASE = 'https://router.project-osrm.org';

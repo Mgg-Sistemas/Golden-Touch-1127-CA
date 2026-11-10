@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   armarFilasHistorial, conteoPorEstado, duracionTxt, escaparHtml, filtrarPorRepartidor, mensajeDelPedido, rangoDelivery,
-  rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, ubicacionVieja,
+  rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, ubicacionVieja, minutosPromedio, minutosTxt,
 } from './deliveryPanel';
 import { UBICACION_VIEJA_MS, type PedidoDelivery } from './delivery';
 
@@ -110,5 +110,20 @@ describe('Histórico y resumen por delivery', () => {
       { repartidor: 'Ana', entregados: 0, cancelados: 1, enCurso: 1, minutosPromedio: null },
     ]);
     expect(totalesResumen(r)).toEqual({ entregados: 2, cancelados: 1, enCurso: 1, minutosPromedio: 45 });
+  });
+});
+
+describe('Delivery PC · tiempo promedio (10/11/2026)', () => {
+  it('promedia solo los entregados con minutos', () => {
+    expect(minutosPromedio([
+      { estado: 'entregado', minutos: 20 }, { estado: 'entregado', minutos: 23 },
+      { estado: 'cancelado', minutos: 90 }, { estado: 'entregado', minutos: null },
+    ])).toBe(22);
+    expect(minutosPromedio([])).toBeNull();
+  });
+  it('texto en min o h', () => {
+    expect(minutosTxt(21)).toBe('21 min');
+    expect(minutosTxt(65)).toBe('1 h 05 min');
+    expect(minutosTxt(null)).toBe('—');
   });
 });

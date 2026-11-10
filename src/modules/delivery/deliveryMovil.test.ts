@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PedidoDelivery } from './delivery';
 import {
   armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, errorUbicacion, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor,
-  telHref, trabajoEnCurso,
+  telHref, trabajoEnCurso, estadoTarjeta, tramoEnCurso,
 } from './deliveryMovil';
 
 const base: PedidoDelivery = {
@@ -136,5 +136,19 @@ describe('Delivery teléfono · mensaje del paso', () => {
     expect(m?.texto).toContain('20 min');
     expect(mensajeDeEstado(P({ estado: 'cancelado', motivo_cancel: 'Falta de combustible' }), 'YO')?.texto).toContain('Falta de combustible');
     expect(mensajeDeEstado(base, 'YO')).toBeNull();
+  });
+});
+
+describe('Delivery teléfono · franja de color y tramo (10/11/2026)', () => {
+  it('la franja sigue el estado de la tarjeta', () => {
+    expect(estadoTarjeta({ p: P({}), disponible: true })).toBe('por_tomar');
+    expect(estadoTarjeta({ p: P({ estado: 'en_ruta' }), disponible: false })).toBe('en_camino');
+    expect(estadoTarjeta({ p: P({ estado: 'aceptado' }), disponible: false })).toBe('en_camino');
+    expect(estadoTarjeta({ p: P({ estado: 'entregado' }), disponible: false })).toBe('entregado');
+    expect(estadoTarjeta({ p: P({ estado: 'cancelado' }), disponible: false })).toBe('cancelado');
+  });
+  it('tramo 1 hasta que sube fotos al recibir; después, tramo 2', () => {
+    expect(tramoEnCurso(P({}))).toBe(1);
+    expect(tramoEnCurso(P({ fotos_recibo: [{ path: 'a', filename: 'a.jpg' }] }))).toBe(2);
   });
 });

@@ -56,12 +56,13 @@ import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFoto
 import { parsearCoordenadas } from '@/modules/proveedores/ubicacionProveedor';
 import { textoReportePedido } from './deliveryReporte';
 import {
-  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref, trabajoEnCurso,
+  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, estadoTarjeta, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref,
+  trabajoEnCurso, tramoEnCurso,
   type ChipDelivery, type EnvioGps, type PedidoFeed,
 } from './deliveryMovil';
 import {
   LUGAR_LOS_PINOS, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, masCercano, ordenarDisponibles, paradasRuta,
-  entregaEnLosPinos, puntoLugar, puntoRecogida, urlGoogleMapsRuta, yaRecogido, type ParadaRuta, type PuntoMapa, type RutaCalculada,
+  entregaEnLosPinos, puntoLugar, puntoRecogida, siguienteParada, urlGoogleMapsRuta, urlWaze, yaRecogido, type ParadaRuta, type PuntoMapa, type RutaCalculada,
 } from './deliveryRutas';
 import { MapaMotorizado, type DestinoMapa } from './MapaMotorizado';
 import { usePosicionGps, type PosicionGps } from './usePosicionGps';
@@ -275,14 +276,19 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
 
   return (
     <div className="surtidor">
-      <header className="surt-head">
-        <div>
-          <h1>{cfgCanal.icono} {tituloPantallaCanal(canal)}</h1>
-          <div className="muted" style={{ fontSize: '.85rem' }}><Quien nombre={null} correo={actor} vacio={actorName ?? actor} /></div>
+      {/* 10/11/2026 (maqueta): cabecera del motorizado con su nombre, su flota y la píldora del GPS. */}
+      <header className="surt-head dlv-head">
+        <div className="dlv-conductor">
+          <div className="dlv-avatar" aria-hidden>{cfgCanal.icono}</div>
+          <div style={{ minWidth: 0 }}>
+            <h1 className="dlv-nombre"><Quien nombre={null} correo={actor} vacio={actorName ?? actor} /></h1>
+            <div className="dlv-flota">{canal === 'carga_pesada' ? 'Chofer' : 'Motorizado'} · Flota {tituloPantallaCanal(canal)}</div>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {!soloTelefono && <Link to={cfgCanal.ruta} className="btn btn-ghost">🖥 Módulo completo</Link>}
-          {soloTelefono && vistasTelefono.length > 1 && <Link to={RUTA_TELEFONO} className="btn btn-ghost">📱 Mis pantallas</Link>}
+        <div className="dlv-head-acciones">
+          {canWrite && <CompartirUbicacion pedido={enCurso} gps={gps} />}
+          {!soloTelefono && <Link to={cfgCanal.ruta} className="btn btn-ghost btn-sm">🖥 Módulo completo</Link>}
+          {soloTelefono && vistasTelefono.length > 1 && <Link to={RUTA_TELEFONO} className="btn btn-ghost btn-sm">📱 Mis pantallas</Link>}
         </div>
       </header>
 
@@ -312,8 +318,6 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         <PanelRuta p={pedidoRuta} paradas={paradas} ruta={rutaVigente} yo={yo} losPinos={losPinos}
           puedeMarcarPinos={canWrite} onQuitar={quitarRuta} />
       )}
-
-      {canWrite && <CompartirUbicacion pedido={enCurso} gps={gps} />}
 
       {listo && (
         <div className="surt-form">
@@ -371,8 +375,13 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
           {visibles.map((f) => {
             const k = claveDelivery(f.p);
             const sinPunto = !esRetiroAlmacen(f.p) && !!f.p.proveedor_id && !provs.has(f.p.proveedor_id);
+            // 10/11/2026 (maqueta): la próxima parada (Google Maps / Waze) y el tiempo estimado de lo mío en curso.
+            const mioEnCursoF = !f.disponible && f.p.es_mio && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta');
+            const siguiente = mioEnCursoF ? siguienteParada(f.p, provs, losPinos) : null;
+            const eta = claveRutaActiva === k && rutaVigente?.segundos != null ? duracionTxt(rutaVigente.segundos) : null;
             return (
               <TarjetaPedido key={k} f={f} canWrite={canWrite} ocupado={ocupado === k} bloqueado={!!ocupado}
+                siguiente={siguiente} eta={eta}
                 metros={distDe(f.p)} sinPunto={sinPunto} yo={yo} rutaActiva={claveRutaActiva === k && !!pedidoRuta}
                 onRuta={() => verRuta(f.p)}
                 onTomar={() => void tomar(f.p)}
@@ -400,8 +409,10 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
 
 /* ── Una orden en el listado ── */
 
-function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, rutaActiva, onRuta, onTomar, onNoDisponible, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onReporte, onFotos }: {
+function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros, sinPunto, yo, rutaActiva, onRuta, onTomar, onNoDisponible, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onReporte, onFotos }: {
   f: PedidoFeed; canWrite: boolean; ocupado: boolean; bloqueado: boolean;
+  /** 10/11/2026: la próxima parada de lo mío en curso y el tiempo estimado (si es la ruta del mapa). */
+  siguiente: ParadaRuta | null; eta: string | null;
   /** 03/11/2026: distancia de donde estoy a donde se busca (null = sin GPS o sin punto). */
   metros: number | null; sinPunto: boolean; yo: PosicionGps | null; rutaActiva: boolean; onRuta: () => void;
   onTomar: () => void; onNoDisponible: () => void; onEnRuta: () => void; onCancelar: () => void; onEntregar: () => void;
@@ -432,7 +443,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
   const puedeVerMensaje = p.es_mio;
 
   return (
-    <article className={`dlv-card${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
+    <article className={`dlv-card est-${estadoTarjeta(f)}${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
       <div className="dlv-card-cab">
         <div style={{ minWidth: 0 }}>
           <div className="dlv-oc">{retiro ? p.codigo : ocDe(p)}</div>
@@ -467,6 +478,40 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
           ? <div className="dlv-dist">📍 a {distanciaTxt(metros)}{retiro ? ` de ${ALMACEN_RETIRO}` : ''}</div>
           : sinPunto ? <div className="dlv-dist sin">📍 Proveedor sin ubicación en el mapa</div> : null
       )}
+      {/* 10/11/2026 (maqueta): avance 🏍️ → 🏭 → 🏬, el tiempo estimado y la navegación a la próxima parada. */}
+      {mioEnCurso && (() => {
+        const tramo = tramoEnCurso(p);
+        const google = siguiente ? urlGoogleMapsRuta([siguiente.punto], false) : (tramo === 1 && !retiro ? mapa : null);
+        const waze = urlWaze(siguiente?.punto);
+        const haciaTxt = tramo === 1
+          ? (retiro ? `Retirar en ${ALMACEN_RETIRO}` : `Buscar en ${p.proveedor_nombre ?? 'el proveedor'}`)
+          : (retiro ? `Entregar a ${destino || 'quien lo pidió'}` : `Entregar en ${siguiente?.nombre ?? `Almacén ${nombreAlmacenVisible(p.almacen_destino)}`}`);
+        return (
+          <div className="dlv-avance">
+            <div className="dlv-pasos" aria-label={`Tramo ${tramo} de 2`}>
+              <span className="dlv-paso hecho" title="Tú">🏍️</span>
+              <span className={`dlv-tramo${tramo === 2 ? ' hecho' : ''}`} />
+              <span className={`dlv-paso ${tramo === 1 ? 'activo' : 'hecho'}`} title={retiro ? ALMACEN_RETIRO : 'Proveedor'}>{retiro ? '📦' : '🏭'}</span>
+              <span className="dlv-tramo" />
+              <span className={`dlv-paso${tramo === 2 ? ' activo' : ''}`} title="Entrega">🏬</span>
+            </div>
+            <div className="dlv-avance-info">
+              <span>📍 {haciaTxt}</span>
+              {eta && <span>⏱️ {eta}</span>}
+            </div>
+            {(google || waze) && (
+              <div className="surt-grid2">
+                {google
+                  ? <a className="btn btn-ghost" href={google} target="_blank" rel="noopener noreferrer">🧭 Google Maps</a>
+                  : <span className="btn btn-ghost" aria-disabled>🧭 Google Maps</span>}
+                {waze
+                  ? <a className="btn btn-ghost" href={waze} target="_blank" rel="noopener noreferrer">🚗 Waze</a>
+                  : <span className="btn btn-ghost" aria-disabled title="Falta la ubicación en el mapa">🚗 Waze</span>}
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {mioEnCurso && !retiro && sinPunto && canWrite && p.proveedor_id && (
         <MarcarProveedorAqui proveedorId={p.proveedor_id} nombre={p.proveedor_nombre ?? 'el proveedor'} yo={yo} />
       )}
@@ -509,17 +554,21 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
         </ul>
       )}
       {!retiro && <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
-      {!retiro && (p.almacen_entrega || p.almacen_destino) && (
-        <div className="dlv-sub">🏬 {p.estado === 'entregado' ? 'Entregado en' : 'Entregar en'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
+      {!retiro && p.estado !== 'entregado' && (p.almacen_entrega || p.almacen_destino) && (
+        <div><span className="dlv-destino">🏬 Destino: Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</span></div>
       )}
-      {!retiro && etiquetaSedeEntrega(p.sede_entrega) && (
+      {!retiro && p.estado !== 'entregado' && etiquetaSedeEntrega(p.sede_entrega) && (
         <div className="dlv-sub">📍 Dirección de recepción: <strong>Almacén {etiquetaSedeEntrega(p.sede_entrega)}</strong></div>
       )}
-      {retiro && p.estado === 'entregado' && p.almacen_entrega && (
-        <div className="dlv-sub">🏬 Entregado a: <strong>{p.almacen_entrega}</strong></div>
-      )}
-      {p.estado === 'entregado' && p.entregado_en && (
-        <div className="dlv-sub">✅ {fechaHoraVE(p.entregado_en)}{p.repartidor_nombre ? ` · ${p.repartidor_nombre}` : ''}</div>
+      {/* 10/11/2026 (maqueta): lo entregado, en un recuadro verde. */}
+      {p.estado === 'entregado' && (
+        <div className="dlv-entregado">
+          <div>🏬 <strong>{retiro ? 'Entregado a' : 'Recibido en'}:</strong> {retiro
+            ? (p.almacen_entrega || destino || '—')
+            : `Almacén ${nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}`}</div>
+          {p.entregado_en && <div>✅ {fechaHoraVE(p.entregado_en)}{p.repartidor_nombre ? ` · ${p.repartidor_nombre}` : ''}</div>}
+          <div>📷 {p.fotos_recibo.length + p.fotos_entrega.length} foto(s) registradas</div>
+        </div>
       )}
       {disponible && p.estado === 'cancelado' && (
         <div className="dlv-nota-cancel">
@@ -545,31 +594,31 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, metros, sinPunto, yo, 
         {!retiro && <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>}
         {canWrite && disponible && (
           <div className="surt-grid2">
-            <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onTomar}>
-              {ocupado ? 'Aceptando…' : '✓ Aceptar pedido'}
+            <button type="button" className="btn dlv-btn-aceptar" disabled={bloqueado} onClick={onTomar}>
+              {ocupado ? 'Aceptando…' : '✓ Aceptar · En camino'}
             </button>
-            <button type="button" className="btn btn-ghost" disabled={bloqueado} onClick={onNoDisponible} style={{ color: 'var(--danger)' }}>
+            <button type="button" className="btn dlv-btn-peligro" disabled={bloqueado} onClick={onNoDisponible}>
               ✕ No disponible
             </button>
           </div>
         )}
         {canWrite && mioEnCurso && p.estado === 'aceptado' && (
-          <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onEnRuta}>
+          <button type="button" className="btn dlv-btn-ruta" disabled={bloqueado} onClick={onEnRuta}>
             {ocupado ? 'Guardando…' : '🚚 Marcar en camino'}
           </button>
         )}
         {canWrite && mioEnCurso && p.estado === 'en_ruta' && (
-          <button type="button" className="btn btn-success" disabled={bloqueado} onClick={onEntregar}>
+          <button type="button" className="btn dlv-btn-entregar" disabled={bloqueado} onClick={onEntregar}>
             {retiro ? '📦 Entregado' : '📦 Entregado en almacén'}
           </button>
         )}
         {canWrite && mioEnCurso && (
-          <button type="button" className="btn btn-ghost" disabled={bloqueado} onClick={onCancelar} style={{ color: 'var(--danger)' }}>
+          <button type="button" className="btn dlv-btn-peligro" disabled={bloqueado} onClick={onCancelar}>
             ✕ No puedo buscarlo
           </button>
         )}
         {puedeVerMensaje && (
-          <button type="button" className="btn btn-ghost" onClick={onVerMensaje}>💬 Ver mensaje de WhatsApp</button>
+          <button type="button" className="btn dlv-btn-wa" onClick={onVerMensaje}>💬 Ver mensaje de WhatsApp</button>
         )}
         {/* 03/11/2026: el motorizado que lo entregó (o admin) corrige las fotos de un pedido entregado. */}
         {!disponible && puedeEditarFotosDelivery(p, isAdmin, false) && (
@@ -959,23 +1008,25 @@ function CompartirUbicacion({ pedido, gps }: { pedido: PedidoDelivery | null; gp
 
   const hora = enviado ? new Date(enviado.t).toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
 
+  // 10/11/2026 (maqueta): una píldora en la cabecera: «GPS activo» / «Buscando GPS…» / «GPS pausado».
+  const clase = !quiere ? 'off' : error ? 'error' : activo && hora ? 'on' : 'espera';
+  const texto = !quiere ? 'GPS pausado'
+    : error ? 'GPS con error'
+      : !pedido ? 'GPS listo'
+        : hora ? 'GPS activo' : 'Buscando GPS…';
+  const detalle = !quiere ? 'Apagada: la oficina no ve dónde vas. Toca para compartir tu ubicación.'
+    : error ? error
+      : !pedido ? 'Se comparte solo mientras tienes un pedido en camino.'
+        : `Compartiendo con la oficina · ${ocDe(pedido)}${hora ? ` · última ${hora}${enviado?.precision != null ? ` (±${Math.round(enviado.precision)} m)` : ''}` : ''}`;
+
   return (
-    <section className={`dlv-gps${activo && !error ? ' on' : ''}`} aria-label="Compartir mi ubicación">
-      <div className="dlv-gps-fila">
-        <div>
-          <strong>📍 Compartir mi ubicación</strong>
-          <div className="muted" style={{ fontSize: '.8rem' }}>
-            {!pedido ? 'Se comparte solo mientras tienes un pedido aceptado o en ruta.'
-              : activo ? `Compartiendo con la oficina · ${ocDe(pedido)}` : 'Apagada: la oficina no ve dónde vas.'}
-          </div>
-        </div>
-        <button type="button" role="switch" aria-checked={quiere} aria-label="Compartir mi ubicación"
-          className="dlv-switch" onClick={cambiar} />
-      </div>
-      {activo && hora && <small className="muted">Última enviada: {hora}{enviado?.precision != null ? ` (±${Math.round(enviado.precision)} m)` : ''}</small>}
-      {activo && !hora && !error && <small className="muted">Buscando señal de GPS…</small>}
-      {activo && error && <small className="error">{error}</small>}
-    </section>
+    <div className="dlv-gps-pill-wrap">
+      <button type="button" role="switch" aria-checked={quiere} aria-label={`Compartir mi ubicación: ${texto}`}
+        title={detalle} className={`dlv-gps-pill ${clase}`} onClick={cambiar}>
+        <span aria-hidden>📍</span> {texto}
+      </button>
+      {quiere && error && <small className="error">{error}</small>}
+    </div>
   );
 }
 
@@ -1027,6 +1078,9 @@ function PanelRuta({ p, paradas, ruta, yo, losPinos, puedeMarcarPinos, onQuitar 
       {faltaPinos && puedeMarcarPinos && <MarcarLosPinosAqui yo={yo} />}
       {google && (
         <a className="btn btn-primary" href={google} target="_blank" rel="noopener noreferrer">🗺 Abrir en Google Maps (paso a paso)</a>
+      )}
+      {urlWaze(destinos[0]?.punto) && (
+        <a className="btn btn-ghost" href={urlWaze(destinos[0]?.punto) ?? undefined} target="_blank" rel="noopener noreferrer">🚗 Abrir en Waze · {destinos[0]?.nombre}</a>
       )}
     </section>
   );

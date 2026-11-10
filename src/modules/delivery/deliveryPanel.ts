@@ -194,3 +194,18 @@ export function totalesResumen(r: ResumenDelivery[]): { entregados: number; canc
   }
   return { entregados, cancelados, enCurso, minutosPromedio: n ? Math.round(suma / n) : null };
 }
+
+/** 10/11/2026 (maqueta): minutos promedio de tomarlo a entregarlo (solo entregados con tiempo). */
+export function minutosPromedio(filas: Pick<FilaHistorialDelivery, 'estado' | 'minutos'>[]): number | null {
+  const ms = filas.filter((f) => f.estado === 'entregado' && f.minutos != null && Number.isFinite(f.minutos) && f.minutos >= 0)
+    .map((f) => Number(f.minutos));
+  if (!ms.length) return null;
+  return Math.round(ms.reduce((a, b) => a + b, 0) / ms.length);
+}
+
+/** «21 min» / «1 h 05 min»; sin dato, «—». */
+export function minutosTxt(min: number | null): string {
+  if (min == null) return '—';
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+}
