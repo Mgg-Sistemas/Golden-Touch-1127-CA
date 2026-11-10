@@ -63,6 +63,7 @@ export function ProveedoresPage() {
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoFilter>('');
   const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
+  const [filterGps, setFilterGps] = useState(false);
   const [categoriasList, setCategoriasList] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -113,7 +114,7 @@ export function ProveedoresPage() {
 
   useEffect(() => {
     setPagina(1);
-  }, [filterText, filterEstado, filterCategoria]);
+  }, [filterText, filterEstado, filterCategoria, filterGps]);
 
   const kpis = useMemo(() => {
     const total = proveedores.length;
@@ -167,6 +168,7 @@ export function ProveedoresPage() {
     return proveedores.filter((p) => {
       if (filterEstado && p.estado !== filterEstado) return false;
       if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
+      if (filterGps && ubicacionDe(p) == null) return false;
       if (q) {
         const hay = [p.razon_social, p.rif, p.contacto, p.email]
           .map((v) => norm(v))
@@ -175,7 +177,7 @@ export function ProveedoresPage() {
       }
       return true;
     });
-  }, [proveedores, filterText, filterEstado, filterCategoria]);
+  }, [proveedores, filterText, filterEstado, filterCategoria, filterGps]);
 
   const totalPaginas = Math.max(1, Math.ceil(filtered.length / itemsPorPagina));
   const paginaValida = Math.min(pagina, totalPaginas);
@@ -192,6 +194,7 @@ export function ProveedoresPage() {
     filterText.trim() && `Búsqueda «${filterText.trim()}»`,
     filterEstado && (filterEstado === 'activo' ? 'Activos' : 'Inactivos'),
     filterCategoria && `Categoría ${filterCategoria}`,
+    filterGps && 'Con ubicación GPS',
   ].filter(Boolean).join(' · ');
 
   function openCreate() {
@@ -311,11 +314,14 @@ export function ProveedoresPage() {
         <div
           role="button"
           tabIndex={0}
-          onClick={() => setFilterEstado('')}
+          onClick={() => {
+            setFilterEstado('');
+            setFilterGps(false);
+          }}
           className="card"
           style={{
             padding: '.75rem 1rem',
-            background: filterEstado === '' ? 'var(--surface-3)' : 'var(--surface-2)',
+            background: filterEstado === '' && !filterGps ? 'var(--surface-3)' : 'var(--surface-2)',
             border: '1px solid var(--border)',
             borderLeft: '4px solid var(--border-strong)',
             cursor: 'pointer',
@@ -366,15 +372,27 @@ export function ProveedoresPage() {
         </div>
 
         <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setFilterGps((prev) => !prev)}
           className="card"
           style={{
             padding: '.75rem 1rem',
-            background: 'var(--surface-2)',
-            border: '1px solid var(--border)',
+            background: filterGps ? 'rgba(255, 138, 0, 0.16)' : 'var(--surface-2)',
+            border: filterGps ? '1px solid var(--primary)' : '1px solid var(--border)',
             borderLeft: '4px solid var(--primary)',
+            boxShadow: filterGps ? '0 0 0 1px var(--primary)' : 'none',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
           }}
+          title={filterGps ? 'Quitar filtro de ubicación GPS' : 'Filtrar por proveedores con ubicación GPS'}
         >
-          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 700 }}>Con Ubicación GPS</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem' }}>
+            <span className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 700 }}>Con Ubicación GPS</span>
+            {filterGps && (
+              <span className="badge primary" style={{ fontSize: '.62rem', padding: '1px 6px', fontWeight: 700 }}>✓ Activo</span>
+            )}
+          </div>
           <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)' }}>{kpis.conGps}</div>
         </div>
       </div>
@@ -419,6 +437,25 @@ export function ProveedoresPage() {
           ))}
         </select>
 
+        {filterGps && (
+          <button
+            type="button"
+            onClick={() => setFilterGps(false)}
+            className="btn btn-xs btn-outline"
+            style={{
+              borderColor: 'var(--primary)',
+              color: 'var(--primary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '.3rem',
+              fontWeight: 600,
+            }}
+            title="Quitar filtro de GPS"
+          >
+            📍 Con GPS ({kpis.conGps}) ✕
+          </button>
+        )}
+
         <div className="view-toggle" role="tablist" aria-label="Modo de vista" style={{ marginLeft: 'auto' }}>
           <button
             type="button"
@@ -462,7 +499,8 @@ export function ProveedoresPage() {
               }}
             >
               {itemsVisibles.map((p) => {
-                const tieneGps = Boolean(ubicacionDe(p));
+                const uLoc = ubicacionDe(p);
+                const tieneGps = Boolean(uLoc);
                 const esInactivo = p.estado !== 'activo';
                 const iniciales = (p.razon_social || 'PR')
                   .split(' ')
@@ -593,26 +631,49 @@ export function ProveedoresPage() {
                         </div>
                       )}
 
-                      {p.direccion && (
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '.4rem' }}>
+                      {(p.direccion || tieneGps) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '.85rem' }}>📍</span>
-                          <span
-                            style={{
-                              display: '-webkit-box',
-                              WebkitLineClamp: 1,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                              lineHeight: 1.35,
-                              fontSize: '.78rem',
-                            }}
-                            title={p.direccion}
-                          >
-                            {p.direccion}
-                          </span>
-                          {tieneGps && (
-                            <span className="badge primary" style={{ fontSize: '.6rem', padding: '.05rem .3rem', flexShrink: 0 }} title="Ubicación GPS guardada">
-                              GPS
+                          {p.direccion && (
+                            <span
+                              style={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 1,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                lineHeight: 1.35,
+                                fontSize: '.78rem',
+                                flex: 1,
+                                minWidth: 100,
+                              }}
+                              title={p.direccion}
+                            >
+                              {p.direccion}
                             </span>
+                          )}
+                          {uLoc && (
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="badge primary"
+                              style={{
+                                fontSize: '.68rem',
+                                padding: '.15rem .5rem',
+                                flexShrink: 0,
+                                textDecoration: 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '.25rem',
+                                cursor: 'pointer',
+                                borderRadius: '999px',
+                                fontWeight: 700,
+                              }}
+                              title="Abrir ubicación en Google Maps (opcional)"
+                            >
+                              📍 Maps ↗
+                            </a>
                           )}
                         </div>
                       )}
@@ -648,8 +709,29 @@ export function ProveedoresPage() {
                         Ver expediente →
                       </span>
 
-                      {canWrite && (
-                        <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+                        {uLoc && (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="btn btn-xs btn-ghost"
+                            style={{
+                              color: 'var(--primary)',
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '.2rem',
+                              fontWeight: 600,
+                            }}
+                            title="Abrir en Google Maps (opcional)"
+                          >
+                            📍 Maps ↗
+                          </a>
+                        )}
+                        {canWrite && (
+                          <>
                           <button
                             type="button"
                             className="btn btn-xs btn-ghost"
@@ -671,8 +753,9 @@ export function ProveedoresPage() {
                           >
                             {p.estado === 'activo' ? 'Desactivar' : 'Activar'}
                           </button>
-                        </div>
-                      )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -692,7 +775,9 @@ export function ProveedoresPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {itemsVisibles.map((p) => (
+                  {itemsVisibles.map((p) => {
+                    const uLoc = ubicacionDe(p);
+                    return (
                     <tr
                       key={p.id}
                       style={{ cursor: 'pointer' }}
@@ -709,6 +794,28 @@ export function ProveedoresPage() {
                             {p.email}
                           </div>
                         )}
+                        {uLoc && (
+                          <div style={{ marginTop: '.15rem' }}>
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                fontSize: '.72rem',
+                                color: 'var(--primary)',
+                                textDecoration: 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '.2rem',
+                                fontWeight: 600,
+                              }}
+                              title="Abrir ubicación en Google Maps (opcional)"
+                            >
+                              📍 Maps ↗
+                            </a>
+                          </div>
+                        )}
                       </td>
                       <td className="mono">{p.telefono || '—'}</td>
                       <td>
@@ -718,6 +825,18 @@ export function ProveedoresPage() {
                         <StatusBadge estado={p.estado} />
                       </td>
                       <td className="actions" onClick={(e) => e.stopPropagation()}>
+                        {uLoc && (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-sm btn-ghost"
+                            style={{ textDecoration: 'none', color: 'var(--primary)', fontWeight: 600 }}
+                            title="Abrir ubicación en Google Maps"
+                          >
+                            📍 Maps
+                          </a>
+                        )}
                         <button className="btn btn-sm btn-ghost" onClick={() => setDetailId(p.id)}>
                           Ver
                         </button>
@@ -736,7 +855,8 @@ export function ProveedoresPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>
