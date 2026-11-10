@@ -278,18 +278,29 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
   /* ─────────────────────────── Pantalla ─────────────────────────── */
 
   const puedeConfirmar = !guardando && !cargando && resumen.total > 0 && patasCuadran && !legSinCaja;
+  // Por qué «pedir despacho» está apagado, dicho en la pantalla (no solo en el title,
+  // que en el teléfono no se ve): sin esto parecía un botón roto al lado del otro.
+  const faltaParaDespacho = cargando || guardando ? null
+    : resumen.total <= 0 ? 'Para pedir despacho agrega al menos un producto con cantidad y precio.'
+    : !patasCuadran ? 'Para pedir despacho, las patas de pago deben sumar exactamente el total.'
+    : legSinCaja ? 'Para pedir despacho, elige la caja de cada pata de pago.'
+    : null;
 
+  // Los dos botones hacen cosas DISTINTAS y ahora se ven distintos: «Guardar cotización»
+  // es secundario (solo guarda, no mueve nada); «Guardar y pedir despacho» es la acción
+  // principal (la manda a aprobar). Antes eran dos botones naranja iguales.
   const footer = (
     <>
+      {faltaParaDespacho && <small className="muted" style={{ marginRight: 'auto' }}>{faltaParaDespacho}</small>}
       <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={guardando}>Cancelar</button>
-      <button type="submit" form="venta-form" className="btn btn-primary" disabled={guardando || cargando}>
+      <button type="submit" form="venta-form" className="btn btn-ghost" disabled={guardando || cargando}
+        title="Solo la guarda como cotización (borrador). No mueve inventario ni dinero.">
         {guardando ? 'Guardando…' : '💾 Guardar cotización'}
       </button>
-      <button type="button" className="btn btn-primary" disabled={!puedeConfirmar}
+      <button type="button" className="btn btn-success" disabled={!puedeConfirmar}
         onClick={() => setPidiendoConfirmar(true)}
-        title={patasCuadran
-          ? `Guarda y le pide el despacho a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve nada hasta que lo aprueben.`
-          : 'Las patas de pago tienen que sumar exactamente lo que hay que cobrar'}>
+        title={faltaParaDespacho
+          ?? `Guarda y le pide el despacho a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve nada hasta que lo aprueben.`}>
         🚚 Guardar y pedir despacho
       </button>
     </>
