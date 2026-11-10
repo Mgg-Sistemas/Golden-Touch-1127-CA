@@ -22,7 +22,7 @@
    su motivo en el Tablero.
    ============================================================ */
 import { etiquetaSedeEntrega } from '@/shared/lib/types';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
@@ -33,12 +33,12 @@ import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ALMACEN_RETIRO, ESTADO_DELIVERY, cerradoPorRecepcion, MOTIVOS_CANCELACION, ORIGEN_DELIVERY, claveDelivery, destinoRetiro, esRetiroAlmacen,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, UBICACION_VIEJA_MS, cerradoPorRecepcion, MOTIVOS_CANCELACION, ORIGEN_DELIVERY, claveDelivery, destinoRetiro, esRetiroAlmacen,
   etiquetaEstado, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe, rechazosDe, rotuloFotos,
-  type FotoDelivery, type PedidoDelivery, type RechazoDelivery,
+  type FotoDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';
 import {
-  cancelarPedido, listHistorialDelivery, listPedidosDelivery, listRechazosDelivery, urlFotoDelivery, useDeliveryConectado,
+  cancelarPedido, listHistorialDelivery, listPedidosDelivery, listRechazosDelivery, listUbicaciones, urlFotoDelivery, useDeliveryConectado,
   type FilaHistorialCruda,
 } from './delivery.repository';
 import {
@@ -54,14 +54,18 @@ import { pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelivery } from './deliv
 import { WhatsappDeliveryModal } from './WhatsappDeliveryModal';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
+import './deliveryPanel.css';
 
-type Vista = 'tablero' | 'mapa' | 'historico' | 'por_delivery';
+// 10/11/2026 (como MGG, maqueta de Delivery): «Centro de control» con el mapa en vivo adentro y dos
+// pestañas nuevas: repartidores conectados y trazabilidad con horarios. Sin avisos ni WhatsApp automáticos.
+type Vista = 'tablero' | 'repartidores' | 'trazabilidad' | 'historico' | 'por_delivery';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
-  { key: 'tablero', label: 'Tablero', icon: '📊' },
-  { key: 'mapa', label: 'Mapa', icon: '🗺' },
+  { key: 'tablero', label: 'Centro de control', icon: '🖥' },
+  { key: 'repartidores', label: 'Repartidores conectados', icon: '🛵' },
+  { key: 'trazabilidad', label: 'Trazabilidad y horarios', icon: '🧾' },
   { key: 'historico', label: 'Histórico', icon: '📜' },
-  { key: 'por_delivery', label: 'Por delivery', icon: '🛵' },
+  { key: 'por_delivery', label: 'Por delivery', icon: '📊' },
 ];
 
 const msgError = (e: unknown, def: string) => (e instanceof Error ? e.message : def);
@@ -121,7 +125,7 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
   }, [verCerrados, hoy, proveedores, canal]);
   useEffect(() => { void recargarTablero(); }, [recargarTablero]);
 
-  const enHistorico = vista === 'historico' || vista === 'por_delivery';
+  const enHistorico = vista === 'historico' || vista === 'por_delivery' || vista === 'trazabilidad';
   const recargarHistorial = useCallback(async () => {
     if (!desde || !hasta || desde > hasta) return;
     setCargandoHist(true);
@@ -142,23 +146,26 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+      {/* 10/11/2026 (como MGG): cabecera del Centro de control con el segmento de flota. */}
+      <div className="dlv-centro-head">
         <div style={{ flex: '1 1 320px' }}>
-          <h1 style={{ margin: 0 }}>{cfgCanal.icono} {tituloPantallaCanal(canal)}</h1>
+          <h1>🖥 Centro de control y despacho · {cfgCanal.icono} {tituloPantallaCanal(canal)}</h1>
+          <p>
+            Seguimiento en vivo de las órdenes pagadas y de los retiros en {ALMACEN_RETIRO}: quién las toma, dónde va
+            cada {canal === 'carga_pesada' ? 'camión' : 'motorizado'} y cuándo llegan al almacén.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {puedeAmbos && (
-            <div className="view-toggle canal-toggle" role="tablist" aria-label="Delivery o Carga pesada" style={{ marginTop: '.4rem' }}>
+            <div className="dlv-pills" role="tablist" aria-label="Delivery o Carga pesada">
               {flotas.map((k) => (
                 <button key={k} type="button" role="tab" aria-selected={k === canal} onClick={() => setCanal(k)}
                   className={k === canal ? 'active' : ''}>{CANALES_DELIVERY[k].icono} {CANALES_DELIVERY[k].titulo}</button>
               ))}
             </div>
           )}
-          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
-            Órdenes de productos pagadas por Tesorería que un motorizado acepta, busca donde el proveedor y entrega en el almacén, y retiros en {ALMACEN_RETIRO} de lo que
-            Almacén tiene para una solicitud, con fotos y aviso por WhatsApp.
-          </p>
+          {tieneTelefono && <Link to={cfgCanal.rutaTelefono} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
         </div>
-        {tieneTelefono && <Link to={cfgCanal.rutaTelefono} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
       </div>
 
       {conectado === false && (
@@ -186,12 +193,14 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
 
       {vista === 'tablero' && (
         <TableroTab pedidos={pedidos} rechazos={rechazos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
-          verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()} />
+          verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()}
+          mapa={<DeliveryMapa pedidos={pedidos} canal={canal} />} />
       )}
-      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} canal={canal} />}
+      {vista === 'repartidores' && <RepartidoresTab canal={canal} pedidos={pedidos} deHoy={deHoy} />}
       {enHistorico && (
         <BarraRango hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} cargando={cargandoHist} />
       )}
+      {vista === 'trazabilidad' && <TrazabilidadTab filas={historial} cargando={cargandoHist} />}
       {vista === 'historico' && <HistoricoTab filas={historial} desde={desde} hasta={hasta} />}
       {vista === 'por_delivery' && <PorDeliveryTab filas={historial} desde={desde} hasta={hasta} />}
     </div>
@@ -200,9 +209,11 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
 
 /* ───────────── Tablero ───────────── */
 
-function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio }: {
+function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio, mapa }: {
   pedidos: PedidoDelivery[]; rechazos: RechazoDelivery[]; deHoy: FilaHistorialDelivery[]; cargando: boolean; supervisor: boolean;
   verCerrados: boolean; setVerCerrados: (v: boolean) => void; onCambio: () => void;
+  /** 10/11/2026: el mapa en vivo (motorizados, proveedores y Los Pinos), debajo de las métricas. */
+  mapa?: ReactNode;
 }) {
   const quien = useQuien();
   const c = conteoPorEstado(pedidos);
@@ -234,43 +245,37 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
 
   return (
     <>
-      <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
-        <div className="kpi">
-          <div className="label">Por tomar</div>
-          <div className="value">{c.por_tomar}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>
-            {[urgentes ? `${urgentes} urgente(s)` : 'OC pagadas y retiros sin delivery', retirosPorTomar ? `📦 ${retirosPorTomar} en Almacén` : '']
-              .filter(Boolean).join(' · ')}
-          </div>
-          <div className="icon" aria-hidden="true">💰</div>
+      {/* 10/11/2026 (como MGG): métricas del Centro de control y el mapa en vivo debajo. */}
+      <div className="dlv-metricas">
+        <div className="dlv-metrica naranja">
+          <div className="ico" aria-hidden="true">💰</div>
+          <div><div className="val">{c.por_tomar}</div><div className="lbl">Por tomar</div>
+            <div className="sub">{[urgentes ? `${urgentes} urgente(s)` : 'Pagadas y retiros', retirosPorTomar ? `📦 ${retirosPorTomar} en Almacén` : '', rechazos.length ? `✕ ${rechazos.length} no disponible` : ''].filter(Boolean).join(' · ')}</div></div>
         </div>
-        <div className="kpi">
-          <div className="label">En camino</div>
+        <div className="dlv-metrica azul">
+          <div className="ico" aria-hidden="true">🚚</div>
           {/* 02/11/2026: al aceptar queda directo «En camino» (los «Aceptado» son de antes). */}
-          <div className="value">{c.en_ruta + c.aceptado}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>Aceptados por un delivery, sin entregar</div>
-          <div className="icon" aria-hidden="true">🚚</div>
+          <div><div className="val">{c.en_ruta + c.aceptado}</div><div className="lbl">En tránsito</div>
+            <div className="sub">Aceptados por un delivery, sin entregar</div></div>
         </div>
-        <div className="kpi">
-          <div className="label">No disponible</div>
-          <div className="value">{rechazos.length}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>Marcados por un delivery en lo que se ve</div>
-          <div className="icon" aria-hidden="true">✕</div>
+        <div className="dlv-metrica verde">
+          <div className="ico" aria-hidden="true">✅</div>
+          <div><div className="val">{entregadosHoy}</div><div className="lbl">Entregados hoy</div>
+            <div className="sub">{canceladosHoy ? `${canceladosHoy} cancelado(s) hoy` : 'Sin cancelaciones hoy'}</div></div>
         </div>
-        <div className="kpi">
-          <div className="label">Entregados hoy</div>
-          <div className="value">{entregadosHoy}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>{canceladosHoy ? `${canceladosHoy} cancelado(s) hoy` : 'Sin cancelaciones hoy'}</div>
-          <div className="icon" aria-hidden="true">✅</div>
-        </div>
-        {/* 10/11/2026 (maqueta): cuánto tardan, en promedio, de tomarlo a entregarlo (lo de hoy). */}
-        <div className="kpi">
-          <div className="label">Tiempo promedio</div>
-          <div className="value">{minutosTxt(promedioHoy)}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>{promedioHoy != null ? 'De tomarlo a entregarlo, hoy' : 'Sin entregas con tiempo hoy'}</div>
-          <div className="icon" aria-hidden="true">⏱️</div>
+        <div className="dlv-metrica morado">
+          <div className="ico" aria-hidden="true">⏱</div>
+          <div><div className="val">{minutosTxt(promedioHoy)}</div><div className="lbl">Tiempo promedio</div>
+            <div className="sub">De tomado a entregado, hoy</div></div>
         </div>
       </div>
+
+      {mapa && (
+        <div className="card dlv-mapa-card">
+          <div className="card-title">📍 Mapa GPS en vivo · Puerto Ordaz / San Félix</div>
+          {mapa}
+        </div>
+      )}
 
       <div className="card">
         <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
@@ -666,5 +671,117 @@ function PorDeliveryTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[
         Tiempo promedio = desde que el delivery toma el pedido hasta que lo entrega en el almacén. Cada cancelación cuenta, aunque la orden la haya retomado otro.
       </p>
     </div>
+  );
+}
+
+/* ───────────── Repartidores conectados (10/11/2026 · como MGG) ───────────── */
+
+/** Hace cuánto llegó la última ubicación, en palabras cortas. */
+function haceTxt(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  return h < 24 ? `hace ${h} h` : fechaHoraVE(iso);
+}
+
+/** Cada delivery de la flota: si su GPS está al día, qué lleva y cómo le fue hoy (de las ubicaciones y los pedidos). */
+function RepartidoresTab({ canal, pedidos, deHoy }: { canal: CanalDelivery; pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[] }) {
+  const quien = useQuien();
+  const [ubic, setUbic] = useState<UbicacionDelivery[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const cargar = useCallback(async () => {
+    try { setUbic(await listUbicaciones(canal)); } catch { /* sin ubicaciones: solo pedidos */ } finally { setCargando(false); }
+  }, [canal]);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(['delivery_ubicaciones'], () => { void cargar(); });
+  // Refresca el «hace X min» aunque no lleguen ubicaciones nuevas.
+  const [, setTic] = useState(0);
+  useEffect(() => { const t = window.setInterval(() => setTic((n) => n + 1), 30000); return () => window.clearInterval(t); }, []);
+
+  const filas = useMemo(() => {
+    const norm = (x: string | null | undefined) => (x ?? '').trim().toUpperCase();
+    const mapa = new Map<string, { nombre: string; u: UbicacionDelivery | null; enCurso: PedidoDelivery[]; entregados: number; minutos: number[] }>();
+    const fila = (nombre: string) => {
+      const k = norm(nombre) || '—';
+      if (!mapa.has(k)) mapa.set(k, { nombre: nombre || '—', u: null, enCurso: [], entregados: 0, minutos: [] });
+      return mapa.get(k)!;
+    };
+    for (const u of ubic) {
+      const f = fila(u.repartidor_nombre || quien(null, u.repartidor_email) || u.repartidor_email || '—');
+      if (!f.u || f.u.actualizado_en < u.actualizado_en) f.u = u;
+    }
+    for (const p of pedidos) if ((p.estado === 'aceptado' || p.estado === 'en_ruta') && p.repartidor_nombre) fila(p.repartidor_nombre).enCurso.push(p);
+    for (const h of deHoy) {
+      if (h.estado !== 'entregado' || !h.repartidor || h.repartidor === '—') continue;
+      const f = fila(h.repartidor); f.entregados++; if (h.minutos != null) f.minutos.push(h.minutos);
+    }
+    return [...mapa.values()].sort((a, b) => b.enCurso.length - a.enCurso.length || String(b.u?.actualizado_en ?? '').localeCompare(String(a.u?.actualizado_en ?? '')));
+  }, [ubic, pedidos, deHoy, quien]);
+
+  if (cargando && !filas.length) return <p className="muted">Cargando…</p>;
+  if (!filas.length) return <div className="card"><p className="muted" style={{ margin: 0 }}>Todavía no hay repartidores con ubicación ni pedidos hoy.</p></div>;
+  return (
+    <div className="dlv-repartidores">
+      {filas.map((r) => {
+        const conSenal = !!r.u && Date.now() - new Date(r.u.actualizado_en).getTime() <= UBICACION_VIEJA_MS;
+        const prom = r.minutos.length ? Math.round(r.minutos.reduce((a, b) => a + b, 0) / r.minutos.length) : null;
+        const vel = r.u?.velocidad != null && r.u.velocidad > 0 ? Math.round(r.u.velocidad * 3.6) : null;
+        return (
+          <div key={r.nombre} className="dlv-repartidor">
+            <div className="fila">
+              <div className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`} aria-hidden>{CANALES_DELIVERY[canal].icono}</div>
+              <div style={{ minWidth: 0 }}>
+                <div className="nombre">{r.nombre}</div>
+                <span className={`dlv-gps-pill${conSenal ? ' on' : ''}`}>{conSenal ? '● GPS al día' : r.u ? '○ Sin señal reciente' : '○ Sin GPS compartido'}</span>
+              </div>
+            </div>
+            <div className="dato">📡 Última ubicación: <strong>{haceTxt(r.u?.actualizado_en)}</strong>{vel != null ? <> · <strong>{vel} km/h</strong></> : null}</div>
+            <div className="dato">
+              {r.enCurso.length
+                ? <>🚚 Lleva: {r.enCurso.map((p) => <strong key={claveDelivery(p)} style={{ marginRight: '.35rem' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)} ({etiquetaEstado(p.estado, p.origen, p.motivo_cancel)})</strong>)}</>
+                : <>✅ Libre</>}
+            </div>
+            <div className="dato">📦 Entregados hoy: <strong>{r.entregados}</strong>{prom != null ? <> · ⏱ promedio <strong>{minutosTxt(prom)}</strong></> : null}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ───────────── Trazabilidad y horarios (10/11/2026 · como MGG) ───────────── */
+
+/** Cada pedido del rango con sus horas: tomado → en ruta → entregado (o cancelado) y cuánto tardó. */
+function TrazabilidadTab({ filas, cargando }: { filas: FilaHistorialDelivery[]; cargando: boolean }) {
+  const lista = useMemo(() => [...filas].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))), [filas]);
+  if (cargando && !lista.length) return <p className="muted">Cargando…</p>;
+  if (!lista.length) return <div className="card"><p className="muted" style={{ margin: 0 }}>No hay pedidos en el rango elegido.</p></div>;
+  return (
+    <ul className="dlv-traza">
+      {lista.map((f) => {
+        const est = ESTADO_DELIVERY[f.estado];
+        const enRuta = f.en_ruta_en ? minutosEntre(f.fecha, f.en_ruta_en) : null;
+        return (
+          <li key={f.id}>
+            <div className="cab">
+              <div><span className="oc">{f.oc}</span> · {f.proveedor}</div>
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span className="muted" style={{ fontSize: '.82rem' }}>🛵 {f.repartidor}</span>
+                <span className={`dlv-pill est-${f.estado}`}>{est?.emoji} {est?.label ?? f.estado}</span>
+              </div>
+            </div>
+            <div className="dlv-linea">
+              <span className="paso">🛵 Tomado {fechaHoraVE(f.fecha)}</span>
+              {f.en_ruta_en && enRuta != null && enRuta > 0 && <><span className="flecha">→ {minutosTxt(enRuta)} →</span><span className="paso">🚚 En ruta {fechaHoraVE(f.en_ruta_en)}</span></>}
+              {f.entregado_en && <><span className="flecha">→</span><span className="paso fin">📦 Entregado {fechaHoraVE(f.entregado_en)}{f.almacen_entrega ? ` · ${f.almacen_entrega}` : ''}</span></>}
+              {f.cancelado_en && <><span className="flecha">→</span><span className="paso cancel">⛔ Cancelado {fechaHoraVE(f.cancelado_en)}{f.motivo_cancel ? ` · ${f.motivo_cancel}` : ''}</span></>}
+              {f.minutos != null && <span className="muted" style={{ marginLeft: 'auto' }}>⏱ Total: <strong>{minutosTxt(f.minutos)}</strong></span>}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
