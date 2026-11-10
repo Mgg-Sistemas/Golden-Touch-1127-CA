@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────────────────────────────────────────
-   «Se guarda en inventario como» (03/11/2026 · traído de MGG, adaptado a GT).
+   «Se guarda en inventario como» (03/11/2026).
 
    Al cargar la cotización de una solicitud de productos, cada renglón muestra con qué
    producto (ficha) del inventario va a entrar al recibir la OC:

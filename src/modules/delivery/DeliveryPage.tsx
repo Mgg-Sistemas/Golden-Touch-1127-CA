@@ -13,7 +13,7 @@
      Por delivery → cuántos pedidos lleva cada uno y su tiempo promedio
    Construido pero DESCONECTADO hasta que la administración lo active
    (interruptor compras_delivery): mientras tanto las listas quedan vacías.
-   Traído de MGG; en GT la OC entra apenas queda pagada (sin esperar la
+   En GT la OC entra apenas queda pagada (sin esperar la
    retención) y solo las creadas desde que se encendió.
    02/11/2026: también los RETIROS EN ALMACÉN LOS PINOS (📦, lo que la
    revisión de Almacén marcó como disponible: sin monto ni comprobante, se

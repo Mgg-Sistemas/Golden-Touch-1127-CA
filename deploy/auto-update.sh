@@ -155,7 +155,20 @@ marcar_despliegue() {
   # Droplet (1 procesador) siga sirviendo el sitio a los usuarios sin trabarse.
   PRIO="nice -n 19"
   if command -v ionice >/dev/null 2>&1; then PRIO="$PRIO ionice -c3"; fi
-  VITE_BASE_PATH=/ VITE_APP_VERSION="$(git rev-parse --short HEAD)" $PRIO npm run build -- --outDir dist.new
+  # TOPE DE MEMORIA DEL BUILD SEGÚN EL DROPLET (10/11/2026). `npm run build` trae fijo
+  # --max-old-space-size=1536 y, con el sistema más grande, `tsc -b` llegó a ese tope y se
+  # cayó («JavaScript heap out of memory») dos y tres veces por commit en un Droplet de 2 GB.
+  # Acá se corren los MISMOS dos pasos de `npm run build` (tsc -b y vite build), pero con un
+  # tope calculado de la RAM + swap: ~60 % del total, entre 1536 y 3072 MB. En 2 GB + 2 GB
+  # de swap da ~2400 MB (usa swap: más lento, pero no se cae); con 4 GB de RAM, 3072 MB.
+  MEM_MB="$(awk '/^(MemTotal|SwapTotal):/ {s += $2} END {print int(s / 1024)}' /proc/meminfo)"
+  HEAP_MB=$(( MEM_MB * 6 / 10 ))
+  if [ "$HEAP_MB" -lt 1536 ]; then HEAP_MB=1536; fi
+  if [ "$HEAP_MB" -gt 3072 ]; then HEAP_MB=3072; fi
+  echo "$(date '+%F %T') · build con tope de memoria ${HEAP_MB} MB (RAM + swap: ${MEM_MB} MB)"
+  $PRIO node --max-old-space-size="$HEAP_MB" node_modules/typescript/bin/tsc -b
+  VITE_BASE_PATH=/ VITE_APP_VERSION="$(git rev-parse --short HEAD)" \
+    $PRIO node --max-old-space-size="$HEAP_MB" node_modules/vite/bin/vite.js build --outDir dist.new
   rm -rf dist.old
   if [ -d dist ]; then mv dist dist.old; fi
   mv dist.new dist

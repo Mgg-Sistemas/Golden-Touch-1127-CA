@@ -1,6 +1,6 @@
 /* ============================================================
    Golden Touch · Choferes / Conductores · Datos (Supabase)
-   (traído de MGG; sincronizado con MGG el 25/10/2026: pagos, viáticos y cierre de viajes)
+   (sincronizado con MGG el 25/10/2026: pagos, viáticos y cierre de viajes)
 
    choferes_conductores → expediente (1 por ficha de `personal`)
    choferes_viajes      → orden de ruta VJ-AAAA-NNNN

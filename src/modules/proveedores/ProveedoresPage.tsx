@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { SearchSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -33,7 +34,8 @@ import { guardarUbicacion, ubicacionDe } from './proveedores.repository';
 import { coordsTxt, type PuntoMapa } from './ubicacionProveedor';
 
 type EstadoFilter = '' | EstadoGenerico;
-type CategoriaFilter = string;
+type ModoVista = 'tarjetas' | 'tabla';
+const VIEW_KEY = 'gt.proveedores.modo_vista';
 
 const EMPTY_FORM: ProveedorInput = {
   rif: '',
@@ -52,6 +54,212 @@ const EMPTY_FORM: ProveedorInput = {
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const onlyDigits = (v: string, max: number) => v.replace(/\D/g, '').slice(0, max);
 
+interface CategoriaMultiDropdownProps {
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  proveedores: Proveedor[];
+}
+
+function CategoriaMultiDropdown({ options, selected, onChange, proveedores }: CategoriaMultiDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const countsPerCategory = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of proveedores) {
+      for (const c of p.categorias ?? []) {
+        map.set(c, (map.get(c) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [proveedores]);
+
+  const filtered = useMemo(() => {
+    const q = norm(query);
+    if (!q) return options;
+    return options.filter((o) => norm(o).includes(q));
+  }, [options, query]);
+
+  function toggle(cat: string) {
+    if (selected.includes(cat)) {
+      onChange(selected.filter((c) => c !== cat));
+    } else {
+      onChange([...selected, cat]);
+    }
+  }
+
+  const labelBtn =
+    selected.length === 0
+      ? '🏷️ Categorías (Todas)'
+      : selected.length === 1
+      ? `🏷️ ${selected[0]}`
+      : `🏷️ Categorías (${selected.length})`;
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className={`btn btn-sm ${selected.length > 0 ? 'btn-primary' : 'btn-outline'}`}
+        onClick={() => setOpen((prev) => !prev)}
+        style={{
+          height: 38,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '.4rem',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          borderRadius: 'var(--r-md, 8px)',
+        }}
+        title="Filtrar por una o varias categorías (búsqueda interactiva)"
+      >
+        <span>{labelBtn}</span>
+        <span style={{ fontSize: '.7rem', opacity: 0.7 }}>{open ? '▲' : '▾'}</span>
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Filtro de categorías"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            zIndex: 9999,
+            minWidth: 280,
+            maxWidth: 340,
+            width: 'max-content',
+            background: 'var(--surface-2, #182230)',
+            border: '1.5px solid var(--primary, #ff8a00)',
+            borderRadius: 12,
+            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+            padding: '.6rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '.5rem',
+          }}
+        >
+          <input
+            className="input"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="🔍 Buscar categoría…"
+            style={{ fontSize: '.84rem', padding: '.4rem .65rem', height: 34 }}
+          />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.75rem', padding: '0 .2rem' }}>
+            <span className="muted">
+              {filtered.length} de {options.length}
+            </span>
+            <div style={{ display: 'flex', gap: '.3rem' }}>
+              {selected.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-xs btn-ghost"
+                  onClick={() => onChange([])}
+                  style={{ color: 'var(--danger, #ef4444)' }}
+                >
+                  Limpiar ({selected.length})
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost"
+                onClick={() => { setOpen(false); setQuery(''); }}
+              >
+                Cerrar ✕
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              maxHeight: 260,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1px',
+              borderTop: '1px solid var(--border)',
+              paddingTop: '.3rem',
+            }}
+          >
+            {filtered.length === 0 ? (
+              <div className="muted" style={{ padding: '.8rem', fontSize: '.82rem', textAlign: 'center' }}>
+                Sin categorías coincidentes
+              </div>
+            ) : (
+              filtered.map((cat) => {
+                const isSelected = selected.includes(cat);
+                const count = countsPerCategory.get(cat) ?? 0;
+                return (
+                  <div
+                    key={cat}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggle(cat)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '.4rem .6rem',
+                      cursor: 'pointer',
+                      borderRadius: 6,
+                      background: isSelected ? 'rgba(255, 138, 0, 0.15)' : 'transparent',
+                      color: isSelected ? 'var(--primary-2, #ffa733)' : 'var(--text)',
+                      fontWeight: isSelected ? 700 : 400,
+                      fontSize: '.85rem',
+                      transition: 'background 0.1s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                      />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {cat}
+                      </span>
+                    </div>
+                    {count > 0 && (
+                      <span
+                        className="badge mono"
+                        style={{
+                          fontSize: '.68rem',
+                          padding: '1px 6px',
+                          marginLeft: '.5rem',
+                          background: isSelected ? 'var(--primary)' : 'var(--surface-3)',
+                          color: isSelected ? '#fff' : 'var(--text-muted)',
+                        }}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProveedoresPage() {
   const canWrite = usePermissions().can('proveedores', 'escritura');
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -60,7 +268,10 @@ export function ProveedoresPage() {
 
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoFilter>('');
-  const [filterCategoria, setFilterCategoria] = useState<CategoriaFilter>('');
+  const [filterCategorias, setFilterCategorias] = useState<string[]>([]);
+  const [filterOrigen, setFilterOrigen] = useState<string>('');
+  const [filterUbicacion, setFilterUbicacion] = useState<string>('');
+  const [filterGps, setFilterGps] = useState(false);
   const [categoriasList, setCategoriasList] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +288,89 @@ export function ProveedoresPage() {
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
   const { user } = useSession();
+
+  const [modoVista, setModoVista] = useState<ModoVista>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_KEY);
+      if (saved === 'tabla' || saved === 'tarjetas') return saved;
+    } catch {
+      /* ignore */
+    }
+    return 'tarjetas';
+  });
+
+  function cambiarModoVista(nuevo: ModoVista) {
+    setModoVista(nuevo);
+    try {
+      localStorage.setItem(VIEW_KEY, nuevo);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Paginación para acotar el scroll vertical masivo
+  const [pagina, setPagina] = useState(1);
+  const [itemsPorPagina, setItemsPorPagina] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('gt.proveedores.por_pagina');
+      if (saved) return Number(saved) || 24;
+    } catch {
+      /* ignore */
+    }
+    return 24;
+  });
+
+  useEffect(() => {
+    setPagina(1);
+  }, [filterText, filterEstado, filterCategorias, filterOrigen, filterUbicacion, filterGps]);
+
+  const kpis = useMemo(() => {
+    const total = proveedores.length;
+    const activos = proveedores.filter((p) => p.estado === 'activo').length;
+    const inactivos = total - activos;
+    const conGps = proveedores.filter((p) => ubicacionDe(p) != null).length;
+    const nacionales = proveedores.filter((p) => p.origen === 'nacional').length;
+    const internacionales = total - nacionales;
+    return { total, activos, inactivos, conGps, nacionales, internacionales };
+  }, [proveedores]);
+
+  const estadoOptions: SearchOption[] = useMemo(() => [
+    { value: '', label: '⚡ Todos los estados' },
+    { value: 'activo', label: '✅ Activos', hint: `${kpis.activos} prov.` },
+    { value: 'inactivo', label: '⛔ Inactivos', hint: `${kpis.inactivos} prov.` },
+  ], [kpis.activos, kpis.inactivos]);
+
+  const origenOptions: SearchOption[] = useMemo(() => [
+    { value: '', label: '🌎 Todos los orígenes' },
+    { value: 'nacional', label: '🇻🇪 Nacional', hint: `${kpis.nacionales} prov.` },
+    { value: 'internacional', label: '🌎 Internacional', hint: `${kpis.internacionales} prov.` },
+  ], [kpis.nacionales, kpis.internacionales]);
+
+  const ubicacionOptions: SearchOption[] = useMemo(() => {
+    const opts: SearchOption[] = [
+      { value: '', label: '📍 Todas las ubicaciones' },
+      { value: 'con_gps', label: '🛰️ Con ubicación GPS', hint: `${kpis.conGps} prov.` },
+      { value: 'sin_gps', label: '📍 Sin ubicación GPS', hint: `${kpis.total - kpis.conGps} prov.` },
+    ];
+    const CIUDADES_CONOCIDAS = [
+      'Puerto Ordaz', 'Ciudad Guayana', 'Ciudad Bolívar', 'San Félix', 'Upata',
+      'Caracas', 'Maturín', 'El Tigre', 'Barcelona', 'Puerto La Cruz',
+      'Lechería', 'Valencia', 'Maracay', 'Barquisimeto', 'Maracaibo',
+      'Peramanal', 'Guasipati', 'El Callao', 'Tumeremo', 'La Esperanza'
+    ];
+    CIUDADES_CONOCIDAS.forEach((ciudad) => {
+      const q = norm(ciudad);
+      const conteo = proveedores.filter((p) => norm(p.direccion ?? '').includes(q)).length;
+      if (conteo > 0) {
+        opts.push({
+          value: `ciudad:${ciudad}`,
+          label: `🏙️ ${ciudad}`,
+          hint: `${conteo} prov.`,
+        });
+      }
+    });
+    return opts;
+  }, [proveedores, kpis.conGps, kpis.total]);
 
   useEffect(() => {
     if (!gestionCatsOpen) return;
@@ -121,23 +415,46 @@ export function ProveedoresPage() {
     const q = norm(filterText);
     return proveedores.filter((p) => {
       if (filterEstado && p.estado !== filterEstado) return false;
-      if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
+      if (filterCategorias.length > 0) {
+        const provCats = p.categorias ?? [];
+        if (!filterCategorias.some((c) => provCats.includes(c))) return false;
+      }
+      if (filterOrigen && p.origen !== filterOrigen) return false;
+      if (filterUbicacion === 'con_gps' && ubicacionDe(p) == null) return false;
+      if (filterUbicacion === 'sin_gps' && ubicacionDe(p) != null) return false;
+      if (filterUbicacion.startsWith('ciudad:')) {
+        const ciudad = filterUbicacion.replace('ciudad:', '');
+        if (!norm(p.direccion ?? '').includes(norm(ciudad))) return false;
+      }
+      if (filterGps && ubicacionDe(p) == null) return false;
       if (q) {
-        const hay = [p.razon_social, p.rif, p.contacto, p.email]
+        const hay = [p.razon_social, p.rif, p.contacto, p.email, p.direccion]
           .map((v) => norm(v))
           .some((v) => v.includes(q));
         if (!hay) return false;
       }
       return true;
     });
-  }, [proveedores, filterText, filterEstado, filterCategoria]);
+  }, [proveedores, filterText, filterEstado, filterCategorias, filterOrigen, filterUbicacion, filterGps]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtered.length / itemsPorPagina));
+  const paginaValida = Math.min(pagina, totalPaginas);
+
+  const itemsVisibles = useMemo(() => {
+    if (itemsPorPagina >= 99999) return filtered;
+    const inicio = (paginaValida - 1) * itemsPorPagina;
+    return filtered.slice(inicio, inicio + itemsPorPagina);
+  }, [filtered, paginaValida, itemsPorPagina]);
 
   // Descargar datos de los proveedores visibles en PDF o Excel.
   const [exportarOpen, setExportarOpen] = useState(false);
   const descripcionFiltro = [
     filterText.trim() && `Búsqueda «${filterText.trim()}»`,
     filterEstado && (filterEstado === 'activo' ? 'Activos' : 'Inactivos'),
-    filterCategoria && `Categoría ${filterCategoria}`,
+    filterCategorias.length > 0 && `Categorías: ${filterCategorias.join(', ')}`,
+    filterOrigen && (filterOrigen === 'nacional' ? 'Origen Nacional' : 'Origen Internacional'),
+    filterUbicacion && (filterUbicacion === 'con_gps' ? 'Con GPS' : filterUbicacion === 'sin_gps' ? 'Sin GPS' : `Ciudad: ${filterUbicacion.replace('ciudad:', '')}`),
+    filterGps && 'Con ubicación GPS',
   ].filter(Boolean).join(' · ');
 
   function openCreate() {
@@ -245,6 +562,105 @@ export function ProveedoresPage() {
         </div>
       </div>
 
+      {/* Barra de métricas resumen (KPIs) con filtrado rápido */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: '.75rem',
+          marginBottom: '1.1rem',
+        }}
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setFilterEstado('');
+            setFilterGps(false);
+            setFilterOrigen('');
+            setFilterUbicacion('');
+            setFilterCategorias([]);
+            setFilterText('');
+          }}
+          className="card"
+          style={{
+            padding: '.75rem 1rem',
+            background: filterEstado === '' && !filterGps && !filterOrigen && !filterUbicacion && filterCategorias.length === 0 && !filterText ? 'var(--surface-3)' : 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderLeft: '4px solid var(--border-strong)',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Ver todos los proveedores (limpiar todos los filtros)"
+        >
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 700 }}>Total Proveedores</div>
+          <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text)' }}>{kpis.total}</div>
+        </div>
+
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setFilterEstado(filterEstado === 'activo' ? '' : 'activo')}
+          className="card"
+          style={{
+            padding: '.75rem 1rem',
+            background: filterEstado === 'activo' ? 'rgba(41, 192, 129, 0.12)' : 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderLeft: '4px solid var(--success)',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Filtrar por proveedores activos"
+        >
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 700 }}>Activos</div>
+          <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }}>{kpis.activos}</div>
+        </div>
+
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setFilterEstado(filterEstado === 'inactivo' ? '' : 'inactivo')}
+          className="card"
+          style={{
+            padding: '.75rem 1rem',
+            background: filterEstado === 'inactivo' ? 'rgba(239, 79, 94, 0.12)' : 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderLeft: '4px solid var(--danger)',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Filtrar por proveedores inactivos"
+        >
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 700 }}>Inactivos</div>
+          <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }}>{kpis.inactivos}</div>
+        </div>
+
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setFilterGps((prev) => !prev)}
+          className="card"
+          style={{
+            padding: '.75rem 1rem',
+            background: filterGps ? 'rgba(255, 138, 0, 0.16)' : 'var(--surface-2)',
+            border: filterGps ? '1px solid var(--primary)' : '1px solid var(--border)',
+            borderLeft: '4px solid var(--primary)',
+            boxShadow: filterGps ? '0 0 0 1px var(--primary)' : 'none',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title={filterGps ? 'Quitar filtro de ubicación GPS' : 'Filtrar por proveedores con ubicación GPS'}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem' }}>
+            <span className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', fontWeight: 700 }}>Con Ubicación GPS</span>
+            {filterGps && (
+              <span className="badge primary" style={{ fontSize: '.62rem', padding: '1px 6px', fontWeight: 700 }}>✓ Activo</span>
+            )}
+          </div>
+          <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)' }}>{kpis.conGps}</div>
+        </div>
+      </div>
+
       <div
         style={{
           display: 'flex',
@@ -256,35 +672,148 @@ export function ProveedoresPage() {
       >
         <input
           className="input"
-          style={{ maxWidth: 360 }}
-          placeholder="Buscar por razón social, RIF, contacto, email…"
+          style={{ minWidth: 240, flex: '1 1 240px', maxWidth: 340 }}
+          placeholder="Buscar por razón social, RIF, contacto, dirección…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
-        <select
-          className="select"
-          style={{ maxWidth: 180 }}
+
+        {/* Buscador de Estado con lista */}
+        <SearchSelect
+          style={{ width: 160 }}
+          options={estadoOptions}
           value={filterEstado}
-          onChange={(e) => setFilterEstado(e.target.value as EstadoFilter)}
-        >
-          <option value="">Todos los estados</option>
-          <option value="activo">Activos</option>
-          <option value="inactivo">Inactivos</option>
-        </select>
-        <select
-          className="select"
-          style={{ maxWidth: 220 }}
-          value={filterCategoria}
-          onChange={(e) => setFilterCategoria(e.target.value as CategoriaFilter)}
-        >
-          <option value="">Todas las categorías</option>
-          {categoriasList.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => setFilterEstado(v as EstadoFilter)}
+          placeholder="⚡ Estado…"
+        />
+
+        {/* Buscador de Origen (Nacional / Internacional) */}
+        <SearchSelect
+          style={{ width: 175 }}
+          options={origenOptions}
+          value={filterOrigen}
+          onChange={setFilterOrigen}
+          placeholder="🌎 Origen…"
+        />
+
+        {/* Buscador de Ubicación (Con GPS, Sin GPS, Ciudades detectadas) */}
+        <SearchSelect
+          style={{ width: 195 }}
+          options={ubicacionOptions}
+          value={filterUbicacion}
+          onChange={setFilterUbicacion}
+          placeholder="📍 Ubicación…"
+        />
+
+        {/* Buscador de Categorías con multi-selección interactiva */}
+        <CategoriaMultiDropdown
+          options={categoriasList}
+          selected={filterCategorias}
+          onChange={setFilterCategorias}
+          proveedores={proveedores}
+        />
+
+        <div className="view-toggle" role="tablist" aria-label="Modo de vista" style={{ marginLeft: 'auto' }}>
+          <button
+            type="button"
+            className={modoVista === 'tarjetas' ? 'active' : ''}
+            onClick={() => cambiarModoVista('tarjetas')}
+            title="Vista por tarjetas"
+          >
+            🗂️ Tarjetas
+          </button>
+          <button
+            type="button"
+            className={modoVista === 'tabla' ? 'active' : ''}
+            onClick={() => cambiarModoVista('tabla')}
+            title="Vista por filas (tabla)"
+          >
+            ☰ Filas
+          </button>
+        </div>
       </div>
+
+      {(filterCategorias.length > 0 || filterOrigen || filterUbicacion || filterGps || filterEstado || filterText) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', marginBottom: '1rem', padding: '.45rem .75rem', background: 'var(--surface-2)', borderRadius: 'var(--r-md, 8px)', border: '1px solid var(--border)' }}>
+          <span className="muted" style={{ fontSize: '.75rem', fontWeight: 700 }}>Filtros activos:</span>
+          {filterText.trim() && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterText('')}
+              title="Quitar búsqueda de texto"
+            >
+              🔍 «{filterText.trim()}» ✕
+            </span>
+          )}
+          {filterEstado && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterEstado('')}
+              title="Quitar filtro de estado"
+            >
+              {filterEstado === 'activo' ? '✅ Activos' : '⛔ Inactivos'} ✕
+            </span>
+          )}
+          {filterOrigen && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterOrigen('')}
+              title="Quitar filtro de origen"
+            >
+              {filterOrigen === 'nacional' ? '🇻🇪 Nacional' : '🌎 Internacional'} ✕
+            </span>
+          )}
+          {filterUbicacion && (
+            <span
+              className="badge"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterUbicacion('')}
+              title="Quitar filtro de ubicación"
+            >
+              {filterUbicacion === 'con_gps' ? '🛰️ Con GPS' : filterUbicacion === 'sin_gps' ? '📍 Sin GPS' : `🏙️ ${filterUbicacion.replace('ciudad:', '')}`} ✕
+            </span>
+          )}
+          {filterGps && filterUbicacion !== 'con_gps' && (
+            <span
+              className="badge primary"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              onClick={() => setFilterGps(false)}
+              title="Quitar filtro de GPS"
+            >
+              📍 Con GPS ✕
+            </span>
+          )}
+          {filterCategorias.map((c) => (
+            <span
+              key={c}
+              className="badge primary"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontWeight: 600 }}
+              onClick={() => setFilterCategorias((prev) => prev.filter((x) => x !== c))}
+              title="Quitar esta categoría"
+            >
+              🏷️ {c} ✕
+            </span>
+          ))}
+          <button
+            type="button"
+            className="btn btn-xs btn-ghost"
+            style={{ fontSize: '.72rem', color: 'var(--primary)', fontWeight: 600, marginLeft: 'auto' }}
+            onClick={() => {
+              setFilterEstado('');
+              setFilterOrigen('');
+              setFilterUbicacion('');
+              setFilterGps(false);
+              setFilterCategorias([]);
+              setFilterText('');
+            }}
+          >
+            Limpiar todos los filtros
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="card">
@@ -299,62 +828,449 @@ export function ProveedoresPage() {
           <EmptyState message="Sin proveedores que coincidan." icon="⚒" />
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>RIF</th>
-                <th>Razón social</th>
-                <th>Teléfono</th>
-                <th>Categorías</th>
-                <th>Estado</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id}>
-                  <td className="mono">{p.rif}</td>
-                  <td>
+        <>
+          {modoVista === 'tarjetas' ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gap: '1rem',
+              }}
+            >
+              {itemsVisibles.map((p) => {
+                const uLoc = ubicacionDe(p);
+                const tieneGps = Boolean(uLoc);
+                const esInactivo = p.estado !== 'activo';
+                const iniciales = (p.razon_social || 'PR')
+                  .split(' ')
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((w) => w[0])
+                  .join('')
+                  .toUpperCase();
+
+                return (
+                  <div
+                    key={p.id}
+                    className="card prov-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setDetailId(p.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setDetailId(p.id);
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      padding: '1.1rem 1.15rem',
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                      borderLeft: `4px solid ${esInactivo ? 'var(--danger, #ef4444)' : 'var(--primary, #ff8a00)'}`,
+                      borderRadius: 'var(--r-lg)',
+                      boxShadow: 'var(--shadow-sm)',
+                      opacity: esInactivo ? 0.82 : 1,
+                      gap: '.75rem',
+                    }}
+                  >
                     <div>
-                      <strong>{p.razon_social}</strong>
-                    </div>
-                    {p.email && (
-                      <div className="muted" style={{ fontSize: '.78rem' }}>
-                        {p.email}
-                      </div>
-                    )}
-                  </td>
-                  <td className="mono">{p.telefono || '—'}</td>
-                  <td>
-                    <Etiquetas items={p.categorias ?? []} max={3} />
-                  </td>
-                  <td>
-                    <StatusBadge estado={p.estado} />
-                  </td>
-                  <td className="actions">
-                    <button className="btn btn-sm btn-ghost" onClick={() => setDetailId(p.id)}>
-                      Ver
-                    </button>
-                    {canWrite && (
-                      <>
-                        <button className="btn btn-sm btn-ghost" onClick={() => openEdit(p.id)}>
-                          Editar
-                        </button>
-                        <button
-                          className={`btn btn-sm ${p.estado === 'activo' ? 'btn-danger' : 'btn-success'}`}
-                          onClick={() => setToggleTarget(p)}
+                      {/* Cabecera con avatar monograma, RIF y badges */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.65rem', marginBottom: '.45rem' }}>
+                        <div
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: '10px',
+                            background: esInactivo ? 'var(--surface-3)' : 'linear-gradient(135deg, rgba(255,138,0,0.22), rgba(255,138,0,0.06))',
+                            border: `1.5px solid ${esInactivo ? 'var(--border)' : 'var(--primary)'}`,
+                            color: esInactivo ? 'var(--text-muted)' : 'var(--primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 800,
+                            fontSize: '.85rem',
+                            flexShrink: 0,
+                          }}
                         >
-                          {p.estado === 'activo' ? 'Desactivar' : 'Activar'}
+                          {iniciales}
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.3rem', marginBottom: '.2rem' }}>
+                            <span className="badge mono" style={{ fontSize: '.72rem', fontWeight: 700, padding: '.15rem .45rem' }}>
+                              {p.rif}
+                            </span>
+                            <StatusBadge estado={p.estado} />
+                          </div>
+
+                          <div
+                            style={{
+                              fontSize: '.98rem',
+                              fontWeight: 700,
+                              color: 'var(--text)',
+                              lineHeight: 1.3,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                            }}
+                            title={p.razon_social}
+                          >
+                            {p.razon_social}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Datos de contacto y ubicación */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', fontSize: '.82rem', color: 'var(--text-muted)' }}>
+                      {p.contacto && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                          <span style={{ fontSize: '.85rem' }}>👤</span>
+                          <span style={{ color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.contacto}</span>
+                        </div>
+                      )}
+
+                      {p.telefono && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                          <span style={{ fontSize: '.85rem' }}>📞</span>
+                          <a
+                            href={`tel:${p.telefono}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mono"
+                            style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}
+                            title="Llamar proveedor"
+                          >
+                            {p.telefono}
+                          </a>
+                        </div>
+                      )}
+
+                      {p.email && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', minWidth: 0 }}>
+                          <span style={{ fontSize: '.85rem' }}>✉️</span>
+                          <a
+                            href={`mailto:${p.email}`}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              color: 'var(--text-muted)',
+                              textDecoration: 'none',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={p.email}
+                          >
+                            {p.email}
+                          </a>
+                        </div>
+                      )}
+
+                      {(p.direccion || tieneGps) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '.85rem' }}>📍</span>
+                          {p.direccion && (
+                            <span
+                              style={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 1,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                lineHeight: 1.35,
+                                fontSize: '.78rem',
+                                flex: 1,
+                                minWidth: 100,
+                              }}
+                              title={p.direccion}
+                            >
+                              {p.direccion}
+                            </span>
+                          )}
+                          {uLoc && (
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="badge primary"
+                              style={{
+                                fontSize: '.68rem',
+                                padding: '.15rem .5rem',
+                                flexShrink: 0,
+                                textDecoration: 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '.25rem',
+                                cursor: 'pointer',
+                                borderRadius: '999px',
+                                fontWeight: 700,
+                              }}
+                              title="Abrir ubicación en Google Maps (opcional)"
+                            >
+                              📍 Maps ↗
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ marginTop: '.2rem' }}>
+                        <Etiquetas items={p.categorias ?? []} max={2} />
+                      </div>
+                    </div>
+
+                    {/* Pie de tarjeta con acciones */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingTop: '.6rem',
+                        borderTop: '1px solid var(--border)',
+                        marginTop: 'auto',
+                        gap: '.4rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: '.8rem',
+                          fontWeight: 600,
+                          color: 'var(--primary)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '.25rem',
+                        }}
+                      >
+                        Ver expediente →
+                      </span>
+
+                      <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+                        {uLoc && (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="btn btn-xs btn-ghost"
+                            style={{
+                              color: 'var(--primary)',
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '.2rem',
+                              fontWeight: 600,
+                            }}
+                            title="Abrir en Google Maps (opcional)"
+                          >
+                            📍 Maps ↗
+                          </a>
+                        )}
+                        {canWrite && (
+                          <>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(p.id);
+                            }}
+                            title="Editar datos del proveedor"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-xs ${p.estado === 'activo' ? 'btn-danger' : 'btn-success'}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setToggleTarget(p);
+                            }}
+                          >
+                            {p.estado === 'activo' ? 'Desactivar' : 'Activar'}
+                          </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>RIF</th>
+                    <th>Razón social</th>
+                    <th>Teléfono</th>
+                    <th>Categorías</th>
+                    <th>Estado</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemsVisibles.map((p) => {
+                    const uLoc = ubicacionDe(p);
+                    return (
+                    <tr
+                      key={p.id}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setDetailId(p.id)}
+                      title="Ver expediente del proveedor"
+                    >
+                      <td className="mono">{p.rif}</td>
+                      <td>
+                        <div>
+                          <strong>{p.razon_social}</strong>
+                        </div>
+                        {p.email && (
+                          <div className="muted" style={{ fontSize: '.78rem' }}>
+                            {p.email}
+                          </div>
+                        )}
+                        {uLoc && (
+                          <div style={{ marginTop: '.15rem' }}>
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                fontSize: '.72rem',
+                                color: 'var(--primary)',
+                                textDecoration: 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '.2rem',
+                                fontWeight: 600,
+                              }}
+                              title="Abrir ubicación en Google Maps (opcional)"
+                            >
+                              📍 Maps ↗
+                            </a>
+                          </div>
+                        )}
+                      </td>
+                      <td className="mono">{p.telefono || '—'}</td>
+                      <td>
+                        <Etiquetas items={p.categorias ?? []} max={3} />
+                      </td>
+                      <td>
+                        <StatusBadge estado={p.estado} />
+                      </td>
+                      <td className="actions" onClick={(e) => e.stopPropagation()}>
+                        {uLoc && (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${uLoc.lat},${uLoc.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-sm btn-ghost"
+                            style={{ textDecoration: 'none', color: 'var(--primary)', fontWeight: 600 }}
+                            title="Abrir ubicación en Google Maps"
+                          >
+                            📍 Maps
+                          </a>
+                        )}
+                        <button className="btn btn-sm btn-ghost" onClick={() => setDetailId(p.id)}>
+                          Ver
                         </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        {canWrite && (
+                          <>
+                            <button className="btn btn-sm btn-ghost" onClick={() => openEdit(p.id)}>
+                              Editar
+                            </button>
+                            <button
+                              className={`btn btn-sm ${p.estado === 'activo' ? 'btn-danger' : 'btn-success'}`}
+                              onClick={() => setToggleTarget(p)}
+                            >
+                              {p.estado === 'activo' ? 'Desactivar' : 'Activar'}
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Barra de paginación para limitar el scroll vertical */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              marginTop: '1.25rem',
+              padding: '.75rem 1rem',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-lg)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div className="muted" style={{ fontSize: '.84rem' }}>
+              Mostrando <strong>{filtered.length === 0 ? 0 : (paginaValida - 1) * itemsPorPagina + 1}</strong>–<strong>{Math.min(paginaValida * itemsPorPagina, filtered.length)}</strong> de <strong>{filtered.length}</strong> proveedores
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                disabled={paginaValida <= 1}
+                onClick={() => {
+                  setPagina((p) => Math.max(1, p - 1));
+                  window.scrollTo({ top: 120, behavior: 'smooth' });
+                }}
+              >
+                ◀ Anterior
+              </button>
+
+              <span style={{ fontSize: '.84rem', fontWeight: 600, padding: '0 .5rem' }}>
+                Página {paginaValida} de {totalPaginas}
+              </span>
+
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                disabled={paginaValida >= totalPaginas}
+                onClick={() => {
+                  setPagina((p) => Math.min(totalPaginas, p + 1));
+                  window.scrollTo({ top: 120, behavior: 'smooth' });
+                }}
+              >
+                Siguiente ▶
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem' }}>
+              <span className="muted" style={{ fontSize: '.8rem' }}>Por página:</span>
+              <select
+                className="select"
+                style={{ padding: '.25rem .5rem', fontSize: '.82rem', width: 'auto' }}
+                value={itemsPorPagina}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setItemsPorPagina(val);
+                  setPagina(1);
+                  try { localStorage.setItem('gt.proveedores.por_pagina', String(val)); } catch {}
+                }}
+              >
+                <option value={12}>12</option>
+                <option value={24}>24</option>
+                <option value={48}>48</option>
+                <option value={99999}>Todos</option>
+              </select>
+            </div>
+          </div>
+        </>
       )}
 
       {formOpen && (
@@ -374,6 +1290,11 @@ export function ProveedoresPage() {
         <ProveedorDetailModal
           proveedor={proveedores.find((p) => p.id === detailId) ?? null}
           onClose={() => setDetailId(null)}
+          onEdit={(id) => {
+            setDetailId(null);
+            openEdit(id);
+          }}
+          canWrite={canWrite}
         />
       )}
 
@@ -655,12 +1576,15 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
 interface DetailModalProps {
   proveedor: Proveedor | null;
   onClose: () => void;
+  onEdit?: (id: string) => void;
+  canWrite?: boolean;
 }
 
-function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
+function ProveedorDetailModal({ proveedor, onClose, onEdit, canWrite }: DetailModalProps) {
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tabDetalle, setTabDetalle] = useState<'ficha' | 'ordenes'>('ficha');
 
   useEffect(() => {
     if (!proveedor) return;
@@ -686,92 +1610,356 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
 
   const recibidas = ordenes.filter((o) => o.estado === 'recibida');
   const totalNegocios = ordenes.reduce((acc, o) => acc + (o.total ?? 0), 0);
+  const totalRecibido = recibidas.reduce((acc, o) => acc + (o.total ?? 0), 0);
+  const u = ubicacionDe(proveedor);
+
+  const iniciales = (proveedor.razon_social || 'PR')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
 
   return (
     <Modal
-      title={proveedor.razon_social}
+      title=""
       size="lg"
       onClose={onClose}
       footer={
-        <button className="btn btn-ghost" onClick={onClose}>
-          Cerrar
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div style={{ display: 'flex', gap: '.4rem' }}>
+            {canWrite && onEdit && (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => onEdit(proveedor.id)}
+              >
+                ✏️ Editar proveedor
+              </button>
+            )}
+          </div>
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cerrar
+          </button>
+        </div>
       }
     >
-      <div style={{ display: 'grid', gap: '.5rem', marginBottom: '1.25rem' }}>
-        <DetailRow label="RIF" value={<span className="mono">{proveedor.rif}</span>} />
-        <DetailRow label="Razón social" value={proveedor.razon_social} />
-        <DetailRow label="Teléfono" value={proveedor.telefono || '—'} />
-        <DetailRow label="Correo" value={proveedor.email || '—'} />
-        <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
-        <DetailRow label="Ubicación en el mapa" value={(() => {
-          const u = ubicacionDe(proveedor);
-          return u
-            ? <a href={`https://www.google.com/maps/search/?api=1&query=${u.lat},${u.lng}`} target="_blank" rel="noopener noreferrer" className="mono">📍 {coordsTxt(u)}</a>
-            : <span className="muted">Sin marcar (se marca en Editar o desde el teléfono del delivery)</span>;
-        })()} />
-        <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
-        <DetailRow label="Tlf. de administración" value={proveedor.numero_administracion ? <span className="mono">📞 {proveedor.numero_administracion}</span> : '—'} />
-        <DetailRow
-          label="Categorías"
-          value={
-            (proveedor.categorias ?? []).length === 0
-              ? '—'
-              : <Etiquetas items={proveedor.categorias ?? []} />
-          }
-        />
-        <DetailRow label="Estado" value={<StatusBadge estado={proveedor.estado} />} />
-        <DetailRow
-          label="Órdenes vinculadas"
-          value={`${ordenes.length} · ${money(totalNegocios)} en negocios`}
-        />
-        <DetailRow
-          label="Pedidos recibidos"
-          value={
-            <span>
-              <strong>{recibidas.length}</strong>
-              <span className="muted" style={{ marginLeft: '.4rem' }}>
-                ({money(recibidas.reduce((a, o) => a + (o.total ?? 0), 0))})
-              </span>
+      {/* ─── Hero Banner del Proveedor ─── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '1rem',
+          paddingBottom: '1.25rem',
+          borderBottom: '1px solid var(--border)',
+          marginBottom: '1.25rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div
+          style={{
+            width: 58,
+            height: 58,
+            borderRadius: '14px',
+            background: 'linear-gradient(135deg, rgba(255,138,0,0.25), rgba(255,138,0,0.06))',
+            border: '2px solid var(--primary)',
+            color: 'var(--primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 800,
+            fontSize: '1.35rem',
+            flexShrink: 0,
+            boxShadow: '0 4px 12px rgba(255,138,0,0.15)',
+          }}
+        >
+          {iniciales}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.35rem' }}>
+            <span className="badge mono" style={{ fontSize: '.82rem', fontWeight: 700, padding: '.2rem .55rem' }}>
+              {proveedor.rif}
             </span>
-          }
-        />
-        <DetailRow label="Registrado" value={date(proveedor.created_at)} />
+            <StatusBadge estado={proveedor.estado} />
+            <span className="badge" style={{ fontSize: '.75rem' }}>
+              {proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'}
+            </span>
+            {proveedor.actividad_economica && (
+              <span className="badge" style={{ fontSize: '.75rem' }} title="Código CIIU SENIAT">
+                CIIU: {proveedor.actividad_economica}
+              </span>
+            )}
+          </div>
+
+          <h2 style={{ margin: 0, fontSize: '1.28rem', fontWeight: 800, color: 'var(--text)', lineHeight: 1.25 }}>
+            {proveedor.razon_social}
+          </h2>
+        </div>
+
+        {/* Acciones directas de contacto */}
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignSelf: 'center' }}>
+          {proveedor.telefono && (
+            <a
+              href={`tel:${proveedor.telefono}`}
+              className="btn btn-sm btn-ghost"
+              style={{ color: 'var(--primary)', textDecoration: 'none' }}
+              title="Llamar al proveedor"
+            >
+              📞 Llamar
+            </a>
+          )}
+          {proveedor.email && (
+            <a
+              href={`mailto:${proveedor.email}`}
+              className="btn btn-sm btn-ghost"
+              style={{ textDecoration: 'none' }}
+              title="Enviar correo"
+            >
+              ✉️ Correo
+            </a>
+          )}
+          {u && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${u.lat},${u.lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-sm btn-ghost"
+              style={{ textDecoration: 'none' }}
+              title="Ver en Google Maps"
+            >
+              📍 Maps
+            </a>
+          )}
+        </div>
       </div>
 
-      <h3 className="card-title" style={{ marginBottom: '.5rem' }}>
-        Histórico de órdenes
-      </h3>
-      {loading ? (
-        <p className="muted" style={{ margin: 0 }}>Cargando histórico…</p>
-      ) : error ? (
-        <EmptyState message={error} icon="!" />
-      ) : ordenes.length === 0 ? (
-        <EmptyState message="Sin órdenes registradas para este proveedor." icon="✉" />
+      {/* ─── Franja de 4 KPIs Ejecutivos ─── */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+          gap: '.75rem',
+          marginBottom: '1.25rem',
+        }}
+      >
+        <div
+          className="card"
+          style={{
+            padding: '.8rem .95rem',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderLeft: '4px solid var(--primary)',
+          }}
+        >
+          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Total Negocios</div>
+          <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--primary)', margin: '.2rem 0 .1rem' }}>
+            {money(totalNegocios)}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Volumen histórico</div>
+        </div>
+
+        <div
+          className="card"
+          style={{
+            padding: '.8rem .95rem',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderLeft: '4px solid var(--info)',
+          }}
+        >
+          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Órdenes Totales</div>
+          <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)', margin: '.2rem 0 .1rem' }}>
+            {ordenes.length}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Órdenes emitidas</div>
+        </div>
+
+        <div
+          className="card"
+          style={{
+            padding: '.8rem .95rem',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderLeft: '4px solid var(--success)',
+          }}
+        >
+          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Recibidas</div>
+          <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--success)', margin: '.2rem 0 .1rem' }}>
+            {recibidas.length}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>{money(totalRecibido)}</div>
+        </div>
+
+        <div
+          className="card"
+          style={{
+            padding: '.8rem .95rem',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderLeft: '4px solid var(--warning)',
+          }}
+        >
+          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Efectividad</div>
+          <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--warning)', margin: '.2rem 0 .1rem' }}>
+            {ordenes.length ? `${Math.round((recibidas.length / ordenes.length) * 100)} %` : '—'}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Tasa de entrega</div>
+        </div>
+      </div>
+
+      {/* ─── Pestañas dentro del Modal ─── */}
+      <div className="view-toggle" role="tablist" style={{ marginBottom: '1rem', width: '100%' }}>
+        <button
+          type="button"
+          className={tabDetalle === 'ficha' ? 'active' : ''}
+          onClick={() => setTabDetalle('ficha')}
+          style={{ flex: 1, justifyContent: 'center' }}
+        >
+          📋 Ficha y Contacto
+        </button>
+        <button
+          type="button"
+          className={tabDetalle === 'ordenes' ? 'active' : ''}
+          onClick={() => setTabDetalle('ordenes')}
+          style={{ flex: 1, justifyContent: 'center' }}
+        >
+          🧾 Histórico de Órdenes ({ordenes.length})
+        </button>
+      </div>
+
+      {tabDetalle === 'ficha' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+          {/* Tarjeta A: Contacto y Ubicación */}
+          <div className="card" style={{ padding: '1rem 1.15rem', background: 'var(--surface-2)' }}>
+            <div className="card-title" style={{ marginBottom: '.65rem', color: 'var(--primary)' }}>
+              <span>📍 Contacto y Despacho</span>
+            </div>
+            <div style={{ display: 'grid', gap: '.45rem' }}>
+              <DetailRow label="Contacto" value={proveedor.contacto ? <strong>{proveedor.contacto}</strong> : <span className="muted">Sin contacto registrado</span>} />
+              <DetailRow
+                label="Teléfono principal"
+                value={
+                  proveedor.telefono ? (
+                    <a href={`tel:${proveedor.telefono}`} className="mono" style={{ color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}>
+                      📞 {proveedor.telefono}
+                    </a>
+                  ) : <span className="muted">—</span>
+                }
+              />
+              <DetailRow
+                label="Tlf. Administración"
+                value={
+                  proveedor.numero_administracion ? (
+                    <a href={`tel:${proveedor.numero_administracion}`} className="mono" style={{ color: 'var(--text)', textDecoration: 'none' }}>
+                      ☎️ {proveedor.numero_administracion}
+                    </a>
+                  ) : <span className="muted">—</span>
+                }
+              />
+              <DetailRow
+                label="Correo"
+                value={
+                  proveedor.email ? (
+                    <a href={`mailto:${proveedor.email}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
+                      ✉️ {proveedor.email}
+                    </a>
+                  ) : <span className="muted">—</span>
+                }
+              />
+              <DetailRow label="Dirección física" value={proveedor.direccion || <span className="muted">Sin dirección registrada</span>} />
+              <DetailRow
+                label="Ubicación GPS"
+                value={
+                  u ? (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${u.lat},${u.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mono"
+                      style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}
+                    >
+                      📍 {coordsTxt(u)} (Abrir en Maps)
+                    </a>
+                  ) : (
+                    <span className="muted" style={{ fontSize: '.8rem' }}>Sin marcar (se define en Editar o vía Delivery)</span>
+                  )
+                }
+              />
+            </div>
+          </div>
+
+          {/* Tarjeta B: Perfil y Datos Fiscales */}
+          <div className="card" style={{ padding: '1rem 1.15rem', background: 'var(--surface-2)' }}>
+            <div className="card-title" style={{ marginBottom: '.65rem', color: 'var(--primary)' }}>
+              <span>🏢 Perfil y Registro Fiscal</span>
+            </div>
+            <div style={{ display: 'grid', gap: '.45rem' }}>
+              <DetailRow label="RIF" value={<span className="mono" style={{ fontWeight: 700 }}>{proveedor.rif}</span>} />
+              <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
+              <DetailRow label="Actividad CIIU" value={proveedor.actividad_economica || <span className="muted">Sin especificar</span>} />
+              <DetailRow
+                label="Categorías"
+                value={
+                  (proveedor.categorias ?? []).length === 0
+                    ? <span className="muted">Sin categorías asignadas</span>
+                    : <Etiquetas items={proveedor.categorias ?? []} />
+                }
+              />
+              <DetailRow label="Estado comercial" value={<StatusBadge estado={proveedor.estado} />} />
+              <DetailRow label="Fecha de registro" value={date(proveedor.created_at)} />
+            </div>
+          </div>
+        </div>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Fecha</th>
-                <th>Total</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ordenes.map((o) => (
-                <tr key={o.id}>
-                  <td className="mono">{o.codigo}</td>
-                  <td>{date(o.created_at)}</td>
-                  <td>{money(o.total)}</td>
-                  <td>
-                    <StatusBadge estado={o.estado} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div>
+          {loading ? (
+            <p className="muted" style={{ margin: '1rem 0', textAlign: 'center' }}>Cargando histórico de órdenes…</p>
+          ) : error ? (
+            <EmptyState message={error} icon="!" />
+          ) : ordenes.length === 0 ? (
+            <EmptyState message="Sin órdenes de compra registradas para este proveedor." icon="✉" />
+          ) : (
+            <div className="table-wrap" style={{ maxHeight: '360px', overflowY: 'auto' }}>
+              <table className="table">
+                <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-2)', zIndex: 1 }}>
+                  <tr>
+                    <th>Código</th>
+                    <th>Tipo</th>
+                    <th>Fecha</th>
+                    <th>Renglones</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'center' }}>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ordenes.map((o) => (
+                    <tr key={o.id}>
+                      <td className="mono" style={{ fontWeight: 700, color: 'var(--primary)' }}>
+                        {o.oc_codigo || o.codigo}
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '.8rem' }}>
+                          {o.tipo === 'servicio' ? '🛠️ Servicio' : '📦 Producto'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '.82rem' }}>{date(o.created_at)}</td>
+                      <td style={{ fontSize: '.82rem' }}>
+                        {o.items?.length ?? 0} {((o.items?.length ?? 0) === 1 ? 'ítem' : 'ítems')}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                        {money(o.total)}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <StatusBadge estado={o.estado} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </Modal>

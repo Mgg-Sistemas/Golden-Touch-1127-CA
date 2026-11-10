@@ -7,9 +7,11 @@
         pero queda editable: hoy ningún producto lo tiene cargado, así que el
         campo arranca vacío y eso es normal, no un error.
      3. Cada renglón muestra su ganancia EN VIVO y, si corresponde, sus avisos.
-     4. Si la condición es contado, se reparte el cobro en patas de pago.
-     5. «Guardar borrador» no mueve nada. «Confirmar» SÍ mueve dinero, así que
-        pide confirmación explícita.
+     4. Si el cliente YA pagó, se carga el cobro en patas de pago (opcional:
+        sin patas, al despacharse queda por cobrar en la cuenta del cliente).
+     5. «Guardar cotización» no mueve nada. «Guardar y pedir despacho» la manda
+        a aprobar (10/11/2026, ventas como compras): al aprobarse sale el
+        material y queda por cobrar.
 
    El cliente, la grilla de renglones (con sus tres avisos) y la tabla de patas
    de pago son las MISMAS que las de la permuta: viven en `ventasFormPartes`.
@@ -82,6 +84,8 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
   // Documento (nota de entrega / factura) e impuestos con casilla: ver `DocumentoImpuestos`.
   const [docImp, setDocImp] = useState<DocumentoImpuestosUI>(() => documentoImpuestosInicial(venta?.venta));
   const [descuento, setDescuento] = useState(venta?.venta.descuento ? String(venta.venta.descuento) : '');
+  // Fecha acordada de pago: si pasa y queda saldo, la venta sale como vencida.
+  const [cobrarEl, setCobrarEl] = useState(venta?.venta.cobrar_el?.slice(0, 10) ?? '');
   // La nota va NO controlada (defaultValue + ref): un re-render no puede comerse
   // lo que se está tecleando. Se lee del DOM al guardar.
   const notaRef = useRef<HTMLTextAreaElement>(null);
@@ -154,7 +158,11 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
   const aCobrar = resumen.diferencia;
   const falta = round2(aCobrar - pagado);
   const esContado = condicion === 'contado';
-  const patasCuadran = !esContado || aCobrar <= 0 || Math.abs(falta) <= 0.01;
+  // Las patas son OPCIONALES: sin ninguna, la venta queda por cobrar al despacharse.
+  // Si se cargan, tienen que cuadrar con lo que hay que cobrar.
+  const sinPatas = legsCargadas.length === 0;
+  const patasCuadran = !esContado || aCobrar <= 0 || sinPatas || Math.abs(falta) <= 0.01;
+  const quedaPorCobrar = aCobrar > 0.01 && (!esContado || sinPatas);
   const legSinCaja = legsCargadas.some((l) => !l.cajaId);
 
   const productosSinCosto = filas.filter((f) => f.sinCosto).length;
@@ -207,6 +215,8 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
       numeroControl: docImp.numeroControl,
       descuento: descuentoNum,
       pagoLegs: esContado ? legsCargadas : [],
+      // Solo se manda con fecha, o en null para borrar una que ya tenía.
+      cobrarEl: cobrarEl || (venta?.venta.cobrar_el ? null : undefined),
       nota: notaRef.current?.value ?? '',
       renglones,
       actor, actorName,
@@ -231,7 +241,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
     setGuardando(true);
     try {
       const guardada = await guardarBorrador();
-      notify(`Borrador ${guardada.venta.codigo} guardado · ${montoMoneda(guardada.venta.total, guardada.venta.moneda)}`,
+      notify(`Cotización ${guardada.venta.codigo} guardada · ${montoMoneda(guardada.venta.total, guardada.venta.moneda)}`,
         'success', { link: '#/app/ventas' });
       onSaved(guardada);
     } catch (err) {
@@ -241,8 +251,8 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
   }
 
   /**
-   * Guarda y la manda a autorizar. NO mueve dinero: eso pasa al CONFIRMAR, y solo
-   * se puede confirmar una venta que LEYDIS RENGEL o JESUS LOZADA autorizaron.
+   * Guarda y PIDE EL DESPACHO. No mueve nada: al aprobarse («¿Se despacha?»)
+   * sale el material y la venta queda por cobrar (o entra a caja si ya se cobró).
    */
   async function handleConfirmar() {
     setPidiendoConfirmar(false);
@@ -250,14 +260,17 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
     setGuardando(true);
     try {
       const guardada = await guardarBorrador();
+      if (quedaPorCobrar && !(guardada.venta.cliente_nombre ?? '').trim()) {
+        throw new Error('La venta queda por cobrar: elige el cliente antes de pedir el despacho (se guardó como cotización).');
+      }
       const enviada = await enviarVentaAAutorizar(guardada.venta.id, actor, actorName ?? actor);
       notify(
-        `Venta ${enviada.codigo} enviada a autorizar · ${montoMoneda(enviada.total, enviada.moneda)}`,
+        `Venta ${enviada.codigo} · despacho pedido · ${montoMoneda(enviada.total, enviada.moneda)}`,
         'success', { link: '#/app/ventas' },
       );
       onSaved({ ...guardada, venta: enviada });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo enviar la venta a autorizar.');
+      setError(err instanceof Error ? err.message : 'No se pudo pedir el despacho.');
       setGuardando(false);
     }
   }
@@ -270,20 +283,20 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
     <>
       <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={guardando}>Cancelar</button>
       <button type="submit" form="venta-form" className="btn btn-primary" disabled={guardando || cargando}>
-        {guardando ? 'Guardando…' : '💾 Guardar borrador'}
+        {guardando ? 'Guardando…' : '💾 Guardar cotización'}
       </button>
       <button type="button" className="btn btn-primary" disabled={!puedeConfirmar}
         onClick={() => setPidiendoConfirmar(true)}
         title={patasCuadran
-          ? `Guarda y la manda a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve dinero ni material.`
+          ? `Guarda y le pide el despacho a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve nada hasta que lo aprueben.`
           : 'Las patas de pago tienen que sumar exactamente lo que hay que cobrar'}>
-        📤 Guardar y enviar a autorizar
+        🚚 Guardar y pedir despacho
       </button>
     </>
   );
 
   return (
-    <Modal title={esEdicion ? `Editar venta ${venta?.venta.codigo ?? ''}` : 'Nueva venta'} size="xl"
+    <Modal title={esEdicion ? `Editar ${venta?.venta.codigo ?? ''}` : 'Nueva cotización'} size="xl"
       onClose={onCancel} footer={footer}>
       <form id="venta-form" onSubmit={handleSubmit}>
         {error && (
@@ -303,14 +316,19 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
           <div className="form-row">
             <label>Condición</label>
             <select className="select" value={condicion} onChange={(e) => setCondicion(e.target.value as CondicionVenta)}>
-              <option value="contado">Contado (se cobra ahora)</option>
-              <option value="credito">Crédito (cuenta por cobrar)</option>
+              <option value="contado">Contado</option>
+              <option value="credito">Crédito</option>
             </select>
             <small className="muted">
-              {esContado
-                ? 'Al confirmar entra el dinero a la caja, por las patas de pago de abajo.'
-                : 'Al confirmar se le carga la deuda a la cuenta corriente del cliente (la comparte con sus otras ventas).'}
+              {quedaPorCobrar
+                ? 'Al despacharse queda por cobrar en la cuenta del cliente; el cobro se registra desde el tablero.'
+                : 'Ya trae el cobro: al despacharse entra a la caja por las patas de pago de abajo.'}
             </small>
+          </div>
+          <div className="form-row">
+            <label>Cobrar el <span className="muted">(opcional)</span></label>
+            <input className="input" type="date" value={cobrarEl} onChange={(e) => setCobrarEl(e.target.value)} />
+            <small className="muted">Si pasa y queda saldo, sale como vencida.</small>
           </div>
           <div className="form-row">
             <label>Moneda</label>
@@ -367,7 +385,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
         {/* ── Patas de pago (solo contado) ── */}
         {esContado && (
           <>
-            <h4 style={{ margin: '1rem 0 .5rem' }}>Cobro · ¿en qué cajas entra el dinero?</h4>
+            <h4 style={{ margin: '1rem 0 .5rem' }}>¿Ya pagó? · en qué cajas entra el dinero <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>(opcional)</span></h4>
             <TablaPagoLegs
               legs={legs} cajas={cajas} saldos={saldos}
               aCobrar={aCobrar} pagado={pagado} falta={falta} legSinCaja={legSinCaja} moneda={moneda}
@@ -376,7 +394,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
               textoCuadran="✔ las patas cuadran"
             />
             <small className="muted">
-              Al confirmar entra una entrada de caja por cada forma de pago, atada a esta venta (Tesorería la muestra como «Cobro de venta»).
+              Si el cliente ya pagó, carga aquí cómo: al despacharse entra una entrada de caja por cada forma de pago (Tesorería la muestra como «Cobro de venta»). Sin formas de pago, queda por cobrar.
             </small>
           </>
         )}
@@ -385,9 +403,8 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
           <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.25rem' }}>Venta a crédito</div>
             <div className="muted" style={{ fontSize: '.82rem' }}>
-              Al confirmar se le cargan <strong className="mono">{montoMoneda(aCobrar, moneda)}</strong> a la cuenta
-              corriente del cliente. Esa cuenta es una sola por cliente y acumula todas sus ventas a crédito: los
-              cobros se registran desde Tesorería.
+              Al despacharse se le cargan <strong className="mono">{montoMoneda(aCobrar, moneda)}</strong> a la cuenta
+              corriente del cliente (una sola por cliente). Los cobros se registran desde el tablero con «💵 Registrar cobro».
             </div>
           </div>
         )}
@@ -403,16 +420,16 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
 
       {pidiendoConfirmar && (
         <ConfirmDialog
-          title="Enviar a autorizar"
+          title="Pedir despacho"
           message={
             `${docImp.documento === 'factura' ? 'Factura' : 'Nota de entrega'} por ${montoMoneda(resumen.total, moneda)}`
             + ` (${esContado ? 'de contado' : 'a crédito'}). Se guarda y le llega un aviso a ${AUTORIZADORES_VENTAS_TEXTO}.`
-            + ' No se mueve dinero ni material: después de la autorización se CONFIRMA (entra el dinero) y se ENTREGA (sale el material).'
+            + ` No se mueve nada hasta que respondan «¿Se despacha?»: al aprobarse sale el material y ${quedaPorCobrar ? 'queda por cobrar' : 'entra el cobro a caja'}.`
             + (productosSinCosto > 0
               ? ` OJO: ${productosSinCosto === 1 ? 'hay 1 renglón' : `hay ${productosSinCosto} renglones`} con costo en 0, así que la ganancia no es real.`
               : '')
           }
-          confirmText="Sí, enviar"
+          confirmText="Sí, pedir despacho"
           onConfirm={handleConfirmar}
           onCancel={() => setPidiendoConfirmar(false)}
         />

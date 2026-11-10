@@ -209,6 +209,19 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   color: var(--text);
 }
 
+.prov-card {
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
+}
+.prov-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary) !important;
+  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 138, 0, .3) !important;
+}
+.prov-card:active {
+  transform: translateY(0);
+}
+
 .card-title {
   font-size: .82rem; text-transform: uppercase; letter-spacing: .08em;
   color: var(--text-muted); margin-bottom: .9rem; font-weight: 700;

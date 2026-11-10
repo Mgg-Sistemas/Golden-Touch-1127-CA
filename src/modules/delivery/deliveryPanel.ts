@@ -1,5 +1,5 @@
 /* ============================================================
-   Golden Touch · Delivery · ayudantes del panel de escritorio (31/10/2026 · traído de MGG)
+   Golden Touch · Delivery · ayudantes del panel de escritorio (31/10/2026)
 
    Lo que el panel central (Tablero, Mapa, Histórico, Por delivery) calcula
    sin tocar la base: atajos de fechas, conteos por estado, filas del

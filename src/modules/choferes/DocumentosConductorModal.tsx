@@ -1,5 +1,5 @@
 /* ============================================================
-   Golden Touch · Choferes / Conductores · Documentos del conductor (ventana, traída de MGG 13/10/2026)
+   Golden Touch · Choferes / Conductores · Documentos del conductor (ventana, 13/10/2026)
 
    Por cada tipo (licencia, certificado médico, seguro) se ve el documento
    VIGENTE —quién lo subió, cuándo y hasta cuándo vale—, se puede ver, subir

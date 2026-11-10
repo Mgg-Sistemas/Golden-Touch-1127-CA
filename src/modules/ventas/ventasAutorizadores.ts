@@ -15,12 +15,22 @@
    dos correos. Si cambia una persona, se cambia en los dos lados.
    ============================================================ */
 import { APROBADOR_JESUS_EMAIL, APROBADOR_LEYDIS_EMAIL } from '@/modules/pedidos/aprobadoresOc';
+import { autorizadoPara, type UsuarioAutorizado } from '@/modules/usuarios/autorizados';
 
-export const AUTORIZADORES_VENTAS_TEXTO = 'LEYDIS RENGEL o JESUS LOZADA';
+/* 10/11/2026 · VENTAS COMO COMPRAS: la aprobación es UNA, al despachar, y la dan
+   los administradores y la lista «Usuarios autorizados › Aprobar despachos de
+   ventas» (`es_autorizador_ventas()` en supabase/2026-11-10-ventas-como-compras.sql).
+   Mientras la lista carga se usan los dos correos de siempre. */
+export const AUTORIZADORES_VENTAS_TEXTO = 'los autorizados para aprobar despachos';
 
 const AUTORIZADORES = [APROBADOR_JESUS_EMAIL, APROBADOR_LEYDIS_EMAIL].map((e) => e.toLowerCase());
 
-/** ¿Este usuario puede autorizar (o rechazar) ventas? */
-export function puedeAutorizarVentas(email?: string | null): boolean {
+/** ¿Este usuario puede aprobar despachos (y autorizar/rechazar permutas)? */
+export function puedeAutorizarVentas(
+  email?: string | null, esAdmin = false, lista?: UsuarioAutorizado[] | null,
+): boolean {
+  if (esAdmin) return true;
+  const enLista = autorizadoPara(email, 'despachos', lista ?? undefined);
+  if (enLista !== null) return enLista;
   return AUTORIZADORES.includes((email ?? '').trim().toLowerCase());
 }

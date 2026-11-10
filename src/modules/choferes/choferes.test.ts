@@ -277,7 +277,7 @@ describe('detección de cargo de chofer y documentos de RRHH', () => {
     });
   });
 
-  it('casos traídos de MGG (28/10/2026): motorizado, sin cargo, permiso de manejo y RCV', () => {
+  it('casos (28/10/2026): motorizado, sin cargo, permiso de manejo y RCV', () => {
     expect(esCargoDeChofer({ cargo: 'Chófer de gandola' })).toBe(true);
     expect(esCargoDeChofer({ cargo: 'Conductor de carga pesada' })).toBe(true);
     expect(esCargoDeChofer({ cargo: 'Motorizado' })).toBe(true);

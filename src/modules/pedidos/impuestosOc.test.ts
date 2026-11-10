@@ -1,4 +1,4 @@
-/* Precios que ya traen el IVA (05/11/2026, traído de MGG f7ce86f8). */
+/* Precios que ya traen el IVA (05/11/2026). */
 import { describe, expect, it } from 'vitest';
 import { baseIgtfDe, ivaDeclarado, ivaDesdePorcentaje, ivaQueSuma, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { baseNetaDesdeTotal, ivaCambio, recomponerConIva, recomponerImpuestos } from './impuestosOrden';

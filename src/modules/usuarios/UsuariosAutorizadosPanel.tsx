@@ -18,7 +18,7 @@ import { listUsuarios } from './usuarios.repository';
 import {
   useAutorizados, guardarAutorizado, quitarAutorizado, prepararFirma,
 } from './autorizados.repository';
-import { OPCIONES_AUTORIZACION, resumenAutorizacion, type PermisoAutorizado, type UsuarioAutorizado } from './autorizados';
+import { OPCIONES_AUTORIZACION, resumenAutorizacion, tienePermiso, type PermisoAutorizado, type UsuarioAutorizado } from './autorizados';
 
 type Alcance = 'oc' | 'salidas' | 'ambas';
 const ALCANCES: { key: Alcance; label: string; detalle: string }[] = [
@@ -57,9 +57,11 @@ export function UsuariosAutorizadosPanel({ readOnly = false }: { readOnly?: bool
   };
 
   async function cambiarOpcion(a: UsuarioAutorizado, permiso: PermisoAutorizado) {
-    const next = { aprobar_oc: a.aprobar_oc, aprobar_salidas: a.aprobar_salidas };
-    if (permiso === 'oc') next.aprobar_oc = !next.aprobar_oc; else next.aprobar_salidas = !next.aprobar_salidas;
-    if (!next.aprobar_oc && !next.aprobar_salidas) {
+    const next = { aprobar_oc: a.aprobar_oc, aprobar_salidas: a.aprobar_salidas, aprobar_despachos: !!a.aprobar_despachos };
+    if (permiso === 'oc') next.aprobar_oc = !next.aprobar_oc;
+    else if (permiso === 'salidas') next.aprobar_salidas = !next.aprobar_salidas;
+    else next.aprobar_despachos = !next.aprobar_despachos;
+    if (!next.aprobar_oc && !next.aprobar_salidas && !next.aprobar_despachos) {
       toast('Debe quedar al menos una opción. Para quitarle todo, usa «Quitar».', 'info');
       return;
     }
@@ -160,7 +162,7 @@ export function UsuariosAutorizadosPanel({ readOnly = false }: { readOnly?: bool
                       <div className="muted" style={{ fontSize: '.74rem' }}>{a.email} · {resumenAutorizacion(a)}</div>
                     </td>
                     {OPCIONES_AUTORIZACION.map((o) => {
-                      const marcado = o.key === 'oc' ? a.aprobar_oc : a.aprobar_salidas;
+                      const marcado = tienePermiso(a, o.key);
                       return (
                         <td key={o.key} style={{ textAlign: 'center' }}>
                           <input

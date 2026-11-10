@@ -1,5 +1,5 @@
 /* ============================================================
-   Golden Touch · Input decimal es-VE (traído de MGG, 13/10/2026): acepta coma O punto como separador decimal.
+   Golden Touch · Input decimal es-VE (13/10/2026): acepta coma O punto como separador decimal.
    Mantiene un buffer de texto propio para que se pueda tipear "0," sin que
    el valor controlado lo reformatee a mitad de camino. Emite number|null.
    Para leyes/%/tasas chicas (NO para pesos en Kg con separador de miles).
