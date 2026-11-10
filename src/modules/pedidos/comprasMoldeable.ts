@@ -223,6 +223,57 @@ export function normalizarOrdenes(ordenes: Orden[], ctx: ContextoCompras): FilaR
 }
 
 /**
+ * Normaliza las ÓRDENES al ámbito ÍTEMS: una fila por ítem de cada orden no
+ * excluida. De aquí salen «ítem más comprado» y «por categoría de inventario».
+ * La categoría se cruza con el catálogo de Inventario (`categoriasPorSku`); los
+ * ítems sin categoría (servicios, sku desconocido) van a «Servicios / sin categoría».
+ * Solo aplica a órdenes: las compras/servicios directos no llevan ítems de inventario.
+ */
+export function normalizarItemsOrdenes(ordenes: Orden[], ctx: ContextoCompras): FilaReporteCompras[] {
+  const filas: FilaReporteCompras[] = [];
+  for (const o of ordenes) {
+    const clase = clasificarEstadoOrden(o.estado);
+    if (clase === 'excluida') continue;
+    const moneda = (o.total_moneda || 'USD').toUpperCase();
+    const codigo = (o.oc_codigo || o.codigo || '—').trim() || '—';
+    const depto = normalizarDepartamento(o.unidad_solicitante);
+    const prov = proveedorDe(o.proveedor_id, ctx);
+    const rotulo = statusBadge(o.estado).label;
+    const items = Array.isArray(o.items) ? o.items : [];
+    items.forEach((it, idx) => {
+      const cantidad = Number(it.cantidad) || 0;
+      const precio = Number(it.precio) || 0;
+      const monto = round2(cantidad * precio);
+      const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
+      const categoria = (ctx.categoriasPorSku.get(it.sku) || '').trim() || SIN_CATEGORIA_INV;
+      filas.push({
+        id: `oci-${o.id}-${idx}`,
+        ambito: 'items',
+        tipo_compra: 'orden',
+        fecha: diaDe(o.created_at),
+        codigo,
+        departamento: depto,
+        proveedor: prov,
+        estado: o.estado,
+        estado_rotulo: rotulo,
+        clase_estado: clase,
+        categoria,
+        categoria_gasto: null,
+        nombre_item: (it.nombre || '').trim() || '—',
+        cantidad,
+        moneda_original: moneda,
+        monto_original: monto,
+        monto_usd: usd,
+        monto_bs: bs,
+        pagado_usd: 0,
+        pagado_bs: 0,
+      });
+    });
+  }
+  return filas;
+}
+
+/**
  * Normaliza las COMPRAS DIRECTAS (`compras_directas`) a filas. Sin departamento
  * (bucket nombrado); se agrupan por categoría de gasto (`gasto_categoria`).
  * `en_proceso` queda fuera (sin monto). Lo pagado sale de `gasto` si tiene

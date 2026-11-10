@@ -10,7 +10,9 @@ import {
   normalizarOrdenes,
   normalizarDirectas,
   normalizarServicios,
+  normalizarItemsOrdenes,
   SIN_DEPARTAMENTO,
+  SIN_CATEGORIA_INV,
   type ContextoCompras,
 } from './comprasMoldeable';
 
@@ -127,5 +129,29 @@ describe('comprasMoldeable · normalización de las 3 fuentes (T2)', () => {
     expect(filas[0]).toMatchObject({
       tipo_compra: 'servicio', clase_estado: 'pendiente', departamento: 'Planta', pagado_usd: 80,
     });
+  });
+});
+
+describe('comprasMoldeable · ámbito ítems (T3)', () => {
+  test('normalizarItemsOrdenes explota por ítem y cruza categoría', () => {
+    const ctx = ctxFix({ tasaBcv: 40, categoriasPorSku: new Map([['SKU-1', 'Ferretería']]) });
+    const filas = normalizarItemsOrdenes([
+      ordenFix({ estado: 'pagada', total_moneda: 'USD', items: [
+        { sku: 'SKU-1', nombre: 'Tornillo', cantidad: 10, precio: 2 },
+        { sku: 'SKU-9', nombre: 'Flete', cantidad: 1, precio: 5 },
+      ] } as Partial<Orden>),
+    ], ctx);
+    expect(filas).toHaveLength(2);
+    expect(filas[0]).toMatchObject({
+      ambito: 'items', categoria: 'Ferretería', nombre_item: 'Tornillo', cantidad: 10, monto_usd: 20, monto_bs: 800,
+    });
+    expect(filas[1].categoria).toBe(SIN_CATEGORIA_INV); // sku desconocido
+  });
+
+  test('normalizarItemsOrdenes descarta órdenes excluidas', () => {
+    const filas = normalizarItemsOrdenes([
+      ordenFix({ estado: 'cancelada', items: [{ sku: 'SKU-1', nombre: 'X', cantidad: 1, precio: 1 }] } as Partial<Orden>),
+    ], ctxFix());
+    expect(filas).toHaveLength(0);
   });
 });
