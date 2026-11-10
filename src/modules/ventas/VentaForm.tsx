@@ -215,7 +215,8 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
       numeroControl: docImp.numeroControl,
       descuento: descuentoNum,
       pagoLegs: esContado ? legsCargadas : [],
-      cobrarEl: cobrarEl || null,
+      // Solo se manda con fecha, o en null para borrar una que ya tenía.
+      cobrarEl: cobrarEl || (venta?.venta.cobrar_el ? null : undefined),
       nota: notaRef.current?.value ?? '',
       renglones,
       actor, actorName,
