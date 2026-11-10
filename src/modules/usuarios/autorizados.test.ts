@@ -51,3 +51,13 @@ describe('Usuarios autorizados · quién aprueba OC y salidas', () => {
     expect(resumenAutorizacion({ aprobar_oc: false, aprobar_salidas: true })).toBe('Aprueba órdenes de salida');
   });
 });
+
+describe('Usuarios autorizados · despachos de ventas (10/11/2026)', () => {
+  it('el permiso de despachos se lee aparte y entra en el resumen', () => {
+    const l: UsuarioAutorizado[] = [{ ...fila('a@x.com', false, false), aprobar_despachos: true }, fila('b@x.com', true, false)];
+    expect(autorizadoPara('a@x.com', 'despachos', l)).toBe(true);
+    expect(autorizadoPara('b@x.com', 'despachos', l)).toBe(false);
+    expect(resumenAutorizacion({ aprobar_oc: false, aprobar_salidas: false, aprobar_despachos: true })).toBe('Aprueba despachos de ventas');
+    expect(resumenAutorizacion({ aprobar_oc: true, aprobar_salidas: true, aprobar_despachos: true })).toBe('Aprueba compras y salidas · despachos de ventas');
+  });
+});

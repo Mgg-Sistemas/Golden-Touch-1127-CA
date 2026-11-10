@@ -59,6 +59,8 @@ import {
   type EstadoVenta, type EventoVenta, type MovimientoCajaDeVenta, type Venta, type VentaCompleta,
 } from './ventas.repository';
 import { AUTORIZADORES_VENTAS_TEXTO, puedeAutorizarVentas } from './ventasAutorizadores';
+import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
+import { TableroVentas } from './TableroVentas';
 import { VentaForm } from './VentaForm';
 import { PermutaForm } from './PermutaForm';
 import { descargarComprobanteVentaPdf } from './comprobanteVentaPdf';
@@ -116,8 +118,8 @@ const SIN_MOVIMIENTO: EstadoVenta[] = ['por_autorizar', 'autorizada'];
 const EVENTO_LABEL: Record<string, { icono: string; texto: string }> = {
   creada: { icono: '🆕', texto: 'Creada' },
   editada: { icono: '✏️', texto: 'Editada' },
-  enviada_a_autorizar: { icono: '📤', texto: 'Enviada a autorizar' },
-  autorizada: { icono: '✅', texto: 'Autorizada' },
+  enviada_a_autorizar: { icono: '📤', texto: 'Enviada a autorizar · despacho pedido' },
+  autorizada: { icono: '✅', texto: 'Autorizada · despacho aprobado' },
   rechazada: { icono: '✖', texto: 'Rechazada' },
   devuelta_a_borrador: { icono: '↩', texto: 'Vuelve a borrador' },
   confirmada: { icono: '💵', texto: 'Confirmada (se movió el dinero)' },
@@ -163,8 +165,10 @@ export function VentasPage() {
       && (fullVentas || (puedeEscribir && SIN_MOVIMIENTO.includes(v.estado))),
     [fullVentas, puedeEscribir],
   );
-  // Autorizar o rechazar: LEYDIS RENGEL y JESUS LOZADA (la base lo vuelve a comprobar).
-  const puedeAutorizar = puedeAutorizarVentas(user?.email);
+  // 10/11/2026: aprueban despachos (y autorizan permutas) los administradores y la
+  // lista «Usuarios autorizados › Aprobar despachos de ventas». La base lo vuelve a comprobar.
+  const autorizados = useAutorizados();
+  const puedeAutorizar = puedeAutorizarVentas(user?.email, isAdmin, autorizados);
 
   const [vista, setVista] = useState<Vista>('ventas');
   const [ventas, setVentas] = useState<Venta[]>([]);
@@ -290,9 +294,9 @@ export function VentasPage() {
   const trasGuardar = useCallback(async (guardada: VentaCompleta) => {
     setModal({ kind: 'none' });
     await refresh();
-    // Un borrador recién guardado casi siempre se sigue trabajando: se deja el
-    // detalle abierto para confirmar/entregar sin volver a buscarlo en la lista.
-    setModal({ kind: 'detalle', datos: guardada });
+    // Una permuta recién guardada se sigue trabajando en su detalle. Una venta
+    // vuelve al tablero: su tarjeta ya está en la columna que le toca.
+    if (guardada.venta.tipo === 'permuta') setModal({ kind: 'detalle', datos: guardada });
   }, [refresh]);
 
   /* ─────────────────────────── Render ─────────────────────────── */
@@ -303,7 +307,9 @@ export function VentasPage() {
         <div>
           <h1 style={{ margin: 0 }}>🧾 Ventas</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>
-            Al <strong>confirmar</strong> se mueve el dinero; al <strong>entregar</strong>, el material.
+            {vista === 'permutas'
+              ? <>Al <strong>confirmar</strong> se mueve el dinero; al <strong>entregar</strong>, el material.</>
+              : <>Cotización → despacho por aprobar → despachada → facturada → cobrada.</>}
           </p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de ventas">
@@ -326,6 +332,23 @@ export function VentasPage() {
         <PorCobrarPanel cajas={cajasActivas} actor={actor} actorName={actorName} puedeEscribir={puedeEscribir} />
       ) : vista === 'reportes' ? (
         <ReportesPanel ventas={ventas} />
+      ) : vista === 'ventas' ? (
+        <TableroVentas
+          ventas={ventas.filter((v) => v.tipo === 'venta')}
+          actor={actor}
+          actorName={actorName}
+          puedeEscribir={puedeEscribir}
+          puedeAprobar={puedeAutorizar}
+          puedeAnular={puedeAnular}
+          cajas={cajasActivas}
+          onNueva={() => setModal({ kind: 'nueva', tipo: 'venta' })}
+          onEditar={(v) => void abrirEditar(v)}
+          onBorrar={(v) => setModal({ kind: 'borrar', venta: v })}
+          onAnular={(v) => setModal({ kind: 'anular', venta: v })}
+          onComprobante={(v) => void abrirComprobante(v)}
+          onFicha={(v) => void abrirDetalle(v)}
+          onCambio={refresh}
+        />
       ) : (
         <>
           <div className="filterbar">
@@ -681,10 +704,12 @@ function DetalleVentaModal({
           {ESTADOS_EDITABLES.includes(venta.estado) && puedeEscribir && (
             <button className="btn btn-ghost" onClick={() => onEditar(venta)}>✏️ Editar</button>
           )}
-          {venta.estado === 'borrador' && puedeEscribir && (
+          {/* Las ventas se piden y se aprueban desde el tablero («¿Se despacha?»);
+              aquí quedan esos botones solo para las permutas. */}
+          {venta.estado === 'borrador' && puedeEscribir && esPermuta && (
             <button className="btn btn-primary" onClick={() => onEnviar(venta)}>📤 Enviar a autorizar</button>
           )}
-          {venta.estado === 'por_autorizar' && puedeAutorizar && (
+          {venta.estado === 'por_autorizar' && puedeAutorizar && esPermuta && (
             <>
               <button className="btn btn-danger" onClick={() => onRechazar(venta)}>✖ Rechazar</button>
               <button className="btn btn-primary" onClick={() => onAutorizar(venta)}>✅ Autorizar</button>

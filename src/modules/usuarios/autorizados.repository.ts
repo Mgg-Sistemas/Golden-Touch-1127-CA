@@ -11,10 +11,17 @@ import {
 } from './autorizados';
 
 const TABLE = 'usuarios_autorizados';
-const COLS = 'email, aprobar_oc, aprobar_salidas, firma, firma_w, firma_h, updated_at, updated_by';
+const COLS = 'email, aprobar_oc, aprobar_salidas, aprobar_despachos, firma, firma_w, firma_h, updated_at, updated_by';
 
 export async function listAutorizados(): Promise<UsuarioAutorizado[]> {
   const { data, error } = await supabase.from(TABLE).select(COLS).order('email');
+  if (error && /aprobar_despachos/i.test(error.message ?? '')) {
+    // Sin la migración 2026-11-10-ventas-como-compras.sql todavía: la lista se
+    // sigue leyendo (Compras y Salidas no se caen), solo sin despachos.
+    const { data: d2, error: e2 } = await supabase.from(TABLE).select(COLS.replace('aprobar_despachos, ', '')).order('email');
+    if (e2) throw e2;
+    return (d2 ?? []) as unknown as UsuarioAutorizado[];
+  }
   if (error) throw error;
   return (data ?? []) as UsuarioAutorizado[];
 }

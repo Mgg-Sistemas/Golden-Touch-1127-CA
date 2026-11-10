@@ -145,6 +145,14 @@ export async function listCuentasPorCobrar(soloAbiertas = true): Promise<CuentaP
   return (data ?? []) as CuentaPorCobrar[];
 }
 
+/** Una cuenta por cobrar por id (null si no existe). */
+export async function getCuentaPorCobrar(id: string): Promise<CuentaPorCobrar | null> {
+  if (!id) return null;
+  const { data, error } = await supabase.from(CXC).select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return (data as CuentaPorCobrar) ?? null;
+}
+
 /** Cargos (lo que se le fue cargando al cliente), del más viejo al más nuevo. */
 export async function listCargosCobrar(cuentaId: string): Promise<CargoCxC[]> {
   const { data, error } = await supabase.from(CXC_CARGOS).select('*').eq('cuenta_id', cuentaId).order('at', { ascending: true });
@@ -172,6 +180,8 @@ export async function registrarCobro(input: {
   nota?: string | null;
   actor: string;
   actorName?: string | null;
+  /** 10/11/2026 · Venta a la que se aplica el cobro (Ventas › Registrar cobro). */
+  refVentaId?: string | null;
 }): Promise<{ cuenta: CuentaPorCobrar; cobro: CobroCxC }> {
   const c = input.cuenta;
   const monto = round2(input.monto);
@@ -193,6 +203,7 @@ export async function registrarCobro(input: {
     cuenta_id: c.id, monto, moneda: c.moneda, caja_id: input.cajaId, cuenta: input.cuentaCaja,
     caja_mov_id: null, saldo_restante: saldoRestante, nota: input.nota?.trim() || null,
     actor: input.actor, actor_name: input.actorName ?? null,
+    ...(input.refVentaId ? { ref_venta_id: input.refVentaId } : {}),
   }).select('*').single();
   if (abErr) throw abErr;
 

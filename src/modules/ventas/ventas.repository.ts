@@ -73,6 +73,8 @@ export interface EventoVenta {
   total_antes?: number | null;
 }
 export type CondicionVenta = 'contado' | 'credito';
+/** Por qué un despacho no se aprueba POR AHORA (sigue por aprobar). */
+export type MotivoNoDespacho = 'deuda_vencida' | 'sin_cupo' | 'sin_existencia' | 'otro';
 
 /** Contraparte del padrón de Tesorería usada como cliente. */
 export type Cliente = Contraparte;
@@ -143,6 +145,16 @@ export interface Venta {
   rechazada_at: string | null;
   rechazada_por: string | null;
   rechazo_motivo: string | null;
+  /** 10/11/2026 · «¿Se despacha?» → No, por ahora: el motivo queda a la vista y sigue por aprobar. */
+  no_despacho_motivo: MotivoNoDespacho | null;
+  no_despacho_detalle: string | null;
+  no_despacho_por: string | null;
+  no_despacho_en: string | null;
+  /** Fecha acordada de pago (aaaa-mm-dd). Vencida si pasa y queda saldo. */
+  cobrar_el: string | null;
+  /** Cuándo se emitió la factura de la venta despachada. */
+  facturada_at: string | null;
+  facturada_por: string | null;
   /** Trazabilidad: un evento por paso, del más viejo al más nuevo. */
   historial: EventoVenta[];
   created_at: string;
@@ -257,6 +269,8 @@ export interface VentaInput {
   numeroControl?: string | null;
   descuento?: number | null;
   pagoLegs?: PagoLeg[] | null;
+  /** Fecha acordada de pago (aaaa-mm-dd). */
+  cobrarEl?: string | null;
   nota?: string | null;
   renglones: RenglonInput[];
   recibidos?: RecibidoInput[] | null;
@@ -353,6 +367,13 @@ function normalizarVenta(row: Record<string, unknown>): Venta {
     rechazada_at: (row.rechazada_at as string) ?? null,
     rechazada_por: (row.rechazada_por as string) ?? null,
     rechazo_motivo: (row.rechazo_motivo as string) ?? null,
+    no_despacho_motivo: (row.no_despacho_motivo as MotivoNoDespacho) ?? null,
+    no_despacho_detalle: (row.no_despacho_detalle as string) ?? null,
+    no_despacho_por: (row.no_despacho_por as string) ?? null,
+    no_despacho_en: (row.no_despacho_en as string) ?? null,
+    cobrar_el: (row.cobrar_el as string) ?? null,
+    facturada_at: (row.facturada_at as string) ?? null,
+    facturada_por: (row.facturada_por as string) ?? null,
     historial: Array.isArray(row.historial) ? (row.historial as EventoVenta[]) : [],
     created_at: String(row.created_at ?? ''),
     updated_at: (row.updated_at as string) ?? null,
@@ -648,6 +669,8 @@ function columnasCabecera(input: VentaInput, resumen: ResumenVenta): Record<stri
     valor_recibido: resumen.valorRecibido,
     diferencia: resumen.diferencia,
     pago_legs: normalizarPagoLegs(input.pagoLegs ?? []),
+    // Solo se escribe si el formulario la manda: así no se borra en ediciones viejas.
+    ...(input.cobrarEl !== undefined ? { cobrar_el: txt(input.cobrarEl) } : {}),
     nota: txt(input.nota),
   };
 }
@@ -890,6 +913,85 @@ export async function anularVenta(
   });
   if (error) throw error;
   return normalizarVenta(data as Record<string, unknown>);
+}
+
+/* ───────────────── Despacho, factura y cobro (10/11/2026) ─────────────────
+   El flujo de La Cantera: cotización → despacho por aprobar → despachada ·
+   por cobrar → facturada · por cobrar → cobrada. Una sola aprobación por venta,
+   al DESPACHAR. Ver supabase/2026-11-10-ventas-como-compras.sql. */
+
+/**
+ * «¿Se despacha?» → SÍ. En UNA transacción: congela la venta, la deja por
+ * cobrar (o la cobra en caja si ya traía las patas de pago) y saca el material.
+ * Si falta existencia, no se mueve nada.
+ */
+export async function aprobarDespacho(id: string, actor: string, actorName: string): Promise<Venta> {
+  const { data, error } = await supabase.rpc('aprobar_despacho_venta', {
+    p_venta_id: id, p_actor: actor, p_actor_name: actorName,
+  });
+  if (error) throw error;
+  return normalizarVenta(data as Record<string, unknown>);
+}
+
+/** «¿Se despacha?» → NO, POR AHORA. Queda por aprobar con el motivo a la vista. */
+export async function noSeDespacha(
+  id: string, motivo: MotivoNoDespacho, detalle: string | null, actorName: string,
+): Promise<Venta> {
+  const { data, error } = await supabase.rpc('venta_no_se_despacha', {
+    p_venta_id: id, p_motivo: motivo, p_detalle: (detalle ?? '').trim() || null, p_actor_name: actorName,
+  });
+  if (error) throw error;
+  return normalizarVenta(data as Record<string, unknown>);
+}
+
+/** «¿Se despacha?» → NO PROCEDE. Se anula con su justificación. */
+export async function rechazarDespacho(id: string, justificacion: string, actorName: string): Promise<Venta> {
+  const m = (justificacion ?? '').trim();
+  if (m.length < 4) throw new Error('Escribe la justificación (al menos 4 letras).');
+  const { data, error } = await supabase.rpc('rechazar_despacho_venta', {
+    p_venta_id: id, p_motivo: m, p_actor_name: actorName,
+  });
+  if (error) throw error;
+  return normalizarVenta(data as Record<string, unknown>);
+}
+
+/**
+ * Emite la factura de una venta despachada (sin otra autorización). Si la venta
+ * no se cobró en caja, se pueden ajustar IVA/IGTF: la diferencia va a su cuenta
+ * por cobrar.
+ */
+export async function facturarVenta(input: {
+  id: string; numeroFactura: string; numeroControl: string;
+  ivaPct?: number | null; igtfPct?: number | null; actor: string; actorName: string;
+}): Promise<Venta> {
+  const { data, error } = await supabase.rpc('facturar_venta', {
+    p_venta_id: input.id,
+    p_numero_factura: input.numeroFactura.trim(),
+    p_numero_control: input.numeroControl.trim(),
+    p_iva_pct: input.ivaPct ?? null,
+    p_igtf_pct: input.igtfPct ?? null,
+    p_actor: input.actor, p_actor_name: input.actorName,
+  });
+  if (error) throw error;
+  return normalizarVenta(data as Record<string, unknown>);
+}
+
+/**
+ * Lo cobrado de cada venta por «Registrar cobro» (abonos con `ref_venta_id`).
+ * Lo cobrado en caja al despachar está en las patas de pago de la venta.
+ */
+export async function listCobradoPorVenta(): Promise<Record<string, number>> {
+  const filas = await todasLasFilas<Record<string, unknown>>((desde, hasta) =>
+    supabase.from('cuentas_por_cobrar_abonos').select('ref_venta_id, monto')
+      .not('ref_venta_id', 'is', null)
+      .order('at', { ascending: true })
+      .range(desde, hasta));
+  const out: Record<string, number> = {};
+  for (const f of filas) {
+    const id = String(f.ref_venta_id ?? '');
+    if (id) out[id] = round2((out[id] ?? 0) + num(f.monto));
+  }
+  return out;
 }
 
 /* ─────────────────────────── Clientes ───────────────────────────
