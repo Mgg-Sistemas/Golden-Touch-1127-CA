@@ -23,14 +23,15 @@ import {
   leerCarpetasPersonalizadas,
   guardarCarpetasPersonalizadas,
 } from './GestionarCarpetasModal';
-import type { AdminCategoria, AdminRepo, Empresa, InfoCarpetaDoc, Profesional } from './admin.repository';
+import { CENTROS_ACOPIO_DEFECTO, FASES_OPERATIVAS, ROLES_RESPONSABLES_DEFECTO } from './administracionCentrosResponsables';
+import type { AdminCategoria, AdminRepo, CentroAcopio, Empresa, InfoCarpetaDoc, Profesional } from './admin.repository';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fFecha = (s: string | null) => (s ? new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${s}T00:00:00`)) : '—');
 
 // Estado inicial del acordeón: todas abiertas salvo «categorias».
 const ESTADO_SECCIONES = estadoInicialSecciones(
-  ['empresas', 'profesionales', 'tasa', 'parafiscales', 'categorias', 'carpetas'],
+  ['empresas', 'centros', 'profesionales', 'tasa', 'parafiscales', 'categorias', 'carpetas'],
   { cerradasPorDefecto: ['categorias'] },
 );
 
@@ -62,6 +63,14 @@ export function ConfiguracionTab({
   const [ocupado, setOcupado] = useState(false);
   const [busquedaCat, setBusquedaCat] = useState('');
   const [filtroCat, setFiltroCat] = useState<'todas' | 'activas' | 'inactivas'>('todas');
+
+  // Centros de acopio (antes estaban escritos a mano en el código; ahora viven en la base)
+  const VACIO_CENTRO = { nombre: '', responsablePrincipal: '', fasePredeterminada: '', descripcion: '', empresaClave: '' };
+  const [centros, setCentros] = useState<CentroAcopio[]>([]);
+  const [cargandoCentros, setCargandoCentros] = useState(true);
+  const [cenForm, setCenForm] = useState(VACIO_CENTRO);
+  const [cenEditId, setCenEditId] = useState<string | null>(null);
+  const [cenOcupado, setCenOcupado] = useState(false);
 
   // Profesionales (lista propia en la base: abogada, contador…)
   const [profs, setProfs] = useState<Profesional[]>([]);
@@ -100,6 +109,89 @@ export function ConfiguracionTab({
   }, [repo]);
 
   useEffect(() => { void cargarProfs(); }, [cargarProfs]);
+
+  const cargarCentros = useCallback(async () => {
+    setCargandoCentros(true);
+    try { setCentros(await repo.listCentros()); }
+    catch { setCentros([]); }
+    finally { setCargandoCentros(false); }
+  }, [repo]);
+
+  useEffect(() => { void cargarCentros(); }, [cargarCentros]);
+
+  // ─── Centros de acopio: crear / editar / activar ───
+  const empresaPorDefecto = empresas.find((e) => e.activa)?.clave || empresas[0]?.clave || '';
+
+  function limpiarCenForm() { setCenForm(VACIO_CENTRO); setCenEditId(null); }
+
+  function editarCentro(c: CentroAcopio) {
+    setCenEditId(c.id);
+    setCenForm({
+      nombre: c.nombre,
+      responsablePrincipal: c.responsablePrincipal || '',
+      fasePredeterminada: c.fasePredeterminada || '',
+      descripcion: c.descripcion || '',
+      empresaClave: c.empresaClave,
+    });
+  }
+
+  async function guardarCentro() {
+    const nombre = cenForm.nombre.trim();
+    if (!nombre) { toast('Escriba el nombre del centro.', 'warning', { silent: true }); return; }
+    const empresaClave = cenForm.empresaClave || empresaPorDefecto;
+    if (!empresaClave) { toast('Primero registre una empresa.', 'warning', { silent: true }); return; }
+    const repetido = centros.some((c) => c.id !== cenEditId && c.empresaClave === empresaClave && c.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (repetido) { toast('Esa empresa ya tiene un centro con ese nombre.', 'warning', { silent: true }); return; }
+
+    const datos = {
+      empresaClave,
+      nombre,
+      responsablePrincipal: cenForm.responsablePrincipal.trim() || null,
+      fasePredeterminada: cenForm.fasePredeterminada || null,
+      descripcion: cenForm.descripcion.trim() || null,
+    };
+    setCenOcupado(true);
+    try {
+      if (cenEditId) { await repo.editarCentro(cenEditId, datos); toast('Centro actualizado.', 'success'); }
+      else {
+        const orden = centros.reduce((m, c) => Math.max(m, c.orden), 0) + 1;
+        await repo.crearCentro({ ...datos, orden, activo: true });
+        toast('Centro creado.', 'success');
+      }
+      limpiarCenForm();
+      await cargarCentros();
+    } catch (e) { toast(`No se pudo guardar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setCenOcupado(false); }
+  }
+
+  async function alternarCentro(c: CentroAcopio) {
+    setCenOcupado(true);
+    try { await repo.setActivoCentro(c.id, !c.activo); await cargarCentros(); }
+    catch (e) { toast(`No se pudo cambiar el estado: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setCenOcupado(false); }
+  }
+
+  /** Atajo para no empezar de cero: crea los 4 centros que el sistema traía escritos. */
+  async function cargarCentrosDeSiempre() {
+    const empresaClave = empresaPorDefecto;
+    if (!empresaClave) { toast('Primero registre una empresa.', 'warning', { silent: true }); return; }
+    setCenOcupado(true);
+    try {
+      let orden = 0;
+      for (const c of CENTROS_ACOPIO_DEFECTO) {
+        orden += 1;
+        await repo.crearCentro({
+          empresaClave, nombre: c.nombre, orden, activo: true,
+          responsablePrincipal: c.responsablePrincipal || null,
+          fasePredeterminada: c.fasePredeterminada || null,
+          descripcion: c.descripcion || null,
+        });
+      }
+      toast('Se cargaron los 4 centros.', 'success');
+      await cargarCentros();
+    } catch (e) { toast(`No se pudieron cargar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setCenOcupado(false); }
+  }
 
   async function agregar() {
     const n = nueva.trim();
@@ -196,7 +288,168 @@ export function ConfiguracionTab({
         )}
       </SeccionColapsable>
 
-      {/* 2. Profesionales (lista propia en la base) */}
+      {/* 2. Centros de acopio (viven en la base; antes estaban escritos a mano) */}
+      <SeccionColapsable
+        titulo="🏭 Centros de acopio"
+        subtitulo={`${centros.length} centro(s), ${centros.filter((c) => c.activo).length} activo(s)`}
+        abiertoPorDefecto={ESTADO_SECCIONES.centros}
+      >
+        <p className="muted hint" style={{ marginTop: 0 }}>
+          Los lugares de la empresa: el patio, la planta, la sede. Cada documento y cada gasto fijo puede colgar de uno,
+          y de ahí salen el reporte de Centros y Fases y la cobertura del Tablero.
+        </p>
+
+        {puedeFull && (
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', margin: '.75rem 0 .5rem', alignItems: 'flex-end' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '2 1 200px' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>Nombre del centro *</span>
+              <input
+                className="input input-sm"
+                value={cenForm.nombre}
+                onChange={(e) => setCenForm((f) => ({ ...f, nombre: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') void guardarCentro(); }}
+                placeholder="Ej: Planta de Molienda"
+                disabled={cenOcupado}
+              />
+            </label>
+
+            {empresas.length > 1 && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 150px' }}>
+                <span className="muted hint" style={{ fontSize: '.7rem' }}>Empresa</span>
+                <select
+                  className="select select-sm"
+                  value={cenForm.empresaClave || empresaPorDefecto}
+                  onChange={(e) => setCenForm((f) => ({ ...f, empresaClave: e.target.value }))}
+                  disabled={cenOcupado}
+                >
+                  {empresas.map((e) => <option key={e.clave} value={e.clave}>{e.nombre}</option>)}
+                </select>
+              </label>
+            )}
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 170px' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>Quién responde por él</span>
+              <input
+                className="input input-sm"
+                list="adm-responsables-centro"
+                value={cenForm.responsablePrincipal}
+                onChange={(e) => setCenForm((f) => ({ ...f, responsablePrincipal: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') void guardarCentro(); }}
+                placeholder="Elija o escriba…"
+                disabled={cenOcupado}
+              />
+              <datalist id="adm-responsables-centro">
+                {ROLES_RESPONSABLES_DEFECTO.map((r) => <option key={r} value={r} />)}
+              </datalist>
+            </label>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 190px' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>En qué fase está</span>
+              <select
+                className="select select-sm"
+                value={cenForm.fasePredeterminada}
+                onChange={(e) => setCenForm((f) => ({ ...f, fasePredeterminada: e.target.value }))}
+                disabled={cenOcupado}
+              >
+                <option value="">Sin fase asignada</option>
+                {FASES_OPERATIVAS.map((f) => <option key={f.id} value={f.nombre}>{f.nombre}</option>)}
+              </select>
+            </label>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '2 1 220px' }}>
+              <span className="muted hint" style={{ fontSize: '.7rem' }}>Qué se hace ahí (opcional)</span>
+              <input
+                className="input input-sm"
+                value={cenForm.descripcion}
+                onChange={(e) => setCenForm((f) => ({ ...f, descripcion: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') void guardarCentro(); }}
+                placeholder="Ej: Trituración y recuperación"
+                disabled={cenOcupado}
+              />
+            </label>
+
+            <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => void guardarCentro()}
+                disabled={cenOcupado}
+                style={{ background: '#ff8a00', color: '#000', fontWeight: 700 }}
+              >
+                {cenEditId ? 'Guardar' : '+ Agregar centro'}
+              </button>
+              {cenEditId && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={limpiarCenForm} disabled={cenOcupado}>
+                  Cancelar
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {cargandoCentros ? (
+          <p className="muted" style={{ marginTop: '.4rem' }}>Leyendo centros…</p>
+        ) : centros.length === 0 ? (
+          <div>
+            <EmptyState icon="🏭" message={puedeFull ? 'Todavía no hay centros. Cree el primero arriba.' : 'El módulo no tiene centros cargados.'} />
+            {puedeFull && (
+              <div style={{ textAlign: 'center', marginTop: '-.5rem' }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void cargarCentrosDeSiempre()} disabled={cenOcupado}>
+                  O cargar los 4 centros de siempre
+                </button>
+                <p className="muted hint" style={{ fontSize: '.7rem', marginTop: '.15rem' }}>
+                  Acopio Principal, Patio Brasilero, Planta de Molienda y Sede Administrativa, con su responsable y su fase. Después puede renombrarlos o desactivarlos.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="adm-tabla" style={{ marginTop: '.2rem', maxHeight: '360px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-2)', zIndex: 2 }}>
+                <tr>
+                  <th>Centro</th>
+                  <th>Responsable</th>
+                  <th>Fase</th>
+                  <th>Estado</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {centros.map((c) => (
+                  <tr key={c.id} className={c.activo ? undefined : 'adm-fila-off'}>
+                    <td>
+                      <strong style={{ color: 'var(--text)', fontSize: '.84rem' }}>{c.nombre}</strong>
+                      {c.descripcion && <div className="muted" style={{ fontSize: '.72rem' }}>{c.descripcion}</div>}
+                    </td>
+                    <td style={{ fontSize: '.82rem' }}>{c.responsablePrincipal || <span className="muted">Sin asignar</span>}</td>
+                    <td style={{ fontSize: '.78rem' }}>{c.fasePredeterminada || <span className="muted">Sin fase</span>}</td>
+                    <td><span className={`adm-badge ${c.activo ? 'activo' : 'suspendido'}`}>{c.activo ? 'Activo' : 'Inactivo'}</span></td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      {puedeFull ? (
+                        <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+                          <button type="button" className="btn btn-xs btn-ghost" onClick={() => editarCentro(c)} title="Cambiar nombre, responsable o fase">✏️ Editar</button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={() => void alternarCentro(c)}
+                            disabled={cenOcupado}
+                            style={{ color: c.activo ? '#f59e0b' : '#10b981' }}
+                          >
+                            {c.activo ? 'Desactivar' : 'Activar'}
+                          </button>
+                        </div>
+                      ) : (<span className="muted">—</span>)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SeccionColapsable>
+
+      {/* 3. Profesionales (lista propia en la base) */}
       <SeccionColapsable
         titulo="👤 Profesionales de Administración"
         subtitulo={`${profs.length} profesional(es) (${profsActivos} activos)`}
