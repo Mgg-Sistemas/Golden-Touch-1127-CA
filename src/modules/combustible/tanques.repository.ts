@@ -12,6 +12,7 @@ import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustibl
 import { compararMovimientos } from './horaMovimiento';
 import { planCadenaMedidor, type FilaMedidor } from './cadenaMedidor';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
+import { cambioVigente, aAcumulado, type CambioContador } from './arrastreContador';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
 import { esBidon, prepararCamposSalidaBidon } from './bidonCombustible';
@@ -769,6 +770,24 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
 }
 
 /**
+ * Los cambios de contador registrados para un tanque (10/11/2026). Mientras la tabla no
+ * exista, el modulo se comporta exactamente como hasta hoy: sin arrastre.
+ */
+async function cambiosContadorTanque(tanqueId: string): Promise<CambioContador[]> {
+  if (!tanqueId) return [];
+  const { data, error } = await supabase
+    .from('combustible_contador_cambios')
+    .select('fecha, acumulado_cierre, lectura_nueva')
+    .eq('tanque_id', tanqueId)
+    .order('fecha', { ascending: true });
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const f = r as { fecha: string; acumulado_cierre: number | string; lectura_nueva: number | string };
+    return { fecha: f.fecha, acumuladoCierre: num(f.acumulado_cierre), lecturaNueva: num(f.lectura_nueva) };
+  });
+}
+
+/**
  * Los campos del movimiento con el contador del surtidor ya completo (02/10/2026): el
  * contador al terminar un surtido es donde arranca el siguiente. Si el final vino vacío
  * se guarda inicial + litros, y si el inicial tampoco vino se toma el último del tanque.
@@ -779,8 +798,14 @@ async function camposConContador(
   tanqueId: string, tipo: TipoMovTanque, litros: number, c: MovimientoTanqueCampos,
 ): Promise<MovimientoTanqueCampos> {
   if (!pasaPorSurtidor(tipo)) return c;
-  const ultimo = c.contadorGlobalIni == null ? await ultimoContadorTanque(tanqueId) : null;
-  const { ini, fin } = completarContador({ tipo, litros, ini: c.contadorGlobalIni, fin: c.contadorGlobalFin, ultimo });
+  // Si al tanque le cambiaron el contador, lo que escribe quien surte es la lectura del
+  // contador NUEVO (empieza en cero) y lo que se guarda es el acumulado del tanque. La
+  // conversion vive aqui, el unico punto por donde pasa toda escritura de contador.
+  const cambio = cambioVigente(await cambiosContadorTanque(tanqueId), c.fecha || hoy());
+  const iniDado = aAcumulado(c.contadorGlobalIni, cambio);
+  const finDado = aAcumulado(c.contadorGlobalFin, cambio);
+  const ultimo = iniDado == null ? await ultimoContadorTanque(tanqueId) : null;
+  const { ini, fin } = completarContador({ tipo, litros, ini: iniDado, fin: finDado, ultimo });
   // El HI del equipo es su mayor HF (02/10/2026). La pantalla lo trae al elegir el equipo,
   // pero con mala señal se podía guardar antes de que llegara y el surtido quedaba sin HI
   // ni horas trabajadas. Si viene vacío, se completa aquí, al guardar.
