@@ -535,3 +535,209 @@ export function resumenCompras(
     tasaBcv,
   };
 }
+
+/* ───────────── Catálogo de columnas ───────────── */
+
+export interface CampoColumnaCompras {
+  clave: string;
+  etiqueta: string;
+  descripcion?: string;
+  anchoPdf: number;
+  anchoExcel: number;
+  alineacion: 'left' | 'right' | 'center';
+  formato?: 'texto' | 'numero' | 'moneda' | 'porcentaje';
+  /** En qué ámbito tiene sentido la columna ('ambos' por defecto). */
+  ambito?: AmbitoCompras | 'ambos';
+}
+
+export const CAMPOS_REPORTE_COMPRAS: CampoColumnaCompras[] = [
+  { clave: 'fecha', etiqueta: 'Fecha', anchoPdf: 14, anchoExcel: 13, alineacion: 'center', formato: 'texto', descripcion: 'Fecha de la compra', ambito: 'ambos' },
+  { clave: 'codigo', etiqueta: 'Código', anchoPdf: 16, anchoExcel: 16, alineacion: 'left', formato: 'texto', descripcion: 'Correlativo (OC/CD/SD)', ambito: 'ambos' },
+  { clave: 'departamento', etiqueta: 'Departamento', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Unidad solicitante', ambito: 'ambos' },
+  { clave: 'proveedor', etiqueta: 'Proveedor', anchoPdf: 26, anchoExcel: 26, alineacion: 'left', formato: 'texto', descripcion: 'Razón social del proveedor', ambito: 'ambos' },
+  { clave: 'estado_rotulo', etiqueta: 'Estado', anchoPdf: 16, anchoExcel: 16, alineacion: 'center', formato: 'texto', descripcion: 'Estado de la compra', ambito: 'ambos' },
+  { clave: 'tipo_compra', etiqueta: 'Tipo', anchoPdf: 14, anchoExcel: 14, alineacion: 'center', formato: 'texto', descripcion: 'Orden, directa o servicio', ambito: 'ambos' },
+  { clave: 'categoria', etiqueta: 'Categoría', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Categoría de inventario', ambito: 'items' },
+  { clave: 'nombre_item', etiqueta: 'Ítem', anchoPdf: 28, anchoExcel: 30, alineacion: 'left', formato: 'texto', descripcion: 'Nombre del ítem', ambito: 'items' },
+  { clave: 'cantidad', etiqueta: 'Cantidad', anchoPdf: 13, anchoExcel: 13, alineacion: 'right', formato: 'numero', descripcion: 'Cantidad comprada', ambito: 'items' },
+  { clave: 'monto_usd', etiqueta: 'Monto ($)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Monto en dólares', ambito: 'ambos' },
+  { clave: 'monto_bs', etiqueta: 'Monto (Bs)', anchoPdf: 18, anchoExcel: 18, alineacion: 'right', formato: 'moneda', descripcion: 'Monto en bolívares', ambito: 'ambos' },
+  { clave: 'pagado_usd', etiqueta: 'Pagado ($)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Monto pagado en dólares', ambito: 'ordenes' },
+  { clave: 'pct_total', etiqueta: '% del Total', anchoPdf: 13, anchoExcel: 12, alineacion: 'right', formato: 'porcentaje', descripcion: 'Peso sobre el total', ambito: 'ambos' },
+];
+
+export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionCompras, string[]> = {
+  departamento: ['departamento', 'monto_usd', 'monto_bs', 'pct_total'],
+  proveedor: ['proveedor', 'monto_usd', 'monto_bs', 'pct_total'],
+  estado: ['estado_rotulo', 'monto_usd', 'monto_bs', 'pct_total'],
+  clasificacion: ['categoria', 'monto_usd', 'monto_bs', 'pct_total'],
+  tipo: ['tipo_compra', 'monto_usd', 'monto_bs', 'pct_total'],
+  categoria: ['categoria', 'cantidad', 'monto_usd', 'pct_total'],
+  producto: ['nombre_item', 'cantidad', 'monto_usd', 'pct_total'],
+  mes: ['fecha', 'monto_usd', 'monto_bs', 'pct_total'],
+  dia: ['fecha', 'monto_usd', 'monto_bs'],
+  detallado: ['fecha', 'codigo', 'departamento', 'proveedor', 'estado_rotulo', 'monto_usd', 'monto_bs'],
+};
+
+export const CAMPOS_DETALLE_POR_AMBITO: Record<AmbitoCompras, string[]> = {
+  ordenes: ['fecha', 'codigo', 'departamento', 'proveedor', 'estado_rotulo', 'tipo_compra', 'monto_usd', 'monto_bs', 'pagado_usd'],
+  items: ['fecha', 'codigo', 'departamento', 'categoria', 'nombre_item', 'cantidad', 'monto_usd', 'monto_bs'],
+};
+
+/* ───────────── Agrupación y procesamiento ───────────── */
+
+export type OrdenReporteCompras = 'monto' | 'cantidad' | 'nombre' | 'fecha';
+
+/** Clave + etiqueta del grupo de una fila según la dimensión elegida. */
+function claveGrupoCompras(f: FilaReporteCompras, modo: ModoAgrupacionCompras): { clave: string; etiqueta: string } {
+  switch (modo) {
+    case 'departamento': return { clave: f.departamento, etiqueta: f.departamento };
+    case 'proveedor': return { clave: f.proveedor, etiqueta: f.proveedor };
+    case 'estado': return { clave: f.estado, etiqueta: f.estado_rotulo };
+    case 'tipo': return { clave: f.tipo_compra, etiqueta: ETIQUETA_TIPO_COMPRA[f.tipo_compra] };
+    case 'clasificacion':
+    case 'categoria': return { clave: f.categoria || SIN_CATEGORIA_INV, etiqueta: f.categoria || SIN_CATEGORIA_INV };
+    case 'producto': return { clave: f.nombre_item || '—', etiqueta: f.nombre_item || '—' };
+    case 'dia': return { clave: f.fecha || 'Sin fecha', etiqueta: f.fecha || 'Sin fecha' };
+    case 'mes': return { clave: (f.fecha || '').slice(0, 7) || 'Sin fecha', etiqueta: mesEtiqueta(f.fecha) };
+    default: return { clave: f.id, etiqueta: f.nombre_item || f.codigo };
+  }
+}
+
+export const ETIQUETA_TIPO_COMPRA: Record<TipoCompra, string> = {
+  orden: 'Orden de compra',
+  directa: 'Compra directa',
+  servicio: 'Servicio',
+};
+
+function ordenarFilasCompras(filas: FilaReporteCompras[], ordenarPor: OrdenReporteCompras): void {
+  switch (ordenarPor) {
+    case 'cantidad': filas.sort((a, b) => Math.abs(b.cantidad ?? 0) - Math.abs(a.cantidad ?? 0)); break;
+    case 'nombre': filas.sort((a, b) => (a.nombre_item || a.departamento).localeCompare(b.nombre_item || b.departamento, 'es')); break;
+    case 'fecha': filas.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || '')); break;
+    default: filas.sort((a, b) => Math.abs(b.monto_usd) - Math.abs(a.monto_usd));
+  }
+}
+
+/**
+ * Agrupa las filas por la dimensión elegida, con subtotales ($/Bs), cantidad,
+ * nº de ítems y % del total. `detallado` no agrupa. El % se calcula sobre el
+ * |monto_usd| de todas las filas del período.
+ */
+export function procesarFilasCompras(
+  filasDetalle: FilaReporteCompras[],
+  agrupacion: ModoAgrupacionCompras,
+  opts: { ordenarPor?: OrdenReporteCompras; ambito?: AmbitoCompras } = {},
+): { filas: FilaReporteCompras[] } {
+  const ambito = opts.ambito ?? filasDetalle[0]?.ambito ?? 'ordenes';
+  const ordenarPor = opts.ordenarPor ?? 'monto';
+  const totalUsd = filasDetalle.reduce((a, f) => a + Math.abs(f.monto_usd), 0);
+  const pctDe = (usd: number): number => (totalUsd > 0 ? Math.round((Math.abs(usd) / totalUsd) * 1000) / 10 : 0);
+
+  if (agrupacion === 'detallado') {
+    const filas = filasDetalle.map((f) => ({ ...f, total_items: 1, pct_del_total: pctDe(f.monto_usd) }));
+    ordenarFilasCompras(filas, ordenarPor);
+    return { filas };
+  }
+
+  interface Acc {
+    clave: string; etiqueta: string;
+    departamento: string; proveedor: string; categoria: string; nombre_item: string;
+    estado: string; estado_rotulo: string; tipo_compra: TipoCompra; fecha: string;
+    usd: number; bs: number; pagadoUsd: number; pagadoBs: number; cantidad: number; items: number; tieneCantidad: boolean;
+  }
+  const mapa = new Map<string, Acc>();
+  for (const f of filasDetalle) {
+    const { clave, etiqueta } = claveGrupoCompras(f, agrupacion);
+    let g = mapa.get(clave);
+    if (!g) {
+      g = {
+        clave, etiqueta,
+        departamento: f.departamento, proveedor: f.proveedor, categoria: f.categoria, nombre_item: f.nombre_item,
+        estado: f.estado, estado_rotulo: f.estado_rotulo, tipo_compra: f.tipo_compra, fecha: f.fecha,
+        usd: 0, bs: 0, pagadoUsd: 0, pagadoBs: 0, cantidad: 0, items: 0, tieneCantidad: false,
+      };
+      mapa.set(clave, g);
+    }
+    g.usd += f.monto_usd; g.bs += f.monto_bs; g.pagadoUsd += f.pagado_usd; g.pagadoBs += f.pagado_bs;
+    if (f.cantidad != null) { g.cantidad += f.cantidad; g.tieneCantidad = true; }
+    g.items += 1;
+  }
+
+  const filas: FilaReporteCompras[] = Array.from(mapa.values()).map((g) => ({
+    id: g.clave || g.etiqueta,
+    ambito,
+    tipo_compra: g.tipo_compra,
+    fecha: g.fecha,
+    codigo: '',
+    departamento: agrupacion === 'departamento' ? g.etiqueta : g.departamento,
+    proveedor: agrupacion === 'proveedor' ? g.etiqueta : g.proveedor,
+    estado: g.estado,
+    estado_rotulo: agrupacion === 'estado' ? g.etiqueta : g.estado_rotulo,
+    clase_estado: 'finalizada',
+    categoria: (agrupacion === 'categoria' || agrupacion === 'clasificacion') ? g.etiqueta : g.categoria,
+    categoria_gasto: null,
+    nombre_item: agrupacion === 'producto' ? g.etiqueta : g.nombre_item,
+    cantidad: g.tieneCantidad ? round2(g.cantidad) : null,
+    moneda_original: 'USD',
+    monto_original: round2(g.usd),
+    monto_usd: round2(g.usd),
+    monto_bs: round2(g.bs),
+    pagado_usd: round2(g.pagadoUsd),
+    pagado_bs: round2(g.pagadoBs),
+    total_items: g.items,
+    pct_del_total: pctDe(g.usd),
+  }));
+
+  if (agrupacion === 'mes' || agrupacion === 'dia') {
+    filas.sort((a, b) => a.id.localeCompare(b.id));
+  } else {
+    ordenarFilasCompras(filas, ordenarPor);
+  }
+  return { filas };
+}
+
+/* ───────────── Métricas de la ficha ejecutiva ───────────── */
+
+export interface MetricaFichaCompras {
+  clave: string;
+  etiqueta: string;
+  valor: string;
+  sub?: string;
+  colorHex: string;
+  colorRgb: [number, number, number];
+}
+
+const fmtNumC = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const fmtUsdC = (n: number) => `$ ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtBsC = (n: number) => `Bs ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * Métricas visibles de una ficha ejecutiva según las columnas marcadas. Devuelve
+ * como máximo 4 recuadros; si no quedó ninguno, al menos el monto en $.
+ */
+export function obtenerMetricasFichaCompras(
+  f: FilaReporteCompras,
+  columnasClaves: string[],
+): MetricaFichaCompras[] {
+  const m: MetricaFichaCompras[] = [];
+  if (columnasClaves.includes('monto_usd')) {
+    m.push({ clave: 'monto_usd', etiqueta: 'MONTO ($)', valor: fmtUsdC(f.monto_usd), sub: f.estado_rotulo, colorHex: '#22c55e', colorRgb: [22, 163, 74] });
+  }
+  if (columnasClaves.includes('monto_bs')) {
+    m.push({ clave: 'monto_bs', etiqueta: 'MONTO (Bs)', valor: fmtBsC(f.monto_bs), sub: 'equivalente', colorHex: '#38bdf8', colorRgb: [2, 132, 199] });
+  }
+  if (columnasClaves.includes('cantidad') && f.cantidad != null) {
+    m.push({ clave: 'cantidad', etiqueta: 'CANTIDAD', valor: fmtNumC(f.cantidad), sub: f.nombre_item || '', colorHex: '#a855f7', colorRgb: [147, 51, 234] });
+  }
+  if (f.total_items != null) {
+    m.push({ clave: 'items', etiqueta: 'COMPRAS', valor: `${f.total_items}`, sub: f.total_items === 1 ? 'registro' : 'registros', colorHex: '#f59e0b', colorRgb: [202, 138, 4] });
+  }
+  if (columnasClaves.includes('pct_total') && f.pct_del_total != null) {
+    m.push({ clave: 'pct_total', etiqueta: '% DEL TOTAL', valor: `${f.pct_del_total.toFixed(1)}%`, sub: 'del monto', colorHex: '#eab308', colorRgb: [202, 138, 4] });
+  }
+  if (m.length === 0) {
+    m.push({ clave: 'monto_usd', etiqueta: 'MONTO ($)', valor: fmtUsdC(f.monto_usd), sub: f.estado_rotulo, colorHex: '#22c55e', colorRgb: [22, 163, 74] });
+  }
+  return m.slice(0, 4);
+}

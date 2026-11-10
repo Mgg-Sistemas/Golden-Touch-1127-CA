@@ -13,6 +13,9 @@ import {
   normalizarItemsOrdenes,
   filtrarFilasCompras,
   resumenCompras,
+  procesarFilasCompras,
+  obtenerMetricasFichaCompras,
+  CAMPOS_REPORTE_COMPRAS,
   SIN_DEPARTAMENTO,
   SIN_CATEGORIA_INV,
   type ContextoCompras,
@@ -225,5 +228,31 @@ describe('comprasMoldeable · filtros y resumen (T4)', () => {
     const r = resumenCompras([], items, [], 40);
     expect(r.topCategorias[0]).toMatchObject({ nombre: 'Ferretería', usd: 30 });
     expect(r.topItems[0]).toMatchObject({ nombre: 'Tornillo', usd: 30, cantidad: 15 });
+  });
+});
+
+describe('comprasMoldeable · agrupación, columnas y ficha (T5)', () => {
+  test('procesarFilasCompras agrupa por departamento con subtotales y %', () => {
+    const filas = [
+      filaOrdFix({ departamento: 'Mina', monto_usd: 80 }),
+      filaOrdFix({ departamento: 'Mina', monto_usd: 20 }),
+      filaOrdFix({ departamento: 'Planta', monto_usd: 100 }),
+    ];
+    const { filas: g } = procesarFilasCompras(filas, 'departamento', { ordenarPor: 'monto' });
+    expect(g).toHaveLength(2);
+    expect(g[0]).toMatchObject({ departamento: 'Mina', monto_usd: 100, total_items: 2, pct_del_total: 50 });
+  });
+
+  test('procesarFilasCompras detallado no agrupa', () => {
+    const filas = [filaOrdFix({ monto_usd: 1 }), filaOrdFix({ monto_usd: 2 })];
+    expect(procesarFilasCompras(filas, 'detallado', {}).filas).toHaveLength(2);
+  });
+
+  test('CAMPOS_REPORTE_COMPRAS trae claves clave y obtenerMetricasFichaCompras nunca queda vacío', () => {
+    const claves = CAMPOS_REPORTE_COMPRAS.map((c) => c.clave);
+    expect(claves).toEqual(expect.arrayContaining(['departamento', 'monto_usd', 'monto_bs', 'estado_rotulo']));
+    const metricas = obtenerMetricasFichaCompras(filaOrdFix({ monto_usd: 10 }), []);
+    expect(metricas.length).toBeGreaterThanOrEqual(1);
+    expect(metricas.length).toBeLessThanOrEqual(4);
   });
 });
