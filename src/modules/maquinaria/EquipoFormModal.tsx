@@ -125,7 +125,10 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
   const upper = (s: string) => s.toUpperCase();
   const numField = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')));
 
-  const combOpts = useMemo(() => combEquipos.map((e) => ({ value: e, label: e })), [combEquipos]);
+  const combOpts = useMemo(() => [
+    { value: '', label: '— Sin vincular —' },
+    ...combEquipos.map((e) => ({ value: e, label: e })),
+  ], [combEquipos]);
 
   // GT-INT-15 · El vínculo con Combustible es por TEXTO. Si renombraron el valor en el
   // catálogo, la ficha queda apuntando a un nombre que ya no existe y el equipo pierde su
@@ -455,6 +458,18 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
                 createLabel={(q) => `➕ Crear «${q.toUpperCase()}» en Combustible`}
                 style={{ flex: 1 }}
               />
+              {!!f.combustible_equipo && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{ whiteSpace: 'nowrap', color: 'var(--danger, #ef4444)' }}
+                  disabled={vinculando}
+                  title="Quitar vínculo con Combustible (dejar sin vincular)"
+                  onClick={() => set('combustible_equipo', null)}
+                >
+                  ✕ Desvincular
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"

@@ -18,4 +18,31 @@ describe('AdminRepo · centros de acopio', () => {
     // sin filtro de empresa, lista todos
     expect(await repo.listCentros()).toHaveLength(3);
   });
+
+  it('guarda responsable, fase y descripción del centro', async () => {
+    const repo = crearRepoDemo();
+    const c = await repo.crearCentro({
+      empresaClave: 'GT', nombre: 'Planta de Molienda', orden: 1, activo: true,
+      responsablePrincipal: 'Jefe de Planta',
+      fasePredeterminada: 'Fase 2: Permisología Minera y Ambiental',
+      descripcion: 'Circuito de trituración y recuperación.',
+    });
+    expect(c).toMatchObject({
+      responsablePrincipal: 'Jefe de Planta',
+      fasePredeterminada: 'Fase 2: Permisología Minera y Ambiental',
+      descripcion: 'Circuito de trituración y recuperación.',
+    });
+
+    await repo.editarCentro(c.id, { responsablePrincipal: 'Dirección de Operaciones' });
+    const [leido] = await repo.listCentros('GT');
+    expect(leido.responsablePrincipal).toBe('Dirección de Operaciones');
+  });
+
+  it('un centro nuevo sin esos datos los deja vacíos, no rompe', async () => {
+    const repo = crearRepoDemo();
+    const c = await repo.crearCentro({ empresaClave: 'GT', nombre: 'Patio', orden: 1, activo: true });
+    expect(c.responsablePrincipal ?? null).toBeNull();
+    expect(c.fasePredeterminada ?? null).toBeNull();
+    expect(c.descripcion ?? null).toBeNull();
+  });
 });
