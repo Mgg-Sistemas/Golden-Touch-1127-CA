@@ -1,7 +1,7 @@
 /* ============================================================
    Golden Touch · Cocina · Vista «📊 Distribución» del mercado
 
-   Traído de MGG (MercadoPanel → DistribucionPanel, 21/09/2026): el control
+   21/09/2026: el control
    de distribución deja de ser una pantalla aparte y pasa a ser UNA VISTA MÁS
    del panel del mercado, al lado de Disponible / Movimientos / Ambos. Es el
    lugar correcto: se mira el mismo ciclo, con la misma ventana de fechas, sin

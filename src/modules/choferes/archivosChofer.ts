@@ -1,6 +1,6 @@
 /* ============================================================
    Golden Touch · Choferes / Conductores · Archivos del conductor
-   (traído de MGG el 13/10/2026)
+   (13/10/2026)
 
    Licencia, certificado médico, seguro y otros papeles: solo PDF o imagen
    (llegan escaneados o fotografiados con el teléfono), hasta 10 MB.

@@ -673,7 +673,7 @@ export function PedidosPage() {
   }
   const currentDetail = modal.kind === 'detail' ? (detailEncontrado ?? detailRef.current) : null;
 
-  // Pestañas minimizadas (20-10-2026, traído de MGG): el detalle de una orden se minimiza a la
+  // Pestañas minimizadas (20-10-2026): el detalle de una orden se minimiza a la
   // barra de abajo para abrir otra; viven SOLO en este módulo (al salir, AppShell avisa y se pierden).
   const tituloMin = (o: Orden) => `Orden ${o.codigo}${o.urgente ? ' · 🚨' : ''}`;
   function minimizarDetalle() {

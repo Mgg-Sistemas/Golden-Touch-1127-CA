@@ -1,5 +1,5 @@
 /* ============================================================
-   Golden Touch · Delivery · lógica de la vista de teléfono (31/10/2026 · traído de MGG)
+   Golden Touch · Delivery · lógica de la vista de teléfono (31/10/2026)
 
    Lo que no toca pantalla ni base: cuándo mandar la ubicación, cómo se
    arma el listado del motorizado (por tomar / en curso / entregados),

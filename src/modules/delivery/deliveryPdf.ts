@@ -1,5 +1,5 @@
 /* ============================================================
-   Golden Touch · Delivery · PDF (31/10/2026 · traído de MGG + reportes)
+   Golden Touch · Delivery · PDF (31/10/2026 · con reportes)
 
    · «Reporte de Delivery» (el Histórico de MGG, ahora con el resumen):
      rango + estado + motorizado → totales por estado, resumen por

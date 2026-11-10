@@ -513,7 +513,7 @@ export function CocinaPage() {
       {/* ── CAPA 2 · Qué se quiere mirar ── */}
       {mercado && <SelectorVista vista={vista} onElegir={elegirVista} />}
 
-      {/* ── CAPA 3 · Distribución (EOQ) · vista traída de MGG ── */}
+      {/* ── CAPA 3 · Distribución (EOQ) ── */}
       {verDistribucion && mercado && (
         <DistribucionPanel inicioCiclo={mercado.inicio_at} saldoCiclo={mercado.saldo_inicial}
           onAbrirDetalle={() => setModal('control')} />
@@ -1135,7 +1135,7 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
           <div className="form-row">
             <label>Fecha del servicio <span className="muted">(para comidas de un día desfasado)</span></label>
             <FechaInput value={fecha} onChange={setFecha} max={new Date().toLocaleDateString('en-CA')} />
-            {/* Aviso traído de MGG (21/09/2026): cargar una comida atrasada es válido, pero
+            {/* Aviso (21/09/2026): cargar una comida atrasada es válido, pero
                 si esos víveres ya pasaron por un CONTEO REAL salen dos veces del inventario.
                 Avisa, no bloquea. */}
             {avisoFecha && (

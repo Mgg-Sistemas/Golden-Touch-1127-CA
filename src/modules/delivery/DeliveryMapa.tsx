@@ -1,5 +1,5 @@
 /* ============================================================
-   Golden Touch · Delivery · Mapa de los motorizados (31/10/2026 · traído de MGG)
+   Golden Touch · Delivery · Mapa de los motorizados (31/10/2026)
 
    Leaflet a secas (sin react-leaflet), centrado en Puerto Ordaz, estado
    Bolívar. Dos capas: «Calles» (OpenStreetMap) y «Satelital» (Esri World

@@ -223,7 +223,7 @@ export function DocumentacionPersona({
       )}
 
       {esChofer && (
-        // Traído de MGG (26/10/2026): la ficha de un conductor alimenta su expediente en Choferes.
+        // 26/10/2026: la ficha de un conductor alimenta su expediente en Choferes.
         <div className="aviso info sm" style={{ marginBottom: '.5rem', fontSize: '.8rem' }}>
           <span className="aviso-icono">🚛</span>
           <div>

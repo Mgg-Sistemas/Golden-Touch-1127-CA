@@ -1,7 +1,7 @@
 /* ============================================================
    Golden Touch · Cocina · ¿La fecha de la comida cae dentro del mercado abierto?
 
-   Traído de MGG (21/09/2026). POR QUÉ EXISTE. La comida descuenta el inventario
+   21/09/2026. POR QUÉ EXISTE. La comida descuenta el inventario
    el día que se CARGA, pero por fecha pertenece al mercado del día en que se
    SIRVIÓ. Cargar una comida atrasada es legítimo y pasa seguido —se sirve un día
    y se registra después—, pero tiene una consecuencia que no se ve:

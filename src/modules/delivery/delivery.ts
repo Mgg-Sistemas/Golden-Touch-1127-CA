@@ -11,7 +11,7 @@
    desde que se encendió, y entran apenas quedan pagadas (sin esperar la
    retención).
 
-   Traído de MGG (upstream src/modules/delivery/delivery.ts). Acá vive lo
+   Acá vive lo
    que no toca la base: estados, motivos y mensajes. Emojis de color por sí
    mismos, sin el selector U+FE0F (WhatsApp lo pierde).
 

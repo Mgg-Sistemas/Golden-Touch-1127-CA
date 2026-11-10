@@ -276,7 +276,7 @@ function DetalleCifraModal({ cual, items, ec, costo, abierto, onClose }: {
 const INTERRUPTORES: { vista: InterruptorVista; icono: string; titulo: string; que: string }[] = [
   { vista: 'disponible', icono: '📋', titulo: 'Disponible', que: 'Qué hay de cada víver y cuánto queda' },
   { vista: 'movimientos', icono: '🧾', titulo: 'Movimientos', que: 'Entradas, traslados, consumos y mermas' },
-  // Traído de MGG (21/09/2026): el control de distribución vive aquí, no en una
+  // 21/09/2026: el control de distribución vive aquí, no en una
   // pantalla aparte, porque mira el mismo ciclo que las otras dos vistas.
   { vista: 'distribucion', icono: '📊', titulo: 'Distribución', que: 'Consumo por día, lote de compra y reorden' },
 ];

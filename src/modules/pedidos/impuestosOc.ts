@@ -1,6 +1,6 @@
 /* ============================================================
    Golden Touch · Pedidos · Precios que ya traen el IVA (04-11-2026)
-   Traído de MGG (commit f7ce86f8, 14-10-2026) y adaptado a GT, que guarda el
+   Adaptado a GT (14-10-2026), que guarda el
    IVA como iva_aplicado / iva_pct / iva_monto.
 
    total = (Σ ítems − descuento) + IVA + IGTF
