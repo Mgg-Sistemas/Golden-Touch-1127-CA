@@ -1483,6 +1483,7 @@ function FinalizarPedidoModal({
   onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string; factura: File | null; facturas: File[] }) => Promise<void>;
 }) {
   const [calidad, setCalidad] = useState(5);
+  const [hoverCalidad, setHoverCalidad] = useState<number | null>(null);
   const [factura, setFactura] = useState<File | null>(null);
   // P03: varias facturas del proveedor; al recibir hace falta al menos una (salvo que ya tenga, o venga con nota de entrega).
   const conP03 = useP03();
@@ -1498,16 +1499,13 @@ function FinalizarPedidoModal({
   }, [conP03, orden.id, orden.factura_path, orden.factura_recepcion_path]);
   const conNotaEntrega = orden.comprobante_tipo === 'nota_entrega';
   const facturaObligatoria = conP03 && facturasPrevias === 0 && !conNotaEntrega;
-  const [puntualidad, setPuntualidad] = useState<'por_fecha' | 'en_fecha' | 'adelantado' | 'atrasado'>('por_fecha');
-  const [dias, setDias] = useState('1');
   const [comentario, setComentario] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fecha prometida (de la oferta elegida) vs fecha de recibido → calcula los días.
+  // Fecha prometida (de la oferta elegida) vs fecha de hoy → calcula puntualidad automáticamente si había fecha prometida.
   const hoyISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
   const [fechaPrometida, setFechaPrometida] = useState('');
-  const [fechaRecibido, setFechaRecibido] = useState(hoyISO);
   useEffect(() => {
     listOfertasByOrden(orden.id)
       .then((ofs) => {
@@ -1517,46 +1515,55 @@ function FinalizarPedidoModal({
           ?? ofs.find((o) => o.fecha_entrega_prometida);
         if (elegida?.fecha_entrega_prometida) setFechaPrometida(elegida.fecha_entrega_prometida.slice(0, 10));
       })
-      .catch(() => { /* sin oferta: el usuario coloca la fecha prometida a mano */ });
+      .catch(() => { /* sin oferta: puntualidad neutra */ });
   }, [orden.id, orden.proveedor_id]);
 
   // Días (firmado): + adelantado (recibido antes de lo prometido), − atrasado.
   const diasPorFecha = (() => {
-    if (!fechaPrometida || !fechaRecibido) return null;
+    if (!fechaPrometida) return 0;
     const p = new Date(`${fechaPrometida}T00:00:00`).getTime();
-    const r = new Date(`${fechaRecibido}T00:00:00`).getTime();
-    if (isNaN(p) || isNaN(r)) return null;
+    const r = new Date(`${hoyISO}T00:00:00`).getTime();
+    if (isNaN(p) || isNaN(r)) return 0;
     return Math.round((p - r) / 86_400_000);
   })();
 
   const CALIDAD_LABEL: Record<number, string> = {
-    5: '5 · Excelente', 4: '4 · Buena', 3: '3 · Aceptable', 2: '2 · Deficiente', 1: '1 · Muy mala',
+    5: '5 estrellas · Excelente',
+    4: '4 estrellas · Buena',
+    3: '3 estrellas · Aceptable',
+    2: '2 estrellas · Regular',
+    1: '1 estrella · Deficiente',
   };
 
   async function handle() {
     setError(null);
-    let puntualidadDias: number;
-    if (puntualidad === 'por_fecha') {
-      if (diasPorFecha == null) { setError('Indica la fecha prometida y la de recibido.'); return; }
-      puntualidadDias = diasPorFecha;
-    } else {
-      const d = Math.max(0, Math.floor(Number(dias) || 0));
-      puntualidadDias = puntualidad === 'en_fecha' ? 0 : puntualidad === 'adelantado' ? d : -d;
-    }
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('La factura debe ser un PDF o una imagen.'); return;
     }
+    if (factura && factura.size > 10 * 1024 * 1024) {
+      setError('La factura no puede superar 10 MB.'); return;
+    }
     const noSirve = facturas.find((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'));
     if (noSirve) { setError(`«${noSirve.name}» no es PDF ni imagen.`); return; }
+    const muyPesada = facturas.find((f) => f.size > 10 * 1024 * 1024);
+    if (muyPesada) { setError(`«${muyPesada.name}» supera los 10 MB.`); return; }
     if (facturaObligatoria && !facturas.length) { setError('Carga al menos una factura del proveedor (PDF o imagen).'); return; }
     setSaving(true);
     try {
-      await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim(), factura: conP03 ? null : factura, facturas: conP03 ? facturas : [] });
+      await onConfirm({
+        calidad,
+        puntualidadDias: diasPorFecha,
+        comentario: comentario.trim(),
+        factura: conP03 ? null : factura,
+        facturas: conP03 ? facturas : [],
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo finalizar');
       setSaving(false);
     }
   }
+
+  const ratingActivo = hoverCalidad ?? calidad;
 
   return (
     <Modal
@@ -1581,61 +1588,62 @@ function FinalizarPedidoModal({
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       <div className="form-row">
-        <label>Calidad a evaluar *</label>
-        <select className="select" value={calidad} onChange={(e) => setCalidad(Number(e.target.value))}>
-          {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{CALIDAD_LABEL[n]}</option>)}
-        </select>
-      </div>
-
-      <div className="form-grid">
-        <div className="form-row">
-          <label>Puntualidad *</label>
-          <select className="select" value={puntualidad} onChange={(e) => setPuntualidad(e.target.value as typeof puntualidad)}>
-            <option value="por_fecha">Por fecha prometida</option>
-            <option value="en_fecha">En la fecha prometida</option>
-            <option value="adelantado">Adelantado</option>
-            <option value="atrasado">Atrasado</option>
-          </select>
+        <label style={{ display: 'block', marginBottom: '.4rem', fontWeight: 600 }}>Calificación de recepción *</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.85rem', flexWrap: 'wrap' }}>
+          <div
+            role="radiogroup"
+            aria-label="Calificación por estrellas"
+            style={{ display: 'inline-flex', gap: '.25rem' }}
+            onMouseLeave={() => setHoverCalidad(null)}
+          >
+            {[1, 2, 3, 4, 5].map((star) => {
+              const activa = star <= ratingActivo;
+              return (
+                <button
+                  key={star}
+                  type="button"
+                  role="radio"
+                  aria-checked={calidad === star}
+                  aria-label={`${star} estrella${star > 1 ? 's' : ''}`}
+                  onClick={() => setCalidad(star)}
+                  onMouseEnter={() => setHoverCalidad(star)}
+                  onFocus={() => setHoverCalidad(star)}
+                  onBlur={() => setHoverCalidad(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    fontSize: '2.2rem',
+                    lineHeight: 1,
+                    color: activa ? '#f59e0b' : 'var(--muted, #64748b)',
+                    transition: 'transform 0.12s ease, color 0.12s ease',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(0.88)')}
+                  onMouseUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+                >
+                  ★
+                </button>
+              );
+            })}
+          </div>
+          <span
+            className="badge"
+            style={{
+              fontSize: '.9rem',
+              fontWeight: 600,
+              padding: '.35rem .75rem',
+              backgroundColor: 'var(--bg-card, #1e293b)',
+              border: '1px solid var(--border, #334155)',
+              color: 'var(--text, #f8fafc)',
+            }}
+          >
+            {CALIDAD_LABEL[ratingActivo]}
+          </span>
         </div>
-        {(puntualidad === 'adelantado' || puntualidad === 'atrasado') && (
-          <div className="form-row">
-            <label>Días {puntualidad === 'adelantado' ? 'de adelanto' : 'de atraso'}</label>
-            <input className="input mono" type="number" min={0} step={1} value={dias} onChange={(e) => setDias(e.target.value)} />
-          </div>
-        )}
-      </div>
-
-      {/* Por fecha prometida: fecha de la oferta vs. fecha de recibido → calcula los días */}
-      {puntualidad === 'por_fecha' && (
-        <>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Fecha prometida (de la oferta)</label>
-              <input className="input" type="date" value={fechaPrometida} onChange={(e) => setFechaPrometida(e.target.value)} />
-              <small className="muted">{fechaPrometida ? 'Tomada de la oferta del proveedor; puedes ajustarla.' : 'La oferta no tiene fecha prometida: colocala aquí.'}</small>
-            </div>
-            <div className="form-row">
-              <label>Fecha de recibido</label>
-              <input className="input" type="date" value={fechaRecibido} onChange={(e) => setFechaRecibido(e.target.value)} />
-              <small className="muted">Por defecto, hoy.</small>
-            </div>
-          </div>
-          {diasPorFecha != null && (
-            <div className="card" style={{ margin: '.1rem 0 .6rem' }}>
-              {diasPorFecha === 0
-                ? <>✓ Recibido <strong>en la fecha prometida</strong>.</>
-                : diasPorFecha > 0
-                  ? <>✓ Recibido <strong>{diasPorFecha} día(s) antes</strong> de lo prometido (adelantado).</>
-                  : <>⚠ Recibido <strong>{Math.abs(diasPorFecha)} día(s) después</strong> de lo prometido (atrasado).</>}
-            </div>
-          )}
-        </>
-      )}
-
-      <div className="form-row">
-        <label>Comentario adicional (opcional)</label>
-        <textarea className="input" rows={3} name="fin-comentario" defaultValue={comentario} onChange={(e) => setComentario(e.target.value)}
-          placeholder="Observaciones de la recepción…" />
       </div>
 
       {conP03 ? (
@@ -1646,15 +1654,30 @@ function FinalizarPedidoModal({
               : <span className="muted">({facturasPrevias ? `ya tiene ${facturasPrevias} · puedes sumar más` : 'con nota de entrega: se cargan cuando lleguen'})</span>}
           </label>
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFacturas(Array.from(e.target.files ?? []))} />
-          {facturas.length > 0 && <small className="muted">📎 {facturas.map((f) => f.name).join(', ')}</small>}
+          <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>PDF o imagen · máx. 10 MB c/u.</small>
+          {facturas.length > 0 && <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>📎 {facturas.map((f) => f.name).join(', ')}</small>}
         </div>
       ) : (
         <div className="form-row">
-          <label>Cargar factura</label>
+          <label>Cargar factura {orden.factura_recepcion_path || orden.factura_path ? '(reemplaza la actual)' : ''}</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} />
-          {factura && <small className="muted">📎 {factura.name}</small>}
+          <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>PDF o imagen · máx. 10 MB.</small>
+          {factura && <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>📎 {factura.name}</small>}
         </div>
       )}
+
+      <div className="form-row">
+        <label>Comentario adicional (opcional)</label>
+        <textarea
+          className="input"
+          rows={3}
+          name="fin-comentario"
+          value={comentario}
+          onChange={(e) => setComentario(e.target.value)}
+          placeholder="Observaciones de la recepción…"
+        />
+      </div>
+
       <small className="muted">Evaluador: {rolEvaluador === 'jefe' ? 'Jefe / analista' : 'Almacenista'}.</small>
     </Modal>
   );

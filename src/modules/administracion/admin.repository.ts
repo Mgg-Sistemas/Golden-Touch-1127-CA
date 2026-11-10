@@ -41,6 +41,11 @@ export interface CentroAcopio {
   nombre: string;
   orden: number;
   activo: boolean;
+  /** Quien responde por el centro. Alimenta la matriz de responsables del reporte. */
+  responsablePrincipal?: string | null;
+  /** Etiqueta de fase operativa (FASES_OPERATIVAS); convive con la cobertura N de M. */
+  fasePredeterminada?: string | null;
+  descripcion?: string | null;
 }
 export type CentroAcopioInput = Omit<CentroAcopio, 'id'>;
 
@@ -612,9 +617,14 @@ function deMov(m: Partial<MovimientoInput>): Record<string, unknown> {
   return o;
 }
 
-interface RowCentro { id: string; empresa_clave: string; nombre: string; orden: number | null; activo: boolean | null }
+interface RowCentro { id: string; empresa_clave: string; nombre: string; orden: number | null; activo: boolean | null; responsable_principal?: string | null; fase_predeterminada?: string | null; descripcion?: string | null }
 function aCentro(r: RowCentro): CentroAcopio {
-  return { id: r.id, empresaClave: r.empresa_clave, nombre: r.nombre, orden: r.orden ?? 0, activo: r.activo !== false };
+  return {
+    id: r.id, empresaClave: r.empresa_clave, nombre: r.nombre, orden: r.orden ?? 0, activo: r.activo !== false,
+    responsablePrincipal: r.responsable_principal ?? null,
+    fasePredeterminada: r.fase_predeterminada ?? null,
+    descripcion: r.descripcion ?? null,
+  };
 }
 function deCentro(c: Partial<CentroAcopioInput>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
@@ -622,6 +632,9 @@ function deCentro(c: Partial<CentroAcopioInput>): Record<string, unknown> {
   if (c.nombre !== undefined) o.nombre = c.nombre;
   if (c.orden !== undefined) o.orden = c.orden;
   if (c.activo !== undefined) o.activo = c.activo;
+  if (c.responsablePrincipal !== undefined) o.responsable_principal = c.responsablePrincipal;
+  if (c.fasePredeterminada !== undefined) o.fase_predeterminada = c.fasePredeterminada;
+  if (c.descripcion !== undefined) o.descripcion = c.descripcion;
   return o;
 }
 interface RowProfesional { id: string; nombre: string; profesion: string | null; contacto: string | null; activo: boolean | null }
