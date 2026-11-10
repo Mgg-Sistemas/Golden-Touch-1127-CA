@@ -34,6 +34,8 @@ import { coordsTxt, type PuntoMapa } from './ubicacionProveedor';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
+type ModoVista = 'tarjetas' | 'tabla';
+const VIEW_KEY = 'gt.proveedores.modo_vista';
 
 const EMPTY_FORM: ProveedorInput = {
   rif: '',
@@ -77,6 +79,25 @@ export function ProveedoresPage() {
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
   const { user } = useSession();
+
+  const [modoVista, setModoVista] = useState<ModoVista>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_KEY);
+      if (saved === 'tabla' || saved === 'tarjetas') return saved;
+    } catch {
+      /* ignore */
+    }
+    return 'tarjetas';
+  });
+
+  function cambiarModoVista(nuevo: ModoVista) {
+    setModoVista(nuevo);
+    try {
+      localStorage.setItem(VIEW_KEY, nuevo);
+    } catch {
+      /* ignore */
+    }
+  }
 
   useEffect(() => {
     if (!gestionCatsOpen) return;
@@ -284,6 +305,25 @@ export function ProveedoresPage() {
             </option>
           ))}
         </select>
+
+        <div className="view-toggle" role="tablist" aria-label="Modo de vista" style={{ marginLeft: 'auto' }}>
+          <button
+            type="button"
+            className={modoVista === 'tarjetas' ? 'active' : ''}
+            onClick={() => cambiarModoVista('tarjetas')}
+            title="Vista por tarjetas"
+          >
+            🗂️ Tarjetas
+          </button>
+          <button
+            type="button"
+            className={modoVista === 'tabla' ? 'active' : ''}
+            onClick={() => cambiarModoVista('tabla')}
+            title="Vista por filas (tabla)"
+          >
+            ☰ Filas
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -297,6 +337,191 @@ export function ProveedoresPage() {
       ) : filtered.length === 0 ? (
         <div className="card">
           <EmptyState message="Sin proveedores que coincidan." icon="⚒" />
+        </div>
+      ) : modoVista === 'tarjetas' ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gap: '1rem',
+          }}
+        >
+          {filtered.map((p) => {
+            const tieneGps = Boolean(ubicacionDe(p));
+            const esInactivo = p.estado !== 'activo';
+            return (
+              <div
+                key={p.id}
+                className="card"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  padding: '1.1rem 1.2rem',
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                  borderLeft: `4px solid ${esInactivo ? 'var(--danger, #ef4444)' : 'var(--primary, #ff8a00)'}`,
+                  borderRadius: 'var(--r-lg)',
+                  boxShadow: 'var(--shadow-sm)',
+                  opacity: esInactivo ? 0.82 : 1,
+                  gap: '.75rem',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', marginBottom: '.4rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                      <span className="badge mono" style={{ fontSize: '.75rem', fontWeight: 700 }}>
+                        {p.rif}
+                      </span>
+                      {p.origen === 'internacional' && (
+                        <span className="badge info" style={{ fontSize: '.68rem' }}>
+                          🌐 Internacional
+                        </span>
+                      )}
+                    </div>
+                    <StatusBadge estado={p.estado} />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setDetailId(p.id)}
+                    title="Ver expediente del proveedor"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      textAlign: 'left',
+                      font: 'inherit',
+                      cursor: 'pointer',
+                      display: 'block',
+                      width: '100%',
+                    }}
+                  >
+                    <strong style={{ fontSize: '1.02rem', color: 'var(--text)', lineHeight: 1.3, display: 'block' }}>
+                      {p.razon_social}
+                    </strong>
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.45rem', fontSize: '.84rem', color: 'var(--text-muted)' }}>
+                  {p.contacto && (
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '.45rem' }}>
+                      <span style={{ fontSize: '.85rem' }}>👤</span>
+                      <span style={{ color: 'var(--text)' }}>{p.contacto}</span>
+                    </div>
+                  )}
+
+                  {p.telefono && (
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '.45rem' }}>
+                      <span style={{ fontSize: '.85rem' }}>📞</span>
+                      <a
+                        href={`tel:${p.telefono}`}
+                        className="mono"
+                        style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}
+                      >
+                        {p.telefono}
+                      </a>
+                    </div>
+                  )}
+
+                  {p.email && (
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '.45rem', minWidth: 0 }}>
+                      <span style={{ fontSize: '.85rem' }}>✉️</span>
+                      <a
+                        href={`mailto:${p.email}`}
+                        style={{
+                          color: 'var(--text-muted)',
+                          textDecoration: 'none',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={p.email}
+                      >
+                        {p.email}
+                      </a>
+                    </div>
+                  )}
+
+                  {p.direccion && (
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '.45rem' }}>
+                      <span style={{ fontSize: '.85rem' }}>📍</span>
+                      <span
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          lineHeight: 1.35,
+                          fontSize: '.8rem',
+                        }}
+                        title={p.direccion}
+                      >
+                        {p.direccion}
+                      </span>
+                      {tieneGps && (
+                        <span className="badge primary" style={{ fontSize: '.62rem', padding: '.1rem .35rem', flexShrink: 0 }} title="Ubicación GPS guardada para delivery">
+                          GPS
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {(p.actividad_economica || p.numero_administracion) && (
+                    <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', fontSize: '.74rem', marginTop: '.1rem' }}>
+                      {p.actividad_economica && <span className="muted">CIIU: {p.actividad_economica}</span>}
+                      {p.numero_administracion && <span className="muted">N° Adm: {p.numero_administracion}</span>}
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: '.35rem' }}>
+                    <Etiquetas items={p.categorias ?? []} max={4} />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingTop: '.65rem',
+                    borderTop: '1px solid var(--border)',
+                    marginTop: 'auto',
+                    gap: '.4rem',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => setDetailId(p.id)}
+                    style={{ fontWeight: 600 }}
+                  >
+                    👁️ Ver
+                  </button>
+
+                  {canWrite && (
+                    <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => openEdit(p.id)}
+                      >
+                        ✏️ Editar
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${p.estado === 'activo' ? 'btn-danger' : 'btn-success'}`}
+                        onClick={() => setToggleTarget(p)}
+                      >
+                        {p.estado === 'activo' ? 'Desactivar' : 'Activar'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="table-wrap">
