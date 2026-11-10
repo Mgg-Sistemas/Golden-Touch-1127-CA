@@ -354,3 +354,184 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
   }
   return filas;
 }
+
+/* ───────────── Filtros ───────────── */
+
+export interface FiltrosCompras {
+  departamentosSel?: string[];
+  categoriasSel?: string[];
+  proveedoresSel?: string[];
+  estadosSel?: ClaseEstadoCompra[];
+  tiposSel?: TipoCompra[];
+}
+
+/** Filtra las filas por las selecciones (vacío/omitido = sin filtro). */
+export function filtrarFilasCompras(filas: FilaReporteCompras[], f: FiltrosCompras): FilaReporteCompras[] {
+  const { departamentosSel, categoriasSel, proveedoresSel, estadosSel, tiposSel } = f;
+  return filas.filter((row) => {
+    if (departamentosSel && departamentosSel.length > 0 && !departamentosSel.includes(row.departamento)) return false;
+    if (categoriasSel && categoriasSel.length > 0 && !categoriasSel.includes(row.categoria)) return false;
+    if (proveedoresSel && proveedoresSel.length > 0 && !proveedoresSel.includes(row.proveedor)) return false;
+    if (estadosSel && estadosSel.length > 0 && !estadosSel.includes(row.clase_estado)) return false;
+    if (tiposSel && tiposSel.length > 0 && !tiposSel.includes(row.tipo_compra)) return false;
+    return true;
+  });
+}
+
+/* ───────────── Resumen / KPIs ───────────── */
+
+/** Cotización ya atribuida a un departamento por la capa de datos. */
+export interface CotizacionCompras {
+  departamento: string;
+}
+
+export interface RankDepto {
+  departamento: string;
+  usd: number;
+  bs: number;
+  pct: number;
+}
+
+export interface BloqueCategoriaGasto {
+  categoria: string;
+  usd: number;
+  bs: number;
+}
+
+export interface TopCompras {
+  nombre: string;
+  usd: number;
+  cantidad?: number;
+}
+
+export interface ResumenReporteCompras {
+  totalCompras: number;
+  totalUsd: number;
+  totalBs: number;
+  finalizadasCount: number;
+  finalizadasUsd: number;
+  finalizadasBs: number;
+  pendientesCount: number;
+  pendientesUsd: number;
+  pendientesBs: number;
+  pagadoUsd: number;
+  pagadoBs: number;
+  rankingDeptoGasto: RankDepto[];
+  comprasDirectasPorCategoriaGasto: BloqueCategoriaGasto[];
+  totalDirectasUsd: number;
+  totalDirectasBs: number;
+  rankingDeptoCotizaciones: { departamento: string; cotizaciones: number }[];
+  topCategorias: TopCompras[];
+  topItems: TopCompras[];
+  deptoQueMasGasto: string | null;
+  tasaBcv: number;
+}
+
+/** Top-N de una clave sumando usd (y, opcional, cantidad). */
+function topPor(
+  filas: FilaReporteCompras[],
+  clave: (f: FilaReporteCompras) => string,
+  conCantidad: boolean,
+  n = 5,
+): TopCompras[] {
+  const usd = new Map<string, number>();
+  const cant = new Map<string, number>();
+  for (const f of filas) {
+    const k = clave(f);
+    usd.set(k, (usd.get(k) || 0) + (f.monto_usd || 0));
+    if (conCantidad) cant.set(k, (cant.get(k) || 0) + (f.cantidad || 0));
+  }
+  return Array.from(usd.entries())
+    .map(([nombre, v]) => (conCantidad
+      ? { nombre, usd: round2(v), cantidad: round2(cant.get(nombre) || 0) }
+      : { nombre, usd: round2(v) }))
+    .sort((a, b) => b.usd - a.usd)
+    .slice(0, n);
+}
+
+/**
+ * Resumen/KPIs del rango. `filasOrdenes` = ámbito órdenes (las 3 fuentes, ya sin
+ * excluidas); `filasItems` = ámbito ítems (solo órdenes); `cotizaciones` = ya
+ * atribuidas a su departamento por la capa de datos.
+ *
+ * Reglas duras (decisión de la líder):
+ *  · Total del rango: incluye las TRES fuentes.
+ *  · Ranking por departamento: SOLO órdenes + servicios (EXCLUYE compras directas).
+ *  · Compras directas: bloque propio por categoría de gasto, dentro del total.
+ */
+export function resumenCompras(
+  filasOrdenes: FilaReporteCompras[],
+  filasItems: FilaReporteCompras[],
+  cotizaciones: CotizacionCompras[],
+  tasaBcv: number,
+): ResumenReporteCompras {
+  let totalUsd = 0, totalBs = 0;
+  let finCount = 0, finUsd = 0, finBs = 0;
+  let penCount = 0, penUsd = 0, penBs = 0;
+  let pagUsd = 0, pagBs = 0;
+  let dirUsd = 0, dirBs = 0;
+
+  const gastoDepto = new Map<string, { usd: number; bs: number }>();
+  const dirPorCat = new Map<string, { usd: number; bs: number }>();
+
+  for (const f of filasOrdenes) {
+    totalUsd += f.monto_usd; totalBs += f.monto_bs;
+    if (f.clase_estado === 'finalizada') { finCount += 1; finUsd += f.monto_usd; finBs += f.monto_bs; }
+    else if (f.clase_estado === 'pendiente') { penCount += 1; penUsd += f.monto_usd; penBs += f.monto_bs; }
+    pagUsd += f.pagado_usd; pagBs += f.pagado_bs;
+
+    if (f.tipo_compra === 'directa') {
+      dirUsd += f.monto_usd; dirBs += f.monto_bs;
+      const cat = f.categoria_gasto || SIN_CATEGORIA_GASTO;
+      const g = dirPorCat.get(cat) || { usd: 0, bs: 0 };
+      g.usd += f.monto_usd; g.bs += f.monto_bs; dirPorCat.set(cat, g);
+    } else {
+      // órdenes + servicios directos entran al ranking por departamento
+      const g = gastoDepto.get(f.departamento) || { usd: 0, bs: 0 };
+      g.usd += f.monto_usd; g.bs += f.monto_bs; gastoDepto.set(f.departamento, g);
+    }
+  }
+
+  const baseRanking = Array.from(gastoDepto.values()).reduce((a, g) => a + Math.abs(g.usd), 0);
+  const rankingDeptoGasto: RankDepto[] = Array.from(gastoDepto.entries())
+    .map(([departamento, g]) => ({
+      departamento,
+      usd: round2(g.usd),
+      bs: round2(g.bs),
+      pct: baseRanking > 0 ? Math.round((g.usd / baseRanking) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.usd - a.usd);
+
+  const comprasDirectasPorCategoriaGasto: BloqueCategoriaGasto[] = Array.from(dirPorCat.entries())
+    .map(([categoria, g]) => ({ categoria, usd: round2(g.usd), bs: round2(g.bs) }))
+    .sort((a, b) => b.usd - a.usd);
+
+  const cotDepto = new Map<string, number>();
+  for (const c of cotizaciones) cotDepto.set(c.departamento, (cotDepto.get(c.departamento) || 0) + 1);
+  const rankingDeptoCotizaciones = Array.from(cotDepto.entries())
+    .map(([departamento, n]) => ({ departamento, cotizaciones: n }))
+    .sort((a, b) => b.cotizaciones - a.cotizaciones);
+
+  return {
+    totalCompras: filasOrdenes.length,
+    totalUsd: round2(totalUsd),
+    totalBs: round2(totalBs),
+    finalizadasCount: finCount,
+    finalizadasUsd: round2(finUsd),
+    finalizadasBs: round2(finBs),
+    pendientesCount: penCount,
+    pendientesUsd: round2(penUsd),
+    pendientesBs: round2(penBs),
+    pagadoUsd: round2(pagUsd),
+    pagadoBs: round2(pagBs),
+    rankingDeptoGasto,
+    comprasDirectasPorCategoriaGasto,
+    totalDirectasUsd: round2(dirUsd),
+    totalDirectasBs: round2(dirBs),
+    rankingDeptoCotizaciones,
+    topCategorias: topPor(filasItems, (f) => f.categoria, false),
+    topItems: topPor(filasItems, (f) => f.nombre_item, true),
+    deptoQueMasGasto: rankingDeptoGasto[0]?.departamento ?? null,
+    tasaBcv,
+  };
+}

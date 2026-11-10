@@ -11,10 +11,30 @@ import {
   normalizarDirectas,
   normalizarServicios,
   normalizarItemsOrdenes,
+  filtrarFilasCompras,
+  resumenCompras,
   SIN_DEPARTAMENTO,
   SIN_CATEGORIA_INV,
   type ContextoCompras,
+  type FilaReporteCompras,
 } from './comprasMoldeable';
+
+/* ───────────── Fábricas de FILAS normalizadas ───────────── */
+
+function filaBase(over: Partial<FilaReporteCompras> = {}): FilaReporteCompras {
+  return {
+    id: `f-${(seq += 1)}`, ambito: 'ordenes', tipo_compra: 'orden',
+    fecha: '2026-11-05', codigo: 'OC-X', departamento: 'Mina', proveedor: '—',
+    estado: 'pagada', estado_rotulo: 'Pagada', clase_estado: 'finalizada',
+    categoria: '', categoria_gasto: null, nombre_item: '', cantidad: null,
+    moneda_original: 'USD', monto_original: over.monto_usd ?? 0,
+    monto_usd: 0, monto_bs: 0, pagado_usd: 0, pagado_bs: 0,
+    ...over,
+  };
+}
+const filaOrdFix = (over: Partial<FilaReporteCompras> = {}) => filaBase({ ambito: 'ordenes', ...over });
+const filaItemFix = (over: Partial<FilaReporteCompras> = {}) =>
+  filaBase({ ambito: 'items', categoria: 'Ferretería', nombre_item: 'Ítem', cantidad: 1, ...over });
 
 /* ───────────── Fábricas de fixtures ───────────── */
 
@@ -153,5 +173,57 @@ describe('comprasMoldeable · ámbito ítems (T3)', () => {
       ordenFix({ estado: 'cancelada', items: [{ sku: 'SKU-1', nombre: 'X', cantidad: 1, precio: 1 }] } as Partial<Orden>),
     ], ctxFix());
     expect(filas).toHaveLength(0);
+  });
+});
+
+describe('comprasMoldeable · filtros y resumen (T4)', () => {
+  test('filtrarFilasCompras respeta departamento, tipo y estado', () => {
+    const filas = [
+      filaOrdFix({ departamento: 'Mina', tipo_compra: 'orden', clase_estado: 'finalizada' }),
+      filaOrdFix({ departamento: 'Planta', tipo_compra: 'servicio', clase_estado: 'pendiente' }),
+    ];
+    expect(filtrarFilasCompras(filas, { departamentosSel: ['Mina'] })).toHaveLength(1);
+    expect(filtrarFilasCompras(filas, { tiposSel: ['servicio'] })).toHaveLength(1);
+    expect(filtrarFilasCompras(filas, { estadosSel: ['pendiente'] })[0].departamento).toBe('Planta');
+    expect(filtrarFilasCompras(filas, {})).toHaveLength(2); // vacío = sin filtro
+  });
+
+  test('resumenCompras: total incluye las 3 fuentes; ranking excluye directas', () => {
+    const ords = [
+      filaOrdFix({ tipo_compra: 'orden', departamento: 'Mina', monto_usd: 100, monto_bs: 4000, clase_estado: 'finalizada', pagado_usd: 100 }),
+      filaOrdFix({ tipo_compra: 'servicio', departamento: 'Planta', monto_usd: 50, monto_bs: 2000, clase_estado: 'pendiente' }),
+      filaOrdFix({ tipo_compra: 'directa', departamento: SIN_DEPARTAMENTO, categoria_gasto: 'Papelería', monto_usd: 30, monto_bs: 1200, clase_estado: 'finalizada', pagado_usd: 30 }),
+    ];
+    const r = resumenCompras(ords, [], [{ departamento: 'Mina' }, { departamento: 'Mina' }, { departamento: 'Planta' }], 40);
+    expect(r.totalCompras).toBe(3);
+    expect(r.totalUsd).toBe(180);
+    expect(r.rankingDeptoGasto.map((d) => d.departamento)).toEqual(['Mina', 'Planta']); // sin directas
+    expect(r.comprasDirectasPorCategoriaGasto).toEqual([{ categoria: 'Papelería', usd: 30, bs: 1200 }]);
+    expect(r.rankingDeptoCotizaciones[0]).toEqual({ departamento: 'Mina', cotizaciones: 2 });
+    expect(r.finalizadasUsd).toBe(130);
+    expect(r.pendientesUsd).toBe(50);
+    expect(r.pagadoUsd).toBe(130);
+    expect(r.deptoQueMasGasto).toBe('Mina');
+  });
+
+  test('resumenCompras con rango vacío no rompe', () => {
+    const r = resumenCompras([], [], [], 0);
+    expect(r).toMatchObject({ totalCompras: 0, totalUsd: 0, deptoQueMasGasto: null, rankingDeptoGasto: [] });
+  });
+
+  test('departamento vacío cae en el bucket nombrado', () => {
+    const r = resumenCompras([filaOrdFix({ tipo_compra: 'orden', departamento: SIN_DEPARTAMENTO, monto_usd: 10 })], [], [], 40);
+    expect(r.rankingDeptoGasto[0].departamento).toBe(SIN_DEPARTAMENTO);
+  });
+
+  test('topCategorias y topItems salen del ámbito ítems', () => {
+    const items = [
+      filaItemFix({ categoria: 'Ferretería', nombre_item: 'Tornillo', monto_usd: 20, cantidad: 10 }),
+      filaItemFix({ categoria: 'Ferretería', nombre_item: 'Tornillo', monto_usd: 10, cantidad: 5 }),
+      filaItemFix({ categoria: 'Papelería', nombre_item: 'Resma', monto_usd: 5, cantidad: 1 }),
+    ];
+    const r = resumenCompras([], items, [], 40);
+    expect(r.topCategorias[0]).toMatchObject({ nombre: 'Ferretería', usd: 30 });
+    expect(r.topItems[0]).toMatchObject({ nombre: 'Tornillo', usd: 30, cantidad: 15 });
   });
 });
