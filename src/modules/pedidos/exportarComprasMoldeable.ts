@@ -22,7 +22,6 @@ import type { jsPDF } from 'jspdf';
 import {
   CAMPOS_REPORTE_COMPRAS,
   ETIQUETA_TIPO_COMPRA,
-  obtenerMetricasFichaCompras,
   type AmbitoCompras,
   type CampoColumnaCompras,
   type FilaReporteCompras,
