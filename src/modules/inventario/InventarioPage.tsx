@@ -74,6 +74,7 @@ import {
   listExistencias,
 } from './almacenes.repository';
 import { CrearDepositoModal } from './CrearDepositoModal';
+import { EnviarMaterialMggModal } from './EnviarMaterialMggModal';
 
 interface UiState extends FilterValues {
   view: 'productos' | 'recepciones';
@@ -136,6 +137,7 @@ type ModalState =
   | { kind: 'recepciones' }
   | { kind: 'costos' }
   | { kind: 'transferencias' }
+  | { kind: 'material-mgg' }
   | { kind: 'nuevo-deposito' }
   | { kind: 'import'; analisis: AnalisisImport };
 
@@ -585,6 +587,13 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
           >
             🌐 Casiterita a MGG{casiteritaEnError ? ` · ${casiteritaEnError}` : ''}
           </button>}
+          {/* 10/11/2026: puente de material Los Pinos GT → Los Pinos MGG. */}
+          {!esMina && !esReutilizables && (
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'material-mgg' })}
+              title="Enviar productos del Almacén Los Pinos al Almacén Los Pinos de MGG (se confirman allá)">
+              📦 Enviar a MGG Los Pinos
+            </button>
+          )}
           {canWrite && (
             <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'crear' })}
               title={`El producto se agrega al ${dep.nombre}`}>
@@ -775,6 +784,10 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
           }}
           onClose={() => setModal({ kind: 'none' })}
         />
+      )}
+      {modal.kind === 'material-mgg' && (
+        <EnviarMaterialMggModal actor={productoActor} actorName={actorName ?? null} puedeOperar={canWriteModulo}
+          onClose={() => setModal({ kind: 'none' })} onCambio={() => { void reload(); }} />
       )}
       {modal.kind === 'import' && (
         <ImportarExcelModal

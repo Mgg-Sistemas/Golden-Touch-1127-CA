@@ -12,6 +12,8 @@
 //     cliente, en RPC (inter_recibir_cxc): idempotente por transf_id único.
 //   - 'ack': marca la SALIENTE local del recurso indicado como 'recibida',
 //     solo si seguía 'enviada' (no revive filas en 'error' ni revertidas).
+//     10/11/2026 · material: el ACK trae `resultado` ('recibida' | 'rechazada')
+//     y, si se rechazó, el motivo (GT puede devolver la mercancía a su inventario).
 //
 // Requiere supabase/2026-09-18-puente-inter-atomico.sql aplicado.
 // Secrets: INTER_SECRET · INTER_CAJA_ENTRANTE_ID (opcional: caja que recibe)
@@ -115,20 +117,37 @@ Deno.serve(async (req) => {
   if (!UUID_RE.test(transfId)) return json({ error: 'transf_id inválido' }, 400);
 
   const recursoRaw = typeof payload.recurso === 'string' ? payload.recurso : 'dinero';
-  const RECURSOS = ['dinero', 'combustible', 'casiterita', 'cuenta_por_cobrar'];
+  const RECURSOS = ['dinero', 'combustible', 'casiterita', 'cuenta_por_cobrar', 'material'];
   if (!RECURSOS.includes(recursoRaw)) return json({ error: 'Recurso no soportado' }, 400);
-  const recurso = recursoRaw as 'dinero' | 'combustible' | 'casiterita' | 'cuenta_por_cobrar';
+  const recurso = recursoRaw as 'dinero' | 'combustible' | 'casiterita' | 'cuenta_por_cobrar' | 'material';
 
   const tablaDe: Record<string, string> = {
     dinero: 'transferencias_inter',
     combustible: 'transferencias_combustible_inter',
     casiterita: 'transferencias_casiterita_inter',
+    material: 'transferencias_material_inter',
   };
 
   // ── ACK: el otro sistema confirmó nuestra saliente de ESE recurso ──
   if (payload.tipo === 'ack') {
     const TABLE = tablaDe[recurso];
     if (!TABLE) return json({ error: 'Recurso sin ACK' }, 400);
+    if (recurso === 'material') {
+      const rechazada = payload.resultado === 'rechazada';
+      const { data, error } = await supabase.from(TABLE)
+        .update({
+          estado: rechazada ? 'rechazada' : 'recibida', confirmada_at: new Date().toISOString(),
+          confirmada_por: texto(payload.actor_name ?? payload.actor, 200),
+          rechazo_motivo: rechazada ? (texto(payload.motivo, 500) ?? 'Rechazada en el otro sistema') : null,
+        })
+        .eq('transf_id', transfId).eq('direccion', 'saliente').eq('estado', 'enviada')
+        .select('id');
+      if (error) {
+        console.error('[transfer-recibir] ack material', transfId, error);
+        return json({ error: FALLO }, 500);
+      }
+      return json({ ok: true, ack: true, aplicado: (data ?? []).length > 0 });
+    }
     // Solo 'enviada' → 'recibida'. Una fila en 'error' pudo haberse revertido
     // (o estar por revertirse): revivirla duplicaría el recurso entre sistemas.
     const { data, error } = await supabase.from(TABLE)
@@ -163,6 +182,9 @@ Deno.serve(async (req) => {
     }
     return json({ ok: true, dedup: Boolean(r.dedup), cuenta_id: r.cuenta_id });
   }
+
+  // Material entrante (del otro sistema hacia GT): todavía no se recibe acá.
+  if (recurso === 'material') return json({ error: 'Este sistema todavía no recibe material por el puente.' }, 400);
 
   // ── CASITERITA: recepción AUTOMÁTICA (reserva + crédito atómicos en el RPC) ──
   if (recurso === 'casiterita') {

@@ -393,6 +393,48 @@ export interface TransferenciaCombustibleInter {
   revertida_por?: string | null;
 }
 
+/** 10/11/2026 · Un renglón del puente de MATERIAL (Los Pinos GT → Los Pinos MGG). */
+export interface ItemMaterialInter {
+  producto_id?: string | null;
+  sku: string | null;
+  nombre: string;
+  unidad: string | null;
+  categoria?: string | null;
+  cantidad: number;
+  costo_unitario: number | null;
+  /** Lo completa MGG al recibirla: con qué producto suyo entró. */
+  destino_producto_id?: string | null;
+  destino_sku?: string | null;
+  destino_nombre?: string | null;
+}
+
+/** 10/11/2026 · Puente de MATERIAL: GT envía productos de Los Pinos a MGG Los Pinos,
+ *  que los recibe «por confirmar» (el almacenista los empareja y acepta o rechaza). */
+export interface TransferenciaMaterialInter {
+  id: string;
+  transf_id: string;
+  direccion: 'saliente' | 'entrante';
+  estado: 'enviada' | 'por_confirmar' | 'recibida' | 'rechazada' | 'error' | 'devuelta';
+  empresa_origen: string | null;
+  empresa_destino: string | null;
+  almacen_origen: string | null;
+  almacen_destino: string | null;
+  items: ItemMaterialInter[];
+  total_usd: number | null;
+  resumen: string | null;
+  motivo: string | null;
+  callback_base: string | null;
+  mensaje_error: string | null;
+  actor: string | null;
+  actor_name: string | null;
+  created_at: string;
+  confirmada_at: string | null;
+  confirmada_por: string | null;
+  rechazo_motivo: string | null;
+  devuelta_at: string | null;
+  devuelta_por: string | null;
+}
+
 /** Puente inter-sistema de CASITERITA (mineral): este sistema envía Kg al otro,
  *  que los recibe (automático) en el almacén "LOS PINOS - CASITERITA". */
 export interface TransferenciaCasiteritaInter {

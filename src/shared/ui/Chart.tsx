@@ -131,6 +131,9 @@ export function HBarChart({ data, color, yFormatter = String, emptyMessage, onBa
   }
   const max = Math.max(1, ...data.map((d) => d.value));
   const BAR_H = 16;
+  // 10/11/2026: la columna del número mide lo mismo en todas las filas; antes era «auto» por
+  // fila y cada barra terminaba en un lugar distinto (410 vs 8).
+  const anchoValor = `${Math.max(2, ...data.map((d) => yFormatter(d.value).length)) + 0.5}ch`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.45rem', maxHeight: 360, overflowY: 'auto', paddingRight: '.25rem' }}>
@@ -142,7 +145,7 @@ export function HBarChart({ data, color, yFormatter = String, emptyMessage, onBa
             key={i}
             title={onBarClick ? `Ver detalle de ${d.label}` : (d.tooltip ?? `${d.label}: ${yFormatter(d.value)}`)}
             onClick={onBarClick ? () => onBarClick(d, i) : undefined}
-            style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 150px) 1fr auto', gap: '.55rem', alignItems: 'center', cursor: onBarClick ? 'pointer' : undefined }}
+            style={{ display: 'grid', gridTemplateColumns: `minmax(90px, 150px) 1fr ${anchoValor}`, gap: '.55rem', alignItems: 'center', cursor: onBarClick ? 'pointer' : undefined }}
           >
             <span style={{ fontSize: '.78rem', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {d.label}
@@ -160,7 +163,7 @@ export function HBarChart({ data, color, yFormatter = String, emptyMessage, onBa
                 }}
               />
             </div>
-            <span className="mono" style={{ fontSize: '.78rem', fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap' }}>
+            <span className="mono" style={{ fontSize: '.78rem', fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap', textAlign: 'right' }}>
               {yFormatter(d.value)}
             </span>
           </div>

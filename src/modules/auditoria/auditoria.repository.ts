@@ -42,10 +42,71 @@ export const MODULO_TABLA: Record<string, { modulo: string; icono: string }> = {
   usuarios:                     { modulo: 'Usuarios',            icono: '👥' },
   roles_permisos:               { modulo: 'Roles y permisos',    icono: '🔐' },
   cajas:                        { modulo: 'Cajas',               icono: '🏦' },
+  // 10/11/2026: el gráfico «Acciones por módulo» mostraba el nombre crudo de la tabla.
+  maquinaria_documentos:        { modulo: 'Maquinaria', icono: '🚜' },
+  maquinaria_estado_eventos:    { modulo: 'Maquinaria', icono: '🚜' },
+  maquinaria_lavados:           { modulo: 'Maquinaria', icono: '🚜' },
+  maquinaria_lecturas:          { modulo: 'Maquinaria', icono: '🚜' },
+  maquinaria_ordenes_servicio:  { modulo: 'Maquinaria · Bitácora', icono: '🔧' },
+  maquinaria_os_fotos:          { modulo: 'Maquinaria · Bitácora', icono: '🔧' },
+  maquinaria_repuestos_equipo:  { modulo: 'Maquinaria', icono: '🚜' },
+  deposito_mina_salidas:        { modulo: 'Depósito Mina', icono: '⛏' },
+  solicitudes_revision_almacen: { modulo: 'Revisión de Almacén', icono: '🔎' },
+  producto_presentaciones:      { modulo: 'Inventario', icono: '📦' },
+  delivery_pedidos:             { modulo: 'Delivery', icono: '🛵' },
+  delivery_pedidos_v1:          { modulo: 'Delivery', icono: '🛵' },
+  delivery_rechazos:            { modulo: 'Delivery', icono: '🛵' },
+  cocina_categorias:            { modulo: 'Cocina', icono: '🍽' },
+  choferes_clasificaciones_viaje:{ modulo: 'Choferes', icono: '🚛' },
+  choferes_conductores:         { modulo: 'Choferes', icono: '🚛' },
+  choferes_descansos_config:    { modulo: 'Choferes', icono: '🚛' },
+  choferes_documentos:          { modulo: 'Choferes', icono: '🚛' },
+  choferes_guias:               { modulo: 'Choferes', icono: '🚛' },
+  choferes_pagos:               { modulo: 'Choferes', icono: '🚛' },
+  choferes_viajes:              { modulo: 'Choferes', icono: '🚛' },
+  choferes_viaticos:            { modulo: 'Choferes', icono: '🚛' },
+  rrhh_empresas:                { modulo: 'RRHH', icono: '👥' },
+  rrhh_tabulador:               { modulo: 'RRHH', icono: '👥' },
+  rrhh_transferencias_empresa:  { modulo: 'RRHH', icono: '👥' },
+  ventas:                       { modulo: 'Ventas', icono: '🧾' },
+  ventas_recibidos:             { modulo: 'Ventas', icono: '🧾' },
+  ventas_renglones:             { modulo: 'Ventas', icono: '🧾' },
+  geodesta_informes:            { modulo: 'Geodesta', icono: '🗺' },
+  geodesta_planificacion:       { modulo: 'Geodesta', icono: '🗺' },
+  documentos_empresa:           { modulo: 'Administración', icono: '🗂' },
+  envios_documentacion:         { modulo: 'Administración', icono: '🗂' },
+  destinatarios_envio:          { modulo: 'Administración', icono: '🗂' },
+  actividades_economicas:       { modulo: 'Administración', icono: '🗂' },
+  asignaciones_actas:           { modulo: 'Asignaciones', icono: '📝' },
+  asignaciones_firmantes:       { modulo: 'Asignaciones', icono: '📝' },
+  minutas:                      { modulo: 'Minutas', icono: '🗒' },
+  sistema_interruptores:        { modulo: 'Configuración', icono: '⚙' },
+  usuarios_nombres_historial:   { modulo: 'Usuarios', icono: '👥' },
+  vehiculos_catalogo:           { modulo: 'Vehículos', icono: '🚗' },
+  transferencias_material_inter:{ modulo: 'Inventario · MGG', icono: '🌐' },
 };
 
+/** Tablas nuevas sin nombre propio: se agrupan por su prefijo (si no, la tabla legible). */
+const MODULO_PREFIJO: Array<[string, { modulo: string; icono: string }]> = [
+  ['maquinaria_', { modulo: 'Maquinaria', icono: '🚜' }],
+  ['choferes_', { modulo: 'Choferes', icono: '🚛' }],
+  ['delivery_', { modulo: 'Delivery', icono: '🛵' }],
+  ['rrhh_', { modulo: 'RRHH', icono: '👥' }],
+  ['nomina_', { modulo: 'RRHH / Nómina', icono: '👛' }],
+  ['ventas', { modulo: 'Ventas', icono: '🧾' }],
+  ['cocina_', { modulo: 'Cocina', icono: '🍽' }],
+  ['combustible_', { modulo: 'Combustible', icono: '⛽' }],
+  ['acopio_', { modulo: 'Caja Peramanal', icono: '🏭' }],
+  ['geodesta_', { modulo: 'Geodesta', icono: '🗺' }],
+];
+
 export function moduloDe(tabla: string): { modulo: string; icono: string } {
-  return MODULO_TABLA[tabla] ?? { modulo: tabla, icono: '•' };
+  const fijo = MODULO_TABLA[tabla];
+  if (fijo) return fijo;
+  const pref = MODULO_PREFIJO.find(([p]) => tabla.startsWith(p));
+  if (pref) return pref[1];
+  const legible = tabla.replace(/_/g, ' ').trim();
+  return { modulo: legible ? legible[0].toUpperCase() + legible.slice(1) : tabla, icono: '•' };
 }
 
 const ACCION_LABEL: Record<AuditoriaEvento['accion'], string> = {

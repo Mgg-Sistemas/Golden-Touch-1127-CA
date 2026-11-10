@@ -25,6 +25,7 @@
 //     combustible  → combustible
 //     casiterita   → inventario o salidas
 //     cuenta_por_cobrar → acopio
+//     material     → inventario   (10/11/2026: Los Pinos GT → Los Pinos MGG)
 //   Así nadie puede hacer que el otro sistema acredite kg, litros, montos o CxC
 //   inventados, ni mandar un ACK de una transferencia que no se recibió.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,17 +48,21 @@ function origenesPermitidos(): string[] {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-type Recurso = 'dinero' | 'combustible' | 'casiterita' | 'cuenta_por_cobrar';
-const RECURSOS: Recurso[] = ['dinero', 'combustible', 'casiterita', 'cuenta_por_cobrar'];
+type Recurso = 'dinero' | 'combustible' | 'casiterita' | 'cuenta_por_cobrar' | 'material';
+const RECURSOS: Recurso[] = ['dinero', 'combustible', 'casiterita', 'cuenta_por_cobrar', 'material'];
 
 /** Módulos (cualquiera alcanza) cuyo permiso de escritura habilita cada operación. */
 function modulosPara(tipo: 'transferencia' | 'ack', recurso: Recurso): string[] {
-  if (tipo === 'ack') return recurso === 'dinero' ? ['tesoreria', 'acopio'] : [recurso === 'combustible' ? 'combustible' : '__ninguno__'];
+  if (tipo === 'ack') {
+    if (recurso === 'material') return ['inventario'];
+    return recurso === 'dinero' ? ['tesoreria', 'acopio'] : [recurso === 'combustible' ? 'combustible' : '__ninguno__'];
+  }
   switch (recurso) {
     case 'dinero': return ['tesoreria'];
     case 'combustible': return ['combustible'];
     case 'casiterita': return ['inventario', 'salidas'];
     case 'cuenta_por_cobrar': return ['acopio'];
+    case 'material': return ['inventario'];
   }
 }
 
@@ -133,6 +138,30 @@ async function payloadTransferencia(s: Sesion, recurso: Recurso, transfId: strin
     } };
   }
 
+  // 10/11/2026 · MATERIAL: los renglones que ya salieron del inventario (los guarda la fila).
+  if (recurso === 'material') {
+    const { data, error } = await db.from('transferencias_material_inter')
+      .select('transf_id, direccion, estado, empresa_origen, empresa_destino, almacen_origen, almacen_destino, items, total_usd, resumen, motivo, actor, actor_name')
+      .eq('transf_id', transfId).maybeSingle();
+    if (error) { console.error('[transfer-enviar] material', error); return { ok: false, status: 500, error: 'No se pudo leer la transferencia.' }; }
+    const r = data as Record<string, unknown> | null;
+    if (!r || r.direccion !== 'saliente' || !ENVIABLE.includes(String(r.estado))) return noEnviable();
+    const items = (Array.isArray(r.items) ? (r.items as Record<string, unknown>[]) : [])
+      .map((i) => ({
+        sku: i.sku ?? null, nombre: i.nombre ?? null, unidad: i.unidad ?? null, categoria: i.categoria ?? null,
+        cantidad: Number(i.cantidad), costo_unitario: i.costo_unitario == null ? null : Number(i.costo_unitario),
+      }))
+      .filter((i) => i.nombre && Number.isFinite(i.cantidad) && i.cantidad > 0);
+    if (!items.length) return noEnviable('La transferencia no tiene productos.');
+    return { ok: true, body: {
+      tipo: 'transferencia', recurso: 'material', transf_id: r.transf_id,
+      empresa_origen: r.empresa_origen, empresa_destino: r.empresa_destino,
+      almacen_origen: r.almacen_origen, almacen_destino: r.almacen_destino,
+      items, total_usd: r.total_usd == null ? null : Number(r.total_usd),
+      resumen: r.resumen, motivo: r.motivo, actor: r.actor, actor_name: r.actor_name,
+    } };
+  }
+
   // cuenta_por_cobrar: la fila local es el movimiento de caja de Acopio (transf_id = su id).
   if ((Deno.env.get('INTER_PUENTE_CXC') ?? '').trim().toLowerCase() === 'off') {
     return { ok: false, status: 403, error: 'El espejo de cuentas por cobrar está desactivado.' };
@@ -194,7 +223,8 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown>;
   if (tipo === 'ack') {
     // El ACK solo sale si la ENTRANTE local existe y ya quedó recibida acá.
-    const TABLE = recurso === 'combustible' ? 'transferencias_combustible_inter' : 'transferencias_inter';
+    const TABLE = recurso === 'combustible' ? 'transferencias_combustible_inter'
+      : recurso === 'material' ? 'transferencias_material_inter' : 'transferencias_inter';
     const { data, error } = await sesion.admin.from(TABLE)
       .select('transf_id, direccion, estado, callback_base').eq('transf_id', transfId).maybeSingle();
     if (error) {
