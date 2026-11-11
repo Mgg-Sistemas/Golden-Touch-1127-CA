@@ -149,3 +149,26 @@
 
 /* Quién hizo la acción: en el panorama hace falta, en la ficha sobra. */
 .aud-evento-quien { font-weight: 500; color: var(--primary-3); }
+
+/* Módulo y referencia: el módulo iba enterrado en la frase («Creó en
+   Inventario #bc3333be») y el identificador interno se disfrazaba de
+   nombre. Ahora cada cosa se dice como lo que es. */
+.aud-evento-marcas { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-top: .2rem; }
+.aud-modulo {
+  display: inline-flex; align-items: center;
+  font-size: .68rem; font-weight: 700; letter-spacing: .03em;
+  padding: .08rem .45rem; border-radius: 999px;
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info) 35%, transparent);
+}
+.aud-ref { font-family: var(--font-mono); font-size: .68rem; color: var(--text-dim); }
+
+/* Aviso de novedades: en vez de rehacer la pantalla sola. */
+.aud-novedades {
+  display: inline-flex; align-items: center; gap: .35rem;
+  font-size: .75rem; font-weight: 600; color: var(--primary-3);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border-radius: 999px; padding: .15rem .6rem;
+}
