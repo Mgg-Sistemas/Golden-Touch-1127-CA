@@ -10,11 +10,12 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Usuario } from '@/shared/lib/types';
-import { TIPO_DOCUMENTO_LABEL, type AdminRepo, type CentroRequerido, type Empresa, type TipoDocumento } from './admin.repository';
+import { TIPO_DOCUMENTO_LABEL, type AdminRepo, type Aviso, type CentroRequerido, type Empresa, type TipoDocumento } from './admin.repository';
 import { resumenTablero, colorSemaforoCobertura, type ResumenTablero } from './administracionTableroModulo';
 import { nombrePorEmail } from './administracionResponsabilidad';
-import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
+import { type CentroAcopio } from './administracionCentrosResponsables';
 import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
+import { TIPO_AVISO_LABEL } from './administracionAvisos';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const SEMAFORO_COLOR: Record<'critico' | 'atencion' | 'al_dia', string> = { critico: '#ef4444', atencion: '#eab308', al_dia: '#10b981' };
@@ -29,6 +30,7 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
   const [centros, setCentros] = useState<CentroAcopio[]>([]);
   const [requeridos, setRequeridos] = useState<CentroRequerido[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -39,8 +41,8 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
     setCargando(true); setError(null);
     try {
       await repo.refrescarEnvios();
-      const cs = leerCentrosAcopio().filter((c) => !empresaClave || c.empresaClave === empresaClave);
-      const [documentos, movimientos, gestiones, envios, profesionales, responsabilidades, reqs, us] = await Promise.all([
+      const cs = (await repo.listCentros(empresaClave ?? undefined)).filter((c) => c.activo !== false);
+      const [documentos, movimientos, gestiones, envios, profesionales, responsabilidades, reqs, us, avs] = await Promise.all([
         repo.listDocumentos(empresaClave ?? undefined),
         repo.listMovimientos(empresaClave ?? undefined),
         repo.listGestiones(empresaClave ?? undefined),
@@ -49,8 +51,10 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
         repo.listResponsabilidades(empresaClave ?? undefined),
         repo.listCentroRequeridos(empresaClave ?? undefined),
         listUsuarios().catch(() => [] as Usuario[]),
+        // Los avisos se generan en Responsabilidad; el Tablero es donde tienen que saltar.
+        repo.listAvisos(empresaClave ?? undefined).catch(() => [] as Aviso[]),
       ]);
-      setCentros(cs); setRequeridos(reqs); setUsuarios(us);
+      setCentros(cs); setRequeridos(reqs); setUsuarios(us); setAvisos(avs);
       setResumen(resumenTablero({
         documentos, movimientos, gestiones, envios, profesionales, responsabilidades,
         centros: cs.map((c) => ({ id: c.id, nombre: c.nombre })), requeridos: reqs,
@@ -111,6 +115,37 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
           <span className="adm-kpi-sub">{resumen.porEnviar.reduce((a, m) => a + m.n, 0)} gestión(es)</span>
         </div>
       </div>
+
+      {/* Avisos sin leer: se generan en Responsabilidad y aqui es donde deben verse */}
+      {avisos.filter((a) => !a.leido).length > 0 && (
+        <div className="card" style={{ borderLeft: '3px solid #eab308' }}>
+          <div className="card-title" style={{ fontSize: '.9rem' }}>
+            🔔 Avisos sin leer ({avisos.filter((a) => !a.leido).length})
+          </div>
+          <div className="adm-tabla" style={{ marginTop: '.4rem', maxHeight: 220, overflowY: 'auto' }}>
+            <table><tbody>
+              {avisos.filter((a) => !a.leido).slice(0, 8).map((a) => (
+                <tr key={a.id}>
+                  <td style={{ width: 1, whiteSpace: 'nowrap' }}>
+                    <span className={`adm-badge ${a.tipo === 'vencido' || a.tipo === 'incumplido' ? 'suspendido' : ''}`}>
+                      {TIPO_AVISO_LABEL[a.tipo] ?? a.tipo}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: '.82rem' }}>{a.texto}</td>
+                  <td style={{ textAlign: 'right', fontSize: '.78rem' }} className="muted">
+                    {a.responsableEmail ? (nombres.get(a.responsableEmail) ?? a.responsableEmail) : 'Sin responsable'}
+                  </td>
+                </tr>
+              ))}
+            </tbody></table>
+          </div>
+          {avisos.filter((a) => !a.leido).length > 8 && (
+            <p className="muted hint" style={{ fontSize: '.72rem', margin: '.3rem 0 0' }}>
+              Se muestran los 8 primeros. El resto está en la pestaña Responsabilidad.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Carga por analista (top) */}
       {resumen.cargaTop.length > 0 && (

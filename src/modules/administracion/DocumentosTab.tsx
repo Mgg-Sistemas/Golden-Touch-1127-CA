@@ -25,7 +25,13 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { SearchSelect, SearchCreateSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
-import { leerCentrosAcopio, obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { responsablesEfectivosDocumento, nombrePorEmail } from './administracionResponsabilidad';
+import { gestionDelDocumento } from './administracionHonorarios';
+import type { Gestion, Profesional } from './admin.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import type { Responsabilidad } from './admin.repository';
+import type { Usuario } from '@/shared/lib/types';
 import {
   GestionarCarpetasModal,
   leerCarpetasPersonalizadas,
@@ -139,7 +145,29 @@ export function DocumentosTab({
   const [buscar, setBuscar] = useState('');
 
   // Centros de Acopio disponibles para asociación y filtrado
-  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  // Los centros viven en la base (Configuracion los crea). Antes se leia una lista
+  // fija del codigo, asi que lo que la lider creaba no aparecia aqui nunca.
+  const [centros, setCentros] = useState<CentroAcopio[]>([]);
+  useEffect(() => { repo.listCentros().then(setCentros).catch(() => setCentros([])); }, [repo]);
+
+  // Quien responde por cada documento (se asigna en la pestana Responsabilidad).
+  // Sin esto se asignaba un analista y al abrir el documento no se veia por ningun lado.
+  const [responsabilidades, setResponsabilidades] = useState<Responsabilidad[]>([]);
+  const [usuariosResp, setUsuariosResp] = useState<Usuario[]>([]);
+  useEffect(() => {
+    repo.listResponsabilidades(empresaClave || undefined).then(setResponsabilidades).catch(() => setResponsabilidades([]));
+    listUsuarios().then(setUsuariosResp).catch(() => setUsuariosResp([]));
+  }, [repo, empresaClave]);
+  const nombresResp = useMemo(() => nombrePorEmail(usuariosResp), [usuariosResp]);
+
+  // Honorarios: para enganchar el documento a la gestion que lo tramito.
+  const [gestiones, setGestiones] = useState<Gestion[]>([]);
+  const [profesionales, setProfesionales] = useState<Profesional[]>([]);
+  useEffect(() => {
+    repo.listGestiones(empresaClave || undefined).then(setGestiones).catch(() => setGestiones([]));
+    repo.listProfesionales().then(setProfesionales).catch(() => setProfesionales([]));
+  }, [repo, empresaClave]);
+  const nombreProf = useMemo(() => new Map(profesionales.map((p) => [p.id, p.nombre])), [profesionales]);
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
   const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, docs, [], carpetas), [centros, docs, carpetas]);
 
@@ -1329,11 +1357,85 @@ export function DocumentosTab({
               />
             </div>
 
+            {/* Quien responde por este documento (viene de la pestana Responsabilidad) */}
+            {(() => {
+              const r = responsablesEfectivosDocumento(docDetalle, responsabilidades);
+              return (
+                <div style={{ margin: '.5rem 0', padding: '.5rem .7rem', borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Quién responde por este documento</span>
+                  <div style={{ fontSize: '.86rem', marginTop: '.15rem' }}>
+                    {r.emails.length === 0 ? (
+                      <span className="muted">Sin asignar. Se asigna en la pestaña Responsabilidad.</span>
+                    ) : (
+                      <>
+                        <strong>{r.emails.map((e) => nombresResp.get(e) || e).join(', ')}</strong>
+                        <span className="muted" style={{ fontSize: '.74rem', marginLeft: '.4rem' }}>
+                          {r.heredado ? '(heredado de la carpeta)' : '(asignado a este documento)'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Gestión, aviso y prioridad (Fase 3) */}
             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>
               <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.6rem', color: 'var(--text)' }}>
                 💼 Gestión, aviso y prioridad
               </div>
+              {/* Que honorario tramito este documento. La gestion es la UNICA autoridad
+                  sobre el monto: lo que se anote aqui si llega al estado de cuenta. */}
+              {(() => {
+                const enlace = gestionDelDocumento(docDetalle, gestiones, docs, profesionales);
+                return (
+                  <div style={{ marginBottom: '.7rem' }}>
+                    <span className="muted hint" style={{ fontSize: '.72rem' }}>¿Qué honorario tramitó este documento?</span>
+                    <select
+                      className="input" disabled={!puedeEscribir} style={{ width: '100%', marginTop: '.2rem' }}
+                      value={docDetalle.gestionId ?? ''}
+                      onChange={async (e) => {
+                        const val = e.target.value || null;
+                        try {
+                          const act = await repo.editarDocumento(docDetalle.id, { gestionId: val });
+                          setDocDetalle(act);
+                          toast(val ? 'Documento enlazado al honorario.' : 'Enlace quitado.', 'success');
+                          await cargar();
+                        } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+                      }}
+                    >
+                      <option value="">Sin enlazar a ningún honorario</option>
+                      {gestiones.filter((g) => g.estado !== 'anulada').map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.concepto} · {nombreProf.get(g.profesionalId ?? '') ?? 'sin profesional'} · {g.costoTotal} {g.moneda}
+                        </option>
+                      ))}
+                    </select>
+
+                    {enlace ? (
+                      <div style={{ marginTop: '.35rem', padding: '.45rem .6rem', borderRadius: 6, background: 'rgba(16,185,129,.1)', border: '1px solid #10b981', fontSize: '.8rem', lineHeight: 1.45 }}>
+                        Lo tramitó <strong>{enlace.profesionalNombre}</strong> por{' '}
+                        <strong>{enlace.gestion.costoTotal} {enlace.gestion.moneda}</strong>, y eso ya está en su estado de cuenta.
+                        {enlace.documentosQueCubre > 1 && (
+                          <>
+                            {' '}Ese mismo honorario cubre <strong>{enlace.documentosQueCubre} documentos</strong>:
+                            el costo es uno solo, no se cobra por cada uno.
+                          </>
+                        )}
+                      </div>
+                    ) : gestiones.length === 0 ? (
+                      <span className="muted hint" style={{ fontSize: '.7rem' }}>
+                        Todavía no hay honorarios cargados. Se crean en la pestaña Honorarios, eligiendo el profesional.
+                      </span>
+                    ) : (
+                      <span className="muted hint" style={{ fontSize: '.7rem' }}>
+                        Sin enlazar, lo que escribas abajo como costo es solo una nota: no llega al estado de cuenta del profesional.
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '.6rem' }}>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                   <span className="muted hint" style={{ fontSize: '.72rem' }}>Costo de gestión</span>
@@ -1558,6 +1660,7 @@ export function DocumentosTab({
       {modalCarpetas && (
         <GestionarCarpetasModal
           carpetas={carpetas}
+          centros={centros}
           empresaClave={empresaClave}
           onClose={() => setModalCarpetas(false)}
           onGuardar={(nuevas) => {

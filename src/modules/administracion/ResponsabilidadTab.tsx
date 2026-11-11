@@ -16,15 +16,13 @@ import {
   cargaPorAnalista, misResponsabilidades, nombrePorEmail, etiquetaObjetivo,
   type CargaAnalista, type OrdenMisResp,
 } from './administracionResponsabilidad';
-import { construirAvisos } from './administracionAvisos';
+import { TIPO_AVISO_LABEL, construirAvisos } from './administracionAvisos';
 
 type Vista = 'carga' | 'mias' | 'avisos' | 'asignar';
 const ORDEN_LABEL: Record<OrdenMisResp, string> = {
   prioridad: 'Prioridad', estatus: 'Estatus', vigencia_asc: 'Más próximo a vencer', vigencia_desc: 'Mayor vigencia',
 };
-const TIPO_AVISO_LABEL: Record<string, string> = {
-  por_vencer: 'Por vencer', vencido: 'Vencido', incumplido: 'Incumplido', acuerdo: 'Acuerdo', nota: 'Nota',
-};
+
 
 export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }: {
   repo: AdminRepo;

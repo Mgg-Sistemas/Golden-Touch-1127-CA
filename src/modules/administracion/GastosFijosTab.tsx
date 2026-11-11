@@ -15,7 +15,7 @@ import { filasTablero } from './administracionTablero';
 import { cargarTasaBcv, TASA_FALLBACK } from './administracionTasa';
 import { reporteGastosFijosTxt } from './administracionWhatsApp';
 import { WhatsAppReporteModal } from './WhatsAppReporteModal';
-import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
+import { type CentroAcopio } from './administracionCentrosResponsables';
 
 const PERIOD_LABEL: Record<Periodicidad, string> = {
   mensual: 'Mensual', bimensual: 'Bimensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual',
@@ -49,7 +49,10 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
   const [modal, setModal] = useState<{ gasto: GastoFijo | null } | null>(null);
   const [wsp, setWsp] = useState<string | null>(null);
   const [tasa, setTasa] = useState(TASA_FALLBACK);
-  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  // Los centros viven en la base (Configuracion los crea). Antes se leia una lista
+  // fija del codigo, asi que lo que la lider creaba no aparecia aqui nunca.
+  const [centros, setCentros] = useState<CentroAcopio[]>([]);
+  useEffect(() => { repo.listCentros().then(setCentros).catch(() => setCentros([])); }, [repo]);
 
   const nombreCat = useMemo(() => new Map(categorias.map((c) => [c.id, c.nombre])), [categorias]);
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);

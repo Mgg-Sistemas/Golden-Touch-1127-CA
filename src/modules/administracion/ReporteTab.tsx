@@ -30,7 +30,6 @@ import {
   calcularMatrizCentrosAcopio,
   calcularMatrizResponsables,
   extraerHistorialGlobalDocumentos,
-  leerCentrosAcopio,
   type CentroAcopio,
 } from './administracionCentrosResponsables';
 import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
@@ -82,7 +81,10 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
   const [carpetas] = useState(() => leerCarpetasPersonalizadas(empresaClave));
 
   const nombreEmp = useMemo(() => new Map(empresas.map((e) => [e.clave, e.nombre])), [empresas]);
-  const centros: CentroAcopio[] = useMemo(() => leerCentrosAcopio(), []);
+  // Los centros salen de la base, no de una lista fija: si no, el reporte de
+  // Centros y Fases ignora lo que se crea en Configuracion.
+  const [centros, setCentros] = useState<CentroAcopio[]>([]);
+  useEffect(() => { repo.listCentros().then(setCentros).catch(() => setCentros([])); }, [repo]);
 
   const cargar = useCallback(async () => {
     setCargando(true);

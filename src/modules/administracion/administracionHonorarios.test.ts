@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Gestion, EnvioTesoreria } from './admin.repository';
-import {
+import { gestionDelDocumento,
   saldoGestion,
   disponibleParaEnviar,
   estadoGestion,
@@ -123,5 +123,42 @@ describe('estadoCuentaProfesional', () => {
     const cuenta = estadoCuentaProfesional('p1', gestiones, []);
     const usd = cuenta.porMoneda.find((s) => s.moneda === 'USD');
     expect(usd?.saldo ?? 0).toBe(0);
+  });
+});
+
+describe('gestionDelDocumento · qué honorario tramitó este documento', () => {
+  const prof = [{ id: 'p1', nombre: 'Abg. Ana Pérez', profesion: 'Abogado', contacto: null, activo: true }];
+  const g = {
+    id: 'g1', empresaClave: 'GT', profesionalId: 'p1',
+    concepto: 'Renovación de permisos mineros', costoTotal: 500, moneda: 'USD',
+    estado: 'abierta', fecha: '2026-11-01',
+  } as never;
+
+  const doc = (id: string, gestionId: string | null) =>
+    ({ id, empresaClave: 'GT', carpeta: 'legal', tipo: 'rupdae', nombre: 'RUPDAE', gestionId } as never);
+
+  it('un documento sin gestión enlazada no devuelve nada', () => {
+    expect(gestionDelDocumento(doc('d1', null), [g], [doc('d1', null)], prof as never)).toBeNull();
+  });
+
+  it('si la gestión enlazada ya no existe, no inventa nada', () => {
+    expect(gestionDelDocumento(doc('d1', 'borrada'), [g], [doc('d1', 'borrada')], prof as never)).toBeNull();
+  });
+
+  it('devuelve la gestión y el nombre del profesional, no su clave', () => {
+    const r = gestionDelDocumento(doc('d1', 'g1'), [g], [doc('d1', 'g1')], prof as never);
+    expect(r?.gestion.concepto).toBe('Renovación de permisos mineros');
+    expect(r?.profesionalNombre).toBe('Abg. Ana Pérez');
+  });
+
+  it('dice cuántos documentos cubre, para que el costo no se multiplique', () => {
+    const docs = [doc('d1', 'g1'), doc('d2', 'g1'), doc('d3', 'g1'), doc('d4', null)];
+    const r = gestionDelDocumento(doc('d1', 'g1'), [g], docs, prof as never);
+    expect(r?.documentosQueCubre).toBe(3);
+  });
+
+  it('con un profesional desconocido no muestra una clave cruda', () => {
+    const r = gestionDelDocumento(doc('d1', 'g1'), [g], [doc('d1', 'g1')], [] as never);
+    expect(r?.profesionalNombre).toBe('Profesional sin identificar');
   });
 });
