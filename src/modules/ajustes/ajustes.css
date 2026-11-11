@@ -5,6 +5,32 @@
    Plan: docs/cuaderno/informes/g6-04-ajustes-orientacion.md
    ============================================================ */
 
+/* ───────── Carnet de identidad ─────────
+   Correo, rol y estado salían DOS veces: en la cabecera de Perfil y otra
+   vez en la tarjeta «Sesión». Ahora se dicen una sola vez, arriba, y es
+   lo primero que ve quien entra. */
+.aju-carnet {
+  display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+  padding: 1.25rem 1.5rem; margin-bottom: 1rem;
+  background: var(--grad-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--rol-color, var(--primary));
+  border-radius: var(--r-lg);
+}
+.aju-carnet-datos { min-width: 0; flex: 1 1 240px; }
+.aju-carnet-nombre { font-size: 1.25rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+.aju-carnet-correo {
+  display: block; font-family: var(--font-mono); font-size: .82rem;
+  color: var(--text-muted); margin-top: .15rem;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.aju-carnet-marcas { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+.aju-carnet-ingreso {
+  flex: 0 0 auto; text-align: right;
+  font-size: .76rem; color: var(--text-dim);
+}
+.aju-carnet-ingreso strong { display: block; font-size: .82rem; color: var(--text-muted); font-weight: 600; }
+
 /* Perfil manda; lo demás lo acompaña. Antes todas las tarjetas caían en un
    auto-fit y el orden en pantalla dependía del ancho. */
 .aju-grid {
