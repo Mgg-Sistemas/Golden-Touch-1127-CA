@@ -12,7 +12,7 @@ import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustibl
 import { compararMovimientos } from './horaMovimiento';
 import { planCadenaMedidor, type FilaMedidor } from './cadenaMedidor';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
-import { cambioVigente, aAcumulado, type CambioContador } from './arrastreContador';
+import { cambioVigente, aAcumulado, aLecturaFisica, type CambioContador } from './arrastreContador';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
 import { esBidon, prepararCamposSalidaBidon } from './bidonCombustible';
@@ -804,7 +804,7 @@ async function camposConContador(
   const cambio = cambioVigente(await cambiosContadorTanque(tanqueId), c.fecha || hoy());
   const iniDado = aAcumulado(c.contadorGlobalIni, cambio);
   const finDado = aAcumulado(c.contadorGlobalFin, cambio);
-  const ultimo = iniDado == null ? await ultimoContadorTanque(tanqueId) : null;
+  const ultimo = iniDado == null ? await ultimoAcumuladoTanque(tanqueId) : null;
   const { ini, fin } = completarContador({ tipo, litros, ini: iniDado, fin: finDado, ultimo });
   // El HI del equipo es su mayor HF (02/10/2026). La pantalla lo trae al elegir el equipo,
   // pero con mala señal se podía guardar antes de que llegara y el surtido quedaba sin HI
@@ -2186,7 +2186,7 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
  *  «Último» es el MAYOR (02/10/2026): el contador es un totalizador que solo sube, así que
  *  su lectura más alta es la última. Antes se tomaba el del último movimiento CARGADO, y
  *  cargar tarde un surtido viejo devolvía el contador hacia atrás para el siguiente. */
-export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
+async function ultimoAcumuladoTanque(tanqueId: string): Promise<number | null> {
   if (!tanqueId) return null;
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
@@ -2202,6 +2202,25 @@ export async function ultimoContadorTanque(tanqueId: string): Promise<number | n
   if (error) throw error;
   const v = (data as { contador_global_fin?: number | null } | null)?.contador_global_fin;
   return v == null ? null : num(v);
+}
+
+/**
+ * Lo que marca HOY el contador del tanque (10/11/2026).
+ *
+ * Es lo que el teléfono y la PC pre-llenan como contador inicial, y lo que verá
+ * quien surte en el aparato. Si al tanque le cambiaron el contador, NO es el
+ * acumulado del sistema: al Tanque #1 el acumulado va por 208.861 pero el
+ * contador nuevo marca 30. Pre-llenar el acumulado hacía que, al guardar, se le
+ * sumara el arrastre por segunda vez.
+ *
+ * El acumulado se queda puertas adentro (`ultimoAcumuladoTanque`), que es lo que
+ * necesita la cadena del medidor.
+ */
+export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
+  const acumulado = await ultimoAcumuladoTanque(tanqueId);
+  if (acumulado == null) return null;
+  const cambio = cambioVigente(await cambiosContadorTanque(tanqueId), hoy());
+  return aLecturaFisica(acumulado, cambio);
 }
 
 export async function crearMedidor(input: {
