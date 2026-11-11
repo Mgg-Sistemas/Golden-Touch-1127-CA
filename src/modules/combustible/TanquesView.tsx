@@ -52,6 +52,7 @@ import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTan
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
 import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
+import { CambioContadorModal } from './CambioContadorModal';
 import { calcularMermaImplicitaTanque, DEFAULT_MERMA_IMPLICITA_PCT, generarObservacionMermaImplicita } from './mermaImplicita';
 import { useFichasEquipos } from './fichasEquipos';
 import { opcionesEquipos, esTanquePermitidoParaEquipo, type FichaEquipoOpcion } from './opcionesEquipos';
@@ -157,6 +158,9 @@ export function TanquesView() {
   const { user } = useSession();
   const { can } = usePermissions();
   const canWrite = can('combustible', 'escritura');
+  // Asentar un cambio de contador decide como se leen TODOS los surtidos siguientes:
+  // se pide control total de Combustible, igual que las mermas fuera de margen.
+  const puedeCambiarContador = can('combustible', 'full');
   const actor = user?.email ?? 'sistema';
   const { appUser } = usePermissions();
   const actorName = appUser?.nombre?.trim() || user?.email || null;
@@ -167,7 +171,7 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias' | 'exportarReporte'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias' | 'exportarReporte' | 'contador'>('none');
   const [rangoReporte, setRangoReporte] = useState<{ desde: string; hasta: string } | undefined>(undefined);
   // GT-INT-11 · Envíos a MGG. Se cargan siempre (no solo al abrir el modal) para poder
   // avisar en la barra cuando alguno quedó sin llegar: el combustible ya salió del
@@ -251,6 +255,7 @@ export function TanquesView() {
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('calculadora')} title="Calculadora rápida de cubicación (seleccionar tanque y altura en cm)">📐 Calculadora cubicación</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
+          {puedeCambiarContador && <button className="btn btn-ghost btn-sm" onClick={() => setModal('contador')} disabled={!sel} title="Dejar asentado que a este tanque se le cambio el contador, para no perder lo ya surtido">⚙ Cambio de contador</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumoSemanal')} title="Cargar en la caja de Peramanal el consumo de GT de una semana (gasto + entrada de multimoneda por la misma cantidad). Respaldo del automático dominical, por si no se actualizó el fin de semana.">💰 CAJA</button>}
@@ -358,6 +363,14 @@ export function TanquesView() {
           tanques={tanques}
           reporte={reporte}
           onClose={() => setModal('none')} />
+      )}
+      {modal === 'contador' && sel && (
+        <CambioContadorModal
+          tanque={{ id: sel.id, nombre: sel.nombre }}
+          actor={actor}
+          onClose={() => setModal('none')}
+          onGuardado={() => { void reloadMovs(sel.id); }}
+        />
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
@@ -852,7 +865,13 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
       case 'hrs':
         return <td key={colId} className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>;
       case 'contFin':
-        return <td key={colId} className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>;
+        return (
+          <td key={colId} className="mono muted"
+              title={m.contador_global_fin != null && m.contador_marcaba_fin !== m.contador_global_fin
+                ? `Acumulado del sistema: ${num(m.contador_global_fin)}` : undefined}>
+            {m.contador_marcaba_fin != null ? num(m.contador_marcaba_fin) : '—'}
+          </td>
+        );
       case 'ltUsados':
         return <td key={colId} className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>;
       case 'entrada':
@@ -1911,8 +1930,11 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const [hi, setHi] = useState(s(mov.horometro_ini));
   const [hf, setHf] = useState(s(mov.horometro_fin));
   const [km, setKm] = useState(s(mov.kilometraje));
-  const [ci, setCi] = useState(s(mov.contador_global_ini));
-  const [cf, setCf] = useState(s(mov.contador_global_fin));
+  // Se edita en el idioma del CONTADOR (lo que marcaba el aparato). El repositorio
+  // lo traduce al acumulado al guardar, igual que al registrar.
+  const [ci, setCi] = useState(s(mov.contador_marcaba_ini ?? mov.contador_global_ini));
+  const [cf, setCf] = useState(s(mov.contador_marcaba_fin ?? mov.contador_global_fin));
+  const hayArrastre = mov.contador_global_fin != null && mov.contador_marcaba_fin !== mov.contador_global_fin;
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
   const [cuadernoLitros, setCuadernoLitros] = useState(mov.cuaderno_litros != null ? String(mov.cuaderno_litros) : (mov.registrado_en_cuaderno ? String(mov.litros) : ''));
   const [registradoEnDrive, setRegistradoEnDrive] = useState(!!mov.registrado_en_drive);
@@ -2049,8 +2071,23 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
           style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
       </div>
       <div className="form-grid">
-        <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" name="det-ci" defaultValue={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" name="det-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Contador inicial (lo que marcaba el aparato)</label><input className="input mono" type="number" step="any" name="det-ci" defaultValue={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Contador final (lo que marcaba el aparato)</label><input className="input mono" type="number" step="any" name="det-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
+        {/* A este tanque le cambiaron el contador: se escribe lo que marca el aparato y
+            se muestra, aparte, el acumulado del sistema. Son dos numeros distintos. */}
+        {hayArrastre && (
+          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+            <span className="muted hint" style={{ fontSize: '.74rem' }}>
+              A este tanque se le cambio el contador. Escriba lo que marca el aparato.
+              Acumulado del sistema en este movimiento:{' '}
+              <strong className="mono">
+                {mov.contador_global_ini != null ? num(mov.contador_global_ini) : '\u2014'}
+                {' \u2192 '}
+                {mov.contador_global_fin != null ? num(mov.contador_global_fin) : '\u2014'}
+              </strong>
+            </span>
+          </div>
+        )}
       </div>
       <div className="form-row">
         <label>Litros usados (según contador = final − inicial)</label>

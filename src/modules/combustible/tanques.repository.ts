@@ -12,6 +12,7 @@ import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustibl
 import { compararMovimientos } from './horaMovimiento';
 import { planCadenaMedidor, type FilaMedidor } from './cadenaMedidor';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
+import { cambioVigente, aAcumulado, aLecturaFisica, type CambioContador } from './arrastreContador';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
 import { esBidon, prepararCamposSalidaBidon } from './bidonCombustible';
@@ -620,9 +621,10 @@ async function aplicarSaldoTanque(id: string, saldoLitros: number, saldoUsd: num
 export async function listMovimientosTanque(tanqueId: string): Promise<MovimientoTanque[]> {
   // El saldo corrido arranca del SALDO DE APERTURA del tanque (los litros con que se
   // creó, que no son un movimiento). Así la última fila iguala el saldo del header.
-  const [{ data, error }, { data: tk }] = await Promise.all([
+  const [{ data, error }, { data: tk }, cambiosCont] = await Promise.all([
     supabase.from('combustible_tanque_movimientos').select('*').eq('tanque_id', tanqueId),
     supabase.from('combustible_tanques').select('saldo_inicial_litros, saldo_inicial_usd, tasa_usd_litro').eq('id', tanqueId).maybeSingle(),
+    cambiosContadorTanque(tanqueId),
   ]);
   if (error) throw error;
   const aperturaL = num((tk as { saldo_inicial_litros?: number | null } | null)?.saldo_inicial_litros);
@@ -641,6 +643,10 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   let saldoL = aperturaL;
   let saldoU = aperturaU;
   return rows.map((m) => {
+    // Lo que marcaba el aparato ese dia. Sin cambios de contador es el mismo numero.
+    const cambioMov = cambioVigente(cambiosCont, m.fecha);
+    const marcabaIni = aLecturaFisica(m.contador_global_ini, cambioMov);
+    const marcabaFin = aLecturaFisica(m.contador_global_fin, cambioMov);
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
     const regCuaderno = m.registrado_en_cuaderno ?? (m.observacion && /\[Cuaderno:\s*(Sí|Registrado|\d+)/i.test(m.observacion) ? true : false);
@@ -663,6 +669,8 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
       saldo_drive: sDrive,
       saldo_litros: round(saldoL, 2),
       saldo_usd: round(saldoU, 2),
+      contador_marcaba_ini: marcabaIni,
+      contador_marcaba_fin: marcabaFin,
     };
   });
 }
@@ -769,6 +777,24 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
 }
 
 /**
+ * Los cambios de contador registrados para un tanque (10/11/2026). Mientras la tabla no
+ * exista, el modulo se comporta exactamente como hasta hoy: sin arrastre.
+ */
+async function cambiosContadorTanque(tanqueId: string): Promise<CambioContador[]> {
+  if (!tanqueId) return [];
+  const { data, error } = await supabase
+    .from('combustible_contador_cambios')
+    .select('fecha, acumulado_cierre, lectura_nueva')
+    .eq('tanque_id', tanqueId)
+    .order('fecha', { ascending: true });
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const f = r as { fecha: string; acumulado_cierre: number | string; lectura_nueva: number | string };
+    return { fecha: f.fecha, acumuladoCierre: num(f.acumulado_cierre), lecturaNueva: num(f.lectura_nueva) };
+  });
+}
+
+/**
  * Los campos del movimiento con el contador del surtidor ya completo (02/10/2026): el
  * contador al terminar un surtido es donde arranca el siguiente. Si el final vino vacío
  * se guarda inicial + litros, y si el inicial tampoco vino se toma el último del tanque.
@@ -779,8 +805,14 @@ async function camposConContador(
   tanqueId: string, tipo: TipoMovTanque, litros: number, c: MovimientoTanqueCampos,
 ): Promise<MovimientoTanqueCampos> {
   if (!pasaPorSurtidor(tipo)) return c;
-  const ultimo = c.contadorGlobalIni == null ? await ultimoContadorTanque(tanqueId) : null;
-  const { ini, fin } = completarContador({ tipo, litros, ini: c.contadorGlobalIni, fin: c.contadorGlobalFin, ultimo });
+  // Si al tanque le cambiaron el contador, lo que escribe quien surte es la lectura del
+  // contador NUEVO (empieza en cero) y lo que se guarda es el acumulado del tanque. La
+  // conversion vive aqui, el unico punto por donde pasa toda escritura de contador.
+  const cambio = cambioVigente(await cambiosContadorTanque(tanqueId), c.fecha || hoy());
+  const iniDado = aAcumulado(c.contadorGlobalIni, cambio);
+  const finDado = aAcumulado(c.contadorGlobalFin, cambio);
+  const ultimo = iniDado == null ? await ultimoAcumuladoTanque(tanqueId) : null;
+  const { ini, fin } = completarContador({ tipo, litros, ini: iniDado, fin: finDado, ultimo });
   // El HI del equipo es su mayor HF (02/10/2026). La pantalla lo trae al elegir el equipo,
   // pero con mala señal se podía guardar antes de que llegara y el surtido quedaba sin HI
   // ni horas trabajadas. Si viene vacío, se completa aquí, al guardar.
@@ -1499,7 +1531,7 @@ export async function actualizarMovimientoTanque(
 ): Promise<void> {
   // Equipo previo: si la edición lo cambia, hay que re-encadenar también la cadena vieja.
   const { data: prev } = await supabase.from('combustible_tanque_movimientos')
-    .select('equipo, tipo, litros, tanque_id, mov_vinculado_id').eq('id', id).maybeSingle();
+    .select('equipo, tipo, litros, tanque_id, mov_vinculado_id, fecha').eq('id', id).maybeSingle();
   const equipoViejo = (prev as { equipo?: string | null } | null)?.equipo ?? null;
 
   // Una edición que SACA más litros (subir un surtido, pasar una entrada a uso…) tiene que
@@ -1524,7 +1556,21 @@ export async function actualizarMovimientoTanque(
     }
   }
 
-  const upd: Record<string, unknown> = { ...campos(patch), updated_at: new Date().toISOString() };
+  // La pantalla manda SIEMPRE lo que marca el contador; aqui se traduce al acumulado
+  // que guarda el sistema, igual que al registrar (ver camposConContador). Sin esto,
+  // editar un movimiento de un tanque con contador nuevo guardaria 30 donde van 208.891.
+  const patchGuardar: typeof patch = { ...patch };
+  {
+    const tanqueIdMov = (prev as { tanque_id?: string | null } | null)?.tanque_id ?? '';
+    const fechaMov = patch.fecha ?? (prev as { fecha?: string | null } | null)?.fecha ?? hoy();
+    const cambioMov = cambioVigente(await cambiosContadorTanque(tanqueIdMov), fechaMov);
+    if (cambioMov) {
+      patchGuardar.contadorGlobalIni = aAcumulado(patch.contadorGlobalIni, cambioMov);
+      patchGuardar.contadorGlobalFin = aAcumulado(patch.contadorGlobalFin, cambioMov);
+    }
+  }
+
+  const upd: Record<string, unknown> = { ...campos(patchGuardar), updated_at: new Date().toISOString() };
   const afectaSaldo = patch.tipo != null || patch.litros != null || patch.tasaUsdLitro != null;
   if (patch.tipo != null) upd.tipo = patch.tipo;
   if (patch.litros != null) upd.litros = num(patch.litros);
@@ -2161,7 +2207,7 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
  *  «Último» es el MAYOR (02/10/2026): el contador es un totalizador que solo sube, así que
  *  su lectura más alta es la última. Antes se tomaba el del último movimiento CARGADO, y
  *  cargar tarde un surtido viejo devolvía el contador hacia atrás para el siguiente. */
-export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
+async function ultimoAcumuladoTanque(tanqueId: string): Promise<number | null> {
   if (!tanqueId) return null;
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
@@ -2177,6 +2223,101 @@ export async function ultimoContadorTanque(tanqueId: string): Promise<number | n
   if (error) throw error;
   const v = (data as { contador_global_fin?: number | null } | null)?.contador_global_fin;
   return v == null ? null : num(v);
+}
+
+/** Un cambio de contador ya registrado, tal como se muestra en pantalla. */
+export interface CambioContadorTanque extends CambioContador {
+  id: string;
+  tanqueId: string;
+  motivo: string | null;
+  createdAt: string | null;
+  createdBy: string | null;
+}
+
+/** Los cambios de contador de un tanque, del mas reciente al mas viejo. */
+export async function listCambiosContador(tanqueId: string): Promise<CambioContadorTanque[]> {
+  if (!tanqueId) return [];
+  const { data, error } = await supabase
+    .from('combustible_contador_cambios')
+    .select('id, tanque_id, fecha, acumulado_cierre, lectura_nueva, motivo, created_at, created_by')
+    .eq('tanque_id', tanqueId)
+    .order('fecha', { ascending: false });
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const f = r as {
+      id: string; tanque_id: string; fecha: string;
+      acumulado_cierre: number | string; lectura_nueva: number | string;
+      motivo: string | null; created_at: string | null; created_by: string | null;
+    };
+    return {
+      id: f.id, tanqueId: f.tanque_id, fecha: f.fecha,
+      acumuladoCierre: num(f.acumulado_cierre), lecturaNueva: num(f.lectura_nueva),
+      motivo: f.motivo, createdAt: f.created_at, createdBy: f.created_by,
+    };
+  });
+}
+
+/**
+ * Deja asentado que a un tanque le cambiaron el contador. De la fecha en
+ * adelante, lo que marque el aparato se traduce sumandole `acumuladoCierre`.
+ * No toca ni un solo movimiento ya guardado.
+ */
+export async function registrarCambioContador(input: {
+  tanqueId: string;
+  fecha: string;
+  acumuladoCierre: number;
+  lecturaNueva: number;
+  motivo?: string | null;
+  actor?: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from('combustible_contador_cambios').insert({
+    tanque_id: input.tanqueId,
+    fecha: input.fecha,
+    acumulado_cierre: input.acumuladoCierre,
+    lectura_nueva: input.lecturaNueva,
+    motivo: input.motivo?.trim() || null,
+    created_by: input.actor || null,
+  });
+  if (error) throw new Error(error.message || 'No se pudo registrar el cambio de contador.');
+}
+
+/** El acumulado con el que viene el tanque: lo que hay que cerrar al cambiar el contador. */
+export async function acumuladoActualTanque(tanqueId: string): Promise<number | null> {
+  return ultimoAcumuladoTanque(tanqueId);
+}
+
+/** La fecha del movimiento mas reciente del tanque: el cambio no puede ser anterior. */
+export async function ultimaFechaMovimientoTanque(tanqueId: string): Promise<string | null> {
+  if (!tanqueId) return null;
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('fecha')
+    .eq('tanque_id', tanqueId)
+    .not('fecha', 'is', null)
+    .order('fecha', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  return (data as { fecha?: string | null } | null)?.fecha ?? null;
+}
+
+/**
+ * Lo que marca HOY el contador del tanque (10/11/2026).
+ *
+ * Es lo que el teléfono y la PC pre-llenan como contador inicial, y lo que verá
+ * quien surte en el aparato. Si al tanque le cambiaron el contador, NO es el
+ * acumulado del sistema: al Tanque #1 el acumulado va por 208.861 pero el
+ * contador nuevo marca 30. Pre-llenar el acumulado hacía que, al guardar, se le
+ * sumara el arrastre por segunda vez.
+ *
+ * El acumulado se queda puertas adentro (`ultimoAcumuladoTanque`), que es lo que
+ * necesita la cadena del medidor.
+ */
+export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
+  const acumulado = await ultimoAcumuladoTanque(tanqueId);
+  if (acumulado == null) return null;
+  const cambio = cambioVigente(await cambiosContadorTanque(tanqueId), hoy());
+  return aLecturaFisica(acumulado, cambio);
 }
 
 export async function crearMedidor(input: {

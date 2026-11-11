@@ -312,6 +312,8 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
     ultimoContadorTanque(tanque.id).then((u) => { if (u != null) { setCi(String(u)); setCiAuto(true); } else { setCi(''); setCiAuto(false); } }).catch(() => {});
   }, [tanque.id]);
 
+
+
   // Si en Maquinaria o en la PC actualizan el horómetro del equipo mientras el formulario está abierto,
   // recargar el HI y KM vigentes automáticamente.
   useRealtime(['combustible_tanque_movimientos', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
@@ -754,7 +756,10 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <Fila k="Destino / mina" v={mov.ubicacion} />
         <Fila k="Observación" v={mov.observacion} />
         {mov.tipo === 'entrada' && <Fila k="Costo por litro" v={money(mov.tasa_usd_litro)} />}
-        <Fila k="Contador" v={mov.contador_global_ini != null || mov.contador_global_fin != null ? `${mov.contador_global_ini ?? '—'} → ${mov.contador_global_fin ?? '—'}` : null} />
+        {/* Lo que marcaba el aparato, no el acumulado del sistema: el telefono
+            habla siempre el idioma del contador (ver listMovimientosTanque). */}
+        <Fila k="Contador" v={mov.contador_marcaba_ini != null || mov.contador_marcaba_fin != null
+          ? `${mov.contador_marcaba_ini ?? '\u2014'} \u2192 ${mov.contador_marcaba_fin ?? '\u2014'}` : null} />
         <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
         <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
