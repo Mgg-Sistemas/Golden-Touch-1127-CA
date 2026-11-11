@@ -24,6 +24,43 @@ import {
   eliminarCategoriaDocumento, contarDocumentosPorCategoria, type DocumentoEmpresa,
 } from './documentacion.repository';
 
+/* Cómo se mira el archivo: agrupado por lo que apura (vigencia) o la tabla
+   de siempre. Se recuerda, como el resto del sistema. */
+type VistaDocs = 'archivo' | 'tabla';
+const CLAVE_VISTA_DOCS = 'gt.documentacion.v1.docs';
+
+function leerVistaDocs(): VistaDocs {
+  try {
+    const v = localStorage.getItem(CLAVE_VISTA_DOCS);
+    if (v === 'tabla' || v === 'archivo') return v;
+  } catch { /* sin almacenamiento: valor por defecto */ }
+  return 'archivo';
+}
+
+/** Cuánto le queda al papel, en palabras. */
+function plazoTexto(vence: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(vence);
+  if (!m) return '';
+  const v = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const h = new Date();
+  const hoy = new Date(h.getFullYear(), h.getMonth(), h.getDate());
+  const dias = Math.round((v.getTime() - hoy.getTime()) / 86_400_000);
+  if (dias < -1) return `venció hace ${Math.abs(dias)} días`;
+  if (dias === -1) return 'venció ayer';
+  if (dias === 0) return 'vence hoy';
+  if (dias === 1) return 'vence mañana';
+  if (dias <= 60) return `vence en ${dias} días`;
+  const meses = Math.round(dias / 30);
+  return meses < 24 ? `vence en ${meses} meses` : `vence en ${Math.round(dias / 365)} años`;
+}
+
+const BLOQUES = [
+  { key: 'vencido', titulo: 'Vencidos', nota: 'Hay que renovarlos ya.' },
+  { key: 'por_vencer', titulo: 'Por vencer', nota: 'Menos de 30 días.' },
+  { key: 'vigente', titulo: 'Vigentes', nota: 'Al día.' },
+  { key: 'sin', titulo: 'Sin vencimiento', nota: 'No caducan.' },
+] as const;
+
 export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor: { email: string; nombre: string | null } }) {
   const [docs, setDocs] = useState<DocumentoEmpresa[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +70,11 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
   const [borrar, setBorrar] = useState<DocumentoEmpresa | null>(null);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [gestionarCats, setGestionarCats] = useState(false);
+  const [vista, setVista] = useState<VistaDocs>(leerVistaDocs);
+  const cambiarVista = (v: VistaDocs) => {
+    setVista(v);
+    try { localStorage.setItem(CLAVE_VISTA_DOCS, v); } catch { /* no es crítico */ }
+  };
 
   const cargar = useCallback(async () => {
     try {
@@ -80,7 +122,15 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
         {canWrite && (
           <button type="button" className="btn btn-ghost" onClick={() => setGestionarCats(true)} title="Agregar, renombrar o eliminar categorías">🏷 Categorías</button>
         )}
-        <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtrados.length} de {docs.length}</span>
+        <div className="view-toggle" role="tablist" aria-label="Cómo ver el archivo">
+          <button type="button" role="tab" aria-selected={vista === 'archivo'}
+            className={vista === 'archivo' ? 'active' : ''} onClick={() => cambiarVista('archivo')}
+            title="Agrupados por lo que falta para vencer">Archivo</button>
+          <button type="button" role="tab" aria-selected={vista === 'tabla'}
+            className={vista === 'tabla' ? 'active' : ''} onClick={() => cambiarVista('tabla')}
+            title="La lista completa con todas las columnas">Tabla</button>
+        </div>
+        <span className="muted" style={{ fontSize: '.8rem' }}>{filtrados.length} de {docs.length}</span>
         {canWrite && <button className="btn btn-primary" onClick={() => setEditar('nuevo')}>＋ Agregar documento</button>}
       </div>
 
@@ -94,6 +144,59 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
         </div>
       )}
 
+      {vista === 'archivo' ? (
+        loading ? (
+          <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>
+        ) : !filtrados.length ? (
+          <div className="card">
+            <EmptyState icon="🗂" message={docs.length ? 'Ningún documento coincide con la búsqueda' : 'Aún no hay documentos cargados'} />
+          </div>
+        ) : (
+          /* Agrupado por lo único que apura. Los vencidos primero: en la
+             tabla alfabética quedaban donde cayera su inicial. */
+          BLOQUES.map((b) => {
+            const grupo = filtrados.filter((d) => (estadoCarnet(d.vence) ?? 'sin') === b.key);
+            if (!grupo.length) return null;
+            return (
+              <section key={b.key} className={`doc-bloque ${b.key}`}>
+                <div className="doc-bloque-head">
+                  <h3 className="doc-bloque-titulo">{b.titulo}</h3>
+                  <span className="usr-depto-n">{grupo.length}</span>
+                  <small className="muted" style={{ fontSize: '.76rem' }}>{b.nota}</small>
+                </div>
+                <div className="doc-cards">
+                  {grupo.map((d) => (
+                    <article key={d.id} className={`doc-card ${b.key}`}>
+                      <div>
+                        <div className="doc-card-titulo">{d.titulo}</div>
+                        {d.descripcion && <p className="doc-card-desc">{d.descripcion}</p>}
+                      </div>
+                      <div className="doc-card-meta">
+                        <span className="badge">{d.categoria}</span>
+                        {d.vence ? (
+                          <span className="doc-plazo">
+                            {plazoTexto(d.vence)} <span className="doc-plazo-fecha">· {fechaCarnet(d.vence)}</span>
+                          </span>
+                        ) : <span className="muted" style={{ fontSize: '.78rem' }}>Sin fecha de vencimiento</span>}
+                      </div>
+                      <div className="doc-card-pie">
+                        <span className="doc-card-quien">
+                          <Quien nombre={d.created_by_name} correo={d.created_by} vacio="—" />
+                        </span>
+                        {d.archivo_path
+                          ? <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)} title={d.archivo_nombre ?? ''}>📎 Ver</button>
+                          : <span className="doc-card-sin-archivo">Sin archivo</span>}
+                        {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setEditar(d)}>✎ Editar</button>}
+                        {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setBorrar(d)}>🗑</button>}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            );
+          })
+        )
+      ) : (
       <div className="card">
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.86rem' }}>
@@ -136,6 +239,7 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
           </table>
         </div>
       </div>
+      )}
 
       {editar && (
         <DocumentoForm

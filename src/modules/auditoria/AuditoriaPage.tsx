@@ -13,6 +13,7 @@ import {
   describirEvento, type AuditoriaEvento,
 } from './auditoria.repository';
 import { descargarAuditoriaResumenPdf, descargarAuditoriaUsuarioPdf } from './auditoriaPdf';
+import { Iniciales } from '@/shared/ui/Iniciales';
 import './auditoria.css';
 
 type Rango = 'hoy' | '7' | 'mes' | 'todo' | 'rango';
@@ -55,6 +56,8 @@ export function AuditoriaPage() {
   const [eventos, setEventos] = useState<AuditoriaEvento[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<{ user_id: string; nombre: string; email: string } | null>(null);
+  // Cuántos días del timeline se muestran de entrada en el panorama.
+  const [diasVisibles, setDiasVisibles] = useState(3);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -252,50 +255,95 @@ export function AuditoriaPage() {
             </div>
           </div>
 
-          {/* Tabla de usuarios (clic → detalle) */}
+          {/* Lo que pasó, en orden. El panorama tenía cuatro gráficos de
+              CUÁNTO y ninguno de QUÉ: para ver un hecho concreto había que
+              entrar a la ficha de alguien y adivinar a quién. */}
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="card-title" style={{ marginBottom: '.6rem' }}>🕘 Lo que pasó</div>
+            {!eventos.length ? (
+              <p className="muted" style={{ margin: 0 }}>Sin acciones registradas en el período.</p>
+            ) : (
+              <>
+                {agruparPorDia(eventos).slice(0, diasVisibles).map(({ dia, eventos: evs }) => (
+                  <div key={dia} className="aud-dia">
+                    <div className="aud-dia-head">
+                      {diaLegible(dia)} <span className="aud-dia-n">· {evs.length} acción(es)</span>
+                    </div>
+                    <ol className="aud-riel">
+                      {evs.slice(0, EVENTOS_POR_DIA).map((e) => <EventoFila key={e.id} e={e} conQuien />)}
+                    </ol>
+                    {evs.length > EVENTOS_POR_DIA && (
+                      <p className="perm-nota" style={{ marginLeft: '1.35rem' }}>
+                        …y {evs.length - EVENTOS_POR_DIA} acción(es) más ese día. Entra a la ficha de una persona para ver las suyas completas.
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {agruparPorDia(eventos).length > diasVisibles && (
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDiasVisibles((n) => n + 5)}>
+                    Ver días anteriores
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Las personas del período. Eran una tabla de 7 columnas donde
+              cada quien era una fila de cifras sueltas; son las mismas
+              personas del Directorio de Usuarios, así que se leen igual. */}
           <div className="card">
-            <div className="card-title" style={{ marginBottom: '.4rem' }}>Usuarios en el período</div>
-            <div className="table-wrap">
-              <table className="table" style={{ fontSize: '.86rem' }}>
-                <thead><tr>
-                  <th>Usuario</th><th>Correo</th>
-                  <th style={{ textAlign: 'right' }}>Sesiones</th>
-                  <th style={{ textAlign: 'right' }}>Tiempo conectado</th>
-                  <th style={{ textAlign: 'right' }}>Acciones</th>
-                  <th>Estado</th><th></th>
-                </tr></thead>
-                <tbody>
-                  {porUsuarioConEventos(porUsuario, evPorUsuario).map((u) => (
-                    /* La fila ya abría el detalle, pero solo con el ratón. */
-                    <tr
-                      key={u.user_id}
-                      className="aud-fila"
-                      tabIndex={0}
-                      onClick={() => abrirUsuario(u)}
-                      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrirUsuario(u); } }}
-                      title="Ver detalle del usuario"
-                    >
-                      <td style={{ fontWeight: 600 }}>{u.nombre}</td>
-                      <td className="muted">{u.email}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{u.sesiones}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{fmtDuracion(u.totalMin)}</td>
-                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{evCountByUser.get(u.user_id) ?? 0}</td>
-                      <td>{u.conectado ? <span className="badge success">● Conectado</span> : <span className="muted">—</span>}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          type="button" className="btn btn-sm btn-ghost"
-                          onClick={(ev) => { ev.stopPropagation(); abrirUsuario(u); }}
-                          aria-label={`Ver el detalle de ${u.nombre}`}
-                        >
-                          Ver →
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {porUsuario.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Sin sesiones en el período.</td></tr>}
-                </tbody>
-              </table>
-            </div>
+            <div className="card-title" style={{ marginBottom: '.6rem' }}>Usuarios en el período</div>
+            {porUsuario.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>Sin sesiones en el período.</p>
+            ) : (
+              <div className="aud-personas">
+                {(() => {
+                  const gente = porUsuarioConEventos(porUsuario, evPorUsuario);
+                  // Para la barra: cuánto pesa cada quien respecto del que más tiempo estuvo.
+                  const tope = Math.max(1, ...gente.map((g) => g.totalMin));
+                  return gente.map((u) => {
+                    const acciones = evCountByUser.get(u.user_id) ?? 0;
+                    return (
+                      <button
+                        key={u.user_id}
+                        type="button"
+                        className={`aud-persona${u.conectado ? ' conectado' : ''}`}
+                        onClick={() => abrirUsuario(u)}
+                        title={`Ver el detalle de ${u.nombre}`}
+                      >
+                        <span className="aud-persona-head">
+                          <Iniciales nombre={u.nombre} respaldo={u.email} color={u.conectado ? 'var(--success)' : undefined} />
+                          <span className="aud-persona-datos">
+                            <span className="aud-persona-nombre">{u.nombre}</span>
+                            <span className="aud-persona-correo">{u.email}</span>
+                          </span>
+                          {u.conectado && <span className="badge success">● Conectado</span>}
+                        </span>
+
+                        <span className="aud-cifras">
+                          <span className="aud-cifra fuerte">
+                            <span className="aud-cifra-valor">{fmtDuracion(u.totalMin)}</span>
+                            <span className="aud-cifra-label">Conectado</span>
+                          </span>
+                          <span className="aud-cifra">
+                            <span className="aud-cifra-valor">{u.sesiones}</span>
+                            <span className="aud-cifra-label">Sesiones</span>
+                          </span>
+                          <span className="aud-cifra">
+                            <span className="aud-cifra-valor">{acciones}</span>
+                            <span className="aud-cifra-label">Acciones</span>
+                          </span>
+                        </span>
+
+                        <span className="aud-peso" role="img" aria-label={`${fmtDuracion(u.totalMin)} conectado en el período`}>
+                          <i style={{ width: `${Math.round((u.totalMin / tope) * 100)}%` }} />
+                        </span>
+                      </button>
+                    );
+                  });
+                })()}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -346,8 +394,10 @@ function Kpi({ titulo, valor, nota, destacado }: { titulo: string; valor: string
 }
 
 const TOPE_CAMPOS = 6;
+/** Cuántas acciones de cada día se listan en el panorama. */
+const EVENTOS_POR_DIA = 8;
 
-function EventoFila({ e }: { e: AuditoriaEvento }) {
+function EventoFila({ e, conQuien = false }: { e: AuditoriaEvento; conQuien?: boolean }) {
   const d = describirEvento(e);
   const [todo, setTodo] = useState(false);
   const hora = new Date(e.at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
@@ -357,7 +407,12 @@ function EventoFila({ e }: { e: AuditoriaEvento }) {
     <li className="aud-evento">
       <span className="aud-evento-icono" aria-hidden="true">{d.icono}</span>
       <div className="aud-evento-cuerpo">
-        <div className="aud-evento-titulo">{d.titulo}</div>
+        <div className="aud-evento-titulo">
+          {d.titulo}
+          {/* En el panorama hace falta saber quién; en la ficha de alguien
+              ya se sabe y sobraría repetirlo. */}
+          {conQuien && e.nombre && <span className="aud-evento-quien"> · {e.nombre}</span>}
+        </div>
         {d.detalle.length > 0 && (
           <div className="aud-evento-detalle mono">
             {campos.join(' · ')}
