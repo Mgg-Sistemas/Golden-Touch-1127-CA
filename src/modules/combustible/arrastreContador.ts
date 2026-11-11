@@ -67,3 +67,29 @@ export function aLecturaFisica(acumulado: number | null | undefined, cambio: Cam
   if (!cambio) return redondear(a);
   return redondear(a - cambio.acumuladoCierre + cambio.lecturaNueva);
 }
+
+/**
+ * Por qué NO se puede asentar este cambio de contador, en palabras para quien
+ * lo está cargando. Devuelve null cuando sí se puede.
+ *
+ * La regla que importa: el cambio NO puede quedar antes del último movimiento
+ * ya cargado. Si quedara antes, esos movimientos pasarían a interpretarse con
+ * el arrastre y sus cifras se recalcularían mal — justo lo que esto evita.
+ */
+export function motivoNoRegistrable(e: {
+  fecha: string;
+  ultimaFechaMovimiento?: string | null;
+  acumuladoCierre: number | null;
+  lecturaNueva: number | null;
+}): string | null {
+  if (!e.fecha?.trim()) return 'Indique qu\u00e9 d\u00eda se cambi\u00f3 el contador.';
+  const cierre = num(e.acumuladoCierre);
+  if (cierre === null || cierre < 0) return 'Indique con cu\u00e1nto qued\u00f3 el contador viejo.';
+  const nueva = num(e.lecturaNueva);
+  if (nueva === null || nueva < 0) return 'Indique en cu\u00e1nto arranca el contador nuevo (normalmente cero).';
+  const ultima = e.ultimaFechaMovimiento?.trim();
+  if (ultima && e.fecha < ultima) {
+    return `Ya hay movimientos cargados hasta el ${ultima}. El cambio no puede ser anterior, o esos movimientos quedar\u00edan mal calculados.`;
+  }
+  return null;
+}

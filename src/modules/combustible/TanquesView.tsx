@@ -52,6 +52,7 @@ import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTan
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { mensajeError } from '@/shared/lib/errores';
 import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
+import { CambioContadorModal } from './CambioContadorModal';
 import { calcularMermaImplicitaTanque, DEFAULT_MERMA_IMPLICITA_PCT, generarObservacionMermaImplicita } from './mermaImplicita';
 import { useFichasEquipos } from './fichasEquipos';
 import { opcionesEquipos, esTanquePermitidoParaEquipo, type FichaEquipoOpcion } from './opcionesEquipos';
@@ -157,6 +158,9 @@ export function TanquesView() {
   const { user } = useSession();
   const { can } = usePermissions();
   const canWrite = can('combustible', 'escritura');
+  // Asentar un cambio de contador decide como se leen TODOS los surtidos siguientes:
+  // se pide control total de Combustible, igual que las mermas fuera de margen.
+  const puedeCambiarContador = can('combustible', 'full');
   const actor = user?.email ?? 'sistema';
   const { appUser } = usePermissions();
   const actorName = appUser?.nombre?.trim() || user?.email || null;
@@ -167,7 +171,7 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias' | 'exportarReporte'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'calculadora' | 'consumoSemanal' | 'reporte' | 'transferencias' | 'exportarReporte' | 'contador'>('none');
   const [rangoReporte, setRangoReporte] = useState<{ desde: string; hasta: string } | undefined>(undefined);
   // GT-INT-11 · Envíos a MGG. Se cargan siempre (no solo al abrir el modal) para poder
   // avisar en la barra cuando alguno quedó sin llegar: el combustible ya salió del
@@ -251,6 +255,7 @@ export function TanquesView() {
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('calculadora')} title="Calculadora rápida de cubicación (seleccionar tanque y altura en cm)">📐 Calculadora cubicación</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
+          {puedeCambiarContador && <button className="btn btn-ghost btn-sm" onClick={() => setModal('contador')} disabled={!sel} title="Dejar asentado que a este tanque se le cambio el contador, para no perder lo ya surtido">⚙ Cambio de contador</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumoSemanal')} title="Cargar en la caja de Peramanal el consumo de GT de una semana (gasto + entrada de multimoneda por la misma cantidad). Respaldo del automático dominical, por si no se actualizó el fin de semana.">💰 CAJA</button>}
@@ -358,6 +363,14 @@ export function TanquesView() {
           tanques={tanques}
           reporte={reporte}
           onClose={() => setModal('none')} />
+      )}
+      {modal === 'contador' && sel && (
+        <CambioContadorModal
+          tanque={{ id: sel.id, nombre: sel.nombre }}
+          actor={actor}
+          onClose={() => setModal('none')}
+          onGuardado={() => { void reloadMovs(sel.id); }}
+        />
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />

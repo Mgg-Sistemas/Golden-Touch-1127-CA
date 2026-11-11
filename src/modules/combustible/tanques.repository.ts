@@ -2204,6 +2204,82 @@ async function ultimoAcumuladoTanque(tanqueId: string): Promise<number | null> {
   return v == null ? null : num(v);
 }
 
+/** Un cambio de contador ya registrado, tal como se muestra en pantalla. */
+export interface CambioContadorTanque extends CambioContador {
+  id: string;
+  tanqueId: string;
+  motivo: string | null;
+  createdAt: string | null;
+  createdBy: string | null;
+}
+
+/** Los cambios de contador de un tanque, del mas reciente al mas viejo. */
+export async function listCambiosContador(tanqueId: string): Promise<CambioContadorTanque[]> {
+  if (!tanqueId) return [];
+  const { data, error } = await supabase
+    .from('combustible_contador_cambios')
+    .select('id, tanque_id, fecha, acumulado_cierre, lectura_nueva, motivo, created_at, created_by')
+    .eq('tanque_id', tanqueId)
+    .order('fecha', { ascending: false });
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const f = r as {
+      id: string; tanque_id: string; fecha: string;
+      acumulado_cierre: number | string; lectura_nueva: number | string;
+      motivo: string | null; created_at: string | null; created_by: string | null;
+    };
+    return {
+      id: f.id, tanqueId: f.tanque_id, fecha: f.fecha,
+      acumuladoCierre: num(f.acumulado_cierre), lecturaNueva: num(f.lectura_nueva),
+      motivo: f.motivo, createdAt: f.created_at, createdBy: f.created_by,
+    };
+  });
+}
+
+/**
+ * Deja asentado que a un tanque le cambiaron el contador. De la fecha en
+ * adelante, lo que marque el aparato se traduce sumandole `acumuladoCierre`.
+ * No toca ni un solo movimiento ya guardado.
+ */
+export async function registrarCambioContador(input: {
+  tanqueId: string;
+  fecha: string;
+  acumuladoCierre: number;
+  lecturaNueva: number;
+  motivo?: string | null;
+  actor?: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from('combustible_contador_cambios').insert({
+    tanque_id: input.tanqueId,
+    fecha: input.fecha,
+    acumulado_cierre: input.acumuladoCierre,
+    lectura_nueva: input.lecturaNueva,
+    motivo: input.motivo?.trim() || null,
+    created_by: input.actor || null,
+  });
+  if (error) throw new Error(error.message || 'No se pudo registrar el cambio de contador.');
+}
+
+/** El acumulado con el que viene el tanque: lo que hay que cerrar al cambiar el contador. */
+export async function acumuladoActualTanque(tanqueId: string): Promise<number | null> {
+  return ultimoAcumuladoTanque(tanqueId);
+}
+
+/** La fecha del movimiento mas reciente del tanque: el cambio no puede ser anterior. */
+export async function ultimaFechaMovimientoTanque(tanqueId: string): Promise<string | null> {
+  if (!tanqueId) return null;
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('fecha')
+    .eq('tanque_id', tanqueId)
+    .not('fecha', 'is', null)
+    .order('fecha', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  return (data as { fecha?: string | null } | null)?.fecha ?? null;
+}
+
 /**
  * Lo que marca HOY el contador del tanque (10/11/2026).
  *

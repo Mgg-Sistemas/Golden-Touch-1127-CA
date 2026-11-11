@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cambioVigente, aAcumulado, aLecturaFisica, type CambioContador } from './arrastreContador';
+import { cambioVigente, aAcumulado, aLecturaFisica, motivoNoRegistrable, type CambioContador } from './arrastreContador';
 
 /** El caso real del Tanque #1 (10/11/2026): el contador viejo cerró en 208.861
  *  y el nuevo arrancó en cero. */
@@ -88,5 +88,42 @@ describe('aLecturaFisica · lo que guarda el sistema → lo que marca el surtido
 
   it('sin acumulado no inventa nada', () => {
     expect(aLecturaFisica(null, TANQUE1[0])).toBeNull();
+  });
+});
+
+describe('motivoNoRegistrable \u00b7 cu\u00e1ndo NO se puede asentar un cambio de contador', () => {
+  const ok = { fecha: '2026-11-10', ultimaFechaMovimiento: '2026-11-08', acumuladoCierre: 208861, lecturaNueva: 0 };
+
+  it('un cambio bien hecho no da motivo', () => {
+    expect(motivoNoRegistrable(ok)).toBeNull();
+  });
+
+  it('el mismo d\u00eda del \u00faltimo movimiento vale', () => {
+    expect(motivoNoRegistrable({ ...ok, fecha: '2026-11-08' })).toBeNull();
+  });
+
+  it('ANTES del \u00faltimo movimiento no: esos movimientos se recalcular\u00edan mal', () => {
+    const m = motivoNoRegistrable({ ...ok, fecha: '2026-11-07' });
+    expect(m).toContain('2026-11-08');
+  });
+
+  it('sin fecha no se puede', () => {
+    expect(motivoNoRegistrable({ ...ok, fecha: '' })).toContain('d\u00eda');
+  });
+
+  it('sin el cierre del contador viejo no se puede', () => {
+    expect(motivoNoRegistrable({ ...ok, acumuladoCierre: null })).toContain('viejo');
+  });
+
+  it('sin el arranque del nuevo no se puede', () => {
+    expect(motivoNoRegistrable({ ...ok, lecturaNueva: null })).toContain('nuevo');
+  });
+
+  it('un contador no marca negativo', () => {
+    expect(motivoNoRegistrable({ ...ok, lecturaNueva: -5 })).toContain('nuevo');
+  });
+
+  it('sin movimientos previos, cualquier fecha vale', () => {
+    expect(motivoNoRegistrable({ ...ok, ultimaFechaMovimiento: null })).toBeNull();
   });
 });
