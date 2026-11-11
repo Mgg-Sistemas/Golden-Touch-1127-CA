@@ -27,6 +27,8 @@ import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
 import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 import { responsablesEfectivosDocumento, nombrePorEmail } from './administracionResponsabilidad';
+import { gestionDelDocumento } from './administracionHonorarios';
+import type { Gestion, Profesional } from './admin.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Responsabilidad } from './admin.repository';
 import type { Usuario } from '@/shared/lib/types';
@@ -157,6 +159,15 @@ export function DocumentosTab({
     listUsuarios().then(setUsuariosResp).catch(() => setUsuariosResp([]));
   }, [repo, empresaClave]);
   const nombresResp = useMemo(() => nombrePorEmail(usuariosResp), [usuariosResp]);
+
+  // Honorarios: para enganchar el documento a la gestion que lo tramito.
+  const [gestiones, setGestiones] = useState<Gestion[]>([]);
+  const [profesionales, setProfesionales] = useState<Profesional[]>([]);
+  useEffect(() => {
+    repo.listGestiones(empresaClave || undefined).then(setGestiones).catch(() => setGestiones([]));
+    repo.listProfesionales().then(setProfesionales).catch(() => setProfesionales([]));
+  }, [repo, empresaClave]);
+  const nombreProf = useMemo(() => new Map(profesionales.map((p) => [p.id, p.nombre])), [profesionales]);
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
   const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, docs, [], carpetas), [centros, docs, carpetas]);
 
@@ -1373,6 +1384,58 @@ export function DocumentosTab({
               <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.6rem', color: 'var(--text)' }}>
                 💼 Gestión, aviso y prioridad
               </div>
+              {/* Que honorario tramito este documento. La gestion es la UNICA autoridad
+                  sobre el monto: lo que se anote aqui si llega al estado de cuenta. */}
+              {(() => {
+                const enlace = gestionDelDocumento(docDetalle, gestiones, docs, profesionales);
+                return (
+                  <div style={{ marginBottom: '.7rem' }}>
+                    <span className="muted hint" style={{ fontSize: '.72rem' }}>¿Qué honorario tramitó este documento?</span>
+                    <select
+                      className="input" disabled={!puedeEscribir} style={{ width: '100%', marginTop: '.2rem' }}
+                      value={docDetalle.gestionId ?? ''}
+                      onChange={async (e) => {
+                        const val = e.target.value || null;
+                        try {
+                          const act = await repo.editarDocumento(docDetalle.id, { gestionId: val });
+                          setDocDetalle(act);
+                          toast(val ? 'Documento enlazado al honorario.' : 'Enlace quitado.', 'success');
+                          await cargar();
+                        } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+                      }}
+                    >
+                      <option value="">Sin enlazar a ningún honorario</option>
+                      {gestiones.filter((g) => g.estado !== 'anulada').map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.concepto} · {nombreProf.get(g.profesionalId ?? '') ?? 'sin profesional'} · {g.costoTotal} {g.moneda}
+                        </option>
+                      ))}
+                    </select>
+
+                    {enlace ? (
+                      <div style={{ marginTop: '.35rem', padding: '.45rem .6rem', borderRadius: 6, background: 'rgba(16,185,129,.1)', border: '1px solid #10b981', fontSize: '.8rem', lineHeight: 1.45 }}>
+                        Lo tramitó <strong>{enlace.profesionalNombre}</strong> por{' '}
+                        <strong>{enlace.gestion.costoTotal} {enlace.gestion.moneda}</strong>, y eso ya está en su estado de cuenta.
+                        {enlace.documentosQueCubre > 1 && (
+                          <>
+                            {' '}Ese mismo honorario cubre <strong>{enlace.documentosQueCubre} documentos</strong>:
+                            el costo es uno solo, no se cobra por cada uno.
+                          </>
+                        )}
+                      </div>
+                    ) : gestiones.length === 0 ? (
+                      <span className="muted hint" style={{ fontSize: '.7rem' }}>
+                        Todavía no hay honorarios cargados. Se crean en la pestaña Honorarios, eligiendo el profesional.
+                      </span>
+                    ) : (
+                      <span className="muted hint" style={{ fontSize: '.7rem' }}>
+                        Sin enlazar, lo que escribas abajo como costo es solo una nota: no llega al estado de cuenta del profesional.
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '.6rem' }}>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                   <span className="muted hint" style={{ fontSize: '.72rem' }}>Costo de gestión</span>

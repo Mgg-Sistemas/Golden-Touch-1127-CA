@@ -4,7 +4,7 @@
    Monedas POR MONEDA NATIVA: USD y Bs se suman por separado, nunca
    se reconvierten (igual criterio que el reporte de Tesorería).
    ============================================================ */
-import type { EnvioTesoreria, EstadoGestion, Gestion, Profesional } from './admin.repository';
+import type { DocumentoEmpresa, EnvioTesoreria, EstadoGestion, Gestion, Profesional } from './admin.repository';
 import type { Moneda } from './administracionCalculo';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -132,4 +132,39 @@ export function agrupaPorProfesional(
     .filter((p) => conGestiones.has(p.id))
     .map((profesional) => ({ profesional, cuenta: estadoCuentaProfesional(profesional.id, gestiones, envios) }))
     .sort((a, b) => a.profesional.nombre.localeCompare(b.profesional.nombre, 'es'));
+}
+
+/** Lo que hay que mostrar en un documento sobre la gestion que lo tramito. */
+export interface GestionDelDocumento {
+  gestion: Gestion;
+  profesionalNombre: string;
+  /** Cuantos documentos cubre esa misma gestion. Si son varios, el costo NO se
+   *  reparte ni se multiplica: es UN solo honorario que cubre a todos. */
+  documentosQueCubre: number;
+}
+
+/**
+ * Que gestion de honorarios tramito este documento (11/11/2026).
+ *
+ * Antes el costo se anotaba suelto en el documento y no llegaba nunca al estado
+ * de cuenta del profesional: el mismo dinero en dos sitios sin relacion. Ahora
+ * el documento se engancha a una gestion y la gestion es la unica autoridad
+ * sobre el monto.
+ */
+export function gestionDelDocumento(
+  doc: DocumentoEmpresa,
+  gestiones: Gestion[],
+  documentos: DocumentoEmpresa[],
+  profesionales: { id: string; nombre: string }[],
+): GestionDelDocumento | null {
+  const id = doc.gestionId;
+  if (!id) return null;
+  const gestion = gestiones.find((g) => g.id === id);
+  if (!gestion) return null;
+  const prof = profesionales.find((p) => p.id === gestion.profesionalId);
+  return {
+    gestion,
+    profesionalNombre: prof?.nombre?.trim() || 'Profesional sin identificar',
+    documentosQueCubre: documentos.filter((d) => d.gestionId === id).length,
+  };
 }
