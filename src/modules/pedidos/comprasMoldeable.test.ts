@@ -172,6 +172,23 @@ describe('comprasMoldeable · ámbito ítems (T3)', () => {
     expect(filas[1].categoria).toBe(SIN_CATEGORIA_INV); // sku desconocido
   });
 
+  test('ítem en orden USD con total consistente no se divide erróneamente entre tasa BCV (caso laptop)', () => {
+    const ctx = ctxFix({ tasaBcv: 901.62 });
+    const ordenLaptop = ordenFix({
+      estado: 'pagada',
+      total_moneda: 'USD',
+      total: 1436.60,
+      items: [
+        { sku: 'EQUI-008', nombre: 'Laptop Dell AMD Ryzen', cantidad: 1, precio: 1238.45 },
+        { sku: 'MEM-001', nombre: 'Memoria 16GB', cantidad: 1, precio: 198.15 },
+      ],
+    } as Partial<Orden>);
+    const filas = normalizarItemsOrdenes([ordenLaptop], ctx);
+    expect(filas).toHaveLength(2);
+    expect(filas[0].monto_usd).toBe(1238.45);
+    expect(filas[1].monto_usd).toBe(198.15);
+  });
+
   test('ítem en orden USD sin precio_usd convierte el precio (Bs) con la tasa', () => {
     const filas = normalizarItemsOrdenes([
       ordenFix({ estado: 'pagada', total_moneda: 'USD', items: [{ sku: 'X', nombre: 'Y', cantidad: 1, precio: 80 }] } as Partial<Orden>),
