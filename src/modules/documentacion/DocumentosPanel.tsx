@@ -74,7 +74,8 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
           id="doc-buscar" className="search" value={q} onChange={(e) => setQ(e.target.value)}
           placeholder="Buscar por nombre, categoría o descripción…" aria-label="Buscar documento"
         />
-        <SearchSelect id="doc-cat" value={cat} onChange={setCat} placeholder="🔍 Todas las categorías" style={{ minWidth: 220 }}
+        {/* Con tope: sin él se comía la fila entera y la barra caía en tres líneas. */}
+        <SearchSelect id="doc-cat" value={cat} onChange={setCat} placeholder="🔍 Todas las categorías" style={{ minWidth: 200, maxWidth: 260 }}
           options={[{ value: '', label: 'Todas las categorías' }, ...categorias.map((c) => ({ value: c, label: `${c}${conteoCats[c] ? ` (${conteoCats[c]})` : ''}` }))]} />
         {canWrite && (
           <button type="button" className="btn btn-ghost" onClick={() => setGestionarCats(true)} title="Agregar, renombrar o eliminar categorías">🏷 Categorías</button>
