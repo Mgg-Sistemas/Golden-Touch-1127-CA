@@ -18,14 +18,18 @@
 import type { EmpresaRrhh, Personal, PersonalFamiliar, PersonalSueldo } from '@/shared/lib/types';
 import type { PersonalCargo } from './cargos';
 import {
+  PARENTESCOS,
   antiguedad,
   edad,
   hijosDe,
   labelEmpresa,
   labelEstadoCivil,
   labelGenero,
+  labelParentesco,
 } from './fichaPersonal';
-import { GRADOS } from './instruccionYTrabajo';
+import { datosDeCuenta, infoTipo, leerCuentas } from './datosBancarios';
+import { GRADOS, normalizarTrabajo, resumenTrabajo } from './instruccionYTrabajo';
+import { textoCondicion } from './saludPersonal';
 
 /* ───────────── Tipos de configuración ───────────── */
 
@@ -114,6 +118,7 @@ export interface FilaReportePersonal {
   // Remuneración
   sueldo_base: number;
   sueldo_base_formato: string;
+  datos_pago: string;
 
   // Carga familiar e hijos
   tiene_hijos: boolean;
@@ -121,6 +126,7 @@ export interface FilaReportePersonal {
   cantidad_hijos: number;
   carga_familiar_total: number;
   nombres_hijos: string;
+  detalle_familiares: string;
 
   // Datos sociodemográficos y salud
   fecha_nacimiento: string;
@@ -132,7 +138,10 @@ export interface FilaReportePersonal {
   grado_instruccion: string;
   grado_instruccion_texto: string;
   titulo_obtenido: string;
+  trabajo_anterior: string;
   grupo_sanguineo: string;
+  alergias: string;
+  enfermedades: string;
   condicion_salud: string;
 
   // Contacto y ubicación
@@ -258,11 +267,14 @@ export const CAMPOS_REPORTE_PERSONAL: CampoColumnaPersonal[] = [
 
   // Remuneración
   { clave: 'sueldo_base', etiqueta: 'Sueldo Base ($ USD)', categoria: 'remuneracion', anchoPdf: 26, anchoExcel: 16, alineacion: 'right', formato: 'moneda' },
+  { clave: 'datos_pago', etiqueta: 'Método / Datos de Pago', categoria: 'remuneracion', anchoPdf: 44, anchoExcel: 32, alineacion: 'left', formato: 'texto' },
 
   // Carga familiar e hijos
   { clave: 'hijos_texto', etiqueta: 'Hijos / Carga', categoria: 'familia', anchoPdf: 24, anchoExcel: 15, alineacion: 'center', formato: 'texto' },
   { clave: 'cantidad_hijos', etiqueta: 'Cant. Hijos', categoria: 'familia', anchoPdf: 18, anchoExcel: 12, alineacion: 'right', formato: 'numero' },
+  { clave: 'carga_familiar_total', etiqueta: 'Carga Familiar Total', categoria: 'familia', anchoPdf: 20, anchoExcel: 14, alineacion: 'right', formato: 'numero' },
   { clave: 'nombres_hijos', etiqueta: 'Detalle Hijos', categoria: 'familia', anchoPdf: 40, anchoExcel: 30, alineacion: 'left', formato: 'texto' },
+  { clave: 'detalle_familiares', etiqueta: 'Detalle Carga Familiar', categoria: 'familia', anchoPdf: 44, anchoExcel: 32, alineacion: 'left', formato: 'texto' },
 
   // Demografía y Salud
   { clave: 'fecha_nacimiento', etiqueta: 'Fecha de Nacimiento', categoria: 'demografia', anchoPdf: 22, anchoExcel: 14, alineacion: 'center', formato: 'fecha' },
@@ -271,7 +283,10 @@ export const CAMPOS_REPORTE_PERSONAL: CampoColumnaPersonal[] = [
   { clave: 'estado_civil_texto', etiqueta: 'Estado Civil', categoria: 'demografia', anchoPdf: 22, anchoExcel: 14, alineacion: 'center', formato: 'texto' },
   { clave: 'grado_instruccion_texto', etiqueta: 'Grado Instrucción', categoria: 'demografia', anchoPdf: 26, anchoExcel: 18, alineacion: 'left', formato: 'texto' },
   { clave: 'titulo_obtenido', etiqueta: 'Título / Especialidad', categoria: 'demografia', anchoPdf: 32, anchoExcel: 22, alineacion: 'left', formato: 'texto' },
+  { clave: 'trabajo_anterior', etiqueta: 'Trabajo Anterior', categoria: 'demografia', anchoPdf: 40, anchoExcel: 28, alineacion: 'left', formato: 'texto' },
   { clave: 'grupo_sanguineo', etiqueta: 'Grupo Sangre', categoria: 'demografia', anchoPdf: 16, anchoExcel: 10, alineacion: 'center', formato: 'texto' },
+  { clave: 'alergias', etiqueta: 'Alergias', categoria: 'demografia', anchoPdf: 28, anchoExcel: 20, alineacion: 'left', formato: 'texto' },
+  { clave: 'enfermedades', etiqueta: 'Enfermedad / Condición', categoria: 'demografia', anchoPdf: 30, anchoExcel: 22, alineacion: 'left', formato: 'texto' },
   { clave: 'condicion_salud', etiqueta: 'Condición Médica', categoria: 'demografia', anchoPdf: 30, anchoExcel: 20, alineacion: 'left', formato: 'texto' },
 
   // Contacto y Ubicación
@@ -279,6 +294,7 @@ export const CAMPOS_REPORTE_PERSONAL: CampoColumnaPersonal[] = [
   { clave: 'correo', etiqueta: 'Correo', categoria: 'contacto', anchoPdf: 36, anchoExcel: 25, alineacion: 'left', formato: 'texto' },
   { clave: 'direccion', etiqueta: 'Dirección', categoria: 'contacto', anchoPdf: 44, anchoExcel: 30, alineacion: 'left', formato: 'texto' },
   { clave: 'contacto_emergencia', etiqueta: 'Contacto Emergencia', categoria: 'contacto', anchoPdf: 32, anchoExcel: 22, alineacion: 'left', formato: 'texto' },
+  { clave: 'parentesco_emergencia', etiqueta: 'Parentesco Emergencia', categoria: 'contacto', anchoPdf: 24, anchoExcel: 16, alineacion: 'center', formato: 'texto' },
   { clave: 'telefono_emergencia', etiqueta: 'Tlf. Emergencia', categoria: 'contacto', anchoPdf: 24, anchoExcel: 15, alineacion: 'center', formato: 'texto' },
 
   // Histórico Salarial y de Cargos
@@ -304,12 +320,12 @@ export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionPersonal, string[
   hijos: ['nombre_completo', 'cedula', 'departamento', 'cargo', 'cantidad_hijos', 'nombres_hijos', 'sueldo_base'],
   antiguedad: ['nombre_completo', 'cedula', 'departamento', 'cargo', 'fecha_ingreso', 'antiguedad_texto', 'sueldo_base'],
   grado_instruccion: ['nombre_completo', 'cedula', 'departamento', 'cargo', 'titulo_obtenido', 'sueldo_base'],
-  detallado: ['ficha_nro', 'nombre_completo', 'cedula', 'departamento', 'cargo', 'empresa', 'sueldo_base', 'antiguedad_texto', 'hijos_texto', 'telefono', 'estado_texto'],
+  detallado: ['ficha_nro', 'nombre_completo', 'cedula', 'rif', 'departamento', 'cargo', 'empresa', 'sueldo_base', 'antiguedad_texto', 'hijos_texto', 'telefono', 'estado_texto'],
 };
 
 /** Presets de columnas por defecto según el ámbito. */
 export const CAMPOS_POR_DEFECTO_POR_AMBITO: Record<AmbitoReportePersonal, string[]> = {
-  directorio: ['nombre_completo', 'cedula', 'cargo', 'departamento', 'empresa', 'sueldo_base', 'antiguedad_texto', 'hijos_texto', 'estado_texto'],
+  directorio: ['nombre_completo', 'cedula', 'rif', 'cargo', 'departamento', 'empresa', 'sueldo_base', 'antiguedad_texto', 'hijos_texto', 'estado_texto'],
   historico_salarial: ['nombre_completo', 'cargo', 'departamento', 'sueldo_anterior', 'sueldo_base', 'variacion_sueldo_usd', 'variacion_sueldo_pct', 'fecha_ultimo_aumento', 'motivo_ultimo_aumento', 'empresa'],
   historico_cargos: ['nombre_completo', 'cargo_anterior', 'cargo', 'departamento', 'fecha_cambio_cargo', 'motivo_cambio_cargo', 'actor_name', 'empresa'],
 };
@@ -348,6 +364,36 @@ export function formatearUsd(monto: number): string {
   })}`;
 }
 
+/** Formatea `personal.datos_pago` en texto legible para impresión/exportación (evita `{}` o JSON crudo). */
+export function formatearDatosPagoPersonal(datosPago: unknown): string {
+  if (!datosPago) return '';
+  if (typeof datosPago === 'string') {
+    const limpio = datosPago.trim();
+    return limpio && limpio !== '{}' ? limpio : '';
+  }
+  const cuentas = leerCuentas(datosPago);
+  if (cuentas.length > 0) {
+    const ordenadas = [...cuentas].sort((a, b) => Number(!!b.principal) - Number(!!a.principal));
+    return ordenadas
+      .map((c) => {
+        const info = infoTipo(c.tipo);
+        const marca = ordenadas.length > 1 && c.principal ? ' (Principal)' : '';
+        const detalle = datosDeCuenta(c)
+          .map((d) => `${d.etiqueta}: ${d.valor}`)
+          .join(' · ');
+        return detalle ? `${info.label} (${info.moneda})${marca}: ${detalle}` : `${info.label} (${info.moneda})${marca}`;
+      })
+      .join(' | ');
+  }
+  if (typeof datosPago === 'object') {
+    const entradas = Object.entries(datosPago as Record<string, unknown>)
+      .filter(([k, v]) => k !== 'cuentas' && v != null && v !== '' && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'))
+      .map(([k, v]) => `${k}: ${String(v).trim()}`);
+    return entradas.join(' · ');
+  }
+  return '';
+}
+
 /**
  * Normaliza una entidad de Personal y su carga familiar en una fila plana.
  */
@@ -378,11 +424,42 @@ export function normalizarPersonal(
     .filter(Boolean)
     .join(' · ');
 
-  const gInst = GRADOS.find((g) => g.value === p.grado_instruccion)?.label ?? txt(p.grado_instruccion);
+  const detalleFamiliares = fam
+    .map((f) => {
+      const nom = txt(f.nombre);
+      const par = labelParentesco(f.parentesco);
+      const e = edad(f.fecha_nacimiento);
+      const sufijo = e !== null ? `${par}, ${e}a` : par;
+      return nom ? `${nom} (${sufijo})` : sufijo;
+    })
+    .filter(Boolean)
+    .join(' · ');
+
+  const claveInst = txt(p.grado_instruccion);
+  const gInst = GRADOS.find((g) => g.value === claveInst)?.label ?? claveInst;
+  const trabNorm = normalizarTrabajo({
+    empresa: p.trabajo_anterior_empresa,
+    cargo: p.trabajo_anterior_cargo,
+    duracion: p.trabajo_anterior_duracion,
+    sueldo: p.trabajo_anterior_sueldo,
+  });
+  const baseTrab = resumenTrabajo(trabNorm);
+  const sueldoTrabTxt =
+    trabNorm.sueldo != null && trabNorm.sueldo > 0
+      ? `$ ${Number.isInteger(trabNorm.sueldo) ? String(trabNorm.sueldo) : trabNorm.sueldo.toFixed(2).replace('.', ',')}`
+      : '';
+  const trabajoAnterior = [baseTrab, sueldoTrabTxt].filter(Boolean).join(' · ');
+  const alergiasTxt = p.tiene_alergias == null ? '' : textoCondicion(p.tiene_alergias, p.alergias_detalle);
+  const enfermedadesTxt = p.tiene_enfermedad == null ? '' : textoCondicion(p.tiene_enfermedad, p.enfermedad_detalle);
   const salud = [
     p.tiene_alergias ? `Alergia: ${txt(p.alergias_detalle) || 'Sí'}` : null,
     p.tiene_enfermedad ? `Condición: ${txt(p.enfermedad_detalle) || 'Sí'}` : null,
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean).join(' · ') || (p.tiene_alergias === false && p.tiene_enfermedad === false ? 'Sin alergias ni enfermedades' : '');
+
+  const parentescoRaw = txt(p.contacto_emergencia_parentesco);
+  const parentescoEmergencia = parentescoRaw
+    ? (PARENTESCOS.find((x) => x.valor === parentescoRaw)?.label ?? parentescoRaw)
+    : '';
 
   return {
     id: p.id,
@@ -414,6 +491,7 @@ export function normalizarPersonal(
     // Remuneración
     sueldo_base: sueldo,
     sueldo_base_formato: formatearUsd(sueldo),
+    datos_pago: formatearDatosPagoPersonal(p.datos_pago),
 
     // Carga familiar e hijos
     tiene_hijos: tieneHijos,
@@ -421,6 +499,7 @@ export function normalizarPersonal(
     cantidad_hijos: hijos.length,
     carga_familiar_total: fam.length,
     nombres_hijos: nombresHijos,
+    detalle_familiares: detalleFamiliares,
 
     // Sociodemográficos
     fecha_nacimiento: fmtFecha(p.fecha_nacimiento),
@@ -429,10 +508,13 @@ export function normalizarPersonal(
     genero_texto: labelGenero(p.genero) || 'No especificado',
     estado_civil: p.estado_civil || '',
     estado_civil_texto: labelEstadoCivil(p.estado_civil) || 'No especificado',
-    grado_instruccion: p.grado_instruccion || '',
+    grado_instruccion: claveInst,
     grado_instruccion_texto: gInst || 'No especificado',
     titulo_obtenido: txt(p.titulo_obtenido),
+    trabajo_anterior: trabajoAnterior,
     grupo_sanguineo: txt(p.grupo_sanguineo),
+    alergias: alergiasTxt,
+    enfermedades: enfermedadesTxt,
     condicion_salud: salud,
 
     // Contacto
@@ -440,7 +522,7 @@ export function normalizarPersonal(
     correo: txt(p.correo),
     direccion: txt(p.direccion),
     contacto_emergencia: txt(p.contacto_emergencia),
-    parentesco_emergencia: txt(p.contacto_emergencia_parentesco),
+    parentesco_emergencia: parentescoEmergencia,
     telefono_emergencia: txt(p.telefono_emergencia),
 
     // Campos históricos preparados
@@ -914,6 +996,65 @@ export function obtenerMetricasFichaPersonal(
       sub: f.titulo_obtenido || 'Sin título asentado',
       colorHex: '#8b5cf6',
       colorRgb: [139, 92, 246],
+    });
+  }
+
+  // 9. RIF / Nacionalidad
+  if (cols.has('rif') || cols.has('nacionalidad')) {
+    metricas.push({
+      clave: 'rif',
+      etiqueta: 'RIF / NACIONALIDAD',
+      valor: f.rif || 'Sin RIF',
+      sub: f.nacionalidad || 'Sin nacionalidad',
+      colorHex: f.rif ? '#0ea5e9' : '#94a3b8',
+      colorRgb: f.rif ? [14, 165, 233] : [148, 163, 184],
+    });
+  }
+
+  // 10. Contacto de Emergencia
+  if (cols.has('contacto_emergencia') || cols.has('telefono_emergencia') || cols.has('parentesco_emergencia')) {
+    const subEmerg = [f.parentesco_emergencia, f.telefono_emergencia].filter(Boolean).join(' · ') || 'Sin teléfono emergencia';
+    metricas.push({
+      clave: 'emergencia',
+      etiqueta: 'EMERGENCIA',
+      valor: f.contacto_emergencia || 'Sin contacto',
+      sub: subEmerg,
+      colorHex: f.contacto_emergencia ? '#f43f5e' : '#94a3b8',
+      colorRgb: f.contacto_emergencia ? [244, 63, 94] : [148, 163, 184],
+    });
+  }
+
+  // 11. Salud y Grupo Sanguíneo
+  if (cols.has('grupo_sanguineo') || cols.has('alergias') || cols.has('enfermedades') || cols.has('condicion_salud')) {
+    metricas.push({
+      clave: 'salud',
+      etiqueta: 'SALUD / SANGRE',
+      valor: f.grupo_sanguineo ? `Sangre ${f.grupo_sanguineo}` : (f.condicion_salud || 'Sin novedad'),
+      sub: f.condicion_salud || 'Sin condiciones registradas',
+      colorHex: '#14b8a6',
+      colorRgb: [20, 184, 166],
+    });
+  }
+
+  // 12. Datos de Pago / Trabajo Anterior
+  if (cols.has('datos_pago')) {
+    metricas.push({
+      clave: 'datos_pago',
+      etiqueta: 'DATOS DE PAGO',
+      valor: f.datos_pago || 'Sin cuentas registradas',
+      sub: 'Método bancario',
+      colorHex: f.datos_pago ? '#10b981' : '#94a3b8',
+      colorRgb: f.datos_pago ? [16, 185, 129] : [148, 163, 184],
+    });
+  }
+  if (cols.has('trabajo_anterior')) {
+    metricas.push({
+      clave: 'trabajo_anterior',
+      etiqueta: 'TRABAJO ANTERIOR',
+      valor: f.trabajo_anterior || 'Sin experiencia previa',
+      sub: 'Referencia laboral',
+      colorHex: '#64748b',
+      colorRgb: [100, 116, 139],
     });
   }
 
