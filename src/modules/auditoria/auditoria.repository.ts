@@ -150,13 +150,27 @@ function cambioEstructural(par: [unknown, unknown]): boolean {
   return esObj(par[0]) && esObj(par[1]);
 }
 
-export interface EventoDescrito { icono: string; modulo: string; titulo: string; detalle: string[] }
+export interface EventoDescrito {
+  icono: string;
+  modulo: string;
+  titulo: string;
+  detalle: string[];
+  /** Identificador interno, solo cuando la cosa no tiene un número propio. */
+  referencia: string | null;
+}
 
 /** Describe un evento en lenguaje llano: título + líneas de detalle (para el timeline). */
 export function describirEvento(e: AuditoriaEvento): EventoDescrito {
   const { modulo, icono } = moduloDe(e.tabla);
-  const ref = e.etiqueta ? ` ${e.etiqueta}` : (e.entidad_id ? ` #${e.entidad_id.slice(0, 8)}` : '');
-  let titulo = `${ACCION_LABEL[e.accion]} en ${modulo}${ref}`;
+  /* `etiqueta` es el número con el que la gente conoce la cosa («SP-2026-0538»):
+     ese sí va en el título. El `entidad_id` NO: «Creó en Inventario #bc3333be»
+     no le dice nada a nadie. Cuando no hay etiqueta, el título dice qué pasó y
+     el identificador queda aparte, como referencia para rastrear. */
+  const ref = e.etiqueta ? ` ${e.etiqueta}` : '';
+  const referencia = !e.etiqueta && e.entidad_id ? `#${e.entidad_id.slice(0, 8)}` : null;
+  let titulo = ref
+    ? `${ACCION_LABEL[e.accion]}${ref}`
+    : `${ACCION_LABEL[e.accion]} un registro`;
   const detalle: string[] = [];
 
   // Acciones semánticas frecuentes.
@@ -175,7 +189,7 @@ export function describirEvento(e: AuditoriaEvento): EventoDescrito {
       detalle.push(`${campoLabel(k)}: ${valLegible(par[0])} → ${valLegible(par[1])}`);
     }
   }
-  return { icono, modulo, titulo, detalle };
+  return { icono, modulo, titulo, detalle, referencia };
 }
 
 export interface AuditoriaFiltro { desde?: string | null; hasta?: string | null; userId?: string | null; tabla?: string | null; limit?: number }
