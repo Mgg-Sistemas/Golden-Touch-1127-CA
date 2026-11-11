@@ -29,7 +29,7 @@ import { num, date, dateTime, money } from '@/shared/lib/format';
 import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCatalogoCombustible, TipoMovTanque } from '@/shared/lib/types';
 import {
   listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada,
-  eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo, listCambiosContador,
+  eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
   setMovimientoCuaderno,
 } from './tanques.repository';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
@@ -40,7 +40,6 @@ import { mensajeMovimiento } from './mensajeMovimiento';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
-import { cambioVigente, aLecturaFisica } from './arrastreContador';
 import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
 import { errorSaldoInsuficiente, tanqueSinLitros } from './saldoSuficiente';
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
@@ -708,17 +707,6 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
   mov: MovimientoTanque; tanque: TanqueCombustible | null; tanques: TanqueCombustible[];
   canWrite: boolean; esSurtidor: boolean; actor: string; onClose: () => void; onBorrado: () => Promise<void>;
 }) {
-  // Si a este tanque le cambiaron el contador, lo guardado es el acumulado del
-  // sistema (208.891), pero quien surte vio otra cosa en el aparato (30). El
-  // teléfono habla SIEMPRE el idioma del contador: se traduce al mostrar.
-  const [cambiosContador, setCambiosContador] = useState<{ fecha: string; acumuladoCierre: number; lecturaNueva: number }[]>([]);
-  useEffect(() => {
-    if (!tanque?.id) { setCambiosContador([]); return; }
-    listCambiosContador(tanque.id).then(setCambiosContador).catch(() => setCambiosContador([]));
-  }, [tanque?.id]);
-  const contadorQueMarcaba = (fecha: string | null | undefined, valor: number | null | undefined) =>
-    valor == null ? null : aLecturaFisica(valor, cambioVigente(cambiosContador, fecha));
-
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
   const [enCuaderno, setEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
@@ -768,11 +756,10 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <Fila k="Destino / mina" v={mov.ubicacion} />
         <Fila k="Observación" v={mov.observacion} />
         {mov.tipo === 'entrada' && <Fila k="Costo por litro" v={money(mov.tasa_usd_litro)} />}
-        <Fila k="Contador" v={(() => {
-          const i = contadorQueMarcaba(mov.fecha, mov.contador_global_ini);
-          const f = contadorQueMarcaba(mov.fecha, mov.contador_global_fin);
-          return i != null || f != null ? `${i ?? '\u2014'} \u2192 ${f ?? '\u2014'}` : null;
-        })()} />
+        {/* Lo que marcaba el aparato, no el acumulado del sistema: el telefono
+            habla siempre el idioma del contador (ver listMovimientosTanque). */}
+        <Fila k="Contador" v={mov.contador_marcaba_ini != null || mov.contador_marcaba_fin != null
+          ? `${mov.contador_marcaba_ini ?? '\u2014'} \u2192 ${mov.contador_marcaba_fin ?? '\u2014'}` : null} />
         <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
         <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />

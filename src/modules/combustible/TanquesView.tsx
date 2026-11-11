@@ -865,7 +865,13 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
       case 'hrs':
         return <td key={colId} className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>;
       case 'contFin':
-        return <td key={colId} className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>;
+        return (
+          <td key={colId} className="mono muted"
+              title={m.contador_global_fin != null && m.contador_marcaba_fin !== m.contador_global_fin
+                ? `Acumulado del sistema: ${num(m.contador_global_fin)}` : undefined}>
+            {m.contador_marcaba_fin != null ? num(m.contador_marcaba_fin) : '—'}
+          </td>
+        );
       case 'ltUsados':
         return <td key={colId} className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>;
       case 'entrada':
@@ -1924,8 +1930,11 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const [hi, setHi] = useState(s(mov.horometro_ini));
   const [hf, setHf] = useState(s(mov.horometro_fin));
   const [km, setKm] = useState(s(mov.kilometraje));
-  const [ci, setCi] = useState(s(mov.contador_global_ini));
-  const [cf, setCf] = useState(s(mov.contador_global_fin));
+  // Se edita en el idioma del CONTADOR (lo que marcaba el aparato). El repositorio
+  // lo traduce al acumulado al guardar, igual que al registrar.
+  const [ci, setCi] = useState(s(mov.contador_marcaba_ini ?? mov.contador_global_ini));
+  const [cf, setCf] = useState(s(mov.contador_marcaba_fin ?? mov.contador_global_fin));
+  const hayArrastre = mov.contador_global_fin != null && mov.contador_marcaba_fin !== mov.contador_global_fin;
   const [registradoEnCuaderno, setRegistradoEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
   const [cuadernoLitros, setCuadernoLitros] = useState(mov.cuaderno_litros != null ? String(mov.cuaderno_litros) : (mov.registrado_en_cuaderno ? String(mov.litros) : ''));
   const [registradoEnDrive, setRegistradoEnDrive] = useState(!!mov.registrado_en_drive);
@@ -2062,8 +2071,23 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
           style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
       </div>
       <div className="form-grid">
-        <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" name="det-ci" defaultValue={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" name="det-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Contador inicial (lo que marcaba el aparato)</label><input className="input mono" type="number" step="any" name="det-ci" defaultValue={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Contador final (lo que marcaba el aparato)</label><input className="input mono" type="number" step="any" name="det-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
+        {/* A este tanque le cambiaron el contador: se escribe lo que marca el aparato y
+            se muestra, aparte, el acumulado del sistema. Son dos numeros distintos. */}
+        {hayArrastre && (
+          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+            <span className="muted hint" style={{ fontSize: '.74rem' }}>
+              A este tanque se le cambio el contador. Escriba lo que marca el aparato.
+              Acumulado del sistema en este movimiento:{' '}
+              <strong className="mono">
+                {mov.contador_global_ini != null ? num(mov.contador_global_ini) : '\u2014'}
+                {' \u2192 '}
+                {mov.contador_global_fin != null ? num(mov.contador_global_fin) : '\u2014'}
+              </strong>
+            </span>
+          </div>
+        )}
       </div>
       <div className="form-row">
         <label>Litros usados (según contador = final − inicial)</label>

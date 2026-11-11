@@ -621,9 +621,10 @@ async function aplicarSaldoTanque(id: string, saldoLitros: number, saldoUsd: num
 export async function listMovimientosTanque(tanqueId: string): Promise<MovimientoTanque[]> {
   // El saldo corrido arranca del SALDO DE APERTURA del tanque (los litros con que se
   // creó, que no son un movimiento). Así la última fila iguala el saldo del header.
-  const [{ data, error }, { data: tk }] = await Promise.all([
+  const [{ data, error }, { data: tk }, cambiosCont] = await Promise.all([
     supabase.from('combustible_tanque_movimientos').select('*').eq('tanque_id', tanqueId),
     supabase.from('combustible_tanques').select('saldo_inicial_litros, saldo_inicial_usd, tasa_usd_litro').eq('id', tanqueId).maybeSingle(),
+    cambiosContadorTanque(tanqueId),
   ]);
   if (error) throw error;
   const aperturaL = num((tk as { saldo_inicial_litros?: number | null } | null)?.saldo_inicial_litros);
@@ -642,6 +643,10 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   let saldoL = aperturaL;
   let saldoU = aperturaU;
   return rows.map((m) => {
+    // Lo que marcaba el aparato ese dia. Sin cambios de contador es el mismo numero.
+    const cambioMov = cambioVigente(cambiosCont, m.fecha);
+    const marcabaIni = aLecturaFisica(m.contador_global_ini, cambioMov);
+    const marcabaFin = aLecturaFisica(m.contador_global_fin, cambioMov);
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
     const regCuaderno = m.registrado_en_cuaderno ?? (m.observacion && /\[Cuaderno:\s*(Sí|Registrado|\d+)/i.test(m.observacion) ? true : false);
@@ -664,6 +669,8 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
       saldo_drive: sDrive,
       saldo_litros: round(saldoL, 2),
       saldo_usd: round(saldoU, 2),
+      contador_marcaba_ini: marcabaIni,
+      contador_marcaba_fin: marcabaFin,
     };
   });
 }
@@ -1524,7 +1531,7 @@ export async function actualizarMovimientoTanque(
 ): Promise<void> {
   // Equipo previo: si la edición lo cambia, hay que re-encadenar también la cadena vieja.
   const { data: prev } = await supabase.from('combustible_tanque_movimientos')
-    .select('equipo, tipo, litros, tanque_id, mov_vinculado_id').eq('id', id).maybeSingle();
+    .select('equipo, tipo, litros, tanque_id, mov_vinculado_id, fecha').eq('id', id).maybeSingle();
   const equipoViejo = (prev as { equipo?: string | null } | null)?.equipo ?? null;
 
   // Una edición que SACA más litros (subir un surtido, pasar una entrada a uso…) tiene que
@@ -1549,7 +1556,21 @@ export async function actualizarMovimientoTanque(
     }
   }
 
-  const upd: Record<string, unknown> = { ...campos(patch), updated_at: new Date().toISOString() };
+  // La pantalla manda SIEMPRE lo que marca el contador; aqui se traduce al acumulado
+  // que guarda el sistema, igual que al registrar (ver camposConContador). Sin esto,
+  // editar un movimiento de un tanque con contador nuevo guardaria 30 donde van 208.891.
+  const patchGuardar: typeof patch = { ...patch };
+  {
+    const tanqueIdMov = (prev as { tanque_id?: string | null } | null)?.tanque_id ?? '';
+    const fechaMov = patch.fecha ?? (prev as { fecha?: string | null } | null)?.fecha ?? hoy();
+    const cambioMov = cambioVigente(await cambiosContadorTanque(tanqueIdMov), fechaMov);
+    if (cambioMov) {
+      patchGuardar.contadorGlobalIni = aAcumulado(patch.contadorGlobalIni, cambioMov);
+      patchGuardar.contadorGlobalFin = aAcumulado(patch.contadorGlobalFin, cambioMov);
+    }
+  }
+
+  const upd: Record<string, unknown> = { ...campos(patchGuardar), updated_at: new Date().toISOString() };
   const afectaSaldo = patch.tipo != null || patch.litros != null || patch.tasaUsdLitro != null;
   if (patch.tipo != null) upd.tipo = patch.tipo;
   if (patch.litros != null) upd.litros = num(patch.litros);
