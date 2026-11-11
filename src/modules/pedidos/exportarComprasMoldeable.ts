@@ -321,13 +321,12 @@ export async function descargarComprasExcel(
 
 /* ============================================================
    2. PDF (jsPDF + autotable)
-   (Actualizado 11/11/2026: Formato consolidado de alta fidelidad con
-    ranking de departamentos y cotizaciones unificado en una sola tabla,
-    listado detallado enfocado en compras pendientes con analista,
-    código y montos, y textos sutilmente elevados en celdas)
+   (Actualizado 11/11/2026: Tipografía incrementada un 15%, ranking unificado,
+    listado de pendientes, y tabla final de trazabilidad integral con notas
+    y desglose puntual de ítems para todas las compras)
    ============================================================ */
 
-/** Helper para dibujar el encabezado formal de sección con acento vertical naranja */
+/** Helper para dibujar el encabezado formal de sección con acento vertical naranja (+15% tipografía) */
 function dibujarHeaderSeccion(
   doc: jsPDF,
   titulo: string,
@@ -338,24 +337,57 @@ function dibujarHeaderSeccion(
   TINTA: [number, number, number],
   GRIS_TEXTO: [number, number, number],
 ): number {
-  doc.setFillColor(...NARANJA);
-  doc.rect(M, y, 3.5, 10, 'F');
-
+  const maxW = doc.internal.pageSize.getWidth() - M * 2;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...TINTA);
-  // Texto ligeramente subido a y + 7.2
-  doc.text(pdfSafe(titulo), M + 7, y + 7.2);
+  doc.setFontSize(9.8);
+  const titleW = doc.getTextWidth(pdfSafe(titulo));
 
-  if (subtitulo) {
-    const titleW = doc.getTextWidth(pdfSafe(titulo));
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
-    doc.setTextColor(...GRIS_TEXTO);
-    doc.text(pdfSafe(subtitulo), M + 7 + titleW + 8, y + 7.2);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.6);
+  const subW = subtitulo ? doc.getTextWidth(pdfSafe(subtitulo)) : 0;
+
+  // Si cabe en una sola línea (ej. en landscape o subtítulos cortos)
+  if (!subtitulo || (M + 7 + titleW + 8 + subW <= doc.internal.pageSize.getWidth() - M)) {
+    doc.setFillColor(...NARANJA);
+    doc.rect(M, y, 3.5, 12, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.8);
+    doc.setTextColor(...TINTA);
+    doc.text(pdfSafe(titulo), M + 7, y + 8.5);
+
+    if (subtitulo) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.6);
+      doc.setTextColor(...GRIS_TEXTO);
+      doc.text(pdfSafe(subtitulo), M + 7 + titleW + 8, y + 8.5);
+    }
+    return y + 16;
   }
 
-  return y + 13;
+  // Si no cabe en una sola línea (ej. portrait con subtítulo largo): dos renglones limpios
+  doc.setFillColor(...NARANJA);
+  doc.rect(M, y, 3.5, 21, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.8);
+  doc.setTextColor(...TINTA);
+  doc.text(pdfSafe(titulo), M + 7, y + 8.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRIS_TEXTO);
+
+  let subTxt = pdfSafe(subtitulo);
+  if (doc.getTextWidth(subTxt) > maxW - 10) {
+    while (subTxt.length > 3 && doc.getTextWidth(subTxt + '…') > maxW - 10) {
+      subTxt = subTxt.slice(0, -1);
+    }
+    subTxt += '…';
+  }
+  doc.text(subTxt, M + 7, y + 18.0);
+
+  return y + 26;
 }
 
 export async function construirComprasPdf(
@@ -427,36 +459,36 @@ export async function construirComprasPdf(
   h = h % 12 || 12;
   const fechaHoraEmision = `${dia} ${mes} ${anio}, ${h}:${mMin} ${ampm}`;
 
-  // 1. MEMBRETE DUAL INSTITUCIONAL (Identidad GT + Caja de Metadatos)
-  const cajaLogo = esLandscape ? 40 : 38;
+  // 1. MEMBRETE DUAL INSTITUCIONAL (+15% tipografía)
+  const cajaLogo = esLandscape ? 42 : 40;
   if (logo) {
     dibujarLogoPdf(doc, logo, MARGIN, y, cajaLogo);
   }
   const tx = logo ? MARGIN + anchoLogoPdf(cajaLogo) + 12 : MARGIN;
 
-  // Lado izquierdo: datos corporativos GT (ligeramente subidos)
+  // Lado izquierdo: datos corporativos GT
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(esLandscape ? 11 : 10.5);
+  doc.setFontSize(esLandscape ? 12.5 : 12.0); // +15%
   doc.setTextColor(...TINTA_GT);
-  doc.text(idEmp.nombre || 'MINERA GOLDEN TOUCH 1127, C.A.', tx, y + 10.5);
+  doc.text(idEmp.nombre || 'MINERA GOLDEN TOUCH 1127, C.A.', tx, y + 11.5);
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.2);
+  doc.setFontSize(8.3); // +15%
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('EXPLOTACIÓN Y BENEFICIO DE MINERALES', tx, y + 20.5);
+  doc.text('EXPLOTACIÓN Y BENEFICIO DE MINERALES', tx, y + 22.5);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.0);
+  doc.setFontSize(8.0); // +15%
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text(`RIF: ${idEmp.rif || 'J-50129993-5'} · Mina Peramanal`, tx, y + 29.5);
+  doc.text(`RIF: ${idEmp.rif || 'J-50129993-5'} · Mina Peramanal`, tx, y + 32.5);
 
-  doc.setFontSize(6.8);
+  doc.setFontSize(7.8); // +15%
   doc.setTextColor(...GRIS_CLARO_GT);
-  doc.text('EL CALLAO · ESTADO BOLÍVAR · VENEZUELA', tx, y + 37.5);
+  doc.text('EL CALLAO · ESTADO BOLÍVAR · VENEZUELA', tx, y + 41.5);
 
   // Lado derecho: Caja ejecutiva formal de metadatos del reporte
-  const boxW = Math.min(235, Math.max(195, UW * 0.36));
-  const boxH = 46;
+  const boxW = Math.min(255, Math.max(215, UW * 0.38));
+  const boxH = 50;
   const bx = PAGE_W - MARGIN - boxW;
 
   doc.setFillColor(255, 255, 255);
@@ -464,50 +496,50 @@ export async function construirComprasPdf(
   doc.setLineWidth(0.6);
   doc.roundedRect(bx, y, boxW, boxH, 3, 3, 'FD');
 
-  const barH = 14;
+  const barH = 15;
   doc.setFillColor(...NARANJA_GT);
   doc.roundedRect(bx, y, boxW, barH, 3, 3, 'F');
   doc.rect(bx, y + barH - 3, boxW, 3, 'F');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.2);
+  doc.setFontSize(8.3); // +15%
   doc.setTextColor(255, 255, 255);
-  doc.text('REPORTE DE COMPRAS', bx + boxW / 2, y + 9.5, { align: 'center' });
+  doc.text('REPORTE DE COMPRAS', bx + boxW / 2, y + 10.5, { align: 'center' });
 
-  // Filas internas alineadas y ligeramente subidas
+  // Filas internas alineadas
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
+  doc.setFontSize(7.5); // +15%
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('EMITIDO:', bx + 8, y + 22.0);
+  doc.text('EMITIDO:', bx + 8, y + 24.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
-  doc.text(fechaHoraEmision, bx + 52, y + 22.0);
+  doc.text(fechaHoraEmision, bx + 55, y + 24.0);
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('PERÍODO:', bx + 8, y + 31.0);
+  doc.text('PERÍODO:', bx + 8, y + 34.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
   let perTxt = pdfSafe(`${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)}`);
-  if (doc.getTextWidth(perTxt) > boxW - 58) {
-    while (perTxt.length > 3 && doc.getTextWidth(perTxt + '…') > boxW - 58) {
+  if (doc.getTextWidth(perTxt) > boxW - 62) {
+    while (perTxt.length > 3 && doc.getTextWidth(perTxt + '…') > boxW - 62) {
       perTxt = perTxt.slice(0, -1);
     }
     perTxt += '…';
   }
-  doc.text(perTxt, bx + 52, y + 31.0);
+  doc.text(perTxt, bx + 55, y + 34.0);
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('REGISTROS:', bx + 8, y + 40.0);
+  doc.text('REGISTROS:', bx + 8, y + 44.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
-  doc.text(`${resumen.totalCompras} compras (${filas.length} en listado)`, bx + 52, y + 40.0);
+  doc.text(`${resumen.totalCompras} compras (${filas.length} en listado)`, bx + 55, y + 44.0);
 
-  y = Math.max(y + cajaLogo + 6, y + boxH + 8);
+  y = Math.max(y + cajaLogo + 8, y + boxH + 10);
 
   // 2. CINTILLO DE ALCANCE DEL REPORTE (A todo el ancho útil)
-  const stripH = 17;
+  const stripH = 19;
   doc.setFillColor(...FONDO_SUAVE_GT);
   doc.setDrawColor(...BORDE_GT);
   doc.setLineWidth(0.5);
@@ -518,14 +550,13 @@ export async function construirComprasPdf(
   doc.rect(MARGIN + 2, y, 1.5, stripH, 'F');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.0);
+  doc.setFontSize(8.0); // +15%
   doc.setTextColor(...NARANJA_GT);
-  // Texto ligeramente subido a y + 11.0
-  doc.text('ALCANCE DEL REPORTE:', MARGIN + 8, y + 11.0);
+  doc.text('ALCANCE DEL REPORTE:', MARGIN + 8, y + 12.5);
   const alcW = doc.getTextWidth('ALCANCE DEL REPORTE:');
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.0);
+  doc.setFontSize(8.0); // +15%
   doc.setTextColor(...TINTA_GT);
   const descFiltros = meta.subtituloFiltros ? ` · Filtros: ${meta.subtituloFiltros}` : '';
   const ambitoLabel = meta.ambito === 'ordenes' ? 'ÓRDENES DE COMPRA' : 'ÍTEMS';
@@ -533,15 +564,15 @@ export async function construirComprasPdf(
   const textoAlcance = pdfSafe(
     `Ámbito: ${ambitoLabel} · Agrupación: ${meta.agrupacion.toUpperCase()} · Formato: ${formatoLabel} · Tasa BCV: Bs ${fmtNum(meta.tasaBcv)}/$${descFiltros}`,
   );
-  doc.text(textoAlcance, MARGIN + 8 + alcW + 5, y + 11.0);
+  doc.text(textoAlcance, MARGIN + 8 + alcW + 5, y + 12.5);
 
-  y += stripH + 8;
+  y += stripH + 9;
 
-  // 3. TARJETAS DE KPIS SUPERIORES (con pestaña superior de color)
+  // 3. TARJETAS DE KPIS SUPERIORES (+15% tipografía)
   const cardGap = 6;
   const numKpis = 4;
   const cardW = (UW - cardGap * (numKpis - 1)) / numKpis;
-  const cardH = esLandscape ? 38 : 39;
+  const cardH = esLandscape ? 44 : 45;
 
   const kpis = [
     {
@@ -565,7 +596,7 @@ export async function construirComprasPdf(
     {
       titulo: 'TOTAL PAGADO / ABONADO',
       valor: fmtUsd(resumen.pagadoUsd),
-      sub: `${fmtBs(resumen.pagadoBs)}${resumen.deptoQueMasGasto ? ` · Mayor gasto: ${resumen.deptoQueMasGasto}` : ''}`,
+      sub: `${fmtBs(resumen.pagadoBs)}${resumen.deptoQueMasGasto ? ` · Mayor: ${resumen.deptoQueMasGasto}` : ''}`,
       colorTab: AZUL_GT,
     },
   ];
@@ -581,21 +612,21 @@ export async function construirComprasPdf(
     doc.setFillColor(...kpi.colorTab);
     doc.roundedRect(kx, y, cardW, 2.5, 1, 1, 'F');
 
-    // Título de la tarjeta (ligeramente subido)
+    // Título de la tarjeta
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.2);
+    doc.setFontSize(7.1); // +15%
     doc.setTextColor(...GRIS_TEXTO_GT);
-    doc.text(pdfSafe(kpi.titulo), kx + 6, y + 9.5);
+    doc.text(pdfSafe(kpi.titulo), kx + 6, y + 10.5);
 
     // Valor prominente
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(esLandscape ? 10.5 : 9.5);
+    doc.setFontSize(esLandscape ? 12.0 : 11.0); // +15%
     doc.setTextColor(...TINTA_GT);
-    doc.text(pdfSafe(kpi.valor), kx + 6, y + (esLandscape ? 20.5 : 20.0));
+    doc.text(pdfSafe(kpi.valor), kx + 6, y + (esLandscape ? 23.0 : 22.5));
 
     // Subtítulo
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(esLandscape ? 5.8 : 5.4);
+    doc.setFontSize(esLandscape ? 6.7 : 6.2); // +15%
     doc.setTextColor(...GRIS_CLARO_GT);
     let subTxt = pdfSafe(kpi.sub);
     if (doc.getTextWidth(subTxt) > cardW - 12) {
@@ -604,10 +635,10 @@ export async function construirComprasPdf(
       }
       subTxt += '…';
     }
-    doc.text(subTxt, kx + 6, y + (esLandscape ? 29.5 : 29.0));
+    doc.text(subTxt, kx + 6, y + (esLandscape ? 33.5 : 33.0));
   });
 
-  y += cardH + 12;
+  y += cardH + 13;
 
   let seccionNum = 1;
 
@@ -631,14 +662,13 @@ export async function construirComprasPdf(
     seccionNum = resBloque.siguienteSeccion;
   }
 
-  // 5. LISTADO DETALLADO: Enfocado en compras pendientes con analista, código y montos
+  // 5. LISTADO DE COMPRAS PENDIENTES CON ANALISTA, CÓDIGO Y MONTOS
   if (incluyeDetalle(meta)) {
     if (y + 60 > PAGE_H - MARGIN) {
       doc.addPage();
       y = MARGIN;
     }
 
-    // Filtrar específicamente las compras pendientes
     const comprasPendientes = filas.filter((f) => f.clase_estado === 'pendiente');
 
     y = dibujarHeaderSeccion(
@@ -673,20 +703,20 @@ export async function construirComprasPdf(
         {
           content: 'TOTAL PENDIENTES',
           colSpan: 5,
-          styles: { halign: 'left', fontStyle: 'bold' },
+          styles: { halign: 'left' as const, fontStyle: 'bold' as const },
         },
         {
           content: `${comprasPendientes.length} compras`,
-          styles: { halign: 'center', fontStyle: 'bold' },
+          styles: { halign: 'center' as const, fontStyle: 'bold' as const },
         },
         '',
         {
           content: fmtUsd(totPendUsd),
-          styles: { halign: 'right', fontStyle: 'bold' },
+          styles: { halign: 'right' as const, fontStyle: 'bold' as const },
         },
         {
           content: fmtBs(totPendBs),
-          styles: { halign: 'right', fontStyle: 'bold' },
+          styles: { halign: 'right' as const, fontStyle: 'bold' as const },
         },
       ];
 
@@ -698,8 +728,8 @@ export async function construirComprasPdf(
         foot: [footPend as unknown as string[]],
         theme: 'grid',
         styles: {
-          fontSize: esLandscape ? 7.2 : 6.5,
-          cellPadding: { top: 1.8, bottom: 2.6, left: 2.5, right: 2.5 },
+          fontSize: esLandscape ? 8.3 : 7.5, // +15%
+          cellPadding: { top: 2.2, bottom: 2.8, left: 2.6, right: 2.6 },
           lineColor: BORDE_GT,
           lineWidth: 0.3,
           textColor: TINTA_GT,
@@ -711,20 +741,20 @@ export async function construirComprasPdf(
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           halign: 'center',
-          cellPadding: { top: 2.0, bottom: 2.8, left: 2.5, right: 2.5 },
-          fontSize: esLandscape ? 7.2 : 6.5,
+          cellPadding: { top: 2.4, bottom: 3.0, left: 2.6, right: 2.6 },
+          fontSize: esLandscape ? 8.3 : 7.5,
         },
         footStyles: {
           fillColor: [241, 245, 249],
           textColor: TINTA_GT,
           fontStyle: 'bold',
-          fontSize: esLandscape ? 7.2 : 6.5,
+          fontSize: esLandscape ? 8.3 : 7.5,
         },
         alternateRowStyles: { fillColor: FONDO_ALT_GT },
         columnStyles: esLandscape
           ? {
-              0: { cellWidth: 22, halign: 'center' },
-              1: { cellWidth: 65, halign: 'center', fontStyle: 'bold' },
+              0: { cellWidth: 20, halign: 'center' },
+              1: { cellWidth: 72, halign: 'center', fontStyle: 'bold' },
               2: { cellWidth: 50, halign: 'center' },
               3: { halign: 'left' },
               4: { halign: 'left' },
@@ -734,52 +764,194 @@ export async function construirComprasPdf(
               8: { cellWidth: 85, halign: 'right' },
             }
           : {
-              0: { cellWidth: 18, halign: 'center' },
-              1: { cellWidth: 50, halign: 'center', fontStyle: 'bold' },
-              2: { cellWidth: 42, halign: 'center' },
-              3: { halign: 'left' },
-              4: { halign: 'left' },
-              5: { cellWidth: 68, halign: 'left', fontStyle: 'bold' },
-              6: { cellWidth: 48, halign: 'center' },
-              7: { cellWidth: 58, halign: 'right', fontStyle: 'bold' },
+              0: { cellWidth: 16, halign: 'center' },
+              1: { cellWidth: 68, halign: 'center', fontStyle: 'bold' },
+              2: { cellWidth: 46, halign: 'center' },
+              3: { cellWidth: 78, halign: 'left' },
+              4: { cellWidth: 88, halign: 'left' },
+              5: { cellWidth: 66, halign: 'left', fontStyle: 'bold' },
+              6: { cellWidth: 58, halign: 'center' },
+              7: { cellWidth: 56, halign: 'right', fontStyle: 'bold' },
               8: { cellWidth: 68, halign: 'right' },
             },
       });
 
       const lastTableDet = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-      y = (lastTableDet?.finalY ?? y) + 4;
+      y = (lastTableDet?.finalY ?? y) + 14;
     } else {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(esLandscape ? 7.5 : 7.0);
+      doc.setFontSize(esLandscape ? 8.5 : 8.0);
       doc.setTextColor(...VERDE_GT);
       doc.text(
         `✓ No se registran compras pendientes en el período seleccionado. Todas las compras (${resumen.totalCompras}) se encuentran finalizadas y pagadas.`,
         MARGIN + 4,
         y + 6,
       );
-      y += 18;
+      y += 20;
     }
+
+    // 6. TABLA FINAL: TRAZABILIDAD INTEGRAL DE TODAS LAS COMPRAS (ÍTEMS + NOTAS)
+    // Aborda a todas las compras en una tabla exhaustiva de auditoría
+    if (!esLandscape) {
+      doc.addPage('letter', 'landscape');
+      y = 32;
+    } else if (y + 80 > PAGE_H - MARGIN) {
+      doc.addPage();
+      y = MARGIN;
+    }
+
+    const mLand = 32;
+    y = dibujarHeaderSeccion(
+      doc,
+      `${seccionNum++}. Trazabilidad Consolidada de Todas las Compras (Ítems y Notas)`,
+      `Auditoría exhaustiva de todas las compras del período con desglose puntual de ítems y notas · Total registros: ${filas.length}`,
+      mLand,
+      y,
+      NARANJA_GT,
+      TINTA_GT,
+      GRIS_TEXTO_GT,
+    );
+
+    const headAll = [
+      '#',
+      'Código',
+      'Fecha',
+      'Departamento',
+      'Proveedor',
+      'Analista',
+      'Estado',
+      'Ítems Comprados',
+      'Nota / Observación',
+      'Monto ($)',
+      'Monto (Bs)',
+    ];
+
+    const bodyAll = filas.map((p, idx) => {
+      let itemsTxt = '—';
+      if (p.items_lista && p.items_lista.length > 0) {
+        itemsTxt = p.items_lista
+          .map((it) => {
+            const cant = it.cantidad > 0 ? `${fmtNum(it.cantidad, it.cantidad % 1 === 0 ? 0 : 2)} ${it.unidad || 'u.'}` : '';
+            const pUnit = it.precio_unitario && it.precio_unitario > 0 ? ` (${fmtUsd(it.precio_unitario)})` : '';
+            return `• ${cant ? `${cant} ` : ''}${it.nombre}${pUnit}`;
+          })
+          .join('\n');
+      } else if (p.nombre_item) {
+        itemsTxt = `• ${p.cantidad ? `${p.cantidad} u. ` : ''}${p.nombre_item}`;
+      }
+
+      return [
+        String(idx + 1),
+        pdfSafe(p.codigo),
+        fmtFecha(p.fecha),
+        pdfSafe(p.departamento),
+        pdfSafe(p.proveedor),
+        pdfSafe(p.analista || '—'),
+        pdfSafe(p.estado_rotulo || p.estado),
+        pdfSafe(itemsTxt),
+        pdfSafe(p.notas || '—'),
+        fmtUsd(p.monto_usd),
+        fmtBs(p.monto_bs),
+      ];
+    });
+
+    const totGenUsd = filas.reduce((acc, f) => acc + (f.monto_usd || 0), 0);
+    const totGenBs = filas.reduce((acc, f) => acc + (f.monto_bs || 0), 0);
+
+    const footAll = [
+      {
+        content: 'TOTAL GENERAL DE COMPRAS',
+        colSpan: 5,
+        styles: { halign: 'left' as const, fontStyle: 'bold' as const },
+      },
+      {
+        content: `${filas.length} compras`,
+        styles: { halign: 'center' as const, fontStyle: 'bold' as const },
+      },
+      '',
+      '',
+      '',
+      {
+        content: fmtUsd(totGenUsd),
+        styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+      },
+      {
+        content: fmtBs(totGenBs),
+        styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+      },
+    ];
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: mLand, right: mLand, bottom: 24 },
+      head: [headAll],
+      body: bodyAll,
+      foot: [footAll as unknown as string[]],
+      theme: 'grid',
+      styles: {
+        fontSize: 7.8, // +15%
+        cellPadding: { top: 2.2, bottom: 2.6, left: 2.5, right: 2.5 },
+        lineColor: BORDE_GT,
+        lineWidth: 0.3,
+        textColor: TINTA_GT,
+        overflow: 'linebreak',
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: [51, 65, 85], // Azul pizarra oscuro corporativo
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center',
+        cellPadding: { top: 2.4, bottom: 3.0, left: 2.5, right: 2.5 },
+        fontSize: 7.8,
+      },
+      footStyles: {
+        fillColor: [241, 245, 249],
+        textColor: TINTA_GT,
+        fontStyle: 'bold',
+        fontSize: 7.8,
+      },
+      alternateRowStyles: { fillColor: FONDO_ALT_GT },
+      columnStyles: {
+        0: { cellWidth: 18, halign: 'center' },
+        1: { cellWidth: 52, halign: 'center', fontStyle: 'bold' },
+        2: { cellWidth: 42, halign: 'center' },
+        3: { cellWidth: 68, halign: 'left' },
+        4: { cellWidth: 75, halign: 'left' },
+        5: { cellWidth: 65, halign: 'left', fontStyle: 'bold' },
+        6: { cellWidth: 50, halign: 'center' },
+        7: { cellWidth: 155, halign: 'left' },
+        8: { cellWidth: 75, halign: 'left' },
+        9: { cellWidth: 58, halign: 'right', fontStyle: 'bold' },
+        10: { cellWidth: 70, halign: 'right' },
+      },
+    });
   }
 
-  // 6. PIES DE PÁGINA FORMALES MULTIPÁGINA
+  // 7. PIES DE PÁGINA FORMALES MULTIPÁGINA (Dinámico por orientación de página)
   const numPaginas = doc.getNumberOfPages();
   for (let i = 1; i <= numPaginas; i++) {
     doc.setPage(i);
+    const pW = doc.internal.pageSize.getWidth();
+    const pH = doc.internal.pageSize.getHeight();
+    const isLand = pW > pH;
+    const m = isLand ? 32 : 28;
+
     doc.setDrawColor(...BORDE_GT);
     doc.setLineWidth(0.4);
-    doc.line(MARGIN, PAGE_H - (esLandscape ? 20 : 18), PAGE_W - MARGIN, PAGE_H - (esLandscape ? 20 : 18));
+    doc.line(m, pH - (isLand ? 20 : 18), pW - m, pH - (isLand ? 20 : 18));
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(esLandscape ? 7.0 : 6.5);
+    doc.setFontSize(isLand ? 8.0 : 7.5); // +15%
     doc.setTextColor(...GRIS_TEXTO_GT);
     doc.text(
       `Documento generado por el sistema · Reporte de Compras · ${idEmp.nombre} · RIF ${idEmp.rif}`,
-      MARGIN,
-      PAGE_H - (esLandscape ? 10 : 9),
+      m,
+      pH - (isLand ? 10 : 9),
     );
     doc.text(
       `Página ${i} de ${numPaginas}`,
-      PAGE_W - MARGIN,
-      PAGE_H - (esLandscape ? 10 : 9),
+      pW - m,
+      pH - (isLand ? 10 : 9),
       { align: 'right' },
     );
   }
@@ -789,7 +961,7 @@ export async function construirComprasPdf(
 
 /**
  * Bloque de analítica: Fichas Top Gasto y Ranking Unificado
- * con Cotizaciones Movidas y Gasto en una sola tabla.
+ * con Cotizaciones Movidas y Gasto en una sola tabla (+15% tipografía).
  */
 function bloqueResumenPdf(
   doc: jsPDF,
@@ -847,7 +1019,7 @@ function bloqueResumenPdf(
 
     const cardGap = 6;
     const cardW = (UW - (colsFichas - 1) * cardGap) / colsFichas;
-    const cardH = esLandscape ? 38 : 39;
+    const cardH = esLandscape ? 44 : 45;
 
     topDeptos.forEach((d, idx) => {
       const col = idx % colsFichas;
@@ -867,46 +1039,46 @@ function bloqueResumenPdf(
 
       // Fila 1: Nombre del departamento y Badge de %
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(esLandscape ? 7.2 : 6.8);
+      doc.setFontSize(esLandscape ? 8.3 : 7.8); // +15%
       doc.setTextColor(15, 23, 42);
       const maxLen = esLandscape ? 22 : 18;
       const nombreTruncado =
         d.departamento.length > maxLen
           ? d.departamento.slice(0, maxLen - 2) + '…'
           : d.departamento;
-      doc.text(pdfSafe(nombreTruncado.toUpperCase()), cardX + 7, cardY + 9.0);
+      doc.text(pdfSafe(nombreTruncado.toUpperCase()), cardX + 7, cardY + 10.0);
 
       // Badge a la derecha
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.0);
+      doc.setFontSize(6.9); // +15%
       doc.setTextColor(...colores.GRIS_TEXTO);
-      doc.text(`${d.pct.toFixed(1)}%`, cardX + cardW - 6, cardY + 9.0, { align: 'right' });
+      doc.text(`${d.pct.toFixed(1)}%`, cardX + cardW - 6, cardY + 10.0, { align: 'right' });
 
       // Fila 2: Saldo en dólares prominente y valor en bolívares en verde
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(esLandscape ? 10.5 : 10.0);
+      doc.setFontSize(esLandscape ? 12.0 : 11.5); // +15%
       doc.setTextColor(...colores.NARANJA);
-      doc.text(fmtUsd(d.usd), cardX + 7, cardY + (esLandscape ? 20.5 : 20.0));
+      doc.text(fmtUsd(d.usd), cardX + 7, cardY + (esLandscape ? 23.0 : 22.5));
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(esLandscape ? 7.5 : 7.0);
+      doc.setFontSize(esLandscape ? 8.6 : 8.0); // +15%
       doc.setTextColor(...colores.VERDE);
       let bsTxt = fmtBs(d.bs);
       if (doc.getTextWidth(bsTxt) > cardW * 0.48) {
-        doc.setFontSize(esLandscape ? 6.5 : 6.0);
+        doc.setFontSize(esLandscape ? 7.5 : 7.0);
       }
-      doc.text(bsTxt, cardX + cardW - 6, cardY + (esLandscape ? 20.0 : 19.5), { align: 'right' });
+      doc.text(bsTxt, cardX + cardW - 6, cardY + (esLandscape ? 22.5 : 22.0), { align: 'right' });
 
       // Fila 3: Detalle técnico inferior
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(esLandscape ? 5.8 : 5.4);
+      doc.setFontSize(esLandscape ? 6.7 : 6.2); // +15%
       doc.setTextColor(...colores.GRIS_TEXTO);
-      doc.text('Gasto operativo consolidado', cardX + 7, cardY + (esLandscape ? 29.5 : 29.0));
+      doc.text('Gasto operativo consolidado', cardX + 7, cardY + (esLandscape ? 33.5 : 33.0));
 
       doc.text(
         `Participación: ${d.pct.toFixed(1)}%`,
         cardX + cardW - 6,
-        cardY + (esLandscape ? 29.5 : 29.0),
+        cardY + (esLandscape ? 33.5 : 33.0),
         { align: 'right' },
       );
 
@@ -922,10 +1094,10 @@ function bloqueResumenPdf(
     });
 
     const totalFichasRows = Math.ceil(topDeptos.length / colsFichas);
-    y += totalFichasRows * (cardH + cardGap) + 10;
+    y += totalFichasRows * (cardH + cardGap) + 12;
   }
 
-  // 2. TABLA UNIFICADA: Ranking de Departamentos por Gasto Y Cotizaciones Movidas
+  // 2. TABLA UNIFICADA: Ranking de Departamentos por Gasto Y Cotizaciones Movidas (+15% tipografía)
   if (y + 60 > PAGE_H - M) {
     doc.addPage();
     y = M;
@@ -941,7 +1113,6 @@ function bloqueResumenPdf(
     colores.GRIS_TEXTO,
   );
 
-  // Mapear cotizaciones por departamento
   const cotizMap = new Map<string, number>();
   let totCotizaciones = 0;
   for (const c of r.rankingDeptoCotizaciones) {
@@ -949,7 +1120,6 @@ function bloqueResumenPdf(
     totCotizaciones += c.cotizaciones;
   }
 
-  // Unificar departamentos (priorizando orden de gasto descendente)
   const deptosUnificados: Array<{
     departamento: string;
     cotizaciones: number;
@@ -971,7 +1141,6 @@ function bloqueResumenPdf(
     });
   }
 
-  // Agregar departamentos que tengan cotizaciones pero 0 gasto en el rango
   for (const c of r.rankingDeptoCotizaciones) {
     if (!deptosProcesados.has(c.departamento)) {
       deptosProcesados.add(c.departamento);
@@ -1006,7 +1175,7 @@ function bloqueResumenPdf(
         {
           content: 'TOTAL DEPARTAMENTOS',
           colSpan: 2,
-          styles: { halign: 'left', fontStyle: 'bold' },
+          styles: { halign: 'left' as const, fontStyle: 'bold' as const },
         },
         `${fmtNum(totCotizaciones, 0)} cotizaciones`,
         fmtUsd(totDeptoUsd),
@@ -1023,8 +1192,8 @@ function bloqueResumenPdf(
     foot: footRanking ? [footRanking as unknown as string[]] : undefined,
     theme: 'grid',
     styles: {
-      fontSize: esLandscape ? 7.2 : 6.6,
-      cellPadding: { top: 1.8, bottom: 2.6, left: 2.8, right: 2.8 },
+      fontSize: esLandscape ? 8.3 : 7.6, // +15%
+      cellPadding: { top: 2.2, bottom: 2.8, left: 3.0, right: 3.0 },
       lineColor: colores.BORDE,
       lineWidth: 0.3,
       textColor: colores.TINTA,
@@ -1035,32 +1204,32 @@ function bloqueResumenPdf(
       textColor: [255, 255, 255],
       fontStyle: 'bold',
       halign: 'center',
-      cellPadding: { top: 2.0, bottom: 2.8, left: 2.8, right: 2.8 },
-      fontSize: esLandscape ? 7.2 : 6.6,
+      cellPadding: { top: 2.4, bottom: 3.0, left: 3.0, right: 3.0 },
+      fontSize: esLandscape ? 8.3 : 7.6,
     },
     footStyles: {
       fillColor: [241, 245, 249],
       textColor: colores.TINTA,
       fontStyle: 'bold',
-      fontSize: esLandscape ? 7.2 : 6.6,
+      fontSize: esLandscape ? 8.3 : 7.6,
     },
     alternateRowStyles: {
       fillColor: colores.FONDO_ALT,
     },
     columnStyles: {
-      0: { cellWidth: 24, halign: 'center' },
+      0: { cellWidth: 22, halign: 'center' },
       1: { halign: 'left', fontStyle: 'bold' },
       2: { halign: 'center', cellWidth: esLandscape ? 85 : 75 },
       3: { halign: 'right', fontStyle: 'bold', cellWidth: esLandscape ? 95 : 85 },
       4: { halign: 'right', cellWidth: esLandscape ? 110 : 95 },
-      5: { halign: 'right', cellWidth: esLandscape ? 85 : 75 },
+      5: { halign: 'right', cellWidth: esLandscape ? 80 : 70 },
     },
     didDrawCell: (data) => {
       if (data.section === 'body' && data.column.index === 5 && deptosUnificados.length > 0) {
         const rawDepto = deptosUnificados[data.row.index];
         const pct = rawDepto?.pct ?? 0;
         if (pct > 0) {
-          const barH = 1.6;
+          const barH = 1.8;
           const barY = data.cell.y + data.cell.height - barH - 1.5;
           const barMaxW = data.cell.width - 8;
           const barX = data.cell.x + 4;
@@ -1078,10 +1247,10 @@ function bloqueResumenPdf(
   y = (lastTable1?.finalY ?? y) + 4;
 
   doc.setFont('helvetica', 'italic');
-  doc.setFontSize(6.5);
+  doc.setFontSize(7.5); // +15%
   doc.setTextColor(...colores.GRIS_TEXTO);
   doc.text(`* ${AVISO_RANKING}`, M + 2, y + 4);
-  y += 14;
+  y += 16;
 
   // 3. Compras directas por categoría de gasto (si existen)
   if (r.comprasDirectasPorCategoriaGasto.length > 0) {
@@ -1113,8 +1282,11 @@ function bloqueResumenPdf(
     });
 
     const footDirectas = [
-      '',
-      'TOTAL COMPRAS DIRECTAS',
+      {
+        content: 'TOTAL COMPRAS DIRECTAS',
+        colSpan: 2,
+        styles: { halign: 'left' as const, fontStyle: 'bold' as const },
+      },
       fmtUsd(r.totalDirectasUsd),
       fmtBs(r.totalDirectasBs),
       '100.0 %',
@@ -1125,11 +1297,11 @@ function bloqueResumenPdf(
       margin: { left: M, right: M, bottom: 24 },
       head: [['#', 'Categoría de Gasto', 'Total USD ($)', 'Total Bs (BCV)', '% del Total Directas']],
       body: bodyDirectas,
-      foot: [footDirectas],
+      foot: [footDirectas as unknown as string[]],
       theme: 'grid',
       styles: {
-        fontSize: esLandscape ? 7.2 : 6.6,
-        cellPadding: { top: 1.8, bottom: 2.6, left: 2.8, right: 2.8 },
+        fontSize: esLandscape ? 8.3 : 7.6, // +15%
+        cellPadding: { top: 2.2, bottom: 2.8, left: 2.8, right: 2.8 },
         lineColor: colores.BORDE,
         lineWidth: 0.3,
         textColor: colores.TINTA,
@@ -1140,21 +1312,21 @@ function bloqueResumenPdf(
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         halign: 'center',
-        cellPadding: { top: 2.0, bottom: 2.8, left: 2.8, right: 2.8 },
-        fontSize: esLandscape ? 7.2 : 6.6,
+        cellPadding: { top: 2.4, bottom: 3.0, left: 2.8, right: 2.8 },
+        fontSize: esLandscape ? 8.3 : 7.6,
       },
       footStyles: {
         fillColor: [241, 245, 249],
         textColor: colores.TINTA,
         fontStyle: 'bold',
-        fontSize: esLandscape ? 7.2 : 6.6,
+        fontSize: esLandscape ? 8.3 : 7.6,
       },
       alternateRowStyles: { fillColor: colores.FONDO_ALT },
       columnStyles: {
-        0: { cellWidth: 26, halign: 'center' },
+        0: { cellWidth: 24, halign: 'center' },
         1: { halign: 'left', fontStyle: 'bold' },
-        2: { halign: 'right', fontStyle: 'bold' },
-        3: { halign: 'right' },
+        2: { halign: 'right', fontStyle: 'bold', cellWidth: esLandscape ? 95 : 85 },
+        3: { halign: 'right', cellWidth: esLandscape ? 110 : 95 },
         4: { halign: 'right', cellWidth: esLandscape ? 85 : 75 },
       },
     });
@@ -1194,8 +1366,8 @@ function bloqueResumenPdf(
         body: bodyTopCat,
         theme: 'grid',
         styles: {
-          fontSize: esLandscape ? 7.2 : 6.6,
-          cellPadding: { top: 1.8, bottom: 2.6, left: 2.5, right: 2.5 },
+          fontSize: esLandscape ? 8.3 : 7.6, // +15%
+          cellPadding: { top: 2.2, bottom: 2.8, left: 2.5, right: 2.5 },
           lineColor: colores.BORDE,
           lineWidth: 0.3,
           textColor: colores.TINTA,
@@ -1206,26 +1378,26 @@ function bloqueResumenPdf(
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           halign: 'center',
-          cellPadding: { top: 2.0, bottom: 2.8, left: 2.5, right: 2.5 },
-          fontSize: esLandscape ? 7.2 : 6.6,
+          cellPadding: { top: 2.4, bottom: 3.0, left: 2.5, right: 2.5 },
+          fontSize: esLandscape ? 8.3 : 7.6,
         },
         alternateRowStyles: { fillColor: colores.FONDO_ALT },
         columnStyles: {
-          0: { cellWidth: 26, halign: 'center' },
+          0: { cellWidth: 24, halign: 'center' },
           1: { halign: 'left', fontStyle: 'bold' },
           2: { halign: 'right', fontStyle: 'bold', cellWidth: esLandscape ? 120 : 100 },
         },
       });
 
       const lastTopCat = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-      y = (lastTopCat?.finalY ?? y) + 10;
+      y = (lastTopCat?.finalY ?? y) + 12;
     }
 
     if (r.topItems.length > 0) {
       const bodyTopItems = r.topItems.map((t, idx) => [
         String(idx + 1),
         pdfSafe(t.nombre),
-        t.cantidad != null ? `${fmtNum(t.cantidad, 2)} u.` : '—',
+        t.cantidad != null ? `${fmtNum(t.cantidad, t.cantidad % 1 === 0 ? 0 : 2)} u.` : '—',
         fmtUsd(t.usd),
       ]);
 
@@ -1236,8 +1408,8 @@ function bloqueResumenPdf(
         body: bodyTopItems,
         theme: 'grid',
         styles: {
-          fontSize: esLandscape ? 7.2 : 6.6,
-          cellPadding: { top: 1.8, bottom: 2.6, left: 2.5, right: 2.5 },
+          fontSize: esLandscape ? 8.3 : 7.6, // +15%
+          cellPadding: { top: 2.2, bottom: 2.8, left: 2.5, right: 2.5 },
           lineColor: colores.BORDE,
           lineWidth: 0.3,
           textColor: colores.TINTA,
@@ -1248,14 +1420,14 @@ function bloqueResumenPdf(
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           halign: 'center',
-          cellPadding: { top: 2.0, bottom: 2.8, left: 2.5, right: 2.5 },
-          fontSize: esLandscape ? 7.2 : 6.6,
+          cellPadding: { top: 2.4, bottom: 3.0, left: 2.5, right: 2.5 },
+          fontSize: esLandscape ? 8.3 : 7.6,
         },
         alternateRowStyles: { fillColor: colores.FONDO_ALT },
         columnStyles: {
-          0: { cellWidth: 26, halign: 'center' },
+          0: { cellWidth: 24, halign: 'center' },
           1: { halign: 'left', fontStyle: 'bold' },
-          2: { halign: 'right', cellWidth: esLandscape ? 75 : 65 },
+          2: { halign: 'right', cellWidth: esLandscape ? 70 : 60 },
           3: { halign: 'right', fontStyle: 'bold', cellWidth: esLandscape ? 100 : 90 },
         },
       });

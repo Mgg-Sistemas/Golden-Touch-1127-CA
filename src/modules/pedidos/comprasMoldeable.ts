@@ -166,6 +166,14 @@ export interface FilaReporteCompras {
   pagado_usd: number;
   pagado_bs: number;
   analista?: string | null;
+  notas?: string | null;
+  items_lista?: Array<{
+    nombre: string;
+    cantidad: number;
+    unidad?: string | null;
+    precio_unitario?: number | null;
+    monto_usd?: number | null;
+  }> | null;
 
   // Métricas de grupo (cuando la fila representa un grupo agregado)
   total_items?: number;
@@ -220,6 +228,19 @@ export function normalizarOrdenes(ordenes: Orden[], ctx: ContextoCompras): FilaR
       pagado_usd: pagado.usd,
       pagado_bs: pagado.bs,
       analista: nombrePersonaCompras(o.oc_creada_por || o.oc_emitida_por || o.solicitante_email),
+      notas: (o.notas || o.motivo || o.finalidad || '').trim() || null,
+      items_lista: (Array.isArray(o.items) ? o.items : []).map((it) => {
+        const cant = Number(it.cantidad) || 0;
+        const pUnit = (Number(it.precio_usd) > 0 ? Number(it.precio_usd) : Number(it.precio)) || 0;
+        const itMonto = montoUsdBs(cant * pUnit, moneda, ctx.tasaBcv);
+        return {
+          nombre: (it.nombre || '').trim() || '—',
+          cantidad: cant,
+          unidad: (it.unidad || '').trim() || 'u.',
+          precio_unitario: pUnit,
+          monto_usd: itMonto.usd,
+        };
+      }),
     });
   }
   return filas;
@@ -243,18 +264,33 @@ export function normalizarItemsOrdenes(ordenes: Orden[], ctx: ContextoCompras): 
     const prov = proveedorDe(o.proveedor_id, ctx);
     const rotulo = statusBadge(o.estado).label;
     const items = Array.isArray(o.items) ? o.items : [];
+    const totalOrden = Number(o.total) || 0;
+    const sumaPrecioNativo = items.reduce(
+      (acc, it) => acc + (Number(it.cantidad) || 0) * (Number(it.precio) || 0),
+      0,
+    );
+    // Si la orden está en USD y la suma de ítems coincide con el total de la orden
+    // (o no excede desproporcionadamente la tasa BCV), it.precio ya está en USD.
+    const precioDirectoUsd =
+      moneda !== 'BS' &&
+      totalOrden > 0 &&
+      (Math.abs(sumaPrecioNativo - totalOrden) <= Math.max(2, totalOrden * 0.1) ||
+        (sumaPrecioNativo <= totalOrden * 1.5 && (ctx.tasaBcv <= 1 || sumaPrecioNativo < totalOrden * (ctx.tasaBcv * 0.1))));
+
     items.forEach((it, idx) => {
       const cantidad = Number(it.cantidad) || 0;
-      // `it.precio` es el precio EN Bs a BCV; `it.precio_usd` es el USD (types.ts ItemOrden).
-      // En una orden en $ se usa el precio en USD (si falta, se convierte el de Bs con la tasa);
-      // en una orden en Bs se usa el precio en Bs directo. Así el ítem queda en la moneda de la orden.
       let montoNativo: number;
       if (moneda === 'BS') {
         montoNativo = cantidad * (Number(it.precio) || 0);
       } else {
-        const precioUsd = it.precio_usd != null
-          ? Number(it.precio_usd) || 0
-          : (ctx.tasaBcv > 0 ? (Number(it.precio) || 0) / ctx.tasaBcv : 0);
+        let precioUsd: number;
+        if (Number(it.precio_usd) > 0) {
+          precioUsd = Number(it.precio_usd);
+        } else if (precioDirectoUsd) {
+          precioUsd = Number(it.precio) || 0;
+        } else {
+          precioUsd = ctx.tasaBcv > 0 ? (Number(it.precio) || 0) / ctx.tasaBcv : (Number(it.precio) || 0);
+        }
         montoNativo = cantidad * precioUsd;
       }
       const monto = round2(montoNativo);
@@ -282,6 +318,14 @@ export function normalizarItemsOrdenes(ordenes: Orden[], ctx: ContextoCompras): 
         pagado_usd: 0,
         pagado_bs: 0,
         analista: nombrePersonaCompras(o.oc_creada_por || o.oc_emitida_por || o.solicitante_email),
+        notas: (o.notas || o.motivo || o.finalidad || '').trim() || null,
+        items_lista: [{
+          nombre: (it.nombre || '').trim() || '—',
+          cantidad,
+          unidad: (it.unidad || '').trim() || 'u.',
+          precio_unitario: Number(it.precio_usd) > 0 ? Number(it.precio_usd) : Number(it.precio) || 0,
+          monto_usd: usd,
+        }],
       });
     });
   }
@@ -325,6 +369,22 @@ export function normalizarDirectas(directas: CompraDirecta[], ctx: ContextoCompr
       pagado_usd: pagado.usd,
       pagado_bs: pagado.bs,
       analista: nombrePersonaCompras((c as any).actor_name || (c as any).actor || (c as any).creado_por),
+      notas: ((c as any).nota || '').trim() || null,
+      items_lista: Array.isArray((c as any).items) && (c as any).items.length > 0
+        ? (c as any).items.map((it: any) => ({
+            nombre: (it.producto_nombre || (c as any).producto_nombre || '—').trim(),
+            cantidad: Number(it.cantidad) || 1,
+            unidad: it.unidad || 'u.',
+            precio_unitario: it.gasto ? Number(it.gasto) / (Number(it.cantidad) || 1) : null,
+            monto_usd: usd,
+          }))
+        : ((c as any).producto_nombre ? [{
+            nombre: ((c as any).producto_nombre || '—').trim(),
+            cantidad: Number((c as any).cantidad) || 1,
+            unidad: 'u.',
+            precio_unitario: monto,
+            monto_usd: usd,
+          }] : null),
     });
   }
   return filas;
@@ -367,6 +427,22 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
       pagado_usd: pagado.usd,
       pagado_bs: pagado.bs,
       analista: nombrePersonaCompras((s as any).actor_name || (s as any).actor || (s as any).creado_por),
+      notas: ((s as any).observaciones || (s as any).descripcion || '').trim() || null,
+      items_lista: Array.isArray((s as any).items) && (s as any).items.length > 0
+        ? (s as any).items.map((it: any) => ({
+            nombre: (it.descripcion || 'Servicio directo').trim(),
+            cantidad: Number(it.cantidad) || 1,
+            unidad: it.unidad || 'srv.',
+            precio_unitario: it.gasto ? Number(it.gasto) / (Number(it.cantidad) || 1) : null,
+            monto_usd: usd,
+          }))
+        : [{
+            nombre: ((s as any).descripcion || 'Servicio directo').trim(),
+            cantidad: 1,
+            unidad: 'srv.',
+            precio_unitario: monto,
+            monto_usd: usd,
+          }],
     });
   }
   return filas;
