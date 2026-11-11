@@ -218,8 +218,12 @@ export async function descargarPersonalExcel(
         c.value = Number(rawVal || 0);
         c.numFmt = '"$"#,##0.00';
       } else if (col.formato === 'numero') {
-        c.value = Number(rawVal || 0);
-        c.numFmt = '#,##0';
+        if (rawVal === null || rawVal === undefined || rawVal === '') {
+          c.value = '—';
+        } else {
+          c.value = Number(rawVal);
+          c.numFmt = '#,##0';
+        }
       } else {
         c.value = rawVal != null && rawVal !== '' ? String(rawVal) : '—';
       }
@@ -292,7 +296,12 @@ export async function descargarPersonalPdf(
   if (!filas.length) throw new Error('No hay personas para exportar con los filtros seleccionados.');
 
   const esFichas = meta.formatoPresentacion === 'fichas';
-  const orient = meta.orientacion === 'horizontal' || (esFichas && columnas.length > 5) ? 'landscape' : 'portrait';
+  const orient =
+    meta.orientacion === 'horizontal' ||
+    (esFichas && columnas.length > 5) ||
+    (!esFichas && columnas.length > 7)
+      ? 'landscape'
+      : 'portrait';
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orient });
 
@@ -486,6 +495,7 @@ export async function descargarPersonalPdf(
         const partesMeta: string[] = [];
         if (columnasClaves.includes('ficha_nro') && f.ficha_nro) partesMeta.push(`Ficha ${f.ficha_nro}`);
         if (columnasClaves.includes('cedula')) partesMeta.push(f.cedula || 'Sin cédula');
+        if (columnasClaves.includes('rif') && f.rif) partesMeta.push(`RIF ${f.rif}`);
         if (columnasClaves.includes('cargo')) partesMeta.push(f.cargo || 'Sin cargo');
         if (columnasClaves.includes('departamento')) partesMeta.push(f.departamento || 'Sin dpto.');
         if (partesMeta.length === 0 && columnasClaves.includes('fecha_ingreso') && f.fecha_ingreso) {
@@ -565,6 +575,9 @@ export async function descargarPersonalPdf(
     // MODO TABLA TABULAR (con autoTable)
     const encabezados = columnas.map((c) => c.etiqueta.toUpperCase());
     const cuerpo = filas.map((f) => columnas.map((c) => formatearValorCelda(f, c)));
+    const muchasCols = columnas.length > 14;
+    const mediaCols = columnas.length > 10;
+    const idxNombre = columnas.findIndex((c) => c.clave === 'nombre_completo');
 
     autoTable(doc, {
       startY: y,
@@ -572,9 +585,11 @@ export async function descargarPersonalPdf(
       body: cuerpo,
       margin: { left: M, right: M, top: 36, bottom: 36 },
       theme: 'plain',
+      horizontalPageBreak: muchasCols,
+      horizontalPageBreakRepeat: muchasCols ? (idxNombre >= 0 ? idxNombre : 0) : undefined,
       styles: {
-        fontSize: 7.2,
-        cellPadding: 4,
+        fontSize: muchasCols ? 6.4 : mediaCols ? 6.8 : 7.2,
+        cellPadding: muchasCols ? 2.5 : mediaCols ? 3.2 : 4,
         textColor: TINTA,
         lineColor: BORDE,
         lineWidth: 0.4,
@@ -584,7 +599,7 @@ export async function descargarPersonalPdf(
         fillColor: NARANJA,
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 7.5,
+        fontSize: muchasCols ? 6.6 : mediaCols ? 7 : 7.5,
       },
       alternateRowStyles: {
         fillColor: FONDO_ALT,
