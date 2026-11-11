@@ -1,17 +1,20 @@
 /* ============================================================
    Golden Touch · Combustible · Reporte PDF de Existencias y Movimientos
-   (Actualizado 04/11/2026: Soporte para corte histórico, rangos de fechas,
-    KPIs de cabecera dinámicos, saldo puntual por tanque en cabecera
-    y selector de orientación Vertical / Horizontal)
+   (Actualizado 11/11/2026: Formato editorial de alta fidelidad con
+    híbrido de fichas y tablas, membrete dual corporativo GT,
+    Hero KPI unificado, tarjetas de tanque con mini-barra de nivel
+    y cabeceras estructuradas con acento de sección)
    ============================================================ */
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfEmpresa, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { identidadEmpresa } from '@/shared/lib/empresa';
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import type { ReporteTanque } from './tanques.repository';
 import { type TotalesCorteCombustible, obtenerTituloRangoReporte } from './reporteExistenciasCorte';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { isoAVe } from '@/shared/lib/fechaVE';
 import { esBidon } from './bidonCombustible';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 
 export interface DetalleTanqueReportePdf {
   tanque: TanqueCombustible;
@@ -56,7 +59,7 @@ export async function descargarReporteExistenciasPdf({
 }: ReporteExistenciasPdfArgs): Promise<void> {
   void _reportes;
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoPdfDataUrl().catch(() => null),
+    loadLogoPdfEmpresa('GT').catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -65,55 +68,146 @@ export async function descargarReporteExistenciasPdf({
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = esLandscape ? 36 : 30;
+  const MARGIN = esLandscape ? 32 : 28;
+  const UW = PAGE_W - MARGIN * 2;
   let y = MARGIN;
+
+  const idEmp = identidadEmpresa('GT');
+
+  // Paleta corporativa Golden Touch
+  const NARANJA: [number, number, number] = [255, 138, 0];
+  const TINTA: [number, number, number] = [30, 41, 59];
+  const GRIS_TEXTO: [number, number, number] = [100, 116, 139];
+  const GRIS_CLARO: [number, number, number] = [148, 163, 184];
+  const BORDE: [number, number, number] = [226, 232, 240];
+  const FONDO_SUAVE: [number, number, number] = [250, 247, 245];
+  const VERDE: [number, number, number] = [22, 101, 52];
+  const ROJO: [number, number, number] = [185, 28, 28];
 
   const tituloPrincipal =
     tituloRango ||
     obtenerTituloRangoReporte(fechaDesde, fechaHasta);
 
-  // 1. Membrete oficial
-  const logoH = esLandscape ? 36 : 32;
+  // Fecha y hora formateada en español
+  const ahoraDate = new Date();
+  const meses = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
+  const dia = ahoraDate.getDate();
+  const mes = meses[ahoraDate.getMonth()];
+  const anio = ahoraDate.getFullYear();
+  let h = ahoraDate.getHours();
+  const mMin = String(ahoraDate.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'p. m.' : 'a. m.';
+  h = h % 12 || 12;
+  const fechaHoraEmision = `${dia} ${mes} ${anio}, ${h}:${mMin} ${ampm}`;
+
+  // 1. MEMBRETE DUAL INSTITUCIONAL (Identidad GT + Caja de Metadatos)
+  const cajaLogo = esLandscape ? 40 : 38;
   if (logo) {
-    dibujarLogoPdf(doc, logo, MARGIN, y, logoH);
+    dibujarLogoPdf(doc, logo, MARGIN, y, cajaLogo);
   }
-  const tx = logo ? MARGIN + anchoLogoPdf(logoH) + 12 : MARGIN;
+  const tx = logo ? MARGIN + anchoLogoPdf(cajaLogo) + 12 : MARGIN;
+
+  // Lado izquierdo: datos corporativos GT
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(esLandscape ? 11 : 10.5);
+  doc.setTextColor(...TINTA);
+  doc.text(idEmp.nombre || 'MINERA GOLDEN TOUCH 1127, C.A.', tx, y + 11);
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(esLandscape ? 11 : 10);
-  doc.setTextColor(30, 41, 59);
-  doc.text('GOLDEN TOUCH 1127 C.A. · CONTROL DE COMBUSTIBLE', tx, y + 12);
+  doc.setFontSize(7.2);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('EXPLOTACIÓN Y BENEFICIO DE MINERALES', tx, y + 21);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(esLandscape ? 7.5 : 7);
-  doc.setTextColor(100, 116, 139);
-  doc.text('J-50129993-5 · Existencias, Saldos al Corte y Arqueo', tx, y + 23);
+  doc.setFontSize(7.0);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text(`RIF: ${idEmp.rif || 'J-50129993-5'} · Mina Peramanal`, tx, y + 30);
 
-  const ahora = dateTime(new Date().toISOString());
-  doc.setFontSize(esLandscape ? 7.5 : 7);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Emitido: ${ahora}`, PAGE_W - MARGIN, y + 12, { align: 'right' });
-  doc.text(`${detallePorTanque.length} tanque(s) en reporte`, PAGE_W - MARGIN, y + 23, { align: 'right' });
+  doc.setFontSize(6.8);
+  doc.setTextColor(...GRIS_CLARO);
+  doc.text('EL CALLAO · ESTADO BOLÍVAR · VENEZUELA', tx, y + 38);
 
-  // TÍTULO FORMAL CENTRADO EN GRANDE CON LAS FECHAS DEL REPORTE (ej. "Reporte del 01 al 31 de Octubre 2026")
-  y += esLandscape ? 32 : 28;
+  // Lado derecho: Caja ejecutiva formal de metadatos del reporte
+  const boxW = Math.min(235, Math.max(195, UW * 0.36));
+  const boxH = 46;
+  const bx = PAGE_W - MARGIN - boxW;
+
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(...BORDE);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(bx, y, boxW, boxH, 3, 3, 'FD');
+
+  const barH = 14;
+  doc.setFillColor(...NARANJA);
+  doc.roundedRect(bx, y, boxW, barH, 3, 3, 'F');
+  doc.rect(bx, y + barH - 3, boxW, 3, 'F'); // Relleno esquinas inferiores
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(esLandscape ? 14 : 12.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text(tituloPrincipal, PAGE_W / 2, y + 10, { align: 'center' });
+  doc.setFontSize(7.2);
+  doc.setTextColor(255, 255, 255);
+  doc.text('CONTROL DE COMBUSTIBLE', bx + boxW / 2, y + 10, { align: 'center' });
+
+  // Filas internas alineadas
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('EMITIDO:', bx + 8, y + 23);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...TINTA);
+  doc.text(fechaHoraEmision, bx + 50, y + 23);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('PERÍODO:', bx + 8, y + 32);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...TINTA);
+  let perTxt = pdfSafe(tituloPrincipal);
+  if (doc.getTextWidth(perTxt) > boxW - 56) {
+    while (perTxt.length > 3 && doc.getTextWidth(perTxt + '…') > boxW - 56) {
+      perTxt = perTxt.slice(0, -1);
+    }
+    perTxt += '…';
+  }
+  doc.text(perTxt, bx + 50, y + 32);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('ALCANCE:', bx + 8, y + 41);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...TINTA);
+  doc.text(`${detallePorTanque.length} tanque(s) en reporte`, bx + 50, y + 41);
+
+  y = Math.max(y + cajaLogo + 6, y + boxH + 8);
+
+  // 2. CINTILLO DE ALCANCE DEL REPORTE (A todo el ancho útil)
+  const stripH = 17;
+  doc.setFillColor(...FONDO_SUAVE);
+  doc.setDrawColor(...BORDE);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(MARGIN, y, UW, stripH, 2.5, 2.5, 'FD');
+
+  doc.setFillColor(...NARANJA);
+  doc.roundedRect(MARGIN, y, 3.5, stripH, 2.5, 2.5, 'F');
+  doc.rect(MARGIN + 2, y, 1.5, stripH, 'F'); // Unión de esquina
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.0);
+  doc.setTextColor(...NARANJA);
+  doc.text('ALCANCE DEL REPORTE:', MARGIN + 8, y + 11.5);
+  const alcW = doc.getTextWidth('ALCANCE DEL REPORTE:');
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(esLandscape ? 8 : 7.2);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`Existencias, Saldos al Corte y Arqueo de Movimientos · ${periodoLabel}`, PAGE_W / 2, y + 21, { align: 'center' });
+  doc.setFontSize(7.0);
+  doc.setTextColor(...TINTA);
+  doc.text(
+    pdfSafe(`Existencias, Saldos al Corte y Arqueo de Movimientos · ${periodoLabel}`),
+    MARGIN + 8 + alcW + 5,
+    y + 11.5,
+  );
 
-  y += 27;
-  doc.setDrawColor(234, 88, 12); // Naranja corporativo
-  doc.setLineWidth(1.5);
-  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 9;
+  y += stripH + 8;
 
-  // 2. Tarjetas resumen de totales consolidados (KPIs dinámicos)
+  // Cálculos de totales consolidados
   const totalLitrosCierre =
     totalesCorte?.totalLitrosCierre ??
     detallePorTanque.reduce((acc, d) => acc + (d.saldoCierreLitros ?? d.disponible ?? 0), 0);
@@ -151,74 +245,110 @@ export async function descargarReporteExistenciasPdf({
     totalesCorte?.totalLitrosApertura ??
     detallePorTanque.reduce((acc, d) => acc + (d.saldoInicialLitros ?? 0), 0);
 
-  const kpis = [
+  // 3. BLOQUE SUPERIOR DE KPIS: Hero Box Unificado + Trío Analítico
+  const heroH = esLandscape ? 40 : 42;
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(...BORDE);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(MARGIN, y, UW, heroH, 3.5, 3.5, 'FD');
+
+  // Lado izquierdo del Hero Box: Saldo Total en Litros
+  const heroMitad = UW * 0.52;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('TOTAL AL CIERRE (VOLUMEN DISPONIBLE)', MARGIN + 10, y + 11.5);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(esLandscape ? 17 : 16);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`${num(totalLitrosCierre)} L`, MARGIN + 10, y + (esLandscape ? 26.5 : 26));
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text(`Tasa promedio ponderada: ${money(tasaPromedio)} / L`, MARGIN + 10, y + (esLandscape ? 35 : 36));
+
+  // Línea divisoria suave vertical
+  doc.setDrawColor(...BORDE);
+  doc.setLineWidth(0.5);
+  doc.line(MARGIN + heroMitad, y + 6, MARGIN + heroMitad, y + heroH - 6);
+
+  // Lado derecho del Hero Box: Panel destacado de Valuación USD
+  const pRightX = MARGIN + heroMitad + 10;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...NARANJA);
+  doc.text('VALOR AL CIERRE (VALUACIÓN CONTABLE)', pRightX, y + 11.5);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(esLandscape ? 15 : 14);
+  doc.setTextColor(...NARANJA);
+  doc.text(money(totalValorCierre), pRightX, y + (esLandscape ? 25.5 : 25));
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.6);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text(`Valoración contable total · ${detallePorTanque.length} tanque(s) analizados`, pRightX, y + (esLandscape ? 35 : 36));
+
+  y += heroH + 6;
+
+  // Trío analítico de tarjetas complementarias
+  const trioKpis = [
     {
-      titulo: 'TOTAL AL CIERRE',
-      valor: `${num(totalLitrosCierre)} L`,
-      sub: `${detallePorTanque.length} tanque(s) en reporte`,
-      colorBorde: [234, 88, 12] as [number, number, number],
-    },
-    {
-      titulo: 'VALOR AL CIERRE ($)',
-      valor: money(totalValorCierre),
-      sub: 'Valoración contable',
-      colorBorde: [34, 197, 94] as [number, number, number],
-    },
-    {
-      titulo: 'TASA PONDERADA',
-      valor: `${money(tasaPromedio)} / L`,
-      sub: 'Promedio ponderado',
-      colorBorde: [59, 130, 246] as [number, number, number],
-    },
-    {
-      titulo: 'SURTIDOS EN PERIODO',
+      titulo: 'SURTIDOS EN PERÍODO',
       valor: `${num(totalSurtidos)} L`,
-      sub: totalCountSurtidos > 0 ? `${totalCountSurtidos} despacho(s)` : 'Sin despachos',
-      colorBorde: [245, 158, 11] as [number, number, number],
+      sub: totalCountSurtidos > 0 ? `${totalCountSurtidos} despacho(s) registrados` : 'Sin despachos registrados',
+      colorAcento: [245, 158, 11] as [number, number, number],
+    },
+    {
+      titulo: 'TRASLADOS Y MOVIMIENTOS',
+      valor: `${num(totalTraslados)} L transferidos`,
+      sub: totalEntradas > 0 ? `Entradas de combustible: +${num(totalEntradas)} L` : 'Sin entradas registradas',
+      colorAcento: [59, 130, 246] as [number, number, number],
+    },
+    {
+      titulo: 'INVENTARIO INICIAL Y VARIACIÓN',
+      valor: `${num(totalApertura)} L iniciales`,
+      sub: `Variación neta: ${totalLitrosCierre >= totalApertura ? '+' : ''}${num(totalLitrosCierre - totalApertura)} L`,
+      colorAcento: [34, 197, 94] as [number, number, number],
     },
   ];
 
-  // Dibujar las 4 cajitas KPI (en Landscape: 4 columnas; en Portrait: 2 filas x 2 columnas)
-  const numColsKpi = esLandscape ? 4 : 2;
-  const kpiSeparacion = 7;
-  const kpiW = (PAGE_W - 2 * MARGIN - (numColsKpi - 1) * kpiSeparacion) / numColsKpi;
-  const kpiH = esLandscape ? 32 : 28;
+  const trioCols = 3;
+  const trioGap = 6;
+  const trioW = (UW - (trioCols - 1) * trioGap) / trioCols;
+  const trioH = esLandscape ? 28 : 27;
 
-  kpis.forEach((kpi, idx) => {
-    const colIdx = idx % numColsKpi;
-    const rowIdx = Math.floor(idx / numColsKpi);
-    const kpiX = MARGIN + colIdx * (kpiW + kpiSeparacion);
-    const kpiY = y + rowIdx * (kpiH + kpiSeparacion);
+  trioKpis.forEach((kpi, idx) => {
+    const kx = MARGIN + idx * (trioW + trioGap);
+    doc.setFillColor(...FONDO_SUAVE);
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(kx, y, trioW, trioH, 2.5, 2.5, 'FD');
 
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.8);
-    doc.roundedRect(kpiX, kpiY, kpiW, kpiH, 2.5, 2.5, 'FD');
-
-    // Borde izquierdo de color para acento
-    doc.setFillColor(kpi.colorBorde[0], kpi.colorBorde[1], kpi.colorBorde[2]);
-    doc.rect(kpiX, kpiY, 3, kpiH, 'F');
+    doc.setFillColor(kpi.colorAcento[0], kpi.colorAcento[1], kpi.colorAcento[2]);
+    doc.rect(kx, y, 2.5, trioH, 'F');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(esLandscape ? 6.5 : 6);
-    doc.setTextColor(100, 116, 139);
-    doc.text(kpi.titulo, kpiX + 6, kpiY + 9);
+    doc.setFontSize(6.2);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(kpi.titulo, kx + 6, y + 8.5);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(esLandscape ? 10 : 9);
+    doc.setFontSize(esLandscape ? 9.5 : 9.0);
     doc.setTextColor(15, 23, 42);
-    doc.text(kpi.valor, kpiX + 6, kpiY + (esLandscape ? 19.5 : 18));
+    doc.text(kpi.valor, kx + 6, y + 17.5);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(esLandscape ? 6 : 5.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text(kpi.sub, kpiX + 6, kpiY + (esLandscape ? 27 : 24.5));
+    doc.setFontSize(5.8);
+    doc.setTextColor(...GRIS_CLARO);
+    doc.text(kpi.sub, kx + 6, y + 24.5);
   });
 
-  const totalKpiRows = Math.ceil(kpis.length / numColsKpi);
-  y += totalKpiRows * (kpiH + kpiSeparacion) + 8;
+  y += trioH + 10;
 
-  // 3. SECCIÓN: SALDO PUNTUAL POR TANQUE EN CABECERA (activada por check de tarjetas)
+  // 4. SECCIÓN: SALDO PUNTUAL POR TANQUE EN CABECERA (Fichas híbridas con mini-barra de nivel)
   if (incluirTarjetas) {
     const rawCorte =
       totalesCorte?.cierreFechaLabel ||
@@ -226,13 +356,22 @@ export async function descargarReporteExistenciasPdf({
     const fechaLimpia = rawCorte.replace(/^cierre\s+(al\s+)?/i, '').trim();
     const fechaCorteLabel = fechaLimpia ? `AL ${fechaLimpia.toUpperCase()}` : 'AL CORTE';
 
+    // Rótulo formal de sección con barra vertical naranja
+    doc.setFillColor(...NARANJA);
+    doc.rect(MARGIN, y, 3.5, 10, 'F');
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    doc.setTextColor(30, 41, 59);
-    doc.text(`SALDO PUNTUAL POR TANQUE · CIERRE ${fechaCorteLabel}`, MARGIN, y + 2);
-    y += 7;
+    doc.setTextColor(...TINTA);
+    doc.text(`SALDO PUNTUAL POR TANQUE · CIERRE ${fechaCorteLabel}`, MARGIN + 7, y + 8);
+    const titleW = doc.getTextWidth(`SALDO PUNTUAL POR TANQUE · CIERRE ${fechaCorteLabel}`);
 
-    // Cuadrícula dinámica de fichas por tanque (como en la vista de selección)
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('Inventario disponible y nivel al corte', MARGIN + 7 + titleW + 8, y + 8);
+    y += 14;
+
     const numTanques = detallePorTanque.length;
     const colsFichas = esLandscape
       ? numTanques <= 3
@@ -245,8 +384,8 @@ export async function descargarReporteExistenciasPdf({
         : 3;
 
     const cardGap = 6;
-    const cardW = (PAGE_W - 2 * MARGIN - (colsFichas - 1) * cardGap) / colsFichas;
-    const cardH = esLandscape ? 36 : 38;
+    const cardW = (UW - (colsFichas - 1) * cardGap) / colsFichas;
+    const cardH = esLandscape ? 38 : 39;
 
     detallePorTanque.forEach((d, idx) => {
       const col = idx % colsFichas;
@@ -260,32 +399,30 @@ export async function descargarReporteExistenciasPdf({
       const valor = d.saldoCierreUsd ?? cierre * tasa;
       const pct = cap > 0 ? Math.min(100, Math.max(0, (cierre / cap) * 100)) : 0;
 
-      // Fondo y borde de la tarjeta
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.7);
+      // Tarjeta con fondo blanco y borde suave
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...BORDE);
+      doc.setLineWidth(0.6);
       doc.roundedRect(cardX, cardY, cardW, cardH, 2.5, 2.5, 'FD');
 
-      // Borde lateral de acento (naranja si positivo, rojo si negativo, gris si cero)
+      // Acento vertical izquierdo
       const colorAcento =
-        cierre > 0 ? [234, 88, 12] : cierre < 0 ? [220, 38, 38] : [148, 163, 184];
-      doc.setFillColor(colorAcento[0], colorAcento[1], colorAcento[2]);
-      doc.rect(cardX, cardY, 3, cardH, 'F');
+        cierre > 0 ? NARANJA : cierre < 0 ? ROJO : GRIS_CLARO;
+      doc.setFillColor(...colorAcento);
+      doc.rect(cardX, cardY, 2.5, cardH, 'F');
 
-      // Fila 1: Nombre del tanque y % Capacidad / Tipo
+      // Fila 1: Nombre del tanque y Badge de % Capacidad / Tipo
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(esLandscape ? 7 : 6.5);
+      doc.setFontSize(esLandscape ? 7.2 : 6.8);
       doc.setTextColor(15, 23, 42);
       const maxLen = esLandscape ? 22 : 18;
       const nombreTruncado =
         d.tanque.nombre.length > maxLen
           ? d.tanque.nombre.slice(0, maxLen - 2) + '…'
           : d.tanque.nombre;
-      doc.text(nombreTruncado.toUpperCase(), cardX + 7, cardY + 9);
+      doc.text(nombreTruncado.toUpperCase(), cardX + 7, cardY + 9.5);
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6);
-      doc.setTextColor(100, 116, 139);
+      // Badge elegante a la derecha
       const capInfo =
         cap > 0
           ? `${pct.toFixed(0)}%`
@@ -294,42 +431,66 @@ export async function descargarReporteExistenciasPdf({
             : d.tanque.es_movil
               ? 'Móvil'
               : 'Estac.';
-      doc.text(capInfo, cardX + cardW - 6, cardY + 9, { align: 'right' });
-
-      // Fila 2: Saldo puntual prominente en litros y valor en USD
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(esLandscape ? 10.5 : 9.5);
-      doc.setTextColor(colorAcento[0], colorAcento[1], colorAcento[2]);
-      doc.text(`${num(cierre)} L`, cardX + 7, cardY + (esLandscape ? 20.5 : 20));
+      doc.setFontSize(6.0);
+      doc.setTextColor(...GRIS_TEXTO);
+      doc.text(capInfo, cardX + cardW - 6, cardY + 9.5, { align: 'right' });
+
+      // Fila 2: Saldo puntual prominente en naranja y valor en verde
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(esLandscape ? 10.5 : 10.0);
+      doc.setTextColor(...colorAcento);
+      doc.text(`${num(cierre)} L`, cardX + 7, cardY + (esLandscape ? 21 : 20.5));
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(esLandscape ? 7.5 : 6.8);
-      doc.setTextColor(22, 101, 52); // Verde contable
-      doc.text(money(valor), cardX + cardW - 6, cardY + (esLandscape ? 20 : 19.5), { align: 'right' });
+      doc.setFontSize(esLandscape ? 7.5 : 7.0);
+      doc.setTextColor(...VERDE);
+      doc.text(money(valor), cardX + cardW - 6, cardY + (esLandscape ? 20.5 : 20.0), { align: 'right' });
 
-      // Fila 3: Subtítulo con fecha de cierre y datos técnicos
+      // Fila 3: Detalle técnico inferior
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(esLandscape ? 5.8 : 5.2);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Cierre: ${fechaLimpia || 'al corte'}`, cardX + 7, cardY + (esLandscape ? 30 : 31));
+      doc.setFontSize(esLandscape ? 5.8 : 5.4);
+      doc.setTextColor(...GRIS_TEXTO);
+      doc.text(`Cierre: ${fechaLimpia || 'al corte'}`, cardX + 7, cardY + (esLandscape ? 30 : 29.5));
 
       const subtasa =
         cap > 0
           ? `Cap: ${num(cap)} L · ${money(tasa)}`
           : `Tasa: ${money(tasa)}/L`;
-      doc.text(subtasa, cardX + cardW - 6, cardY + (esLandscape ? 30 : 31), { align: 'right' });
+      doc.text(subtasa, cardX + cardW - 6, cardY + (esLandscape ? 30 : 29.5), { align: 'right' });
+
+      // Mini-barra de progreso de capacidad en la base de la ficha
+      if (cap > 0) {
+        const barY = cardY + cardH - 3;
+        const barMaxW = cardW - 14;
+        doc.setFillColor(241, 245, 249);
+        doc.rect(cardX + 7, barY, barMaxW, 1.8, 'F');
+
+        const barFillW = Math.max(1, (pct / 100) * barMaxW);
+        doc.setFillColor(...colorAcento);
+        doc.rect(cardX + 7, barY, barFillW, 1.8, 'F');
+      }
     });
 
     const totalFichasRows = Math.ceil(numTanques / colsFichas);
     y += totalFichasRows * (cardH + cardGap) + 10;
   }
 
-  // 4. DETALLADO ENUMERADO 1: Tabla de Arqueo y Saldos al Corte por Tanque
+  // 5. DETALLADO ENUMERADO 1: Tabla de Arqueo y Saldos al Corte por Tanque
+  doc.setFillColor(...NARANJA);
+  doc.rect(MARGIN, y, 3.5, 10, 'F');
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(30, 41, 59);
-  doc.text('1. Existencias y Saldos al Corte por Tanque', MARGIN, y + 2);
-  y += 7;
+  doc.setFontSize(9.0);
+  doc.setTextColor(...TINTA);
+  doc.text('1. EXISTENCIAS Y SALDOS AL CORTE POR TANQUE', MARGIN + 7, y + 8);
+  const t1W = doc.getTextWidth('1. EXISTENCIAS Y SALDOS AL CORTE POR TANQUE');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('Arqueo consolidado de inventario y valuación por tanque', MARGIN + 7 + t1W + 8, y + 8);
+  y += 13;
 
   const filasCorte = detallePorTanque.map((d) => {
     const cap = Number(d.tanque.capacidad_litros) || 0;
@@ -343,9 +504,9 @@ export async function descargarReporteExistenciasPdf({
     const pct = cap > 0 ? Math.min(100, Math.max(0, (cierre / cap) * 100)) : 0;
 
     const tipoLabel = esBidon(d.tanque.nombre)
-      ? 'Bidon'
+      ? 'Bidón'
       : d.tanque.es_movil
-        ? 'Movil'
+        ? 'Móvil'
         : 'Estacionario';
 
     return [
@@ -389,7 +550,7 @@ export async function descargarReporteExistenciasPdf({
   ]);
 
   autoTable(doc, {
-    startY: y + 2,
+    startY: y,
     head: [
       [
         'Tanque',
@@ -407,16 +568,23 @@ export async function descargarReporteExistenciasPdf({
     ],
     body: filasCorte,
     margin: MARGIN,
+    theme: 'grid',
     styles: {
-      fontSize: esLandscape ? 7.5 : 6.5,
-      cellPadding: esLandscape ? 2.8 : 2,
-      textColor: [30, 41, 59],
+      fontSize: esLandscape ? 7.4 : 6.5,
+      cellPadding: esLandscape ? 2.8 : 2.2,
+      lineColor: BORDE,
+      lineWidth: 0.3,
+      textColor: TINTA,
+      valign: 'middle',
+    },
+    alternateRowStyles: {
+      fillColor: FONDO_SUAVE,
     },
     headStyles: {
-      fillColor: [234, 88, 12],
+      fillColor: NARANJA,
       textColor: 255,
       fontStyle: 'bold',
-      fontSize: esLandscape ? 7.5 : 6.5,
+      fontSize: esLandscape ? 7.4 : 6.5,
     },
     columnStyles: esLandscape
       ? {
@@ -455,47 +623,73 @@ export async function descargarReporteExistenciasPdf({
   });
 
   const lastTable = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-  y = (lastTable?.finalY ?? y) + 14;
+  y = (lastTable?.finalY ?? y) + 6;
 
-  // 5. DETALLADO ENUMERADO 2: Detalle de Movimientos en el Periodo (activado por check de movimientos)
+  // Nota metodológica bajo la tabla 1
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.8);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text(
+    '* Saldos calculados al corte de fecha especificado. El valor contable en USD se determina multiplicando el saldo disponible por la tasa ponderada de cada tanque.',
+    MARGIN,
+    y,
+  );
+  y += 12;
+
+  // 6. DETALLADO ENUMERADO 2: Detalle de Movimientos en el Periodo
   if (incluirMovimientos) {
+    if (y > PAGE_H - 120) {
+      doc.addPage();
+      y = MARGIN;
+    }
+
+    doc.setFillColor(...NARANJA);
+    doc.rect(MARGIN, y, 3.5, 10, 'F');
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(30, 41, 59);
-    doc.text(`2. Detalle de Movimientos Registrados en el Periodo · ${periodoLabel}`, MARGIN, y + 2);
-    y += 8;
+    doc.setFontSize(9.0);
+    doc.setTextColor(...TINTA);
+    doc.text(`2. DETALLE DE MOVIMIENTOS REGISTRADOS EN EL PERÍODO`, MARGIN + 7, y + 8);
+    const t2W = doc.getTextWidth(`2. DETALLE DE MOVIMIENTOS REGISTRADOS EN EL PERÍODO`);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(pdfSafe(`Historial cronológico de despachos, entradas y traslados · ${periodoLabel}`), MARGIN + 7 + t2W + 8, y + 8);
+    y += 14;
 
     for (const item of detallePorTanque) {
-      if (y > PAGE_H - 100) {
+      if (y > PAGE_H - 110) {
         doc.addPage();
         y = MARGIN;
       }
 
-      // Cabecera por tanque con datos de corte
-      doc.setFillColor(241, 245, 249);
-      doc.setDrawColor(203, 213, 225);
-      doc.setLineWidth(0.8);
-      doc.roundedRect(MARGIN, y, PAGE_W - 2 * MARGIN, 18, 2, 2, 'FD');
+      // Cintillo-resumen de grupo por tanque (compacto, fondo suave, esquinas redondeadas)
+      const groupH = 16;
+      doc.setFillColor(...FONDO_SUAVE);
+      doc.setDrawColor(...BORDE);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(MARGIN, y, UW, groupH, 2, 2, 'FD');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(esLandscape ? 8 : 7.5);
+      doc.setFontSize(esLandscape ? 7.8 : 7.2);
       doc.setTextColor(15, 23, 42);
-      doc.text(`TANQUE: ${item.tanque.nombre.toUpperCase()}`, MARGIN + 7, y + 12);
+      doc.text(`TANQUE: ${item.tanque.nombre.toUpperCase()}`, MARGIN + 7, y + 10.5);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(esLandscape ? 7 : 6.5);
+      doc.setFontSize(esLandscape ? 6.8 : 6.2);
       doc.setTextColor(71, 85, 105);
 
       const statsLine = `Apertura: ${num(item.saldoInicialLitros ?? 0)} L   |   Entradas: +${num(item.entradasLitros ?? 0)} L   |   Surtidos: -${num(item.surtidosLitros ?? 0)} L   |   Traslados: -${num(item.trasladosLitros ?? 0)} L   |   Saldo Cierre: ${num((item.saldoCierreLitros ?? item.disponible) ?? 0)} L`;
-      doc.text(statsLine, PAGE_W - MARGIN - 7, y + 12, { align: 'right' });
-      y += 22;
+      doc.text(statsLine, PAGE_W - MARGIN - 7, y + 10.5, { align: 'right' });
+      y += groupH + 4;
 
       if (!item.movimientos.length) {
         doc.setFont('helvetica', 'italic');
-        doc.setFontSize(7);
-        doc.setTextColor(148, 163, 184);
-        doc.text('Sin movimientos registrados en este periodo.', MARGIN + 7, y + 4);
-        y += 12;
+        doc.setFontSize(6.8);
+        doc.setTextColor(...GRIS_CLARO);
+        doc.text('Sin movimientos registrados en este período para este tanque.', MARGIN + 7, y + 6);
+        y += 14;
         continue;
       }
 
@@ -526,29 +720,36 @@ export async function descargarReporteExistenciasPdf({
         return [
           fechaHoraTxt,
           tipoTxt,
-          destinoTxt,
+          pdfSafe(destinoTxt),
           litrosTxt,
           saldoTxt,
-          m.autorizado_por || m.actor_name || m.created_by || '—',
-          m.observacion || '—',
+          pdfSafe(m.autorizado_por || m.actor_name || m.created_by || '—'),
+          pdfSafe(m.observacion || '—'),
         ];
       });
 
       autoTable(doc, {
         startY: y,
-        head: [['Fecha / Hora', 'Tipo', 'Equipo / Destino', 'Litros', 'Saldo Tanque', 'Autorizado / Desp.', 'Observacion']],
+        head: [['Fecha / Hora', 'Tipo', 'Equipo / Destino', 'Litros', 'Saldo Tanque', 'Autorizado / Desp.', 'Observación']],
         body: filasMovs,
         margin: MARGIN,
+        theme: 'grid',
         styles: {
-          fontSize: esLandscape ? 7.2 : 6.5,
+          fontSize: esLandscape ? 7.0 : 6.3,
           cellPadding: esLandscape ? 2.5 : 1.8,
-          textColor: [30, 41, 59],
+          lineColor: BORDE,
+          lineWidth: 0.3,
+          textColor: TINTA,
+          valign: 'middle',
+        },
+        alternateRowStyles: {
+          fillColor: FONDO_SUAVE,
         },
         headStyles: {
-          fillColor: [51, 65, 85],
+          fillColor: [51, 65, 85], // Gris azulado pizarra
           textColor: 255,
           fontStyle: 'bold',
-          fontSize: esLandscape ? 7.2 : 6.5,
+          fontSize: esLandscape ? 7.0 : 6.3,
         },
         columnStyles: esLandscape
           ? {
@@ -573,9 +774,9 @@ export async function descargarReporteExistenciasPdf({
           if (data.section === 'body' && data.column.index === 3) {
             const val = String(data.cell.raw ?? '');
             if (val.startsWith('-')) {
-              data.cell.styles.textColor = [185, 28, 28];
+              data.cell.styles.textColor = ROJO;
             } else if (val.startsWith('+')) {
-              data.cell.styles.textColor = [21, 128, 61];
+              data.cell.styles.textColor = VERDE;
             }
           }
         },
@@ -586,18 +787,29 @@ export async function descargarReporteExistenciasPdf({
     }
   }
 
-  // Pie de página con numeración
+  // 7. PIE DE PÁGINA FORMAL CON LÍNEA Y NUMERACIÓN
   const totalPaginas = doc.getNumberOfPages();
   for (let i = 1; i <= totalPaginas; i++) {
     doc.setPage(i);
+
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.4);
+    doc.line(MARGIN, PAGE_H - (esLandscape ? 20 : 18), PAGE_W - MARGIN, PAGE_H - (esLandscape ? 20 : 18));
+
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(esLandscape ? 7.5 : 7);
-    doc.setTextColor(148, 163, 184);
+    doc.setFontSize(esLandscape ? 6.8 : 6.2);
+    doc.setTextColor(...GRIS_TEXTO);
     doc.text(
-      `Golden Touch 1127 C.A. · Control de Combustible · Pagina ${i} de ${totalPaginas}`,
-      PAGE_W / 2,
-      PAGE_H - (esLandscape ? 18 : 15),
-      { align: 'center' },
+      `Documento generado por el sistema · Control de Combustible GT · Minera Golden Touch 1127, C.A.`,
+      MARGIN,
+      PAGE_H - (esLandscape ? 10 : 9),
+    );
+
+    doc.text(
+      `Página ${i} de ${totalPaginas}`,
+      PAGE_W - MARGIN,
+      PAGE_H - (esLandscape ? 10 : 9),
+      { align: 'right' },
     );
   }
 
