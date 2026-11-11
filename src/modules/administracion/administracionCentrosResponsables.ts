@@ -25,9 +25,10 @@ export interface CentroAcopio {
   id: string;
   nombre: string;
   empresaClave: string;
-  responsablePrincipal?: string;
-  fasePredeterminada?: string;
-  descripcion?: string;
+  /** `null` llega de la base; `undefined`, de los centros de fabrica. */
+  responsablePrincipal?: string | null;
+  fasePredeterminada?: string | null;
+  descripcion?: string | null;
 }
 
 export interface FaseDefinicion {

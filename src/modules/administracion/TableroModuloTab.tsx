@@ -13,7 +13,7 @@ import type { Usuario } from '@/shared/lib/types';
 import { TIPO_DOCUMENTO_LABEL, type AdminRepo, type CentroRequerido, type Empresa, type TipoDocumento } from './admin.repository';
 import { resumenTablero, colorSemaforoCobertura, type ResumenTablero } from './administracionTableroModulo';
 import { nombrePorEmail } from './administracionResponsabilidad';
-import { leerCentrosAcopio, type CentroAcopio } from './administracionCentrosResponsables';
+import { type CentroAcopio } from './administracionCentrosResponsables';
 import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -39,7 +39,7 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
     setCargando(true); setError(null);
     try {
       await repo.refrescarEnvios();
-      const cs = leerCentrosAcopio().filter((c) => !empresaClave || c.empresaClave === empresaClave);
+      const cs = (await repo.listCentros(empresaClave ?? undefined)).filter((c) => c.activo !== false);
       const [documentos, movimientos, gestiones, envios, profesionales, responsabilidades, reqs, us] = await Promise.all([
         repo.listDocumentos(empresaClave ?? undefined),
         repo.listMovimientos(empresaClave ?? undefined),

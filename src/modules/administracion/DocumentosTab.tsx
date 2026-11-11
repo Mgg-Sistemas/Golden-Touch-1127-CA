@@ -25,7 +25,7 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { SearchSelect, SearchCreateSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
-import { leerCentrosAcopio, obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 import {
   GestionarCarpetasModal,
   leerCarpetasPersonalizadas,
@@ -139,7 +139,10 @@ export function DocumentosTab({
   const [buscar, setBuscar] = useState('');
 
   // Centros de Acopio disponibles para asociación y filtrado
-  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  // Los centros viven en la base (Configuracion los crea). Antes se leia una lista
+  // fija del codigo, asi que lo que la lider creaba no aparecia aqui nunca.
+  const [centros, setCentros] = useState<CentroAcopio[]>([]);
+  useEffect(() => { repo.listCentros().then(setCentros).catch(() => setCentros([])); }, [repo]);
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
   const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, docs, [], carpetas), [centros, docs, carpetas]);
 
@@ -1558,6 +1561,7 @@ export function DocumentosTab({
       {modalCarpetas && (
         <GestionarCarpetasModal
           carpetas={carpetas}
+          centros={centros}
           empresaClave={empresaClave}
           onClose={() => setModalCarpetas(false)}
           onGuardar={(nuevas) => {

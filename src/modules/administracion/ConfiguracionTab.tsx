@@ -789,6 +789,7 @@ export function ConfiguracionTab({
       {modalCarpetas && (
         <GestionarCarpetasModal
           carpetas={carpetas}
+          centros={centros}
           empresaClave={null}
           onClose={() => setModalCarpetas(false)}
           onGuardar={(nuevas) => {

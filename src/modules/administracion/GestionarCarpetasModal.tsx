@@ -14,7 +14,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { CARPETAS_DOCUMENTOS, type InfoCarpetaDoc } from './admin.repository';
-import { leerCentrosAcopio, obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 
 const EMOJIS_SUGERIDOS = [
   '📁', '⛏️', '👷', '⚖️', '👥', '🏛️', '📑', '📜', '🛡️',
@@ -23,6 +23,8 @@ const EMOJIS_SUGERIDOS = [
 
 interface Props {
   carpetas: InfoCarpetaDoc[];
+  /** Los centros vienen de quien abre el modal, que los lee de la base. */
+  centros?: CentroAcopio[];
   empresaClave?: string | null;
   onClose: () => void;
   onGuardar: (carpetasActualizadas: InfoCarpetaDoc[]) => void;
@@ -30,6 +32,7 @@ interface Props {
 
 export function GestionarCarpetasModal({
   carpetas,
+  centros: centrosProp,
   onClose,
   onGuardar,
 }: Props) {
@@ -45,7 +48,7 @@ export function GestionarCarpetasModal({
   const [centroAcopioId, setCentroAcopioId] = useState<string>('');
   const [responsable, setResponsable] = useState<string>('');
 
-  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  const centros = centrosProp ?? [];
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
   const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, [], [], lista), [centros, lista]);
 

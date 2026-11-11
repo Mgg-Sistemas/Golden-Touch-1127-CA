@@ -11,7 +11,7 @@ import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { proximoVencimiento, type Moneda, type Periodicidad } from './administracionCalculo';
 import { cargarTasaBcv } from './administracionTasa';
-import { leerCentrosAcopio, obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 import type { AdminRepo, Empresa, GastoFijo, GastoFijoInput, OpcionRef } from './admin.repository';
 
 const PERIODICIDADES: { v: Periodicidad; label: string }[] = [
@@ -75,7 +75,10 @@ export function GastoFijoModal({ repo, empresas, empresaClaveFija, categorias, p
   const [guardando, setGuardando] = useState(false);
   const [intento, setIntento] = useState(false);
   const [bcv, setBcv] = useState<number | null>(null);
-  const [centros] = useState<CentroAcopio[]>(() => leerCentrosAcopio());
+  // Los centros viven en la base (Configuracion los crea). Antes se leia una lista
+  // fija del codigo, asi que lo que la lider creaba no aparecia aqui nunca.
+  const [centros, setCentros] = useState<CentroAcopio[]>([]);
+  useEffect(() => { repo.listCentros().then(setCentros).catch(() => setCentros([])); }, [repo]);
   const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, [], gasto ? [gasto] : []), [centros, gasto]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
