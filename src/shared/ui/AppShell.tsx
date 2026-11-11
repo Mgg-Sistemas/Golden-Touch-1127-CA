@@ -14,7 +14,7 @@ import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { HintsToggle } from '@/shared/ui/HintsToggle';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
-import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
+import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, BACKUP_EMAIL } from '@/shared/lib/backup';
 import { mensajeError } from '@/shared/lib/errores';
 import { Modal } from '@/shared/ui/Modal';
 import { scanStockAndNotify, unreadCountParaUsuario } from '@/modules/notificaciones/notif.repository';
@@ -70,7 +70,8 @@ export function AppShell() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [descargandoManual, setDescargandoManual] = useState(false);
   const [descargandoBackup, setDescargandoBackup] = useState(false);
-  const mostrarRespaldo = puedeRespaldar(role);
+  // Lo gobierna el panel de permisos (módulo «respaldo»), no el nombre del rol.
+  const mostrarRespaldo = can('respaldo');
   const [unread, setUnread] = useState(0);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -289,9 +290,9 @@ export function AppShell() {
   const backupAutoCorrido = useRef(false);
   useEffect(() => {
     if (backupAutoCorrido.current) return;
-    if (!puedeRespaldar(role)) return;
+    if (!mostrarRespaldo) return;
     backupAutoCorrido.current = true;
-    chequearRespaldoAutomatico(role, user?.email ?? 'sistema')
+    chequearRespaldoAutomatico(mostrarRespaldo, user?.email ?? 'sistema')
       .then((corrio) => { if (corrio) toast(`Respaldo automático (cada 30 días) enviado por correo a ${BACKUP_EMAIL}`, 'info'); })
       // Antes esto se tragaba el error «porque el respaldo manual sigue
       // disponible». El problema es que nadie se enteraba: el sistema daba por
