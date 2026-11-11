@@ -37,8 +37,28 @@ import { ResumenActividadModal } from './ResumenActividadModal';
 import { norm } from '@/shared/lib/texto';
 import { listCambiosDeUsuario, nombreCompleto, type CambioNombre } from '@/shared/lib/nombresHistoricos';
 import { estadoVisible, estaArchivado, filtrarPorEstado, puedeArchivar, type FiltroEstadoUsuario } from './usuariosArchivo';
+import { DirectorioUsuarios } from './DirectorioUsuarios';
+import './usuarios.css';
 
 type View = 'creacion' | 'roles';
+
+/* Cómo se mira el padrón: el Directorio agrupa por departamento (capa de
+   descubrimiento) y la Tabla es la de siempre, para trabajar. Se recuerda
+   la última usada, igual que en Maquinaria. */
+type VistaLista = 'directorio' | 'tabla';
+const CLAVE_VISTA = 'gt.usuarios.v1.vista';
+
+function leerVistaLista(): VistaLista {
+  try {
+    const v = localStorage.getItem(CLAVE_VISTA);
+    if (v === 'tabla' || v === 'directorio') return v;
+  } catch { /* navegador sin almacenamiento: se usa el valor por defecto */ }
+  return 'directorio';
+}
+
+function guardarVistaLista(v: VistaLista) {
+  try { localStorage.setItem(CLAVE_VISTA, v); } catch { /* no es crítico */ }
+}
 
 type ModalKind =
   | { kind: 'none' }
@@ -82,6 +102,8 @@ export function UsuariosPage() {
   const [filterEstado, setFilterEstado] = useState<FiltroEstadoUsuario>('');
   const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
   const [view, setView] = useState<View>('creacion');
+  const [vistaLista, setVistaLista] = useState<VistaLista>(leerVistaLista);
+  const cambiarVistaLista = (v: VistaLista) => { setVistaLista(v); guardarVistaLista(v); };
   const [roleQuickModal, setRoleQuickModal] = useState<RoleQuickModal>('none');
   const [conteoRoles, setConteoRoles] = useState<Record<string, number>>({});
   const [lastCreatedRoleKey, setLastCreatedRoleKey] = useState<string | null>(null);
@@ -150,34 +172,35 @@ export function UsuariosPage() {
 
   return (
     <div>
-      <div className="page-head" style={{ display: 'block' }}>
-        <h1 style={{ textAlign: 'center', marginBottom: '.5rem' }}>
-          {view === 'creacion' ? 'Creación de Usuario' : 'Roles y Permiso'}
-        </h1>
-        <p className="muted" style={{ textAlign: 'center' }}>
-          {view === 'creacion'
-            ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos. Los deshabilitados se pueden archivar para que salgan de la lista.'
-            : 'Configura la matriz de permisos por rol y por módulo del sistema.'}
-        </p>
-
-        <div className="view-switch" role="tablist" aria-label="Vista de usuarios">
+      {/* El título ya no cambia con la pestaña: dice «Usuarios», igual que el
+          menú, y el subtítulo es el que explica dónde estás. */}
+      <div className="page-head">
+        <div>
+          <h1>Usuarios</h1>
+          <p className="muted" style={{ maxWidth: '70ch' }}>
+            {view === 'creacion'
+              ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos. Los deshabilitados se pueden archivar para que salgan de la lista.'
+              : 'Define qué puede hacer cada rol sobre cada módulo, qué ve en el teléfono y a qué depósitos entra.'}
+          </p>
+        </div>
+        <div className="view-toggle" role="tablist" aria-label="Vista de usuarios">
           <button
             type="button"
             role="tab"
             aria-selected={view === 'creacion'}
-            className={`view-switch-tab${view === 'creacion' ? ' active' : ''}`}
+            className={view === 'creacion' ? 'active' : ''}
             onClick={() => setView('creacion')}
           >
-            👤 Creación de Usuario
+            👤 Personas
           </button>
           <button
             type="button"
             role="tab"
             aria-selected={view === 'roles'}
-            className={`view-switch-tab${view === 'roles' ? ' active' : ''}`}
+            className={view === 'roles' ? 'active' : ''}
             onClick={() => setView('roles')}
           >
-            🛡 Roles y Permiso
+            🛡 Roles y permisos
           </button>
         </div>
       </div>
@@ -192,7 +215,8 @@ export function UsuariosPage() {
         <RolesPermisosPanel readOnly={!canFull} onRolesChanged={refresh} />
       ) : (
       <>
-      {/* Tarjetas dinámicas: un clic filtra la lista por ese estado; otro clic lo quita. */}
+      {/* Siempre filtraron al tocarlas, pero se leían como métricas de
+          tablero. Ahora lo dicen: cuerpo de filtro y pista explícita. */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
         {([
           { estado: 'activo', label: 'Usuarios activos', valor: activos, delta: 'Con acceso al sistema', down: false, icon: '✓' },
@@ -203,22 +227,20 @@ export function UsuariosPage() {
           return (
             <div
               key={k.estado}
-              className="kpi"
+              className="kpi usr-filtro-card"
               role="button"
               tabIndex={0}
               aria-pressed={activa}
-              title={activa ? 'Clic para quitar el filtro' : `Clic para ver la lista de ${k.label.toLowerCase()}`}
+              title={activa ? 'Clic para quitar el filtro' : `Clic para ver solo ${k.label.toLowerCase()}`}
               onClick={() => verEstado(k.estado)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); verEstado(k.estado); } }}
-              style={{
-                cursor: 'pointer',
-                transition: 'border-color .15s, box-shadow .15s',
-                ...(activa ? { borderColor: 'var(--primary)', boxShadow: '0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent)' } : null),
-              }}
             >
               <div className="label">{k.label}</div>
               <div className="value">{k.valor}</div>
-              <div className={`delta${k.down ? ' down' : ''}`}>{activa ? 'Viendo esta lista · clic para quitar' : k.delta}</div>
+              <div className={`delta${k.down ? ' down' : ''}`}>{k.delta}</div>
+              <div className="usr-filtro-pista">
+                {activa ? '✓ Viendo solo estos · clic para quitar' : '⌕ Clic para filtrar'}
+              </div>
               <div className="icon">{k.icon}</div>
             </div>
           );
@@ -254,10 +276,27 @@ export function UsuariosPage() {
           <option value="inactivo">Deshabilitados</option>
           <option value="archivado">Archivados</option>
         </select>
+        <div className="view-toggle" role="tablist" aria-label="Cómo ver el listado">
+          <button
+            type="button" role="tab" aria-selected={vistaLista === 'directorio'}
+            className={vistaLista === 'directorio' ? 'active' : ''}
+            onClick={() => cambiarVistaLista('directorio')}
+            title="Agrupados por departamento"
+          >
+            Directorio
+          </button>
+          <button
+            type="button" role="tab" aria-selected={vistaLista === 'tabla'}
+            className={vistaLista === 'tabla' ? 'active' : ''}
+            onClick={() => cambiarVistaLista('tabla')}
+            title="La lista completa con todas las columnas"
+          >
+            Tabla
+          </button>
+        </div>
         <button
           className="btn btn-ghost"
           onClick={() => setModal({ kind: 'actividad' })}
-          style={{ marginLeft: 'auto' }}
           title="Supervisión: usuarios conectados y tiempo en el sistema"
         >
           📊 Resumen de Actividad
@@ -278,6 +317,12 @@ export function UsuariosPage() {
         <div className="card">
           <EmptyState message="No hay usuarios que coincidan." icon="◇" />
         </div>
+      ) : vistaLista === 'directorio' ? (
+        <DirectorioUsuarios
+          usuarios={filtered}
+          roles={roles}
+          onAbrir={(u) => setModal({ kind: 'detail', usuario: u })}
+        />
       ) : (
         <div className="table-wrap">
           <table className="table">
@@ -294,17 +339,24 @@ export function UsuariosPage() {
             </thead>
             <tbody>
               {filtered.map((u) => (
-                <tr key={u.id}>
+                /* La fila entera abre la ficha: antes había que apuntar al
+                   botón «Ver», que seguía siendo el único objetivo. */
+                <tr
+                  key={u.id}
+                  className="usr-fila"
+                  tabIndex={0}
+                  onClick={() => setModal({ kind: 'detail', usuario: u })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ kind: 'detail', usuario: u }); }
+                  }}
+                  title="Ver la ficha de este usuario"
+                >
                   <td>
                     <strong>{[u.nombre, u.apellido].filter(Boolean).join(' ') || u.nombre}</strong>
-                    {u.bloqueado && (
-                      <div style={{ fontSize: '.7rem', color: 'var(--danger)', fontWeight: 600 }}>
-                        🔒 Bloqueado (3 intentos fallidos)
-                      </div>
-                    )}
-                    {u.must_change_password && (
-                      <div className="muted" style={{ fontSize: '.7rem' }}>
-                        ⚠ Debe cambiar clave al ingresar
+                    {(u.bloqueado || u.must_change_password) && (
+                      <div className="usr-persona-avisos">
+                        {u.bloqueado && <span className="usr-aviso bloqueado">🔒 Bloqueado · 3 intentos fallidos</span>}
+                        {u.must_change_password && <span className="usr-aviso clave">⚠ Clave pendiente</span>}
                       </div>
                     )}
                   </td>
@@ -317,14 +369,14 @@ export function UsuariosPage() {
                     {canWrite && (
                       <button
                         className="btn btn-sm btn-ghost"
-                        onClick={() => setModal({ kind: 'edit', usuario: u })}
+                        onClick={(e) => { e.stopPropagation(); setModal({ kind: 'edit', usuario: u }); }}
                       >
                         Editar
                       </button>
                     )}
                     <button
                       className="btn btn-sm btn-ghost"
-                      onClick={() => setModal({ kind: 'detail', usuario: u })}
+                      onClick={(e) => { e.stopPropagation(); setModal({ kind: 'detail', usuario: u }); }}
                     >
                       Ver
                     </button>
@@ -1178,38 +1230,44 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onT
       size="lg"
       onClose={onClose}
       footer={
-        <>
-          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-          <button className="btn btn-ghost" onClick={onEdit}>✎ Editar datos</button>
-          <button className="btn btn-ghost" onClick={onResetClave}>
-            🔑 Resetear clave
-          </button>
-          {usuario.bloqueado && (
-            <button className="btn btn-success" onClick={onDesbloquear}>
-              🔓 Desbloquear
+        /* Mismas acciones de siempre, ordenadas por riesgo: lo que quita
+           acceso o resetea una clave vive lejos del botón de uso diario. */
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', width: '100%', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={onResetClave} title="Le asigna la clave inicial; deberá cambiarla al ingresar.">
+              🔑 Resetear clave
             </button>
-          )}
-          {archivado ? (
-            // Archivado: primero se restaura (vuelve como deshabilitado); habilitar es otro paso.
-            <button className="btn btn-success" onClick={onRestaurar} title="Vuelve a la lista como deshabilitado">
-              ↩ Restaurar
-            </button>
-          ) : (
-            <>
-              {puedeArchivar(usuario) && (
-                <button className="btn btn-ghost" onClick={onArchivar} title="Sale de la lista. No se borra nada.">
-                  🗄 Archivar
-                </button>
-              )}
+            {!archivado && puedeArchivar(usuario) && (
+              <button className="btn btn-ghost" onClick={onArchivar} title="Sale de la lista. No se borra nada.">
+                🗄 Archivar
+              </button>
+            )}
+            {!archivado && (
               <button
                 className={isActive ? 'btn btn-danger' : 'btn btn-success'}
                 onClick={onToggleEstado}
               >
                 {isActive ? 'Deshabilitar usuario' : 'Habilitar usuario'}
               </button>
-            </>
-          )}
-        </>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
+            {usuario.bloqueado && (
+              <button className="btn btn-success" onClick={onDesbloquear}>
+                🔓 Desbloquear
+              </button>
+            )}
+            {archivado && (
+              // Archivado: primero se restaura (vuelve como deshabilitado); habilitar es otro paso.
+              <button className="btn btn-success" onClick={onRestaurar} title="Vuelve a la lista como deshabilitado">
+                ↩ Restaurar
+              </button>
+            )}
+            <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+            <button className="btn btn-primary" onClick={onEdit}>✎ Editar datos</button>
+          </div>
+        </div>
       }
     >
       <div className="detail-row">
