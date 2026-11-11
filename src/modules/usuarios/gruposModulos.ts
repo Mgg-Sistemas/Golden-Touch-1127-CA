@@ -55,8 +55,10 @@ export const GRUPOS_MODULOS: GrupoModulos[] = [
   {
     key: 'sistema',
     label: 'Sistema',
-    resumen: 'El andamiaje: tableros, documentos y configuración.',
-    modulos: ['dashboard', 'documentacion', 'usuarios', 'ajustes'],
+    resumen: 'El andamiaje: tableros, documentos, control y configuración.',
+    // `auditoria` y `respaldo` (11/11/2026) son permisos de supervisión y
+    // custodia: pertenecen al andamiaje, no a ningún proceso del negocio.
+    modulos: ['dashboard', 'documentacion', 'auditoria', 'respaldo', 'usuarios', 'ajustes'],
   },
 ];
 
