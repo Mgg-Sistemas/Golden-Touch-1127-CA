@@ -20,15 +20,27 @@ let labelCache: Record<string, string> = {
   obrero: 'Personal de Planta / Obrero',
 };
 
+let colorCache: Record<string, string> = {};
+
 export function labelRol(role: Role | string | null | undefined): string {
   if (!role) return '—';
   return labelCache[String(role)] ?? String(role);
 }
 
-/** Refresca el caché de etiquetas (llamar tras cargar roles dinámicos). */
+/** Color del rol (`custom_roles.color`), si el caché ya se cargó. */
+export function colorRol(role: Role | string | null | undefined): string | undefined {
+  if (!role) return undefined;
+  return colorCache[String(role)];
+}
+
+/** Refresca el caché de etiquetas y colores (llamar tras cargar roles dinámicos). */
 export function setRolesCache(roles: CustomRole[]): void {
   labelCache = roles.reduce<Record<string, string>>((acc, r) => {
     acc[r.key] = r.label;
+    return acc;
+  }, {});
+  colorCache = roles.reduce<Record<string, string>>((acc, r) => {
+    if (r.color) acc[r.key] = r.color;
     return acc;
   }, {});
 }

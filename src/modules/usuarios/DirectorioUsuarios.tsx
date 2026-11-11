@@ -13,17 +13,11 @@
 import { useMemo, type CSSProperties } from 'react';
 import type { Usuario } from '@/shared/lib/types';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
+import { Iniciales } from '@/shared/ui/Iniciales';
 import type { CustomRole } from './roles.repository';
 import { estadoVisible } from './usuariosArchivo';
 
 const SIN_DEPTO = 'Sin departamento';
-
-function iniciales(u: Usuario): string {
-  const n = (u.nombre ?? '').trim();
-  const a = (u.apellido ?? '').trim();
-  const letras = `${n.charAt(0)}${a.charAt(0)}`.trim();
-  return (letras || (u.email ?? '?').charAt(0)).toUpperCase();
-}
 
 function nombreVisible(u: Usuario): string {
   return [u.nombre, u.apellido].filter(Boolean).join(' ').trim() || u.email || 'Sin nombre';
@@ -82,7 +76,7 @@ export function DirectorioUsuarios({ usuarios, roles, onAbrir }: Props) {
                   onClick={() => onAbrir(u)}
                   title={`Ver la ficha de ${nombreVisible(u)}`}
                 >
-                  <span className="usr-iniciales" aria-hidden="true">{iniciales(u)}</span>
+                  <Iniciales nombre={u.nombre} apellido={u.apellido} respaldo={u.email} color={rol?.color} />
                   <span className="usr-persona-datos">
                     <span className="usr-persona-nombre">{nombreVisible(u)}</span>
                     <span className="usr-persona-rol">{rol?.label ?? u.role}</span>
