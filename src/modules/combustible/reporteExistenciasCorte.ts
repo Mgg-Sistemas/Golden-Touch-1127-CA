@@ -13,6 +13,7 @@
 
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import { compararMovimientos } from './horaMovimiento';
+import { esBidon } from './bidonCombustible';
 
 export type PresetPeriodoCombustible =
   | 'mes_actual'
@@ -328,6 +329,27 @@ export function calcularCorteTanque(
       saldoCierreLitros = Number(tanque.saldo_litros) || aperturaTanqueL;
       saldoCierreUsd = Number(tanque.saldo_usd) || aperturaTanqueU;
     }
+  }
+
+  // Regla de BIDONES (23/10/2026): los bidones funcionan como receptáculos de acarreo para consumo
+  // inmediato en campo (generadores, maquinaria, apoyo). No acumulan inventario ni pueden tener saldo negativo.
+  if (esBidon(tanque.nombre)) {
+    if (saldoInicialLitros < 0) {
+      saldoInicialLitros = 0;
+      saldoInicialUsd = 0;
+    }
+    if (saldoCierreLitros < 0) {
+      saldoCierreLitros = 0;
+      saldoCierreUsd = 0;
+    }
+  }
+
+  // Si no hay litros, la valuación monetaria es exactamente 0 (evita anomalías de coma flotante como -$0,01)
+  if (saldoCierreLitros === 0) {
+    saldoCierreUsd = 0;
+  }
+  if (saldoInicialLitros === 0) {
+    saldoInicialUsd = 0;
   }
 
   saldoCierreLitros = Math.round(saldoCierreLitros * 100) / 100;

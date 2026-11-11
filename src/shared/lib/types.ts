@@ -482,6 +482,12 @@ export interface MovimientoTanque {
   merma_de_id?: string | null;
   /** Por qué la merma pasó el margen del tanque (obligatorio en ese caso). */
   merma_motivo?: string | null;
+  /** Lo que marcaba EL APARATO (11/11/2026). Si al tanque le cambiaron el contador,
+   *  el acumulado del sistema y la lectura del contador dejan de ser el mismo numero:
+   *  el acumulado va por 208.891 y el contador nuevo marca 30. Estos dos campos los
+   *  calcula listMovimientosTanque y son los que deben verse en pantalla. */
+  contador_marcaba_ini?: number | null;
+  contador_marcaba_fin?: number | null;
   contador_global_ini?: number | null;
   contador_global_fin?: number | null;
   contador_global_dif?: number | null;

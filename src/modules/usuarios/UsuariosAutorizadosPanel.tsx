@@ -10,15 +10,16 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { Iniciales } from '@/shared/ui/Iniciales';
 import { useSession } from '@/modules/auth/authStore';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { mensajeError } from '@/shared/lib/errores';
 import type { Usuario } from '@/shared/lib/types';
-import { listUsuarios } from './usuarios.repository';
+import { colorRol, listUsuarios } from './usuarios.repository';
 import {
   useAutorizados, guardarAutorizado, quitarAutorizado, prepararFirma,
 } from './autorizados.repository';
-import { OPCIONES_AUTORIZACION, resumenAutorizacion, tienePermiso, type PermisoAutorizado, type UsuarioAutorizado } from './autorizados';
+import { OPCIONES_AUTORIZACION, tienePermiso, type PermisoAutorizado, type UsuarioAutorizado } from './autorizados';
 
 type Alcance = 'oc' | 'salidas' | 'ambas';
 const ALCANCES: { key: Alcance; label: string; detalle: string }[] = [
@@ -38,6 +39,17 @@ export function UsuariosAutorizadosPanel({ readOnly = false }: { readOnly?: bool
   const [agregar, setAgregar] = useState(false);
   const [aQuitar, setAQuitar] = useState<UsuarioAutorizado | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /* Plegado por defecto: es otro tema y empujaba los roles fuera de la
+     pantalla. Se recuerda, como el resto de los selectores del sistema. */
+  const [abierto, setAbierto] = useState(() => {
+    try { return localStorage.getItem('gt.usuarios.v1.autorizados') === 'abierto'; }
+    catch { return false; }
+  });
+  const cambiarAbierto = (v: boolean) => {
+    setAbierto(v);
+    try { localStorage.setItem('gt.usuarios.v1.autorizados', v ? 'abierto' : 'cerrado'); }
+    catch { /* no es crítico */ }
+  };
   const fileRef = useRef<HTMLInputElement>(null);
   const [firmaPara, setFirmaPara] = useState<string | null>(null);
 
@@ -109,18 +121,43 @@ export function UsuariosAutorizadosPanel({ readOnly = false }: { readOnly?: bool
   }
 
   const yaEnLista = new Set((lista ?? []).map((a) => a.email.toLowerCase()));
+  // Una firma faltante no se ve en una tabla: hay que recorrerla entera.
+  const sinFirma = (lista ?? []).filter((a) => !a.firma).length;
 
   return (
     <section className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem', borderTop: '3px solid var(--primary, #ff8a00)' }} aria-labelledby="autorizados-titulo">
+      {/* Cerrado dice lo esencial —cuántos firman y a cuántos les falta la
+          firma— sin empujar los roles fuera de la pantalla. */}
+      <button
+        type="button" className="aut-head" aria-expanded={abierto}
+        aria-controls="autorizados-cuerpo" onClick={() => cambiarAbierto(!abierto)}
+      >
+        <span className="aut-head-flecha" aria-hidden="true">▸</span>
+        <h3 id="autorizados-titulo">✅ Quién puede aprobar</h3>
+        <span className="aut-head-resumen">
+          {lista === null ? (
+            <span className="muted" style={{ fontSize: '.78rem' }}>Cargando…</span>
+          ) : !lista.length ? (
+            <span className="badge danger">Nadie autorizado</span>
+          ) : (
+            <>
+              <span className="badge">{lista.length} autorizado(s)</span>
+              {sinFirma > 0
+                ? <span className="badge warning">⚠ {sinFirma} sin firma</span>
+                : <span className="badge success">✓ Todos con firma</span>}
+            </>
+          )}
+        </span>
+      </button>
+
+      {abierto && (
+      <div id="autorizados-cuerpo" className="aut-cuerpo">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.75rem', flexWrap: 'wrap', marginBottom: '.85rem' }}>
-        <div>
-          <h3 id="autorizados-titulo" style={{ margin: 0 }}>✅ Usuarios autorizados para:</h3>
-          <p className="muted" style={{ margin: '.25rem 0 0', fontSize: '.84rem', maxWidth: 720 }}>
-            Solo estos usuarios pueden <strong>aprobar órdenes de compra</strong> y/o
-            <strong> órdenes de salida</strong>. Su firma cargada se estampa en las órdenes que aprueben.
-            Las aprobaciones ya realizadas no cambian.
-          </p>
-        </div>
+        <p className="muted" style={{ margin: 0, fontSize: '.84rem', maxWidth: 720 }}>
+          Solo estos usuarios pueden <strong>aprobar órdenes de compra</strong> y/o
+          <strong> órdenes de salida</strong>. Su firma cargada se estampa en las órdenes que aprueben.
+          Las aprobaciones ya realizadas no cambian.
+        </p>
         {!readOnly && (
           <button id="autorizados-agregar" type="button" className="btn btn-primary" onClick={() => setAgregar(true)}>
             + Agregar usuario autorizado
@@ -140,70 +177,103 @@ export function UsuariosAutorizadosPanel({ readOnly = false }: { readOnly?: bool
           Aún no hay usuarios autorizados: nadie puede aprobar (tampoco el administrador). Usa «+ Agregar usuario autorizado».
         </p>
       ) : (
-        <div className="table-wrap">
-          <table className="table" style={{ fontSize: '.84rem' }}>
-            <thead>
-              <tr>
-                <th>Usuario</th>
-                {OPCIONES_AUTORIZACION.map((o) => (
-                  <th key={o.key} style={{ textAlign: 'center' }}>{o.icono} {o.label}</th>
-                ))}
-                <th style={{ textAlign: 'center' }}>Firma</th>
-                {!readOnly && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {lista.map((a) => {
-                const ocupado = busy === a.email;
-                return (
-                  <tr key={a.email}>
-                    <td>
-                      <strong>{nombreDe(a.email)}</strong>
-                      <div className="muted" style={{ fontSize: '.74rem' }}>{a.email} · {resumenAutorizacion(a)}</div>
-                    </td>
-                    {OPCIONES_AUTORIZACION.map((o) => {
-                      const marcado = tienePermiso(a, o.key);
-                      return (
-                        <td key={o.key} style={{ textAlign: 'center' }}>
-                          <input
-                            id={`aut-${o.key}-${a.email}`} type="checkbox" checked={marcado}
-                            disabled={readOnly || ocupado} onChange={() => void cambiarOpcion(a, o.key)}
-                            aria-label={`${o.label} · ${nombreDe(a.email)}`}
-                          />
-                        </td>
-                      );
-                    })}
-                    <td style={{ textAlign: 'center' }}>
+        <>
+          {/* Lo que antes había que contar fila por fila. */}
+          <div className="aut-resumen">
+            <span className="badge">{lista.length} autorizado(s)</span>
+            {sinFirma > 0
+              ? <span className="badge warning">⚠ {sinFirma} sin firma cargada</span>
+              : <span className="badge success">✓ Todos con firma</span>}
+          </div>
+
+          {/* Una ficha por firmante: quién es, qué puede aprobar —en
+              palabras, no cruzando una casilla con su columna— y su firma
+              como lienzo. */}
+          <div className="aut-grid">
+            {lista.map((a) => {
+              const ocupado = busy === a.email;
+              const nombre = nombreDe(a.email);
+              const u = porEmail.get(a.email.toLowerCase());
+              return (
+                <article key={a.email} className={`aut-ficha${a.firma ? '' : ' sin-firma'}`}>
+                  <header className="aut-persona">
+                    <Iniciales
+                      nombre={u?.nombre ?? nombre} apellido={u?.apellido} respaldo={a.email}
+                      color={colorRol(u?.role)}
+                    />
+                    <div className="aut-persona-datos">
+                      <span className="aut-persona-nombre">{nombre}</span>
+                      <span className="aut-persona-correo">{a.email}</span>
+                    </div>
+                    {!readOnly && (
+                      <button
+                        id={`aut-quitar-${a.email}`} type="button" className="btn btn-sm btn-danger"
+                        disabled={ocupado} onClick={() => setAQuitar(a)}
+                        aria-label={`Quitar a ${nombre} de los autorizados`}
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </header>
+
+                  <div>
+                    <div className="aut-bloque-titulo">Puede aprobar</div>
+                    <div className="aut-opciones">
+                      {OPCIONES_AUTORIZACION.map((o) => {
+                        const marcado = tienePermiso(a, o.key);
+                        return (
+                          <label
+                            key={o.key} htmlFor={`aut-${o.key}-${a.email}`}
+                            className={`aut-opcion${readOnly ? ' quieta' : ''}`}
+                          >
+                            <input
+                              id={`aut-${o.key}-${a.email}`} type="checkbox" checked={marcado}
+                              disabled={readOnly || ocupado} onChange={() => void cambiarOpcion(a, o.key)}
+                              aria-label={`${o.label} · ${nombre}`}
+                            />
+                            <span>{o.icono} {o.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="aut-bloque-titulo">Firma que se estampa</div>
+                    <div className="aut-firma">
                       {a.firma ? (
-                        <img
-                          src={a.firma} alt={`Firma de ${nombreDe(a.email)}`}
-                          style={{ maxHeight: 44, maxWidth: 140, background: '#fff', borderRadius: 6, padding: 2, border: '1px solid var(--border)' }}
-                        />
-                      ) : <span className="muted" style={{ fontSize: '.76rem' }}>Sin firma</span>}
+                        <span className="aut-firma-lienzo">
+                          <img src={a.firma} alt={`Firma de ${nombre}`} />
+                        </span>
+                      ) : (
+                        <span className="aut-firma-vacio">Sin firma cargada</span>
+                      )}
                       {!readOnly && (
-                        <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'center', marginTop: '.3rem', flexWrap: 'wrap' }}>
+                        <div className="aut-firma-acciones">
                           <button id={`aut-firma-${a.email}`} type="button" className="btn btn-sm btn-ghost" disabled={ocupado} onClick={() => pedirFirma(a.email)}>
                             {ocupado ? '…' : a.firma ? '✎ Cambiar' : '⬆ Cargar firma'}
                           </button>
                           {a.firma && (
-                            <button type="button" className="btn btn-sm btn-ghost" disabled={ocupado} onClick={() => void borrarFirma(a)} title="Quitar la firma cargada">✕</button>
+                            <button type="button" className="btn btn-sm btn-ghost" disabled={ocupado} onClick={() => void borrarFirma(a)} title="Quitar la firma cargada">
+                              ✕ Quitar firma
+                            </button>
                           )}
                         </div>
                       )}
-                    </td>
-                    {!readOnly && (
-                      <td style={{ textAlign: 'right' }}>
-                        <button id={`aut-quitar-${a.email}`} type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => setAQuitar(a)}>
-                          Quitar
-                        </button>
-                      </td>
+                    </div>
+                    {!a.firma && (
+                      <small className="muted" style={{ fontSize: '.74rem' }}>
+                        Lo que apruebe saldrá sin firma estampada.
+                      </small>
                     )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
+      </div>
       )}
 
       {agregar && (
