@@ -414,10 +414,10 @@ export async function listTanques(): Promise<TanqueCombustible[]> {
     if (esBidon(t.nombre)) {
       // Regla de BIDONES (23/10/2026): el combustible que entra a un bidón se retira para consumo en campo.
       // Los bidones no acumulan saldo. Si en la base quedó saldo previo, lo sincronizamos a 0.
-      if (num(t.saldo_litros) > 0 || num(t.saldo_usd) > 0) {
-        void supabase.from('combustible_tanques').update({ saldo_litros: 0, saldo_usd: 0 }).eq('id', t.id);
+      if (num(t.saldo_litros) !== 0 || num(t.saldo_usd) !== 0 || num(t.saldo_inicial_litros) !== 0) {
+        void supabase.from('combustible_tanques').update({ saldo_litros: 0, saldo_usd: 0, saldo_inicial_litros: 0, saldo_inicial_usd: 0 }).eq('id', t.id);
       }
-      return { ...t, saldo_litros: 0, saldo_usd: 0 };
+      return { ...t, saldo_litros: 0, saldo_usd: 0, saldo_inicial_litros: 0, saldo_inicial_usd: 0 };
     }
     return t;
   });
