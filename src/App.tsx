@@ -4,7 +4,7 @@ import { LandingPage } from './modules/landing/LandingPage';
 import { LoginPage } from './modules/auth/LoginPage';
 import { AppShell } from './shared/ui/AppShell';
 import { ProtectedRoute } from './modules/auth/ProtectedRoute';
-import { PermissionsProvider, RequireModule, RequireAdmin, RequireVistaTelefono, RequireDeposito, HomeRedirect, MODULOS_PANTALLA_PEDIDOS } from './modules/auth/PermissionsContext';
+import { PermissionsProvider, RequireModule, RequireVistaTelefono, RequireDeposito, HomeRedirect, MODULOS_PANTALLA_PEDIDOS } from './modules/auth/PermissionsContext';
 import { ToastHost } from './shared/ui/Toast';
 import { PasswordChangeGate } from './modules/usuarios/PasswordChangeGate';
 
@@ -168,7 +168,7 @@ export function App() {
           <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
           <Route path="usuarios" element={<RequireModule module="usuarios"><Suspense fallback={<PageLoader />}><UsuariosPage /></Suspense></RequireModule>} />
           <Route path="ajustes" element={<RequireModule module="ajustes"><Suspense fallback={<PageLoader />}><AjustesPage /></Suspense></RequireModule>} />
-          <Route path="auditoria" element={<RequireAdmin><Suspense fallback={<PageLoader />}><AuditoriaPage /></Suspense></RequireAdmin>} />
+          <Route path="auditoria" element={<RequireModule module="auditoria"><Suspense fallback={<PageLoader />}><AuditoriaPage /></Suspense></RequireModule>} />
           <Route path="telefono" element={<Suspense fallback={<PageLoader />}><TelefonoInicioPage /></Suspense>} />
           <Route path="dosc" element={<Suspense fallback={<PageLoader />}><MaquetaPropietariosMindmap /></Suspense>} />
           <Route path="docs" element={<Suspense fallback={<PageLoader />}><MaquetaPropietariosMindmap /></Suspense>} />

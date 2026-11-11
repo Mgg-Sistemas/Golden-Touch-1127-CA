@@ -375,7 +375,7 @@ export function AppShell() {
               label="Usuarios"
             />
           )}
-          {isAdmin && <NavItem to="/app/auditoria" icon="🛡️" label="Auditoría" />}
+          {can('auditoria') && <NavItem to="/app/auditoria" icon="🛡️" label="Auditoría" />}
           {can('ajustes') && <NavItem to="/app/ajustes" icon="⚙" label="Ajustes" />}
           <a
             href={manualSistemaUrl}
