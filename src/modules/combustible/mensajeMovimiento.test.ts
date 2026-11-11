@@ -140,3 +140,26 @@ describe('los emojis llegan al teléfono', () => {
     expect(todos[0]).toContain('📏 *Kilometraje:* 3');
   });
 });
+
+describe('mensajeMovimiento · tanque con el contador cambiado', () => {
+  it('avisa lo que marcaba EL APARATO, no el acumulado del sistema', () => {
+    const t = mensajeMovimiento({
+      mov: {
+        tipo: 'uso', litros: 30, fecha: '2026-11-11', equipo: 'VOLVO A35F',
+        contador_global_fin: 208891, contador_marcaba_fin: 30,
+      } as never,
+    });
+    expect(t).toContain('*Contador:* 30');
+    expect(t).not.toContain('208.891');
+  });
+
+  it('sin cambio de contador sigue avisando lo de siempre', () => {
+    const t = mensajeMovimiento({
+      mov: {
+        tipo: 'uso', litros: 30, fecha: '2026-11-11', equipo: 'VOLVO A35F',
+        contador_global_fin: 192960, contador_marcaba_fin: 192960,
+      } as never,
+    });
+    expect(t).toContain('*Contador:* 192.960');
+  });
+});
