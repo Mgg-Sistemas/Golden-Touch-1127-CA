@@ -337,23 +337,57 @@ function dibujarHeaderSeccion(
   TINTA: [number, number, number],
   GRIS_TEXTO: [number, number, number],
 ): number {
-  doc.setFillColor(...NARANJA);
-  doc.rect(M, y, 3.5, 11.5, 'F');
-
+  const maxW = doc.internal.pageSize.getWidth() - M * 2;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.8); // +15% de 8.5
-  doc.setTextColor(...TINTA);
-  doc.text(pdfSafe(titulo), M + 7, y + 8.2);
+  doc.setFontSize(9.8);
+  const titleW = doc.getTextWidth(pdfSafe(titulo));
 
-  if (subtitulo) {
-    const titleW = doc.getTextWidth(pdfSafe(titulo));
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.8); // +15% de 6.8
-    doc.setTextColor(...GRIS_TEXTO);
-    doc.text(pdfSafe(subtitulo), M + 7 + titleW + 8, y + 8.2);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.6);
+  const subW = subtitulo ? doc.getTextWidth(pdfSafe(subtitulo)) : 0;
+
+  // Si cabe en una sola línea (ej. en landscape o subtítulos cortos)
+  if (!subtitulo || (M + 7 + titleW + 8 + subW <= doc.internal.pageSize.getWidth() - M)) {
+    doc.setFillColor(...NARANJA);
+    doc.rect(M, y, 3.5, 12, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.8);
+    doc.setTextColor(...TINTA);
+    doc.text(pdfSafe(titulo), M + 7, y + 8.5);
+
+    if (subtitulo) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.6);
+      doc.setTextColor(...GRIS_TEXTO);
+      doc.text(pdfSafe(subtitulo), M + 7 + titleW + 8, y + 8.5);
+    }
+    return y + 16;
   }
 
-  return y + 15;
+  // Si no cabe en una sola línea (ej. portrait con subtítulo largo): dos renglones limpios
+  doc.setFillColor(...NARANJA);
+  doc.rect(M, y, 3.5, 21, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.8);
+  doc.setTextColor(...TINTA);
+  doc.text(pdfSafe(titulo), M + 7, y + 8.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRIS_TEXTO);
+
+  let subTxt = pdfSafe(subtitulo);
+  if (doc.getTextWidth(subTxt) > maxW - 10) {
+    while (subTxt.length > 3 && doc.getTextWidth(subTxt + '…') > maxW - 10) {
+      subTxt = subTxt.slice(0, -1);
+    }
+    subTxt += '…';
+  }
+  doc.text(subTxt, M + 7, y + 18.0);
+
+  return y + 26;
 }
 
 export async function construirComprasPdf(
@@ -719,8 +753,8 @@ export async function construirComprasPdf(
         alternateRowStyles: { fillColor: FONDO_ALT_GT },
         columnStyles: esLandscape
           ? {
-              0: { cellWidth: 22, halign: 'center' },
-              1: { cellWidth: 65, halign: 'center', fontStyle: 'bold' },
+              0: { cellWidth: 20, halign: 'center' },
+              1: { cellWidth: 72, halign: 'center', fontStyle: 'bold' },
               2: { cellWidth: 50, halign: 'center' },
               3: { halign: 'left' },
               4: { halign: 'left' },
@@ -730,14 +764,14 @@ export async function construirComprasPdf(
               8: { cellWidth: 85, halign: 'right' },
             }
           : {
-              0: { cellWidth: 18, halign: 'center' },
-              1: { cellWidth: 50, halign: 'center', fontStyle: 'bold' },
-              2: { cellWidth: 42, halign: 'center' },
-              3: { halign: 'left' },
-              4: { halign: 'left' },
-              5: { cellWidth: 68, halign: 'left', fontStyle: 'bold' },
-              6: { cellWidth: 48, halign: 'center' },
-              7: { cellWidth: 58, halign: 'right', fontStyle: 'bold' },
+              0: { cellWidth: 16, halign: 'center' },
+              1: { cellWidth: 68, halign: 'center', fontStyle: 'bold' },
+              2: { cellWidth: 46, halign: 'center' },
+              3: { cellWidth: 78, halign: 'left' },
+              4: { cellWidth: 88, halign: 'left' },
+              5: { cellWidth: 66, halign: 'left', fontStyle: 'bold' },
+              6: { cellWidth: 58, halign: 'center' },
+              7: { cellWidth: 56, halign: 'right', fontStyle: 'bold' },
               8: { cellWidth: 68, halign: 'right' },
             },
       });
