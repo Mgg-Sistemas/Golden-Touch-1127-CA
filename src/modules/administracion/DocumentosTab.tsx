@@ -26,6 +26,10 @@ import { SearchSelect, SearchCreateSelect, type SearchOption } from '@/shared/ui
 import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
 import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { responsablesEfectivosDocumento, nombrePorEmail } from './administracionResponsabilidad';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import type { Responsabilidad } from './admin.repository';
+import type { Usuario } from '@/shared/lib/types';
 import {
   GestionarCarpetasModal,
   leerCarpetasPersonalizadas,
@@ -143,6 +147,16 @@ export function DocumentosTab({
   // fija del codigo, asi que lo que la lider creaba no aparecia aqui nunca.
   const [centros, setCentros] = useState<CentroAcopio[]>([]);
   useEffect(() => { repo.listCentros().then(setCentros).catch(() => setCentros([])); }, [repo]);
+
+  // Quien responde por cada documento (se asigna en la pestana Responsabilidad).
+  // Sin esto se asignaba un analista y al abrir el documento no se veia por ningun lado.
+  const [responsabilidades, setResponsabilidades] = useState<Responsabilidad[]>([]);
+  const [usuariosResp, setUsuariosResp] = useState<Usuario[]>([]);
+  useEffect(() => {
+    repo.listResponsabilidades(empresaClave || undefined).then(setResponsabilidades).catch(() => setResponsabilidades([]));
+    listUsuarios().then(setUsuariosResp).catch(() => setUsuariosResp([]));
+  }, [repo, empresaClave]);
+  const nombresResp = useMemo(() => nombrePorEmail(usuariosResp), [usuariosResp]);
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
   const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, docs, [], carpetas), [centros, docs, carpetas]);
 
@@ -1331,6 +1345,28 @@ export function DocumentosTab({
                 }}
               />
             </div>
+
+            {/* Quien responde por este documento (viene de la pestana Responsabilidad) */}
+            {(() => {
+              const r = responsablesEfectivosDocumento(docDetalle, responsabilidades);
+              return (
+                <div style={{ margin: '.5rem 0', padding: '.5rem .7rem', borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                  <span className="muted hint" style={{ fontSize: '.72rem' }}>Quién responde por este documento</span>
+                  <div style={{ fontSize: '.86rem', marginTop: '.15rem' }}>
+                    {r.emails.length === 0 ? (
+                      <span className="muted">Sin asignar. Se asigna en la pestaña Responsabilidad.</span>
+                    ) : (
+                      <>
+                        <strong>{r.emails.map((e) => nombresResp.get(e) || e).join(', ')}</strong>
+                        <span className="muted" style={{ fontSize: '.74rem', marginLeft: '.4rem' }}>
+                          {r.heredado ? '(heredado de la carpeta)' : '(asignado a este documento)'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Gestión, aviso y prioridad (Fase 3) */}
             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.85rem', background: 'var(--surface-1)' }}>

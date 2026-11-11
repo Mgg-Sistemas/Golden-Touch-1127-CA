@@ -47,3 +47,9 @@ export function construirAvisos(
   }
   return nuevos;
 }
+
+/** Como se nombra cada tipo de aviso en pantalla. Vive aqui para que la pestana
+ *  Responsabilidad y el Tablero digan lo mismo (11/11/2026). */
+export const TIPO_AVISO_LABEL: Record<string, string> = {
+  por_vencer: 'Por vencer', vencido: 'Vencido', incumplido: 'Incumplido', acuerdo: 'Acuerdo', nota: 'Nota',
+};
