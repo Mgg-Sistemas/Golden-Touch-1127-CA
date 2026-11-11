@@ -91,7 +91,9 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   if (fecha) lineas.push(`📅 *Fecha:* ${fecha}${m.hora ? ` · 🕒 ${m.hora}` : ''}`);
   else if (m.hora) lineas.push(`🕒 *Hora:* ${m.hora}`);
 
-  if (m.contador_global_fin != null) lineas.push(`🔢 *Contador:* ${num(m.contador_global_fin)}`);
+  // Lo que marcaba EL APARATO: si al tanque le cambiaron el contador, el acumulado
+  // del sistema es otro numero y no es el que vio quien surtio.
+  if ((m.contador_marcaba_fin ?? m.contador_global_fin) != null) lineas.push(`🔢 *Contador:* ${num((m.contador_marcaba_fin ?? m.contador_global_fin))}`);
   if (m.horometro_fin != null) lineas.push(`⏳ *Horómetro:* ${num(m.horometro_fin)}`);
   if (m.kilometraje != null) lineas.push(`📏 *Kilometraje:* ${num(m.kilometraje)}`);
 

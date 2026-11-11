@@ -22,6 +22,7 @@ import type { Orden } from '@/shared/lib/types';
 import type { CompraDirecta } from './compras.repository';
 import type { ServicioDirecto } from './serviciosDirectos.repository';
 import { statusBadge } from '@/shared/lib/format';
+import { nombrePersonaCompras } from './personasCompras';
 
 /* ───────────── Tipos de configuración ───────────── */
 
@@ -164,6 +165,7 @@ export interface FilaReporteCompras {
   monto_bs: number;
   pagado_usd: number;
   pagado_bs: number;
+  analista?: string | null;
 
   // Métricas de grupo (cuando la fila representa un grupo agregado)
   total_items?: number;
@@ -217,6 +219,7 @@ export function normalizarOrdenes(ordenes: Orden[], ctx: ContextoCompras): FilaR
       monto_bs: bs,
       pagado_usd: pagado.usd,
       pagado_bs: pagado.bs,
+      analista: nombrePersonaCompras(o.oc_creada_por || o.oc_emitida_por || o.solicitante_email),
     });
   }
   return filas;
@@ -278,6 +281,7 @@ export function normalizarItemsOrdenes(ordenes: Orden[], ctx: ContextoCompras): 
         monto_bs: bs,
         pagado_usd: 0,
         pagado_bs: 0,
+        analista: nombrePersonaCompras(o.oc_creada_por || o.oc_emitida_por || o.solicitante_email),
       });
     });
   }
@@ -320,6 +324,7 @@ export function normalizarDirectas(directas: CompraDirecta[], ctx: ContextoCompr
       monto_bs: bs,
       pagado_usd: pagado.usd,
       pagado_bs: pagado.bs,
+      analista: nombrePersonaCompras((c as any).actor_name || (c as any).actor || (c as any).creado_por),
     });
   }
   return filas;
@@ -361,6 +366,7 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
       monto_bs: bs,
       pagado_usd: pagado.usd,
       pagado_bs: pagado.bs,
+      analista: nombrePersonaCompras((s as any).actor_name || (s as any).actor || (s as any).creado_por),
     });
   }
   return filas;
@@ -566,6 +572,7 @@ export const CAMPOS_REPORTE_COMPRAS: CampoColumnaCompras[] = [
   { clave: 'codigo', etiqueta: 'Código', anchoPdf: 16, anchoExcel: 16, alineacion: 'left', formato: 'texto', descripcion: 'Correlativo (OC/CD/SD)', ambito: 'ambos' },
   { clave: 'departamento', etiqueta: 'Departamento', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Unidad solicitante', ambito: 'ambos' },
   { clave: 'proveedor', etiqueta: 'Proveedor', anchoPdf: 26, anchoExcel: 26, alineacion: 'left', formato: 'texto', descripcion: 'Razón social del proveedor', ambito: 'ambos' },
+  { clave: 'analista', etiqueta: 'Analista', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Analista de compras a cargo', ambito: 'ambos' },
   { clave: 'estado_rotulo', etiqueta: 'Estado', anchoPdf: 16, anchoExcel: 16, alineacion: 'center', formato: 'texto', descripcion: 'Estado de la compra', ambito: 'ambos' },
   { clave: 'tipo_compra', etiqueta: 'Tipo', anchoPdf: 14, anchoExcel: 14, alineacion: 'center', formato: 'texto', descripcion: 'Orden, directa o servicio', ambito: 'ambos' },
   { clave: 'categoria', etiqueta: 'Categoría', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Categoría de inventario', ambito: 'items' },
@@ -698,6 +705,7 @@ export function procesarFilasCompras(
     monto_bs: round2(g.bs),
     pagado_usd: round2(g.pagadoUsd),
     pagado_bs: round2(g.pagadoBs),
+    analista: null,
     total_items: g.items,
     pct_del_total: pctDe(g.usd),
   }));

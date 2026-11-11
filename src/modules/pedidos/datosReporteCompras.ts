@@ -76,7 +76,7 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
   // (auto-reparo de pagos huérfanos). El reporte debe ser solo lectura (spec §3).
   const [ordenesAll, directasRes, serviciosAll, proveedoresAll, tasaHoy, catRes] = await Promise.all([
     listOrdenes(),
-    supabase.from('compras_directas').select('id, codigo, estado, gasto, moneda, gasto_categoria, pagada_at, created_at, proveedor_id, proveedor_nombre'),
+    supabase.from('compras_directas').select('id, codigo, estado, gasto, moneda, gasto_categoria, pagada_at, created_at, proveedor_id, proveedor_nombre, actor, actor_name, creado_por'),
     listServiciosDirectos(),
     listProveedores().catch(() => []),
     getTasaHoy().catch(() => ({ usd: 0 } as { usd: number })),

@@ -57,7 +57,7 @@ const CLAVE_FORMATO = 'compras.reporte.formato.v1';
 type Formato = 'resumen' | 'detallado' | 'hibrido';
 
 const AMBITOS: { id: AmbitoCompras; icon: string; label: string }[] = [
-  { id: 'ordenes', icon: '🧾', label: 'Compras' },
+  { id: 'ordenes', icon: '🧾', label: 'Órdenes de Compra' },
   { id: 'items', icon: '📦', label: 'Ítems' },
 ];
 
@@ -76,7 +76,7 @@ const MODOS: { id: ModoAgrupacionCompras; icon: string; label: string; ambito?: 
 const FORMATOS: { id: Formato; icon: string; label: string; hint: string }[] = [
   { id: 'resumen', icon: '📊', label: 'Resumen', hint: 'Solo la página de resumen y analítica.' },
   { id: 'detallado', icon: '📋', label: 'Detallado', hint: 'El listado completo con totales.' },
-  { id: 'hibrido', icon: '🧩', label: 'Híbrido', hint: 'Resumen + listado, uno tras otro.' },
+  { id: 'hibrido', icon: '🧩', label: 'Consolidado', hint: 'Resumen ejecutivo + compras pendientes.' },
 ];
 
 const TIPOS: { id: TipoCompra; label: string }[] = [
@@ -265,7 +265,7 @@ export function ExportarComprasModal({ onClose }: Props) {
     try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_FORMATO, formato); } catch { /* no crítico */ }
     const meta = metaDe();
     try {
-      if (fmt === 'pdf') await descargarComprasPdf(filas, resumenMostrado, marcados, meta);
+      if (fmt === 'pdf') await descargarComprasPdf(filtradas, resumenMostrado, marcados, meta);
       else if (fmt === 'xlsx') await descargarComprasExcel(filas, resumenMostrado, marcados, meta);
       else descargarComprasCsv(filas, marcados, meta);
     } catch (e) {

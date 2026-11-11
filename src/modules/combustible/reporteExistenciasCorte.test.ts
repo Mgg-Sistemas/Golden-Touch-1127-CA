@@ -171,5 +171,26 @@ describe('reporteExistenciasCorte · Motor de Corte y Cierre Histórico', () => 
     expect(totalesSoloT1.totalLitrosCierre).toBe(7500);
     expect(totalesSoloT1.totalValorCierre).toBe(5250);
   });
+  it('garantiza que los bidones nunca tengan saldo negativo al corte y que tanques con 0 L tengan valor $0', () => {
+    const bidon: TanqueCombustible = {
+      id: 'tk-bidon',
+      nombre: 'Bidones 20 Litros (2)',
+      tipo: 'rectangular',
+      capacidad_litros: 40,
+      tasa_usd_litro: 0.69,
+      estado: 'activo',
+      es_movil: true,
+      orden: 4,
+      created_at: '2026-01-01',
+      saldo_inicial_litros: -20,
+      saldo_inicial_usd: -13.73,
+      saldo_litros: -20,
+      saldo_usd: -13.73,
+    };
+    const corte = calcularCorteTanque(bidon, [], '2026-11-01', '2026-11-11', '2026-11-11');
+    expect(corte.saldoInicialLitros).toBe(0);
+    expect(corte.saldoInicialUsd).toBe(0);
+    expect(corte.saldoCierreLitros).toBe(0);
+    expect(corte.saldoCierreUsd).toBe(0);
+  });
 });
-
