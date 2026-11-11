@@ -16,8 +16,11 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 32%, transparent);
   background: var(--grad-primary-soft), var(--grad-surface);
 }
+/* En su propia línea: pegada al `delta` se leía como una sola frase
+   («No pueden ingresar⌕ Clic para filtrar»). */
 .usr-filtro-pista {
-  display: inline-flex; align-items: center; gap: .3rem;
+  display: flex; align-items: center; gap: .3rem;
+  margin-top: .3rem;
   font-size: .74rem; font-weight: 600; color: var(--text-dim);
 }
 .usr-filtro-card[aria-pressed="true"] .usr-filtro-pista { color: var(--primary-3); }

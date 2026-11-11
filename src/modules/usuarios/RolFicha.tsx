@@ -138,6 +138,10 @@ export function RolFicha({
             </button>
             <span className="muted" style={{ fontSize: '.75rem' }}>{MODULES.length} módulos en {grupos.length} grupos</span>
           </div>
+          {/* Explica la columna: va antes de la matriz, no después. */}
+          <p className="perm-nota" style={{ margin: '0 0 .75rem' }}>
+            Full control incluye lectura y escritura: al marcarlo se marcan las dos.
+          </p>
 
           {grupos.map((g) => {
             const abierto = abiertos.has(g.key);
@@ -209,7 +213,6 @@ export function RolFicha({
               </div>
             );
           })}
-          <p className="perm-nota">Full control incluye lectura y escritura: al marcarlo se marcan las dos.</p>
         </div>
       )}
 
