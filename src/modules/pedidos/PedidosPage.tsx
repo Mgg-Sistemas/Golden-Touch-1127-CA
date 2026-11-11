@@ -38,7 +38,7 @@ import type {
 import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, etiquetaModalidadEntrega, type ModalidadEntrega } from '@/shared/lib/types';
 import { COL_POR_RETIRAR, enPendientePorRecibir, esperaRetiro, textoEventoDelivery } from './retiroOc';
 import { indicarMetodoPagoCredito } from './pedidos.repository';
-import { confirmarRetiroOc } from './pedidos.repository';
+import { confirmarRetiroOc, retencionAntesDePagar } from './pedidos.repository';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
@@ -3098,6 +3098,18 @@ const KanbanCard = memo(function KanbanCard({
           incl. IVA{Number(orden.iva_pct) > 0 ? ` ${Number(orden.iva_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%` : ''} · {montoMoneda(Number(orden.iva_monto), orden.total_moneda)}
         </div>
       )}
+      {(() => {
+        // 11/11/2026: retención de Compras «ANTES de pagar» → Tesorería paga el neto.
+        if (orden.estado !== 'confirmada_metodo' && orden.estado !== 'oc_aprobada') return null;
+        const ret = retencionAntesDePagar(orden as Orden & CamposRetencionesCompras, Number(orden.total) || 0);
+        if (ret <= 0) return null;
+        return (
+          <div className="mono" style={{ fontSize: '.72rem', marginTop: '.15rem', textAlign: 'right' }} title="Retención ANTES de pagar: Tesorería paga el neto">
+            <span className="muted">ret. −{montoMoneda(ret, orden.total_moneda)} · </span>
+            <strong style={{ color: 'var(--success, #22c55e)' }}>neto {montoMoneda(Math.round(((Number(orden.total) || 0) - ret) * 100) / 100, orden.total_moneda)}</strong>
+          </div>
+        );
+      })()}
       {orden.tipo === 'servicio' && (Number(orden.anticipo_monto) || 0) > 0 && orden.estado !== 'finalizada' && (
         <div className="muted mono" style={{ fontSize: '.7rem', marginTop: '.2rem', textAlign: 'right' }}>
           💵 anticipo −{montoMoneda(Number(orden.abonado_total) || 0, orden.total_moneda)} · <strong style={{ color: 'var(--brand, #ff8a00)' }}>pendiente {montoMoneda(Math.max(0, (Number(orden.total) || 0) - (Number(orden.abonado_total) || 0)), orden.total_moneda)}</strong>

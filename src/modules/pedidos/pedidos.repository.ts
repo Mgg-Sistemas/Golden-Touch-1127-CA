@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { errorBorrarOrigen, exigirSinFacturaRegistrada } from './origenRegistrado';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { FilaCierre, FilaCotizacionCierre } from './cierreDiario';
@@ -10,7 +11,7 @@ import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSal
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { errorRenglonesSinFicha } from './nombreInventario';
-import { columnasRetencionesCompras, normalizarRetencionesCompras, type RetencionesCompras } from './retencionesCompras';
+import { columnasRetencionesCompras, leerRetencionesCompras, netoAPagarCompras, normalizarRetencionesCompras, type CamposRetencionesCompras, type RetencionesCompras } from './retencionesCompras';
 import { IMPUESTOS_PAGO, normalizarImpuestosMoneda, type ImpuestoPago, type MonedaImpuesto } from './impuestosMoneda';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { rotuloMarcaModelo, descripcionConMarcaModelo, marcaRecibida, cambioDeMarca } from '@/shared/lib/marcaModelo';
@@ -1592,24 +1593,48 @@ export interface OrdenPorPagar {
   proveedor: Proveedor | null;
   /** Contra entrega = se paga solo lo recibido. */
   esContraEntrega: boolean;
-  /** Monto sugerido a pagar (lo recibido en contra entrega, el total en el resto). */
+  /** Monto sugerido a pagar (lo recibido en contra entrega, el total en el resto).
+   *  11/11/2026: si Compras marcó «retener ANTES de pagar» con sus retenciones, es el NETO. */
   montoAPagar: number;
+  /** Lo que vale la factura antes de la retención de Compras (= montoAPagar si no hay). */
+  montoBruto: number;
+  /** Retención que Compras indicó para restar ANTES de pagar (moneda de la OC); 0 si no hay. */
+  retencionAntes: number;
   /** true = aprobada por el GG pero Compras aún no indicó el método de pago
    *  (estado `confirmada_metodo`). Tesorería la ve y conoce el monto, pero aún
    *  no puede pagar: espera que Compras indique el método. */
   esperandoMetodo: boolean;
 }
 
+/**
+ * 11/11/2026 · La retención que Compras cargó en el método de pago con «retener ANTES de
+ * pagar» (IVA/ISLR/ISAE/IGTF) se resta de lo que paga Tesorería: el WhatsApp ya decía
+ * «Neto a pagar» pero Tesorería y el tablero seguían en el total de la factura. Si ya se
+ * pagó con otra retención (retencion_aplicada) no se vuelve a restar.
+ */
+export function retencionAntesDePagar(
+  o: Pick<Orden, 'comprobante_tipo' | 'retencion_momento' | 'total' | 'condiciones_pago' | 'retencion_aplicada'> & CamposRetencionesCompras,
+  montoBruto: number,
+): number {
+  if (o.condiciones_pago === 'credito' || o.retencion_aplicada) return 0;
+  const ret = leerRetencionesCompras(o);
+  if (!ret || ret.momento !== 'antes_de_pagar') return 0;
+  return ret.total < montoBruto ? ret.total : 0;
+}
+
 function mapPorPagar(orden: Orden, pm: Map<string, Proveedor>): OrdenPorPagar {
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
-  const montoAPagar = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
+  const montoBruto = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
   const proveedor = (orden.proveedor_id && pm.get(orden.proveedor_id)) || null;
+  const retencionAntes = retencionAntesDePagar(orden, montoBruto);
   return {
     orden,
     proveedor,
     proveedorNombre: proveedor?.razon_social || '—',
     esContraEntrega,
-    montoAPagar,
+    montoAPagar: netoAPagarCompras(montoBruto, retencionAntes),
+    montoBruto,
+    retencionAntes,
     esperandoMetodo: orden.estado === 'confirmada_metodo',
   };
 }
@@ -2630,6 +2655,13 @@ export function cambiosDeMarcaEnRecepcion(o: Orden, recepciones: RecepcionRenglo
   });
 }
 
+/**
+ * 11/11/2026 · Una OC se recibe UNA sola vez (supabase/2026-11-11-recepcion-oc-una-sola-vez.sql).
+ * Antes la PC miraba `recibida_en` en la copia de la pantalla: si el almacenista ya la había
+ * recepcionado en el teléfono (o hubo doble clic), la mercancía entraba dos veces. Ahora se
+ * APARTA la orden en la base antes de mover stock; si ya está recibida o alguien la está
+ * recibiendo, no empieza. Si falla antes de mover nada, se suelta para poder reintentar.
+ */
 export async function recibirOrdenParcial(
   o: Orden,
   recepciones: RecepcionRenglon[],
@@ -2638,6 +2670,38 @@ export async function recibirOrdenParcial(
   actorName: string | null,
   almacenDestino?: string | null,
   /** Despiece de las reses en canal que traiga la orden (ver `despieceRes.ts`). */
+  despieces?: DespiecePorItem[],
+): Promise<Orden> {
+  const cod = o.oc_codigo ?? o.codigo;
+  const { data: toma, error: tErr } = await supabase.rpc('orden_tomar_recepcion', { p_orden_id: o.id });
+  if (tErr) throw tErr;
+  const t = (toma ?? {}) as { ok?: boolean; motivo?: string; por?: string | null; en?: string | null };
+  if (!t.ok) {
+    if (t.motivo === 'ya_recibida') {
+      const cuando = t.en ? new Date(t.en).toLocaleString('es-VE', { timeZone: 'America/Caracas' }) : '';
+      throw new Error(`La ${cod} ya fue recibida${t.por ? ` por ${quienSync(t.por)}` : ''}${cuando ? ` (${cuando})` : ''}. Actualiza la pantalla: no se vuelve a sumar al inventario.`);
+    }
+    if (t.motivo === 'en_curso') throw new Error(`La ${cod} la está recibiendo ${t.por ? quienSync(t.por) : 'otra persona'} en este momento. Espera a que termine.`);
+    throw new Error('No se encontró la orden.');
+  }
+  try {
+    return await recibirOrdenParcialApartada(o, recepciones, nota, actorEmail, actorName, almacenDestino, despieces);
+  } catch (e) {
+    // Solo se suelta si no llegó a entrar nada: con entradas hechas, reintentar duplicaría.
+    const { count } = await supabase.from('movimientos').select('id', { count: 'exact', head: true })
+      .eq('ref_tipo', 'orden').eq('ref_id', o.id).eq('tipo', 'entrada');
+    if (!count) await supabase.rpc('orden_soltar_recepcion', { p_orden_id: o.id });
+    throw e;
+  }
+}
+
+async function recibirOrdenParcialApartada(
+  o: Orden,
+  recepciones: RecepcionRenglon[],
+  nota: string | null,
+  actorEmail: string,
+  actorName: string | null,
+  almacenDestino?: string | null,
   despieces?: DespiecePorItem[],
 ): Promise<Orden> {
   // 'cuenta_abierta' = crédito: la mercancía puede llegar ANTES de terminar de pagar.
@@ -2820,6 +2884,8 @@ export async function recibirOrdenParcial(
     nota_recepcion: huboDiferencia ? (nota?.trim() || 'Recepción parcial: llegó menos de lo solicitado.') : (nota?.trim() || null),
     recibida_por: actorEmail,
     recibida_en: new Date().toISOString(),
+    recepcion_en_curso_en: null,
+    recepcion_en_curso_por: null,
     historial,
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
