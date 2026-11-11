@@ -1,0 +1,35 @@
+/* ============================================================
+   Golden Touch · Ajustes
+   Capa visual (11/11/2026). Solo presentación: el guardado del
+   perfil, las preferencias, la huella y la sesión no cambian.
+   Plan: docs/cuaderno/informes/g6-04-ajustes-orientacion.md
+   ============================================================ */
+
+/* Perfil manda; lo demás lo acompaña. Antes todas las tarjetas caían en un
+   auto-fit y el orden en pantalla dependía del ancho. */
+.aju-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.aju-card { padding: 1.5rem; }
+
+/* Las dos preferencias de Pedidos son preguntas distintas y antes iban sin
+   etiqueta, una debajo de la otra. */
+.aju-preferencia { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.aju-preferencia:last-child { margin-bottom: 0; }
+.aju-preferencia-label {
+  font-size: .75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--text-muted);
+  flex: 0 0 auto; min-width: 6.5rem;
+}
+.aju-preferencia .view-toggle { margin-left: 0; }
+
+@media (max-width: 900px) {
+  .aju-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .aju-card { padding: 1.1rem; }
+  .aju-preferencia .view-toggle { width: 100%; }
+}

@@ -1,0 +1,31 @@
+/* ============================================================
+   Golden Touch · Documentación
+   Capa visual (11/11/2026). Solo presentación: el correlativo, la
+   emisión, la anulación y los vencimientos no cambian.
+   Plan: docs/cuaderno/informes/g6-03-documentacion-orientacion.md
+   ============================================================ */
+
+/* ───────── Título del apartado ─────────
+   Antes, lo único que decía en cuál de los dos estabas era qué botón
+   del conmutador había quedado encendido. */
+.doc-apartado { margin: 0 0 .9rem; }
+.doc-apartado-titulo { margin: 0; font-size: 1.05rem; font-weight: 700; }
+.doc-apartado-nota { margin: .15rem 0 0; font-size: .82rem; color: var(--text-muted); }
+
+/* ───────── Tira de vencimientos ─────────
+   Estaba dentro de la barra de filtros, donde el ojo busca controles,
+   y no filtra nada: es un estado del archivo. Ahora vive aparte. */
+.doc-avisos {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+.doc-avisos-texto { font-size: .8rem; color: var(--text-muted); }
+
+/* ───────── Fila clicable ─────────
+   La nota ya abría su detalle, pero solo con el ratón. */
+.doc-fila { cursor: pointer; transition: background .12s; }
+.doc-fila:hover { background: var(--bg-2); }
+.doc-fila:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+/* La columna de acciones no debe partirse al encoger la tabla. */
+.doc-acciones { text-align: right; white-space: nowrap; }

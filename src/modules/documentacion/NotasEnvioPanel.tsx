@@ -24,10 +24,12 @@ import { NotaEnvioForm } from './NotaEnvioForm';
 import { DestinatariosModal } from './DestinatariosModal';
 import { listDestinatarios, type DestinatarioEnvio } from './documentacion.repository';
 
-const COLOR_ESTADO: Record<EstadoEnvio, string> = {
-  emitido: 'var(--warning)',
-  recibido: 'var(--success)',
-  anulado: 'var(--danger)',
+/* Las variantes del sistema (fondo + color + borde). Antes se pintaba
+   solo el texto sobre un badge neutro y el estado quedaba apagado. */
+const BADGE_ESTADO: Record<EstadoEnvio, string> = {
+  emitido: 'warning',
+  recibido: 'success',
+  anulado: 'danger',
 };
 const fechaVe = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
 const unicos = (xs: Array<string | null>) => Array.from(new Set(xs.filter((x): x is string => !!x && !!x.trim()))).sort((a, b) => a.localeCompare(b, 'es'));
@@ -100,37 +102,31 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
 
   return (
     <>
-      <div className="card" style={{ marginBottom: '.75rem' }}>
-        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="form-row" style={{ margin: 0, flex: '1 1 220px' }}>
-            <label htmlFor="ne-buscar">Buscar</label>
-            <input id="ne-buscar" className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="N°, destinatario, atención, concepto…" />
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label htmlFor="ne-estado">Estado</label>
-            <select id="ne-estado" className="select" value={estado} onChange={(e) => setEstado(e.target.value as '' | EstadoEnvio)}>
-              <option value="">Todos</option>
-              {(Object.keys(ESTADO_ENVIO_LABEL) as EstadoEnvio[]).map((k) => <option key={k} value={k}>{ESTADO_ENVIO_LABEL[k]}</option>)}
-            </select>
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label htmlFor="ne-desde">Desde</label>
-            <input id="ne-desde" className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label htmlFor="ne-hasta">Hasta</label>
-            <input id="ne-hasta" className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-          </div>
-          <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtradas.length} de {notas.length}</span>
-          <button className="btn btn-ghost" onClick={() => setCatalogo(true)} title="Clientes / departamentos guardados: agregar, editar y borrar">
-            📇 Destinatarios ({destinatarios.length})
+      {/* Barra al estándar del sistema: antes eran siete elementos con sus
+          etiquetas apretados en una sola fila. */}
+      <div className="filterbar">
+        <input
+          id="ne-buscar" className="search" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar por N°, destinatario, atención o concepto…" aria-label="Buscar nota de envío"
+        />
+        <select id="ne-estado" className="select" style={{ maxWidth: 180 }} value={estado}
+          onChange={(e) => setEstado(e.target.value as '' | EstadoEnvio)} aria-label="Estado de la nota">
+          <option value="">Todos los estados</option>
+          {(Object.keys(ESTADO_ENVIO_LABEL) as EstadoEnvio[]).map((k) => <option key={k} value={k}>{ESTADO_ENVIO_LABEL[k]}</option>)}
+        </select>
+        <input className="input" type="date" style={{ width: 'auto' }} value={desde}
+          onChange={(e) => setDesde(e.target.value)} aria-label="Desde" title="Desde" />
+        <input className="input" type="date" style={{ width: 'auto' }} value={hasta}
+          onChange={(e) => setHasta(e.target.value)} aria-label="Hasta" title="Hasta" />
+        <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtradas.length} de {notas.length}</span>
+        <button className="btn btn-ghost" onClick={() => setCatalogo(true)} title="Clientes / departamentos guardados: agregar, editar y borrar">
+          📇 Destinatarios ({destinatarios.length})
+        </button>
+        {canWrite && (
+          <button className="btn btn-primary" onClick={() => setForm('nueva')} title={`La próxima nota sale con el N° ${numeroEnvio(proximo)} (aprox.)`}>
+            ＋ Nueva nota de envío
           </button>
-          {canWrite && (
-            <button className="btn btn-primary" onClick={() => setForm('nueva')} title={`La próxima nota sale con el N° ${numeroEnvio(proximo)} (aprox.)`}>
-              ＋ Nueva nota de envío
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       <div className="card">
@@ -145,15 +141,23 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
                 <tr><td colSpan={8}><EmptyState icon="📨" message={notas.length ? 'Ninguna nota coincide con los filtros' : 'Aún no hay notas de envío'} /></td></tr>
               )}
               {!loading && filtradas.map((n) => (
-                <tr key={n.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setDetalleId(n.id)}>
+                /* La fila ya abría el detalle, pero solo con el ratón. */
+                <tr
+                  key={n.id}
+                  className="row-selectable doc-fila"
+                  tabIndex={0}
+                  onClick={() => setDetalleId(n.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetalleId(n.id); } }}
+                  title="Ver el detalle de la nota"
+                >
                   <td className="mono"><strong>{numeroEnvio(n.numero)}</strong></td>
                   <td>{fechaVe(n.fecha)}</td>
                   <td>{n.razon_social}{n.rif && <div className="muted" style={{ fontSize: '.74rem' }}>{n.rif}</div>}</td>
                   <td>{n.atencion_a ?? '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{n.items.length}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{cantidadTexto(n.total ?? totalRenglones(n.items))}</td>
-                  <td><span className="badge" style={{ color: COLOR_ESTADO[n.estado] }}>{ESTADO_ENVIO_LABEL[n.estado]}</span></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                  <td><span className={`badge ${BADGE_ESTADO[n.estado]}`}>{ESTADO_ENVIO_LABEL[n.estado]}</span></td>
+                  <td className="doc-acciones" onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" disabled={pdfBusy} onClick={() => void imprimir(n)} title="Imprimir la nota (vista previa)">🖨 PDF</button>
                   </td>
                 </tr>
@@ -241,7 +245,7 @@ function NotaDetalle({ n, canWrite, actor, pdfBusy, onImprimir, onEditar, onClos
   return (
     <Modal title={`Nota de envío N° ${numeroEnvio(n.numero)}`} size="lg" onClose={onClose} footer={footer}>
       <div style={{ display: 'grid', gap: '.15rem', marginBottom: '.75rem' }}>
-        {fila('Estado', <span className="badge" style={{ color: COLOR_ESTADO[n.estado] }}>{ESTADO_ENVIO_LABEL[n.estado]}</span>)}
+        {fila('Estado', <span className={`badge ${BADGE_ESTADO[n.estado]}`}>{ESTADO_ENVIO_LABEL[n.estado]}</span>)}
         {fila('Fecha', fechaVe(n.fecha))}
         {fila('Cliente / departamento', `${n.razon_social}${n.rif ? ` · ${n.rif}` : ''}`)}
         {n.direccion && fila('Dirección', n.direccion)}

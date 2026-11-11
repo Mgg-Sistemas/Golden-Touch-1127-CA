@@ -1,0 +1,104 @@
+/* ============================================================
+   Golden Touch · Auditoría de usuarios
+   Capa visual (11/11/2026). Solo presentación: ninguna regla de
+   aquí cambia qué se consulta ni qué se exporta.
+   Plan: docs/cuaderno/informes/g6-02-auditoria-orientacion.md
+   ============================================================ */
+
+/* ───────── KPI ─────────
+   El módulo traía su propia tarjeta (la quinta variante del sistema).
+   Ahora usa `.kpi`; aquí solo viven las dos variantes que necesita. */
+
+/* `.kpi .delta` es verde por definición (es un delta). Estas notas no
+   son buenas ni malas: son aclaraciones. */
+.kpi .delta.neutro { color: var(--text-muted); font-weight: 500; }
+
+.kpi.destacado { border-color: var(--primary); }
+.kpi.destacado .value { color: var(--primary); }
+
+/* ───────── Período ─────────
+   Cinco botones sueltos no decían que elegían algo. Ahora es un
+   control segmentado con nombre. */
+.aud-periodo { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.aud-periodo-label {
+  font-size: .75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--text-muted);
+}
+.aud-periodo .view-toggle { margin-left: 0; }
+.aud-periodo input[type="date"] { width: auto; }
+
+/* ───────── Conectados ahora ───────── */
+.aud-conectados { border-color: var(--success); }
+
+/* ───────── Tabla de usuarios ─────────
+   La fila ya abría el detalle, pero solo con el ratón. */
+.aud-fila { cursor: pointer; transition: background .12s; }
+.aud-fila:hover { background: var(--bg-2); }
+.aud-fila:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+/* ───────── Línea de tiempo de acciones ─────────
+   Un registro de auditoría se lee mejor como secuencia: el riel deja
+   ver de un vistazo cuántas cosas pasaron y en qué orden. */
+.aud-dia { margin-bottom: 1.25rem; }
+.aud-dia-head {
+  display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap;
+  /* Fondo propio: pegado sin él, el día se montaba sobre las acciones. */
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface);
+  padding: .4rem 0; margin-bottom: .2rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 800; color: var(--primary);
+}
+.aud-dia-n { font-weight: 500; font-size: .8rem; color: var(--text-muted); }
+
+.aud-riel {
+  position: relative;
+  margin: 0; padding: .4rem 0 0 1.35rem;
+  list-style: none;
+}
+/* El riel: una línea que recorre el día entero. Centrada bajo los puntos
+   (su centro cae en x=4px) y con contraste suficiente: a `--border` puro
+   sobre `--surface` no se veía. */
+.aud-riel::before {
+  content: ""; position: absolute;
+  left: 3px; top: .9rem; bottom: .9rem;
+  width: 2px; border-radius: 2px;
+  background: color-mix(in srgb, var(--primary) 28%, var(--border-strong));
+}
+.aud-evento { position: relative; display: flex; gap: .6rem; align-items: flex-start; padding: .45rem 0; }
+/* El punto de cada acción, sobre el riel. */
+.aud-evento::before {
+  content: ""; position: absolute;
+  left: -1.35rem; top: .95rem;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--primary-3);
+  box-sizing: border-box;
+}
+.aud-evento-icono { font-size: 1.05rem; line-height: 1.4; flex: 0 0 auto; }
+.aud-evento-cuerpo { min-width: 0; flex: 1; }
+.aud-evento-titulo { font-weight: 600; font-size: .88rem; }
+.aud-evento-detalle { font-size: .76rem; color: var(--text-muted); }
+.aud-evento-hora {
+  font-size: .76rem; color: var(--text-dim); white-space: nowrap;
+  flex: 0 0 auto; padding-top: .1rem;
+}
+
+/* El resto de los campos deja de ser un «(+3)» que no lleva a ninguna
+   parte: se abre en el sitio. */
+.aud-evento-mas {
+  background: none; border: none; padding: 0; margin-left: .35rem;
+  color: var(--primary-3); font-size: .76rem; font-weight: 700;
+  cursor: pointer; text-decoration: underline;
+}
+.aud-evento-mas:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ───────── Carga ─────────
+   Antes el bloque entero colapsaba a una línea y la página saltaba
+   cuando llegaban los datos. */
+.aud-cargando { min-height: 420px; display: grid; place-items: center; }
+
+@media (max-width: 600px) {
+  .aud-periodo { align-items: flex-start; }
+  .aud-periodo .view-toggle { width: 100%; }
+}

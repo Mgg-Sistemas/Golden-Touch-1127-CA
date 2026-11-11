@@ -13,6 +13,7 @@ import {
   describirEvento, type AuditoriaEvento,
 } from './auditoria.repository';
 import { descargarAuditoriaResumenPdf, descargarAuditoriaUsuarioPdf } from './auditoriaPdf';
+import './auditoria.css';
 
 type Rango = 'hoy' | '7' | 'mes' | 'todo' | 'rango';
 const hoyISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -118,18 +119,20 @@ export function AuditoriaPage() {
 
     return (
       <div className="page">
-        <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+        <div className="page-head">
           <div>
             <button className="btn btn-ghost btn-sm" onClick={() => setSel(null)}>← Volver a la auditoría</button>
-            <h1 style={{ margin: '.4rem 0 0' }}>🔎 {sel.nombre} {conectadoU && <span className="badge success" style={{ fontSize: '.7rem' }}>● Conectado</span>}</h1>
-            <p className="muted hint" style={{ margin: '.25rem 0 0' }}>{sel.email} · {rangoTexto(d, h)}</p>
+            <h1 style={{ margin: '.4rem 0 .25rem' }}>
+              {sel.nombre} {conectadoU && <span className="badge success" style={{ fontSize: '.7rem' }}>● Conectado</span>}
+            </h1>
+            <p className="muted hint" style={{ margin: 0 }}>{sel.email} · {rangoTexto(d, h)}</p>
           </div>
           <button className="btn btn-ghost" onClick={() => void pdfUsuario()}>🖨 Vista previa PDF</button>
         </div>
 
         <RangoSelector rango={rango} setRango={setRango} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', margin: '1rem 0' }}>
+        <div className="kpi-grid" style={{ marginTop: '1rem' }}>
           <Kpi titulo="Tiempo conectado" valor={fmtDuracion(totalMinU)} nota={`${sesU.length} sesión(es)`} destacado />
           <Kpi titulo="Acciones registradas" valor={String(evU.length)} nota="en el período" />
           <Kpi titulo="Días activos" valor={String(porDiaU.length)} nota="con actividad" />
@@ -138,7 +141,7 @@ export function AuditoriaPage() {
 
         <div className="card" style={{ marginBottom: '1rem' }}>
           <div className="card-title" style={{ marginBottom: '.4rem' }}>Tiempo conectado por día</div>
-          <BarChart data={conexU} color="#3b82f6" yFormatter={(n) => fmtDuracion(n)} emptyMessage="Sin sesiones en el período." />
+          <BarChart data={conexU} color="var(--info)" yFormatter={(n) => fmtDuracion(n)} emptyMessage="Sin sesiones en el período." />
         </div>
 
         {/* Línea de tiempo de acciones, por día */}
@@ -147,13 +150,14 @@ export function AuditoriaPage() {
           {loading ? <p className="muted">Cargando…</p> : porDiaU.length === 0 ? (
             <p className="muted" style={{ margin: 0 }}>Sin acciones registradas en el período.</p>
           ) : porDiaU.map(({ dia, eventos: evs }) => (
-            <div key={dia} style={{ marginBottom: '1rem' }}>
-              <div style={{ position: 'sticky', top: 0, fontWeight: 800, color: 'var(--brand, #ff8a00)', padding: '.25rem 0', borderBottom: '1px solid var(--border)' }}>
-                {diaLegible(dia)} <span className="muted" style={{ fontWeight: 500 }}>· {evs.length} acción(es)</span>
+            <div key={dia} className="aud-dia">
+              <div className="aud-dia-head">
+                {diaLegible(dia)} <span className="aud-dia-n">· {evs.length} acción(es)</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', marginTop: '.4rem' }}>
+              {/* Secuencia sobre un riel: se ve el orden y el volumen del día. */}
+              <ol className="aud-riel">
                 {evs.map((e) => <EventoFila key={e.id} e={e} />)}
-              </div>
+              </ol>
             </div>
           ))}
         </div>
@@ -188,18 +192,17 @@ export function AuditoriaPage() {
 
   return (
     <div className="page">
-      <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+      <div className="page-head">
         <div>
-          <h1 style={{ margin: 0 }}>🛡️ Auditoría de usuarios</h1>
-          <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Quién se conecta, cuánto tiempo y qué hace (cambios, aprobaciones, registros). Toca un usuario para ver su detalle.</p>
+          <h1>Auditoría de usuarios</h1>
+          <p className="muted hint" style={{ margin: '.25rem 0 0', maxWidth: '72ch' }}>Quién se conecta, cuánto tiempo y qué hace (cambios, aprobaciones, registros). Toca un usuario para ver su detalle.</p>
         </div>
         <button className="btn btn-ghost" onClick={() => void pdfResumen()} disabled={loading}>🖨 Vista previa PDF</button>
       </div>
 
       <RangoSelector rango={rango} setRango={setRango} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', margin: '1rem 0' }}>
+      <div className="kpi-grid" style={{ marginTop: '1rem' }}>
         <Kpi titulo="Conectados ahora" valor={String(conectados.length)} nota="latido < 3 min" destacado />
         <Kpi titulo="Tiempo total conectado" valor={fmtDuracion(conexTotal)} nota={`${sesiones.length} sesión(es)`} />
         <Kpi titulo="Usuarios activos" valor={String(porUsuario.length)} nota="en el período" />
@@ -208,7 +211,7 @@ export function AuditoriaPage() {
 
       {/* Conectados ahora */}
       {conectados.length > 0 && (
-        <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--success, #22c55e)' }}>
+        <div className="card aud-conectados" style={{ marginBottom: '1rem' }}>
           <div className="card-title" style={{ marginBottom: '.4rem' }}>🟢 Conectados ahora ({conectados.length})</div>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
             {conectados.map((c) => (
@@ -220,7 +223,8 @@ export function AuditoriaPage() {
         </div>
       )}
 
-      {loading ? <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div> : (
+      {/* Conserva el alto mientras carga: antes la página saltaba al llegar los datos. */}
+      {loading ? <div className="card aud-cargando"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div> : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <div className="card">
@@ -231,7 +235,7 @@ export function AuditoriaPage() {
             </div>
             <div className="card">
               <div className="card-title" style={{ marginBottom: '.4rem' }}>⚡ Acciones por usuario</div>
-              <HBarChart data={barsEventos} color="#ff8a00" emptyMessage="Sin acciones en el período."
+              <HBarChart data={barsEventos} color="var(--primary)" emptyMessage="Sin acciones en el período."
                 onBarClick={(_p, i) => { const u = evPorUsuario[i]; if (u) abrirUsuario(u); }} />
               <small className="muted">Toca una barra para ver el detalle del usuario.</small>
             </div>
@@ -240,11 +244,11 @@ export function AuditoriaPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <div className="card">
               <div className="card-title" style={{ marginBottom: '.4rem' }}>📈 Actividad por día</div>
-              <LineChart data={lineaDia} color="#3b82f6" emptyMessage="Sin actividad en el período." />
+              <LineChart data={lineaDia} color="var(--info)" emptyMessage="Sin actividad en el período." />
             </div>
             <div className="card">
               <div className="card-title" style={{ marginBottom: '.4rem' }}>🧩 Acciones por módulo</div>
-              <HBarChart data={barsModulo} color="#a855f7" emptyMessage="Sin acciones en el período." />
+              <HBarChart data={barsModulo} color="var(--gold)" emptyMessage="Sin acciones en el período." />
             </div>
           </div>
 
@@ -262,14 +266,30 @@ export function AuditoriaPage() {
                 </tr></thead>
                 <tbody>
                   {porUsuarioConEventos(porUsuario, evPorUsuario).map((u) => (
-                    <tr key={u.user_id} style={{ cursor: 'pointer' }} onClick={() => abrirUsuario(u)} title="Ver detalle del usuario">
+                    /* La fila ya abría el detalle, pero solo con el ratón. */
+                    <tr
+                      key={u.user_id}
+                      className="aud-fila"
+                      tabIndex={0}
+                      onClick={() => abrirUsuario(u)}
+                      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrirUsuario(u); } }}
+                      title="Ver detalle del usuario"
+                    >
                       <td style={{ fontWeight: 600 }}>{u.nombre}</td>
                       <td className="muted">{u.email}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{u.sesiones}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{fmtDuracion(u.totalMin)}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{evCountByUser.get(u.user_id) ?? 0}</td>
                       <td>{u.conectado ? <span className="badge success">● Conectado</span> : <span className="muted">—</span>}</td>
-                      <td style={{ textAlign: 'right' }}><span className="btn btn-sm btn-ghost">Ver →</span></td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button" className="btn btn-sm btn-ghost"
+                          onClick={(ev) => { ev.stopPropagation(); abrirUsuario(u); }}
+                          aria-label={`Ver el detalle de ${u.nombre}`}
+                        >
+                          Ver →
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {porUsuario.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Sin sesiones en el período.</td></tr>}
@@ -284,48 +304,74 @@ export function AuditoriaPage() {
 }
 
 /* ─────────── Subcomponentes ─────────── */
+/* El período es un control segmentado, no cinco botones sueltos — y ahora
+   dice que lo es. Mismos cinco valores y mismas fechas de siempre. */
 function RangoSelector({ rango, setRango, desde, hasta, setDesde, setHasta }: {
   rango: Rango; setRango: (r: Rango) => void; desde: string; hasta: string; setDesde: (s: string) => void; setHasta: (s: string) => void;
 }) {
   return (
-    <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-      {([['hoy', 'Hoy'], ['7', 'Últimos 7 días'], ['mes', 'Este mes'], ['todo', 'Todo'], ['rango', 'Rango…']] as const).map(([v, t]) => (
-        <button key={v} className={rango === v ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'} onClick={() => setRango(v)}>{t}</button>
-      ))}
+    <div className="aud-periodo">
+      <span className="aud-periodo-label" id="aud-periodo-lbl">Período</span>
+      <div className="view-toggle" role="tablist" aria-labelledby="aud-periodo-lbl">
+        {([['hoy', 'Hoy'], ['7', 'Últimos 7 días'], ['mes', 'Este mes'], ['todo', 'Todo'], ['rango', 'Rango…']] as const).map(([v, t]) => (
+          <button
+            key={v} type="button" role="tab"
+            aria-selected={rango === v}
+            className={rango === v ? 'active' : ''}
+            onClick={() => setRango(v)}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
       {rango === 'rango' && (
         <>
-          <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
-          <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+          <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} aria-label="Desde" />
+          <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} aria-label="Hasta" />
         </>
       )}
     </div>
   );
 }
 
+/* La tarjeta del sistema (.kpi), no una propia. */
 function Kpi({ titulo, valor, nota, destacado }: { titulo: string; valor: string; nota: string; destacado?: boolean }) {
   return (
-    <div className="card" style={{ margin: 0, borderColor: destacado ? 'var(--brand, #ff8a00)' : undefined }}>
-      <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.04em' }}>{titulo}</div>
-      <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color: destacado ? 'var(--brand, #ff8a00)' : undefined }}>{valor}</div>
-      {nota && <div className="muted" style={{ fontSize: '.74rem' }}>{nota}</div>}
+    <div className={`kpi${destacado ? ' destacado' : ''}`}>
+      <div className="label">{titulo}</div>
+      <div className="value">{valor}</div>
+      {nota && <div className="delta neutro">{nota}</div>}
     </div>
   );
 }
 
+const TOPE_CAMPOS = 6;
+
 function EventoFila({ e }: { e: AuditoriaEvento }) {
   const d = describirEvento(e);
+  const [todo, setTodo] = useState(false);
   const hora = new Date(e.at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+  const sobran = d.detalle.length - TOPE_CAMPOS;
+  const campos = todo ? d.detalle : d.detalle.slice(0, TOPE_CAMPOS);
   return (
-    <div style={{ display: 'flex', gap: '.6rem', padding: '.45rem .6rem', border: '1px solid var(--border)', borderRadius: 8, alignItems: 'flex-start' }}>
-      <span style={{ fontSize: '1.1rem' }}>{d.icono}</span>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontWeight: 600 }}>{d.titulo}</div>
+    <li className="aud-evento">
+      <span className="aud-evento-icono" aria-hidden="true">{d.icono}</span>
+      <div className="aud-evento-cuerpo">
+        <div className="aud-evento-titulo">{d.titulo}</div>
         {d.detalle.length > 0 && (
-          <div className="muted mono" style={{ fontSize: '.76rem' }}>{d.detalle.slice(0, 6).join(' · ')}{d.detalle.length > 6 ? ` …(+${d.detalle.length - 6})` : ''}</div>
+          <div className="aud-evento-detalle mono">
+            {campos.join(' · ')}
+            {/* Antes decía «(+3)» y ahí moría: ahora se abre. */}
+            {sobran > 0 && (
+              <button type="button" className="aud-evento-mas" aria-expanded={todo} onClick={() => setTodo((v) => !v)}>
+                {todo ? 'ver menos' : `+${sobran} más`}
+              </button>
+            )}
+          </div>
         )}
       </div>
-      <span className="muted mono" style={{ fontSize: '.74rem', whiteSpace: 'nowrap' }}>{hora}</span>
-    </div>
+      <span className="aud-evento-hora mono">{hora}</span>
+    </li>
   );
 }
 

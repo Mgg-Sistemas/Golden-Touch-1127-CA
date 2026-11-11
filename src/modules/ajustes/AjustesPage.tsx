@@ -5,7 +5,8 @@ import { signOut, useSession } from '@/modules/auth/authStore';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import type { Usuario } from '@/shared/lib/types';
-import { labelRol } from '@/modules/usuarios/usuarios.repository';
+import { colorRol, labelRol, loadRolesAndCache } from '@/modules/usuarios/usuarios.repository';
+import { Iniciales } from '@/shared/ui/Iniciales';
 import { HuellaModal } from '@/modules/auth/HuellaModal';
 import { isWebAuthnSupported } from '@/modules/auth/webauthn.repository';
 import {
@@ -15,6 +16,7 @@ import {
   stopNotificationPattern,
 } from '@/shared/lib/sound';
 import { activarNotificaciones, soportaPush } from '@/shared/lib/webpush';
+import './ajustes.css';
 
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
@@ -25,6 +27,18 @@ export function AjustesPage() {
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState(true);
   const [huellaOpen, setHuellaOpen] = useState(false);
+  /* El caché de roles solo trae de entrada los 3 del sistema y únicamente el
+     módulo Usuarios lo refresca: sin esto, quien tiene un rol personalizado
+     veía aquí la clave cruda («supervisor_patio») en vez de su nombre. Y de
+     paso da el color del rol para las iniciales. */
+  const [rolesListos, setRolesListos] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    loadRolesAndCache()
+      .then(() => { if (vivo) setRolesListos(true); })
+      .catch(() => { if (vivo) setRolesListos(true); }); // sin roles se usa lo que haya
+    return () => { vivo = false; };
+  }, []);
 
   // Perfil editable
   const [nombre, setNombre] = useState('');
@@ -87,6 +101,8 @@ export function AjustesPage() {
   }, [user?.id]);
 
   const cambiaNombre = !!usuario && (nombre.trim() !== (usuario.nombre ?? '').trim() || apellido.trim() !== (usuario.apellido ?? '').trim());
+  // `rolesListos` entra en el cálculo para repintar cuando llega el caché.
+  const rolColor = rolesListos ? colorRol(usuario?.role) : undefined;
 
   async function handleGuardarPerfil() {
     if (!user) return;
@@ -137,7 +153,8 @@ export function AjustesPage() {
     navigate('/cambiar-clave', { state: { from: '/app/ajustes' } });
   }
 
-  if (loading) return <div className="p-8">Cargando…</div>;
+  // `.p-8` no existe en el CSS del proyecto: salía sin estilo, pegado al borde.
+  if (loading) return <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>;
 
   return (
     <div>
@@ -148,31 +165,24 @@ export function AjustesPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', alignItems: 'start' }}>
+      {/* Perfil manda y ocupa la columna ancha: quien entra se ve primero a sí
+          mismo. Antes el orden lo decidía el ancho de la pantalla. */}
+      <div className="aju-grid">
 
         {/* Perfil */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Perfil</span>
           </div>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
-            <div
-              className="avatar"
-              style={{
-                width: 60, height: 60, borderRadius: '50%',
-                overflow: 'hidden',
-                background: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                border: '2px solid var(--border)',
-                flexShrink: 0,
-              }}
-            >
-              <img
-                src="/LOGO.jpg"
-                alt="Avatar"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </div>
+            {/* Antes aquí iba /LOGO.jpg —el logo de la empresa, igual para
+                todos— sobre un fondo blanco forzado en un tema oscuro. Ahora
+                es la persona: sus iniciales con el color de su rol, la misma
+                pieza que usa el Directorio de Usuarios. */}
+            <Iniciales
+              nombre={nombre} apellido={apellido} respaldo={user?.email}
+              color={rolColor} tamano="lg"
+            />
             <div>
               <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>
                 {[nombre, apellido].filter(Boolean).join(' ') || '—'}
@@ -241,7 +251,7 @@ export function AjustesPage() {
         </div>
 
         {/* Notificaciones */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Notificaciones</span>
           </div>
@@ -312,9 +322,17 @@ export function AjustesPage() {
 
           <div className="setting-row">
             <div style={{ flex: 1 }}>
-              <strong>Notificaciones en este dispositivo</strong>
+              <strong>
+                Notificaciones en este dispositivo{' '}
+                <span className="badge warning" style={{ fontSize: '.65rem' }}>En preparación</span>
+              </strong>
               <div className="muted" style={{ fontSize: '.82rem' }}>
-                Recibir avisos aunque la app esté cerrada (push a la versión instalada).
+                {/* La pantalla deja de prometer de más: el cliente de Web Push
+                    está listo, pero el envío (Edge Function) todavía no existe,
+                    así que con la app cerrada aún no llega nada. */}
+                Registra este dispositivo para recibir avisos con la app cerrada. El envío
+                todavía no está montado, así que por ahora los avisos solo llegan con el
+                sistema abierto.
                 {!pushSoportado && ' Este navegador no lo soporta.'}
                 {pushMsg && <><br />{pushMsg}</>}
               </div>
@@ -339,7 +357,7 @@ export function AjustesPage() {
         </div>
 
         {/* Seguridad */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Seguridad</span>
           </div>
@@ -368,7 +386,7 @@ export function AjustesPage() {
         </div>
 
         {/* Preferencias de vista */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Vista preferida (Pedidos)</span>
           </div>
@@ -376,18 +394,30 @@ export function AjustesPage() {
             Modo por defecto del módulo Pedidos/Compras. Igualmente puedes alternar dentro del módulo.
           </p>
 
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.85rem' }}>
-            <button className={`chip${viewPref === 'kanban' ? ' chip-active' : ''}`} onClick={() => setView('kanban')}>▦ Kanban</button>
-            <button className={`chip${viewPref === 'lista' ? ' chip-active' : ''}`} onClick={() => setView('lista')}>☰ Lista</button>
+          {/* Son dos preguntas distintas y antes iban sin etiqueta, una debajo
+              de la otra: nada decía cuál era cuál. */}
+          <div className="aju-preferencia">
+            <span className="aju-preferencia-label" id="aju-como">Cómo se ve</span>
+            <div className="view-toggle" role="tablist" aria-labelledby="aju-como">
+              <button type="button" role="tab" aria-selected={viewPref === 'kanban'}
+                className={viewPref === 'kanban' ? 'active' : ''} onClick={() => setView('kanban')}>▦ Kanban</button>
+              <button type="button" role="tab" aria-selected={viewPref === 'lista'}
+                className={viewPref === 'lista' ? 'active' : ''} onClick={() => setView('lista')}>☰ Lista</button>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            <button className={`chip${scopePref === 'pedidos' ? ' chip-active' : ''}`} onClick={() => setScope('pedidos')}>✉ Solicitud de Pedido</button>
-            <button className={`chip${scopePref === 'oc' ? ' chip-active' : ''}`} onClick={() => setScope('oc')}>🧾 Órdenes de Compra</button>
+          <div className="aju-preferencia">
+            <span className="aju-preferencia-label" id="aju-que">Qué abre</span>
+            <div className="view-toggle" role="tablist" aria-labelledby="aju-que">
+              <button type="button" role="tab" aria-selected={scopePref === 'pedidos'}
+                className={scopePref === 'pedidos' ? 'active' : ''} onClick={() => setScope('pedidos')}>✉ Solicitud de Pedido</button>
+              <button type="button" role="tab" aria-selected={scopePref === 'oc'}
+                className={scopePref === 'oc' ? 'active' : ''} onClick={() => setScope('oc')}>🧾 Órdenes de Compra</button>
+            </div>
           </div>
         </div>
 
         {/* Sesión */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Sesión</span>
           </div>

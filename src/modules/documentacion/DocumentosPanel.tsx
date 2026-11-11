@@ -68,30 +68,31 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
 
   return (
     <>
-      <div className="card" style={{ marginBottom: '.75rem' }}>
-        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="form-row" style={{ margin: 0, flex: '1 1 220px' }}>
-            <label htmlFor="doc-buscar">Buscar</label>
-            <input id="doc-buscar" className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre, categoría o descripción…" />
-          </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label htmlFor="doc-cat">Categoría</label>
-            <SearchSelect id="doc-cat" value={cat} onChange={setCat} placeholder="🔍 Todas las categorías" style={{ minWidth: 220 }}
-              options={[{ value: '', label: 'Todas las categorías' }, ...categorias.map((c) => ({ value: c, label: `${c}${conteoCats[c] ? ` (${conteoCats[c]})` : ''}` }))]} />
-          </div>
-          {canWrite && (
-            <button type="button" className="btn btn-ghost" onClick={() => setGestionarCats(true)} title="Agregar, renombrar o eliminar categorías">🏷 Categorías</button>
-          )}
-          {(porVencer > 0 || vencidos > 0) && (
-            <span style={{ fontSize: '.82rem' }}>
-              {vencidos > 0 && <span className="badge" style={{ color: 'var(--danger)' }}>⚠ {vencidos} vencido(s)</span>}{' '}
-              {porVencer > 0 && <span className="badge" style={{ color: 'var(--warning)' }}>⏳ {porVencer} por vencer</span>}
-            </span>
-          )}
-          <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtrados.length} de {docs.length}</span>
-          {canWrite && <button className="btn btn-primary" onClick={() => setEditar('nuevo')}>＋ Agregar documento</button>}
-        </div>
+      {/* Barra al estándar del sistema. Lo que no filtra, sale de aquí. */}
+      <div className="filterbar">
+        <input
+          id="doc-buscar" className="search" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar por nombre, categoría o descripción…" aria-label="Buscar documento"
+        />
+        {/* Con tope: sin él se comía la fila entera y la barra caía en tres líneas. */}
+        <SearchSelect id="doc-cat" value={cat} onChange={setCat} placeholder="🔍 Todas las categorías" style={{ minWidth: 200, maxWidth: 260 }}
+          options={[{ value: '', label: 'Todas las categorías' }, ...categorias.map((c) => ({ value: c, label: `${c}${conteoCats[c] ? ` (${conteoCats[c]})` : ''}` }))]} />
+        {canWrite && (
+          <button type="button" className="btn btn-ghost" onClick={() => setGestionarCats(true)} title="Agregar, renombrar o eliminar categorías">🏷 Categorías</button>
+        )}
+        <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtrados.length} de {docs.length}</span>
+        {canWrite && <button className="btn btn-primary" onClick={() => setEditar('nuevo')}>＋ Agregar documento</button>}
       </div>
+
+      {/* Vencimientos: es un estado del archivo, no un control. Con el badge
+          que le corresponde, no texto teñido sobre fondo neutro. */}
+      {(porVencer > 0 || vencidos > 0) && (
+        <div className="doc-avisos">
+          <span className="doc-avisos-texto">Atención:</span>
+          {vencidos > 0 && <span className="badge danger">⚠ {vencidos} vencido(s)</span>}
+          {porVencer > 0 && <span className="badge warning">⏳ {porVencer} por vencer</span>}
+        </div>
+      )}
 
       <div className="card">
         <div className="table-wrap">
@@ -113,16 +114,20 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
                     <td><span className="badge">{d.categoria}</span></td>
                     <td>
                       {d.vence ? (
-                        <span style={{ color: est === 'vencido' ? 'var(--danger)' : est === 'por_vencer' ? 'var(--warning)' : undefined }}>
-                          {fechaCarnet(d.vence)}{est === 'vencido' ? ' · vencido' : est === 'por_vencer' ? ' · por vencer' : ''}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                          {fechaCarnet(d.vence)}
+                          {/* El estado, con la pieza del sistema. */}
+                          {est === 'vencido' && <span className="badge danger">Vencido</span>}
+                          {est === 'por_vencer' && <span className="badge warning">Por vencer</span>}
                         </span>
                       ) : <span className="muted">—</span>}
                     </td>
                     <td className="muted" style={{ fontSize: '.8rem' }}><Quien nombre={d.created_by_name} correo={d.created_by} vacio="—" /></td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <td className="doc-acciones">
                       {d.archivo_path && <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)} title={d.archivo_nombre ?? ''}>📎 Ver</button>}
                       {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setEditar(d)}>✎ Editar</button>}
-                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setBorrar(d)} title="Eliminar">🗑️</button>}
+                      {/* Era un icono mudo para la acción irreversible de la fila. */}
+                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setBorrar(d)}>🗑 Eliminar</button>}
                     </td>
                   </tr>
                 );
