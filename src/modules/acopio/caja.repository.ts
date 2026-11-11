@@ -9,7 +9,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { crearRecepcionDesdeCierre } from '@/modules/recepciones/recepciones.repository';
 import { construirMovimientosAcopio } from './movimientosAcopioCalc';
-import type { CajaCierre, CajaMovimiento, CajaResumen, ClasificacionAcopio, ContratoAcopio, CostoClase, GrupoClasificacion, TransferenciaInter } from '@/shared/lib/types';
+import type { CajaCierre, CajaMovimiento, CajaResumen, EdicionCajaCerrada, ClasificacionAcopio, ContratoAcopio, CostoClase, GrupoClasificacion, TransferenciaInter } from '@/shared/lib/types';
 
 export const GRUPOS: { key: GrupoClasificacion; label: string; color: string }[] = [
   { key: 'movimientos_caja', label: 'Movimientos de Caja', color: '#3b82f6' },
@@ -809,6 +809,93 @@ export async function cerrarYAbrirCaja(input: {
     await revertir();
     throw e;
   }
+}
+
+/** Mínimo que pide un motivo para editar una caja cerrada. */
+export const MOTIVO_EDICION_MIN = 8;
+
+/**
+ * 11/11/2026 · Editar una caja YA CERRADA (Centro de Costo PERAMANAL) con motivo.
+ * Después de editar o borrar un movimiento de la caja cerrada, se rehace su foto (misma
+ * cuenta que al cerrar), se anota la edición con el motivo y el saldo antes → después, y
+ * si el saldo cambió se corrige el «Saldo anterior» de la caja siguiente (y la foto de
+ * esa caja si también está cerrada), para que el saldo arrastrado siga siendo el real.
+ */
+export async function recalcularCajaCerrada(input: {
+  cajaId: string; motivo: string; cambio: string; actor: string; actorName?: string | null;
+}): Promise<{ saldoAntes: number | null; saldoDespues: number; arrastradas: string[] }> {
+  const motivo = input.motivo.trim();
+  if (motivo.length < MOTIVO_EDICION_MIN) throw new Error('Escribe el motivo de la edición (al menos ' + MOTIVO_EDICION_MIN + ' letras).');
+  const arrastradas: string[] = [];
+  let cajaId: string | null = input.cajaId;
+  let cambio = input.cambio;
+  let primero: { saldoAntes: number | null; saldoDespues: number } | null = null;
+  // Se recorre la cadena hacia adelante mientras haya cajas cerradas cuyo saldo cambió.
+  for (let vuelta = 0; cajaId && vuelta < 24; vuelta++) {
+    const { data: c, error: eC } = await supabase.from('acopio_cajas').select('*').eq('id', cajaId).maybeSingle();
+    if (eC) throw eC;
+    const caja = c as CajaCierre | null;
+    if (!caja) throw new Error('No se encontró la caja.');
+    if (caja.estado !== 'cerrada') break;
+    const [contratos, movs] = await Promise.all([listContratosParaCierre(), listCajaMovimientos()]);
+    const recalc = construirMovimientosAcopio({ contratos, cajaMovs: movs, caja, esHistorico: true });
+    const saldoUsd = Math.round(recalc.resumen.saldoUsd * 100) / 100;
+    const base = caja.resumen_json;
+    const foto: import('@/shared/lib/types').CierreSnapshot = {
+      ...(base ?? { numero: caja.numero, fechaInicio: caja.fecha_inicio ?? null, fechaCierre: caja.fecha_fin ?? hoyVE(), filas: [] }),
+      numero: caja.numero,
+      resumen: {
+        saldoUsd,
+        saldoKg: recalc.resumen.saldoKg,
+        tasa: recalc.resumen.tasa,
+        usdEntregado: recalc.resumen.usdEntregado,
+        gastos: recalc.resumen.gastos,
+        nominas: recalc.resumen.nominas,
+        facturado: recalc.resumen.facturado,
+        totalKg: recalc.filas.reduce((a, f) => a + f.kgCerrados, 0),
+        traslado: recalc.resumen.traslado, inversion: recalc.resumen.inversion, kgRecibidos: recalc.resumen.kgRecibidos,
+      },
+      filas: recalc.filas.map((f) => ({
+        fecha: f.fecha, descripcion: f.descripcion, usdEntregado: f.usdEntregado,
+        kgCerrados: f.kgCerrados, usdFacturados: f.usdFacturados, gastosGt: f.gastosGt,
+        nominasGt: f.nominasGt, trasladoCaja: f.trasladoCaja, inversion: f.inversion,
+        saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
+      })),
+    };
+    const saldoAntes = caja.saldo_final == null ? null : Number(caja.saldo_final);
+    const edicion: EdicionCajaCerrada = {
+      at: new Date().toISOString(), actor: input.actor, actor_name: input.actorName ?? null,
+      motivo, cambio, saldo_antes: saldoAntes, saldo_despues: saldoUsd,
+    };
+    const { error: eU } = await supabase.from('acopio_cajas').update({
+      saldo_final: saldoUsd, resumen_json: foto,
+      ediciones: [...(Array.isArray(caja.ediciones) ? caja.ediciones : []), edicion],
+      updated_at: new Date().toISOString(),
+    }).eq('id', caja.id);
+    if (eU) throw eU;
+    if (!primero) primero = { saldoAntes, saldoDespues: saldoUsd };
+    else arrastradas.push(caja.numero);
+
+    // ¿Cambió el saldo? Se corrige la fila «Saldo anterior · <numero>» de la caja siguiente.
+    if (saldoAntes != null && Math.abs(saldoAntes - saldoUsd) < 0.005) break;
+    const { data: sig, error: eS } = await supabase.from('acopio_caja_movimientos')
+      .select('id, caja_id, usd_entregado')
+      .like('descripcion', 'Saldo anterior · ' + caja.numero + ' (%')
+      .limit(1);
+    if (eS) throw eS;
+    const filaSig = (sig ?? [])[0] as { id: string; caja_id: string | null; usd_entregado: number | null } | undefined;
+    if (!filaSig) break;
+    const { error: eM } = await supabase.from('acopio_caja_movimientos')
+      .update({ usd_entregado: saldoUsd, updated_at: new Date().toISOString() }).eq('id', filaSig.id);
+    if (eM) throw eM;
+    if (!filaSig.caja_id) break;
+    const { error: eI } = await supabase.from('acopio_cajas')
+      .update({ saldo_inicial_usd: saldoUsd, updated_at: new Date().toISOString() }).eq('id', filaSig.caja_id);
+    if (eI) throw eI;
+    cajaId = filaSig.caja_id;
+    cambio = 'Arrastre: cambió el saldo de ' + caja.numero + ' (' + (saldoAntes ?? 0).toFixed(2) + ' → ' + saldoUsd.toFixed(2) + ')';
+  }
+  return { saldoAntes: primero?.saldoAntes ?? null, saldoDespues: primero?.saldoDespues ?? 0, arrastradas };
 }
 
 export async function reabrirCaja(id: string): Promise<void> {
