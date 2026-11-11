@@ -137,14 +137,14 @@ export function fechaHoraResumen(d: Date): string {
   return `${f} ${h}`;
 }
 
-/** El estado de una orden: «✅ *Se pagará*» o «⏸ *No se pagará* · motivo». */
+/** El estado de una orden: «✅ *Se pagará*» o «⏸ *No se pagará* · *motivo*». */
 export function estadoItemLote(motivo: MotivoLote, detalle?: string | null): string {
   if (motivo === 'si') return '✅ *Se pagará*';
   const det = unaLinea(detalle);
   const desc = motivo === 'Otro' ? (det || 'Otro motivo')
     : motivo === 'No procede esta compra' ? (det ? `No procede esta compra (${det})` : 'No procede esta compra')
     : motivo.replace(/\.$/, '');
-  return `⏸ *No se pagará* · ${desc}`;
+  return `⏸ *No se pagará* · *${desc}*`;
 }
 
 /** Qué falta para armar el resumen (null si está bien). */

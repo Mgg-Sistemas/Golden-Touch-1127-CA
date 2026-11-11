@@ -103,11 +103,13 @@ describe('WhatsApp por lote de las OC pendientes por pagar (04/11/2026)', () => 
       ordenes: [
         { codigo: 'OC-1', proveedor: 'X', monto: 5, motivo: 'si' },
         { codigo: 'OC-2', proveedor: 'Y', monto: 10, motivo: 'Sin fondos en estos momentos.' },
+        { codigo: 'OC-3', proveedor: 'Z', monto: 20, motivo: 'Esperando respuestas por el jefe.' },
       ],
       fecha: '2026-11-04T23:15:00Z',
     });
-    expect(mix).toContain('💵 *A pagar:* $10,00 · ⏸ *No se pagará* · Sin fondos en estos momentos');
+    expect(mix).toContain('💵 *A pagar:* $10,00 · ⏸ *No se pagará* · *Sin fondos en estos momentos*');
+    expect(mix).toContain('💵 *A pagar:* $20,00 · ⏸ *No se pagará* · *Esperando respuestas por el jefe*');
     expect(mix).toContain('✅ *Se pagarán (1):* *$5,00*');
-    expect(mix).toContain('⏸ *No se pagarán (1):* *$10,00*');
+    expect(mix).toContain('⏸ *No se pagarán (2):* *$30,00*');
   });
 });
