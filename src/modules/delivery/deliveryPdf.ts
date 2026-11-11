@@ -16,12 +16,17 @@
    ============================================================ */
 import type { jsPDF as JsPDF } from 'jspdf';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { cargarImagenDesdeBlob } from '@/shared/lib/comprimirImagen';
 import { dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { supabase } from '@/shared/lib/supabase';
-import { ALMACEN_RETIRO, ORIGEN_DELIVERY, etiquetaEstado, fechaHoraVE, montoTxt, type PedidoDelivery } from './delivery';
+import {
+  ALMACEN_RETIRO, ORIGEN_DELIVERY, etiquetaEstado, fechaHoraVE, montoTxt, rotuloFotos,
+  type FotoDelivery, type PedidoDelivery,
+} from './delivery';
+import { urlFotoDelivery } from './delivery.repository';
 import { duracionTxt, totalesResumen, type FilaHistorialDelivery, type ResumenDelivery } from './deliveryPanel';
 import {
   detallePedido, resumenReporte, textoFiltros, type FiltroEstadoDelivery, type FiltroOrigenDelivery,
@@ -172,10 +177,129 @@ export async function pdfPorDelivery(data: { desde: string; hasta: string; resum
   previewPdf(doc, `delivery-por-repartidor-${data.desde}_${data.hasta}.pdf`);
 }
 
+/* ───────────── Anexo fotográfico (GT) ───────────── */
+
+const LADO_FOTO_DELIVERY_PDF = 1400;
+
+interface FotoCargadaPdf {
+  data: string;
+  w: number;
+  h: number;
+  filename: string;
+}
+
+async function fotoDeliveryParaPdf(f: FotoDelivery, urlPrevia?: string): Promise<FotoCargadaPdf | null> {
+  try {
+    const url = urlPrevia || await urlFotoDelivery(f.path);
+    if (!url) return null;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const img = await cargarImagenDesdeBlob(await res.blob());
+    const escala = Math.min(1, LADO_FOTO_DELIVERY_PDF / Math.max(img.width, img.height, 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * escala));
+    canvas.height = Math.max(1, Math.round(img.height * escala));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      if ('close' in img && typeof img.close === 'function') img.close();
+      return null;
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    if ('close' in img && typeof img.close === 'function') img.close();
+    return {
+      data: canvas.toDataURL('image/jpeg', 0.85),
+      w: canvas.width,
+      h: canvas.height,
+      filename: f.filename,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function dibujarSeccionesFotosPdf(
+  doc: JsPDF,
+  yInicial: number,
+  p: PedidoDelivery,
+  urls?: Record<string, string>,
+): Promise<number> {
+  const [recibo, entrega] = await Promise.all([
+    Promise.all((p.fotos_recibo ?? []).map((f) => fotoDeliveryParaPdf(f, urls?.[f.path]))),
+    Promise.all((p.fotos_entrega ?? []).map((f) => fotoDeliveryParaPdf(f, urls?.[f.path]))),
+  ]);
+  const grupos: Array<{ titulo: string; originales: number; fotos: FotoCargadaPdf[] }> = [
+    { titulo: rotuloFotos(p.origen, 'recibo'), originales: p.fotos_recibo?.length ?? 0, fotos: recibo.filter((x): x is FotoCargadaPdf => x !== null) },
+    { titulo: rotuloFotos(p.origen, 'entrega'), originales: p.fotos_entrega?.length ?? 0, fotos: entrega.filter((x): x is FotoCargadaPdf => x !== null) },
+  ].filter((g) => g.originales > 0);
+
+  if (!grupos.length) return yInicial;
+
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const limiteY = H - M - ALTO_PIE;
+  const GAP = 12;
+  const colW = (W - 2 * M - GAP) / 2;
+  const ALTO_CAJA = 205;
+  let y = yInicial;
+
+  for (const g of grupos) {
+    const altoMinimoGrupo = 20 + (g.fotos.length ? ALTO_CAJA : 16);
+    if (y + altoMinimoGrupo > limiteY) {
+      doc.addPage();
+      y = M;
+    }
+    doc.setFillColor(...NARANJA);
+    doc.rect(M, y - 8, 3, 12, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(35, 35, 35);
+    doc.text(textoPdf(`${g.titulo.toUpperCase()} (${g.originales})`), M + 8, y + 1);
+    y += 10;
+
+    if (!g.fotos.length) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...GRIS);
+      doc.text(textoPdf('No se pudieron descargar las imágenes.'), M, y + 8);
+      y += 20;
+      continue;
+    }
+
+    g.fotos.forEach((f, i) => {
+      const col = i % 2;
+      if (col === 0 && i > 0) y += ALTO_CAJA + GAP;
+      if (col === 0 && y + ALTO_CAJA > limiteY) {
+        doc.addPage();
+        y = M;
+      }
+      const x = M + col * (colW + GAP);
+      doc.setDrawColor(220, 224, 230);
+      doc.setLineWidth(0.6);
+      doc.rect(x, y, colW, ALTO_CAJA);
+      const maxW = colW - 8;
+      const maxH = ALTO_CAJA - 8;
+      const r = Math.min(maxW / Math.max(f.w, 1), maxH / Math.max(f.h, 1));
+      const w = Math.max(1, f.w * r);
+      const h = Math.max(1, f.h * r);
+      try {
+        doc.addImage(f.data, 'JPEG', x + (colW - w) / 2, y + (ALTO_CAJA - h) / 2, w, h);
+      } catch {
+        /* una imagen ilegible no frena el documento */
+      }
+    });
+    y += ALTO_CAJA + 16;
+  }
+
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+
 /* ───────────── Un pedido (GT) ───────────── */
 
-/** Reporte de UN pedido: datos, pasos con hora, almacén, nota, fotos y productos. */
-export async function pdfPedidoDelivery(p: PedidoDelivery): Promise<void> {
+/** Reporte de UN pedido: datos, pasos con hora, almacén, nota, productos y anexo fotográfico. */
+export async function pdfPedidoDelivery(p: PedidoDelivery, urls?: Record<string, string>): Promise<void> {
   const d = detallePedido(p, quienSync);
   const retiro = d.origen === 'almacen';
   const generado = fechaHoraVE(new Date().toISOString());
@@ -236,6 +360,45 @@ export async function pdfPedidoDelivery(p: PedidoDelivery): Promise<void> {
       columnStyles: { 1: { halign: 'right', cellWidth: 110 } }, margin: MARGENES_TABLA,
     });
   }
+
+  if ((p.fotos_recibo?.length ?? 0) + (p.fotos_entrega?.length ?? 0) > 0) {
+    await dibujarSeccionesFotosPdf(doc, finTabla(doc, y) + 20, p, urls);
+  }
+
   pies(doc, `${retiro ? 'Retiro en Almacén' : 'Reporte del pedido'} ${d.oc} · ${generado}`);
   previewPdf(doc, `delivery-${retiro ? 'retiro-' : ''}${d.oc}.pdf`);
+}
+
+/** Registro fotográfico del pedido en PDF institucional (se abre en `Vista previa`). */
+export async function pdfFotosDelivery(p: PedidoDelivery, urls?: Record<string, string>): Promise<void> {
+  const d = detallePedido(p, quienSync);
+  const retiro = d.origen === 'almacen';
+  const generado = fechaHoraVE(new Date().toISOString());
+  const { doc, autoTable, y } = await nuevoDoc(
+    `Fotos · ${d.oc}`,
+    `Delivery · ${retiro ? `Retiro en ${ALMACEN_RETIRO} · ` : ''}${d.estado}${d.urgente ? ' · URGENTE' : ''}`,
+    false,
+  );
+
+  const resumen: Array<[string, string]> = [
+    [retiro ? 'Solicitud de pedido' : 'Orden de compra', d.oc],
+    [retiro ? 'Origen' : 'Proveedor', retiro ? `Retiro en ${ALMACEN_RETIRO}` : d.proveedor],
+    ['Delivery', d.motorizado],
+    [retiro ? (p.estado === 'entregado' ? 'Entregado a' : 'Entregar a') : 'Almacén de entrega', d.almacen],
+    ...(p.entregado_en ? [['Fecha de entrega', fechaHoraVE(p.entregado_en)] as [string, string]] : []),
+    ...(d.nota ? [['Nota de entrega', d.nota] as [string, string]] : []),
+  ];
+
+  autoTable(doc, {
+    startY: y,
+    body: resumen.map(([a, b]) => [textoPdf(a), textoPdf(b)]),
+    theme: 'grid',
+    styles: { fontSize: 8.8, cellPadding: 3.5, overflow: 'linebreak' },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 145, fillColor: [248, 248, 248] } },
+    margin: MARGENES_TABLA,
+  });
+
+  await dibujarSeccionesFotosPdf(doc, finTabla(doc, y) + 18, p, urls);
+  pies(doc, `Fotos · ${d.oc} · ${generado}`);
+  previewPdf(doc, `fotos-delivery-${retiro ? 'retiro-' : ''}${d.oc}.pdf`);
 }

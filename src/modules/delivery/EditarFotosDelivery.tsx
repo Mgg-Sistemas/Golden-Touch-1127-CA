@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { previewGaleria } from '@/shared/lib/reportePreview';
 import { MAX_FOTOS_DELIVERY, rotuloFotos, type FotoDelivery, type OrigenDelivery } from './delivery';
 import { editarFotosDelivery, urlFotoDelivery } from './delivery.repository';
 
@@ -76,14 +77,23 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
   const grupo = (tipo: Tipo) => {
     const total = quedan[tipo].length + nuevos[tipo].length;
     const id = `dlv-editar-${tipo}-${pedidoId}`;
+    const rotulo = rotuloFotos(origen, tipo);
+    const galeria = quedan[tipo].filter((f) => !!urls[f.path])
+      .map((f) => ({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotulo}` }));
     return (
       <div style={{ marginBottom: '1rem' }}>
-        <div className="card-title" style={{ fontSize: '.9rem' }}>{rotuloFotos(origen, tipo)} ({total}/{MAX_FOTOS_DELIVERY})</div>
+        <div className="card-title" style={{ fontSize: '.9rem' }}>{rotulo} ({total}/{MAX_FOTOS_DELIVERY})</div>
         <div style={{ display: 'grid', gap: '.5rem', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
           {quedan[tipo].map((f) => (
             <div key={f.path} style={{ position: 'relative' }}>
               {urls[f.path]
-                ? <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                ? (
+                  <button type="button" title={`Vista previa · ${f.filename}`}
+                    onClick={() => previewGaleria(galeria, Math.max(0, galeria.findIndex((x) => x.path === f.path)))}
+                    style={{ padding: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'transparent', cursor: 'zoom-in', width: '100%', display: 'block' }}>
+                    <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 110, objectFit: 'cover', display: 'block' }} />
+                  </button>
+                )
                 : <div className="muted" style={{ height: 110, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>📷</div>}
               <button type="button" className="btn btn-danger btn-sm" disabled={guardando}
                 style={{ position: 'absolute', top: 4, right: 4 }} aria-label={`Quitar ${f.filename}`}

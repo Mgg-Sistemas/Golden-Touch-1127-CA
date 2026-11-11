@@ -25,11 +25,14 @@ async function nuevoDoc(titulo: string) {
   let y = MARGIN;
   if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
   const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
+  const anchoTit = doc.internal.pageSize.getWidth() - MARGIN - tx;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text(titulo, tx, y + 18);
+  const linTit = doc.splitTextToSize(titulo, anchoTit) as string[];
+  doc.text(linTit, tx, y + 18);
+  const ySub = y + 18 + (linTit.length - 1) * 17 + 15;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`GOLDEN TOUCH 1127 C.A. · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
-  y += 60;
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${fmt.dateTime(new Date().toISOString())}`, tx, ySub);
+  y = Math.max(y + 60, ySub + 16);
   return { doc, autoTable, fmt, MARGIN, y };
 }
 
@@ -225,13 +228,32 @@ export async function descargarOrdenSalidaPdf(
   // ── Encabezado: logo + título + N° ──
   const LOGO = 60;
   const TX = logo ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
+  const anchoEncabezado = PAGE_W - MARGIN - TX;
   if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, LOGO); }
+  const tituloTxt = opciones?.titulo || (esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
-  doc.text(opciones?.titulo || (esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA'), TX, y + 20);
+  const lineasTitulo = doc.splitTextToSize(tituloTxt, anchoEncabezado) as string[];
+  doc.text(lineasTitulo, TX, y + 20);
+  const ySub = y + 20 + (lineasTitulo.length - 1) * 22 + 18;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`N° ${sol.codigo}  ·  ${opciones?.subtitulo || (esTraslado ? 'Traslado de material' : (conVale ? 'Salida de material · Vale de entrega a Cocina' : 'Salida de material'))}`, TX, y + 38);
-  doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
-  y += Math.max(LOGO, 42) + 8;
+  const subtituloTxt = opciones?.subtitulo
+    || (esTraslado ? 'Traslado de material' : (conVale ? 'Salida de material · Vale de entrega a Cocina' : 'Salida de material'));
+  const textoIzq = `N° ${sol.codigo}  ·  ${subtituloTxt}`;
+  const emitidaTxt = `Emitida: ${fmt.dateTime(new Date().toISOString())}`;
+  const anchoDispIzq = anchoEncabezado - doc.getTextWidth(emitidaTxt) - 16;
+  if (doc.getTextWidth(textoIzq) <= anchoDispIzq) {
+    doc.text(textoIzq, TX, ySub);
+    doc.text(emitidaTxt, PAGE_W - MARGIN, ySub, { align: 'right' });
+    y = Math.max(y + LOGO, ySub + 6) + 8;
+  } else {
+    const lineasIzq = doc.splitTextToSize(textoIzq, anchoEncabezado) as string[];
+    doc.text(lineasIzq, TX, ySub);
+    const yEmitida = ySub + (lineasIzq.length - 1) * 12 + 14;
+    doc.setFontSize(9); doc.setTextColor(95);
+    doc.text(emitidaTxt, TX, yEmitida);
+    doc.setFontSize(10); doc.setTextColor(0);
+    y = Math.max(y + LOGO, yEmitida + 6) + 8;
+  }
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
@@ -378,7 +400,7 @@ export async function descargarOrdenSalidaPdf(
   doc.text(autorizo || '—', MARGIN + colW + 40 + colW / 2, fy + 27, { align: 'center' });
 
   doc.setFontSize(8); doc.setTextColor(120);
-  doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
+  doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24, { maxWidth: PAGE_W - MARGIN * 2 });
 
   // Una orden cancelada no vale como salida: marca de agua en cada hoja.
   if (cancel) {
