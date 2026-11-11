@@ -240,7 +240,7 @@ export function AcopioPage() {
       {martillos && <ConsumoMartillosModal onClose={() => setMartillos(false)} />}
       {aceite && <ConsumoAceiteModal onClose={() => setAceite(false)} />}
 
-      {historico && <HistoricoCajasModal onClose={() => setHistorico(false)} />}
+      {historico && <HistoricoCajasModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setHistorico(false)} onEditada={() => { void reload(); }} />}
 
       {confirmarCierre && (
         <Modal

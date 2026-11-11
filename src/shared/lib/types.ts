@@ -800,11 +800,25 @@ export interface CajaCierre {
   saldo_inicial_kg?: number | null;
   /** Foto congelada del cierre (saldos de las tarjetas + filas de movimientos). */
   resumen_json?: CierreSnapshot | null;
+  /** 11/11/2026: ediciones hechas con la caja ya cerrada (cada una con su motivo). */
+  ediciones?: EdicionCajaCerrada[] | null;
   cerrada_por?: string | null;
   cerrada_en?: string | null;
   created_by?: string | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+/** Una edición de una caja de acopio YA cerrada (supabase/2026-11-11-acopio-editar-caja-cerrada.sql). */
+export interface EdicionCajaCerrada {
+  at: string;
+  actor: string;
+  actor_name?: string | null;
+  motivo: string;
+  /** Qué se cambió (movimiento editado/borrado, o arrastre desde la caja anterior). */
+  cambio: string;
+  saldo_antes: number | null;
+  saldo_despues: number;
 }
 
 /** Foto congelada que se guarda en histórico al cerrar una caja de acopio. */
