@@ -1,7 +1,7 @@
 /* ============================================================
    Golden Touch · Respaldo de la base de datos (.sql)
-   - Manual: botón "Respaldo de Data" en el menú (admin/analista).
-   - Automático: cada 30 días, al entrar un admin/analista.
+   - Manual: botón "Respaldo de Data" en el menú (permiso «respaldo»).
+   - Automático: cada 30 días, al entrar quien tenga ese permiso.
    La generación corre en la función SQL `dump_database_sql()`
    (SECURITY DEFINER) que valida el rol del solicitante por dentro.
    ============================================================ */
@@ -46,10 +46,19 @@ function encabezadoRespaldo(actorEmail: string, automatico: boolean): string {
   ].join('\n');
 }
 
-/** Roles autorizados a respaldar (el filtro fino se ajustará luego). */
-export function puedeRespaldar(role?: string | null): boolean {
-  return role === 'admin' || role === 'analista';
-}
+/*
+ * Quien puede respaldar lo deciden los ROLES Y PERMISOS, no el código (10/11/2026).
+ *
+ * Antes esta función miraba el NOMBRE del rol (`admin` o `analista`). Eso hacía
+ * imposible dárselo a nadie más: aunque la base ya autorizara al usuario, el
+ * botón no aparecía, y el permiso ni siquiera se podía otorgar porque el módulo
+ * no estaba en el panel. Ahora el módulo `respaldo` vive en la matriz de
+ * permisos y quien llama pasa el permiso ya resuelto (`can('respaldo')`).
+ *
+ * La guardia de verdad sigue estando en la base: `dump_database_sql()` exige
+ * `puede_leer('respaldo')` por dentro, así que ocultar el botón es comodidad,
+ * no seguridad.
+ */
 
 /** Genera el SQL del respaldo llamando a la función de la base. */
 export async function generarRespaldoSql(): Promise<string> {
@@ -154,12 +163,12 @@ export async function ultimoRespaldo(): Promise<string | null> {
 }
 
 /**
- * Respaldo AUTOMÁTICO: si el usuario es admin/analista y pasaron ≥30 días
+ * Respaldo AUTOMÁTICO: si el usuario tiene permiso de Respaldo y pasaron ≥30 días
  * (o nunca se hizo), ENVÍA el respaldo POR CORREO (al correo de respaldos) y
  * registra la fecha. Devuelve true si se ejecutó. Se llama una vez al entrar.
  */
-export async function chequearRespaldoAutomatico(role: string | null, actorEmail: string): Promise<boolean> {
-  if (!puedeRespaldar(role)) return false;
+export async function chequearRespaldoAutomatico(puedeRespaldar: boolean, actorEmail: string): Promise<boolean> {
+  if (!puedeRespaldar) return false;
   const last = await ultimoRespaldo();
   if (last && Date.now() - new Date(last).getTime() < MS_30D) return false;
   await enviarRespaldoPorCorreo(actorEmail, true);

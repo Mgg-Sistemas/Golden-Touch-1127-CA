@@ -346,12 +346,12 @@ export async function descargarCombustiblePdf(
   if (!columnas.length) throw new Error('Selecciona al menos una columna aplicable.');
   if (!filas.length) throw new Error('No hay datos de combustible para el período seleccionado.');
 
-  const esFichas = meta.formatoPresentacion !== 'tabla';
+  const esFichas = meta.formatoPresentacion === 'fichas';
   const orient = meta.orientacion === 'portrait'
     ? 'portrait'
     : meta.orientacion === 'landscape'
       ? 'landscape'
-      : esFichas || columnas.length > 6
+      : esFichas || columnas.length > 7
         ? 'landscape'
         : 'portrait';
 
@@ -359,137 +359,305 @@ export async function descargarCombustiblePdf(
 
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 36; // Margen de 0.5 pulgada
+  const M = 32; // Margen optimizado de 32 pt
   const UW = W - M * 2;
   let y = M;
 
   const idEmp = identidadEmpresa('GT');
   const logo = await loadLogoPdfEmpresa('GT').catch(() => null);
 
-  // 1. Membrete Institucional
-  const cajaLogo = 40;
+  // Colores corporativos GT y auxiliares
+  const GRIS_TEXTO: [number, number, number] = [100, 116, 139];
+  const GRIS_CLARO: [number, number, number] = [148, 163, 184];
+  const AZUL_DIESEL: [number, number, number] = [2, 132, 199];
+
+  // Fecha y hora de emisión formateada en español
+  const ahora = new Date();
+  const meses = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
+  const dia = ahora.getDate();
+  const mes = meses[ahora.getMonth()];
+  const anio = ahora.getFullYear();
+  let h = ahora.getHours();
+  const mMin = String(ahora.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'p. m.' : 'a. m.';
+  h = h % 12 || 12;
+  const fechaHoraEmision = `${dia} ${mes} ${anio}, ${h}:${mMin} ${ampm}`;
+
+  // 1. MEMBRETE DUAL INSTITUCIONAL (Identidad GT + Caja Ejecutiva)
+  const cajaLogo = 44;
   if (logo) {
     dibujarLogoPdf(doc, logo, M, y, cajaLogo);
   }
   const tx = logo ? M + anchoLogoPdf(cajaLogo) + 12 : M;
-  const anchoTexto = W - M - tx;
+
+  // Lado izquierdo: datos corporativos GT
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(...TINTA);
+  doc.text(idEmp.nombre || 'MINERA GOLDEN TOUCH 1127, C.A.', tx, y + 12);
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(...NARANJA);
-  const tituloDoc = 'Reporte de consumo de Combustible';
-  const titLineas = doc.splitTextToSize(tituloDoc, anchoTexto) as string[];
-  doc.text(titLineas, tx, y + 14);
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('EXPLOTACIÓN Y BENEFICIO DE MINERALES', tx, y + 22);
 
-  let yy = y + 14 + (titLineas.length - 1) * 14;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(80, 80, 80);
-  const subLineas = doc.splitTextToSize(
-    `${idEmp.nombre} · RIF ${idEmp.rif} · Período: ${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)} · Agrupado por: ${meta.agrupacion.toUpperCase()} · ${filas.length} registros`,
-    anchoTexto
-  ) as string[];
-  doc.text(subLineas, tx, yy + 12);
-  yy += 12 + (subLineas.length - 1) * 10;
+  doc.setFontSize(7.2);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text(`RIF: ${idEmp.rif || 'J-50209170-0'} · Mina Peramanal`, tx, y + 31);
 
-  y = Math.max(y + cajaLogo + 6, yy + 14);
-  doc.setDrawColor(...NARANJA);
-  doc.setLineWidth(1.4);
-  doc.line(M, y, W - M, y);
-  y += 12;
+  doc.setFontSize(7);
+  doc.setTextColor(...GRIS_CLARO);
+  doc.text('EL CALLAO · ESTADO BOLÍVAR · VENEZUELA', tx, y + 40);
 
-  // 2. Tarjetas de Resumen en Cabecera (KPIs condicionados a columnas seleccionadas)
+  // Lado derecho: Caja ejecutiva formal de metadatos del reporte
+  const boxW = Math.min(235, Math.max(195, UW * 0.38));
+  const boxH = 50;
+  const bx = W - M - boxW;
+
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(...BORDE);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(bx, y, boxW, boxH, 4, 4, 'FD');
+
+  const barH = 15;
+  doc.setFillColor(...NARANJA);
+  doc.roundedRect(bx, y, boxW, barH, 4, 4, 'F');
+  doc.rect(bx, y + barH - 4, boxW, 4, 'F'); // Relleno esquinas inferiores barra
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.8);
+  doc.setTextColor(255, 255, 255);
+  doc.text('REPORTE DINÁMICO DE COMBUSTIBLE', bx + boxW / 2, y + 10.5, { align: 'center' });
+
+  // Líneas internas de la caja
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('EMITIDO:', bx + 8, y + 24);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...TINTA);
+  doc.text(fechaHoraEmision, bx + 52, y + 24);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('PERÍODO:', bx + 8, y + 34);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...TINTA);
+  doc.text(`${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)}`, bx + 52, y + 34);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text('REGISTROS:', bx + 8, y + 44);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...TINTA);
+  doc.text(`${filas.length} filas · ${resumen.totalEquipos} equipos`, bx + 52, y + 44);
+
+  y = Math.max(y + cajaLogo + 6, y + boxH + 8);
+
+  // 2. ALCANCE DEL REPORTE (Píldora con fondo suave redondeado)
+  const pillH = 16;
+  doc.setFillColor(...FONDO_ALT);
+  doc.setDrawColor(...BORDE);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(M, y, UW, pillH, 4, 4, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...NARANJA);
+  doc.text('ALCANCE:', M + 8, y + 10.5);
+  const alcLblW = doc.getTextWidth('ALCANCE: ');
+
+  const baseTasaTxt = meta.baseTasa === 'historica' ? 'Tasa histórica de cada movimiento' : 'Tasa actual de cada tanque';
+  const textoAlcance = `Período: ${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)} · Agrupación: ${meta.agrupacion.toUpperCase()} · Base: ${baseTasaTxt}${meta.subtituloFiltros ? ' · ' + meta.subtituloFiltros : ''}`;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...GRIS_TEXTO);
+
+  let alcanceFin = pdfSafe(textoAlcance);
+  const maxAlcanceW = UW - alcLblW - 16;
+  while (doc.getTextWidth(alcanceFin) > maxAlcanceW && alcanceFin.length > 5) {
+    alcanceFin = alcanceFin.slice(0, -1);
+  }
+  if (alcanceFin !== textoAlcance) alcanceFin += '…';
+  doc.text(alcanceFin, M + 8 + alcLblW, y + 10.5);
+
+  y += pillH + 8;
+
+  // 3. TABLERO DE RESUMEN EJECUTIVO (HERO BANNER + TARJETAS SECUNDARIAS)
   if (meta.incluirResumen) {
-    const kpis: Array<{ label: string; val: string; sub?: string }> = [];
+    // 3a. Hero Banner de Alto Impacto (2 columnas: Litros Totales vs Valorización USD y Eficiencia)
+    const heroH = 46;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(M, y, UW, heroH, 5, 5, 'FD');
 
-    if (columnasClaves.includes('litros')) {
-      kpis.push({
-        label: 'TOTAL CONSUMO',
-        val: `${fmtNum(resumen.totalLitros, 2)} L`,
-        sub: columnasClaves.includes('rendimiento') && resumen.rendimientoPromedio > 0
-          ? `Rend: ${fmtNum(resumen.rendimientoPromedio, 2)} L/h`
-          : '',
-      });
+    // Acento vertical GT Naranja
+    doc.setFillColor(...NARANJA);
+    doc.rect(M, y + 2, 4, heroH - 4, 'F');
+
+    const col1W = UW * 0.52;
+    // Columna 1: Total Consumo
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('TOTAL CONSUMO EN LITROS', M + 12, y + 12);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(...NARANJA);
+    doc.text(`${fmtNum(resumen.totalLitros, 2)} L`, M + 12, y + 28);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    const subHero1 = `Valor total equivalente: ${fmtUsd(resumen.totalUsd)} · Tasa promedio: ${fmtUsd(resumen.tasaPromedio)}/L`;
+    doc.text(pdfSafe(subHero1), M + 12, y + 38);
+
+    // Divisor sutil central
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.8);
+    doc.line(M + col1W, y + 5, M + col1W, y + heroH - 5);
+
+    // Columna 2: Valorización y Eficiencia
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('VALORIZACIÓN TOTAL Y EFICIENCIA', M + col1W + 12, y + 12);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(...TINTA);
+    doc.text(fmtUsd(resumen.totalUsd), M + col1W + 12, y + 28);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    const rendTxt = resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '—';
+    const opTxt = resumen.totalHoras > 0 ? `${fmtNum(resumen.totalHoras, 1)} h operadas` : `${resumen.totalSurtidos} despachos`;
+    const subHero2 = `Rendimiento global: ${rendTxt} · ${opTxt}`;
+    doc.text(pdfSafe(subHero2), M + col1W + 12, y + 38);
+
+    y += heroH + 8;
+
+    // 3b. Grid Secundario de 3 Tarjetas (Surtidos · Rendimiento · Distribución Tanques)
+    const cardGap = 8;
+    const cardW = (UW - cardGap * 2) / 3;
+    const cardH = 44;
+
+    // Tarjeta 1: Surtidos y Despachos
+    const c1x = M;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(c1x, y, cardW, cardH, 4, 4, 'FD');
+    doc.setFillColor(...NARANJA);
+    doc.rect(c1x, y + 1, 3, cardH - 2, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('SURTIDOS Y DESPACHOS', c1x + 8, y + 10);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...TINTA);
+    doc.text(`${resumen.totalSurtidos} despachos`, c1x + 8, y + 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(`${resumen.totalEquipos} equipos atendidos`, c1x + 8, y + 31);
+    doc.text(`${fmtNum(resumen.totalHoras, 1)} horas registradas`, c1x + 8, y + 39);
+
+    // Tarjeta 2: Eficiencia Horaria y Costos
+    const c2x = M + cardW + cardGap;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(c2x, y, cardW, cardH, 4, 4, 'FD');
+    doc.setFillColor(...AZUL_DIESEL);
+    doc.rect(c2x, y + 1, 3, cardH - 2, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('EFICIENCIA Y COSTO', c2x + 8, y + 10);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...AZUL_DIESEL);
+    doc.text(resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '—', c2x + 8, y + 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(`Tasa prom: ${fmtUsd(resumen.tasaPromedio)}/L`, c2x + 8, y + 31);
+    const costoSurtido = resumen.totalSurtidos > 0 ? fmtUsd(resumen.totalUsd / resumen.totalSurtidos) : '—';
+    doc.text(`Costo/despacho: ${costoSurtido}`, c2x + 8, y + 39);
+
+    // Tarjeta 3: Distribución por Tanque (Mini-tabla comparativa)
+    const c3x = M + (cardW + cardGap) * 2;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(c3x, y, cardW, cardH, 4, 4, 'FD');
+    doc.setFillColor(245, 158, 11);
+    doc.rect(c3x, y + 1, 3, cardH - 2, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('CONSUMO POR TANQUE', c3x + 8, y + 10);
+
+    // Agrupar litros por tanque origen
+    const tanquesMap = new Map<string, number>();
+    for (const f of filas) {
+      const t = f.tanque ? f.tanque.split('(')[0].trim() : 'Tanque';
+      tanquesMap.set(t, (tanquesMap.get(t) ?? 0) + (f.litros || 0));
     }
+    const topTanques = Array.from(tanquesMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
 
-    if (columnasClaves.includes('usd')) {
-      kpis.push({
-        label: 'VALOR TOTAL USD',
-        val: fmtUsd(resumen.totalUsd),
-        sub: `Tasa: ${fmtUsd(resumen.tasaPromedio)}/L`,
-      });
-    }
-
-    if (columnasClaves.includes('horas')) {
-      kpis.push({
-        label: 'HORAS TRABAJADAS',
-        val: `${fmtNum(resumen.totalHoras, 1)} h`,
-        sub: `${resumen.totalEquipos} equipos`,
-      });
-    }
-
-    if (columnasClaves.includes('surtidos') || (!columnasClaves.includes('horas') && !columnasClaves.includes('usd'))) {
-      kpis.push({
-        label: 'SURTIDOS / DESPACHOS',
-        val: `${resumen.totalSurtidos}`,
-        sub: `${filas.length} registros`,
-      });
-    }
-
-    if (columnasClaves.includes('rendimiento') && !columnasClaves.includes('litros')) {
-      kpis.push({
-        label: 'PROMEDIO L/H',
-        val: resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '—',
-      });
-    }
-
-    if (kpis.length > 0) {
-      const cardGap = 8;
-      const cardW = (UW - cardGap * (kpis.length - 1)) / kpis.length;
-      const cardH = 38;
-
-      kpis.forEach((k, i) => {
-        const cx = M + i * (cardW + cardGap);
-        doc.setFillColor(255, 255, 255);
-        doc.setDrawColor(...BORDE);
-        doc.setLineWidth(0.6);
-        doc.roundedRect(cx, y, cardW, cardH, 4, 4, 'FD');
-
-        // Franja naranja vertical izquierda
-        doc.setFillColor(...NARANJA);
-        doc.rect(cx, y + 1, 3, cardH - 2, 'F');
-
-        // Label
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.8);
-        doc.setTextColor(71, 85, 105);
-        doc.text(pdfSafe(k.label), cx + 8, y + 10);
-
-        // Valor
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(12);
-        doc.setTextColor(...NARANJA);
-        doc.text(pdfSafe(k.val), cx + 8, y + 24);
-
-        // Sub
-        if (k.sub) {
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(6.5);
-          doc.setTextColor(148, 163, 184);
-          doc.text(pdfSafe(k.sub), cx + 8, y + 33);
+    if (topTanques.length > 0) {
+      topTanques.forEach(([tName, tLitros], tIdx) => {
+        const pct = resumen.totalLitros > 0 ? ((tLitros / resumen.totalLitros) * 100).toFixed(0) : '0';
+        const ty = y + 20 + tIdx * 9.5;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.setTextColor(...TINTA);
+        const maxTNameW = cardW - 65;
+        let tShort = tName;
+        while (doc.getTextWidth(tShort) > maxTNameW && tShort.length > 4) {
+          tShort = tShort.slice(0, -1);
         }
-      });
+        if (tShort !== tName) tShort += '…';
+        doc.text(pdfSafe(tShort), c3x + 8, ty);
 
-      y += cardH + 12;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(...NARANJA);
+        doc.text(`${fmtNum(tLitros, 0)} L (${pct}%)`, c3x + cardW - 8, ty, { align: 'right' });
+      });
+    } else {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(...GRIS_TEXTO);
+      doc.text('Sin desglose de tanques', c3x + 8, y + 25);
     }
+
+    y += cardH + 11;
   }
 
-  // 3. Contenido: FICHAS EJECUTIVAS vs TABLA TABULAR
+  // 4. SECCIÓN 1: PLANILLA PRINCIPAL DE CONSUMO
   if (esFichas) {
+    // ── Modo Fichas Ejecutivas ──
     const cols = orient === 'landscape' ? 2 : 1;
     const cardGap = 10;
     const cardW = (UW - (cols - 1) * cardGap) / cols;
-    // Filtrar columnas para no duplicar datos de cabecera en modos agrupados
+
     const colsMetricas = colsAplicables.filter((c) => {
       if (meta.agrupacion === 'equipo' && c === 'equipo') return false;
       if (meta.agrupacion === 'empresa' && c === 'empresa') return false;
@@ -503,7 +671,7 @@ export async function descargarCombustiblePdf(
 
     const maxMetricas = Math.max(
       ...filas.map((f) => obtenerMetricasFicha(f, colsMetricas).length),
-      1,
+      1
     );
     const colsPorFila = orient === 'landscape'
       ? (maxMetricas <= 3 ? Math.max(1, maxMetricas) : maxMetricas === 4 ? 4 : 3)
@@ -512,6 +680,19 @@ export async function descargarCombustiblePdf(
     const altoHeader = 32;
     const altoFilaMetrica = 25;
     const cardH = altoHeader + numFilasMetricas * altoFilaMetrica + 8;
+
+    // Rótulo de sección
+    doc.setFillColor(...NARANJA);
+    doc.rect(M, y, 3.5, 11, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.8);
+    doc.setTextColor(...TINTA);
+    doc.text('FICHAS EJECUTIVAS DE CONSUMO', M + 8, y + 8.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(`Agrupado por ${meta.agrupacion.toUpperCase()} · ${filas.length} fichas detalladas`, M + 8 + 160, y + 8.5);
+    y += 16;
 
     for (let i = 0; i < filas.length; i += cols) {
       if (y + cardH > H - 36) {
@@ -525,18 +706,15 @@ export async function descargarCombustiblePdf(
         const cx = M + c * (cardW + cardGap);
         const cy = y;
 
-        // Tarjeta contenedora
         doc.setFillColor(255, 255, 255);
         doc.setDrawColor(...BORDE);
         doc.setLineWidth(0.6);
         doc.roundedRect(cx, cy, cardW, cardH, 4, 4, 'FD');
 
-        // Borde izquierdo naranja o azul si es traslado
         const esTraslado = f.es_traslado || f.equipo?.startsWith('Traslado');
         doc.setFillColor(esTraslado ? 2 : 255, esTraslado ? 132 : 138, esTraslado ? 199 : 0);
         doc.rect(cx, cy + 1, 3.5, cardH - 2, 'F');
 
-        // Badge % Consumo con respecto al Tanque o Total (según checks marcados)
         const tienePctTanque = colsAplicables.includes('pct_tanque');
         const tienePctTotal = colsAplicables.includes('pct_total');
         const tieneBadge = tienePctTanque || tienePctTotal;
@@ -545,8 +723,8 @@ export async function descargarCombustiblePdf(
           ? `${(f.pct_tanque ?? f.pct_total).toFixed(1)}% con respecto a ${pdfSafe(tanqueCorto)}`
           : `${f.pct_total.toFixed(1)}% del total período`;
         const txtSubBadge = f.pct_capacidad > 0
-          ? `${f.pct_capacidad.toFixed(1)}% de la capacidad física (${fmtNum(f.capacidad_tanque || 0)} L)`
-          : `${f.pct_total.toFixed(1)}% del consumo total del período`;
+          ? `${f.pct_capacidad.toFixed(1)}% de la capacidad (${fmtNum(f.capacidad_tanque || 0)} L)`
+          : `${f.pct_total.toFixed(1)}% del consumo total`;
 
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.8);
@@ -555,7 +733,6 @@ export async function descargarCombustiblePdf(
         doc.setFontSize(5.5);
         const w2 = doc.getTextWidth(txtSubBadge);
 
-        // Ancho optimo del badge (maximo 44% de la tarjeta para dejar espacio amplio al titulo)
         const badgeW = Math.min(cardW * 0.44, Math.max(90, Math.max(w1, w2) + 12));
         const badgeH = 15;
         const bx = cx + cardW - badgeW - 6;
@@ -563,18 +740,17 @@ export async function descargarCombustiblePdf(
 
         if (tieneBadge) {
           if (esTraslado) {
-            doc.setFillColor(224, 242, 254); // azul suave
+            doc.setFillColor(224, 242, 254);
             doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(3, 105, 161);
           } else {
-            doc.setFillColor(254, 243, 199); // ambar suave
+            doc.setFillColor(254, 243, 199);
             doc.roundedRect(bx, by, badgeW, badgeH, 3, 3, 'F');
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(217, 119, 6);
           }
 
-          // Texto 1 del badge (auto-ajustable al ancho del badge)
           let fontPct = 6.8;
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(fontPct);
@@ -584,7 +760,6 @@ export async function descargarCombustiblePdf(
           }
           doc.text(txtPctTanque, bx + badgeW / 2, by + 5.8, { align: 'center' });
 
-          // Texto 2 del badge (auto-ajustable al ancho del badge)
           let fontSub = 5.5;
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(fontSub);
@@ -596,7 +771,6 @@ export async function descargarCombustiblePdf(
           doc.text(txtSubBadge, bx + badgeW / 2, by + 11.5, { align: 'center' });
         }
 
-        // Cabecera: Rótulo, Título y Subtítulo según la dimensión activa y checks marcados
         const cab = resolverCabeceraTarjetaCombustible(f, meta.agrupacion, colsAplicables);
         const maxTitleW = tieneBadge ? Math.max(60, (bx - 8) - (cx + 10)) : cardW - 20;
         const eqNombre = pdfSafe(cab.titulo);
@@ -619,7 +793,6 @@ export async function descargarCombustiblePdf(
         doc.setTextColor(...TINTA);
         doc.text(titleFinal, cx + 10, cy + 13);
 
-        // Subtítulo con los datos secundarios marcados
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.2);
         doc.setTextColor(100, 116, 139);
@@ -636,12 +809,10 @@ export async function descargarCombustiblePdf(
           doc.text(metaFinal, cx + 10, cy + 24);
         }
 
-        // Divisor interior
         doc.setDrawColor(241, 245, 249);
         doc.setLineWidth(0.5);
         doc.line(cx + 8, cy + 29, cx + cardW - 8, cy + 29);
 
-        // Métricas dinámicas de la tarjeta según las columnas seleccionadas
         const metricasCard = obtenerMetricasFicha(f, colsMetricas);
         const innerW = cardW - 16;
         const myBase = cy + 38;
@@ -699,7 +870,22 @@ export async function descargarCombustiblePdf(
       y += cardH + cardGap;
     }
   } else {
-    // 3b. Tabla con AutoTable optimizada
+    // ── Modo Tabular Principal con Micro-gráficos y Rótulo de Sección ──
+    doc.setFillColor(...NARANJA);
+    doc.rect(M, y, 3.5, 11, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.8);
+    doc.setTextColor(...TINTA);
+    doc.text('PLANILLA PRINCIPAL DE CONSUMO', M + 8, y + 8.5);
+    const titleW = doc.getTextWidth('PLANILLA PRINCIPAL DE CONSUMO');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(`Agrupación por ${meta.agrupacion.toUpperCase()} · ${filas.length} registros`, M + 8 + titleW + 8, y + 8.5);
+    y += 15;
+
     const headCols = columnas.map((c) => pdfSafe(c.etiqueta));
     const bodyRows = filas.map((f) => columnas.map((c) => pdfSafe(formatearValorCelda(f, c))));
 
@@ -726,14 +912,14 @@ export async function descargarCombustiblePdf(
 
     autoTable(doc, {
       startY: y,
-      margin: { left: M, right: M, bottom: 24 },
+      margin: { left: M, right: M, bottom: 26 },
       head: [headCols],
       body: bodyRows,
       foot: [footRow],
       theme: 'grid',
       styles: {
         fontSize: esMuchosCampos ? 6.5 : orient === 'landscape' ? 7.6 : 7.0,
-        cellPadding: esMuchosCampos ? 1.6 : 2.2,
+        cellPadding: esMuchosCampos ? 1.6 : 2.4,
         lineColor: BORDE,
         lineWidth: 0.3,
         textColor: TINTA,
@@ -755,21 +941,178 @@ export async function descargarCombustiblePdf(
         fillColor: FONDO_ALT,
       },
       columnStyles,
+      didDrawCell: (data) => {
+        // Micro-gráfico de barra horizontal en columnas de porcentaje (Inspirado en PDF 1)
+        if (data.section === 'body') {
+          const col = columnas[data.column.index];
+          if (col && (col.clave === 'pct_total' || col.clave === 'pct_tanque')) {
+            const rawFila = filas[data.row.index];
+            const pct = rawFila ? Number(rawFila[col.clave]) || 0 : 0;
+            if (pct > 0) {
+              const maxBarW = Math.min(26, data.cell.width * 0.35);
+              const barW = Math.min(maxBarW, Math.max(1.5, (pct / 100) * maxBarW));
+              const barH = 3.5;
+              const bx = data.cell.x + 3.5;
+              const by = data.cell.y + (data.cell.height - barH) / 2;
+              doc.setFillColor(...NARANJA);
+              doc.rect(bx, by, barW, barH, 'F');
+            }
+          }
+        }
+      },
     });
+
+    const yFinal1 = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('Litros auditados de surtidores certificados. Traslados inter-tanques no duplican volumen neto del período.', M, yFinal1 + 9);
+    y = yFinal1 + 20;
+
+    // 5. SECCIÓN 2: DESGLOSE POR TIPO DE MAQUINARIA / FLOTA (Inspirado en PDF 2)
+    // Agregación secundaria si hay variedad de tipos de equipo en el listado
+    const tiposMap = new Map<string, { tipo: string; equipos: Set<string>; litros: number; usd: number; horas: number }>();
+    for (const f of filas) {
+      const t = f.tipo?.trim() || f.clase?.trim() || 'OTROS';
+      const curr = tiposMap.get(t) || { tipo: t, equipos: new Set<string>(), litros: 0, usd: 0, horas: 0 };
+      if (f.equipo) curr.equipos.add(f.equipo);
+      curr.litros += f.litros || 0;
+      curr.usd += f.usd || 0;
+      curr.horas += f.horas || 0;
+      tiposMap.set(t, curr);
+    }
+    const desgloseTipos = Array.from(tiposMap.values())
+      .map((d) => ({
+        tipo: d.tipo,
+        equipos: d.equipos.size || 1,
+        litros: d.litros,
+        usd: d.usd,
+        horas: d.horas,
+        rendimiento: d.horas > 0 ? d.litros / d.horas : 0,
+        pct: resumen.totalLitros > 0 ? (d.litros / resumen.totalLitros) * 100 : 0,
+      }))
+      .sort((a, b) => b.litros - a.litros);
+
+    // Solo se dibuja si hay al menos 2 categorías distintas
+    if (desgloseTipos.length > 1) {
+      // Salto de página si queda poco espacio vertical
+      if (y + 100 > H - 36) {
+        doc.addPage();
+        y = 36;
+      }
+
+      doc.setFillColor(...NARANJA);
+      doc.rect(M, y, 3.5, 11, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.8);
+      doc.setTextColor(...TINTA);
+      doc.text('DESGLOSE POR TIPO DE MAQUINARIA / FLOTA', M + 8, y + 8.5);
+      const title2W = doc.getTextWidth('DESGLOSE POR TIPO DE MAQUINARIA / FLOTA');
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(...GRIS_TEXTO);
+      doc.text('Volumen acumulado y rendimiento por categoría de equipo en el período', M + 8 + title2W + 8, y + 8.5);
+      y += 14;
+
+      const headTipos = ['CATEGORÍA / TIPO', 'EQUIPOS', 'LITROS TOTALES', 'COSTO TOTAL USD', '% DEL TOTAL', 'RENDIMIENTO'];
+      const bodyTipos = desgloseTipos.map((d) => [
+        pdfSafe(d.tipo),
+        String(d.equipos),
+        `${fmtNum(d.litros, 2)} L`,
+        fmtUsd(d.usd),
+        `${d.pct.toFixed(1)} %`,
+        d.rendimiento > 0 ? `${fmtNum(d.rendimiento, 2)} L/h` : '—',
+      ]);
+
+      const footTipos = [
+        'TOTAL GENERAL',
+        String(resumen.totalEquipos),
+        `${fmtNum(resumen.totalLitros, 2)} L`,
+        fmtUsd(resumen.totalUsd),
+        '100.0 %',
+        resumen.rendimientoPromedio > 0 ? `${fmtNum(resumen.rendimientoPromedio, 2)} L/h` : '—',
+      ];
+
+      autoTable(doc, {
+        startY: y,
+        margin: { left: M, right: M, bottom: 26 },
+        head: [headTipos],
+        body: bodyTipos,
+        foot: [footTipos],
+        theme: 'grid',
+        styles: {
+          fontSize: 7.2,
+          cellPadding: 2.2,
+          lineColor: BORDE,
+          lineWidth: 0.3,
+          textColor: TINTA,
+          overflow: 'linebreak',
+          valign: 'middle',
+        },
+        headStyles: {
+          fillColor: [30, 41, 59], // Encabezado oscuro institucional para la sección secundaria
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+        },
+        footStyles: {
+          fillColor: [241, 245, 249],
+          textColor: [30, 41, 59],
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: {
+          fillColor: FONDO_ALT,
+        },
+        columnStyles: {
+          0: { halign: 'left' },
+          1: { halign: 'center' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right' },
+          5: { halign: 'right' },
+        },
+        didDrawCell: (data) => {
+          // Micro-barra de porcentaje en la columna 4 (% del total)
+          if (data.section === 'body' && data.column.index === 4) {
+            const d = desgloseTipos[data.row.index];
+            const pct = d ? d.pct : 0;
+            if (pct > 0) {
+              const maxBarW = Math.min(26, data.cell.width * 0.35);
+              const barW = Math.min(maxBarW, Math.max(1.5, (pct / 100) * maxBarW));
+              const barH = 3.5;
+              const bx = data.cell.x + 3.5;
+              const by = data.cell.y + (data.cell.height - barH) / 2;
+              doc.setFillColor(...NARANJA);
+              doc.rect(bx, by, barW, barH, 'F');
+            }
+          }
+        },
+      });
+
+      const yFinal2 = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y;
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6.5);
+      doc.setTextColor(...GRIS_TEXTO);
+      doc.text('Suma el consumo de cada tipo de equipo en el período. Rendimiento calculado sobre horas registradas.', M, yFinal2 + 9);
+      y = yFinal2 + 16;
+    }
   }
 
-  // 4. Pies de página en todas las hojas
+  // 6. PIE DE PÁGINA EN TODAS LAS HOJAS (Estandarizado GT)
   const numPaginas = doc.getNumberOfPages();
   for (let i = 1; i <= numPaginas; i++) {
     doc.setPage(i);
     doc.setDrawColor(...BORDE);
     doc.setLineWidth(0.4);
     doc.line(M, H - 18, W - M, H - 18);
+
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`${idEmp.nombre} · RIF ${idEmp.rif} · Combustible (${meta.agrupacion})`, M, H - 9);
-    doc.text(`Página ${i} de ${numPaginas}`, W - M, H - 9, { align: 'right' });
+    doc.setFontSize(7.2);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text('Documento generado por el sistema · Control de Combustible · Golden Touch 1127 C.A. · Mina Peramanal', M, H - 8);
+    doc.text(`Página ${i} de ${numPaginas}`, W - M, H - 8, { align: 'right' });
   }
 
   previewPdf(doc, `combustible-${meta.agrupacion}-${hoyStr()}.pdf`);
