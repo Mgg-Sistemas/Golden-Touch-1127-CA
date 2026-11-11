@@ -34,7 +34,7 @@ const oc = (patch: Record<string, unknown> = {}, extra: Partial<OrdenPorPagar> =
     ...patch,
   } as unknown as Orden,
   proveedorNombre: 'FERRETERIA CENTRAL', proveedor: null, esContraEntrega: false,
-  montoAPagar: 100, esperandoMetodo: false,
+  montoAPagar: 100, montoBruto: extra.montoAPagar ?? 100, retencionAntes: 0, esperandoMetodo: false,
   ...extra,
 });
 const compra = (patch: Record<string, unknown> = {}): CompraDirecta => ({

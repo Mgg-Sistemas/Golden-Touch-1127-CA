@@ -4105,7 +4105,12 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                     </td>
                     <td className="mono" style={{ textAlign: 'right' }}>
                       {monto(r.montoAPagar, r.orden.total_moneda ?? 'USD')}
-                      {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
+                      {r.retencionAntes > 0 && (
+                        <div className="muted" style={{ fontSize: '.68rem' }} title="Compras marcó retener ANTES de pagar: se paga el neto">
+                          neto · factura {monto(r.montoBruto, r.orden.total_moneda ?? 'USD')} − ret. {monto(r.retencionAntes, r.orden.total_moneda ?? 'USD')}
+                        </div>
+                      )}
+                      {r.esContraEntrega && r.montoBruto < Number(r.orden.total) && (
                         <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, r.orden.total_moneda ?? 'USD')}</div>
                       )}
                     </td>
@@ -4444,6 +4449,7 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
         const montoOc = moneda === 'Bs' ? aBs(usd, tasa) : usd;
         await pagarOrdenCompra({
           orden: r.orden, cajaId, monto: montoOc,
+          ...(r.retencionAntes > 0 ? { retencionMonto: r.retencionAntes } : {}),
           factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
           actorEmail: actor, actorName,
         });
@@ -5963,20 +5969,24 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   // la tasa BCV para que TODO el motor (que trabaja en USD) valide y convierta bien; al
   // pagar con una caja en Bs el monto vuelve a los mismos bolívares.
   const ordenEnBs = (o.total_moneda ?? 'USD') === 'Bs';
-  const baseFactura = Number(row.montoAPagar ?? o.total) || 0;
+  const baseFactura = Number(row.montoBruto ?? row.montoAPagar ?? o.total) || 0;
+  // 11/11/2026: la retención que Compras cargó con «retener ANTES de pagar» (moneda de la OC).
+  const retCompras = Number(row.retencionAntes) || 0;
   // Retención: si la factura la tiene, se marca y se escribe el monto (en la moneda de
   // la OC). Se RESTA del total antes de pagar: todo lo de abajo trabaja con el neto.
   // Nuevo flujo: si Compras marcó «retener ANTES de pagar» y Retenciones ya la hizo, arranca
   // marcada (el monto BAJA); «DESPUÉS de pagar» se paga completo (el monto SUBE).
   // La retención es OPCIONAL (01/11/2026): el pago nunca se frena por ella y Tesorería
   // puede marcar o desmarcar «Tiene retención» en cualquier caso.
-  const retieneAntes = o.retencion_momento === 'antes_de_pagar' && !!o.retencion_finalizada;
+  const retieneAntes = o.retencion_momento === 'antes_de_pagar' && (!!o.retencion_finalizada || retCompras > 0);
   const retieneDespues = o.retencion_momento === 'despues_de_pagar';
   const [conRetencion, setConRetencion] = useState(retieneAntes);
-  const [retencionStr, setRetencionStr] = useState('');
+  const [retencionStr, setRetencionStr] = useState(retCompras > 0 ? String(retCompras) : '');
   // Se carga en Bs (como sale el comprobante) o en $, y se convierte con SU tasa:
   // arranca en la BCV del día y se puede cambiar por la del comprobante.
-  const [retencionMoneda, setRetencionMoneda] = useState<'Bs' | 'USD'>('Bs');
+  // Con la retención de Compras arranca en la moneda de la OC (así viene el monto).
+  const [retencionMoneda, setRetencionMoneda] = useState<'Bs' | 'USD'>(
+    retCompras > 0 ? ((o.total_moneda ?? 'USD') === 'Bs' ? 'Bs' : 'USD') : 'Bs');
   const [tasaRetStr, setTasaRetStr] = useState('');
   const [tasaRetEditada, setTasaRetEditada] = useState(false);
   // W5: la retención YA registrada en el libro para esta OC (en Bs). Pre-llena
