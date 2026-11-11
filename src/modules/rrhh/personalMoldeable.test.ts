@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Personal, PersonalFamiliar, PersonalSueldo } from '@/shared/lib/types';
 import type { PersonalCargo } from './cargos';
 import {
+  CAMPOS_POR_DEFECTO_POR_AMBITO,
+  CAMPOS_POR_DEFECTO_POR_MODO,
+  CAMPOS_REPORTE_PERSONAL,
   calcularKpisCabeceraDinamicos,
   filtrarFilasPersonal,
+  formatearDatosPagoPersonal,
   normalizarHistoricoCargos,
   normalizarHistoricoSalarial,
   normalizarPersonal,
@@ -303,5 +307,63 @@ describe('personalMoldeable · Motor Puro', () => {
     expect(kpisSinSueldo.some((k) => k.id === 'masa_salarial')).toBe(false);
     expect(kpisSinSueldo.some((k) => k.id === 'antiguedad')).toBe(true);
     expect(kpisSinSueldo.some((k) => k.id === 'carga_familiar')).toBe(true);
+  });
+
+  it('incluye RIF y todos los campos del formulario (datos de pago, trabajo anterior, alergias, emergencia y carga familiar)', () => {
+    expect(CAMPOS_POR_DEFECTO_POR_MODO.detallado).toContain('rif');
+    expect(CAMPOS_POR_DEFECTO_POR_AMBITO.directorio).toContain('rif');
+
+    const clavesCatalogo = new Set(CAMPOS_REPORTE_PERSONAL.map((c) => c.clave));
+    for (const k of [
+      'rif',
+      'datos_pago',
+      'carga_familiar_total',
+      'detalle_familiares',
+      'trabajo_anterior',
+      'alergias',
+      'enfermedades',
+      'parentesco_emergencia',
+    ]) {
+      expect(clavesCatalogo.has(k)).toBe(true);
+    }
+
+    expect(formatearDatosPagoPersonal(null)).toBe('');
+    expect(formatearDatosPagoPersonal({})).toBe('');
+
+    const personaCompleta: Personal = {
+      ...mockPersonal1,
+      grado_instruccion: 'universitario',
+      trabajo_anterior_empresa: 'SIDOR',
+      trabajo_anterior_cargo: 'Operador',
+      trabajo_anterior_duracion: '4 años',
+      trabajo_anterior_sueldo: 320,
+      tiene_alergias: true,
+      alergias_detalle: 'Penicilina',
+      tiene_enfermedad: false,
+      contacto_emergencia: 'Elena Pérez',
+      contacto_emergencia_parentesco: 'conyuge',
+      telefono_emergencia: '0414-9998877',
+      datos_pago: {
+        cuentas: [
+          { id: 'c1', tipo: 'pago_movil', banco: '0102', telefono: '0414-1112233', cedula: 'V-11223344', principal: true },
+        ],
+      },
+    };
+
+    const fila = normalizarPersonal(personaCompleta, mockFamiliaresMap);
+    expect(fila.rif).toBe('V-11223344-0');
+    expect(fila.grado_instruccion_texto).toBe('Universitario');
+    expect(fila.trabajo_anterior).toBe('SIDOR · Operador · 4 años · $ 320');
+    expect(fila.alergias).toBe('Sí · Penicilina');
+    expect(fila.enfermedades).toBe('No');
+    expect(fila.parentesco_emergencia).toBe('Cónyuge');
+    expect(fila.detalle_familiares).toContain('Elena Pérez (Cónyuge)');
+    expect(fila.datos_pago).toContain('Pago móvil (Bs):');
+
+    const metricas = obtenerMetricasFichaPersonal(fila, ['rif', 'datos_pago', 'contacto_emergencia', 'trabajo_anterior']);
+    expect(metricas.some((m) => m.clave === 'rif')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'datos_pago')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'emergencia')).toBe(true);
+    expect(metricas.some((m) => m.clave === 'trabajo_anterior')).toBe(true);
   });
 });

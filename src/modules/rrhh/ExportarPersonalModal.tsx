@@ -290,6 +290,9 @@ export function ExportarPersonalModal({
       (f) =>
         f.nombre_completo.toLowerCase().includes(q) ||
         f.cedula.toLowerCase().includes(q) ||
+        f.rif.toLowerCase().includes(q) ||
+        f.ficha_nro.toLowerCase().includes(q) ||
+        f.correo.toLowerCase().includes(q) ||
         f.cargo.toLowerCase().includes(q) ||
         f.departamento.toLowerCase().includes(q),
     );
@@ -371,12 +374,17 @@ export function ExportarPersonalModal({
         incluirResumen,
       };
 
+      const filasExportar = filasParaPreview;
+      const resultadoExportar = busquedaPrevia.trim()
+        ? procesarFilasReportePersonal(filasExportar, agrupacion, orden)
+        : resultado;
+
       if (tipo === 'xlsx') {
-        await descargarPersonalExcel(filasFiltradas, resultado.resumen, resultado.grupos, marcados, meta);
+        await descargarPersonalExcel(filasExportar, resultadoExportar.resumen, resultadoExportar.grupos, marcados, meta);
       } else if (tipo === 'pdf') {
-        await descargarPersonalPdf(filasFiltradas, resultado.resumen, resultado.grupos, marcados, meta);
+        await descargarPersonalPdf(filasExportar, resultadoExportar.resumen, resultadoExportar.grupos, marcados, meta);
       } else {
-        descargarPersonalCsv(filasFiltradas, marcados, meta);
+        descargarPersonalCsv(filasExportar, marcados, meta);
       }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al generar el reporte', 'error');
@@ -953,11 +961,11 @@ export function ExportarPersonalModal({
             </div>
             <input
               type="search"
-              placeholder="Buscar en vista previa (nombre, cédula, cargo)…"
+              placeholder="Buscar en vista previa (nombre, cédula, RIF, cargo)…"
               className="input input-xs"
               value={busquedaPrevia}
               onChange={(e) => setBusquedaPrevia(e.target.value)}
-              style={{ width: '260px' }}
+              style={{ width: '275px' }}
             />
           </div>
 

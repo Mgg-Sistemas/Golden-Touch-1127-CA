@@ -10,6 +10,7 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from '@/shared/ui/Toast';
+import { previewGaleria } from '@/shared/lib/reportePreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { num } from '@/shared/lib/format';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
@@ -50,12 +51,15 @@ function Fotos({ fotos }: { fotos: FotoRecepcion[] }) {
     return () => { vivo = false; };
   }, [fotos]);
   if (!fotos.length) return null;
+  const galeria = fotos.filter((f) => !!urls[f.path]).map((f) => ({ path: f.path, url: urls[f.path], filename: f.filename }));
   return (
     <div className="rep-fotos">
       {fotos.map((f) => (
-        <a key={f.path} className="rep-foto" href={urls[f.path] || undefined} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${f.filename}`}>
+        <button key={f.path} type="button" className="rep-foto" disabled={!urls[f.path]}
+          onClick={() => previewGaleria(galeria, Math.max(0, galeria.findIndex((x) => x.path === f.path)))}
+          aria-label={`Ver ${f.filename}`}>
           {urls[f.path] ? <img src={urls[f.path]} alt={f.filename} /> : <span className="rep-foto-doc">📷</span>}
-        </a>
+        </button>
       ))}
     </div>
   );

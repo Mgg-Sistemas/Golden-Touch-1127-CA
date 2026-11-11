@@ -53,6 +53,7 @@ import {
 } from './delivery.repository';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
+import { previewGaleria } from '@/shared/lib/reportePreview';
 import { parsearCoordenadas } from '@/modules/proveedores/ubicacionProveedor';
 import { textoReportePedido } from './deliveryReporte';
 import {
@@ -685,7 +686,7 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
   );
 }
 
-/** Miniaturas con enlace firmado (se abren en otra pestaña). */
+/** Miniaturas con enlace firmado (se abren en la vista previa del sistema). */
 function MiniaturasFotos({ fotos }: { fotos: FotoDelivery[] }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const clave = fotos.map((f) => f.path).join('|');
@@ -698,12 +699,18 @@ function MiniaturasFotos({ fotos }: { fotos: FotoDelivery[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clave]);
   if (!fotos.length) return null;
+  const galeria = fotos.filter((f) => !!urls[f.path]).map((f) => ({ path: f.path, url: urls[f.path], filename: f.filename }));
+  const abrir = (path: string) => {
+    const idx = galeria.findIndex((x) => x.path === path);
+    if (idx >= 0) previewGaleria(galeria, idx);
+  };
   return (
     <div className="rep-fotos">
       {fotos.map((f) => (
-        <a key={f.path} className="rep-foto" href={urls[f.path] || undefined} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${f.filename}`}>
+        <button key={f.path} type="button" className="rep-foto" disabled={!urls[f.path]}
+          onClick={() => abrir(f.path)} aria-label={`Ver ${f.filename}`}>
           {urls[f.path] ? <img src={urls[f.path]} alt={f.filename} /> : <span className="rep-foto-doc">📷</span>}
-        </a>
+        </button>
       ))}
     </div>
   );

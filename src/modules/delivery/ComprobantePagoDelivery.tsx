@@ -6,6 +6,7 @@
    salen de la OC (comprobantes_pago / factura_path).
    ============================================================ */
 import { useEffect, useState } from 'react';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import { fechaHoraVE, montoTxt, type PedidoDelivery } from './delivery';
 import { comprobantePagoDelivery, type ComprobantePagoDelivery } from './delivery.repository';
 
@@ -49,14 +50,16 @@ export function ComprobantePagoCuerpo({ pedido }: { pedido: PedidoDelivery }) {
         <div className="aviso info sm"><span className="aviso-icono">🧾</span><div>Tesorería no adjuntó comprobante (pago en efectivo u otro).</div></div>
       )}
       {dato.archivos.map((a) => (a.esPdf ? (
-        // Un enlace (no window.open tras la espera): el navegador no lo bloquea como ventana emergente.
-        <a key={a.url} className="btn btn-primary" href={a.url} target="_blank" rel="noopener noreferrer" style={{ justifyContent: 'center' }}>
-          📄 Abrir PDF · {a.etiqueta}
-        </a>
+        <button key={a.url} type="button" className="btn btn-primary" style={{ justifyContent: 'center' }}
+          onClick={() => previewArchivo(a.url, a.nombre)}>
+          📄 Vista previa PDF · {a.etiqueta}
+        </button>
       ) : (
-        <a key={a.url} href={a.url} target="_blank" rel="noopener noreferrer" title={`Abrir ${a.nombre}`}>
+        <button key={a.url} type="button" title={`Vista previa · ${a.nombre}`}
+          onClick={() => previewArchivo(a.url, a.nombre)}
+          style={{ padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in', display: 'block', margin: '0 auto', maxWidth: '100%' }}>
           <img src={a.url} alt={a.nombre} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', display: 'block', margin: '0 auto', borderRadius: 8, border: '1px solid var(--border)' }} />
-        </a>
+        </button>
       )))}
       {dato.archivos.length > 0 && <small className="muted">El enlace dura 10 minutos; si vence, cierra y vuelve a abrir el comprobante.</small>}
     </div>

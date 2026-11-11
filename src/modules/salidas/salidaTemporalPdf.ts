@@ -68,13 +68,29 @@ export async function descargarSalidaTemporalPdf(
   // ── Encabezado: logo + título + N° ──
   const LOGO = 60;
   const TX = logo ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
+  const anchoEncabezado = PAGE_W - MARGIN - TX;
   if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, LOGO); }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
-  doc.text('ORDEN DE SALIDA TEMPORAL', TX, y + 20);
+  const lineasTitulo = doc.splitTextToSize('ORDEN DE SALIDA TEMPORAL', anchoEncabezado) as string[];
+  doc.text(lineasTitulo, TX, y + 20);
+  const ySub = y + 20 + (lineasTitulo.length - 1) * 22 + 18;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`N° ${s.codigo}  ·  Material a mantenimiento`, TX, y + 38);
-  doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
-  y += Math.max(LOGO, 42) + 8;
+  const textoIzq = `N° ${s.codigo}  ·  Material a mantenimiento`;
+  const emitidaTxt = `Emitida: ${fmt.dateTime(new Date().toISOString())}`;
+  const anchoDispIzq = anchoEncabezado - doc.getTextWidth(emitidaTxt) - 16;
+  if (doc.getTextWidth(textoIzq) <= anchoDispIzq) {
+    doc.text(textoIzq, TX, ySub);
+    doc.text(emitidaTxt, PAGE_W - MARGIN, ySub, { align: 'right' });
+    y = Math.max(y + LOGO, ySub + 6) + 8;
+  } else {
+    const lineasIzq = doc.splitTextToSize(textoIzq, anchoEncabezado) as string[];
+    doc.text(lineasIzq, TX, ySub);
+    const yEmitida = ySub + (lineasIzq.length - 1) * 12 + 14;
+    doc.setFontSize(9); doc.setTextColor(95);
+    doc.text(emitidaTxt, TX, yEmitida);
+    doc.setFontSize(10); doc.setTextColor(0);
+    y = Math.max(y + LOGO, yEmitida + 6) + 8;
+  }
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);

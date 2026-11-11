@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
@@ -59,8 +59,12 @@ export function AuditoriaPage() {
   // Cuántos días del timeline se muestran de entrada en el panorama.
   const [diasVisibles, setDiasVisibles] = useState(3);
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
+  /* `silencioso`: refresca los datos SIN vaciar la pantalla. La auditoría
+     escucha los eventos de todo el sistema, así que cualquier acción de
+     cualquier usuario disparaba una recarga que ponía «Cargando…» y dejaba
+     la pantalla en blanco a cada rato: era inusable. */
+  const cargar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     try {
       const [ses, con, evs] = await Promise.all([
         listSesiones(d, h).catch(() => [] as SesionRow[]),
@@ -72,7 +76,20 @@ export function AuditoriaPage() {
     finally { setLoading(false); }
   }, [d, h]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['auditoria_eventos', 'sesiones_usuario'], () => { void cargar(); });
+
+  /* En vivo, pero sin sobresaltos: se agrupan los avisos que llegan juntos y
+     se refresca una sola vez, en silencio. Hay un aviso discreto de que
+     llegaron novedades, en vez de que la pantalla se rehaga sola. */
+  const [hayNovedades, setHayNovedades] = useState(false);
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useRealtime(['auditoria_eventos', 'sesiones_usuario'], () => {
+    setHayNovedades(true);
+    if (temporizador.current) clearTimeout(temporizador.current);
+    temporizador.current = setTimeout(() => {
+      void cargar(true).then(() => setHayNovedades(false));
+    }, 4000);
+  });
+  useEffect(() => () => { if (temporizador.current) clearTimeout(temporizador.current); }, []);
 
   const porUsuario = useMemo(() => resumenPorUsuario(sesiones), [sesiones]);
   const evPorUsuario = useMemo(() => eventosPorUsuario(eventos), [eventos]);
@@ -112,7 +129,9 @@ export function AuditoriaPage() {
             return {
               fecha: diaLegible(dia),
               hora: new Date(e.at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }),
-              titulo: desc.titulo,
+              // El PDF no tiene columna de módulo: va delante del título para
+              // que el papel diga lo mismo que la pantalla.
+              titulo: `${desc.modulo} · ${desc.titulo}${desc.referencia ? ` ${desc.referencia}` : ''}`,
               detalle: campos + extra,
             };
           })),
@@ -197,7 +216,10 @@ export function AuditoriaPage() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Auditoría de usuarios</h1>
+          <h1>
+            Auditoría de usuarios{' '}
+            {hayNovedades && <span className="aud-novedades">● Hay actividad nueva…</span>}
+          </h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0', maxWidth: '72ch' }}>Quién se conecta, cuánto tiempo y qué hace (cambios, aprobaciones, registros). Toca un usuario para ver su detalle.</p>
         </div>
         <button className="btn btn-ghost" onClick={() => void pdfResumen()} disabled={loading}>🖨 Vista previa PDF</button>
@@ -412,6 +434,14 @@ function EventoFila({ e, conQuien = false }: { e: AuditoriaEvento; conQuien?: bo
           {/* En el panorama hace falta saber quién; en la ficha de alguien
               ya se sabe y sobraría repetirlo. */}
           {conQuien && e.nombre && <span className="aud-evento-quien"> · {e.nombre}</span>}
+        </div>
+        <div className="aud-evento-marcas">
+          {/* El módulo, dicho como tal: antes iba enterrado en la frase. */}
+          <span className="aud-modulo">{d.modulo}</span>
+          {/* El identificador interno ya no se disfraza de nombre. */}
+          {d.referencia && (
+            <span className="aud-ref" title="Identificador interno del registro">{d.referencia}</span>
+          )}
         </div>
         {d.detalle.length > 0 && (
           <div className="aud-evento-detalle mono">

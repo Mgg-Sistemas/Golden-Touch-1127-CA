@@ -50,7 +50,8 @@ import {
   type FiltroEstadoDelivery, type FiltroOrigenDelivery,
 } from './deliveryReporte';
 import { DeliveryMapa } from './DeliveryMapa';
-import { pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelivery } from './deliveryPdf';
+import { previewGaleria, type PreviewImagenItem } from '@/shared/lib/reportePreview';
+import { pdfFotosDelivery, pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelivery } from './deliveryPdf';
 import { WhatsappDeliveryModal } from './WhatsappDeliveryModal';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
@@ -384,6 +385,8 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
   const [urls, setUrls] = useState<Record<string, string>>({});
   const { can, isAdmin } = usePermissions();
   const [editar, setEditar] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState<'fotos' | 'reporte' | null>(null);
+  const [whatsapp, setWhatsapp] = useState<string | null>(null);
   const titulo = esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido);
   useEffect(() => {
     let vivo = true;
@@ -393,16 +396,51 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
     return () => { vivo = false; };
   }, [pedido]);
 
-  const grupo = (titulo: string, fs: FotoDelivery[]) => (
+  const galeria = useMemo(() => {
+    const out: Array<PreviewImagenItem & { path: string }> = [];
+    const rotRecibo = rotuloFotos(pedido.origen, 'recibo');
+    const rotEntrega = rotuloFotos(pedido.origen, 'entrega');
+    for (const f of pedido.fotos_recibo) {
+      if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotRecibo}` });
+    }
+    for (const f of pedido.fotos_entrega) {
+      if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotEntrega}` });
+    }
+    return out;
+  }, [pedido, titulo, urls]);
+
+  const abrirFoto = (path: string) => {
+    const idx = galeria.findIndex((x) => x.path === path);
+    previewGaleria(galeria, idx >= 0 ? idx : 0);
+  };
+
+  const abrirPdfFotos = () => {
+    setGenerandoPdf('fotos');
+    pdfFotosDelivery(pedido, urls)
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF de fotos.'), 'error'))
+      .finally(() => setGenerandoPdf(null));
+  };
+
+  const abrirPdfReporte = () => {
+    setGenerandoPdf('reporte');
+    pdfPedidoDelivery(pedido, urls)
+      .catch((e) => toast(msgError(e, 'No se pudo generar el reporte en PDF.'), 'error'))
+      .finally(() => setGenerandoPdf(null));
+  };
+
+  const totalFotos = pedido.fotos_recibo.length + pedido.fotos_entrega.length;
+
+  const grupo = (rotulo: string, fs: FotoDelivery[]) => (
     <div style={{ marginBottom: '1rem' }}>
-      <div className="card-title" style={{ fontSize: '.9rem' }}>{titulo} ({fs.length})</div>
+      <div className="card-title" style={{ fontSize: '.9rem' }}>{rotulo} ({fs.length})</div>
       {!fs.length ? <p className="muted" style={{ margin: 0 }}>Sin fotos.</p> : (
         <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
           {fs.map((f) => (
             urls[f.path] ? (
-              <a key={f.path} href={urls[f.path]} target="_blank" rel="noopener noreferrer" title={f.filename}>
-                <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
-              </a>
+              <button key={f.path} type="button" onClick={() => abrirFoto(f.path)} title={`Vista previa · ${f.filename}`}
+                style={{ padding: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'transparent', cursor: 'zoom-in', width: '100%', display: 'block' }}>
+                <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} />
+              </button>
             ) : (
               <div key={f.path} className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
                 {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
@@ -417,6 +455,26 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
   return (
     <Modal title={`📷 Fotos · ${titulo}`} size="lg" onClose={onClose}
       footer={<>
+        {totalFotos > 0 && (
+          <>
+            <button type="button" className="btn btn-ghost" disabled={!galeria.length} onClick={() => previewGaleria(galeria, 0)}
+              title="Abrir las fotos en la vista previa del sistema (zoom, rotación, imprimir y descargar)">
+              🖼 Vista previa
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={generandoPdf !== null} onClick={abrirPdfFotos}
+              title="Ver las fotos con formato PDF en vista previa">
+              {generandoPdf === 'fotos' ? 'Generando…' : '📄 PDF (vista previa)'}
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={generandoPdf !== null} onClick={abrirPdfReporte}
+              title="Reporte completo del pedido con fotos en PDF (vista previa)">
+              {generandoPdf === 'reporte' ? 'Generando…' : '📋 Reporte PDF'}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setWhatsapp(textoReportePedido(pedido, quienSync))}
+              title="Reporte del pedido en formato WhatsApp">
+              💬 WhatsApp
+            </button>
+          </>
+        )}
         {/* 03/11/2026: pedido entregado → se pueden corregir las fotos (agregar / quitar). */}
         {puedeEditarFotosDelivery(pedido, isAdmin, can('delivery', 'escritura') || can('carga_pesada', 'escritura')) && (
           <button type="button" className="btn btn-ghost" onClick={() => setEditar(true)}>✏ Editar fotos</button>
@@ -428,6 +486,7 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
           fotosRecibo={pedido.fotos_recibo} fotosEntrega={pedido.fotos_entrega}
           onClose={() => setEditar(false)} onGuardado={() => { onCambio(); onClose(); }} />
       )}
+      {whatsapp && <WhatsappDeliveryModal titulo={`Reporte del pedido ${titulo}`} texto={whatsapp} onClose={() => setWhatsapp(null)} />}
       {grupo(rotuloFotos(pedido.origen, 'recibo'), pedido.fotos_recibo)}
       {grupo(rotuloFotos(pedido.origen, 'entrega'), pedido.fotos_entrega)}
       {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}
