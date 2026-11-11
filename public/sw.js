@@ -27,8 +27,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Golden Touch 1127 C.A.';
   const options = {
     body: data.body || data.message || '',
-    icon: data.icon || '/LOGO.jpg',
-    badge: '/LOGO.jpg',
+    icon: data.icon || '/android-chrome-192x192.png',
+    badge: '/favicon-32x32.png',
     tag: data.tag || undefined,
     renotify: Boolean(data.tag),
     data: { url: data.url || data.link || '/' },
