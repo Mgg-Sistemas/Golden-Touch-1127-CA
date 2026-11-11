@@ -34,7 +34,9 @@ function conexionPorDia(sesiones: SesionRow[]): { dia: string; min: number }[] {
 }
 
 export function AuditoriaPage() {
-  const { isAdmin } = usePermissions();
+  const { can } = usePermissions();
+  // 11/11/2026: la entrada la decide el permiso «Auditoría» de la matriz (el admin pasa siempre por can()).
+  const puedeVer = can('auditoria');
 
   const [rango, setRango] = useState<Rango>('7');
   const [desde, setDesde] = useState(restarDias(hoyISO(), 6));
@@ -80,8 +82,8 @@ export function AuditoriaPage() {
     const m = new Map<string, number>(); evPorUsuario.forEach((u) => m.set(u.user_id, u.eventos)); return m;
   }, [evPorUsuario]);
 
-  if (!isAdmin) {
-    return <div className="page"><div className="card"><p className="muted" style={{ margin: 0 }}>Este módulo es solo para administradores.</p></div></div>;
+  if (!puedeVer) {
+    return <div className="page"><div className="card"><p className="muted" style={{ margin: 0 }}>Tu rol no tiene permiso para ver Auditoría. Pídelo en Usuarios → Roles y permisos.</p></div></div>;
   }
 
   /* ─────────── DETALLE de un usuario ─────────── */

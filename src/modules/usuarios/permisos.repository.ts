@@ -28,7 +28,9 @@ export type ModuleKey =
   | 'choferes'
   | 'maquinaria'
   | 'usuarios'
-  | 'ajustes';
+  | 'ajustes'
+  | 'respaldo'
+  | 'auditoria';
 
 export interface ModulePermission {
   lectura: boolean;
@@ -75,6 +77,8 @@ export const MODULES: { key: ModuleKey; label: string; ayuda?: string }[] = [
   { key: 'maquinaria',  label: 'Control de Maquinaria y Vehículos' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
+  { key: 'respaldo',    label: 'Respaldo de Base de Datos', ayuda: 'Descargar el respaldo completo de la base y enviarlo por correo. Aqui viaja TODA la informacion del sistema: dalo solo a quien deba custodiarla.' },
+  { key: 'auditoria',   label: 'Auditoría', ayuda: 'Ver el registro de quién hizo qué y cuándo en todo el sistema. Es la bitácora de control: dalo solo a quien deba supervisar.' },
 ];
 
 export const emptyPermission: ModulePermission = { lectura: false, escritura: false, full: false };
