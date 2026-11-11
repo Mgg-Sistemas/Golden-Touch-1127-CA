@@ -87,7 +87,7 @@ function numeroDeColumna(f: FilaReporteCompras, clave: string): number | null {
 }
 
 /** Texto formateado de una celda para PDF. */
-function textoCelda(f: FilaReporteCompras, col: CampoColumnaCompras): string {
+export function textoCelda(f: FilaReporteCompras, col: CampoColumnaCompras): string {
   const val = rawDeColumna(f, col.clave);
   if (val == null || val === '') return '-';
   switch (col.formato) {
@@ -321,12 +321,10 @@ export async function descargarComprasExcel(
 
 /* ============================================================
    2. PDF (jsPDF + autotable)
-   (Actualizado 11/11/2026: Formato editorial de alta fidelidad con
-    híbrido de fichas ejecutivas y tablas autoTable, membrete dual
-    institucional GT, caja de metadatos, cintillo de alcance,
-    tarjetas de KPIs con pestaña de color superior, ranking
-    departamental con mini-barras de progreso y tablas analíticas
-    estructuradas para compras directas y cotizaciones)
+   (Actualizado 11/11/2026: Formato consolidado de alta fidelidad con
+    ranking de departamentos y cotizaciones unificado en una sola tabla,
+    listado detallado enfocado en compras pendientes con analista,
+    código y montos, y textos sutilmente elevados en celdas)
    ============================================================ */
 
 /** Helper para dibujar el encabezado formal de sección con acento vertical naranja */
@@ -346,17 +344,18 @@ function dibujarHeaderSeccion(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...TINTA);
-  doc.text(pdfSafe(titulo), M + 7, y + 8);
+  // Texto ligeramente subido a y + 7.2
+  doc.text(pdfSafe(titulo), M + 7, y + 7.2);
 
   if (subtitulo) {
     const titleW = doc.getTextWidth(pdfSafe(titulo));
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.8);
     doc.setTextColor(...GRIS_TEXTO);
-    doc.text(pdfSafe(subtitulo), M + 7 + titleW + 8, y + 8);
+    doc.text(pdfSafe(subtitulo), M + 7 + titleW + 8, y + 7.2);
   }
 
-  return y + 14;
+  return y + 13;
 }
 
 export async function construirComprasPdf(
@@ -435,25 +434,25 @@ export async function construirComprasPdf(
   }
   const tx = logo ? MARGIN + anchoLogoPdf(cajaLogo) + 12 : MARGIN;
 
-  // Lado izquierdo: datos corporativos GT
+  // Lado izquierdo: datos corporativos GT (ligeramente subidos)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(esLandscape ? 11 : 10.5);
   doc.setTextColor(...TINTA_GT);
-  doc.text(idEmp.nombre || 'MINERA GOLDEN TOUCH 1127, C.A.', tx, y + 11);
+  doc.text(idEmp.nombre || 'MINERA GOLDEN TOUCH 1127, C.A.', tx, y + 10.5);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('EXPLOTACIÓN Y BENEFICIO DE MINERALES', tx, y + 21);
+  doc.text('EXPLOTACIÓN Y BENEFICIO DE MINERALES', tx, y + 20.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.0);
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text(`RIF: ${idEmp.rif || 'J-50129993-5'} · Mina Peramanal`, tx, y + 30);
+  doc.text(`RIF: ${idEmp.rif || 'J-50129993-5'} · Mina Peramanal`, tx, y + 29.5);
 
   doc.setFontSize(6.8);
   doc.setTextColor(...GRIS_CLARO_GT);
-  doc.text('EL CALLAO · ESTADO BOLÍVAR · VENEZUELA', tx, y + 38);
+  doc.text('EL CALLAO · ESTADO BOLÍVAR · VENEZUELA', tx, y + 37.5);
 
   // Lado derecho: Caja ejecutiva formal de metadatos del reporte
   const boxW = Math.min(235, Math.max(195, UW * 0.36));
@@ -473,20 +472,20 @@ export async function construirComprasPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
   doc.setTextColor(255, 255, 255);
-  doc.text('REPORTE DE COMPRAS', bx + boxW / 2, y + 10, { align: 'center' });
+  doc.text('REPORTE DE COMPRAS', bx + boxW / 2, y + 9.5, { align: 'center' });
 
-  // Filas internas alineadas
+  // Filas internas alineadas y ligeramente subidas
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('EMITIDO:', bx + 8, y + 23);
+  doc.text('EMITIDO:', bx + 8, y + 22.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
-  doc.text(fechaHoraEmision, bx + 52, y + 23);
+  doc.text(fechaHoraEmision, bx + 52, y + 22.0);
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('PERÍODO:', bx + 8, y + 32);
+  doc.text('PERÍODO:', bx + 8, y + 31.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
   let perTxt = pdfSafe(`${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)}`);
@@ -496,14 +495,14 @@ export async function construirComprasPdf(
     }
     perTxt += '…';
   }
-  doc.text(perTxt, bx + 52, y + 32);
+  doc.text(perTxt, bx + 52, y + 31.0);
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('ALCANCE:', bx + 8, y + 41);
+  doc.text('REGISTROS:', bx + 8, y + 40.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
-  doc.text(`${resumen.totalCompras} compras (${filas.length} en listado)`, bx + 52, y + 41);
+  doc.text(`${resumen.totalCompras} compras (${filas.length} en listado)`, bx + 52, y + 40.0);
 
   y = Math.max(y + cajaLogo + 6, y + boxH + 8);
 
@@ -521,17 +520,20 @@ export async function construirComprasPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.0);
   doc.setTextColor(...NARANJA_GT);
-  doc.text('ALCANCE DEL REPORTE:', MARGIN + 8, y + 11.5);
+  // Texto ligeramente subido a y + 11.0
+  doc.text('ALCANCE DEL REPORTE:', MARGIN + 8, y + 11.0);
   const alcW = doc.getTextWidth('ALCANCE DEL REPORTE:');
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.0);
   doc.setTextColor(...TINTA_GT);
   const descFiltros = meta.subtituloFiltros ? ` · Filtros: ${meta.subtituloFiltros}` : '';
+  const ambitoLabel = meta.ambito === 'ordenes' ? 'ÓRDENES DE COMPRA' : 'ÍTEMS';
+  const formatoLabel = meta.formato === 'hibrido' ? 'CONSOLIDADO' : meta.formato.toUpperCase();
   const textoAlcance = pdfSafe(
-    `Ámbito: ${meta.ambito.toUpperCase()} · Agrupación: ${meta.agrupacion.toUpperCase()} · Formato: ${meta.formato.toUpperCase()} · Tasa BCV: Bs ${fmtNum(meta.tasaBcv)}/$${descFiltros}`,
+    `Ámbito: ${ambitoLabel} · Agrupación: ${meta.agrupacion.toUpperCase()} · Formato: ${formatoLabel} · Tasa BCV: Bs ${fmtNum(meta.tasaBcv)}/$${descFiltros}`,
   );
-  doc.text(textoAlcance, MARGIN + 8 + alcW + 5, y + 11.5);
+  doc.text(textoAlcance, MARGIN + 8 + alcW + 5, y + 11.0);
 
   y += stripH + 8;
 
@@ -579,17 +581,17 @@ export async function construirComprasPdf(
     doc.setFillColor(...kpi.colorTab);
     doc.roundedRect(kx, y, cardW, 2.5, 1, 1, 'F');
 
-    // Título de la tarjeta
+    // Título de la tarjeta (ligeramente subido)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.2);
     doc.setTextColor(...GRIS_TEXTO_GT);
-    doc.text(pdfSafe(kpi.titulo), kx + 6, y + 10);
+    doc.text(pdfSafe(kpi.titulo), kx + 6, y + 9.5);
 
     // Valor prominente
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(esLandscape ? 10.5 : 9.5);
     doc.setTextColor(...TINTA_GT);
-    doc.text(pdfSafe(kpi.valor), kx + 6, y + (esLandscape ? 21.5 : 21));
+    doc.text(pdfSafe(kpi.valor), kx + 6, y + (esLandscape ? 20.5 : 20.0));
 
     // Subtítulo
     doc.setFont('helvetica', 'normal');
@@ -602,14 +604,14 @@ export async function construirComprasPdf(
       }
       subTxt += '…';
     }
-    doc.text(subTxt, kx + 6, y + (esLandscape ? 30.5 : 30));
+    doc.text(subTxt, kx + 6, y + (esLandscape ? 29.5 : 29.0));
   });
 
   y += cardH + 12;
 
   let seccionNum = 1;
 
-  // 4. ANALÍTICA (Resumen e Híbrido)
+  // 4. ANALÍTICA (Resumen e Híbrido / Consolidado)
   if (incluyeResumen(meta)) {
     const resBloque = bloqueResumenPdf(
       doc,
@@ -629,16 +631,20 @@ export async function construirComprasPdf(
     seccionNum = resBloque.siguienteSeccion;
   }
 
-  // 5. LISTADO DETALLADO (Detallado e Híbrido)
-  if (incluyeDetalle(meta) && columnas.length && filas.length) {
+  // 5. LISTADO DETALLADO: Enfocado en compras pendientes con analista, código y montos
+  if (incluyeDetalle(meta)) {
     if (y + 60 > PAGE_H - MARGIN) {
       doc.addPage();
       y = MARGIN;
     }
+
+    // Filtrar específicamente las compras pendientes
+    const comprasPendientes = filas.filter((f) => f.clase_estado === 'pendiente');
+
     y = dibujarHeaderSeccion(
       doc,
-      `${seccionNum++}. Listado Detallado de Compras (${filas.length} registros)`,
-      `Ámbito: ${meta.ambito.toUpperCase()} · Agrupación: ${meta.agrupacion.toUpperCase()} · Monedas: ${meta.mostrarUsd ? 'USD ' : ''}${meta.mostrarBs ? 'Bs' : ''}`,
+      `${seccionNum++}. Listado de Compras Pendientes (${comprasPendientes.length} órdenes)`,
+      `Órdenes de compra y compras en proceso o pendientes de pago · Total pendiente: ${fmtUsd(resumen.pendientesUsd)} · ${fmtBs(resumen.pendientesBs)}`,
       MARGIN,
       y,
       NARANJA_GT,
@@ -646,63 +652,113 @@ export async function construirComprasPdf(
       GRIS_TEXTO_GT,
     );
 
-    const headCols = columnas.map((c) => pdfSafe(c.etiqueta));
-    const bodyRows = filas.map((f) => columnas.map((c) => pdfSafe(textoCelda(f, c))));
-    const totUsd = filas.reduce((a, f) => a + (f.monto_usd || 0), 0);
-    const totBs = filas.reduce((a, f) => a + (f.monto_bs || 0), 0);
-    const totCant = filas.reduce((a, f) => a + (f.cantidad || 0), 0);
+    if (comprasPendientes.length > 0) {
+      const headPend = ['#', 'Código', 'Fecha', 'Departamento', 'Proveedor', 'Analista', 'Estado', 'Monto ($)', 'Monto (Bs)'];
+      const bodyPend = comprasPendientes.map((p, idx) => [
+        String(idx + 1),
+        pdfSafe(p.codigo),
+        fmtFecha(p.fecha),
+        pdfSafe(p.departamento),
+        pdfSafe(p.proveedor),
+        pdfSafe(p.analista || '—'),
+        pdfSafe(p.estado_rotulo || p.estado),
+        fmtUsd(p.monto_usd),
+        fmtBs(p.monto_bs),
+      ]);
 
-    const footRow = columnas.map((col, idx) => {
-      if (idx === 0) return 'TOTALES';
-      if (col.clave === 'monto_usd') return fmtUsd(totUsd);
-      if (col.clave === 'monto_bs') return fmtBs(totBs);
-      if (col.clave === 'cantidad') return `${fmtNum(totCant, 2)} u.`;
-      return '';
-    });
+      const totPendUsd = comprasPendientes.reduce((acc, p) => acc + (p.monto_usd || 0), 0);
+      const totPendBs = comprasPendientes.reduce((acc, p) => acc + (p.monto_bs || 0), 0);
 
-    const columnStyles: Record<number, { halign: 'left' | 'right' | 'center'; fontStyle?: 'bold' | 'normal' }> = {};
-    columnas.forEach((col, idx) => {
-      columnStyles[idx] = {
-        halign: col.alineacion,
-        fontStyle: col.clave === 'monto_usd' || col.clave === 'codigo' ? 'bold' : 'normal',
-      };
-    });
+      const footPend = [
+        {
+          content: 'TOTAL PENDIENTES',
+          colSpan: 5,
+          styles: { halign: 'left', fontStyle: 'bold' },
+        },
+        {
+          content: `${comprasPendientes.length} compras`,
+          styles: { halign: 'center', fontStyle: 'bold' },
+        },
+        '',
+        {
+          content: fmtUsd(totPendUsd),
+          styles: { halign: 'right', fontStyle: 'bold' },
+        },
+        {
+          content: fmtBs(totPendBs),
+          styles: { halign: 'right', fontStyle: 'bold' },
+        },
+      ];
 
-    autoTable(doc, {
-      startY: y,
-      margin: { left: MARGIN, right: MARGIN, bottom: 24 },
-      head: [headCols],
-      body: bodyRows,
-      foot: [footRow],
-      theme: 'grid',
-      styles: {
-        fontSize: esLandscape ? 7.2 : 6.6,
-        cellPadding: esLandscape ? 2.4 : 1.8,
-        lineColor: BORDE_GT,
-        lineWidth: 0.3,
-        textColor: TINTA_GT,
-        overflow: 'linebreak',
-        valign: 'middle',
-      },
-      headStyles: {
-        fillColor: NARANJA_GT,
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        halign: 'center',
-        fontSize: esLandscape ? 7.2 : 6.6,
-      },
-      footStyles: {
-        fillColor: [241, 245, 249],
-        textColor: TINTA_GT,
-        fontStyle: 'bold',
-        fontSize: esLandscape ? 7.2 : 6.6,
-      },
-      alternateRowStyles: { fillColor: FONDO_ALT_GT },
-      columnStyles,
-    });
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN, bottom: 24 },
+        head: [headPend],
+        body: bodyPend,
+        foot: [footPend as unknown as string[]],
+        theme: 'grid',
+        styles: {
+          fontSize: esLandscape ? 7.2 : 6.5,
+          cellPadding: { top: 1.8, bottom: 2.6, left: 2.5, right: 2.5 },
+          lineColor: BORDE_GT,
+          lineWidth: 0.3,
+          textColor: TINTA_GT,
+          overflow: 'linebreak',
+          valign: 'middle',
+        },
+        headStyles: {
+          fillColor: NARANJA_GT,
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+          cellPadding: { top: 2.0, bottom: 2.8, left: 2.5, right: 2.5 },
+          fontSize: esLandscape ? 7.2 : 6.5,
+        },
+        footStyles: {
+          fillColor: [241, 245, 249],
+          textColor: TINTA_GT,
+          fontStyle: 'bold',
+          fontSize: esLandscape ? 7.2 : 6.5,
+        },
+        alternateRowStyles: { fillColor: FONDO_ALT_GT },
+        columnStyles: esLandscape
+          ? {
+              0: { cellWidth: 22, halign: 'center' },
+              1: { cellWidth: 65, halign: 'center', fontStyle: 'bold' },
+              2: { cellWidth: 50, halign: 'center' },
+              3: { halign: 'left' },
+              4: { halign: 'left' },
+              5: { cellWidth: 90, halign: 'left', fontStyle: 'bold' },
+              6: { cellWidth: 65, halign: 'center' },
+              7: { cellWidth: 75, halign: 'right', fontStyle: 'bold' },
+              8: { cellWidth: 85, halign: 'right' },
+            }
+          : {
+              0: { cellWidth: 18, halign: 'center' },
+              1: { cellWidth: 50, halign: 'center', fontStyle: 'bold' },
+              2: { cellWidth: 42, halign: 'center' },
+              3: { halign: 'left' },
+              4: { halign: 'left' },
+              5: { cellWidth: 68, halign: 'left', fontStyle: 'bold' },
+              6: { cellWidth: 48, halign: 'center' },
+              7: { cellWidth: 58, halign: 'right', fontStyle: 'bold' },
+              8: { cellWidth: 68, halign: 'right' },
+            },
+      });
 
-    const lastTableDet = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-    y = (lastTableDet?.finalY ?? y) + 4;
+      const lastTableDet = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
+      y = (lastTableDet?.finalY ?? y) + 4;
+    } else {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(esLandscape ? 7.5 : 7.0);
+      doc.setTextColor(...VERDE_GT);
+      doc.text(
+        `✓ No se registran compras pendientes en el período seleccionado. Todas las compras (${resumen.totalCompras}) se encuentran finalizadas y pagadas.`,
+        MARGIN + 4,
+        y + 6,
+      );
+      y += 18;
+    }
   }
 
   // 6. PIES DE PÁGINA FORMALES MULTIPÁGINA
@@ -732,8 +788,8 @@ export async function construirComprasPdf(
 }
 
 /**
- * Bloque de analítica (tarjetas de top departamentos y tablas estructuradas
- * de rankings, compras directas, cotizaciones y tops de conceptos).
+ * Bloque de analítica: Fichas Top Gasto y Ranking Unificado
+ * con Cotizaciones Movidas y Gasto en una sola tabla.
  */
 function bloqueResumenPdf(
   doc: jsPDF,
@@ -818,19 +874,19 @@ function bloqueResumenPdf(
         d.departamento.length > maxLen
           ? d.departamento.slice(0, maxLen - 2) + '…'
           : d.departamento;
-      doc.text(pdfSafe(nombreTruncado.toUpperCase()), cardX + 7, cardY + 9.5);
+      doc.text(pdfSafe(nombreTruncado.toUpperCase()), cardX + 7, cardY + 9.0);
 
       // Badge a la derecha
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.0);
       doc.setTextColor(...colores.GRIS_TEXTO);
-      doc.text(`${d.pct.toFixed(1)}%`, cardX + cardW - 6, cardY + 9.5, { align: 'right' });
+      doc.text(`${d.pct.toFixed(1)}%`, cardX + cardW - 6, cardY + 9.0, { align: 'right' });
 
       // Fila 2: Saldo en dólares prominente y valor en bolívares en verde
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(esLandscape ? 10.5 : 10.0);
       doc.setTextColor(...colores.NARANJA);
-      doc.text(fmtUsd(d.usd), cardX + 7, cardY + (esLandscape ? 21 : 20.5));
+      doc.text(fmtUsd(d.usd), cardX + 7, cardY + (esLandscape ? 20.5 : 20.0));
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(esLandscape ? 7.5 : 7.0);
@@ -839,18 +895,18 @@ function bloqueResumenPdf(
       if (doc.getTextWidth(bsTxt) > cardW * 0.48) {
         doc.setFontSize(esLandscape ? 6.5 : 6.0);
       }
-      doc.text(bsTxt, cardX + cardW - 6, cardY + (esLandscape ? 20.5 : 20.0), { align: 'right' });
+      doc.text(bsTxt, cardX + cardW - 6, cardY + (esLandscape ? 20.0 : 19.5), { align: 'right' });
 
       // Fila 3: Detalle técnico inferior
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(esLandscape ? 5.8 : 5.4);
       doc.setTextColor(...colores.GRIS_TEXTO);
-      doc.text('Gasto operativo consolidado', cardX + 7, cardY + (esLandscape ? 30 : 29.5));
+      doc.text('Gasto operativo consolidado', cardX + 7, cardY + (esLandscape ? 29.5 : 29.0));
 
       doc.text(
         `Participación: ${d.pct.toFixed(1)}%`,
         cardX + cardW - 6,
-        cardY + (esLandscape ? 30 : 29.5),
+        cardY + (esLandscape ? 29.5 : 29.0),
         { align: 'right' },
       );
 
@@ -869,15 +925,15 @@ function bloqueResumenPdf(
     y += totalFichasRows * (cardH + cardGap) + 10;
   }
 
-  // 2. Tabla de Ranking Consolidado de Departamentos por Gasto
+  // 2. TABLA UNIFICADA: Ranking de Departamentos por Gasto Y Cotizaciones Movidas
   if (y + 60 > PAGE_H - M) {
     doc.addPage();
     y = M;
   }
   y = dibujarHeaderSeccion(
     doc,
-    `${seccionNum++}. Ranking de Departamentos por Gasto`,
-    'Distribución presupuestaria por unidad solicitante',
+    `${seccionNum++}. Ranking de Departamentos por Gasto y Cotizaciones Movidas`,
+    'Distribución presupuestaria y actividad operativa por unidad solicitante',
     M,
     y,
     colores.NARANJA,
@@ -885,25 +941,74 @@ function bloqueResumenPdf(
     colores.GRIS_TEXTO,
   );
 
+  // Mapear cotizaciones por departamento
+  const cotizMap = new Map<string, number>();
+  let totCotizaciones = 0;
+  for (const c of r.rankingDeptoCotizaciones) {
+    cotizMap.set(c.departamento, c.cotizaciones);
+    totCotizaciones += c.cotizaciones;
+  }
+
+  // Unificar departamentos (priorizando orden de gasto descendente)
+  const deptosUnificados: Array<{
+    departamento: string;
+    cotizaciones: number;
+    usd: number;
+    bs: number;
+    pct: number;
+  }> = [];
+
+  const deptosProcesados = new Set<string>();
+
+  for (const d of r.rankingDeptoGasto) {
+    deptosProcesados.add(d.departamento);
+    deptosUnificados.push({
+      departamento: d.departamento,
+      cotizaciones: cotizMap.get(d.departamento) || 0,
+      usd: d.usd,
+      bs: d.bs,
+      pct: d.pct,
+    });
+  }
+
+  // Agregar departamentos que tengan cotizaciones pero 0 gasto en el rango
+  for (const c of r.rankingDeptoCotizaciones) {
+    if (!deptosProcesados.has(c.departamento)) {
+      deptosProcesados.add(c.departamento);
+      deptosUnificados.push({
+        departamento: c.departamento,
+        cotizaciones: c.cotizaciones,
+        usd: 0,
+        bs: 0,
+        pct: 0,
+      });
+    }
+  }
+
   const totDeptoUsd = r.rankingDeptoGasto.reduce((acc, d) => acc + (d.usd || 0), 0);
   const totDeptoBs = r.rankingDeptoGasto.reduce((acc, d) => acc + (d.bs || 0), 0);
 
-  const bodyRanking = r.rankingDeptoGasto.map((d, idx) => [
+  const bodyRanking = deptosUnificados.map((d, idx) => [
     String(idx + 1),
     pdfSafe(d.departamento),
+    d.cotizaciones > 0 ? `${fmtNum(d.cotizaciones, 0)} cotiz.` : '0 cotiz.',
     fmtUsd(d.usd),
     fmtBs(d.bs),
     `${d.pct.toFixed(1)} %`,
   ]);
 
   if (!bodyRanking.length) {
-    bodyRanking.push(['—', 'Sin datos en el rango seleccionado', '—', '—', '—']);
+    bodyRanking.push(['—', 'Sin datos en el rango seleccionado', '—', '—', '—', '—']);
   }
 
-  const footRanking = r.rankingDeptoGasto.length
+  const footRanking = deptosUnificados.length
     ? [
-        '',
-        'TOTAL DEPARTAMENTOS',
+        {
+          content: 'TOTAL DEPARTAMENTOS',
+          colSpan: 2,
+          styles: { halign: 'left', fontStyle: 'bold' },
+        },
+        `${fmtNum(totCotizaciones, 0)} cotizaciones`,
         fmtUsd(totDeptoUsd),
         fmtBs(totDeptoBs),
         '100.0 %',
@@ -913,13 +1018,13 @@ function bloqueResumenPdf(
   autoTable(doc, {
     startY: y,
     margin: { left: M, right: M, bottom: 24 },
-    head: [['#', 'Departamento', 'Total USD ($)', 'Total Bs (BCV)', '% Participación']],
+    head: [['#', 'Departamento', 'Cotizaciones', 'Total USD ($)', 'Total Bs (BCV)', '% del Gasto']],
     body: bodyRanking,
-    foot: footRanking ? [footRanking] : undefined,
+    foot: footRanking ? [footRanking as unknown as string[]] : undefined,
     theme: 'grid',
     styles: {
       fontSize: esLandscape ? 7.2 : 6.6,
-      cellPadding: esLandscape ? 2.5 : 2.0,
+      cellPadding: { top: 1.8, bottom: 2.6, left: 2.8, right: 2.8 },
       lineColor: colores.BORDE,
       lineWidth: 0.3,
       textColor: colores.TINTA,
@@ -930,6 +1035,7 @@ function bloqueResumenPdf(
       textColor: [255, 255, 255],
       fontStyle: 'bold',
       halign: 'center',
+      cellPadding: { top: 2.0, bottom: 2.8, left: 2.8, right: 2.8 },
       fontSize: esLandscape ? 7.2 : 6.6,
     },
     footStyles: {
@@ -942,15 +1048,16 @@ function bloqueResumenPdf(
       fillColor: colores.FONDO_ALT,
     },
     columnStyles: {
-      0: { cellWidth: 26, halign: 'center' },
+      0: { cellWidth: 24, halign: 'center' },
       1: { halign: 'left', fontStyle: 'bold' },
-      2: { halign: 'right', fontStyle: 'bold' },
-      3: { halign: 'right' },
-      4: { halign: 'right', cellWidth: esLandscape ? 85 : 75 },
+      2: { halign: 'center', cellWidth: esLandscape ? 85 : 75 },
+      3: { halign: 'right', fontStyle: 'bold', cellWidth: esLandscape ? 95 : 85 },
+      4: { halign: 'right', cellWidth: esLandscape ? 110 : 95 },
+      5: { halign: 'right', cellWidth: esLandscape ? 85 : 75 },
     },
     didDrawCell: (data) => {
-      if (data.section === 'body' && data.column.index === 4 && r.rankingDeptoGasto.length > 0) {
-        const rawDepto = r.rankingDeptoGasto[data.row.index];
+      if (data.section === 'body' && data.column.index === 5 && deptosUnificados.length > 0) {
+        const rawDepto = deptosUnificados[data.row.index];
         const pct = rawDepto?.pct ?? 0;
         if (pct > 0) {
           const barH = 1.6;
@@ -1022,7 +1129,7 @@ function bloqueResumenPdf(
       theme: 'grid',
       styles: {
         fontSize: esLandscape ? 7.2 : 6.6,
-        cellPadding: esLandscape ? 2.5 : 2.0,
+        cellPadding: { top: 1.8, bottom: 2.6, left: 2.8, right: 2.8 },
         lineColor: colores.BORDE,
         lineWidth: 0.3,
         textColor: colores.TINTA,
@@ -1033,6 +1140,7 @@ function bloqueResumenPdf(
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         halign: 'center',
+        cellPadding: { top: 2.0, bottom: 2.8, left: 2.8, right: 2.8 },
         fontSize: esLandscape ? 7.2 : 6.6,
       },
       footStyles: {
@@ -1055,86 +1163,7 @@ function bloqueResumenPdf(
     y = (lastTable2?.finalY ?? y) + 14;
   }
 
-  // 4. Departamentos por cotizaciones movidas (si existen)
-  if (r.rankingDeptoCotizaciones.length > 0) {
-    if (y + 60 > PAGE_H - M) {
-      doc.addPage();
-      y = M;
-    }
-    y = dibujarHeaderSeccion(
-      doc,
-      `${seccionNum++}. Departamentos por Cotizaciones Movidas`,
-      'Volumen operativo de cotizaciones tramitadas en el período',
-      M,
-      y,
-      colores.NARANJA,
-      colores.TINTA,
-      colores.GRIS_TEXTO,
-    );
-
-    const totCotizaciones = r.rankingDeptoCotizaciones.reduce(
-      (acc, d) => acc + (d.cotizaciones || 0),
-      0,
-    );
-    const bodyCotiz = r.rankingDeptoCotizaciones.map((d, idx) => {
-      const pct = totCotizaciones > 0 ? (d.cotizaciones / totCotizaciones) * 100 : 0;
-      return [
-        String(idx + 1),
-        pdfSafe(d.departamento),
-        `${fmtNum(d.cotizaciones, 0)} cotización(es)`,
-        `${pct.toFixed(1)} %`,
-      ];
-    });
-
-    const footCotiz = [
-      '',
-      'TOTAL COTIZACIONES REGISTRADAS',
-      `${fmtNum(totCotizaciones, 0)} cotizaciones`,
-      '100.0 %',
-    ];
-
-    autoTable(doc, {
-      startY: y,
-      margin: { left: M, right: M, bottom: 24 },
-      head: [['#', 'Departamento Solicitante', 'Cotizaciones Registradas', '% Actividad']],
-      body: bodyCotiz,
-      foot: [footCotiz],
-      theme: 'grid',
-      styles: {
-        fontSize: esLandscape ? 7.2 : 6.6,
-        cellPadding: esLandscape ? 2.5 : 2.0,
-        lineColor: colores.BORDE,
-        lineWidth: 0.3,
-        textColor: colores.TINTA,
-        valign: 'middle',
-      },
-      headStyles: {
-        fillColor: [51, 65, 85],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        halign: 'center',
-        fontSize: esLandscape ? 7.2 : 6.6,
-      },
-      footStyles: {
-        fillColor: [241, 245, 249],
-        textColor: colores.TINTA,
-        fontStyle: 'bold',
-        fontSize: esLandscape ? 7.2 : 6.6,
-      },
-      alternateRowStyles: { fillColor: colores.FONDO_ALT },
-      columnStyles: {
-        0: { cellWidth: 26, halign: 'center' },
-        1: { halign: 'left', fontStyle: 'bold' },
-        2: { halign: 'right' },
-        3: { halign: 'right', cellWidth: esLandscape ? 85 : 75 },
-      },
-    });
-
-    const lastTable3 = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-    y = (lastTable3?.finalY ?? y) + 14;
-  }
-
-  // 5. Top Categorías e Ítems con mayor inversión (si existen)
+  // 4. Top Categorías e Ítems con mayor inversión (si existen)
   if (r.topCategorias.length > 0 || r.topItems.length > 0) {
     if (y + 60 > PAGE_H - M) {
       doc.addPage();
@@ -1166,7 +1195,7 @@ function bloqueResumenPdf(
         theme: 'grid',
         styles: {
           fontSize: esLandscape ? 7.2 : 6.6,
-          cellPadding: 2.0,
+          cellPadding: { top: 1.8, bottom: 2.6, left: 2.5, right: 2.5 },
           lineColor: colores.BORDE,
           lineWidth: 0.3,
           textColor: colores.TINTA,
@@ -1177,6 +1206,7 @@ function bloqueResumenPdf(
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           halign: 'center',
+          cellPadding: { top: 2.0, bottom: 2.8, left: 2.5, right: 2.5 },
           fontSize: esLandscape ? 7.2 : 6.6,
         },
         alternateRowStyles: { fillColor: colores.FONDO_ALT },
@@ -1207,7 +1237,7 @@ function bloqueResumenPdf(
         theme: 'grid',
         styles: {
           fontSize: esLandscape ? 7.2 : 6.6,
-          cellPadding: 2.0,
+          cellPadding: { top: 1.8, bottom: 2.6, left: 2.5, right: 2.5 },
           lineColor: colores.BORDE,
           lineWidth: 0.3,
           textColor: colores.TINTA,
@@ -1218,6 +1248,7 @@ function bloqueResumenPdf(
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           halign: 'center',
+          cellPadding: { top: 2.0, bottom: 2.8, left: 2.5, right: 2.5 },
           fontSize: esLandscape ? 7.2 : 6.6,
         },
         alternateRowStyles: { fillColor: colores.FONDO_ALT },
