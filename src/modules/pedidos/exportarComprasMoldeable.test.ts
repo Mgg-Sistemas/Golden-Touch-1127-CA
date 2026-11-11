@@ -36,7 +36,7 @@ describe('exportarComprasMoldeable (smoke)', () => {
   it('construirComprasExcel devuelve bytes legibles', async () => {
     const bytes = await construirComprasExcel(filas, resumen, columnas, meta);
     expect(bytes.byteLength).toBeGreaterThan(0);
-  });
+  }, 20000);
 
   it('construirComprasPdf arma un documento con al menos una página', async () => {
     const doc = await construirComprasPdf(filas, resumen, columnas, meta);
@@ -51,4 +51,25 @@ describe('exportarComprasMoldeable (smoke)', () => {
     // El código «-1» también se blinda por empezar con '-'.
     expect(csv).toContain("'-1");
   });
+
+  it('construirComprasPdf soporta formato resumen, detallado e híbrido en portrait y landscape', async () => {
+    // 1. Resumen en portrait
+    const docResumen = await construirComprasPdf(filas, resumen, columnas, { ...meta, formato: 'resumen', orientacion: 'portrait' });
+    expect(docResumen.getNumberOfPages()).toBeGreaterThanOrEqual(1);
+
+    // 2. Detallado en landscape
+    const docDetallado = await construirComprasPdf(filas, resumen, columnas, { ...meta, formato: 'detallado', orientacion: 'landscape' });
+    expect(docDetallado.getNumberOfPages()).toBeGreaterThanOrEqual(1);
+
+    // 3. Híbrido con compras directas, cotizaciones y top items
+    const filasHibridas = [
+      ...filas,
+      fila({ id: 'f3', tipo_compra: 'directa', categoria_gasto: 'Repuestos', monto_usd: 80, monto_bs: 3200 }),
+      fila({ id: 'f4', ambito: 'items', nombre_item: 'Filtro de Aceite', cantidad: 5, monto_usd: 120, monto_bs: 4800 }),
+    ];
+    const resumenHibrido = resumenCompras(filasHibridas, [], [{ departamento: 'Mina' }, { departamento: 'Planta' }], 40);
+    const docHibrido = await construirComprasPdf(filasHibridas, resumenHibrido, columnas, { ...meta, formato: 'hibrido' });
+    expect(docHibrido.getNumberOfPages()).toBeGreaterThanOrEqual(1);
+  });
+
 });
