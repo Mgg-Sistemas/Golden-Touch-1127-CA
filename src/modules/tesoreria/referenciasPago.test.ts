@@ -31,12 +31,14 @@ describe('Referencia del pago en Tesorería', () => {
     expect(referenciaValida('12AB', 'bs')).toBe(false);
   });
 
-  it('Binance permite letras y dígitos en mayúsculas (alfanumérico)', () => {
+  it('Binance permite letras y dígitos en minúsculas y mayúsculas (alfanumérico)', () => {
     expect(ultimos4('BINANCE-ORD-7A9B', 'binance')).toBe('7A9B');
-    expect(ultimos4('ord_xy3z', 'binance')).toBe('XY3Z');
+    expect(ultimos4('ord_xy3z', 'binance')).toBe('xy3z');
+    expect(ultimos4('ord_Xy3z', 'binance')).toBe('Xy3z');
     expect(ultimos4('1234', 'binance')).toBe('1234');
     expect(referenciaValida('7A9B', 'binance')).toBe(true);
     expect(referenciaValida('xy3z', 'binance')).toBe(true);
+    expect(referenciaValida('Xy3z', 'binance')).toBe(true);
     expect(referenciaValida('1234', 'binance')).toBe(true);
     expect(referenciaValida('123', 'binance')).toBe(false);
     expect(referenciaValida('12-3', 'binance')).toBe(false);
@@ -52,13 +54,14 @@ describe('Referencia del pago en Tesorería', () => {
     expect(errorReferencias(patas, { a: '1234', b: '56' })).toBe('Indica el ID de la orden de Binance: los últimos 4 dígitos o letras.');
     expect(errorReferencias(patas, { a: '1234', b: '5678' })).toBeNull();
     expect(errorReferencias(patas, { a: '1234', b: '7A9B' })).toBeNull();
+    expect(errorReferencias(patas, { a: '1234', b: 'xy3z' })).toBeNull();
     expect(errorReferencias([], {})).toBeNull();
   });
 
   it('arma el motivo con las referencias primero y la nota después', () => {
-    const refs = { a: '1234', b: '5678' };
-    expect(textoReferencias(patas, refs)).toBe('Ref. Bs (jurídica) 1234 · ID Binance 5678');
-    expect(motivoConReferencias('  pago parcial ', patas, refs)).toBe('Ref. Bs (jurídica) 1234 · ID Binance 5678 · pago parcial');
+    const refs = { a: '1234', b: '56ab' };
+    expect(textoReferencias(patas, refs)).toBe('Ref. Bs (jurídica) 1234 · ID Binance 56ab');
+    expect(motivoConReferencias('  pago parcial ', patas, refs)).toBe('Ref. Bs (jurídica) 1234 · ID Binance 56ab · pago parcial');
     expect(motivoConReferencias('', [], {})).toBeNull();
     expect(motivoConReferencias('nota', [], {})).toBe('nota');
   });

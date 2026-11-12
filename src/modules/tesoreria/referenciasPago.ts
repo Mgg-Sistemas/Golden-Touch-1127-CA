@@ -4,7 +4,7 @@
    Al pagar una OC desde Tesorería, cada pata que sale en bolívares
    (transferencia / pago móvil) pide los ÚLTIMOS 4 DÍGITOS de la referencia
    bancaria, y cada pata por Binance (USDT) pide los últimos 4 del ID de la
-   orden (dígitos o letras). Así el egreso se puede cruzar con el estado de cuenta sin abrir la
+   orden (dígitos o letras, mayúsculas o minúsculas). Así el egreso se puede cruzar con el estado de cuenta sin abrir la
    captura.
 
    Va dentro del motivo del pago, que ya llega al concepto del egreso en el
@@ -47,7 +47,7 @@ export function tipoReferencia(
  */
 export function ultimos4(valor: string, tipo?: TipoReferencia): string {
   if (tipo === 'binance') {
-    return valor.replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
+    return valor.replace(/[^a-zA-Z0-9]/g, '').slice(-4);
   }
   return valor.replace(/\D/g, '').slice(-4);
 }
@@ -93,7 +93,7 @@ export function errorReferencias(patas: PataReferencia[], refs: Record<string, s
 export function textoReferencias(patas: PataReferencia[], refs: Record<string, string>): string {
   return patas
     .filter((p) => referenciaValida(refs[p.key], p.tipo))
-    .map((p) => `${prefijo(p.tipo)}${p.etiqueta ? ` (${p.etiqueta})` : ''} ${refs[p.key].toUpperCase()}`)
+    .map((p) => `${prefijo(p.tipo)}${p.etiqueta ? ` (${p.etiqueta})` : ''} ${refs[p.key]}`)
     .join(' · ');
 }
 

@@ -4565,13 +4565,13 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
           <div className="form-row" key={p.key}>
             <label>{nombreReferencia(p.tipo)} * <span className="muted">(se aplica a todas)</span></label>
             <input className="input mono" inputMode={p.tipo === 'binance' ? 'text' : 'numeric'} autoComplete="off" required
-              value={refLote} placeholder={p.tipo === 'binance' ? 'Últimos 4 dígitos/letras' : 'Últimos 4 dígitos'}
+              value={refLote} placeholder={p.tipo === 'binance' ? 'Últimos 4 dígitos o letras' : 'Últimos 4 dígitos'}
               onChange={(e) => setRefLote(ultimos4(e.target.value, p.tipo))}
-              style={{ maxWidth: 220, letterSpacing: '.2em', textTransform: p.tipo === 'binance' ? 'uppercase' : undefined }} />
+              style={{ maxWidth: 260, letterSpacing: '.12em' }} />
             <small className="muted">
               {p.tipo === 'bs'
                 ? 'Los últimos 4 dígitos de la referencia del banco. Si pegas la referencia completa, se toman los 4 últimos.'
-                : 'Los últimos 4 dígitos o letras del ID de la orden en Binance.'}
+                : 'Los últimos 4 dígitos o letras del ID de la orden en Binance (mayúsculas o minúsculas).'}
             </small>
           </div>
         ))}
@@ -7161,13 +7161,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 <div className="form-row" key={p.key}>
                   <label>{nombreReferencia(p.tipo)}{p.etiqueta ? <span className="muted"> · {p.etiqueta}</span> : null} *</label>
                   <input className="input mono" inputMode={p.tipo === 'binance' ? 'text' : 'numeric'} autoComplete="off" required
-                    value={v} placeholder={p.tipo === 'binance' ? 'Últimos 4 dígitos/letras' : 'Últimos 4 dígitos'}
+                    value={v} placeholder={p.tipo === 'binance' ? 'Últimos 4 dígitos o letras' : 'Últimos 4 dígitos'}
                     onChange={(e) => { const d = ultimos4(e.target.value, p.tipo); setRefsPago((r) => ({ ...r, [p.key]: d })); }}
-                    style={{ maxWidth: 220, letterSpacing: '.2em', textTransform: p.tipo === 'binance' ? 'uppercase' : undefined }} />
+                    style={{ maxWidth: 260, letterSpacing: '.12em' }} />
                   <small className="muted">
                     {p.tipo === 'bs'
                       ? 'Los últimos 4 dígitos de la referencia del banco. Si pegas la referencia completa, se toman los 4 últimos.'
-                      : 'Los últimos 4 dígitos o letras del ID de la orden en Binance.'}
+                      : 'Los últimos 4 dígitos o letras del ID de la orden en Binance (mayúsculas o minúsculas).'}
                     {v.length > 0 && v.length < 4 ? <strong style={{ color: 'var(--danger)' }}> Faltan {4 - v.length} {p.tipo === 'binance' ? 'carácter(es)' : 'dígito(s)'}.</strong> : null}
                   </small>
                 </div>
