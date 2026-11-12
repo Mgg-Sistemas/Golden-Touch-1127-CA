@@ -14,6 +14,7 @@ export const TIPOS_MANTENIMIENTO: ReadonlyArray<{ value: string; label: string; 
   { value: 'cambio_aceite', label: 'Cambio de aceite', icon: '🛢' },
   { value: 'cambio_filtro', label: 'Cambio de filtro', icon: '🧯' },
   { value: 'cambio_caucho', label: 'Cambio de cauchos / neumáticos', icon: '🛞' },
+  { value: 'cambio_manguera', label: 'Cambio de mangueras', icon: '🪢' },
   { value: 'repuestos', label: 'Repuestos', icon: '🔩' },
   { value: 'cambio_pieza', label: 'Cambio de pieza', icon: '⚙' },
   { value: 'pintura', label: 'Pintura / latonería', icon: '🎨' },
@@ -61,6 +62,12 @@ export interface MantenimientoMaquinaria {
   created_by: string | null;
   actor_name: string | null;
   created_at: string;
+  /** 12/11/2026: varios tipos en un mismo registro (el primero también va en `tipo`). */
+  tipos?: string[] | null;
+  /** 12/11/2026: fotos del mantenimiento (bucket maquinaria-os-fotos, carpeta bitacora/). */
+  fotos?: { path: string; filename: string }[] | null;
+  /** 12/11/2026: la entrega del almacén de la que salió este registro. */
+  entrega_id?: string | null;
 }
 
 /** Registro con los campos derivados (horas trabajadas + consumo Lts/h). */

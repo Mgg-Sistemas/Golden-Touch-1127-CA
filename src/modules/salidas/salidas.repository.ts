@@ -235,6 +235,9 @@ export interface CrearSolicitudSalidaInput {
   direccionDespacho?: string | null;
   direccionDestino?: string | null;
   consumoInterno?: boolean | null;
+  /** 12/11/2026: máquina a cuyo mantenimiento va el material (crea la entrega al ejecutarse). */
+  equipoMantId?: string | null;
+  equipoMantNota?: string | null;
   // material
   productoId?: string | null;
   productoNombre?: string | null;
@@ -408,6 +411,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       direccion_despacho: input.direccionDespacho?.trim() || null,
       direccion_destino: input.direccionDestino?.trim() || null,
       consumo_interno: input.consumoInterno ?? false,
+      ...(input.equipoMantId ? { equipo_mant_id: input.equipoMantId, equipo_mant_nota: input.equipoMantNota?.trim() || null } : {}),
       historial,
       actor: input.actor,
       actor_name: input.actorName ?? null,

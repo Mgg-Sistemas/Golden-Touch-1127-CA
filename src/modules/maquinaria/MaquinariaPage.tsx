@@ -24,6 +24,7 @@ import {
 } from './flota';
 import { GestionarApartadosModal } from './GestionarApartadosModal';
 import { AlertasMantenimientoBanner, type EquipoConAviso } from './AlertasMantenimiento';
+import { EntregasAlmacenAviso } from './EntregasAlmacenPanel';
 import { ordenesAbiertasPorEquipo, fotosDeEquipos, lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
 import { FlotaNav } from './FlotaNav';
 import { BarraServicio } from './ServicioMantenimientoPage';
@@ -332,6 +333,7 @@ export function MaquinariaPage() {
 
       {/* Alertas de mantenimiento (como el «Dinero por entrar» de Acopio): equipos con servicio
           próximo o vencido; al tocarlo se ven y se responden (26/10/2026). */}
+      <EntregasAlmacenAviso canWrite={canWrite} actorName={actorName} />
       <AlertasMantenimientoBanner items={alertas} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargar()} />
 
       <div className="flo-fleet" role="group" aria-label="Filtrar por estado">

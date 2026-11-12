@@ -1092,6 +1092,9 @@ export interface SolicitudSalida {
   direccion_destino?: string | null;
   /** Marca la salida/traslado como consumo interno (se refleja en detalle y trazabilidad). */
   consumo_interno?: boolean | null;
+  /** 12/11/2026: el material va al mantenimiento de esta máquina (al ejecutarse le llega a Maquinaria). */
+  equipo_mant_id?: string | null;
+  equipo_mant_nota?: string | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;

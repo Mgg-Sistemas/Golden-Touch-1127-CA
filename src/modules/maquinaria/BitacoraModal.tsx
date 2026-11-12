@@ -17,6 +17,8 @@ import { lecturaVigenteEquipo, type LecturaVigente } from './flota.repository';
 import { avisoDeEquipo, textoAviso, tonoAviso } from './avisoEquipo';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
+import { BitacoraSegmentada } from './BitacoraSegmentada';
+import { MAX_FOTOS_MANTENIMIENTO, subirFotosMantenimiento } from './entregasAlmacen.repository';
 
 export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   equipo: MaquinariaEquipo;
@@ -54,6 +56,8 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [consumibles, setConsumibles] = useState('');
   const [mecanico, setMecanico] = useState('');
   const [ubicacion, setUbicacion] = useState(equipo.ubicacion ?? '');
+  // 12/11/2026: fotos del mantenimiento (se ven en la vista previa del registro).
+  const [fotos, setFotos] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -83,7 +87,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
   function limpiar() {
     setPieza(''); setHorometro(''); setKilometraje(''); setAlertaKm(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
-    setFecha(new Date().toISOString().slice(0, 10)); setTipo('cambio_aceite'); setUbicacion(equipo.ubicacion ?? '');
+    setFecha(new Date().toISOString().slice(0, 10)); setTipo('cambio_aceite'); setUbicacion(equipo.ubicacion ?? ''); setFotos([]);
   }
 
   function abrirEdicion(r: MantenimientoCalc) {
@@ -117,11 +121,14 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         trabajo: trabajo || null, consumibles: consumibles || null,
         mecanico: mecanico || null, ubicacion: ubicacion || null,
       };
+      // Las fotos se suben primero; solo se manda la columna si hay fotos nuevas.
+      const subidas = fotos.length ? await subirFotosMantenimiento(equipo.id, fotos) : [];
+      const conFotos = subidas.length ? { fotos: [...(editando?.fotos ?? []), ...subidas] } : {};
       if (editando) {
-        await updateMantenimiento(editando.id, { ...datos, observacion: editando.observacion });
+        await updateMantenimiento(editando.id, { ...datos, ...conFotos, observacion: editando.observacion });
         toast('Registro actualizado', 'success');
       } else {
-        await addMantenimiento(datos, actor, actorName);
+        await addMantenimiento({ ...datos, ...conFotos }, actor, actorName);
         toast('Mantenimiento registrado', 'success');
       }
       setEditando(null);
@@ -291,50 +298,30 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             <div className="form-row"><label>Consumibles utilizados</label><input className="input" name="bit-consumibles" defaultValue={consumibles} onChange={(e) => setConsumibles(e.target.value)} /></div>
             <div className="form-row"><label>Ubicación</label><input className="input" name="bit-ubicacion" defaultValue={ubicacion} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setUbicacion(e.target.value); }} /></div>
           </div>
+          <div className="form-row">
+            <label>Fotos del mantenimiento ({fotos.length}/{MAX_FOTOS_MANTENIMIENTO}) · opcional{editando?.fotos?.length ? ` · ya tiene ${editando.fotos.length}` : ''}</label>
+            {fotos.length < MAX_FOTOS_MANTENIMIENTO && (
+              <input className="input" type="file" accept="image/*" multiple
+                onChange={(e) => {
+                  const nuevas = Array.from(e.target.files ?? []).filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name));
+                  setFotos((xs) => [...xs, ...nuevas].slice(0, MAX_FOTOS_MANTENIMIENTO));
+                  e.target.value = '';
+                }} />
+            )}
+            {fotos.length > 0 && <small className="muted">{fotos.map((f) => f.name).join(' · ')} <button type="button" className="btn btn-xs btn-ghost" onClick={() => setFotos([])}>Quitar</button></small>}
+          </div>
           <div style={{ textAlign: 'right' }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : editando ? 'Guardar cambios' : 'Guardar registro'}</button>
           </div>
         </form>
       )}
 
-      <div className="table-wrap" style={{ maxHeight: 360, overflow: 'auto' }}>
-        <table className="table" style={{ fontSize: '.8rem' }}>
-          <thead><tr>
-            <th>Fecha</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Horómetro</th><th style={{ textAlign: 'right' }}>HRS.</th>
-            <th style={{ textAlign: 'right' }}>Aceite</th><th style={{ textAlign: 'right' }}>Gasoil</th><th style={{ textAlign: 'right' }}>Lts/h</th>
-            <th>Trabajo</th><th>Mecánico</th><th>Ubicación</th>{canWrite && <th></th>}
-          </tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan={canWrite ? 11 : 10} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={canWrite ? 11 : 10} className="muted" style={{ textAlign: 'center' }}>Sin registros.</td></tr>}
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td>{fmtDate(r.fecha)}</td>
-                <td style={{ fontSize: '.76rem', whiteSpace: 'nowrap' }}>
-                  {etiquetaTipoMant(r.tipo)}
-                  {r.tipo === 'cambio_pieza' && r.pieza && <div className="muted" style={{ fontSize: '.72rem' }}>{r.pieza}</div>}
-                </td>
-                <td className="mono" style={{ textAlign: 'right' }}>{r.horometro != null ? fmtNum(r.horometro) : '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{r.horas != null ? fmtNum(r.horas) : '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{r.aceite_lts != null ? fmtNum(r.aceite_lts) : '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{r.gasoil_lts != null ? fmtNum(r.gasoil_lts) : '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{r.consumoLh != null ? fmtNum(r.consumoLh) : '—'}</td>
-                <td style={{ fontSize: '.78rem' }}>{r.trabajo || '—'}</td>
-                <td style={{ fontSize: '.78rem' }}>{r.mecanico || '—'}</td>
-                <td style={{ fontSize: '.78rem' }}>{r.ubicacion || '—'}</td>
-                {canWrite && (
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-ghost" title="Editar" aria-label={`Editar el registro del ${fmtDate(r.fecha)}`} onClick={() => abrirEdicion(r)}>✎</button>
-                    <button className="btn btn-sm btn-ghost" title="Eliminar" aria-label={`Eliminar el registro del ${fmtDate(r.fecha)}`} style={{ color: 'var(--danger)' }} onClick={() => setBorrarId(r.id)}>🗑</button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* 12/11/2026: bitácora por segmentos (Filtros, Aceite, Combustible, Mangueras, Cauchos…),
+          cada uno con rango de fechas y buscador; al tocar un registro, su detalle con fotos. */}
+      <BitacoraSegmentada rows={rows} equipo={equipo} canWrite={canWrite} loading={loading}
+        onEditar={abrirEdicion} onBorrar={(id) => setBorrarId(id)} />
       <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
-        HRS. = horómetro de este registro − el del registro anterior. Lts/h = gasoil ÷ HRS. {equipo.combustible_equipo ? `Horómetro y gasoil ⛽ vinculados a Combustible (${equipo.combustible_equipo}).` : 'Equipo sin vincular a Combustible.'}
+        {equipo.combustible_equipo ? `Horómetro y gasoil ⛽ vinculados a Combustible (${equipo.combustible_equipo}).` : 'Equipo sin vincular a Combustible.'}
       </p>
 
       {borrarId && (

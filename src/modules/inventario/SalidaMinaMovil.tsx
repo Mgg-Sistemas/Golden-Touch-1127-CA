@@ -19,6 +19,11 @@ import {
 } from './salidasMina';
 import { registrarSalidaMina, registrarSalidasMina, retornarSalidaMina, subirFotosSalidaMina, subirFotosSalidasMina, urlFotoSalidaMina } from './salidasMina.repository';
 import { docRetornoMovil, docSalidasMovil, verDocMovilPdf, type DocMovilPdf } from './inventarioMovilPdf';
+import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
+import { nombreCortoEquipo } from '@/modules/maquinaria/flota';
+import { errorEntregaMantenimiento } from '@/modules/maquinaria/entregasAlmacen';
+import { crearEntregaTelefono } from '@/modules/maquinaria/entregasAlmacen.repository';
 
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -136,6 +141,21 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [hechas, setHechas] = useState<SalidaMina[] | null>(null);
+  // 12/11/2026: ¿el material va al mantenimiento de una máquina? → entrega a Maquinaria.
+  const [paraMant, setParaMant] = useState<boolean | null>(null);
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  const [equipoId, setEquipoId] = useState('');
+  const [tipoMant, setTipoMant] = useState('');
+  const [entregaCodigo, setEntregaCodigo] = useState<string | null>(null);
+  const [entregaFallo, setEntregaFallo] = useState<string | null>(null);
+  const [reintentando, setReintentando] = useState(false);
+  useEffect(() => {
+    if (!paraMant || equipos.length) return;
+    listEquipos().then((xs) => setEquipos(xs.filter((x) => x.activo !== false))).catch(() => toast('No se pudo cargar la lista de máquinas', 'error'));
+  }, [paraMant, equipos.length]);
+  const equipo = equipos.find((x) => x.id === equipoId) ?? null;
+  // El motivo lleva la máquina: así queda en el kardex y en el PDF de la salida.
+  const motivoFinal = [motivo.trim(), paraMant && equipo ? `Mantenimiento: ${equipo.equipo}` : ''].filter(Boolean).join(' · ');
   const listos = itemsLoteListos(items);
   const malItems = errorItemsLote(listos);
   // Quién autoriza: la MISMA lista que Combustible (Catálogos › Autorizado por).
@@ -158,8 +178,11 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
   async function guardar(e: FormEvent) {
     e.preventDefault();
     const problema = malItems
-      ?? errorSalidaMina({ productoId: listos[0].producto.id, cantidad: listos[0].cantidad, stock: listos[0].stock, motivo, autorizado, retorna });
+      ?? (paraMant === null ? 'Indica si el material es para el mantenimiento de una máquina.' : null)
+      ?? errorEntregaMantenimiento(!!paraMant, equipoId)
+      ?? errorSalidaMina({ productoId: listos[0].producto.id, cantidad: listos[0].cantidad, stock: listos[0].stock, motivo: motivoFinal, autorizado, retorna });
     if (problema) return toast(problema, 'error');
+    const motivo = motivoFinal;
     setGuardando(true);
     try {
       let ss: SalidaMina[];
@@ -185,16 +208,45 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
         toast(`Salida de ${ss.length} productos registrada`, 'success');
       }
       setHechas(ss);
+      if (paraMant && equipoId) await enviarAMaquinaria(ss);
     } catch (err) {
       toast(errMsg(err, 'No se pudo registrar la salida'), 'error');
     } finally { setGuardando(false); }
   }
 
+  /** Crea la entrega para Maquinaria. Si falla, la salida ya quedó: se puede reintentar. */
+  async function enviarAMaquinaria(ss: SalidaMina[]) {
+    try {
+      const e = await crearEntregaTelefono({
+        salidaIds: ss.map((s) => s.id), equipoId, tipoSugerido: tipoMant || null, nota: motivo.trim() || null, actorName,
+      });
+      setEntregaCodigo(e.codigo); setEntregaFallo(null);
+      toast(`Entrega ${e.codigo} enviada a Maquinaria (${e.equipo_nombre}).`, 'success');
+    } catch (err) {
+      setEntregaFallo(errMsg(err, 'No se pudo avisar a Maquinaria'));
+    }
+  }
+
   if (hechas?.length) {
     const porId = new Map(items.map((it) => [it.producto.id, it.producto]));
-    return <Listo titulo={hechas.length === 1 ? `Salida ${hechas[0].codigo} registrada` : `Salida de ${hechas.length} productos registrada`}
+    const avisoMaq = paraMant && equipo ? (
+      <div className="surt-campo" style={{ borderLeft: `4px solid ${entregaFallo ? 'var(--danger)' : 'var(--success)'}`, paddingLeft: '.6rem' }}>
+        {entregaCodigo
+          ? <span>🔧 Entrega <strong>{entregaCodigo}</strong> enviada a Maquinaria para <strong>{equipo.equipo}</strong>.</span>
+          : entregaFallo
+            ? <>
+                <span>⚠ La salida quedó registrada, pero no se pudo avisar a Maquinaria: {entregaFallo}</span>
+                <button type="button" className="btn btn-primary btn-grande" disabled={reintentando}
+                  onClick={() => { setReintentando(true); void enviarAMaquinaria(hechas).finally(() => setReintentando(false)); }}>
+                  {reintentando ? 'Enviando…' : '↻ Reintentar envío a Maquinaria'}
+                </button>
+              </>
+            : <span className="muted">Enviando a Maquinaria…</span>}
+      </div>
+    ) : null;
+    return <>{avisoMaq}<Listo titulo={hechas.length === 1 ? `Salida ${hechas[0].codigo} registrada` : `Salida de ${hechas.length} productos registrada`}
       texto={mensajeSalidasMina(hechas, actorName ?? actor)} onListo={onSaved} fotos={fotos}
-      pdf={docSalidasMovil(hechas, (id) => porId.get(id), almacen, { actor, nombre: actorName })} />;
+      pdf={docSalidasMovil(hechas, (id) => porId.get(id), almacen, { actor, nombre: actorName })} /></>;
   }
 
   return (
@@ -206,6 +258,36 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
         <input id="mina-salida-motivo" className="input surt-input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
           placeholder="Para qué sale, a quién, a qué equipo…" autoComplete="off" />
       </div>
+      <div className="surt-campo">
+        <span className="surt-rotulo" id="mina-salida-mant">¿Es para el mantenimiento de una máquina?</span>
+        <div className="surt-sino" role="group" aria-labelledby="mina-salida-mant">
+          <button type="button" className={`surt-btn si${paraMant === true ? ' sel' : ''}`} aria-pressed={paraMant === true} onClick={() => setParaMant(true)}>
+            <span className="icono" aria-hidden>🔧</span><span>SÍ</span><small>Le llega a Maquinaria</small>
+          </button>
+          <button type="button" className={`surt-btn no${paraMant === false ? ' sel' : ''}`} aria-pressed={paraMant === false} onClick={() => setParaMant(false)}>
+            <span className="icono" aria-hidden>📦</span><span>NO</span><small>Salida normal</small>
+          </button>
+        </div>
+      </div>
+      {paraMant && (
+        <>
+          <div className="surt-campo">
+            <label htmlFor="mina-salida-maquina">Máquina *</label>
+            <div className="surt-buscable">
+              <SearchSelect id="mina-salida-maquina" value={equipoId} onChange={setEquipoId} placeholder="🔍 Busca la máquina…"
+                options={equipos.map((x) => ({ value: x.id, label: x.equipo, hint: nombreCortoEquipo(x), keywords: [x.placa ?? '', x.serial ?? '', x.alias ?? ''].filter(Boolean) }))} />
+            </div>
+          </div>
+          <div className="surt-campo">
+            <label htmlFor="mina-salida-tipo-mant">Para qué mantenimiento · opcional</label>
+            <select id="mina-salida-tipo-mant" className="input surt-input" value={tipoMant} onChange={(e) => setTipoMant(e.target.value)}>
+              <option value="">— Lo indica Maquinaria —</option>
+              {TIPOS_MANTENIMIENTO.filter((t) => t.value !== 'lectura').map((t) => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
+            </select>
+            <small className="muted">Maquinaria recibe la entrega, registra el trabajo con el horómetro y queda en la bitácora de la máquina.</small>
+          </div>
+        </>
+      )}
       <div className="surt-campo">
         <label htmlFor="mina-salida-autorizado">Autorizado por</label>
         <div className="surt-buscable">
@@ -243,7 +325,7 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
           </div>
         )}
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || retorna === null || !autorizado.trim()}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || retorna === null || paraMant === null || (!!paraMant && !equipoId) || !autorizado.trim()}>
         {guardando ? 'Guardando…' : items.length === 1 ? '✓ Guardar salida' : `✓ Guardar salida (${items.length} productos)`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro material</button>

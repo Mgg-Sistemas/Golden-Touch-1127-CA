@@ -43,6 +43,7 @@ import { FormSalidaMina, ItemsLoteMovil, Listo, PorRetornarMina, itemsLoteListos
 import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovilView';
 import { HistoricoRecepcionesMovil, RecepcionDeliveryMovil, usePorRecepcionar } from './RecepcionMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
+import { DevolucionesMaquinaria } from '@/modules/maquinaria/DevolucionesMaquinaria';
 import type { SalidaMina } from './salidasMina';
 import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stockMinaWhatsapp';
 import { listMovimientosDepositoDesde } from './stockMina.repository';
@@ -343,6 +344,9 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           depositos={destinosTraslado} onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
+      {paso === 'retornos' && (
+        <DevolucionesMaquinaria origen="telefono" actorName={actorName} puedeDarEntrada={canWrite} />
+      )}
       {paso === 'retornos' && (
         <PorRetornarMina salidas={porRetornar} actor={actor} actorName={actorName} canWrite={canWrite}
           onVolver={volver} onSaved={() => { void reload().catch(() => {}); }} />

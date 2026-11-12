@@ -50,6 +50,8 @@ import { FechaInput } from '@/shared/ui/FechaInput';
 import { listCambiosNombre, nombreEnFecha, type CambioNombre } from '@/shared/lib/nombresHistoricos';
 import { puedeAprobarSalidas } from '@/modules/pedidos/aprobadoresOc';
 import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
+import { DevolucionesMaquinaria } from '@/modules/maquinaria/DevolucionesMaquinaria';
+import { crearEntregaPc } from '@/modules/maquinaria/entregasAlmacen.repository';
 
 type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
@@ -82,6 +84,18 @@ const SOL_COLS: { key: EstadoSolicitudSalida; label: string }[] = [
 const SOL_ESTADO_CLASS: Record<EstadoSolicitudSalida, string> = {
   por_aprobar: 'warning', aprobada: 'info', ejecutada: 'success', cancelada: 'danger',
 };
+
+/** 12/11/2026: si la salida era para el mantenimiento de una máquina, le llega a Maquinaria.
+ *  Si falla, la salida igual quedó ejecutada: se avisa y se reintenta con «🔧 Enviar a Maquinaria». */
+async function entregaSiEsMantenimiento(sol: SolicitudSalida, actorName: string | null): Promise<void> {
+  if (!sol.equipo_mant_id) return;
+  try {
+    const e = await crearEntregaPc({ solicitudSalidaId: sol.id, equipoId: sol.equipo_mant_id, nota: sol.equipo_mant_nota ?? null, actorName });
+    toast(`Entrega ${e.codigo} enviada a Maquinaria (${e.equipo_nombre}).`, 'success');
+  } catch (err) {
+    toast(`La salida se ejecutó, pero no se pudo avisar a Maquinaria: ${err instanceof Error ? err.message : 'error'}. Reintenta con «🔧 Enviar a Maquinaria» en la solicitud.`, 'warning');
+  }
+}
 
 export function SalidasPage() {
   const { user } = useSession();
@@ -227,6 +241,9 @@ export function SalidasPage() {
           )}
         </div>
       </div>
+
+      {/* 12/11/2026: lo que Maquinaria rechazó vuelve aquí; el almacenista le da entrada. */}
+      <DevolucionesMaquinaria actorName={actorName} puedeDarEntrada={canWrite} />
 
       {/* Switch principal: Salidas / Traslados / Salidas Temporales (solo material; el dinero va por Tesorería) */}
       <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '1rem' }}>
@@ -1279,6 +1296,15 @@ function SolicitudDetalleModal({
           ✏ Editar
         </button>
       )}
+      {sol.estado === 'ejecutada' && sol.equipo_mant_id && puedeEjecutar && (
+        <button className="btn btn-ghost" disabled={busy} title="Si al ejecutar no se pudo avisar a Maquinaria, envíala desde aquí"
+          onClick={() => run(async () => {
+            const e = await crearEntregaPc({ solicitudSalidaId: sol.id, equipoId: sol.equipo_mant_id as string, nota: sol.equipo_mant_nota ?? null, actorName });
+            toast(`Entrega ${e.codigo} enviada a Maquinaria (${e.equipo_nombre}).`, 'success');
+          }, 'Entrega enviada a Maquinaria')}>
+          🔧 Enviar a Maquinaria
+        </button>
+      )}
       {puedeEditarNota && (
         <button className="btn btn-ghost" disabled={busy} onClick={() => setEditandoNota(true)} title="Agregar / editar la nota o motivo (no cambia nada más; sigue finalizada)">
           📝 Editar nota
@@ -1292,7 +1318,10 @@ function SolicitudDetalleModal({
       )}
       {puedeEjecutar && sol.estado === 'aprobada' && (
         <button className="btn btn-primary" disabled={busy}
-          onClick={() => run(() => ejecutarSolicitudSalida(sol, actor, actorName), `Solicitud ${sol.codigo} ejecutada`)}>
+          onClick={() => run(async () => {
+            await ejecutarSolicitudSalida(sol, actor, actorName);
+            await entregaSiEsMantenimiento(sol, actorName);
+          }, `Solicitud ${sol.codigo} ejecutada`)}>
           {ejecutarLabel}
         </button>
       )}

@@ -15,6 +15,9 @@ import { SelectorAdjuntos } from './AdjuntosSalida';
 import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 import { esValeCocina, MSG_VALE_COCINA } from '@/modules/cocina/categoriasCocina';
 import { asegurarCategoriasCocina } from '@/modules/cocina/categoriasCocina.repository';
+import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { nombreCortoEquipo } from '@/modules/maquinaria/flota';
+import { errorEntregaMantenimiento } from '@/modules/maquinaria/entregasAlmacen';
 
 // `key` = `${producto_id}|${almacen}` (identifica una existencia concreta).
 // `precio` = costo unitario EDITABLE (si se deja vacío usa el PMP/costo del inventario).
@@ -68,6 +71,14 @@ export function SalidaMaterialForm({
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
   const [transporte, setTransporte] = useState<TransporteSeleccion>(transporteVacio);
   const [consumoInterno, setConsumoInterno] = useState(false);
+  // 12/11/2026: para el mantenimiento de una máquina → al ejecutarse le llega a Maquinaria.
+  const [paraMant, setParaMant] = useState(false);
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  const [equipoMantId, setEquipoMantId] = useState('');
+  useEffect(() => {
+    if (!paraMant || equipos.length) return;
+    listEquipos().then((xs) => setEquipos(xs.filter((x) => x.activo !== false))).catch(() => setError('No se pudo cargar la lista de máquinas.'));
+  }, [paraMant, equipos.length]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
@@ -204,12 +215,16 @@ export function SalidaMaterialForm({
     const keys = lineas.map((l) => l.key);
     if (new Set(keys).size !== keys.length) { setError('Hay un material repetido (mismo almacén) en dos renglones. Unilo en uno solo.'); return; }
     if (motivo.trim().length < MOTIVO_SALIDA_MINIMO) { setError(MSG_MOTIVO_SALIDA); return; }
+    const errMant = errorEntregaMantenimiento(paraMant, equipoMantId);
+    if (errMant) { setError(errMant); return; }
+    const equipoMant = paraMant ? equipos.find((x) => x.id === equipoMantId) ?? null : null;
     setSaving(true);
     try {
       const creada = await crearSolicitudSalida({
         scope: 'salida', tipo: 'material',
         items, destino: consumoInterno ? 'CONSUMO INTERNO' : (transporte.direccionDestino.trim() || null),
-        motivo: motivo.trim() || null,
+        motivo: [motivo.trim(), equipoMant ? `Mantenimiento: ${equipoMant.equipo}` : ''].filter(Boolean).join(' · ') || null,
+        equipoMantId: equipoMant?.id ?? null, equipoMantNota: equipoMant ? motivo.trim() || null : null,
         unidadSolicitante: unidadSolicitante.trim() || null,
         sedeOrigen: sedeOrigen.trim() || null,
         fechaEntrega: fechaEntrega || null,
@@ -380,6 +395,21 @@ export function SalidaMaterialForm({
             <input className="input" type="date" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} />
             <small className="muted">Fecha en que se entregó al destino.</small>
           </div>
+        </div>
+
+        {/* 12/11/2026: para el mantenimiento de una máquina → al ejecutarse le llega a Maquinaria. */}
+        <div className="form-row" style={{ marginTop: '.25rem' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={paraMant} onChange={(e) => { setParaMant(e.target.checked); if (e.target.checked) setConsumoInterno(true); }} />
+            🔧 Es para el mantenimiento de una máquina
+          </label>
+          {paraMant && (
+            <div style={{ marginTop: '.4rem', maxWidth: 460 }}>
+              <SearchSelect value={equipoMantId} onChange={setEquipoMantId} placeholder="🔍 Busca la máquina…"
+                options={equipos.map((x) => ({ value: x.id, label: x.equipo, hint: nombreCortoEquipo(x), keywords: [x.placa ?? '', x.serial ?? '', x.alias ?? ''].filter(Boolean) }))} />
+              <small className="muted">Al ejecutarse la salida, Maquinaria recibe la entrega, registra el trabajo con el horómetro y queda en la bitácora de la máquina.</small>
+            </div>
+          )}
         </div>
 
         {/* Consumo interno: el material se queda en la empresa (no sale a un tercero). */}
