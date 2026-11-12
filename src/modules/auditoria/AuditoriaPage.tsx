@@ -82,7 +82,17 @@ export function AuditoriaPage() {
      llegaron novedades, en vez de que la pantalla se rehaga sola. */
   const [hayNovedades, setHayNovedades] = useState(false);
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useRealtime(['auditoria_eventos', 'sesiones_usuario'], () => {
+  // 12/11/2026: `sesiones_usuario` salió de Realtime (es el latido de cada usuario, una
+  // escritura por minuto por persona: la tabla que más se escribía). Los conectados y el
+  // tiempo de conexión se refrescan solos cada minuto, solo con la pantalla a la vista.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void cargar(true);
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [cargar]);
+  useRealtime(['auditoria_eventos'], () => {
     setHayNovedades(true);
     if (temporizador.current) clearTimeout(temporizador.current);
     temporizador.current = setTimeout(() => {
