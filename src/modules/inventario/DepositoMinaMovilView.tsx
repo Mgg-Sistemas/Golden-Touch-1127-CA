@@ -14,6 +14,10 @@
    · «Traslado entre almacenes» (29/10/2026): pasa material directo al otro
      depósito; si allá no existe el producto, la base lo crea
      (inventario_trasladar_deposito, todo o nada).
+     12/11/2026: de Los Pinos al Depósito Mina el traslado queda «en tránsito»
+     con fotos y la Mina lo recibe en «Recepción de traslados» (trasladosTransito.ts).
+     12/11/2026: desde Los Pinos el traslado también puede ir por el PUENTE al
+     Almacén Los Pinos de MGG (otro sistema): «🌐 MGG Los Pinos».
    · «Reporte de stock» (29/10/2026): lo que hay al cierre de un período.
    Cada botón deja su aviso listo para WhatsApp al guardar (inventarioMovil.ts).
    Escribe en las MISMAS tablas que el módulo de PC, así que aparece al instante
@@ -53,15 +57,22 @@ import { trasladarEntreAlmacenes, trasladarVariosEntreAlmacenes } from './trasla
 import { costoProducto, docEntradaMovil, docTrasladosMovil, type DocMovilPdf } from './inventarioMovilPdf';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
+import { mensajeEnvioTraslado, usaRecepcion } from './trasladosTransito';
+import { MSG_FALTA_SQL_TRASLADOS, enviarTrasladoTransito } from './trasladosTransito.repository';
+import { FotosTrasladoInput, RecepcionTrasladosMovil, useTrasladosEnTransito } from './RecepcionTrasladosMovil';
+import { DESTINO_MATERIAL_LABEL, enviarMaterialAMgg, mensajeEnvioMaterial } from './materialInter.repository';
+import { EnviarMaterialMggModal } from './EnviarMaterialMggModal';
 
 type Dep = InfoDeposito;
+/** Destino «otro sistema» del traslado (puente a MGG Los Pinos). No es un almacén de aquí. */
+const DESTINO_MGG = '__mgg_los_pinos__';
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el inventario entero. */
 const SIN_BUSCAR = 15;
 
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones' | 'recepTraslados' | 'enCamino';
 
 /** Vista de teléfono del Inventario General. */
 export function InventarioMovilView() {
@@ -98,12 +109,17 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const [almacenesList, setAlmacenesList] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [paso, setPaso] = useState<Paso>('inicio');
+  const [enviosMgg, setEnviosMgg] = useState(false);
   const [elegido, setElegido] = useState<Producto | null>(null);
   const [busca, setBusca] = useState('');
   const [porRetornar, setPorRetornar] = useState<SalidaMina[]>([]);
   // 04/11/2026: lo que el delivery entregó en el almacén (Los Pinos = Inventario General) y falta recepcionar.
   const esGeneral = DEP.almacen === DEPOSITOS_FIJOS.general.almacen;
   const porRecepcionar = usePorRecepcionar(esGeneral && canWrite);
+  // 12/11/2026: traslados Los Pinos → Mina con recepción. La Mina ve lo que le llega;
+  // Los Pinos, lo que mandó y sigue en camino (lo puede anular).
+  const trasPorRecibir = useTrasladosEnTransito({ destino: DEP.almacen }, esMina && canWrite);
+  const trasEnCamino = useTrasladosEnTransito({ origen: DEP.almacen }, esGeneral && canWrite);
 
   const reload = useCallback(async () => {
     const ps = await listProductos(deposito);
@@ -226,6 +242,27 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           </button>
           )}
           </>}
+          {esMina && canWrite && (
+          <button type="button" className="surt-btn recepcion" onClick={() => setPaso('recepTraslados')}>
+            <span className="icono" aria-hidden>📥</span>
+            <span>Recepción de traslados ({trasPorRecibir.lista.length})</span>
+            <small>{trasPorRecibir.lista.length ? 'Lo que mandó Los Pinos' : 'Nada por recibir'}</small>
+          </button>
+          )}
+          {esGeneral && canWrite && (
+          <button type="button" className="surt-btn traslado" onClick={() => setEnviosMgg(true)}>
+            <span className="icono" aria-hidden>🌐</span>
+            <span>Envíos a MGG Los Pinos</span>
+            <small>El puente al otro sistema: estado, reintentar o devolver</small>
+          </button>
+          )}
+          {esGeneral && canWrite && trasEnCamino.lista.length > 0 && (
+          <button type="button" className="surt-btn traslado" onClick={() => setPaso('enCamino')}>
+            <span className="icono" aria-hidden>🚚</span>
+            <span>En camino a la Mina ({trasEnCamino.lista.length})</span>
+            <small>Traslados que la Mina aún no recibe</small>
+          </button>
+          )}
           {esGeneral && canWrite && (
           <button type="button" className="surt-btn recepcion" onClick={() => setPaso('recepcion')}>
             <span className="icono" aria-hidden>📥</span>
@@ -317,6 +354,21 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
       {paso === 'recepcion' && esGeneral && (
         <RecepcionDeliveryMovil pendientes={porRecepcionar.lista} actor={actor} actorName={actorName} canWrite={canWrite}
           onVolver={volver} onCambio={() => { void porRecepcionar.recargar(); void reload().catch(() => {}); }} />
+      )}
+
+      {paso === 'recepTraslados' && esMina && (
+        <RecepcionTrasladosMovil modo="recibir" lista={trasPorRecibir.lista} actorName={actorName} canWrite={canWrite}
+          onVolver={volver} onCambio={() => { void trasPorRecibir.recargar(); void reload().catch(() => {}); }} />
+      )}
+
+      {paso === 'enCamino' && esGeneral && (
+        <RecepcionTrasladosMovil modo="enviados" lista={trasEnCamino.lista} actorName={actorName} canWrite={canWrite}
+          onVolver={volver} onCambio={() => { void trasEnCamino.recargar(); void reload().catch(() => {}); }} />
+      )}
+
+      {enviosMgg && esGeneral && (
+        <EnviarMaterialMggModal actor={actor} actorName={actorName} puedeOperar={canWrite}
+          onClose={() => setEnviosMgg(false)} onCambio={() => { void reload().catch(() => {}); }} />
       )}
 
       {paso === 'histRecepciones' && esGeneral && (
@@ -647,15 +699,64 @@ function FormTraslado({
   const [items, setItems] = useState<ItemLoteMovil[]>([{ producto, cantidad: '' }]);
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [aviso, setAviso] = useState<{ titulo: string; texto: string; pdf: DocMovilPdf } | null>(null);
+  const [aviso, setAviso] = useState<{ titulo: string; texto: string; pdf: DocMovilPdf | null; fotos?: File[] } | null>(null);
+  const [fotos, setFotos] = useState<File[]>([]);
   const listos = itemsLoteListos(items);
   const malItems = errorItemsLote(listos);
   const destinoDep = otros.find((d) => d.almacen === destinoAlmacen) ?? otros[0] ?? resolverDeposito('general');
+  // Puente al OTRO SISTEMA (12/11/2026): de Los Pinos al Almacén Los Pinos de MGG.
+  const puedePuente = dep.almacen === DEPOSITOS_FIJOS.general.almacen;
+  const aMgg = puedePuente && destinoAlmacen === DESTINO_MGG;
+  // Los Pinos → Mina: queda en tránsito hasta que la Mina lo reciba (con fotos).
+  const conRecepcion = !aMgg && usaRecepcion(dep.almacen, destinoDep.almacen);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (malItems) return toast(malItems, 'error');
     setGuardando(true);
+    if (aMgg) {
+      try {
+        const r = await enviarMaterialAMgg({
+          renglones: listos.map((it) => ({
+            producto: {
+              id: it.producto.id, sku: it.producto.sku, nombre: it.producto.nombre, unidad: it.producto.unidad || 'UND',
+              categoria: it.producto.categoria ?? null, stock: it.stock, costo: costoProducto(it.producto),
+            },
+            cantidad: it.cantidad,
+          })),
+          nota: nota.trim() || null, actor, actorName,
+        });
+        if (!r.entregada) toast(`El material salió, pero MGG no respondió: ${r.error ?? 'sin respuesta'}. Reinténtalo en «Envíos a MGG Los Pinos».`, 'warning');
+        setAviso({
+          titulo: r.entregada ? 'Enviado a MGG Los Pinos (por confirmar allá)' : 'Envío a MGG pendiente de reintentar',
+          texto: mensajeEnvioMaterial(r.transferencia, actorName ?? actor), pdf: null,
+        });
+      } catch (err) {
+        toast(errMsg(err, 'No se pudo enviar a MGG'), 'error');
+      } finally {
+        setGuardando(false);
+      }
+      return;
+    }
+    if (conRecepcion) {
+      try {
+        const t = await enviarTrasladoTransito({
+          destino: destinoDep.almacen, nota: nota.trim() || null, fotos, actorName,
+          items: listos.map((it) => ({ producto_id: it.producto.id, cantidad: it.cantidad })),
+        });
+        setAviso({ titulo: `Traslado ${t.codigo} en camino a ${destinoDep.nombre}`, texto: mensajeEnvioTraslado(t, actorName ?? actor), pdf: null, fotos });
+        setGuardando(false);
+        return;
+      } catch (err) {
+        // Mientras no se aplique el SQL de la recepción, el traslado sigue como antes (directo).
+        if (errMsg(err, '') !== MSG_FALTA_SQL_TRASLADOS) {
+          toast(errMsg(err, 'No se pudo enviar el traslado'), 'error');
+          setGuardando(false);
+          return;
+        }
+        toast('La recepción de traslados todavía no está activa: se trasladó directo, como antes.', 'warning');
+      }
+    }
     try {
       const comun = { destino: destinoDep.almacen, nota: nota.trim() || null, actor, actor_name: actorName };
       const ts = listos.length === 1
@@ -674,7 +775,7 @@ function FormTraslado({
     }
   }
 
-  if (aviso) return <Listo titulo={aviso.titulo} texto={aviso.texto} pdf={aviso.pdf} onListo={() => { void onSaved(); }} />;
+  if (aviso) return <Listo titulo={aviso.titulo} texto={aviso.texto} pdf={aviso.pdf} fotos={aviso.fotos} onListo={() => { void onSaved(); }} />;
 
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
@@ -683,6 +784,13 @@ function FormTraslado({
       <div className="surt-campo">
         <label style={{ fontWeight: 600, marginBottom: '.35rem', display: 'block' }}>¿A cuál depósito se traslada?</label>
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(110px, 1fr))`, gap: '.5rem' }}>
+          {puedePuente && (
+            <button type="button" className={`btn ${aMgg ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ fontWeight: 600, minHeight: 46, padding: '.4rem .5rem', textAlign: 'center', fontSize: '.88rem' }}
+              onClick={() => setDestinoAlmacen(DESTINO_MGG)} title={DESTINO_MATERIAL_LABEL}>
+              🌐 MGG Los Pinos
+            </button>
+          )}
           {otros.map((d) => {
             const activo = destinoAlmacen === d.almacen;
             return (
@@ -700,18 +808,34 @@ function FormTraslado({
         </div>
       </div>
 
+      {aMgg ? (
+      <div className="aviso info sm">
+        <span className="aviso-icono">🌐</span>
+        <div>
+          Va por el <strong>puente al otro sistema</strong>: sale de {dep.nombre} y llega al <strong>Almacén Los Pinos de MGG</strong>,
+          donde lo confirman. Si allá lo rechazan o no llega, se devuelve desde «Envíos a MGG Los Pinos».
+        </div>
+      </div>
+      ) : (
       <div className="aviso info sm">
         <span className="aviso-icono">🔁</span>
-        <div>De <strong>{dep.nombre}</strong> a <strong>{destinoDep.nombre}</strong>. Si allá no existe un producto, se crea con el mismo nombre, categoría y unidad.</div>
+        <div>
+          De <strong>{dep.nombre}</strong> a <strong>{destinoDep.nombre}</strong>. Si allá no existe un producto, se crea con el mismo nombre, categoría y unidad.
+          {conRecepcion && <> <strong>Queda en camino</strong> hasta que {destinoDep.nombre} lo reciba: allá ven tus fotos y le dan entrada.</>}
+        </div>
       </div>
+      )}
       <ItemsLoteMovil items={items} onChange={setItems} productos={productos} lugar={dep.nombre} disabled={guardando} />
       <div className="surt-campo">
         <label htmlFor="inv-traslado-nota">Nota</label>
         <input id="inv-traslado-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Opcional: para qué, quién lo lleva…" autoComplete="off" />
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || !otros.length}>
-        {guardando ? 'Trasladando…' : `🔁 Trasladar a ${destinoDep.nombre}`}
+      {conRecepcion && (
+        <FotosTrasladoInput id="inv-traslado-fotos" fotos={fotos} onChange={setFotos} rotulo="Fotos de lo que envías" disabled={guardando} />
+      )}
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || (!otros.length && !aMgg)}>
+        {guardando ? (conRecepcion || aMgg ? 'Enviando…' : 'Trasladando…') : aMgg ? '🌐 Enviar a MGG Los Pinos' : conRecepcion ? `🚚 Enviar a ${destinoDep.nombre}` : `🔁 Trasladar a ${destinoDep.nombre}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro producto</button>
     </form>
