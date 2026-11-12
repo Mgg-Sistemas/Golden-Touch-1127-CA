@@ -226,7 +226,7 @@ export type TipoFotoDelivery = 'recibo' | 'entrega' | 'factura';
 export function rotuloFotos(origen: OrigenDelivery | null | undefined, tipo: TipoFotoDelivery): string {
   if (tipo === 'factura') return 'Factura del proveedor';
   if (tipo === 'entrega') return origen === 'almacen' ? 'De la entrega' : 'De la entrega en el almacén';
-  return origen === 'almacen' ? 'Al retirar en Almacén' : 'Al recibir del proveedor';
+  return origen === 'almacen' ? 'Al retirar en Almacén' : 'Fotos del producto (al recibir del proveedor)';
 }
 
 /** «🔹 *Orden:* OC-…» o «🔹 *Solicitud:* SP-…». */

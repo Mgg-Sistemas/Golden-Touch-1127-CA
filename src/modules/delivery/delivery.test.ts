@@ -72,7 +72,7 @@ describe('Delivery · retiro en Almacén Los Pinos (02/11/2026)', () => {
     expect(etiquetaEstado('entregado', 'compra')).toBe('Entregado en almacén');
     expect(etiquetaEstado('en_ruta')).toBe('En camino');
     expect(rotuloFotos('almacen', 'recibo')).toBe('Al retirar en Almacén');
-    expect(rotuloFotos('compra', 'recibo')).toBe('Al recibir del proveedor');
+    expect(rotuloFotos('compra', 'recibo')).toBe('Fotos del producto (al recibir del proveedor)');
   });
 
   it('mensajes: SP, «Retirar en», «Entregar a» / «Entregado a»', () => {

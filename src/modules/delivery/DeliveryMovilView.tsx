@@ -578,14 +578,15 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
       )}
       {enCurso && !p.es_mio && <div className="dlv-tomado">🛵 Tomado por <strong>{p.repartidor_nombre ?? 'otro delivery'}</strong>{p.aceptado_en ? ` · ${fechaHoraVE(p.aceptado_en)}` : ''}</div>}
 
-      {/* 02/11/2026: al aceptar queda «En camino»: ahí se suben las fotos al recibir / retirar y las de la entrega. */}
-      {(p.fotos_recibo.length > 0 || mioEnCurso) && (
-        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
-      )}
-      {/* 11/11/2026: compras → «CARGAR FACTURA» (fotos de la factura del proveedor; Compras las ve en «🧾 Factura»). */}
-      {!retiro && (p.fotos_factura.length > 0 || mioEnCurso) && (
-        <FotosPedido p={p} tipo="factura" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
-      )}
+      {/* 02/11/2026: al aceptar queda «En camino»: ahí se suben las fotos al recibir / retirar y las de la entrega.
+          12/11/2026: en compras van por segmentos «Cargar factura» (solo esta llega a Compras) y «Cargar foto del producto». */}
+      {retiro
+        ? (p.fotos_recibo.length > 0 || mioEnCurso) && (
+          <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
+        )
+        : (p.fotos_factura.length > 0 || p.fotos_recibo.length > 0 || mioEnCurso) && (
+          <SegmentosFotos p={p} puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
+        )}
       {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta')) && (
         <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && mioEnCurso && p.estado === 'en_ruta'} onCambio={onFotos} />
       )}
@@ -646,6 +647,28 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
   );
 }
 
+/* ── 12/11/2026: segmentos «Cargar factura» / «Cargar foto del producto» (compras) ── */
+
+function SegmentosFotos({ p, puedeSubir, onCambio }: { p: PedidoDelivery; puedeSubir: boolean; onCambio: () => void }) {
+  const [seg, setSeg] = useState<'factura' | 'recibo'>('factura');
+  return (
+    <div className="dlv-seg-wrap">
+      <div className="dlv-seg" role="tablist" aria-label="Fotos del pedido">
+        <button type="button" role="tab" aria-selected={seg === 'factura'} className={seg === 'factura' ? 'activo' : ''} onClick={() => setSeg('factura')}>
+          🧾 Cargar factura{p.fotos_factura.length ? ` (${p.fotos_factura.length})` : ''}
+        </button>
+        <button type="button" role="tab" aria-selected={seg === 'recibo'} className={seg === 'recibo' ? 'activo' : ''} onClick={() => setSeg('recibo')}>
+          📦 Cargar foto del producto{p.fotos_recibo.length ? ` (${p.fotos_recibo.length})` : ''}
+        </button>
+      </div>
+      {seg === 'factura'
+        ? <FotosPedido p={p} tipo="factura" puedeSubir={puedeSubir} onCambio={onCambio} />
+        : <FotosPedido p={p} tipo="recibo" puedeSubir={puedeSubir} onCambio={onCambio} />}
+      <small className="muted">{seg === 'factura' ? 'Solo la foto de la factura le llega a Compras.' : 'Las fotos del producto quedan en Delivery (no van a Compras).'}</small>
+    </div>
+  );
+}
+
 /* ── Fotos al recibir / de la entrega ── */
 
 function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
@@ -655,11 +678,12 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
   const [subiendo, setSubiendo] = useState(false);
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
   const titulo = tipo === 'recibo'
-    ? (esRetiroAlmacen(p) ? '📷 Fotos al retirar en Almacén' : '📷 Fotos al recibir')
+    ? (esRetiroAlmacen(p) ? '📷 Fotos al retirar en Almacén' : '📦 Fotos del producto')
     : tipo === 'factura' ? '🧾 Factura del proveedor'
     : (esRetiroAlmacen(p) ? '📷 Fotos de la entrega' : '📷 Fotos de la entrega en almacén');
   // 11/11/2026: los dos botones que pidió Compras.
   const boton = tipo === 'factura' ? '🧾 CARGAR FACTURA'
+    : tipo === 'recibo' && !esRetiroAlmacen(p) ? '📦 CARGAR FOTO DEL PRODUCTO'
     : tipo === 'entrega' && !esRetiroAlmacen(p) ? '📷 CARGAR FOTO ENTREGA EN ALMACÉN'
     : titulo;
   const id = `dlv-fotos-${tipo}-${claveDelivery(p).replace(':', '-')}`;
