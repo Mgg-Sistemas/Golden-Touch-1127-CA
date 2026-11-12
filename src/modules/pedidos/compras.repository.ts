@@ -384,6 +384,8 @@ export interface CrearCompraInput {
   nota?: string | null;
   /** Pago a externo (opcional): datos de la persona externa que pagó. */
   pagoExterno?: PagoExternoInput | null;
+  /** Compra fija de la que sale (12/11/2026). Solo se manda si viene. */
+  compraFijaId?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -464,6 +466,7 @@ export async function crearCompraDirecta(
       proveedor_nombre: input.proveedorNombre?.trim() || null,
       nota: input.nota?.trim() || null,
       ...columnasPagoExterno(input.pagoExterno),
+      ...(input.compraFijaId ? { compra_fija_id: input.compraFijaId } : {}),
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,

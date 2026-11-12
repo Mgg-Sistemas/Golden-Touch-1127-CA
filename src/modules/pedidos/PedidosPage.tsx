@@ -23,6 +23,11 @@ import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReel
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
+import { ComprasFijasModal } from './ComprasFijasModal';
+import { estadoFija, renglonesDePlantilla, cantidadesPrevias, textoEstadoFija, type CompraFija } from './comprasFijas';
+import { listComprasFijas, marcarCompraFijaGenerada, ultimosItemsDe } from './comprasFijas.repository';
+import { crearCompraDirecta as crearCompraDirectaFija } from './compras.repository';
+import { hoyVenezuela as hoyVenezuelaFijas } from '@/shared/lib/rangosFecha';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
@@ -311,7 +316,7 @@ function eventClass(ev: string): string {
 type ModalKind =
   | { kind: 'none' }
   | { kind: 'detail'; ordenId: string }
-  | { kind: 'create'; mercado?: boolean }
+  | { kind: 'create'; mercado?: boolean; compraFija?: CompraFija | null }
   | { kind: 'create_servicio' }
   | { kind: 'approve'; orden: Orden }
   | { kind: 'confirm-oc'; orden: Orden }
@@ -554,6 +559,56 @@ export function PedidosPage() {
   }, [canManageProcurement]);
   useEffect(() => { void refreshAlertas(); }, [refreshAlertas]);
   useRealtime(['alertas_mercado'], () => { void refreshAlertas(); });
+
+  // Compras FIJAS (12/11/2026): tablero, aviso de las que tocan y generación.
+  const [comprasFijas, setComprasFijas] = useState<CompraFija[]>([]);
+  const [comprasFijasOpen, setComprasFijasOpen] = useState(false);
+  const refreshComprasFijas = useCallback(async () => {
+    if (!canManageProcurement) { setComprasFijas([]); return; }
+    try { setComprasFijas((await listComprasFijas()).lista); } catch { /* best-effort */ }
+  }, [canManageProcurement]);
+  useEffect(() => { void refreshComprasFijas(); }, [refreshComprasFijas]);
+  useRealtime(['compras_fijas'], () => { void refreshComprasFijas(); });
+  // Aviso de la campana de una compra fija (?comprasFijas=1): abre el tablero.
+  useEffect(() => {
+    if (searchParams.get('comprasFijas') !== '1') return;
+    if (canManageProcurement) setComprasFijasOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('comprasFijas');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, canManageProcurement]);
+  const fijasQueTocan = useMemo(() => {
+    const hoy = hoyVenezuelaFijas();
+    return comprasFijas.filter((c) => ['vencida', 'hoy'].includes(estadoFija(c, hoy)));
+  }, [comprasFijas]);
+  const plantillaMercado = useMemo(
+    () => comprasFijas.find((c) => c.activa && c.finalidad === FINALIDAD_MERCADO) ?? null,
+    [comprasFijas],
+  );
+  function generarSolicitudFija(c: CompraFija) {
+    setComprasFijasOpen(false);
+    setModal({ kind: 'create', mercado: c.finalidad === FINALIDAD_MERCADO, compraFija: c });
+  }
+  async function generarCompraDirectaFija(c: CompraFija) {
+    try {
+      const previo = await ultimosItemsDe(c);
+      const renglones = renglonesDePlantilla(c, productos, cantidadesPrevias(previo.items));
+      if (!renglones.length) { toast('La compra fija no tiene productos: edítala y agrega categorías o productos.', 'error'); return; }
+      const creada = await crearCompraDirectaFija({
+        lineas: renglones.filter((r) => r.productoId).map((r) => ({ modo: 'existente' as const, productoId: r.productoId!, cantidad: Number(r.cantidad) || 1 })),
+        almacen: 'General', proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre,
+        nota: c.nota || `Compra fija: ${c.nombre}`, compraFijaId: c.id,
+        actor: usuario?.email ?? user?.email ?? 'sistema', actorName: usuario?.nombre ?? null,
+      }, productos);
+      await marcarCompraFijaGenerada(c, { tipo: 'compra_directa', id: creada.id, codigo: creada.codigo }).catch(() => { /* la compra ya quedó */ });
+      toast(`Compra directa ${creada.codigo ?? ''} creada en proceso con ${renglones.length} producto(s): ajusta cantidades y precios.`, 'success');
+      setComprasFijasOpen(false);
+      setScope('compra_directa');
+      void refreshComprasFijas();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo crear la compra directa', 'error');
+    }
+  }
 
   async function atenderAlerta(id: string) {
     try { await marcarAlertaAtendida(id, user?.email ?? 'sistema'); await refreshAlertas(); }
@@ -817,10 +872,16 @@ export function PedidosPage() {
             <button
               className="btn"
               style={{ background: 'var(--brand, #ff8a00)', color: '#111', fontWeight: 700 }}
-              onClick={() => setModal({ kind: 'create', mercado: true })}
+              onClick={() => setModal({ kind: 'create', mercado: true, compraFija: plantillaMercado })}
               title="Solicitud de MERCADO para Cocina: trae víveres y artículos de limpieza como checklist, con unidad/solicitante COCINA y marcada como URGENTE"
             >
               🛒 Solicitud de mercado
+            </button>
+          )}
+          {canManageProcurement && scope !== 'oc_lote' && scope !== 'almacen' && (
+            <button className="btn btn-ghost" onClick={() => setComprasFijasOpen(true)}
+              title="Compras que se repiten (Mercado, Papelería, Carnes, Pollo…): se generan con las cantidades de la última vez">
+              🔁 Compras fijas{fijasQueTocan.length ? ` · ${fijasQueTocan.length}` : ''}
             </button>
           )}
           {puedeCrearSolicitud && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
@@ -833,6 +894,19 @@ export function PedidosPage() {
           )}
         </div>
       </div>
+
+      {/* Compras fijas que tocan hoy o están vencidas (12/11/2026). */}
+      {canManageProcurement && fijasQueTocan.length > 0 && (
+        <div className="card" style={{ padding: '.8rem 1rem', marginBottom: '1rem', borderLeft: '4px solid var(--warning)', display: 'flex', gap: '.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontWeight: 800 }}>🔁 Compras fijas que tocan</div>
+            <div className="muted" style={{ fontSize: '.84rem' }}>
+              {fijasQueTocan.map((c) => `${c.icono} ${c.nombre} (${textoEstadoFija(c, hoyVenezuelaFijas()).toLowerCase()})`).join(' · ')}
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={() => setComprasFijasOpen(true)}>Ver y generar</button>
+        </div>
+      )}
 
       {/* Alerta de Cocina: hay que montar el mercado. Tarjeta para el analista. */}
       {canManageProcurement && alertasMercado.length > 0 && (
@@ -849,7 +923,7 @@ export function PedidosPage() {
                   {a.nota ? <> · <em>{a.nota}</em></> : null}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={() => setModal({ kind: 'create', mercado: true })} title="Crear la Solicitud de Pedido de MERCADO">
+              <button className="btn btn-primary" onClick={() => setModal({ kind: 'create', mercado: true, compraFija: plantillaMercado })} title="Crear la Solicitud de Pedido de MERCADO">
                 🛒 Montar mercado
               </button>
               <button className="btn btn-ghost" onClick={() => void atenderAlerta(a.id)} title="Marcar como atendida (quitar la alerta)">
@@ -1094,13 +1168,21 @@ export function PedidosPage() {
           usuario={usuario}
           authEmail={user?.email ?? ''}
           mercadoInicial={modal.mercado}
+          compraFija={modal.compraFija ?? null}
           rol={userRole}
           onClose={() => setModal({ kind: 'none' })}
           onCreated={async () => {
             setModal({ kind: 'none' });
             await refresh();
+            if (modal.compraFija) void refreshComprasFijas();
           }}
         />
+      )}
+
+      {comprasFijasOpen && (
+        <ComprasFijasModal productos={productos} proveedores={proveedores} puedeEditar={canManageProcurement}
+          onGenerarSolicitud={generarSolicitudFija} onGenerarDirecta={generarCompraDirectaFija}
+          onClose={() => setComprasFijasOpen(false)} />
       )}
 
       {/* Modal: crear Solicitud de Servicio (SS → CS) */}
@@ -4378,6 +4460,9 @@ interface CrearOrdenModalProps {
   /** Si viene true, abre en modo MERCADO (botón «Solicitud de mercado»): precarga
    *  víveres + limpieza como checklist, unidad/solicitante COCINA y orden URGENTE. */
   mercadoInicial?: boolean;
+  /** Compra FIJA de la que sale (12/11/2026): precarga sus productos con las cantidades
+   *  de la última vez, su solicitante, finalidad y urgencia, y queda amarrada a ella. */
+  compraFija?: CompraFija | null;
   /** Rol de quien crea (si `usuario` todavía no cargó). Decide los nombres genéricos. */
   rol?: string | null;
   onClose: () => void;
@@ -4388,6 +4473,7 @@ function CrearOrdenModal({
   usuario,
   authEmail,
   mercadoInicial,
+  compraFija,
   rol,
   onClose,
   onCreated,
@@ -4428,7 +4514,7 @@ function CrearOrdenModal({
   // recorrer todo el scroll a ojo. Filtrar solo esconde: nada sale de la
   // solicitud, y lo escondido se guarda igual con lo que se le haya puesto.
   const [filtroItems, setFiltroItems] = useState('');
-  const [notas, setNotas] = useState('');
+  const [notas, setNotas] = useState(compraFija?.nota ?? '');
   // Lectura del DOM al guardar: el guardado toma SIEMPRE lo que está escrito en
   // pantalla (solicitante, finalidad y nota), aunque algún re-render del modal no
   // haya sincronizado el estado. Es la fuente de verdad al crear la orden.
@@ -4451,7 +4537,7 @@ function CrearOrdenModal({
   const [codigo, setCodigo] = useState<string>('…');
   const [submitting, setSubmitting] = useState(false);
   // Prioridad: marca la OP como URGENTE. En MERCADO arranca marcada (editable).
-  const [urgente, setUrgente] = useState(!!mercadoInicial);
+  const [urgente, setUrgente] = useState(compraFija ? compraFija.urgente : !!mercadoInicial);
   // 04/11/2026: dónde entrega el delivery (le sale «Entregar en la sede: …»).
   const [sedeEntrega, setSedeEntrega] = useState<'los_pinos' | 'matanza'>('los_pinos');
   // Imágenes/PDF adjuntos opcionales (fotos del repuesto/equipo solicitado): hasta 4.
@@ -4482,8 +4568,29 @@ function CrearOrdenModal({
   const mercadoCargado = useRef(false);
   // De qué solicitud salieron las cantidades sugeridas (para decirlo en pantalla).
   const [mercadoPrevio, setMercadoPrevio] = useState<{ codigo: string; fecha: string } | null>(null);
+  // COMPRA FIJA (12/11/2026): los productos de la plantilla (categorías + fijos) con las
+  // cantidades de la última vez que se generó (si nunca, las del mercado anterior o 1).
+  const [fijaPrevio, setFijaPrevio] = useState<{ codigo: string; fecha: string } | null>(null);
+  const fijaCargada = useRef(false);
   useEffect(() => {
-    if (!mercadoInicial || mercadoCargado.current) return;
+    if (!compraFija || fijaCargada.current || !productos.length) return;
+    fijaCargada.current = true;
+    let vivo = true;
+    void (async () => {
+      let previo = await ultimosItemsDe(compraFija).catch(() => ({ items: [], codigo: null, fecha: null }));
+      if (!previo.codigo && compraFija.finalidad === FINALIDAD_MERCADO) {
+        const m = await getUltimaCompraMercado().catch(() => null);
+        if (m) previo = { items: m.items ?? [], codigo: m.codigo, fecha: m.created_at };
+      }
+      if (!vivo) return;
+      setItems(renglonesDePlantilla(compraFija, productos, cantidadesPrevias(previo.items)));
+      if (previo.codigo && previo.fecha) setFijaPrevio({ codigo: previo.codigo, fecha: previo.fecha });
+    })();
+    return () => { vivo = false; };
+  }, [compraFija, productos]);
+
+  useEffect(() => {
+    if (!mercadoInicial || compraFija || mercadoCargado.current) return;
     // Los productos llegan por una consulta ASINCRÓNICA de la página. Antes este
     // efecto corría una sola vez al montar y se marcaba como hecho pase lo que
     // pase: si en ese instante la lista todavía estaba vacía, el mercado quedaba
@@ -4528,7 +4635,7 @@ function CrearOrdenModal({
       if (previo?.codigo) setMercadoPrevio({ codigo: previo.codigo, fecha: previo.created_at });
     })();
     return () => { vivo = false; };
-  }, [mercadoInicial, productos]);
+  }, [mercadoInicial, compraFija, productos]);
 
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
@@ -4631,8 +4738,8 @@ function CrearOrdenModal({
 
   // Solicitante (persona) y Unidad solicitante: por defecto los del usuario logueado,
   // pero EDITABLES — un analista puede registrar la solicitud a nombre de otra persona.
-  const [solicitanteNombre, setSolicitanteNombre] = useState(mercadoInicial ? 'COCINA' : (usuario?.nombre ?? authEmail).toUpperCase());
-  const [unidadSolicitante, setUnidadSolicitante] = useState(mercadoInicial ? 'COCINA' : (usuario?.departamento ?? '').toUpperCase());
+  const [solicitanteNombre, setSolicitanteNombre] = useState(compraFija?.solicitante || (mercadoInicial ? 'COCINA' : (usuario?.nombre ?? authEmail).toUpperCase()));
+  const [unidadSolicitante, setUnidadSolicitante] = useState(compraFija?.unidad_solicitante || (mercadoInicial ? 'COCINA' : (usuario?.departamento ?? '').toUpperCase()));
 
   // Catálogos para el alta de producto nuevo (unidades del inventario).
   // Inventario único: el producto nuevo entra siempre al Inventario General ('General' en BD).
@@ -4811,7 +4918,8 @@ function CrearOrdenModal({
         items: itemsFinal,
         notas: notaFinal || null,
         motivo: null,
-        finalidad: mercado ? FINALIDAD_MERCADO : null,
+        finalidad: mercado ? FINALIDAD_MERCADO : (compraFija?.finalidad || null),
+        compra_fija_id: compraFija?.id ?? null,
         clasificacion: [],
         urgente,
         imagen_path: imagenPath,
@@ -4827,6 +4935,10 @@ function CrearOrdenModal({
       for (const f of imagenFiles.slice(1)) {
         await agregarAdjuntoDirecto('orden', saved.id, f, email ?? 'sistema').catch(() => { /* no bloquea la creación */ });
       }
+      if (compraFija) {
+        await marcarCompraFijaGenerada(compraFija, { tipo: 'orden', id: saved.id, codigo: saved.codigo })
+          .catch(() => toast('La solicitud quedó, pero no se pudo correr la fecha de la compra fija.', 'warning'));
+      }
       notify(`Nueva solicitud de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
     } catch (e) {
@@ -4840,7 +4952,7 @@ function CrearOrdenModal({
 
   return (
     <Modal
-      title={mercado ? '🛒 Solicitud de mercado (Cocina)' : 'Nueva solicitud de pedido'}
+      title={compraFija ? `${compraFija.icono} ${compraFija.nombre} · compra fija` : mercado ? '🛒 Solicitud de mercado (Cocina)' : 'Nueva solicitud de pedido'}
       size="lg"
       onClose={onClose}
       footer={
@@ -4911,6 +5023,17 @@ function CrearOrdenModal({
         </span>
         <span className="muted" style={{ fontSize: '.76rem' }}>Marca esta solicitud como prioritaria.</span>
       </label>
+
+      {compraFija && (
+        <div className="card" style={{ padding: '.7rem .9rem', marginBottom: '1rem', borderLeft: '4px solid var(--brand, #ff8a00)' }}>
+          <strong>🔁 Compra fija · {compraFija.nombre}</strong>
+          <span className="muted" style={{ fontSize: '.8rem' }}>
+            {' '}· {fijaPrevio
+              ? <>cantidades de la última vez: <strong className="mono">{fijaPrevio.codigo}</strong> ({dateTime(fijaPrevio.fecha)})</>
+              : 'primera vez: cantidades de la plantilla'}. Son editables.
+          </span>
+        </div>
+      )}
 
       {/* MERCADO: solo se activa desde el botón «Solicitud de mercado» (mercadoInicial).
           Se precarga la lista de víveres + limpieza como checklist más abajo. */}
