@@ -1,3 +1,4 @@
+import { skuVisible } from './nombresGenericos';
 import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -480,7 +481,7 @@ export function HistoricoPage() {
                 <tbody>
                   {o.items.map((it, i) => (
                     <tr key={`${it.sku}-${i}`}>
-                      <td>{it.nombre}{it.marca ? ` · ${it.marca}` : ''}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div></td>
+                      <td>{it.nombre}{it.marca ? ` · ${it.marca}` : ''}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}<div className="muted mono" style={{ fontSize: '.72rem' }}>{skuVisible(it.sku)}</div></td>
                       <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(it.precio, o.total_moneda)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda((Number(it.cantidad) || 0) * (Number(it.precio) || 0), o.total_moneda)}</td>

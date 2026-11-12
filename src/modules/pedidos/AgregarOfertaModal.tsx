@@ -21,6 +21,7 @@ import { listPresentaciones, crearPresentacion } from '@/modules/inventario/pres
 import { getUnidades } from '@/modules/inventario/inventario.repository';
 import { listProductosActivos } from './pedidos.repository';
 import { esPiezaMaquinaria, etiquetaRenglonPorAsignar, requiereAsignarProducto, type ProductoAsignable } from './piezasMaquinaria';
+import { productosParecidos } from './nombresParecidos';
 import { guardarVinculosPiezasEnOrden } from './piezasMaquinaria.repository';
 import { eleccionInicial, planFichas, renglonesBase, type ConSkuOrden, type DestinoRenglon, type EleccionNombreInventario, type FichaMin, type ModoNombreInventario } from './nombreInventario';
 import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
@@ -69,7 +70,7 @@ function nuevoUid(): string {
  * uno nuevo. Si hace falta un producto nuevo pide su categoría y unidad; se crea al guardar.
  */
 function CeldaNombreInventario({
-  item, eleccion, destino, fichaActual, opcionesProductos, unidades, bloqueada, onChange,
+  item, eleccion, destino, fichaActual, opcionesProductos, unidades, bloqueada, parecidos = [], onChange,
 }: {
   item: Pick<ItemOrden, 'sku' | 'nombre' | 'productoId' | 'unidad' | 'nombre_solicitado' | 'orden_servicio' | 'pieza_maquinaria' | 'nombre_generico'>;
   eleccion: EleccionNombreInventario | undefined;
@@ -79,6 +80,8 @@ function CeldaNombreInventario({
   unidades: string[];
   /** Oferta ya aceptada: el producto de la OC ya está fijado, solo se muestra. */
   bloqueada: boolean;
+  /** Productos del inventario parecidos al nombre (sugerencia «¿Es alguno de estos?»). */
+  parecidos?: FichaMin[];
   onChange: (patch: Partial<EleccionNombreInventario>) => void;
 }) {
   const modo: ModoNombreInventario = eleccion?.modo ?? 'como_viene';
@@ -126,6 +129,19 @@ function CeldaNombreInventario({
       )}
       {destino?.tipo === 'incompleto' && (
         <small style={{ ...chico, color: 'var(--warning, #f59e0b)' }}>⚠️ {mayus(destino.falta)}.</small>
+      )}
+      {destino?.tipo === 'crear' && !bloqueada && parecidos.length > 0 && (
+        <div style={{ ...chico, border: '1px dashed var(--warning, #f59e0b)', borderRadius: 6, padding: '.3rem .4rem' }}>
+          💡 ¿Es alguno de estos? Ya están en el inventario:
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', marginTop: '.25rem' }}>
+            {parecidos.map((p) => (
+              <button key={p.id} type="button" className="btn btn-ghost btn-sm" style={{ fontSize: '.72rem', justifyContent: 'flex-start', textAlign: 'left' }}
+                title="Vincular el renglón a este producto" onClick={() => onChange({ modo: 'existente', productoId: p.id })}>
+                ↪ {p.nombre} <span className="mono muted">{p.sku}{p.unidad ? ` · ${p.unidad}` : ''}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       {destino?.tipo === 'crear' && (
         <>
@@ -1003,6 +1019,9 @@ export function AgregarOfertaModal({
                             opcionesProductos={opcionesProductosInv}
                             unidades={unidadesInv}
                             bloqueada={nombreInvBloqueado}
+                            parecidos={planInv?.destinos.get(it.sku)?.tipo === 'crear'
+                              ? productosParecidos((elecciones[it.sku]?.modo === 'nuevo' ? elecciones[it.sku]?.nombre : null) || it.nombre, catalogo, 3)
+                              : []}
                             onChange={(patch) => updateEleccion(it, patch)}
                           />
                         )}

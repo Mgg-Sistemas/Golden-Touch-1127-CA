@@ -1,3 +1,4 @@
+import { skuVisible } from './nombresGenericos';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { jsPDF as jsPDFType } from 'jspdf';
 import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
@@ -166,7 +167,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     startY: y,
     head: [['SKU', 'Producto', 'Finalidad', 'Cantidad', 'Medida', 'Precio unit.', 'Subtotal']],
     body: orden.items.map((it) => [
-      it.sku,
+      skuVisible(it.sku),
       pdfSafe(it.nombre),
       pdfSafe(it.finalidad?.trim()) || '—',
       num(it.cantidad),

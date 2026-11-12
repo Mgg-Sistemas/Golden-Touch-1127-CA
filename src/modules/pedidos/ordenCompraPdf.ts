@@ -1,3 +1,4 @@
+import { skuVisible } from './nombresGenericos';
 import { supabase } from '@/shared/lib/supabase';
 import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
 import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
@@ -546,7 +547,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
           it.kg_recarga ? `${agua ? 'Litros a recargar' : 'KG a recargar'}: ${num(it.kg_recarga)}` : '',
         ].filter(Boolean).join('   ');
         return [
-          it.sku,
+          skuVisible(it.sku),
           pdfSafe(ficha ? `${it.nombre}\n${ficha}` : it.nombre),
           num(it.cantidad),
           pdfSafe(String(it.unidad ?? '').trim()) || 'UND',

@@ -1,3 +1,4 @@
+import { skuVisible } from './nombresGenericos';
 import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -166,7 +167,7 @@ export function MaterialesDemandaModal({ ordenes, onClose }: Props) {
                 const pct = Math.max(2, (v / max) * 100);
                 return (
                   <div key={`${r.sku}-${i}`} style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '.6rem', alignItems: 'center' }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '.82rem' }} title={`${r.sku} · ${r.nombre}`}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '.82rem' }} title={`${skuVisible(r.sku)} · ${r.nombre}`}>
                       <strong className="mono">{r.sku !== '—' ? r.sku : ''}</strong> {r.nombre}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
@@ -198,7 +199,7 @@ export function MaterialesDemandaModal({ ordenes, onClose }: Props) {
                 {sorted.map((r, i) => (
                   <tr key={`${r.sku}-row-${i}`}>
                     <td className="mono" style={{ textAlign: 'right' }}>{i + 1}</td>
-                    <td className="mono">{r.sku}</td>
+                    <td className="mono">{skuVisible(r.sku)}</td>
                     <td>{r.nombre}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(r.ordenes)}</td>

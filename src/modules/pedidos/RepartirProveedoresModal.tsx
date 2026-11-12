@@ -1,3 +1,4 @@
+import { skuVisible } from './nombresGenericos';
 import { Fragment, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -208,7 +209,7 @@ export function RepartirProveedoresModal({
               return (
                 <Fragment key={keyItem(it)}>
                 <tr>
-                  <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                  <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.72rem' }}>{skuVisible(it.sku)}</div>
                     {of && fichaEn(it, of) && (
                       <div style={{ fontSize: '.72rem', fontWeight: 600, color: 'var(--brand, #ff8a00)', marginTop: '.15rem' }}>🏷 {fichaEn(it, of)}</div>
                     )}

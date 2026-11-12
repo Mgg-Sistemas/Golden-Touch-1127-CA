@@ -21,6 +21,20 @@ export const ROLES_PIDEN_CON_PRODUCTO: readonly string[] = ['analista_de_compras
 /** Prefijo del sku provisional de un renglón genérico (no choca con los de categorías). */
 export const PREFIJO_SKU_GENERICO = 'SPG-';
 
+/** ¿Es el sku provisional de un renglón genérico (SPG-…)? No es un código real del inventario. */
+export function esSkuProvisional(sku: string | null | undefined): boolean {
+  return String(sku ?? '').trim().toUpperCase().startsWith(PREFIJO_SKU_GENERICO);
+}
+
+/**
+ * El sku para MOSTRAR (pantallas y PDF): el provisional SPG-… no se muestra porque no es
+ * un código del inventario; sale `vacio` hasta que el analista le pone el producto al cotizar.
+ */
+export function skuVisible(sku: string | null | undefined, vacio = '—'): string {
+  const v = String(sku ?? '').trim();
+  return !v || esSkuProvisional(v) ? vacio : v;
+}
+
 /** ¿La SP que se está creando va con nombres genéricos? */
 export function spConNombresGenericos(p: {
   /** Interruptor `compras_revision_almacen`. */

@@ -8,6 +8,7 @@
      WhatsApp (con las fotos) y el PDF.
    · HistoricoRecepcionesMovil: las recepciones de ese almacén, con su PDF y su WhatsApp.
    ============================================================ */
+import { skuVisible } from '@/modules/pedidos/nombresGenericos';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { previewGaleria } from '@/shared/lib/reportePreview';
@@ -125,7 +126,7 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
         const llego = cantidadesRecibidas(p, cants)[i];
         return (
           <div key={`${it.sku}-${i}`} className="surt-lote-item">
-            <div className="surt-lote-cab"><strong>{it.nombre}</strong><span className="muted mono" style={{ fontSize: '.8rem' }}>{it.sku}</span></div>
+            <div className="surt-lote-cab"><strong>{it.nombre}</strong><span className="muted mono" style={{ fontSize: '.8rem' }}>{skuVisible(it.sku)}</span></div>
             <div className="muted" style={{ fontSize: '.8rem' }}>Pedido: {num(pedida)} {it.unidad ?? ''}{!it.productoId ? ' · sin ficha en inventario (no suma stock)' : ''}</div>
             <input className="input surt-litros" inputMode="decimal" value={cants[i]} placeholder={num(pedida)} disabled={guardando}
               aria-label={`Cuánto llegó de ${it.nombre}`}

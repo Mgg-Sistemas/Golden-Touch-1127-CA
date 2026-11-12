@@ -1,3 +1,4 @@
+import { skuVisible } from '@/modules/pedidos/nombresGenericos';
 import { Quien } from '@/shared/ui/Quien';
 import { LEYENDA_AL_DIA, TITULO_AL_DIA, textoWhatsappTesoreriaAlDia } from './tesoreriaAlDia';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -3280,7 +3281,7 @@ function RetencionesTesoreriaModal({ onClose }: { onClose: () => void }) {
                 <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
                 <tbody>
                   {(o.items ?? []).map((it, i) => (
-                    <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td>
+                    <tr key={i}><td>{it.nombre}{skuVisible(it.sku, '') ? <span className="muted"> · {it.sku}</span> : null}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad).toLocaleString('es-VE', { maximumFractionDigits: 2 })}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td></tr>
                   ))}
@@ -6797,7 +6798,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <tbody>
               {(o.items ?? []).map((it, i) => (
                 <tr key={`${it.sku}-${i}`}>
-                  <td className="mono">{it.sku}</td><td>{it.nombre}</td>
+                  <td className="mono">{skuVisible(it.sku)}</td><td>{it.nombre}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, o.total_moneda ?? 'USD')}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, o.total_moneda ?? 'USD')}</td>

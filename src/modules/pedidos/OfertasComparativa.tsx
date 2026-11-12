@@ -1,3 +1,4 @@
+import { skuVisible } from './nombresGenericos';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
@@ -543,7 +544,7 @@ export function OfertasComparativa({
                                       {(it.marca || it.modelo) && (
                                         <div style={{ fontSize: '.72rem', fontWeight: 600 }}>{[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
                                       )}
-                                      <div className="muted mono" style={{ fontSize: '.7rem' }}>{it.sku ?? ''}</div>
+                                      <div className="muted mono" style={{ fontSize: '.7rem' }}>{skuVisible(it.sku, '')}</div>
                                     </td>
                                     <td className="num mono">
                                       {cant}{it.unidad ? ` ${it.unidad}` : ''}

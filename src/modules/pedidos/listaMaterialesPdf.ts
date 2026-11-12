@@ -18,6 +18,7 @@
  * perezoso (no carga la librería hasta que alguien pide el PDF), logo opcional y
  * `previewPdf`, que abre la vista previa y descarga solo si se presiona Descargar.
  */
+import { skuVisible } from './nombresGenericos';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { dateTime, num } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -110,7 +111,7 @@ export async function descargarListaMaterialesPdf(orden: Orden): Promise<void> {
     head: [['#', 'SKU', esServicio ? 'Servicio' : 'Material', 'Marca / Modelo', 'Cantidad', 'Medida', 'Finalidad', 'Precio unit.']],
     body: items.map((it, i) => [
       String(i + 1),
-      it.sku ?? '—',
+      skuVisible(it.sku),
       pdfSafe(it.nombre),
       marcaModelo(it),
       num(it.cantidad),

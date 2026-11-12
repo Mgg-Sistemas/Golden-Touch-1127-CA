@@ -48,7 +48,8 @@ import { confirmarRetiroOc, retencionAntesDePagar } from './pedidos.repository';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
-import { agregarNombreGenerico, itemsParaSpGenerica, normalizarNombreGenerico, spConNombresGenericos } from './nombresGenericos';
+import { agregarNombreGenerico, itemsParaSpGenerica, normalizarNombreGenerico, skuVisible, spConNombresGenericos } from './nombresGenericos';
+import { productoMismoNombre, productosParecidos } from './nombresParecidos';
 import {
   aprobarOrden,
   aprobarOcsEnLote,
@@ -2730,7 +2731,7 @@ function RecepcionParcialModal({
               const falta = rec < Number(it.cantidad);
               return (
                 <tr key={it.sku}>
-                  <td className="mono">{it.sku}</td>
+                  <td className="mono">{skuVisible(it.sku)}</td>
                   <td>
                     {it.nombre}
                     {orden.tipo !== 'servicio' && <MarcaRecibidaCampos item={it} valor={marcas[it.sku] ?? { marca: '', modelo: '' }} onChange={(v) => cambiarMarca(it.sku, v)} />}
@@ -4006,7 +4007,7 @@ function OrdenDetailModal({
         <tbody>
           {o.items.map((it, idx) => (
             <tr key={`${it.sku}-${idx}`} style={{ opacity: !conPrecio && it.comprar === false ? 0.5 : 1 }}>
-              <td className="mono">{it.sku}</td>
+              <td className="mono">{skuVisible(it.sku)}</td>
               <td>
                 {it.nombre}
                 {tieneMarcaModelo(it) && (
@@ -4531,6 +4532,29 @@ function CrearOrdenModal({
   const genNombreRef = useRef<HTMLInputElement>(null);
   const genCantRef = useRef<HTMLInputElement>(null);
   const [genUnidad, setGenUnidad] = useState('und');
+  // Sugerencia (12/11/2026): mientras se escribe, los productos del inventario que se le
+  // parecen. Tocar uno pone ESE nombre (así al cotizar se liga solo al producto que existe).
+  const [genTexto, setGenTexto] = useState('');
+  const fichasGeneral = useMemo(
+    () => (modoGenerico ? productos.filter((p) => (p.almacen ?? 'General') === 'General') : []),
+    [modoGenerico, productos],
+  );
+  const genTextoListo = normalizarNombreGenerico(genTexto);
+  const genExacto = useMemo(
+    () => (genTextoListo.length >= 3 ? productoMismoNombre(genTextoListo, fichasGeneral) : null),
+    [genTextoListo, fichasGeneral],
+  );
+  const genParecidos = useMemo(
+    () => (genTextoListo.length >= 3 ? productosParecidos(genTextoListo, fichasGeneral, 5) : []),
+    [genTextoListo, fichasGeneral],
+  );
+  function usarNombreSugerido(p: Producto) {
+    if (genNombreRef.current) genNombreRef.current.value = p.nombre;
+    setGenTexto(p.nombre);
+    if (p.unidad) setGenUnidad(p.unidad);
+    genCantRef.current?.focus();
+    genCantRef.current?.select();
+  }
   function agregarGenerico() {
     const nombre = normalizarNombreGenerico(genNombreRef.current?.value);
     if (nombre.length < 3) { toast('Escribe qué necesitas (nombre general, mínimo 3 letras)', 'error'); genNombreRef.current?.focus(); return; }
@@ -4541,6 +4565,7 @@ function CrearOrdenModal({
     toast(r.repetido ? `«${nombre}» ya estaba en la solicitud: se sumó la cantidad` : `«${nombre}» agregado a la solicitud`, r.repetido ? 'info' : 'success');
     if (genNombreRef.current) { genNombreRef.current.value = ''; genNombreRef.current.focus(); }
     if (genCantRef.current) genCantRef.current.value = '1';
+    setGenTexto('');
   }
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
@@ -5197,7 +5222,7 @@ function CrearOrdenModal({
                 <div>{it.nombre}</div>
                 {it.nombre_generico
                   ? <div className="muted" style={{ fontSize: '.72rem' }} title="El analista de compras le pone el producto del inventario al cotizar">📝 Nombre genérico</div>
-                  : <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>}
+                  : <div className="muted mono" style={{ fontSize: '.72rem' }}>{skuVisible(it.sku)}</div>}
               </div>
               {/* Cantidad + unidad de medida del producto (KG, L, und…). */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
@@ -5288,6 +5313,7 @@ function CrearOrdenModal({
                 aria-label="Nombre general de lo que se necesita"
                 placeholder="¿Qué necesitas? *"
                 defaultValue=""
+                onInput={(e) => setGenTexto(e.currentTarget.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarGenerico(); } }}
               />
               <input
@@ -5306,6 +5332,24 @@ function CrearOrdenModal({
               </select>
               <button type="button" className="btn btn-primary btn-sm" onClick={agregarGenerico}>+ Añadir</button>
             </div>
+            {genExacto && (
+              <small style={{ color: 'var(--success)', fontSize: '.76rem' }}>
+                ✓ «{genExacto.nombre}» ya está en el inventario ({genExacto.unidad}): al cotizar se vincula solo a ese producto.
+              </small>
+            )}
+            {genParecidos.length > 0 && (
+              <div style={{ fontSize: '.76rem' }}>
+                <span className="muted">💡 Sugerencia: en el inventario hay {genParecidos.length === 1 ? 'uno parecido' : 'parecidos'}. Si es ese, tócalo para usar su nombre:</span>
+                <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginTop: '.3rem' }}>
+                  {genParecidos.map((p) => (
+                    <button key={p.id} type="button" className="btn btn-ghost btn-sm" style={{ fontSize: '.74rem' }}
+                      title={`Usar «${p.nombre}» (${p.sku})`} onClick={() => usarNombreSugerido(p)}>
+                      {p.nombre} <span className="muted">· {p.unidad}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {!modoGenerico && !cargandoModo && (<>
@@ -5850,7 +5894,7 @@ function EditarOrdenModal({
                       value={it.nombre}
                       title="Editar nombre del producto (se actualiza también en el inventario)"
                       onChange={(e) => updateItem(idx, { nombre: e.target.value })} />
-                    <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.15rem' }}>{it.sku}</div>
+                    <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.15rem' }}>{skuVisible(it.sku)}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
                     <input className="input mono" type="number" min={0} step="any" style={{ flex: 1, minWidth: 0 }}

@@ -13,6 +13,7 @@
    02/11/2026 · Solo Los Pinos (el Depósito Mina no entra en la revisión) y
    cada botón de lote responde con un aviso de lo que hizo.
    ============================================================ */
+import { skuVisible } from '@/modules/pedidos/nombresGenericos';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
@@ -211,7 +212,7 @@ function TarjetaPorRevisar({ s, revision, stock, sugerido, nota, onNota, onFijar
                 <tr key={idx}>
                   <td data-col="Producto">
                     <strong>{it.nombre}</strong>
-                    {it.sku && <span className="muted mono" style={{ fontSize: '.75rem', marginLeft: '.4rem' }}>{it.sku}</span>}
+                    {skuVisible(it.sku, '') && <span className="muted mono" style={{ fontSize: '.75rem', marginLeft: '.4rem' }}>{it.sku}</span>}
                     {sug && <span className="spa-sugerido">Parecido en inventario: {sug.nombre} · hay {num(sug.stock)} {sug.unidad}</span>}
                     <BarraCobertura solicitada={sol} disponible={tiene} />
                   </td>

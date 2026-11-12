@@ -1,3 +1,4 @@
+import { skuVisible } from '@/modules/pedidos/nombresGenericos';
 import { useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
@@ -192,7 +193,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
               const falta = rec < Number(it.cantidad);
               return (
                 <tr key={it.sku}>
-                  <td className="mono">{it.sku}</td>
+                  <td className="mono">{skuVisible(it.sku)}</td>
                   <td>
                     {it.nombre}
                     {!esServicio && <MarcaRecibidaCampos item={it} valor={marcas[it.sku] ?? { marca: '', modelo: '' }} onChange={(v) => cambiarMarca(it.sku, v)} />}
@@ -443,7 +444,7 @@ function DetalleRecepcionModal({ orden, onClose }: { orden: Orden; onClose: () =
                 <tr key={`${it.sku || it.nombre}-${i}`}>
                   <td>
                     {it.nombre}
-                    {it.sku && <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>}
+                    {skuVisible(it.sku, '') && <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>}
                     {f && <div style={{ fontSize: '.72rem', fontWeight: 600, color: 'var(--brand, #ff8a00)' }}>🏷 {f}</div>}
                   </td>
                   <td className="num mono">{num(cant)}{it.unidad ? ` ${it.unidad}` : ''}</td>

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ItemOrden } from '@/shared/lib/types';
 import {
   PREFIJO_SKU_GENERICO, agregarNombreGenerico, itemsParaSpGenerica, normalizarNombreGenerico,
-  renglonGenerico, skuProvisionalGenerico, spConNombresGenericos,
+  esSkuProvisional, renglonGenerico, skuProvisionalGenerico, skuVisible, spConNombresGenericos,
 } from './nombresGenericos';
 
 describe('¿la SP va con nombres genéricos?', () => {
@@ -67,5 +67,17 @@ describe('renglones genéricos', () => {
     expect(r[0].sku.startsWith(PREFIJO_SKU_GENERICO)).toBe(true);
     expect(r[0]).toMatchObject({ nombre: 'FILTRO DE AIRE', marca: 'CAT' });
     expect(r[1]).toBe(items[1]);
+  });
+});
+
+describe('sku provisional (SPG-) no se muestra', () => {
+  it('pantallas y PDF muestran un guion hasta que se le pone el producto', () => {
+    expect(esSkuProvisional('SPG-3MLSI')).toBe(true);
+    expect(esSkuProvisional(' spg-abc ')).toBe(true);
+    expect(esSkuProvisional('PAP-012')).toBe(false);
+    expect(skuVisible('SPG-3MLSI')).toBe('—');
+    expect(skuVisible('SPG-3MLSI', '')).toBe('');
+    expect(skuVisible('PAP-012')).toBe('PAP-012');
+    expect(skuVisible(null)).toBe('—');
   });
 });

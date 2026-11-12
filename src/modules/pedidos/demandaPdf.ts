@@ -1,3 +1,4 @@
+import { skuVisible } from './nombresGenericos';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -96,7 +97,7 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
   for (const r of top) {
     const v = valOf(r);
     const w = Math.max(1, (v / max) * chartW);
-    const label = r.sku && r.sku !== '—' ? r.sku : r.nombre;
+    const label = skuVisible(r.sku) !== '—' ? skuVisible(r.sku) : r.nombre;
     doc.setTextColor(40);
     doc.text(truncar(label, 24), MARGIN, y + barH - 3);
     doc.setFillColor(255, 138, 0); // naranja de marca
@@ -110,7 +111,7 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
   autoTable(doc, {
     startY: y,
     head: [['#', 'SKU', 'Producto', 'Cantidad', 'Órdenes', 'Monto total']],
-    body: rows.map((r, i) => [String(i + 1), r.sku, r.nombre, num(r.cantidad), num(r.ordenes), money(r.monto)]),
+    body: rows.map((r, i) => [String(i + 1), skuVisible(r.sku), r.nombre, num(r.cantidad), num(r.ordenes), money(r.monto)]),
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },

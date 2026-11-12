@@ -1,3 +1,4 @@
+import { skuVisible } from '@/modules/pedidos/nombresGenericos';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
@@ -658,7 +659,7 @@ function RetencionModal({ item, canWrite, actor, tieneResueltosEnLibro, impuesto
             <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
             <tbody>
               {(o.items ?? []).map((it, i) => (
-                <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(it.precio)}</td></tr>
+                <tr key={i}><td>{it.nombre}{skuVisible(it.sku, '') ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(it.precio)}</td></tr>
               ))}
             </tbody>
           </table>
