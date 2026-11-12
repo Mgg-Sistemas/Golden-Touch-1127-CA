@@ -3027,7 +3027,7 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOf
                       analista={o.oc_creada_por || o.aprobada_por || analistaOferta?.get(o.id) || null}
                       onConfirmarRetiro={onConfirmarRetiro}
                       confirmandoRetiro={confirmandoRetiro === o.id}
-                    />
+          />
                   ))}
                   {ocultas > 0 && (
                     <Link to="/app/pedidos/historico" className="kanban-mas" title="Ver el resto en el Histórico"
@@ -4053,7 +4053,7 @@ function OrdenDetailModal({
                       title={it.comprar === false ? 'Marcar para comprar' : 'Quitar de la compra'}
                       onChange={(e) => toggleComprar(it.sku, e.target.checked)}
                       style={{ cursor: 'pointer' }}
-                    />
+          />
                   ) : (
                     it.comprar === false ? '—' : '✓'
                   )}
@@ -4145,7 +4145,6 @@ function OrdenDetailModal({
           fase={o.estado}
           tipoOperacion={isOcCreada ? 'Orden de Compra' : o.tipo === 'servicio' ? 'Servicio' : 'Solicitud de Pedido'}
           ordenActual={o}
-          todasLasOrdenes={ordenes}
         />
       </div>
 
@@ -5279,14 +5278,14 @@ function CrearOrdenModal({
                     placeholder="Marca (opcional)"
                     defaultValue={it.marca ?? ''}
                     onChange={(e) => updateItem(idx, { marca: e.target.value.toUpperCase() || null })}
-                  />
+        />
                   <input
                     className="input"
                     style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
                     placeholder="Modelo (opcional)"
                     defaultValue={it.modelo ?? ''}
                     onChange={(e) => updateItem(idx, { modelo: e.target.value.toUpperCase() || null })}
-                  />
+        />
                 </div>
               </div>
             )}
@@ -6389,3 +6388,5 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
     </Modal>
   );
 }
+
+
