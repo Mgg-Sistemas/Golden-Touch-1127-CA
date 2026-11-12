@@ -13,7 +13,7 @@
    con esa OC abierta. «Reporte» arma el PDF / Excel / WhatsApp con vista previa.
    ============================================================ */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
@@ -32,6 +32,10 @@ import {
 import { bs, describirFiltros, fechaCorta, usd } from './reporteConciliacion';
 import { FiltroChecks } from '@/shared/ui/FiltroChecks';
 import { ReporteConciliacionModal } from './ReporteConciliacionModal';
+import { CruceDriveModal } from './CruceDriveModal';
+import { leerArchivoDrive } from './conciliacion.repository';
+import { PLANTILLA_DRIVE_CSV, cruzarDrive, type CruceDrive } from './cruceDrive';
+import { toast } from '@/shared/ui/Toast';
 import { ComprobantesPagoModal, FacturasDirectaModal, ReferenciaModal } from './DocumentosConciliacion';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
@@ -79,6 +83,29 @@ export function ConciliacionPage() {
   const [referencia, setReferencia] = useState<FilaConciliacion | null>(null);
   const [notasDisponibles, setNotasDisponibles] = useState(true);
   const [reporte, setReporte] = useState(false);
+  // Cruce con el archivo del Drive (CSV/Excel, 12/11/2026).
+  const [drive, setDrive] = useState<{ cruce: CruceDrive; archivo: File } | null>(null);
+  const [leyendoDrive, setLeyendoDrive] = useState(false);
+  const inputDrive = useRef<HTMLInputElement>(null);
+  async function cargarDrive(file: File | undefined) {
+    if (inputDrive.current) inputDrive.current.value = '';
+    if (!file) return;
+    setLeyendoDrive(true);
+    try {
+      const lectura = await leerArchivoDrive(file);
+      setDrive({ cruce: cruzarDrive(lectura, filas), archivo: file });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo leer el archivo', 'error');
+    } finally {
+      setLeyendoDrive(false);
+    }
+  }
+  function descargarPlantillaDrive() {
+    const url = URL.createObjectURL(new Blob(['\uFEFF' + PLANTILLA_DRIVE_CSV], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'plantilla-drive-conciliacion.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
   // Cambios hechos en esta pantalla (referencia o comprobantes): se reflejan sin recargar todo.
   const actualizarFila = (r: FilaConciliacion, cambio: Partial<FilaConciliacion>) =>
     setFilas((xs) => xs.map((x) => (x.origen === r.origen && x.ordenId === r.ordenId ? { ...x, ...cambio } : x)));
@@ -101,6 +128,21 @@ export function ConciliacionPage() {
   useEffect(() => { void cargar(); }, [cargar]);
 
   const filtradas = useMemo(() => renumerar(filtrarFilas(filas, f, diaVE)), [filas, f]);
+  // Contadores de la columna DRIVE (con los demás filtros, sin el del Drive): al tocarlos se filtra.
+  const conteoDrive = useMemo(() => {
+    const base = filtrarFilas(filas, { ...f, drive: undefined }, diaVE);
+    return {
+      total: base.length,
+      cuadra: base.filter((r) => r.drive?.estado === 'cuadra').length,
+      no_cuadra: base.filter((r) => r.drive?.estado === 'no_cuadra').length,
+      sin: base.filter((r) => !r.drive).length,
+    };
+  }, [filas, f]);
+  const alternarDrive = (k: 'cuadra' | 'no_cuadra' | 'sin') => setF((x) => {
+    const ya = x.drive ?? [];
+    const next = ya.includes(k) ? ya.filter((y) => y !== k) : [...ya, k];
+    return { ...x, drive: next.length ? next : undefined };
+  });
   const k = useMemo(() => indicadores(filtradas), [filtradas]);
   const estados = useMemo(() => [...new Set(filas.map((r) => r.estadoLabel))].sort((a, b) => a.localeCompare(b, 'es')), [filas]);
   const hayFiltros = JSON.stringify(f) !== JSON.stringify(FILTROS_VACIOS);
@@ -135,6 +177,15 @@ export function ConciliacionPage() {
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>↻ Actualizar</button>
+          {puedeAnotar && notasDisponibles && (<>
+            <input ref={inputDrive} type="file" hidden accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={(e) => void cargarDrive(e.target.files?.[0])} />
+            <button className="btn btn-ghost" onClick={() => inputDrive.current?.click()} disabled={cargando || leyendoDrive}
+              title="Cargar el CSV o Excel del Drive/Banco (código OC, referencia y monto en Bs) y cruzarlo">
+              {leyendoDrive ? 'Leyendo…' : '📂 Cargar Drive/Banco (CSV/Excel)'}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={descargarPlantillaDrive} title="Plantilla CSV: Codigo OC; Referencia; Monto Bs">⬇ Plantilla</button>
+          </>)}
           <button className="btn btn-primary" onClick={() => setReporte(true)} disabled={cargando || !filtradas.length}>📊 Reporte</button>
         </div>
       </div>
@@ -197,6 +248,18 @@ export function ConciliacionPage() {
         {hayFiltros && <button className="btn btn-ghost btn-sm" onClick={() => setF(FILTROS_VACIOS)}>Limpiar</button>}
       </div>
 
+      {/* ── Contadores del Drive: tocar filtra (se pueden marcar varios) ── */}
+      <div style={{ display: 'flex', gap: '.45rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+        <ChipDrive activo={!f.drive?.length} color="var(--text-muted, #9ca3af)" onClick={() => set('drive', undefined)}
+          texto={`${conteoDrive.total} pagos`} titulo="Todos (quita el filtro de DRIVE/BANCO)" />
+        <ChipDrive activo={!!f.drive?.includes('cuadra')} color="#10b981" onClick={() => alternarDrive('cuadra')}
+          texto={`${conteoDrive.cuadra} cuadra`} titulo="Ver los que CUADRAN con el Drive/Banco" />
+        <ChipDrive activo={!!f.drive?.includes('no_cuadra')} color="#ef4444" onClick={() => alternarDrive('no_cuadra')}
+          texto={`${conteoDrive.no_cuadra} no cuadra`} titulo="Ver los que NO CUADRAN con el Drive/Banco" />
+        <ChipDrive activo={!!f.drive?.includes('sin')} color="#eab308" onClick={() => alternarDrive('sin')}
+          texto={`${conteoDrive.sin} sin cruzar`} titulo="Ver los que todavía no se cruzaron con el Drive/Banco" />
+      </div>
+
       {/* ── Tabla ── */}
       <div className="table-wrap card">
         <table className="table">
@@ -211,12 +274,13 @@ export function ConciliacionPage() {
               <th>Retención</th>
               <th>Factura</th>
               <th>Estatus</th>
+              <th>DRIVE/BANCO</th>
             </tr>
           </thead>
           <tbody>
-            {cargando && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Cargando…</td></tr>}
+            {cargando && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Cargando…</td></tr>}
             {!cargando && !filtradas.length && (
-              <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>
+              <tr><td colSpan={10} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>
                 {filas.length ? 'Ninguna OC coincide con los filtros.' : 'Todavía no hay OC.'}
               </td></tr>
             )}
@@ -291,6 +355,14 @@ export function ConciliacionPage() {
                       : <span className="muted">Sin factura</span>}
                 </td>
                 <td><span className={`badge ${r.estadoClase}`}>{r.estadoLabel}</span></td>
+                <td>
+                  {r.drive
+                    ? <span className={`badge ${r.drive.estado === 'cuadra' ? 'success' : 'danger'}`} style={{ cursor: 'help', whiteSpace: 'nowrap' }}
+                        title={[r.drive.detalle, r.drive.archivo && `Archivo: ${r.drive.archivo}`, r.drive.en && `${fechaCorta(r.drive.en)}${r.drive.por ? ` · ${r.drive.por}` : ''}`].filter(Boolean).join('\n')}>
+                        {r.drive.estado === 'cuadra' ? 'CUADRA' : 'NO CUADRA'}
+                      </span>
+                    : <span className="muted">—</span>}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -357,6 +429,10 @@ export function ConciliacionPage() {
           onGuardado={(ref) => actualizarFila(referencia, conReferencia(referencia, ref))}
           onClose={() => setReferencia(null)} />
       )}
+      {drive && (
+        <CruceDriveModal cruce={drive.cruce} archivo={drive.archivo} actor={actor}
+          onClose={() => setDrive(null)} onAplicado={() => void cargar()} />
+      )}
       {reporte && <ReporteConciliacionModal todas={filas} filtros={f} onClose={() => setReporte(false)} />}
     </div>
   );
@@ -375,5 +451,17 @@ function TarjetaKpi({ icono, titulo, valor, nota, onClick, cargando }: {
       <div className="delta" style={{ color: 'var(--text-muted)' }}>{cargando ? 'Cargando…' : nota}</div>
       <div className="icon" aria-hidden="true">{icono}</div>
     </div>
+  );
+}
+
+function ChipDrive({ texto, titulo, color, activo, onClick }: { texto: string; titulo: string; color: string; activo: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} title={titulo} aria-pressed={activo}
+      style={{
+        border: `1px solid ${activo ? color : 'transparent'}`, borderRadius: 999, padding: '.3rem .8rem', cursor: 'pointer',
+        fontSize: '.84rem', fontWeight: 600, color, background: `color-mix(in srgb, ${color} ${activo ? 26 : 14}%, transparent)`,
+      }}>
+      {texto}
+    </button>
   );
 }

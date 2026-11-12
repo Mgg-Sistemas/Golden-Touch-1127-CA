@@ -13,7 +13,7 @@ import {
 
 export type ClaveColumna =
   | 'item' | 'codigo' | 'tipo' | 'proveedor' | 'montoUsd' | 'montoBs' | 'tasa'
-  | 'referencia' | 'retencion' | 'estado' | 'fechaPago';
+  | 'referencia' | 'retencion' | 'estado' | 'fechaPago' | 'drive';
 
 export interface ColumnaReporte {
   clave: ClaveColumna;
@@ -33,10 +33,11 @@ export const COLUMNAS_REPORTE: ColumnaReporte[] = [
   { clave: 'retencion', titulo: 'Retención' },
   { clave: 'estado', titulo: 'Estatus' },
   { clave: 'fechaPago', titulo: 'Fecha de pago' },
+  { clave: 'drive', titulo: 'DRIVE/BANCO' },
 ];
 
 export const COLUMNAS_POR_DEFECTO: ClaveColumna[] = [
-  'item', 'codigo', 'tipo', 'proveedor', 'montoUsd', 'montoBs', 'referencia', 'retencion', 'estado',
+  'item', 'codigo', 'tipo', 'proveedor', 'montoUsd', 'montoBs', 'referencia', 'retencion', 'estado', 'drive',
 ];
 
 export type Agrupacion = 'ninguna' | 'tipo' | 'estado' | 'proveedor' | 'retencion';
@@ -114,6 +115,7 @@ export function celda(r: FilaConciliacion, c: ClaveColumna): string {
     case 'retencion': return textoRetencion(r);
     case 'estado': return r.estadoLabel;
     case 'fechaPago': return fechaCorta(r.fechaPago);
+    case 'drive': return r.drive ? (r.drive.estado === 'cuadra' ? 'CUADRA' : 'NO CUADRA') : '—';
   }
 }
 
@@ -166,6 +168,7 @@ export function describirFiltros(f: FiltrosConciliacion): string {
     f.estado ? `Estatus: ${f.estado}` : '',
     f.estados?.length ? `Estatus: ${f.estados.join(', ')}` : '',
     f.tipos?.length ? `Solo ${f.tipos.map((t) => GRUPO_TIPO[t].toLowerCase()).join(' y ')}` : '',
+    f.drive?.length ? `DRIVE/BANCO: ${f.drive.map((d) => (d === 'cuadra' ? 'cuadra' : d === 'no_cuadra' ? 'no cuadra' : 'sin cruzar')).join(', ')}` : '',
     f.pago === 'pagadas' ? 'Pagadas' : f.pago === 'sin_pagar' ? 'Sin pagar' : '',
     f.tipo && f.tipo !== 'todas' ? `Solo ${GRUPO_TIPO[f.tipo].toLowerCase()}` : '',
     f.retencion === 'con' ? 'Con retención' : f.retencion === 'sin' ? 'Sin retención' : '',

@@ -63,10 +63,23 @@ export interface ArchivoNota {
   por?: string | null;
 }
 
-/** Lo que Conciliación anota por documento: la referencia (lapicito) y comprobantes. */
+export type EstadoDrive = 'cuadra' | 'no_cuadra';
+
+/** Resultado del cruce con el archivo del Drive (columna DRIVE, 12/11/2026). */
+export interface DriveConciliacion {
+  estado: EstadoDrive;
+  detalle: string | null;
+  archivo: string | null;
+  archivoPath: string | null;
+  en: string | null;
+  por: string | null;
+}
+
+/** Lo que Conciliación anota por documento: la referencia (lapicito), comprobantes y el cruce del Drive. */
 export interface NotaConciliacion {
   referencia: string | null;
   comprobantes: ArchivoNota[];
+  drive?: DriveConciliacion | null;
 }
 
 /** Un comprobante del pago que cargó Tesorería (bucket compras-oc). */
@@ -112,6 +125,8 @@ export interface FilaConciliacion {
   llevaRetencion: boolean;
   retenciones: LineaRetencion[];
   anulada: boolean;
+  /** Cruce con el archivo del Drive: CUADRA / NO CUADRA (null = no se ha cruzado). */
+  drive: DriveConciliacion | null;
 }
 
 /* ─────────────── Estatus (lenguaje de Compras) ─────────────── */
@@ -292,6 +307,7 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
       llevaRetencion: retenciones.length > 0,
       retenciones,
       anulada: ESTADOS_ANULADOS.has(o.estado),
+      drive: nota?.drive ?? null,
     };
   });
 }
@@ -385,6 +401,7 @@ export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): Fi
       llevaRetencion: retenciones.length > 0,
       retenciones,
       anulada: false,
+      drive: nota?.drive ?? null,
     };
   });
 }
@@ -411,6 +428,8 @@ export interface FiltrosConciliacion {
   estados?: string[];
   /** Varios tipos a la vez (filtro con casillas). Vacío = todos. */
   tipos?: TipoOrden[];
+  /** Columna DRIVE: cuadra, no cuadra o sin cruzar. Vacío = todos. */
+  drive?: Array<EstadoDrive | 'sin'>;
   pago: FiltroPago;
   desde: string;  // YYYY-MM-DD ('' = sin tope)
   hasta: string;
@@ -433,6 +452,7 @@ export function filtrarFilas(filas: FilaConciliacion[], f: FiltrosConciliacion, 
     if (f.tipo && f.tipo !== 'todas' && r.tipo !== f.tipo) return false;
     if (f.estados?.length && !f.estados.includes(r.estadoLabel)) return false;
     if (f.tipos?.length && !f.tipos.includes(r.tipo)) return false;
+    if (f.drive?.length && !f.drive.includes(r.drive?.estado ?? 'sin')) return false;
     if (f.retencion === 'con' && !r.llevaRetencion) return false;
     if (f.retencion === 'sin' && r.llevaRetencion) return false;
     if (f.pago === 'pagadas' && !r.pagada) return false;

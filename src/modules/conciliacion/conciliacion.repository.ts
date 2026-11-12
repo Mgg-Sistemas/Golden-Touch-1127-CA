@@ -27,9 +27,10 @@ import { listRetenciones } from '@/modules/libroFiscal/retencionesFiscal.reposit
 import { diaVE, getTasaHoy, getTasasUsdDeFechas } from '@/modules/tesoreria/tasas.repository';
 import {
   armarFilas, claveDoc, combinarFilas, filasDirectas,
-  type ArchivoNota, type ComprobanteTesoreria, type DocDirecto, type FilaConciliacion,
+  type ArchivoNota, type ComprobanteTesoreria, type DocDirecto, type DriveConciliacion, type EstadoDrive, type FilaConciliacion,
   type NotaConciliacion, type OrigenDoc, type PagoOc, type RetencionLibro,
 } from './conciliacion';
+import { leerMatrizDrive, parsearCsv, type CruceDrive, type LecturaDrive } from './cruceDrive';
 
 export interface DatosConciliacion {
   filas: FilaConciliacion[];
@@ -89,19 +90,37 @@ async function facturasCargadas(modulo: ModuloDirecto, origen: OrigenDoc, ids: s
   return m;
 }
 
-interface FilaNota { doc_tipo: OrigenDoc; doc_id: string; referencia: string | null; comprobantes: ArchivoNota[] | null }
+interface FilaNota {
+  doc_tipo: OrigenDoc; doc_id: string; referencia: string | null; comprobantes: ArchivoNota[] | null;
+  drive_estado?: EstadoDrive | null; drive_detalle?: string | null; drive_archivo?: string | null;
+  drive_archivo_path?: string | null; drive_en?: string | null; drive_por?: string | null;
+}
+
+const COLS_NOTA = 'doc_tipo, doc_id, referencia, comprobantes';
+const COLS_DRIVE = ', drive_estado, drive_detalle, drive_archivo, drive_archivo_path, drive_en, drive_por';
 
 async function notasConciliacion(): Promise<{ notas: Map<string, NotaConciliacion>; disponible: boolean }> {
-  const { data, error } = await supabase.from(TABLA_NOTAS).select('doc_tipo, doc_id, referencia, comprobantes');
+  let { data, error } = await supabase.from(TABLA_NOTAS).select(COLS_NOTA + COLS_DRIVE);
+  // Sin las columnas del Drive todavía (SQL sin aplicar): se lee lo de siempre.
+  if (error && (error.code === '42703' || /column .* does not exist/i.test(error.message ?? ''))) {
+    ({ data, error } = await supabase.from(TABLA_NOTAS).select(COLS_NOTA));
+  }
   if (error) {
     if (esTablaFaltante(error)) return { notas: new Map(), disponible: false };
     throw error;
   }
   const notas = new Map<string, NotaConciliacion>();
-  for (const r of (data ?? []) as FilaNota[]) {
+  for (const r of (data ?? []) as unknown as FilaNota[]) {
+    const drive: DriveConciliacion | null = r.drive_estado
+      ? {
+        estado: r.drive_estado, detalle: r.drive_detalle ?? null, archivo: r.drive_archivo ?? null,
+        archivoPath: r.drive_archivo_path ?? null, en: r.drive_en ?? null, por: r.drive_por ?? null,
+      }
+      : null;
     notas.set(claveDoc(r.doc_tipo, r.doc_id), {
       referencia: r.referencia?.trim() || null,
       comprobantes: Array.isArray(r.comprobantes) ? r.comprobantes : [],
+      drive,
     });
   }
   return { notas, disponible: true };
@@ -295,6 +314,75 @@ export async function quitarComprobanteConciliacion(
   await guardarNota(origen, id, { comprobantes: lista }, actor);
   await supabase.storage.from(BUCKET_NOTAS).remove([path]).catch(() => { /* el registro ya no está */ });
   return lista;
+}
+
+/* ─────────────── Cruce con el archivo del Drive (12/11/2026) ─────────────── */
+
+export const MSG_FALTA_SQL_DRIVE =
+  'Falta aplicar en Supabase el SQL 2026-11-12-conciliacion-drive.sql (columna DRIVE de Conciliación).';
+
+const EXT_DRIVE: Record<string, string> = {
+  csv: 'text/csv',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+};
+
+const extension = (nombre: string) => (nombre.split('.').pop() ?? '').toLowerCase();
+
+/** Valida y lee el CSV o Excel del Drive (como la importación de Inventario). */
+export async function leerArchivoDrive(file: File): Promise<LecturaDrive> {
+  const ext = extension(file.name);
+  if (!EXT_DRIVE[ext]) throw new Error(`«${file.name}» no es CSV ni Excel (.csv, .xlsx o .xls).`);
+  if (file.size > 10 * 1024 * 1024) throw new Error(`«${file.name}» supera los 10 MB.`);
+  if (!file.size) throw new Error(`«${file.name}» está vacío.`);
+  let matriz: unknown[][];
+  if (ext === 'csv') {
+    const buf = await file.arrayBuffer();
+    let texto = new TextDecoder('utf-8').decode(buf);
+    // Un CSV guardado desde Excel en Windows suele venir en ANSI: los acentos salen rotos en UTF-8.
+    if (texto.includes('\uFFFD')) texto = new TextDecoder('windows-1252').decode(buf);
+    matriz = parsearCsv(texto);
+  } else {
+    const XLSX = await import('xlsx-js-style');
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const util = XLSX.utils as unknown as { sheet_to_json: <T>(ws: unknown, o?: unknown) => T[] };
+    const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
+    if (!hoja) throw new Error('El Excel no tiene hojas con datos.');
+    matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
+  }
+  if (!matriz.length) throw new Error('El archivo no tiene filas.');
+  return leerMatrizDrive(matriz);
+}
+
+/**
+ * Guarda el resultado del cruce: el archivo queda en el bucket (drive/…) y cada documento
+ * cruzado anota CUADRA / NO CUADRA. Lo que no venía en el archivo no se toca.
+ */
+export async function aplicarCruceDrive(cruce: CruceDrive, file: File, actor: { email: string; nombre?: string | null }): Promise<number> {
+  if (!cruce.porDoc.size) throw new Error('Ninguna fila del archivo se cruzó con Conciliación: no hay nada que guardar.');
+  const ext = extension(file.name);
+  const stamp = `${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}`;
+  const path = `drive/${stamp}-${file.name.replace(/[^\w.-]+/g, '_')}`;
+  const subida = await supabase.storage.from(BUCKET_NOTAS).upload(path, file, { upsert: false, contentType: EXT_DRIVE[ext] });
+  // Si el archivo no se pudo guardar (p. ej. el bucket aún no acepta CSV/Excel), el cruce igual se anota.
+  const archivoPath = subida.error ? null : path;
+  const ahora = new Date().toISOString();
+  const filas = [...cruce.porDoc.values()].map((d) => ({
+    doc_tipo: d.origen, doc_id: d.ordenId,
+    drive_estado: d.estado, drive_detalle: d.detalle.slice(0, 500),
+    drive_archivo: file.name.slice(0, 200), drive_archivo_path: archivoPath, drive_en: ahora,
+    drive_por: actor.nombre || actor.email,
+  }));
+  for (let i = 0; i < filas.length; i += 200) {
+    const { error } = await supabase.from(TABLA_NOTAS).upsert(filas.slice(i, i + 200), { onConflict: 'doc_tipo,doc_id' });
+    if (error) {
+      if (esTablaFaltante(error)) throw new Error(MSG_FALTA_SQL_CONCILIACION);
+      if (error.code === '42703' || error.code === 'PGRST204' || /drive_/i.test(error.message ?? '')) throw new Error(MSG_FALTA_SQL_DRIVE);
+      if (error.code === '42501') throw new Error('No tienes permiso de escritura en Conciliación o Tesorería.');
+      throw error;
+    }
+  }
+  return filas.length;
 }
 
 export async function urlComprobanteConciliacion(path: string): Promise<string> {
