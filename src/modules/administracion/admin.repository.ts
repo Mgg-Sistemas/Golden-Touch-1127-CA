@@ -503,8 +503,34 @@ export interface AdminRepo {
   /** Anula un movimiento (estado_pago = 'anulado'); queda fuera de los totales del reporte. */
   anularMovimiento(id: string): Promise<void>;
   /** Genera los pendientes que faltan hasta `hasta` (default hoy), idempotente. Devuelve cuántos creó. */
-  generarPendientes(empresaClave?: string, hasta?: Date): Promise<{ creados: number }>;
-  marcarPagado(id: string): Promise<void>;
+  /**
+   * Genera los pendientes del periodo y los manda a Tesoreria.
+   *
+   * Devuelve cuantos LLEGARON de verdad: antes el envio se hacia en silencio y,
+   * si fallaba, la pantalla seguia diciendo «van a Tesoreria» aunque no hubiera
+   * ido ninguno (12/11/2026). Los que no llegaron quedan creados y se envian
+   * uno a uno con `enviarMovimientoATesoreria`.
+   */
+  generarPendientes(empresaClave?: string, hasta?: Date): Promise<{ creados: number; enTesoreria: number }>;
+  /**
+   * Manda un pendiente a Tesoreria como servicio directo «por pagar».
+   *
+   * Administracion NO paga (regla de la lider, 12/11/2026): solo envia, y despues
+   * mira el estado y el comprobante. Antes habia un boton «Pagar» que marcaba el
+   * movimiento como pagado SIN tocar Tesoreria: dos verdades sobre el mismo dinero.
+   *
+   * A diferencia del puente automatico, este LANZA el error si falla, para que la
+   * pantalla pueda decirlo en vez de dar por enviado algo que no salio.
+   */
+  enviarMovimientoATesoreria(mov: Movimiento, actor?: string): Promise<void>;
+  /** Trae de Tesoreria el estado de los pendientes ya enviados (si ya se pagaron). */
+  refrescarMovimientos(empresaClave?: string): Promise<void>;
+  /** URL firmada del comprobante que cargo Tesoreria al pagar (o null). */
+  urlComprobanteMovimiento(mov: Movimiento): Promise<string | null>;
+  /** Cuantos movimientos genero una plantilla de gasto fijo. */
+  contarMovimientosDeGasto(gastoFijoId: string): Promise<number>;
+  /** Borra la plantilla. Falla si ya genero movimientos: dejarlos huerfanos seria peor. */
+  borrarGastoFijo(id: string): Promise<void>;
   /** Papeles legales y permisos (RIF, actas, Rupdae, Mintras…), más recientes primero. */
   listDocumentos(empresaClave?: string): Promise<DocumentoEmpresa[]>;
   /** Sube un PDF/imagen al bucket y lo registra con metadatos y auditoría inicial. */
@@ -1252,7 +1278,7 @@ export function crearRepoSupabase(): AdminRepo {
       if (me) throw me;
       const existentes = (mRows ?? []).map((r) => ({ gastoFijoId: (r as { gasto_fijo_id: string }).gasto_fijo_id, periodo: (r as { periodo: string }).periodo }));
       const nuevos = calcularPendientes(gastos, existentes, hasta);
-      if (!nuevos.length) return { creados: 0 };
+      if (!nuevos.length) return { creados: 0, enTesoreria: 0 };
       const filas = nuevos.map((n) => deMov({
         empresaClave: n.empresaClave, gastoFijoId: n.gastoFijoId, concepto: n.concepto, proveedorNombre: null,
         categoriaGastoId: n.categoriaGastoId, periodo: n.periodo, fecha: n.fecha, monto: n.monto, moneda: n.moneda,
@@ -1271,6 +1297,7 @@ export function crearRepoSupabase(): AdminRepo {
       // reintento de los que fallen la materialización, y que la nota use el nombre de la
       // empresa (no la clave). Mientras la columna no exista, el `update` del marcador es un
       // no-op silencioso y los pendientes quedan igualmente creados.
+      let enTesoreria = 0;
       try {
         const { data: auth } = await supabase.auth.getUser();
         const actor = auth.user?.email ?? 'sistema';
@@ -1289,13 +1316,73 @@ export function crearRepoSupabase(): AdminRepo {
             // enlace a la plantilla va en el movimiento (gasto_fijo_id + servicio_directo_id), no aquí.
             await supabase.from('servicios_directos').update({ empresa_clave: mov.empresaClave }).eq('id', sd.id);
             await supabase.from(T_MOV).update({ servicio_directo_id: sd.id }).eq('id', mov.id);
-          } catch { /* un pendiente que no se pudo materializar queda creado sin SD (se reintentará) */ }
+            enTesoreria += 1;
+          } catch { /* queda creado sin llegar a Tesorería; se envía desde la pantalla */ }
         }
-      } catch { /* sin sesión / columnas aún sin aplicar: los pendientes quedan creados igual */ }
-      return { creados: nuevos.length };
+      } catch { /* sin sesión: los pendientes quedan creados y se envían uno a uno */ }
+      return { creados: nuevos.length, enTesoreria };
     },
-    async marcarPagado(id) {
-      const { error } = await supabase.from(T_MOV).update({ estado_pago: 'pagado' }).eq('id', id);
+    async enviarMovimientoATesoreria(mov, actor) {
+      if (mov.servicioDirectoId) throw new Error('Este pendiente ya esta en Tesoreria.');
+      if (mov.estadoPago === 'anulado') throw new Error('Un pendiente anulado no se envia.');
+      const quien = actor || (await supabase.auth.getUser()).data.user?.email || 'sistema';
+      const sd = await crearServicioDirecto({
+        lineas: [{ descripcion: mov.concepto, cantidad: 1 }],
+        proveedorNombre: mov.proveedorNombre ?? null,
+        nota: notaPendiente(mov.empresaClave, mov.periodo),
+        moneda: mov.moneda, actor: quien,
+      });
+      try {
+        await enviarServicioAPagar({
+          servicio: sd,
+          items: [{ descripcion: mov.concepto, cantidad: 1, gasto: mov.monto }],
+          moneda: mov.moneda, actor: quien,
+        });
+        await supabase.from('servicios_directos').update({ empresa_clave: mov.empresaClave }).eq('id', sd.id);
+        const { error } = await supabase.from(T_MOV).update({ servicio_directo_id: sd.id }).eq('id', mov.id);
+        if (error) throw error;
+      } catch (e) {
+        // Si el enlace no se pudo completar, no dejamos un servicio suelto en Tesoreria.
+        await eliminarServicioDirecto(sd).catch(() => { /* queda para limpieza manual */ });
+        throw e;
+      }
+    },
+    async refrescarMovimientos(empresaClave) {
+      let q = supabase.from(T_MOV).select('id, servicio_directo_id').eq('estado_pago', 'pendiente').not('servicio_directo_id', 'is', null);
+      if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+      const { data, error } = await q;
+      if (error) return;
+      for (const row of (data ?? [])) {
+        const r = row as { id: string; servicio_directo_id: string | null };
+        if (!r.servicio_directo_id) continue;
+        const { data: sd } = await supabase.from('servicios_directos')
+          .select('estado,pagada_at').eq('id', r.servicio_directo_id).maybeSingle();
+        const x = sd as { estado?: string; pagada_at?: string | null } | null;
+        if (x && (x.estado === 'finalizada' || x.pagada_at)) {
+          await supabase.from(T_MOV).update({ estado_pago: 'pagado' }).eq('id', r.id);
+        }
+      }
+    },
+    async urlComprobanteMovimiento(mov) {
+      if (!mov.servicioDirectoId) return null;
+      const { data, error } = await supabase.from('servicios_directos')
+        .select('adjunto_path').eq('id', mov.servicioDirectoId).maybeSingle();
+      if (error) return null;
+      const path = (data as { adjunto_path?: string | null } | null)?.adjunto_path ?? null;
+      return path ? urlAdjuntoServicio(path) : null;
+    },
+    async contarMovimientosDeGasto(gastoFijoId) {
+      const { count, error } = await supabase.from(T_MOV)
+        .select('id', { count: 'exact', head: true }).eq('gasto_fijo_id', gastoFijoId);
+      if (error) return 0;
+      return count ?? 0;
+    },
+    async borrarGastoFijo(id) {
+      const usados = await this.contarMovimientosDeGasto(id);
+      if (usados > 0) {
+        throw new Error(`No se puede borrar: esta plantilla ya genero ${usados} movimiento(s). Suspendela para que deje de generar.`);
+      }
+      const { error } = await supabase.from(T_GF).delete().eq('id', id);
       if (error) throw error;
     },
     async listDocumentos(empresaClave) {

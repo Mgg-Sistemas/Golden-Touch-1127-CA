@@ -92,6 +92,24 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
     }
   }
 
+  /**
+   * Quita una plantilla cargada por error (por ejemplo, de otra empresa).
+   *
+   * Solo si todavia no genero movimientos: borrarla con historial los dejaria
+   * huerfanos. En ese caso el repositorio explica por que no se puede y se
+   * ofrece suspenderla, que es lo que corta la generacion sin perder nada.
+   */
+  async function quitar(g: GastoFijo) {
+    const usados = await repo.contarMovimientosDeGasto(g.id).catch(() => 0);
+    const aviso = usados > 0
+      ? `«${g.concepto}» ya generó ${usados} movimiento(s), así que no se puede borrar. ¿Quieres suspenderla para que deje de generar?`
+      : `¿Quitar «${g.concepto}»? Todavía no generó nada, así que no se pierde historial.`;
+    if (!window.confirm(aviso)) return;
+    if (usados > 0) { await alternarEstado({ ...g, estado: 'activo' }); return; }
+    try { await repo.borrarGastoFijo(g.id); toast('Plantilla eliminada.', 'success'); await cargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar.', 'error'); }
+  }
+
   function abrirWhatsApp() {
     const filas = filasTablero(gastos, empresas, nombreCat);
     const empresaNombre = empresaClave ? nombreEmp.get(empresaClave) ?? empresaClave : null;
@@ -192,6 +210,11 @@ export function GastosFijosTab({ repo, empresaClave, empresas, puedeEscribir = t
                           <>
                             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModal({ gasto: g })}>Editar</button>
                             <button type="button" className="btn btn-sm btn-ghost" onClick={() => void alternarEstado(g)}>{g.estado === 'activo' ? 'Suspender' : 'Activar'}</button>
+                            <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#ef4444' }}
+                              onClick={() => void quitar(g)}
+                              title="Quitar una plantilla cargada por error. Solo se puede si todavía no generó movimientos.">
+                              Eliminar
+                            </button>
                           </>
                         ) : <span className="muted">—</span>}
                       </td>

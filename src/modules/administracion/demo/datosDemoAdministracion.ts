@@ -343,11 +343,28 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
           estadoPago: 'pendiente', origen: 'generado', servicioDirectoId: `demo-sd-${n.periodo}-${(n.gastoFijoId ?? '').slice(0, 6)}`,
         });
       }
-      return Promise.resolve({ creados: nuevos.length });
+      return Promise.resolve({ creados: nuevos.length, enTesoreria: nuevos.length });
     },
-    marcarPagado: (id) => {
-      const i = movimientos.findIndex((m) => m.id === id);
-      if (i >= 0) movimientos[i] = { ...movimientos[i], estadoPago: 'pagado' };
+    enviarMovimientoATesoreria: (mov: Movimiento) => {
+      const i = movimientos.findIndex((m) => m.id === mov.id);
+      if (i < 0) return Promise.reject(new Error('No existe el pendiente.'));
+      if (movimientos[i].servicioDirectoId) return Promise.reject(new Error('Este pendiente ya esta en Tesoreria.'));
+      movimientos[i] = { ...movimientos[i], servicioDirectoId: `demo-sd-${uid()}` };
+      return Promise.resolve();
+    },
+    // En el doble, Tesoreria nunca paga sola: el estado no cambia solo.
+    refrescarMovimientos: () => Promise.resolve(),
+    urlComprobanteMovimiento: (mov: Movimiento) =>
+      Promise.resolve(mov.servicioDirectoId ? `https://demo/comprobante/${mov.servicioDirectoId}` : null),
+    contarMovimientosDeGasto: (gastoFijoId: string) =>
+      Promise.resolve(movimientos.filter((m) => m.gastoFijoId === gastoFijoId).length),
+    borrarGastoFijo: (id: string) => {
+      const usados = movimientos.filter((m) => m.gastoFijoId === id).length;
+      if (usados > 0) {
+        return Promise.reject(new Error(`No se puede borrar: esta plantilla ya genero ${usados} movimiento(s). Suspendela para que deje de generar.`));
+      }
+      const i = gastos.findIndex((g: GastoFijo) => g.id === id);
+      if (i >= 0) gastos.splice(i, 1);
       return Promise.resolve();
     },
     listDocumentos: (empresaClave) => Promise.resolve(

@@ -51,6 +51,9 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
   const mostrarEmpresa = empresaClave == null;
 
   const cargar = useCallback(async () => {
+    // Tesoreria es quien paga: antes de pintar, se trae de alla el estado de lo ya
+    // enviado. Si no, Administracion mostraria «pendiente» algo ya pagado.
+    await repo.refrescarMovimientos(empresaClave || undefined).catch(() => { /* sin conexion: se vera el estado guardado */ });
     setCargando(true);
     setError(null);
     try {
@@ -80,8 +83,12 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
   async function generar() {
     setGenerando(true);
     try {
-      const { creados } = await repo.generarPendientes(empresaClave ?? undefined);
-      toast(creados ? `Se generaron ${creados} pendiente(s) y van a Tesorería.` : 'No había pendientes nuevos para este período.', creados ? 'success' : 'info');
+      const { creados, enTesoreria } = await repo.generarPendientes(empresaClave ?? undefined);
+      // Se dice lo que PASO, no lo que se esperaba que pasara.
+      if (!creados) toast('No había pendientes nuevos para este período.', 'info');
+      else if (enTesoreria === creados) toast(`Se generaron ${creados} pendiente(s) y llegaron a Tesorería.`, 'success');
+      else if (enTesoreria === 0) toast(`Se generaron ${creados} pendiente(s), pero NINGUNO llegó a Tesorería. Envíalos con el botón «Enviar a Tesorería».`, 'warning');
+      else toast(`Se generaron ${creados} pendiente(s); ${enTesoreria} llegaron a Tesorería y ${creados - enTesoreria} no. Envía esos con el botón «Enviar a Tesorería».`, 'warning');
       if (creados) await cargar();
     } catch (e) {
       toast(`No se pudieron generar: ${e instanceof Error ? e.message : 'error'}`, 'error');
@@ -89,9 +96,27 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
       setGenerando(false);
     }
   }
-  async function pagar(m: Movimiento) {
-    try { await repo.marcarPagado(m.id); toast('Marcado como pagado.', 'success'); await cargar(); }
-    catch (e) { toast(`No se pudo: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+  /**
+   * Administracion NO paga: manda el pendiente a Tesoreria y despues mira el
+   * estado y el comprobante. Antes habia un boton «Pagar» que marcaba el
+   * movimiento como pagado sin que Tesoreria se enterara.
+   */
+  async function enviarATesoreria(m: Movimiento) {
+    try {
+      await repo.enviarMovimientoATesoreria(m);
+      toast('Enviado a Tesorería como cuenta por pagar.', 'success');
+      await cargar();
+    } catch (e) {
+      toast(`No se pudo enviar: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    }
+  }
+
+  async function verComprobante(m: Movimiento) {
+    try {
+      const url = await repo.urlComprobanteMovimiento(m);
+      if (!url) { toast('Tesorería todavía no cargó el comprobante.', 'info'); return; }
+      window.open(url, '_blank', 'noopener');
+    } catch { toast('No se pudo abrir el comprobante.', 'error'); }
   }
   async function confirmarAnular() {
     if (!anular) return;
@@ -171,7 +196,18 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
                       {puedeEscribir && m.estadoPago !== 'anulado' && (
                         <>
                           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm({ mov: m })}>Editar</button>
-                          {m.estadoPago === 'pendiente' && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void pagar(m)}>Pagar</button>}
+                          {m.estadoPago === 'pendiente' && !m.servicioDirectoId && (
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void enviarATesoreria(m)}
+                              title="Lo manda a Tesorería como cuenta por pagar. Administración no paga.">
+                              Enviar a Tesorería
+                            </button>
+                          )}
+                          {m.servicioDirectoId && (
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void verComprobante(m)}
+                              title="Comprobante que cargó Tesorería al pagar">
+                              Comprobante
+                            </button>
+                          )}
                           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAnular(m)}>Anular</button>
                         </>
                       )}
