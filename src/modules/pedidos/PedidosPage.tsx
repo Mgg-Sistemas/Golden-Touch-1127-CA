@@ -4144,6 +4144,8 @@ function OrdenDetailModal({
           contextoModulo="compras"
           fase={o.estado}
           tipoOperacion={isOcCreada ? 'Orden de Compra' : o.tipo === 'servicio' ? 'Servicio' : 'Solicitud de Pedido'}
+          ordenActual={o}
+          todasLasOrdenes={ordenes}
         />
       </div>
 

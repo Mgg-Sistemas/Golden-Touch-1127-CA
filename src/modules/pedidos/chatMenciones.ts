@@ -51,7 +51,8 @@ export interface DestinatarioMencion {
 
 /**
  * Resuelve las menciones encontradas a emails de destinatarios válidos,
- * cruzando con PERSONAS_CONOCIDAS_COMPRAS y la lista de usuarios del sistema.
+ * con RESTRICCIÓN ESTRICTA: Solo usuarios activos. Los archivados y
+ * deshabilitados quedan totalmente excluidos.
  */
 export function resolverDestinatariosMenciones(
   menciones: string[],
@@ -60,6 +61,31 @@ export function resolverDestinatariosMenciones(
   const destinatarios: DestinatarioMencion[] = [];
   const emailsVistos = new Set<string>();
 
+  // Exclusión estricta de usuarios archivados, deshabilitados o bloqueados
+  const inactivosSet = new Set<string>();
+  const ARCHIVADOS_CONOCIDOS = new Set([
+    'erick flores',
+    'javier leiva',
+    'jose liendro',
+    'mariana tovar',
+    'teodoro garcia',
+    'analista4mgg@gmail.com',
+    'analistaadministrativobra@gmail.com',
+    'analistadecomprasgt@gmail.com',
+    'mariana.trabajo.gt@gmail.com',
+    'admingometales@gmail.com',
+    'analista1mgg@gmail.com',
+  ]);
+
+  for (const u of usuarios) {
+    const esActivo = (u.estado ? u.estado.toLowerCase() === 'activo' : true) && !u.archivado_en && !u.bloqueado;
+    if (!esActivo) {
+      if (u.email) inactivosSet.add(u.email.toLowerCase().trim());
+      const nomCompleto = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim().toLowerCase();
+      if (nomCompleto) inactivosSet.add(nomCompleto);
+    }
+  }
+
   for (const rawMention of menciones) {
     const query = rawMention.startsWith('@') ? rawMention.slice(1).trim() : rawMention.trim();
     if (!query) continue;
@@ -67,32 +93,23 @@ export function resolverDestinatariosMenciones(
 
     // 1. Si es correo directo: @alguien@gmail.com
     if (lower.includes('@')) {
+      if (inactivosSet.has(lower) || ARCHIVADOS_CONOCIDOS.has(lower)) continue;
       if (!emailsVistos.has(lower)) {
         const nombre = PERSONAS_CONOCIDAS_COMPRAS[lower] || query;
-        destinatarios.push({ email: lower, nombre });
-        emailsVistos.add(lower);
+        if (!inactivosSet.has(nombre.toLowerCase()) && !ARCHIVADOS_CONOCIDOS.has(nombre.toLowerCase())) {
+          destinatarios.push({ email: lower, nombre });
+          emailsVistos.add(lower);
+        }
       }
       continue;
     }
 
-    // 2. Coincidencia por nombre completo o inicio en PERSONAS_CONOCIDAS_COMPRAS
+    // 2. Coincidencia en usuarios activos de la base de datos (prioridad máxima)
     let matchEncontrado = false;
-    for (const [email, nombre] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
-      const nombreNorm = nombre.toLowerCase();
-      if (nombreNorm === lower || nombreNorm.startsWith(lower + ' ') || nombreNorm.endsWith(' ' + lower)) {
-        const emailNorm = email.toLowerCase();
-        if (!emailsVistos.has(emailNorm)) {
-          destinatarios.push({ email: emailNorm, nombre });
-          emailsVistos.add(emailNorm);
-        }
-        matchEncontrado = true;
-        break;
-      }
-    }
-    if (matchEncontrado) continue;
-
-    // 3. Coincidencia en usuarios de la base de datos
     for (const u of usuarios) {
+      const esActivo = (u.estado ? u.estado.toLowerCase() === 'activo' : true) && !u.archivado_en && !u.bloqueado;
+      if (!esActivo) continue;
+
       const nomCompleto = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim().toLowerCase();
       const uEmail = (u.email ?? '').toLowerCase().trim();
       if (!uEmail) continue;
@@ -110,7 +127,26 @@ export function resolverDestinatariosMenciones(
           });
           emailsVistos.add(uEmail);
         }
+        matchEncontrado = true;
         break;
+      }
+    }
+    if (matchEncontrado) continue;
+
+    // 3. Fallback en PERSONAS_CONOCIDAS_COMPRAS solo si no se pasaron usuarios de base de datos
+    if (usuarios.length === 0) {
+      for (const [email, nombre] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
+        const nombreNorm = nombre.toLowerCase();
+        const emailNorm = email.toLowerCase();
+        if (ARCHIVADOS_CONOCIDOS.has(nombreNorm) || ARCHIVADOS_CONOCIDOS.has(emailNorm)) continue;
+
+        if (nombreNorm === lower || nombreNorm.startsWith(lower + ' ') || nombreNorm.endsWith(' ' + lower)) {
+          if (!emailsVistos.has(emailNorm)) {
+            destinatarios.push({ email: emailNorm, nombre });
+            emailsVistos.add(emailNorm);
+          }
+          break;
+        }
       }
     }
   }

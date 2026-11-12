@@ -8,13 +8,34 @@ import { listMensajes, enviarMensaje, marcarLeido, type MensajeOrden } from './o
 import { ChatMensajeContenido } from './ChatFormato';
 import { PERSONAS_CONOCIDAS_COMPRAS } from './personasCompras';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
-import type { Usuario } from '@/shared/lib/types';
+import { estadoVisible, estaArchivado } from '@/modules/usuarios/usuariosArchivo';
+import { supabase } from '@/shared/lib/supabase';
+import type { Orden, Usuario } from '@/shared/lib/types';
 
 export interface MiembroEquipo {
   nombre: string;
   email: string;
   departamento: string;
   cargo?: string;
+}
+
+/** Representación de un token de bloque en el texto (@mención o #referencia) */
+export interface TokenBloque {
+  simbolo: '@' | '#';
+  inicio: number;
+  finContenido: number;
+  finConEspacio: number;
+  contenido: string;
+  textoCompleto: string;
+  tipo: 'mencion' | 'referencia';
+}
+
+/** Resultado del borrado inteligente de tokens */
+export interface ResultadoBorradoToken {
+  nuevoTexto: string;
+  nuevaPos: number;
+  borradoBloque: boolean;
+  tipoMenu?: 'mencion' | 'referencia';
 }
 
 /** Normaliza y categoriza un departamento para priorización y agrupación limpia */
@@ -67,10 +88,8 @@ export function normalizarDepartamento(deptoRaw?: string | null, email?: string)
 export function ordenarDepartamentos(deptos: string[], contexto: 'compras' | 'tesoreria' | 'administracion'): string[] {
   let ordenPrioridad: string[] = [];
   if (contexto === 'compras') {
-    // Compras referencia primero a Compras, luego a Tesorería, luego Administración...
     ordenPrioridad = ['COMPRAS', 'TESORERIA', 'ADMINISTRACION', 'ALMACEN', 'DIRECTIVA', 'OPERACIONES'];
   } else if (contexto === 'tesoreria') {
-    // Tesorería referencia primero a Tesorería, luego a Compras, luego Administración (Gastos fijos)...
     ordenPrioridad = ['TESORERIA', 'COMPRAS', 'ADMINISTRACION', 'DIRECTIVA', 'ALMACEN', 'OPERACIONES'];
   } else if (contexto === 'administracion') {
     ordenPrioridad = ['ADMINISTRACION', 'TESORERIA', 'COMPRAS', 'DIRECTIVA', 'ALMACEN', 'OPERACIONES'];
@@ -141,12 +160,366 @@ export function inferirTipoOperacion(codigo: string, tipoDado?: string | null): 
 }
 
 /**
+ * Identifica tokens de bloques (@mención y #referencia) en el texto del chat.
+ * Ordenados por posición de aparición.
+ */
+export function identificarTokensBloque(texto: string, nombresConocidos: string[] = []): TokenBloque[] {
+  if (!texto) return [];
+
+  const tokens: TokenBloque[] = [];
+
+  // 1. Menciones (@)
+  const nombresLimpios = Array.from(new Set(nombresConocidos.map((n) => n.trim()).filter(Boolean)))
+    .sort((a, b) => b.length - a.length);
+
+  const nombresRegex = nombresLimpios.length > 0
+    ? nombresLimpios.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+    : '';
+
+  const mencionPatternStr = nombresRegex
+    ? `(?:^|(?<=[\\s(\\[,;]))@(${nombresRegex}|[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+|[A-Za-zÁÉÍÓÚáéíóúñÑ0-9_.-]+)`
+    : `(?:^|(?<=[\\s(\\[,;]))@([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+|[A-Za-zÁÉÍÓÚáéíóúñÑ0-9_.-]+)`;
+
+  const regMencion = new RegExp(mencionPatternStr, 'gi');
+  let m: RegExpExecArray | null;
+
+  while ((m = regMencion.exec(texto)) !== null) {
+    const matchedFull = m[0];
+    const atOffset = matchedFull.indexOf('@');
+    if (atOffset === -1) continue;
+    const inicio = m.index + atOffset;
+    const contenido = m[1];
+    const finContenido = inicio + 1 + contenido.length;
+    const tieneEspacio = texto[finContenido] === ' ';
+    const finConEspacio = tieneEspacio ? finContenido + 1 : finContenido;
+
+    tokens.push({
+      simbolo: '@',
+      inicio,
+      finContenido,
+      finConEspacio,
+      contenido,
+      textoCompleto: texto.slice(inicio, finContenido),
+      tipo: 'mencion',
+    });
+  }
+
+  // 2. Referencias (#) — excluyendo CD y SD
+  const regRef = /(?:^|(?<=[\s(\[,;]))#((?:OC|SP|CS|SS|GF)-[A-Za-z0-9-]+|[A-Za-z0-9_-]+)/gi;
+  while ((m = regRef.exec(texto)) !== null) {
+    const matchedFull = m[0];
+    const hashOffset = matchedFull.indexOf('#');
+    if (hashOffset === -1) continue;
+    const inicio = m.index + hashOffset;
+    const contenido = m[1];
+    const upper = contenido.toUpperCase();
+    if (upper.startsWith('CD-') || upper.startsWith('SD-')) continue;
+
+    const finContenido = inicio + 1 + contenido.length;
+    const tieneEspacio = texto[finContenido] === ' ';
+    const finConEspacio = tieneEspacio ? finContenido + 1 : finContenido;
+
+    tokens.push({
+      simbolo: '#',
+      inicio,
+      finContenido,
+      finConEspacio,
+      contenido,
+      textoCompleto: texto.slice(inicio, finContenido),
+      tipo: 'referencia',
+    });
+  }
+
+  tokens.sort((a, b) => a.inicio - b.inicio);
+  return tokens;
+}
+
+/** Devuelve el token sobre el que se encuentra el cursor (si existe) */
+export function obtenerTokenEnCursor(
+  texto: string,
+  cursorPos: number,
+  nombresConocidos: string[] = []
+): TokenBloque | null {
+  const tokens = identificarTokensBloque(texto, nombresConocidos);
+  for (const tok of tokens) {
+    if (cursorPos > tok.inicio && cursorPos <= tok.finConEspacio) {
+      return tok;
+    }
+  }
+  return null;
+}
+
+/**
+ * Ejecuta el borrado inteligente tipo bloque:
+ * - 1er toque de Backspace: borra el contenido del bloque HASTA el signo '@' o '#'.
+ * - 2do toque de Backspace: borra el carácter '@' o '#' (borrado normal).
+ */
+export function ejecutarBorradoToken(
+  texto: string,
+  cursorPos: number,
+  nombresConocidos: string[] = []
+): ResultadoBorradoToken {
+  const token = obtenerTokenEnCursor(texto, cursorPos, nombresConocidos);
+  if (!token) {
+    return { nuevoTexto: texto, nuevaPos: cursorPos, borradoBloque: false };
+  }
+
+  // Si el contenido ya está vacío (ej. es solo "@" o "#"), el segundo toque borra normal el símbolo
+  if (token.contenido.trim().length === 0) {
+    return { nuevoTexto: texto, nuevaPos: cursorPos, borradoBloque: false };
+  }
+
+  // 1er toque: Borra todo el contenido hasta '@' o '#'
+  const antes = texto.slice(0, token.inicio + 1); // conserva '@' o '#'
+  const despues = texto.slice(token.finConEspacio);
+  const nuevoTexto = antes + despues;
+  const nuevaPos = token.inicio + 1; // cursor posicionado inmediatamente tras '@' o '#'
+
+  return {
+    nuevoTexto,
+    nuevaPos,
+    borradoBloque: true,
+    tipoMenu: token.tipo,
+  };
+}
+
+export interface ReferenciaSugerida {
+  codigo: string;
+  label?: string;
+  sublabel?: string;
+  tipo?: 'madre' | 'hija' | 'par' | 'orden' | 'prefijo';
+}
+
+/**
+ * Construye y filtra inteligentemente la lista de referencias (#):
+ * 1. Relación con Orden Madre (si es hija)
+ * 2. Relación con Órdenes Hijas (si fue dividida entre proveedores)
+ * 3. Par asociado (SP origen de la OC, o la OC generada de la SP)
+ * 4. Búsqueda en vivo de órdenes del catálogo (por código o motivo)
+ * 5. Prefijos estándar (#OC-, #SP-, #CS-, #SS-, #GF-), excluyendo estrictamente CD- y SD-.
+ */
+export function construirReferenciasOrden(input: {
+  ordenActual?: {
+    id?: string;
+    codigo?: string;
+    oc_codigo?: string | null;
+    op_padre_id?: string | null;
+    tipo?: string | null;
+    motivo?: string | null;
+  } | null;
+  ordenLabel?: string;
+  todasLasOrdenes?: Array<{
+    id: string;
+    codigo: string;
+    oc_codigo?: string | null;
+    op_padre_id?: string | null;
+    tipo?: string | null;
+    motivo?: string | null;
+    estado?: string | null;
+  }>;
+  referenciasExtra?: Array<ReferenciaSugerida | string>;
+  contextoModulo?: 'compras' | 'tesoreria' | 'administracion';
+  query?: string;
+}): ReferenciaSugerida[] {
+  const q = (input.query || '').trim().toLowerCase();
+  const res: ReferenciaSugerida[] = [];
+  const codigosVistos = new Set<string>();
+
+  const agregar = (ref: ReferenciaSugerida) => {
+    const cod = ref.codigo.replace(/^#/, '').trim();
+    if (!cod) return;
+    const upper = cod.toUpperCase();
+    if (upper.startsWith('CD-') || upper.startsWith('SD-')) return;
+    if (codigosVistos.has(upper)) return;
+    codigosVistos.add(upper);
+    res.push({ ...ref, codigo: cod });
+  };
+
+  const { ordenActual, ordenLabel, todasLasOrdenes = [], referenciasExtra = [], contextoModulo = 'compras' } = input;
+
+  // 1. Relaciones directas de la orden actual (Madre / Hijas / Par SP-OC)
+  if (ordenActual) {
+    // Par asociado SP <-> OC
+    if (ordenActual.codigo && ordenActual.oc_codigo) {
+      if (ordenLabel === ordenActual.oc_codigo) {
+        agregar({
+          codigo: ordenActual.codigo,
+          label: `${ordenActual.codigo} · Solicitud de Pedido origen`,
+          sublabel: 'Solicitud Origen',
+          tipo: 'par',
+        });
+      } else if (ordenLabel === ordenActual.codigo) {
+        agregar({
+          codigo: ordenActual.oc_codigo,
+          label: `${ordenActual.oc_codigo} · Orden de Compra emitida`,
+          sublabel: 'OC Asociada',
+          tipo: 'par',
+        });
+      }
+    }
+
+    // Orden Madre (si es orden hija proveniente de un reparto)
+    if (ordenActual.op_padre_id) {
+      const madre = todasLasOrdenes.find((x) => x.id === ordenActual.op_padre_id);
+      if (madre) {
+        const codMadre = madre.oc_codigo || madre.codigo;
+        agregar({
+          codigo: codMadre,
+          label: `${codMadre} · ${madre.motivo || 'Orden Madre (Pedido Origen)'}`,
+          sublabel: 'Orden Madre',
+          tipo: 'madre',
+        });
+      }
+    }
+
+    // Órdenes Hijas (si esta orden fue dividida entre proveedores)
+    const hijas = todasLasOrdenes.filter((x) => x.op_padre_id === ordenActual.id);
+    for (const h of hijas) {
+      const codHija = h.oc_codigo || h.codigo;
+      agregar({
+        codigo: codHija,
+        label: `${codHija} · ${h.motivo || 'Orden Hija (Reparto de proveedor)'}`,
+        sublabel: 'Orden Hija',
+        tipo: 'hija',
+      });
+    }
+  }
+
+  // Orden actual misma (para auto-referenciar si se desea)
+  if (ordenLabel && !ordenLabel.startsWith('CD-') && !ordenLabel.startsWith('SD-')) {
+    agregar({
+      codigo: ordenLabel,
+      label: `${ordenLabel} · Orden en vista`,
+      sublabel: 'Actual',
+      tipo: 'par',
+    });
+  }
+
+  // 2. Referencias extra provistas externamente
+  for (const r of referenciasExtra) {
+    if (typeof r === 'string') {
+      agregar({ codigo: r, label: r, tipo: 'orden' });
+    } else {
+      agregar(r);
+    }
+  }
+
+  // 3. Catálogo de órdenes conocidas en el sistema (permite buscar "esto se pidió en sp-xxx")
+  for (const o of todasLasOrdenes) {
+    if (o.oc_codigo) {
+      agregar({
+        codigo: o.oc_codigo,
+        label: o.motivo ? `${o.oc_codigo} · ${o.motivo}` : `${o.oc_codigo} · Orden de Compra`,
+        sublabel: 'OC',
+        tipo: 'orden',
+      });
+    }
+    if (o.codigo) {
+      const tipoTxt = o.tipo === 'servicio' ? 'Servicio' : 'Solicitud de Pedido';
+      agregar({
+        codigo: o.codigo,
+        label: o.motivo ? `${o.codigo} · ${o.motivo}` : `${o.codigo} · ${tipoTxt}`,
+        sublabel: o.tipo === 'servicio' ? 'Servicio' : 'SP',
+        tipo: 'orden',
+      });
+    }
+  }
+
+  // 4. Prefijos rápidos
+  agregar({ codigo: 'OC-', label: 'Prefijo para Orden de Compra', sublabel: 'Prefijo', tipo: 'prefijo' });
+  agregar({ codigo: 'SP-', label: 'Prefijo para Solicitud de Pedido', sublabel: 'Prefijo', tipo: 'prefijo' });
+  agregar({ codigo: 'CS-', label: 'Prefijo para Control de Servicio', sublabel: 'Prefijo', tipo: 'prefijo' });
+  agregar({ codigo: 'SS-', label: 'Prefijo para Solicitud de Servicio', sublabel: 'Prefijo', tipo: 'prefijo' });
+  if (contextoModulo === 'tesoreria' || contextoModulo === 'administracion') {
+    agregar({ codigo: 'GF-', label: 'Gasto Fijo (Administración)', sublabel: 'Gasto Fijo', tipo: 'prefijo' });
+  }
+
+  // 5. Filtrar por query si el usuario ya escribió caracteres tras '#'
+  if (!q) {
+    return res.slice(0, 8);
+  }
+
+  return res
+    .filter((item) => {
+      const c = item.codigo.toLowerCase();
+      const l = (item.label || '').toLowerCase();
+      const s = (item.sublabel || '').toLowerCase();
+      return c.includes(q) || l.includes(q) || s.includes(q);
+    })
+    .sort((a, b) => {
+      const aStarts = a.codigo.toLowerCase().startsWith(q);
+      const bStarts = b.codigo.toLowerCase().startsWith(q);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      // Priorizar madre, hija y par
+      const esRelacionA = a.tipo === 'madre' || a.tipo === 'hija' || a.tipo === 'par';
+      const esRelacionB = b.tipo === 'madre' || b.tipo === 'hija' || b.tipo === 'par';
+      if (esRelacionA && !esRelacionB) return -1;
+      if (!esRelacionA && esRelacionB) return 1;
+      return 0;
+    })
+    .slice(0, 8);
+}
+
+/** Renderiza el texto con bloques resaltados tipo píldora detrás del textarea */
+export function renderizarBackdropTexto(texto: string, nombresConocidos: string[] = []): React.ReactNode[] {
+  if (!texto) return [];
+  const tokens = identificarTokensBloque(texto, nombresConocidos);
+  if (!tokens.length) {
+    return [<span key="plain" style={{ color: 'transparent' }}>{texto}</span>];
+  }
+
+  const nodos: React.ReactNode[] = [];
+  let ultimoIdx = 0;
+
+  tokens.forEach((tok, i) => {
+    if (tok.inicio > ultimoIdx) {
+      nodos.push(
+        <span key={`plain-${i}`} style={{ color: 'transparent' }}>
+          {texto.slice(ultimoIdx, tok.inicio)}
+        </span>
+      );
+    }
+
+    const esMencion = tok.tipo === 'mencion';
+    nodos.push(
+      <span
+        key={`tok-${i}`}
+        style={{
+          display: 'inline-block',
+          background: esMencion ? 'rgba(255, 138, 0, 0.25)' : 'rgba(74, 168, 255, 0.25)',
+          border: `1px solid ${esMencion ? 'rgba(255, 138, 0, 0.55)' : 'rgba(74, 168, 255, 0.55)'}`,
+          borderRadius: '4px',
+          padding: '0 2px',
+          color: 'transparent',
+          boxSizing: 'border-box',
+        }}
+      >
+        {tok.textoCompleto}
+      </span>
+    );
+
+    ultimoIdx = tok.finContenido;
+  });
+
+  if (ultimoIdx < texto.length) {
+    nodos.push(
+      <span key="plain-final" style={{ color: 'transparent' }}>
+        {texto.slice(ultimoIdx)}
+      </span>
+    );
+  }
+
+  return nodos;
+}
+
+/**
  * Chat interno de seguimiento por orden (OC / SP / CS / SS / GF).
  * Inteligente, contextual y clasificado por departamentos:
  * - Clasificación departamental con prioridad según módulo (Compras ↔ Tesorería ↔ Administración).
- * - Restricción estricta: Solo usuarios activos pueden ser mencionados.
- * - Despliegue de fase operativa e identidad del documento.
- * - Sin cortes visuales superiores en los menús desplegables.
+ * - Restricción estricta: Solo usuarios activos pueden ser mencionados (archivados y deshabilitados excluidos).
+ * - Referenciación inteligente a otra orden: madre, hija, par SP-OC o búsqueda en el catálogo.
+ * - Bloques de referencia con borrado inteligente en dos toques (1er toque borra contenido hasta @ o #, 2do toque borra el símbolo).
  */
 export function ChatOrden({
   ordenId,
@@ -156,6 +529,8 @@ export function ChatOrden({
   fase,
   tipoOperacion,
   referenciasSugeridas,
+  ordenActual,
+  todasLasOrdenes,
 }: {
   ordenId: string;
   ordenLabel: string;
@@ -163,7 +538,9 @@ export function ChatOrden({
   contextoModulo?: 'compras' | 'tesoreria' | 'administracion';
   fase?: string | null;
   tipoOperacion?: string | null;
-  referenciasSugeridas?: string[];
+  referenciasSugeridas?: Array<ReferenciaSugerida | string>;
+  ordenActual?: Partial<Pick<Orden, 'id' | 'codigo' | 'oc_codigo' | 'op_padre_id' | 'tipo' | 'motivo'>> | null;
+  todasLasOrdenes?: Array<Pick<Orden, 'id' | 'codigo' | 'oc_codigo' | 'op_padre_id' | 'tipo' | 'motivo' | 'estado'>>;
 }) {
   const { user } = useSession();
   const [msgs, setMsgs] = useState<MensajeOrden[]>([]);
@@ -174,6 +551,37 @@ export function ChatOrden({
   const [inputFocused, setInputFocused] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  // Catálogo de órdenes cargadas para sugerencias si no se pasaron en props
+  const [ordenesCatalogo, setOrdenesCatalogo] = useState<
+    Array<{ id: string; codigo: string; oc_codigo?: string | null; op_padre_id?: string | null; tipo?: string | null; motivo?: string | null }>
+  >([]);
+
+  useEffect(() => {
+    if (todasLasOrdenes && todasLasOrdenes.length > 0) return;
+    let cancel = false;
+    async function cargarOrdenes() {
+      try {
+        const { data, error } = await supabase
+          .from('ordenes')
+          .select('id, codigo, oc_codigo, op_padre_id, tipo, motivo')
+          .order('created_at', { ascending: false })
+          .limit(80);
+        if (!error && data && !cancel) {
+          setOrdenesCatalogo(data as any);
+        }
+      } catch {
+        // Silencioso
+      }
+    }
+    void cargarOrdenes();
+    return () => { cancel = true; };
+  }, [todasLasOrdenes]);
+
+  const ordenesDisponibles = useMemo(() => {
+    return (todasLasOrdenes && todasLasOrdenes.length > 0) ? todasLasOrdenes : ordenesCatalogo;
+  }, [todasLasOrdenes, ordenesCatalogo]);
 
   // Detección automática del módulo de contexto si no se pasa explícito
   const ctxModulo: 'compras' | 'tesoreria' | 'administracion' = useMemo(() => {
@@ -192,23 +600,20 @@ export function ChatOrden({
   const [menuIndex, setMenuIndex] = useState(0);
 
   // Cargar lista de miembros activos clasificados por departamento
+  // REQUISITO ESTRICTO: Excluir totalmente archivados y deshabilitados
   useEffect(() => {
     let cancel = false;
     async function cargarMiembros() {
       const mapa = new Map<string, { nombre: string; depto: string }>();
-      const inactivosSet = new Set<string>();
 
       try {
         const dbUsers: Usuario[] = await listUsuarios();
         for (const u of dbUsers) {
-          const emailNorm = (u.email ?? '').toLowerCase().trim();
-          // Cuarto requisito: EXCLUIR usuarios inactivos, bloqueados o archivados
-          const esInactivo = (u.estado && u.estado.toLowerCase() !== 'activo') || !!u.archivado_en || !!u.bloqueado;
-          if (esInactivo) {
-            if (emailNorm) inactivosSet.add(emailNorm);
-            continue;
-          }
+          // Excluir archivados, deshabilitados (inactivos) y bloqueados
+          const esActivo = estadoVisible(u) === 'activo' && !u.bloqueado && !estaArchivado(u);
+          if (!esActivo) continue;
 
+          const emailNorm = (u.email ?? '').toLowerCase().trim();
           const nom = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
           if (emailNorm && nom) {
             const depto = normalizarDepartamento(u.departamento, emailNorm);
@@ -216,16 +621,22 @@ export function ChatOrden({
           }
         }
       } catch {
-        // Fallback a personas conocidas si la RPC de usuarios no está disponible
-      }
-
-      // Incorporar personas conocidas de compras que no estén marcadas como inactivas
-      for (const [correo, nom] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
-        const emailNorm = correo.toLowerCase().trim();
-        if (inactivosSet.has(emailNorm)) continue;
-        if (!mapa.has(emailNorm)) {
-          const depto = normalizarDepartamento(null, emailNorm);
-          mapa.set(emailNorm, { nombre: nom.toUpperCase(), depto });
+        // Fallback offline a personas conocidas si la base no responde
+        // Excluye estrictamente usuarios archivados conocidos
+        const ARCHIVADOS_CONOCIDOS = new Set([
+          'erick flores',
+          'javier leiva',
+          'jose liendro',
+          'mariana tovar',
+          'teodoro garcia',
+        ]);
+        for (const [correo, nom] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
+          if (ARCHIVADOS_CONOCIDOS.has(nom.toLowerCase())) continue;
+          if (correo.includes('@')) {
+            const emailNorm = correo.toLowerCase().trim();
+            const depto = normalizarDepartamento(null, emailNorm);
+            mapa.set(emailNorm, { nombre: nom.toUpperCase(), depto });
+          }
         }
       }
 
@@ -298,8 +709,37 @@ export function ChatOrden({
     actualizarSugerencias(val, e.target.selectionStart ?? val.length);
   };
 
+  // Nombres de miembros para detección de tokens
+  const nombresMiembros = useMemo(() => miembros.map((m) => m.nombre), [miembros]);
+
+  // Tokens de bloques activos presentes en el borrador actual
+  const tokensActivos = useMemo(() => {
+    return identificarTokensBloque(texto, nombresMiembros);
+  }, [texto, nombresMiembros]);
+
+  // Elimina un bloque activo directamente (ej. al presionar la '✕' del chip)
+  const eliminarToken = (tok: TokenBloque) => {
+    const antes = texto.slice(0, tok.inicio);
+    const despues = texto.slice(tok.finConEspacio);
+    const nuevo = (antes + (antes && despues && !antes.endsWith(' ') && !despues.startsWith(' ') ? ' ' : '') + despues).trim();
+    setTexto(nuevo);
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        const p = Math.min(antes.length, nuevo.length);
+        textareaRef.current.setSelectionRange(p, p);
+      }
+    }, 0);
+  };
+
+  // Sincronizar scroll entre el textarea y el backdrop resaltador
+  const handleScroll = () => {
+    if (backdropRef.current && textareaRef.current) {
+      backdropRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
+
   // Filtrado y clasificación departamental para el menú de mención
-  // Tercer requisito: Orden prioritario según contexto (Compras ➔ Tesorería o Tesorería ➔ Compras ➔ Administración)
   const { miembrosAgrupados, miembrosPlana } = useMemo(() => {
     if (menuTipo !== 'mencion') return { miembrosAgrupados: [] as Array<[string, MiembroEquipo[]]>, miembrosPlana: [] as MiembroEquipo[] };
 
@@ -316,16 +756,13 @@ export function ChatOrden({
       gruposMap.get(dep)!.push(m);
     }
 
-    // Ordenar cada grupo alfabéticamente
     for (const lista of gruposMap.values()) {
       lista.sort((a, b) => a.nombre.localeCompare(b.nombre));
     }
 
-    // Ordenar los departamentos según la prioridad del módulo
     const deptosOrdenados = ordenarDepartamentos(Array.from(gruposMap.keys()), ctxModulo);
     const grupos: Array<[string, MiembroEquipo[]]> = deptosOrdenados.map((d) => [d, gruposMap.get(d)!]);
 
-    // Aplanar para facilitar la navegación con teclas ↑ / ↓
     const plana: MiembroEquipo[] = [];
     for (const [, items] of grupos) {
       plana.push(...items);
@@ -334,23 +771,18 @@ export function ChatOrden({
     return { miembrosAgrupados: grupos, miembrosPlana: plana.slice(0, 10) };
   }, [menuTipo, miembros, menuQuery, ctxModulo]);
 
-  // Sugerencias de referencias (#)
-  // Quinto requisito: Para Tesorería se incluye Gastos Fijos (#GF-) junto con #OC-, #SP-, #CS-, #SS-
-  // Excluye explícitamente CD- (Compra directa) y SD- (Servicio directo)
+  // Sugerencias de referencias (#) inteligentes (Madre, Hija, Par, Catálogo y Prefijos)
   const referenciasFiltradas = useMemo(() => {
     if (menuTipo !== 'referencia') return [];
-    const baseReferencias = [
-      ...(ordenLabel && !ordenLabel.startsWith('CD-') && !ordenLabel.startsWith('SD-') ? [ordenLabel] : []),
-      ...(referenciasSugeridas ?? []).filter((r) => !r.toUpperCase().startsWith('CD-') && !r.toUpperCase().startsWith('SD-')),
-      'OC-',
-      'SP-',
-      'CS-',
-      'SS-',
-      ...(ctxModulo === 'tesoreria' || ctxModulo === 'administracion' ? ['GF-'] : []),
-    ];
-    const unicas = Array.from(new Set(baseReferencias));
-    return unicas.filter((r) => r.toLowerCase().includes(menuQuery)).slice(0, 6);
-  }, [menuTipo, ordenLabel, referenciasSugeridas, ctxModulo, menuQuery]);
+    return construirReferenciasOrden({
+      ordenActual,
+      ordenLabel,
+      todasLasOrdenes: ordenesDisponibles as any,
+      referenciasExtra: referenciasSugeridas,
+      contextoModulo: ctxModulo,
+      query: menuQuery,
+    });
+  }, [menuTipo, ordenActual, ordenLabel, ordenesDisponibles, referenciasSugeridas, ctxModulo, menuQuery]);
 
   const insertarSugerencia = (valor: string, esMencion: boolean) => {
     const ta = textareaRef.current;
@@ -454,6 +886,27 @@ export function ChatOrden({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 1. Borrado inteligente tipo bloque (dos toques para borrar referencias y menciones)
+    if (e.key === 'Backspace' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      const ta = textareaRef.current;
+      if (ta && ta.selectionStart === ta.selectionEnd) {
+        const resultado = ejecutarBorradoToken(texto, ta.selectionStart, nombresMiembros);
+        if (resultado.borradoBloque) {
+          e.preventDefault();
+          setTexto(resultado.nuevoTexto);
+          actualizarSugerencias(resultado.nuevoTexto, resultado.nuevaPos);
+          setTimeout(() => {
+            if (textareaRef.current) {
+              textareaRef.current.focus();
+              textareaRef.current.setSelectionRange(resultado.nuevaPos, resultado.nuevaPos);
+            }
+          }, 0);
+          return;
+        }
+      }
+    }
+
+    // 2. Navegación en menús emergentes
     if (menuTipo === 'mencion' && miembrosPlana.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -492,7 +945,7 @@ export function ChatOrden({
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         const elegido = referenciasFiltradas[menuIndex];
-        if (elegido) insertarSugerencia(elegido, false);
+        if (elegido) insertarSugerencia(elegido.codigo, false);
         return;
       }
       if (e.key === 'Escape') {
@@ -544,7 +997,6 @@ export function ChatOrden({
         background: 'var(--surface, #23272e)',
         border: '1px solid var(--border, #333944)',
         borderRadius: 'var(--r-md, 10px)',
-        // Primer requisito: overflow visible para evitar cortes superiores del menú de mención
         overflow: 'visible',
         display: 'flex',
         flexDirection: 'column',
@@ -602,7 +1054,7 @@ export function ChatOrden({
         </span>
       </div>
 
-      {/* Lista de mensajes (mínimo 140px de headroom para que el popover respire) */}
+      {/* Lista de mensajes */}
       <div
         style={{
           minHeight: msgs.length ? 150 : 130,
@@ -808,71 +1260,227 @@ export function ChatOrden({
                 border: '1px solid var(--border-strong, #434a56)',
                 borderRadius: 8,
                 boxShadow: 'var(--shadow-lg, 0 12px 28px rgba(0,0,0,0.5))',
-                maxHeight: 200,
+                maxHeight: 220,
                 overflowY: 'auto',
                 zIndex: 100,
                 padding: '4px',
               }}
             >
-              <div className="muted" style={{ fontSize: '.68rem', padding: '3px 8px', fontWeight: 600 }}>
-                Referenciar operación (#):
+              <div
+                style={{
+                  fontSize: '.68rem',
+                  padding: '4px 8px 3px',
+                  fontWeight: 700,
+                  color: 'var(--text-muted)',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>Referenciar operación (#):</span>
+                <span style={{ fontSize: '.64rem', color: 'var(--info, #4aa8ff)' }}>Madre · Hijas · Órdenes</span>
               </div>
-              {referenciasFiltradas.map((r, idx) => (
-                <div
-                  key={r}
-                  onClick={() => insertarSugerencia(r, false)}
-                  onMouseEnter={() => setMenuIndex(idx)}
+              {referenciasFiltradas.map((r, idx) => {
+                const seleccionado = idx === menuIndex;
+                const esMadre = r.tipo === 'madre' || r.sublabel?.includes('Madre');
+                const esHija = r.tipo === 'hija' || r.sublabel?.includes('Hija');
+                const esPar = r.tipo === 'par';
+
+                return (
+                  <div
+                    key={r.codigo}
+                    onClick={() => insertarSugerencia(r.codigo, false)}
+                    onMouseEnter={() => setMenuIndex(idx)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '5px 8px',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      background: seleccionado ? 'rgba(74,168,255,.18)' : 'transparent',
+                      color: seleccionado ? 'var(--info, #4aa8ff)' : 'inherit',
+                      fontSize: '.8rem',
+                      gap: '6px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          fontFamily: 'var(--font-mono, monospace)',
+                          color: 'var(--info, #4aa8ff)',
+                          flexShrink: 0,
+                        }}
+                      >
+                        #{r.codigo}
+                      </span>
+                      <span
+                        className="muted"
+                        style={{
+                          fontSize: '.72rem',
+                          whiteSpace: 'nowrap',
+                          textOverflow: 'ellipsis',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {r.label}
+                      </span>
+                    </div>
+                    {r.sublabel && (
+                      <span
+                        style={{
+                          fontSize: '.62rem',
+                          fontWeight: 700,
+                          padding: '1px 5px',
+                          borderRadius: 4,
+                          flexShrink: 0,
+                          background: esMadre
+                            ? 'rgba(255, 138, 0, 0.2)'
+                            : esHija
+                            ? 'rgba(168, 85, 247, 0.2)'
+                            : esPar
+                            ? 'rgba(34, 197, 94, 0.2)'
+                            : 'rgba(255, 255, 255, 0.08)',
+                          color: esMadre
+                            ? 'var(--primary, #ff8a00)'
+                            : esHija
+                            ? '#c084fc'
+                            : esPar
+                            ? '#4ade80'
+                            : 'var(--text-muted, #9aa6b5)',
+                          border: `1px solid ${
+                            esMadre
+                              ? 'rgba(255, 138, 0, 0.35)'
+                              : esHija
+                              ? 'rgba(168, 85, 247, 0.35)'
+                              : esPar
+                              ? 'rgba(34, 197, 94, 0.35)'
+                              : 'rgba(255, 255, 255, 0.12)'
+                          }`,
+                        }}
+                      >
+                        {r.sublabel}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pastillas de bloques activos en el borrador */}
+          {tokensActivos.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                flexWrap: 'wrap',
+                padding: '0.35rem 0.6rem 0.25rem',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                background: 'rgba(0, 0, 0, 0.15)',
+              }}
+            >
+              <span style={{ fontSize: '0.66rem', color: 'var(--text-dim, #6a7585)', fontWeight: 600 }}>
+                Bloques activos:
+              </span>
+              {tokensActivos.map((tok, idx) => (
+                <span
+                  key={`${tok.simbolo}-${tok.contenido}-${idx}`}
                   style={{
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '8px',
-                    padding: '5px 8px',
-                    borderRadius: 5,
-                    cursor: 'pointer',
-                    background: idx === menuIndex ? 'rgba(74,168,255,.15)' : 'transparent',
-                    color: idx === menuIndex ? 'var(--info, #4aa8ff)' : 'inherit',
-                    fontSize: '.8rem',
+                    gap: '4px',
+                    padding: '1px 6px',
+                    borderRadius: '10px',
+                    fontSize: '0.72rem',
+                    fontWeight: 600,
+                    background: tok.tipo === 'mencion' ? 'rgba(255,138,0,0.18)' : 'rgba(74,168,255,0.18)',
+                    color: tok.tipo === 'mencion' ? 'var(--primary, #ff8a00)' : 'var(--info, #4aa8ff)',
+                    border: `1px solid ${tok.tipo === 'mencion' ? 'rgba(255,138,0,0.35)' : 'rgba(74,168,255,0.35)'}`,
                   }}
                 >
-                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono, monospace)', color: 'var(--info, #4aa8ff)' }}>#{r}</span>
-                  <span className="muted" style={{ fontSize: '.72rem' }}>
-                    {r.startsWith('OC-') ? 'Orden de Compra' :
-                     r.startsWith('SP-') ? 'Solicitud de Pedido' :
-                     r.startsWith('CS-') ? 'Control de Servicio' :
-                     r.startsWith('SS-') ? 'Solicitud de Servicio' :
-                     r.startsWith('GF-') ? 'Gasto Fijo (Administración)' : 'Referencia'}
-                  </span>
-                </div>
+                  <span>{tok.simbolo}{tok.contenido}</span>
+                  <button
+                    type="button"
+                    onClick={() => eliminarToken(tok)}
+                    title={`Eliminar bloque ${tok.simbolo}${tok.contenido}`}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'inherit',
+                      cursor: 'pointer',
+                      padding: 0,
+                      fontSize: '0.68rem',
+                      lineHeight: 1,
+                      opacity: 0.75,
+                      marginLeft: '2px',
+                    }}
+                  >
+                    ✕
+                  </button>
+                </span>
               ))}
             </div>
           )}
 
-          {/* Área de texto integrada */}
-          <textarea
-            ref={textareaRef}
-            rows={2}
-            style={{
-              width: '100%',
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              resize: 'none',
-              padding: '0.55rem 0.75rem',
-              fontSize: '0.84rem',
-              color: 'var(--text)',
-              fontFamily: 'inherit',
-              lineHeight: '1.4',
-              minHeight: '42px',
-              maxHeight: '120px',
-            }}
-            placeholder="Escribe un mensaje… (@ para mencionar por departamento, # para referenciar)"
-            value={texto}
-            onChange={handleTextoChange}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setTimeout(() => setInputFocused(false), 200)}
-            disabled={enviando}
-          />
+          {/* Área de texto integrada con Backdrop de bloques visuales */}
+          <div style={{ position: 'relative', minHeight: '42px', maxHeight: '120px' }}>
+            <div
+              ref={backdropRef}
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                overflow: 'hidden',
+                padding: '0.55rem 0.75rem',
+                fontSize: '0.84rem',
+                lineHeight: '1.4',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                pointerEvents: 'none',
+                color: 'transparent',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+            >
+              {renderizarBackdropTexto(texto, nombresMiembros)}
+            </div>
+
+            <textarea
+              ref={textareaRef}
+              rows={2}
+              style={{
+                position: 'relative',
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                resize: 'none',
+                padding: '0.55rem 0.75rem',
+                fontSize: '0.84rem',
+                color: 'var(--text)',
+                fontFamily: 'inherit',
+                lineHeight: '1.4',
+                minHeight: '42px',
+                maxHeight: '120px',
+                boxSizing: 'border-box',
+              }}
+              placeholder="Escribe un mensaje… (@ para mencionar, # para referenciar orden madre/hija u otra)"
+              value={texto}
+              onChange={handleTextoChange}
+              onKeyDown={handleKeyDown}
+              onScroll={handleScroll}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setTimeout(() => setInputFocused(false), 200)}
+              disabled={enviando}
+            />
+          </div>
 
           {/* Barra inferior integrada */}
           <div
@@ -942,7 +1550,7 @@ export function ChatOrden({
 
               <button
                 type="button"
-                title="Mencionar persona (@)"
+                title="Mencionar persona activa (@)"
                 onClick={dispararMencion}
                 style={{
                   ...actionBtnStyle,
@@ -958,7 +1566,7 @@ export function ChatOrden({
               </button>
               <button
                 type="button"
-                title="Referenciar orden (#OC, #SP, #CS, #SS, #GF)"
+                title="Referenciar orden (#madre, #hija, #sp, #oc, #cs, #ss, #gf)"
                 onClick={dispararReferencia}
                 style={{
                   ...actionBtnStyle,

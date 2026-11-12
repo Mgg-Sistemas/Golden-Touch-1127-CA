@@ -7208,6 +7208,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         contextoModulo="tesoreria"
         fase={o.estado}
         tipoOperacion={o.oc_codigo ? 'Orden de Compra' : o.tipo === 'servicio' ? 'Servicio' : 'Orden'}
+        ordenActual={o}
       />
 
       {whatsappModal && (
