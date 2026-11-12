@@ -60,7 +60,7 @@ export function AppShell() {
   const verPedidos = MODULOS_PANTALLA_PEDIDOS.some((m) => can(m));
   const labelPedidos = !can('compras') && can('solicitud_pedido') ? 'Solicitud de Pedido' : 'Pedidos / Compras';
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
-  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('carga_pesada') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('administracion') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
+  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('carga_pesada') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('administracion') || can('ventas') || can('conciliacion') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -177,7 +177,7 @@ export function AppShell() {
       ['ventas', '/app/ventas'], ['administracion', '/app/administracion'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
-      ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['maquinaria', '/app/maquinaria/repuestos-equipo'], ['retenciones', '/app/retenciones'], ['documentacion', '/app/documentacion'],
+      ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['maquinaria', '/app/maquinaria/repuestos-equipo'], ['retenciones', '/app/retenciones'], ['conciliacion', '/app/conciliacion'], ['documentacion', '/app/documentacion'],
       ['rrhh', '/app/rrhh'], ['asignaciones', '/app/asignaciones'], ['choferes', '/app/choferes'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
       ['geodesta', '/app/geodesta'],
     ] as Array<[ModuleKey, string]>)
@@ -351,6 +351,7 @@ export function AppShell() {
           {can('administracion') && <NavItem to="/app/administracion" icon="💼" label="Administración" />}
           {can('ventas') && <NavItem to="/app/ventas" icon="↗" label="Ventas" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
+          {can('conciliacion') && <NavItem to="/app/conciliacion" icon="📒" label="Conciliación" />}
           {can('documentacion') && <NavItem to="/app/documentacion" icon="🗂" label="Documentación" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
           {can('geodesta') && <NavItem to="/app/geodesta" icon="🧭" label="Geodesta" />}

@@ -20,6 +20,7 @@ export type ModuleKey =
   | 'administracion'
   | 'ventas'
   | 'retenciones'
+  | 'conciliacion'
   | 'documentacion'
   | 'recepciones'
   | 'rrhh'
@@ -68,6 +69,8 @@ export const MODULES: { key: ModuleKey; label: string; ayuda?: string }[] = [
   { key: 'administracion', label: 'Administración', ayuda: 'Gastos fijos por servicio: plantillas, histórico y reporte; se reflejan en Tesorería (multi-empresa).' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'retenciones', label: 'Retenciones' },
+  // 12/11/2026: solo lectura. Para ver las referencias de pago el rol necesita también leer Tesorería.
+  { key: 'conciliacion', label: 'Conciliación', ayuda: 'Solo lectura: cada OC con su monto en $ y Bs, referencia del pago, retenciones, factura y estatus. Para ver las referencias de pago el rol también debe poder leer Tesorería.' },
   { key: 'documentacion', label: 'Documentación' },
   { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },

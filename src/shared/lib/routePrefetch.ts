@@ -30,6 +30,7 @@ const LOADERS: Record<string, Loader> = {
   '/app/ventas': () => import('@/modules/ventas/VentasPage'),
   '/app/asignaciones': () => import('@/modules/asignaciones/AsignacionesPage'),
   '/app/retenciones': () => import('@/modules/retenciones/RetencionesPage'),
+  '/app/conciliacion': () => import('@/modules/conciliacion/ConciliacionPage'),
   '/app/recepciones': () => import('@/modules/recepciones/RecepcionesPage'),
   '/app/rrhh': () => import('@/modules/rrhh/RrhhPage'),
   '/app/maquinaria': () => import('@/modules/maquinaria/MaquinariaPage'),

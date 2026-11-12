@@ -132,7 +132,7 @@ const NOMBRES_MODULO: Record<string, string> = {
   dashboard: 'Dashboard', pedidos: 'Pedidos / Compras', proveedores: 'Proveedores', inventario: 'Inventario',
   produccion: 'Producción', salidas: 'Salidas / Traslados', combustible: 'Combustible',
   acopio: 'Centro de Costo PERAMANAL', recepciones: 'Recepciones', cocina: 'Control de Alimentación (Cocina)',
-  tesoreria: 'Tesorería', ventas: 'Ventas', retenciones: 'Retenciones', documentacion: 'Documentación',
+  tesoreria: 'Tesorería', ventas: 'Ventas', retenciones: 'Retenciones', conciliacion: 'Conciliación', documentacion: 'Documentación',
   rrhh: 'RRHH / Nómina', geodesta: 'Geodesta', asignaciones: 'Asignaciones', choferes: 'Choferes / Conductores',
   maquinaria: 'Control de Maquinaria y Vehículos', usuarios: 'Usuarios', auditoria: 'Auditoría', ajustes: 'Ajustes',
   telefono: 'Mis pantallas',

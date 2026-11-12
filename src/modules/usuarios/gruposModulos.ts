@@ -44,7 +44,7 @@ export const GRUPOS_MODULOS: GrupoModulos[] = [
     key: 'dinero',
     label: 'Dinero',
     resumen: 'Cobrar, pagar y responder ante el fisco.',
-    modulos: ['tesoreria', 'administracion', 'ventas', 'retenciones'],
+    modulos: ['tesoreria', 'administracion', 'ventas', 'retenciones', 'conciliacion'],
   },
   {
     key: 'personas',
