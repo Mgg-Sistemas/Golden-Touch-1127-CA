@@ -24,7 +24,7 @@ import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format'
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
 import { ComprasFijasModal } from './ComprasFijasModal';
-import { estadoFija, renglonesDePlantilla, cantidadesPrevias, textoEstadoFija, type CompraFija } from './comprasFijas';
+import { esSugerencia, estadoFija, renglonesDePlantilla, cantidadesPrevias, textoEstadoFija, type CompraFija } from './comprasFijas';
 import { listComprasFijas, marcarCompraFijaGenerada, ultimosItemsDe } from './comprasFijas.repository';
 import { crearCompraDirecta as crearCompraDirectaFija } from './compras.repository';
 import { hoyVenezuela as hoyVenezuelaFijas } from '@/shared/lib/rangosFecha';
@@ -581,6 +581,7 @@ export function PedidosPage() {
     const hoy = hoyVenezuelaFijas();
     return comprasFijas.filter((c) => ['vencida', 'hoy'].includes(estadoFija(c, hoy)));
   }, [comprasFijas]);
+  const fijasSugeridas = useMemo(() => comprasFijas.filter(esSugerencia), [comprasFijas]);
   const plantillaMercado = useMemo(
     () => comprasFijas.find((c) => c.activa && c.finalidad === FINALIDAD_MERCADO) ?? null,
     [comprasFijas],
@@ -896,15 +897,25 @@ export function PedidosPage() {
       </div>
 
       {/* Compras fijas que tocan hoy o están vencidas (12/11/2026). */}
-      {canManageProcurement && fijasQueTocan.length > 0 && (
-        <div className="card" style={{ padding: '.8rem 1rem', marginBottom: '1rem', borderLeft: '4px solid var(--warning)', display: 'flex', gap: '.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      {canManageProcurement && (fijasQueTocan.length > 0 || fijasSugeridas.length > 0) && (
+        <div className="card" style={{ padding: '.8rem 1rem', marginBottom: '1rem', borderLeft: `4px solid var(--${fijasQueTocan.length ? 'warning' : 'border'})`, display: 'flex', gap: '.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontWeight: 800 }}>🔁 Compras fijas que tocan</div>
-            <div className="muted" style={{ fontSize: '.84rem' }}>
-              {fijasQueTocan.map((c) => `${c.icono} ${c.nombre} (${textoEstadoFija(c, hoyVenezuelaFijas()).toLowerCase()})`).join(' · ')}
-            </div>
+            {fijasQueTocan.length > 0 && <>
+              <div style={{ fontWeight: 800 }}>🔁 Compras fijas que tocan</div>
+              <div className="muted" style={{ fontSize: '.84rem' }}>
+                {fijasQueTocan.map((c) => `${c.icono} ${c.nombre} (${textoEstadoFija(c, hoyVenezuelaFijas()).toLowerCase()})`).join(' · ')}
+              </div>
+            </>}
+            {fijasSugeridas.length > 0 && (
+              <div className="muted" style={{ fontSize: '.8rem', marginTop: fijasQueTocan.length ? '.25rem' : 0 }}>
+                💡 Sugerencia: {fijasSugeridas.map((c) => `${c.icono} ${c.nombre}`).join(' · ')}
+                {' '}<em>(por configurar: Compras debe revisarlas y activarlas)</em>
+              </div>
+            )}
           </div>
-          <button className="btn btn-primary" onClick={() => setComprasFijasOpen(true)}>Ver y generar</button>
+          <button className={`btn ${fijasQueTocan.length ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setComprasFijasOpen(true)}>
+            {fijasQueTocan.length ? 'Ver y generar' : '⚙ Configurar'}
+          </button>
         </div>
       )}
 

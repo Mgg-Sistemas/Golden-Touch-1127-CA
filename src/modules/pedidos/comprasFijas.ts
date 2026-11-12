@@ -45,6 +45,8 @@ export interface CompraFija {
   ultima_ref_id: string | null;
   ultima_codigo: string | null;
   ultima_generada_en: string | null;
+  /** Quién la guardó por última vez desde el sistema (lo pone la base). */
+  updated_by?: string | null;
 }
 
 export const FRECUENCIAS: { valor: FrecuenciaFija; etiqueta: string }[] = [
@@ -83,6 +85,14 @@ export function siguienteFecha(c: Pick<CompraFija, 'frecuencia' | 'cada_dias' | 
   let guard = 0;
   while (f <= hoy && guard++ < 400) f = sumar(f, c);
   return f;
+}
+
+/**
+ * Sugerencia: una plantilla que vino propuesta (inactiva, nunca generada y que nadie
+ * ha guardado desde el sistema). No avisa ni se genera hasta que Compras la configure.
+ */
+export function esSugerencia(c: Pick<CompraFija, 'activa' | 'ultima_generada_en' | 'updated_by'>): boolean {
+  return !c.activa && !c.ultima_generada_en && !c.updated_by;
 }
 
 export function diasHasta(fecha: string, hoy: string): number {

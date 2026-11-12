@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Producto } from '@/shared/lib/types';
 import {
-  cantidadesPrevias, entraPorCategoria, errorPlantilla, estadoFija, renglonesDePlantilla, siguienteFecha, textoEstadoFija, textoFrecuencia,
+  cantidadesPrevias, entraPorCategoria, errorPlantilla, esSugerencia, estadoFija, renglonesDePlantilla, siguienteFecha, textoEstadoFija, textoFrecuencia,
 } from './comprasFijas';
 
 const prod = (id: string, categoria: string, estado = 'activo'): Producto =>
@@ -49,5 +49,14 @@ describe('compras fijas', () => {
     expect(errorPlantilla({ ...base, nombre: 'Pa' })).toMatch(/nombre/);
     expect(errorPlantilla({ ...base, categorias: [] })).toMatch(/categoría o un producto/);
     expect(errorPlantilla({ ...base, frecuencia: 'cada_dias' })).toMatch(/cada cuántos/);
+  });
+
+  it('sugerencia: inactiva, nunca generada y sin guardar desde el sistema', () => {
+    const s = { activa: false, ultima_generada_en: null, updated_by: null };
+    expect(esSugerencia(s)).toBe(true);
+    expect(esSugerencia({ ...s, updated_by: undefined })).toBe(true);
+    expect(esSugerencia({ ...s, activa: true })).toBe(false); // configurada (Mercado)
+    expect(esSugerencia({ ...s, updated_by: 'analista@x.com' })).toBe(false); // pausada a propósito
+    expect(esSugerencia({ ...s, ultima_generada_en: '2026-11-01T10:00:00Z' })).toBe(false);
   });
 });

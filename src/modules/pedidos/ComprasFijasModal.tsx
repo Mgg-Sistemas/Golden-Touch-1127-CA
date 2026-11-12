@@ -13,7 +13,7 @@ import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { money } from '@/shared/lib/format';
 import type { Producto, Proveedor } from '@/shared/lib/types';
 import {
-  FRECUENCIAS, entraPorCategoria, errorPlantilla, estadoFija, textoEstadoFija, textoFrecuencia,
+  FRECUENCIAS, entraPorCategoria, errorPlantilla, esSugerencia, estadoFija, textoEstadoFija, textoFrecuencia,
   type CompraFija, type EstadoFija, type FrecuenciaFija, type ProductoFijo,
 } from './comprasFijas';
 import {
@@ -42,7 +42,7 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
 }) {
   const [lista, setLista] = useState<CompraFija[] | null>(null);
   const [disponible, setDisponible] = useState(true);
-  const [editando, setEditando] = useState<{ id: string | null; datos: CompraFijaEditable } | null>(null);
+  const [editando, setEditando] = useState<{ id: string | null; datos: CompraFijaEditable; sugerencia?: boolean } | null>(null);
   const [historial, setHistorial] = useState<{ c: CompraFija; filas: GeneradaFija[] | null } | null>(null);
   const [generando, setGenerando] = useState<string | null>(null);
   const hoy = hoyVenezuela();
@@ -70,9 +70,18 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo leer el historial', 'error'); setHistorial({ c, filas: [] }); }
   }
 
+  const sugerencias = (lista ?? []).filter(esSugerencia);
+  const plantillas = (lista ?? []).filter((c) => !esSugerencia(c));
+  const editar = (c: CompraFija, sugerencia = false) => {
+    const { id, ultima_ref_tipo: _a, ultima_ref_id: _b, ultima_codigo: _c, ultima_generada_en: _d, ...datos } = c;
+    void _a; void _b; void _c; void _d;
+    // Al configurar una sugerencia queda activa (se puede desmarcar antes de guardar).
+    setEditando({ id, datos: sugerencia ? { ...datos, activa: true, proxima_fecha: hoy } : datos, sugerencia });
+  };
+
   if (editando) {
     return (
-      <EditorCompraFija inicial={editando.datos} id={editando.id} productos={productos} proveedores={proveedores}
+      <EditorCompraFija inicial={editando.datos} id={editando.id} sugerencia={!!editando.sugerencia} productos={productos} proveedores={proveedores}
         onClose={() => setEditando(null)} onGuardada={() => { setEditando(null); void cargar(); }} />
     );
   }
@@ -117,9 +126,9 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
         con las cantidades de la última vez (se pueden cambiar) y desde ahí sigue el flujo normal.
       </p>
       {!disponible && <div className="card" style={{ borderLeft: '3px solid var(--warning)' }}>⚠ {MSG_FALTA_SQL_COMPRAS_FIJAS}</div>}
-      {lista === null ? <p className="muted">Cargando…</p> : (
+      {lista === null ? <p className="muted">Cargando…</p> : (<>
         <div style={{ display: 'grid', gap: '.8rem', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
-          {lista.map((c) => {
+          {plantillas.map((c) => {
             const est = estadoFija(c, hoy);
             const aCotizar = c.modo === 'solicitud' || c.permite_cotizar;
             return (
@@ -146,26 +155,48 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
                     </button>
                   )}
                   <button className="btn btn-ghost btn-sm" onClick={() => void verHistorial(c)}>🕘 Historial</button>
-                  {puedeEditar && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => {
-                      const { id, ultima_ref_tipo: _a, ultima_ref_id: _b, ultima_codigo: _c, ultima_generada_en: _d, ...datos } = c;
-                      void _a; void _b; void _c; void _d;
-                      setEditando({ id, datos });
-                    }}>✎ Editar</button>
-                  )}
+                  {puedeEditar && <button className="btn btn-ghost btn-sm" onClick={() => editar(c)}>✎ Editar</button>}
                 </div>
               </div>
             );
           })}
-          {!lista.length && disponible && <p className="muted">Todavía no hay compras fijas.</p>}
+          {!plantillas.length && disponible && <p className="muted">Todavía no hay compras fijas configuradas.</p>}
         </div>
-      )}
+        {sugerencias.length > 0 && (
+          <div style={{ marginTop: '1.2rem' }}>
+            <div style={{ fontWeight: 800 }}>💡 Sugerencias · Compras debe configurarlas</div>
+            <p className="muted" style={{ margin: '.2rem 0 .6rem', fontSize: '.83rem' }}>
+              Son propuestas: todavía no avisan ni se pueden generar. Revisa los productos, la frecuencia, la próxima fecha y el
+              proveedor, y guárdala activa con «⚙ Configurar».
+            </p>
+            <div style={{ display: 'grid', gap: '.8rem', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+              {sugerencias.map((c) => (
+                <div key={c.id} className="card" style={{ border: '1.5px dashed var(--border)', margin: 0, opacity: 0.85 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', alignItems: 'baseline' }}>
+                    <strong style={{ fontSize: '1.05rem' }}>{c.icono} {c.nombre}</strong>
+                    <span className="badge muted">Sugerencia</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: '.82rem', margin: '.3rem 0' }}>
+                    Propuesta: {textoFrecuencia(c).toLowerCase()} · {c.modo === 'compra_directa' ? 'compra directa' : 'solicitud de pedido → OC'}
+                    {c.productos.length > 0 && <><br />{c.productos.map((p) => p.nombre).join(', ')}</>}
+                    {!c.productos.length && c.categorias.length > 0 && <><br />Categorías: {c.categorias.join(', ')}</>}
+                    <br /><strong style={{ color: 'var(--warning)' }}>⚠ Falta configurarla</strong>
+                  </div>
+                  {puedeEditar
+                    ? <button className="btn btn-primary btn-sm" onClick={() => editar(c, true)}>⚙ Configurar</button>
+                    : <small className="muted">La configura un analista de Compras o un administrador.</small>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </>)}
     </Modal>
   );
 }
 
-function EditorCompraFija({ inicial, id, productos, proveedores, onClose, onGuardada }: {
-  inicial: CompraFijaEditable; id: string | null; productos: Producto[]; proveedores: Proveedor[];
+function EditorCompraFija({ inicial, id, sugerencia = false, productos, proveedores, onClose, onGuardada }: {
+  inicial: CompraFijaEditable; id: string | null; sugerencia?: boolean; productos: Producto[]; proveedores: Proveedor[];
   onClose: () => void; onGuardada: () => void;
 }) {
   const [d, setD] = useState<CompraFijaEditable>(inicial);
@@ -212,12 +243,18 @@ function EditorCompraFija({ inicial, id, productos, proveedores, onClose, onGuar
   }
 
   return (
-    <Modal title={id ? `✎ ${d.icono} ${d.nombre}` : '＋ Nueva compra fija'} size="lg" onClose={onClose}
+    <Modal title={sugerencia ? `⚙ Configurar ${d.icono} ${d.nombre}` : id ? `✎ ${d.icono} ${d.nombre}` : '＋ Nueva compra fija'} size="lg" onClose={onClose}
       footer={<>
         {id && <button className="btn btn-ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => void eliminar()} disabled={guardando}>🗑 Eliminar</button>}
         <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>
       </>}>
+      {sugerencia && (
+        <div className="card" style={{ borderLeft: '3px solid var(--warning)', marginTop: 0, fontSize: '.85rem' }}>
+          💡 Es una sugerencia. Revisa los productos, cada cuánto se compra, la próxima fecha y el proveedor. Al guardar queda
+          activa y empieza a avisar cuando toque.
+        </div>
+      )}
       <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         <div className="form-row" style={{ margin: 0 }}>
           <label>Nombre *</label>
