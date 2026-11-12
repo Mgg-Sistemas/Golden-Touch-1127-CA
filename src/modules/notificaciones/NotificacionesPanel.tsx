@@ -5,6 +5,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { relTime } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
 import { notificacionPermitidaParaUsuario } from './notifPermisos';
 import { listLatest, markAllRead, markManyRead, markRead, pruneOld } from './notif.repository';
 import type { Notificacion } from '@/shared/lib/types';
@@ -24,6 +25,7 @@ const KIND_ICON: Record<string, string> = {
 
 export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
   const { can, isAdmin } = usePermissions();
+  const { user } = useSession();
   const [items, setItems] = useState<Notificacion[]>([]);
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
@@ -46,12 +48,12 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    // Traemos un lote reciente y filtramos en memoria por los módulos permitidos para el usuario.
+    // Traemos un lote reciente y filtramos en memoria por los módulos permitidos para el usuario o mención directa.
     // (DELETE es admin-only: si no eres admin simplemente no borra nada).
     listLatest(50)
       .then((data) => {
         if (!cancelled) {
-          const permitidas = data.filter((n) => notificacionPermitidaParaUsuario(n, can, isAdmin));
+          const permitidas = data.filter((n) => notificacionPermitidaParaUsuario(n, can, isAdmin, user?.email));
           setItems(permitidas.slice(0, 15));
         }
       })
@@ -59,7 +61,7 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
       .finally(() => { if (!cancelled) setLoading(false); });
     pruneOld(15).catch(() => { /* sin permiso (no-admin) o sin red: se ignora */ });
     return () => { cancelled = true; };
-  }, [open, can, isAdmin]);
+  }, [open, can, isAdmin, user?.email]);
 
   async function handleMarkAll() {
     setMarking(true);

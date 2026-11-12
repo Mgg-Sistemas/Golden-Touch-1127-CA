@@ -2,9 +2,13 @@
    Golden Touch · Pedidos · Chat interno por orden (OC)
    Conversación de seguimiento entre el Gerente General y el
    analista de compras (y el equipo de pedidos). Un hilo por orden.
+   Soporte de menciones (@) con despacho de alertas personalizadas.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { push as pushNotificacion } from '@/modules/notificaciones/notif.repository';
+import { extraerMenciones, resolverDestinatariosMenciones, notificarMenciones } from './chatMenciones';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import type { Usuario } from '@/shared/lib/types';
 
 export interface MensajeOrden {
   id: string;
@@ -26,7 +30,7 @@ export async function listMensajes(ordenId: string): Promise<MensajeOrden[]> {
   return (data ?? []) as MensajeOrden[];
 }
 
-/** Envía un mensaje y avisa al equipo (notificación con dedup por orden). */
+/** Envía un mensaje y avisa al equipo (notificación con dedup por orden) + menciones puntuales. */
 export async function enviarMensaje(input: {
   ordenId: string;
   ordenLabel: string;
@@ -47,7 +51,8 @@ export async function enviarMensaje(input: {
     .select('*')
     .single();
   if (error) throw error;
-  // Nudge: una notificación no leída por orden (dedup) para que la otra parte la vea.
+
+  // Nudge general: una notificación no leída por orden (dedup) para que la otra parte la vea.
   try {
     await pushNotificacion({
       kind: 'info',
@@ -56,7 +61,34 @@ export async function enviarMensaje(input: {
       link: '#/app/pedidos',
       dedup_key: `chat:${input.ordenId}`,
     });
-  } catch { /* la notificación no debe bloquear el envío */ }
+  } catch { /* la notificación general no debe bloquear el envío */ }
+
+  // Menciones (@): notificar a cada destinatario mencionado en el texto
+  try {
+    const menciones = extraerMenciones(texto);
+    if (menciones.length > 0) {
+      let usuariosDb: Usuario[] = [];
+      try {
+        usuariosDb = await listUsuarios();
+      } catch {
+        // En caso de restricción RLS de usuarios, el resolvedor usará PERSONAS_CONOCIDAS_COMPRAS
+      }
+      const destinatarios = resolverDestinatariosMenciones(menciones, usuariosDb);
+      if (destinatarios.length > 0) {
+        await notificarMenciones({
+          ordenId: input.ordenId,
+          ordenLabel: input.ordenLabel,
+          mensaje: texto,
+          autorEmail: input.autorEmail,
+          autorNombre: input.autorNombre,
+          destinatarios,
+        });
+      }
+    }
+  } catch {
+    // La notificación de mención no debe bloquear el envío
+  }
+
   return data as MensajeOrden;
 }
 

@@ -17,9 +17,11 @@ describe('moduloDeNotificacion', () => {
     expect(moduloDeNotificacion({ link: '#/app/solicitudes-almacen', title: 'Pedido', message: '' })).toBe('inventario');
   });
 
-  it('el chat de una orden es de Compras y de Tesorería', () => {
+  it('el chat y las menciones de una orden son de Compras y de Tesorería', () => {
     const chat = { link: '#/app/pedidos', title: '💬 Mensaje en OC-0012', message: 'Ana: ya pagué' };
     expect(modulosDeNotificacion(chat)).toEqual(['compras', 'tesoreria']);
+    const mencion = { link: '#/app/pedidos', title: '🔔 Te mencionaron en OC-0012', message: 'Javier te mencionó: revisa esto' };
+    expect(modulosDeNotificacion(mencion)).toEqual(['compras', 'tesoreria']);
     expect(modulosDeNotificacion({ link: '#/app/pedidos', title: 'Orden aprobada', message: '' })).toEqual(['compras']);
     expect(modulosDeNotificacion({ link: null, title: 'Sistema actualizado', message: '' })).toEqual([]);
   });
@@ -79,49 +81,37 @@ describe('notificacionPermitidaParaUsuario', () => {
       false,
     )).toBe(true);
 
-    // Bloqueadas: Inventario, Compras, Combustible
+    // Inventario NO permitida para usuario de solo retenciones
     expect(notificacionPermitidaParaUsuario(
-      { link: '#/app/inventario', title: 'Stock crítico', message: '', destino: 'all' },
+      { link: '#/app/inventario', title: 'Stock bajo', message: 'Falta aceite', destino: 'all' },
       soloRetenciones,
       false,
     )).toBe(false);
 
+    // Destino admin NO permitida
     expect(notificacionPermitidaParaUsuario(
-      { link: '#/app/pedidos', title: 'OC Aprobada', message: '', destino: 'all' },
-      soloRetenciones,
-      false,
-    )).toBe(false);
-
-    expect(notificacionPermitidaParaUsuario(
-      { link: '#/app/combustible', title: 'Combustible bajo', message: '', destino: 'all' },
+      { link: '#/app/retenciones', title: 'Aviso admin', message: '', destino: 'admin' },
       soloRetenciones,
       false,
     )).toBe(false);
   });
 
-  it('oculta notificaciones destinadas exclusivamente a admin si el usuario no es admin', () => {
+  it('usuario con PEDIDOS e INVENTARIO ve compras, inventario y solicitudes de almacén', () => {
     expect(notificacionPermitidaParaUsuario(
-      { link: '#/app/retenciones', title: 'Aviso confidencial', message: '', destino: 'admin' },
-      soloRetenciones,
-      false,
-    )).toBe(false);
-  });
-
-  it('usuario con pedidos e inventario ve ambas pero no retenciones', () => {
-    expect(notificacionPermitidaParaUsuario(
-      { link: '#/app/pedidos', title: 'OC Lista', message: '', destino: 'all' },
+      { link: '#/app/pedidos', title: 'Nueva OC', message: '', destino: 'all' },
       soloPedidosEInventario,
       false,
     )).toBe(true);
 
     expect(notificacionPermitidaParaUsuario(
-      { link: '#/app/inventario', title: 'Material recibido', message: '', destino: 'all' },
+      { link: '#/app/solicitudes', title: 'Pedido de almacén', message: '', destino: 'all' },
       soloPedidosEInventario,
       false,
     )).toBe(true);
 
+    // Pero no ve combustible
     expect(notificacionPermitidaParaUsuario(
-      { link: '#/app/retenciones', title: 'Retención', message: '', destino: 'all' },
+      { link: '#/app/combustible', title: 'Tanque bajo', message: '', destino: 'all' },
       soloPedidosEInventario,
       false,
     )).toBe(false);
@@ -153,5 +143,22 @@ describe('notificacionPermitidaParaUsuario', () => {
       soloRetenciones,
       false,
     )).toBe(true);
+  });
+
+  it('usuario ve notificación dirigida específicamente a su email aunque no tenga permisos de módulo', () => {
+    expect(notificacionPermitidaParaUsuario(
+      { link: '#/app/pedidos', title: '🔔 Te mencionaron en OC-0012', message: 'Revisa', destino: 'usuario@goldentouch.com' },
+      sinPermisos,
+      false,
+      'usuario@goldentouch.com',
+    )).toBe(true);
+
+    // Si no es el destinatario y no tiene permisos de módulo, no la ve
+    expect(notificacionPermitidaParaUsuario(
+      { link: '#/app/pedidos', title: '🔔 Te mencionaron en OC-0012', message: 'Revisa', destino: 'otro@goldentouch.com' },
+      sinPermisos,
+      false,
+      'usuario@goldentouch.com',
+    )).toBe(false);
   });
 });

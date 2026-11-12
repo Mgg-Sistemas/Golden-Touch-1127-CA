@@ -56,9 +56,9 @@ const RUTA_A_MODULO: Record<string, ModuleKey> = {
  * aviso general del sistema. Casi siempre es uno; el chat de una orden es de dos partes.
  */
 export function modulosDeNotificacion(n: Pick<Notificacion, 'link' | 'title' | 'message'>): ModuleKey[] {
-  // El chat de una orden (ordenChat.repository) lo conversan Compras y Tesorería: el aviso
-  // («💬 Mensaje en …») es para la otra parte, sea cual sea (31/10/2026).
-  if (/^💬\s*mensaje en\b/i.test((n.title ?? '').trim())) return ['compras', 'tesoreria'];
+  // El chat de una orden (ordenChat.repository) y las menciones lo conversan Compras y Tesorería: el aviso
+  // («💬 Mensaje en …» o «🔔 Te mencionaron en …») es para la contraparte o el mencionado (31/10/2026).
+  if (/^(?:💬\s*mensaje en|🔔\s*te mencionaron en)\b/i.test((n.title ?? '').trim())) return ['compras', 'tesoreria'];
   const m = moduloDeNotificacion(n);
   return m ? [m] : [];
 }
@@ -131,19 +131,27 @@ export function moduloDeNotificacion(n: Pick<Notificacion, 'link' | 'title' | 'm
  *
  * Reglas:
  * 1. Los administradores (`isAdmin = true`) ven absolutamente todas las notificaciones.
- * 2. Si `destino === 'admin'`, solo los administradores pueden verla.
- * 3. Si la notificación pertenece a un módulo específico (ej. `retenciones`), el usuario
+ * 2. Si la notificación va dirigida específicamente al email del usuario (`destino === usuarioEmail`),
+ *    es visible para él sin importar su rol.
+ * 3. Si `destino === 'admin'`, solo los administradores pueden verla.
+ * 4. Si la notificación pertenece a un módulo específico (ej. `retenciones`), el usuario
  *    debe tener permiso de lectura en ese módulo (`can(modulo) === true`); si son varios
  *    (chat de una orden: Compras y Tesorería), basta uno.
- * 4. Si la notificación es global del sistema (sin módulo asociado y `destino === 'all'`),
+ * 5. Si la notificación es global del sistema (sin módulo asociado y `destino === 'all'`),
  *    es visible para todos los usuarios.
  */
 export function notificacionPermitidaParaUsuario(
   n: NotificacionLike,
   can: (module: ModuleKey) => boolean,
   isAdmin: boolean,
+  usuarioEmail?: string | null,
 ): boolean {
   if (isAdmin) return true;
+
+  // Notificación dirigida puntualmente a este usuario (por email)
+  if (usuarioEmail && n.destino && n.destino.toLowerCase().trim() === usuarioEmail.toLowerCase().trim()) {
+    return true;
+  }
 
   // Destino exclusivo para administradores
   if (n.destino === 'admin') return false;
