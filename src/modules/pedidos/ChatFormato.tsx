@@ -4,7 +4,7 @@
    - Formatos: negrita (* o **), cursiva (_), tachado (~ o ~~),
      código (`...`), bloques de código (```...```), citas (>),
      viñetas (- o • o *) y listas numeradas (1.).
-   - Menciones (@Nombre o @correo): insignia destacada con tono cálido.
+   - Menciones (@Nombre o @correo): insignia integrada con tono ámbar.
    - Referencias (#OC-..., #SP-..., #CS-..., #SS-...): chip interactivo
      con copia al portapapeles.
    - RESTRICCIÓN: Compras directas (#CD-...) y Servicios directos (#SD-...)
@@ -61,7 +61,7 @@ export function etiquetaTipoReferencia(codigo: string): string {
 
 /**
  * Insignia de referencia (#OC, #SP, #CS, #SS).
- * Al hacer click, copia el código al portapapeles.
+ * Al hacer click, copia el código al portapapeles de forma amigable.
  */
 export function ChatReferenciaBadge({ codigo, onClick }: { codigo: string; onClick?: (cod: string) => void }) {
   const tipo = etiquetaTipoReferencia(codigo);
@@ -87,21 +87,22 @@ export function ChatReferenciaBadge({ codigo, onClick }: { codigo: string; onCli
         display: 'inline-flex',
         alignItems: 'center',
         gap: '2px',
-        padding: '0 5px',
+        padding: '1px 6px',
         margin: '0 2px',
-        borderRadius: '5px',
-        fontSize: '0.84em',
+        borderRadius: '4px',
+        fontSize: '0.82em',
         fontWeight: 600,
-        fontFamily: 'monospace',
-        background: 'rgba(59, 130, 246, 0.16)',
-        color: '#60a5fa',
-        border: '1px solid rgba(59, 130, 246, 0.35)',
+        fontFamily: 'var(--font-mono, monospace)',
+        background: 'rgba(74, 168, 255, 0.12)',
+        color: 'var(--info, #4aa8ff)',
+        border: '1px solid rgba(74, 168, 255, 0.25)',
         cursor: 'pointer',
         verticalAlign: 'baseline',
-        lineHeight: '1.45',
+        lineHeight: '1.4',
+        transition: 'background 0.15s ease, border-color 0.15s ease',
       }}
     >
-      <span style={{ opacity: 0.7, fontWeight: 700 }}>#</span>
+      <span style={{ opacity: 0.65, fontWeight: 700 }}>#</span>
       <span>{codigo}</span>
     </button>
   );
@@ -119,16 +120,16 @@ export function ChatMencionBadge({ nombre }: { nombre: string }) {
         display: 'inline-flex',
         alignItems: 'center',
         gap: '1px',
-        padding: '0 5px',
+        padding: '1px 6px',
         margin: '0 2px',
-        borderRadius: '5px',
-        fontSize: '0.84em',
+        borderRadius: '4px',
+        fontSize: '0.82em',
         fontWeight: 600,
-        background: 'rgba(255, 138, 0, 0.18)',
-        color: '#ff9800',
-        border: '1px solid rgba(255, 138, 0, 0.38)',
+        background: 'rgba(255, 138, 0, 0.12)',
+        color: 'var(--primary, #ff8a00)',
+        border: '1px solid rgba(255, 138, 0, 0.25)',
         verticalAlign: 'baseline',
-        lineHeight: '1.45',
+        lineHeight: '1.4',
       }}
     >
       <span style={{ fontWeight: 800 }}>@</span>
@@ -299,22 +300,23 @@ function renderInlineTokens(tokens: InlineToken[], onRefClick?: (codigo: string)
       case 'text':
         return token.content;
       case 'bold':
-        return <strong key={key}>{renderInlineTokens(tokenizeInline(token.content), onRefClick)}</strong>;
+        return <strong key={key} style={{ fontWeight: 700 }}>{renderInlineTokens(tokenizeInline(token.content), onRefClick)}</strong>;
       case 'italic':
         return <em key={key}>{renderInlineTokens(tokenizeInline(token.content), onRefClick)}</em>;
       case 'strike':
-        return <del key={key}>{renderInlineTokens(tokenizeInline(token.content), onRefClick)}</del>;
+        return <del key={key} style={{ opacity: 0.75 }}>{renderInlineTokens(tokenizeInline(token.content), onRefClick)}</del>;
       case 'code':
         return (
           <code
             key={key}
             style={{
-              background: 'rgba(255,255,255,0.08)',
+              background: 'var(--bg-2, #262a31)',
+              border: '1px solid var(--border, #333944)',
               padding: '1px 5px',
               borderRadius: 4,
-              fontFamily: 'monospace',
-              fontSize: '0.88em',
-              color: '#f87171',
+              fontFamily: 'var(--font-mono, monospace)',
+              fontSize: '0.85em',
+              color: 'var(--warning, #f5b133)',
             }}
           >
             {token.content}
@@ -327,7 +329,7 @@ function renderInlineTokens(tokens: InlineToken[], onRefClick?: (codigo: string)
             href={token.raw}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#38bdf8', textDecoration: 'underline', wordBreak: 'break-all' }}
+            style={{ color: 'var(--info, #4aa8ff)', textDecoration: 'underline', wordBreak: 'break-all' }}
           >
             {token.raw}
           </a>
@@ -364,13 +366,14 @@ export function ChatMensajeContenido({
               key={key}
               style={{
                 margin: '.3rem 0',
-                padding: '.4rem .6rem',
-                borderRadius: 6,
-                background: 'rgba(0,0,0,0.3)',
+                padding: '.45rem .65rem',
+                borderRadius: '6px',
+                background: 'var(--bg-0, #1c1f24)',
                 fontSize: '.78rem',
-                fontFamily: 'monospace',
+                fontFamily: 'var(--font-mono, monospace)',
                 overflowX: 'auto',
-                border: '1px solid var(--border)',
+                border: '1px solid var(--border, #333944)',
+                color: 'var(--text)',
               }}
             >
               <code>{b.content}</code>
@@ -382,11 +385,10 @@ export function ChatMensajeContenido({
             <div
               key={key}
               style={{
-                borderLeft: '3px solid #ff8a00',
+                borderLeft: '3px solid var(--primary, #ff8a00)',
                 paddingLeft: '8px',
                 margin: '.25rem 0',
-                fontStyle: 'italic',
-                opacity: 0.9,
+                color: 'var(--text-muted, #9aa6b5)',
               }}
             >
               {renderInlineTokens(tokenizeInline(b.content), onReferenciaClick)}
@@ -402,10 +404,10 @@ export function ChatMensajeContenido({
                 alignItems: 'baseline',
                 gap: '6px',
                 marginLeft: `${Math.max(4, b.indent ? b.indent * 6 : 4)}px`,
-                margin: '.15rem 0',
+                margin: '.12rem 0',
               }}
             >
-              <span style={{ color: '#ff8a00', fontSize: '.9em' }}>•</span>
+              <span style={{ color: 'var(--primary, #ff8a00)', fontSize: '.85em' }}>•</span>
               <span style={{ flex: 1 }}>{renderInlineTokens(tokenizeInline(b.content), onReferenciaClick)}</span>
             </div>
           );
@@ -419,17 +421,17 @@ export function ChatMensajeContenido({
                 alignItems: 'baseline',
                 gap: '6px',
                 marginLeft: `${Math.max(4, b.indent ? b.indent * 6 : 4)}px`,
-                margin: '.15rem 0',
+                margin: '.12rem 0',
               }}
             >
-              <span style={{ fontWeight: 700, opacity: 0.75, fontSize: '.85em', minWidth: '16px' }}>{b.num}.</span>
+              <span style={{ fontWeight: 700, color: 'var(--text-muted)', fontSize: '.82em', minWidth: '16px' }}>{b.num}.</span>
               <span style={{ flex: 1 }}>{renderInlineTokens(tokenizeInline(b.content), onReferenciaClick)}</span>
             </div>
           );
         }
         // Línea estándar
         if (!b.content.trim()) {
-          return <div key={key} style={{ height: '.4rem' }} />;
+          return <div key={key} style={{ height: '.35rem' }} />;
         }
         return (
           <div key={key} style={{ minHeight: '1.2em' }}>

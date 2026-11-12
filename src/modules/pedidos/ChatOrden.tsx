@@ -16,10 +16,11 @@ interface MiembroEquipo {
 }
 
 /**
- * Chat interno de seguimiento por orden (OC). Hilo único por orden para que el
- * Gerente General y el analista de compras conversen al revisar/aprobar.
- * En tiempo real; con formato enriquecido (Telegram / WhatsApp / Slack),
- * menciones (@) con alertas personalizadas y referencias (#).
+ * Chat interno de seguimiento por orden (OC / SP / CS / SS).
+ * Diseño integrado y cohesivo con la estética oscura de Golden Touch:
+ * - Contenedor unificado estilo Slack / Linear.
+ * - Formato enriquecido (*negrita*, _cursiva_, viñetas, citas, código).
+ * - Autocompletado inteligente para @menciones y #referencias.
  */
 export function ChatOrden({
   ordenId,
@@ -38,6 +39,7 @@ export function ChatOrden({
   const [enviando, setEnviando] = useState(false);
   const [loading, setLoading] = useState(true);
   const [cargaError, setCargaError] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -64,7 +66,7 @@ export function ChatOrden({
           }
         }
       } catch {
-        // Fallback a PERSONAS_CONOCIDAS_COMPRAS si no hay acceso directo a usuarios
+        // Fallback a PERSONAS_CONOCIDAS_COMPRAS
       }
       if (!cancel) {
         const lista: MiembroEquipo[] = [];
@@ -110,7 +112,6 @@ export function ChatOrden({
   const actualizarSugerencias = (nuevoTexto: string, pos: number) => {
     const textoAntes = nuevoTexto.slice(0, pos);
 
-    // Buscar si el cursor está inmediatamente después de un @...
     const matchMencion = textoAntes.match(/(?:^|\s)@([a-zA-ZÁÉÍÓÚáéíóúñÑ0-9_.]*)$/);
     if (matchMencion) {
       setMenuTipo('mencion');
@@ -119,7 +120,6 @@ export function ChatOrden({
       return;
     }
 
-    // Buscar si el cursor está inmediatamente después de un #...
     const matchRef = textoAntes.match(/(?:^|\s)#([a-zA-Z0-9-]*)$/);
     if (matchRef) {
       setMenuTipo('referencia');
@@ -137,15 +137,12 @@ export function ChatOrden({
     actualizarSugerencias(val, e.target.selectionStart ?? val.length);
   };
 
-  // Filtrado de miembros para el menú de mención
   const miembrosFiltrados = menuTipo === 'mencion'
     ? miembros.filter((m) =>
         m.nombre.toLowerCase().includes(menuQuery) || m.email.toLowerCase().includes(menuQuery)
       ).slice(0, 6)
     : [];
 
-  // Sugerencias de referencias (#)
-  // IMPORTANTE: Excluye explícitamente CD- (Compra directa) y SD- (Servicio directo)
   const baseReferencias = [
     ...(ordenLabel && !ordenLabel.startsWith('CD-') && !ordenLabel.startsWith('SD-') ? [ordenLabel] : []),
     ...(referenciasSugeridas ?? []).filter((r) => !r.toUpperCase().startsWith('CD-') && !r.toUpperCase().startsWith('SD-')),
@@ -159,7 +156,6 @@ export function ChatOrden({
     ? referenciasUnicas.filter((r) => r.toLowerCase().includes(menuQuery)).slice(0, 6)
     : [];
 
-  // Insertar sugerencia elegida
   const insertarSugerencia = (valor: string, esMencion: boolean) => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -183,7 +179,6 @@ export function ChatOrden({
     setTexto(resultado);
     setMenuTipo(null);
 
-    // Reposicionar cursor
     setTimeout(() => {
       ta.focus();
       const nuevaPos = prefijo.length;
@@ -191,7 +186,6 @@ export function ChatOrden({
     }, 0);
   };
 
-  // Botones de formato rápido (Negrita, Cursiva, etc.)
   const aplicarFormato = (inicio: string, fin: string) => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -263,9 +257,7 @@ export function ChatOrden({
     }
   }
 
-  // Teclado en textarea: soporte de flechas para dropdown y Enter para enviar
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Si el menú de sugerencias está abierto
     if (menuTipo === 'mencion' && miembrosFiltrados.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -314,7 +306,6 @@ export function ChatOrden({
       }
     }
 
-    // Atajos de formato con Ctrl / Cmd
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       aplicarFormato('*', '*');
@@ -326,48 +317,91 @@ export function ChatOrden({
       return;
     }
 
-    // Enter sin Shift: Enviar
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void enviar();
     }
   };
 
+  const actionBtnStyle: React.CSSProperties = {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted, #9aa6b5)',
+    cursor: 'pointer',
+    padding: '0 5px',
+    minWidth: '22px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '4px',
+    fontSize: '0.8rem',
+    lineHeight: 1,
+  };
+
   return (
     <div
-      className="card"
       style={{
-        marginTop: '.6rem',
-        border: '1.5px solid rgba(255,138,0,.55)',
-        borderRadius: 12,
-        background: 'rgba(255,138,0,.04)',
-        boxShadow: '0 0 0 3px rgba(255,138,0,.06)',
+        background: 'var(--surface, #23272e)',
+        border: '1px solid var(--border, #333944)',
+        borderRadius: 'var(--r-md, 10px)',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      {/* Encabezado */}
-      <div style={{ marginBottom: '.5rem' }}>
-        <div style={{ fontWeight: 700, fontSize: '.95rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-          <span style={{ color: '#ff8a00' }}>💬</span> Chat interno · {ordenLabel}
+      {/* Encabezado limpio y sobrio */}
+      <div
+        style={{
+          padding: '0.6rem 0.85rem',
+          background: 'var(--bg-1, #20242a)',
+          borderBottom: '1px solid var(--border, #333944)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.95rem' }}>💬</span>
+          <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text)' }}>
+            Chat interno
+          </span>
+          <span
+            style={{
+              fontSize: '0.72rem',
+              fontFamily: 'var(--font-mono, monospace)',
+              background: 'rgba(255, 138, 0, 0.12)',
+              color: 'var(--primary, #ff8a00)',
+              padding: '1px 6px',
+              borderRadius: '4px',
+              fontWeight: 600,
+              border: '1px solid rgba(255, 138, 0, 0.22)',
+            }}
+          >
+            {ordenLabel}
+          </span>
         </div>
-        <div className="muted" style={{ fontSize: '.78rem', marginTop: '.15rem' }}>
-          Seguimiento interno con formato enriquecido (*negrita*, _cursiva_, viñetas, @menciones y #referencias).
-        </div>
+        <span className="muted" style={{ fontSize: '0.74rem' }}>
+          Seguimiento interno de la orden
+        </span>
       </div>
 
       {/* Lista de mensajes */}
       <div
         style={{
-          maxHeight: 280,
+          minHeight: msgs.length ? 140 : 85,
+          maxHeight: 250,
           overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
-          gap: '.5rem',
-          padding: '.2rem .1rem .4rem',
+          gap: '0.5rem',
+          padding: '0.75rem 0.9rem',
+          background: 'var(--bg-0, #1c1f24)',
         }}
       >
-        {loading && <div className="muted" style={{ fontSize: '.84rem', textAlign: 'center' }}>Cargando…</div>}
+        {loading && <div className="muted" style={{ fontSize: '.82rem', textAlign: 'center', padding: '1rem 0' }}>Cargando conversación…</div>}
         {!loading && cargaError && (
-          <div className="muted" style={{ fontSize: '.82rem', textAlign: 'center', padding: '.6rem 0' }}>
+          <div className="muted" style={{ fontSize: '.82rem', textAlign: 'center', padding: '1rem 0' }}>
             No se pudo cargar el chat.{' '}
             <button
               type="button"
@@ -379,8 +413,20 @@ export function ChatOrden({
           </div>
         )}
         {!loading && !cargaError && !msgs.length && (
-          <div className="muted" style={{ fontSize: '.84rem', textAlign: 'center', padding: '.6rem 0' }}>
-            Sin mensajes. Inicia la conversación de seguimiento de esta orden.
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '1.25rem 0',
+              color: 'var(--text-dim, #6a7585)',
+              gap: '0.2rem',
+            }}
+          >
+            <span style={{ fontSize: '1.15rem', opacity: 0.65 }}>💬</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sin mensajes en esta orden</span>
+            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>Escribe abajo para coordinar o dejar notas con el equipo</span>
           </div>
         )}
         {msgs.map((m) => {
@@ -391,17 +437,17 @@ export function ChatOrden({
                 style={{
                   maxWidth: '82%',
                   padding: '.45rem .75rem',
-                  borderRadius: 10,
-                  fontSize: '.85rem',
-                  background: propio ? 'rgba(255,138,0,.16)' : 'var(--bg-1)',
-                  border: `1px solid ${propio ? 'rgba(255,138,0,.35)' : 'var(--border)'}`,
+                  borderRadius: 8,
+                  fontSize: '.84rem',
+                  background: propio ? 'rgba(255,138,0,.12)' : 'var(--surface-2, #2b3038)',
+                  border: `1px solid ${propio ? 'rgba(255,138,0,.25)' : 'var(--border, #333944)'}`,
                 }}
               >
-                <div style={{ fontWeight: 700, fontSize: '.72rem', marginBottom: '.2rem' }}>
+                <div style={{ fontWeight: 600, fontSize: '.72rem', marginBottom: '.2rem', color: propio ? 'var(--primary-2, #ffa733)' : 'var(--text-muted)' }}>
                   <Quien nombre={m.autor_nombre} correo={m.autor_email} />
                 </div>
                 <ChatMensajeContenido mensaje={m.mensaje} />
-                <div className="muted" style={{ fontSize: '.66rem', marginTop: '.25rem', textAlign: 'right' }}>
+                <div className="muted" style={{ fontSize: '.65rem', marginTop: '.2rem', textAlign: 'right' }}>
                   {dateTime(m.created_at)}
                 </div>
               </div>
@@ -411,231 +457,288 @@ export function ChatOrden({
         <div ref={finRef} />
       </div>
 
-      {/* Barra de formato rápido (estilo Slack/WhatsApp/Telegram) */}
+      {/* Compositor de mensaje unificado (Estilo Slack / Linear / WhatsApp Web) */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          marginTop: '.5rem',
-          padding: '2px 4px',
-          borderTop: '1px solid rgba(255,138,0,.15)',
-          flexWrap: 'wrap',
+          padding: '0.6rem 0.85rem',
+          background: 'var(--bg-1, #20242a)',
+          borderTop: '1px solid var(--border, #333944)',
         }}
       >
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Negrita (*texto* o Ctrl+B)"
-          onClick={() => aplicarFormato('*', '*')}
-          style={{ fontWeight: 800, minWidth: 26, height: 24, padding: '0 4px' }}
+        <div
+          style={{
+            position: 'relative',
+            background: 'var(--bg-2, #262a31)',
+            border: inputFocused ? '1px solid var(--primary, #ff8a00)' : '1px solid var(--border, #333944)',
+            boxShadow: inputFocused ? '0 0 0 2px rgba(255, 138, 0, 0.16)' : 'none',
+            borderRadius: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+          }}
         >
-          B
-        </button>
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Cursiva (_texto_ o Ctrl+I)"
-          onClick={() => aplicarFormato('_', '_')}
-          style={{ fontStyle: 'italic', fontWeight: 600, minWidth: 26, height: 24, padding: '0 4px' }}
-        >
-          I
-        </button>
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Tachado (~texto~)"
-          onClick={() => aplicarFormato('~', '~')}
-          style={{ textDecoration: 'line-through', minWidth: 26, height: 24, padding: '0 4px' }}
-        >
-          S
-        </button>
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Código inline (`código`)"
-          onClick={() => aplicarFormato('`', '`')}
-          style={{ fontFamily: 'monospace', minWidth: 26, height: 24, padding: '0 4px' }}
-        >
-          &lt;/&gt;
-        </button>
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Cita (> texto)"
-          onClick={() => insertarPrefijoLinea('> ')}
-          style={{ fontWeight: 800, minWidth: 26, height: 24, padding: '0 4px' }}
-        >
-          ”
-        </button>
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Viñeta (• elemento)"
-          onClick={() => insertarPrefijoLinea('• ')}
-          style={{ color: '#ff8a00', fontWeight: 800, minWidth: 26, height: 24, padding: '0 4px' }}
-        >
-          •
-        </button>
-
-        <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.15)', margin: '0 3px' }} />
-
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Mencionar a un miembro del equipo (@)"
-          onClick={dispararMencion}
-          style={{ height: 24, padding: '0 6px', fontSize: '.75rem', display: 'flex', alignItems: 'center', gap: 2 }}
-        >
-          <span style={{ color: '#ff8a00', fontWeight: 800 }}>@</span> Mencionar
-        </button>
-        <button
-          type="button"
-          className="btn btn-xs btn-ghost"
-          title="Referenciar orden (#OC, #SP, #CS, #SS)"
-          onClick={dispararReferencia}
-          style={{ height: 24, padding: '0 6px', fontSize: '.75rem', display: 'flex', alignItems: 'center', gap: 2 }}
-        >
-          <span style={{ color: '#60a5fa', fontWeight: 800 }}>#</span> Referencia
-        </button>
-      </div>
-
-      {/* Entrada de mensaje con soporte para sugerencias emergentes */}
-      <div style={{ position: 'relative', display: 'flex', gap: '.4rem', marginTop: '.3rem' }}>
-        {/* Menú emergente de mención (@) */}
-        {menuTipo === 'mencion' && miembrosFiltrados.length > 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '100%',
-              left: 0,
-              right: 0,
-              marginBottom: 4,
-              background: 'var(--surface-2, #1e293b)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              boxShadow: '0 6px 16px rgba(0,0,0,0.35)',
-              maxHeight: 180,
-              overflowY: 'auto',
-              zIndex: 50,
-              padding: '4px',
-            }}
-          >
-            <div className="muted" style={{ fontSize: '.7rem', padding: '3px 8px', fontWeight: 700 }}>
-              Mencionar persona (@):
-            </div>
-            {miembrosFiltrados.map((m, idx) => (
-              <div
-                key={m.email}
-                onClick={() => insertarSugerencia(m.nombre, true)}
-                onMouseEnter={() => setMenuIndex(idx)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  background: idx === menuIndex ? 'rgba(255,138,0,.15)' : 'transparent',
-                  color: idx === menuIndex ? '#ff9800' : 'inherit',
-                  fontSize: '.82rem',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span
-                    style={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: '50%',
-                      background: 'rgba(255,138,0,.25)',
-                      color: '#ff8a00',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '.7rem',
-                      fontWeight: 800,
-                    }}
-                  >
-                    @
-                  </span>
-                  <span style={{ fontWeight: 600 }}>{m.nombre}</span>
+          {/* Menú emergente de mención (@) */}
+          {menuTipo === 'mencion' && miembrosFiltrados.length > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 'calc(100% + 4px)',
+                left: 0,
+                right: 0,
+                background: 'var(--surface-2, #2b3038)',
+                border: '1px solid var(--border-strong, #434a56)',
+                borderRadius: 8,
+                boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.45))',
+                maxHeight: 180,
+                overflowY: 'auto',
+                zIndex: 60,
+                padding: '4px',
+              }}
+            >
+              <div className="muted" style={{ fontSize: '.68rem', padding: '3px 8px', fontWeight: 600 }}>
+                Mencionar a:
+              </div>
+              {miembrosFiltrados.map((m, idx) => (
+                <div
+                  key={m.email}
+                  onClick={() => insertarSugerencia(m.nombre, true)}
+                  onMouseEnter={() => setMenuIndex(idx)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '5px 8px',
+                    borderRadius: 5,
+                    cursor: 'pointer',
+                    background: idx === menuIndex ? 'rgba(255,138,0,.15)' : 'transparent',
+                    color: idx === menuIndex ? 'var(--primary, #ff8a00)' : 'inherit',
+                    fontSize: '.8rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: '50%',
+                        background: 'rgba(255,138,0,.2)',
+                        color: 'var(--primary, #ff8a00)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '.66rem',
+                        fontWeight: 700,
+                      }}
+                    >
+                      @
+                    </span>
+                    <span style={{ fontWeight: 600 }}>{m.nombre}</span>
+                  </div>
+                  <span className="muted" style={{ fontSize: '.7rem' }}>{m.email}</span>
                 </div>
-                <span className="muted" style={{ fontSize: '.72rem' }}>{m.email}</span>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
 
-        {/* Menú emergente de referencia (#) */}
-        {menuTipo === 'referencia' && referenciasFiltradas.length > 0 && (
+          {/* Menú emergente de referencia (#) */}
+          {menuTipo === 'referencia' && referenciasFiltradas.length > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 'calc(100% + 4px)',
+                left: 0,
+                right: 0,
+                background: 'var(--surface-2, #2b3038)',
+                border: '1px solid var(--border-strong, #434a56)',
+                borderRadius: 8,
+                boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.45))',
+                maxHeight: 180,
+                overflowY: 'auto',
+                zIndex: 60,
+                padding: '4px',
+              }}
+            >
+              <div className="muted" style={{ fontSize: '.68rem', padding: '3px 8px', fontWeight: 600 }}>
+                Referenciar operación (#):
+              </div>
+              {referenciasFiltradas.map((r, idx) => (
+                <div
+                  key={r}
+                  onClick={() => insertarSugerencia(r, false)}
+                  onMouseEnter={() => setMenuIndex(idx)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    borderRadius: 5,
+                    cursor: 'pointer',
+                    background: idx === menuIndex ? 'rgba(74,168,255,.15)' : 'transparent',
+                    color: idx === menuIndex ? 'var(--info, #4aa8ff)' : 'inherit',
+                    fontSize: '.8rem',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono, monospace)', color: 'var(--info, #4aa8ff)' }}>#{r}</span>
+                  <span className="muted" style={{ fontSize: '.72rem' }}>
+                    {r.startsWith('OC-') ? 'Orden de Compra' :
+                     r.startsWith('SP-') ? 'Solicitud de Pedido' :
+                     r.startsWith('CS-') ? 'Control de Servicio' :
+                     r.startsWith('SS-') ? 'Solicitud de Servicio' : 'Referencia'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Área de texto sin borde integrado */}
+          <textarea
+            ref={textareaRef}
+            rows={2}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              resize: 'none',
+              padding: '0.55rem 0.75rem',
+              fontSize: '0.84rem',
+              color: 'var(--text)',
+              fontFamily: 'inherit',
+              lineHeight: '1.4',
+              minHeight: '42px',
+              maxHeight: '120px',
+            }}
+            placeholder="Escribe un mensaje… (@ para mencionar, # para referenciar)"
+            value={texto}
+            onChange={handleTextoChange}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setTimeout(() => setInputFocused(false), 200)}
+            disabled={enviando}
+          />
+
+          {/* Barra inferior integrada con herramientas y botón Enviar */}
           <div
             style={{
-              position: 'absolute',
-              bottom: '100%',
-              left: 0,
-              right: 0,
-              marginBottom: 4,
-              background: 'var(--surface-2, #1e293b)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              boxShadow: '0 6px 16px rgba(0,0,0,0.35)',
-              maxHeight: 180,
-              overflowY: 'auto',
-              zIndex: 50,
-              padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0.25rem 0.5rem 0.35rem',
+              borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+              background: 'rgba(0, 0, 0, 0.1)',
+              borderBottomLeftRadius: '7px',
+              borderBottomRightRadius: '7px',
             }}
           >
-            <div className="muted" style={{ fontSize: '.7rem', padding: '3px 8px', fontWeight: 700 }}>
-              Referenciar orden (#):
-            </div>
-            {referenciasFiltradas.map((r, idx) => (
-              <div
-                key={r}
-                onClick={() => insertarSugerencia(r, false)}
-                onMouseEnter={() => setMenuIndex(idx)}
+            {/* Formato rápido */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                title="Negrita (*texto* o Ctrl+B)"
+                onClick={() => aplicarFormato('*', '*')}
+                style={actionBtnStyle}
+              >
+                <strong style={{ fontWeight: 800 }}>B</strong>
+              </button>
+              <button
+                type="button"
+                title="Cursiva (_texto_ o Ctrl+I)"
+                onClick={() => aplicarFormato('_', '_')}
+                style={{ ...actionBtnStyle, fontStyle: 'italic', fontWeight: 600 }}
+              >
+                I
+              </button>
+              <button
+                type="button"
+                title="Tachado (~texto~)"
+                onClick={() => aplicarFormato('~', '~')}
+                style={{ ...actionBtnStyle, textDecoration: 'line-through' }}
+              >
+                S
+              </button>
+              <button
+                type="button"
+                title="Código inline (`código`)"
+                onClick={() => aplicarFormato('`', '`')}
+                style={{ ...actionBtnStyle, fontFamily: 'var(--font-mono, monospace)', fontSize: '.76rem' }}
+              >
+                &lt;/&gt;
+              </button>
+              <button
+                type="button"
+                title="Cita (> texto)"
+                onClick={() => insertarPrefijoLinea('> ')}
+                style={{ ...actionBtnStyle, fontWeight: 700 }}
+              >
+                ”
+              </button>
+              <button
+                type="button"
+                title="Viñeta (• elemento)"
+                onClick={() => insertarPrefijoLinea('• ')}
+                style={{ ...actionBtnStyle, color: 'var(--primary, #ff8a00)', fontSize: '.9rem' }}
+              >
+                •
+              </button>
+
+              <div style={{ width: 1, height: 14, background: 'var(--border, #333944)', margin: '0 4px' }} />
+
+              <button
+                type="button"
+                title="Mencionar persona (@)"
+                onClick={dispararMencion}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  background: idx === menuIndex ? 'rgba(59,130,246,.15)' : 'transparent',
-                  color: idx === menuIndex ? '#60a5fa' : 'inherit',
-                  fontSize: '.82rem',
+                  ...actionBtnStyle,
+                  gap: '3px',
+                  padding: '0 6px',
+                  fontSize: '.74rem',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
                 }}
               >
-                <span style={{ fontWeight: 700, fontFamily: 'monospace', color: '#60a5fa' }}>#{r}</span>
-                <span className="muted" style={{ fontSize: '.74rem' }}>
-                  {r.startsWith('OC-') ? 'Orden de Compra' :
-                   r.startsWith('SP-') ? 'Solicitud de Pedido' :
-                   r.startsWith('CS-') ? 'Control de Servicio' :
-                   r.startsWith('SS-') ? 'Solicitud de Servicio' : 'Referencia'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+                <span style={{ color: 'var(--primary, #ff8a00)', fontWeight: 800 }}>@</span>
+                <span>Mencionar</span>
+              </button>
+              <button
+                type="button"
+                title="Referenciar orden (#OC, #SP, #CS, #SS)"
+                onClick={dispararReferencia}
+                style={{
+                  ...actionBtnStyle,
+                  gap: '3px',
+                  padding: '0 6px',
+                  fontSize: '.74rem',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <span style={{ color: 'var(--info, #4aa8ff)', fontWeight: 800 }}>#</span>
+                <span>Referencia</span>
+              </button>
+            </div>
 
-        <textarea
-          ref={textareaRef}
-          className="input"
-          rows={2}
-          style={{ flex: 1, resize: 'vertical', minHeight: '38px', maxHeight: '120px', fontSize: '.85rem' }}
-          placeholder="Escribe un mensaje… (Enter para enviar, Shift+Enter para salto de línea)"
-          value={texto}
-          onChange={handleTextoChange}
-          onKeyDown={handleKeyDown}
-          disabled={enviando}
-        />
-        <button
-          className="btn btn-primary"
-          onClick={() => void enviar()}
-          disabled={enviando || !texto.trim()}
-          style={{ alignSelf: 'flex-end', height: '38px' }}
-        >
-          {enviando ? '…' : 'Enviar'}
-        </button>
+            {/* Botón Enviar integrado */}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => void enviar()}
+              disabled={enviando || !texto.trim()}
+              style={{
+                height: '28px',
+                padding: '0 0.8rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                borderRadius: '5px',
+              }}
+            >
+              <span>{enviando ? '…' : 'Enviar'}</span>
+              <span style={{ fontSize: '0.72rem' }}>➤</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
