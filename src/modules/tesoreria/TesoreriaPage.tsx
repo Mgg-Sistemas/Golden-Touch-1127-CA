@@ -102,6 +102,7 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { enviarMensaje } from '@/modules/pedidos/ordenChat.repository';
 import { construirTextoMotivoPagoLote, construirTextoMotivoPagoWhatsapp, errorResumenLote, MOTIVOS_NO_PAGO, type MotivoLote, type MotivoNoPagoTipo } from './motivoPagoWhatsapp';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
+import { errorReferencias, motivoConReferencias, nombreReferencia, tipoReferencia, ultimos4, type PataReferencia } from './referenciasPago';
 import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
 
 /**
@@ -4421,6 +4422,13 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
 
   // El comprobante solo es obligatorio si alguna OC NO es en efectivo.
   const comprobanteOpcional = rows.every((r) => pagoSinComprobante(r.orden.metodo_pago));
+  // Referencia del pago (12/11/2026): pagando en Bs o por Binance se piden los últimos 4
+  // dígitos (referencia bancaria o ID de la orden). Una sola, como el comprobante del lote.
+  const [refLote, setRefLote] = useState('');
+  const patasRefLote = useMemo<PataReferencia[]>(() => {
+    const tipo = tipoReferencia(moneda, rows.flatMap((r) => r.orden.metodo_pago ?? []));
+    return tipo ? [{ key: 'lote', tipo }] : [];
+  }, [moneda, rows]);
 
   const [tasa, setTasa] = useState<number>(0);
   useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
@@ -4440,6 +4448,9 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('El comprobante debe ser un PDF o una imagen.'); return;
     }
+    const errorRef = errorReferencias(patasRefLote, { lote: refLote });
+    if (errorRef) { setError(errorRef); return; }
+    const motivoFinal = motivoConReferencias(motivoPago, patasRefLote, { lote: refLote });
     setSaving(true);
     try {
       let pagadas = 0;
@@ -4450,7 +4461,7 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
         await pagarOrdenCompra({
           orden: r.orden, cajaId, monto: montoOc,
           ...(r.retencionAntes > 0 ? { retencionMonto: r.retencionAntes } : {}),
-          factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
+          factura, motivoPago: motivoFinal, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
           actorEmail: actor, actorName,
         });
         pagadas++;
@@ -4549,6 +4560,21 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
           <label>Motivo del pago <span className="muted">(opcional, se aplica a todas)</span></label>
           <input className="input" value={motivoPago} onChange={(e) => setMotivoPago(e.target.value)} placeholder="Ej.: pago consolidado del proveedor" />
         </div>
+
+        {patasRefLote.map((p) => (
+          <div className="form-row" key={p.key}>
+            <label>{nombreReferencia(p.tipo)} * <span className="muted">(se aplica a todas)</span></label>
+            <input className="input mono" inputMode="numeric" autoComplete="off" required
+              value={refLote} placeholder="Últimos 4 dígitos"
+              onChange={(e) => setRefLote(ultimos4(e.target.value))}
+              style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+            <small className="muted">
+              {p.tipo === 'bs'
+                ? 'Los últimos 4 dígitos de la referencia del banco. Si pegas la referencia completa, se toman los 4 últimos.'
+                : 'Los últimos 4 dígitos del ID de la orden en Binance.'}
+            </small>
+          </div>
+        ))}
 
         <AnclarGastoFields categoria={gastoCat} subcategoria={gastoSub} onChange={(c, s) => { setGastoCat(c); setGastoSub(s); }} />
       </form>
@@ -6089,6 +6115,28 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const esMultimoneda = saldosCaja.length >= 1;
   // Si el método de pago es en efectivo (divisas/Bs), no se exige comprobante.
   const comprobanteOpcional = pagoSinComprobante(o.metodo_pago);
+  // Referencia del pago (12/11/2026): cada pata en Bs (transferencia / pago móvil) pide los
+  // últimos 4 dígitos de la referencia y cada pata por Binance (USDT) los del ID de la orden.
+  // Va al motivo del pago, que llega al concepto del egreso (ver referenciasPago.ts).
+  const [refsPago, setRefsPago] = useState<Record<string, string>>({});
+  const patasRef = useMemo<PataReferencia[]>(() => {
+    const metodos = o.metodo_pago ?? [];
+    if (esMultimoneda) {
+      const out = saldosCaja
+        .filter((s) => (Number(legMontos[s.id]) || 0) > 0)
+        .flatMap((s): PataReferencia[] => {
+          const tipo = tipoReferencia(s.moneda, metodos);
+          if (!tipo) return [];
+          const nombreCaja = cajas.find((c) => c.id === s.caja_id)?.nombre ?? 'caja';
+          const cuenta = s.cuenta === 'juridica' ? 'Jurídica' : s.cuenta === 'personal' ? 'Personal' : 'General';
+          return [{ key: s.id, tipo, etiqueta: `${nombreCaja} · ${cuenta}` }];
+        });
+      // La caja/cuenta solo se nombra si hay más de una pata del mismo tipo.
+      return out.map((p) => (out.filter((q) => q.tipo === p.tipo).length > 1 ? p : { ...p, etiqueta: null }));
+    }
+    const tipo = tipoReferencia(moneda, metodos);
+    return tipo ? [{ key: 'simple', tipo }] : [];
+  }, [o.metodo_pago, esMultimoneda, saldosCaja, legMontos, cajas, moneda]);
 
   // El monto a pagar está en USD. Si se paga con una caja en Bs, se convierte
   // con la tasa BCV del día (editable). Se autocompleta el monto según la moneda.
@@ -6352,6 +6400,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     }
     if (!comprobanteOpcional && !comprobantes.length) { setError('Adjunta el comprobante (PDF o imagen).'); return; }
     if (comprobantes.length > MAX_COMPROBANTES_PAGO) { setError(`Como máximo ${MAX_COMPROBANTES_PAGO} comprobantes por pago.`); return; }
+    const errorRef = errorReferencias(patasRef, refsPago);
+    if (errorRef) { setError(errorRef); return; }
+    const motivoFinal = motivoConReferencias(motivoPago, patasRef, refsPago);
     const noSirve = comprobantes.find((c) => c.type && c.type !== 'application/pdf' && !c.type.startsWith('image/'));
     if (noSirve) { setError(`«${noSirve.name}» no es PDF ni imagen. Cada comprobante tiene que ser una de las dos cosas.`); return; }
     // Comisión bancaria opcional: sale de la billetera elegida (egreso extra, no suma al total).
@@ -6374,7 +6425,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         // resto es reembolso, que sale de esa misma cuenta en su propio egreso.
         const { pago: legsPago, reembolso: legsReembolso, reembolsoUsd } = repartirPagoYReembolso(legs, totalUsd, legUsd, montoDesdeUsd);
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs: legsPago, reembolsoLegs: legsReembolso, reembolsoUsd, retencionMonto: retencionNum, retencionMontoBs: conRetencion ? retConv.enBs : null, retencionTasa: conRetencion ? tasaRetNum : null, comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
+        const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs: legsPago, reembolsoLegs: legsReembolso, reembolsoUsd, retencionMonto: retencionNum, retencionMontoBs: conRetencion ? retConv.enBs : null, retencionTasa: conRetencion ? tasaRetNum : null, comprobantes, motivoPago: motivoFinal, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
         avisarComprobantesFaltantes(comprobantes, pagada);
         notify(`OC ${etiquetaOc} pagada · multipago ${monto(round2(sumUsdMulti - reembolsoUsd), 'USD')}${reembolsoUsd > 0 ? ` · reembolso ${monto(reembolsoUsd, 'USD')}` : ''}`, 'success', { link: '#/app/tesoreria' });
         const txt = construirTextoMotivoPagoWhatsapp({
@@ -6395,7 +6446,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       const pagada = await pagarOrdenCompra({
         orden: o, cajaId, monto: pagoSimple,
         reembolsoMonto: excedenteEnMoneda, reembolsoUsd: excedenteUsd, retencionMonto: retencionNum, retencionMontoBs: conRetencion ? retConv.enBs : null, retencionTasa: conRetencion ? tasaRetNum : null,
-        comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
+        comprobantes, motivoPago: motivoFinal, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
         seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName,
       });
       avisarComprobantesFaltantes(comprobantes, pagada);
@@ -7101,6 +7152,29 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <small className="muted">Se suma al motivo de la OP en el registro de movimientos.</small>
           </div>
         </div>
+
+        {patasRef.length > 0 && (
+          <div className="form-grid">
+            {patasRef.map((p) => {
+              const v = refsPago[p.key] ?? '';
+              return (
+                <div className="form-row" key={p.key}>
+                  <label>{nombreReferencia(p.tipo)}{p.etiqueta ? <span className="muted"> · {p.etiqueta}</span> : null} *</label>
+                  <input className="input mono" inputMode="numeric" autoComplete="off" required
+                    value={v} placeholder="Últimos 4 dígitos"
+                    onChange={(e) => { const d = ultimos4(e.target.value); setRefsPago((r) => ({ ...r, [p.key]: d })); }}
+                    style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+                  <small className="muted">
+                    {p.tipo === 'bs'
+                      ? 'Los últimos 4 dígitos de la referencia del banco. Si pegas la referencia completa, se toman los 4 últimos.'
+                      : 'Los últimos 4 dígitos del ID de la orden en Binance.'}
+                    {v.length > 0 && v.length < 4 ? <strong style={{ color: 'var(--danger)' }}> Faltan {4 - v.length} dígito(s).</strong> : null}
+                  </small>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <AnclarGastoFields categoria={gastoCat} subcategoria={gastoSub} onChange={(c, s) => { setGastoCat(c); setGastoSub(s); }} />
           </>
