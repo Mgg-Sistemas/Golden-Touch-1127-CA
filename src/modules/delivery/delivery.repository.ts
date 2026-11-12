@@ -24,7 +24,7 @@ import { comprobantesDeLaOrden } from '@/modules/pedidos/adjuntosPago';
 import { labelMetodoPago, urlAdjuntoOc } from '@/modules/pedidos/pedidos.repository';
 import type { PagoMetodo } from '@/shared/lib/types';
 import {
-  INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, type FotoDelivery, type OrigenDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
+  INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, type FotoDelivery, type TipoFotoDelivery, type OrigenDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';
 import { puntoValido, type LugarDelivery, type PuntoMapa, type UbicacionesProveedores } from './deliveryRutas';
 
@@ -45,6 +45,7 @@ function normalizar(r: Record<string, unknown>): PedidoDelivery {
     items: Array.isArray(r.items) ? (r.items as PedidoDelivery['items']) : [],
     fotos_recibo: Array.isArray(r.fotos_recibo) ? (r.fotos_recibo as FotoDelivery[]) : [],
     fotos_entrega: Array.isArray(r.fotos_entrega) ? (r.fotos_entrega as FotoDelivery[]) : [],
+    fotos_factura: Array.isArray(r.fotos_factura) ? (r.fotos_factura as FotoDelivery[]) : [],
     historial: Array.isArray(r.historial) ? (r.historial as PedidoDelivery['historial']) : [],
   };
 }
@@ -83,6 +84,14 @@ export async function listPedidosDelivery(incluirCerrados = false, canal: CanalD
     const { data: sedes } = await supabase.rpc('delivery_sedes_entrega', { p_orden_ids: ids });
     const porId = new Map(((sedes ?? []) as Array<{ orden_id: string; sede_entrega: 'los_pinos' | 'matanza' | null }>).map((x) => [x.orden_id, x.sede_entrega]));
     for (const p of pedidos) if (p.origen !== 'almacen') p.sede_entrega = porId.get(p.orden_id) ?? null;
+  }
+  // 11/11/2026: las fotos de la factura (delivery_listado_canal no las trae).
+  const conPedido = Array.from(new Set(pedidos.map((p) => p.pedido_id).filter((x): x is string => !!x)));
+  if (conPedido.length) {
+    const { data: facs } = await supabase.rpc('delivery_fotos_factura', { p_pedido_ids: conPedido });
+    const porPedido = new Map(((facs ?? []) as Array<{ pedido_id: string; fotos_factura: unknown }>)
+      .map((x) => [x.pedido_id, Array.isArray(x.fotos_factura) ? (x.fotos_factura as FotoDelivery[]) : []]));
+    for (const p of pedidos) if (p.pedido_id) p.fotos_factura = porPedido.get(p.pedido_id) ?? [];
   }
   return pedidos;
 }
@@ -137,7 +146,7 @@ const seguro = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace
 
 /** Sube fotos (comprimidas) al recibir del proveedor ('recibo') o al entregar ('entrega'). */
 export async function subirFotosDelivery(
-  pedidoId: string, tipo: 'recibo' | 'entrega', actuales: FotoDelivery[], archivos: File[],
+  pedidoId: string, tipo: TipoFotoDelivery, actuales: FotoDelivery[], archivos: File[],
 ): Promise<FotoDelivery[]> {
   if (actuales.length + archivos.length > MAX_FOTOS_DELIVERY) throw new Error(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`);
   const nuevas = await Promise.all(archivos.map(async (original) => {
@@ -160,7 +169,7 @@ export async function subirFotosDelivery(
  * archivos quitados — desde la app, porque Supabase no deja borrar storage.objects desde SQL.
  */
 export async function editarFotosDelivery(
-  pedidoId: string, tipo: 'recibo' | 'entrega', quedan: FotoDelivery[], nuevos: File[], quitadas: FotoDelivery[],
+  pedidoId: string, tipo: TipoFotoDelivery, quedan: FotoDelivery[], nuevos: File[], quitadas: FotoDelivery[],
 ): Promise<{ fotos: FotoDelivery[]; sinBorrar: number }> {
   if (quedan.length + nuevos.length > MAX_FOTOS_DELIVERY) throw new Error(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`);
   const subidas = await Promise.all(nuevos.map(async (original) => {

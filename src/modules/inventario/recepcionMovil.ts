@@ -33,6 +33,8 @@ export interface PorRecepcionar {
   nota_entrega: string | null;
   fotos_recibo: FotoRecepcion[];
   fotos_entrega: FotoRecepcion[];
+  /** 11/11/2026: fotos de la factura que subió el delivery («CARGAR FACTURA»). */
+  fotos_factura: FotoRecepcion[];
   items: ItemOrden[];
   total: number | null;
   almacen_destino: string | null;

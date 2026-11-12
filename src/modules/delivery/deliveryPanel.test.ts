@@ -12,7 +12,7 @@ const pedido = (x: Partial<PedidoDelivery> = {}): PedidoDelivery => ({
   proveedor_direccion: null, proveedor_contacto: null, analista_email: null, analista_nombre: null, analista_telefono: null,
   pedido_id: 'd1', estado: 'aceptado', repartidor_id: 'u1', repartidor_nombre: 'Pedro', aceptado_en: '2026-10-30T12:00:00Z',
   en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, detalle_cancel: null, almacen_entrega: null,
-  nota_entrega: null, fotos_recibo: [], fotos_entrega: [], historial: [], es_mio: false, ...x,
+  nota_entrega: null, fotos_recibo: [], fotos_entrega: [], fotos_factura: [], historial: [], es_mio: false, ...x,
 });
 
 describe('rangoDelivery · Hoy / Esta semana / Este mes', () => {

@@ -15,7 +15,7 @@ const base: PedidoDelivery = {
   pedido_id: null, estado: 'por_tomar', repartidor_id: null, repartidor_nombre: null,
   aceptado_en: null, en_ruta_en: null, entregado_en: null, cancelado_en: null,
   motivo_cancel: null, detalle_cancel: null, almacen_entrega: null, nota_entrega: null,
-  fotos_recibo: [], fotos_entrega: [], historial: [], es_mio: false,
+  fotos_recibo: [], fotos_entrega: [], fotos_factura: [], historial: [], es_mio: false,
 };
 const P = (o: Partial<PedidoDelivery>): PedidoDelivery => ({ ...base, ...o });
 

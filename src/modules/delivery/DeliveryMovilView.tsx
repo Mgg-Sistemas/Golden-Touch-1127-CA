@@ -45,7 +45,7 @@ import { Quien } from '@/shared/ui/Quien';
 import {
   ALMACEN_RETIRO, ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, almacenRecepcion, almacenVisible, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery, destinoRetiro,
   esRetiroAlmacen, etiquetaEstado, fechaHoraVE, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
-  mensajeNoDisponible, montoTxt, motivoNoDisponible, ocDe, type FotoDelivery, type PedidoDelivery, type RechazoDelivery,
+  mensajeNoDisponible, montoTxt, motivoNoDisponible, ocDe, type FotoDelivery, type PedidoDelivery, type TipoFotoDelivery, type RechazoDelivery,
 } from './delivery';
 import {
   cancelarPedido, compartirUbicacion, fijarLugarDelivery, listPedidosDelivery, listRechazosDelivery, marcarEnRuta, marcarEntregado,
@@ -568,7 +568,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
             ? (p.almacen_entrega || destino || '—')
             : `Almacén ${nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}`}</div>
           {p.entregado_en && <div>✅ {fechaHoraVE(p.entregado_en)}{p.repartidor_nombre ? ` · ${p.repartidor_nombre}` : ''}</div>}
-          <div>📷 {p.fotos_recibo.length + p.fotos_entrega.length} foto(s) registradas</div>
+          <div>📷 {p.fotos_recibo.length + p.fotos_entrega.length} foto(s) registradas{p.fotos_factura.length ? ` · 🧾 ${p.fotos_factura.length} de la factura` : ''}</div>
         </div>
       )}
       {disponible && p.estado === 'cancelado' && (
@@ -581,6 +581,10 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
       {/* 02/11/2026: al aceptar queda «En camino»: ahí se suben las fotos al recibir / retirar y las de la entrega. */}
       {(p.fotos_recibo.length > 0 || mioEnCurso) && (
         <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
+      )}
+      {/* 11/11/2026: compras → «CARGAR FACTURA» (fotos de la factura del proveedor; Compras las ve en «🧾 Factura»). */}
+      {!retiro && (p.fotos_factura.length > 0 || mioEnCurso) && (
+        <FotosPedido p={p} tipo="factura" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
       )}
       {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta')) && (
         <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && mioEnCurso && p.estado === 'en_ruta'} onCambio={onFotos} />
@@ -635,7 +639,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
       </div>
       {editarFotos && p.pedido_id && (
         <EditarFotosDeliveryModal pedidoId={p.pedido_id} origen={p.origen} titulo={retiro ? p.codigo : ocDe(p)}
-          fotosRecibo={p.fotos_recibo} fotosEntrega={p.fotos_entrega}
+          fotosRecibo={p.fotos_recibo} fotosEntrega={p.fotos_entrega} fotosFactura={p.fotos_factura}
           onClose={() => setEditarFotos(false)} onGuardado={onFotos} />
       )}
     </article>
@@ -645,14 +649,19 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
 /* ── Fotos al recibir / de la entrega ── */
 
 function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
-  p: PedidoDelivery; tipo: 'recibo' | 'entrega'; puedeSubir: boolean; onCambio: () => void;
+  p: PedidoDelivery; tipo: TipoFotoDelivery; puedeSubir: boolean; onCambio: () => void;
 }) {
-  const fotos = tipo === 'recibo' ? p.fotos_recibo : p.fotos_entrega;
+  const fotos = tipo === 'recibo' ? p.fotos_recibo : tipo === 'factura' ? p.fotos_factura : p.fotos_entrega;
   const [subiendo, setSubiendo] = useState(false);
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
   const titulo = tipo === 'recibo'
     ? (esRetiroAlmacen(p) ? '📷 Fotos al retirar en Almacén' : '📷 Fotos al recibir')
-    : '📷 Fotos de la entrega';
+    : tipo === 'factura' ? '🧾 Factura del proveedor'
+    : (esRetiroAlmacen(p) ? '📷 Fotos de la entrega' : '📷 Fotos de la entrega en almacén');
+  // 11/11/2026: los dos botones que pidió Compras.
+  const boton = tipo === 'factura' ? '🧾 CARGAR FACTURA'
+    : tipo === 'entrega' && !esRetiroAlmacen(p) ? '📷 CARGAR FOTO ENTREGA EN ALMACÉN'
+    : titulo;
   const id = `dlv-fotos-${tipo}-${claveDelivery(p).replace(':', '-')}`;
 
   async function agregar(lista: FileList | null) {
@@ -676,7 +685,7 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
       <MiniaturasFotos fotos={fotos} />
       {puedeSubir && faltan > 0 && (
         <div className="dlv-subir" style={{ marginTop: fotos.length ? '.5rem' : 0 }}>
-          <span className="btn btn-ghost" aria-hidden>{subiendo ? 'Subiendo…' : `${titulo}${fotos.length ? ' (agregar)' : ''}`}</span>
+          <span className={`btn ${tipo === 'recibo' ? 'btn-ghost' : 'btn-primary'}`} aria-hidden>{subiendo ? 'Subiendo…' : `${boton}${fotos.length ? ' (agregar)' : ''}`}</span>
           <input id={id} type="file" accept="image/*" multiple disabled={subiendo}
             aria-label={titulo} onChange={(e) => { void agregar(e.target.files); e.target.value = ''; }} />
         </div>

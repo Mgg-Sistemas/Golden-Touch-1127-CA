@@ -8,10 +8,12 @@ import { useEffect, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewGaleria } from '@/shared/lib/reportePreview';
-import { MAX_FOTOS_DELIVERY, rotuloFotos, type FotoDelivery, type OrigenDelivery } from './delivery';
+import { MAX_FOTOS_DELIVERY, rotuloFotos, type FotoDelivery, type OrigenDelivery, type TipoFotoDelivery } from './delivery';
 import { editarFotosDelivery, urlFotoDelivery } from './delivery.repository';
 
-type Tipo = 'recibo' | 'entrega';
+type Tipo = TipoFotoDelivery;
+
+const SIN_FOTOS: FotoDelivery[] = [];
 
 const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
 
@@ -22,26 +24,28 @@ export function puedeEditarFotosDelivery(
   return p.estado === 'entregado' && !!p.pedido_id && (admin || escritura || !!p.es_mio);
 }
 
-export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo, fotosEntrega, onClose, onGuardado }: {
+export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, onClose, onGuardado }: {
   pedidoId: string; origen: OrigenDelivery | null | undefined; titulo: string;
   fotosRecibo: FotoDelivery[]; fotosEntrega: FotoDelivery[];
+  /** 11/11/2026: fotos de la factura del proveedor (solo compras). */
+  fotosFactura?: FotoDelivery[];
   onClose: () => void; onGuardado: () => void;
 }) {
-  const [quedan, setQuedan] = useState<Record<Tipo, FotoDelivery[]>>({ recibo: fotosRecibo, entrega: fotosEntrega });
-  const [nuevos, setNuevos] = useState<Record<Tipo, File[]>>({ recibo: [], entrega: [] });
-  const [quitadas, setQuitadas] = useState<Record<Tipo, FotoDelivery[]>>({ recibo: [], entrega: [] });
+  const [quedan, setQuedan] = useState<Record<Tipo, FotoDelivery[]>>({ recibo: fotosRecibo, entrega: fotosEntrega, factura: fotosFactura });
+  const [nuevos, setNuevos] = useState<Record<Tipo, File[]>>({ recibo: [], entrega: [], factura: [] });
+  const [quitadas, setQuitadas] = useState<Record<Tipo, FotoDelivery[]>>({ recibo: [], entrega: [], factura: [] });
   const [confirmar, setConfirmar] = useState<{ tipo: Tipo; foto: FotoDelivery } | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [urls, setUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let vivo = true;
-    void Promise.all([...fotosRecibo, ...fotosEntrega].map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
+    void Promise.all([...fotosRecibo, ...fotosEntrega, ...fotosFactura].map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
       .then((xs) => { if (vivo) setUrls(Object.fromEntries(xs)); });
     return () => { vivo = false; };
-  }, [fotosRecibo, fotosEntrega]);
+  }, [fotosRecibo, fotosEntrega, fotosFactura]);
 
-  const cambios = (['recibo', 'entrega'] as Tipo[]).filter((t) => nuevos[t].length || quitadas[t].length);
+  const cambios = (['recibo', 'entrega', 'factura'] as Tipo[]).filter((t) => nuevos[t].length || quitadas[t].length);
 
   function agregar(tipo: Tipo, lista: FileList | null) {
     const archivos = Array.from(lista ?? []);
@@ -131,6 +135,7 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
           </button>
         </>}>
         {grupo('recibo')}
+        {origen !== 'almacen' && grupo('factura')}
         {grupo('entrega')}
       </Modal>
       {confirmar && (

@@ -300,7 +300,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                 {lista.map((p) => {
                   const retiro = esRetiroAlmacen(p);
                   const est = ESTADO_DELIVERY[p.estado];
-                  const nFotos = p.fotos_recibo.length + p.fotos_entrega.length;
+                  const nFotos = p.fotos_recibo.length + p.fotos_entrega.length + p.fotos_factura.length;
                   const msg = mensajeDelPedido(p);
                   const fin = p.estado === 'cancelado' ? p.cancelado_en : p.entregado_en;
                   const clave = `${claveDelivery(p)}-${p.pedido_id ?? 'libre'}`;
@@ -390,7 +390,7 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
   const titulo = esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido);
   useEffect(() => {
     let vivo = true;
-    const todas = [...pedido.fotos_recibo, ...pedido.fotos_entrega];
+    const todas = [...pedido.fotos_recibo, ...pedido.fotos_factura, ...pedido.fotos_entrega];
     void Promise.all(todas.map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
       .then((pares) => { if (vivo) setUrls(Object.fromEntries(pares)); });
     return () => { vivo = false; };
@@ -402,6 +402,9 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
     const rotEntrega = rotuloFotos(pedido.origen, 'entrega');
     for (const f of pedido.fotos_recibo) {
       if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotRecibo}` });
+    }
+    for (const f of pedido.fotos_factura) {
+      if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotuloFotos(pedido.origen, 'factura')}` });
     }
     for (const f of pedido.fotos_entrega) {
       if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotEntrega}` });
@@ -428,7 +431,7 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
       .finally(() => setGenerandoPdf(null));
   };
 
-  const totalFotos = pedido.fotos_recibo.length + pedido.fotos_entrega.length;
+  const totalFotos = pedido.fotos_recibo.length + pedido.fotos_entrega.length + pedido.fotos_factura.length;
 
   const grupo = (rotulo: string, fs: FotoDelivery[]) => (
     <div style={{ marginBottom: '1rem' }}>
@@ -483,11 +486,12 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
       </>}>
       {editar && pedido.pedido_id && (
         <EditarFotosDeliveryModal pedidoId={pedido.pedido_id} origen={pedido.origen} titulo={titulo}
-          fotosRecibo={pedido.fotos_recibo} fotosEntrega={pedido.fotos_entrega}
+          fotosRecibo={pedido.fotos_recibo} fotosEntrega={pedido.fotos_entrega} fotosFactura={pedido.fotos_factura}
           onClose={() => setEditar(false)} onGuardado={() => { onCambio(); onClose(); }} />
       )}
       {whatsapp && <WhatsappDeliveryModal titulo={`Reporte del pedido ${titulo}`} texto={whatsapp} onClose={() => setWhatsapp(null)} />}
       {grupo(rotuloFotos(pedido.origen, 'recibo'), pedido.fotos_recibo)}
+      {pedido.origen !== 'almacen' && grupo(rotuloFotos(pedido.origen, 'factura'), pedido.fotos_factura)}
       {grupo(rotuloFotos(pedido.origen, 'entrega'), pedido.fotos_entrega)}
       {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}
     </Modal>

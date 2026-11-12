@@ -17,7 +17,7 @@ const pedido = (x: Partial<PedidoDelivery> = {}): PedidoDelivery => ({
   pedido_id: 'd1', estado: 'entregado', repartidor_id: 'u1', repartidor_nombre: 'carlos@x.com',
   aceptado_en: '2026-10-31T13:00:00Z', en_ruta_en: '2026-10-31T13:20:00Z', entregado_en: '2026-10-31T14:05:00Z',
   cancelado_en: null, motivo_cancel: null, detalle_cancel: null, almacen_entrega: 'General', nota_entrega: 'Completo',
-  fotos_recibo: [{ path: 'd1/recibo-1', filename: 'a.jpg' }], fotos_entrega: [{ path: 'd1/entrega-1', filename: 'b.jpg' }, { path: 'd1/entrega-2', filename: 'c.jpg' }],
+  fotos_recibo: [{ path: 'd1/recibo-1', filename: 'a.jpg' }], fotos_entrega: [{ path: 'd1/entrega-1', filename: 'b.jpg' }, { path: 'd1/entrega-2', filename: 'c.jpg' }], fotos_factura: [],
   historial: [], es_mio: true, ...x,
 });
 

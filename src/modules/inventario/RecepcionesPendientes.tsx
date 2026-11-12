@@ -68,6 +68,8 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     return m;
   });
   const [nota, setNota] = useState('');
+  // 11/11/2026: el almacenista carga la factura del proveedor al recibir (FACTURAS ALMACÉN en Compras).
+  const [facturas, setFacturas] = useState<File[]>([]);
   const { marcas, cambiar: cambiarMarca } = useMarcasRecibidas(orden.items);
   // Un servicio se presta: no llega mercadería, no hay almacén destino y no toca stock.
   // Su rastro va al historial del equipo asociado (ver `ordenAfectaInventario`).
@@ -95,9 +97,15 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     // Un servicio no entra a ningún almacén: no se le pide destino.
     if (!esServicio && !almacen.trim()) { setError('Elige el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indica una nota explicando la diferencia.'); return; }
+    if (!esServicio && !facturas.length) { setError('Carga la factura del proveedor (PDF o imagen) para recibir la orden.'); return; }
     setSaving(true);
     try {
       await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, esServicio ? null : almacen.trim());
+      // La factura va DESPUÉS de recibir: si la recepción falla y se reintenta, no se duplica.
+      if (facturas.length) {
+        try { for (const f of facturas) await agregarAdjuntoDirecto('orden_factura', orden.id, f, actor); }
+        catch (e2) { toast(`Recibida, pero la factura no se pudo subir: ${e2 instanceof Error ? e2.message : 'error'}. Cárgala desde Compras («🧾 Factura»).`, 'warning'); }
+      }
       avisarCambiosDeMarca(orden, recepciones);
       const esContra = orden.condiciones_pago === 'contra_entrega';
       toast(
@@ -210,6 +218,15 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
         <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · llegó menos de lo pedido)</span>}</label>
         <textarea className="input" rows={2} name="recep-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Diferencias, faltantes, observaciones de la recepción…" />
+      </div>
+      <div className="form-row">
+        <label>🧾 Factura del proveedor · PDF o imagen {esServicio
+          ? <span className="muted">(opcional)</span>
+          : <span style={{ color: 'var(--danger)' }}>*</span>}</label>
+        <input className="input" type="file" accept="application/pdf,image/*" multiple disabled={saving}
+          onChange={(e) => setFacturas(Array.from(e.target.files ?? []))} />
+        {facturas.length > 0 && <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>📎 {facturas.map((f) => f.name).join(', ')}</small>}
+        <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>Compras la ve en «🧾 Factura» (Facturas almacén).</small>
       </div>
       {orden.condiciones_pago === 'contra_entrega' && (
         <small className="muted" style={{ display: 'block' }}>

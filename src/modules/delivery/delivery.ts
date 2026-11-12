@@ -77,6 +77,8 @@ export interface PedidoDelivery {
   nota_entrega: string | null;
   fotos_recibo: FotoDelivery[];
   fotos_entrega: FotoDelivery[];
+  /** 11/11/2026: fotos de la factura del proveedor («CARGAR FACTURA»). */
+  fotos_factura: FotoDelivery[];
   historial: EventoDelivery[];
   es_mio: boolean;
   /** 02/11/2026: sin dato = 'compra' (filas viejas / pruebas). */
@@ -218,7 +220,11 @@ export function almacenVisible(a: string | null | undefined): string {
 }
 
 /** Cómo se rotulan las fotos: «al recibir» del proveedor o «al retirar en Almacén». */
-export function rotuloFotos(origen: OrigenDelivery | null | undefined, tipo: 'recibo' | 'entrega'): string {
+/** 11/11/2026: 'factura' = fotos de la factura del proveedor que sube el delivery. */
+export type TipoFotoDelivery = 'recibo' | 'entrega' | 'factura';
+
+export function rotuloFotos(origen: OrigenDelivery | null | undefined, tipo: TipoFotoDelivery): string {
+  if (tipo === 'factura') return 'Factura del proveedor';
   if (tipo === 'entrega') return origen === 'almacen' ? 'De la entrega' : 'De la entrega en el almacén';
   return origen === 'almacen' ? 'Al retirar en Almacén' : 'Al recibir del proveedor';
 }
