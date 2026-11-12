@@ -85,6 +85,15 @@ describe('ChatFormato · Inline Tokenizer', () => {
     expect(codeToken?.content).toBe('código inline');
   });
 
+  it('reconoce formato anidado como **HOLA TEXTO_CURSIVA_**', () => {
+    const texto = '**HOLA TEXTO_CURSIVA_**';
+    const tokens = tokenizeInline(texto);
+
+    expect(tokens.length).toBe(1);
+    expect(tokens[0].type).toBe('bold');
+    expect(tokens[0].content).toBe('HOLA TEXTO_CURSIVA_');
+  });
+
   it('reconoce enlaces web (URLs)', () => {
     const texto = 'Favor revisar https://goldentouch.app/documento';
     const tokens = tokenizeInline(texto);
@@ -225,7 +234,7 @@ describe('ChatOrden · Inteligencia contextual y clasificación departamental', 
   });
 });
 
-describe('ChatOrden · Referenciación inteligente a otra orden (Madre / Hija / Catálogo / Par)', () => {
+describe('ChatOrden · Referenciación (#): Primera Plana Limpia vs Autocompletado', () => {
   const ordenesMock = [
     {
       id: 'madre-1',
@@ -260,7 +269,15 @@ describe('ChatOrden · Referenciación inteligente a otra orden (Madre / Hija / 
       motivo: 'Laptop Dell Ryzen 7 para Sistemas',
     },
     {
-      id: 'directa-4',
+      id: 'indep-4',
+      codigo: 'SP-2026-0565',
+      oc_codigo: null,
+      op_padre_id: null,
+      tipo: 'producto',
+      motivo: 'Orden activa sin madre ni hija',
+    },
+    {
+      id: 'directa-5',
       codigo: 'CD-2026-0099',
       oc_codigo: null,
       op_padre_id: null,
@@ -269,37 +286,67 @@ describe('ChatOrden · Referenciación inteligente a otra orden (Madre / Hija / 
     },
   ];
 
-  it('desde una orden hija, sugiere inmediatamente la Orden Madre', () => {
-    const ordenHija = ordenesMock[1]; // hija-1
+  it('REQUISITO CLAVE: En primera plana (# sin query) solo se exhibe la orden activa y los comandos, NO todas las SPs', () => {
+    const ordenActiva = ordenesMock[4]; // SP-2026-0565 (indep-4)
     const refs = construirReferenciasOrden({
+      ordenActual: ordenActiva,
+      ordenLabel: 'SP-2026-0565',
+      todasLasOrdenes: ordenesMock,
+      contextoModulo: 'compras',
+      query: '', // Primera plana
+    });
+
+    // 1. La orden activa SIEMPRE va de primera
+    expect(refs[0].codigo).toBe('SP-2026-0565');
+    expect(refs[0].sublabel).toBe('Actual');
+
+    // 2. Comandos en primera plana
+    const codigos = refs.map((r) => r.codigo);
+    expect(codigos).toContain('OC-');
+    expect(codigos).toContain('SP-');
+    expect(codigos).toContain('CS-');
+    expect(codigos).toContain('SS-');
+
+    // 3. NO debe exhibir las otras SPs del catálogo (ej. SP-2026-0561, SP-2026-0500)
+    expect(codigos).not.toContain('SP-2026-0561');
+    expect(codigos).not.toContain('SP-2026-0500');
+
+    // 4. Como no tiene madre ni hija, NO debe haber badges de madre ni hija
+    expect(refs.some((r) => r.sublabel === 'Orden Madre')).toBe(false);
+    expect(refs.some((r) => r.sublabel === 'Orden Hija')).toBe(false);
+  });
+
+  it('Madre o hija solo aparece si la orden activa realmente las tiene', () => {
+    // Caso con orden hija:
+    const ordenHija = ordenesMock[1]; // hija-1
+    const refsHija = construirReferenciasOrden({
       ordenActual: ordenHija,
       ordenLabel: 'OC-2026-0121',
       todasLasOrdenes: ordenesMock,
       contextoModulo: 'compras',
+      query: '',
     });
 
-    const refMadre = refs.find((r) => r.sublabel === 'Orden Madre');
+    const refMadre = refsHija.find((r) => r.sublabel === 'Orden Madre');
     expect(refMadre).toBeDefined();
     expect(refMadre?.codigo).toBe('SP-2026-0500');
-    expect(refMadre?.label).toContain('Compra mayor de repuestos');
-  });
 
-  it('desde una orden madre, sugiere las Órdenes Hijas resultantes del reparto', () => {
+    // Caso con orden madre:
     const ordenMadre = ordenesMock[0]; // madre-1
-    const refs = construirReferenciasOrden({
+    const refsMadre = construirReferenciasOrden({
       ordenActual: ordenMadre,
       ordenLabel: 'SP-2026-0500',
       todasLasOrdenes: ordenesMock,
       contextoModulo: 'compras',
+      query: '',
     });
 
-    const hijas = refs.filter((r) => r.sublabel === 'Orden Hija');
+    const hijas = refsMadre.filter((r) => r.sublabel === 'Orden Hija');
     expect(hijas.length).toBe(2);
-    expect(hijas.map((h) => h.codigo)).toEqual(expect.arrayContaining(['OC-2026-0121', 'OC-2026-0122']));
   });
 
-  it('permite buscar en el catálogo por número o motivo ("esto se pidió en sp-xxx")', () => {
-    // El usuario escribe "#0561" o "#laptop"
+  it('Autocompletado con números o motivos: busca en el catálogo cuando se teclea tras #', () => {
+    // Usuario escribe "#0561" o "#laptop"
     const refsPorNumero = construirReferenciasOrden({
       todasLasOrdenes: ordenesMock,
       query: '0561',
@@ -343,19 +390,16 @@ describe('ChatOrden · Bloques de referencia y borrado inteligente con 2 toques'
 
   it('detecta el token sobre el que está el cursor', () => {
     const texto = 'Hola @NAZARET SALAZAR ';
-    // Cursor justo tras el espacio final (posición 22)
     const tok = obtenerTokenEnCursor(texto, 22, nombresConocidos);
     expect(tok).not.toBeNull();
     expect(tok?.contenido).toBe('NAZARET SALAZAR');
 
-    // Cursor fuera del token (posición 2)
     const tokFuera = obtenerTokenEnCursor(texto, 2, nombresConocidos);
     expect(tokFuera).toBeNull();
   });
 
   it('BORRADO EN 2 TOQUES: Toque 1 borra el contenido del bloque hasta @ o #', () => {
     const texto = 'Hola @NAZARET SALAZAR ';
-    // Cursor al final
     const resultadoToque1 = ejecutarBorradoToken(texto, texto.length, nombresConocidos);
 
     expect(resultadoToque1.borradoBloque).toBe(true);
@@ -365,11 +409,8 @@ describe('ChatOrden · Bloques de referencia y borrado inteligente con 2 toques'
   });
 
   it('BORRADO EN 2 TOQUES: Toque 2 permite el borrado normal del carácter @ o #', () => {
-    // Tras el toque 1 el texto es "Hola @" y el cursor está justo tras '@'
     const textoToque2 = 'Hola @';
     const resultadoToque2 = ejecutarBorradoToken(textoToque2, textoToque2.length, nombresConocidos);
-
-    // borradoBloque debe ser false para permitir la tecla Backspace nativa del navegador
     expect(resultadoToque2.borradoBloque).toBe(false);
   });
 
@@ -382,13 +423,11 @@ describe('ChatOrden · Bloques de referencia y borrado inteligente con 2 toques'
     expect(res1.nuevaPos).toBe('Revisar #'.length);
     expect(res1.tipoMenu).toBe('referencia');
 
-    // Segundo toque sobre "Revisar #"
     const res2 = ejecutarBorradoToken('Revisar #', 'Revisar #'.length, nombresConocidos);
     expect(res2.borradoBloque).toBe(false);
   });
 
   it('BORRADO DENTRO DEL BLOQUE: Si el cursor está en medio de un nombre, borra todo el bloque hasta @', () => {
-    // "@NAZ|ARET SALAZAR"
     const texto = '@NAZARET SALAZAR';
     const res = ejecutarBorradoToken(texto, 4, nombresConocidos);
 

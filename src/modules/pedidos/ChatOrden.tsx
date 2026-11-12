@@ -292,11 +292,15 @@ export interface ReferenciaSugerida {
 
 /**
  * Construye y filtra inteligentemente la lista de referencias (#):
- * 1. Relación con Orden Madre (si es hija)
- * 2. Relación con Órdenes Hijas (si fue dividida entre proveedores)
- * 3. Par asociado (SP origen de la OC, o la OC generada de la SP)
- * 4. Búsqueda en vivo de órdenes del catálogo (por código o motivo)
- * 5. Prefijos estándar (#OC-, #SP-, #CS-, #SS-, #GF-), excluyendo estrictamente CD- y SD-.
+ * - PRIMERA PLANA (sin texto tras '#'):
+ *   1. Orden activa donde está el chat (primera opción, ej. #SP-2026-0565).
+ *   2. Orden Madre (SOLO si la orden actual la tiene).
+ *   3. Órdenes Hijas (SOLO si la orden actual las tiene).
+ *   4. Par SP <-> OC (SOLO si existe una OC emitida o SP origen asociada a esta orden).
+ *   5. Comandos de prefijos (#OC-, #SP-, #CS-, #SS-, #GF-).
+ *   NO exhibe todas las SPs del catálogo en primera plana.
+ * - AUTOCOMPLETADO (cuando se escribe tras '#', ej. #056, #laptop):
+ *   Busca en el catálogo de órdenes por número de orden o motivo.
  */
 export function construirReferenciasOrden(input: {
   ordenActual?: {
@@ -337,9 +341,19 @@ export function construirReferenciasOrden(input: {
 
   const { ordenActual, ordenLabel, todasLasOrdenes = [], referenciasExtra = [], contextoModulo = 'compras' } = input;
 
-  // 1. Relaciones directas de la orden actual (Madre / Hijas / Par SP-OC)
+  // 1. En primera plana: La orden actual donde está activo el chat SIEMPRE va de primera
+  if (ordenLabel && !ordenLabel.startsWith('CD-') && !ordenLabel.startsWith('SD-')) {
+    agregar({
+      codigo: ordenLabel,
+      label: 'Orden en vista',
+      sublabel: 'Actual',
+      tipo: 'par',
+    });
+  }
+
+  // 2. Aspecto de madre o hija SOLO si lo tiene:
   if (ordenActual) {
-    // Par asociado SP <-> OC
+    // Par asociado SP <-> OC si existe
     if (ordenActual.codigo && ordenActual.oc_codigo) {
       if (ordenLabel === ordenActual.oc_codigo) {
         agregar({
@@ -358,7 +372,7 @@ export function construirReferenciasOrden(input: {
       }
     }
 
-    // Orden Madre (si es orden hija proveniente de un reparto)
+    // Orden Madre (SOLO si es orden hija con op_padre_id)
     if (ordenActual.op_padre_id) {
       const madre = todasLasOrdenes.find((x) => x.id === ordenActual.op_padre_id);
       if (madre) {
@@ -372,7 +386,7 @@ export function construirReferenciasOrden(input: {
       }
     }
 
-    // Órdenes Hijas (si esta orden fue dividida entre proveedores)
+    // Órdenes Hijas (SOLO si esta orden tiene hijas de un reparto)
     const hijas = todasLasOrdenes.filter((x) => x.op_padre_id === ordenActual.id);
     for (const h of hijas) {
       const codHija = h.oc_codigo || h.codigo;
@@ -385,26 +399,24 @@ export function construirReferenciasOrden(input: {
     }
   }
 
-  // Orden actual misma (para auto-referenciar si se desea)
-  if (ordenLabel && !ordenLabel.startsWith('CD-') && !ordenLabel.startsWith('SD-')) {
-    agregar({
-      codigo: ordenLabel,
-      label: `${ordenLabel} · Orden en vista`,
-      sublabel: 'Actual',
-      tipo: 'par',
-    });
+  // 3. Comandos de prefijos en primera plana
+  agregar({ codigo: 'OC-', label: 'Orden de Compra', sublabel: 'Comando', tipo: 'prefijo' });
+  agregar({ codigo: 'SP-', label: 'Solicitud de Pedido', sublabel: 'Comando', tipo: 'prefijo' });
+  agregar({ codigo: 'CS-', label: 'Control de Servicio', sublabel: 'Comando', tipo: 'prefijo' });
+  agregar({ codigo: 'SS-', label: 'Solicitud de Servicio', sublabel: 'Comando', tipo: 'prefijo' });
+  if (contextoModulo === 'tesoreria' || contextoModulo === 'administracion') {
+    agregar({ codigo: 'GF-', label: 'Gasto Fijo (Administración)', sublabel: 'Gasto Fijo', tipo: 'prefijo' });
   }
 
-  // 2. Referencias extra provistas externamente
-  for (const r of referenciasExtra) {
-    if (typeof r === 'string') {
-      agregar({ codigo: r, label: r, tipo: 'orden' });
-    } else {
-      agregar(r);
-    }
+  // 4. Si el query está vacío (PRIMERA PLANA):
+  // Solo se devuelven la orden activa, madre/hija si las tiene, y los comandos.
+  // ¡NO se exhiben las SPs del catálogo en primera plana!
+  if (!q) {
+    return res;
   }
 
-  // 3. Catálogo de órdenes conocidas en el sistema (permite buscar "esto se pidió en sp-xxx")
+  // 5. En caso de autocompletado (el usuario escribe tras '#'):
+  // Ahora sí se incorpora el catálogo para buscar y sugerir números y motivos específicos
   for (const o of todasLasOrdenes) {
     if (o.oc_codigo) {
       agregar({
@@ -425,18 +437,12 @@ export function construirReferenciasOrden(input: {
     }
   }
 
-  // 4. Prefijos rápidos
-  agregar({ codigo: 'OC-', label: 'Prefijo para Orden de Compra', sublabel: 'Prefijo', tipo: 'prefijo' });
-  agregar({ codigo: 'SP-', label: 'Prefijo para Solicitud de Pedido', sublabel: 'Prefijo', tipo: 'prefijo' });
-  agregar({ codigo: 'CS-', label: 'Prefijo para Control de Servicio', sublabel: 'Prefijo', tipo: 'prefijo' });
-  agregar({ codigo: 'SS-', label: 'Prefijo para Solicitud de Servicio', sublabel: 'Prefijo', tipo: 'prefijo' });
-  if (contextoModulo === 'tesoreria' || contextoModulo === 'administracion') {
-    agregar({ codigo: 'GF-', label: 'Gasto Fijo (Administración)', sublabel: 'Gasto Fijo', tipo: 'prefijo' });
-  }
-
-  // 5. Filtrar por query si el usuario ya escribió caracteres tras '#'
-  if (!q) {
-    return res.slice(0, 8);
+  for (const r of referenciasExtra) {
+    if (typeof r === 'string') {
+      agregar({ codigo: r, label: r, tipo: 'orden' });
+    } else {
+      agregar(r);
+    }
   }
 
   return res
@@ -451,11 +457,8 @@ export function construirReferenciasOrden(input: {
       const bStarts = b.codigo.toLowerCase().startsWith(q);
       if (aStarts && !bStarts) return -1;
       if (!aStarts && bStarts) return 1;
-      // Priorizar madre, hija y par
-      const esRelacionA = a.tipo === 'madre' || a.tipo === 'hija' || a.tipo === 'par';
-      const esRelacionB = b.tipo === 'madre' || b.tipo === 'hija' || b.tipo === 'par';
-      if (esRelacionA && !esRelacionB) return -1;
-      if (!esRelacionA && esRelacionB) return 1;
+      if (a.tipo === 'prefijo' && b.tipo !== 'prefijo') return -1;
+      if (a.tipo !== 'prefijo' && b.tipo === 'prefijo') return 1;
       return 0;
     })
     .slice(0, 8);
@@ -519,7 +522,8 @@ export function renderizarBackdropTexto(texto: string, nombresConocidos: string[
  * - Clasificación departamental con prioridad según módulo (Compras ↔ Tesorería ↔ Administración).
  * - Restricción estricta: Solo usuarios activos pueden ser mencionados (archivados y deshabilitados excluidos).
  * - Referenciación inteligente a otra orden: madre, hija, par SP-OC o búsqueda en el catálogo.
- * - Bloques de referencia con borrado inteligente en dos toques (1er toque borra contenido hasta @ o #, 2do toque borra el símbolo).
+ * - Bloques de referencia con borrado inteligente en dos toques.
+ * - Vista previa enriquecida en vivo para apreciar modificadores (*negrita*, _cursiva_, etc.) al momento.
  */
 export function ChatOrden({
   ordenId,
@@ -549,6 +553,7 @@ export function ChatOrden({
   const [loading, setLoading] = useState(true);
   const [cargaError, setCargaError] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
+  const [mostrarPreview, setMostrarPreview] = useState(true);
   const finRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -609,7 +614,6 @@ export function ChatOrden({
       try {
         const dbUsers: Usuario[] = await listUsuarios();
         for (const u of dbUsers) {
-          // Excluir archivados, deshabilitados (inactivos) y bloqueados
           const esActivo = estadoVisible(u) === 'activo' && !u.bloqueado && !estaArchivado(u);
           if (!esActivo) continue;
 
@@ -621,8 +625,6 @@ export function ChatOrden({
           }
         }
       } catch {
-        // Fallback offline a personas conocidas si la base no responde
-        // Excluye estrictamente usuarios archivados conocidos
         const ARCHIVADOS_CONOCIDOS = new Set([
           'erick flores',
           'javier leiva',
@@ -716,6 +718,12 @@ export function ChatOrden({
   const tokensActivos = useMemo(() => {
     return identificarTokensBloque(texto, nombresMiembros);
   }, [texto, nombresMiembros]);
+
+  // Detecta si el mensaje actual contiene formato o modificadores (*, _, ~, `, >, •, @, #)
+  const tieneFormato = useMemo(() => {
+    if (!texto.trim()) return false;
+    return /[*_~`>•@#]/.test(texto) || texto.includes('\n');
+  }, [texto]);
 
   // Elimina un bloque activo directamente (ej. al presionar la '✕' del chip)
   const eliminarToken = (tok: TokenBloque) => {
@@ -814,7 +822,8 @@ export function ChatOrden({
     }, 0);
   };
 
-  const aplicarFormato = (inicio: string, fin: string) => {
+  // Aplica o quita formato de forma inteligente sobre el texto seleccionado
+  const aplicarFormato = (inicio: string, fin: string, placeholderDefault = 'texto') => {
     const ta = textareaRef.current;
     if (!ta) return;
     const start = ta.selectionStart ?? 0;
@@ -822,6 +831,36 @@ export function ChatOrden({
     const seleccionado = texto.slice(start, end);
 
     if (seleccionado) {
+      // Toggle off si ya está envuelto en el formato
+      if (
+        seleccionado.startsWith(inicio) &&
+        seleccionado.endsWith(fin) &&
+        seleccionado.length >= inicio.length + fin.length
+      ) {
+        const sinFormato = seleccionado.slice(inicio.length, seleccionado.length - fin.length);
+        const nuevoTexto = texto.slice(0, start) + sinFormato + texto.slice(end);
+        setTexto(nuevoTexto);
+        setTimeout(() => {
+          ta.focus();
+          ta.setSelectionRange(start, start + sinFormato.length);
+        }, 0);
+        return;
+      }
+
+      // Toggle off si el texto alrededor ya tiene exactamente el formato
+      const antesFormato = texto.slice(Math.max(0, start - inicio.length), start);
+      const despuesFormato = texto.slice(end, end + fin.length);
+      if (antesFormato === inicio && despuesFormato === fin) {
+        const nuevoTexto = texto.slice(0, start - inicio.length) + seleccionado + texto.slice(end + fin.length);
+        setTexto(nuevoTexto);
+        setTimeout(() => {
+          ta.focus();
+          ta.setSelectionRange(start - inicio.length, start - inicio.length + seleccionado.length);
+        }, 0);
+        return;
+      }
+
+      // Envolver selección
       const nuevoTexto = texto.slice(0, start) + inicio + seleccionado + fin + texto.slice(end);
       setTexto(nuevoTexto);
       setTimeout(() => {
@@ -829,12 +868,12 @@ export function ChatOrden({
         ta.setSelectionRange(start + inicio.length, end + inicio.length);
       }, 0);
     } else {
-      const placeholder = 'texto';
-      const nuevoTexto = texto.slice(0, start) + inicio + placeholder + fin + texto.slice(end);
+      // Sin selección: insertar placeholder y seleccionarlo para escribir de inmediato
+      const nuevoTexto = texto.slice(0, start) + inicio + placeholderDefault + fin + texto.slice(end);
       setTexto(nuevoTexto);
       setTimeout(() => {
         ta.focus();
-        ta.setSelectionRange(start + inicio.length, start + inicio.length + placeholder.length);
+        ta.setSelectionRange(start + inicio.length, start + inicio.length + placeholderDefault.length);
       }, 0);
     }
   };
@@ -957,12 +996,12 @@ export function ChatOrden({
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
       e.preventDefault();
-      aplicarFormato('*', '*');
+      aplicarFormato('*', '*', 'negrita');
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
       e.preventDefault();
-      aplicarFormato('_', '_');
+      aplicarFormato('_', '_', 'cursiva');
       return;
     }
 
@@ -1279,13 +1318,16 @@ export function ChatOrden({
                 }}
               >
                 <span>Referenciar operación (#):</span>
-                <span style={{ fontSize: '.64rem', color: 'var(--info, #4aa8ff)' }}>Madre · Hijas · Órdenes</span>
+                <span style={{ fontSize: '.64rem', color: 'var(--info, #4aa8ff)' }}>
+                  {menuQuery ? 'Búsqueda por número / motivo' : 'Comandos rápidos'}
+                </span>
               </div>
               {referenciasFiltradas.map((r, idx) => {
                 const seleccionado = idx === menuIndex;
                 const esMadre = r.tipo === 'madre' || r.sublabel?.includes('Madre');
                 const esHija = r.tipo === 'hija' || r.sublabel?.includes('Hija');
                 const esPar = r.tipo === 'par';
+                const esComando = r.tipo === 'prefijo';
 
                 return (
                   <div
@@ -1342,6 +1384,8 @@ export function ChatOrden({
                             ? 'rgba(168, 85, 247, 0.2)'
                             : esPar
                             ? 'rgba(34, 197, 94, 0.2)'
+                            : esComando
+                            ? 'rgba(74, 168, 255, 0.15)'
                             : 'rgba(255, 255, 255, 0.08)',
                           color: esMadre
                             ? 'var(--primary, #ff8a00)'
@@ -1349,6 +1393,8 @@ export function ChatOrden({
                             ? '#c084fc'
                             : esPar
                             ? '#4ade80'
+                            : esComando
+                            ? 'var(--info, #4aa8ff)'
                             : 'var(--text-muted, #9aa6b5)',
                           border: `1px solid ${
                             esMadre
@@ -1357,6 +1403,8 @@ export function ChatOrden({
                               ? 'rgba(168, 85, 247, 0.35)'
                               : esPar
                               ? 'rgba(34, 197, 94, 0.35)'
+                              : esComando
+                              ? 'rgba(74, 168, 255, 0.3)'
                               : 'rgba(255, 255, 255, 0.12)'
                           }`,
                         }}
@@ -1471,7 +1519,7 @@ export function ChatOrden({
                 maxHeight: '120px',
                 boxSizing: 'border-box',
               }}
-              placeholder="Escribe un mensaje… (@ para mencionar, # para referenciar orden madre/hija u otra)"
+              placeholder="Escribe un mensaje… (@ para mencionar, # para comandos OC-, SP- o buscar orden)"
               value={texto}
               onChange={handleTextoChange}
               onKeyDown={handleKeyDown}
@@ -1481,6 +1529,49 @@ export function ChatOrden({
               disabled={enviando}
             />
           </div>
+
+          {/* Vista previa en vivo al momento (permite apreciar el efecto inmediato de los modificadores) */}
+          {tieneFormato && mostrarPreview && (
+            <div
+              style={{
+                padding: '0.45rem 0.75rem',
+                background: 'rgba(0, 0, 0, 0.22)',
+                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                fontSize: '0.84rem',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '0.64rem',
+                  fontWeight: 700,
+                  color: 'var(--text-muted, #9aa6b5)',
+                  marginBottom: '0.22rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--primary, #ff8a00)' }}>
+                  <span>👁</span> Vista previa al momento:
+                </span>
+                <span style={{ fontSize: '.6rem', opacity: 0.75 }}>En vivo</span>
+              </div>
+              <div
+                style={{
+                  padding: '0.35rem 0.6rem',
+                  background: 'var(--bg-0, #1c1f24)',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border, #333944)',
+                  minHeight: '26px',
+                  color: 'var(--text, #f0f2f5)',
+                }}
+              >
+                <ChatMensajeContenido mensaje={texto} />
+              </div>
+            </div>
+          )}
 
           {/* Barra inferior integrada */}
           <div
@@ -1500,7 +1591,7 @@ export function ChatOrden({
               <button
                 type="button"
                 title="Negrita (*texto* o Ctrl+B)"
-                onClick={() => aplicarFormato('*', '*')}
+                onClick={() => aplicarFormato('*', '*', 'negrita')}
                 style={actionBtnStyle}
               >
                 <strong style={{ fontWeight: 800 }}>B</strong>
@@ -1508,7 +1599,7 @@ export function ChatOrden({
               <button
                 type="button"
                 title="Cursiva (_texto_ o Ctrl+I)"
-                onClick={() => aplicarFormato('_', '_')}
+                onClick={() => aplicarFormato('_', '_', 'cursiva')}
                 style={{ ...actionBtnStyle, fontStyle: 'italic', fontWeight: 600 }}
               >
                 I
@@ -1516,7 +1607,7 @@ export function ChatOrden({
               <button
                 type="button"
                 title="Tachado (~texto~)"
-                onClick={() => aplicarFormato('~', '~')}
+                onClick={() => aplicarFormato('~', '~', 'tachado')}
                 style={{ ...actionBtnStyle, textDecoration: 'line-through' }}
               >
                 S
@@ -1524,7 +1615,7 @@ export function ChatOrden({
               <button
                 type="button"
                 title="Código inline (`código`)"
-                onClick={() => aplicarFormato('`', '`')}
+                onClick={() => aplicarFormato('`', '`', 'código')}
                 style={{ ...actionBtnStyle, fontFamily: 'var(--font-mono, monospace)', fontSize: '.76rem' }}
               >
                 &lt;/&gt;
@@ -1579,6 +1670,22 @@ export function ChatOrden({
               >
                 <span style={{ color: 'var(--info, #4aa8ff)', fontWeight: 800 }}>#</span>
                 <span>Referencia</span>
+              </button>
+
+              <button
+                type="button"
+                title={mostrarPreview ? 'Ocultar vista previa en vivo' : 'Mostrar vista previa en vivo'}
+                onClick={() => setMostrarPreview((p) => !p)}
+                style={{
+                  ...actionBtnStyle,
+                  padding: '0 6px',
+                  fontSize: '.74rem',
+                  gap: '2px',
+                  color: mostrarPreview && tieneFormato ? 'var(--primary, #ff8a00)' : 'var(--text-muted)',
+                }}
+              >
+                <span>👁</span>
+                <span style={{ fontSize: '.7rem' }}>Vista previa</span>
               </button>
             </div>
 
