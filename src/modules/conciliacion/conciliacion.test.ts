@@ -95,6 +95,9 @@ describe('Conciliación', () => {
     expect(filtrarFilas(filas, { ...FILTROS_VACIOS, retencion: 'con' }, dia).map((r) => r.codigo)).toEqual(['OC-2']);
     expect(filtrarFilas(filas, { ...FILTROS_VACIOS, texto: 'ferreteria' }, dia)).toHaveLength(2);
     expect(filtrarFilas(filas, { ...FILTROS_VACIOS, desde: '2026-11-06' }, dia)).toHaveLength(0);
+    // Por fecha de pago: entra la pagada el 06/11 y queda fuera la que no se pagó.
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, desde: '2026-11-06', hasta: '2026-11-06', fechaDe: 'pago' }, dia).map((r) => r.codigo)).toEqual(['OC-1']);
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, desde: '2026-11-01', hasta: '2026-11-30' }, dia)).toHaveLength(2);
   });
 
   it('el reporte agrupa con subtotales y arma el texto de WhatsApp', () => {

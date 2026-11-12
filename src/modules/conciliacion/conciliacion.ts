@@ -228,8 +228,10 @@ export interface FiltrosConciliacion {
   estado: string; // '' = todos; si no, la etiqueta de estatus
   retencion: FiltroRetencion;
   pago: FiltroPago;
-  desde: string;  // YYYY-MM-DD sobre la fecha de la OC ('' = sin tope)
+  desde: string;  // YYYY-MM-DD ('' = sin tope)
   hasta: string;
+  /** Sobre qué fecha corre el rango: la de la OC (por defecto) o la del pago. */
+  fechaDe?: 'oc' | 'pago';
   incluirAnuladas: boolean;
 }
 
@@ -248,9 +250,14 @@ export function filtrarFilas(filas: FilaConciliacion[], f: FiltrosConciliacion, 
     if (f.retencion === 'sin' && r.llevaRetencion) return false;
     if (f.pago === 'pagadas' && !r.pagada) return false;
     if (f.pago === 'sin_pagar' && r.pagada) return false;
-    const d = dia(r.fecha);
-    if (f.desde && d < f.desde) return false;
-    if (f.hasta && d > f.hasta) return false;
+    if (f.desde || f.hasta) {
+      // Por fecha de pago, la OC sin pagar queda fuera del rango.
+      const base = f.fechaDe === 'pago' ? r.fechaPago : r.fecha;
+      if (!base) return false;
+      const d = dia(base);
+      if (f.desde && d < f.desde) return false;
+      if (f.hasta && d > f.hasta) return false;
+    }
     if (q) {
       const heno = norm([r.codigo, r.proveedor, r.estadoLabel, ...r.referencias,
         ...r.retenciones.map((x) => `${x.tipo} ${x.comprobante ?? ''}`)].join(' '));

@@ -18,6 +18,9 @@ import { Modal } from '@/shared/ui/Modal';
 import type { Orden } from '@/shared/lib/types';
 import { FacturasOcModal } from '@/modules/pedidos/FacturasOcModal';
 import { diaVE } from '@/modules/tesoreria/tasas.repository';
+import { Paginador } from '@/modules/libroFiscal/ListaControles';
+import { paginar } from '@/modules/libroFiscal/listas';
+import '@/modules/libroFiscal/libroFiscal.css';
 import { cargarConciliacion } from './conciliacion.repository';
 import {
   FILTROS_VACIOS, filtrarFilas, indicadores, renumerar, textoFuenteTasa, textoReferencia,
@@ -34,7 +37,8 @@ const TITULO_TARJETA: Record<Tarjeta, string> = {
   retencion: 'OC con retenciones',
 };
 
-const POR_PAGINA = 100;
+/** Paginación (12/11/2026): arranca mostrando 10 OC; el selector deja ver 25, 50 o 100. */
+const TAMANOS = [10, 25, 50, 100] as const;
 /** Estatus en los que ya puede haber factura cargada por delivery o almacén. */
 const CON_FACTURA = new Set(['pagada', 'por_recibir', 'recibida', 'finalizada', 'cuenta_abierta']);
 
@@ -47,7 +51,8 @@ export function ConciliacionPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [f, setF] = useState<FiltrosConciliacion>(FILTROS_VACIOS);
-  const [visibles, setVisibles] = useState(POR_PAGINA);
+  const [pag, setPag] = useState(1);
+  const [tam, setTam] = useState<number>(TAMANOS[0]);
   const [tarjeta, setTarjeta] = useState<Tarjeta | null>(null);
   const [factura, setFactura] = useState<Orden | null>(null);
   const [reporte, setReporte] = useState(false);
@@ -69,7 +74,8 @@ export function ConciliacionPage() {
   const k = useMemo(() => indicadores(filtradas), [filtradas]);
   const estados = useMemo(() => [...new Set(filas.map((r) => r.estadoLabel))].sort((a, b) => a.localeCompare(b, 'es')), [filas]);
   const hayFiltros = JSON.stringify(f) !== JSON.stringify(FILTROS_VACIOS);
-  useEffect(() => { setVisibles(POR_PAGINA); }, [f]);
+  useEffect(() => { setPag(1); }, [f]);
+  const pagina = useMemo(() => paginar(filtradas, pag, tam), [filtradas, pag, tam]);
 
   const filasTarjeta = useMemo(() => {
     if (tarjeta === 'pagado') return filtradas.filter((r) => r.pagada);
@@ -181,7 +187,7 @@ export function ConciliacionPage() {
                 {filas.length ? 'Ninguna OC coincide con los filtros.' : 'Todavía no hay OC.'}
               </td></tr>
             )}
-            {!cargando && filtradas.slice(0, visibles).map((r) => (
+            {!cargando && pagina.filas.map((r) => (
               <tr key={r.ordenId}>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.item}</td>
                 <td>
@@ -225,12 +231,9 @@ export function ConciliacionPage() {
           </tbody>
         </table>
       </div>
-      {!cargando && filtradas.length > visibles && (
-        <div style={{ textAlign: 'center', margin: '1rem 0' }}>
-          <button className="btn btn-ghost" onClick={() => setVisibles((v) => v + POR_PAGINA)}>
-            Ver {Math.min(POR_PAGINA, filtradas.length - visibles)} más ({filtradas.length - visibles} restantes)
-          </button>
-        </div>
+      {!cargando && filtradas.length > 0 && (
+        <Paginador pagina={pagina} tam={tam} unidad="OC" tamanos={TAMANOS}
+          onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
       )}
 
       {/* ── Detalle de una tarjeta ── */}
@@ -278,7 +281,7 @@ export function ConciliacionPage() {
       )}
 
       {factura && <FacturasOcModal orden={factura} onClose={() => setFactura(null)} />}
-      {reporte && <ReporteConciliacionModal filas={filtradas} filtros={f} onClose={() => setReporte(false)} />}
+      {reporte && <ReporteConciliacionModal todas={filas} filtros={f} onClose={() => setReporte(false)} />}
     </div>
   );
 }

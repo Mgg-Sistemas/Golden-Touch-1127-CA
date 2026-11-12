@@ -155,7 +155,8 @@ export function describirFiltros(f: FiltrosConciliacion): string {
     f.estado ? `Estatus: ${f.estado}` : '',
     f.pago === 'pagadas' ? 'Pagadas' : f.pago === 'sin_pagar' ? 'Sin pagar' : '',
     f.retencion === 'con' ? 'Con retención' : f.retencion === 'sin' ? 'Sin retención' : '',
-    f.desde && f.hasta ? `del ${fecha(f.desde)} al ${fecha(f.hasta)}` : f.desde ? `desde ${fecha(f.desde)}` : f.hasta ? `hasta ${fecha(f.hasta)}` : '',
+    (f.desde || f.hasta ? (f.fechaDe === 'pago' ? 'Pagadas ' : 'OC ') : '')
+      + (f.desde && f.hasta ? `del ${fecha(f.desde)} al ${fecha(f.hasta)}` : f.desde ? `desde ${fecha(f.desde)}` : f.hasta ? `hasta ${fecha(f.hasta)}` : ''),
     f.incluirAnuladas ? 'incluye canceladas' : '',
   ].filter(Boolean).join(' · ');
 }

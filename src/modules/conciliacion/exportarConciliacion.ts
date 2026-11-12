@@ -95,7 +95,8 @@ export async function descargarConciliacionPdf(
     head: [cols.map((c) => pdfSafe(c.titulo))],
     body,
     styles: { fontSize: 7.5, cellPadding: 3, overflow: 'linebreak' },
-    headStyles: { fillColor: NARANJA, textColor: 255, fontStyle: 'bold' },
+    // Encabezados centrados (12/11/2026, pedido de la administradora).
+    headStyles: { fillColor: NARANJA, textColor: 255, fontStyle: 'bold', halign: 'center', valign: 'middle' },
     alternateRowStyles: { fillColor: [248, 248, 248] },
     columnStyles: Object.fromEntries(cols.map((c, i) => [i, c.numerica ? { halign: 'right' } : {}])),
   });
@@ -133,7 +134,7 @@ export async function descargarConciliacionExcel(
     cell.value = c.titulo;
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: naranja } };
-    cell.alignment = { vertical: 'middle', horizontal: c.numerica ? 'right' : 'left' };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
   });
 
   let fila = 5;

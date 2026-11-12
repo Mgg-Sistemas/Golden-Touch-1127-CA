@@ -10,7 +10,8 @@ import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
-import { indicadores, type FilaConciliacion, type FiltrosConciliacion } from './conciliacion';
+import { filtrarFilas, indicadores, renumerar, type FilaConciliacion, type FiltrosConciliacion } from './conciliacion';
+import { diaVE, hoyVE } from '@/modules/tesoreria/tasas.repository';
 import {
   AGRUPACIONES, COLUMNAS_POR_DEFECTO, COLUMNAS_REPORTE, agrupar, bs, celda, describirFiltros, textoWhatsappConciliacion, usd,
   type Agrupacion, type ClaveColumna, type MetaReporte,
@@ -37,9 +38,35 @@ function guardarPrefs(columnas: ClaveColumna[], modo: Agrupacion) {
   try { localStorage.setItem(PREFS, JSON.stringify({ columnas, modo })); } catch { /* sin almacenamiento: no pasa nada */ }
 }
 
-export function ReporteConciliacionModal({ filas, filtros, onClose }: {
-  filas: FilaConciliacion[]; filtros: FiltrosConciliacion; onClose: () => void;
+/** Primer y último día de un mes (YYYY-MM) en YYYY-MM-DD. */
+function rangoMes(anio: number, mes: number): { desde: string; hasta: string } {
+  const d = new Date(Date.UTC(anio, mes, 1));
+  const h = new Date(Date.UTC(anio, mes + 1, 0));
+  return { desde: d.toISOString().slice(0, 10), hasta: h.toISOString().slice(0, 10) };
+}
+
+/**
+ * `todas`: todas las OC; el reporte aplica los filtros de la pantalla y, encima, su
+ * PROPIO rango de fechas (12/11/2026), que arranca en el de la pantalla y se puede
+ * cambiar aquí sin tocarla (por fecha de la OC o por fecha de pago).
+ */
+export function ReporteConciliacionModal({ todas, filtros, onClose }: {
+  todas: FilaConciliacion[]; filtros: FiltrosConciliacion; onClose: () => void;
 }) {
+  const [desde, setDesde] = useState(filtros.desde);
+  const [hasta, setHasta] = useState(filtros.hasta);
+  const [fechaDe, setFechaDe] = useState<'oc' | 'pago'>(filtros.fechaDe ?? 'oc');
+  const filtrosReporte = useMemo<FiltrosConciliacion>(() => ({ ...filtros, desde, hasta, fechaDe }), [filtros, desde, hasta, fechaDe]);
+  const filas = useMemo(() => renumerar(filtrarFilas(todas, filtrosReporte, diaVE)), [todas, filtrosReporte]);
+  const rangoInvalido = !!desde && !!hasta && desde > hasta;
+  const atajo = (cual: 'mes' | 'mes_pasado' | 'anio' | 'todo') => {
+    const [a, m] = hoyVE().split('-').map(Number);
+    if (cual === 'todo') { setDesde(''); setHasta(''); return; }
+    if (cual === 'anio') { setDesde(`${a}-01-01`); setHasta(`${a}-12-31`); return; }
+    const r = cual === 'mes' ? rangoMes(a, m - 1) : rangoMes(a, m - 2);
+    setDesde(r.desde); setHasta(r.hasta);
+  };
+
   const inicial = useMemo(leerPrefs, []);
   const [columnas, setColumnas] = useState<ClaveColumna[]>(inicial.columnas);
   const [modo, setModo] = useState<Agrupacion>(inicial.modo);
@@ -48,9 +75,9 @@ export function ReporteConciliacionModal({ filas, filtros, onClose }: {
 
   const meta: MetaReporte = useMemo(() => ({
     titulo: 'Conciliación de órdenes de compra',
-    filtrosTexto: describirFiltros(filtros),
+    filtrosTexto: describirFiltros(filtrosReporte),
     generado: new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas', dateStyle: 'short', timeStyle: 'short' }),
-  }), [filtros]);
+  }), [filtrosReporte]);
 
   const cols = COLUMNAS_REPORTE.filter((c) => columnas.includes(c.clave));
   const grupos = useMemo(() => agrupar(filas, modo), [filas, modo]);
@@ -91,8 +118,35 @@ export function ReporteConciliacionModal({ filas, filtros, onClose }: {
       </>
     }>
       <p className="muted" style={{ marginTop: 0 }}>
-        Sale con lo que tienes filtrado en la pantalla{meta.filtrosTexto ? ` (${meta.filtrosTexto})` : ' (todas las OC)'}: <strong>{filas.length} OC</strong>.
+        Sale con los filtros de la pantalla y el rango de fechas de abajo{meta.filtrosTexto ? ` (${meta.filtrosTexto})` : ' (todas las OC)'}: <strong>{filas.length} OC</strong>.
       </p>
+
+      {/* ── Rango de fechas del reporte (12/11/2026) ── */}
+      <div className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end', marginBottom: '.75rem' }}>
+        <div className="form-row" style={{ margin: 0, flex: '1 1 150px' }}>
+          <label>Fecha de</label>
+          <select className="select" value={fechaDe} onChange={(e) => setFechaDe(e.target.value as 'oc' | 'pago')}>
+            <option value="oc">La OC</option>
+            <option value="pago">El pago</option>
+          </select>
+        </div>
+        <div className="form-row" style={{ margin: 0, flex: '1 1 140px' }}>
+          <label>Desde</label>
+          <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
+        </div>
+        <div className="form-row" style={{ margin: 0, flex: '1 1 140px' }}>
+          <label>Hasta</label>
+          <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
+        </div>
+        <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', paddingBottom: '.2rem' }}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => atajo('mes')}>Este mes</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => atajo('mes_pasado')}>Mes pasado</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => atajo('anio')}>Este año</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => atajo('todo')}>Todas las fechas</button>
+        </div>
+        {rangoInvalido && <small style={{ color: 'var(--danger)', flexBasis: '100%' }}>La fecha «Desde» es posterior a «Hasta»: no hay OC en ese rango.</small>}
+        {fechaDe === 'pago' && (desde || hasta) && <small className="muted" style={{ flexBasis: '100%' }}>Por fecha de pago, las OC sin pagar no entran.</small>}
+      </div>
 
       <div className="form-grid">
         <div className="form-row">
@@ -124,7 +178,7 @@ export function ReporteConciliacionModal({ filas, filtros, onClose }: {
       {!cols.length ? <p className="muted">Elige al menos una columna.</p> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr>{cols.map((c) => <th key={c.clave} style={c.numerica ? { textAlign: 'right' } : undefined}>{c.titulo}</th>)}</tr></thead>
+            <thead><tr>{cols.map((c) => <th key={c.clave} style={{ textAlign: 'center' }}>{c.titulo}</th>)}</tr></thead>
             <tbody>
               {grupos.map((g) => {
                 if (mostradas >= MAX_PREVIA) return null;
