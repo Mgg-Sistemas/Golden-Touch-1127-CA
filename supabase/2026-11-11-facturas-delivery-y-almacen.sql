@@ -219,3 +219,28 @@ begin
          + jsonb_array_length(coalesce(d.fotos_entrega, '[]'::jsonb))) > 0
   ), '[]'::jsonb);
 end $function$;
+
+-- 12/11/2026 (2) · A Compras SOLO le llega la foto de la FACTURA. Las fotos del producto
+-- (al recibir del proveedor) y las de la entrega quedan en Delivery.
+create or replace function public.orden_facturas_delivery(p_orden_id uuid)
+returns jsonb
+language plpgsql
+stable security definer
+set search_path to ''
+as $function$
+begin
+  if not (public.is_admin() or public.puede_leer('compras') or public.puede_leer('pedidos')
+          or public.puede_leer('inventario') or public.puede_leer('delivery') or public.puede_leer('tesoreria')
+          or public.puede_leer('retenciones')) then
+    raise exception 'No tienes permiso para ver las facturas de esta orden.' using errcode = '42501';
+  end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'pedido_id', d.id, 'repartidor', coalesce(d.repartidor_nombre, d.repartidor_email),
+      'entregado_en', d.entregado_en, 'estado', d.estado,
+      'fotos', coalesce(d.fotos_factura, '[]'::jsonb)) order by d.created_at)
+    from public.delivery_pedidos d
+    where d.orden_id = p_orden_id and d.origen = 'compra'
+      and jsonb_array_length(coalesce(d.fotos_factura, '[]'::jsonb)) > 0
+  ), '[]'::jsonb);
+end $function$;

@@ -65,11 +65,8 @@ async function fotosDelivery(ordenId: string): Promise<{ facturas: ArchivoFactur
       });
     }
   };
-  for (const t of tomas) {
-    await pasar(t.fotos, t, 'Factura', facturas);
-    await pasar(t.fotos_recibo, t, 'Al recibir del proveedor', facturas);
-    await pasar(t.fotos_entrega, t, 'Entrega en almacén', entrega);
-  }
+  // 12/11/2026: a Compras solo le llega la foto de la FACTURA (las del producto y la entrega quedan en Delivery).
+  for (const t of tomas) await pasar(t.fotos, t, 'Factura', facturas);
   return { facturas, entrega };
 }
 
