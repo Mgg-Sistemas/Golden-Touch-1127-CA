@@ -869,16 +869,7 @@ export function PedidosPage() {
               🔧 Nuevo servicio
             </button>
           )}
-          {canManageProcurement && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && scope !== 'almacen' && (
-            <button
-              className="btn"
-              style={{ background: 'var(--brand, #ff8a00)', color: '#111', fontWeight: 700 }}
-              onClick={() => setModal({ kind: 'create', mercado: true, compraFija: plantillaMercado })}
-              title="Solicitud de MERCADO para Cocina: trae víveres y artículos de limpieza como checklist, con unidad/solicitante COCINA y marcada como URGENTE"
-            >
-              🛒 Solicitud de mercado
-            </button>
-          )}
+          {/* La Solicitud de mercado se genera desde 🔁 Compras fijas › Mercado (12/11/2026). */}
           {canManageProcurement && scope !== 'oc_lote' && scope !== 'almacen' && (
             <button className="btn btn-ghost" onClick={() => setComprasFijasOpen(true)}
               title="Compras que se repiten (Mercado, Papelería, Carnes, Pollo…): se generan con las cantidades de la última vez">
