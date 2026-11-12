@@ -3,6 +3,8 @@
    Ver recepcionMovil.ts y supabase/2026-11-04-delivery-recepcion-almacenista.sql.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { comprimirImagen } from '@/shared/lib/comprimirImagen';
+import { agregarAdjuntoDirecto } from '@/modules/pedidos/adjuntosDirectos.repository';
 import type { PorRecepcionar, RecepcionDetallada } from './recepcionMovil';
 import type { Recepcion } from './recepcionesHistorico';
 
@@ -23,7 +25,19 @@ export async function listPorRecepcionar(): Promise<PorRecepcionar[]> {
     items: Array.isArray(p.items) ? p.items : [],
     fotos_recibo: Array.isArray(p.fotos_recibo) ? p.fotos_recibo : [],
     fotos_entrega: Array.isArray(p.fotos_entrega) ? p.fotos_entrega : [],
+    fotos_factura: Array.isArray(p.fotos_factura) ? p.fotos_factura : [],
   }));
+}
+
+/**
+ * 11/11/2026 · El almacenista carga la factura al recepcionar (FACTURAS ALMACÉN en Compras).
+ * Va a adjuntos_directos 'orden_factura' (las fotos se achican antes de subir).
+ */
+export async function subirFacturasAlmacen(ordenId: string, archivos: File[], actor: string): Promise<void> {
+  for (const original of archivos) {
+    const f = original.type.startsWith('image/') ? await comprimirImagen(original).catch(() => original) : original;
+    await agregarAdjuntoDirecto('orden_factura', ordenId, f, actor);
+  }
 }
 
 /** Recepciona: suma al inventario lo que llegó y marca la OC recibida en Compras. */

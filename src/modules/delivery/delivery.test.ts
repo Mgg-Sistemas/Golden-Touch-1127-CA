@@ -16,7 +16,7 @@ const base: PedidoDelivery = {
   pedido_id: 'd1', estado: 'aceptado', repartidor_id: 'u1', repartidor_nombre: 'CARLOS MENDOZA',
   aceptado_en: '2026-10-30T13:00:00Z', en_ruta_en: null, entregado_en: null, cancelado_en: null,
   motivo_cancel: null, detalle_cancel: null, almacen_entrega: null, nota_entrega: null,
-  fotos_recibo: [{ path: 'a', filename: 'a.jpg' }], fotos_entrega: [], historial: [], es_mio: true,
+  fotos_recibo: [{ path: 'a', filename: 'a.jpg' }], fotos_entrega: [], fotos_factura: [], historial: [], es_mio: true,
 };
 
 const sinSelector = (t: string) => expect(t).not.toContain('️');

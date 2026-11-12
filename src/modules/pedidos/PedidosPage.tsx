@@ -17,6 +17,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { mensajeError } from '@/shared/lib/errores';
 import { previewArchivo } from '@/shared/lib/reportePreview';
+import { FacturasOcModal } from './FacturasOcModal';
 import { OrdenPagarWhatsappModal } from './OrdenPagarWhatsappModal';
 import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReeleccionPorCambio, type EventoCambioProveedor } from './cambioProveedor';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
@@ -1510,7 +1511,9 @@ function FinalizarPedidoModal({
     return () => { vivo = false; };
   }, [conP03, orden.id, orden.factura_path, orden.factura_recepcion_path]);
   const conNotaEntrega = orden.comprobante_tipo === 'nota_entrega';
-  const facturaObligatoria = conP03 && facturasPrevias === 0 && !conNotaEntrega;
+  // 11/11/2026: cargar la factura es OPCIONAL para finalizar (la carga el almacenista al recepcionar).
+  const facturaObligatoria = false;
+  void conNotaEntrega;
   const [comentario, setComentario] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1663,7 +1666,7 @@ function FinalizarPedidoModal({
           <label>Facturas del proveedor · PDF o imagen{' '}
             {facturaObligatoria
               ? <><span style={{ color: 'var(--danger)' }}>*</span> <span className="muted">(al menos una · puedes elegir varias)</span></>
-              : <span className="muted">({facturasPrevias ? `ya tiene ${facturasPrevias} · puedes sumar más` : 'con nota de entrega: se cargan cuando lleguen'})</span>}
+              : <span className="muted">({facturasPrevias ? `ya tiene ${facturasPrevias} · puedes sumar más` : 'opcional'})</span>}
           </label>
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFacturas(Array.from(e.target.files ?? []))} />
           <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>PDF o imagen · máx. 10 MB c/u.</small>
@@ -3244,6 +3247,7 @@ function OrdenDetailModal({
   // 05/11/2026: facturas del proveedor cargadas al recibir (adjuntos «orden_factura»),
   // para descargarlas desde el detalle (sobre todo con la orden finalizada).
   const [facturasProv, setFacturasProv] = useState<AdjuntoDirecto[]>([]);
+  const [facturasOpen, setFacturasOpen] = useState(false);
   useEffect(() => {
     let vivo = true;
     listAdjuntosDirectos('orden_factura', o.id)
@@ -3330,15 +3334,6 @@ function OrdenDetailModal({
       previewArchivo(url, o.factura_nombre || (o.factura_path.split('/').pop() ?? 'comprobante'));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error');
-    }
-  }
-  async function handleFacturaRecepcion() {
-    if (!o.factura_recepcion_path) return;
-    try {
-      const url = await urlAdjuntoOc(o.factura_recepcion_path);
-      previewArchivo(url, o.factura_recepcion_nombre || (o.factura_recepcion_path.split('/').pop() ?? 'factura'));
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo abrir la factura', 'error');
     }
   }
 
@@ -3549,12 +3544,14 @@ function OrdenDetailModal({
           ↓ Comprobante de pago
         </button>
       )}
-      {o.factura_recepcion_path && (
-        <button className="btn btn-ghost" onClick={handleFacturaRecepcion} title={o.factura_recepcion_nombre ?? 'Factura del proveedor'}>
+      {/* 11/11/2026: «🧾 Factura» → FACTURAS DELIVERY y FACTURAS ALMACÉN (vista previa, descargar, imprimir). */}
+      {(o.recibida_en || o.factura_recepcion_path || facturasProv.length > 0) && (
+        <button className="btn btn-ghost" onClick={() => setFacturasOpen(true)} title="Facturas del delivery y de almacén">
           🧾 Factura
         </button>
       )}
-      {facturasProv.map((a, i) => (
+      {facturasOpen && <FacturasOcModal orden={o} onClose={() => setFacturasOpen(false)} />}
+      {!o.recibida_en && facturasProv.map((a, i) => (
         <button key={a.id} className="btn btn-ghost" onClick={() => void abrirFacturaProv(a)} title={a.nombre ?? 'Factura del proveedor'}>
           ↓ Factura del proveedor{facturasProv.length > 1 ? ` ${i + 1}` : ''}
         </button>

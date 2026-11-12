@@ -6,7 +6,7 @@ const p: PorRecepcionar = {
   pedido_id: 'd1', orden_id: 'o1', sp: 'SP-2026-0428', oc: 'OC-2026-0191', proveedor: 'HIERROS SAN FELIX', proveedor_rif: null,
   solicitante: 'FREDDY TORRES', unidad_solicitante: 'ELECTRICIDAD', analista: 'NAZARET SALAZAR', delivery: 'CARLOS PÉREZ',
   entregado_en: '2026-11-04T15:00:00Z', almacen_entrega: 'Los Pinos', nota_entrega: null,
-  fotos_recibo: [], fotos_entrega: [{ path: 'd1/entrega-1.jpg', filename: '1.jpg' }],
+  fotos_recibo: [], fotos_entrega: [{ path: 'd1/entrega-1.jpg', filename: '1.jpg' }], fotos_factura: [],
   items: [
     { sku: 'TUB-1', nombre: 'TUBO 2"', cantidad: 10, precio: 5, unidad: 'UND', productoId: 'p1' },
     { sku: 'COD-1', nombre: 'CODO 2"', cantidad: 4, precio: 1, unidad: 'UND', productoId: 'p2' },
