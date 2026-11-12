@@ -261,7 +261,7 @@ export async function subirComprobantesConciliacion(
   origen: OrigenDoc, id: string, files: File[], actor: { email: string; nombre?: string | null },
 ): Promise<ArchivoNota[]> {
   for (const f of files) {
-    if (f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/')) throw new Error(`«${f.name}» no es PDF ni imagen.`);
+    if (!f.type || (f.type !== 'application/pdf' && !f.type.startsWith('image/'))) throw new Error(`«${f.name}» no es PDF ni imagen.`);
     if (f.size > 10 * 1024 * 1024) throw new Error(`«${f.name}» supera los 10 MB.`);
   }
   const previa = await notaActual(origen, id);
@@ -269,7 +269,7 @@ export async function subirComprobantesConciliacion(
   for (const f of files) {
     const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const path = `${origen}/${id}/${stamp}-${f.name.replace(/[^\w.-]+/g, '_')}`;
-    const { error } = await supabase.storage.from(BUCKET_NOTAS).upload(path, f, { upsert: false, contentType: f.type || 'application/pdf' });
+    const { error } = await supabase.storage.from(BUCKET_NOTAS).upload(path, f, { upsert: false, contentType: f.type });
     if (error) {
       if (/bucket not found/i.test(error.message)) throw new Error(MSG_FALTA_SQL_CONCILIACION);
       throw error;

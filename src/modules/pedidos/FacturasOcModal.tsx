@@ -109,7 +109,10 @@ export async function descargarArchivo(a: Pick<ArchivoFactura, 'url' | 'nombre'>
 
 /** Imprime directo (PDF o imagen) desde un iframe del mismo origen. */
 export async function imprimirArchivo(a: Pick<ArchivoFactura, 'url' | 'nombre' | 'esImagen'>): Promise<void> {
-  const b = await blobDe(a.url);
+  // El iframe es del mismo origen: se fuerza un tipo seguro (imagen o PDF) para que
+  // un archivo subido con otro tipo (p. ej. HTML) nunca se ejecute como página.
+  const crudo = await blobDe(a.url);
+  const b = new Blob([crudo], { type: a.esImagen ? (crudo.type.startsWith('image/') ? crudo.type : 'image/jpeg') : 'application/pdf' });
   const href = URL.createObjectURL(b);
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';

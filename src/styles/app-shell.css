@@ -24,6 +24,12 @@
 .app.sidebar-collapsed .nav a .badge { display: none; }
 .app.sidebar-collapsed .user-chip .info { display: none; }
 .app.sidebar-collapsed .user-chip { justify-content: center; padding: .4rem; }
+.app.sidebar-collapsed .menu-buscar { display: none; }
+
+/* Buscador de módulos del menú (12/11/2026). */
+.menu-buscar { padding: .6rem .75rem 0; }
+.menu-buscar .input { width: 100%; font-size: .85rem; padding: .45rem .6rem; }
+.menu-buscar-vacio { color: var(--text-dim); font-size: .78rem; padding: .45rem .15rem 0; }
 
 /* Sidebar */
 .sidebar {
@@ -746,6 +752,7 @@ tr.row-selectable:active { transform: scale(0.998); }
   .nav a,
   .app.sidebar-collapsed .nav a { justify-content: flex-start; padding: .65rem .85rem; }
   .app.sidebar-collapsed .user-chip { justify-content: flex-start; padding: .6rem; }
+  .app.sidebar-collapsed .menu-buscar { display: block; }
 
   .search-box { display: none; }
   .main { padding: 1rem; }

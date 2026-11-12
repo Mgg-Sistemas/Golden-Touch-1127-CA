@@ -1,5 +1,6 @@
 import { cargarDirectorioUsuarios } from '@/shared/lib/directorioUsuarios';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { coincideMenu, normalizarMenu } from './menuBuscar';
 import { cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
@@ -309,10 +310,26 @@ export function AppShell() {
       });
   }, [role, user?.email]);
 
+  // Buscador del menú: lo escrito, normalizado, y si quedó algún módulo a la vista.
+  const [buscarModulo, setBuscarModulo] = useState('');
+  const filtroMenu = normalizarMenu(buscarModulo);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [sinModulos, setSinModulos] = useState(false);
+  useLayoutEffect(() => {
+    if (!filtroMenu) { setSinModulos(false); return; }
+    setSinModulos(!sidebarRef.current?.querySelector('.nav a[href]'));
+  }, [filtroMenu]);
+  // Al navegar se limpia, para que el menú vuelva a mostrarse completo.
+  useEffect(() => { setBuscarModulo(''); }, [location.pathname]);
+  function abrirPrimerModulo() {
+    const a = sidebarRef.current?.querySelector<HTMLAnchorElement>('.nav a[href]');
+    a?.click();
+  }
+
   return (
     <div className={`app${collapsed ? ' sidebar-collapsed' : ''}${drawerOpen ? ' drawer-open' : ''}`}>
       <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
-      <aside className="sidebar">
+      <aside className="sidebar" ref={sidebarRef}>
         <div className="sidebar-brand">
           <NavLink to="/app" className="brand" onClick={(e) => { if (!intentarSalir('/app')) e.preventDefault(); }}>
             <img src="/LOGO.jpg" alt="GOLDEN TOUCH 1127 C.A." />
@@ -323,6 +340,9 @@ export function AppShell() {
           </NavLink>
         </div>
 
+        <BuscadorMenu valor={buscarModulo} onChange={setBuscarModulo} sinResultados={sinModulos} onAbrirPrimero={abrirPrimerModulo} />
+
+        <FiltroMenu.Provider value={filtroMenu}>
         {soloTelefono && (
           <>
             <div className="sidebar-section">Teléfono</div>
@@ -378,15 +398,15 @@ export function AppShell() {
           )}
           {can('auditoria') && <NavItem to="/app/auditoria" icon="🛡️" label="Auditoría" />}
           {can('ajustes') && <NavItem to="/app/ajustes" icon="⚙" label="Ajustes" />}
-          <a
+          {!filtroMenu && <a
             href={manualSistemaUrl}
             target="_blank"
             rel="noopener noreferrer"
             title="Abrir el manual del sistema"
           >
             <span className="icn">📘</span> <span>Menú del Sistema</span>
-          </a>
-          {mostrarRespaldo && (
+          </a>}
+          {!filtroMenu && mostrarRespaldo && (
             <a
               href="#"
               onClick={(e) => { e.preventDefault(); setRespaldoOpen(true); }}
@@ -396,7 +416,7 @@ export function AppShell() {
               <span>Respaldo de Data</span>
             </a>
           )}
-          {MOSTRAR_MANUAL && (
+          {!filtroMenu && MOSTRAR_MANUAL && (
             <a
               href="#"
               onClick={(e) => { e.preventDefault(); void handleManual(); }}
@@ -408,6 +428,7 @@ export function AppShell() {
             </a>
           )}
         </nav>
+        </FiltroMenu.Provider>
 
         <div className="sidebar-footer">
           <div className="user-chip">
@@ -533,6 +554,35 @@ export function AppShell() {
   );
 }
 
+/* ───────── Buscador del menú (12/11/2026) ─────────
+   Se escribe el nombre del módulo y el menú deja solo los que coinciden (sin
+   importar tildes ni mayúsculas). También entiende otros nombres con que la
+   gente llama a cada módulo («compras», «almacén», «caja»…). Enter abre el
+   primero y Esc limpia. */
+const FiltroMenu = createContext('');
+
+function BuscadorMenu({ valor, onChange, sinResultados, onAbrirPrimero }: {
+  valor: string; onChange: (v: string) => void; sinResultados: boolean; onAbrirPrimero: () => void;
+}) {
+  return (
+    <div className="menu-buscar">
+      <input
+        className="input"
+        type="search"
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); onAbrirPrimero(); }
+          if (e.key === 'Escape') onChange('');
+        }}
+        placeholder="🔍 Buscar módulo…"
+        aria-label="Buscar módulo en el menú"
+      />
+      {sinResultados && <div className="menu-buscar-vacio">Ningún módulo coincide.</div>}
+    </div>
+  );
+}
+
 function NavItem({
   to,
   icon,
@@ -547,6 +597,8 @@ function NavItem({
   /** Queda marcado también en sus subrutas (los submódulos que viven dentro del módulo). */
   incluyeSubrutas?: boolean;
 }) {
+  const filtro = useContext(FiltroMenu);
+  if (!coincideMenu(filtro, label, to)) return null;
   if (disabled) {
     return (
       <a href="#" onClick={(e) => e.preventDefault()} style={{ opacity: 0.4, cursor: 'not-allowed' }}>
