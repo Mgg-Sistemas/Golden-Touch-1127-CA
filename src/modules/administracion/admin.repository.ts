@@ -788,6 +788,28 @@ const T_RESP = 'admin_responsabilidades';
 const T_AVISO = 'admin_avisos';
 const T_CREQ = 'admin_centro_requeridos';
 const T_EMP = 'admin_empresas';
+/**
+ * ¿El guardado se cayó porque a la base le falta una columna?
+ *
+ * Importa distinguirlo porque ANTES se reintentaba EN SILENCIO con media fila
+ * (12/11/2026). Al subir un documento se perdían carpeta, vencimiento, estado,
+ * responsable y socio; al editarlo, todo salvo el nombre y el tipo. La pantalla
+ * decía «guardado» y la configuración no estaba en ninguna parte.
+ */
+function esColumnaQueFalta(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST204' || /column.*does not exist/i.test(error.message ?? '');
+}
+
+/** El aviso, en palabras de quien lo va a leer y diciendo qué hacer. */
+function errorColumnaQueFalta(error: { message?: string } | null, que: string): Error {
+  const col = /column\s+"?([a-zA-Z_.]+)"?/.exec(error?.message ?? '')?.[1];
+  return new Error(
+    `No se guardó ${que} porque a la base le falta la columna «${col ?? 'desconocida'}». ` +
+    'No se guardó nada a medias. Avisa a quien administre la base: hay un archivo .sql pendiente de aplicar.',
+  );
+}
+
 const T_GF = 'admin_gastos_fijos';
 /** Donde viven los factores FAOV ajustables (tabla `config`, llave/valor). */
 const CLAVE_FAOV = 'admin.parafiscales.faov';
@@ -1189,24 +1211,15 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async crearGastoFijo(g) {
       const payload = deGasto(g);
-      let { data, error } = await supabase.from(T_GF).insert(payload).select('*').single();
-      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
-        const { centro_acopio_id, responsable, ...basePayload } = payload;
-        const resBase = await supabase.from(T_GF).insert(basePayload).select('*').single();
-        data = resBase.data;
-        error = resBase.error;
-      }
+      const { data, error } = await supabase.from(T_GF).insert(payload).select('*').single();
+      if (esColumnaQueFalta(error)) throw errorColumnaQueFalta(error, 'el gasto fijo');
       if (error) throw error;
       return aGasto(data as RowGasto);
     },
     async editarGastoFijo(id, cambios) {
       const payload = deGasto(cambios);
-      let { error } = await supabase.from(T_GF).update(payload).eq('id', id);
-      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
-        const { centro_acopio_id, responsable, ...basePayload } = payload;
-        const resBase = await supabase.from(T_GF).update(basePayload).eq('id', id);
-        error = resBase.error;
-      }
+      const { error } = await supabase.from(T_GF).update(payload).eq('id', id);
+      if (esColumnaQueFalta(error)) throw errorColumnaQueFalta(error, 'el gasto fijo');
       if (error) throw error;
     },
     async setEstadoGastoFijo(id, estado) {
@@ -1463,21 +1476,14 @@ export function crearRepoSupabase(): AdminRepo {
         updated_at: nowIso,
       };
 
-      let { data, error } = await supabase.from(T_DOC).insert(filaCompleta).select('*').single();
+      const { data, error } = await supabase.from(T_DOC).insert(filaCompleta).select('*').single();
 
-      // Si la BD aún no tiene columnas extendidas, reintentar con las base
-      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
-        const filaBase = {
-          empresa_clave: empresaClave,
-          tipo,
-          nombre: meta?.nombre || file.name,
-          path,
-          content_type: file.type || null,
-          tamano: file.size,
-        };
-        const resBase = await supabase.from(T_DOC).insert(filaBase).select('*').single();
-        data = resBase.data;
-        error = resBase.error;
+      // Antes, si faltaba una columna, se reintentaba con una fila mínima y el
+      // documento quedaba SIN carpeta, SIN vencimiento y SIN responsable, pero
+      // la pantalla decía «subido». Ahora se avisa y no se sube nada a medias.
+      if (esColumnaQueFalta(error)) {
+        await supabase.storage.from(BUCKET_DOCS).remove([path]).catch(() => { /* se limpia después */ });
+        throw errorColumnaQueFalta(error, `«${meta?.nombre || file.name}»`);
       }
 
       if (error || !data) {
@@ -1530,16 +1536,11 @@ export function crearRepoSupabase(): AdminRepo {
       if (cambios.badgeTexto !== undefined) payloadCompleto.badge_texto = cambios.badgeTexto;
       if (cambios.prioridad !== undefined) payloadCompleto.prioridad = cambios.prioridad;
 
-      let { data, error } = await supabase.from(T_DOC).update(payloadCompleto).eq('id', id).select('*').single();
+      const { data, error } = await supabase.from(T_DOC).update(payloadCompleto).eq('id', id).select('*').single();
 
-      if (error && (error.code === 'PGRST204' || /column.*does not exist/i.test(error.message))) {
-        const payloadBase: Record<string, unknown> = {};
-        if (cambios.nombre !== undefined) payloadBase.nombre = cambios.nombre;
-        if (cambios.tipo !== undefined) payloadBase.tipo = cambios.tipo;
-        const resBase = await supabase.from(T_DOC).update(payloadBase).eq('id', id).select('*').single();
-        data = resBase.data;
-        error = resBase.error;
-      }
+      // Antes se reintentaba guardando SOLO el nombre y el tipo: por eso no se
+      // podía arreglar a mano un documento al que le faltaba el vencimiento.
+      if (esColumnaQueFalta(error)) throw errorColumnaQueFalta(error, 'el documento');
 
       if (error || !data) throw error || new Error('No se pudo actualizar el documento.');
       return aDoc(data as RowDoc);
