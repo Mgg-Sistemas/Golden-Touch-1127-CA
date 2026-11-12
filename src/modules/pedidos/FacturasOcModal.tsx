@@ -130,7 +130,7 @@ export async function imprimirArchivo(a: Pick<ArchivoFactura, 'url' | 'nombre' |
   }
 }
 
-function ListaArchivos({ titulo, vacio, archivos }: { titulo: string; vacio: string; archivos: ArchivoFactura[] }) {
+export function ListaArchivos({ titulo, vacio, archivos }: { titulo: string; vacio: string; archivos: ArchivoFactura[] }) {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const imagenes = useMemo(() => archivos.filter((a) => a.esImagen), [archivos]);
   const galeria = useMemo(() => imagenes.map((a) => ({ url: a.url, filename: a.nombre, etiqueta: `${titulo} · ${a.nombre}` })), [imagenes, titulo]);
@@ -186,7 +186,7 @@ export function FacturasOcModal({ orden, onClose }: { orden: Orden; onClose: () 
     fotosDelivery(orden.id).then((x) => { if (vivo) { setDelivery(x.facturas); setEntrega(x.entrega); } })
       .catch((e) => { if (vivo) { setDelivery([]); toast(e instanceof Error ? e.message : 'No se pudieron leer las facturas del delivery', 'error'); } });
     facturasAlmacen(orden).then((x) => { if (vivo) setAlmacen(x); })
-      .catch((e) => { if (vivo) { setAlmacen([]); toast(e instanceof Error ? e.message : 'No se pudieron leer las facturas de almacén', 'error'); } });
+      .catch((e) => { if (vivo) { setAlmacen([]); toast(e instanceof Error ? e.message : 'No se pudieron leer las facturas de almacén y Compras', 'error'); } });
     return () => { vivo = false; };
   }, [orden]);
   const codigo = orden.oc_codigo ?? orden.codigo;
@@ -197,7 +197,7 @@ export function FacturasOcModal({ orden, onClose }: { orden: Orden; onClose: () 
         : <ListaArchivos titulo="🛵 FACTURAS DELIVERY" vacio="El delivery no cargó fotos de la factura." archivos={delivery} />}
       {entrega.length > 0 && <ListaArchivos titulo="📷 FOTOS ENTREGA EN ALMACÉN (delivery)" vacio="" archivos={entrega} />}
       {almacen === null ? <p className="muted">Cargando facturas de almacén…</p>
-        : <ListaArchivos titulo="🏬 FACTURAS ALMACÉN" vacio="Almacén todavía no cargó la factura." archivos={almacen} />}
+        : <ListaArchivos titulo="🏬 FACTURAS ALMACÉN / COMPRAS" vacio="Todavía no se cargó la factura (Almacén al recibir o Compras al finalizar)." archivos={almacen} />}
     </Modal>
   );
 }

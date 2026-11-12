@@ -46,8 +46,15 @@ export const AGRUPACIONES: { valor: Agrupacion; etiqueta: string }[] = [
   { valor: 'estado', etiqueta: 'Por estatus' },
   { valor: 'proveedor', etiqueta: 'Por proveedor' },
   { valor: 'retencion', etiqueta: 'Con / sin retención' },
-  { valor: 'tipo', etiqueta: 'Compras / servicios' },
+  { valor: 'tipo', etiqueta: 'Por tipo (OC, servicio, directas)' },
 ];
+
+const GRUPO_TIPO: Record<FilaConciliacion['tipo'], string> = {
+  compra: 'Órdenes de compra',
+  servicio: 'Órdenes de servicio',
+  compra_directa: 'Compras directas',
+  servicio_directo: 'Servicios directos',
+};
 
 export interface GrupoReporte {
   titulo: string;
@@ -61,7 +68,7 @@ export function agrupar(filas: FilaConciliacion[], modo: Agrupacion): GrupoRepor
     if (modo === 'estado') return r.estadoLabel;
     if (modo === 'proveedor') return r.proveedor;
     if (modo === 'retencion') return r.llevaRetencion ? 'Con retención' : 'Sin retención';
-    if (modo === 'tipo') return r.tipo === 'servicio' ? 'Órdenes de servicio' : 'Órdenes de compra';
+    if (modo === 'tipo') return GRUPO_TIPO[r.tipo] ?? 'Órdenes de compra';
     return 'Todas las OC';
   };
   const orden: string[] = [];
@@ -138,7 +145,7 @@ export function textoWhatsappConciliacion(filas: FilaConciliacion[], meta: MetaR
     '',
   ];
   for (const r of filas.slice(0, max)) {
-    lineas.push(`${r.item}. *${r.codigo}*${r.tipo === 'servicio' ? ' (servicio)' : ''} · ${r.proveedor}`);
+    lineas.push(`${r.item}. *${r.codigo}*${r.tipo !== 'compra' ? ` (${etiquetaTipo(r.tipo).toLowerCase()})` : ''} · ${r.proveedor}`);
     lineas.push(`   ${usd(r.totalUsd)} · ${bs(r.totalBs)} · ${r.estadoLabel}`);
     const extra = [
       r.referencias.length ? `Ref: ${r.referencias.join(', ')}` : '',
@@ -158,7 +165,7 @@ export function describirFiltros(f: FiltrosConciliacion): string {
     f.texto.trim() ? `Búsqueda: «${f.texto.trim()}»` : '',
     f.estado ? `Estatus: ${f.estado}` : '',
     f.pago === 'pagadas' ? 'Pagadas' : f.pago === 'sin_pagar' ? 'Sin pagar' : '',
-    f.tipo === 'compra' ? 'Solo compras' : f.tipo === 'servicio' ? 'Solo servicios' : '',
+    f.tipo && f.tipo !== 'todas' ? `Solo ${GRUPO_TIPO[f.tipo].toLowerCase()}` : '',
     f.retencion === 'con' ? 'Con retención' : f.retencion === 'sin' ? 'Sin retención' : '',
     (f.desde || f.hasta ? (f.fechaDe === 'pago' ? 'Pagadas ' : 'OC ') : '')
       + (f.desde && f.hasta ? `del ${fecha(f.desde)} al ${fecha(f.hasta)}` : f.desde ? `desde ${fecha(f.desde)}` : f.hasta ? `hasta ${fecha(f.hasta)}` : ''),

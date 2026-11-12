@@ -1,7 +1,8 @@
 /* ============================================================
    Conciliación (12/11/2026) · lógica pura, sin Supabase.
 
-   Módulo de SOLO LECTURA que cruza, por cada OC de Compras:
+   Cruza, por cada OC de Compras (y, desde el 12/11/2026, cada compra
+   directa y servicio directo):
      · el monto de la OC en $ y en Bs, a la tasa con que se pagó;
      · la referencia del pago que Tesorería anota al pagar (últimos 4
        dígitos de la transferencia / pago móvil o del ID de Binance,
@@ -51,14 +52,41 @@ export interface LineaRetencion {
 
 export type FuenteTasa = 'pago' | 'bcv_pago' | 'bcv_hoy';
 
+/** De qué tabla sale la fila: OC/CS (ordenes), compra directa o servicio directo. */
+export type OrigenDoc = 'oc' | 'cd' | 'sd';
+
+/** Un archivo cargado desde Conciliación (bucket conciliacion-pagos). */
+export interface ArchivoNota {
+  path: string;
+  nombre: string;
+  at?: string | null;
+  por?: string | null;
+}
+
+/** Lo que Conciliación anota por documento: la referencia (lapicito) y comprobantes. */
+export interface NotaConciliacion {
+  referencia: string | null;
+  comprobantes: ArchivoNota[];
+}
+
+/** Un comprobante del pago que cargó Tesorería (bucket compras-oc). */
+export interface ComprobanteTesoreria {
+  path: string;
+  nombre: string;
+}
+
+export const claveDoc = (origen: OrigenDoc, id: string) => `${origen}:${id}`;
+
 export interface FilaConciliacion {
   item: number;
+  /** Id del documento (orden, compra directa o servicio directo). */
   ordenId: string;
+  origen: OrigenDoc;
   codigo: string;
-  /** Orden de compra (OC-…) u orden de servicio (CS-…, Control de Servicio). */
+  /** Orden de compra (OC-…), de servicio (CS-…), compra directa o servicio directo. */
   tipo: TipoOrden;
   proveedor: string;
-  estado: EstadoOrden;
+  estado: string;
   estadoLabel: string;
   estadoClase: string;
   fecha: string;
@@ -72,6 +100,15 @@ export interface FilaConciliacion {
   pagadoUsd: number;
   pagadoBs: number | null;
   referencias: string[];
+  /** La referencia anotada en Conciliación (lapicito). Ya va también en `referencias`. */
+  referenciaManual: string | null;
+  /** Comprobantes del pago: los de Tesorería y los cargados en Conciliación. */
+  comprobantesTesoreria: ComprobanteTesoreria[];
+  comprobantesConciliacion: ArchivoNota[];
+  /** Facturas cargadas (null = no se sabe sin abrirlas: p. ej. fotos del delivery). */
+  facturas: number | null;
+  /** Ruta de la factura principal de una compra/servicio directo (adjunto_path). */
+  facturaPrincipal: { path: string; nombre: string } | null;
   llevaRetencion: boolean;
   retenciones: LineaRetencion[];
   anulada: boolean;
@@ -107,14 +144,18 @@ const ESTADO_LABEL_SERVICIO: Partial<Record<EstadoOrden, string>> = {
 
 const ESTADOS_ANULADOS = new Set<string>(['cancelada', 'rechazada', 'desistida_proveedor', 'reasignada']);
 
-export type TipoOrden = 'compra' | 'servicio';
+export type TipoOrden = 'compra' | 'servicio' | 'compra_directa' | 'servicio_directo';
 
 export function tipoDeOrden(o: Pick<Orden, 'tipo'>): TipoOrden {
   return o.tipo === 'servicio' ? 'servicio' : 'compra';
 }
 
+const ETIQUETA_TIPO: Record<TipoOrden, string> = {
+  compra: 'Compra', servicio: 'Servicio', compra_directa: 'Compra directa', servicio_directo: 'Servicio directo',
+};
+
 export function etiquetaTipo(t: TipoOrden): string {
-  return t === 'servicio' ? 'Servicio' : 'Compra';
+  return ETIQUETA_TIPO[t] ?? 'Compra';
 }
 
 export function etiquetaEstado(estado: EstadoOrden, tipo: TipoOrden = 'compra'): { label: string; clase: string } {
@@ -192,6 +233,12 @@ export function tasaDelPago(
 
 export interface ContextoConciliacion {
   proveedores: Map<string, string>;
+  /** Notas de Conciliación por `claveDoc` (referencia y comprobantes). */
+  notas?: Map<string, NotaConciliacion>;
+  /** Facturas conocidas por `claveDoc` (adjuntos + factura de recepción). */
+  facturas?: Map<string, number>;
+  /** Comprobantes del pago de Tesorería por id de OC. */
+  comprobantes?: Map<string, ComprobanteTesoreria[]>;
   pagos: Map<string, PagoOc[]>;
   retenciones: Map<string, RetencionLibro[]>;
   /** BCV por día (YYYY-MM-DD). */
@@ -216,13 +263,15 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
     const pagadoUsdDirecto = pagos.filter((p) => esDolar(p.moneda)).reduce((a, p) => a + p.monto, 0);
     const pagadoUsd = r2(pagadoUsdDirecto + (tasa ? pagadoBsBruto / tasa : 0));
     const pagadoBs = tasa ? r2(pagadoBsBruto + pagadoUsdDirecto * tasa) : (pagadoUsdDirecto ? null : r2(pagadoBsBruto));
-    const referencias = [...new Set(pagos.flatMap((p) => referenciasDeMotivo(p.motivo)))];
+    const nota = ctx.notas?.get(claveDoc('oc', o.id)) ?? null;
+    const referencias = conManual([...new Set(pagos.flatMap((p) => referenciasDeMotivo(p.motivo)))], nota?.referencia);
     const retenciones = retencionesDeOrden(o, ctx.retenciones.get(o.id) ?? []);
     const tipo = tipoDeOrden(o);
     const { label, clase } = etiquetaEstado(o.estado, tipo);
     return {
       item: i + 1,
       ordenId: o.id,
+      origen: 'oc' as const,
       codigo: o.oc_codigo ?? o.codigo,
       tipo,
       proveedor: (o.proveedor_id && ctx.proveedores.get(o.proveedor_id)) || '—',
@@ -235,11 +284,116 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
       fechaPago,
       pagadoUsd, pagadoBs,
       referencias,
+      referenciaManual: nota?.referencia ?? null,
+      comprobantesTesoreria: ctx.comprobantes?.get(o.id) ?? [],
+      comprobantesConciliacion: nota?.comprobantes ?? [],
+      facturas: ctx.facturas?.get(claveDoc('oc', o.id)) ?? 0,
+      facturaPrincipal: null,
       llevaRetencion: retenciones.length > 0,
       retenciones,
       anulada: ESTADOS_ANULADOS.has(o.estado),
     };
   });
+}
+
+/** La referencia de Conciliación va junto a las de Tesorería (sin repetirla). */
+function conManual(refs: string[], manual: string | null | undefined): string[] {
+  const m = (manual ?? '').trim();
+  if (!m) return refs;
+  const norm = (x: string) => x.replace(/\D/g, '') || x.toLowerCase();
+  return refs.some((r) => norm(r) === norm(m)) ? refs : [...refs, m];
+}
+
+/* ─────────────── Compras y servicios DIRECTOS (12/11/2026) ─────────────── */
+
+/** Una compra directa o un servicio directo, ya normalizado para Conciliación. */
+export interface DocDirecto {
+  id: string;
+  origen: 'cd' | 'sd';
+  codigo: string | null;
+  proveedor: string | null;
+  estado: string;
+  fecha: string;
+  moneda: string | null;
+  /** Total del documento en su moneda (`gasto`). */
+  total: number | null;
+  /** Tasa con la que pagó Tesorería y la del montaje (conversor). */
+  tasaPago: number | null;
+  tasaConversion: number | null;
+  pagadaAt: string | null;
+  /** Retención que restó Tesorería al pagar (moneda del documento). */
+  retencionPago: number | null;
+  /** Retención que cargó Compras al montar (compra directa). */
+  retencionTipo: string | null;
+  adjuntoPath: string | null;
+  adjuntoNombre: string | null;
+}
+
+const ESTADO_DIRECTO: Record<string, { label: string; clase: string }> = {
+  en_proceso: { label: 'En proceso', clase: 'info' },
+  por_pagar: { label: 'Por pagar', clase: 'warning' },
+  finalizada: { label: 'Finalizada', clase: 'success' },
+};
+
+export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): FilaConciliacion[] {
+  return docs.map((d, i) => {
+    const bcvDiaPago = d.pagadaAt ? ctx.bcvPorDia.get(ctx.dia(d.pagadaAt)) ?? null : null;
+    let tasa: number | null = null;
+    let fuente: FuenteTasa | null = null;
+    if (d.tasaPago && d.tasaPago > 0) { tasa = d.tasaPago; fuente = 'pago'; }
+    else if (bcvDiaPago) { tasa = bcvDiaPago; fuente = 'bcv_pago'; }
+    else if (d.tasaConversion && d.tasaConversion > 0) { tasa = d.tasaConversion; fuente = d.pagadaAt ? 'pago' : 'bcv_hoy'; }
+    else if (ctx.bcvHoy) { tasa = ctx.bcvHoy; fuente = 'bcv_hoy'; }
+    const monedaOc: 'USD' | 'Bs' = d.moneda === 'Bs' ? 'Bs' : 'USD';
+    const total = Number(d.total) || 0;
+    const totalUsd = monedaOc === 'USD' ? r2(total) : (tasa ? r2(total / tasa) : null);
+    const totalBs = monedaOc === 'Bs' ? r2(total) : (tasa ? r2(total * tasa) : null);
+    const pagada = !!d.pagadaAt;
+    const neto = Math.max(0, total - (Number(d.retencionPago) || 0));
+    const netoUsd = monedaOc === 'USD' ? neto : (tasa ? neto / tasa : 0);
+    const netoBs = monedaOc === 'Bs' ? neto : (tasa ? neto * tasa : null);
+    const clave = claveDoc(d.origen, d.id);
+    const nota = ctx.notas?.get(clave) ?? null;
+    const libro = ctx.retenciones.get(d.id) ?? [];
+    const retenciones: LineaRetencion[] = libro.map((r) => ({ tipo: etiquetaTipoLibro(r.tipo), comprobante: r.comprobante }));
+    if (!retenciones.length && (d.retencionTipo || (Number(d.retencionPago) || 0) > 0)) {
+      retenciones.push({ tipo: d.retencionTipo ? d.retencionTipo.toUpperCase() : 'Retención', comprobante: null });
+    }
+    const est = ESTADO_DIRECTO[d.estado] ?? { label: d.estado, clase: 'muted' };
+    return {
+      item: i + 1,
+      ordenId: d.id,
+      origen: d.origen,
+      codigo: d.codigo ?? (d.origen === 'cd' ? 'Compra directa' : 'Servicio directo'),
+      tipo: d.origen === 'cd' ? 'compra_directa' as const : 'servicio_directo' as const,
+      proveedor: d.proveedor?.trim() || '—',
+      estado: d.estado,
+      estadoLabel: est.label,
+      estadoClase: est.clase,
+      fecha: d.fecha,
+      monedaOc, totalUsd, totalBs, tasa, fuenteTasa: fuente,
+      pagada,
+      fechaPago: d.pagadaAt,
+      pagadoUsd: pagada ? r2(netoUsd) : 0,
+      pagadoBs: pagada ? (netoBs == null ? null : r2(netoBs)) : null,
+      referencias: conManual([], nota?.referencia),
+      referenciaManual: nota?.referencia ?? null,
+      comprobantesTesoreria: [],
+      comprobantesConciliacion: nota?.comprobantes ?? [],
+      facturas: (ctx.facturas?.get(clave) ?? 0) + (d.adjuntoPath ? 1 : 0),
+      facturaPrincipal: d.adjuntoPath ? { path: d.adjuntoPath, nombre: d.adjuntoNombre || d.adjuntoPath.split('/').pop() || 'factura' } : null,
+      llevaRetencion: retenciones.length > 0,
+      retenciones,
+      anulada: false,
+    };
+  });
+}
+
+/** Junta OC y documentos directos, del más nuevo al más viejo, numerados 1..N. */
+export function combinarFilas(...grupos: FilaConciliacion[][]): FilaConciliacion[] {
+  return grupos.flat()
+    .sort((a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? ''))
+    .map((r, i) => ({ ...r, item: i + 1 }));
 }
 
 /* ─────────────── Filtros y totales ─────────────── */
@@ -287,6 +441,7 @@ export function filtrarFilas(filas: FilaConciliacion[], f: FiltrosConciliacion, 
     }
     if (q) {
       const heno = norm([r.codigo, etiquetaTipo(r.tipo), r.proveedor, r.estadoLabel, ...r.referencias,
+        ...r.comprobantesConciliacion.map((c) => c.nombre),
         ...r.retenciones.map((x) => `${x.tipo} ${x.comprobante ?? ''}`)].join(' '));
       if (!heno.includes(q)) return false;
     }

@@ -1,10 +1,12 @@
 /* ============================================================
    Conciliación (12/11/2026) · módulo de SOLO LECTURA.
 
-   Una fila por orden de Compras (OC de compra y CS de servicio, 12/11/2026) con: ítem, código OC, proveedor, monto en $ y
+   Una fila por orden de Compras (OC de compra y CS de servicio) y, desde el
+   12/11/2026, por cada compra directa y servicio directo, con: ítem, código, proveedor, monto en $ y
    en Bs (a la tasa del pago), referencia del pago (la que anota Tesorería),
-   retención (tipo y número de comprobante), factura (vista previa de lo que
-   cargó el delivery o el almacenista) y estatus de Compras.
+   retención (tipo y número de comprobante), factura (lo que cargó el delivery,
+   el almacenista o Compras al finalizar), comprobante del pago (el de Tesorería
+   o uno cargado aquí) y estatus. La referencia se anota con el lapicito ✎.
 
    Arriba, tres tarjetas (Total de OC, Total pagado, OC con retenciones): al
    tocar una se abre su detalle, y al tocar una OC del detalle se va a Compras
@@ -14,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
 import { Modal } from '@/shared/ui/Modal';
 import type { Orden } from '@/shared/lib/types';
 import { FacturasOcModal } from '@/modules/pedidos/FacturasOcModal';
@@ -24,10 +27,11 @@ import '@/modules/libroFiscal/libroFiscal.css';
 import { cargarConciliacion } from './conciliacion.repository';
 import {
   FILTROS_VACIOS, filtrarFilas, indicadores, renumerar, textoFuenteTasa, textoReferencia,
-  type FilaConciliacion, type FiltrosConciliacion,
+  etiquetaTipo, type ArchivoNota, type FilaConciliacion, type FiltrosConciliacion,
 } from './conciliacion';
 import { bs, describirFiltros, fechaCorta, usd } from './reporteConciliacion';
 import { ReporteConciliacionModal } from './ReporteConciliacionModal';
+import { ComprobantesPagoModal, FacturasDirectaModal, ReferenciaModal } from './DocumentosConciliacion';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
 
@@ -39,11 +43,15 @@ const TITULO_TARJETA: Record<Tarjeta, string> = {
 
 /** Paginación (12/11/2026): arranca mostrando 10 OC; el selector deja ver 25, 50 o 100. */
 const TAMANOS = [10, 25, 50, 100] as const;
-/** Estatus en los que ya puede haber factura cargada por delivery o almacén. */
+/** Estatus de una OC en los que el delivery ya pudo cargar fotos de la factura. */
 const CON_FACTURA = new Set(['pagada', 'por_recibir', 'recibida', 'finalizada', 'cuenta_abierta']);
 
 export function ConciliacionPage() {
-  const { can } = usePermissions();
+  const { can, appUser } = usePermissions();
+  const { user } = useSession();
+  const actor = { email: user?.email ?? 'sistema', nombre: appUser?.nombre ?? null };
+  // Anotar la referencia y cargar comprobantes: escritura en Conciliación o en Tesorería.
+  const puedeAnotar = can('conciliacion', 'escritura') || can('tesoreria', 'escritura');
   const navigate = useNavigate();
   const [filas, setFilas] = useState<FilaConciliacion[]>([]);
   const [ordenes, setOrdenes] = useState<Map<string, Orden>>(new Map());
@@ -55,13 +63,24 @@ export function ConciliacionPage() {
   const [tam, setTam] = useState<number>(TAMANOS[0]);
   const [tarjeta, setTarjeta] = useState<Tarjeta | null>(null);
   const [factura, setFactura] = useState<Orden | null>(null);
+  const [facturaDirecta, setFacturaDirecta] = useState<FilaConciliacion | null>(null);
+  const [comprobante, setComprobante] = useState<FilaConciliacion | null>(null);
+  const [referencia, setReferencia] = useState<FilaConciliacion | null>(null);
+  const [notasDisponibles, setNotasDisponibles] = useState(true);
   const [reporte, setReporte] = useState(false);
+  // Cambios hechos en esta pantalla (referencia o comprobantes): se reflejan sin recargar todo.
+  const actualizarFila = (r: FilaConciliacion, cambio: Partial<FilaConciliacion>) =>
+    setFilas((xs) => xs.map((x) => (x.origen === r.origen && x.ordenId === r.ordenId ? { ...x, ...cambio } : x)));
+  const conReferencia = (r: FilaConciliacion, ref: string | null): Partial<FilaConciliacion> => {
+    const deTesoreria = r.referencias.filter((x) => x !== r.referenciaManual);
+    return { referenciaManual: ref, referencias: ref && !deTesoreria.includes(ref) ? [...deTesoreria, ref] : deTesoreria };
+  };
 
   const cargar = useCallback(async () => {
     setCargando(true); setError(null);
     try {
       const d = await cargarConciliacion();
-      setFilas(d.filas); setOrdenes(d.ordenes); setAvisos(d.avisos);
+      setFilas(d.filas); setOrdenes(d.ordenes); setAvisos(d.avisos); setNotasDisponibles(d.notasDisponibles);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar la conciliación.');
     } finally {
@@ -84,6 +103,8 @@ export function ConciliacionPage() {
   }, [tarjeta, filtradas]);
 
   const abrirEnCompras = (ordenId: string) => navigate(`/app/pedidos?detalle=${encodeURIComponent(ordenId)}`);
+  // Las compras y servicios directos no tienen detalle por enlace: se abre Compras.
+  const abrirFila = (r: FilaConciliacion) => (r.origen === 'oc' ? abrirEnCompras(r.ordenId) : navigate('/app/pedidos'));
   const set = <K extends keyof FiltrosConciliacion>(clave: K, valor: FiltrosConciliacion[K]) => setF((x) => ({ ...x, [clave]: valor }));
 
   if (!can('conciliacion')) {
@@ -96,8 +117,9 @@ export function ConciliacionPage() {
         <div>
           <h1>📒 Conciliación</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0', maxWidth: '78ch' }}>
-            Solo lectura. Cada orden de Compras (de compra y de servicio) con su monto en $ y en Bs a la tasa del pago, la referencia que anotó
-            Tesorería, sus retenciones y su factura. Toca una tarjeta para ver el detalle y una OC para abrirla en Compras.
+            Cada orden de Compras (de compra y de servicio), compra directa y servicio directo con su monto en $ y en Bs a la tasa
+            del pago, la referencia (la de Tesorería o la que anotes con ✎), el comprobante del pago, sus retenciones y su factura.
+            Toca una tarjeta para ver el detalle y una OC para abrirla en Compras.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -137,9 +159,11 @@ export function ConciliacionPage() {
         <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
           <label>Tipo</label>
           <select className="select" value={f.tipo ?? 'todas'} onChange={(e) => set('tipo', e.target.value as FiltrosConciliacion['tipo'])}>
-            <option value="todas">Compras y servicios</option>
-            <option value="compra">Solo compras</option>
-            <option value="servicio">Solo servicios</option>
+            <option value="todas">Todos</option>
+            <option value="compra">Órdenes de compra</option>
+            <option value="servicio">Órdenes de servicio</option>
+            <option value="compra_directa">Compras directas</option>
+            <option value="servicio_directo">Servicios directos</option>
           </select>
         </div>
         <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
@@ -183,25 +207,26 @@ export function ConciliacionPage() {
               <th>Proveedor</th>
               <th style={{ textAlign: 'right' }}>Monto de la OC</th>
               <th>Referencia de pago</th>
+              <th>Comprobante</th>
               <th>Retención</th>
               <th>Factura</th>
               <th>Estatus</th>
             </tr>
           </thead>
           <tbody>
-            {cargando && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Cargando…</td></tr>}
+            {cargando && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Cargando…</td></tr>}
             {!cargando && !filtradas.length && (
-              <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>
+              <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>
                 {filas.length ? 'Ninguna OC coincide con los filtros.' : 'Todavía no hay OC.'}
               </td></tr>
             )}
             {!cargando && pagina.filas.map((r) => (
-              <tr key={r.ordenId}>
+              <tr key={`${r.origen}-${r.ordenId}`}>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.item}</td>
                 <td>
                   <button type="button" className="btn btn-link" style={{ padding: 0, fontWeight: 700 }}
-                    onClick={() => abrirEnCompras(r.ordenId)} title="Abrir esta orden en Compras">{r.codigo}</button>
-                  {r.tipo === 'servicio' && <span className="badge info" style={{ marginLeft: '.35rem', fontSize: '.68rem' }}>Servicio</span>}
+                    onClick={() => abrirFila(r)} title="Abrir en Compras">{r.codigo}</button>
+                  {r.tipo !== 'compra' && <span className="badge info" style={{ marginLeft: '.35rem', fontSize: '.68rem' }}>{etiquetaTipo(r.tipo)}</span>}
                   <div className="muted" style={{ fontSize: '.72rem' }}>{fechaCorta(r.fecha)}</div>
                 </td>
                 <td>{r.proveedor}</td>
@@ -216,10 +241,33 @@ export function ConciliacionPage() {
                   )}
                 </td>
                 <td>
-                  {r.referencias.length
-                    ? r.referencias.map((x) => <span key={x} className="badge mono" style={{ marginRight: '.25rem' }}>{x}</span>)
-                    : <span className="muted">{textoReferencia(r)}</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem', flexWrap: 'wrap' }}>
+                    {r.referencias.length
+                      ? r.referencias.map((x) => (
+                        <span key={x} className="badge mono" title={x === r.referenciaManual ? 'Anotada en Conciliación' : 'Anotada por Tesorería'}>
+                          {x}{x === r.referenciaManual ? ' ✎' : ''}
+                        </span>
+                      ))
+                      : <span className="muted">{textoReferencia(r)}</span>}
+                    {puedeAnotar && notasDisponibles && (
+                      <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '.05rem .35rem' }}
+                        title={r.referenciaManual ? 'Editar la referencia' : 'Agregar la referencia'} aria-label="Editar la referencia"
+                        onClick={() => setReferencia(r)}>✎</button>
+                    )}
+                  </div>
                   {r.fechaPago && <div className="muted" style={{ fontSize: '.72rem' }}>Pagada {fechaCorta(r.fechaPago)}</div>}
+                </td>
+                <td>
+                  {(() => {
+                    const n = r.comprobantesTesoreria.length + r.comprobantesConciliacion.length;
+                    if (!n && !(puedeAnotar && notasDisponibles)) return <span className="muted">—</span>;
+                    return (
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(r)}
+                        title={n ? 'Ver el comprobante del pago' : 'Cargar el comprobante del pago'}>
+                        {n ? `👁 Ver${n > 1 ? ` (${n})` : ''}` : '⬆ Cargar'}
+                      </button>
+                    );
+                  })()}
                 </td>
                 <td>
                   {!r.llevaRetencion ? <span className="muted">No</span> : r.retenciones.map((x, i) => (
@@ -230,9 +278,17 @@ export function ConciliacionPage() {
                   ))}
                 </td>
                 <td>
-                  {CON_FACTURA.has(r.estado) && ordenes.get(r.ordenId)
-                    ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFactura(ordenes.get(r.ordenId) ?? null)}>👁 Ver</button>
-                    : <span className="muted">—</span>}
+                  {r.origen === 'oc'
+                    ? ((r.facturas ?? 0) > 0 || (CON_FACTURA.has(r.estado) && ordenes.get(r.ordenId))
+                      ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFactura(ordenes.get(r.ordenId) ?? null)}>
+                          {(r.facturas ?? 0) > 0 ? `🧾 Ver${(r.facturas ?? 0) > 1 ? ` (${r.facturas})` : ''}` : '👁 Ver'}
+                        </button>
+                      : <span className="muted">—</span>)
+                    : (r.facturas ?? 0) > 0
+                      ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFacturaDirecta(r)}>
+                          🧾 Ver{(r.facturas ?? 0) > 1 ? ` (${r.facturas})` : ''}
+                        </button>
+                      : <span className="muted">Sin factura</span>}
                 </td>
                 <td><span className={`badge ${r.estadoClase}`}>{r.estadoLabel}</span></td>
               </tr>
@@ -263,8 +319,8 @@ export function ConciliacionPage() {
                 </thead>
                 <tbody>
                   {filasTarjeta.map((r, i) => (
-                    <tr key={r.ordenId} style={{ cursor: 'pointer' }} onClick={() => abrirEnCompras(r.ordenId)}
-                      tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') abrirEnCompras(r.ordenId); }}>
+                    <tr key={`${r.origen}-${r.ordenId}`} style={{ cursor: 'pointer' }} onClick={() => abrirFila(r)}
+                      tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') abrirFila(r); }}>
                       <td className="mono" style={{ textAlign: 'right' }}>{i + 1}</td>
                       <td style={{ fontWeight: 700, color: 'var(--primary-2)' }}>{r.codigo}</td>
                       <td>{r.proveedor}</td>
@@ -290,6 +346,17 @@ export function ConciliacionPage() {
       )}
 
       {factura && <FacturasOcModal orden={factura} onClose={() => setFactura(null)} />}
+      {facturaDirecta && <FacturasDirectaModal fila={facturaDirecta} onClose={() => setFacturaDirecta(null)} />}
+      {comprobante && (
+        <ComprobantesPagoModal fila={comprobante} puedeEditar={puedeAnotar && notasDisponibles} actor={actor}
+          onCambio={(lista: ArchivoNota[]) => actualizarFila(comprobante, { comprobantesConciliacion: lista })}
+          onClose={() => setComprobante(null)} />
+      )}
+      {referencia && (
+        <ReferenciaModal fila={referencia} actor={actor}
+          onGuardado={(ref) => actualizarFila(referencia, conReferencia(referencia, ref))}
+          onClose={() => setReferencia(null)} />
+      )}
       {reporte && <ReporteConciliacionModal todas={filas} filtros={f} onClose={() => setReporte(false)} />}
     </div>
   );
