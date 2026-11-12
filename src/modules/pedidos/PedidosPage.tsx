@@ -4317,24 +4317,57 @@ function Timeline({
 /** Adjunto de una OP (imagen o PDF): resuelve el signed URL del bucket privado y lo muestra. */
 function OpImagenAdjunta({ path }: { path: string }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [fallo, setFallo] = useState(false);
+  const [rota, setRota] = useState(false);
   const esPdf = path.toLowerCase().endsWith('.pdf');
+  // Nombre legible: sin el sello de tiempo con que se guardó («1794…-foto.jpg» → «foto.jpg»).
+  const nombre = (path.split('/').pop() ?? 'adjunto').replace(/^\d{10,}-/, '');
   useEffect(() => {
     let alive = true;
-    getImagenOrdenSignedUrl(path).then((u) => { if (alive) setUrl(u); }).catch(() => { /* sin permiso / expirado */ });
+    setUrl(null); setFallo(false); setRota(false);
+    getImagenOrdenSignedUrl(path).then((u) => { if (alive) setUrl(u); }).catch(() => { if (alive) setFallo(true); });
     return () => { alive = false; };
   }, [path]);
+  // 12/11/2026: se abre en la vista previa del sistema (zoom, imprimir, descargar), no en otra pestaña.
+  const abrir = async () => {
+    try { previewArchivo(url ?? await getImagenOrdenSignedUrl(path), nombre); }
+    catch { toast('No se pudo abrir el adjunto.', 'error'); }
+  };
+  if (fallo) return <span className="muted">No se pudo cargar el adjunto. <button type="button" className="btn btn-sm btn-ghost" onClick={() => void abrir()}>Reintentar</button></span>;
   if (!url) return <span className="muted">Cargando adjunto…</span>;
-  if (esPdf) {
+  if (esPdf || rota) {
     return (
-      <a href={url} target="_blank" rel="noreferrer" className="btn btn-sm btn-ghost" title="Abrir PDF adjunto">
-        📄 Ver PDF adjunto
-      </a>
+      <button type="button" className="btn btn-sm btn-ghost" onClick={() => void abrir()} title={`Vista previa · ${nombre}`}>
+        {esPdf ? '📄 Ver PDF adjunto' : `🖼 Ver ${nombre}`}
+      </button>
     );
   }
   return (
-    <a href={url} target="_blank" rel="noreferrer" title="Ver imagen en grande">
-      <img src={url} alt="Adjunto de la SP" style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)' }} />
-    </a>
+    <button type="button" onClick={() => void abrir()} title={`Vista previa · ${nombre}`}
+      style={{ padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in' }}>
+      <img src={url} alt="Adjunto de la SP" onError={() => setRota(true)}
+        style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)', display: 'block' }} />
+    </button>
+  );
+}
+
+/** 12/11/2026: miniatura de un archivo ELEGIDO (aún sin subir), con vista previa al tocarla. */
+function MiniaturaArchivoLocal({ file, size = 64 }: { file: File; size?: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const esImagen = file.type.startsWith('image/');
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  if (!url) return null;
+  return (
+    <button type="button" onClick={() => previewArchivo(url, file.name)} title={`Vista previa · ${file.name}`}
+      style={{ padding: 0, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface-2)', cursor: 'zoom-in', width: size, height: size, overflow: 'hidden', flex: '0 0 auto', display: 'grid', placeItems: 'center' }}>
+      {esImagen
+        ? <img src={url} alt={file.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        : <span style={{ fontSize: size > 50 ? '1.6rem' : '1rem' }}>📄</span>}
+    </button>
   );
 }
 
@@ -5232,7 +5265,7 @@ function CrearOrdenModal({
           <div style={{ display: 'grid', gap: '.25rem', marginTop: '.4rem' }}>
             {imagenFiles.map((f, i) => (
               <div key={`${f.name}-${f.size}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.78rem' }}>
-                <span className="muted">{f.type.startsWith('image/') ? '🖼' : '📄'}</span>
+                <MiniaturaArchivoLocal file={f} size={56} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                 <span className="muted mono">{(f.size / 1024).toFixed(0)} KB</span>
                 <button type="button" className="btn btn-sm btn-ghost" onClick={() => setImagenFiles((prev) => prev.filter((_, k) => k !== i))} title="Quitar">✕</button>
@@ -5947,7 +5980,8 @@ function EditarOrdenModal({
           onChange={(e) => { setImagenFile(e.target.files?.[0] ?? null); setQuitarImagen(false); }}
         />
         {imagenFile && (
-          <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
+          <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
+            <MiniaturaArchivoLocal file={imagenFile} size={64} />
             📎 {imagenFile.name} ({(imagenFile.size / 1024).toFixed(0)} KB){imagenPathActual ? ' · reemplazará al adjunto actual' : ''}
             {' '}<button type="button" className="btn btn-sm btn-ghost" onClick={() => setImagenFile(null)}>Cancelar</button>
           </small>
