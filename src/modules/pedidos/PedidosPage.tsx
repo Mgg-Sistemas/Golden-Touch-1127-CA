@@ -17,7 +17,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { mensajeError } from '@/shared/lib/errores';
 import { previewArchivo } from '@/shared/lib/reportePreview';
-import { FacturasOcModal } from './FacturasOcModal';
+import { FacturasOcModal, ordenTieneFotosDelivery } from './FacturasOcModal';
 import { OrdenPagarWhatsappModal } from './OrdenPagarWhatsappModal';
 import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReeleccionPorCambio, type EventoCambioProveedor } from './cambioProveedor';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
@@ -3248,6 +3248,13 @@ function OrdenDetailModal({
   // para descargarlas desde el detalle (sobre todo con la orden finalizada).
   const [facturasProv, setFacturasProv] = useState<AdjuntoDirecto[]>([]);
   const [facturasOpen, setFacturasOpen] = useState(false);
+  // 12/11/2026: si el delivery ya cargó fotos, el botón «🧾 Factura» aparece aunque la OC aún no esté recibida.
+  const [conFotosDelivery, setConFotosDelivery] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    ordenTieneFotosDelivery(o.id).then((x) => { if (vivo) setConFotosDelivery(x); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [o.id, o.estado]);
   useEffect(() => {
     let vivo = true;
     listAdjuntosDirectos('orden_factura', o.id)
@@ -3545,7 +3552,7 @@ function OrdenDetailModal({
         </button>
       )}
       {/* 11/11/2026: «🧾 Factura» → FACTURAS DELIVERY y FACTURAS ALMACÉN (vista previa, descargar, imprimir). */}
-      {(o.recibida_en || o.factura_recepcion_path || facturasProv.length > 0) && (
+      {(o.recibida_en || o.factura_recepcion_path || facturasProv.length > 0 || conFotosDelivery) && (
         <button className="btn btn-ghost" onClick={() => setFacturasOpen(true)} title="Facturas del delivery y de almacén">
           🧾 Factura
         </button>

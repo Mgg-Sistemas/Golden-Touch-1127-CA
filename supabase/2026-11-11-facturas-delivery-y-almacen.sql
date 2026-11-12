@@ -189,3 +189,33 @@ begin
      where d.id = any(p_pedido_ids);
 end $function$;
 grant execute on function public.delivery_fotos_factura(uuid[]) to authenticated;
+
+-- 12/11/2026 · Sincronizar con Compras las fotos que el delivery YA había cargado:
+-- orden_facturas_delivery devuelve también fotos_recibo (al recibir del proveedor, donde
+-- suele estar la factura) y fotos_entrega (entrega en almacén).
+create or replace function public.orden_facturas_delivery(p_orden_id uuid)
+returns jsonb
+language plpgsql
+stable security definer
+set search_path to ''
+as $function$
+begin
+  if not (public.is_admin() or public.puede_leer('compras') or public.puede_leer('pedidos')
+          or public.puede_leer('inventario') or public.puede_leer('delivery') or public.puede_leer('tesoreria')
+          or public.puede_leer('retenciones')) then
+    raise exception 'No tienes permiso para ver las facturas de esta orden.' using errcode = '42501';
+  end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'pedido_id', d.id, 'repartidor', coalesce(d.repartidor_nombre, d.repartidor_email),
+      'entregado_en', d.entregado_en, 'estado', d.estado,
+      'fotos', coalesce(d.fotos_factura, '[]'::jsonb),
+      'fotos_recibo', coalesce(d.fotos_recibo, '[]'::jsonb),
+      'fotos_entrega', coalesce(d.fotos_entrega, '[]'::jsonb)) order by d.created_at)
+    from public.delivery_pedidos d
+    where d.orden_id = p_orden_id and d.origen = 'compra'
+      and (jsonb_array_length(coalesce(d.fotos_factura, '[]'::jsonb))
+         + jsonb_array_length(coalesce(d.fotos_recibo, '[]'::jsonb))
+         + jsonb_array_length(coalesce(d.fotos_entrega, '[]'::jsonb))) > 0
+  ), '[]'::jsonb);
+end $function$;

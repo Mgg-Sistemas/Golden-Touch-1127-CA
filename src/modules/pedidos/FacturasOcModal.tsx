@@ -31,23 +31,46 @@ const esImagenNombre = (n: string) => /\.(jpe?g|png|webp|gif|heic|heif|bmp)$/i.t
 const fechaVE = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString('es-VE', { timeZone: 'America/Caracas', dateStyle: 'short', timeStyle: 'short' }) : '';
 
-/** Las fotos de factura del delivery para una OC. */
-async function facturasDelivery(ordenId: string): Promise<ArchivoFactura[]> {
+type FotoD = { path: string; filename: string };
+interface TomaDelivery {
+  repartidor?: string | null; entregado_en?: string | null;
+  fotos?: FotoD[]; fotos_recibo?: FotoD[]; fotos_entrega?: FotoD[];
+}
+
+/** ¿El delivery cargó alguna foto para esta OC? (para mostrar el botón «🧾 Factura»). */
+export async function ordenTieneFotosDelivery(ordenId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('orden_facturas_delivery', { p_orden_id: ordenId });
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Las fotos del delivery para una OC. 12/11/2026: además de las de «CARGAR FACTURA» van
+ * las que ya había cargado «al recibir del proveedor» (ahí suele estar la factura) y,
+ * aparte, las de la entrega en almacén.
+ */
+async function fotosDelivery(ordenId: string): Promise<{ facturas: ArchivoFactura[]; entrega: ArchivoFactura[] }> {
   const { data, error } = await supabase.rpc('orden_facturas_delivery', { p_orden_id: ordenId });
   if (error) throw error;
-  const tomas = (Array.isArray(data) ? data : []) as Array<{ repartidor?: string | null; entregado_en?: string | null; fotos?: Array<{ path: string; filename: string }> }>;
-  const out: ArchivoFactura[] = [];
-  for (const t of tomas) {
-    for (const f of t.fotos ?? []) {
+  const tomas = (Array.isArray(data) ? data : []) as TomaDelivery[];
+  const facturas: ArchivoFactura[] = [];
+  const entrega: ArchivoFactura[] = [];
+  const pasar = async (fs: FotoD[] | undefined, t: TomaDelivery, rotulo: string, destino: ArchivoFactura[]) => {
+    for (const f of fs ?? []) {
       const url = await urlFotoDelivery(f.path).catch(() => '');
       if (!url) continue;
-      out.push({
-        key: f.path, nombre: f.filename || f.path.split('/').pop() || 'factura.jpg', url, esImagen: true,
-        detalle: [t.repartidor, fechaVE(t.entregado_en)].filter(Boolean).join(' · ') || null,
+      destino.push({
+        key: f.path, nombre: f.filename || f.path.split('/').pop() || 'foto.jpg', url, esImagen: true,
+        detalle: [rotulo, t.repartidor, fechaVE(t.entregado_en)].filter(Boolean).join(' · ') || null,
       });
     }
+  };
+  for (const t of tomas) {
+    await pasar(t.fotos, t, 'Factura', facturas);
+    await pasar(t.fotos_recibo, t, 'Al recibir del proveedor', facturas);
+    await pasar(t.fotos_entrega, t, 'Entrega en almacén', entrega);
   }
-  return out;
+  return { facturas, entrega };
 }
 
 /** Las facturas que cargó Almacén (y Compras) para la OC. */
@@ -159,10 +182,11 @@ function ListaArchivos({ titulo, vacio, archivos }: { titulo: string; vacio: str
 
 export function FacturasOcModal({ orden, onClose }: { orden: Orden; onClose: () => void }) {
   const [delivery, setDelivery] = useState<ArchivoFactura[] | null>(null);
+  const [entrega, setEntrega] = useState<ArchivoFactura[]>([]);
   const [almacen, setAlmacen] = useState<ArchivoFactura[] | null>(null);
   useEffect(() => {
     let vivo = true;
-    facturasDelivery(orden.id).then((x) => { if (vivo) setDelivery(x); })
+    fotosDelivery(orden.id).then((x) => { if (vivo) { setDelivery(x.facturas); setEntrega(x.entrega); } })
       .catch((e) => { if (vivo) { setDelivery([]); toast(e instanceof Error ? e.message : 'No se pudieron leer las facturas del delivery', 'error'); } });
     facturasAlmacen(orden).then((x) => { if (vivo) setAlmacen(x); })
       .catch((e) => { if (vivo) { setAlmacen([]); toast(e instanceof Error ? e.message : 'No se pudieron leer las facturas de almacén', 'error'); } });
@@ -174,6 +198,7 @@ export function FacturasOcModal({ orden, onClose }: { orden: Orden; onClose: () 
       footer={<button type="button" className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       {delivery === null ? <p className="muted">Cargando facturas del delivery…</p>
         : <ListaArchivos titulo="🛵 FACTURAS DELIVERY" vacio="El delivery no cargó fotos de la factura." archivos={delivery} />}
+      {entrega.length > 0 && <ListaArchivos titulo="📷 FOTOS ENTREGA EN ALMACÉN (delivery)" vacio="" archivos={entrega} />}
       {almacen === null ? <p className="muted">Cargando facturas de almacén…</p>
         : <ListaArchivos titulo="🏬 FACTURAS ALMACÉN" vacio="Almacén todavía no cargó la factura." archivos={almacen} />}
     </Modal>
