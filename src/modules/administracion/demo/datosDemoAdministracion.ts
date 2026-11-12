@@ -7,6 +7,7 @@
    `crearRepoDemo()` implementa AdminRepo en memoria: las altas y ediciones
    quedan mientras dure la página (no tocan ninguna base).
    ============================================================ */
+import { FAOV_TIERS, type TierFaov } from '../administracionParafiscal';
 import type { AdminCategoria, AdminRepo, Carpeta, CarpetaInput, CentroAcopio, CentroAcopioInput, CrearEnvioInput, DocumentoEmpresa, DocumentoEmpresaInput, Empresa, EmpresaInput, EnvioTesoreria, GastoFijo, GastoFijoInput, Gestion, GestionInput, Movimiento, MovimientoInput, OpcionRef, Profesional, ProfesionalInput, Responsabilidad, ResponsabilidadInput, Aviso, AvisoInput, CentroRequerido, CentroRequeridoInput, TipoDocumento } from '../admin.repository';
 import { calcularStatusVencimiento } from '../admin.repository';
 import { generarPendientes as calcularPendientes } from '../administracionGenerar';
@@ -76,6 +77,7 @@ function movimientosSemilla(): Movimiento[] {
 export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
   const empresas: Empresa[] = EMPRESAS_DEMO.map((e) => ({ ...e }));
   const gastos: GastoFijo[] = gastosSemilla();
+  let factoresFaov: TierFaov[] = FAOV_TIERS;
   const movimientos: Movimiento[] = movimientosSemilla();
   const documentos: DocumentoEmpresa[] = [];
   const categorias: AdminCategoria[] = CATEGORIAS_DEMO.map((c) => ({ ...c }));
@@ -272,6 +274,8 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
       const i = envios.findIndex((e) => e.id === envioId);
       if (i >= 0) envios[i] = { ...envios[i], estado: 'pagado', pagadoEn: new Date().toISOString() };
     },
+    leerFactoresFaov: () => Promise.resolve(factoresFaov),
+    guardarFactoresFaov: (tiers: TierFaov[]) => { factoresFaov = tiers; return Promise.resolve(); },
     listGastosFijos: (empresaClave) => Promise.resolve(
       gastos.filter((g) => !empresaClave || g.empresaClave === empresaClave).map((g) => ({ ...g }))
         .sort((a, b) => a.concepto.localeCompare(b.concepto, 'es')),

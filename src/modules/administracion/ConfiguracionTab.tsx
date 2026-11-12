@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { FAOV_TIERS } from './administracionParafiscal';
+import { FAOV_TIERS, type TierFaov } from './administracionParafiscal';
 import { SeccionColapsable, estadoInicialSecciones } from './SeccionColapsable';
 import {
   GestionarCarpetasModal,
@@ -78,6 +78,28 @@ export function ConfiguracionTab({
   const [profForm, setProfForm] = useState<{ nombre: string; profesion: string; contacto: string }>({ nombre: '', profesion: '', contacto: '' });
   const [profEditId, setProfEditId] = useState<string | null>(null);
   const [profOcupado, setProfOcupado] = useState(false);
+
+  // Factores de la multa FAOV. Son de ley, pero la ley cambia: se guardan en la
+  // base para no tener que tocar codigo y desplegar cuando salga otra Gaceta.
+  const [faov, setFaov] = useState<TierFaov[]>(FAOV_TIERS);
+  const [faovEdit, setFaovEdit] = useState<string[]>(FAOV_TIERS.map((t) => String(t.factor)));
+  const [faovOcupado, setFaovOcupado] = useState(false);
+  useEffect(() => {
+    repo.leerFactoresFaov()
+      .then((t) => { setFaov(t); setFaovEdit(t.map((x) => String(x.factor))); })
+      .catch(() => { /* sin conexion: quedan los de la Gaceta vigente */ });
+  }, [repo]);
+
+  async function guardarFaov() {
+    const tiers = faov.map((t, i) => ({ ...t, factor: Number(faovEdit[i].replace(',', '.')) || 0 }));
+    setFaovOcupado(true);
+    try {
+      await repo.guardarFactoresFaov(tiers);
+      setFaov(tiers);
+      toast('Factores actualizados. La calculadora ya usa los nuevos.', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron guardar.', 'error'); }
+    finally { setFaovOcupado(false); }
+  }
 
   // Carpetas de Documentos
   const [carpetas, setCarpetas] = useState<InfoCarpetaDoc[]>(() => leerCarpetasPersonalizadas(null));
@@ -589,21 +611,46 @@ export function ConfiguracionTab({
         abiertoPorDefecto={ESTADO_SECCIONES.parafiscales}
       >
         <p className="muted hint" style={{ marginTop: 0 }}>
-          Base de la calculadora (pestaña Movimientos → «Parafiscal»). Según Gaceta Extra 6.805, art. 98, la multa = <b>factor × la tasa BCV de mayor valor</b>, según el tamaño de la nómina. Los factores son fijos por ley.
+          Base de la calculadora (pestaña Movimientos → «Parafiscal»). Según Gaceta Extra 6.805, art. 98, la multa = <b>factor × la tasa BCV de mayor valor</b>, según el tamaño de la nómina. Los factores los pone la ley: si sale una Gaceta nueva, ajústalos aquí y la calculadora los toma enseguida.
         </p>
         <div className="adm-tabla" style={{ marginTop: '.6rem' }}>
           <table>
             <thead><tr><th>Tamaño de la nómina</th><th style={{ textAlign: 'right' }}>Factor</th></tr></thead>
             <tbody>
-              {FAOV_TIERS.map((t) => (
-                <tr key={t.nivel}><td>{t.label}</td><td className="mono" style={{ textAlign: 'right' }}><span className="adm-chip">{t.factor}</span></td></tr>
+              {faov.map((t, i) => (
+                <tr key={t.nivel}>
+                  <td>{t.label}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {puedeFull ? (
+                      <input
+                        className="input input-sm mono" type="number" min="1" step="1"
+                        value={faovEdit[i] ?? ''} disabled={faovOcupado}
+                        onChange={(e) => setFaovEdit((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+                        style={{ width: 110, textAlign: 'right' }}
+                      />
+                    ) : (<span className="adm-chip">{t.factor}</span>)}
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {puedeFull && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.4rem', marginTop: '.5rem' }}>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={faovOcupado}
+              onClick={() => setFaovEdit(faov.map((t) => String(t.factor)))}>
+              Deshacer
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" disabled={faovOcupado}
+              onClick={() => void guardarFaov()}
+              style={{ background: '#ff8a00', color: '#000', fontWeight: 700 }}>
+              {faovOcupado ? 'Guardando…' : 'Guardar factores'}
+            </button>
+          </div>
+        )}
         {tasa && (tasa.usd > 0 || tasa.eur > 0) && (
           <p className="muted hint" style={{ marginTop: '.5rem', fontSize: '.78rem' }}>
-            Ejemplo hoy (≤50 trabajadores): 165 × {num2(Math.max(tasa.usd, tasa.eur))} = <b>Bs {num2(165 * Math.max(tasa.usd, tasa.eur))}</b>.
+            Ejemplo hoy ({faov[0].label}): {faov[0].factor} × {num2(Math.max(tasa.usd, tasa.eur))} = <b>Bs {num2(faov[0].factor * Math.max(tasa.usd, tasa.eur))}</b>.
           </p>
         )}
       </SeccionColapsable>

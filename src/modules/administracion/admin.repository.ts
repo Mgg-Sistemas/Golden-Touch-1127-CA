@@ -14,6 +14,7 @@ import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
 import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio, eliminarServicioDirecto, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
+import { FAOV_TIERS, factoresValidos, type TierFaov } from './administracionParafiscal';
 import { esErrorTablaAusente } from './adminErrores';
 import { disponibleParaEnviar, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
 
@@ -485,6 +486,13 @@ export interface AdminRepo {
   listCentroRequeridos(empresaClave?: string): Promise<CentroRequerido[]>;
   agregarCentroRequerido(input: CentroRequeridoInput): Promise<CentroRequerido>;
   quitarCentroRequerido(id: string): Promise<void>;
+  /**
+   * Factores de la multa FAOV vigentes. Son de ley, pero la ley cambia: se
+   * guardan en `config` para no tener que tocar codigo y desplegar (12/11/2026).
+   * Si no se han ajustado nunca, devuelve los de la Gaceta 6.805.
+   */
+  leerFactoresFaov(): Promise<TierFaov[]>;
+  guardarFactoresFaov(tiers: TierFaov[], actor?: string): Promise<void>;
   listGastosFijos(empresaClave?: string): Promise<GastoFijo[]>;
   crearGastoFijo(g: GastoFijoInput): Promise<GastoFijo>;
   editarGastoFijo(id: string, cambios: Partial<GastoFijoInput>): Promise<void>;
@@ -781,6 +789,8 @@ const T_AVISO = 'admin_avisos';
 const T_CREQ = 'admin_centro_requeridos';
 const T_EMP = 'admin_empresas';
 const T_GF = 'admin_gastos_fijos';
+/** Donde viven los factores FAOV ajustables (tabla `config`, llave/valor). */
+const CLAVE_FAOV = 'admin.parafiscales.faov';
 const T_MOV = 'admin_gasto_fijo_movimientos';
 const T_DOC = 'admin_empresa_documentos';
 const T_CAT = 'admin_categorias';
@@ -1153,6 +1163,21 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async quitarCentroRequerido(id) {
       const { error } = await supabase.from(T_CREQ).delete().eq('id', id);
+      if (error) throw error;
+    },
+    async leerFactoresFaov() {
+      const { data, error } = await supabase.from('config').select('value').eq('key', CLAVE_FAOV).maybeSingle();
+      if (error) return FAOV_TIERS;
+      const v = (data as { value?: unknown } | null)?.value;
+      return factoresValidos(v) ? v : FAOV_TIERS;
+    },
+    async guardarFactoresFaov(tiers, actor) {
+      if (!factoresValidos(tiers)) throw new Error('Los factores no sirven: hacen falta los tres tramos y todos mayores que cero.');
+      const quien = actor || (await supabase.auth.getUser()).data.user?.email || 'sistema';
+      const { error } = await supabase.from('config').upsert(
+        { key: CLAVE_FAOV, value: tiers, updated_by: quien, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      );
       if (error) throw error;
     },
     async listGastosFijos(empresaClave) {

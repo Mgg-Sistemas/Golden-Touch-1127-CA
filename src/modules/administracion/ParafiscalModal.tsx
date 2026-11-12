@@ -10,7 +10,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { tokenPeriodo } from './administracionCalculo';
-import { calcularFaov, tierPorTrabajadores } from './administracionParafiscal';
+import { calcularFaov, tierPorTrabajadores, FAOV_TIERS, type TierFaov } from './administracionParafiscal';
 import type { AdminRepo, Empresa, OpcionRef } from './admin.repository';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -37,7 +37,10 @@ export function ParafiscalModal({ repo, empresas, empresaClaveFija, categorias, 
     }).catch(() => { /* sin tasa: la carga el usuario */ });
   }, []);
 
-  const tier = useMemo(() => tierPorTrabajadores(Number(trabajadores) || 0), [trabajadores]);
+  // Los factores se ajustan en Configuracion; aqui solo se usan.
+  const [tiers, setTiers] = useState<TierFaov[]>(FAOV_TIERS);
+  useEffect(() => { repo.leerFactoresFaov().then(setTiers).catch(() => { /* quedan los vigentes */ }); }, [repo]);
+  const tier = useMemo(() => tierPorTrabajadores(Number(trabajadores) || 0, tiers), [trabajadores, tiers]);
   const total = useMemo(() => calcularFaov(tier.factor, Number(tasaRef.replace(',', '.')) || 0), [tier, tasaRef]);
   const catParafiscal = useMemo(
     () => categorias.find((c) => c.nombre.toLowerCase().includes('parafiscal'))?.id ?? null,
