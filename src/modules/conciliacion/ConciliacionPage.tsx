@@ -1,7 +1,7 @@
 /* ============================================================
    Conciliación (12/11/2026) · módulo de SOLO LECTURA.
 
-   Una fila por OC de Compras con: ítem, código OC, proveedor, monto en $ y
+   Una fila por orden de Compras (OC de compra y CS de servicio, 12/11/2026) con: ítem, código OC, proveedor, monto en $ y
    en Bs (a la tasa del pago), referencia del pago (la que anota Tesorería),
    retención (tipo y número de comprobante), factura (vista previa de lo que
    cargó el delivery o el almacenista) y estatus de Compras.
@@ -96,7 +96,7 @@ export function ConciliacionPage() {
         <div>
           <h1>📒 Conciliación</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0', maxWidth: '78ch' }}>
-            Solo lectura. Cada OC de Compras con su monto en $ y en Bs a la tasa del pago, la referencia que anotó
+            Solo lectura. Cada orden de Compras (de compra y de servicio) con su monto en $ y en Bs a la tasa del pago, la referencia que anotó
             Tesorería, sus retenciones y su factura. Toca una tarjeta para ver el detalle y una OC para abrirla en Compras.
           </p>
         </div>
@@ -132,6 +132,14 @@ export function ConciliacionPage() {
           <select className="select" value={f.estado} onChange={(e) => set('estado', e.target.value)}>
             <option value="">Todos</option>
             {estados.map((e) => <option key={e} value={e}>{e}</option>)}
+          </select>
+        </div>
+        <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+          <label>Tipo</label>
+          <select className="select" value={f.tipo ?? 'todas'} onChange={(e) => set('tipo', e.target.value as FiltrosConciliacion['tipo'])}>
+            <option value="todas">Compras y servicios</option>
+            <option value="compra">Solo compras</option>
+            <option value="servicio">Solo servicios</option>
           </select>
         </div>
         <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
@@ -171,7 +179,7 @@ export function ConciliacionPage() {
           <thead>
             <tr>
               <th style={{ textAlign: 'right' }}>Ítem</th>
-              <th>Código OC</th>
+              <th>Código</th>
               <th>Proveedor</th>
               <th style={{ textAlign: 'right' }}>Monto de la OC</th>
               <th>Referencia de pago</th>
@@ -192,7 +200,8 @@ export function ConciliacionPage() {
                 <td className="mono" style={{ textAlign: 'right' }}>{r.item}</td>
                 <td>
                   <button type="button" className="btn btn-link" style={{ padding: 0, fontWeight: 700 }}
-                    onClick={() => abrirEnCompras(r.ordenId)} title="Abrir esta OC en Compras">{r.codigo}</button>
+                    onClick={() => abrirEnCompras(r.ordenId)} title="Abrir esta orden en Compras">{r.codigo}</button>
+                  {r.tipo === 'servicio' && <span className="badge info" style={{ marginLeft: '.35rem', fontSize: '.68rem' }}>Servicio</span>}
                   <div className="muted" style={{ fontSize: '.72rem' }}>{fechaCorta(r.fecha)}</div>
                 </td>
                 <td>{r.proveedor}</td>
@@ -247,7 +256,7 @@ export function ConciliacionPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'right' }}>Ítem</th><th>Código OC</th><th>Proveedor</th>
+                    <th style={{ textAlign: 'right' }}>Ítem</th><th>Código</th><th>Proveedor</th>
                     <th style={{ textAlign: 'right' }}>{tarjeta === 'pagado' ? 'Pagado' : 'Monto'}</th>
                     <th>{tarjeta === 'retencion' ? 'Retención' : tarjeta === 'pagado' ? 'Referencia' : 'Estatus'}</th>
                   </tr>

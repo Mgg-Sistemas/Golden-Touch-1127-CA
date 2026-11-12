@@ -55,6 +55,8 @@ export interface FilaConciliacion {
   item: number;
   ordenId: string;
   codigo: string;
+  /** Orden de compra (OC-…) u orden de servicio (CS-…, Control de Servicio). */
+  tipo: TipoOrden;
   proveedor: string;
   estado: EstadoOrden;
   estadoLabel: string;
@@ -94,12 +96,32 @@ const ESTADO_LABEL: Partial<Record<EstadoOrden, string>> = {
   reasignada: 'Reasignada',
 };
 
+/** Órdenes de servicio (12/11/2026): los estatus con el nombre del kanban de Servicios. */
+const ESTADO_LABEL_SERVICIO: Partial<Record<EstadoOrden, string>> = {
+  pagada: 'Pagado · por realizar',
+  por_recibir: 'Pendiente por realizar',
+  recibida: 'Servicio realizado',
+  finalizada: 'Finalizado',
+  cancelada: 'Cancelado',
+};
+
 const ESTADOS_ANULADOS = new Set<string>(['cancelada', 'rechazada', 'desistida_proveedor', 'reasignada']);
 
-export function etiquetaEstado(estado: EstadoOrden): { label: string; clase: string } {
+export type TipoOrden = 'compra' | 'servicio';
+
+export function tipoDeOrden(o: Pick<Orden, 'tipo'>): TipoOrden {
+  return o.tipo === 'servicio' ? 'servicio' : 'compra';
+}
+
+export function etiquetaTipo(t: TipoOrden): string {
+  return t === 'servicio' ? 'Servicio' : 'Compra';
+}
+
+export function etiquetaEstado(estado: EstadoOrden, tipo: TipoOrden = 'compra'): { label: string; clase: string } {
   const base = statusBadge(estado);
   const clase = estado === 'oc_aprobada' ? 'warning' : base.className;
-  return { label: ESTADO_LABEL[estado] ?? base.label, clase };
+  const label = (tipo === 'servicio' ? ESTADO_LABEL_SERVICIO[estado] : undefined) ?? ESTADO_LABEL[estado] ?? base.label;
+  return { label, clase };
 }
 
 /* ─────────────── Referencias del pago ─────────────── */
@@ -196,11 +218,13 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
     const pagadoBs = tasa ? r2(pagadoBsBruto + pagadoUsdDirecto * tasa) : (pagadoUsdDirecto ? null : r2(pagadoBsBruto));
     const referencias = [...new Set(pagos.flatMap((p) => referenciasDeMotivo(p.motivo)))];
     const retenciones = retencionesDeOrden(o, ctx.retenciones.get(o.id) ?? []);
-    const { label, clase } = etiquetaEstado(o.estado);
+    const tipo = tipoDeOrden(o);
+    const { label, clase } = etiquetaEstado(o.estado, tipo);
     return {
       item: i + 1,
       ordenId: o.id,
       codigo: o.oc_codigo ?? o.codigo,
+      tipo,
       proveedor: (o.proveedor_id && ctx.proveedores.get(o.proveedor_id)) || '—',
       estado: o.estado,
       estadoLabel: label,
@@ -227,6 +251,8 @@ export interface FiltrosConciliacion {
   texto: string;
   estado: string; // '' = todos; si no, la etiqueta de estatus
   retencion: FiltroRetencion;
+  /** Compras, servicios o todas (12/11/2026). */
+  tipo?: 'todas' | TipoOrden;
   pago: FiltroPago;
   desde: string;  // YYYY-MM-DD ('' = sin tope)
   hasta: string;
@@ -246,6 +272,7 @@ export function filtrarFilas(filas: FilaConciliacion[], f: FiltrosConciliacion, 
   return filas.filter((r) => {
     if (!f.incluirAnuladas && r.anulada) return false;
     if (f.estado && r.estadoLabel !== f.estado) return false;
+    if (f.tipo && f.tipo !== 'todas' && r.tipo !== f.tipo) return false;
     if (f.retencion === 'con' && !r.llevaRetencion) return false;
     if (f.retencion === 'sin' && r.llevaRetencion) return false;
     if (f.pago === 'pagadas' && !r.pagada) return false;
@@ -259,7 +286,7 @@ export function filtrarFilas(filas: FilaConciliacion[], f: FiltrosConciliacion, 
       if (f.hasta && d > f.hasta) return false;
     }
     if (q) {
-      const heno = norm([r.codigo, r.proveedor, r.estadoLabel, ...r.referencias,
+      const heno = norm([r.codigo, etiquetaTipo(r.tipo), r.proveedor, r.estadoLabel, ...r.referencias,
         ...r.retenciones.map((x) => `${x.tipo} ${x.comprobante ?? ''}`)].join(' '));
       if (!heno.includes(q)) return false;
     }

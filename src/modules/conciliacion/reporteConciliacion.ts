@@ -8,11 +8,11 @@
    ============================================================ */
 
 import {
-  r2, textoReferencia, textoRetencion, textoFuenteTasa, indicadores, type FilaConciliacion, type FiltrosConciliacion,
+  r2, etiquetaTipo, textoReferencia, textoRetencion, textoFuenteTasa, indicadores, type FilaConciliacion, type FiltrosConciliacion,
 } from './conciliacion';
 
 export type ClaveColumna =
-  | 'item' | 'codigo' | 'proveedor' | 'montoUsd' | 'montoBs' | 'tasa'
+  | 'item' | 'codigo' | 'tipo' | 'proveedor' | 'montoUsd' | 'montoBs' | 'tasa'
   | 'referencia' | 'retencion' | 'estado' | 'fechaPago';
 
 export interface ColumnaReporte {
@@ -23,7 +23,8 @@ export interface ColumnaReporte {
 
 export const COLUMNAS_REPORTE: ColumnaReporte[] = [
   { clave: 'item', titulo: 'Ítem', numerica: true },
-  { clave: 'codigo', titulo: 'Código OC' },
+  { clave: 'codigo', titulo: 'Código' },
+  { clave: 'tipo', titulo: 'Tipo' },
   { clave: 'proveedor', titulo: 'Proveedor' },
   { clave: 'montoUsd', titulo: 'Monto OC ($)', numerica: true },
   { clave: 'montoBs', titulo: 'Monto OC (Bs)', numerica: true },
@@ -35,16 +36,17 @@ export const COLUMNAS_REPORTE: ColumnaReporte[] = [
 ];
 
 export const COLUMNAS_POR_DEFECTO: ClaveColumna[] = [
-  'item', 'codigo', 'proveedor', 'montoUsd', 'montoBs', 'referencia', 'retencion', 'estado',
+  'item', 'codigo', 'tipo', 'proveedor', 'montoUsd', 'montoBs', 'referencia', 'retencion', 'estado',
 ];
 
-export type Agrupacion = 'ninguna' | 'estado' | 'proveedor' | 'retencion';
+export type Agrupacion = 'ninguna' | 'tipo' | 'estado' | 'proveedor' | 'retencion';
 
 export const AGRUPACIONES: { valor: Agrupacion; etiqueta: string }[] = [
   { valor: 'ninguna', etiqueta: 'Sin agrupar' },
   { valor: 'estado', etiqueta: 'Por estatus' },
   { valor: 'proveedor', etiqueta: 'Por proveedor' },
   { valor: 'retencion', etiqueta: 'Con / sin retención' },
+  { valor: 'tipo', etiqueta: 'Compras / servicios' },
 ];
 
 export interface GrupoReporte {
@@ -59,6 +61,7 @@ export function agrupar(filas: FilaConciliacion[], modo: Agrupacion): GrupoRepor
     if (modo === 'estado') return r.estadoLabel;
     if (modo === 'proveedor') return r.proveedor;
     if (modo === 'retencion') return r.llevaRetencion ? 'Con retención' : 'Sin retención';
+    if (modo === 'tipo') return r.tipo === 'servicio' ? 'Órdenes de servicio' : 'Órdenes de compra';
     return 'Todas las OC';
   };
   const orden: string[] = [];
@@ -95,6 +98,7 @@ export function celda(r: FilaConciliacion, c: ClaveColumna): string {
   switch (c) {
     case 'item': return String(r.item);
     case 'codigo': return r.codigo;
+    case 'tipo': return etiquetaTipo(r.tipo);
     case 'proveedor': return r.proveedor;
     case 'montoUsd': return usd(r.totalUsd);
     case 'montoBs': return bs(r.totalBs);
@@ -134,7 +138,7 @@ export function textoWhatsappConciliacion(filas: FilaConciliacion[], meta: MetaR
     '',
   ];
   for (const r of filas.slice(0, max)) {
-    lineas.push(`${r.item}. *${r.codigo}* · ${r.proveedor}`);
+    lineas.push(`${r.item}. *${r.codigo}*${r.tipo === 'servicio' ? ' (servicio)' : ''} · ${r.proveedor}`);
     lineas.push(`   ${usd(r.totalUsd)} · ${bs(r.totalBs)} · ${r.estadoLabel}`);
     const extra = [
       r.referencias.length ? `Ref: ${r.referencias.join(', ')}` : '',
@@ -154,6 +158,7 @@ export function describirFiltros(f: FiltrosConciliacion): string {
     f.texto.trim() ? `Búsqueda: «${f.texto.trim()}»` : '',
     f.estado ? `Estatus: ${f.estado}` : '',
     f.pago === 'pagadas' ? 'Pagadas' : f.pago === 'sin_pagar' ? 'Sin pagar' : '',
+    f.tipo === 'compra' ? 'Solo compras' : f.tipo === 'servicio' ? 'Solo servicios' : '',
     f.retencion === 'con' ? 'Con retención' : f.retencion === 'sin' ? 'Sin retención' : '',
     (f.desde || f.hasta ? (f.fechaDe === 'pago' ? 'Pagadas ' : 'OC ') : '')
       + (f.desde && f.hasta ? `del ${fecha(f.desde)} al ${fecha(f.hasta)}` : f.desde ? `desde ${fecha(f.desde)}` : f.hasta ? `hasta ${fecha(f.hasta)}` : ''),

@@ -70,6 +70,21 @@ describe('Conciliación', () => {
     expect(textoRetencion(r)).toBe('ISAE N° 20261100000012');
   });
 
+  it('incluye las órdenes de servicio, con su tipo y los estatus de Servicios', () => {
+    const filas = armarFilas([
+      orden({ id: '1', estado: 'recibida' }),
+      orden({ id: '2', estado: 'recibida', tipo: 'servicio', oc_codigo: 'CS-2026-0001' }),
+    ], ctx());
+    expect(filas.map((r) => [r.codigo, r.tipo, r.estadoLabel])).toEqual([
+      ['OC-1', 'compra', 'Recibida'], ['CS-2026-0001', 'servicio', 'Servicio realizado'],
+    ]);
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, tipo: 'servicio' }, dia).map((r) => r.codigo)).toEqual(['CS-2026-0001']);
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, tipo: 'compra' }, dia).map((r) => r.codigo)).toEqual(['OC-1']);
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, texto: 'servicio' }, dia)).toHaveLength(1);
+    expect(agrupar(filas, 'tipo').map((g) => g.titulo)).toEqual(['Órdenes de compra', 'Órdenes de servicio']);
+    expect(celda(filas[1], 'tipo')).toBe('Servicio');
+  });
+
   it('una OC en Bs se convierte a $ con la tasa', () => {
     const [r] = armarFilas([orden({ id: '2', total: 5000, total_moneda: 'Bs' })], ctx());
     expect(r.totalBs).toBe(5000);
