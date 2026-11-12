@@ -1775,23 +1775,25 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
     await reconciliarPagosOcHuerfanos().catch(() => 0);
   }
   const [{ data: os, error }, { data: provs }] = await Promise.all([
-    supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada'])
+    supabase.from(TABLE).select('*').eq('estado', 'oc_aprobada')
       .order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('*'),
   ]);
   if (error) throw error;
   const pm = new Map((provs ?? []).map((p) => [(p as Proveedor).id, p as Proveedor]));
-  return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
+  return (os ?? [])
+    .filter((r) => Array.isArray((r as Orden).metodo_pago) && ((r as Orden).metodo_pago?.length ?? 0) > 0)
+    .map((r) => mapPorPagar(r as Orden, pm));
 }
 
 /** Resumen LIVIANO (solo conteos, sin writes) de lo pendiente por pagar, para el
- *  badge en Compras. Suma OC/CS listas o esperando método + compras y servicios
+ *  badge en Compras. Suma OC/CS listas con método cargado + compras y servicios
  *  directos por pagar; `credito` = OC con cuenta abierta. Seguro para realtime
  *  (no dispara la reconciliación de pagos huérfanos, que sí corre al abrir el PDF). */
 export async function resumenPendientesPorPagar(): Promise<{ porPagar: number; credito: number }> {
   const head = { count: 'exact' as const, head: true };
   const [oc, cd, sd, cr] = await Promise.all([
-    supabase.from(TABLE).select('id', head).in('estado', ['confirmada_metodo', 'oc_aprobada']),
+    supabase.from(TABLE).select('id', head).eq('estado', 'oc_aprobada'),
     supabase.from('compras_directas').select('id', head).eq('estado', 'por_pagar'),
     supabase.from('servicios_directos').select('id', head).eq('estado', 'por_pagar'),
     supabase.from(TABLE).select('id', head).eq('estado', 'cuenta_abierta'),

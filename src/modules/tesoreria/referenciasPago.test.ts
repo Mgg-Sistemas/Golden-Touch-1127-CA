@@ -26,6 +26,20 @@ describe('Referencia del pago en Tesorería', () => {
     expect(referenciaValida('1234')).toBe(true);
     expect(referenciaValida('123')).toBe(false);
     expect(referenciaValida('')).toBe(false);
+    // Para Bs solo acepta dígitos
+    expect(ultimos4('AB12CD', 'bs')).toBe('12');
+    expect(referenciaValida('12AB', 'bs')).toBe(false);
+  });
+
+  it('Binance permite letras y dígitos en mayúsculas (alfanumérico)', () => {
+    expect(ultimos4('BINANCE-ORD-7A9B', 'binance')).toBe('7A9B');
+    expect(ultimos4('ord_xy3z', 'binance')).toBe('XY3Z');
+    expect(ultimos4('1234', 'binance')).toBe('1234');
+    expect(referenciaValida('7A9B', 'binance')).toBe(true);
+    expect(referenciaValida('xy3z', 'binance')).toBe(true);
+    expect(referenciaValida('1234', 'binance')).toBe(true);
+    expect(referenciaValida('123', 'binance')).toBe(false);
+    expect(referenciaValida('12-3', 'binance')).toBe(false);
   });
 
   const patas: PataReferencia[] = [
@@ -34,9 +48,10 @@ describe('Referencia del pago en Tesorería', () => {
   ];
 
   it('avisa lo que falta y no deja pasar referencias incompletas', () => {
-    expect(errorReferencias(patas, {})).toBe('Indica la referencia de la transferencia / pago móvil y el ID de la orden de Binance: los últimos 4 dígitos.');
-    expect(errorReferencias(patas, { a: '1234', b: '56' })).toBe('Indica el ID de la orden de Binance: los últimos 4 dígitos.');
+    expect(errorReferencias(patas, {})).toBe('Indica la referencia de la transferencia / pago móvil y el ID de la orden de Binance: los últimos 4 dígitos (o letras en Binance).');
+    expect(errorReferencias(patas, { a: '1234', b: '56' })).toBe('Indica el ID de la orden de Binance: los últimos 4 dígitos o letras.');
     expect(errorReferencias(patas, { a: '1234', b: '5678' })).toBeNull();
+    expect(errorReferencias(patas, { a: '1234', b: '7A9B' })).toBeNull();
     expect(errorReferencias([], {})).toBeNull();
   });
 

@@ -4,7 +4,7 @@
    Al pagar una OC desde Tesorería, cada pata que sale en bolívares
    (transferencia / pago móvil) pide los ÚLTIMOS 4 DÍGITOS de la referencia
    bancaria, y cada pata por Binance (USDT) pide los últimos 4 del ID de la
-   orden. Así el egreso se puede cruzar con el estado de cuenta sin abrir la
+   orden (dígitos o letras). Así el egreso se puede cruzar con el estado de cuenta sin abrir la
    captura.
 
    Va dentro del motivo del pago, que ya llega al concepto del egreso en el
@@ -41,12 +41,21 @@ export function tipoReferencia(
   return soloEfectivoBs ? null : 'bs';
 }
 
-/** Deja solo dígitos y se queda con los 4 últimos (si pegan la referencia completa, sirve igual). */
-export function ultimos4(valor: string): string {
+/**
+ * Deja solo dígitos (o dígitos y letras en mayúsculas para Binance) y se queda
+ * con los 4 últimos (si pegan la referencia completa, sirve igual).
+ */
+export function ultimos4(valor: string, tipo?: TipoReferencia): string {
+  if (tipo === 'binance') {
+    return valor.replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
+  }
   return valor.replace(/\D/g, '').slice(-4);
 }
 
-export function referenciaValida(valor: string | null | undefined): boolean {
+export function referenciaValida(valor: string | null | undefined, tipo?: TipoReferencia): boolean {
+  if (tipo === 'binance') {
+    return /^[a-zA-Z0-9]{4}$/.test(valor ?? '');
+  }
   return /^\d{4}$/.test(valor ?? '');
 }
 
@@ -60,7 +69,7 @@ function prefijo(tipo: TipoReferencia): string {
 
 /** Patas a las que les falta la referencia (o la tienen incompleta). */
 export function referenciasFaltantes(patas: PataReferencia[], refs: Record<string, string>): PataReferencia[] {
-  return patas.filter((p) => !referenciaValida(refs[p.key]));
+  return patas.filter((p) => !referenciaValida(refs[p.key], p.tipo));
 }
 
 /** Mensaje de error para el formulario, o null si están todas. */
@@ -72,14 +81,19 @@ export function errorReferencias(patas: PataReferencia[], refs: Record<string, s
     tipos.has('bs') ? 'la referencia de la transferencia / pago móvil' : '',
     tipos.has('binance') ? 'el ID de la orden de Binance' : '',
   ].filter(Boolean).join(' y ');
-  return `Indica ${que}: los últimos 4 dígitos.`;
+  const detalle = tipos.has('binance') && !tipos.has('bs')
+    ? 'los últimos 4 dígitos o letras'
+    : tipos.has('binance') && tipos.has('bs')
+    ? 'los últimos 4 dígitos (o letras en Binance)'
+    : 'los últimos 4 dígitos';
+  return `Indica ${que}: ${detalle}.`;
 }
 
 /** Texto que va al motivo del pago: «Ref. Bs 1234 · ID Binance 5678». Vacío si no hay patas. */
 export function textoReferencias(patas: PataReferencia[], refs: Record<string, string>): string {
   return patas
-    .filter((p) => referenciaValida(refs[p.key]))
-    .map((p) => `${prefijo(p.tipo)}${p.etiqueta ? ` (${p.etiqueta})` : ''} ${refs[p.key]}`)
+    .filter((p) => referenciaValida(refs[p.key], p.tipo))
+    .map((p) => `${prefijo(p.tipo)}${p.etiqueta ? ` (${p.etiqueta})` : ''} ${refs[p.key].toUpperCase()}`)
     .join(' · ');
 }
 

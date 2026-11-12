@@ -4028,10 +4028,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       {tab === 'ordenes' && (
         <>
           <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-            Órdenes de compra aprobadas por el Gerente. Haz clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
+            Órdenes de compra aprobadas con método de pago cargado desde Compras. Haz clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
             compra y registrar el pago, o <strong>marca varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>
-            (un egreso por OC). Se pueden incluir las que están <strong>⏳ Esperando método de pago</strong>: Tesorería las paga
-            directo eligiendo la caja, aunque el analista todavía no haya indicado el método.
+            (un egreso por OC).
           </p>
           {seleccionadas.length > 0 && (
             <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .85rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
@@ -4565,14 +4564,14 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
         {patasRefLote.map((p) => (
           <div className="form-row" key={p.key}>
             <label>{nombreReferencia(p.tipo)} * <span className="muted">(se aplica a todas)</span></label>
-            <input className="input mono" inputMode="numeric" autoComplete="off" required
-              value={refLote} placeholder="Últimos 4 dígitos"
-              onChange={(e) => setRefLote(ultimos4(e.target.value))}
-              style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+            <input className="input mono" inputMode={p.tipo === 'binance' ? 'text' : 'numeric'} autoComplete="off" required
+              value={refLote} placeholder={p.tipo === 'binance' ? 'Últimos 4 dígitos/letras' : 'Últimos 4 dígitos'}
+              onChange={(e) => setRefLote(ultimos4(e.target.value, p.tipo))}
+              style={{ maxWidth: 220, letterSpacing: '.2em', textTransform: p.tipo === 'binance' ? 'uppercase' : undefined }} />
             <small className="muted">
               {p.tipo === 'bs'
                 ? 'Los últimos 4 dígitos de la referencia del banco. Si pegas la referencia completa, se toman los 4 últimos.'
-                : 'Los últimos 4 dígitos del ID de la orden en Binance.'}
+                : 'Los últimos 4 dígitos o letras del ID de la orden en Binance.'}
             </small>
           </div>
         ))}
@@ -7161,15 +7160,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               return (
                 <div className="form-row" key={p.key}>
                   <label>{nombreReferencia(p.tipo)}{p.etiqueta ? <span className="muted"> · {p.etiqueta}</span> : null} *</label>
-                  <input className="input mono" inputMode="numeric" autoComplete="off" required
-                    value={v} placeholder="Últimos 4 dígitos"
-                    onChange={(e) => { const d = ultimos4(e.target.value); setRefsPago((r) => ({ ...r, [p.key]: d })); }}
-                    style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+                  <input className="input mono" inputMode={p.tipo === 'binance' ? 'text' : 'numeric'} autoComplete="off" required
+                    value={v} placeholder={p.tipo === 'binance' ? 'Últimos 4 dígitos/letras' : 'Últimos 4 dígitos'}
+                    onChange={(e) => { const d = ultimos4(e.target.value, p.tipo); setRefsPago((r) => ({ ...r, [p.key]: d })); }}
+                    style={{ maxWidth: 220, letterSpacing: '.2em', textTransform: p.tipo === 'binance' ? 'uppercase' : undefined }} />
                   <small className="muted">
                     {p.tipo === 'bs'
                       ? 'Los últimos 4 dígitos de la referencia del banco. Si pegas la referencia completa, se toman los 4 últimos.'
-                      : 'Los últimos 4 dígitos del ID de la orden en Binance.'}
-                    {v.length > 0 && v.length < 4 ? <strong style={{ color: 'var(--danger)' }}> Faltan {4 - v.length} dígito(s).</strong> : null}
+                      : 'Los últimos 4 dígitos o letras del ID de la orden en Binance.'}
+                    {v.length > 0 && v.length < 4 ? <strong style={{ color: 'var(--danger)' }}> Faltan {4 - v.length} {p.tipo === 'binance' ? 'carácter(es)' : 'dígito(s)'}.</strong> : null}
                   </small>
                 </div>
               );
