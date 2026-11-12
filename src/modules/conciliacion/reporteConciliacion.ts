@@ -164,6 +164,8 @@ export function describirFiltros(f: FiltrosConciliacion): string {
   return [
     f.texto.trim() ? `Búsqueda: «${f.texto.trim()}»` : '',
     f.estado ? `Estatus: ${f.estado}` : '',
+    f.estados?.length ? `Estatus: ${f.estados.join(', ')}` : '',
+    f.tipos?.length ? `Solo ${f.tipos.map((t) => GRUPO_TIPO[t].toLowerCase()).join(' y ')}` : '',
     f.pago === 'pagadas' ? 'Pagadas' : f.pago === 'sin_pagar' ? 'Sin pagar' : '',
     f.tipo && f.tipo !== 'todas' ? `Solo ${GRUPO_TIPO[f.tipo].toLowerCase()}` : '',
     f.retencion === 'con' ? 'Con retención' : f.retencion === 'sin' ? 'Sin retención' : '',

@@ -30,6 +30,7 @@ import {
   etiquetaTipo, type ArchivoNota, type FilaConciliacion, type FiltrosConciliacion,
 } from './conciliacion';
 import { bs, describirFiltros, fechaCorta, usd } from './reporteConciliacion';
+import { FiltroChecks } from '@/shared/ui/FiltroChecks';
 import { ReporteConciliacionModal } from './ReporteConciliacionModal';
 import { ComprobantesPagoModal, FacturasDirectaModal, ReferenciaModal } from './DocumentosConciliacion';
 
@@ -44,6 +45,16 @@ const TITULO_TARJETA: Record<Tarjeta, string> = {
 /** Paginación (12/11/2026): arranca mostrando 10 OC; el selector deja ver 25, 50 o 100. */
 const TAMANOS = [10, 25, 50, 100] as const;
 /** Estatus de una OC en los que el delivery ya pudo cargar fotos de la factura. */
+type TipoFiltro = NonNullable<FiltrosConciliacion['tipos']>[number];
+const OPCIONES_TIPO: { value: TipoFiltro; label: string }[] = [
+  { value: 'compra', label: 'Órdenes de compra' },
+  { value: 'servicio', label: 'Órdenes de servicio' },
+  { value: 'compra_directa', label: 'Compras directas' },
+  { value: 'servicio_directo', label: 'Servicios directos' },
+];
+const OPCIONES_PAGO = [{ value: 'pagadas', label: 'Pagadas' }, { value: 'sin_pagar', label: 'Sin pagar' }];
+const OPCIONES_RETENCION = [{ value: 'con', label: 'Con retención' }, { value: 'sin', label: 'Sin retención' }];
+
 const CON_FACTURA = new Set(['pagada', 'por_recibir', 'recibida', 'finalizada', 'cuenta_abierta']);
 
 export function ConciliacionPage() {
@@ -151,36 +162,25 @@ export function ConciliacionPage() {
         </div>
         <div className="form-row" style={{ flex: '1 1 170px', margin: 0 }}>
           <label>Estatus</label>
-          <select className="select" value={f.estado} onChange={(e) => set('estado', e.target.value)}>
-            <option value="">Todos</option>
-            {estados.map((e) => <option key={e} value={e}>{e}</option>)}
-          </select>
+          <FiltroChecks ariaLabel="Estatus" opciones={estados.map((e) => ({ value: e, label: e }))}
+            seleccion={f.estados ?? []} onChange={(v) => set('estados', v.length ? v : undefined)} />
         </div>
         <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
           <label>Tipo</label>
-          <select className="select" value={f.tipo ?? 'todas'} onChange={(e) => set('tipo', e.target.value as FiltrosConciliacion['tipo'])}>
-            <option value="todas">Todos</option>
-            <option value="compra">Órdenes de compra</option>
-            <option value="servicio">Órdenes de servicio</option>
-            <option value="compra_directa">Compras directas</option>
-            <option value="servicio_directo">Servicios directos</option>
-          </select>
+          <FiltroChecks ariaLabel="Tipo" opciones={OPCIONES_TIPO}
+            seleccion={f.tipos ?? []} onChange={(v) => set('tipos', v.length ? (v as TipoFiltro[]) : undefined)} />
         </div>
         <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
           <label>Pago</label>
-          <select className="select" value={f.pago} onChange={(e) => set('pago', e.target.value as FiltrosConciliacion['pago'])}>
-            <option value="todas">Todas</option>
-            <option value="pagadas">Pagadas</option>
-            <option value="sin_pagar">Sin pagar</option>
-          </select>
+          <FiltroChecks ariaLabel="Pago" todos="Todas" opciones={OPCIONES_PAGO}
+            seleccion={f.pago === 'todas' ? [] : [f.pago]}
+            onChange={(v) => set('pago', v.length === 1 ? (v[0] as FiltrosConciliacion['pago']) : 'todas')} />
         </div>
         <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
           <label>Retención</label>
-          <select className="select" value={f.retencion} onChange={(e) => set('retencion', e.target.value as FiltrosConciliacion['retencion'])}>
-            <option value="todas">Todas</option>
-            <option value="con">Con retención</option>
-            <option value="sin">Sin retención</option>
-          </select>
+          <FiltroChecks ariaLabel="Retención" todos="Todas" opciones={OPCIONES_RETENCION}
+            seleccion={f.retencion === 'todas' ? [] : [f.retencion]}
+            onChange={(v) => set('retencion', v.length === 1 ? (v[0] as FiltrosConciliacion['retencion']) : 'todas')} />
         </div>
         <div className="form-row" style={{ flex: '1 1 130px', margin: 0 }}>
           <label>Desde</label>

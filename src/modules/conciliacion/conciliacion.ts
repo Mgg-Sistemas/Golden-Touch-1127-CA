@@ -407,6 +407,10 @@ export interface FiltrosConciliacion {
   retencion: FiltroRetencion;
   /** Compras, servicios o todas (12/11/2026). */
   tipo?: 'todas' | TipoOrden;
+  /** Varios estatus a la vez (filtro con casillas). Vacío = todos. */
+  estados?: string[];
+  /** Varios tipos a la vez (filtro con casillas). Vacío = todos. */
+  tipos?: TipoOrden[];
   pago: FiltroPago;
   desde: string;  // YYYY-MM-DD ('' = sin tope)
   hasta: string;
@@ -427,6 +431,8 @@ export function filtrarFilas(filas: FilaConciliacion[], f: FiltrosConciliacion, 
     if (!f.incluirAnuladas && r.anulada) return false;
     if (f.estado && r.estadoLabel !== f.estado) return false;
     if (f.tipo && f.tipo !== 'todas' && r.tipo !== f.tipo) return false;
+    if (f.estados?.length && !f.estados.includes(r.estadoLabel)) return false;
+    if (f.tipos?.length && !f.tipos.includes(r.tipo)) return false;
     if (f.retencion === 'con' && !r.llevaRetencion) return false;
     if (f.retencion === 'sin' && r.llevaRetencion) return false;
     if (f.pago === 'pagadas' && !r.pagada) return false;

@@ -81,6 +81,11 @@ describe('Conciliación', () => {
     expect(filtrarFilas(filas, { ...FILTROS_VACIOS, tipo: 'servicio' }, dia).map((r) => r.codigo)).toEqual(['CS-2026-0001']);
     expect(filtrarFilas(filas, { ...FILTROS_VACIOS, tipo: 'compra' }, dia).map((r) => r.codigo)).toEqual(['OC-1']);
     expect(filtrarFilas(filas, { ...FILTROS_VACIOS, texto: 'servicio' }, dia)).toHaveLength(1);
+    // Filtros con casillas: varios a la vez; vacío = todos.
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, tipos: ['compra', 'servicio'] }, dia)).toHaveLength(2);
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, tipos: [] }, dia)).toHaveLength(2);
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, estados: ['Servicio realizado'] }, dia).map((r) => r.codigo)).toEqual(['CS-2026-0001']);
+    expect(filtrarFilas(filas, { ...FILTROS_VACIOS, estados: ['Recibida', 'Servicio realizado'] }, dia)).toHaveLength(2);
     expect(agrupar(filas, 'tipo').map((g) => g.titulo)).toEqual(['Órdenes de compra', 'Órdenes de servicio']);
     expect(celda(filas[1], 'tipo')).toBe('Servicio');
   });
