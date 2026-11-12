@@ -1,5 +1,5 @@
 import { Quien } from '@/shared/ui/Quien';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from '@/modules/auth/authStore';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { dateTime } from '@/shared/lib/format';
@@ -10,27 +10,159 @@ import { PERSONAS_CONOCIDAS_COMPRAS } from './personasCompras';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Usuario } from '@/shared/lib/types';
 
-interface MiembroEquipo {
+export interface MiembroEquipo {
   nombre: string;
   email: string;
+  departamento: string;
+  cargo?: string;
+}
+
+/** Normaliza y categoriza un departamento para priorización y agrupación limpia */
+export function normalizarDepartamento(deptoRaw?: string | null, email?: string): string {
+  const d = (deptoRaw || '').trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  if (d.includes('COMPRA')) return 'COMPRAS';
+  if (d.includes('TESORER')) return 'TESORERIA';
+  if (d.includes('ADMINISTRA')) return 'ADMINISTRACION';
+  if (d.includes('ALMACEN')) return 'ALMACEN';
+  if (d.includes('SISTEMA')) return 'SISTEMAS';
+  if (d.includes('RRHH') || d.includes('HUMANO') || d.includes('PERSONAL')) return 'RRHH';
+  if (d.includes('MAQUINA') || d.includes('TALLER') || d.includes('FLOTA')) return 'MAQUINARIA';
+  if (d.includes('COMBUSTIBLE') || d.includes('SURTIDOR')) return 'COMBUSTIBLE';
+  if (d.includes('COCINA') || d.includes('COMIDA')) return 'COCINA';
+  if (d.includes('DIRECTIVA') || d.includes('GERENCIA') || d.includes('PRESIDENCIA')) return 'DIRECTIVA';
+  if (d.includes('IMPUESTO') || d.includes('FISCAL') || d.includes('SENIAT')) return 'IMPUESTOS';
+  if (d.includes('GEODESTA') || d.includes('MINA')) return 'OPERACIONES';
+
+  const em = (email || '').toLowerCase().trim();
+  if (em.includes('touchgolden')) return 'DIRECTIVA';
+  if (em.includes('jhzgcontabilidad')) return 'TESORERIA';
+  if (
+    em.includes('analista1') ||
+    em.includes('comprasanalista') ||
+    em.includes('analistadecompras') ||
+    em.includes('asistentecompras') ||
+    em.includes('admingometales') ||
+    em.includes('analista4')
+  ) {
+    return 'COMPRAS';
+  }
+  if (em.includes('analistaadministrativo') || em.includes('edinsontrabajo') || em.includes('mariana')) {
+    return 'ADMINISTRACION';
+  }
+  if (em.includes('impuestosmgg')) return 'IMPUESTOS';
+  if (em.includes('almacen')) return 'ALMACEN';
+  if (em.includes('maquinaria')) return 'MAQUINARIA';
+  if (em.includes('combustible')) return 'COMBUSTIBLE';
+  if (em.includes('geodesta')) return 'OPERACIONES';
+  if (em.includes('cocina')) return 'COCINA';
+  if (em.includes('rrhh')) return 'RRHH';
+  if (em.includes('sistema')) return 'SISTEMAS';
+
+  return d || 'GENERAL';
+}
+
+/** Orden de prioridad departamental según el contexto de origen del chat */
+export function ordenarDepartamentos(deptos: string[], contexto: 'compras' | 'tesoreria' | 'administracion'): string[] {
+  let ordenPrioridad: string[] = [];
+  if (contexto === 'compras') {
+    // Compras referencia primero a Compras, luego a Tesorería, luego Administración...
+    ordenPrioridad = ['COMPRAS', 'TESORERIA', 'ADMINISTRACION', 'ALMACEN', 'DIRECTIVA', 'OPERACIONES'];
+  } else if (contexto === 'tesoreria') {
+    // Tesorería referencia primero a Tesorería, luego a Compras, luego Administración (Gastos fijos)...
+    ordenPrioridad = ['TESORERIA', 'COMPRAS', 'ADMINISTRACION', 'DIRECTIVA', 'ALMACEN', 'OPERACIONES'];
+  } else if (contexto === 'administracion') {
+    ordenPrioridad = ['ADMINISTRACION', 'TESORERIA', 'COMPRAS', 'DIRECTIVA', 'ALMACEN', 'OPERACIONES'];
+  } else {
+    ordenPrioridad = ['COMPRAS', 'TESORERIA', 'ADMINISTRACION'];
+  }
+
+  return [...deptos].sort((a, b) => {
+    const idxA = ordenPrioridad.indexOf(a);
+    const idxB = ordenPrioridad.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+/** Etiqueta amigable de la fase actual de la orden o solicitud */
+export function formatearFaseOrden(fase?: string | null): string {
+  if (!fase) return '';
+  const f = fase.toLowerCase().trim();
+  switch (f) {
+    case 'creada':
+    case 'borrador':
+      return 'Creada';
+    case 'enviada_revision_almacen':
+    case 'revision_almacen':
+      return 'Revisión Almacén';
+    case 'cotizacion':
+    case 'en_cotizacion':
+      return 'En Cotización';
+    case 'pendiente_aprobacion':
+    case 'revision':
+      return 'Por Aprobar';
+    case 'aprobada':
+      return 'Aprobada';
+    case 'emitida':
+      return 'OC Emitida';
+    case 'pendiente':
+    case 'pendiente_pago':
+    case 'por_pagar':
+      return 'Por Pagar';
+    case 'parcial':
+    case 'abono':
+      return 'Pago Parcial';
+    case 'pagada':
+      return 'Pagada';
+    case 'recepcion':
+    case 'recibida':
+      return 'En Recepción';
+    case 'cerrada':
+      return 'Cerrada';
+    default:
+      return fase.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+}
+
+/** Infiere el tipo de operación para exhibir contexto preciso */
+export function inferirTipoOperacion(codigo: string, tipoDado?: string | null): string {
+  if (tipoDado && tipoDado.trim()) return tipoDado.trim();
+  const c = (codigo || '').toUpperCase().trim();
+  if (c.startsWith('SP-')) return 'Solicitud de Pedido';
+  if (c.startsWith('OC-')) return 'Orden de Compra';
+  if (c.startsWith('CS-')) return 'Control de Servicio';
+  if (c.startsWith('SS-')) return 'Solicitud de Servicio';
+  if (c.startsWith('GF-')) return 'Gasto Fijo';
+  return 'Orden';
 }
 
 /**
- * Chat interno de seguimiento por orden (OC / SP / CS / SS).
- * Diseño integrado y cohesivo con la estética oscura de Golden Touch:
- * - Contenedor unificado estilo Slack / Linear.
- * - Formato enriquecido (*negrita*, _cursiva_, viñetas, citas, código).
- * - Autocompletado inteligente para @menciones y #referencias.
+ * Chat interno de seguimiento por orden (OC / SP / CS / SS / GF).
+ * Inteligente, contextual y clasificado por departamentos:
+ * - Clasificación departamental con prioridad según módulo (Compras ↔ Tesorería ↔ Administración).
+ * - Restricción estricta: Solo usuarios activos pueden ser mencionados.
+ * - Despliegue de fase operativa e identidad del documento.
+ * - Sin cortes visuales superiores en los menús desplegables.
  */
 export function ChatOrden({
   ordenId,
   ordenLabel,
   autorNombre,
+  contextoModulo,
+  fase,
+  tipoOperacion,
   referenciasSugeridas,
 }: {
   ordenId: string;
   ordenLabel: string;
   autorNombre?: string | null;
+  contextoModulo?: 'compras' | 'tesoreria' | 'administracion';
+  fase?: string | null;
+  tipoOperacion?: string | null;
   referenciasSugeridas?: string[];
 }) {
   const { user } = useSession();
@@ -43,42 +175,71 @@ export function ChatOrden({
   const finRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Detección automática del módulo de contexto si no se pasa explícito
+  const ctxModulo: 'compras' | 'tesoreria' | 'administracion' = useMemo(() => {
+    if (contextoModulo) return contextoModulo;
+    if (typeof window !== 'undefined') {
+      if (window.location.hash.includes('tesoreria')) return 'tesoreria';
+      if (window.location.hash.includes('administracion')) return 'administracion';
+    }
+    return 'compras';
+  }, [contextoModulo]);
+
   // Autocomplete de menciones (@) y referencias (#)
   const [miembros, setMiembros] = useState<MiembroEquipo[]>([]);
   const [menuTipo, setMenuTipo] = useState<'mencion' | 'referencia' | null>(null);
   const [menuQuery, setMenuQuery] = useState('');
   const [menuIndex, setMenuIndex] = useState(0);
 
-  // Cargar lista de miembros para menciones (@)
+  // Cargar lista de miembros activos clasificados por departamento
   useEffect(() => {
     let cancel = false;
     async function cargarMiembros() {
-      const mapa = new Map<string, string>();
-      for (const [correo, nom] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
-        mapa.set(correo.toLowerCase(), nom);
-      }
+      const mapa = new Map<string, { nombre: string; depto: string }>();
+      const inactivosSet = new Set<string>();
+
       try {
         const dbUsers: Usuario[] = await listUsuarios();
         for (const u of dbUsers) {
+          const emailNorm = (u.email ?? '').toLowerCase().trim();
+          // Cuarto requisito: EXCLUIR usuarios inactivos, bloqueados o archivados
+          const esInactivo = (u.estado && u.estado.toLowerCase() !== 'activo') || !!u.archivado_en || !!u.bloqueado;
+          if (esInactivo) {
+            if (emailNorm) inactivosSet.add(emailNorm);
+            continue;
+          }
+
           const nom = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
-          if (u.email && nom) {
-            mapa.set(u.email.toLowerCase(), nom);
+          if (emailNorm && nom) {
+            const depto = normalizarDepartamento(u.departamento, emailNorm);
+            mapa.set(emailNorm, { nombre: nom.toUpperCase(), depto });
           }
         }
       } catch {
-        // Fallback a PERSONAS_CONOCIDAS_COMPRAS
+        // Fallback a personas conocidas si la RPC de usuarios no está disponible
       }
+
+      // Incorporar personas conocidas de compras que no estén marcadas como inactivas
+      for (const [correo, nom] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
+        const emailNorm = correo.toLowerCase().trim();
+        if (inactivosSet.has(emailNorm)) continue;
+        if (!mapa.has(emailNorm)) {
+          const depto = normalizarDepartamento(null, emailNorm);
+          mapa.set(emailNorm, { nombre: nom.toUpperCase(), depto });
+        }
+      }
+
       if (!cancel) {
         const lista: MiembroEquipo[] = [];
         const nombresVistos = new Set<string>();
-        for (const [email, nombre] of mapa.entries()) {
+        for (const [email, { nombre, depto }] of mapa.entries()) {
           const upper = nombre.toUpperCase();
           if (!nombresVistos.has(upper)) {
-            lista.push({ email, nombre: upper });
+            lista.push({ email, nombre: upper, departamento: depto });
             nombresVistos.add(upper);
           }
         }
-        setMiembros(lista.sort((a, b) => a.nombre.localeCompare(b.nombre)));
+        setMiembros(lista);
       }
     }
     void cargarMiembros();
@@ -137,24 +298,59 @@ export function ChatOrden({
     actualizarSugerencias(val, e.target.selectionStart ?? val.length);
   };
 
-  const miembrosFiltrados = menuTipo === 'mencion'
-    ? miembros.filter((m) =>
-        m.nombre.toLowerCase().includes(menuQuery) || m.email.toLowerCase().includes(menuQuery)
-      ).slice(0, 6)
-    : [];
+  // Filtrado y clasificación departamental para el menú de mención
+  // Tercer requisito: Orden prioritario según contexto (Compras ➔ Tesorería o Tesorería ➔ Compras ➔ Administración)
+  const { miembrosAgrupados, miembrosPlana } = useMemo(() => {
+    if (menuTipo !== 'mencion') return { miembrosAgrupados: [] as Array<[string, MiembroEquipo[]]>, miembrosPlana: [] as MiembroEquipo[] };
 
-  const baseReferencias = [
-    ...(ordenLabel && !ordenLabel.startsWith('CD-') && !ordenLabel.startsWith('SD-') ? [ordenLabel] : []),
-    ...(referenciasSugeridas ?? []).filter((r) => !r.toUpperCase().startsWith('CD-') && !r.toUpperCase().startsWith('SD-')),
-    'OC-',
-    'SP-',
-    'CS-',
-    'SS-',
-  ];
-  const referenciasUnicas = Array.from(new Set(baseReferencias));
-  const referenciasFiltradas = menuTipo === 'referencia'
-    ? referenciasUnicas.filter((r) => r.toLowerCase().includes(menuQuery)).slice(0, 6)
-    : [];
+    const filtrados = miembros.filter((m) =>
+      m.nombre.toLowerCase().includes(menuQuery) ||
+      m.email.toLowerCase().includes(menuQuery) ||
+      m.departamento.toLowerCase().includes(menuQuery)
+    );
+
+    const gruposMap = new Map<string, MiembroEquipo[]>();
+    for (const m of filtrados) {
+      const dep = m.departamento;
+      if (!gruposMap.has(dep)) gruposMap.set(dep, []);
+      gruposMap.get(dep)!.push(m);
+    }
+
+    // Ordenar cada grupo alfabéticamente
+    for (const lista of gruposMap.values()) {
+      lista.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }
+
+    // Ordenar los departamentos según la prioridad del módulo
+    const deptosOrdenados = ordenarDepartamentos(Array.from(gruposMap.keys()), ctxModulo);
+    const grupos: Array<[string, MiembroEquipo[]]> = deptosOrdenados.map((d) => [d, gruposMap.get(d)!]);
+
+    // Aplanar para facilitar la navegación con teclas ↑ / ↓
+    const plana: MiembroEquipo[] = [];
+    for (const [, items] of grupos) {
+      plana.push(...items);
+    }
+
+    return { miembrosAgrupados: grupos, miembrosPlana: plana.slice(0, 10) };
+  }, [menuTipo, miembros, menuQuery, ctxModulo]);
+
+  // Sugerencias de referencias (#)
+  // Quinto requisito: Para Tesorería se incluye Gastos Fijos (#GF-) junto con #OC-, #SP-, #CS-, #SS-
+  // Excluye explícitamente CD- (Compra directa) y SD- (Servicio directo)
+  const referenciasFiltradas = useMemo(() => {
+    if (menuTipo !== 'referencia') return [];
+    const baseReferencias = [
+      ...(ordenLabel && !ordenLabel.startsWith('CD-') && !ordenLabel.startsWith('SD-') ? [ordenLabel] : []),
+      ...(referenciasSugeridas ?? []).filter((r) => !r.toUpperCase().startsWith('CD-') && !r.toUpperCase().startsWith('SD-')),
+      'OC-',
+      'SP-',
+      'CS-',
+      'SS-',
+      ...(ctxModulo === 'tesoreria' || ctxModulo === 'administracion' ? ['GF-'] : []),
+    ];
+    const unicas = Array.from(new Set(baseReferencias));
+    return unicas.filter((r) => r.toLowerCase().includes(menuQuery)).slice(0, 6);
+  }, [menuTipo, ordenLabel, referenciasSugeridas, ctxModulo, menuQuery]);
 
   const insertarSugerencia = (valor: string, esMencion: boolean) => {
     const ta = textareaRef.current;
@@ -258,20 +454,20 @@ export function ChatOrden({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menuTipo === 'mencion' && miembrosFiltrados.length > 0) {
+    if (menuTipo === 'mencion' && miembrosPlana.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setMenuIndex((prev) => (prev + 1) % miembrosFiltrados.length);
+        setMenuIndex((prev) => (prev + 1) % miembrosPlana.length);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setMenuIndex((prev) => (prev - 1 + miembrosFiltrados.length) % miembrosFiltrados.length);
+        setMenuIndex((prev) => (prev - 1 + miembrosPlana.length) % miembrosPlana.length);
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        const elegido = miembrosFiltrados[menuIndex];
+        const elegido = miembrosPlana[menuIndex];
         if (elegido) insertarSugerencia(elegido.nombre, true);
         return;
       }
@@ -339,29 +535,37 @@ export function ChatOrden({
     lineHeight: 1,
   };
 
+  const tipoLegible = inferirTipoOperacion(ordenLabel, tipoOperacion);
+  const faseLegible = formatearFaseOrden(fase);
+
   return (
     <div
       style={{
         background: 'var(--surface, #23272e)',
         border: '1px solid var(--border, #333944)',
         borderRadius: 'var(--r-md, 10px)',
-        overflow: 'hidden',
+        // Primer requisito: overflow visible para evitar cortes superiores del menú de mención
+        overflow: 'visible',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      {/* Encabezado limpio y sobrio */}
+      {/* Encabezado contextual con tipo de operación y fase */}
       <div
         style={{
-          padding: '0.6rem 0.85rem',
+          padding: '0.65rem 0.9rem',
           background: 'var(--bg-1, #20242a)',
           borderBottom: '1px solid var(--border, #333944)',
+          borderTopLeftRadius: 'var(--r-md, 10px)',
+          borderTopRightRadius: 'var(--r-md, 10px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '.4rem',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.95rem' }}>💬</span>
           <span style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text)' }}>
             Chat interno
@@ -380,16 +584,28 @@ export function ChatOrden({
           >
             {ordenLabel}
           </span>
+          <span
+            style={{
+              fontSize: '0.72rem',
+              background: 'rgba(255, 255, 255, 0.06)',
+              color: 'var(--text-muted, #9aa6b5)',
+              padding: '1px 6px',
+              borderRadius: '4px',
+              fontWeight: 500,
+            }}
+          >
+            {tipoLegible} {faseLegible ? `· ${faseLegible}` : ''}
+          </span>
         </div>
         <span className="muted" style={{ fontSize: '0.74rem' }}>
-          Seguimiento interno de la orden
+          {ctxModulo === 'tesoreria' ? 'Tesorería ↔ Compras / Administración' : 'Compras ↔ Tesorería'}
         </span>
       </div>
 
-      {/* Lista de mensajes */}
+      {/* Lista de mensajes (mínimo 140px de headroom para que el popover respire) */}
       <div
         style={{
-          minHeight: msgs.length ? 140 : 85,
+          minHeight: msgs.length ? 150 : 130,
           maxHeight: 250,
           overflowY: 'auto',
           display: 'flex',
@@ -419,14 +635,14 @@ export function ChatOrden({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '1.25rem 0',
+              padding: '1.5rem 0',
               color: 'var(--text-dim, #6a7585)',
               gap: '0.2rem',
             }}
           >
-            <span style={{ fontSize: '1.15rem', opacity: 0.65 }}>💬</span>
+            <span style={{ fontSize: '1.2rem', opacity: 0.65 }}>💬</span>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sin mensajes en esta orden</span>
-            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>Escribe abajo para coordinar o dejar notas con el equipo</span>
+            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>Escribe abajo para coordinar con el equipo</span>
           </div>
         )}
         {msgs.map((m) => {
@@ -457,12 +673,14 @@ export function ChatOrden({
         <div ref={finRef} />
       </div>
 
-      {/* Compositor de mensaje unificado (Estilo Slack / Linear / WhatsApp Web) */}
+      {/* Compositor de mensaje unificado */}
       <div
         style={{
           padding: '0.6rem 0.85rem',
           background: 'var(--bg-1, #20242a)',
           borderTop: '1px solid var(--border, #333944)',
+          borderBottomLeftRadius: 'var(--r-md, 10px)',
+          borderBottomRightRadius: 'var(--r-md, 10px)',
         }}
       >
         <div
@@ -477,64 +695,102 @@ export function ChatOrden({
             transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
           }}
         >
-          {/* Menú emergente de mención (@) */}
-          {menuTipo === 'mencion' && miembrosFiltrados.length > 0 && (
+          {/* Menú emergente de mención (@) agrupado por departamento */}
+          {menuTipo === 'mencion' && miembrosPlana.length > 0 && (
             <div
               style={{
                 position: 'absolute',
-                bottom: 'calc(100% + 4px)',
+                bottom: 'calc(100% + 6px)',
                 left: 0,
                 right: 0,
                 background: 'var(--surface-2, #2b3038)',
                 border: '1px solid var(--border-strong, #434a56)',
                 borderRadius: 8,
-                boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.45))',
-                maxHeight: 180,
+                boxShadow: 'var(--shadow-lg, 0 12px 28px rgba(0,0,0,0.5))',
+                maxHeight: 230,
                 overflowY: 'auto',
-                zIndex: 60,
+                zIndex: 100,
                 padding: '4px',
               }}
             >
-              <div className="muted" style={{ fontSize: '.68rem', padding: '3px 8px', fontWeight: 600 }}>
-                Mencionar a:
+              <div
+                style={{
+                  fontSize: '.68rem',
+                  padding: '4px 8px 3px',
+                  fontWeight: 700,
+                  color: 'var(--text-muted)',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>Mencionar a (prioridad {ctxModulo}):</span>
+                <span style={{ fontSize: '.64rem', color: 'var(--primary, #ff8a00)' }}>Solo activos</span>
               </div>
-              {miembrosFiltrados.map((m, idx) => (
-                <div
-                  key={m.email}
-                  onClick={() => insertarSugerencia(m.nombre, true)}
-                  onMouseEnter={() => setMenuIndex(idx)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '5px 8px',
-                    borderRadius: 5,
-                    cursor: 'pointer',
-                    background: idx === menuIndex ? 'rgba(255,138,0,.15)' : 'transparent',
-                    color: idx === menuIndex ? 'var(--primary, #ff8a00)' : 'inherit',
-                    fontSize: '.8rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span
-                      style={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: '50%',
-                        background: 'rgba(255,138,0,.2)',
-                        color: 'var(--primary, #ff8a00)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '.66rem',
-                        fontWeight: 700,
-                      }}
-                    >
-                      @
-                    </span>
-                    <span style={{ fontWeight: 600 }}>{m.nombre}</span>
+
+              {miembrosAgrupados.map(([depto, usuarios]) => (
+                <div key={depto} style={{ marginTop: '4px' }}>
+                  <div
+                    style={{
+                      fontSize: '.64rem',
+                      fontWeight: 800,
+                      color: depto === 'COMPRAS' || depto === 'TESORERIA' ? 'var(--primary-2, #ffa733)' : 'var(--text-dim, #6a7585)',
+                      padding: '3px 8px 1px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>{depto}</span>
+                    <span style={{ opacity: 0.7 }}>{usuarios.length}</span>
                   </div>
-                  <span className="muted" style={{ fontSize: '.7rem' }}>{m.email}</span>
+
+                  {usuarios.map((m) => {
+                    const itemIdx = miembrosPlana.indexOf(m);
+                    const seleccionado = itemIdx === menuIndex;
+                    return (
+                      <div
+                        key={m.email}
+                        onClick={() => insertarSugerencia(m.nombre, true)}
+                        onMouseEnter={() => itemIdx !== -1 && setMenuIndex(itemIdx)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '5px 8px',
+                          borderRadius: 5,
+                          cursor: 'pointer',
+                          background: seleccionado ? 'rgba(255,138,0,.15)' : 'transparent',
+                          color: seleccionado ? 'var(--primary, #ff8a00)' : 'inherit',
+                          fontSize: '.8rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              width: 18,
+                              height: 18,
+                              borderRadius: '50%',
+                              background: seleccionado ? 'var(--primary, #ff8a00)' : 'rgba(255,138,0,.2)',
+                              color: seleccionado ? '#1c1f24' : 'var(--primary, #ff8a00)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '.66rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            @
+                          </span>
+                          <span style={{ fontWeight: 600 }}>{m.nombre}</span>
+                        </div>
+                        <span className="muted" style={{ fontSize: '.7rem' }}>{m.email}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
@@ -545,16 +801,16 @@ export function ChatOrden({
             <div
               style={{
                 position: 'absolute',
-                bottom: 'calc(100% + 4px)',
+                bottom: 'calc(100% + 6px)',
                 left: 0,
                 right: 0,
                 background: 'var(--surface-2, #2b3038)',
                 border: '1px solid var(--border-strong, #434a56)',
                 borderRadius: 8,
-                boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.45))',
-                maxHeight: 180,
+                boxShadow: 'var(--shadow-lg, 0 12px 28px rgba(0,0,0,0.5))',
+                maxHeight: 200,
                 overflowY: 'auto',
-                zIndex: 60,
+                zIndex: 100,
                 padding: '4px',
               }}
             >
@@ -583,14 +839,15 @@ export function ChatOrden({
                     {r.startsWith('OC-') ? 'Orden de Compra' :
                      r.startsWith('SP-') ? 'Solicitud de Pedido' :
                      r.startsWith('CS-') ? 'Control de Servicio' :
-                     r.startsWith('SS-') ? 'Solicitud de Servicio' : 'Referencia'}
+                     r.startsWith('SS-') ? 'Solicitud de Servicio' :
+                     r.startsWith('GF-') ? 'Gasto Fijo (Administración)' : 'Referencia'}
                   </span>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Área de texto sin borde integrado */}
+          {/* Área de texto integrada */}
           <textarea
             ref={textareaRef}
             rows={2}
@@ -608,7 +865,7 @@ export function ChatOrden({
               minHeight: '42px',
               maxHeight: '120px',
             }}
-            placeholder="Escribe un mensaje… (@ para mencionar, # para referenciar)"
+            placeholder="Escribe un mensaje… (@ para mencionar por departamento, # para referenciar)"
             value={texto}
             onChange={handleTextoChange}
             onKeyDown={handleKeyDown}
@@ -617,7 +874,7 @@ export function ChatOrden({
             disabled={enviando}
           />
 
-          {/* Barra inferior integrada con herramientas y botón Enviar */}
+          {/* Barra inferior integrada */}
           <div
             style={{
               display: 'flex',
@@ -701,7 +958,7 @@ export function ChatOrden({
               </button>
               <button
                 type="button"
-                title="Referenciar orden (#OC, #SP, #CS, #SS)"
+                title="Referenciar orden (#OC, #SP, #CS, #SS, #GF)"
                 onClick={dispararReferencia}
                 style={{
                   ...actionBtnStyle,
@@ -717,7 +974,7 @@ export function ChatOrden({
               </button>
             </div>
 
-            {/* Botón Enviar integrado */}
+            {/* Botón Enviar */}
             <button
               type="button"
               className="btn btn-primary btn-sm"

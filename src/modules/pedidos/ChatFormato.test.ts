@@ -9,6 +9,12 @@ import {
   extraerMenciones,
   resolverDestinatariosMenciones,
 } from './chatMenciones';
+import {
+  normalizarDepartamento,
+  ordenarDepartamentos,
+  formatearFaseOrden,
+  inferirTipoOperacion,
+} from './ChatOrden';
 
 describe('ChatFormato · Bloques y sintaxis estilo WhatsApp / Slack / Telegram', () => {
   it('parsea listas con viñetas (-, •, *) correctamente', () => {
@@ -83,12 +89,13 @@ describe('ChatFormato · Inline Tokenizer', () => {
 });
 
 describe('ChatFormato · Referencias (#) y Exclusiones requeridas', () => {
-  it('valida referencias admitidas (#OC, #SP, #CS, #SS)', () => {
+  it('valida referencias admitidas (#OC, #SP, #CS, #SS, #GF)', () => {
     expect(esReferenciaValida('#OC-2026-0041')).toBe(true);
     expect(esReferenciaValida('OC-2026-0041')).toBe(true);
     expect(esReferenciaValida('#SP-2026-0010')).toBe(true);
     expect(esReferenciaValida('#CS-2026-0005')).toBe(true);
     expect(esReferenciaValida('#SS-2026-0002')).toBe(true);
+    expect(esReferenciaValida('#GF-2026-0001')).toBe(true);
   });
 
   it('REQUISITO CRÍTICO: Excluye compras directas (#CD-...) y servicios directos (#SD-...)', () => {
@@ -117,6 +124,7 @@ describe('ChatFormato · Referencias (#) y Exclusiones requeridas', () => {
     expect(etiquetaTipoReferencia('#SP-001')).toBe('Solicitud de Pedido');
     expect(etiquetaTipoReferencia('#CS-001')).toBe('Control de Servicio');
     expect(etiquetaTipoReferencia('#SS-001')).toBe('Solicitud de Servicio');
+    expect(etiquetaTipoReferencia('#GF-001')).toBe('Gasto Fijo (Administración)');
   });
 });
 
@@ -147,5 +155,54 @@ describe('chatMenciones · Menciones (@) y resolución de personas', () => {
         expect.objectContaining({ email: 'touchgolden1127@gmail.com', nombre: 'JESUS LOZADA' }),
       ])
     );
+  });
+});
+
+describe('ChatOrden · Inteligencia contextual y clasificación departamental', () => {
+  it('normaliza departamentos correctamente por nombre e inferencia de correo', () => {
+    expect(normalizarDepartamento('Compras y Adquisiciones')).toBe('COMPRAS');
+    expect(normalizarDepartamento('Tesorería y Finanzas')).toBe('TESORERIA');
+    expect(normalizarDepartamento('Administración')).toBe('ADMINISTRACION');
+    expect(normalizarDepartamento(null, 'analista1mgg@gmail.com')).toBe('COMPRAS');
+    expect(normalizarDepartamento(null, 'jhzgcontabilidad@gmail.com')).toBe('TESORERIA');
+    expect(normalizarDepartamento(null, 'edinsontrabajogt@gmail.com')).toBe('ADMINISTRACION');
+    expect(normalizarDepartamento(null, 'touchgolden1127@gmail.com')).toBe('DIRECTIVA');
+  });
+
+  it('ordena departamentos según el contexto: Compras primero para compras, Tesorería primero para tesorería', () => {
+    const deptos = ['ADMINISTRACION', 'TESORERIA', 'ALMACEN', 'COMPRAS'];
+
+    // En contexto Compras: COMPRAS va primero, luego TESORERIA, luego ADMINISTRACION
+    const ordCompras = ordenarDepartamentos(deptos, 'compras');
+    expect(ordCompras[0]).toBe('COMPRAS');
+    expect(ordCompras[1]).toBe('TESORERIA');
+    expect(ordCompras[2]).toBe('ADMINISTRACION');
+
+    // En contexto Tesorería: TESORERIA va primero, luego COMPRAS, luego ADMINISTRACION
+    const ordTesoreria = ordenarDepartamentos(deptos, 'tesoreria');
+    expect(ordTesoreria[0]).toBe('TESORERIA');
+    expect(ordTesoreria[1]).toBe('COMPRAS');
+    expect(ordTesoreria[2]).toBe('ADMINISTRACION');
+
+    // En contexto Administración: ADMINISTRACION va primero, luego TESORERIA, luego COMPRAS
+    const ordAdmin = ordenarDepartamentos(deptos, 'administracion');
+    expect(ordAdmin[0]).toBe('ADMINISTRACION');
+    expect(ordAdmin[1]).toBe('TESORERIA');
+    expect(ordAdmin[2]).toBe('COMPRAS');
+  });
+
+  it('formatea la fase operativa en texto legible', () => {
+    expect(formatearFaseOrden('enviada_revision_almacen')).toBe('Revisión Almacén');
+    expect(formatearFaseOrden('pendiente_aprobacion')).toBe('Por Aprobar');
+    expect(formatearFaseOrden('aprobada')).toBe('Aprobada');
+    expect(formatearFaseOrden('pendiente_pago')).toBe('Por Pagar');
+    expect(formatearFaseOrden('pagada')).toBe('Pagada');
+  });
+
+  it('infiere el tipo de operación según el código', () => {
+    expect(inferirTipoOperacion('SP-2026-0561')).toBe('Solicitud de Pedido');
+    expect(inferirTipoOperacion('OC-2026-0041')).toBe('Orden de Compra');
+    expect(inferirTipoOperacion('CS-2026-0010')).toBe('Control de Servicio');
+    expect(inferirTipoOperacion('GF-2026-0001')).toBe('Gasto Fijo');
   });
 });

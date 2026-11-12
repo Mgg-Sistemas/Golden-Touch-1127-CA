@@ -4052,7 +4052,14 @@ function OrdenDetailModal({
       })()}
 
       <div style={{ marginTop: '1.25rem' }}>
-        <ChatOrden ordenId={o.id} ordenLabel={o.oc_codigo ?? o.codigo} autorNombre={persona(actorEmail, personaMap)} />
+        <ChatOrden
+          ordenId={o.id}
+          ordenLabel={o.oc_codigo ?? o.codigo}
+          autorNombre={persona(actorEmail, personaMap)}
+          contextoModulo="compras"
+          fase={o.estado}
+          tipoOperacion={isOcCreada ? 'Orden de Compra' : o.tipo === 'servicio' ? 'Servicio' : 'Solicitud de Pedido'}
+        />
       </div>
 
       <h4 style={{ marginTop: '1.25rem' }}>Historial</h4>

@@ -46,7 +46,7 @@ export function esReferenciaValida(codigo: string): boolean {
   const limpio = codigo.replace(/^#/, '').toUpperCase();
   // Excluir compras directas y servicios directos
   if (limpio.startsWith('CD-') || limpio.startsWith('SD-')) return false;
-  return /^(?:OC|SP|CS|SS)-[0-9A-Z-]+$/i.test(limpio);
+  return /^(?:OC|SP|CS|SS|GF)-[0-9A-Z-]+$/i.test(limpio);
 }
 
 /** Devuelve la etiqueta humana del tipo de referencia */
@@ -56,6 +56,7 @@ export function etiquetaTipoReferencia(codigo: string): string {
   if (norm.startsWith('SP-')) return 'Solicitud de Pedido';
   if (norm.startsWith('CS-')) return 'Control de Servicio';
   if (norm.startsWith('SS-')) return 'Solicitud de Servicio';
+  if (norm.startsWith('GF-')) return 'Gasto Fijo (Administración)';
   return 'Operación';
 }
 
@@ -220,7 +221,7 @@ export function tokenizeInline(text: string, knownNames: string[] = NOMBRES_CONO
     { type: 'code' as TokenType, regex: /^`([^`]+)`/ },
     { type: 'url' as TokenType, regex: /^(https?:\/\/[^\s<]+)/i },
     // Solo referencias permitidas; CD- y SD- no entran aquí
-    { type: 'ref' as TokenType, regex: /^#((?:OC|SP|CS|SS|oc|sp|cs|ss)-[0-9A-Za-z-]+)\b/ },
+    { type: 'ref' as TokenType, regex: /^#((?:OC|SP|CS|SS|GF|oc|sp|cs|ss|gf)-[0-9A-Za-z-]+)\b/ },
     {
       type: 'mention' as TokenType,
       regex: new RegExp(

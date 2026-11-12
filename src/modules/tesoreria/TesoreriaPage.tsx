@@ -7200,7 +7200,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
 
       {/* Chat interno con Compras (mismo hilo que la OC en Pedidos): coordinar el método
           de pago / aclarar la orden sin salir de Tesorería. */}
-      <ChatOrden ordenId={o.id} ordenLabel={o.oc_codigo ?? o.codigo} autorNombre={actorName ?? actor} />
+      <ChatOrden
+        ordenId={o.id}
+        ordenLabel={o.oc_codigo ?? o.codigo}
+        autorNombre={actorName ?? actor}
+        contextoModulo="tesoreria"
+        fase={o.estado}
+        tipoOperacion={o.oc_codigo ? 'Orden de Compra' : o.tipo === 'servicio' ? 'Servicio' : 'Orden'}
+      />
 
       {whatsappModal && (
         <Modal
