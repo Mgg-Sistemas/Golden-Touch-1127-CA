@@ -11,7 +11,7 @@
 
 import type { DriveConciliacion, FilaConciliacion } from './conciliacion';
 import { r2 } from './conciliacion';
-import { parseMontoBs, mismaReferencia } from './cruceDrive';
+import { parseMontoBs, mismaReferencia, type SheetToJsonFn } from './cruceDrive';
 import type { Orden } from '@/shared/lib/types';
 import { supabase } from '@/shared/lib/supabase';
 import {
@@ -615,6 +615,45 @@ export function extraerEntradasDrive(
   }
 
   return resultado;
+}
+
+/**
+ * Extrae entradas / reintegros de retención de todas las hojas del libro Excel:
+ * - Itera por todas las hojas con datos.
+ * - Deduplica entradas repetidas entre hojas diarias y la hoja consolidada.
+ */
+export function extraerEntradasWorkbookDrive(
+  wb: { SheetNames: string[]; Sheets: Record<string, unknown> },
+  filasSalidas: FilaConciliacion[] = [],
+  utilSheetToJson?: SheetToJsonFn,
+): FilaConciliacionEntrada[] {
+  if (!wb || !Array.isArray(wb.SheetNames)) return [];
+  const util: SheetToJsonFn = utilSheetToJson ?? (() => []);
+  const todas: FilaConciliacionEntrada[] = [];
+
+  for (const n of wb.SheetNames) {
+    const ws = wb.Sheets[n];
+    if (!ws) continue;
+    const m: unknown[][] = util(ws, { header: 1, raw: true, defval: '' });
+    if (!Array.isArray(m) || !m.length) continue;
+    const ent = extraerEntradasDrive(m, filasSalidas);
+    todas.push(...ent);
+  }
+
+  // Deduplicación por código OC + referencia + monto:
+  const vistas = new Set<string>();
+  const unicas: FilaConciliacionEntrada[] = [];
+  for (const e of todas) {
+    const cod = (e.codigoOc || '').trim().toUpperCase();
+    const ref = (e.referencia || '').trim().replace(/^0+/, '');
+    const monto = e.montoBs != null ? Math.round(e.montoBs * 100) : null;
+    const clave = `${cod}|${ref}|${monto}`;
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    unicas.push(e);
+  }
+
+  return unicas.map((e, idx) => ({ ...e, item: idx + 1 }));
 }
 
 /* ─────────────── Indicadores de Entradas ─────────────── */

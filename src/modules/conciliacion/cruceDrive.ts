@@ -157,6 +157,8 @@ export interface FilaArchivoDrive {
   cuenta?: string;
   origen?: string;
   destino?: string;
+  /** Hoja del Excel de donde salió la fila (libros con varias hojas). */
+  hoja?: string;
 }
 
 export interface LecturaDrive {
@@ -164,6 +166,8 @@ export interface LecturaDrive {
   columnas: ColumnasDrive;
   encabezados: string[];
   filas: FilaArchivoDrive[];
+  /** Hojas del Excel que se leyeron (con al menos un movimiento). */
+  hojas?: string[];
 }
 
 /* ─────────────── Detección de Tipo de Archivo ─────────────── */
@@ -469,10 +473,40 @@ function repartirMontos(
 /**
  * Extrae los movimientos válidos de Golden Touch a partir de un archivo Libro Mayor / Caja del Drive.
  */
-export function extraerMovimientosLibroMayor(matriz: unknown[][], filasConciliacion: FilaConciliacion[] = []): FilaArchivoDrive[] {
+/**
+ * Columna «Nombre @ Descripción» buscada en el encabezado y en las 3 filas siguientes:
+ * en las hojas diarias «TASA DE BS dd-mm-aa» ese rótulo está en la fila 2, no en la 1.
+ */
+function columnaNombreDescripcion(matriz: unknown[][], inicio: number): number {
+  for (let i = inicio; i <= Math.min(matriz.length - 1, inicio + 3); i++) {
+    const idx = (matriz[i] ?? []).findIndex((c) => {
+      const k = claveEncabezado(c);
+      return k.includes('nombredescripcion') || k === 'nombreydescripcion';
+    });
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+/** Fecha (AAAA-MM-DD) del nombre de la hoja: «TASA DE BS 12-11-26» → 2026-11-12. */
+export function fechaDeNombreHoja(nombre: string): string {
+  const m = String(nombre ?? '').match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+  if (!m) return '';
+  const [, d, mes, a] = m;
+  const anio = a.length === 2 ? `20${a}` : a;
+  return `${anio}-${mes.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
+export function extraerMovimientosLibroMayor(
+  matriz: unknown[][],
+  filasConciliacion: FilaConciliacion[] = [],
+  opciones: { fechaHoja?: string } = {},
+): FilaArchivoDrive[] {
   const inicio = encontrarFilaEncabezadosLibroMayor(matriz);
   if (inicio < 0) return [];
   const cols = detectarColumnasLibroMayor(matriz[inicio] ?? []);
+  const colNombreDesc = columnaNombreDescripcion(matriz, inicio);
+  if (colNombreDesc >= 0) cols.descripcion = colNombreDesc;
   const salida: FilaArchivoDrive[] = [];
 
   for (let i = inicio + 1; i < matriz.length; i++) {
@@ -489,7 +523,8 @@ export function extraerMovimientosLibroMayor(matriz: unknown[][], filasConciliac
     const textoBanco = cols.banco >= 0 ? texto(r[cols.banco]) : '';
     const textoMov = cols.movimiento >= 0 ? texto(r[cols.movimiento]) : '';
     const fechaRaw = cols.fecha >= 0 ? r[cols.fecha] : '';
-    const fecha = normalizarFechaDrive(fechaRaw);
+    const fechaCelda = normalizarFechaDrive(fechaRaw);
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(fechaCelda) ? fechaCelda : (opciones.fechaHoja || fechaCelda);
 
     const filtro = esFilaGoldenTouch({
       desde: textoDesde, hacia: textoHacia, moneda: textoMoneda,
@@ -659,6 +694,119 @@ export function leerMatrizDrive(matriz: unknown[][], filasConciliacion: FilaConc
   return { tipo: 'estandar', columnas, encabezados: (matriz[inicio] ?? []).map((x) => texto(x)), filas };
 }
 
+export type SheetToJsonFn = (ws: unknown, o?: unknown) => unknown[][];
+
+/**
+ * Lee un libro completo de Excel procesando todas sus hojas con datos:
+ * - Procesa hojas de Libro Mayor (consolidadas o diarias tipo «TASA DE BS dd-mm-aa»).
+ * - Procesa hojas estándar con columnas OC / Referencia / Monto.
+ * - Deduplica movimientos repetidos entre hojas diarias y la consolidada (por referencia + monto).
+ * - Registra la lista de hojas procesadas en `hojas`.
+ */
+export function leerWorkbookDrive(
+  wb: { SheetNames: string[]; Sheets: Record<string, unknown> },
+  filasConciliacion: FilaConciliacion[] = [],
+  utilSheetToJson?: SheetToJsonFn,
+): LecturaDrive {
+  const util: SheetToJsonFn = utilSheetToJson ?? (() => []);
+
+  const todasFilas: FilaArchivoDrive[] = [];
+  const hojasLeidas: string[] = [];
+  let primerEncabezado: string[] = [];
+  let primerasCols: ColumnasDrive = { oc: -1, referencia: -1, monto: -1 };
+  let tipoDetectado: TipoArchivoDrive = 'desconocido';
+
+  for (const n of wb.SheetNames) {
+    const ws = wb.Sheets[n];
+    if (!ws) continue;
+    const m: unknown[][] = util(ws, { header: 1, raw: true, defval: '' });
+    if (!Array.isArray(m) || !m.length) continue;
+
+    const tipo = detectarTipoArchivoDrive(m);
+    if (tipo === 'libro_mayor') {
+      tipoDetectado = 'libro_mayor';
+      const fechaHoja = fechaDeNombreHoja(n);
+      const movs = extraerMovimientosLibroMayor(m, filasConciliacion, { fechaHoja });
+      if (movs.length > 0) {
+        hojasLeidas.push(n);
+        for (const mov of movs) {
+          todasFilas.push({ ...mov, hoja: n });
+        }
+        if (!primerEncabezado.length) {
+          const inicio = encontrarFilaEncabezadosLibroMayor(m);
+          if (inicio >= 0) {
+            primerEncabezado = (m[inicio] ?? []).map((x: unknown) => texto(x));
+            const c = detectarColumnasLibroMayor(m[inicio] ?? []);
+            primerasCols = {
+              oc: c.descripcion >= 0 ? c.descripcion : c.banco,
+              referencia: c.referencia >= 0 ? c.referencia : (c.descripcion >= 0 ? c.descripcion : c.banco),
+              monto: c.monto >= 0 ? c.monto : (c.montoSalidas >= 0 ? c.montoSalidas : c.montoEntradas),
+            };
+          }
+        }
+      }
+    } else if (tipo === 'estandar') {
+      if (tipoDetectado === 'desconocido') tipoDetectado = 'estandar';
+      try {
+        const lect = leerMatrizDrive(m, filasConciliacion);
+        if (lect.filas.length > 0) {
+          hojasLeidas.push(n);
+          for (const f of lect.filas) {
+            todasFilas.push({ ...f, hoja: n });
+          }
+          if (!primerEncabezado.length) {
+            primerEncabezado = lect.encabezados;
+            primerasCols = lect.columnas;
+          }
+        }
+      } catch {
+        // Ignorar hojas estándar sin columnas completas
+      }
+    }
+  }
+
+  // Si ninguna hoja se reconoció por tipo, intentar con la primera que tenga datos:
+  if (!todasFilas.length) {
+    for (const n of wb.SheetNames) {
+      const ws = wb.Sheets[n];
+      const m: unknown[][] = util(ws, { header: 1, raw: true, defval: '' });
+      if (Array.isArray(m) && m.length > 0) {
+        return leerMatrizDrive(m, filasConciliacion);
+      }
+    }
+    throw new Error('El Excel no tiene hojas con datos reconocibles de gastos o conciliación.');
+  }
+
+  // Deduplicación inteligente: si un movimiento con misma referencia y montoBs
+  // ya fue cargado (por ejemplo en la hoja diaria y en la consolidada), no duplicarlo.
+  const vistas = new Set<string>();
+  const unicas: FilaArchivoDrive[] = [];
+  for (const r of todasFilas) {
+    const refNorm = (r.referencia || '').trim().replace(/^0+/, '');
+    const montoNorm = r.montoBs != null ? Math.round(r.montoBs * 100) : null;
+    const ocNorm = (r.oc || '').trim().toUpperCase();
+
+    if (refNorm && montoNorm != null) {
+      const clave = `ref:${refNorm}|monto:${montoNorm}`;
+      if (vistas.has(clave)) continue;
+      vistas.add(clave);
+    } else if (ocNorm && montoNorm != null) {
+      const clave = `oc:${ocNorm}|monto:${montoNorm}`;
+      if (vistas.has(clave)) continue;
+      vistas.add(clave);
+    }
+    unicas.push(r);
+  }
+
+  return {
+    tipo: tipoDetectado,
+    columnas: primerasCols,
+    encabezados: primerEncabezado,
+    filas: unicas,
+    hojas: hojasLeidas,
+  };
+}
+
 /* ─────────────── Cruce ─────────────── */
 
 /**
@@ -722,6 +870,8 @@ export interface CruceDrive {
   ignoradas: number;
   errorPorColumna: Record<string, number>;
   filas: FilaCruce[];
+  /** Hojas del Excel procesadas (libros con múltiples hojas). */
+  hojas?: string[];
   /** Resultado por documento (clave origen:id), lo que se guarda en la columna DRIVE. */
   porDoc: Map<string, { origen: OrigenDoc; ordenId: string; codigo: string; estado: EstadoDrive; detalle: string }>;
   /** Como en Inventario: Error = hay filas con error y no se aplica. */
@@ -762,10 +912,10 @@ function buscarDoc(f: FilaArchivoDrive, porCodigo: Map<string, FilaConciliacion>
 }
 
 /** Cruza las filas del archivo con las de Conciliación. */
-export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaConciliacion[], tol = TOLERANCIA_BS): CruceDrive {
-  // Solo se cruzan las órdenes que fueron pagadas en Bs (o pendientes en Bs).
-  // Si la orden fue pagada en USD/divisas, Tesorería no la debita en Bs y no se cruza en este extracto:
-  const filasCruzables = filas.filter((r) => r.monedaPago !== 'USD');
+export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'> & { hojas?: string[] }, filas: FilaConciliacion[], tol = TOLERANCIA_BS): CruceDrive {
+  // Regla contable: solo se cruzan las órdenes que estén PAGADAS por Tesorería en el sistema (r.pagada === true)
+  // y que hayan sido pagadas en Bolívares (las órdenes pagadas en USD/divisas o sin pagar no se cruzan contra el banco):
+  const filasCruzables = filas.filter((r) => r.pagada && r.monedaPago !== 'USD');
   const porCodigo = new Map(filasCruzables.map((r) => [normCodigo(r.codigo), r]));
   const errorPorColumna: Record<string, number> = {};
   const salida: FilaCruce[] = [];
@@ -857,7 +1007,7 @@ export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaCon
   return {
     total: salida.filter((f) => f.resultado !== 'ignorada').length,
     cuadran: cuenta('cuadra'), noCuadran, noEncontradas, conError, ignoradas: cuenta('ignorada'),
-    errorPorColumna, filas: salida, porDoc,
+    errorPorColumna, filas: salida, hojas: lectura.hojas, porDoc,
     estado: conError > 0 ? 'Error' : noCuadran > 0 || noEncontradas > 0 ? 'Con observaciones' : 'Validado',
   };
 }

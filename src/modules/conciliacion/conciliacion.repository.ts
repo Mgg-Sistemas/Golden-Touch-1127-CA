@@ -30,7 +30,10 @@ import {
   type ArchivoNota, type ComprobanteTesoreria, type DocDirecto, type DriveConciliacion, type EstadoDrive, type FilaConciliacion,
   type NotaConciliacion, type OrigenDoc, type PagoOc, type RetencionLibro,
 } from './conciliacion';
-import { detectarTipoArchivoDrive, leerMatrizDrive, parsearCsv, type CruceDrive, type LecturaDrive } from './cruceDrive';
+import {
+  leerMatrizDrive, leerWorkbookDrive, parsearCsv,
+  type CruceDrive, type LecturaDrive,
+} from './cruceDrive';
 
 export interface DatosConciliacion {
   filas: FilaConciliacion[];
@@ -352,36 +355,20 @@ export async function leerArchivoDrive(file: File, filasConciliacion: FilaConcil
   if (!EXT_DRIVE[ext]) throw new Error(`«${file.name}» no es CSV ni Excel (.csv, .xlsx o .xls).`);
   if (file.size > 10 * 1024 * 1024) throw new Error(`«${file.name}» supera los 10 MB.`);
   if (!file.size) throw new Error(`«${file.name}» está vacío.`);
-  let matriz: unknown[][];
   if (ext === 'csv') {
     const buf = await file.arrayBuffer();
     let texto = new TextDecoder('utf-8').decode(buf);
     // Un CSV guardado desde Excel en Windows suele venir en ANSI: los acentos salen rotos en UTF-8.
     if (texto.includes('\uFFFD')) texto = new TextDecoder('windows-1252').decode(buf);
-    matriz = parsearCsv(texto);
+    const matriz = parsearCsv(texto);
+    if (!matriz.length) throw new Error('El archivo no tiene filas.');
+    return leerMatrizDrive(matriz, filasConciliacion);
   } else {
     const XLSX = await import('xlsx-js-style');
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
     const util = XLSX.utils as unknown as { sheet_to_json: <T>(ws: unknown, o?: unknown) => T[] };
-    let seleccionada: unknown[][] | null = null;
-    for (const n of wb.SheetNames) {
-      const ws = wb.Sheets[n];
-      const m = util.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' });
-      if (m.length > 0 && detectarTipoArchivoDrive(m) !== 'desconocido') {
-        seleccionada = m;
-        break;
-      }
-    }
-    if (seleccionada) {
-      matriz = seleccionada;
-    } else {
-      const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
-      if (!hoja) throw new Error('El Excel no tiene hojas con datos.');
-      matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
-    }
+    return leerWorkbookDrive(wb, filasConciliacion, util.sheet_to_json);
   }
-  if (!matriz.length) throw new Error('El archivo no tiene filas.');
-  return leerMatrizDrive(matriz, filasConciliacion);
 }
 
 /**

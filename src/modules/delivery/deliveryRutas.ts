@@ -187,6 +187,16 @@ export function urlWaze(p: PuntoMapa | null | undefined): string | null {
   return `https://waze.com/ul?ll=${ll(p)}&navigate=yes`;
 }
 
+/** Navegación directa paso a paso hacia un destino en Google Maps (aprovecha GPS actual como origen si existe). */
+export function urlNavegacionDestino(destino: PuntoMapa | null | undefined, yo: PuntoMapa | null | undefined): string | null {
+  if (!destino || !puntoValido(destino.lat, destino.lng)) return null;
+  const q = new URLSearchParams({ api: '1', destination: ll(destino), travelmode: 'driving' });
+  if (yo && puntoValido(yo.lat, yo.lng)) {
+    q.set('origin', ll(yo));
+  }
+  return `https://www.google.com/maps/dir/?${q.toString()}`;
+}
+
 /** 10/11/2026: la próxima parada del pedido (buscar donde el proveedor / Los Pinos, o entregar). */
 export function siguienteParada(
   p: Pick<PedidoDelivery, 'origen' | 'proveedor_id' | 'proveedor_nombre' | 'almacen_destino' | 'fotos_recibo'>,

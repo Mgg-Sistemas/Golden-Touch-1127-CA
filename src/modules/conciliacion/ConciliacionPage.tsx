@@ -34,11 +34,14 @@ import { FiltroChecks } from '@/shared/ui/FiltroChecks';
 import { ReporteConciliacionModal } from './ReporteConciliacionModal';
 import { CruceDriveModal } from './CruceDriveModal';
 import { leerArchivoDrive } from './conciliacion.repository';
-import { PLANTILLA_DRIVE_CSV, cruzarDrive, detectarTipoArchivoDrive, parsearCsv, type CruceDrive } from './cruceDrive';
+import { PLANTILLA_DRIVE_CSV, cruzarDrive, parsearCsv, type CruceDrive } from './cruceDrive';
 import { toast } from '@/shared/ui/Toast';
 import { ComprobantesPagoModal, FacturasDirectaModal, ReferenciaModal } from './DocumentosConciliacion';
 import { ConciliacionEntradasTab } from './ConciliacionEntradasTab';
-import { cargarOrdenesEsperandoReintegro, extraerEntradasDrive, type FilaConciliacionEntrada } from './conciliacionEntradas';
+import {
+  cargarOrdenesEsperandoReintegro, extraerEntradasDrive, extraerEntradasWorkbookDrive,
+  type FilaConciliacionEntrada,
+} from './conciliacionEntradas';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
 
@@ -117,39 +120,24 @@ export function ConciliacionPage() {
       setDrive({ cruce: cruzarDrive(lectura, filas), archivo: file });
 
       // Carga inteligente de entradas de retención (libro mayor / extracto bancario):
-      let matriz: unknown[][] = [];
       const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+      let entExtraidas: FilaConciliacionEntrada[] = [];
       if (ext === 'csv') {
         const buf = await file.arrayBuffer();
         let texto = new TextDecoder('utf-8').decode(buf);
         if (texto.includes('\uFFFD')) texto = new TextDecoder('windows-1252').decode(buf);
-        matriz = parsearCsv(texto);
+        const matriz = parsearCsv(texto);
+        entExtraidas = extraerEntradasDrive(matriz, filas);
       } else {
         const XLSX = await import('xlsx-js-style');
         const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
         const util = XLSX.utils as unknown as { sheet_to_json: <T>(ws: unknown, o?: unknown) => T[] };
-        let seleccionada: unknown[][] | null = null;
-        for (const n of wb.SheetNames) {
-          const ws = wb.Sheets[n];
-          const m = util.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' });
-          if (m.length > 0 && detectarTipoArchivoDrive(m) !== 'desconocido') {
-            seleccionada = m;
-            break;
-          }
-        }
-        if (seleccionada) {
-          matriz = seleccionada;
-        } else {
-          const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
-          if (hoja) matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
-        }
+        entExtraidas = extraerEntradasWorkbookDrive(wb, filas, util.sheet_to_json);
       }
-      if (matriz.length > 0) {
-        const entExtraidas = extraerEntradasDrive(matriz, filas);
-        if (entExtraidas.length > 0) {
-          await cargarEntradas(entExtraidas);
-          toast(`Se reconocieron ${entExtraidas.length} entradas de reintegro en el archivo`, 'info');
-        }
+      if (entExtraidas.length > 0) {
+        await cargarEntradas(entExtraidas);
+        const cantHojas = lectura.hojas?.length ?? 1;
+        toast(`Se reconocieron ${entExtraidas.length} entradas de reintegro en el archivo (${cantHojas} hoja${cantHojas === 1 ? '' : 's'})`, 'info');
       }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo leer el archivo', 'error');

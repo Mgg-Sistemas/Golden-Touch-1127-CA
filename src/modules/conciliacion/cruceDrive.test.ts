@@ -416,4 +416,20 @@ describe('cruce por código de OC y por referencia', () => {
     // OC-101 es en Bs, así que sí cuadra
     expect(c.porDoc.get('oc:ord101')?.estado).toBe('cuadra');
   });
+
+  it('solo cruza órdenes que estén pagadas por tesorería en el sistema (ignora no pagadas)', () => {
+    const docs = [
+      fila({ codigo: 'OC-2026-0300', ordenId: 'ord300', pagada: false, estado: 'oc_aprobada', estadoLabel: 'Esperando pago', monedaPago: 'Bs', pagadoBs: null, totalBs: 5000 }),
+      fila({ codigo: 'OC-2026-0301', ordenId: 'ord301', pagada: true, estado: 'pagada', estadoLabel: 'Pagada', monedaPago: 'Bs', referencias: ['35999888'], pagadoBs: 5000, totalBs: 5000 }),
+    ];
+    const lectura = leer([
+      ['OC-2026-0300', '', '5.000,00'],
+      ['OC-2026-0301', '35999888', '5.000,00'],
+    ]);
+    const c = cruzarDrive(lectura, docs);
+    // OC-300 no está pagada en el sistema, por lo que NO se cruza ni queda en porDoc:
+    expect(c.porDoc.has('oc:ord300')).toBe(false);
+    // OC-301 sí está pagada por Tesorería, por lo que sí se cruza y cuadra:
+    expect(c.porDoc.get('oc:ord301')?.estado).toBe('cuadra');
+  });
 });

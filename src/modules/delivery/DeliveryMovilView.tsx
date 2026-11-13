@@ -1,210 +1,145 @@
 /* ============================================================
-   Golden Touch · Delivery · Vista de teléfono del motorizado (31/10/2026 · igual que MGG)
-
-   La OC de productos que Tesorería pagó aparece «Por tomar» (en GT entra
-   apenas queda pagada, sin esperar la retención, y solo las OC creadas desde
-   que se encendió el interruptor compras_delivery). El motorizado la ACEPTA (solo uno: si otro se adelantó, la base
-   lo rechaza con su nombre), sube fotos al recibirla del proveedor, la
-   marca EN RUTA y la ENTREGA en el almacén con fotos. Si no puede buscarla
-   la CANCELA con motivo y la OC vuelve a quedar libre. Cada paso termina en
-   su mensaje de WhatsApp, que se copia o se envía con un botón (nada sale
-   solo). Con el pedido tomado puede llamar al analista de Compras que armó
-   la OC y al proveedor, y compartir su ubicación mientras va en curso.
-   Antes de aceptar puede ver el comprobante de pago que adjuntó Tesorería.
-   Mientras la administración no conecte Delivery a Compras, no llegan OC.
-   GT (31/10): cada pedido tomado tiene su reporte en PDF (vista previa) y
-   por WhatsApp.
-   02/11/2026 (pedidos de la usuaria):
-   · RETIRO EN ALMACÉN LOS PINOS: lo que la revisión de Almacén marcó como
-     disponible también llega «Por tomar» (📦, sin comprobante de pago); se
-     retira en Los Pinos (fotos «al retirar en Almacén») y se entrega A la
-     unidad / persona que lo pidió («Entregado a»).
-   · «✓ Aceptar pedido» lo deja directo EN CAMINO y ya no le sale a ningún
-     otro motorizado (solo a quien lo aceptó y en la PC).
-   · «✕ No disponible» pide un motivo, queda guardado, sale su WhatsApp y el
-     pedido sigue libre para los demás (al que lo marcó ya no le sale).
-   · La tarjeta ya no trae la lista de renglones: dice «📦 N productos» y
-     «📋 Ver orden» la despliega (y «Ocultar orden» la pliega).
-   · «Entregado» de una OC la deja RECIBIDA en Inventario (Almacén Los Pinos /
-     General): ya no se elige almacén. Si Almacén la recibió antes por su
-     cuenta, el pedido se cierra («Recibida por Almacén») y sale del teléfono.
+   Golden Touch · Delivery Móvil · Estilo Ridery / Yummy Partner
+   Lienzo nocturno con mapa como protagonista, navegación giro a giro,
+   fases claras con fotos obligatorias y ergonomía a un pulgar.
    ============================================================ */
-import { etiquetaSedeEntrega } from '@/shared/lib/types';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { CANALES_DELIVERY, tituloPantallaCanal, type CanalDelivery } from './delivery';
-import { nombreYApellido, quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
+import { CANALES_DELIVERY, type CanalDelivery } from './delivery';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { Quien } from '@/shared/ui/Quien';
 import {
-  ALMACEN_RETIRO, ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, almacenRecepcion, almacenVisible, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery, destinoRetiro,
-  esRetiroAlmacen, etiquetaEstado, fechaHoraVE, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado,
-  mensajeNoDisponible, montoTxt, motivoNoDisponible, ocDe, type FotoDelivery, type PedidoDelivery, type TipoFotoDelivery, type RechazoDelivery,
+  ALMACEN_RETIRO, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery,
+  esRetiroAlmacen, mensajeCancelado, mensajeEntregado,
+  mensajeNoDisponible, ocDe, type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, compartirUbicacion, fijarLugarDelivery, listPedidosDelivery, listRechazosDelivery, marcarEnRuta, marcarEntregado,
-  rechazarPedido, subirFotosDelivery, tomarPedido, ubicarProveedorDesdeDelivery, urlFotoDelivery, useDeliveryConectado, useUbicacionesRuta,
+  cancelarPedido, compartirUbicacion, listPedidosDelivery, listRechazosDelivery, marcarEnRuta, marcarEntregado,
+  rechazarPedido, tomarPedido, useUbicacionesRuta,
 } from './delivery.repository';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
-import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
-import { previewGaleria } from '@/shared/lib/reportePreview';
-import { parsearCoordenadas } from '@/modules/proveedores/ubicacionProveedor';
-import { textoReportePedido } from './deliveryReporte';
+import { EditarFotosDeliveryModal } from './EditarFotosDelivery';
 import {
-  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, estadoTarjeta, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor, telHref,
-  trabajoEnCurso, tramoEnCurso,
-  type ChipDelivery, type EnvioGps, type PedidoFeed,
+  armarFeed, debeEnviarUbicacion, distanciaMetros, rechazadosPor, telHref,
+  type ChipDelivery, type EnvioGps,
 } from './deliveryMovil';
 import {
-  LUGAR_LOS_PINOS, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, masCercano, ordenarDisponibles, paradasRuta,
-  entregaEnLosPinos, puntoLugar, puntoRecogida, siguienteParada, urlGoogleMapsRuta, yaRecogido, type ParadaRuta, type PuntoMapa, type RutaCalculada,
+  LUGAR_LOS_PINOS, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, ordenarDisponibles, paradasRuta,
+  puntoLugar, puntoRecogida, siguienteParada, urlNavegacionDestino, type PuntoMapa, type RutaCalculada,
 } from './deliveryRutas';
 import { MapaMotorizado, type DestinoMapa } from './MapaMotorizado';
 import { usePosicionGps, type PosicionGps } from './usePosicionGps';
 import './deliveryMovil.css';
 
-/** GT no tiene sedes: el almacén se muestra con su nombre. */
 const nombreAlmacenVisible = (a: string | null | undefined) => (a ?? '').trim() || '—';
-
 export const RUTA_DELIVERY_TELEFONO = '/app/delivery/telefono';
-const CLAVE_GPS = 'gt.deliveryMovil.compartirUbicacion';
 
-const errMsg = (e: unknown, d: string) => {
-  const m = String((e as { message?: string } | null)?.message ?? '').trim();
-  return m || d;
-};
-const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
-const leerGps = () => { try { return localStorage.getItem(CLAVE_GPS) !== '0'; } catch { return true; } };
-const guardarGps = (v: boolean) => { try { localStorage.setItem(CLAVE_GPS, v ? '1' : '0'); } catch { /* sin almacenamiento: vuelve a encendido */ } };
-const cant = (n: number) => (Number(n) || 0).toLocaleString('es-VE', { maximumFractionDigits: 3 });
+const GPS_KEY = 'mgg_delivery_gps_activo';
+const leerGps = () => { try { return localStorage.getItem(GPS_KEY) !== '0'; } catch { return true; } };
+const GPS_VIGENTE_MS = 2 * 60 * 1000;
+const errMsg = (err: unknown, defecto: string) => (err instanceof Error ? err.message : defecto);
 
-const CHIPS: Array<{ key: ChipDelivery; label: string }> = [
-  { key: 'por_tomar', label: '💰 Por tomar' },
-  { key: 'en_ruta', label: '🚚 En camino' },
-  { key: 'entregados', label: '✅ Entregados' },
-];
-
-/** `clave` = orden + origen (la misma SP puede traer su retiro de Almacén y su OC). */
-type Accion = { tipo: 'cancelar' | 'entregar' | 'no_disponible'; clave: string };
-
-export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDelivery } = {}) {
-  // 04/11/2026: la misma pantalla sirve a Carga pesada (su rol solo ve sus pedidos).
-  const cfgCanal = CANALES_DELIVERY[canal];
+export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDelivery }) {
   const { user } = useSession();
-  const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
-  const quienDe = useQuien();
-  const canWrite = can(cfgCanal.modulo, 'escritura');
-  const actor = user?.email ?? 'sistema';
-  const actorName = nombreYApellido(appUser?.nombre, appUser?.apellido) || user?.email || null;
-  const quien = quienDe(null, actor) || actorName || actor;
-  const conectado = useDeliveryConectado();
+  const actor = user?.email ?? 'anon';
+  const actorName = user?.user_metadata?.nombre as string | undefined;
+  const quien = actorName?.trim() || actor;
+  const cfgCanal = CANALES_DELIVERY[canal] ?? CANALES_DELIVERY.delivery;
+  const { can, isAdmin, soloTelefono } = usePermissions();
+  const canWrite = isAdmin || can(cfgCanal.modulo, 'escritura');
 
   const [activos, setActivos] = useState<PedidoDelivery[]>([]);
   const [cerrados, setCerrados] = useState<PedidoDelivery[]>([]);
   const [rechazos, setRechazos] = useState<RechazoDelivery[]>([]);
   const [loading, setLoading] = useState(true);
-  const [chip, setChip] = useState<ChipDelivery>('por_tomar');
-  const [accion, setAccion] = useState<Accion | null>(null);
-  const [listo, setListo] = useState<{ titulo: string; texto: string } | null>(null);
-  const [ocupado, setOcupado] = useState<string | null>(null);
-  const [comprobanteDe, setComprobanteDe] = useState<PedidoDelivery | null>(null);
-  const [modalLlamar, setModalLlamar] = useState(false);
-  const [fotosModalDe, setFotosModalDe] = useState<PedidoDelivery | null>(null);
 
-  // Solo la última carga pinta (el realtime puede disparar varias seguidas).
   const turno = useRef(0);
   const reload = useCallback(async () => {
     const mio = ++turno.current;
-    const [a, c] = await Promise.all([
-      listPedidosDelivery(false, canal),
-      listPedidosDelivery(true, canal).catch(() => [] as PedidoDelivery[]),
-    ]);
-    // Los «No disponible» de lo que está por tomar (lo que yo marqué ya no me sale).
-    const r = await listRechazosDelivery(a.filter((p) => p.estado === 'por_tomar' || p.estado === 'cancelado').map((p) => p.orden_id))
-      .catch(() => [] as RechazoDelivery[]);
-    if (mio !== turno.current) return;
-    setActivos(a);
-    setCerrados(c);
-    setRechazos(r);
+    try {
+      const [a, c] = await Promise.all([
+        listPedidosDelivery(false, canal),
+        listPedidosDelivery(true, canal).catch(() => [] as PedidoDelivery[]),
+      ]);
+      const r = await listRechazosDelivery(
+        a.filter((p) => p.estado === 'por_tomar' || p.estado === 'cancelado').map((p) => p.orden_id),
+      ).catch(() => [] as RechazoDelivery[]);
+      if (mio !== turno.current) return;
+      setActivos(a);
+      setCerrados(c);
+      setRechazos(r);
+    } catch (e) {
+      toast(errMsg(e, 'No se pudieron cargar los pedidos'), 'error');
+    } finally {
+      if (mio === turno.current) setLoading(false);
+    }
   }, [canal]);
 
-  useEffect(() => {
-    let vivo = true;
-    reload().catch((e) => { if (vivo) toast(errMsg(e, 'No se pudieron cargar los pedidos'), 'error'); })
-      .finally(() => { if (vivo) setLoading(false); });
-    return () => { vivo = false; };
-  }, [reload]);
-  useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => { void reload().catch(() => {}); });
-
+  useEffect(() => { void reload(); }, [reload]);
+  useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => { void reload(); });
 
   const uid = user?.id ?? null;
   const feedBase = useMemo(() => armarFeed(activos, cerrados, rechazadosPor(rechazos, uid)), [activos, cerrados, rechazos, uid]);
 
-  /* 03/11/2026 · Mi ubicación, proveedor más cercano y ruta. */
   const gps = usePosicionGps(true);
   const yo = gps.pos;
+
   const idsProveedores = useMemo(() => activos.map((p) => p.proveedor_id), [activos]);
   const { provs, lugares } = useUbicacionesRuta(idsProveedores);
   const losPinos = useMemo(() => puntoLugar(lugares, LUGAR_LOS_PINOS), [lugares]);
-  // Distancia de donde estoy a donde se busca cada pedido (proveedor o Los Pinos).
-  const distancias = useMemo(() => {
-    const m = new Map<string, number | null>();
-    for (const f of feedBase) {
-      const punto = puntoRecogida(f.p, provs, losPinos);
-      m.set(claveDelivery(f.p), yo && punto ? distanciaMetros(yo, punto) : null);
-    }
-    return m;
-  }, [feedBase, provs, losPinos, yo]);
-  const distDe = useCallback((p: PedidoDelivery) => distancias.get(claveDelivery(p)) ?? null, [distancias]);
-  // «Por tomar»: urgentes primero y, dentro, del más cercano al más lejano (los disponibles van seguidos en el feed).
+
+  const distDe = useCallback((p: PedidoDelivery) => {
+    if (!yo) return null;
+    const pt = puntoRecogida(p, provs, losPinos);
+    return pt ? distanciaMetros(yo, pt) : null;
+  }, [yo, provs, losPinos]);
+
   const feed = useMemo(() => {
     const orden = ordenarDisponibles(feedBase.filter((f) => f.disponible), (f) => distDe(f.p));
     let i = 0;
     return feedBase.map((f) => (f.disponible ? orden[i++] : f));
   }, [feedBase, distDe]);
-  const cercano = useMemo(() => masCercano(feed.filter((f) => f.disponible).map((f) => ({ item: f, metros: distDe(f.p) }))), [feed, distDe]);
-  // Proveedores con OC por tomar en el mapa (uno por proveedor; los retiros van en Los Pinos).
-  const destinosMapa = useMemo<DestinoMapa[]>(() => {
-    const porProv = new Map<string, DestinoMapa>();
-    for (const f of feed) {
-      if (!f.disponible || esRetiroAlmacen(f.p) || !f.p.proveedor_id || porProv.has(f.p.proveedor_id)) continue;
-      const punto = provs.get(f.p.proveedor_id);
-      if (!punto) continue;
-      porProv.set(f.p.proveedor_id, {
-        clave: claveDelivery(f.p), nombre: f.p.proveedor_nombre ?? 'Proveedor', punto, metros: distDe(f.p),
-        cercano: !!cercano && cercano.item.p.proveedor_id === f.p.proveedor_id && !esRetiroAlmacen(cercano.item.p),
-      });
-    }
-    return [...porProv.values()];
-  }, [feed, provs, distDe, cercano]);
 
-  const visibles = useMemo(() => feed.filter((f) => enChip(f, chip)), [feed, chip]);
-  const cuenta = useMemo(() => Object.fromEntries(CHIPS.map((c) => [c.key, feed.filter((f) => enChip(f, c.key)).length])) as Record<ChipDelivery, number>, [feed]);
-  const enCurso = trabajoEnCurso(feed);
+  const enCurso = useMemo(
+    () => feed.find((f) => !f.disponible && f.p.es_mio && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta'))?.p ?? null,
+    [feed],
+  );
 
-  // Ruta: la que se eligió con «🧭 Ver ruta» o, si no, la del pedido en curso.
+  // Pestaña actual en bandeja (cuando no hay carrera en curso)
+  const [tab, setTab] = useState<'por_tomar' | 'entregados'>('por_tomar');
+  const [expandido, setExpandido] = useState(false);
+
+  // Modales
+  const [accion, setAccion] = useState<{ tipo: 'cancelar' | 'entregar' | 'no_disponible'; clave: string } | null>(null);
+  const [listo, setListo] = useState<{ titulo: string; texto: string } | null>(null);
+  const [fotosModalDe, setFotosModalDe] = useState<PedidoDelivery | null>(null);
+  const [comprobanteDe, setComprobanteDe] = useState<PedidoDelivery | null>(null);
+  const [modalLlamar, setModalLlamar] = useState(false);
+  const [modalGpsInfo, setModalGpsInfo] = useState(false);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+
+  // Ruta seleccionada en el mapa
   const [rutaClave, setRutaClave] = useState<string | null>(null);
-  const [rutaOculta, setRutaOculta] = useState(false);
-  const claveRutaActiva = rutaClave ?? (!rutaOculta && enCurso ? claveDelivery(enCurso) : null);
+  const claveRutaActiva = rutaClave ?? (enCurso ? claveDelivery(enCurso) : null);
   const feedRuta = claveRutaActiva ? feed.find((f) => claveDelivery(f.p) === claveRutaActiva) ?? null : null;
-  // Lo entregado o cancelado ya no lleva ruta.
   const pedidoRuta = feedRuta && (feedRuta.disponible || feedRuta.p.estado === 'aceptado' || feedRuta.p.estado === 'en_ruta') ? feedRuta.p : null;
-  // El punto de partida solo se mueve al andar más de 400 m (no se le pide a OSRM a cada paso).
+
   const [yoRuta, setYoRuta] = useState<PuntoMapa | null>(null);
   useEffect(() => {
     if (!yo) return;
     setYoRuta((prev) => (!prev || distanciaMetros(prev, yo) > RECALCULAR_RUTA_M ? { lat: yo.lat, lng: yo.lng } : prev));
   }, [yo]);
+
   const paradas = useMemo(() => (pedidoRuta ? paradasRuta(pedidoRuta, yoRuta, provs, losPinos) : []), [pedidoRuta, yoRuta, provs, losPinos]);
   const claveParadas = claveRuta(paradas.map((x) => x.punto));
   const paradasRef = useRef(paradas);
   useEffect(() => { paradasRef.current = paradas; });
+
   const [rutaCalc, setRutaCalc] = useState<{ clave: string; ruta: RutaCalculada } | null>(null);
   useEffect(() => {
     const ps = paradasRef.current;
@@ -213,274 +148,456 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
     void calcularRuta(ps.map((x) => x.punto)).then((r) => { if (vivo) setRutaCalc({ clave: claveParadas, ruta: r }); });
     return () => { vivo = false; };
   }, [claveParadas]);
+
   const rutaVigente = rutaCalc && rutaCalc.clave === claveParadas && paradas.length >= 2 ? rutaCalc.ruta : null;
   const rutaMapa = useMemo(() => (pedidoRuta ? { ruta: rutaVigente, paradas } : null), [pedidoRuta, rutaVigente, paradas]);
 
-  function verRuta(p: PedidoDelivery) {
-    setRutaClave(claveDelivery(p));
-    setRutaOculta(false);
-    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* navegador viejo */ }
-  }
-  function quitarRuta() { setRutaClave(null); setRutaOculta(true); }
-  const accionFeed = accion ? feed.find((f) => claveDelivery(f.p) === accion.clave) ?? null : null;
-  const pedidoAccion = accionFeed?.p ?? null;
+  // Destinos para el mapa nocturno
+  const destinosMapa = useMemo<DestinoMapa[]>(() => {
+    const out: DestinoMapa[] = [];
+    for (const f of feed) {
+      if (!f.disponible) continue;
+      const pt = puntoRecogida(f.p, provs, losPinos);
+      if (!pt) continue;
+      const m = yo ? distanciaMetros(yo, pt) : null;
+      out.push({
+        clave: claveDelivery(f.p),
+        nombre: esRetiroAlmacen(f.p) ? ALMACEN_RETIRO : (f.p.proveedor_nombre ?? 'Proveedor'),
+        punto: pt,
+        metros: m,
+        cercano: false,
+      });
+    }
+    return out;
+  }, [feed, provs, losPinos, yo]);
 
-  // Si el pedido de la acción cambió (otra pestaña, otro motorizado, la PC), se vuelve a la lista.
-  useEffect(() => {
-    if (!accion || loading) return;
-    const sigue = accion.tipo === 'no_disponible'
-      ? !!accionFeed?.disponible
-      : !!pedidoAccion && pedidoAccion.es_mio && ['aceptado', 'en_ruta'].includes(pedidoAccion.estado);
-    if (!sigue) setAccion(null);
-  }, [accion, accionFeed, pedidoAccion, loading]);
+  const cuenta = useMemo<Record<ChipDelivery, number>>(() => ({
+    todos: feed.length,
+    por_tomar: feed.filter((f) => f.disponible).length,
+    en_ruta: feed.filter((f) => !f.disponible && f.p.es_mio && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta')).length,
+    entregados: feed.filter((f) => f.p.estado === 'entregado').length,
+    cancelados: feed.filter((f) => f.p.estado === 'cancelado').length,
+  }), [feed]);
 
-  function hecho(titulo: string, texto: string) {
-    setAccion(null);
-    setListo({ titulo, texto });
-    void reload().catch(() => {});
-  }
-  function volver() { setAccion(null); setListo(null); }
+  const pedidosDisponibles = useMemo(() => feed.filter((f) => f.disponible), [feed]);
+  const pedidosEntregados = useMemo(() => feed.filter((f) => f.p.estado === 'entregado'), [feed]);
 
-  // Aceptar: queda directo EN CAMINO (si otro se adelantó, la base dice quién).
+  // Acciones operativas
   async function tomar(p: PedidoDelivery) {
     setOcupado(claveDelivery(p));
     try {
       await tomarPedido(p.orden_id, p.origen ?? 'compra');
       toast(`Aceptaste ${esRetiroAlmacen(p) ? `el retiro ${p.codigo}` : `la orden ${ocDe(p)}`}: va en camino.`, 'success');
-      // 03/11/2026: tras aceptarlo, el mapa muestra su ruta.
       setRutaClave(claveDelivery(p));
-      setRutaOculta(false);
-      hecho('En camino', mensajeAceptado(p, quien));
+      void reload();
     } catch (e) {
       toast(errMsg(e, 'No se pudo aceptar el pedido'), 'error');
-      void reload().catch(() => {});
-    } finally { setOcupado(null); }
+      void reload();
+    } finally {
+      setOcupado(null);
+    }
   }
 
-  // Pedidos viejos que quedaron «Aceptado» (antes del 02/11/2026) todavía se pueden pasar a «En camino».
   async function enRuta(p: PedidoDelivery) {
     if (!p.pedido_id) return;
     if ((p.fotos_recibo?.length ?? 0) === 0) {
-      toast('📸 Es obligatorio subir al menos 1 foto al recibir del proveedor (remisión/factura/bultos) antes de iniciar la ruta.', 'error');
+      toast('📸 Es obligatorio subir al menos 1 foto al recibir (remisión/factura) antes de iniciar retorno.', 'error');
+      setFotosModalDe(p);
       return;
     }
     setOcupado(claveDelivery(p));
     try {
       await marcarEnRuta(p.pedido_id);
-      toast('Marcado en camino.', 'success');
-      hecho('En camino', mensajeEnRuta(p, quien));
+      toast('Iniciado retorno a la sede.', 'success');
+      void reload();
     } catch (e) {
-      toast(errMsg(e, 'No se pudo marcar en camino'), 'error');
-    } finally { setOcupado(null); }
-  }
-
-  function verMensaje(p: PedidoDelivery) {
-    const m = mensajeDeEstado(p, quien, nombreAlmacenVisible);
-    if (m) { setAccion(null); setListo(m); }
-  }
-
-  // ───────── ACCIONES DE CALLE (ESTILO YUMMY / RIDERY) ─────────
-  const handleAccionPrincipal = () => {
-    if (enCurso) {
-      if (enCurso.estado === 'aceptado') {
-        void enRuta(enCurso);
-      } else if (enCurso.estado === 'en_ruta') {
-        setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) });
-      }
-    } else {
-      // Sin carrera activa: el repartidor debe poder ver y elegir de la lista disponible
-      setChip('por_tomar');
-      if (cuenta.por_tomar === 0) {
-        toast('No hay pedidos pendientes por tomar en este momento.', 'info');
-      } else {
-        try {
-          const el = document.querySelector('.dlv-chips') || document.querySelector('.dlv-cercano') || document.querySelector('.dlv-card');
-          if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        } catch { /* ignorar fallo de scroll */ }
-      }
+      toast(errMsg(e, 'No se pudo iniciar retorno'), 'error');
+    } finally {
+      setOcupado(null);
     }
-  };
+  }
+
+  function volver() { setAccion(null); setListo(null); }
+  function hecho(titulo: string, texto: string) { setAccion(null); setListo({ titulo, texto }); void reload(); }
+
+  // Parada siguiente del pedido en curso para Google Maps / Waze
+  const siguiente = useMemo(() => (enCurso ? siguienteParada(enCurso, provs, losPinos) : null), [enCurso, provs, losPinos]);
 
   const handleNavegar = () => {
-    if (enCurso) {
-      const sig = siguienteParada(enCurso, provs, losPinos);
-      const urlNav = (sig && urlGoogleMapsRuta([sig.punto], false))
-        || (enCurso.proveedor_direccion ? mapaHref(enCurso.proveedor_direccion) : null);
-      if (urlNav) {
-        window.open(urlNav, '_blank', 'noopener,noreferrer');
-      } else {
-        verRuta(enCurso);
-      }
-    } else {
-      if (yo) {
-        const urlYo = `https://www.google.com/maps?q=${yo.lat},${yo.lng}`;
-        window.open(urlYo, '_blank', 'noopener,noreferrer');
-      } else {
-        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* ignorar fallo de scroll */ }
-        toast('Enfocando mapa de proveedores y Los Pinos.', 'info');
-      }
+    if (siguiente?.punto) {
+      const url = urlNavegacionDestino(siguiente.punto, yo);
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    } else if (enCurso) {
+      toast('Calculando destino en el mapa de la app.', 'info');
+      setRutaClave(claveDelivery(enCurso));
     }
   };
 
-  const handleLlamar = () => {
-    setModalLlamar(true);
-  };
-
-  const handleCamara = () => {
-    if (enCurso) {
-      setFotosModalDe(enCurso);
-    } else {
-      setChip('entregados');
-    }
-  };
-
-  const enPantallaPrincipal = !accion && !listo;
+  const pedidoAccion = accion ? feed.find((f) => claveDelivery(f.p) === accion.clave)?.p ?? null : null;
 
   return (
-    <div className="surtidor dlv-calle-view">
-      {/* 10/11/2026 (maqueta): cabecera del motorizado con su nombre, su flota y la píldora del GPS. */}
-      <header className="surt-head dlv-head">
-        <div className="dlv-conductor">
-          <div className="dlv-avatar" aria-hidden>{cfgCanal.icono}</div>
-          <div style={{ minWidth: 0 }}>
-            <h1 className="dlv-nombre"><Quien nombre={null} correo={actor} vacio={actorName ?? actor} /></h1>
-            <div className="dlv-flota">{canal === 'carga_pesada' ? 'Chofer' : 'Motorizado'} · Flota {tituloPantallaCanal(canal)}</div>
+    <div className="dlv-app-viewport">
+      {/* ── CAPA 0: ESCENARIO DEL MAPA NOCTURNO A SANGRE TOTAL ── */}
+      <div className="dlv-map-stage">
+        <MapaMotorizado
+          yo={yo}
+          destinos={destinosMapa}
+          losPinos={losPinos}
+          ruta={rutaMapa}
+          iconoVehiculo={cfgCanal.icono}
+          onElegir={(clave) => setRutaClave(clave)}
+        />
+      </div>
+
+      {/* ── CAPA 1: CABECERA FLOTANTE DE VIDRIO (TOP BAR) ── */}
+      <header className="dlv-topbar-glass">
+        <div className="dlv-conductor-mini">
+          <div className="dlv-avatar-mini" aria-hidden>{cfgCanal.icono}</div>
+          <div className="dlv-conductor-textos">
+            <span className="dlv-conductor-nombre"><Quien nombre={null} correo={actor} vacio={actorName ?? actor} /></span>
+            <span className="dlv-conductor-flota">{canal === 'carga_pesada' ? 'Chofer Carga Pesada' : 'Motorizado Delivery'}</span>
           </div>
         </div>
-        <div className="dlv-head-acciones">
-          {canWrite && <CompartirUbicacion pedido={enCurso} gps={gps} />}
-          {!soloTelefono && <Link to={cfgCanal.ruta} className="btn btn-ghost btn-sm">🖥 Módulo completo</Link>}
-          {soloTelefono && vistasTelefono.length > 1 && <Link to={RUTA_TELEFONO} className="btn btn-ghost btn-sm">📱 Mis pantallas</Link>}
-        </div>
-      </header>
 
-      {conectado === false && (
-        <div className="aviso info sm" style={{ margin: '.25rem 0 .85rem' }}>
-          <span className="aviso-icono">ℹ</span>
-          <div>Delivery todavía no está conectado a Compras: los pedidos aparecerán cuando la administración lo active.</div>
-        </div>
-      )}
-      {!canWrite && (
-        <div className="aviso warning sm" style={{ margin: '.25rem 0 .85rem' }}>
-          <span className="aviso-icono">👁</span>
-          <div>Tu rol solo puede ver. Para tomar y entregar pedidos hace falta escritura en Delivery.</div>
-        </div>
-      )}
-
-      {/* 03/11/2026: mapa con mi ubicación, los proveedores por tomar y la ruta. */}
-      <MapaMotorizado yo={yo} destinos={destinosMapa} losPinos={losPinos} ruta={rutaMapa}
-        onElegir={(k) => { const f = feed.find((x) => claveDelivery(x.p) === k); if (f) verRuta(f.p); }} />
-      {gps.error && !yo && (
-        <div className="aviso warning sm dlv-gps-aviso">
-          <span className="aviso-icono">📍</span>
-          <div>{gps.error} <span className="muted">Puedes seguir trabajando: los pedidos salen igual, sin distancias ni «más cercano».</span></div>
-        </div>
-      )}
-      {pedidoRuta && (
-        <PanelRuta p={pedidoRuta} paradas={paradas} ruta={rutaVigente} yo={yo} losPinos={losPinos}
-          puedeMarcarPinos={canWrite} onQuitar={quitarRuta} />
-      )}
-
-      {listo && (
-        <div className="surt-form">
-          <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{listo.titulo}</strong></div>
-          <CompartirWhatsapp texto={listo.texto} />
-          <button type="button" className="btn btn-primary surt-guardar" onClick={volver}>← Volver a los pedidos</button>
-        </div>
-      )}
-
-      {accion?.tipo === 'cancelar' && pedidoAccion && (
-        <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
-      )}
-      {accion?.tipo === 'entregar' && pedidoAccion && (
-        <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
-      )}
-      {accion?.tipo === 'no_disponible' && pedidoAccion && (
-        <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
-      )}
-
-      {(enPantallaPrincipal || accion?.tipo === 'no_disponible') && (
-        <>
-          <div className="dlv-chips" role="tablist" aria-label="Filtrar pedidos">
-            {CHIPS.map((c) => (
-              <button key={c.key} type="button" role="tab" aria-selected={chip === c.key}
-                className={`chip${chip === c.key ? ' chip-active' : ''}`} onClick={() => setChip(c.key)}>
-                {c.label} <span className="dlv-chip-n">{cuenta[c.key]}</span>
-              </button>
-            ))}
-          </div>
-
-          {loading && <p className="muted">Cargando…</p>}
-          {!loading && !visibles.length && (
-            <p className="muted" style={{ textAlign: 'center', padding: '1.5rem .5rem' }}>
-              {chip === 'por_tomar' ? 'No hay pedidos por tomar.'
-                : chip === 'en_ruta' ? 'No hay pedidos en curso.'
-                  : chip === 'entregados' ? 'Todavía no hay entregas.'
-                    : 'No hay pedidos por ahora.'}
-            </p>
-          )}
-
-          {/* 03/11/2026: el más cercano de lo que está por tomar, como en las apps de delivery. */}
-          {cercano && chip === 'por_tomar' && (
-            <button type="button" className="dlv-cercano" onClick={() => verRuta(cercano.item.p)}>
-              <span className="grande" aria-hidden>📍</span>
-              <span style={{ minWidth: 0 }}>
-                <small>Más cercano a ti</small>
-                <strong>
-                  {esRetiroAlmacen(cercano.item.p) ? `📦 Retiro en ${ALMACEN_RETIRO}` : (cercano.item.p.proveedor_nombre ?? 'Proveedor')} · {distanciaTxt(cercano.metros)}
-                </strong>
-                <small>{esRetiroAlmacen(cercano.item.p) ? cercano.item.p.codigo : ocDe(cercano.item.p)} · toca para ver la ruta</small>
-              </span>
+        <div className="dlv-topbar-pills">
+          {yo ? (
+            <div className="dlv-pill-status">
+              <span className="dlv-dot-live"></span>
+              <span>En línea</span>
+            </div>
+          ) : (
+            <button type="button" className="dlv-pill-gps-warn" onClick={() => setModalGpsInfo(true)} title="Ver ayuda de GPS">
+              <span>⚠️ Sin GPS</span>
             </button>
           )}
 
-          {visibles.map((f) => {
-            const k = claveDelivery(f.p);
-            const sinPunto = !esRetiroAlmacen(f.p) && !!f.p.proveedor_id && !provs.has(f.p.proveedor_id);
-            // 10/11/2026 (maqueta): la próxima parada (Google Maps / Waze) y el tiempo estimado de lo mío en curso.
-            const mioEnCursoF = !f.disponible && f.p.es_mio && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta');
-            const siguiente = mioEnCursoF ? siguienteParada(f.p, provs, losPinos) : null;
-            const eta = claveRutaActiva === k && rutaVigente?.segundos != null ? duracionTxt(rutaVigente.segundos) : null;
-            return (
-              <TarjetaPedido key={k} f={f} canWrite={canWrite} ocupado={ocupado === k} bloqueado={!!ocupado}
-                siguiente={siguiente} eta={eta}
-                metros={distDe(f.p)} sinPunto={sinPunto} yo={yo} rutaActiva={claveRutaActiva === k && !!pedidoRuta}
-                onRuta={() => verRuta(f.p)}
-                onTomar={() => void tomar(f.p)}
-                onNoDisponible={() => { setListo(null); setAccion({ tipo: 'no_disponible', clave: k }); }}
-                onEnRuta={() => void enRuta(f.p)}
-                onCancelar={() => { setListo(null); setAccion({ tipo: 'cancelar', clave: k }); }}
-                onEntregar={() => { setListo(null); setAccion({ tipo: 'entregar', clave: k }); }}
-                onVerMensaje={() => verMensaje(f.p)}
-                onComprobante={() => setComprobanteDe(f.p)}
-                onReporte={() => {
-                  setAccion(null);
-                  setListo({ titulo: `Reporte del pedido ${esRetiroAlmacen(f.p) ? f.p.codigo : ocDe(f.p)}`, texto: textoReportePedido(f.p, quienSync) });
-                }}
-                onFotos={() => void reload().catch(() => {})}
-              />
-            );
-          })}
-        </>
-      )}
+          {canWrite && <CompartirUbicacion pedido={enCurso} gps={gps} />}
+          {!soloTelefono && (
+            <Link to={cfgCanal.ruta} className="dlv-btn-icon-top" title="Abrir módulo completo en PC">
+              🖥
+            </Link>
+          )}
+          <button type="button" className="dlv-btn-icon-top" onClick={() => void reload()} title="Recargar pedidos">
+            🔄
+          </button>
+        </div>
+      </header>
 
-      {/* ───── BARRA INFERIOR SEMIFLOTANTE (CALLE / SOL) ───── */}
-      <BarraSemiflotanteCalle
-        enCurso={enCurso}
-        cuenta={cuenta}
-        tabActivo={modalLlamar ? 'analista' : fotosModalDe ? 'fotos' : claveRutaActiva ? 'mapa' : 'principal'}
-        onAccionPrincipal={handleAccionPrincipal}
-        onNavegar={handleNavegar}
-        onLlamar={handleLlamar}
-        onCamara={handleCamara}
-      />
+      {/* ── CAPA 2: HOJA INFERIOR DESLIZANTE (BOTTOM SHEET) ── */}
+      <div className={`dlv-bottom-sheet ${expandido ? 'expandido' : ''}`}>
+        <div className="dlv-sheet-handle-wrap" onClick={() => setExpandido(!expandido)}>
+          <div className="dlv-sheet-handle-bar" />
+        </div>
+
+        <div className="dlv-sheet-body">
+          {/* CASO A: Formulario de Acción en Curso */}
+          {accion?.tipo === 'cancelar' && pedidoAccion && (
+            <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+          )}
+          {accion?.tipo === 'entregar' && pedidoAccion && (
+            <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+          )}
+          {accion?.tipo === 'no_disponible' && pedidoAccion && (
+            <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+          )}
+
+          {/* CASO B: Mensaje de Entrega Realizada (WhatsApp) */}
+          {listo && !accion && (
+            <div className="dlv-cockpit">
+              <div className="dlv-cockpit-bar" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: '#10b981' }}>
+                <span className="dlv-cockpit-tag" style={{ color: '#34d399' }}>✅ {listo.titulo}</span>
+              </div>
+              <CompartirWhatsapp texto={listo.texto} />
+              <button type="button" className="btn btn-primary dlv-btn-hero dlv-btn-hero-green" onClick={volver}>
+                ← Volver a la Ruta
+              </button>
+            </div>
+          )}
+
+          {/* CASO C: CARRERA ACTIVA EN CURSO (COCKPIT ESTILO YUMMY) */}
+          {!accion && !listo && enCurso && (
+            <div className="dlv-cockpit">
+              <div className="dlv-cockpit-bar">
+                <span className="dlv-cockpit-tag">
+                  {enCurso.estado === 'aceptado' ? '🚀 FASE 1: RETIRO EN CURSO' : '🚚 FASE 2: RETORNO A SEDE'}
+                </span>
+                <span className="dlv-cockpit-eta">
+                  {distDe(enCurso) != null ? distanciaTxt(distDe(enCurso)) : ''} {duracionTxt(rutaVigente?.segundos)}
+                </span>
+              </div>
+
+              {/* Trazado y paradas de la carrera */}
+              <div className="dlv-trip-card" style={{ cursor: 'default' }}>
+                <div className="dlv-trip-header">
+                  <span className="dlv-trip-codigo">{esRetiroAlmacen(enCurso) ? enCurso.codigo : ocDe(enCurso)}</span>
+                  <span className="dlv-trip-dist">{esRetiroAlmacen(enCurso) ? 'Retiro de Almacén' : 'Compra con Proveedor'}</span>
+                </div>
+
+                <div className="dlv-route-timeline">
+                  <div className="dlv-route-point">
+                    <span className="dlv-route-dot origen">1</span>
+                    <span className="dlv-route-label">Recogida / Retiro</span>
+                    <div className="dlv-route-name">{esRetiroAlmacen(enCurso) ? ALMACEN_RETIRO : (enCurso.proveedor_nombre ?? 'Proveedor')}</div>
+                    {enCurso.proveedor_direccion && <small style={{ color: '#94a3b8' }}>{enCurso.proveedor_direccion}</small>}
+                  </div>
+
+                  <div className="dlv-route-point">
+                    <span className="dlv-route-dot destino">2</span>
+                    <span className="dlv-route-label">Entrega en Destino</span>
+                    <div className="dlv-route-name">Almacén {nombreAlmacenVisible(enCurso.almacen_entrega ?? enCurso.almacen_destino)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Fila de Navegación y Llamada (Google Maps intencional bajo demanda) */}
+              <div className="dlv-quick-nav-row" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+                <button type="button" className="dlv-btn-nav-gmaps" onClick={handleNavegar} title="Abrir ruta en Google Maps">
+                  <span>🧭 Abrir en Google Maps</span>
+                </button>
+                <button type="button" className="dlv-btn-call" onClick={() => setModalLlamar(true)} title="Llamar al analista">
+                  <span>📞 Llamar</span>
+                </button>
+              </div>
+
+              {/* BOTONES PROTAGONISTAS SEGÚN LA FASE ACTIVA */}
+              {enCurso.estado === 'aceptado' && (
+                <>
+                  {(enCurso.fotos_recibo?.length ?? 0) === 0 ? (
+                    <>
+                      <button
+                        type="button"
+                        className="dlv-btn-hero dlv-btn-hero-amber"
+                        onClick={() => setFotosModalDe(enCurso)}
+                      >
+                        📸 Tomar Foto al Recibir (0/5) · Obligatoria
+                      </button>
+                      <div className="dlv-hero-subtext">
+                        Sube foto de la remisión, factura física o paquetes para habilitar el retorno.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="dlv-phase-badge-ok">
+                        <span>✓ Foto de recibo cargada ({enCurso.fotos_recibo.length} fotos)</span>
+                        <button type="button" className="dlv-btn-link" onClick={() => setFotosModalDe(enCurso)}>
+                          Ver / Agregar
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="dlv-btn-hero dlv-btn-hero-blue"
+                        disabled={!!ocupado}
+                        onClick={() => void enRuta(enCurso)}
+                      >
+                        {ocupado ? 'Iniciando…' : '🚚 Iniciar Retorno a Sede'}
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+
+              {enCurso.estado === 'en_ruta' && (
+                <>
+                  <div className="dlv-phase-badge-ok">
+                    <span>✓ Fase 1 completada · En camino al almacén de recepción</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="dlv-btn-hero dlv-btn-hero-green"
+                    disabled={!!ocupado}
+                    onClick={() => setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) })}
+                  >
+                    📦 Registrar Entrega Final
+                  </button>
+                </>
+              )}
+
+              {/* Acciones Secundarias Limpias */}
+              <div className="dlv-secondary-actions">
+                <button
+                  type="button"
+                  className="dlv-btn-subtle dlv-btn-subtle-danger"
+                  onClick={() => setAccion({ tipo: 'cancelar', clave: claveDelivery(enCurso) })}
+                >
+                  ✕ Desasignar / Cancelar
+                </button>
+
+                {!esRetiroAlmacen(enCurso) && (
+                  <button
+                    type="button"
+                    className="dlv-btn-subtle"
+                    onClick={() => setComprobanteDe(enCurso)}
+                  >
+                    🧾 Ver Comprobante
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* CASO D: BANDEJA DE VIAJES Y ENTREGAS (SIN PEDIDO EN CURSO) */}
+          {!accion && !listo && !enCurso && (
+            <>
+              {/* Selector de Pestañas Estilo Ridery */}
+              <div className="dlv-tabs-ridery">
+                <button
+                  type="button"
+                  className={`dlv-tab-btn ${tab === 'por_tomar' ? 'activo' : ''}`}
+                  onClick={() => setTab('por_tomar')}
+                >
+                  <span>📦 Disponibles</span>
+                  <span className="dlv-tab-badge">{cuenta.por_tomar}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`dlv-tab-btn ${tab === 'entregados' ? 'activo' : ''}`}
+                  onClick={() => setTab('entregados')}
+                >
+                  <span>✅ Entregas Hoy</span>
+                  <span className="dlv-tab-badge">{cuenta.entregados}</span>
+                </button>
+              </div>
+
+              {/* Lista de Disponibles */}
+              {tab === 'por_tomar' && (
+                <>
+                  {loading && <p style={{ textAlign: 'center', color: '#94a3b8' }}>Actualizando mapa y pedidos…</p>}
+
+                  {!loading && pedidosDisponibles.length === 0 && (
+                    <div className="dlv-radar-empty">
+                      <div className="dlv-radar-icon">📡</div>
+                      <h3>Esperando pedidos</h3>
+                      <p>En cuanto Compras o Almacén asigne una orden, aparecerá aquí automáticamente en tiempo real.</p>
+                    </div>
+                  )}
+
+                  {!loading && pedidosDisponibles.map((f) => {
+                    const p = f.p;
+                    const k = claveDelivery(p);
+                    const sel = claveRutaActiva === k;
+                    const m = distDe(p);
+                    const retiro = esRetiroAlmacen(p);
+
+                    return (
+                      <div
+                        key={k}
+                        className={`dlv-trip-card ${sel ? 'sel' : ''}`}
+                        onClick={() => { setRutaClave(k); }}
+                      >
+                        <div className="dlv-trip-header">
+                          <span className="dlv-trip-codigo">{retiro ? p.codigo : ocDe(p)}</span>
+                          {p.urgente ? (
+                            <span className="dlv-trip-urgente">🚨 Urgente</span>
+                          ) : (
+                            <span className="dlv-trip-dist">{distanciaTxt(m)}</span>
+                          )}
+                        </div>
+
+                        <div className="dlv-route-timeline">
+                          <div className="dlv-route-point">
+                            <span className="dlv-route-dot origen">●</span>
+                            <span className="dlv-route-label">Recoger en</span>
+                            <div className="dlv-route-name">{retiro ? ALMACEN_RETIRO : (p.proveedor_nombre ?? 'Proveedor')}</div>
+                          </div>
+
+                          <div className="dlv-route-point">
+                            <span className="dlv-route-dot destino">●</span>
+                            <span className="dlv-route-label">Entregar en</span>
+                            <div className="dlv-route-name">Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
+                          </div>
+                        </div>
+
+                        {canWrite && (
+                          <button
+                            type="button"
+                            className="dlv-btn-tomar-viaje"
+                            disabled={!!ocupado}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void tomar(p);
+                            }}
+                          >
+                            <span>✓ Aceptar Pedido y En Camino</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Lista de Entregados */}
+              {tab === 'entregados' && (
+                <>
+                  {pedidosEntregados.length === 0 ? (
+                    <div className="dlv-radar-empty">
+                      <div className="dlv-radar-icon">📦</div>
+                      <h3>Sin entregas registradas</h3>
+                      <p>Tus entregas completadas de la jornada aparecerán en este historial.</p>
+                    </div>
+                  ) : (
+                    pedidosEntregados.map((f) => {
+                      const p = f.p;
+                      const k = claveDelivery(p);
+                      const retiro = esRetiroAlmacen(p);
+                      return (
+                        <div key={k} className="dlv-trip-card" style={{ cursor: 'default' }}>
+                          <div className="dlv-trip-header">
+                            <span className="dlv-trip-codigo">{retiro ? p.codigo : ocDe(p)}</span>
+                            <span style={{ color: '#34d399', fontWeight: 700, fontSize: '.8rem' }}>
+                              ✅ Entregado
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '.85rem', color: '#cbd5e1' }}>
+                            <div>🏬 Recibido en: Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
+                            <div style={{ color: '#94a3b8', fontSize: '.78rem', marginTop: 4 }}>
+                              📷 {p.fotos_recibo.length + p.fotos_entrega.length} fotos guardadas
+                            </div>
+                          </div>
+                          {p.pedido_id && (
+                            <button
+                              type="button"
+                              className="dlv-btn-subtle"
+                              style={{ alignSelf: 'flex-start', color: '#38bdf8' }}
+                              onClick={() => setFotosModalDe(p)}
+                            >
+                              ✏ Ver / Editar fotos
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── MODALES Y PANTALLAS DE SOPORTE ── */}
+      {modalGpsInfo && (
+        <Modal title="Permisos de Ubicación (GPS)" compact onClose={() => setModalGpsInfo(false)}>
+          <div style={{ display: 'grid', gap: '1rem', color: '#f8fafc' }}>
+            <p style={{ margin: 0, fontSize: '.92rem' }}>
+              Para mostrar tu posición en el mapa en vivo y calcular distancias hacia los proveedores, la página necesita permiso de geolocalización.
+            </p>
+            <ol style={{ paddingLeft: '1.2rem', margin: 0, fontSize: '.88rem', lineHeight: '1.6' }}>
+              <li>Toca el candado 🔒 junto a la barra de direcciones del navegador.</li>
+              <li>Entra en <strong>Permisos</strong> &gt; <strong>Ubicación</strong> &gt; <strong>Permitir</strong>.</li>
+              <li>Asegúrate de tener el GPS encendido en el teléfono y recarga la página.</li>
+            </ol>
+            <button type="button" className="btn btn-primary" onClick={() => setModalGpsInfo(false)}>
+              Entendido
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {modalLlamar && (
         <ModalLlamarRapido
           pedido={enCurso}
-          disponibles={feed.filter((f) => f.disponible).map((f) => f.p)}
           onClose={() => setModalLlamar(false)}
         />
       )}
@@ -494,7 +611,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
           fotosEntrega={fotosModalDe.fotos_entrega}
           fotosFactura={fotosModalDe.fotos_factura}
           onClose={() => setFotosModalDe(null)}
-          onGuardado={() => { setFotosModalDe(null); void reload().catch(() => {}); }}
+          onGuardado={() => { setFotosModalDe(null); void reload(); }}
         />
       )}
 
@@ -503,370 +620,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   );
 }
 
-/* ── Una orden en el listado ── */
-
-function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros, sinPunto, yo, rutaActiva, onRuta, onTomar, onNoDisponible, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onReporte, onFotos }: {
-  f: PedidoFeed; canWrite: boolean; ocupado: boolean; bloqueado: boolean;
-  /** 10/11/2026: la próxima parada de lo mío en curso y el tiempo estimado (si es la ruta del mapa). */
-  siguiente: ParadaRuta | null; eta: string | null;
-  /** 03/11/2026: distancia de donde estoy a donde se busca (null = sin GPS o sin punto). */
-  metros: number | null; sinPunto: boolean; yo: PosicionGps | null; rutaActiva: boolean; onRuta: () => void;
-  onTomar: () => void; onNoDisponible: () => void; onEnRuta: () => void; onCancelar: () => void; onEntregar: () => void;
-  onVerMensaje: () => void; onComprobante: () => void; onReporte: () => void; onFotos: () => void;
-}) {
-  const [generandoPdf, setGenerandoPdf] = useState(false);
-  const [verOrden, setVerOrden] = useState(false);
-  const [editarFotos, setEditarFotos] = useState(false);
-  const { isAdmin } = usePermissions();
-  function verPdf() {
-    setGenerandoPdf(true);
-    import('./deliveryPdf').then((m) => m.pdfPedidoDelivery(f.p))
-      .catch((e) => toast(errMsg(e, 'No se pudo generar el PDF'), 'error'))
-      .finally(() => setGenerandoPdf(false));
-  }
-  const { p, disponible } = f;
-  const retiro = esRetiroAlmacen(p);
-  const estado = disponible ? ESTADO_DELIVERY.por_tomar : ESTADO_DELIVERY[p.estado];
-  const enCurso = !disponible && (p.estado === 'aceptado' || p.estado === 'en_ruta');
-  const mioEnCurso = enCurso && p.es_mio;
-  const items = (p.items ?? []).filter((i) => i.comprar !== false);
-  const telProv = telHref(p.proveedor_telefono);
-  const telAnalista = telHref(p.analista_telefono);
-  const telSolicitante = telHref(p.solicitante_telefono);
-  const mapa = mapaHref(p.proveedor_direccion);
-  const destino = destinoRetiro(p);
-  // Lo mío, en cualquier paso (si está libre otra vez y es mío, es porque yo lo cancelé).
-  const puedeVerMensaje = p.es_mio;
-
-  return (
-    <article className={`dlv-card est-${estadoTarjeta(f)}${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
-      <div className="dlv-card-cab">
-        <div style={{ minWidth: 0 }}>
-          <div className="dlv-oc">{retiro ? p.codigo : ocDe(p)}</div>
-          {!retiro && p.pagada_en && <div className="dlv-sub">Pagada {fechaHoraVE(p.pagada_en)}</div>}
-          {retiro && p.revisada_en && <div className="dlv-sub">Revisada en Almacén {fechaHoraVE(p.revisada_en)}</div>}
-        </div>
-        <div className="dlv-badges">
-          {p.urgente && <span className="badge danger">🚨 Urgente</span>}
-          <span className={`badge ${estado.badge}`}>{estado.emoji} {disponible ? estado.label : etiquetaEstado(p.estado, p.origen, p.motivo_cancel)}</span>
-        </div>
-      </div>
-
-      {retiro ? (
-        <div className="dlv-prov">
-          <div className="nombre">📦 Retiro en {ALMACEN_RETIRO}</div>
-          {p.analista_nombre && <div className="dlv-sub">Revisó: {p.analista_nombre}</div>}
-          <div className="dlv-sub">🏬 Entregar a: <strong>{destino || '—'}</strong></div>
-        </div>
-      ) : (
-        <div className="dlv-prov">
-          <div className="nombre">🏭 {p.proveedor_nombre ?? 'Proveedor sin nombre'}</div>
-          {p.proveedor_contacto && <div className="dlv-sub">Contacto: {p.proveedor_contacto}</div>}
-          {p.proveedor_direccion && (mapa
-            ? <a className="dir" href={mapa} target="_blank" rel="noopener noreferrer">📍 {p.proveedor_direccion}</a>
-            : <div className="dlv-sub">📍 {p.proveedor_direccion}</div>)}
-          {!p.proveedor_direccion && <div className="dlv-sub">Sin dirección cargada: pregúntale al analista.</div>}
-        </div>
-      )}
-      {/* 03/11/2026: a cuánto está (proveedor o Los Pinos) y, si el proveedor no está en el mapa, marcarlo al llegar. */}
-      {(disponible || enCurso) && (
-        metros != null
-          ? <div className="dlv-dist" title="Distancia medida desde el teléfono del repartidor al punto de recogida">📍 a {distanciaTxt(metros)} (desde tu ubicación)</div>
-          : sinPunto ? <div className="dlv-dist sin">📍 Proveedor sin ubicación en el mapa</div> : null
-      )}
-      {/* Avance 🏍️ → 🏭 → 🏬, tiempo estimado y navegación en Google Maps */}
-      {mioEnCurso && (() => {
-        const tramo = tramoEnCurso(p);
-        const google = siguiente ? urlGoogleMapsRuta([siguiente.punto], false) : (tramo === 1 && !retiro ? mapa : null);
-        const haciaTxt = tramo === 1
-          ? (retiro ? `Retirar en ${ALMACEN_RETIRO}` : `Buscar en ${p.proveedor_nombre ?? 'el proveedor'}`)
-          : (retiro ? `Entregar a ${destino || 'quien lo pidió'}` : `Entregar en ${siguiente?.nombre ?? `Almacén ${nombreAlmacenVisible(p.almacen_destino)}`}`);
-        return (
-          <div className="dlv-avance">
-            <div className="dlv-pasos" aria-label={`Tramo ${tramo} de 2`}>
-              <span className="dlv-paso hecho" title="Tú">🏍️</span>
-              <span className={`dlv-tramo${tramo === 2 ? ' hecho' : ''}`} />
-              <span className={`dlv-paso ${tramo === 1 ? 'activo' : 'hecho'}`} title={retiro ? ALMACEN_RETIRO : 'Proveedor'}>{retiro ? '📦' : '🏭'}</span>
-              <span className="dlv-tramo" />
-              <span className={`dlv-paso${tramo === 2 ? ' activo' : ''}`} title="Entrega">🏬</span>
-            </div>
-            <div className="dlv-avance-info">
-              <span>📍 {haciaTxt}</span>
-              {eta && <span>⏱️ {eta}</span>}
-            </div>
-            {google && (
-              <div style={{ marginTop: '.4rem' }}>
-                <a className="btn btn-ghost" href={google} target="_blank" rel="noopener noreferrer" style={{ width: '100%', justifyContent: 'center' }}>
-                  🧭 Navegar en Google Maps
-                </a>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-      {mioEnCurso && !retiro && sinPunto && canWrite && p.proveedor_id && (
-        <MarcarProveedorAqui proveedorId={p.proveedor_id} nombre={p.proveedor_nombre ?? 'el proveedor'} yo={yo} />
-      )}
-
-      {mioEnCurso && !retiro && (
-        <div className="dlv-llamar">
-          {telProv
-            ? <a className="btn btn-ghost btn-grande" href={telProv}>📞 Llamar proveedor<small>{p.proveedor_telefono}</small></a>
-            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 Proveedor<small>sin teléfono</small></span>}
-          {telAnalista
-            ? <a className="btn btn-ghost btn-grande" href={telAnalista}>📞 Llamar analista<small>{p.analista_nombre ?? p.analista_email ?? ''}</small></a>
-            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {p.analista_nombre ?? 'Analista'}<small>sin teléfono</small></span>}
-        </div>
-      )}
-      {mioEnCurso && retiro && (
-        <div className="dlv-llamar">
-          {telAnalista
-            ? <a className="btn btn-ghost btn-grande" href={telAnalista}>📞 Llamar almacenista<small>{p.analista_nombre ?? p.analista_email ?? ''}</small></a>
-            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {p.analista_nombre ?? 'Almacenista'}<small>sin teléfono</small></span>}
-          {telSolicitante
-            ? <a className="btn btn-ghost btn-grande" href={telSolicitante}>📞 Llamar a quien lo pidió<small>{p.solicitante_nombre ?? ''}</small></a>
-            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {p.solicitante_nombre ?? 'Solicitante'}<small>sin teléfono</small></span>}
-        </div>
-      )}
-
-      {/* 02/11/2026: la tarjeta solo dice cuántos productos trae; la lista se despliega con «Ver orden». */}
-      <div className="dlv-sub" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
-        <strong>{productosTxt(items.length)}</strong>
-        {!!items.length && (
-          <button type="button" className="btn btn-ghost btn-sm" aria-expanded={verOrden} onClick={() => setVerOrden((v) => !v)}>
-            {verOrden ? '📋 Ocultar orden' : '📋 Ver orden'}
-          </button>
-        )}
-      </div>
-      {verOrden && !!items.length && (
-        <ul className="dlv-items">
-          {items.map((i, k) => (
-            <li key={`${i.nombre}-${k}`}><span>{i.nombre}</span><span>{cant(i.cantidad)}{i.unidad ? ` ${i.unidad}` : ''}</span></li>
-          ))}
-        </ul>
-      )}
-      {!retiro && <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
-      {!retiro && p.estado !== 'entregado' && (p.almacen_entrega || p.almacen_destino) && (
-        <div><span className="dlv-destino">🏬 Destino: Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</span></div>
-      )}
-      {!retiro && p.estado !== 'entregado' && etiquetaSedeEntrega(p.sede_entrega) && (
-        <div className="dlv-sub">📍 Dirección de recepción: <strong>Almacén {etiquetaSedeEntrega(p.sede_entrega)}</strong></div>
-      )}
-      {/* 10/11/2026 (maqueta): lo entregado, en un recuadro verde. */}
-      {p.estado === 'entregado' && (
-        <div className="dlv-entregado">
-          <div>🏬 <strong>{retiro ? 'Entregado a' : 'Recibido en'}:</strong> {retiro
-            ? (p.almacen_entrega || destino || '—')
-            : `Almacén ${nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}`}</div>
-          {p.entregado_en && <div>✅ {fechaHoraVE(p.entregado_en)}{p.repartidor_nombre ? ` · ${p.repartidor_nombre}` : ''}</div>}
-          <div>📷 {p.fotos_recibo.length + p.fotos_entrega.length} foto(s) registradas{p.fotos_factura.length ? ` · 🧾 ${p.fotos_factura.length} de la factura` : ''}</div>
-        </div>
-      )}
-      {disponible && p.estado === 'cancelado' && (
-        <div className="dlv-nota-cancel">
-          ⛔ La canceló {p.repartidor_nombre ?? 'otro delivery'}{p.motivo_cancel ? `: ${p.motivo_cancel}` : ''}. Está libre otra vez.
-        </div>
-      )}
-      {enCurso && !p.es_mio && <div className="dlv-tomado">🛵 Tomado por <strong>{p.repartidor_nombre ?? 'otro delivery'}</strong>{p.aceptado_en ? ` · ${fechaHoraVE(p.aceptado_en)}` : ''}</div>}
-
-      {/* 02/11/2026: al aceptar queda «En camino»: ahí se suben las fotos al recibir / retirar y las de la entrega.
-          12/11/2026: en compras van por segmentos «Cargar factura» (solo esta llega a Compras) y «Cargar foto del producto». */}
-      {retiro
-        ? (p.fotos_recibo.length > 0 || mioEnCurso) && (
-          <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
-        )
-        : (p.fotos_factura.length > 0 || p.fotos_recibo.length > 0 || mioEnCurso) && (
-          <SegmentosFotos p={p} puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
-        )}
-      {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta')) && (
-        <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && mioEnCurso && p.estado === 'en_ruta'} onCambio={onFotos} />
-      )}
-
-      <div className="dlv-acciones">
-        {(disponible || mioEnCurso) && (
-          <button type="button" className={`btn ${rutaActiva ? 'btn-primary' : 'btn-ghost'}`} onClick={onRuta}>
-            {rutaActiva ? '🧭 Ruta en el mapa ↑' : '🧭 Ver ruta'}
-          </button>
-        )}
-        {!retiro && <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>}
-        {canWrite && disponible && (
-          <div className="surt-grid2">
-            <button type="button" className="btn dlv-btn-aceptar" disabled={bloqueado} onClick={onTomar}>
-              {ocupado ? 'Aceptando…' : p.estado === 'cancelado' ? '✓ Retomar Pedido' : '✓ Aceptar · En camino'}
-            </button>
-            <button type="button" className="btn dlv-btn-peligro" disabled={bloqueado} onClick={onNoDisponible}>
-              ✕ No disponible
-            </button>
-          </div>
-        )}
-        {canWrite && mioEnCurso && p.estado === 'aceptado' && (
-          <button type="button" className="btn dlv-btn-ruta" disabled={bloqueado} onClick={onEnRuta}>
-            {ocupado ? 'Guardando…' : p.fotos_recibo.length > 0 ? '🚚 Iniciar Retorno a Sede (Almacén Los Pinos)' : '📸 Subir Foto de Recibo (Obligatoria)'}
-          </button>
-        )}
-        {canWrite && mioEnCurso && p.estado === 'en_ruta' && (
-          <button type="button" className="btn dlv-btn-entregar" disabled={bloqueado} onClick={onEntregar}>
-            {retiro ? '📦 Entregado' : '📦 Entregado en almacén'}
-          </button>
-        )}
-        {canWrite && mioEnCurso && (
-          <button type="button" className="btn dlv-btn-peligro" disabled={bloqueado} onClick={onCancelar}>
-            ✕ No puedo buscarlo
-          </button>
-        )}
-        {puedeVerMensaje && (
-          <button type="button" className="btn dlv-btn-wa" onClick={onVerMensaje}>💬 Ver mensaje de WhatsApp</button>
-        )}
-        {/* 03/11/2026: el motorizado que lo entregó (o admin) corrige las fotos de un pedido entregado. */}
-        {!disponible && puedeEditarFotosDelivery(p, isAdmin, false) && (
-          <button type="button" className="btn btn-ghost" onClick={() => setEditarFotos(true)}>✏ Editar fotos</button>
-        )}
-        {/* GT: reporte del pedido (PDF con vista previa y WhatsApp) en cuanto alguien lo tomó. */}
-        {!!p.pedido_id && !disponible && (
-          <div className="surt-grid2">
-            <button type="button" className="btn btn-ghost" disabled={generandoPdf} onClick={verPdf}>{generandoPdf ? 'Generando…' : '📄 Ver PDF'}</button>
-            <button type="button" className="btn btn-ghost" onClick={onReporte}>📋 Reporte WhatsApp</button>
-          </div>
-        )}
-      </div>
-      {editarFotos && p.pedido_id && (
-        <EditarFotosDeliveryModal pedidoId={p.pedido_id} origen={p.origen} titulo={retiro ? p.codigo : ocDe(p)}
-          fotosRecibo={p.fotos_recibo} fotosEntrega={p.fotos_entrega} fotosFactura={p.fotos_factura}
-          onClose={() => setEditarFotos(false)} onGuardado={onFotos} />
-      )}
-    </article>
-  );
-}
-
-/* ── 12/11/2026: segmentos «Cargar factura» / «Cargar foto del producto» (compras) ── */
-
-function SegmentosFotos({ p, puedeSubir, onCambio }: { p: PedidoDelivery; puedeSubir: boolean; onCambio: () => void }) {
-  const [seg, setSeg] = useState<'factura' | 'recibo'>('factura');
-  return (
-    <div className="dlv-seg-wrap">
-      <div className="dlv-seg" role="tablist" aria-label="Fotos del pedido">
-        <button type="button" role="tab" aria-selected={seg === 'factura'} className={seg === 'factura' ? 'activo' : ''} onClick={() => setSeg('factura')}>
-          🧾 Cargar factura{p.fotos_factura.length ? ` (${p.fotos_factura.length})` : ''}
-        </button>
-        <button type="button" role="tab" aria-selected={seg === 'recibo'} className={seg === 'recibo' ? 'activo' : ''} onClick={() => setSeg('recibo')}>
-          📦 Cargar foto del producto{p.fotos_recibo.length ? ` (${p.fotos_recibo.length})` : ''}
-        </button>
-      </div>
-      {seg === 'factura'
-        ? <FotosPedido p={p} tipo="factura" puedeSubir={puedeSubir} onCambio={onCambio} />
-        : <FotosPedido p={p} tipo="recibo" puedeSubir={puedeSubir} onCambio={onCambio} />}
-      <small className="muted">{seg === 'factura' ? 'Solo la foto de la factura le llega a Compras.' : 'Las fotos del producto quedan en Delivery (no van a Compras).'}</small>
-    </div>
-  );
-}
-
-/* ── Fotos al recibir / de la entrega ── */
-
-function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
-  p: PedidoDelivery; tipo: TipoFotoDelivery; puedeSubir: boolean; onCambio: () => void;
-}) {
-  const fotos = tipo === 'recibo' ? p.fotos_recibo : tipo === 'factura' ? p.fotos_factura : p.fotos_entrega;
-  const [subiendo, setSubiendo] = useState(false);
-  const [expandido, setExpandido] = useState(p.estado !== 'en_ruta' || fotos.length === 0);
-  const faltan = MAX_FOTOS_DELIVERY - fotos.length;
-  const titulo = tipo === 'recibo'
-    ? (esRetiroAlmacen(p) ? '📷 Fotos al retirar en Almacén' : '📦 Fotos del producto')
-    : tipo === 'factura' ? '🧾 Factura del proveedor'
-    : (esRetiroAlmacen(p) ? '📷 Fotos de la entrega' : '📷 Fotos de la entrega en almacén');
-  // 11/11/2026: los dos botones que pidió Compras.
-  const boton = tipo === 'factura' ? '🧾 CARGAR FACTURA'
-    : tipo === 'recibo' && !esRetiroAlmacen(p) ? '📦 CARGAR FOTO DEL PRODUCTO'
-    : tipo === 'entrega' && !esRetiroAlmacen(p) ? '📷 CARGAR FOTO ENTREGA EN ALMACÉN'
-    : titulo;
-  const id = `dlv-fotos-${tipo}-${claveDelivery(p).replace(':', '-')}`;
-
-  async function agregar(lista: FileList | null) {
-    const archivos = Array.from(lista ?? []);
-    if (!archivos.length || !p.pedido_id) return;
-    if (archivos.some((f) => !esImagen(f))) { toast('Solo se pueden subir fotos (imágenes).', 'error'); return; }
-    if (archivos.length > faltan) { toast(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos; te quedan ${faltan}.`, 'error'); return; }
-    setSubiendo(true);
-    try {
-      await subirFotosDelivery(p.pedido_id, tipo, fotos, archivos);
-      toast(archivos.length === 1 ? 'Foto agregada.' : `${archivos.length} fotos agregadas.`, 'success');
-      onCambio();
-    } catch (e) {
-      toast(errMsg(e, 'No se pudieron subir las fotos'), 'error');
-    } finally { setSubiendo(false); }
-  }
-
-  if (tipo === 'recibo' && p.estado === 'en_ruta' && !expandido) {
-    return (
-      <div className="surt-campo" style={{ background: '#0b1320', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: 10, padding: '.5rem .75rem', marginBottom: '.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '.78rem', color: '#34d399', fontWeight: 700 }}>
-            ✓ Fase 1 (Al recibir) ya tiene {fotos.length} foto(s)
-          </span>
-          <button type="button" className="btn btn-xs btn-ghost" style={{ fontSize: '.7rem', color: '#94a3b8' }} onClick={() => setExpandido(true)}>
-            Ver fotos
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="surt-campo">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
-        <label htmlFor={puedeSubir ? id : undefined} style={{ margin: 0 }}>
-          {titulo} ({fotos.length}/{MAX_FOTOS_DELIVERY})
-        </label>
-        {tipo === 'recibo' && p.estado === 'en_ruta' && (
-          <button type="button" className="btn btn-xs btn-ghost" style={{ fontSize: '.7rem', color: '#94a3b8' }} onClick={() => setExpandido(false)}>
-            Ocultar
-          </button>
-        )}
-      </div>
-      <MiniaturasFotos fotos={fotos} />
-      {puedeSubir && faltan > 0 && (
-        <div className="dlv-subir" style={{ marginTop: fotos.length ? '.5rem' : 0 }}>
-          <span className={`btn ${tipo === 'recibo' ? 'btn-ghost' : 'btn-primary'}`} aria-hidden>{subiendo ? 'Subiendo…' : `${boton}${fotos.length ? ' (agregar)' : ''}`}</span>
-          <input id={id} type="file" accept="image/*" multiple disabled={subiendo}
-            aria-label={titulo} onChange={(e) => { void agregar(e.target.files); e.target.value = ''; }} />
-        </div>
-      )}
-      {puedeSubir && faltan <= 0 && <small className="muted">Ya tiene las {MAX_FOTOS_DELIVERY} fotos.</small>}
-    </div>
-  );
-}
-
-/** Miniaturas con enlace firmado (se abren en la vista previa del sistema). */
-function MiniaturasFotos({ fotos }: { fotos: FotoDelivery[] }) {
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  const clave = fotos.map((f) => f.path).join('|');
-  useEffect(() => {
-    let vivo = true;
-    void Promise.all(fotos.map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
-      .then((xs) => { if (vivo) setUrls(Object.fromEntries(xs)); });
-    return () => { vivo = false; };
-    // `clave` resume las rutas: el arreglo cambia de identidad en cada recarga aunque sean las mismas fotos.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clave]);
-  if (!fotos.length) return null;
-  const galeria = fotos.filter((f) => !!urls[f.path]).map((f) => ({ path: f.path, url: urls[f.path], filename: f.filename }));
-  const abrir = (path: string) => {
-    const idx = galeria.findIndex((x) => x.path === path);
-    if (idx >= 0) previewGaleria(galeria, idx);
-  };
-  return (
-    <div className="rep-fotos">
-      {fotos.map((f) => (
-        <button key={f.path} type="button" className="rep-foto" disabled={!urls[f.path]}
-          onClick={() => abrir(f.path)} aria-label={`Ver ${f.filename}`}>
-          {urls[f.path] ? <img src={urls[f.path]} alt={f.filename} /> : <span className="rep-foto-doc">📷</span>}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* ── Cancelar (no puede buscarlo) ── */
-
+/* ── Formulario de Desasignación / Cancelación ── */
 function FormCancelar({ p, quien, onCancel, onHecho }: {
   p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
@@ -883,253 +637,249 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
     setGuardando(true);
     try {
       await cancelarPedido(p.pedido_id, motivo, detalle.trim() || null);
-      toast(`Cancelaste ${esRetiroAlmacen(p) ? `el retiro ${p.codigo}` : `la orden ${ocDe(p)}`}. Queda libre para otro delivery.`, 'success');
-      onHecho(esRetiroAlmacen(p) ? 'Retiro cancelado' : 'Pedido cancelado', mensajeCancelado(p, quien, motivo, detalle));
+      toast(`Liberaste ${esRetiroAlmacen(p) ? `el retiro ${p.codigo}` : `la orden ${ocDe(p)}`}. Queda disponible para otro compañero.`, 'success');
+      onHecho(esRetiroAlmacen(p) ? 'Retiro liberado' : 'Pedido liberado', mensajeCancelado(p, quien, motivo, detalle));
     } catch (err) {
       toast(errMsg(err, 'No se pudo cancelar el pedido'), 'error');
     } finally { setGuardando(false); }
   }
 
   return (
-    <form className="surt-form" onSubmit={(e) => void guardar(e)}>
-      <div className="surt-form-titulo">
-        <span className="icono" aria-hidden>⛔</span>
-        <div><strong>No puedo buscarlo</strong><div className="muted" style={{ fontSize: '.85rem' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)} · {esRetiroAlmacen(p) ? ALMACEN_RETIRO : (p.proveedor_nombre ?? '—')}</div></div>
+    <form className="dlv-cockpit" onSubmit={(e) => void guardar(e)}>
+      <div className="dlv-cockpit-bar" style={{ borderColor: '#ef4444' }}>
+        <span className="dlv-cockpit-tag" style={{ color: '#f87171' }}>⛔ Desasignar Pedido</span>
+        <span style={{ fontSize: '.85rem', color: '#94a3b8' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)}</span>
       </div>
-      <p className="muted" style={{ margin: 0, fontSize: '.88rem' }}>
-        {esRetiroAlmacen(p) ? 'El retiro' : 'La orden'} vuelve a quedar libre para que lo tome otro delivery. Elige el motivo:
+      <p style={{ margin: 0, fontSize: '.85rem', color: '#94a3b8' }}>
+        El pedido volverá a quedar disponible para toda la flota. Selecciona el motivo:
       </p>
-      <div className="dlv-motivos" role="radiogroup" aria-label="Motivo">
+      <div style={{ display: 'grid', gap: '8px' }}>
         {MOTIVOS_CANCELACION.map((m) => (
-          <button key={m} type="button" role="radio" aria-checked={motivo === m}
-            className={`dlv-motivo${motivo === m ? ' sel' : ''}`} onClick={() => setMotivo(m)}>
-            <span aria-hidden>{motivo === m ? '●' : '○'}</span> {m}
+          <button
+            key={m}
+            type="button"
+            className="dlv-tab-btn"
+            style={{
+              justifyContent: 'flex-start',
+              background: motivo === m ? '#1e293b' : 'rgba(255, 255, 255, 0.05)',
+              border: motivo === m ? '1.5px solid #f59e0b' : '1px solid transparent',
+              color: motivo === m ? '#f8fafc' : '#cbd5e1',
+              padding: '10px 14px',
+            }}
+            onClick={() => setMotivo(m)}
+          >
+            <span>{motivo === m ? '●' : '○'}</span> {m}
           </button>
         ))}
       </div>
-      <div className="surt-campo">
-        <label htmlFor="dlv-cancel-detalle">Detalle {esOtro ? '(obligatorio)' : '(opcional)'}</label>
-        <textarea id="dlv-cancel-detalle" className="input surt-input" rows={3} value={detalle}
-          placeholder="Ej.: el proveedor dice que lo tiene mañana a las 9" onChange={(e) => setDetalle(e.target.value)} />
-      </div>
-      <div className="surt-grid2">
-        <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
-        <button type="submit" className="btn btn-peligro btn-grande" disabled={guardando || !motivo}>
-          {guardando ? 'Guardando…' : 'Confirmar cancelación'}
+      {esOtro && (
+        <textarea
+          className="input surt-input"
+          rows={3}
+          value={detalle}
+          placeholder="Escribe el motivo aquí…"
+          onChange={(e) => setDetalle(e.target.value)}
+        />
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 6 }}>
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={guardando}>
+          ← Volver
+        </button>
+        <button type="submit" className="btn btn-peligro" disabled={guardando || !motivo}>
+          {guardando ? 'Guardando…' : 'Confirmar'}
         </button>
       </div>
     </form>
   );
 }
 
-/* ── Entregado en almacén ── */
-
+/* ── Formulario de Entrega ── */
 function FormEntregar({ p, quien, onCancel, onHecho }: {
   p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
-  // 02/11/2026: el retiro de Almacén se entrega A una unidad / persona, no en un almacén.
-  if (esRetiroAlmacen(p)) return <FormEntregarRetiro p={p} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
-  return <FormEntregarAlmacen p={p} quien={quien} onCancel={onCancel} onHecho={onHecho} />;
-}
-
-function FormEntregarRetiro({ p, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
-}) {
-  const [entregadoA, setEntregadoA] = useState(destinoRetiro(p));
+  const [recibidoPor, setRecibidoPor] = useState('');
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const falta = entregadoA.trim().length < 2;
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (!p.pedido_id) return;
-    if (falta) { toast('Escribe a quién se lo entregaste (unidad o persona).', 'error'); return; }
-    if (!p.fotos_entrega?.length) {
-      toast('📸 Es obligatorio adjuntar al menos 1 foto de la entrega para cerrar el pedido.', 'error');
+    if (!recibidoPor.trim()) { toast('Escribe el nombre de quien recibe.', 'error'); return; }
+    if ((p.fotos_entrega?.length ?? 0) === 0) {
+      toast('📸 Es obligatorio subir la foto de la guía firmada / entrega antes de finalizar.', 'error');
       return;
     }
     setGuardando(true);
+    const almacen = nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino);
     try {
-      await marcarEntregado(p.pedido_id, entregadoA.trim(), nota.trim() || null);
-      toast(`Retiro ${p.codigo} entregado.`, 'success');
-      onHecho('Retiro entregado', mensajeEntregado(p, quien, entregadoA.trim(), nota));
+      await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
+      toast(`Entrega registrada correctamente.`, 'success');
+      onHecho('Entrega finalizada', mensajeEntregado(p, quien, almacen, nota.trim() || null));
     } catch (err) {
-      toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
+      toast(errMsg(err, 'No se pudo registrar la entrega'), 'error');
     } finally { setGuardando(false); }
   }
 
   return (
-    <form className="surt-form" onSubmit={(e) => void guardar(e)}>
-      <div className="surt-form-titulo">
-        <span className="icono" aria-hidden>📦</span>
-        <div><strong>Entregado</strong><div className="muted" style={{ fontSize: '.85rem' }}>{p.codigo} · Retiro en {ALMACEN_RETIRO}</div></div>
+    <form className="dlv-cockpit" onSubmit={(e) => void guardar(e)}>
+      <div className="dlv-cockpit-bar" style={{ borderColor: '#10b981' }}>
+        <span className="dlv-cockpit-tag" style={{ color: '#34d399' }}>📦 Finalizar Entrega</span>
+        <span style={{ fontSize: '.85rem', color: '#94a3b8' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)}</span>
       </div>
-      <div className="surt-campo">
-        <label htmlFor="dlv-ent-a">Entregado a (unidad o persona)</label>
-        <input id="dlv-ent-a" className="input surt-input" value={entregadoA} onChange={(e) => setEntregadoA(e.target.value)}
-          placeholder="Ej.: PRODUCCION · Ender Mejía" />
-        {destinoRetiro(p) && <small className="muted">La solicitud la pidió {destinoRetiro(p)}.</small>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label style={{ fontSize: '.82rem', color: '#94a3b8' }}>¿Quién recibe el material?</label>
+        <input
+          className="input surt-input"
+          value={recibidoPor}
+          placeholder="Nombre y apellido de quien firma / recibe"
+          required
+          onChange={(e) => setRecibidoPor(e.target.value)}
+        />
       </div>
-      <div className="surt-campo">
-        <label htmlFor="dlv-ent-nota-r">Nota (opcional)</label>
-        <textarea id="dlv-ent-nota-r" className="input surt-input" rows={3} value={nota}
-          placeholder="Ej.: lo recibió el jefe de turno" onChange={(e) => setNota(e.target.value)} />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label style={{ fontSize: '.82rem', color: '#94a3b8' }}>Nota u observaciones (opcional)</label>
+        <textarea
+          className="input surt-input"
+          rows={2}
+          value={nota}
+          placeholder="Detalles de la entrega o descarga…"
+          onChange={(e) => setNota(e.target.value)}
+        />
       </div>
-      {!p.fotos_entrega.length ? (
-        <div className="aviso danger sm">
-          <span className="aviso-icono">📸</span>
-          <div><strong>Foto obligatoria:</strong> Debes adjuntar al menos 1 foto de la entrega en destino para poder cerrar el pedido.</div>
-        </div>
-      ) : null}
-      <div className="surt-grid2">
-        <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
-        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando || falta || !p.fotos_entrega.length}>
-          {guardando ? 'Guardando…' : '✅ Confirmar entrega'}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 6 }}>
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={guardando}>
+          ← Volver
+        </button>
+        <button type="submit" className="btn btn-primary dlv-btn-hero-green" disabled={guardando}>
+          {guardando ? 'Guardando…' : 'Confirmar Entrega'}
         </button>
       </div>
     </form>
   );
 }
 
-/* ── No disponible (pedido por tomar): motivo obligatorio ── */
-
+/* ── Modal No Disponible ── */
 function NoDisponibleModal({ p, quien, onCancel, onHecho }: {
   p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
-  const [opcion, setOpcion] = useState('');
-  const [detalle, setDetalle] = useState('');
+  const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const esOtro = opcion === MOTIVOS_NO_DISPONIBLE[MOTIVOS_NO_DISPONIBLE.length - 1];
-  const motivo = opcion ? motivoNoDisponible(opcion, detalle) : '';
-  const falta = motivo.trim().length < 3;
-  const retiro = esRetiroAlmacen(p);
 
   async function guardar() {
-    if (falta) { toast(esOtro ? 'Escribe cuál es el motivo.' : 'Elige el motivo.', 'error'); return; }
+    if (!motivo) { toast('Elige un motivo.', 'error'); return; }
     setGuardando(true);
     try {
       await rechazarPedido(p.orden_id, p.origen ?? 'compra', motivo);
-      toast('Marcado como no disponible. Sigue libre para otro delivery.', 'success');
+      toast('Marcado como no disponible para ti.', 'info');
       onHecho('No disponible', mensajeNoDisponible(p, quien, motivo));
-    } catch (err) {
-      toast(errMsg(err, 'No se pudo guardar'), 'error');
+    } catch (e) {
+      toast(errMsg(e, 'No se pudo guardar el reporte'), 'error');
     } finally { setGuardando(false); }
   }
 
   return (
-    <Modal title={`✕ No disponible · ${retiro ? p.codigo : ocDe(p)}`} onClose={onCancel} minimizable={false}
-      footer={(
-        <div className="surt-grid2" style={{ width: '100%' }}>
-          <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
-          <button type="button" className="btn btn-peligro btn-grande" onClick={() => void guardar()} disabled={guardando || falta}>
-            {guardando ? 'Guardando…' : 'Confirmar'}
-          </button>
-        </div>
-      )}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-        {retiro ? `Retiro en ${ALMACEN_RETIRO}` : (p.proveedor_nombre ?? '—')}. El pedido sigue disponible para los demás delivery;
-        a ti ya no te saldrá en «Por tomar». Elige el motivo:
-      </p>
-      <div className="dlv-motivos" role="radiogroup" aria-label="Motivo">
+    <div className="dlv-cockpit">
+      <div className="dlv-cockpit-bar" style={{ borderColor: '#f59e0b' }}>
+        <span className="dlv-cockpit-tag">✕ No puedo tomar este pedido</span>
+      </div>
+      <div style={{ display: 'grid', gap: '8px' }}>
         {MOTIVOS_NO_DISPONIBLE.map((m) => (
-          <button key={m} type="button" role="radio" aria-checked={opcion === m}
-            className={`dlv-motivo${opcion === m ? ' sel' : ''}`} onClick={() => setOpcion(m)}>
-            <span aria-hidden>{opcion === m ? '●' : '○'}</span> {m}
+          <button
+            key={m}
+            type="button"
+            className="dlv-tab-btn"
+            style={{
+              justifyContent: 'flex-start',
+              background: motivo === m ? '#1e293b' : 'rgba(255, 255, 255, 0.05)',
+              border: motivo === m ? '1.5px solid #f59e0b' : '1px solid transparent',
+              color: motivo === m ? '#f8fafc' : '#cbd5e1',
+              padding: '10px 14px',
+            }}
+            onClick={() => setMotivo(m)}
+          >
+            <span>{motivo === m ? '●' : '○'}</span> {m}
           </button>
         ))}
       </div>
-      <div className="surt-campo">
-        <label htmlFor="dlv-nodisp-detalle">Detalle {esOtro ? '(obligatorio)' : '(opcional)'}</label>
-        <textarea id="dlv-nodisp-detalle" className="input surt-input" rows={3} value={detalle}
-          placeholder="Ej.: estoy llevando otra orden a Los Pinos" onChange={(e) => setDetalle(e.target.value)} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 6 }}>
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={guardando}>
+          ← Volver
+        </button>
+        <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando || !motivo}>
+          {guardando ? 'Guardando…' : 'Confirmar'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Modal de Contacto Rápido ── */
+function ModalLlamarRapido({ pedido, onClose }: {
+  pedido: PedidoDelivery | null;
+  onClose: () => void;
+}) {
+  const telAnalista = pedido ? telHref(pedido.analista_telefono) : null;
+  const telSolicitante = pedido ? telHref(pedido.solicitante_telefono) : null;
+
+  return (
+    <Modal title="Contactos de Despacho" compact onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', color: '#f8fafc' }}>
+        {pedido ? (
+          <>
+            <p style={{ margin: 0, fontSize: '.88rem', color: '#94a3b8' }}>
+              Contactos autorizados para coordinar la entrega en curso:
+            </p>
+            {telAnalista && (
+              <a
+                href={telAnalista}
+                className="dlv-btn-nav-gmaps"
+                style={{ textDecoration: 'none', background: '#0284c7', borderColor: '#38bdf8', color: '#fff' }}
+              >
+                📞 Llamar al Analista ({pedido.analista_nombre || 'Compras'} · {pedido.analista_telefono})
+              </a>
+            )}
+            {telSolicitante && (
+              <a
+                href={telSolicitante}
+                className="dlv-btn-nav-gmaps"
+                style={{ textDecoration: 'none', background: '#1e293b', borderColor: '#94a3b8', color: '#f8fafc' }}
+              >
+                📞 Llamar al Solicitante ({pedido.solicitante_nombre || 'Mina'} · {pedido.solicitante_telefono})
+              </a>
+            )}
+            {!telAnalista && !telSolicitante && (
+              <p style={{ color: '#fca5a5' }}>No hay teléfonos registrados para esta orden.</p>
+            )}
+          </>
+        ) : (
+          <p style={{ margin: 0, fontSize: '.88rem', color: '#94a3b8' }}>
+            Acepta un pedido para comunicarte con su analista responsable.
+          </p>
+        )}
+        <button type="button" className="btn btn-ghost" onClick={onClose}>
+          Cerrar
+        </button>
       </div>
     </Modal>
   );
 }
 
-/**
- * 02/11/2026: la OC entregada queda RECIBIDA en Inventario (la base hace la recepción completa:
- * stock, kardex y estado de la orden). Entra al almacén de la OC; sin almacén, al General
- * = Almacén Los Pinos. Por eso ya no se elige el almacén aquí.
- */
-function FormEntregarAlmacen({ p, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
-}) {
-  const almacen = almacenRecepcion(p);
-  const [nota, setNota] = useState('');
-  const [guardando, setGuardando] = useState(false);
-
-  async function guardar(e: FormEvent) {
-    e.preventDefault();
-    if (!p.pedido_id) return;
-    setGuardando(true);
-    try {
-      await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
-      toast(`Orden ${ocDe(p)} entregada en ${almacenVisible(almacen)}: el almacenista la recepciona.`, 'success');
-      onHecho('Entregado en almacén', mensajeEntregado(p, quien, almacenVisible(almacen), nota));
-    } catch (err) {
-      toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
-    } finally { setGuardando(false); }
-  }
-
-  return (
-    <form className="surt-form" onSubmit={(e) => void guardar(e)}>
-      <div className="surt-form-titulo">
-        <span className="icono" aria-hidden>📦</span>
-        <div><strong>Entregado en almacén</strong><div className="muted" style={{ fontSize: '.85rem' }}>{ocDe(p)} · {p.proveedor_nombre ?? '—'}</div></div>
-      </div>
-      <div className="aviso info sm">
-        <span className="aviso-icono">📥</span>
-        <div>Al confirmar, la orden queda <strong>entregada en {almacenVisible(almacen)}</strong> y le llega el aviso al almacenista, que la
-          <strong> recepciona desde su teléfono</strong> (revisa lo que llegó y lo suma al inventario).</div>
-      </div>
-      <div className="surt-campo">
-        <label htmlFor="dlv-ent-nota">Nota (opcional)</label>
-        <textarea id="dlv-ent-nota" className="input surt-input" rows={3} value={nota}
-          placeholder="Ej.: lo recibió el almacenista; faltó un renglón" onChange={(e) => setNota(e.target.value)} />
-      </div>
-      {!p.fotos_entrega.length && (
-        <div className="aviso warning sm"><span className="aviso-icono">📷</span><div>Todavía no subiste fotos de la entrega. Puedes volver y agregarlas antes de confirmar.</div></div>
-      )}
-      <div className="surt-grid2">
-        <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
-        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando}>
-          {guardando ? 'Guardando…' : '✅ Confirmar entrega'}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/* ── Comprobante de pago (Tesorería) ── */
-
+/* ── Modal Comprobante de Pago ── */
 function ComprobantePago({ p, onClose }: { p: PedidoDelivery; onClose: () => void }) {
   return (
-    <Modal title={`🧾 Comprobante de pago · ${ocDe(p)}`} onClose={onClose} minimizable={false}
-      footer={<button type="button" className="btn btn-ghost btn-grande" onClick={onClose}>Cerrar</button>}>
+    <Modal title={`Comprobante de ${ocDe(p)}`} onClose={onClose}>
       <ComprobantePagoCuerpo pedido={p} />
     </Modal>
   );
 }
 
-/* ── Compartir mi ubicación ── */
-
-/** Una lectura del GPS más vieja que esto no se reenvía como «sigo aquí». */
-const GPS_VIGENTE_MS = 2 * 60_000;
-
-/**
- * 03/11/2026: el GPS ya lo lee usePosicionGps (uno solo para el mapa, la cercanía y esto);
- * acá solo se MANDA a la oficina mientras hay un pedido en curso: al moverse (50 m) o cada
- * 30 s. Quieto, el teléfono no manda lecturas nuevas: cada 30 s se reenvía la última (si
- * tiene menos de 2 min) para que la PC no lo vea «sin señal».
- */
+/* ── Compartir Ubicación al Backend en Background ── */
 function CompartirUbicacion({ pedido, gps }: { pedido: PedidoDelivery | null; gps: { pos: PosicionGps | null; error: string | null } }) {
-  const [quiere, setQuiere] = useState(leerGps);
-  const [enviado, setEnviado] = useState<{ t: number; precision: number | null } | null>(null);
-  const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
+  const quiere = leerGps();
   const activo = quiere && !!pedido;
-  const error = errorEnvio ?? gps.error;
-
   const pedidoId = useRef<string | null>(null);
   useEffect(() => { pedidoId.current = pedido?.pedido_id ?? null; }, [pedido?.pedido_id]);
   const ultimo = useRef<EnvioGps | null>(null);
@@ -1143,8 +893,6 @@ function CompartirUbicacion({ pedido, gps }: { pedido: PedidoDelivery | null; gp
     enviando.current = true;
     ultimo.current = punto;
     compartirUbicacion({ lat: pos.lat, lng: pos.lng, precision: pos.precision, velocidad: pos.velocidad, rumbo: pos.rumbo }, pedidoId.current)
-      .then(() => { setEnviado({ t: punto.t, precision: pos.precision }); setErrorEnvio(null); })
-      .catch((e) => setErrorEnvio(errMsg(e, 'No se pudo compartir la ubicación.')))
       .finally(() => { enviando.current = false; });
   }, []);
 
@@ -1161,405 +909,5 @@ function CompartirUbicacion({ pedido, gps }: { pedido: PedidoDelivery | null; gp
     return () => clearInterval(t);
   }, [activo, enviar]);
 
-  function setError(v: string | null) { setErrorEnvio(v); }
-
-  function cambiar() {
-    const v = !quiere;
-    setQuiere(v); guardarGps(v);
-    if (!v) setError(null);
-  }
-
-  const hora = enviado ? new Date(enviado.t).toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
-
-  // 10/11/2026 (maqueta): una píldora en la cabecera: «GPS activo» / «Buscando GPS…» / «GPS pausado».
-  const clase = !quiere ? 'off' : error ? 'error' : activo && hora ? 'on' : 'espera';
-  const texto = !quiere ? 'GPS pausado'
-    : error ? 'GPS con error'
-      : !pedido ? 'GPS listo'
-        : hora ? 'GPS activo' : 'Buscando GPS…';
-  const detalle = !quiere ? 'Apagada: la oficina no ve dónde vas. Toca para compartir tu ubicación.'
-    : error ? error
-      : !pedido ? 'Se comparte solo mientras tienes un pedido en camino.'
-        : `Compartiendo con la oficina · ${ocDe(pedido)}${hora ? ` · última ${hora}${enviado?.precision != null ? ` (±${Math.round(enviado.precision)} m)` : ''}` : ''}`;
-
-  return (
-    <div className="dlv-gps-pill-wrap">
-      <button type="button" role="switch" aria-checked={quiere} aria-label={`Compartir mi ubicación: ${texto}`}
-        title={detalle} className={`dlv-gps-pill ${clase}`} onClick={cambiar}>
-        <span aria-hidden>📍</span> {texto}
-      </button>
-      {quiere && error && <small className="error">{error}</small>}
-    </div>
-  );
-}
-
-/* ── 03/11/2026 · La ruta elegida (debajo del mapa) ── */
-
-function PanelRuta({ p, paradas, ruta, yo, losPinos, puedeMarcarPinos, onQuitar }: {
-  p: PedidoDelivery; paradas: ParadaRuta[]; ruta: RutaCalculada | null; yo: PosicionGps | null; losPinos: PuntoMapa | null;
-  puedeMarcarPinos: boolean; onQuitar: () => void;
-}) {
-  const retiro = esRetiroAlmacen(p);
-  const destinos = paradas.filter((x) => x.tipo !== 'yo');
-  const conYo = paradas[0]?.tipo === 'yo';
-  const google = urlGoogleMapsRuta(paradas.map((x) => x.punto), conYo)
-    ?? (!retiro && !yaRecogido(p) ? mapaHref(p.proveedor_direccion) : null);
-  const faltaProveedor = !retiro && !yaRecogido(p) && !destinos.some((x) => x.tipo === 'recogida');
-  const faltaPinos = !losPinos && (retiro ? !yaRecogido(p) : entregaEnLosPinos(p));
-  const calculando = paradas.length >= 2 && !ruta;
-
-  return (
-    <section className="dlv-ruta" aria-label="Ruta">
-      <div className="dlv-ruta-cab">
-        <div style={{ minWidth: 0 }}>
-          <strong>🧭 Ruta · {retiro ? p.codigo : ocDe(p)}</strong>
-          {destinos.length > 0 && (
-            <ol className="dlv-ruta-tramos">
-              {!conYo && <li className="muted">Sin tu ubicación: arranca en la primera parada.</li>}
-              {destinos.map((x) => <li key={`${x.tipo}-${x.nombre}`}>{x.tipo === 'entrega' ? '🏬 Entregar en' : retiro ? '📦 Retirar en' : '🏭 Buscar en'} {x.nombre}</li>)}
-            </ol>
-          )}
-        </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onQuitar} aria-label="Quitar la ruta" style={{ minHeight: 36 }}>✕</button>
-      </div>
-      {ruta && (
-        <div className="dlv-ruta-total">
-          {distanciaTxt(ruta.metros)}{ruta.segundos != null ? ` · ${duracionTxt(ruta.segundos)}` : ''}
-          {ruta.fuente === 'recta' && <div className="muted" style={{ fontSize: '.8rem', fontWeight: 500 }}>Sin servicio de rutas: línea recta (por calle es más). Usa Google Maps para navegar.</div>}
-        </div>
-      )}
-      {calculando && <div className="muted" style={{ fontSize: '.85rem' }}>Calculando la ruta…</div>}
-      {paradas.length < 2 && destinos.length === 0 && (
-        <div className="muted" style={{ fontSize: '.85rem' }}>Todavía no hay puntos en el mapa para trazar esta ruta.</div>
-      )}
-      {faltaProveedor && (
-        <div className="dlv-sub">📍 Este proveedor no está ubicado en el mapa. Al llegar, márcalo desde su tarjeta («Marcar ubicación del proveedor aquí»).</div>
-      )}
-      {faltaPinos && (
-        <div className="dlv-sub">🏬 El {ALMACEN_RETIRO} todavía no está marcado en el mapa.</div>
-      )}
-      {faltaPinos && puedeMarcarPinos && <MarcarLosPinosAqui yo={yo} />}
-      {google && (
-        <a className="btn btn-primary" href={google} target="_blank" rel="noopener noreferrer">🗺 Abrir en Google Maps (paso a paso)</a>
-      )}
-    </section>
-  );
-}
-
-/** Precisión del GPS con la que ya no conviene marcar un local (se avisa, no se bloquea). */
-const PRECISION_DUDOSA_M = 80;
-
-/** El motorizado llegó donde el proveedor (que no estaba en el mapa) y lo marca con su GPS. */
-function MarcarProveedorAqui({ proveedorId, nombre, yo }: { proveedorId: string; nombre: string; yo: PosicionGps | null }) {
-  const [confirmar, setConfirmar] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  // 03/11/2026: también por coordenadas escritas o un enlace de Google Maps (sin estar en el local).
-  const [porCoords, setPorCoords] = useState(false);
-  const [coordsTexto, setCoordsTexto] = useState('');
-  const punto = parsearCoordenadas(coordsTexto);
-  async function guardarPunto(p: { lat: number; lng: number }) {
-    setGuardando(true);
-    try {
-      await ubicarProveedorDesdeDelivery(proveedorId, p);
-      toast(`Ubicación de ${nombre} guardada. Ya sale en el mapa para todos y queda para los próximos pedidos.`, 'success');
-      setConfirmar(false); setPorCoords(false); setCoordsTexto('');
-    } catch (e) {
-      toast(errMsg(e, 'No se pudo guardar la ubicación del proveedor'), 'error');
-    } finally { setGuardando(false); }
-  }
-  async function guardar() {
-    if (!yo) return;
-    await guardarPunto({ lat: yo.lat, lng: yo.lng });
-  }
-  if (porCoords) {
-    return (
-      <div className="dlv-marcar">
-        <div>Coordenadas de <strong>{nombre}</strong> (ej. <span className="mono">8.2869, -62.7467</span>) o pega el enlace de Google Maps:</div>
-        <input className="input surt-input mono" value={coordsTexto} onChange={(e) => setCoordsTexto(e.target.value)}
-          placeholder="8.2869, -62.7467" autoComplete="off" inputMode="text" />
-        {coordsTexto.trim() && !punto && <div style={{ color: 'var(--warning)' }}>No se entienden esas coordenadas: escribe «latitud, longitud».</div>}
-        <div className="surt-grid2">
-          <button type="button" className="btn btn-ghost" onClick={() => { setPorCoords(false); setCoordsTexto(''); }} disabled={guardando}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => punto && void guardarPunto(punto)} disabled={guardando || !punto}>{guardando ? 'Guardando…' : 'Guardar ubicación'}</button>
-        </div>
-      </div>
-    );
-  }
-  if (!yo) {
-    return (
-      <div className="surt-grid2">
-        <div className="dlv-sub">📍 Activa el GPS para marcarlo al llegar, o escribe sus coordenadas.</div>
-        <button type="button" className="btn btn-ghost" onClick={() => setPorCoords(true)}>⌨ Escribir coordenadas</button>
-      </div>
-    );
-  }
-  if (!confirmar) {
-    return (
-      <div className="surt-grid2">
-        <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(true)}>📍 Marcar ubicación del proveedor aquí</button>
-        <button type="button" className="btn btn-ghost" onClick={() => setPorCoords(true)}>⌨ Escribir coordenadas</button>
-      </div>
-    );
-  }
-  return (
-    <div className="dlv-marcar">
-      <div>¿Estás en el local de <strong>{nombre}</strong>? Se guarda tu ubicación actual como la del proveedor
-        {yo.precision != null ? ` (precisión ± ${Math.round(yo.precision)} m)` : ''}.</div>
-      {yo.precision != null && yo.precision > PRECISION_DUDOSA_M && (
-        <div style={{ color: 'var(--warning)' }}>La señal está imprecisa: si puedes, sal a un lugar abierto y espera unos segundos.</div>
-      )}
-      <div className="surt-grid2">
-        <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(false)} disabled={guardando}>Cancelar</button>
-        <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Sí, marcar aquí'}</button>
-      </div>
-    </div>
-  );
-}
-
-/** Igual, para el Almacén Los Pinos (solo si todavía no está marcado). */
-function MarcarLosPinosAqui({ yo }: { yo: PosicionGps | null }) {
-  const [confirmar, setConfirmar] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  async function guardar() {
-    if (!yo) return;
-    setGuardando(true);
-    try {
-      await fijarLugarDelivery(LUGAR_LOS_PINOS, { lat: yo.lat, lng: yo.lng });
-      toast(`${ALMACEN_RETIRO} marcado en el mapa.`, 'success');
-      setConfirmar(false);
-    } catch (e) {
-      toast(errMsg(e, 'No se pudo marcar el almacén'), 'error');
-    } finally { setGuardando(false); }
-  }
-  if (!yo) return null;
-  if (!confirmar) return <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(true)}>📍 Estoy en {ALMACEN_RETIRO}: marcarlo aquí</button>;
-  return (
-    <div className="dlv-marcar">
-      <div>¿Estás en el <strong>{ALMACEN_RETIRO}</strong>? Se guarda tu ubicación actual{yo.precision != null ? ` (± ${Math.round(yo.precision)} m)` : ''}.</div>
-      <div className="surt-grid2">
-        <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(false)} disabled={guardando}>Cancelar</button>
-        <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Sí, marcar aquí'}</button>
-      </div>
-    </div>
-  );
-}
-
-
-/* ============================================================
-   COMPONENTES DE CALLE · ESTILO YUMMY RIDES / RIDERY
-   ============================================================ */
-
-interface BarraCalleProps {
-  enCurso: PedidoDelivery | null;
-  cuenta: Record<ChipDelivery, number>;
-  onAccionPrincipal: () => void;
-  onNavegar: () => void;
-  onLlamar: () => void;
-  onCamara: () => void;
-  tabActivo?: 'principal' | 'mapa' | 'analista' | 'fotos';
-}
-
-function BarraSemiflotanteCalle({
-  enCurso, cuenta,
-  onAccionPrincipal, onNavegar, onLlamar, onCamara,
-  tabActivo = 'principal',
-}: BarraCalleProps) {
-  // Con carrera en curso
-  if (enCurso) {
-    const esEntregar = enCurso.estado === 'en_ruta';
-    const tramo = tramoEnCurso(enCurso);
-    return (
-      <nav className="dlv-bottom-bar" aria-label="Acciones de viaje en calle">
-        {/* 1. ACCIÓN PRINCIPAL (Contextual) */}
-        <button
-          type="button"
-          className={`dlv-bar-btn btn-accion-p${esEntregar ? ' entregar' : ''} ${tabActivo === 'principal' ? 'active' : ''}`}
-          onClick={onAccionPrincipal}
-          title={esEntregar ? 'Confirmar entrega en destino' : tramo === 1 ? 'Marcar en camino' : 'Entregar'}
-        >
-          <span className="icono">{esEntregar ? '✅' : '⚡'}</span>
-          <span className="label">{esEntregar ? 'Entregar' : 'En camino'}</span>
-        </button>
-
-        {/* 2. NAVEGACIÓN GPS DIRECTA */}
-        <button
-          type="button"
-          className={`dlv-bar-btn btn-gps ${tabActivo === 'mapa' ? 'active' : ''}`}
-          onClick={onNavegar}
-          title="Abrir navegación en Google Maps"
-        >
-          <span className="icono">🧭</span>
-          <span className="label">Navegar</span>
-        </button>
-
-        {/* 3. LLAMADA TELEFÓNICA INMEDIATA */}
-        <button
-          type="button"
-          className={`dlv-bar-btn btn-llamar ${tabActivo === 'analista' ? 'active' : ''}`}
-          onClick={onLlamar}
-          title="Llamar teléfono directo al contacto"
-        >
-          <span className="icono">📞</span>
-          <span className="label">Llamar</span>
-        </button>
-
-        {/* 4. CÁMARA / EVIDENCIA / GUÍA */}
-        <button
-          type="button"
-          className={`dlv-bar-btn btn-camara ${tabActivo === 'fotos' ? 'active' : ''}`}
-          onClick={onCamara}
-          title="Tomar fotos de la carga o revisar guía"
-        >
-          <span className="icono">📸</span>
-          <span className="label">Fotos</span>
-        </button>
-      </nav>
-    );
-  }
-
-  // Sin carrera activa: Modo exploración de pedidos (el repartidor escoge y prioriza)
-  return (
-    <nav className="dlv-bottom-bar" aria-label="Navegación de pedidos">
-      {/* 1. ELEGIR Y VER PEDIDOS DISPONIBLES (El repartidor decide su orden de recogida) */}
-      <button
-        type="button"
-        className={`dlv-bar-btn btn-accion-p ${tabActivo === 'principal' ? 'active' : ''}`}
-        onClick={onAccionPrincipal}
-        title={`Ver lista de pedidos disponibles (${cuenta.por_tomar})`}
-      >
-        <span className="icono">📦</span>
-        <span className="label">Pedidos ({cuenta.por_tomar})</span>
-      </button>
-
-      {/* 2. GPS / CENTRAR EN MI UBICACIÓN */}
-      <button
-        type="button"
-        className={`dlv-bar-btn btn-gps ${tabActivo === 'mapa' ? 'active' : ''}`}
-        onClick={onNavegar}
-        title="Centrar mapa en mi ubicación actual"
-      >
-        <span className="icono">📍</span>
-        <span className="label">Mi GPS</span>
-      </button>
-
-      {/* 3. LLAMAR A ANALISTA / DESPACHO (Solo contactos internos) */}
-      <button
-        type="button"
-        className={`dlv-bar-btn btn-llamar ${tabActivo === 'analista' ? 'active' : ''}`}
-        onClick={onLlamar}
-        title="Contactar al Analista de Compras o Despacho"
-      >
-        <span className="icono">📞</span>
-        <span className="label">Analista</span>
-      </button>
-
-      {/* 4. HISTORIAL DE ENTREGAS */}
-      <button
-        type="button"
-        className={`dlv-bar-btn btn-camara ${tabActivo === 'fotos' ? 'active' : ''}`}
-        onClick={onCamara}
-        title="Ver pedidos entregados hoy"
-      >
-        <span className="icono">✅</span>
-        <span className="label">Entregas ({cuenta.entregados})</span>
-      </button>
-    </nav>
-  );
-}
-
-interface ModalLlamarProps {
-  pedido: PedidoDelivery | null;
-  disponibles?: PedidoDelivery[];
-  onClose: () => void;
-}
-
-function ModalLlamarRapido({ pedido, disponibles = [], onClose }: ModalLlamarProps) {
-  const retiro = pedido ? esRetiroAlmacen(pedido) : false;
-  // Solo contactos internos autorizados: Analista de compras o Almacenista/Solicitante. NUNCA el proveedor externo.
-  const telAnalista = pedido ? telHref(pedido.analista_telefono) : null;
-  const telSolicitante = pedido ? telHref(pedido.solicitante_telefono) : null;
-
-  return (
-    <div className="dlv-sheet-overlay" onClick={onClose}>
-      <div className="dlv-sheet-container" style={{ paddingBottom: '95px' }} onClick={(e) => e.stopPropagation()}>
-        <div className="dlv-sheet-handle" />
-        <div className="dlv-sheet-header">
-          <h3 className="dlv-sheet-title">
-            {pedido ? `📞 Analista · ${retiro ? pedido.codigo : ocDe(pedido)}` : '📞 Analistas por Orden'}
-          </h3>
-          <button type="button" className="dlv-sheet-close" onClick={onClose} aria-label="Cerrar">
-            ✕
-          </button>
-        </div>
-
-        {pedido ? (
-          <div>
-            <p className="muted" style={{ fontSize: '.84rem', margin: '0 0 .75rem' }}>
-              Analista asignado a la orden activa para coordinar la entrega:
-            </p>
-            {telAnalista && (
-              <div className="dlv-analista-card">
-                <span className="dlv-analista-orden-badge">Orden: {retiro ? pedido.codigo : ocDe(pedido)}</span>
-                <div className="dlv-analista-nombre">{pedido.analista_nombre || 'Analista de Compras'}</div>
-                <div className="dlv-analista-cargo">{retiro ? 'Almacenista Los Pinos' : 'Analista en Procura'}</div>
-                <a className="dlv-analista-call-btn" href={telAnalista} onClick={onClose}>
-                  📞 Llamar al Analista ({pedido.analista_telefono})
-                </a>
-              </div>
-            )}
-            {telSolicitante && (
-              <div className="dlv-analista-card" style={{ borderColor: '#334155' }}>
-                <span className="dlv-analista-orden-badge" style={{ color: '#a78bfa', background: 'rgba(167, 139, 250, 0.12)' }}>
-                  Quien Solicitó en Mina
-                </span>
-                <div className="dlv-analista-nombre">{pedido.solicitante_nombre || 'Destinatario'}</div>
-                <div className="dlv-analista-cargo">Destinatario de la carga</div>
-                <a className="dlv-analista-call-btn" style={{ background: '#3b82f6', boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)' }} href={telSolicitante} onClick={onClose}>
-                  📞 Llamar al Solicitante ({pedido.solicitante_telefono})
-                </a>
-              </div>
-            )}
-            {!telAnalista && !telSolicitante && (
-              <div className="aviso warning sm">
-                No hay teléfono registrado para el analista o almacenista de este pedido.
-              </div>
-            )}
-          </div>
-        ) : (
-          <div>
-            <p className="muted" style={{ fontSize: '.84rem', margin: '0 0 .75rem' }}>
-              Analista responsable de cada orden disponible para coordinar antes de aceptar:
-            </p>
-            {disponibles.length > 0 ? (
-              disponibles.slice(0, 5).map((p) => {
-                const ret = esRetiroAlmacen(p);
-                const tel = telHref(p.analista_telefono);
-                return (
-                  <div key={claveDelivery(p)} className="dlv-analista-card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="dlv-analista-orden-badge">Orden: {ret ? p.codigo : ocDe(p)}</span>
-                      <span style={{ fontSize: '.72rem', color: '#94a3b8' }}>{ret ? '📦 Retiro' : '🏭 Compra'}</span>
-                    </div>
-                    <div className="dlv-analista-nombre">{p.analista_nombre || 'Analista de Compras'}</div>
-                    <div className="dlv-analista-cargo">{p.proveedor_nombre ?? 'Almacén Los Pinos'}</div>
-                    {tel ? (
-                      <a className="dlv-analista-call-btn" href={tel} onClick={onClose}>
-                        📞 Llamar al Analista ({p.analista_telefono})
-                      </a>
-                    ) : (
-                      <span className="btn btn-ghost" style={{ marginTop: '.4rem', opacity: .6 }} aria-disabled>
-                        Sin teléfono registrado
-                      </span>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <div className="aviso info sm">No hay órdenes pendientes en este momento.</div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return null;
 }
