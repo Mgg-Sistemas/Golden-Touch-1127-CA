@@ -268,7 +268,7 @@ export function ConciliacionPage() {
           }}
           onClick={() => setTabActiva('salidas')}
         >
-          💸 Salidas · Compras y Pagos ({filas.length})
+          💸 Salidas · Compras y Pagos ({filtradas.length})
         </button>
         <button
           type="button"

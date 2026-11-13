@@ -78,8 +78,8 @@ export function ConciliacionEntradasTab({
       const tipoRet = s.retenciones.length
         ? Array.from(new Set(s.retenciones.map((r) => r.tipo))).join(' + ')
         : 'Retención';
-      const montoRetenidoBs = s.totalBs != null ? s.totalBs : 0;
-      const montoRetenidoUsd = s.totalUsd != null ? s.totalUsd : 0;
+      const montoRetenidoBs = s.retencionMontoBs ?? (s.totalBs != null ? s.totalBs : 0);
+      const montoRetenidoUsd = s.retencionMontoUsd ?? (s.totalUsd != null ? s.totalUsd : 0);
 
       mapaPorOc.set(claveId, {
         item: 0,

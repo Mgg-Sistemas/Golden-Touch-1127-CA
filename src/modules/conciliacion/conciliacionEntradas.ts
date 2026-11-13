@@ -719,20 +719,44 @@ export function ordenAFilaEsperandoReintegro(
   const retCompras = leerRetencionesCompras(o);
   const lineas = retCompras ? lineasRetencion(retCompras) : [];
   let tipoRet = lineas.map((l) => l.corta).join(' + ');
-  if (!tipoRet) tipoRet = 'Retención';
+  if (!tipoRet) {
+    const tipos: string[] = [];
+    if (Number(o.retencion_iva_monto) > 0) tipos.push('IVA');
+    if (Number(o.retencion_islr_monto) > 0) tipos.push('ISLR');
+    if (Number(o.retencion_isae_monto) > 0) tipos.push('ISAE');
+    if (Number(o.retencion_igtf_monto) > 0) tipos.push('IGTF');
+    tipoRet = tipos.join(' + ') || 'Retención';
+  }
 
   const moneda = o.total_moneda === 'Bs' ? 'Bs' : 'USD';
-  const tasa = o.retencion_tasa ?? tasaBcv ?? null;
+  const tasa =
+    o.retencion_tasa ??
+    (o as unknown as { tasa?: number }).tasa ??
+    (o as unknown as { tasa_cambio?: number }).tasa_cambio ??
+    tasaBcv ??
+    (o.total && (o as unknown as { total_bs?: number }).total_bs
+      ? r2(Number((o as unknown as { total_bs?: number }).total_bs) / Number(o.total))
+      : null);
 
   let montoBs = 0;
   let montoUsd: number | null = null;
 
-  if (retCompras && retCompras.total > 0) {
+  const totalRetCompras =
+    retCompras && retCompras.total > 0
+      ? retCompras.total
+      : (Number(o.retencion_compras_total) || 0) > 0
+      ? Number(o.retencion_compras_total)
+      : (Number(o.retencion_iva_monto) || 0) +
+        (Number(o.retencion_islr_monto) || 0) +
+        (Number(o.retencion_isae_monto) || 0) +
+        (Number(o.retencion_igtf_monto) || 0);
+
+  if (totalRetCompras > 0) {
     if (moneda === 'Bs') {
-      montoBs = retCompras.total;
+      montoBs = totalRetCompras;
       montoUsd = tasa ? r2(montoBs / tasa) : null;
     } else {
-      montoUsd = retCompras.total;
+      montoUsd = totalRetCompras;
       montoBs = tasa ? r2(montoUsd * tasa) : 0;
     }
   } else if ((o.retencion_monto_bs ?? 0) > 0) {
