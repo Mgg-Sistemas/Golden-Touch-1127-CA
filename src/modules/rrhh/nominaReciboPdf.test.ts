@@ -105,6 +105,23 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     expect(tablaSueldo.foot[0].cells[3].width).toBeCloseTo(tablaSueldo.body[0].cells[3].width, 2);
     expect(tablaSueldo.foot[1].cells[2].x).toBeCloseTo(tablaSueldo.body[0].cells[2].x, 2);
     expect(tablaSueldo.foot[1].cells[2].width).toBeCloseTo(tablaSueldo.body[0].cells[2].width, 2);
+    // Verifica en el stream PDF real que el borde derecho (X + ancho del texto) de «Bs 0,00»
+    // del cuerpo (normal) y de TOTALES (negrita) coincide al centésimo de punto en DEDUCCIÓN Bs,
+    // y que TOTALES y NETO A RECIBIR EN BOLÍVARES caen en DEVENGADO Bs con idéntica coordenada X.
+    const streamSueldo = docSueldo.output();
+    const xsDeduccionCero = [...streamSueldo.matchAll(/([\d.]+)\s+[\d.]+\s+Td\s*\(Bs 0,00\)\s*Tj/g)].map((m) => Number(m[1]));
+    const xsColDeduccion = xsDeduccionCero.filter((x) => x > 450);
+    expect(xsColDeduccion.length).toBe(6);
+    docSueldo.setFontSize(8.5);
+    docSueldo.setFont('helvetica', 'normal');
+    const wCeroNormal = docSueldo.getTextWidth('Bs 0,00');
+    docSueldo.setFont('helvetica', 'bold');
+    const wCeroBold = docSueldo.getTextWidth('Bs 0,00');
+    expect(xsColDeduccion[5] + wCeroBold).toBeCloseTo(xsColDeduccion[0] + wCeroNormal, 2);
+    const xsNetoDevengado = [...streamSueldo.matchAll(/([\d.]+)\s+[\d.]+\s+Td\s*\(Bs 12\.345,67\)\s*Tj/g)].map((m) => Number(m[1]));
+    const xsPieDevengado = xsNetoDevengado.filter((x) => x > 350 && x < 450);
+    expect(xsPieDevengado.length).toBe(2);
+    expect(xsPieDevengado[0]).toBeCloseTo(xsPieDevengado[1], 2);
 
     const conAsignacion = { ...base, asignaciones: 40, deduc_prestamos: 50, deduc_anticipos: 30 } as unknown as NominaRenglon;
     const docBono = await construir([conAsignacion], { ...meta, tipos: ['bono'] } as never);
