@@ -34,7 +34,7 @@ import { FiltroChecks } from '@/shared/ui/FiltroChecks';
 import { ReporteConciliacionModal } from './ReporteConciliacionModal';
 import { CruceDriveModal } from './CruceDriveModal';
 import { leerArchivoDrive } from './conciliacion.repository';
-import { PLANTILLA_DRIVE_CSV, cruzarDrive, parsearCsv, type CruceDrive } from './cruceDrive';
+import { PLANTILLA_DRIVE_CSV, cruzarDrive, detectarTipoArchivoDrive, parsearCsv, type CruceDrive } from './cruceDrive';
 import { toast } from '@/shared/ui/Toast';
 import { ComprobantesPagoModal, FacturasDirectaModal, ReferenciaModal } from './DocumentosConciliacion';
 import { ConciliacionEntradasTab } from './ConciliacionEntradasTab';
@@ -128,8 +128,21 @@ export function ConciliacionPage() {
         const XLSX = await import('xlsx-js-style');
         const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
         const util = XLSX.utils as unknown as { sheet_to_json: <T>(ws: unknown, o?: unknown) => T[] };
-        const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
-        if (hoja) matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
+        let seleccionada: unknown[][] | null = null;
+        for (const n of wb.SheetNames) {
+          const ws = wb.Sheets[n];
+          const m = util.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' });
+          if (m.length > 0 && detectarTipoArchivoDrive(m) !== 'desconocido') {
+            seleccionada = m;
+            break;
+          }
+        }
+        if (seleccionada) {
+          matriz = seleccionada;
+        } else {
+          const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
+          if (hoja) matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
+        }
       }
       if (matriz.length > 0) {
         const entExtraidas = extraerEntradasDrive(matriz, filas);
@@ -366,6 +379,7 @@ export function ConciliacionPage() {
               <th>Código</th>
               <th>Proveedor</th>
               <th style={{ textAlign: 'right' }}>Monto de la OC</th>
+              <th style={{ textAlign: 'center' }}>Pago en</th>
               <th>Referencia de pago</th>
               <th>Comprobante</th>
               <th>Retención</th>
@@ -375,9 +389,9 @@ export function ConciliacionPage() {
             </tr>
           </thead>
           <tbody>
-            {cargando && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Cargando…</td></tr>}
+            {cargando && <tr><td colSpan={11} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Cargando…</td></tr>}
             {!cargando && !filtradas.length && (
-              <tr><td colSpan={10} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>
+              <tr><td colSpan={11} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>
                 {filas.length ? 'Ninguna OC coincide con los filtros.' : 'Todavía no hay OC.'}
               </td></tr>
             )}
@@ -399,6 +413,35 @@ export function ConciliacionPage() {
                       tasa {r.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       {r.fuenteTasa === 'bcv_hoy' ? ' · hoy' : ''}
                     </div>
+                  )}
+                </td>
+                <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  {r.monedaPago === 'Bs' ? (
+                    <span
+                      className="badge mono success"
+                      style={{ fontSize: '.75rem', padding: '.15rem .45rem', cursor: 'help' }}
+                      title="Pagada en Bolívares por Tesorería · Sí se cruza con extracto bancario en Bs"
+                    >
+                      Bs
+                    </span>
+                  ) : r.monedaPago === 'USD' ? (
+                    <span
+                      className="badge mono warning"
+                      style={{ fontSize: '.75rem', padding: '.15rem .45rem', cursor: 'help' }}
+                      title="Pagada en Divisas / Dólares ($) · No se debita en banco en Bs"
+                    >
+                      $ USD
+                    </span>
+                  ) : r.monedaPago === 'Mixto' ? (
+                    <span
+                      className="badge mono info"
+                      style={{ fontSize: '.75rem', padding: '.15rem .45rem', cursor: 'help' }}
+                      title="Pago mixto (Bolívares + Dólares)"
+                    >
+                      Bs + $
+                    </span>
+                  ) : (
+                    <span className="muted" title="Sin pago registrado todavía">—</span>
                   )}
                 </td>
                 <td>

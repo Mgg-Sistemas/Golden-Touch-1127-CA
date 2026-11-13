@@ -30,6 +30,7 @@ const texto = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const fmtBs = (n: number) => `Bs ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const normCodigo = (s: string) => s.toUpperCase().replace(/\s+/g, '');
 const digitos = (s: string) => s.replace(/\D+/g, '').replace(/^0+/, '');
+const digitosTodos = (s: string) => s.replace(/\D+/g, '');
 const alfanum = (s: string) => sinAcentos(s).toUpperCase().replace(/[^A-Z0-9]+/g, '');
 
 /**
@@ -350,13 +351,21 @@ export function parsearCodigoDoc(codigo: string): InfoCodigoDoc | null {
   return { tipo, numero, anio, raw: codigo };
 }
 
-/** Comprueba si dos códigos coinciden (ej. 'ODC 183' y 'OC-2026-0183'). */
+export function sonTiposDocCompatibles(t1: string, t2: string): boolean {
+  if (t1 === t2) return true;
+  // CS, SERV, SD, SV son todos órdenes/controles de servicio en Compras
+  const esServ = (t: string) => t === 'CS' || t === 'SERV' || t === 'SD' || t === 'SV';
+  if (esServ(t1) && esServ(t2)) return true;
+  return false;
+}
+
+/** Comprueba si dos códigos coinciden (ej. 'ODC 183' y 'OC-2026-0183', o 'SERVICIO 0034' y 'CS-2026-0034'). */
 export function coincidenCodigosDoc(a: string, b: string): boolean {
   if (normCodigo(a) === normCodigo(b)) return true;
   const pa = parsearCodigoDoc(a);
   const pb = parsearCodigoDoc(b);
   if (!pa || !pb) return false;
-  if (pa.tipo !== pb.tipo) return false;
+  if (!sonTiposDocCompatibles(pa.tipo, pb.tipo)) return false;
   if (pa.numero !== pb.numero) return false;
   if (pa.anio && pb.anio && pa.anio !== pb.anio) return false;
   return true;
@@ -552,7 +561,11 @@ export function extraerMovimientosLibroMayor(matriz: unknown[][], filasConciliac
       });
     } else if (codigos.length === 1) {
       const c = codigos[0];
-      const doc = filasConciliacion.find((d) => coincidenCodigosDoc(d.codigo, c.raw) || (parsearCodigoDoc(d.codigo)?.tipo === c.tipo && parsearCodigoDoc(d.codigo)?.numero === c.numero));
+      const doc = filasConciliacion.find((d) => {
+        if (coincidenCodigosDoc(d.codigo, c.raw)) return true;
+        const pDoc = parsearCodigoDoc(d.codigo);
+        return !!pDoc && sonTiposDocCompatibles(pDoc.tipo, c.tipo) && pDoc.numero === c.numero;
+      });
       const codDoc = doc?.codigo ?? (c.tipo === 'OC' ? `OC-${c.numero}` : `${c.tipo}-${c.numero}`);
       const errores: string[] = [];
       if (montoBs == null) errores.push('Monto Bs vacío o no numérico');
@@ -565,7 +578,11 @@ export function extraerMovimientosLibroMayor(matriz: unknown[][], filasConciliac
     } else {
       // Múltiples órdenes agrupadas (ej. 'ODC 189 Y 191')
       const docs = codigos.map((c) =>
-        filasConciliacion.find((d) => coincidenCodigosDoc(d.codigo, c.raw) || (parsearCodigoDoc(d.codigo)?.tipo === c.tipo && parsearCodigoDoc(d.codigo)?.numero === c.numero))
+        filasConciliacion.find((d) => {
+          if (coincidenCodigosDoc(d.codigo, c.raw)) return true;
+          const pDoc = parsearCodigoDoc(d.codigo);
+          return !!pDoc && sonTiposDocCompatibles(pDoc.tipo, c.tipo) && pDoc.numero === c.numero;
+        })
       );
       const montosEsperadosDocs = docs.map((d) => (d ? montosEsperados(d)[0] ?? null : null));
       const codigosFinales = codigos.map((c, idx) => docs[idx]?.codigo ?? (c.tipo === 'OC' ? `OC-${c.numero}` : `${c.tipo}-${c.numero}`));
@@ -650,12 +667,31 @@ export function leerMatrizDrive(matriz: unknown[][], filasConciliacion: FilaConc
  * es de 6 a 8 dígitos (como el banco).
  */
 export function mismaReferencia(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const alfA = alfanum(a);
+  const alfB = alfanum(b);
+  if (alfA && alfA === alfB) return true;
+
+  const rawA = digitosTodos(a);
+  const rawB = digitosTodos(b);
+  if (!rawA || !rawB) return false;
+  if (rawA === rawB) return true;
+
   const da = digitos(a);
   const db = digitos(b);
-  if (!da || !db) return !!alfanum(a) && alfanum(a) === alfanum(b);
-  if (da === db) return true;
-  const [corta, larga] = da.length <= db.length ? [da, db] : [db, da];
-  return (corta.length >= 6 || (corta.length >= 4 && larga.length >= 6)) && larga.endsWith(corta);
+  if (da && da === db) return true;
+
+  // Comparación preservando ceros iniciales (ej. "0051" y "35760051"):
+  const [cortaRaw, largaRaw] = rawA.length <= rawB.length ? [rawA, rawB] : [rawB, rawA];
+  if (cortaRaw.length >= 4 && largaRaw.length >= 6 && largaRaw.endsWith(cortaRaw)) return true;
+
+  // Comparación sin ceros iniciales (ej. "51234" y "35751234"):
+  if (da && db) {
+    const [cortaD, largaD] = da.length <= db.length ? [da, db] : [db, da];
+    if (cortaD.length >= 4 && largaD.length >= 6 && largaD.endsWith(cortaD)) return true;
+  }
+
+  return false;
 }
 
 /** El monto en Bs con que se compara: lo pagado en Bs; si no, el de la OC en Bs. */
@@ -703,6 +739,15 @@ function buscarDoc(f: FilaArchivoDrive, porCodigo: Map<string, FilaConciliacion>
       if (conMonto.length === 1) return { r: conMonto[0], por: 'codigo' as const, nota: null };
       return { r: null, por: null, nota: `El código ${f.oc} coincide con varios documentos (${fuzzy.map((r) => r.codigo).join(', ')})` };
     }
+    // Si no encontró por coincidencia exacta de tipo, probar por número + monto coincidente:
+    const parsed = parsearCodigoDoc(f.oc);
+    if (parsed && f.montoBs != null) {
+      const candidatas = filas.filter((r) => {
+        const pr = parsearCodigoDoc(r.codigo);
+        return pr && pr.numero === parsed.numero && coincideMonto(f.montoBs as number, r, tol);
+      });
+      if (candidatas.length === 1) return { r: candidatas[0], por: 'codigo' as const, nota: null };
+    }
   }
   if (f.referencia) {
     const conRef = filas.filter((r) => r.referencias.some((x) => mismaReferencia(x, f.referencia)));
@@ -718,7 +763,10 @@ function buscarDoc(f: FilaArchivoDrive, porCodigo: Map<string, FilaConciliacion>
 
 /** Cruza las filas del archivo con las de Conciliación. */
 export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaConciliacion[], tol = TOLERANCIA_BS): CruceDrive {
-  const porCodigo = new Map(filas.map((r) => [normCodigo(r.codigo), r]));
+  // Solo se cruzan las órdenes que fueron pagadas en Bs (o pendientes en Bs).
+  // Si la orden fue pagada en USD/divisas, Tesorería no la debita en Bs y no se cruza en este extracto:
+  const filasCruzables = filas.filter((r) => r.monedaPago !== 'USD');
+  const porCodigo = new Map(filasCruzables.map((r) => [normCodigo(r.codigo), r]));
   const errorPorColumna: Record<string, number> = {};
   const salida: FilaCruce[] = [];
   const vinculadas = new Map<string, { r: FilaConciliacion; filas: FilaCruce[] }>();
@@ -734,7 +782,7 @@ export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaCon
       salida.push({ ...f, resultado: 'error', detalle: f.errores.join(' · '), doc: null, por: null });
       continue;
     }
-    const { r, por, nota } = buscarDoc(f, porCodigo, filas, tol);
+    const { r, por, nota } = buscarDoc(f, porCodigo, filasCruzables, tol);
     if (!r) { salida.push({ ...f, resultado: 'no_encontrada', detalle: nota ?? 'No encontrada', doc: null, por: null }); continue; }
     const refCoincide = !!f.referencia && r.referencias.some((x) => mismaReferencia(x, f.referencia));
     const montoOk = coincideMonto(f.montoBs as number, r, tol);
@@ -743,16 +791,22 @@ export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaCon
     // Reglas de conciliación inteligente:
     // 1) Si coincide la referencia bancaria y el monto: CUADRA.
     // 2) Si se emparejó por código de OC y el monto coincide:
-    //    - Si la orden está pagada/finalizada en Compras y el sistema no tenía referencia registrada: CUADRA.
-    //    - Si la orden está pagada/finalizada en Compras y el archivo no especificó texto de ref pero sí código y monto exactos: CUADRA.
-    //    - Si ambos traen referencias distintas: NO CUADRA por conflicto de referencia.
+    //    - Conflicto real de referencia: cuando ambos traen referencias bancarias largas (6+ dígitos) incompatibles.
+    //    - Si la orden está pagada/finalizada y en el sistema no había referencia bancaria de 6+ dígitos: CUADRA
+    //      (se confirma la referencia real del extracto bancario).
+    const refConflictoReal =
+      !!f.referencia &&
+      digitosTodos(f.referencia).length >= 6 &&
+      r.referencias.some((x) => digitosTodos(x).length >= 6 && !mismaReferencia(x, f.referencia));
     const refConflicto = !!f.referencia && r.referencias.length > 0 && !refCoincide;
-    const cuadra = (refCoincide && montoOk) || (por === 'codigo' && montoOk && esPagadaOFinalizada && !refConflicto);
+    const cuadra =
+      (refCoincide && montoOk) ||
+      (por === 'codigo' && montoOk && (esPagadaOFinalizada ? !refConflictoReal : !refConflicto));
 
     const motivos: string[] = [];
     if (!f.referencia && (!esPagadaOFinalizada || por !== 'codigo')) motivos.push('el archivo no trae la referencia');
     else if (!r.referencias.length && (!esPagadaOFinalizada || por !== 'codigo')) motivos.push('el pago no tiene referencia en el sistema');
-    else if (refConflicto) motivos.push(`la referencia ${f.referencia} no coincide con la del pago (${r.referencias.join(', ')})`);
+    else if (refConflicto && (!esPagadaOFinalizada || refConflictoReal)) motivos.push(`la referencia ${f.referencia} no coincide con la del pago (${r.referencias.join(', ')})`);
     if (!montoOk) {
       const esp = montosEsperados(r);
       motivos.push(esp.length ? `el monto ${fmtBs(f.montoBs as number)} no coincide con ${esp.map(fmtBs).join(' / ')}` : 'el documento no tiene monto en Bs');
@@ -761,7 +815,7 @@ export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaCon
     let detalle = '';
     if (cuadra) {
       if (refCoincide) detalle = `Referencia y monto coinciden (${por === 'codigo' ? 'por código' : 'por referencia'})`;
-      else if (f.referencia && !r.referencias.length) detalle = `Referencia bancaria y monto confirmados (orden finalizada/pagada en Compras)`;
+      else if (f.referencia) detalle = `Referencia bancaria confirmada (${f.referencia}) (orden finalizada/pagada en Compras)`;
       else detalle = `Código y monto confirmados (orden finalizada/pagada en Compras)`;
     } else {
       detalle = `No cuadra: ${motivos.join('; ')}`;
