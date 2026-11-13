@@ -34,9 +34,11 @@ import { FiltroChecks } from '@/shared/ui/FiltroChecks';
 import { ReporteConciliacionModal } from './ReporteConciliacionModal';
 import { CruceDriveModal } from './CruceDriveModal';
 import { leerArchivoDrive } from './conciliacion.repository';
-import { PLANTILLA_DRIVE_CSV, cruzarDrive, type CruceDrive } from './cruceDrive';
+import { PLANTILLA_DRIVE_CSV, cruzarDrive, parsearCsv, type CruceDrive } from './cruceDrive';
 import { toast } from '@/shared/ui/Toast';
 import { ComprobantesPagoModal, FacturasDirectaModal, ReferenciaModal } from './DocumentosConciliacion';
+import { ConciliacionEntradasTab } from './ConciliacionEntradasTab';
+import { cargarOrdenesEsperandoReintegro, extraerEntradasDrive, type FilaConciliacionEntrada } from './conciliacionEntradas';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
 
@@ -83,17 +85,59 @@ export function ConciliacionPage() {
   const [referencia, setReferencia] = useState<FilaConciliacion | null>(null);
   const [notasDisponibles, setNotasDisponibles] = useState(true);
   const [reporte, setReporte] = useState(false);
+  // Pestañas del módulo: Salidas (Compras) vs Entradas (Reintegros de Retención)
+  const [tabActiva, setTabActiva] = useState<'salidas' | 'entradas'>('salidas');
+  const [entradas, setEntradas] = useState<FilaConciliacionEntrada[]>([]);
+  const [cargandoEntradas, setCargandoEntradas] = useState(false);
+
   // Cruce con el archivo del Drive (CSV/Excel, 12/11/2026).
   const [drive, setDrive] = useState<{ cruce: CruceDrive; archivo: File } | null>(null);
   const [leyendoDrive, setLeyendoDrive] = useState(false);
   const inputDrive = useRef<HTMLInputElement>(null);
+
+  const cargarEntradas = useCallback(async (entradasReintegradas: FilaConciliacionEntrada[] = []) => {
+    setCargandoEntradas(true);
+    try {
+      const esperando = await cargarOrdenesEsperandoReintegro(entradasReintegradas);
+      const combinadas = [...entradasReintegradas, ...esperando].map((e, idx) => ({ ...e, item: idx + 1 }));
+      setEntradas(combinadas);
+    } catch (e) {
+      console.error('Error al cargar órdenes esperando reintegro:', e);
+    } finally {
+      setCargandoEntradas(false);
+    }
+  }, []);
+
   async function cargarDrive(file: File | undefined) {
     if (inputDrive.current) inputDrive.current.value = '';
     if (!file) return;
     setLeyendoDrive(true);
     try {
-      const lectura = await leerArchivoDrive(file);
+      const lectura = await leerArchivoDrive(file, filas);
       setDrive({ cruce: cruzarDrive(lectura, filas), archivo: file });
+
+      // Carga inteligente de entradas de retención (libro mayor / extracto bancario):
+      let matriz: unknown[][] = [];
+      const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+      if (ext === 'csv') {
+        const buf = await file.arrayBuffer();
+        let texto = new TextDecoder('utf-8').decode(buf);
+        if (texto.includes('\uFFFD')) texto = new TextDecoder('windows-1252').decode(buf);
+        matriz = parsearCsv(texto);
+      } else {
+        const XLSX = await import('xlsx-js-style');
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        const util = XLSX.utils as unknown as { sheet_to_json: <T>(ws: unknown, o?: unknown) => T[] };
+        const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
+        if (hoja) matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
+      }
+      if (matriz.length > 0) {
+        const entExtraidas = extraerEntradasDrive(matriz, filas);
+        if (entExtraidas.length > 0) {
+          await cargarEntradas(entExtraidas);
+          toast(`Se reconocieron ${entExtraidas.length} entradas de reintegro en el archivo`, 'info');
+        }
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo leer el archivo', 'error');
     } finally {
@@ -119,12 +163,13 @@ export function ConciliacionPage() {
     try {
       const d = await cargarConciliacion();
       setFilas(d.filas); setOrdenes(d.ordenes); setAvisos(d.avisos); setNotasDisponibles(d.notasDisponibles);
+      void cargarEntradas();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar la conciliación.');
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [cargarEntradas]);
   useEffect(() => { void cargar(); }, [cargar]);
 
   const filtradas = useMemo(() => renumerar(filtrarFilas(filas, f, diaVE)), [filas, f]);
@@ -195,7 +240,59 @@ export function ConciliacionPage() {
         <div key={a} className="card" style={{ borderLeft: '3px solid var(--warning)', marginBottom: '.75rem', fontSize: '.88rem' }}>⚠ {a}</div>
       ))}
 
-      {/* ── Tarjetas ── */}
+      {/* ── Selector de Submódulo: Salidas (Compras/Pagos) vs Entradas (Reintegros de Retención) ── */}
+      <div style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border)', marginBottom: '1.25rem' }}>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{
+            fontWeight: tabActiva === 'salidas' ? 700 : 500,
+            borderBottom: tabActiva === 'salidas' ? '3px solid var(--primary-2, #3b82f6)' : '3px solid transparent',
+            borderRadius: '0',
+            color: tabActiva === 'salidas' ? 'var(--text-color, #fff)' : 'var(--text-muted, #9ca3af)',
+            padding: '.6rem 1.1rem',
+            fontSize: '.95rem',
+          }}
+          onClick={() => setTabActiva('salidas')}
+        >
+          💸 Salidas · Compras y Pagos ({filas.length})
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{
+            fontWeight: tabActiva === 'entradas' ? 700 : 500,
+            borderBottom: tabActiva === 'entradas' ? '3px solid var(--primary-2, #3b82f6)' : '3px solid transparent',
+            borderRadius: '0',
+            color: tabActiva === 'entradas' ? 'var(--text-color, #fff)' : 'var(--text-muted, #9ca3af)',
+            padding: '.6rem 1.1rem',
+            fontSize: '.95rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '.45rem',
+          }}
+          onClick={() => setTabActiva('entradas')}
+        >
+          📥 Entradas · Reintegros de Retención ({entradas.length})
+          {entradas.some((e) => e.estado === 'esperando_reintegro') && (
+            <span className="badge warning" style={{ fontSize: '.7rem', padding: '.1rem .45rem' }}>
+              {entradas.filter((e) => e.estado === 'esperando_reintegro').length} esperando
+            </span>
+          )}
+        </button>
+      </div>
+
+      {tabActiva === 'entradas' ? (
+        <ConciliacionEntradasTab
+          filasSalidas={filas}
+          entradas={entradas}
+          cargando={cargandoEntradas}
+          onActualizar={() => cargarEntradas(entradas.filter((e) => e.estado === 'reintegrado'))}
+          onAbrirEnCompras={abrirEnCompras}
+        />
+      ) : (
+        <>
+          {/* ── Tarjetas ── */}
       <div className="kpi-grid">
         <TarjetaKpi icono="🧾" titulo={TITULO_TARJETA.total} valor={String(k.totalOc.cantidad)}
           nota={`${usd(k.totalOc.usd)} · ${bs(k.totalOc.bs)}`} onClick={() => setTarjeta('total')} cargando={cargando} />
@@ -371,6 +468,8 @@ export function ConciliacionPage() {
       {!cargando && filtradas.length > 0 && (
         <Paginador pagina={pagina} tam={tam} unidad="OC" tamanos={TAMANOS}
           onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+      )}
+        </>
       )}
 
       {/* ── Detalle de una tarjeta ── */}

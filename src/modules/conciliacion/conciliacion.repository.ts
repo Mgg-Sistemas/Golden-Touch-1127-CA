@@ -30,7 +30,7 @@ import {
   type ArchivoNota, type ComprobanteTesoreria, type DocDirecto, type DriveConciliacion, type EstadoDrive, type FilaConciliacion,
   type NotaConciliacion, type OrigenDoc, type PagoOc, type RetencionLibro,
 } from './conciliacion';
-import { leerMatrizDrive, parsearCsv, type CruceDrive, type LecturaDrive } from './cruceDrive';
+import { detectarTipoArchivoDrive, leerMatrizDrive, parsearCsv, type CruceDrive, type LecturaDrive } from './cruceDrive';
 
 export interface DatosConciliacion {
   filas: FilaConciliacion[];
@@ -330,7 +330,7 @@ const EXT_DRIVE: Record<string, string> = {
 const extension = (nombre: string) => (nombre.split('.').pop() ?? '').toLowerCase();
 
 /** Valida y lee el CSV o Excel del Drive (como la importación de Inventario). */
-export async function leerArchivoDrive(file: File): Promise<LecturaDrive> {
+export async function leerArchivoDrive(file: File, filasConciliacion: FilaConciliacion[] = []): Promise<LecturaDrive> {
   const ext = extension(file.name);
   if (!EXT_DRIVE[ext]) throw new Error(`«${file.name}» no es CSV ni Excel (.csv, .xlsx o .xls).`);
   if (file.size > 10 * 1024 * 1024) throw new Error(`«${file.name}» supera los 10 MB.`);
@@ -346,12 +346,25 @@ export async function leerArchivoDrive(file: File): Promise<LecturaDrive> {
     const XLSX = await import('xlsx-js-style');
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
     const util = XLSX.utils as unknown as { sheet_to_json: <T>(ws: unknown, o?: unknown) => T[] };
-    const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
-    if (!hoja) throw new Error('El Excel no tiene hojas con datos.');
-    matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
+    let seleccionada: unknown[][] | null = null;
+    for (const n of wb.SheetNames) {
+      const ws = wb.Sheets[n];
+      const m = util.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' });
+      if (m.length > 0 && detectarTipoArchivoDrive(m) !== 'desconocido') {
+        seleccionada = m;
+        break;
+      }
+    }
+    if (seleccionada) {
+      matriz = seleccionada;
+    } else {
+      const hoja = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => util.sheet_to_json<unknown[]>(ws, { header: 1 }).length > 0);
+      if (!hoja) throw new Error('El Excel no tiene hojas con datos.');
+      matriz = util.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '' });
+    }
   }
   if (!matriz.length) throw new Error('El archivo no tiene filas.');
-  return leerMatrizDrive(matriz);
+  return leerMatrizDrive(matriz, filasConciliacion);
 }
 
 /**
@@ -373,8 +386,17 @@ export async function aplicarCruceDrive(cruce: CruceDrive, file: File, actor: { 
     drive_archivo: file.name.slice(0, 200), drive_archivo_path: archivoPath, drive_en: ahora,
     drive_por: actor.nombre || actor.email,
   }));
-  for (let i = 0; i < filas.length; i += 200) {
-    const { error } = await supabase.from(TABLA_NOTAS).upsert(filas.slice(i, i + 200), { onConflict: 'doc_tipo,doc_id' });
+
+  // Protección anti-sobreescritura: si se sube diario o semanal y un documento ya estaba CUADRA,
+  // no se degrada a NO CUADRA para evitar doble cruce o desconciliar documentos previos.
+  const idsAfectados = filas.map((f) => f.doc_id);
+  const { data: notasPrevias } = await supabase.from(TABLA_NOTAS).select('doc_tipo, doc_id, drive_estado').in('doc_id', idsAfectados);
+  const yaCuadrados = new Set((notasPrevias ?? []).filter((n) => n.drive_estado === 'cuadra').map((n) => `${n.doc_tipo}:${n.doc_id}`));
+
+  const filasFinales = filas.filter((f) => !(f.drive_estado === 'no_cuadra' && yaCuadrados.has(`${f.doc_tipo}:${f.doc_id}`)));
+
+  for (let i = 0; i < filasFinales.length; i += 200) {
+    const { error } = await supabase.from(TABLA_NOTAS).upsert(filasFinales.slice(i, i + 200), { onConflict: 'doc_tipo,doc_id' });
     if (error) {
       if (esTablaFaltante(error)) throw new Error(MSG_FALTA_SQL_CONCILIACION);
       if (error.code === '42703' || error.code === 'PGRST204' || /drive_/i.test(error.message ?? '')) throw new Error(MSG_FALTA_SQL_DRIVE);
@@ -382,7 +404,7 @@ export async function aplicarCruceDrive(cruce: CruceDrive, file: File, actor: { 
       throw error;
     }
   }
-  return filas.length;
+  return filasFinales.length;
 }
 
 export async function urlComprobanteConciliacion(path: string): Promise<string> {
