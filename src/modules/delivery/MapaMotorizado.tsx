@@ -71,11 +71,10 @@ export function MapaMotorizado({
       attributionControl: false,
     });
 
-    // Tiles oscuras tipo Ridery/Uber
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 20,
-      subdomains: 'abcd',
-      attribution: '&copy; CARTO &copy; OpenStreetMap',
+    // Tiles oficiales de OpenStreetMap (100% libres, sin API key ni marcas de agua)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap',
     }).addTo(m);
 
     capaRuta.current = L.layerGroup().addTo(m);

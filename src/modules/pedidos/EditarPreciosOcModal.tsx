@@ -74,6 +74,12 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   const basePrev = Math.max(0, r2((Number(o.total) || 0) - (ivaIncl ? 0 : ivaPrev) - igtfPrev));
   const baseNueva = Math.max(0, r2(basePrev + r2(baseNew - baseOld)));
 
+  // Exentos (Art. 18 Ley del IVA)
+  const baseExentaNueva = idxComprar
+    .filter(({ it }) => !!it.exento)
+    .reduce((a, { it }) => a + Number(it.cantidad) * (Number(it[priceKey]) || 0), 0);
+  const baseGravadaNueva = Math.max(0, r2(baseNueva - baseExentaNueva));
+
   const [conIva, setConIva] = useState(!!o.iva_aplicado);
   const [ivaPct, setIvaPct] = useState(String(Number(o.iva_pct) > 0 ? o.iva_pct : 16));
   const [ivaMontoStr, setIvaMontoStr] = useState(ivaPrev > 0 ? String(ivaPrev) : '');
@@ -88,8 +94,8 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   useEffect(() => {
     if (ivaManualRef.current) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && baseNueva > 0 ? String(ivaDesdePorcentaje(baseNueva, p, ivaIncl)) : '');
-  }, [ivaPct, baseNueva]);
+    setIvaMontoStr(p > 0 && baseGravadaNueva > 0 ? String(ivaDesdePorcentaje(baseGravadaNueva, p, ivaIncl)) : (p > 0 && baseExentaNueva > 0 && baseGravadaNueva === 0 ? '0' : ''));
+  }, [ivaPct, baseGravadaNueva, baseExentaNueva]);
   const ivaMonto = conIva ? Math.max(0, r2(Number(ivaMontoStr) || 0)) : 0;
   // El IGTF se calcula sobre lo que realmente se paga: base + IVA.
   const ivaSuma = ivaIncl ? 0 : ivaMonto;
@@ -106,7 +112,8 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && baseNueva > 0 ? String(porcentajeDesdeIva(baseNueva, m, ivaIncl)) : '0');
+    const baseCalc = baseGravadaNueva > 0 ? baseGravadaNueva : baseNueva;
+    setIvaPct(m > 0 && baseCalc > 0 ? String(porcentajeDesdeIva(baseCalc, m, ivaIncl)) : '0');
   }
   function onIgtfPct(v: string) { igtfManualRef.current = false; setConIgtf(true); setIgtfPct(v); }
   function onIgtfMonto(v: string) {
@@ -125,7 +132,10 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
     if (idxComprar.some(({ it }) => !(Number(it.cantidad) > 0))) { setError('La cantidad de cada producto debe ser mayor que 0.'); return; }
     setSaving(true);
     try {
-      const limpios = items.map((it) => (it.nombre ? { ...it, nombre: it.nombre.trim() } : it));
+      const limpios = items.map((it) => ({
+        ...(it.nombre ? { ...it, nombre: it.nombre.trim() } : it),
+        exento: !!it.exento,
+      }));
       await editarPreciosOrdenPorPagar(o, limpios, actor, {
         conIva, ivaPct: ivaPctNum, ivaMonto,
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
@@ -148,7 +158,16 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
       </p>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
-          <thead><tr><th>Producto</th><th className="num">Cant.</th><th className="num">Precio unit. ({moneda})</th><th className="num">Subtotal</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th style={{ textAlign: 'center' }} title="Exento de IVA (Art. 18 Ley del IVA). No genera base gravada de IVA (0%)">Exento</th>
+              <th className="num">Cant.</th>
+              <th className="num">Precio unit. ({moneda})</th>
+              <th className="num">Subtotal</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
             {idxComprar.map(({ it, i }) => {
               const esNuevo = i >= origLen;
@@ -164,6 +183,19 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
                   ) : (
                     <>{it.nombre}{it.marca ? <span className="muted"> · {it.marca}</span> : ''}</>
                   )}
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} title="Exento de IVA (Art. 18 Ley del IVA)">
+                    <input
+                      type="checkbox"
+                      checked={!!it.exento}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setItems((prev) => prev.map((item, idx) => (idx === i ? { ...item, exento: val } : item)));
+                      }}
+                      disabled={saving}
+                    />
+                  </label>
                 </td>
                 <td className="num">
                   <input className="input mono" type="number" min={0} step="any" style={{ width: 80, textAlign: 'right' }}
@@ -199,6 +231,11 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
       <div className="card" style={{ marginTop: '.7rem', padding: '.6rem .75rem' }}>
         <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.45rem' }}>
           IMPUESTOS · se recalculan sobre la base de {monto(baseNueva, moneda)}
+          {baseExentaNueva > 0 && (
+            <span style={{ color: 'var(--info, #0284c7)', marginLeft: '.4rem' }}>
+              (Exento: {monto(baseExentaNueva, moneda)} · Base gravada: {monto(baseGravadaNueva, moneda)})
+            </span>
+          )}
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', fontSize: '.84rem', marginBottom: '.4rem' }}>
@@ -250,6 +287,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
           <br />
           <span className="mono">
             {monto(baseNueva, moneda)}
+            {baseExentaNueva > 0 ? ` [exento ${monto(baseExentaNueva, moneda)}]` : ''}
             {ivaMonto > 0 ? (ivaIncl ? ` (IVA ${monto(ivaMonto, moneda)} incluido)` : ` + ${monto(ivaMonto, moneda)} IVA`) : ''}
             {igtfMonto > 0 ? ` + ${monto(igtfMonto, moneda)} IGTF` : ''}
           </span>

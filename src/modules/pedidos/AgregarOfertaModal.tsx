@@ -10,7 +10,7 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, OrigenProveedor, Proveedor } from '@/shared/lib/types';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO, ligarRenglonesAInventario } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
-import { hayVariantes, totalesRepresentativos } from './variantesOferta';
+import { agruparVariantes, hayVariantes, representanteGrupo, totalesRepresentativos } from './variantesOferta';
 import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
@@ -236,6 +236,7 @@ export function AgregarOfertaModal({
       precio_usd: editando ? Number((i as ItemOrden).precio_usd) || 0 : 0,
       marca: (i as ItemOrden).marca ?? '',
       modelo: (i as ItemOrden).modelo ?? '',
+      exento: !!(i as ItemOrden).exento,
     })),
   );
   /* «Se guarda en inventario como» (03/11/2026, de MGG). Con el flujo nuevo de Compras
@@ -406,25 +407,44 @@ export function AgregarOfertaModal({
 
   // ── Impuestos (IVA / IGTF) ──────────────────────────────────────────────────────────
   // Base imponible = neto tras descuento, en la moneda que define el total de la OC: USD si
-  // la oferta tiene precio en divisa; si no, Bs a BCV. IVA e IGTF se guardan como MONTO
-  // absoluto y luego se SUMAN al total de la OC. El % es referencia; el monto manda.
-  const baseImp = tieneUsd ? netoUsd : netoBcv;
+  // la oferta tiene precio en divisa; si no, Bs a BCV. Los ítems marcados como exentos (Art. 18 Ley IVA)
+  // se excluyen de la base gravada del IVA.
+  const { bcvExento, usdExento } = useMemo(() => {
+    let be = 0, ue = 0;
+    for (const g of agruparVariantes(items)) {
+      const r = representanteGrupo(g);
+      if (r.exento) {
+        const cant = Number(r.cantidad) || 0;
+        be += cant * (Number(r.precio) || 0);
+        ue += cant * (Number(r.precio_usd) || 0);
+      }
+    }
+    return { bcvExento: Math.round(be * 100) / 100, usdExento: Math.round(ue * 100) / 100 };
+  }, [items]);
+  const montoExento = tieneUsd ? usdExento : bcvExento;
+  const subtotalTotal = tieneUsd ? totalUsd : precioTotal;
+  const subtotalGravado = Math.max(0, Math.round((subtotalTotal - montoExento) * 100) / 100);
+  const subtotalNeto = tieneUsd ? netoUsd : netoBcv;
+  const factorGravado = subtotalTotal > 0 ? Math.max(0, subtotalGravado / subtotalTotal) : 1;
+  const baseGravadaNeta = Math.max(0, Math.round(subtotalNeto * factorGravado * 100) / 100);
+  const baseImp = baseGravadaNeta;
   const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
   useEffect(() => {
     if (ivaManualRef.current) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && baseImp > 0 ? String(ivaDesdePorcentaje(baseImp, p, ivaIncluido)) : '');
-  }, [ivaPct, baseImp, ivaIncluido]);
+    setIvaMontoStr(p > 0 && baseImp > 0 ? String(ivaDesdePorcentaje(baseImp, p, ivaIncluido)) : (p > 0 && montoExento > 0 && baseImp === 0 ? '0' : ''));
+  }, [ivaPct, baseImp, ivaIncluido, montoExento]);
   const ivaMonto = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
   function onIvaPct(v: string) { ivaManualRef.current = false; setConIva(true); setIvaPct(v); }
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && baseImp > 0 ? String(porcentajeDesdeIva(baseImp, m, ivaIncluido)) : '0');
+    const baseCalc = baseImp > 0 ? baseImp : subtotalNeto;
+    setIvaPct(m > 0 && baseCalc > 0 ? String(porcentajeDesdeIva(baseCalc, m, ivaIncluido)) : '0');
   }
-  // IGTF: se calcula sobre la base + IVA (lo que realmente se paga).
+  // IGTF: se calcula sobre el neto a pagar + IVA (lo que realmente se paga).
   const ivaSuma = ivaIncluido ? 0 : ivaMonto;
-  const baseIgtf = Math.round((baseImp + ivaSuma) * 100) / 100;
+  const baseIgtf = Math.round((subtotalNeto + ivaSuma) * 100) / 100;
   const igtfPctNum = Math.max(0, Math.min(100, Math.round((Number(igtfPct) || 0) * 100) / 100));
   useEffect(() => {
     if (igtfManualRef.current) return;
@@ -438,11 +458,11 @@ export function AgregarOfertaModal({
     const m = Number(v) || 0;
     setIgtfPct(m > 0 && baseIgtf > 0 ? String(Math.round((m / baseIgtf) * 10000) / 100) : '0');
   }
-  const totalConImp = Math.round((baseImp + ivaSuma + igtfMonto) * 100) / 100;
+  const totalConImp = Math.round((subtotalNeto + ivaSuma + igtfMonto) * 100) / 100;
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
-  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'cantidad' | 'precio' | 'precio_usd' | 'marca' | 'modelo'>>) {
+  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'cantidad' | 'precio' | 'precio_usd' | 'marca' | 'modelo' | 'exento'>>) {
     setItems((prev) => prev.map((it, k) => {
       if (k !== idx) return it;
       const next = { ...it, ...patch };
@@ -614,6 +634,7 @@ export function AgregarOfertaModal({
           precio_usd: i.precio_usd > 0 ? i.precio_usd : null,
           marca: i.marca.trim() || null,
           modelo: i.modelo.trim() || null,
+          exento: !!i.exento,
         };
       });
       // «Se guarda en inventario como»: cada renglón queda ligado a su producto (el elegido,
@@ -956,6 +977,7 @@ export function AgregarOfertaModal({
                   <th rowSpan={2} style={{ verticalAlign: 'bottom' }} title="El producto del inventario con que este renglón entra al recibir la OC.">Se guarda en inventario como</th>
                 )}
                 <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Marca / modelo</th>
+                <th rowSpan={2} style={{ verticalAlign: 'bottom', textAlign: 'center' }} title="Exento de IVA (Art. 18 Ley del IVA). No genera base gravada de IVA (0%)">Exento</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant.</th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(248,113,113,.12)' }}>Pago en USD</th>
@@ -1038,6 +1060,13 @@ export function AgregarOfertaModal({
                           defaultValue={it.modelo} onChange={(e) => updateItem(idx, { modelo: e.target.value })} />
                       </div>
                     </td>
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                      <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        title="Producto o servicio exento de IVA (Art. 18 Ley del IVA)">
+                        <input type="checkbox" checked={!!it.exento}
+                          onChange={(e) => updateItem(idx, { exento: e.target.checked })} />
+                      </label>
+                    </td>
                     <td className="num">
                       {/* La key cambia con el factor: al elegir otra presentación la cantidad y el
                           precio se convierten, y el input no controlado tiene que mostrarlos. */}
@@ -1102,7 +1131,7 @@ export function AgregarOfertaModal({
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
-                <td colSpan={conNombreInv ? 6 : 5} className="num">SUBTOTAL{conAlternativas ? ' *' : ''}</td>
+                <td colSpan={conNombreInv ? 7 : 6} className="num">SUBTOTAL{conAlternativas ? ' *' : ''}</td>
                 <td className="num mono">{money(precioTotal)}</td>
                 <td></td>
                 <td className="num mono">{tieneUsd ? money(totalUsd) : '—'}</td>
@@ -1132,6 +1161,14 @@ export function AgregarOfertaModal({
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
           <div>Total BCV: <strong>{precioTotal > 0 ? money(precioTotal) : '—'}</strong></div>
           <div>Total USD: <strong style={{ color: 'var(--success)' }}>{tieneUsd ? money(totalUsd) : '—'}</strong></div>
+          {montoExento > 0 && (
+            <div style={{ color: 'var(--info, #0284c7)' }}>
+              Monto exento (0% IVA): <strong>{money(montoExento)}</strong>
+              <span className="muted" style={{ fontSize: '.8rem', marginLeft: '.4rem' }}>
+                (Base gravada 16% IVA: {money(subtotalGravado)})
+              </span>
+            </div>
+          )}
           {tieneUsd && precioTotal > 0 && (
             <div>
               Diferencia: <strong>{money(diferencia)}</strong>{' '}
@@ -1237,9 +1274,9 @@ export function AgregarOfertaModal({
               title="Monto del IGTF (editable a mano)" placeholder="0,00" style={{ width: 120 }} />
             <span className="muted">= +{money(igtfMonto)}</span>
           </div>
-          {(ivaMonto > 0 || igtfMonto > 0) && (
+          {(ivaMonto > 0 || igtfMonto > 0 || montoExento > 0) && (
             <small className="muted">
-              Base {money(baseImp)}{ivaMonto > 0 ? (ivaIncluido ? ` · IVA ${money(ivaMonto)} ya incluido` : ` · IVA +${money(ivaMonto)}`) : ''}{igtfMonto > 0 ? ` · IGTF +${money(igtfMonto)}` : ''}
+              {montoExento > 0 ? `Exento ${money(montoExento)} · ` : ''}Base imponible {money(baseImp)}{ivaMonto > 0 ? (ivaIncluido ? ` · IVA ${money(ivaMonto)} ya incluido` : ` · IVA +${money(ivaMonto)}`) : ''}{igtfMonto > 0 ? ` · IGTF +${money(igtfMonto)}` : ''}
               {' '}→ <strong className="mono">Total con impuestos {money(totalConImp)}</strong>.
               {' '}Se arrastra a la OC y a Tesorería.
             </small>

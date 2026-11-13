@@ -37,6 +37,38 @@ export function ivaQueSuma(o: IvaGuardado): number {
   return o.iva_incluido ? 0 : ivaDeclarado(o);
 }
 
+export interface ItemCalculable {
+  cantidad?: number | null;
+  precio?: number | null;
+  precio_usd?: number | null;
+  comprar?: boolean | null;
+  exento?: boolean | null;
+}
+
+/** Suma del monto de los ítems marcados como exentos de IVA (Art. 18 Ley del IVA). */
+export function montoExentoDeItems(items?: ItemCalculable[] | null, tieneUsd?: boolean): number {
+  if (!items || !items.length) return 0;
+  const s = items.reduce((acc, it) => {
+    if (it.comprar === false || !it.exento) return acc;
+    const cant = Number(it.cantidad) || 0;
+    const precio = tieneUsd ? (Number(it.precio_usd) || 0) : (Number(it.precio) || 0);
+    return acc + (cant * precio);
+  }, 0);
+  return r2(s);
+}
+
+/** Suma del monto de los ítems gravados con IVA (no exentos). */
+export function baseGravadaDeItems(items?: ItemCalculable[] | null, tieneUsd?: boolean): number {
+  if (!items || !items.length) return 0;
+  const s = items.reduce((acc, it) => {
+    if (it.comprar === false || it.exento) return acc;
+    const cant = Number(it.cantidad) || 0;
+    const precio = tieneUsd ? (Number(it.precio_usd) || 0) : (Number(it.precio) || 0);
+    return acc + (cant * precio);
+  }, 0);
+  return r2(s);
+}
+
 export interface PartesDeTotal {
   /** Σ cantidad × precio de los renglones. */
   subtotal: number;
@@ -45,6 +77,8 @@ export interface PartesDeTotal {
   igtf?: number | null;
   /** `true` = los precios ya traen el IVA: se guarda pero no suma. */
   iva_incluido?: boolean | null;
+  /** Monto de renglones exentos de IVA (informativo). */
+  exento?: number | null;
 }
 
 /** Total a pagar a partir de sus partes (la única fórmula). */

@@ -57,6 +57,11 @@
   background: #090d16;
 }
 
+/* Modo oscuro inmersivo para tiles de OpenStreetMap (sin API Key ni marcas de agua) */
+.dlv-mapa-lienzo-full .leaflet-tile-pane {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
 /* Controles flotantes en el mapa (🎯 Recentrar y 🗺 Ruta) */
 .dlv-mapa-flotantes {
   position: absolute;

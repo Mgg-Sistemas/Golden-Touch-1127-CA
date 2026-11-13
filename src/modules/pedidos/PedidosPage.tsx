@@ -1,6 +1,6 @@
 import { Quien } from '@/shared/ui/Quien';
 import { supabase } from '@/shared/lib/supabase';
-import { ivaDesdePorcentaje, porcentajeDesdeIva } from './impuestosOc';
+import { ivaDesdePorcentaje, montoExentoDeItems, porcentajeDesdeIva } from './impuestosOc';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -1997,14 +1997,17 @@ function MetodoPagoModal({
   const ivaPrevOc = !usaRecibido && orden.iva_aplicado && !orden.iva_incluido ? Math.max(0, Number(orden.iva_monto) || 0) : 0;
   const igtfPrevOc = !usaRecibido && orden.igtf_aplicado ? Math.max(0, Number(orden.igtf_monto) || 0) : 0;
   const baseNum = Math.max(0, Math.round(((Number(baseTotal) || 0) - ivaPrevOc - igtfPrevOc) * 100) / 100);
-  // IVA: % ↔ monto sincronizados. Con % cargado, el monto se recalcula sobre la base
+  const exentoOrden = montoExentoDeItems(orden.items, orden.pago_en_divisa ?? false);
+  const baseGravada = Math.max(0, Math.round((baseNum - exentoOrden) * 100) / 100);
+  const baseCalcIva = baseGravada > 0 ? baseGravada : (exentoOrden > 0 ? 0 : baseNum);
+  // IVA: % ↔ monto sincronizados. Con % cargado, el monto se recalcula sobre la base gravada
   // (a menos que el usuario lo haya escrito a mano); el % pasa a ser referencia.
   const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
   useEffect(() => {
     if (ivaManualRef.current) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && baseNum > 0 ? String(ivaDesdePorcentaje(baseNum, p, ivaIncluido)) : '');
-  }, [ivaPct, baseNum, ivaIncluido]);
+    setIvaMontoStr(p > 0 && baseCalcIva > 0 ? String(ivaDesdePorcentaje(baseCalcIva, p, ivaIncluido)) : (p > 0 && exentoOrden > 0 && baseCalcIva === 0 ? '0' : ''));
+  }, [ivaPct, baseCalcIva, ivaIncluido, exentoOrden]);
   // El IVA NO depende del comprobante (05/10/2026): con nota de entrega el proveedor
   // también cobra el IVA de su oferta y Tesorería lo paga. Antes, elegir nota de entrega
   // lo borraba de la OC mientras el total lo seguía trayendo, y el kanban/PDF/Tesorería
@@ -2016,7 +2019,8 @@ function MetodoPagoModal({
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && baseNum > 0 ? String(porcentajeDesdeIva(baseNum, m, ivaIncluido)) : '0');
+    const baseCalc = baseGravada > 0 ? baseGravada : baseNum;
+    setIvaPct(m > 0 && baseCalc > 0 ? String(porcentajeDesdeIva(baseCalc, m, ivaIncluido)) : '0');
   }
   // IGTF: se calcula sobre la base + IVA (lo que realmente se paga). % ↔ monto sincronizados.
   const ivaSumaMp = ivaIncluido ? 0 : ivaMonto;
@@ -2054,9 +2058,10 @@ function MetodoPagoModal({
   }
   const totalFinal = Math.max(0, Math.round((totalConImp - descuentoMonto) * 100) / 100);
   // Retenciones: solo con factura y «¿cuándo se retiene?» marcado. Bases: IVA → IVA de la
-  // factura; ISLR/ISAE → base imponible (sin IVA); IGTF → IGTF de la orden.
+  // factura; ISLR/ISAE → base gravada neta (sin IVA ni exentos); IGTF → IGTF de la orden.
   const usaRetenciones = momentoActivo && comprobanteTipo === 'factura' && !!retencionMomento;
-  const retenciones = calcularRetencionesCompras(retUi, { baseImponible: baseNum, iva: ivaMonto, igtf: igtfMonto });
+  const baseRetencion = baseGravada > 0 ? baseGravada : (exentoOrden > 0 ? 0 : baseNum);
+  const retenciones = calcularRetencionesCompras(retUi, { baseImponible: baseRetencion, iva: ivaMonto, igtf: igtfMonto });
   const retTotal = usaRetenciones ? retenciones.total : 0;
   const netoCompras = netoAPagarCompras(totalFinal, retTotal);
   // Lo que paga Tesorería: el neto si se retiene ANTES; el total si es DESPUÉS.
@@ -2308,6 +2313,11 @@ function MetodoPagoModal({
         {/* IVA: con nota de entrega o con factura (la oferta lo trae precargado). */}
         <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>IVA</div>
+            {exentoOrden > 0 && (
+              <div style={{ fontSize: '.78rem', color: 'var(--info, #0284c7)', marginBottom: '.35rem' }}>
+                ℹ️ Ítems exentos: <strong>{mm(exentoOrden)}</strong> (0% IVA). Base gravada para IVA: <strong>{mm(baseGravada)}</strong> (16% IVA).
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem', marginBottom: '.6rem' }}>
               <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: !conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
                 <input type="radio" name="iva" checked={!conIva} onChange={() => setConIva(false)} />
@@ -2379,7 +2389,7 @@ function MetodoPagoModal({
                   {TIPOS_RETENCION.map((t) => {
                     const info = RETENCION_INFO[t];
                     const u = retUi[t];
-                    const base = t === 'iva' ? ivaMonto : t === 'igtf' ? igtfMonto : baseNum;
+                    const base = t === 'iva' ? ivaMonto : t === 'igtf' ? igtfMonto : baseRetencion;
                     const l = retenciones[t];
                     return (
                       <div key={t} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: '.5rem', padding: '.35rem 0', borderTop: '1px dashed var(--border)', opacity: u.activa ? 1 : 0.7 }}>
@@ -2401,6 +2411,11 @@ function MetodoPagoModal({
                             style={{ width: 96, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
                           <span>{simboloMoneda}</span>
                         </span>
+                        {t === 'iva' && ivaMonto <= 0 && u.activa && (
+                          <div className="muted" style={{ gridColumn: '1 / -1', fontSize: '.74rem', color: 'var(--warning, #f59e0b)' }}>
+                            ⚠️ Esta orden no tiene IVA liquidado registrado ($0,00). Si la factura trae IVA, escribe el monto a mano en la casilla de monto.
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -5504,12 +5519,19 @@ function EditarOrdenModal({
     (a, it) => a + (it.comprar !== false ? (Number(it.cantidad) || 0) * (Number(it.precio) || 0) : 0),
     0,
   );
+  const exentoEditado = items.reduce(
+    (a, it) => a + (it.comprar !== false && it.exento ? (Number(it.cantidad) || 0) * (Number(it.precio) || 0) : 0),
+    0,
+  );
+  const subtotalGravadoEditado = Math.max(0, Math.round((subtotalEditado - exentoEditado) * 100) / 100);
   // Descuento obtenido (monto $) editable: se resta del total (sincroniza la factura).
   const [descuentoObt, setDescuentoObt] = useState(orden.descuento_obtenido != null && orden.descuento_obtenido > 0 ? String(orden.descuento_obtenido) : '');
   const descuentoObtNum = Math.max(0, Number(descuentoObt) || 0);
   // `totalEditado` = base − descuento (SIN impuestos): esto es lo que se envía al backend,
   // que re-suma el IVA/IGTF de la orden. Para MOSTRAR el total real sumamos los impuestos.
   const totalEditado = Math.max(0, Math.round((subtotalEditado - descuentoObtNum) * 100) / 100);
+  const factorGravadoEditado = subtotalEditado > 0 ? Math.max(0, subtotalGravadoEditado / subtotalEditado) : 1;
+  const baseGravadaNetaEditada = Math.max(0, Math.round(totalEditado * factorGravadoEditado * 100) / 100);
   // Los impuestos se recalculan sobre la base editada, con el MISMO cálculo que
   // usa el backend al guardar. Antes aquí se mostraba el monto guardado tal cual:
   // al cambiar una cantidad, la pantalla prometía un total y se guardaba otro.
@@ -5535,8 +5557,8 @@ function EditarOrdenModal({
     if (!ivaEditable || !conIva || ivaManualRef.current) return;
     if (!ivaTocadoRef.current && Math.abs(totalEditado - baseOrdenPrev) < 0.005) return;
     const p = Number(ivaPct) || 0;
-    setIvaMontoStr(p > 0 && totalEditado > 0 ? String(ivaDesdePorcentaje(totalEditado, p, ivaIncluido)) : '');
-  }, [ivaEditable, conIva, ivaPct, totalEditado, baseOrdenPrev, ivaIncluido]);
+    setIvaMontoStr(p > 0 && baseGravadaNetaEditada > 0 ? String(ivaDesdePorcentaje(baseGravadaNetaEditada, p, ivaIncluido)) : (p > 0 && exentoEditado > 0 && baseGravadaNetaEditada === 0 ? '0' : ''));
+  }, [ivaEditable, conIva, ivaPct, totalEditado, baseOrdenPrev, ivaIncluido, baseGravadaNetaEditada, exentoEditado]);
   function setIvaIncluido(v: boolean) { ivaTocadoRef.current = true; setIvaIncluidoState(v); }
   const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
   const ivaMontoNum = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
@@ -5549,7 +5571,8 @@ function EditarOrdenModal({
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
     const m = Number(v) || 0;
-    setIvaPct(m > 0 && totalEditado > 0 ? String(porcentajeDesdeIva(totalEditado, m, ivaIncluido)) : '0');
+    const baseCalc = baseGravadaNetaEditada > 0 ? baseGravadaNetaEditada : totalEditado;
+    setIvaPct(m > 0 && baseCalc > 0 ? String(porcentajeDesdeIva(baseCalc, m, ivaIncluido)) : '0');
   }
   const ivaEditado = ivaEditable ? { aplicado: conIva, pct: ivaPctNum, monto: ivaMontoNum, incluido: ivaIncluido } : null;
   const impRecalculados = ivaEditado
@@ -5919,26 +5942,33 @@ function EditarOrdenModal({
                 {comprar && (
                   <div style={{ marginLeft: 34, display: 'grid', gap: '.3rem', marginTop: '.3rem' }}>
                     {editarPrecios && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-                        <span className="muted" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>Costo unitario $</span>
-                        <input className="input mono" type="number" min={0} step="any" style={{ width: 130 }}
-                          title="Costo unitario del producto. Al cambiarlo se recalcula el total y la OC vuelve a aprobación del Gerente General."
-                          value={precioEdit[it.sku] ?? String(it.precio ?? 0)}
-                          onChange={(e) => {
-                            const raw = e.target.value;
-                            setPrecioEdit((m) => ({ ...m, [it.sku]: raw }));
-                            const n = Number(raw.replace(',', '.'));
-                            if (raw !== '' && Number.isFinite(n) && n >= 0) updateItem(idx, { precio: n });
-                          }}
-                          onBlur={() => {
-                            const n = Number((precioEdit[it.sku] ?? String(it.precio ?? 0)).replace(',', '.'));
-                            const val = Number.isFinite(n) && n >= 0 ? n : 0;
-                            updateItem(idx, { precio: val });
-                            setPrecioEdit((m) => ({ ...m, [it.sku]: String(val) }));
-                          }} />
-                        <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
-                          = {money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                          <span className="muted" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>Costo unitario $</span>
+                          <input className="input mono" type="number" min={0} step="any" style={{ width: 130 }}
+                            title="Costo unitario del producto. Al cambiarlo se recalcula el total y la OC vuelve a aprobación del Gerente General."
+                            value={precioEdit[it.sku] ?? String(it.precio ?? 0)}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setPrecioEdit((m) => ({ ...m, [it.sku]: raw }));
+                              const n = Number(raw.replace(',', '.'));
+                              if (raw !== '' && Number.isFinite(n) && n >= 0) updateItem(idx, { precio: n });
+                            }}
+                            onBlur={() => {
+                              const n = Number((precioEdit[it.sku] ?? String(it.precio ?? 0)).replace(',', '.'));
+                              const val = Number.isFinite(n) && n >= 0 ? n : 0;
+                              updateItem(idx, { precio: val });
+                              setPrecioEdit((m) => ({ ...m, [it.sku]: String(val) }));
+                            }} />
+                          <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                            = {money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}
+                          </span>
+                        </div>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.78rem', cursor: 'pointer' }}
+                          title="Exento de IVA (Art. 18 Ley del IVA). No genera base gravada de IVA.">
+                          <input type="checkbox" checked={!!it.exento} onChange={(e) => updateItem(idx, { exento: e.target.checked })} />
+                          <span>Exento IVA (0%)</span>
+                        </label>
                       </div>
                     )}
                     <input className="input" style={{ width: '100%', fontSize: '.82rem' }}
@@ -5998,15 +6028,16 @@ function EditarOrdenModal({
                 )}
                 <div className="muted" style={{ fontSize: '.74rem', textAlign: 'right', marginTop: '.15rem' }}>
                   {conIva && ivaMontoNum > 0
-                    ? <>IVA sobre base {money(totalEditado)}{ivaPctNum > 0 && ivaPctNum !== 16 ? ` · estás aplicando ${ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}% en vez del 16% general` : ''}</>
+                    ? <>IVA sobre base {money(baseGravadaNetaEditada)}{exentoEditado > 0 ? ` (exento: ${money(exentoEditado)})` : ''}{ivaPctNum > 0 && ivaPctNum !== 16 ? ` · estás aplicando ${ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}% en vez del 16% general` : ''}</>
                     : 'Servicio sin IVA. Márcalo para sumarlo al total.'}
                   {orden.estado === 'confirmada_metodo' && ' · Cambiar el IVA devuelve la orden a aprobación del Gerente General.'}
                 </div>
               </div>
             )}
-            {(descuentoObtNum > 0 || impuestosOrden > 0) && (
+            {(descuentoObtNum > 0 || impuestosOrden > 0 || exentoEditado > 0) && (
               <div className="muted mono" style={{ fontSize: '.78rem', textAlign: 'right', marginTop: '.2rem' }}>
                 Subtotal {money(subtotalEditado)}
+                {exentoEditado > 0 && <> [exento {money(exentoEditado)} · gravado {money(subtotalGravadoEditado)}]</>}
                 {descuentoObtNum > 0 && <> − descuento {money(descuentoObtNum)}</>}
                 {impuestosOrden > 0 && <> + impuestos (IVA/IGTF) {money(impuestosOrden)}</>}
               </div>

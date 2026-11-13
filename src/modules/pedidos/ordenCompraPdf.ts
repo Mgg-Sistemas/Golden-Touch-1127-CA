@@ -1,4 +1,5 @@
 import { skuVisible } from './nombresGenericos';
+import { montoExentoDeItems } from './impuestosOc';
 import { supabase } from '@/shared/lib/supabase';
 import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
 import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
@@ -341,13 +342,18 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   // OC por factura con IVA: desglose con el % que se aplicó (16 por defecto, editable).
   const iva = orden.iva_aplicado ? Number(orden.iva_monto ?? 0) : 0;
   const igtf = orden.igtf_aplicado ? Number(orden.igtf_monto ?? 0) : 0;
+  const exentoMonto = montoExentoDeItems(orden.items, orden.pago_en_divisa ?? false);
   if (orden.comprobante_tipo === 'factura') {
     cond.push(['Tipo de soporte', 'Factura']);
+    if (exentoMonto > 0) {
+      cond.push(['Monto exento (0% IVA)', money(exentoMonto)]);
+    }
     if (orden.iva_aplicado) {
       // 05/11/2026: con precios que ya traen el IVA el total no lo suma, pero la base sin IVA sigue siendo total − IVA − IGTF.
-      const base = Number(orden.total) - iva - igtf;
+      const baseTotalSinImp = Number(orden.total) - iva - igtf;
+      const baseGravada = Math.max(0, Math.round((baseTotalSinImp - exentoMonto) * 100) / 100);
       const pct = Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 });
-      cond.push(['Base imponible', money(base)]);
+      cond.push(['Base gravada (16% IVA)', money(baseGravada > 0 ? baseGravada : baseTotalSinImp)]);
       cond.push([orden.iva_incluido ? `IVA (${pct}%) incluido en los precios` : `IVA (${pct}%)`, money(iva)]);
     } else {
       cond.push(['IVA', 'Sin IVA']);
@@ -546,9 +552,10 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
           it.bombonas ? `${agua ? 'Cisternas' : 'Bombonas'}: ${num(it.bombonas)}` : '',
           it.kg_recarga ? `${agua ? 'Litros a recargar' : 'KG a recargar'}: ${num(it.kg_recarga)}` : '',
         ].filter(Boolean).join('   ');
+        const descTexto = it.exento ? `${it.nombre} (Exento IVA)` : it.nombre;
         return [
           skuVisible(it.sku),
-          pdfSafe(ficha ? `${it.nombre}\n${ficha}` : it.nombre),
+          pdfSafe(ficha ? `${descTexto}\n${ficha}` : descTexto),
           num(it.cantidad),
           pdfSafe(String(it.unidad ?? '').trim()) || 'UND',
           montoMoneda(it.precio, o.total_moneda),
