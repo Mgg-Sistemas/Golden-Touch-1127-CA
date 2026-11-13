@@ -6,6 +6,7 @@ import {
   detectarColumnas,
   detectarTipoArchivoDrive,
   esFilaGoldenTouch,
+  extraerCodigosDeDescripcion,
   extraerMovimientosLibroMayor,
   leerMatrizDrive,
   mismaReferencia,
@@ -334,5 +335,41 @@ describe('cruce por código de OC y por referencia', () => {
     expect(c.porDoc.get('oc:ord191')?.estado).toBe('cuadra');
     expect(c.cuadran).toBe(2);
     expect(c.estado).toBe('Validado');
+  });
+
+  it('no toma códigos seguidos de MGG en frases compuestas como ODC 236 MGG Y ODC 181 GT', () => {
+    const cods = extraerCodigosDeDescripcion('reintegro de ODC 236 MGG Y ODC 181 GT por retenciones');
+    expect(cods).toHaveLength(1);
+    expect(cods[0].numero).toBe(181);
+  });
+
+  it('concilia como CUADRA una orden finalizada/pagada en Compras por código y monto aunque el sistema no tenga referencia escrita', () => {
+    const docSinRef = [
+      fila({ codigo: 'OC-2026-0236', ordenId: 'ord236', referencias: [], pagadoBs: 29609.42, totalBs: 29609.42, pagada: true }),
+    ];
+    const lectura = leer([['OC-2026-0236', '35137250', '29.609,42']]);
+    const c = cruzarDrive(lectura, docSinRef);
+    expect(c.cuadran).toBe(1);
+    expect(c.porDoc.get('oc:ord236')?.estado).toBe('cuadra');
+  });
+
+  it('marca como ignoradas las filas de movimiento entrada para no generar falsos no_cuadra en salidas', () => {
+    const lecturaEntrada = {
+      filas: [
+        {
+          fila: 1,
+          oc: 'OC-2026-0189',
+          referencia: '',
+          montoBs: 24269.42,
+          montoTexto: '24.269,42',
+          errores: [],
+          ignorada: false,
+          movimiento: 'entrada' as const,
+        },
+      ],
+    };
+    const c = cruzarDrive(lecturaEntrada, sistema);
+    expect(c.ignoradas).toBe(1);
+    expect(c.noCuadran).toBe(0);
   });
 });

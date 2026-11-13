@@ -364,30 +364,55 @@ export function coincidenCodigosDoc(a: string, b: string): boolean {
 
 /** Extrae órdenes individuales o agrupadas (ej. 'ODC 189 Y 191') de un texto. */
 export function extraerCodigosDeDescripcion(textoDesc: string): { tipo: string; numero: number; raw: string }[] {
-  const REGEX_ORDEN = /(?:PAGO\s+)?\b(ODC|OC|ORDEN(?:\s+DE\s+COMPRA)?|CS|SERV|OSV|SV)\s*[-#]?\s*(?:(?:202\d)[-_])?(\d+)((?:\s*(?:Y|E|AND|\/|,)\s*(?:(?:ODC|OC|ORDEN(?:\s+DE\s+COMPRA)?|CS|SERV|OSV|SV)\s*[-#]?\s*)?(?:(?:202\d)[-_])?\d+)*)/gi;
+  const REGEX_NORMAL = /(?:PAGO\s+)?\b(ODC|OC|ORDEN(?:\s+DE\s+COMPRA)?|CD|CS|SERV|SERVICIO|SERVICIOS|CONTROL\s+DE\s+SERVICIO|OSV|SV)\s*[-#]?\s*(?:(?:202\d)[-_])?(\d+)(?:\s+(MGG|GT))?((?:\s*(?:Y|E|AND|\/|,)\s*(?:(?:ODC|OC|ORDEN(?:\s+DE\s+COMPRA)?|CD|CS|SERV|SERVICIO|SERVICIOS|OSV|SV)\s*[-#]?\s*)?(?:(?:202\d)[-_])?\d+(?:\s+(?:MGG|GT))?)*)/gi;
+  const REGEX_INVERTIDO = /\b(\d{1,5})\s*[-#]?\s*(ODC|OC|CS|SERV|SERVICIO|OSV|SV)\b(?:\s+(MGG|GT))?/gi;
+
   const resultados: { tipo: string; numero: number; raw: string }[] = [];
+
   let m: RegExpExecArray | null;
-  while ((m = REGEX_ORDEN.exec(textoDesc)) !== null) {
+  while ((m = REGEX_NORMAL.exec(textoDesc)) !== null) {
     const rawPref = m[1].toUpperCase().replace(/\s+/g, '');
     let tipo = 'OC';
     if (/^(ODC|OC|ORDEN)/i.test(rawPref)) tipo = 'OC';
-    else if (/^(CS|CD)/i.test(rawPref)) tipo = 'CS';
-    else if (/^(SERV|OSV|SV)/i.test(rawPref)) tipo = 'SERV';
+    else if (/^(CS|CD|CONTROL)/i.test(rawPref)) tipo = 'CS';
+    else if (/^(SERV|SERVICIO|OSV|SV)/i.test(rawPref)) tipo = 'SERV';
 
     const num1 = Number(m[2]);
-    if (!resultados.some((r) => r.tipo === tipo && r.numero === num1)) {
+    const tag1 = (m[3] || '').toUpperCase();
+    if (tag1 !== 'MGG') {
       resultados.push({ tipo, numero: num1, raw: `${rawPref} ${num1}` });
     }
 
-    if (m[3]) {
-      const extraNums = [...m[3].matchAll(/\d+/g)].map((x) => Number(x[0]));
-      for (const n of extraNums) {
-        if (!resultados.some((r) => r.tipo === tipo && r.numero === n)) {
-          resultados.push({ tipo, numero: n, raw: `${rawPref} ${n}` });
+    if (m[4]) {
+      const subPartes = m[4].split(/(?:Y|E|AND|\/|,)/i);
+      for (const sp of subPartes) {
+        const sm = sp.match(/(?:(ODC|OC|CS|SERV|SERVICIO|SERVICIOS|OSV|SV)\s*[-#]?\s*)?(\d+)(?:\s+(MGG|GT))?/i);
+        if (sm) {
+          const num = Number(sm[2]);
+          const tag = (sm[3] || '').toUpperCase();
+          if (tag !== 'MGG' && !resultados.some((r) => r.tipo === tipo && r.numero === num)) {
+            resultados.push({ tipo, numero: num, raw: `${rawPref} ${num}` });
+          }
         }
       }
     }
   }
+
+  while ((m = REGEX_INVERTIDO.exec(textoDesc)) !== null) {
+    const num = Number(m[1]);
+    const rawPref = m[2].toUpperCase();
+    const tag = (m[3] || '').toUpperCase();
+    if (tag === 'MGG') continue;
+    let tipo = 'OC';
+    if (/^(ODC|OC)/i.test(rawPref)) tipo = 'OC';
+    else if (/^(CS|CD)/i.test(rawPref)) tipo = 'CS';
+    else if (/^(SERV|SERVICIO|OSV|SV)/i.test(rawPref)) tipo = 'SERV';
+
+    if (!resultados.some((r) => r.tipo === tipo && r.numero === num)) {
+      resultados.push({ tipo, numero: num, raw: `${tipo} ${num}` });
+    }
+  }
+
   return resultados;
 }
 
@@ -464,6 +489,17 @@ export function extraerMovimientosLibroMayor(matriz: unknown[][], filasConciliac
     });
     if (!filtro.valida) continue;
 
+    // 1. Filtrar estrictamente solo Noviembre 2026 en adelante:
+    if (fecha && fecha < '2026-11-01') continue;
+    const mesCol = r[1] != null ? String(r[1]).trim() : '';
+    if (mesCol && /^\d{4}-\d{2}$/.test(mesCol) && mesCol < '2026-11') continue;
+    if (/OCTUBRE\s*2026|CIERRE\s*CAJA/i.test(textoDesc)) continue;
+
+    // Excluir pagos que sean explícitamente de MGG y no de GT:
+    if (/PAGO\s+(?:ODC|OC)\s*\d+\s*(?:MERCADO\s+)?MGG\b/i.test(textoDesc) && !/\bGT\b/i.test(textoDesc)) {
+      continue;
+    }
+
     let movimiento: 'salida' | 'entrada' = 'salida';
     if (cols.montoSalidas >= 0 && parseMontoBs(r[cols.montoSalidas]) != null) {
       movimiento = 'salida';
@@ -496,7 +532,7 @@ export function extraerMovimientosLibroMayor(matriz: unknown[][], filasConciliac
       : (textoDesc || textoBanco);
 
     let referencia = '';
-    const mRef = textoBusqueda.match(/(?:REF(?:ERENCIA)?|COMPROBANTE|OPERACION|OP)\s*[:#.-]?\s*([A-Za-z0-9]+)/i);
+    const mRef = textoBusqueda.match(/\b(?:REF(?:ERENCIA)?|COMPROBANTE|OPERACION|OP)\b\s*[:#.-]?\s*([A-Za-z0-9]+)/i);
     if (mRef) referencia = mRef[1];
     else if (cols.referencia >= 0) referencia = texto(r[cols.referencia]);
 
@@ -689,6 +725,10 @@ export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaCon
 
   for (const f of lectura.filas) {
     if (f.ignorada) { salida.push({ ...f, resultado: 'ignorada', detalle: 'Sin código ni referencia: no se cruza', doc: null, por: null }); continue; }
+    if (f.movimiento === 'entrada') {
+      salida.push({ ...f, resultado: 'ignorada', detalle: 'Entrada / Reintegro de retención: se concilia en el submódulo de Entradas', doc: null, por: null });
+      continue;
+    }
     if (f.errores.length) {
       for (const e of f.errores) { const col = /monto/i.test(e) ? 'Monto Bs' : 'Otro'; errorPorColumna[col] = (errorPorColumna[col] ?? 0) + 1; }
       salida.push({ ...f, resultado: 'error', detalle: f.errores.join(' · '), doc: null, por: null });
@@ -696,20 +736,41 @@ export function cruzarDrive(lectura: Pick<LecturaDrive, 'filas'>, filas: FilaCon
     }
     const { r, por, nota } = buscarDoc(f, porCodigo, filas, tol);
     if (!r) { salida.push({ ...f, resultado: 'no_encontrada', detalle: nota ?? 'No encontrada', doc: null, por: null }); continue; }
-    const refOk = !!f.referencia && r.referencias.some((x) => mismaReferencia(x, f.referencia));
+    const refCoincide = !!f.referencia && r.referencias.some((x) => mismaReferencia(x, f.referencia));
     const montoOk = coincideMonto(f.montoBs as number, r, tol);
+    const esPagadaOFinalizada = r.pagada || r.estado === 'pagada' || r.estado === 'finalizada' || r.estado === 'recibida';
+
+    // Reglas de conciliación inteligente:
+    // 1) Si coincide la referencia bancaria y el monto: CUADRA.
+    // 2) Si se emparejó por código de OC y el monto coincide:
+    //    - Si la orden está pagada/finalizada en Compras y el sistema no tenía referencia registrada: CUADRA.
+    //    - Si la orden está pagada/finalizada en Compras y el archivo no especificó texto de ref pero sí código y monto exactos: CUADRA.
+    //    - Si ambos traen referencias distintas: NO CUADRA por conflicto de referencia.
+    const refConflicto = !!f.referencia && r.referencias.length > 0 && !refCoincide;
+    const cuadra = (refCoincide && montoOk) || (por === 'codigo' && montoOk && esPagadaOFinalizada && !refConflicto);
+
     const motivos: string[] = [];
-    if (!f.referencia) motivos.push('el archivo no trae la referencia');
-    else if (!r.referencias.length) motivos.push('el pago no tiene referencia en el sistema');
-    else if (!refOk) motivos.push(`la referencia ${f.referencia} no es la del pago (${r.referencias.join(', ')})`);
+    if (!f.referencia && (!esPagadaOFinalizada || por !== 'codigo')) motivos.push('el archivo no trae la referencia');
+    else if (!r.referencias.length && (!esPagadaOFinalizada || por !== 'codigo')) motivos.push('el pago no tiene referencia en el sistema');
+    else if (refConflicto) motivos.push(`la referencia ${f.referencia} no coincide con la del pago (${r.referencias.join(', ')})`);
     if (!montoOk) {
       const esp = montosEsperados(r);
       motivos.push(esp.length ? `el monto ${fmtBs(f.montoBs as number)} no coincide con ${esp.map(fmtBs).join(' / ')}` : 'el documento no tiene monto en Bs');
     }
+
+    let detalle = '';
+    if (cuadra) {
+      if (refCoincide) detalle = `Referencia y monto coinciden (${por === 'codigo' ? 'por código' : 'por referencia'})`;
+      else if (f.referencia && !r.referencias.length) detalle = `Referencia bancaria y monto confirmados (orden finalizada/pagada en Compras)`;
+      else detalle = `Código y monto confirmados (orden finalizada/pagada en Compras)`;
+    } else {
+      detalle = `No cuadra: ${motivos.join('; ')}`;
+    }
+
     const fila: FilaCruce = {
       ...f, doc: { origen: r.origen, ordenId: r.ordenId, codigo: r.codigo }, por,
-      resultado: refOk && montoOk ? 'cuadra' : 'no_cuadra',
-      detalle: refOk && montoOk ? `Referencia y monto coinciden (${por === 'codigo' ? 'por código' : 'por referencia'})` : `No cuadra: ${motivos.join('; ')}`,
+      resultado: cuadra ? 'cuadra' : 'no_cuadra',
+      detalle,
     };
     salida.push(fila);
     const k = claveDoc(r.origen, r.ordenId);

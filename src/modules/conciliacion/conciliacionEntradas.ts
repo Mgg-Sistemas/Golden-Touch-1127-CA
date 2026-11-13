@@ -464,11 +464,21 @@ export function extraerEntradasDrive(
 
     if (!esEntrada || esSalida) continue;
 
+    // Descartar cierres de caja del mes anterior, saldos iniciales y traspasos entre cuentas propias
+    if (/cierre\s*caja|saldo\s*cierre|apertura\s*caja|mes\s*anterior|traspaso|transferencia\s*entre\s*cuentas/i.test(textoNorm)) {
+      continue;
+    }
+
     // 2. Comprobar si tiene 'reintegro', 'retencion', 'descuento' o pertenece a GT
     const tieneReintegro = /reintegro/.test(textoNorm);
     const tieneRetencion = /retencion/.test(textoNorm);
     const tieneDescuento = /descuento/.test(textoNorm);
-    const perteneceGT = /\bgt\b/.test(textoNorm) || /golden\s*touch/.test(textoNorm);
+    const perteneceGT = /\bgt\b/.test(textoNorm) || /golden\s*touch/.test(textoNorm) || /bdt\s*juridico\s*gt/i.test(textoNorm) || /usdt\s*gt/i.test(textoNorm);
+    const tieneMgg = /mineral\s*group|\bmgg\b/.test(textoNorm);
+
+    if (tieneMgg && !perteneceGT) {
+      continue;
+    }
 
     if (!tieneReintegro && !tieneRetencion && !tieneDescuento && !perteneceGT) {
       continue;
@@ -494,7 +504,7 @@ export function extraerEntradasDrive(
 
     if (montoBs == null || montoBs <= 0) continue;
 
-    // 4. Fecha del reintegro
+    // 4. Fecha del reintegro (exclusivamente Noviembre 2026 en adelante)
     const fechaCruda = columnas.fecha >= 0 ? r[columnas.fecha] : null;
     let fechaReintegro = parsearFecha(fechaCruda);
     if (!fechaReintegro) {
@@ -506,6 +516,9 @@ export function extraerEntradasDrive(
         }
       }
     }
+
+    if (fechaReintegro && fechaReintegro < '2026-11-01') continue;
+    if (/octubre\s*2026|2026-10/i.test(textoNorm)) continue;
 
     // 5. Concepto / Motivo
     const concepto =
@@ -776,6 +789,7 @@ export async function cargarOrdenesEsperandoReintegro(
   const { data, error } = await supabase
     .from('ordenes')
     .select('*')
+    .gte('created_at', '2026-11-01T00:00:00-04:00')
     .or('retencion_momento.eq.despues_de_pagar,retencion_modo.eq.completo_reembolso')
     .not('estado', 'in', `(${Array.from(ESTADOS_IGNORADOS).join(',')})`)
     .order('created_at', { ascending: false });

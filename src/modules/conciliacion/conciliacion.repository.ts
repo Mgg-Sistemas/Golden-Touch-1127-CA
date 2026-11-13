@@ -149,24 +149,41 @@ function aDocDirecto(r: FilaDirecta, origen: 'cd' | 'sd'): DocDirecto {
   };
 }
 
+export const CORTE_CONCILIACION_FECHA = '2026-11-01';
+export const CORTE_CONCILIACION_ISO = '2026-11-01T00:00:00-04:00';
+
 async function directos(tabla: 'compras_directas' | 'servicios_directos'): Promise<FilaDirecta[]> {
-  return todasLasFilas<FilaDirecta>((desde, hasta) => supabase.from(tabla)
+  const filas = await todasLasFilas<FilaDirecta>((desde, hasta) => supabase.from(tabla)
     .select('*')
+    .gte('created_at', CORTE_CONCILIACION_ISO)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .range(desde, hasta) as unknown as PromiseLike<{ data: FilaDirecta[] | null; error: import('@supabase/supabase-js').PostgrestError | null }>);
+
+  return filas.filter((r) => {
+    const fc = r.created_at ? diaVE(String(r.created_at)) : '';
+    const fp = r.pagada_at ? diaVE(String(r.pagada_at)) : '';
+    return fc >= CORTE_CONCILIACION_FECHA || fp >= CORTE_CONCILIACION_FECHA;
+  });
 }
 
 export async function cargarConciliacion(): Promise<DatosConciliacion> {
   const avisos: string[] = [];
 
-  // Las OC (con código de OC), de la más nueva a la más vieja.
-  const ordenes = await todasLasFilas<Orden>((desde, hasta) => supabase.from('ordenes')
+  // Las OC (con código de OC), exclusivamente desde el 1ero de noviembre de 2026 en adelante.
+  const ordenesTodas = await todasLasFilas<Orden>((desde, hasta) => supabase.from('ordenes')
     .select('*')
     .not('oc_codigo', 'is', null)
+    .gte('created_at', CORTE_CONCILIACION_ISO)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .range(desde, hasta) as unknown as PromiseLike<{ data: Orden[] | null; error: import('@supabase/supabase-js').PostgrestError | null }>);
+
+  const ordenes = ordenesTodas.filter((o) => {
+    const fc = diaVE(o.created_at);
+    const fp = o.pagada_en ? diaVE(o.pagada_en) : null;
+    return fc >= CORTE_CONCILIACION_FECHA || (fp != null && fp >= CORTE_CONCILIACION_FECHA);
+  });
   const ids = ordenes.map((o) => o.id);
 
   const [compras, servicios] = await Promise.all([

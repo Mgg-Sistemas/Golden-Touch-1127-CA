@@ -93,11 +93,35 @@ export function ConciliacionEntradasTab({
     toast('Resumen de entradas copiado al portapapeles', 'success');
   };
 
+  const toggleFiltro = (estado: 'todas' | 'reintegrado' | 'esperando_reintegro') => {
+    if (filtroEstado === estado && estado !== 'todas') {
+      setFiltroEstado('todas');
+    } else {
+      setFiltroEstado(estado);
+    }
+  };
+
   return (
     <div style={{ marginTop: '.5rem' }}>
-      {/* ── Tarjetas KPI ── */}
-      <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
-        <div className="kpi-card" style={{ cursor: 'pointer' }} onClick={() => setFiltroEstado('todas')}>
+      {/* ── Tarjetas KPI (diseño idéntico a las tarjetas del sistema) ── */}
+      <div className="kpi-grid" style={{ marginBottom: '1.25rem' }}>
+        <div
+          className={`kpi ${filtroEstado === 'todas' ? 'destacado' : ''}`}
+          role="button"
+          tabIndex={0}
+          style={{
+            cursor: 'pointer',
+            ...(filtroEstado === 'todas' ? { borderColor: 'var(--primary, #f59e0b)' } : {}),
+          }}
+          onClick={() => toggleFiltro('todas')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleFiltro('todas');
+            }
+          }}
+          title="Ver todas las entradas de retención"
+        >
           <div className="label">Total Reintegros / Entradas</div>
           <div className="value">{cargando ? '…' : kpis.total}</div>
           <div className="delta" style={{ color: 'var(--text-muted)' }}>
@@ -106,7 +130,23 @@ export function ConciliacionEntradasTab({
           <div className="icon" aria-hidden="true">📥</div>
         </div>
 
-        <div className="kpi-card" style={{ cursor: 'pointer' }} onClick={() => setFiltroEstado('reintegrado')}>
+        <div
+          className={`kpi ${filtroEstado === 'reintegrado' ? 'destacado' : ''}`}
+          role="button"
+          tabIndex={0}
+          style={{
+            cursor: 'pointer',
+            ...(filtroEstado === 'reintegrado' ? { borderColor: 'var(--success, #10b981)' } : {}),
+          }}
+          onClick={() => toggleFiltro('reintegrado')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleFiltro('reintegrado');
+            }
+          }}
+          title="Filtrar sólo las que ya fueron reintegradas en banco"
+        >
           <div className="label">Reintegrado en Banco</div>
           <div className="value">{cargando ? '…' : kpis.cantidadReintegrados}</div>
           <div className="delta" style={{ color: 'var(--success, #10b981)' }}>
@@ -115,7 +155,23 @@ export function ConciliacionEntradasTab({
           <div className="icon" aria-hidden="true">✅</div>
         </div>
 
-        <div className="kpi-card" style={{ cursor: 'pointer' }} onClick={() => setFiltroEstado('esperando_reintegro')}>
+        <div
+          className={`kpi ${filtroEstado === 'esperando_reintegro' ? 'destacado' : ''}`}
+          role="button"
+          tabIndex={0}
+          style={{
+            cursor: 'pointer',
+            ...(filtroEstado === 'esperando_reintegro' ? { borderColor: 'var(--warning, #f59e0b)' } : {}),
+          }}
+          onClick={() => toggleFiltro('esperando_reintegro')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleFiltro('esperando_reintegro');
+            }
+          }}
+          title="Filtrar órdenes esperando reintegro del proveedor"
+        >
           <div className="label">Esperando Reintegro</div>
           <div className="value">{cargando ? '…' : kpis.cantidadEsperando}</div>
           <div className="delta" style={{ color: 'var(--warning, #f59e0b)' }}>
@@ -333,3 +389,4 @@ export function ConciliacionEntradasTab({
     </div>
   );
 }
+
