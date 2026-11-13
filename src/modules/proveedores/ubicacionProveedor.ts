@@ -41,6 +41,8 @@ export function parsearCoordenadas(texto: string | null | undefined): PuntoMapa 
   if (q) return puntoValido(q[1], q[2]);
   const par = t.match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
   if (par) return puntoValido(par[1], par[2]);
+  const proto = t.match(/!3d(-?\d{1,2}(?:\.\d+)?).*?!4d(-?\d{1,3}(?:\.\d+)?)/);
+  if (proto) return puntoValido(proto[1], proto[2]);
   // 04/11/2026: el «código» que da Google Maps al compartir un punto (Plus Code), p. ej.
   // «76MV+CR Ciudad Guayana, Bolívar, Venezuela» o el completo «67WV76MV+CR».
   const plus = decodificarPlusCode(t);

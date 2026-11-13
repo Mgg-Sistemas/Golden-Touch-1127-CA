@@ -117,6 +117,7 @@ export const ESTADO_DELIVERY: Record<EstadoDelivery, { label: string; emoji: str
 
 /** Motivos de cancelación (el último deja escribir). */
 export const MOTIVOS_CANCELACION: string[] = [
+  'Tomado por error / Desasignar',
   'El proveedor no tiene el pedido listo',
   'Proveedor cerrado o no atiende',
   'Dirección errada o zona inaccesible',
