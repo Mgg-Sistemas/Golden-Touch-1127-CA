@@ -7,7 +7,7 @@ vi.mock('@/shared/lib/pdfLogo', () => ({
   anchoLogoPdf: (h: number) => h,
 }));
 
-import { construir, montosRecibo } from './nominaReciboPdf';
+import { construir, fechaReciboSlash, montosRecibo, periodoReciboTexto } from './nominaReciboPdf';
 
 const base = {
   id: 'r1', periodo_id: 'p1', personal_id: 'x1', nombre: 'JOSÉ ANTONIO PÉREZ RODRÍGUEZ', cargo: 'OPERADOR DE MAQUINARIA PESADA',
@@ -29,21 +29,33 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     expect((await construir([base], { ...meta, tipos: ['bono'] } as never)).getNumberOfPages()).toBe(1);
   });
 
-  it('el recibo en Bs es SOLO Bs: no lleva nada en $ (15/10/2026); el de bonificación sí', async () => {
+  it('el recibo en Bs es SOLO Bs: lleva RECIBO DE PAGO DE NOMINA, Salario Quincenal/Diario, período DD/MM/AAAA, sin Estado ni Motivo ni «que conforme»', async () => {
     const soloBs = (await construir([base], { ...meta, tipos: ['sueldo'] } as never)).output();
     expect(soloBs).not.toContain('$');
-    expect(soloBs).toContain('Sueldo quincenal');
-    expect(soloBs).toContain('Sueldo diario');
-    // Conformidad dictada por RRHH: la totalidad del salario del período, sin «% del total acordado».
-    expect(soloBs).toContain('totalidad de mi salario');
-    expect(soloBs).toContain('16-09-2026 al 30-09-2026');
+    expect(soloBs).toContain('RECIBO DE PAGO DE NOMINA');
+    expect(soloBs).toContain('Salario Quincenal');
+    expect(soloBs).toContain('Salario Diario');
+    expect(soloBs).not.toContain('Motivo:');
+    expect(soloBs).not.toContain('Sueldo (quincena)');
+    expect(soloBs).not.toContain('(Estado)');
+    expect(soloBs).not.toContain('Por pagar');
+    // Conformidad dictada por RRHH: conforme a la totalidad de mi salario (sin «que»), período DD/MM/AAAA.
+    expect(soloBs).toContain('conforme a la totalidad de mi salario');
+    expect(soloBs).not.toContain('que conforme');
+    expect(soloBs).not.toContain('que conforma');
+    expect(soloBs).toContain('16/09/2026 al 30/09/2026');
     expect(soloBs).not.toContain('total acordado');
+    expect(fechaReciboSlash('2026-11-01')).toBe('01/11/2026');
+    expect(periodoReciboTexto('2026-11-01', '2026-11-15')).toBe('01/11/2026 al 15/11/2026');
+    expect(periodoReciboTexto('2026-11-15', '2026-11-15')).toBe('15/11/2026');
+    expect(periodoReciboTexto(null, null)).toBe('—');
     const bono = (await construir([base], { ...meta, tipos: ['bono'] } as never)).output();
     expect(bono).toContain('$');
-    // Y el de bonificación es SOLO $: ni montos en Bs, ni la tasa, ni el total mezclado.
+    // Y el de bonificación es SOLO $: ni montos en Bs, ni la tasa, ni el total mezclado, ni Estado.
     expect(bono).not.toMatch(/Bs\s/);
     expect(bono).not.toContain('Tasa de cierre');
     expect(bono).not.toContain('TOTAL DE LA QUINCENA');
+    expect(bono).not.toContain('(Estado)');
   });
 
   it('con préstamos, anticipos, asignaciones y muchos seriales sigue en una hoja', async () => {

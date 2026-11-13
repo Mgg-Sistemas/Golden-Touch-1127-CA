@@ -42,13 +42,31 @@ export function reales(n: number | null | undefined): string {
 export function tasaRealTexto(t: number): string {
   return Number(t).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
-function labelMotivo(tipo?: string | null): string {
-  switch (tipo) {
-    case 'vacaciones': return 'Vacaciones';
-    case 'liquidacion': return 'Liquidación';
-    case 'quincena': return 'Sueldo (quincena)';
-    default: return 'Sueldo';
+/** Fecha en formato DD/MM/AAAA sin corrimiento de zona horaria para YYYY-MM-DD. */
+export function fechaReciboSlash(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const s = String(iso).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const f = new Intl.DateTimeFormat('es-VE', {
+      timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+    const p: Record<string, string> = {};
+    for (const parte of f.formatToParts(d)) p[parte.type] = parte.value;
+    if (p.day && p.month && p.year) return `${p.day}/${p.month}/${p.year}`;
   }
+  return s;
+}
+
+/** Período del recibo en formato DD/MM/AAAA: «01/11/2026 al 15/11/2026», una fecha si coinciden, o «—». */
+export function periodoReciboTexto(desde?: string | null, hasta?: string | null): string {
+  const fDesde = fechaReciboSlash(desde);
+  if (!fDesde) return '—';
+  const fHasta = fechaReciboSlash(hasta);
+  return fHasta && fHasta !== fDesde ? `${fDesde} al ${fHasta}` : fDesde;
 }
 
 /** Qué recibo: el del sueldo en bolívares o el de la bonificación y descuentos. */
@@ -256,7 +274,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
     doc.text(emp.nombre, tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text(`RIF ${emp.rif}  ·  ${esBono ? 'Recibo de Bonificación y Descuentos' : 'Recibo de Pago de Personal'}`, tx, y + 32);
+    doc.text(`RIF ${emp.rif}  ·  ${esBono ? 'Recibo de Bonificación y Descuentos' : 'Recibo de Pago de Nómina'}`, tx, y + 32);
     doc.setFontSize(7.5); doc.setTextColor(110);
     // El domicilio suele ocupar dos renglones: el encabezado crece con él, para que
     // la raya naranja y el título queden DEBAJO y no se monten sobre el texto.
@@ -283,32 +301,29 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     // Título grande.
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text(esBono ? 'RECIBO DE BONIFICACIÓN Y DESCUENTOS' : 'RECIBO DE PAGO', MARGIN, y);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    const labelPago = esBono
-      ? (m.moneda === 'Bs'
-          ? 'Pago en Bolívares (Bs) al cambio'
-          : m.moneda === 'USDT'
-            ? 'Pago en USDT'
-            : m.moneda === 'EUR'
-              ? 'Pago en Euros (€)'
-              : m.esReal ? 'Pago en divisas ($) y Real brasileño (R$)' : 'Pago en divisas ($)')
-      : `Motivo: ${labelMotivo(meta.periodo.tipo)}`;
-    doc.text(labelPago, PAGE_W - MARGIN, y, { align: 'right' });
+    doc.text(esBono ? 'RECIBO DE BONIFICACIÓN Y DESCUENTOS' : 'RECIBO DE PAGO DE NOMINA', MARGIN, y);
+    if (esBono) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      const labelPago = m.moneda === 'Bs'
+        ? 'Pago en Bolívares (Bs) al cambio'
+        : m.moneda === 'USDT'
+          ? 'Pago en USDT'
+          : m.moneda === 'EUR'
+            ? 'Pago en Euros (€)'
+            : m.esReal ? 'Pago en divisas ($) y Real brasileño (R$)' : 'Pago en divisas ($)';
+      doc.text(labelPago, PAGE_W - MARGIN, y, { align: 'right' });
+    }
     y += compacto ? 9 : 18;
 
     // Datos del trabajador.
     const cedula = meta.cedulas?.[r.personal_id ?? ''] || '';
-    const periodoStr = meta.periodo.periodo_desde
-      ? `${fmtDate(meta.periodo.periodo_desde)}${meta.periodo.periodo_hasta ? ' — ' + fmtDate(meta.periodo.periodo_hasta) : ''}`
-      : '—';
+    const periodoStr = periodoReciboTexto(meta.periodo.periodo_desde, meta.periodo.periodo_hasta);
     autoTable(doc, {
       startY: y,
       body: [
         ['Trabajador', r.nombre, 'Cédula', cedula || '—'],
         ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
-        ['Período', periodoStr, 'Fecha de pago', r.pagada_en ? fmtDate(r.pagada_en) : '—'],
-        ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', `${m.diasT} trab. + ${m.diasD} desc.`],
+        ['Período', periodoStr, 'Días', `${m.diasT} trabajados + ${m.diasD} de descanso`],
         esBono
           ? [
               'Total acordado / mes',
@@ -322,7 +337,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
                     ? 'Euros (€)'
                     : m.esReal ? `Divisas ($) · Real brasileño (R$) · 1 $ = R$ ${tasaRealTexto(m.tasaBrl)}` : 'Divisas ($)',
             ]
-          : ['Sueldo quincenal', bsStr(m.sueldoBs), 'Sueldo diario', bsStr(m.diarioBs)],
+          : ['Salario Quincenal', bsStr(m.sueldoBs), 'Salario Diario', bsStr(m.diarioBs)],
       ],
       margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
       theme: 'grid',
@@ -377,12 +392,10 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
-      // Texto dictado por RRHH (15/10/2026): monto en Bs, que es la totalidad del
-      // salario del período, sin porcentajes del total acordado (eso es en $).
-      const desde = meta.periodo.periodo_desde ? fmtDate(meta.periodo.periodo_desde) : '';
-      const hasta = meta.periodo.periodo_hasta ? fmtDate(meta.periodo.periodo_hasta) : '';
-      const periodoTexto = desde && hasta ? `al período del ${desde} al ${hasta}` : desde ? `al período del ${desde}` : 'al período indicado';
-      conformidad = `Certifico haber recibido la cantidad de ${bsStr(m.netoBs)}, que conforma la totalidad de mi salario correspondiente ${periodoTexto}, y firmo en señal de conformidad.`;
+      // Texto dictado por RRHH: monto en Bs, conforme a la totalidad del
+      // salario del período (formato DD/MM/AAAA), sin «que» y sin porcentajes en $.
+      const periodoTexto = periodoStr !== '—' ? `al período del ${periodoStr}` : 'al período indicado';
+      conformidad = `Certifico haber recibido la cantidad de ${bsStr(m.netoBs)}, conforme a la totalidad de mi salario ${periodoTexto}. Y firmo en señal de conformidad.`;
     } else {
       // ── Recibo 2: bonificación, menos préstamos y anticipos ──
       const simb = m.simbolo;
