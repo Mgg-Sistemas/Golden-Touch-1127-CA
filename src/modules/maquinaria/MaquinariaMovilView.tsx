@@ -44,9 +44,6 @@ import {
   type FotoEquipo,
 } from './flota.repository';
 import {
-  avisoServicio,
-  avisoMasUrgente,
-  frecuenciaHrs,
   estadoEfectivo,
   claseEquipo,
   iconoDeClase,
@@ -61,7 +58,8 @@ import { listRepuestosEquipo } from './repuestosEquipo.repository';
 import { sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
 import { EquipoFormModal } from './EquipoFormModal';
 import { SubirFotoEquipoModal } from './SubirFotoEquipoModal';
-import { addMantenimiento } from './maquinariaMant.repository';
+import { addMantenimiento, ultimosMantenimientosPorEquipo, type UltimoMantenimientoEquipo } from './maquinariaMant.repository';
+import { avisoDeEquipo } from './avisoEquipo';
 import {
   textoServicioWhatsapp,
   textoLavadoWhatsapp,
@@ -107,6 +105,7 @@ export function MaquinariaMovilView() {
   const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
   const [lecturas, setLecturas] = useState<Map<string, LecturaVigente>>(new Map());
   const [fotos, setFotos] = useState<Map<string, string>>(new Map());
+  const [ultimosMant, setUltimosMant] = useState<Map<string, UltimoMantenimientoEquipo>>(new Map());
   const [subirFotoEq, setSubirFotoEq] = useState<MaquinariaEquipo | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -160,12 +159,13 @@ export function MaquinariaMovilView() {
 
   async function cargarDatos() {
     try {
-      const [eqs, ords, lavs, lecs, fts] = await Promise.all([
+      const [eqs, ords, lavs, lecs, fts, um] = await Promise.all([
         listEquipos(),
         listOrdenesServicio(),
         listLavadosTodos(),
         lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
         fotosDeEquipos().catch(() => [] as FotoEquipo[]),
+        ultimosMantenimientosPorEquipo().catch(() => new Map<string, UltimoMantenimientoEquipo>()),
       ]);
 
       const mapFotos = new Map<string, string>();
@@ -178,6 +178,7 @@ export function MaquinariaMovilView() {
       setLavados(lavs);
       setLecturas(lecs);
       setFotos(mapFotos);
+      setUltimosMant(um);
     } catch (e) {
       console.error('Error al cargar datos de maquinaria móvil:', e);
     } finally {
@@ -203,18 +204,15 @@ export function MaquinariaMovilView() {
     const map = new Map<string, InfoMantenimientoMovil>();
     for (const e of equipos) {
       const lec = lecturas.get(e.id);
-      const horo = lec?.horometro ?? null;
-      const km = lec?.kilometraje ?? null;
-      // Horas: la frecuencia del equipo o 250 h por defecto (igual que la vista de PC y el banner).
-      const avisoH = avisoServicio(frecuenciaHrs(e), horo, e.mantenimiento_base_hrs, 'h');
-      const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
-      const aviso = avisoMasUrgente(avisoH, avisoK);
+      const avEq = avisoDeEquipo(e, lec, ultimosMant.get(e.id));
+      const horo = avEq.esVehiculo ? null : (lec?.horometro ?? null);
+      const km = avEq.esVehiculo ? avEq.lecturaPrincipal : (lec?.kilometraje ?? null);
       const est = estadoEfectivo(e);
       const enc = extraerEncargado(e);
-      map.set(e.id, { horometro: horo, kilometraje: km, aviso, estado: est, encargado: enc });
+      map.set(e.id, { horometro: horo, kilometraje: km, aviso: avEq.aviso, estado: est, encargado: enc });
     }
     return map;
-  }, [equipos, lecturas]);
+  }, [equipos, lecturas, ultimosMant]);
 
   // Equipos activos (no retirados) con el servicio PRÓXIMO o VENCIDO para el banner de alertas
   // (26/10/2026). La lectura va en la unidad del aviso más urgente (horas o km).

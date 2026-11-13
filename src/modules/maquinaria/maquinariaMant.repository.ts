@@ -7,6 +7,7 @@
      Consumo L/h = gasoil de este registro ÷ HRS
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { reiniciarMantenimientoDeEquipo } from './maquinariaEquipos.repository';
 
 /** Tipos de mantenimiento / servicio (trazabilidad): catálogo con etiqueta legible.
  *  Cubre todo lo que se le puede cambiar/hacer a un vehículo o maquinaria. */
@@ -127,11 +128,64 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
   };
 }
 
-export async function addMantenimiento(input: MantenimientoInput, actor: string, actorName?: string | null): Promise<MantenimientoMaquinaria> {
+export interface UltimoMantenimientoEquipo {
+  fecha: string;
+  horometro: number | null;
+  kilometraje: number | null;
+  tipo: string | null;
+}
+
+/**
+ * Trae el mantenimiento más reciente de cada equipo (según fecha y creación)
+ * para cotejar si la lectura real de bitácora supera la base fija guardada.
+ */
+export async function ultimosMantenimientosPorEquipo(): Promise<Map<string, UltimoMantenimientoEquipo>> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('equipo_id, fecha, horometro, kilometraje, tipo, tipos, created_at')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error || !data) return new Map();
+  const out = new Map<string, UltimoMantenimientoEquipo>();
+  for (const r of data as Array<{ equipo_id: string; fecha: string; horometro: unknown; kilometraje: unknown; tipo: string | null; tipos?: string[] | null }>) {
+    if (out.has(r.equipo_id)) continue;
+    const h = num(r.horometro);
+    const k = num(r.kilometraje);
+    const esPreventivo = r.tipo === 'cambio_aceite' || r.tipo === 'servicio' || (Array.isArray(r.tipos) && (r.tipos.includes('cambio_aceite') || r.tipos.includes('servicio')));
+    if (esPreventivo || h != null || k != null) {
+      out.set(r.equipo_id, {
+        fecha: r.fecha,
+        horometro: h,
+        kilometraje: k,
+        tipo: r.tipo,
+      });
+    }
+  }
+  return out;
+}
+
+export async function addMantenimiento(
+  input: MantenimientoInput,
+  actor: string,
+  actorName?: string | null,
+  opts?: { reiniciarContador?: boolean },
+): Promise<MantenimientoMaquinaria> {
   const { data, error } = await supabase.from(TABLE)
     .insert({ ...sanitize(input), created_by: actor, actor_name: actorName ?? null })
     .select('*').single();
   if (error) throw error;
+
+  if (opts?.reiniciarContador) {
+    try {
+      await reiniciarMantenimientoDeEquipo(input.equipo_id, {
+        horas: num(input.horometro),
+        km: num(input.kilometraje),
+      });
+    } catch (e) {
+      console.warn('No se pudo reiniciar contador al registrar mantenimiento:', e);
+    }
+  }
+
   return data as MantenimientoMaquinaria;
 }
 

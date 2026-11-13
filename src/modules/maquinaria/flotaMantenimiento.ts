@@ -7,7 +7,8 @@
    ============================================================ */
 import { norm } from '@/shared/lib/texto';
 import { GRUPOS_MANTENIMIENTO } from './maquinariaEquipos.repository';
-import { avisoServicio, avisoMasUrgente, MARGEN_ALERTA_PCT, type AvisoServicio } from './flota';
+import { MARGEN_ALERTA_PCT, type AvisoServicio } from './flota';
+import { avisoDeEquipo, type UltimoMantenimientoParaAviso } from './avisoEquipo';
 
 /** Pestaña virtual para los equipos que no caen en ningún grupo. */
 export const SIN_GRUPO = '__sin_grupo__';
@@ -55,14 +56,25 @@ export interface InfoServicio {
 
 /** Estado del servicio de un equipo a partir de sus lecturas vigentes. */
 export function infoServicio(
-  e: { mantenimiento_cada_hrs: number | null; mantenimiento_base_hrs: number | null; mantenimiento_cada_km: number | null; mantenimiento_base_km: number | null },
-  horometro: number | null, km: number | null,
+  e: {
+    tipo?: string | null;
+    equipo?: string | null;
+    grupo_mantenimiento?: string | null;
+    mantenimiento_cada_hrs: number | null;
+    mantenimiento_base_hrs: number | null;
+    mantenimiento_cada_km: number | null;
+    mantenimiento_base_km: number | null;
+  },
+  horometro: number | null,
+  km: number | null,
+  ultimoMant?: UltimoMantenimientoParaAviso | null,
 ): InfoServicio {
-  const avisoH = avisoServicio(e.mantenimiento_cada_hrs, horometro, e.mantenimiento_base_hrs, 'h');
-  const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
-  const aviso = avisoMasUrgente(avisoH, avisoK);
-  const estado: EstadoServicio = !aviso ? 'sin_datos' : aviso.nivel === 'vencido' ? 'vencido' : aviso.nivel === 'proximo' ? 'proximo' : 'al_dia';
-  return { horometro, km, avisoH, avisoK, aviso, estado };
+  if (e.mantenimiento_cada_hrs == null && e.mantenimiento_cada_km == null && !e.tipo && !e.equipo) {
+    return { horometro, km, avisoH: null, avisoK: null, aviso: null, estado: 'sin_datos' };
+  }
+  const av = avisoDeEquipo(e, { horometro, kilometraje: km }, ultimoMant);
+  const estado: EstadoServicio = !av.aviso ? 'sin_datos' : av.aviso.nivel === 'vencido' ? 'vencido' : av.aviso.nivel === 'proximo' ? 'proximo' : 'al_dia';
+  return { horometro, km, avisoH: av.avisoH, avisoK: av.avisoK, aviso: av.aviso, estado };
 }
 
 /** Orden por urgencia: vencidos (los más pasados primero), próximos, al día (los más cerca primero) y sin datos. Inactivos al final. */

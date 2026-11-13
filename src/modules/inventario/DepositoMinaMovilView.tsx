@@ -48,6 +48,8 @@ import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovil
 import { HistoricoRecepcionesMovil, RecepcionDeliveryMovil, usePorRecepcionar } from './RecepcionMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
 import { DevolucionesMaquinaria } from '@/modules/maquinaria/DevolucionesMaquinaria';
+import type { EntregaAlmacen } from '@/modules/maquinaria/entregasAlmacen';
+import { listDevolucionesPendientes } from '@/modules/maquinaria/entregasAlmacen.repository';
 import type { SalidaMina } from './salidasMina';
 import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stockMinaWhatsapp';
 import { listMovimientosDepositoDesde } from './stockMina.repository';
@@ -113,6 +115,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const [elegido, setElegido] = useState<Producto | null>(null);
   const [busca, setBusca] = useState('');
   const [porRetornar, setPorRetornar] = useState<SalidaMina[]>([]);
+  const [devolucionesCount, setDevolucionesCount] = useState(0);
   // 04/11/2026: lo que el delivery entregó en el almacén (Los Pinos = Inventario General) y falta recepcionar.
   const esGeneral = DEP.almacen === DEPOSITOS_FIJOS.general.almacen;
   const porRecepcionar = usePorRecepcionar(esGeneral && canWrite);
@@ -124,15 +127,18 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const reload = useCallback(async () => {
     const ps = await listProductos(deposito);
     setProductos(ps.filter((p) => p.estado === 'activo'));
-    const [cats, uds, alms] = await Promise.all([
+    const [cats, uds, alms, ret, devs] = await Promise.all([
       getCategorias(ps),
       getUnidades(ps),
       listAlmacenes().catch(() => [] as Almacen[]),
+      listPorRetornarMina(DEP.almacen).catch(() => [] as SalidaMina[]),
+      listDevolucionesPendientes('telefono').catch(() => [] as EntregaAlmacen[]),
     ]);
     setCategorias(cats);
     setUnidades(uds);
     setAlmacenesList(alms);
-    setPorRetornar(await listPorRetornarMina(DEP.almacen).catch(() => [] as SalidaMina[]));
+    setPorRetornar(ret);
+    setDevolucionesCount(devs.length);
   }, [deposito, DEP.almacen]);
 
   useEffect(() => {
@@ -141,6 +147,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
+
+  useRealtime(
+    ['deposito_mina_salidas', 'maquinaria_entregas_almacen', 'deposito_mina_retornos', 'movimientos'],
+    () => { void reload().catch(() => {}); },
+  );
+
+  const totalRetornos = porRetornar.length + devolucionesCount;
   // Solo los depósitos que el rol puede ver: los demás no aparecen (y la base tampoco los deja leer).
   const depositosDisponibles = useMemo(() => {
     const map = new Map<string, InfoDeposito>();
@@ -271,10 +284,10 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           </button>
           )}
           <button type="button" className="surt-btn retorno"
-            onClick={() => setPaso('retornos')}>
+            onClick={() => { void reload().catch(() => {}); setPaso('retornos'); }}>
             <span className="icono" aria-hidden>🔄</span>
-            <span>Por retornar ({porRetornar.length})</span>
-            <small>{porRetornar.length ? 'Pendientes por volver' : 'Sin pendientes'}</small>
+            <span>Por retornar ({totalRetornos})</span>
+            <small>{totalRetornos ? `${totalRetornos} ${totalRetornos === 1 ? 'pendiente' : 'pendientes'} por volver` : 'Sin pendientes'}</small>
           </button>
         </div>
       )}
@@ -397,7 +410,8 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
       )}
 
       {paso === 'retornos' && (
-        <DevolucionesMaquinaria origen="telefono" actorName={actorName} puedeDarEntrada={canWrite} />
+        <DevolucionesMaquinaria origen="telefono" actorName={actorName} puedeDarEntrada={canWrite}
+          onCambio={() => { void reload().catch(() => {}); }} />
       )}
       {paso === 'retornos' && (
         <PorRetornarMina salidas={porRetornar} actor={actor} actorName={actorName} canWrite={canWrite}

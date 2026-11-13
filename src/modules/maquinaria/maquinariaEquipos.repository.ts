@@ -210,22 +210,44 @@ export async function eliminarEquipo(id: string): Promise<void> {
 
 /**
  * REINICIA el contador de mantenimiento de un equipo: fija la base de horas (y de km, si
- * hay lectura) en el horómetro/kilometraje VIGENTE, de modo que el próximo mantenimiento
- * pase a tocar en `base + intervalo`. Se llama automáticamente cuando se concreta la compra
- * del mantenimiento (servicio directo casado al equipo finalizado) y también desde el botón
- * manual «Mantenimiento hecho». Best-effort: si el equipo no tiene lectura, no rompe nada.
+ * hay lectura) en el horómetro/kilometraje VIGENTE (o el provisto manualmente), de modo
+ * que el próximo mantenimiento pase a tocar en `base + intervalo`. Se llama automáticamente
+ * cuando se concreta la compra del mantenimiento, al marcar «Mantenimiento hecho» en
+ * alertas o catálogo, y al registrar un servicio en bitácora.
  * Devuelve las lecturas usadas como base (null si no había dato).
  */
-export async function reiniciarMantenimientoDeEquipo(equipoId: string): Promise<{ horas: number | null; km: number | null }> {
+export async function reiniciarMantenimientoDeEquipo(
+  equipoId: string,
+  lecturaManual?: { horas?: number | null; km?: number | null },
+): Promise<{ horas: number | null; km: number | null }> {
   if (!equipoId) return { horas: null, km: null };
   const eq = await getEquipo(equipoId);
   if (!eq) return { horas: null, km: null };
-  // Lectura vigente UNIFICADA (09/10/2026): la mayor entre Combustible, las lecturas
-  // registradas en Maquinaria y la bitácora (desde la última corrección).
-  const { data: vig } = await supabase.rpc('maquinaria_lecturas_vigentes');
-  const fila = ((vig ?? []) as Array<{ equipo_id: string; horometro: number | null; kilometraje: number | null }>).find((x) => x.equipo_id === equipoId);
-  const horas: number | null = fila?.horometro != null ? Number(fila.horometro) : null;
-  const km: number | null = fila?.kilometraje != null ? Number(fila.kilometraje) : null;
+
+  let horas: number | null = lecturaManual?.horas != null ? Number(lecturaManual.horas) : null;
+  let km: number | null = lecturaManual?.km != null ? Number(lecturaManual.km) : null;
+
+  if (horas == null && km == null) {
+    // Lectura vigente UNIFICADA (09/10/2026): la mayor entre Combustible, las lecturas
+    // registradas en Maquinaria y la bitácora (desde la última corrección).
+    const { data: vig } = await supabase.rpc('maquinaria_lecturas_vigentes');
+    const fila = ((vig ?? []) as Array<{ equipo_id: string; horometro: number | null; kilometraje: number | null }>).find((x) => x.equipo_id === equipoId);
+    horas = fila?.horometro != null ? Number(fila.horometro) : null;
+    km = fila?.kilometraje != null ? Number(fila.kilometraje) : null;
+  }
+
+  // En vehículos de carga (Encavas, camiones, camionetas):
+  // Si no hay km pero el horómetro es > 500 (odómetro capturado en campo de horas),
+  // la base de km toma ese valor para que el intervalo se mida correctamente en km.
+  const esVeh = eq.grupo_mantenimiento === 'VEHÍCULOS DE CARGA' ||
+    /vehiculo|carro|camion|gandola|camioneta|pickup|\bauto|van\b|autobus|\bbus|encava|jeep|chuto|remolque|moto/i.test(norm(eq.tipo) || norm(eq.equipo));
+  if (esVeh) {
+    if ((km == null || km <= 0) && horas != null && horas > 500) {
+      km = horas;
+      horas = null;
+    }
+  }
+
   // Escribe la base vía RPC SECURITY DEFINER: así el reinicio funciona aunque quien
   // finaliza la compra (p. ej. Tesorería) no tenga permiso de escritura en Maquinaria.
   // coalesce en el servidor no pisa con null la dimensión sin lectura.

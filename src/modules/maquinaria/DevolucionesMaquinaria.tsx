@@ -14,8 +14,9 @@ import { lineaItem, type EntregaAlmacen } from './entregasAlmacen';
 import { darEntradaDevolucion, listDevolucionesPendientes } from './entregasAlmacen.repository';
 import { FotosMiniatura } from './EntregasAlmacenPanel';
 
-export function DevolucionesMaquinaria({ origen, actorName, puedeDarEntrada = true }: {
+export function DevolucionesMaquinaria({ origen, actorName, puedeDarEntrada = true, onCambio }: {
   origen?: 'telefono' | 'pc'; actorName: string | null; puedeDarEntrada?: boolean;
+  onCambio?: () => void;
 }) {
   const [lista, setLista] = useState<EntregaAlmacen[]>([]);
   const [sel, setSel] = useState<EntregaAlmacen | null>(null);
@@ -24,7 +25,7 @@ export function DevolucionesMaquinaria({ origen, actorName, puedeDarEntrada = tr
     try { setLista(await listDevolucionesPendientes(origen)); } catch { setLista([]); }
   }, [origen]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_entregas_almacen'], () => { void cargar(); });
+  useRealtime(['maquinaria_entregas_almacen'], () => { void cargar(); onCambio?.(); });
 
   async function recibir(e: EntregaAlmacen) {
     try {
@@ -32,6 +33,7 @@ export function DevolucionesMaquinaria({ origen, actorName, puedeDarEntrada = tr
       toast(`Devolución ${e.codigo} recibida: el material volvió al inventario.`, 'success');
       setNota('');
       void cargar();
+      onCambio?.();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'No se pudo dar entrada', 'error');
     }

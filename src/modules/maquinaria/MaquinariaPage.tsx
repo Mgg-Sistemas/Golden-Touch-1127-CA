@@ -19,7 +19,7 @@ import { listEquipos, reiniciarMantenimientoDeEquipo, extraerEncargado, type Maq
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
-  BUCKETS_FLOTA, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo, frecuenciaHrs,
+  BUCKETS_FLOTA, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, coincideEquipo, frecuenciaHrs,
   listarApartados, type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo, type ApartadoEquipo,
 } from './flota';
 import { GestionarApartadosModal } from './GestionarApartadosModal';
@@ -30,6 +30,8 @@ import { FlotaNav } from './FlotaNav';
 import { BarraServicio } from './ServicioMantenimientoPage';
 import { BitacoraModal } from './BitacoraModal';
 import { AccionConEquipo } from './AccionConEquipo';
+import { avisoDeEquipo } from './avisoEquipo';
+import { ultimosMantenimientosPorEquipo, type UltimoMantenimientoEquipo } from './maquinariaMant.repository';
 
 interface InfoEquipo {
   estado: EstadoEquipo;
@@ -87,19 +89,22 @@ export function MaquinariaPage() {
   const [nuevaOrdenEq, setNuevaOrdenEq] = useState<MaquinariaEquipo | null>(null);
   const [bitacoraEq, setBitacoraEq] = useState<MaquinariaEquipo | null>(null);
   const [reiniciarEq, setReiniciarEq] = useState<{ e: MaquinariaEquipo; info: InfoEquipo } | null>(null);
+  const [ultimosMant, setUltimosMant] = useState<Map<string, UltimoMantenimientoEquipo>>(new Map());
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, lecs, cats, abiertas, fts] = await Promise.all([
+      const [eqs, lecs, cats, abiertas, fts, um] = await Promise.all([
         listEquipos(),
         lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
         listCatalogos().catch(() => []),
         ordenesAbiertasPorEquipo().catch(() => new Map<string, number>()),
         fotosDeEquipos().catch(() => []),
+        ultimosMantenimientosPorEquipo().catch(() => new Map<string, UltimoMantenimientoEquipo>()),
       ]);
       setEquipos(eqs);
       setLecturas(lecs);
       setOrdenesAbiertas(abiertas);
+      setUltimosMant(um);
       const fm = new Map<string, string>();
       for (const f of fts) if (!fm.has(f.equipo_id)) fm.set(f.equipo_id, f.url);
       setFotos(fm);
@@ -110,25 +115,26 @@ export function MaquinariaPage() {
   // También vigila los movimientos de combustible (horómetro vigente) y las órdenes de servicio.
   useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'maquinaria_documentos', 'maquinaria_ordenes_servicio', 'combustible_tanque_movimientos', 'maquinaria_lecturas'], () => { void cargar(); });
 
-  // Estado, clase y aviso de servicio por equipo. Las lecturas vigentes (horómetro y
-  // kilometraje) se traen de Combustible por el equipo vinculado (combustible_equipo);
-  // el horómetro cae a la bitácora si no hay dato de Combustible. El aviso salta si
-  // faltan ≤ 10% del intervalo (horas o km) o ya se pasó — la misma regla de siempre.
-  // En horas, los equipos sin frecuencia cargada usan la de la empresa (250 h, 26/10/2026).
+  // Estado, clase y aviso de servicio por equipo.
+  // Regla unificada con avisoDeEquipo: reconoce odómetro en km para vehículos y horómetro para maquinaria,
+  // considerando el último mantenimiento de bitácora si es más reciente que la base guardada.
   const info = useMemo(() => {
     const m = new Map<string, InfoEquipo>();
     for (const e of equipos) {
-      // Contador vigente unificado: Combustible, Maquinaria y bitácora (el mismo del surtidor).
       const lec = lecturas.get(e.id);
-      const horo = lec?.horometro ?? null;
-      const km = lec?.kilometraje ?? null;
-      const avisoH = avisoServicio(frecuenciaHrs(e), horo, e.mantenimiento_base_hrs, 'h');
-      const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
-      const aviso = avisoMasUrgente(avisoH, avisoK);
-      m.set(e.id, { estado: estadoEfectivo(e), clase: claseEquipo(e), horometro: horo, km, avisoH, avisoK, aviso });
+      const av = avisoDeEquipo(e, lec, ultimosMant.get(e.id));
+      m.set(e.id, {
+        estado: estadoEfectivo(e),
+        clase: claseEquipo(e),
+        horometro: av.unidadPrincipal === 'h' ? av.lecturaPrincipal : (lec?.horometro ?? null),
+        km: av.unidadPrincipal === 'km' ? av.lecturaPrincipal : (lec?.kilometraje ?? null),
+        avisoH: av.avisoH,
+        avisoK: av.avisoK,
+        aviso: av.aviso,
+      });
     }
     return m;
-  }, [equipos, lecturas]);
+  }, [equipos, lecturas, ultimosMant]);
 
   async function confirmarReinicio(e: MaquinariaEquipo) {
     try {

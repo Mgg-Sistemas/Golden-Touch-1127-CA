@@ -38,4 +38,32 @@ describe('avisoDeEquipo (regla única del catálogo)', () => {
     expect(tonoAviso(venc)).toBe('danger');
     expect([textoAviso(null), tonoAviso(null)]).toEqual(['Sin lectura', 'retired']);
   });
+
+  it('vehículos (Encava, camión, camioneta): reconoce odómetro en km y frecuencia 5000 km', () => {
+    const encava = avisoDeEquipo(
+      { equipo: 'CAMIONETA ENCAVA EP-1000 A96BM3R', mantenimiento_base_hrs: 100000 },
+      { horometro: 104500, kilometraje: null },
+    );
+    expect(encava.esVehiculo).toBe(true);
+    expect(encava.unidadPrincipal).toBe('km');
+    expect(encava.frecuenciaK).toBe(5000);
+    expect(encava.lecturaPrincipal).toBe(104500);
+    expect(encava.aviso?.unidad).toBe('km');
+    expect(encava.aviso?.restante).toBe(500); // 5000 - (104500 - 100000) = 500
+    expect(encava.aviso?.nivel).toBe('proximo');
+  });
+
+  it('considera el último mantenimiento de la bitácora si es más reciente que la base', () => {
+    // Máquina pesada con base vieja (3500) pero con último mantenimiento registrado a las 3700 h
+    const maq = avisoDeEquipo(
+      { equipo: 'EXCAVADORA HIDRÁULICA XCMG XE225BR', mantenimiento_base_hrs: 3500 },
+      { horometro: 3715, kilometraje: null },
+      { horometro: 3700 },
+    );
+    expect(maq.esVehiculo).toBe(false);
+    expect(maq.aviso?.unidad).toBe('h');
+    // Faltan: 250 - (3715 - 3700) = 235 h -> OK
+    expect(maq.aviso?.nivel).toBe('ok');
+    expect(maq.aviso?.restante).toBe(235);
+  });
 });

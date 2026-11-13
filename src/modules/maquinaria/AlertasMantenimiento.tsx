@@ -13,7 +13,7 @@
      <RespuestaAlertaModal item actor actorName onClose onSaved? />
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -21,7 +21,8 @@ import { mensajeError } from '@/shared/lib/errores';
 import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { frecuenciaHrs, type AvisoServicio } from './flota';
-import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { esVehiculoDeCarga, FRECUENCIA_KM_VEHICULOS_DEFAULT } from './avisoEquipo';
 import {
   registrarRespuestaAlerta, ultimasRespuestasPorEquipo, TABLAS_ALERTAS_MANT, type RespuestaAlerta,
 } from './alertasMantenimiento.repository';
@@ -36,11 +37,13 @@ export interface EquipoConAviso {
 
 /* ───────── Helpers ───────── */
 
-/** Frecuencia del servicio en la unidad del aviso (horas: la del equipo o 250 por defecto). */
+/** Frecuencia del servicio en la unidad del aviso (horas: la del equipo o 250 por defecto; km: ficha o 5000 para vehículos). */
 function frecuenciaDe(item: EquipoConAviso): number | null {
-  if (item.aviso.unidad === 'h') return frecuenciaHrs(item.equipo);
-  const km = Number(item.equipo.mantenimiento_cada_km);
-  return km > 0 ? km : null;
+  if (item.aviso.unidad === 'km') {
+    const km = Number(item.equipo.mantenimiento_cada_km);
+    return km > 0 ? km : (esVehiculoDeCarga(item.equipo) ? FRECUENCIA_KM_VEHICULOS_DEFAULT : null);
+  }
+  return frecuenciaHrs(item.equipo);
 }
 
 /** «pasado por 55 h» (vencido) o «faltan 12 h» (próximo). */
@@ -157,6 +160,8 @@ function ListaAlertasModal({ items, actor, actorName, canWrite, onClose, onChang
   const quien = useQuien();
   const [ultimas, setUltimas] = useState<Map<string, RespuestaAlerta>>(new Map());
   const [respondiendo, setRespondiendo] = useState<EquipoConAviso | null>(null);
+  const [confirmando, setConfirmando] = useState<EquipoConAviso | null>(null);
+  const [reiniciandoId, setReiniciandoId] = useState<string | null>(null);
   const [wspAbierto, setWspAbierto] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
@@ -165,6 +170,22 @@ function ListaAlertasModal({ items, actor, actorName, canWrite, onClose, onChang
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime([...TABLAS_ALERTAS_MANT], () => { void cargar(); });
+
+  async function ejecutarReinicio(it: EquipoConAviso) {
+    setReiniciandoId(it.equipo.id);
+    try {
+      const { horas, km } = await reiniciarMantenimientoDeEquipo(it.equipo.id);
+      const partes = [horas != null ? `${fmtNum(horas)} h` : null, km != null ? `${fmtNum(km)} km` : null].filter(Boolean);
+      toast(`Mantenimiento registrado para ${it.equipo.equipo}: contador reiniciado${partes.length ? ` (${partes.join(' · ')})` : ''}.`, 'success');
+      await cargar();
+      onChanged?.();
+      setConfirmando(null);
+    } catch (err) {
+      toast(mensajeError(err, 'No se pudo reiniciar el mantenimiento'), 'error');
+    } finally {
+      setReiniciandoId(null);
+    }
+  }
 
   // Más urgente primero: el que más se pasó del intervalo (ratio sin tope).
   const ordenados = useMemo(() => [...items].sort((a, b) => b.aviso.ratio - a.aviso.ratio), [items]);
@@ -182,6 +203,7 @@ function ListaAlertasModal({ items, actor, actorName, canWrite, onClose, onChang
             const color = vencido ? 'var(--danger)' : AMBAR;
             const frecuencia = frecuenciaDe(it);
             const ult = ultimas.get(it.equipo.id) ?? null;
+            const esYaRealizado = Boolean(ult?.mensaje?.startsWith('[Ya realizado]'));
             return (
               <div key={it.equipo.id} className="card" style={{ margin: 0, borderColor: color }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.6rem', flexWrap: 'wrap' }}>
@@ -200,9 +222,20 @@ function ListaAlertasModal({ items, actor, actorName, canWrite, onClose, onChang
                     </div>
                   </div>
                   {canWrite && (
-                    <button type="button" className="btn btn-primary" onClick={() => setRespondiendo(it)}>
-                      ✍ Responder
-                    </button>
+                    <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-success"
+                        disabled={reiniciandoId === it.equipo.id}
+                        onClick={() => setConfirmando(it)}
+                        title="Marcar que el mantenimiento ya se realizó y reiniciar el contador desde la lectura actual"
+                      >
+                        {reiniciandoId === it.equipo.id ? 'Reiniciando…' : '✔ Mantt. hecho'}
+                      </button>
+                      <button type="button" className="btn btn-sm btn-primary" onClick={() => setRespondiendo(it)}>
+                        ✍ Responder
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -210,8 +243,8 @@ function ListaAlertasModal({ items, actor, actorName, canWrite, onClose, onChang
                 {ult ? (
                   <div style={{ marginTop: '.55rem', paddingTop: '.5rem', borderTop: '1px dashed var(--border)', fontSize: '.8rem' }}>
                     <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ color: ult.decision === 'hara' ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>
-                        {ult.decision === 'hara' ? '✅ Sí hará' : '❌ No hará'}
+                      <span style={{ color: esYaRealizado ? 'var(--primary, #3b82f6)' : ult.decision === 'hara' ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>
+                        {esYaRealizado ? '🎉 Ya realizado' : ult.decision === 'hara' ? '✅ Sí hará' : '❌ No hará'}
                       </span>
                       <span>· {ult.mensaje}</span>
                       <span className="muted">· {quien(ult.actor_name, ult.actor) || '—'} · {dateTime(ult.created_at)}</span>
@@ -234,6 +267,17 @@ function ListaAlertasModal({ items, actor, actorName, canWrite, onClose, onChang
         </div>
       )}
 
+      {confirmando && (
+        <ConfirmDialog
+          title={`✔ Marcar mantenimiento realizado · ${confirmando.equipo.equipo}`}
+          message={`¿Confirmas que el mantenimiento de ${confirmando.equipo.equipo} ya fue realizado? El contador se reiniciará desde la lectura actual (${confirmando.lectura != null ? fmtNum(confirmando.lectura) : '—'} ${confirmando.aviso.unidad}) y la alerta quedará al día.`}
+          confirmText="Sí, reiniciar contador"
+          success
+          onConfirm={() => void ejecutarReinicio(confirmando)}
+          onCancel={() => setConfirmando(null)}
+        />
+      )}
+
       {respondiendo && (
         <RespuestaAlertaModal item={respondiendo} actor={actor} actorName={actorName}
           onClose={() => setRespondiendo(null)}
@@ -252,7 +296,7 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
   onClose: () => void;
   onSaved?: (r: RespuestaAlerta) => void;
 }): JSX.Element {
-  const [decision, setDecision] = useState<'hara' | 'no_hara' | null>(null);
+  const [decision, setDecision] = useState<'hara' | 'no_hara' | 'ya_realizado' | null>(null);
   const [mensaje, setMensaje] = useState('');
   const [saving, setSaving] = useState(false);
   /** Respuesta ya guardada cuando se eligió «Guardar y enviar»: se muestra el botón de WhatsApp. */
@@ -273,7 +317,7 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
     lectura: item.lectura,
     frecuencia,
     restante: item.aviso.restante,
-    decision: decision ?? 'hara',
+    decision: decision === 'no_hara' ? 'no_hara' : decision === 'ya_realizado' ? 'ya_realizado' : 'hara',
     mensaje: mensaje.trim() || '…',
     responsable,
     fecha: new Date().toISOString(),
@@ -281,11 +325,30 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
 
   const listo = decision != null && mensaje.trim().length >= 3;
 
+  function seleccionarDecision(valor: 'hara' | 'no_hara' | 'ya_realizado') {
+    setDecision(valor);
+    if (valor === 'ya_realizado' && !mensaje.trim()) {
+      setMensaje('Mantenimiento realizado (cambio de aceite / filtros). Contador reiniciado.');
+    }
+  }
+
   async function guardar(enviar: boolean) {
-    if (!decision) { toast('Elige si se hará o no el mantenimiento.', 'error'); return; }
+    if (!decision) { toast('Elige si se hará, no se hará o si ya se realizó el mantenimiento.', 'error'); return; }
     if (mensaje.trim().length < 3) { toast('Escribe el mensaje (mínimo 3 letras).', 'error'); return; }
     setSaving(true);
     try {
+      if (decision === 'ya_realizado') {
+        try {
+          await reiniciarMantenimientoDeEquipo(item.equipo.id);
+        } catch (e) {
+          console.warn('Error al reiniciar contador:', e);
+        }
+      }
+      const decisionDb = decision === 'no_hara' ? 'no_hara' : 'hara';
+      const mensajeFinal = decision === 'ya_realizado' && !mensaje.startsWith('[Ya realizado]')
+        ? `[Ya realizado] ${mensaje}`
+        : mensaje;
+
       const r = await registrarRespuestaAlerta({
         equipoId: item.equipo.id,
         nivel,
@@ -293,11 +356,11 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
         lectura: item.lectura,
         frecuencia,
         restante: item.aviso.restante,
-        decision,
-        mensaje,
+        decision: decisionDb,
+        mensaje: mensajeFinal,
         textoWhatsapp: texto,
       }, actor, actorName);
-      toast('Respuesta registrada en la bitácora del equipo', 'success');
+      toast(decision === 'ya_realizado' ? 'Mantenimiento registrado y contador reiniciado' : 'Respuesta registrada en la bitácora del equipo', 'success');
       onSaved?.(r);
       if (enviar) setGuardada(r);
       else onClose();
@@ -305,15 +368,15 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
     finally { setSaving(false); }
   }
 
-  const opcion = (valor: 'hara' | 'no_hara', etiqueta: string, tono: string) => {
+  const opcion = (valor: 'hara' | 'no_hara' | 'ya_realizado', etiqueta: string, tono: string) => {
     const activa = decision === valor;
     return (
-      <button type="button" className="card" onClick={() => setDecision(valor)} disabled={!!guardada}
+      <button type="button" className="card" onClick={() => seleccionarDecision(valor)} disabled={!!guardada}
         aria-pressed={activa}
         style={{
-          margin: 0, cursor: 'pointer', textAlign: 'left', fontWeight: 700, fontSize: '.95rem',
+          margin: 0, cursor: 'pointer', textAlign: 'left', fontWeight: 700, fontSize: '.9rem',
           borderColor: activa ? tono : 'var(--border)', borderWidth: activa ? 2 : 1,
-          background: activa ? `linear-gradient(135deg, ${valor === 'hara' ? 'rgba(34,197,94,.18)' : ROJO_SUAVE}, var(--surface))` : 'var(--surface)',
+          background: activa ? `linear-gradient(135deg, ${valor === 'no_hara' ? ROJO_SUAVE : 'rgba(34,197,94,.18)'}, var(--surface))` : 'var(--surface)',
           color: activa ? tono : undefined,
         }}>
         {etiqueta}
@@ -365,9 +428,10 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
       ) : (
         <>
           <div className="form-row">
-            <label>¿Se hará el mantenimiento?</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.6rem' }}>
-              {opcion('hara', '✅ Sí, se hará el mantenimiento', 'var(--success)')}
+            <label>Estado del mantenimiento</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.5rem' }}>
+              {opcion('ya_realizado', '🎉 Ya se realizó (reiniciar contador)', 'var(--primary, #3b82f6)')}
+              {opcion('hara', '✅ Sí, se programará', 'var(--success)')}
               {opcion('no_hara', '❌ No se hará por ahora', 'var(--danger)')}
             </div>
           </div>
@@ -375,7 +439,7 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
           <div className="form-row">
             <label>Mensaje <span className="muted">(obligatorio)</span></label>
             <textarea className="input" rows={3} value={mensaje} onChange={(e) => setMensaje(e.target.value)}
-              placeholder="Ej.: se programa para el viernes con el mecánico; faltan filtros" />
+              placeholder="Ej.: se realizó el cambio de aceite y filtros; o se programa para el viernes" />
           </div>
 
           <div className="form-row" style={{ marginBottom: 0 }}>

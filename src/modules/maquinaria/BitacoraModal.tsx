@@ -10,7 +10,7 @@ import {
   TIPOS_MANTENIMIENTO, etiquetaTipoMant,
   type MantenimientoCalc,
 } from './maquinariaMant.repository';
-import { datosCombustibleDeEquipo, type DatosCombustibleEquipo } from './maquinariaEquipos.repository';
+import { datosCombustibleDeEquipo, reiniciarMantenimientoDeEquipo, type DatosCombustibleEquipo } from './maquinariaEquipos.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { listRespuestasAlerta, TABLAS_ALERTAS_MANT, type RespuestaAlerta } from './alertasMantenimiento.repository';
 import { lecturaVigenteEquipo, type LecturaVigente } from './flota.repository';
@@ -58,6 +58,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [ubicacion, setUbicacion] = useState(equipo.ubicacion ?? '');
   // 12/11/2026: fotos del mantenimiento (se ven en la vista previa del registro).
   const [fotos, setFotos] = useState<File[]>([]);
+  const [reiniciarContador, setReiniciarContador] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -87,7 +88,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
   function limpiar() {
     setPieza(''); setHorometro(''); setKilometraje(''); setAlertaKm(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
-    setFecha(new Date().toISOString().slice(0, 10)); setTipo('cambio_aceite'); setUbicacion(equipo.ubicacion ?? ''); setFotos([]);
+    setFecha(new Date().toISOString().slice(0, 10)); setTipo('cambio_aceite'); setReiniciarContador(true); setUbicacion(equipo.ubicacion ?? ''); setFotos([]);
   }
 
   function abrirEdicion(r: MantenimientoCalc) {
@@ -128,8 +129,16 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         await updateMantenimiento(editando.id, { ...datos, ...conFotos, observacion: editando.observacion });
         toast('Registro actualizado', 'success');
       } else {
-        await addMantenimiento({ ...datos, ...conFotos }, actor, actorName);
-        toast('Mantenimiento registrado', 'success');
+        await addMantenimiento({ ...datos, ...conFotos }, actor, actorName, { reiniciarContador });
+        if (reiniciarContador) {
+          try {
+            await reiniciarMantenimientoDeEquipo(equipo.id, {
+              horas: datos.horometro,
+              km: datos.kilometraje,
+            });
+          } catch { /* continua */ }
+        }
+        toast(reiniciarContador ? 'Mantenimiento registrado y contador reiniciado' : 'Mantenimiento registrado', 'success');
       }
       setEditando(null);
       limpiar();
@@ -310,6 +319,21 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             )}
             {fotos.length > 0 && <small className="muted">{fotos.map((f) => f.name).join(' · ')} <button type="button" className="btn btn-xs btn-ghost" onClick={() => setFotos([])}>Quitar</button></small>}
           </div>
+          {!editando && (
+            <div className="form-row" style={{ marginTop: '.4rem', marginBottom: '.6rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '.86rem' }}>
+                <input
+                  type="checkbox"
+                  checked={reiniciarContador}
+                  onChange={(e) => setReiniciarContador(e.target.checked)}
+                />
+                <span>🔄 Reiniciar contador de mantenimiento (fijar lectura como nueva base de horas/km)</span>
+              </label>
+              <small className="muted" style={{ display: 'block', marginLeft: '1.5rem', fontSize: '.73rem' }}>
+                Recomendado al cambiar aceite o hacer servicio preventivo: el próximo mantenimiento comenzará a contar desde esta lectura.
+              </small>
+            </div>
+          )}
           <div style={{ textAlign: 'right' }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : editando ? 'Guardar cambios' : 'Guardar registro'}</button>
           </div>

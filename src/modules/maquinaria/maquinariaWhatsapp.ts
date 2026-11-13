@@ -322,7 +322,7 @@ export interface DatosAlertaMantenimientoWhatsapp {
   frecuencia: number | null;
   /** Lo que resta para el servicio (negativo = ya pasado). */
   restante: number | null;
-  decision: 'hara' | 'no_hara';
+  decision: 'hara' | 'no_hara' | 'ya_realizado';
   mensaje: string;
   responsable: string;
   /** ISO o dd/mm/aaaa: si ya viene como dd/mm/aaaa se usa tal cual. */
@@ -359,7 +359,13 @@ export function textoAlertaMantenimientoWhatsapp(d: DatosAlertaMantenimientoWhat
     sinSelector(lecturaLinea),
     sinSelector(`🔧 ${cada}${resto ? ` · ${resto}` : ''}`),
     sinSelector(`📅 ${fechaAlerta(d.fecha)}`),
-    sinSelector(d.decision === 'hara' ? '✅ Decisión: SÍ se hará el mantenimiento' : '❌ Decisión: NO se hará el mantenimiento'),
+    sinSelector(
+      d.decision === 'ya_realizado'
+        ? '🎉 Decisión: YA SE REALIZÓ el mantenimiento (contador reiniciado)'
+        : d.decision === 'hara'
+          ? '✅ Decisión: SÍ se hará el mantenimiento'
+          : '❌ Decisión: NO se hará el mantenimiento',
+    ),
     sinSelector(`📝 Mensaje: ${d.mensaje.trim()}`),
     sinSelector(`👤 Responsable: ${d.responsable}`),
   ].filter(Boolean);
