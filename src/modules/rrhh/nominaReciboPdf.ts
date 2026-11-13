@@ -501,10 +501,11 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // (15/10/2026) Ya no va el cuadro «Total de la quincena (los dos recibos)»: mezclaba
     // Bs y $, y cada recibo sale solo en su moneda.
 
-    // Texto de conformidad.
+    // Texto de conformidad / declaración legal (justificado de margen a margen).
     doc.setFont('helvetica', 'normal'); doc.setFontSize(fs(8.5));
-    const lineas = doc.splitTextToSize(conformidad, PAGE_W - MARGIN * 2);
-    doc.text(lineas, MARGIN, y + 10);
+    const anchoTexto = PAGE_W - MARGIN * 2;
+    const lineas = doc.splitTextToSize(conformidad, anchoTexto);
+    doc.text(lineas, MARGIN, y + 10, { align: 'justify', maxWidth: anchoTexto });
     y += 10 + lineas.length * (compacto ? 9.5 : 11);
 
     // Los billetes se entregan con el beneficio social: los seriales van en ese recibo.
