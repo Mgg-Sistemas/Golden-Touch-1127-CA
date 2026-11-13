@@ -47,7 +47,7 @@ describe('textoOrdenPagar', () => {
     const urgente = { ...ordenBase, urgente: true } as unknown as Orden;
     const t = textoOrdenPagar(urgente, proveedor, undefined, 36.5);
     expect(t).toContain('🔹 *ORDEN:* OC-2026-0130\n🏭 *Proveedor:* MAXI SHOES\n🚨 *Requerimiento:* URGENTE\n');
-    expect(t).toContain('💵 *Total:* $79,00\n💱 *Monto en Bs:* Bs 2.883,50 (tasa BCV 36,50)\n');
+    expect(t).toContain('💵 *Total:* $79,00 · Bs 2.883,50\n💱 *Monto en Bs:* Bs 2.883,50 (tasa BCV 36,50)\n');
   });
 
   it('sin tasa o con la orden en Bs no sale el monto en Bs', () => {
@@ -307,7 +307,7 @@ describe('textoOrdenPagar · retenciones por tipo (03/11/2026)', () => {
   } as unknown as Orden;
   it('ANTES de pagar: muestra cada retención y el neto, y convierte el neto a Bs', () => {
     const txt = textoOrdenPagar({ ...conRet, retencion_momento: 'antes_de_pagar' } as Orden, proveedor, undefined, 40);
-    expect(txt).toContain('💵 *Total:* $1.194,80\n🔻 *Retención IVA (75%):* −$120,00\n🔻 *Retención ISLR (2%):* −$20,00\n✅ *Neto a pagar:* $1.054,80\n');
+    expect(txt).toContain('💵 *Total:* $1.194,80 · Bs 47.792,00\n🔻 *Retención IVA (75%):* −$120,00 · Bs 4.800,00\n🔻 *Retención ISLR (2%):* −$20,00 · Bs 800,00\n✅ *Neto a pagar:* $1.054,80 · Bs 42.192,00\n');
     expect(txt).toContain('💱 *Monto en Bs:* Bs 42.192,00');
   });
   it('DESPUÉS de pagar: informa las retenciones y se paga completo', () => {
@@ -318,5 +318,23 @@ describe('textoOrdenPagar · retenciones por tipo (03/11/2026)', () => {
   });
   it('sin momento no salen retenciones', () => {
     expect(textoOrdenPagar(conRet, proveedor)).not.toContain('Retención IVA');
+  });
+
+  it('ejemplo real OC-2026-0215: total, retención antes de pagar y neto en $ y Bs a la tasa BCV', () => {
+    const oc = {
+      ...ordenBase,
+      oc_codigo: 'OC-2026-0215',
+      total: 168.78,
+      total_moneda: 'USD',
+      comprobante_tipo: 'factura',
+      retencion_momento: 'antes_de_pagar',
+      retencion_islr_monto: 2.91,
+      retencion_islr_pct: 2,
+    } as unknown as Orden;
+    const txt = textoOrdenPagar(oc, { razon_social: 'PROVEIND, C.A.' } as Proveedor, undefined, 904.45);
+    expect(txt).toContain('💵 *Total:* $168,78 · Bs 152.653,07');
+    expect(txt).toContain('🔻 *Retención ISLR (2%):* −$2,91 · Bs 2.631,95');
+    expect(txt).toContain('✅ *Neto a pagar:* $165,87 · Bs 150.021,12');
+    expect(txt).toContain('💱 *Monto en Bs:* Bs 150.021,12 (tasa BCV 904,45)');
   });
 });

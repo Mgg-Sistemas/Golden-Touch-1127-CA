@@ -63,17 +63,20 @@ describe('impuestosEnBs', () => {
   });
 });
 
-describe('WhatsApp de la orden · impuestos en Bs (08/11/2026)', () => {
+describe('WhatsApp de la orden · retenciones e impuestos (13/11/2026)', () => {
   const proveedor = { razon_social: 'PROVEEDOR X' } as Proveedor;
-  it('las retenciones de un impuesto en Bs NO salen en el mensaje; el resto igual', () => {
-    const txt = textoOrdenPagar({ ...factura, impuestos_moneda: { iva: 'Bs' } } as unknown as Orden, proveedor);
-    expect(txt).not.toContain('Retención IVA');
-    expect(txt).toContain('🔻 *Retención ISLR (2%):* −$20,00');
-    // Los montos no cambian: el neto sigue siendo total − retenciones.
-    expect(txt).toContain('✅ *Neto a pagar:* $1.054,80');
+  it('las retenciones salen en el mensaje aunque el impuesto se pague en Bs, y con tasa muestran $ y Bs', () => {
+    const txt = textoOrdenPagar({ ...factura, impuestos_moneda: { iva: 'Bs' } } as unknown as Orden, proveedor, undefined, 40);
+    expect(txt).toContain('💵 *Total:* $1.194,80 · Bs 47.792,00');
+    expect(txt).toContain('🔻 *Retención IVA (75%):* −$120,00 · Bs 4.800,00');
+    expect(txt).toContain('🔻 *Retención ISLR (2%):* −$20,00 · Bs 800,00');
+    expect(txt).toContain('✅ *Neto a pagar:* $1.054,80 · Bs 42.192,00');
   });
-  it('todo en $: el mensaje queda como antes', () => {
+  it('sin tasa: muestra montos en la moneda de la orden', () => {
     const txt = textoOrdenPagar(factura as unknown as Orden, proveedor);
+    expect(txt).toContain('💵 *Total:* $1.194,80');
     expect(txt).toContain('🔻 *Retención IVA (75%):* −$120,00');
+    expect(txt).toContain('🔻 *Retención ISLR (2%):* −$20,00');
+    expect(txt).toContain('✅ *Neto a pagar:* $1.054,80');
   });
 });

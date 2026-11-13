@@ -21,6 +21,7 @@ import { FacturasOcModal, ordenTieneFotosDelivery } from './FacturasOcModal';
 import { OrdenPagarWhatsappModal } from './OrdenPagarWhatsappModal';
 import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReeleccionPorCambio, type EventoCambioProveedor } from './cambioProveedor';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
 import { ComprasFijasModal } from './ComprasFijasModal';
@@ -2079,6 +2080,25 @@ function MetodoPagoModal({
   const simboloMoneda = monedaOrden === 'Bs' ? 'Bs' : '$';
   const mm = (x: number) => montoMoneda(x, monedaOrden);
 
+  // 13/11/2026: switch visual $ / Bs para ayudar al analista con cálculos de conversión
+  const [vistaMoneda, setVistaMoneda] = useState<'USD' | 'Bs'>('USD');
+  const [tasaBcv, setTasaBcv] = useState<number | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    getTasaHoy().then((t) => {
+      if (vivo && t.usd && Number(t.usd) > 0) setTasaBcv(Number(t.usd));
+    }).catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+
+  const fmtVista = (x: number) => {
+    if (vistaMoneda === 'Bs' && tasaBcv && tasaBcv > 0 && monedaOrden !== 'Bs') {
+      const bs = Math.round((Number(x) || 0) * tasaBcv * 100) / 100;
+      return `Bs ${bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return mm(x);
+  };
+
   useEffect(() => {
     const pid = orden.proveedor_id;
     if (!pid) return;
@@ -2385,7 +2405,46 @@ function MetodoPagoModal({
                   o lo deja informado para Retenciones (DESPUÉS: se paga completo). */}
               {retencionMomento && (
                 <div style={{ marginTop: '.4rem', border: '1px solid var(--border)', borderRadius: 8, padding: '.55rem .7rem', background: 'var(--bg-2)' }}>
-                  <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.35rem' }}>¿Qué se retiene?</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.35rem', flexWrap: 'wrap', gap: '.4rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '.86rem' }}>¿Qué se retiene?</div>
+                    {tasaBcv && tasaBcv > 0 && monedaOrden !== 'Bs' && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.75rem' }}>
+                        <span className="muted" style={{ fontSize: '.72rem' }}>BCV: {tasaBcv.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                        <div style={{ display: 'inline-flex', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-1)' }}>
+                          <button
+                            type="button"
+                            style={{
+                              padding: '.15rem .45rem',
+                              fontSize: '.72rem',
+                              fontWeight: 600,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: vistaMoneda === 'USD' ? 'var(--primary, #3b82f6)' : 'transparent',
+                              color: vistaMoneda === 'USD' ? '#fff' : 'inherit',
+                            }}
+                            onClick={() => setVistaMoneda('USD')}
+                          >
+                            $ USD
+                          </button>
+                          <button
+                            type="button"
+                            style={{
+                              padding: '.15rem .45rem',
+                              fontSize: '.72rem',
+                              fontWeight: 600,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: vistaMoneda === 'Bs' ? 'var(--primary, #3b82f6)' : 'transparent',
+                              color: vistaMoneda === 'Bs' ? '#fff' : 'inherit',
+                            }}
+                            onClick={() => setVistaMoneda('Bs')}
+                          >
+                            Bs BCV
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   {TIPOS_RETENCION.map((t) => {
                     const info = RETENCION_INFO[t];
                     const u = retUi[t];
@@ -2395,7 +2454,7 @@ function MetodoPagoModal({
                       <div key={t} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: '.5rem', padding: '.35rem 0', borderTop: '1px dashed var(--border)', opacity: u.activa ? 1 : 0.7 }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontSize: '.86rem', minWidth: 0 }}>
                           <input type="checkbox" checked={u.activa} onChange={(e) => setRetTipo(t, { activa: e.target.checked })} />
-                          <span><strong>{info.etiqueta}</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· % {info.sobre} ({mm(base)})</span></span>
+                          <span><strong>{info.etiqueta}</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· % {info.sobre} ({fmtVista(base)})</span></span>
                         </label>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                           <input className="input mono" type="number" min={0} max={100} step="any"
@@ -2410,6 +2469,11 @@ function MetodoPagoModal({
                             title="Monto retenido (editable a mano)" placeholder="0,00"
                             style={{ width: 96, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
                           <span>{simboloMoneda}</span>
+                          {vistaMoneda === 'Bs' && tasaBcv && tasaBcv > 0 && l.monto > 0 && monedaOrden !== 'Bs' && (
+                            <span className="mono" style={{ fontSize: '.78rem', color: 'var(--danger)' }}>
+                              ({fmtVista(l.monto)})
+                            </span>
+                          )}
                         </span>
                         {t === 'iva' && ivaMonto <= 0 && u.activa && (
                           <div className="muted" style={{ gridColumn: '1 / -1', fontSize: '.74rem', color: 'var(--warning, #f59e0b)' }}>
@@ -2421,20 +2485,20 @@ function MetodoPagoModal({
                   })}
                   {/* Desglose: total factura − retenciones = neto. */}
                   <div style={{ marginTop: '.45rem', paddingTop: '.45rem', borderTop: '1px solid var(--border)', display: 'grid', gap: '.15rem', fontSize: '.86rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Total factura</span><strong className="mono">{mm(totalFinal)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Total factura</span><strong className="mono">{fmtVista(totalFinal)}</strong></div>
                     {TIPOS_RETENCION.filter((t) => retenciones[t].monto > 0).map((t) => (
                       <div key={t} style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span className="muted">− Retención {RETENCION_INFO[t].corta} ({pctTexto(retenciones[t].pct)})</span>
-                        <span className="mono" style={{ color: 'var(--danger)' }}>−{mm(retenciones[t].monto)}</span>
+                        <span className="mono" style={{ color: 'var(--danger)' }}>−{fmtVista(retenciones[t].monto)}</span>
                       </div>
                     ))}
                     {retencionMomento === 'antes_de_pagar' ? (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.98rem' }}>
-                        <strong>Neto a pagar</strong><strong className="mono" style={{ color: 'var(--success)' }}>{mm(netoCompras)}</strong>
+                        <strong>Neto a pagar</strong><strong className="mono" style={{ color: 'var(--success)' }}>{fmtVista(netoCompras)}</strong>
                       </div>
                     ) : (
                       <div className="muted" style={{ fontSize: '.78rem' }}>
-                        Se paga el <strong>total completo ({mm(totalFinal)})</strong>; estas retenciones ({mm(retTotal)}) quedan informadas para que Retenciones las aplique después.
+                        Se paga el <strong>total completo ({fmtVista(totalFinal)})</strong>; estas retenciones ({fmtVista(retTotal)}) quedan informadas para que Retenciones las aplique después.
                       </div>
                     )}
                     {errorRetencionesCompras(totalFinal, retTotal) && (

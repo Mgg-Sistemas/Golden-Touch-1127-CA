@@ -31,7 +31,6 @@ import { labelMetodoPago } from './pedidos.repository';
 import { lineasCotizacionesAprobacion } from './cotizacionesAprobacion';
 import { BANCOS_VE } from '@/shared/lib/bancos';
 import { leerRetencionesCompras, lineasRetencion, netoAPagarCompras, pctTexto, type CamposRetencionesCompras } from './retencionesCompras';
-import { impuestoEnBs, type CampoImpuestosMoneda } from './impuestosMoneda';
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
 function num(n: number | null | undefined): string {
@@ -231,16 +230,30 @@ export function textoOrdenPagar(
   // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
   // IGTF o un descuento por encima de las líneas.
   const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
-  L.push(`💵 *Total:* ${monto(totalOrden, moneda)}`);
+  const tNum = Number(tasaUsd) || 0;
+  const conBs = (valUsd: number) => {
+    if (tNum > 0 && (moneda === 'USD' || moneda === 'USDT')) {
+      const bs = Math.round((Number(valUsd) || 0) * tNum * 100) / 100;
+      return ` · Bs ${num(bs)}`;
+    }
+    return '';
+  };
+
+  L.push(`💵 *Total:* ${monto(totalOrden, moneda)}${conBs(totalOrden)}`);
   // Retenciones por tipo que indicó Compras (03/11/2026). ANTES de pagar: bajan el monto
   // (neto a pagar). DESPUÉS: se informan y se paga el total completo.
+  // 13/11/2026: se indican en $ y Bs si hay tasa, e incluyen todos los impuestos retenidos.
   const ret = leerRetencionesCompras(o as Orden & CamposRetencionesCompras);
   if (ret && !esCredito) {
-    // 08/11/2026: las retenciones de un impuesto que se paga en Bs NO van en el chat:
-    // salen solo en Tesorería («Pago de impuestos en Bs»).
-    for (const r of lineasRetencion(ret).filter((x) => !impuestoEnBs(o as Orden & CampoImpuestosMoneda, x.tipo))) L.push(`🔻 *Retención ${r.corta}${r.pct > 0 ? ` (${pctTexto(r.pct)})` : ''}:* −${monto(r.monto, moneda)}`);
-    if (ret.momento === 'antes_de_pagar') L.push(`✅ *Neto a pagar:* ${monto(netoAPagarCompras(totalOrden, ret.total), moneda)}`);
-    else L.push(`🧾 *Se paga completo:* ${monto(totalOrden, moneda)} (retenciones después del pago)`);
+    for (const r of lineasRetencion(ret)) {
+      L.push(`🔻 *Retención ${r.corta}${r.pct > 0 ? ` (${pctTexto(r.pct)})` : ''}:* −${monto(r.monto, moneda)}${conBs(r.monto)}`);
+    }
+    if (ret.momento === 'antes_de_pagar') {
+      const neto = netoAPagarCompras(totalOrden, ret.total);
+      L.push(`✅ *Neto a pagar:* ${monto(neto, moneda)}${conBs(neto)}`);
+    } else {
+      L.push(`🧾 *Se paga completo:* ${monto(totalOrden, moneda)}${conBs(totalOrden)} (retenciones después del pago)`);
+    }
   }
   // Lo que se paga en bolívares a la tasa BCV del día (29/10/2026). En crédito con
   // abonos se convierte el saldo, que es lo que de verdad se manda a pagar.
@@ -260,8 +273,9 @@ export function textoOrdenPagar(
   if (esCredito) {
     const abonado = Number(o.abonado_total) || 0;
     if (abonado > 0) {
-      L.push(`💰 *Abonado:* ${monto(abonado, moneda)}`);
-      L.push(`🧾 *Saldo a pagar:* ${monto(Math.max(0, Math.round((totalOrden - abonado) * 100) / 100), moneda)}`);
+      const saldo = Math.max(0, Math.round((totalOrden - abonado) * 100) / 100);
+      L.push(`💰 *Abonado:* ${monto(abonado, moneda)}${conBs(abonado)}`);
+      L.push(`🧾 *Saldo a pagar:* ${monto(saldo, moneda)}${conBs(saldo)}`);
     } else {
       L.push('🧾 *A crédito:* cuenta abierta, sin abonos todavía');
     }
