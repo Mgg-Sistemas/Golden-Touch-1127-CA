@@ -17,7 +17,7 @@ import {
 
 const fila = (p: Partial<FilaConciliacion> & { codigo: string }): FilaConciliacion => ({
   item: 1, ordenId: p.codigo, origen: 'oc', tipo: 'compra', proveedor: 'P', estado: 'pagada', estadoLabel: 'Pagada', estadoClase: 'success',
-  fecha: '2026-11-01', monedaOc: 'Bs', totalUsd: 10, totalBs: 1000, tasa: 100, fuenteTasa: null, pagada: true, fechaPago: '2026-11-02',
+  fecha: '2026-11-01', monedaOc: 'Bs', monedaPago: null, totalUsd: 10, totalBs: 1000, tasa: 100, fuenteTasa: null, pagada: true, fechaPago: '2026-11-02',
   pagadoUsd: 10, pagadoBs: 1000, referencias: [], referenciaManual: null, comprobantesTesoreria: [], comprobantesConciliacion: [],
   facturas: 0, facturaPrincipal: null, llevaRetencion: false, retenciones: [], anulada: false, drive: null, ...p,
 });

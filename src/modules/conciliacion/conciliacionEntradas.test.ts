@@ -27,6 +27,7 @@ const filaSalidaMock = (p: Partial<FilaConciliacion> & { codigo: string }): Fila
   estadoClase: 'success',
   fecha: '2026-11-01',
   monedaOc: 'Bs',
+  monedaPago: null,
   totalUsd: 100,
   totalBs: 5000,
   tasa: 50,
