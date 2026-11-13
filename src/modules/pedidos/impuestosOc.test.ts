@@ -1,7 +1,37 @@
 /* Precios que ya traen el IVA (05/11/2026). */
 import { describe, expect, it } from 'vitest';
-import { baseIgtfDe, ivaDeclarado, ivaDesdePorcentaje, ivaQueSuma, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
+import {
+  baseGravadaDeItems,
+  baseIgtfDe,
+  ivaDeclarado,
+  ivaDesdePorcentaje,
+  ivaQueSuma,
+  montoExentoDeItems,
+  porcentajeDesdeIva,
+  totalDesdePartes,
+} from './impuestosOc';
 import { baseNetaDesdeTotal, ivaCambio, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
+
+describe('ítems exentos y base gravada de IVA', () => {
+  it('discrimina correctamente renglones gravados y exentos', () => {
+    const items = [
+      { cantidad: 2, precio: 50, exento: false },
+      { cantidad: 1, precio: 30, exento: true },
+      { cantidad: 3, precio: 20, exento: false, comprar: false }, // no se compra
+    ];
+    expect(montoExentoDeItems(items)).toBe(30);
+    expect(baseGravadaDeItems(items)).toBe(100);
+  });
+
+  it('respeta precios en USD cuando tieneUsd es true', () => {
+    const items = [
+      { cantidad: 1, precio: 4000, precio_usd: 100, exento: false },
+      { cantidad: 2, precio: 1000, precio_usd: 25, exento: true },
+    ];
+    expect(montoExentoDeItems(items, true)).toBe(50);
+    expect(baseGravadaDeItems(items, true)).toBe(100);
+  });
+});
 
 describe('IVA incluido en los precios', () => {
   it('el IVA se guarda pero no suma al total', () => {

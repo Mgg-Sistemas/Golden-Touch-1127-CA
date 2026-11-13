@@ -1232,6 +1232,8 @@ export interface ItemOrden {
   precio: number;
   /** Precio unitario si se paga en USD/divisa (efectivo). `precio` es el de pago en Bs a BCV. */
   precio_usd?: number | null;
+  /** Producto o servicio exento de IVA (Art. 18 Ley del IVA). Si es true, no genera base gravada de IVA. */
+  exento?: boolean;
   /** Descuento (monto, en la moneda de la oferta) aplicado a este ítem sobre el total en Bs. */
   descuento?: number | null;
   /** Marca/modelo de este producto. Se escribe en la SOLICITUD (el que pide sabe qué
@@ -1365,6 +1367,8 @@ export interface Orden {
   urgente?: boolean | null;
   /** Imagen adjunta a la OP (path en el bucket `op-imagenes`). */
   imagen_path?: string | null;
+  /** Subtotal exento de IVA (0% IVA). */
+  exento?: number | null;
   /** OC por factura: si se aplicó IVA (16%) sobre el monto y cuánto. */
   iva_aplicado?: boolean | null;
   /** 05/11/2026: los precios ya traen el IVA: se guarda pero no suma al total. */
@@ -1888,6 +1892,8 @@ export interface OfertaProveedor {
    *  anticipo (no toca caja, se resta del total, el resto queda a crédito). Opcional. */
   anticipo_monto?: number | null;
   anticipo_moneda?: string | null;
+  /** Subtotal exento de IVA (0% IVA). */
+  exento?: number | null;
   /** IVA de la factura del proveedor: por % o monto manual. Se SUMA al total de la OC y
    *  se arrastra a Tesorería (precargado al indicar el método de pago). */
   iva_pct?: number | null;
