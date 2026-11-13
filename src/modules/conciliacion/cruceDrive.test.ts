@@ -432,4 +432,28 @@ describe('cruce por código de OC y por referencia', () => {
     // OC-301 sí está pagada por Tesorería, por lo que sí se cruza y cuadra:
     expect(c.porDoc.get('oc:ord301')?.estado).toBe('cuadra');
   });
+
+  it('no confunde "ODC 224 SERVICIO DE MANTENIMIENTO" con dos órdenes (no divide el monto a la mitad)', () => {
+    const desc = 'PAGO ODC 224 SERVICIO DE MANTENIMIENTO PREVENTIVO GT MINA REF 35760051 MONTO 188.849,16 BSS TESORO';
+    const codigos = extraerCodigosDeDescripcion(desc);
+    expect(codigos).toEqual([{ tipo: 'OC', numero: 224, raw: 'ODC 224' }]);
+  });
+
+  it('prioriza referencia bancaria y monto exactos sobre errata en código (ODC 224 vs OC-226 Babaji)', () => {
+    const docs = [
+      fila({ codigo: 'OC-2026-0224', ordenId: 'ord224', referencias: ['Bs 0051'], pagadoBs: 188849.16, totalBs: 188849.16, pagada: true }),
+      fila({ codigo: 'OC-2026-0226', ordenId: 'ord226', referencias: ['Bs 8118'], pagadoBs: 54267.00, totalBs: 54267.00, pagada: true }),
+    ];
+    // Dos movimientos en el extracto:
+    // 1) El pago real de Filtex (ODC 224, monto 188.849,16, ref 35760051)
+    // 2) El pago de Babaji que el analista escribió con "ODC 224" por error, pero con ref 35768118 y monto 54.267,00
+    const lectura = leer([
+      ['OC-2026-0224', '35760051', '188.849,16'],
+      ['OC-2026-0224', '35768118', '54.267,00'],
+    ]);
+    const c = cruzarDrive(lectura, docs);
+    expect(c.porDoc.get('oc:ord224')?.estado).toBe('cuadra');
+    expect(c.porDoc.get('oc:ord226')?.estado).toBe('cuadra');
+    expect(c.porDoc.get('oc:ord226')?.detalle).toMatch(/35768118/);
+  });
 });
