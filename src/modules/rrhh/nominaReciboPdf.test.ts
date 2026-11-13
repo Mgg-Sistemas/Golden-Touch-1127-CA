@@ -70,6 +70,9 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     expect(bono).toContain('El beneficiario arriba identificado declara haber recibido de la entidad de trabajo');
     expect(bono).toContain('NO REVISTE CARACTER SALARIAL');
     expect(bono).toContain('LOTTT');
+    // Texto de conformidad / declaración legal justificado (operador PDF Tw > 0 en las líneas del párrafo).
+    expect(bono).toMatch(/(?:[1-9]\d*(?:\.\d+)?|0\.\d+)\s+Tw[\s\S]*?\(El beneficiario arriba identificado declara haber recibido/);
+    expect(soloBs).toMatch(/(?:[1-9]\d*(?:\.\d+)?|0\.\d+)\s+Tw[\s\S]*?\(Certifico haber recibido la cantidad de Bs/);
     // Y el de beneficio social es SOLO $: ni montos en Bs, ni la tasa, ni el total mezclado, ni Estado.
     expect(bono).not.toMatch(/Bs\s/);
     expect(bono).not.toContain('Tasa de cierre');
