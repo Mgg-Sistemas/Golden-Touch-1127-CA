@@ -4,7 +4,7 @@
    efectivo, SIN duplicar los que ya existen. Los avisos de acuerdo/nota se
    crean a mano (crearAviso), no aquí.
    ============================================================ */
-import type { Aviso, AvisoInput, DocumentoEmpresa, Responsabilidad } from './admin.repository';
+import type { AdminRepo, Aviso, AvisoInput, DocumentoEmpresa, Responsabilidad } from './admin.repository';
 import type { ItemAgenda } from './administracionAgenda';
 import { responsablesEfectivosItem } from './administracionResponsabilidad';
 
@@ -24,6 +24,7 @@ export function construirAvisos(
   resp: Responsabilidad[],
   docPorId: Map<string, DocumentoEmpresa>,
   existentes: Aviso[],
+  carpetasMap?: Map<string, { responsable?: string | null }>,
 ): AvisoInput[] {
   const yaHay = new Set(existentes.map((a) => clave(a.origen, a.origenId, a.tipo, a.responsableEmail)));
   const nuevos: AvisoInput[] = [];
@@ -32,7 +33,7 @@ export function construirAvisos(
   for (const item of items) {
     const tipo = tipoDesdeStatus(item.status);
     if (!tipo) continue;
-    const efectivos = responsablesEfectivosItem(item, resp, docPorId);
+    const efectivos = responsablesEfectivosItem(item, resp, docPorId, carpetasMap);
     const destinatarios: (string | null)[] = efectivos.length > 0 ? efectivos : [null];
     const textoBase = tipo === 'vencido' ? `Vencido: ${item.titulo}` : `Por vencer: ${item.titulo}`;
     for (const email of destinatarios) {
@@ -46,6 +47,37 @@ export function construirAvisos(
     }
   }
   return nuevos;
+}
+
+/**
+ * Sincroniza y persiste automáticamente los avisos de lo que vence o está vencido.
+ * Es idempotente: solo inserta avisos nuevos para los responsables que aún no los tienen.
+ * Devuelve la lista consolidada de avisos (los creados + los que ya existían).
+ */
+export async function sincronizarAvisos(
+  repo: AdminRepo,
+  items: ItemAgenda[],
+  resp: Responsabilidad[],
+  docPorId: Map<string, DocumentoEmpresa>,
+  existentes: Aviso[],
+  carpetasMap?: Map<string, { responsable?: string | null }>,
+): Promise<Aviso[]> {
+  try {
+    const nuevos = construirAvisos(items, resp, docPorId, existentes, carpetasMap);
+    if (!nuevos.length) return existentes;
+    const creados: Aviso[] = [];
+    for (const a of nuevos) {
+      try {
+        const guardado = await repo.crearAviso(a);
+        creados.push(guardado);
+      } catch {
+        // Ignorar fallo individual puntual (ej. carrera o permisos)
+      }
+    }
+    return [...creados, ...existentes];
+  } catch {
+    return existentes;
+  }
 }
 
 /** Como se nombra cada tipo de aviso en pantalla. Vive aqui para que la pestana

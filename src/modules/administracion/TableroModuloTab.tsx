@@ -15,7 +15,8 @@ import { resumenTablero, colorSemaforoCobertura, type ResumenTablero } from './a
 import { nombrePorEmail } from './administracionResponsabilidad';
 import { type CentroAcopio } from './administracionCentrosResponsables';
 import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
-import { TIPO_AVISO_LABEL } from './administracionAvisos';
+import { TIPO_AVISO_LABEL, sincronizarAvisos } from './administracionAvisos';
+import { agendaVencimientos } from './administracionAgenda';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const SEMAFORO_COLOR: Record<'critico' | 'atencion' | 'al_dia', string> = { critico: '#ef4444', atencion: '#eab308', al_dia: '#10b981' };
@@ -51,20 +52,34 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
         repo.listResponsabilidades(empresaClave ?? undefined),
         repo.listCentroRequeridos(empresaClave ?? undefined),
         listUsuarios().catch(() => [] as Usuario[]),
-        // Los avisos se generan en Responsabilidad; el Tablero es donde tienen que saltar.
         repo.listAvisos(empresaClave ?? undefined).catch(() => [] as Aviso[]),
       ]);
-      setCentros(cs); setRequeridos(reqs); setUsuarios(us); setAvisos(avs);
+
+      const carpetasCustom = leerCarpetasPersonalizadas(empresaClave);
+      const carpetasMap = new Map(carpetasCustom.map((c) => [c.id, { responsable: c.responsable }]));
+      const itemsAgenda = agendaVencimientos({ documentos, movimientos, gestiones, envios });
+      const docPorId = new Map(documentos.map((d) => [d.id, d]));
+
+      let avisosConsolidados = avs;
+      if (puedeEscribir) {
+        try {
+          avisosConsolidados = await sincronizarAvisos(repo, itemsAgenda, responsabilidades, docPorId, avs, carpetasMap);
+        } catch {
+          // best-effort
+        }
+      }
+
+      setCentros(cs); setRequeridos(reqs); setUsuarios(us); setAvisos(avisosConsolidados);
       setResumen(resumenTablero({
         documentos, movimientos, gestiones, envios, profesionales, responsabilidades,
         centros: cs.map((c) => ({ id: c.id, nombre: c.nombre })), requeridos: reqs,
-        // El documento puede heredar el centro de su carpeta (igual que la matriz de centros).
-        carpetas: leerCarpetasPersonalizadas(empresaClave).map((c) => ({ id: c.id, centroAcopioId: c.centroAcopioId })),
+        // El documento puede heredar el centro y responsable de su carpeta.
+        carpetas: carpetasCustom.map((c) => ({ id: c.id, centroAcopioId: c.centroAcopioId, responsable: c.responsable })),
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo armar el tablero.');
     } finally { setCargando(false); }
-  }, [repo, empresaClave]);
+  }, [repo, empresaClave, puedeEscribir]);
   useEffect(() => { void cargar(); }, [cargar]);
 
   const nombres = useMemo(() => nombrePorEmail(usuarios), [usuarios]);
@@ -87,6 +102,32 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
     try { await repo.quitarCentroRequerido(id); await cargar(); }
     catch (e) { toast(`No se pudo quitar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
     finally { setOcupado(false); }
+  }
+
+  async function marcarLeido(a: Aviso) {
+    if (!puedeEscribir) return;
+    try {
+      await repo.marcarAvisoLeido(a.id, true);
+      setAvisos((prev) => prev.map((x) => (x.id === a.id ? { ...x, leido: true } : x)));
+      toast('Aviso marcado como leído.', 'info', { silent: true });
+    } catch (e) {
+      toast(`No se pudo marcar: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    }
+  }
+
+  async function marcarTodosLeidos() {
+    if (!puedeEscribir) return;
+    const sinLeer = avisos.filter((a) => !a.leido);
+    if (!sinLeer.length) return;
+    try {
+      for (const a of sinLeer) {
+        await repo.marcarAvisoLeido(a.id, true);
+      }
+      setAvisos((prev) => prev.map((x) => ({ ...x, leido: true })));
+      toast('Todos los avisos marcados como leídos.', 'success');
+    } catch (e) {
+      toast(`No se pudieron marcar: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    }
   }
 
   if (cargando) return <p className="muted">Armando el tablero…</p>;
@@ -116,11 +157,23 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
         </div>
       </div>
 
-      {/* Avisos sin leer: se generan en Responsabilidad y aqui es donde deben verse */}
+      {/* Avisos sin leer: sincronizados automáticamente de la agenda de vencimientos */}
       {avisos.filter((a) => !a.leido).length > 0 && (
         <div className="card" style={{ borderLeft: '3px solid #eab308' }}>
-          <div className="card-title" style={{ fontSize: '.9rem' }}>
-            🔔 Avisos sin leer ({avisos.filter((a) => !a.leido).length})
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+            <div className="card-title" style={{ fontSize: '.9rem' }}>
+              🔔 Avisos sin leer ({avisos.filter((a) => !a.leido).length})
+            </div>
+            {puedeEscribir && (
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost"
+                onClick={() => void marcarTodosLeidos()}
+                title="Marcar todos los avisos como leídos"
+              >
+                ✓ Marcar todos leídos
+              </button>
+            )}
           </div>
           <div className="adm-tabla" style={{ marginTop: '.4rem', maxHeight: 220, overflowY: 'auto' }}>
             <table><tbody>
@@ -135,6 +188,18 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
                   <td style={{ textAlign: 'right', fontSize: '.78rem' }} className="muted">
                     {a.responsableEmail ? (nombres.get(a.responsableEmail) ?? a.responsableEmail) : 'Sin responsable'}
                   </td>
+                  {puedeEscribir && (
+                    <td style={{ textAlign: 'right', width: 1, whiteSpace: 'nowrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-ghost"
+                        onClick={() => void marcarLeido(a)}
+                        title="Marcar como leído"
+                      >
+                        ✓ Leído
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody></table>

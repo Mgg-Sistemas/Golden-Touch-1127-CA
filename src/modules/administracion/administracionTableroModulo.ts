@@ -43,8 +43,8 @@ export function resumenTablero(input: {
   responsabilidades: Responsabilidad[];
   centros: { id: string; nombre: string }[];
   requeridos: CentroRequerido[];
-  /** Carpetas con su centro asociado: el documento HEREDA el centro de su carpeta. */
-  carpetas?: { id: string; centroAcopioId?: string | null }[];
+  /** Carpetas con su centro asociado y responsable: el documento HEREDA de su carpeta. */
+  carpetas?: { id: string; centroAcopioId?: string | null; responsable?: string | null }[];
   hoyRef?: string;
   topCarga?: number;
 }): ResumenTablero {
@@ -76,7 +76,8 @@ export function resumenTablero(input: {
     .sort((a, b) => a.moneda.localeCompare(b.moneda));
 
   const docPorId = new Map(documentos.map((d) => [d.id, d]));
-  const cargaTop = cargaPorAnalista(items, responsabilidades, docPorId)
+  const carpetasMap = carpetas ? new Map(carpetas.map((c) => [c.id, { responsable: c.responsable ?? null }])) : undefined;
+  const cargaTop = cargaPorAnalista(items, responsabilidades, docPorId, carpetasMap)
     .slice(0, input.topCarga ?? 5)
     .map((c) => ({ usuarioEmail: c.usuarioEmail, vencidos: c.vencidos, total: c.total }));
 

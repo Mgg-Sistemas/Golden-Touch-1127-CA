@@ -16,7 +16,8 @@ import {
   cargaPorAnalista, misResponsabilidades, nombrePorEmail, etiquetaObjetivo,
   type CargaAnalista, type OrdenMisResp,
 } from './administracionResponsabilidad';
-import { TIPO_AVISO_LABEL, construirAvisos } from './administracionAvisos';
+import { TIPO_AVISO_LABEL, construirAvisos, sincronizarAvisos } from './administracionAvisos';
+import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
 
 type Vista = 'carga' | 'mias' | 'avisos' | 'asignar';
 const ORDEN_LABEL: Record<OrdenMisResp, string> = {
@@ -59,16 +60,34 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
         listUsuarios().catch(() => [] as Usuario[]),
         repo.listAvisos(empresaClave ?? undefined),
       ]);
-      setItems(agendaVencimientos({ documentos, movimientos, gestiones, envios }));
-      setDocs(documentos); setResp(responsabilidades); setUsuarios(us); setAvisos(avs);
+      const itemsAgenda = agendaVencimientos({ documentos, movimientos, gestiones, envios });
+      const carpetasCustom = leerCarpetasPersonalizadas(empresaClave);
+      const carpetasMap = new Map(carpetasCustom.map((c) => [c.id, { responsable: c.responsable }]));
+      const docMapa = new Map(documentos.map((d) => [d.id, d]));
+
+      let avisosConsolidados = avs;
+      if (puedeEscribir) {
+        try {
+          avisosConsolidados = await sincronizarAvisos(repo, itemsAgenda, responsabilidades, docMapa, avs, carpetasMap);
+        } catch {
+          // best-effort
+        }
+      }
+
+      setItems(itemsAgenda);
+      setDocs(documentos);
+      setResp(responsabilidades);
+      setUsuarios(us);
+      setAvisos(avisosConsolidados);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo leer la responsabilidad.');
     } finally { setCargando(false); }
-  }, [repo, empresaClave]);
+  }, [repo, empresaClave, puedeEscribir]);
   useEffect(() => { void cargar(); }, [cargar]);
 
   const docPorId = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
   const nombres = useMemo(() => nombrePorEmail(usuarios), [usuarios]);
+  const carpetasMap = useMemo(() => new Map(leerCarpetasPersonalizadas(empresaClave).map((c) => [c.id, { responsable: c.responsable }])), [empresaClave]);
   // id de objetivo → nombre legible (documentos por nombre; gestiones/gastos por su título de agenda).
   const nombresObjetivo = useMemo(() => {
     const m = new Map<string, string>();
@@ -76,8 +95,8 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
     for (const i of items) if (!m.has(i.id)) m.set(i.id, i.titulo);
     return m;
   }, [docs, items]);
-  const carga = useMemo(() => cargaPorAnalista(items, resp, docPorId), [items, resp, docPorId]);
-  const mias = useMemo(() => (analista ? misResponsabilidades(analista, items, resp, docPorId, orden) : []), [analista, items, resp, docPorId, orden]);
+  const carga = useMemo(() => cargaPorAnalista(items, resp, docPorId, carpetasMap), [items, resp, docPorId, carpetasMap]);
+  const mias = useMemo(() => (analista ? misResponsabilidades(analista, items, resp, docPorId, orden, carpetasMap) : []), [analista, items, resp, docPorId, orden, carpetasMap]);
 
   const optUsuarios = usuarios.map((u) => ({ value: u.email, label: u.nombre?.trim() || u.email, hint: u.email }));
   const nombre = (email: string) => nombres.get(email) ?? email;
@@ -120,9 +139,9 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
     if (!puedeEscribir) { toast('Sin permiso de escritura.', 'warning', { silent: true }); return; }
     setOcupado(true);
     try {
-      const nuevos = construirAvisos(items, resp, docPorId, avisos);
+      const nuevos = construirAvisos(items, resp, docPorId, avisos, carpetasMap);
       for (const a of nuevos) await repo.crearAviso(a);
-      toast(nuevos.length ? `${nuevos.length} aviso(s) generado(s).` : 'No hay avisos nuevos.', 'success');
+      toast(nuevos.length ? `${nuevos.length} aviso(s) generado(s).` : 'No hay avisos nuevos por generar.', 'success');
       await cargar();
     } catch (e) { toast(`No se pudieron generar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
     finally { setOcupado(false); }
@@ -147,7 +166,7 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
       {cargando ? (
         <p className="muted">Leyendo…</p>
       ) : vista === 'carga' ? (
-        carga.length === 0 ? <EmptyState icon="👥" message="Nadie tiene ítems a cargo todavía. Asigna responsables en «Asignar»." /> : (
+        carga.length === 0 ? <EmptyState icon="👥" message="Nadie tiene ítems a cargo todavía. Asigna responsables en «Asignar» o en la carpeta/documento." /> : (
           <div style={{ display: 'grid', gap: '.5rem' }}>
             {carga.map((c: CargaAnalista) => (
               <details key={c.usuarioEmail} className="card" style={{ padding: '.6rem .85rem' }}>
@@ -214,7 +233,7 @@ export function ResponsabilidadTab({ repo, empresaClave, puedeEscribir = true }:
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             {puedeEscribir && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void generarAvisos()} disabled={ocupado}>↻ Generar avisos de lo que vence</button>}
           </div>
-          {avisos.length === 0 ? <EmptyState icon="🔔" message="Sin avisos. Genera los de lo que está por vencer o vencido." /> : (
+          {avisos.length === 0 ? <EmptyState icon="🔔" message="Sin avisos. Se generan automáticamente al vencer o estar por vencer los ítems." /> : (
             <div style={{ display: 'grid', gap: '.35rem' }}>
               {avisos.map((a) => (
                 <div key={a.id} className="card" style={{ padding: '.5rem .75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', opacity: a.leido ? 0.6 : 1 }}>

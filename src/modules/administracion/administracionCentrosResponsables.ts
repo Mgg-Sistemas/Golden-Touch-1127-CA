@@ -108,6 +108,7 @@ export function obtenerListaResponsables(
   documentos: DocumentoEmpresa[] = [],
   gastos: GastoFijo[] = [],
   carpetas: InfoCarpetaDoc[] = [],
+  usuarios: { nombre?: string | null; email: string }[] = [],
 ): string[] {
   const set = new Set<string>(ROLES_RESPONSABLES_DEFECTO.map(normalizarNombreResponsable));
 
@@ -123,6 +124,10 @@ export function obtenerListaResponsables(
   }
   for (const g of gastos) {
     if (g.responsable?.trim()) set.add(normalizarNombreResponsable(g.responsable));
+  }
+  for (const u of usuarios) {
+    if (u.nombre?.trim()) set.add(normalizarNombreResponsable(u.nombre));
+    if (u.email?.trim()) set.add(u.email.trim());
   }
 
   return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));

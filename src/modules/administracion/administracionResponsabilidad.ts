@@ -33,15 +33,19 @@ export function responsablesDeObjetivo(tipo: ObjetivoResp, objetivoId: string, r
   return Array.from(set);
 }
 
-/** Responsables efectivos de un documento: propios si existen; si no, los de su carpeta. */
+/** Responsables efectivos de un documento: propios si existen (en tabla de responsabilidad o asignados directamente en el documento); si no, los de su carpeta (en tabla o configurados en la carpeta). */
 export function responsablesEfectivosDocumento(
   doc: DocumentoEmpresa,
   resp: Responsabilidad[],
+  responsableCarpeta?: string | null,
 ): { emails: string[]; heredado: boolean } {
   const propios = responsablesDeObjetivo('documento', doc.id, resp);
   if (propios.length > 0) return { emails: propios, heredado: false };
+  if (doc.responsable?.trim()) return { emails: [doc.responsable.trim()], heredado: false };
   const deCarpeta = doc.carpeta ? responsablesDeObjetivo('carpeta', doc.carpeta, resp) : [];
-  return { emails: deCarpeta, heredado: deCarpeta.length > 0 };
+  if (deCarpeta.length > 0) return { emails: deCarpeta, heredado: true };
+  if (responsableCarpeta?.trim()) return { emails: [responsableCarpeta.trim()], heredado: true };
+  return { emails: [], heredado: false };
 }
 
 /** Responsables efectivos de cualquier ítem de agenda (documento con herencia; gasto/gestión directos). */
@@ -49,13 +53,20 @@ export function responsablesEfectivosItem(
   item: ItemAgenda,
   resp: Responsabilidad[],
   docPorId: Map<string, DocumentoEmpresa>,
+  carpetasMap?: Map<string, { responsable?: string | null }>,
 ): string[] {
   if (item.origen === 'documento') {
     const doc = docPorId.get(item.id);
-    return doc ? responsablesEfectivosDocumento(doc, resp).emails : responsablesDeObjetivo('documento', item.id, resp);
+    const respCarpeta = (doc?.carpeta && carpetasMap) ? carpetasMap.get(doc.carpeta)?.responsable : null;
+    if (doc) return responsablesEfectivosDocumento(doc, resp, respCarpeta).emails;
+    const deResp = responsablesDeObjetivo('documento', item.id, resp);
+    if (deResp.length > 0) return deResp;
+    return item.responsable?.trim() ? [item.responsable.trim()] : [];
   }
   const tipo: ObjetivoResp = item.origen === 'gasto' ? 'gasto' : 'gestion';
-  return responsablesDeObjetivo(tipo, item.id, resp);
+  const deResp = responsablesDeObjetivo(tipo, item.id, resp);
+  if (deResp.length > 0) return deResp;
+  return item.responsable?.trim() ? [item.responsable.trim()] : [];
 }
 
 /** Imputación: `[]` salvo que el ítem esté vencido/incumplido; entonces sus responsables efectivos. */
@@ -63,9 +74,10 @@ export function imputacion(
   item: ItemAgenda,
   resp: Responsabilidad[],
   docPorId: Map<string, DocumentoEmpresa>,
+  carpetasMap?: Map<string, { responsable?: string | null }>,
 ): string[] {
   if (!VENCIDO.includes(item.status)) return [];
-  return responsablesEfectivosItem(item, resp, docPorId);
+  return responsablesEfectivosItem(item, resp, docPorId, carpetasMap);
 }
 
 /* ───────── Carga por analista + Mis responsabilidades ───────── */
@@ -84,10 +96,11 @@ export function cargaPorAnalista(
   items: ItemAgenda[],
   resp: Responsabilidad[],
   docPorId: Map<string, DocumentoEmpresa>,
+  carpetasMap?: Map<string, { responsable?: string | null }>,
 ): CargaAnalista[] {
   const mapa = new Map<string, CargaAnalista>();
   for (const item of items) {
-    for (const email of responsablesEfectivosItem(item, resp, docPorId)) {
+    for (const email of responsablesEfectivosItem(item, resp, docPorId, carpetasMap)) {
       const c = mapa.get(email) ?? { usuarioEmail: email, total: 0, alDia: 0, porVencer: 0, vencidos: 0, items: [] };
       c.total += 1;
       c.items.push(item);
@@ -110,8 +123,9 @@ export function misResponsabilidades(
   resp: Responsabilidad[],
   docPorId: Map<string, DocumentoEmpresa>,
   orden: OrdenMisResp,
+  carpetasMap?: Map<string, { responsable?: string | null }>,
 ): ItemAgenda[] {
-  const mios = items.filter((i) => responsablesEfectivosItem(i, resp, docPorId).includes(usuarioEmail));
+  const mios = items.filter((i) => responsablesEfectivosItem(i, resp, docPorId, carpetasMap).includes(usuarioEmail));
   const dias = (i: ItemAgenda) => (i.diasRestantes == null ? Number.POSITIVE_INFINITY : i.diasRestantes);
   const cmp: Record<OrdenMisResp, (a: ItemAgenda, b: ItemAgenda) => number> = {
     prioridad: (a, b) => ordenPrioridad(a.prioridad) - ordenPrioridad(b.prioridad) || dias(a) - dias(b),

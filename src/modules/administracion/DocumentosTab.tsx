@@ -169,7 +169,7 @@ export function DocumentosTab({
   }, [repo, empresaClave]);
   const nombreProf = useMemo(() => new Map(profesionales.map((p) => [p.id, p.nombre])), [profesionales]);
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
-  const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, docs, [], carpetas), [centros, docs, carpetas]);
+  const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, docs, [], carpetas, usuariosResp), [centros, docs, carpetas, usuariosResp]);
 
   // Drag & drop staging
   const [isDragging, setIsDragging] = useState(false);
@@ -286,8 +286,14 @@ export function DocumentosTab({
 
       // Filtro por Responsable / Analista
       if (filtroResponsable !== 'todos') {
-        const respDoc = (d.responsable || mapaCarpetas.get(d.carpeta)?.responsable || d.socioNombre || '').trim().toLowerCase();
-        if (respDoc !== filtroResponsable.toLowerCase()) return false;
+        const respEf = responsablesEfectivosDocumento(d, responsabilidades, mapaCarpetas.get(d.carpeta)?.responsable);
+        const candidatos = [
+          ...respEf.emails.map((e) => (nombresResp.get(e) || e).trim().toLowerCase()),
+          (d.responsable || '').trim().toLowerCase(),
+          (d.socioNombre || '').trim().toLowerCase(),
+          (mapaCarpetas.get(d.carpeta)?.responsable || '').trim().toLowerCase(),
+        ].filter(Boolean);
+        if (!candidatos.includes(filtroResponsable.toLowerCase())) return false;
       }
 
       // Filtro por status
@@ -305,7 +311,7 @@ export function DocumentosTab({
 
       return true;
     });
-  }, [docs, carpetaActiva, filtroStatus, filtroCentro, buscar, mapaCarpetas]);
+  }, [docs, carpetaActiva, filtroStatus, filtroCentro, filtroResponsable, buscar, mapaCarpetas, responsabilidades, nombresResp]);
 
   // Manejo de Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
@@ -863,21 +869,28 @@ export function DocumentosTab({
                               🏭 {mapaCentros.get(d.centroAcopioId || carpetaInfo?.centroAcopioId!) || d.centroAcopioId || carpetaInfo?.centroAcopioId}
                             </span>
                           )}
-                          {(d.responsable || carpetaInfo?.responsable) && (
-                            <span
-                              className="badge"
-                              style={{
-                                fontSize: '.66rem',
-                                background: 'rgba(168, 85, 247, 0.12)',
-                                color: '#c084fc',
-                                borderColor: '#c084fc',
-                                padding: '.05rem .3rem',
-                              }}
-                              title="Responsable / Analista a Cargo"
-                            >
-                              👤 {d.responsable || carpetaInfo?.responsable}
-                            </span>
-                          )}
+                          {(() => {
+                            const respEf = responsablesEfectivosDocumento(d, responsabilidades, carpetaInfo?.responsable);
+                            const respTexto = respEf.emails.length > 0
+                              ? respEf.emails.map((e) => nombresResp.get(e) || e).join(', ')
+                              : (d.responsable || carpetaInfo?.responsable || null);
+                            if (!respTexto) return null;
+                            return (
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: '.66rem',
+                                  background: 'rgba(168, 85, 247, 0.12)',
+                                  color: '#c084fc',
+                                  borderColor: '#c084fc',
+                                  padding: '.05rem .3rem',
+                                }}
+                                title={respEf.emails.length > 0 && respEf.heredado ? 'Responsable heredado de la carpeta' : 'Responsable asignado'}
+                              >
+                                👤 {respTexto}
+                              </span>
+                            );
+                          })()}
                           {d.numeroRegistro && (
                             <span className="muted mono" style={{ fontSize: '.7rem' }}>
                               Reg: {d.numeroRegistro}
@@ -1357,20 +1370,27 @@ export function DocumentosTab({
               />
             </div>
 
-            {/* Quien responde por este documento (viene de la pestana Responsabilidad) */}
+            {/* Quien responde por este documento (viene de la pestana Responsabilidad o asignado directo) */}
             {(() => {
-              const r = responsablesEfectivosDocumento(docDetalle, responsabilidades);
+              const r = responsablesEfectivosDocumento(docDetalle, responsabilidades, mapaCarpetas.get(docDetalle.carpeta)?.responsable);
+              const direct = docDetalle.responsable?.trim();
               return (
                 <div style={{ margin: '.5rem 0', padding: '.5rem .7rem', borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
                   <span className="muted hint" style={{ fontSize: '.72rem' }}>Quién responde por este documento</span>
                   <div style={{ fontSize: '.86rem', marginTop: '.15rem' }}>
-                    {r.emails.length === 0 ? (
-                      <span className="muted">Sin asignar. Se asigna en la pestaña Responsabilidad.</span>
+                    {r.emails.length === 0 && !direct ? (
+                      <span className="muted">Sin asignar. Se asigna en la pestaña Responsabilidad o en el selector superior.</span>
                     ) : (
                       <>
-                        <strong>{r.emails.map((e) => nombresResp.get(e) || e).join(', ')}</strong>
+                        <strong>
+                          {r.emails.length > 0
+                            ? r.emails.map((e) => nombresResp.get(e) || e).join(', ')
+                            : direct}
+                        </strong>
                         <span className="muted" style={{ fontSize: '.74rem', marginLeft: '.4rem' }}>
-                          {r.heredado ? '(heredado de la carpeta)' : '(asignado a este documento)'}
+                          {r.emails.length > 0
+                            ? (r.heredado ? '(heredado de la carpeta)' : '(asignado a este documento)')
+                            : '(asignado directo)'}
                         </span>
                       </>
                     )}

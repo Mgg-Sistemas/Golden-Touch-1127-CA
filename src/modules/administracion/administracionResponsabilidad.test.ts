@@ -39,6 +39,12 @@ describe('responsablesEfectivosDocumento (herencia de carpeta)', () => {
   it('sin propios ni de carpeta → vacío, sin crashear', () => {
     expect(responsablesEfectivosDocumento(doc({ id: 'd3', carpeta: 'otra' }), rs)).toEqual({ emails: [], heredado: false });
   });
+  it('usa responsable directo del documento cuando no hay en la tabla', () => {
+    expect(responsablesEfectivosDocumento(doc({ id: 'd4', carpeta: 'otra', responsable: 'directo@gt.com' }), [])).toEqual({ emails: ['directo@gt.com'], heredado: false });
+  });
+  it('hereda responsable directo de la carpeta cuando no hay en tabla ni documento', () => {
+    expect(responsablesEfectivosDocumento(doc({ id: 'd5', carpeta: 'otra' }), [], 'jefe_carpeta@gt.com')).toEqual({ emails: ['jefe_carpeta@gt.com'], heredado: true });
+  });
 });
 
 describe('imputacion (solo al vencer/incumplir)', () => {
