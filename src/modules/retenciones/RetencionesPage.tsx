@@ -5,7 +5,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
-import { money, montoMoneda, num, dateTime } from '@/shared/lib/format';
+import { money, num, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -28,13 +28,13 @@ import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAp
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
 import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones';
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
-import { FacturasPorRegistrar } from '@/modules/libroFiscal/FacturasPorRegistrar';
-import { AvisoSinFactura } from '@/modules/libroFiscal/AvisoSinFactura';
-import { cargarSemillaDeFacturaOrigen, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
+import { cargarSemillaDeFacturaOrigen, facturasPorRegistrar, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
+import { ColaPorHacerView } from './ColaPorHacerView';
+import { construirColaPorHacer } from './colaPorHacer';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
 import { buzonDisponible } from '@/modules/libroFiscal/disponibilidad';
-import { CONFIG_RETENCION_DEFECTO, fechaTasaBcv, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
-import { diaVE, getTasasUsdDeFechas, hoyVE } from '@/modules/tesoreria/tasas.repository';
+import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
+import { hoyVE } from '@/modules/tesoreria/tasas.repository';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import { ReportesView } from './ReportesView';
@@ -53,16 +53,6 @@ import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
 type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon';
-
-/** Qué documento es un código, en palabras: el personal no tiene por qué saber las siglas. */
-function nombreDocumento(codigo: string | null | undefined): string {
-  const c = String(codigo ?? '').toUpperCase();
-  if (c.startsWith('OC-')) return 'Orden de compra';
-  if (c.startsWith('CS-')) return 'Control de servicio';
-  if (c.startsWith('OP-') || c.startsWith('SP-')) return 'Solicitud de pedido';
-  if (c.startsWith('SS-')) return 'Solicitud de servicio';
-  return 'Compra';
-}
 
 // C-g: marca por-navegador de hasta dónde se «vio» el buzón (el sello de creación de la
 // factura más nueva ya vista). El badge cuenta las creadas después de esa marca; al abrir
@@ -87,9 +77,10 @@ export function RetencionesPage() {
   const [configFiscal, setConfigFiscal] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
+  const [facturasCompras, setFacturasCompras] = useState<FacturaDeOrigen[]>([]);
+  const [facturasBuzon, setFacturasBuzon] = useState<FacturaBuzon[]>([]);
   const [registradas, setRegistradas] = useState<Registradas>(new Map());
   const [pagosOc, setPagosOc] = useState<Map<string, MontoPagado>>(new Map());
-  const [tasasDoc, setTasasDoc] = useState<TasasDoc>(new Map());
   const [conV3, setConV3] = useState(false);
   useEffect(() => { v3Disponible().then(setConV3).catch(() => setConV3(false)); }, []);
   // R11: el buzón de facturas del teléfono, solo con sus tablas en la base.
@@ -190,10 +181,12 @@ export function RetencionesPage() {
   const reload = useCallback(async () => {
     const cfg = await getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO);
     setConfigFiscal(cfg);
-    const [p, h, libro] = await Promise.all([
+    const [p, h, libro, fc, fb] = await Promise.all([
       listRetencionesPendientes(cfg.estadosKanbanRetencion).catch(() => [] as RetencionItem[]),
       listRetencionesHechas().catch(() => [] as RetencionItem[]),
       listRetenciones({ direccion: 'practicada' }).catch(() => []),
+      facturasPorRegistrar().catch(() => [] as FacturaDeOrigen[]),
+      listFacturasBuzon().catch(() => [] as FacturaBuzon[]),
     ]);
     const reg: Registradas = new Map();
     for (const r of libro) {
@@ -210,20 +203,10 @@ export function RetencionesPage() {
       reg.set(id, s);
     }
     setPendientes(p); setHechas(h); setRegistradas(reg);
+    setFacturasCompras(fc); setFacturasBuzon(fb);
     // Monto neto con que Tesorería pagó las OC ya pagadas (lectura cruzada, solo lectura).
     const idsPagadas = [...p, ...h].filter((i) => i.orden.retencion_pagada).map((i) => i.orden.id);
     setPagosOc(await montosPagadosDeOrdenes(idsPagadas).catch(() => new Map<string, MontoPagado>()));
-    const docs = p.map((i) => {
-      const d = fechaDocumento(i.orden);
-      return { id: i.orden.id, fecha: fechaTasaBcv(d.fecha), origen: d.origen };
-    });
-    const porFecha = await getTasasUsdDeFechas(docs.map((d) => d.fecha)).catch(() => new Map<string, number>());
-    const td: TasasDoc = new Map();
-    for (const d of docs) {
-      const tasa = porFecha.get(d.fecha);
-      if (tasa) td.set(d.id, { tasa, fecha: d.fecha, origen: d.origen });
-    }
-    setTasasDoc(td);
   }, []);
 
   useEffect(() => {
@@ -237,6 +220,7 @@ export function RetencionesPage() {
   // C-g: se suma `retencion_facturas_externas` (solo con el buzón en la base) para que una
   // factura cargada desde el teléfono refresque el contador de nuevas aunque la vista esté cerrada.
   useRealtime(['ordenes', 'retenciones', 'retencion_decisiones', 'retencion_agente_condiciones', 'parametros', 'retencion_impuestos',
+    'adjuntos_directos', 'retencion_documento_origenes',
     ...(conBuzon ? ['retencion_facturas_externas'] : [])], () => {
     cargarImpuestosActivos();
     void reload();
@@ -244,13 +228,20 @@ export function RetencionesPage() {
     if (conBuzon) void refrescarBuzonNuevas();
   });
 
-  // Una OC sigue «por realizar» mientras tenga impuestos pendientes o ya tenga impuestos cargados en el libro pero aún falte marcarla como finalizada.
-  const porRealizar = useMemo(
-    () => !esGt ? [] : pendientes.filter((i) =>
-      impuestosPendientesDeOrden(i.orden, registradas, practica, configFiscal, impuestosActivos).length > 0
-      || Boolean(registradas.get(i.orden.id)?.size),
-    ),
-    [esGt, pendientes, registradas, practica, configFiscal, impuestosActivos],
+  // Cola unificada «Por hacer»: facturas con archivo adjunto listas para retener, por empresa.
+  const colaPorHacer = useMemo(
+    () => construirColaPorHacer({
+      empresaId,
+      esGt,
+      facturasBuzon,
+      facturasCompras,
+      pendientesOrdenes: pendientes,
+      registradas,
+      practica,
+      configFiscal,
+      impuestosActivos: impuestosActivos?.claves ?? null,
+    }),
+    [empresaId, esGt, facturasBuzon, facturasCompras, pendientes, registradas, practica, configFiscal, impuestosActivos],
   );
 
   // La semilla del registro sale del archivo: su orden y, si es una OC que ya está en la lista, proveedor y montos.
@@ -313,8 +304,8 @@ export function RetencionesPage() {
   }
 
   const proveedorIdsPendientes = useMemo(
-    () => new Set(porRealizar.map((i) => i.orden.proveedor_id).filter(Boolean) as string[]),
-    [porRealizar],
+    () => new Set(colaPorHacer.map((i) => i.rawOrdenItem?.orden.proveedor_id).filter(Boolean) as string[]),
+    [colaPorHacer],
   );
 
   // La lista de la vista: búsqueda y fechas (las de siempre), filtros con su conteo y orden.
@@ -395,7 +386,7 @@ export function RetencionesPage() {
           )}
           <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
             <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
-              Por realizar{porRealizar.length ? ` (${porRealizar.length})` : ''}
+              Por hacer{colaPorHacer.length ? ` (${colaPorHacer.length})` : ''}
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
@@ -431,28 +422,38 @@ export function RetencionesPage() {
       {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
       {vista === 'buzon' && buzonVisible && <BuzonFacturasExternasView onRegistrar={abrirDesdeBuzon} />}
 
-      {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
-      {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}
-      {vista === 'pendientes' && (esGt ? (
-        <>
-          <AvisoSinFactura rutaDe={(o) => `/app/pedidos?detalle=${encodeURIComponent(o.origen.id)}`} />
-          <FacturasPorRegistrar puedeRegistrar={canWrite} onRegistrar={(f) => { void abrirDesdeFactura(f); }} />
-          <PorRealizarView
-            items={porRealizar} registradas={registradas} practica={practica} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
-            config={configFiscal} impuestosActivos={impuestosActivos} pagosOc={pagosOc}
-            onVer={setSel} onVista={() => setVista('agrupada')}
-            onRegistrar={setRegistrar}
-            onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
-          />
-        </>
-      ) : (
-        <div className="card" style={{ marginTop: '.5rem' }}>
-          <p style={{ margin: 0 }}>
-            La pestaña «Por realizar» aplica solo a Golden Touch: las compras que generan retenciones vienen de su flujo.
-            Para <strong>{empresaActual?.nombre ?? 'esta empresa'}</strong>, usá el Buzón / registro manual y el Libro fiscal.
-          </p>
-        </div>
-      ))}
+      {/* ── Por hacer: cola unificada con archivo obligatorio por empresa ── */}
+      {vista === 'pendientes' && (
+        <ColaPorHacerView
+          items={colaPorHacer}
+          empresaNombre={empresaActual?.nombre}
+          loading={loading}
+          canWrite={canWrite}
+          onRegistrarBuzon={abrirDesdeBuzon}
+          onRegistrarArchivo={(f) => { void abrirDesdeFactura(f); }}
+          onRegistrarOrden={(item) => {
+            const pends = item.orden
+              ? impuestosPendientesDeOrden(item.orden, registradas, practica, configFiscal, impuestosActivos)
+              : ['iva' as const];
+            setRegistrar({
+              direccion: 'practicada',
+              tipoInicial: pends[0] ?? 'iva',
+              docKind: 'oc',
+              docId: item.orden.id,
+              codigo: item.orden.oc_codigo ?? item.orden.codigo,
+              contraparteId: item.orden.proveedor_id,
+              contraparteNombre: item.proveedorNombre,
+              moneda: item.orden.total_moneda === 'Bs' ? 'Bs' : 'USD',
+              total: item.orden.total,
+              baseImponible: Math.max(0, item.orden.total - (item.orden.iva_monto ?? 0) - (item.orden.igtf_monto ?? 0)),
+              iva: item.orden.iva_monto ?? 0,
+            });
+          }}
+          onVerDetalle={setSel}
+          onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
+          onVistaAgrupada={() => setVista('agrupada')}
+        />
+      )}
 
       {/* ── Realizadas ── */}
       {vista === 'hechas' && (
@@ -715,27 +716,6 @@ const IMPUESTOS_PENDIENTES: { key: ImpuestoPendiente; label: string }[] = [
 /** Impuestos registrados en el libro, por id de la OC. */
 type Registradas = Map<string, Set<TipoImpuesto>>;
 
-/** Tasa BCV del día del documento (OC o CS), por id, con el rótulo de qué fecha se usó. */
-type TasaDoc = { tasa: number; fecha: string; origen: string };
-type TasasDoc = Map<string, TasaDoc>;
-
-/** Día del documento: emisión de la OC/CS; si no la tiene, su creación. Nunca el pago. */
-function fechaDocumento(o: Orden): { fecha: string; origen: string } {
-  const origen = o.tipo === 'servicio' ? 'CS' : 'OC';
-  if (o.oc_emitida_en) return { fecha: diaVE(o.oc_emitida_en), origen: `emisión ${origen}` };
-  return { fecha: diaVE(o.oc_creada_en ?? o.created_at), origen: `creación ${origen}` };
-}
-
-/** El equivalente en la otra moneda, a la tasa del día del documento. */
-function equivalente(o: Orden, t: TasaDoc | undefined): { monto: string; tasa: string } | null {
-  if (!t) return null;
-  const enBs = o.total_moneda === 'Bs';
-  return {
-    monto: `≈ ${enBs ? montoMoneda(o.total / t.tasa, 'USD') : montoMoneda(o.total * t.tasa, 'Bs')}`,
-    tasa: `BCV ${num(t.tasa)} del ${t.fecha.slice(8, 10)}/${t.fecha.slice(5, 7)} (${t.origen})`,
-  };
-}
-
 /**
  * Lo que falta de una orden: ni el comprobante del flujo anterior ni una retención
  * vigente en el libro, SOLO para los impuestos que la empresa practica. D2: «practica»
@@ -764,315 +744,5 @@ function impuestosPendientesDeOrden(
   return filtrarActivos(out, activos);
 }
 
-function PorRealizarView({ items, registradas, practica, tasasDoc, loading, canWrite, config, impuestosActivos, pagosOc, onVer, onVista, onRegistrar, onNoAplica }: {
-  items: RetencionItem[]; registradas: Registradas; practica: Set<ImpuestoPendiente> | null; tasasDoc: TasasDoc; loading: boolean; canWrite: boolean;
-  config?: ConfigRetencion | null;
-  impuestosActivos?: ImpuestosActivos | null;
-  pagosOc?: Map<string, MontoPagado> | null;
-  onVer: (item: RetencionItem) => void; onVista: () => void;
-  onRegistrar: (semilla: SemillaRetencion) => void;
-  /** Solo con R10 y permiso: marcar que un impuesto no aplica. */
-  onNoAplica?: (o: ObjetivoNoAplica) => void;
-}) {
-  const [q, setQ] = useState('');
-  const [fImp, setFImp] = useState('');
-  const [ord, setOrd] = useState<'antiguo' | 'reciente' | 'proveedor'>('antiguo');
-  const [pag, setPag] = useState(1);
-  const tam = 25;
 
-  // Los impuestos que se muestran en el filtro y como columnas: solo los activos.
-  const activos = impuestosActivos ?? null;
-  const impuestosVista = useMemo(() => soloImpuestosActivos(IMPUESTOS_PENDIENTES, activos), [activos]);
-
-  useEffect(() => { setPag(1); }, [q, fImp, ord]);
-
-  const retenidosSinRegistrar = useMemo(
-    () => items.filter((i) => i.orden.retencion_aplicada && !i.orden.retencion_finalizada && !registradas.has(i.orden.id)),
-    [items, registradas],
-  );
-
-  const alertas = useMemo(
-    () => items.filter((i) => {
-      const o = i.orden;
-      if (!o.retencion_monto || o.retencion_monto <= 0) return false;
-      return o.retencion_monto > o.total;
-    }),
-    [items],
-  );
-
-  const filtradas = useMemo(() => {
-    const txt = norm(q);
-    return items.filter(({ orden: o, proveedorNombre }) => {
-      if (txt) {
-        const hay = norm(`${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre} ${o.numero_administracion ?? ''}`);
-        if (!hay.includes(txt)) return false;
-      }
-      if (fImp) {
-        const pends = impuestosPendientesDeOrden(o, registradas, practica, config, activos);
-        if (!pends.includes(fImp as ImpuestoPendiente)) return false;
-      }
-      return true;
-    });
-  }, [items, registradas, practica, config, activos, q, fImp]);
-
-  const ordenadas = useMemo(() => {
-    const xs = [...filtradas];
-    const fecha = (i: RetencionItem) => String(i.orden.metodo_pago_en ?? i.orden.created_at ?? '');
-    xs.sort(ord === 'reciente' ? (a, b) => fecha(b).localeCompare(fecha(a))
-      : ord === 'proveedor' ? (a, b) => a.proveedorNombre.localeCompare(b.proveedorNombre)
-        : (a, b) => fecha(a).localeCompare(fecha(b)));
-    return xs;
-  }, [filtradas, ord]);
-
-  const totalPags = Math.max(1, Math.ceil(ordenadas.length / tam));
-  const pagActual = Math.min(pag, totalPags);
-  const visible = ordenadas.slice((pagActual - 1) * tam, pagActual * tam);
-
-  const conteoImp = useMemo(() => {
-    const c: Record<string, number> = { iva: 0, islr: 0, municipal: 0 };
-    for (const i of items) {
-      for (const k of impuestosPendientesDeOrden(i.orden, registradas, practica, config, activos)) c[k]++;
-    }
-    return c;
-  }, [items, registradas, practica, config, activos]);
-
-  return (
-    <>
-      {/* Retenido al pagar, sin registrar */}
-      {retenidosSinRegistrar.length > 0 && (
-        <div className="lfv8-pagar">
-          <h3>Retenido al pagar, falta cargarlo en el libro ({retenidosSinRegistrar.length})</h3>
-          <p className="lfv8-huella">Lo retenido en el pago que todavía no está en el libro, incluidos los servicios directos. Al registrar, se usa la tasa de la factura y la del pago queda como referencia.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-            {retenidosSinRegistrar.slice(0, 10).map(({ orden: o, proveedorNombre }) => (
-              <div key={o.id} className="lfv8-pagar-fila">
-                <span>
-                  <b className="mono">{o.oc_codigo ?? o.codigo}</b> · {nombreDocumento(o.oc_codigo ?? o.codigo)} · {proveedorNombre}
-                  {o.retencion_monto != null && <> · retenido {montoMoneda(o.retencion_monto, o.total_moneda)}</>}
-                  {o.retencion_tasa != null && <> · tasa del pago {num(o.retencion_tasa)}</>}
-                </span>
-                {canWrite && (
-                  <span className="lfv8-pagar-acc">
-                    <button className="btn btn-sm lfv8-btn-reg" onClick={() => {
-                      const pends = impuestosPendientesDeOrden(o, registradas, practica, config, activos);
-                      onRegistrar({
-                        direccion: 'practicada',
-                        tipoInicial: pends[0] ?? 'iva',
-                        docKind: 'oc',
-                        docId: o.id, codigo: o.oc_codigo ?? o.codigo,
-                        contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
-                        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-                        total: o.total,
-                        baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
-                        iva: o.iva_monto ?? 0,
-                      });
-                    }}>Registrar</button>
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-          {retenidosSinRegistrar.length > 10 && (
-            <p className="lfv8-huella">Se muestran 10 de {retenidosSinRegistrar.length}.</p>
-          )}
-        </div>
-      )}
-
-      {/* Alertas */}
-      {alertas.map(({ orden: o, proveedorNombre }) => (
-        <div key={`alerta-${o.id}`} className="lfv8-alerta-media">
-          <span>{o.oc_codigo ?? o.codigo} · {proveedorNombre}: El monto pagado al proveedor supera el debido: verificar la retención de IVA de la compra.</span>
-        </div>
-      ))}
-
-      {/* Barra de búsqueda y filtros */}
-      <div className="lfv8-barra">
-        <div className="lfv8-buscar">
-          <input
-            type="search" className="input lfv8-buscar-q" value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar por proveedor, RIF, factura u OC" aria-label="Buscar por proveedor, RIF, factura u OC"
-          />
-          <span className="lfv8-barra-res" role="status">{filtradas.length} resultado(s)</span>
-        </div>
-        <div className="lfv8-barra-filtros">
-          <label className="lfv8-campo">
-            <span>Impuesto</span>
-            <select className="lfv8-select" value={fImp} onChange={(e) => setFImp(e.target.value)}>
-              <option value="">Todos</option>
-              {impuestosVista.map((t) => (
-                <option key={t.key} value={t.key}>{t.label} ({conteoImp[t.key]})</option>
-              ))}
-            </select>
-          </label>
-          <label className="lfv8-campo">
-            <span>Ordenar por</span>
-            <select className="lfv8-select" value={ord} onChange={(e) => setOrd(e.target.value as typeof ord)}>
-              <option value="antiguo">Más antiguo primero</option>
-              <option value="reciente">Más reciente primero</option>
-              <option value="proveedor">Proveedor (A–Z)</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <p className="lfv8-huella">Cada fila es una compra ya pagada o por pagar (orden de compra «OC» o control de servicio «CS»). Sigue aquí mientras le falte cargar la retención de algún impuesto (IVA, ISLR o ISAE), o marcar que no aplica.</p>
-
-      {/* Grid table */}
-      <div className="lfv8-sis" style={{ '--cols': '1fr 1.5fr 1fr .9fr 1fr 2.4fr' } as React.CSSProperties}>
-        <div className="lfv8-sis-cab">
-          <span>Compra</span>
-          <span>Proveedor</span>
-          <span>Retenciones cargadas</span>
-          <span style={{ textAlign: 'right' }}>Total</span>
-          <span>Pendiente</span>
-          <span></span>
-        </div>
-
-        {loading && <div className="lfv8-sis-vacio">Cargando…</div>}
-        {!loading && !ordenadas.length && <div className="lfv8-sis-vacio">Sin registros para los filtros aplicados.</div>}
-
-        {!loading && visible.map(({ orden: o, proveedorNombre }) => {
-          const pends = impuestosPendientesDeOrden(o, registradas, practica, config, activos);
-          const retieneIva = practica ? practica.has('iva') : (config ? config.esAgenteRetencionIva !== false : true);
-          const retieneIslr = practica ? practica.has('islr') : (config ? config.retieneIslr !== false : true);
-          const retieneMunicipal = practica ? practica.has('municipal') : (config ? config.retieneMunicipal !== false : true);
-
-          const aplicablesDeOrden = impuestosVista.filter((t) => {
-            if (t.key === 'iva') return retieneIva;
-            if (t.key === 'islr') return retieneIslr;
-            if (t.key === 'municipal') return retieneMunicipal;
-            return true;
-          });
-          const total = aplicablesDeOrden.length;
-          const regs = Math.max(0, total - pends.length);
-          const kanban = badgeEstatusKanban(o.estado);
-          const impOc = badgeImpuestoOrden(o);
-          const estRet = estadoRetencionDeOrden(o, pends, registradas.get(o.id), pagosOc?.get(o.id) ?? null);
-          const badgeRet = badgeEstadoRetencion(estRet);
-          return (
-            <div key={o.id} className="lfv8-sis-fila">
-              <span data-l="Compra">
-                <span className="mono">{o.oc_codigo ?? o.codigo}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
-                  <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
-                  <span className={badgeRet.className} title={badgeRet.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
-                    {badgeRet.label}
-                  </span>
-                  <span className={kanban.className} title={kanban.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
-                    {kanban.label}
-                  </span>
-                  <span className={impOc.className} title={impOc.tooltip} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
-                    {impOc.label}
-                  </span>
-                </div>
-              </span>
-              <span data-l="Proveedor">
-                {proveedorNombre}
-                {o.numero_administracion && <small>{o.numero_administracion}</small>}
-              </span>
-              <span data-l="Retenciones cargadas">
-                {regs > 0 ? `${regs} de ${total} impuestos` : 'Ninguna todavía'}
-              </span>
-              <span className="n" data-l="Total">
-                {montoMoneda(o.total, o.total_moneda)}
-                {impOc.tieneImpuesto ? (
-                  <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: '.72rem' }}>
-                    IVA: {montoMoneda(Number(o.iva_monto), o.total_moneda)}
-                  </small>
-                ) : (
-                  <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: '.72rem' }}>
-                    Sin IVA en OC
-                  </small>
-                )}
-                {(() => {
-                  const eq = equivalente(o, tasasDoc.get(o.id));
-                  if (!eq) return <small className="muted" style={{ display: 'block' }}>sin tasa BCV del día</small>;
-                  return (<>
-                    <small style={{ display: 'block', whiteSpace: 'nowrap' }}>{eq.monto}</small>
-                    <small className="muted" style={{ display: 'block', whiteSpace: 'nowrap' }}>{eq.tasa}</small>
-                  </>);
-                })()}
-              </span>
-              <span data-l="Pendiente">
-                {/* Antes había un chip por impuesto pendiente. Ahora un contador discreto: el
-                    detalle (cuáles) queda en el tooltip y el impuesto se elige dentro del registro. */}
-                {pends.length === 0
-                  ? <span className="lfv8-pill ok">Completa</span>
-                  : <span className="muted" title={`Por registrar: ${pends.map((k) => IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k).join(', ')}`}>
-                      {pends.length} por registrar
-                    </span>}
-              </span>
-              <span className="lfv8-sis-acc">
-                {/* Un solo botón: abre el registro con el primer pendiente; dentro del formulario
-                    se elige o cambia el impuesto (IVA, ISLR, ISAE…). Antes había un botón por impuesto. */}
-                {pends.length > 0 && (
-                  <button className="btn btn-sm lfv8-btn-reg" title="Abre el registro; dentro eliges el impuesto (IVA, ISLR, ISAE…)"
-                    onClick={() => onRegistrar({
-                      direccion: 'practicada',
-                      tipoInicial: pends[0],
-                      // Las OC de servicio también viven en `ordenes`: van por orden_id, no por servicio_directo_id.
-                      docKind: 'oc',
-                      docId: o.id, codigo: o.oc_codigo ?? o.codigo,
-                      contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
-                      moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-                      total: o.total,
-                      baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
-                      iva: o.iva_monto ?? 0,
-                    })}>
-                    Registrar Impuesto
-                  </button>
-                )}
-                {onNoAplica && pends.map((k) => {
-                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  return (
-                    <button key={`na-${k}`} className="btn btn-sm btn-ghost" title={`Al ${lbl} de esta compra no le corresponde retención`}
-                      onClick={() => onNoAplica({
-                        ordenId: o.id, codigo: o.oc_codigo ?? o.codigo, proveedorId: o.proveedor_id ?? null, proveedorNombre,
-                        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD', total: o.total ?? null,
-                        impuestoClave: tipoAGt(k), impuestoNombre: lbl,
-                        fechaDocumento: fechaDocumento(o).fecha,
-                      })}>
-                      {lbl}: no aplica
-                    </button>
-                  );
-                })}
-                {o.factura_recepcion_path
-                  ? <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); void descargarFactura(o); }}>📎 Factura</button>
-                  : <button className="btn btn-sm btn-ghost" disabled title="Sin archivo de factura en Compras">📎 Sin archivo</button>}
-                {o.oc_codigo && (
-                  <a className="btn btn-sm btn-ghost" href={`#/app/pedidos?detalle=${encodeURIComponent(o.id)}`}>Ver OC</a>
-                )}
-                <button
-                  className={`btn btn-sm ${pends.length === 0 ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => onVer({ orden: o, proveedorNombre })}
-                  title={pends.length === 0 ? 'Subir comprobantes y finalizar retención' : 'Ver retenciones y comprobantes de la orden'}
-                >
-                  {pends.length === 0 ? '✓ Finalizar retención' : 'Ver detalle'}
-                </button>
-                <button className="btn btn-sm btn-ghost" onClick={onVista}>Ver en vista agrupada</button>
-              </span>
-            </div>
-          );
-        })}
-
-        {!loading && ordenadas.length > tam && (
-          <div className="lfv8-sis-pag">
-            <span><b>{ordenadas.length}</b> documento(s) · página {pagActual} de {totalPags}</span>
-            <span className="lfv8-sis-pag-btns">
-              <button className="btn btn-ghost" disabled={pagActual <= 1} onClick={() => setPag(pagActual - 1)}>‹ Anterior</button>
-              <button className="btn btn-ghost" disabled={pagActual >= totalPags} onClick={() => setPag(pagActual + 1)}>Siguiente ›</button>
-            </span>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-async function descargarFactura(o: Orden) {
-  try {
-    const url = await urlRetencion(o.factura_recepcion_path!);
-    previewArchivo(url, o.factura_recepcion_nombre ?? 'factura');
-  } catch { toast('No se pudo abrir la factura', 'error'); }
-}
 
