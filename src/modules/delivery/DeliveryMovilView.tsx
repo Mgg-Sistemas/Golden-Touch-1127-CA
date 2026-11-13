@@ -469,11 +469,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
       {/* ───── BARRA INFERIOR SEMIFLOTANTE (CALLE / SOL) ───── */}
       <BarraSemiflotanteCalle
         enCurso={enCurso}
-        siguiente={enCurso ? siguienteParada(enCurso, provs, losPinos) : null}
-        cercano={cercano}
         cuenta={cuenta}
-        chip={chip}
-        setChip={setChip}
         tabActivo={modalLlamar ? 'analista' : fotosModalDe ? 'fotos' : claveRutaActiva ? 'mapa' : 'principal'}
         onAccionPrincipal={handleAccionPrincipal}
         onNavegar={handleNavegar}
@@ -489,11 +485,14 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         />
       )}
 
-      {fotosModalDe && (
+      {fotosModalDe && fotosModalDe.pedido_id && (
         <EditarFotosDeliveryModal
           pedidoId={fotosModalDe.pedido_id}
           origen={fotosModalDe.origen}
           titulo={esRetiroAlmacen(fotosModalDe) ? `Fotos de ${fotosModalDe.codigo}` : `Fotos de ${ocDe(fotosModalDe)}`}
+          fotosRecibo={fotosModalDe.fotos_recibo}
+          fotosEntrega={fotosModalDe.fotos_entrega}
+          fotosFactura={fotosModalDe.fotos_factura}
           onClose={() => setFotosModalDe(null)}
           onGuardado={() => { setFotosModalDe(null); void reload().catch(() => {}); }}
         />
@@ -1352,11 +1351,7 @@ function MarcarLosPinosAqui({ yo }: { yo: PosicionGps | null }) {
 
 interface BarraCalleProps {
   enCurso: PedidoDelivery | null;
-  siguiente: ParadaRuta | null;
-  cercano: { item: PedidoFeed; metros: number | null } | null;
   cuenta: Record<ChipDelivery, number>;
-  chip: ChipDelivery;
-  setChip: (c: ChipDelivery) => void;
   onAccionPrincipal: () => void;
   onNavegar: () => void;
   onLlamar: () => void;
@@ -1365,7 +1360,7 @@ interface BarraCalleProps {
 }
 
 function BarraSemiflotanteCalle({
-  enCurso, siguiente, cercano, cuenta, chip, setChip,
+  enCurso, cuenta,
   onAccionPrincipal, onNavegar, onLlamar, onCamara,
   tabActivo = 'principal',
 }: BarraCalleProps) {

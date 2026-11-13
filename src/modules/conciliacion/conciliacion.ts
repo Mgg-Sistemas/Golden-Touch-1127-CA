@@ -111,7 +111,7 @@ export interface FilaConciliacion {
   pagada: boolean;
   fechaPago: string | null;
   /** Moneda en que Tesorería pagó la orden: Bs (se concilia en banco) o USD/$ (no se cruza en banco Bs). */
-  monedaPago: 'Bs' | 'USD' | 'Mixto' | null;
+  monedaPago?: 'Bs' | 'USD' | 'Mixto' | null;
   pagadoUsd: number;
   pagadoBs: number | null;
   referencias: string[];
@@ -126,6 +126,8 @@ export interface FilaConciliacion {
   facturaPrincipal: { path: string; nombre: string } | null;
   llevaRetencion: boolean;
   retenciones: LineaRetencion[];
+  retencionMontoBs?: number | null;
+  retencionMontoUsd?: number | null;
   anulada: boolean;
   /** Cruce con el archivo del Drive: CUADRA / NO CUADRA (null = no se ha cruzado). */
   drive: DriveConciliacion | null;
@@ -282,10 +284,47 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
     const pagadoBs = tasa ? r2(pagadoBsBruto + pagadoUsdDirecto * tasa) : (pagadoUsdDirecto ? null : r2(pagadoBsBruto));
     const nota = ctx.notas?.get(claveDoc('oc', o.id)) ?? null;
     const referencias = conManual([...new Set(pagos.flatMap((p) => referenciasDeMotivo(p.motivo)))], nota?.referencia);
-    const retenciones = retencionesDeOrden(o, ctx.retenciones.get(o.id) ?? []);
+    const retLibro = ctx.retenciones.get(o.id) ?? [];
+    const retenciones = retencionesDeOrden(o, retLibro);
     const tipo = tipoDeOrden(o);
     const { label, clase } = etiquetaEstado(o.estado, tipo);
     const estaPagada = !!o.pagada_en || pagos.length > 0;
+
+    const sumaLibroBs = retLibro.filter((r) => r.moneda === 'Bs').reduce((a, r) => a + r.monto, 0);
+    const sumaLibroUsd = retLibro.filter((r) => r.moneda !== 'Bs').reduce((a, r) => a + r.monto, 0);
+    const comprasRet = leerRetencionesCompras(o as Orden & CamposRetencionesCompras);
+    const oRet = o as Orden & CamposRetencionesCompras;
+    const comprasTotal = (comprasRet && comprasRet.total > 0)
+      ? comprasRet.total
+      : (Number(oRet.retencion_compras_total) || 0) > 0
+      ? Number(oRet.retencion_compras_total)
+      : (Number(oRet.retencion_iva_monto) || 0) + (Number(oRet.retencion_islr_monto) || 0) + (Number(oRet.retencion_isae_monto) || 0) + (Number(oRet.retencion_igtf_monto) || 0);
+
+    let retencionMontoBs: number | null = null;
+    let retencionMontoUsd: number | null = null;
+    if (sumaLibroBs > 0 || sumaLibroUsd > 0) {
+      retencionMontoBs = sumaLibroBs + (tasa && sumaLibroUsd > 0 ? r2(sumaLibroUsd * tasa) : 0);
+      retencionMontoUsd = sumaLibroUsd + (tasa && sumaLibroBs > 0 ? r2(sumaLibroBs / tasa) : 0);
+    } else if (comprasTotal > 0) {
+      if (monedaOc === 'Bs') {
+        retencionMontoBs = comprasTotal;
+        retencionMontoUsd = tasa ? r2(comprasTotal / tasa) : null;
+      } else {
+        retencionMontoUsd = comprasTotal;
+        retencionMontoBs = tasa ? r2(comprasTotal * tasa) : null;
+      }
+    } else if ((o.retencion_monto_bs ?? 0) > 0) {
+      retencionMontoBs = Number(o.retencion_monto_bs);
+      retencionMontoUsd = tasa ? r2(retencionMontoBs / tasa) : (Number(o.retencion_monto) || null);
+    } else if ((o.retencion_monto ?? 0) > 0) {
+      if (monedaOc === 'Bs') {
+        retencionMontoBs = Number(o.retencion_monto);
+        retencionMontoUsd = tasa ? r2(Number(o.retencion_monto) / tasa) : null;
+      } else {
+        retencionMontoUsd = Number(o.retencion_monto);
+        retencionMontoBs = tasa ? r2(Number(o.retencion_monto) * tasa) : null;
+      }
+    }
 
     let monedaPago: 'Bs' | 'USD' | 'Mixto' | null = null;
     if (pagadoBsBruto > 0 && pagadoUsdDirecto > 0) {
@@ -326,6 +365,8 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
       facturaPrincipal: null,
       llevaRetencion: retenciones.length > 0,
       retenciones,
+      retencionMontoBs,
+      retencionMontoUsd,
       anulada: ESTADOS_ANULADOS.has(o.estado),
       drive: nota?.drive ?? null,
     };
@@ -396,6 +437,22 @@ export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): Fi
       retenciones.push({ tipo: d.retencionTipo ? d.retencionTipo.toUpperCase() : 'Retención', comprobante: null });
     }
     const est = ESTADO_DIRECTO[d.estado] ?? { label: d.estado, clase: 'muted' };
+    const sumaLibroBs = libro.filter((r) => r.moneda === 'Bs').reduce((a, r) => a + r.monto, 0);
+    const sumaLibroUsd = libro.filter((r) => r.moneda !== 'Bs').reduce((a, r) => a + r.monto, 0);
+    let retencionMontoBs: number | null = null;
+    let retencionMontoUsd: number | null = null;
+    if (sumaLibroBs > 0 || sumaLibroUsd > 0) {
+      retencionMontoBs = sumaLibroBs + (tasa && sumaLibroUsd > 0 ? r2(sumaLibroUsd * tasa) : 0);
+      retencionMontoUsd = sumaLibroUsd + (tasa && sumaLibroBs > 0 ? r2(sumaLibroBs / tasa) : 0);
+    } else if ((Number(d.retencionPago) || 0) > 0) {
+      if (monedaOc === 'Bs') {
+        retencionMontoBs = Number(d.retencionPago);
+        retencionMontoUsd = tasa ? r2(retencionMontoBs / tasa) : null;
+      } else {
+        retencionMontoUsd = Number(d.retencionPago);
+        retencionMontoBs = tasa ? r2(retencionMontoUsd * tasa) : null;
+      }
+    }
     return {
       item: i + 1,
       ordenId: d.id,
@@ -421,6 +478,8 @@ export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): Fi
       facturaPrincipal: d.adjuntoPath ? { path: d.adjuntoPath, nombre: d.adjuntoNombre || d.adjuntoPath.split('/').pop() || 'factura' } : null,
       llevaRetencion: retenciones.length > 0,
       retenciones,
+      retencionMontoBs,
+      retencionMontoUsd,
       anulada: false,
       drive: nota?.drive ?? null,
     };
