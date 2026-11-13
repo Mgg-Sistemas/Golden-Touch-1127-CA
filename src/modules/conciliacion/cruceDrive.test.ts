@@ -372,4 +372,48 @@ describe('cruce por código de OC y por referencia', () => {
     expect(c.ignoradas).toBe(1);
     expect(c.noCuadran).toBe(0);
   });
+
+  it('concilia OC-224 (Bs 0051 vs 35760051) y OC-185 (0050 vs 35263379) cuando monto y orden finalizada coinciden', () => {
+    const docs = [
+      fila({ codigo: 'OC-2026-0224', ordenId: 'ord224', referencias: ['Bs 0051'], pagadoBs: 188849.16, totalBs: 188849.16, pagada: true, estado: 'finalizada' }),
+      fila({ codigo: 'OC-2026-0185', ordenId: 'ord185', referencias: ['0050'], pagadoBs: 450263.27, totalBs: 450263.27, pagada: true, estado: 'finalizada' }),
+    ];
+    const lectura = leer([
+      ['OC-2026-0224', '35760051', '188.849,16'],
+      ['OC-2026-0185', '35263379', '450.263,27'],
+    ]);
+    const c = cruzarDrive(lectura, docs);
+    expect(c.cuadran).toBe(2);
+    expect(c.porDoc.get('oc:ord224')?.estado).toBe('cuadra');
+    expect(c.porDoc.get('oc:ord185')?.estado).toBe('cuadra');
+  });
+
+  it('cruza órdenes de servicio CS-0034 con SERVICIO 0034', () => {
+    const docs = [
+      fila({ codigo: 'CS-2026-0034', ordenId: 'cs34', referencias: [], pagadoBs: 107704.8, totalBs: 107704.8, pagada: true, estado: 'finalizada' }),
+    ];
+    expect(coincidenCodigosDoc('CS-2026-0034', 'SERVICIO 0034')).toBe(true);
+    const lectura = leer([
+      ['SERVICIO 0034', '35599133', '107.704,80'],
+    ]);
+    const c = cruzarDrive(lectura, docs);
+    expect(c.cuadran).toBe(1);
+    expect(c.porDoc.get('oc:cs34')?.estado).toBe('cuadra');
+  });
+
+  it('no cruza órdenes pagadas en USD ($) contra el extracto de Bolívares; sí cruza las pagadas en Bs', () => {
+    const docs = [
+      fila({ codigo: 'OC-2026-0100', ordenId: 'ord100', monedaPago: 'USD', pagadoBs: 1000, totalBs: 1000 }),
+      fila({ codigo: 'OC-2026-0101', ordenId: 'ord101', monedaPago: 'Bs', referencias: ['35123456'], pagadoBs: 1000, totalBs: 1000 }),
+    ];
+    const lectura = leer([
+      ['OC-2026-0100', '', '1.000,00'],
+      ['OC-2026-0101', '35123456', '1.000,00'],
+    ]);
+    const c = cruzarDrive(lectura, docs);
+    // OC-100 es en USD, así que no se empareja ni se reporta en porDoc
+    expect(c.porDoc.has('oc:ord100')).toBe(false);
+    // OC-101 es en Bs, así que sí cuadra
+    expect(c.porDoc.get('oc:ord101')?.estado).toBe('cuadra');
+  });
 });

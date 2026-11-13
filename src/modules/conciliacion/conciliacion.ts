@@ -110,6 +110,8 @@ export interface FilaConciliacion {
   fuenteTasa: FuenteTasa | null;
   pagada: boolean;
   fechaPago: string | null;
+  /** Moneda en que Tesorería pagó la orden: Bs (se concilia en banco) o USD/$ (no se cruza en banco Bs). */
+  monedaPago: 'Bs' | 'USD' | 'Mixto' | null;
   pagadoUsd: number;
   pagadoBs: number | null;
   referencias: string[];
@@ -283,6 +285,23 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
     const retenciones = retencionesDeOrden(o, ctx.retenciones.get(o.id) ?? []);
     const tipo = tipoDeOrden(o);
     const { label, clase } = etiquetaEstado(o.estado, tipo);
+    const estaPagada = !!o.pagada_en || pagos.length > 0;
+
+    let monedaPago: 'Bs' | 'USD' | 'Mixto' | null = null;
+    if (pagadoBsBruto > 0 && pagadoUsdDirecto > 0) {
+      monedaPago = 'Mixto';
+    } else if (pagadoBsBruto > 0) {
+      monedaPago = 'Bs';
+    } else if (pagadoUsdDirecto > 0) {
+      monedaPago = 'USD';
+    } else if (estaPagada || o.estado === 'pagada' || o.estado === 'finalizada') {
+      const tieneRefBs = referencias.some((r) => /^Bs\b/i.test(r) || /\bBSS?\b/i.test(r));
+      const tieneRefBinance = referencias.some((r) => /^Binance\b/i.test(r));
+      if (tieneRefBinance) monedaPago = 'USD';
+      else if (tieneRefBs || monedaOc === 'Bs') monedaPago = 'Bs';
+      else monedaPago = 'USD';
+    }
+
     return {
       item: i + 1,
       ordenId: o.id,
@@ -295,8 +314,9 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
       estadoClase: clase,
       fecha: o.created_at,
       monedaOc, totalUsd, totalBs, tasa, fuenteTasa: fuente,
-      pagada: !!o.pagada_en || pagos.length > 0,
+      pagada: estaPagada,
       fechaPago,
+      monedaPago,
       pagadoUsd, pagadoBs,
       referencias,
       referenciaManual: nota?.referencia ?? null,
@@ -390,6 +410,7 @@ export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): Fi
       monedaOc, totalUsd, totalBs, tasa, fuenteTasa: fuente,
       pagada,
       fechaPago: d.pagadaAt,
+      monedaPago: pagada ? (monedaOc === 'Bs' ? 'Bs' : 'USD') : null,
       pagadoUsd: pagada ? r2(netoUsd) : 0,
       pagadoBs: pagada ? (netoBs == null ? null : r2(netoBs)) : null,
       referencias: conManual([], nota?.referencia),

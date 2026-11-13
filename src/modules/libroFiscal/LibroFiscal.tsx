@@ -2001,6 +2001,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           supuestosIva={supuestosIva}
           pctGeneral={config.pctIvaGeneral}
           pctActual={supuesto?.pct ?? calculo.porcentaje}
+          ivaFactura={nDec(ivaStr)}
+          moneda={moneda}
+          onLimpiarMotivos={() => setMotivos({} as MotivosIvaCien)}
           onChange={(codigo, valor) => setMotivos((prev) => ({ ...prev, [codigo]: valor } as MotivosIvaCien))}
         />
       )}

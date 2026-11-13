@@ -26,11 +26,16 @@ export interface FilaConciliacionEntrada {
   id: string;
   ordenId?: string | null;
   codigoOc: string | null;
+  subcodigo?: string | null;
   proveedor: string;
   fechaReintegro: string; // día en que hubo el reintegro
   moneda: string;
   montoBs: number;
   montoUsd: number | null;
+  montoRetenidoBs?: number | null;
+  montoRetenidoUsd?: number | null;
+  montoReintegradoBs?: number | null;
+  montoReintegradoUsd?: number | null;
   tasa: number | null;
   referencia: string | null; // referencia de la entrada bancaria
   cuentaBanco: string | null;
@@ -39,6 +44,7 @@ export interface FilaConciliacionEntrada {
   motivo: string;
   estado: 'reintegrado' | 'esperando_reintegro';
   estadoLabel: string;
+  soporteUrl?: string | null;
   drive: DriveConciliacion | null;
 }
 
@@ -592,6 +598,10 @@ export function extraerEntradasDrive(
       moneda: 'Bs',
       montoBs: r2(montoBs),
       montoUsd,
+      montoRetenidoBs: r2(montoBs),
+      montoRetenidoUsd: montoUsd,
+      montoReintegradoBs: r2(montoBs),
+      montoReintegradoUsd: montoUsd,
       tasa,
       referencia,
       cuentaBanco,
@@ -739,16 +749,22 @@ export function ordenAFilaEsperandoReintegro(
   }
 
   const cod = o.oc_codigo ?? o.codigo;
+  const subcod = (o as unknown as { solicitud_codigo?: string }).solicitud_codigo ?? null;
   return {
     item,
     id: `espera-${o.id}`,
     ordenId: o.id,
     codigoOc: cod,
+    subcodigo: subcod,
     proveedor: provNombre,
     fechaReintegro: '',
     moneda: 'Bs',
     montoBs: r2(montoBs),
     montoUsd: montoUsd ? r2(montoUsd) : null,
+    montoRetenidoBs: r2(montoBs),
+    montoRetenidoUsd: montoUsd ? r2(montoUsd) : null,
+    montoReintegradoBs: null,
+    montoReintegradoUsd: null,
     tasa,
     referencia: null,
     cuentaBanco: null,
