@@ -29,7 +29,7 @@ type CualesRecibos = 'ambos' | TipoRecibo;
 const CUALES_RECIBOS: { id: CualesRecibos; label: string }[] = [
   { id: 'ambos', label: 'Los dos recibos' },
   { id: 'sueldo', label: '1 · Pago en Bs' },
-  { id: 'bono', label: '2 · Bonificación y descuentos' },
+  { id: 'bono', label: '2 · Beneficio social' },
 ];
 const tiposDe = (c: CualesRecibos): TipoRecibo[] => (c === 'ambos' ? ['sueldo', 'bono'] : [c]);
 import {

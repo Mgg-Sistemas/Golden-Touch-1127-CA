@@ -69,7 +69,7 @@ export function periodoReciboTexto(desde?: string | null, hasta?: string | null)
   return fHasta && fHasta !== fDesde ? `${fDesde} al ${fHasta}` : fDesde;
 }
 
-/** Qué recibo: el del sueldo en bolívares o el de la bonificación y descuentos. */
+/** Qué recibo: el del sueldo en bolívares o el del beneficio social no remunerativo. */
 export type TipoRecibo = 'sueldo' | 'bono';
 export const TIPOS_RECIBO: TipoRecibo[] = ['sueldo', 'bono'];
 
@@ -81,6 +81,24 @@ export interface ReciboMeta {
   tipos?: TipoRecibo[];
   /** Moneda forzada para imprimir el lote (si no se especifica, toma la de cada renglón `r.moneda_pago`). */
   moneda?: string | null;
+}
+
+/** Año de 4 dígitos del período para el correlativo BNS-AAAA-NNN. */
+export function obtenerAnioPeriodo(meta: ReciboMeta): string {
+  const matchCod = meta.periodo.codigo?.match(/\b(20\d\d)\b/);
+  if (matchCod) return matchCod[1];
+  if (meta.periodo.periodo_desde) {
+    const matchFecha = String(meta.periodo.periodo_desde).trim().match(/\b(20\d\d)\b/);
+    if (matchFecha) return matchFecha[1];
+  }
+  return String(new Date().getFullYear());
+}
+
+/** Correlativo secuencial del recibo de beneficio social: BNS-2026-001, BNS-2026-002, … */
+export function correlativoBono(idx: number, meta: ReciboMeta): string {
+  const anio = obtenerAnioPeriodo(meta);
+  const num = String(idx + 1).padStart(3, '0');
+  return `BNS-${anio}-${num}`;
 }
 
 /** Dos decimales: así se paga y así se imprime. */
@@ -245,18 +263,18 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   // normal; si no cabe (seriales de billetes…) se repite en modo compacto: menos
   // relleno y letra un poco menor. Se prueba primero en un documento borrador.
   let primera = true;
-  for (const r of renglones) {
+  for (const [idx, r] of renglones.entries()) {
     for (const tipo of tipos) {
       const prueba = new jsPDF({ unit: 'pt', format: 'letter' });
-      const compacto = dibujar(prueba, r, tipo, false);
+      const compacto = dibujar(prueba, r, tipo, idx, false);
       if (!primera) doc.addPage();
       primera = false;
-      dibujar(doc, r, tipo, compacto);
+      dibujar(doc, r, tipo, idx, compacto);
     }
   }
 
   /** Dibuja un recibo desde la hoja actual de `doc`. Devuelve true si no cupo en una hoja. */
-  function dibujar(doc: InstanceType<typeof jsPDF>, r: NominaRenglon, tipo: TipoRecibo, compacto: boolean): boolean {
+  function dibujar(doc: InstanceType<typeof jsPDF>, r: NominaRenglon, tipo: TipoRecibo, idx: number, compacto: boolean): boolean {
     const pagina = doc.getNumberOfPages();
     const MT = compacto ? 34 : MARGIN;          // margen de arriba
     const MB = compacto ? 34 : MARGIN;          // margen de abajo
@@ -274,7 +292,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
     doc.text(emp.nombre, tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text(`RIF ${emp.rif}  ·  ${esBono ? 'Recibo de Bonificación y Descuentos' : 'Recibo de Pago de Nómina'}`, tx, y + 32);
+    doc.text(`RIF ${emp.rif}  ·  ${esBono ? 'Beneficio Social de Carácter No Remunerativo' : 'Recibo de Pago de Nómina'}`, tx, y + 32);
     doc.setFontSize(7.5); doc.setTextColor(110);
     // El domicilio suele ocupar dos renglones: el encabezado crece con él, para que
     // la raya naranja y el título queden DEBAJO y no se monten sobre el texto.
@@ -284,7 +302,8 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const finDomicilio = 44 + (domicilio.length - 1) * LINEA_DOM + 3;   // base del último renglón + descendentes
     doc.setTextColor(0);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text(meta.periodo.codigo ?? '', PAGE_W - MARGIN, y + 16, { align: 'right' });
+    const codDoc = esBono ? correlativoBono(idx, meta) : (meta.periodo.codigo ?? '');
+    doc.text(codDoc, PAGE_W - MARGIN, y + 16, { align: 'right' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     // Fecha de EMISIÓN del recibo (hoy). El período y la fecha de pago van en el detalle.
     doc.text(`Emitido: ${fmtDate(new Date().toISOString())}`, PAGE_W - MARGIN, y + 32, { align: 'right' });
@@ -300,45 +319,58 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     y += compacto ? 13 : 18;
 
     // Título grande.
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text(esBono ? 'RECIBO DE BONIFICACIÓN Y DESCUENTOS' : 'RECIBO DE PAGO DE NOMINA', MARGIN, y);
-    if (esBono) {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      const labelPago = m.moneda === 'Bs'
-        ? 'Pago en Bolívares (Bs) al cambio'
-        : m.moneda === 'USDT'
-          ? 'Pago en USDT'
-          : m.moneda === 'EUR'
-            ? 'Pago en Euros (€)'
-            : m.esReal ? 'Pago en divisas ($) y Real brasileño (R$)' : 'Pago en divisas ($)';
-      doc.text(labelPago, PAGE_W - MARGIN, y, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    const titulo = esBono
+      ? 'RECIBO DE PAGO BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO'
+      : 'RECIBO DE PAGO DE NOMINA';
+    let fontSizeTitulo = esBono ? fs(11.5) : fs(13);
+    doc.setFontSize(fontSizeTitulo);
+    while (doc.getTextWidth(titulo) > PAGE_W - MARGIN * 2 && fontSizeTitulo > 8) {
+      fontSizeTitulo -= 0.5;
+      doc.setFontSize(fontSizeTitulo);
     }
+    doc.text(titulo, MARGIN, y);
     y += compacto ? 9 : 18;
 
-    // Datos del trabajador.
+    // Datos del trabajador / beneficiario.
     const cedula = meta.cedulas?.[r.personal_id ?? ''] || '';
     const periodoStr = periodoReciboTexto(meta.periodo.periodo_desde, meta.periodo.periodo_hasta);
+    type DatoCell = string | { content: string; colSpan?: number };
+    const bodyDatos: DatoCell[][] = esBono
+      ? [
+          ['Beneficiario', r.nombre, 'Cédula', cedula || '—'],
+          ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
+          ['Período', { content: periodoStr, colSpan: 3 }],
+          ...(m.esReal
+            ? [[
+                'Forma de pago',
+                'Divisas ($) y Real brasileño (R$)',
+                'Tasa de cambio',
+                `1 $ = R$ ${tasaRealTexto(m.tasaBrl)}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`,
+              ]]
+            : m.esOtraMoneda
+              ? [[
+                  'Forma de pago',
+                  {
+                    content: m.moneda === 'Bs'
+                      ? `Bolívares (Bs)${m.tasa > 0 ? ` · Tasa: ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : ''}`
+                      : m.moneda === 'USDT'
+                        ? 'Criptoactivo (USDT)'
+                        : 'Euros (€)',
+                    colSpan: 3,
+                  },
+                ]]
+              : []),
+        ]
+      : [
+          ['Trabajador', r.nombre, 'Cédula', cedula || '—'],
+          ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
+          ['Período', periodoStr, 'Días', `${m.diasT} trabajados + ${m.diasD} de descanso`],
+          ['Salario Quincenal', bsStr(m.sueldoBs), 'Salario Diario', bsStr(m.diarioBs)],
+        ];
     autoTable(doc, {
       startY: y,
-      body: [
-        ['Trabajador', r.nombre, 'Cédula', cedula || '—'],
-        ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
-        ['Período', periodoStr, 'Días', `${m.diasT} trabajados + ${m.diasD} de descanso`],
-        esBono
-          ? [
-              'Total acordado / mes',
-              usd(r.sueldo_base_mensual),
-              'Forma de pago',
-              m.moneda === 'Bs'
-                ? `Bolívares (Bs)${m.tasa > 0 ? ` · Tasa: ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : ''}`
-                : m.moneda === 'USDT'
-                  ? 'Criptoactivo (USDT)'
-                  : m.moneda === 'EUR'
-                    ? 'Euros (€)'
-                    : m.esReal ? `Divisas ($) · Real brasileño (R$) · 1 $ = R$ ${tasaRealTexto(m.tasaBrl)}` : 'Divisas ($)',
-            ]
-          : ['Salario Quincenal', bsStr(m.sueldoBs), 'Salario Diario', bsStr(m.diarioBs)],
-      ],
+      body: bodyDatos,
       margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
       theme: 'grid',
       styles: { fontSize: fs(9), cellPadding: pad(3.5) },
@@ -349,8 +381,6 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     // Los montos del pie (totales y neto) alineados a la derecha como los del cuerpo.
     const der = (texto: string) => ({ content: texto, styles: { halign: 'right' as const } });
-    const pctSueldo = Number(r.sueldo_pct);
-    const pctBono = Number.isFinite(pctSueldo) && pctSueldo > 0 ? Math.round(100 - pctSueldo) : null;
     type FootCell = string | { content: string; colSpan?: number; styles: { halign: 'right' } };
     let conformidad: string;
 
@@ -389,6 +419,11 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
           2: { halign: 'right', cellWidth: 110 },
           3: { halign: 'right', cellWidth: 110 },
         },
+        didParseCell: (data) => {
+          if (data.section === 'foot' && data.column.index >= 2) {
+            data.cell.styles.halign = 'right';
+          }
+        },
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
@@ -397,42 +432,34 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       const periodoTexto = periodoStr !== '—' ? `al período del ${periodoStr}` : 'al período indicado';
       conformidad = `Certifico haber recibido la cantidad de ${bsStr(m.netoBs)}, conforme a la totalidad de mi salario ${periodoTexto}. Y firmo en señal de conformidad.`;
     } else {
-      // ── Recibo 2: bonificación, menos préstamos y anticipos ──
+      // ── Recibo 2: Beneficio Social de Carácter No Remunerativo (Art. 105 LOTTT) ──
+      // Sin préstamos, sin anticipos, sin días ni sueldo mensual.
       const simb = m.simbolo;
-      const nPrest = (r.deducciones ?? []).filter((d) => d.tipo === 'prestamo').length;
-      const nAnt = (r.deducciones ?? []).filter((d) => d.tipo === 'anticipo').length;
       const real = m.esReal;
-      const fila = (item: number, concepto: string, monto: number, columna: 'asignacion' | 'deduccion', montoBrl = 0): string[] => {
-        const base = [String(item), concepto, columna === 'asignacion' ? fmtMontoMoneda(monto, simb) : '', columna === 'deduccion' ? (monto > 0 ? `− ${fmtMontoMoneda(monto, simb)}` : fmtMontoMoneda(0, simb)) : ''];
-        if (!real) return base;
-        return [...base, columna === 'asignacion' ? reales(montoBrl) : '', columna === 'deduccion' ? (montoBrl > 0 ? `− ${reales(montoBrl)}` : reales(0)) : ''];
-      };
-      const descTotalBrl = m.prestamosBrl + m.anticiposBrl;
-      const footBono: FootCell[][] = [
-        ['', 'TOTALES', der(fmtMontoMoneda(m.bonoBrutoMonto, simb)), der(m.prestamosMonto + m.anticiposMonto > 0 ? `− ${fmtMontoMoneda(m.prestamosMonto + m.anticiposMonto, simb)}` : fmtMontoMoneda(0, simb))],
-        ['', `NETO A RECIBIR EN ${m.moneda === 'Bs' ? 'BOLÍVARES' : m.moneda === 'USD' ? 'DIVISAS' : m.moneda}`, der(fmtMontoMoneda(m.bonoNetoMonto, simb)), ''],
-      ];
+      const colHeaderMonto = m.moneda === 'USD' ? 'MONTO ASIGNADO (USD)' : `MONTO ASIGNADO (${m.moneda})`;
+      const footBono: FootCell[][] = real
+        ? [
+            ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', der(fmtMontoMoneda(m.bonoBrutoMonto, simb)), der(reales(m.bonoBrutoBrl))],
+          ]
+        : [
+            ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', der(fmtMontoMoneda(m.bonoBrutoMonto, simb))],
+          ];
       if (m.esOtraMoneda) {
-        footBono.push(['', 'CONVERSIÓN EN $ AL CAMBIO', der(usd(m.equivalenteUsd)), '']);
+        footBono.push(['', 'CONVERSIÓN EN $ AL CAMBIO', der(usd(m.bonoBrutoUsd))]);
       }
       if (real) {
-        // Las dos monedas en el pie: totales y neto en $ y en R$, y la tasa que los une.
-        footBono[0].push(der(reales(m.bonoBrutoBrl)), der(descTotalBrl > 0 ? `− ${reales(descTotalBrl)}` : reales(0)));
-        footBono[1] = ['', 'NETO A RECIBIR EN DIVISAS ($ y R$)', der(fmtMontoMoneda(m.bonoNetoMonto, simb)), '', der(reales(m.bonoNetoBrl)), ''];
         const fechaTasa = meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : '';
-        footBono.push(['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(m.tasaBrl)}${fechaTasa}`, colSpan: 4, styles: { halign: 'right' } }]);
+        footBono.push(['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(m.tasaBrl)}${fechaTasa}`, colSpan: 2, styles: { halign: 'right' } }]);
       }
       autoTable(doc, {
         startY: y,
         head: [real
-          ? ['#', 'CONCEPTO', `ASIGNACIÓN ${simb}`, `DESCUENTO ${simb}`, 'ASIGNACIÓN R$', 'DESCUENTO R$']
-          : ['#', 'CONCEPTO', `ASIGNACIÓN ${simb}`, `DESCUENTO ${simb}`]],
+          ? ['#', 'CONCEPTO', colHeaderMonto, 'MONTO ASIGNADO (R$)']
+          : ['#', 'CONCEPTO', colHeaderMonto]],
         body: [
-          fila(1, pctBono != null ? `Bono de la quincena (${pctBono} % del total acordado)` : 'Bono de la quincena', m.bonoMonto, 'asignacion', m.bonoBrl),
-          fila(2, 'Asignaciones adicionales', m.asignacionesMonto, 'asignacion', m.asignacionesBrl),
-          fila(3, nPrest > 1 ? `Préstamos (${nPrest})` : 'Préstamos', m.prestamosMonto, 'deduccion', m.prestamosBrl),
-          fila(4, nAnt > 1 ? `Anticipos (${nAnt})` : 'Anticipos', m.anticiposMonto, 'deduccion', m.anticiposBrl),
-          fila(5, 'Otros descuentos', 0, 'deduccion', 0),
+          real
+            ? ['1', 'Subsidio Asistencial de Alimentación y Sustento Familiar', fmtMontoMoneda(m.bonoBrutoMonto, simb), reales(m.bonoBrutoBrl)]
+            : ['1', 'Subsidio Asistencial de Alimentación y Sustento Familiar', fmtMontoMoneda(m.bonoBrutoMonto, simb)],
         ],
         foot: footBono,
         margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
@@ -442,47 +469,33 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
         columnStyles: real
           ? {
-              0: { cellWidth: 16, halign: 'center' },
-              2: { halign: 'right', cellWidth: 68 },
-              3: { halign: 'right', cellWidth: 68 },
-              4: { halign: 'right', cellWidth: 74 },
-              5: { halign: 'right', cellWidth: 74 },
+              0: { cellWidth: 18, halign: 'center' },
+              2: { halign: 'right', cellWidth: 110 },
+              3: { halign: 'right', cellWidth: 110 },
             }
           : {
               0: { cellWidth: 18, halign: 'center' },
-              2: { halign: 'right', cellWidth: 104 },
-              3: { halign: 'right', cellWidth: 104 },
+              2: { halign: 'right', cellWidth: 140 },
             },
+        didParseCell: (data) => {
+          if (data.section === 'foot' && data.column.index >= 2) {
+            data.cell.styles.halign = 'right';
+          }
+        },
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(6);
-      if (m.prestamosMonto + m.anticiposMonto > 0) {
-        doc.setFont('helvetica', 'italic'); doc.setFontSize(fs(7.5)); doc.setTextColor(100);
-        doc.text(`Los préstamos y anticipos se descuentan de la bonificación en ${m.moneda}, no del pago en bolívares.`, MARGIN, y + 4);
-        doc.setTextColor(0);
-        y += 10;
-      }
       if (m.esOtraMoneda) {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(fs(8)); doc.setTextColor(30, 41, 59);
-        const notaCambio = `Conversión en $ al cambio: Monto equivalente = ${usd(m.equivalenteUsd)}${m.moneda === 'Bs' && m.tasa > 0 ? ` · Tasa de cambio BCV: ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$` : ''}`;
+        const notaCambio = `Conversión en $ al cambio: Monto equivalente = ${usd(m.bonoBrutoUsd)}${m.moneda === 'Bs' && m.tasa > 0 ? ` · Tasa de cambio BCV: ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$` : ''}`;
         doc.text(notaCambio, MARGIN, y + 4);
         doc.setTextColor(0);
         y += 10;
       }
-      const descuentos = [
-        m.prestamosMonto > 0 ? `${fmtMontoMoneda(m.prestamosMonto, simb)} de préstamos` : null,
-        m.anticiposMonto > 0 ? `${fmtMontoMoneda(m.anticiposMonto, simb)} de anticipos` : null,
-      ].filter(Boolean).join(' y ');
-      const descMoneda = m.esReal
-        ? ` en divisas (equivalente a ${reales(m.bonoNetoBrl)} en Real brasileño, a la tasa de cambio de 1 $ = R$ ${tasaRealTexto(m.tasaBrl)})`
-        : m.esOtraMoneda
-        ? ` en ${m.moneda === 'Bs' ? 'bolívares' : m.moneda} (conversión al cambio: ${usd(m.equivalenteUsd)}${m.moneda === 'Bs' && m.tasa > 0 ? ` a tasa Bs ${m.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : ''})`
-        : ' en divisas';
-      conformidad = `Certifico haber recibido la cantidad de ${fmtMontoMoneda(m.bonoNetoMonto, simb)}${descMoneda} por concepto de bonificación`
-        + (m.asignacionesMonto > 0 ? ' y asignaciones' : '')
-        + ' correspondiente al período que se indica en el mismo'
-        + (descuentos ? `, una vez descontados ${descuentos}` : '')
-        + ', y firmo en señal de conformidad.';
+      const baseLegal = 'El beneficiario arriba identificado declara haber recibido de la entidad de trabajo, a su entera satisfacción, el monto neto indicado, por concepto exclusivo de BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO, otorgado de manera asistencial y liberal para coadyuvar a su bienestar socioeconómico y familiar. De conformidad con el artículo 105 de la LOTTT, ambas partes reconocen expresamente que esta asignación NO REVISTE CARACTER SALARIAL, no constituye contraprestación directa por el servicio prestado ni forma parte del salario normal o integral, por lo cual no genera incidencia alguna en el cálculo de prestaciones sociales, utilidades, vacaciones, bono vacacional, horas extras ni cotizaciones parafiscales.';
+      conformidad = m.esReal
+        ? `${baseLegal} Equivalente a ${reales(m.bonoBrutoBrl)} en Real brasileño, a la tasa de cambio de 1 $ = R$ ${tasaRealTexto(m.tasaBrl)}.`
+        : baseLegal;
     }
 
     // (15/10/2026) Ya no va el cuadro «Total de la quincena (los dos recibos)»: mezclaba
@@ -494,7 +507,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.text(lineas, MARGIN, y + 10);
     y += 10 + lineas.length * (compacto ? 9.5 : 11);
 
-    // Los billetes se entregan con la bonificación: los seriales van en ese recibo.
+    // Los billetes se entregan con el beneficio social: los seriales van en ese recibo.
     if (esBono && r.seriales_billetes && r.seriales_billetes.length) {
       doc.setFontSize(8);
       const seriales = doc.splitTextToSize(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, PAGE_W - MARGIN * 2);
@@ -518,15 +531,15 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       fy = Math.max(fy, recibiY + 30);
     }
     doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
-    doc.text(esBono ? 'Recibí conforme la bonificación aquí detallada.' : 'Recibí conforme el pago aquí detallado.', MARGIN, recibiY);
+    doc.text(esBono ? 'Recibí conforme el beneficio social aquí detallado.' : 'Recibí conforme el pago aquí detallado.', MARGIN, recibiY);
     doc.setTextColor(0);
-    // Una sola firma, la de la persona, centrada (15/10/2026: se quitó la de RRHH).
+    // Una sola firma, la de la persona / beneficiario, centrada (15/10/2026: se quitó la de RRHH).
     const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
     const cx = PAGE_W / 2;
     doc.setDrawColor(120); doc.setLineWidth(0.7);
     doc.line(cx - colW / 2, fy, cx + colW / 2, fy);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Firma de la persona', cx, fy + 13, { align: 'center' });
+    doc.text(esBono ? 'Firma del beneficiario' : 'Firma de la persona', cx, fy + 13, { align: 'center' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90);
     doc.text(`${r.nombre}${cedula ? ' · C.I. ' + cedula : ''}`, cx, fy + BAJO_LA_RAYA, { align: 'center' });
     doc.setTextColor(0);
@@ -540,7 +553,7 @@ function nombreArchivo(renglones: NominaRenglon[], meta: ReciboMeta): string {
   const base = renglones.length === 1
     ? `recibos-${renglones[0].nombre}`
     : `recibos-${meta.periodo.codigo ?? 'nomina'}`;
-  const sufijo = meta.tipos?.length === 1 ? (meta.tipos[0] === 'bono' ? '-bonificacion' : '-sueldo-bs') : '';
+  const sufijo = meta.tipos?.length === 1 ? (meta.tipos[0] === 'bono' ? '-beneficio-social' : '-sueldo-bs') : '';
   return (base + sufijo).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '.pdf';
 }
 

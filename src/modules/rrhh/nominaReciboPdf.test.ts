@@ -7,7 +7,7 @@ vi.mock('@/shared/lib/pdfLogo', () => ({
   anchoLogoPdf: (h: number) => h,
 }));
 
-import { construir, fechaReciboSlash, montosRecibo, periodoReciboTexto } from './nominaReciboPdf';
+import { construir, correlativoBono, fechaReciboSlash, montosRecibo, periodoReciboTexto } from './nominaReciboPdf';
 
 const base = {
   id: 'r1', periodo_id: 'p1', personal_id: 'x1', nombre: 'JOSÉ ANTONIO PÉREZ RODRÍGUEZ', cargo: 'OPERADOR DE MAQUINARIA PESADA',
@@ -49,9 +49,28 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     expect(periodoReciboTexto('2026-11-01', '2026-11-15')).toBe('01/11/2026 al 15/11/2026');
     expect(periodoReciboTexto('2026-11-15', '2026-11-15')).toBe('15/11/2026');
     expect(periodoReciboTexto(null, null)).toBe('—');
-    const bono = (await construir([base], { ...meta, tipos: ['bono'] } as never)).output();
+    const bono = (await construir([base, base], { ...meta, tipos: ['bono'] } as never)).output();
     expect(bono).toContain('$');
-    // Y el de bonificación es SOLO $: ni montos en Bs, ni la tasa, ni el total mezclado, ni Estado.
+    expect(bono).toContain('RECIBO DE PAGO BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO');
+    expect(bono).toContain('BNS-2026-001');
+    expect(bono).toContain('BNS-2026-002');
+    expect(correlativoBono(0, meta as never)).toBe('BNS-2026-001');
+    expect(correlativoBono(2, meta as never)).toBe('BNS-2026-003');
+    expect(bono).toContain('Beneficiario');
+    expect(bono).not.toContain('Trabajador');
+    expect(bono).not.toContain('trabajados');
+    expect(bono).not.toContain('Sueldo mensual');
+    expect(bono).not.toContain('Total acordado');
+    expect(bono).toContain('Subsidio Asistencial de Alimentaci');
+    expect(bono).toContain('MONTO ASIGNADO \\(USD\\)');
+    expect(bono).toContain('TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO');
+    expect(bono).not.toContain('Préstamos');
+    expect(bono).not.toContain('Anticipos');
+    expect(bono).not.toContain('Certifico haber recibido');
+    expect(bono).toContain('El beneficiario arriba identificado declara haber recibido de la entidad de trabajo');
+    expect(bono).toContain('NO REVISTE CARACTER SALARIAL');
+    expect(bono).toContain('LOTTT');
+    // Y el de beneficio social es SOLO $: ni montos en Bs, ni la tasa, ni el total mezclado, ni Estado.
     expect(bono).not.toMatch(/Bs\s/);
     expect(bono).not.toContain('Tasa de cierre');
     expect(bono).not.toContain('TOTAL DE LA QUINCENA');
@@ -65,6 +84,32 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     } as unknown as NominaRenglon;
     const doc = await construir([cargado, base, cargado], meta as never);
     expect(doc.getNumberOfPages()).toBe(6);
+  });
+
+  it('alinea los totales y netos del pie en la misma columna y a la derecha debajo de sus montos (nómina y beneficio social)', async () => {
+    type CeldaTabla = { x: number; width: number; styles: { halign: string } };
+    type TablaAuto = { body: { cells: Record<number, CeldaTabla> }[]; foot: { cells: Record<number, CeldaTabla> }[] };
+
+    const docSueldo = await construir([base], { ...meta, tipos: ['sueldo'] } as never);
+    const tablaSueldo = (docSueldo as unknown as { lastAutoTable: TablaAuto }).lastAutoTable;
+    // Columna 2 (DEVENGADO Bs) y columna 3 (DEDUCCIÓN Bs): mismo x, mismo ancho y halign 'right'.
+    expect(tablaSueldo.foot[0].cells[2].styles.halign).toBe('right');
+    expect(tablaSueldo.foot[0].cells[3].styles.halign).toBe('right');
+    expect(tablaSueldo.foot[1].cells[2].styles.halign).toBe('right');
+    expect(tablaSueldo.foot[0].cells[2].x).toBeCloseTo(tablaSueldo.body[0].cells[2].x, 2);
+    expect(tablaSueldo.foot[0].cells[2].width).toBeCloseTo(tablaSueldo.body[0].cells[2].width, 2);
+    expect(tablaSueldo.foot[0].cells[3].x).toBeCloseTo(tablaSueldo.body[0].cells[3].x, 2);
+    expect(tablaSueldo.foot[0].cells[3].width).toBeCloseTo(tablaSueldo.body[0].cells[3].width, 2);
+    expect(tablaSueldo.foot[1].cells[2].x).toBeCloseTo(tablaSueldo.body[0].cells[2].x, 2);
+    expect(tablaSueldo.foot[1].cells[2].width).toBeCloseTo(tablaSueldo.body[0].cells[2].width, 2);
+
+    const conAsignacion = { ...base, asignaciones: 40, deduc_prestamos: 50, deduc_anticipos: 30 } as unknown as NominaRenglon;
+    const docBono = await construir([conAsignacion], { ...meta, tipos: ['bono'] } as never);
+    const tablaBono = (docBono as unknown as { lastAutoTable: TablaAuto }).lastAutoTable;
+    // Columna 2 (MONTO ASIGNADO (USD)): total alineado a la derecha exactamente debajo del monto asignado.
+    expect(tablaBono.foot[0].cells[2].styles.halign).toBe('right');
+    expect(tablaBono.foot[0].cells[2].x).toBeCloseTo(tablaBono.body[0].cells[2].x, 2);
+    expect(tablaBono.foot[0].cells[2].width).toBeCloseTo(tablaBono.body[0].cells[2].width, 2);
   });
 });
 
@@ -122,15 +167,16 @@ describe('empresas con moneda de pago Real brasileño: el recibo 2 sale en $ y e
 
   const metaBrl = { periodo: { ...meta.periodo, tasa_brl: TASA, tasa_brl_fecha: '2026-10-23' } };
 
-  it('el recibo de bonificación lleva las columnas en R$, el neto en las dos monedas y la tasa', async () => {
+  it('el recibo de beneficio social lleva las columnas en USD y R$, el total en las dos monedas y la tasa', async () => {
     const bono = (await construir([r], { ...metaBrl, tipos: ['bono'] } as never)).output();
     expect(bono).toContain('R$');
-    expect(bono).toContain('ASIGNACI');
-    expect(bono).toContain('R$ 1.488,64');           // neto en reales
+    expect(bono).toContain('MONTO ASIGNADO \\(USD\\)');
+    expect(bono).toContain('MONTO ASIGNADO \\(R$\\)');
+    expect(bono).toContain('R$ 1.892,06');           // total beneficio en reales (sin préstamos ni anticipos)
     expect(bono).toContain('TASA DE CAMBIO');
     expect(bono).toContain('1 $ = R$ 5,0428');
     expect(bono).toContain('23-10-2026');
-    expect(bono).toContain('equivalente a R$ 1.488,64 en Real brasile');
+    expect(bono).toContain('Equivalente a R$ 1.892,06 en Real brasile');
     // Sigue siendo SOLO divisas: nada en Bs.
     expect(bono).not.toMatch(/Bs\s/);
   });
