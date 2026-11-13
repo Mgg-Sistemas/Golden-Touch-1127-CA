@@ -1121,7 +1121,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   </>
                 )}
                 <div style={{ flex: '1 1 120px', textAlign: 'right' }}>
-                  <div className="muted" style={{ fontSize: '.7rem' }}>Retenido</div>
+                  <div className="muted" style={{ fontSize: '.7rem' }}>Retenido ({calc.porcentaje}%)</div>
                   <div className="mono" style={{ fontWeight: 700, color: monto > 0 ? 'var(--primary)' : 'var(--text-muted)' }}>{money(monto, moneda)}</div>
                 </div>
               </div>
@@ -1139,6 +1139,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   supuestosIva={supuestosIva}
                   pctGeneral={config.pctIvaGeneral}
                   pctActual={calc.porcentaje}
+                  ivaFactura={nDec(l.ivaStr)}
+                  moneda={moneda}
+                  onLimpiarMotivos={() => setLinea(l.id, { motivos: {}, ivaDerivadoConfirmado: false })}
                   onChange={(codigo, valor) => setLinea(l.id, codigo === 'ivaNoDiscriminado' && !valor
                     ? { motivos: { ...l.motivos, [codigo]: valor }, ivaDerivadoConfirmado: false }
                     : { motivos: { ...l.motivos, [codigo]: valor } })}
