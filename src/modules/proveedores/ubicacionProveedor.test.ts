@@ -18,6 +18,7 @@ describe('Proveedores · ubicación en el mapa', () => {
     expect(parsearCoordenadas('8.2869 -62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
     expect(parsearCoordenadas('https://www.google.com/maps/place/X/@8.2869,-62.7467,17z')).toEqual({ lat: 8.2869, lng: -62.7467 });
     expect(parsearCoordenadas('https://maps.google.com/?q=8.2869,-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('https://www.google.com/maps/place/data=!3d8.2869!4d-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
     expect(parsearCoordenadas('Av. Las Américas, Puerto Ordaz')).toBeNull();
     expect(parsearCoordenadas('')).toBeNull();
     expect(parsearCoordenadas('120, 50')).toBeNull();

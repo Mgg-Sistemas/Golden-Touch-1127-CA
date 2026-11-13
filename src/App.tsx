@@ -31,6 +31,9 @@ const AdministracionPage = lazy(() => import('./modules/administracion/Administr
 const AdministracionDemoPage = import.meta.env.DEV
   ? lazy(() => import('./modules/administracion/demo/AdministracionDemoPage').then((m) => ({ default: m.AdministracionDemoPage })))
   : null;
+const DeliveryDemoPage = import.meta.env.DEV
+  ? lazy(() => import('./modules/delivery/demo/DeliveryDemoPage').then((m) => ({ default: m.DeliveryDemoPage })))
+  : null;
 const AsignacionesPage = lazy(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
 const ChoferesPage = lazy(() => import('./modules/choferes/ChoferesPage').then((m) => ({ default: m.ChoferesPage })));
 const VentasPage = lazy(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
@@ -90,6 +93,7 @@ export function App() {
         <Route path="/c/:token" element={<Suspense fallback={<PageLoader />}><CarnetPublicoPage /></Suspense>} />
         {/* Maqueta de Administración (gastos fijos): página de prueba local, solo en DEV. */}
         {AdministracionDemoPage && <Route path="/demo/administracion" element={<Suspense fallback={<PageLoader />}><AdministracionDemoPage /></Suspense>} />}
+        {DeliveryDemoPage && <Route path="/demo/delivery" element={<Suspense fallback={<PageLoader />}><DeliveryDemoPage /></Suspense>} />}
         <Route
           path="/cambiar-clave"
           element={

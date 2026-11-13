@@ -63,7 +63,7 @@ import {
 } from './deliveryMovil';
 import {
   LUGAR_LOS_PINOS, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, masCercano, ordenarDisponibles, paradasRuta,
-  entregaEnLosPinos, puntoLugar, puntoRecogida, siguienteParada, urlGoogleMapsRuta, urlWaze, yaRecogido, type ParadaRuta, type PuntoMapa, type RutaCalculada,
+  entregaEnLosPinos, puntoLugar, puntoRecogida, siguienteParada, urlGoogleMapsRuta, yaRecogido, type ParadaRuta, type PuntoMapa, type RutaCalculada,
 } from './deliveryRutas';
 import { MapaMotorizado, type DestinoMapa } from './MapaMotorizado';
 import { usePosicionGps, type PosicionGps } from './usePosicionGps';
@@ -114,6 +114,8 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   const [listo, setListo] = useState<{ titulo: string; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [comprobanteDe, setComprobanteDe] = useState<PedidoDelivery | null>(null);
+  const [modalLlamar, setModalLlamar] = useState(false);
+  const [fotosModalDe, setFotosModalDe] = useState<PedidoDelivery | null>(null);
 
   // Solo la última carga pinta (el realtime puede disparar varias seguidas).
   const turno = useRef(0);
@@ -258,6 +260,10 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   // Pedidos viejos que quedaron «Aceptado» (antes del 02/11/2026) todavía se pueden pasar a «En camino».
   async function enRuta(p: PedidoDelivery) {
     if (!p.pedido_id) return;
+    if ((p.fotos_recibo?.length ?? 0) === 0) {
+      toast('📸 Es obligatorio subir al menos 1 foto al recibir del proveedor (remisión/factura/bultos) antes de iniciar la ruta.', 'error');
+      return;
+    }
     setOcupado(claveDelivery(p));
     try {
       await marcarEnRuta(p.pedido_id);
@@ -273,10 +279,67 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
     if (m) { setAccion(null); setListo(m); }
   }
 
+  // ───────── ACCIONES DE CALLE (ESTILO YUMMY / RIDERY) ─────────
+  const handleAccionPrincipal = () => {
+    if (enCurso) {
+      if (enCurso.estado === 'aceptado') {
+        void enRuta(enCurso);
+      } else if (enCurso.estado === 'en_ruta') {
+        setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) });
+      }
+    } else {
+      // Sin carrera activa: el repartidor debe poder ver y elegir de la lista disponible
+      setChip('por_tomar');
+      if (cuenta.por_tomar === 0) {
+        toast('No hay pedidos pendientes por tomar en este momento.', 'info');
+      } else {
+        try {
+          const el = document.querySelector('.dlv-chips') || document.querySelector('.dlv-cercano') || document.querySelector('.dlv-card');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        } catch { /* ignorar fallo de scroll */ }
+      }
+    }
+  };
+
+  const handleNavegar = () => {
+    if (enCurso) {
+      const sig = siguienteParada(enCurso, provs, losPinos);
+      const urlNav = (sig && urlGoogleMapsRuta([sig.punto], false))
+        || (enCurso.proveedor_direccion ? mapaHref(enCurso.proveedor_direccion) : null);
+      if (urlNav) {
+        window.open(urlNav, '_blank', 'noopener,noreferrer');
+      } else {
+        verRuta(enCurso);
+      }
+    } else {
+      if (yo) {
+        const urlYo = `https://www.google.com/maps?q=${yo.lat},${yo.lng}`;
+        window.open(urlYo, '_blank', 'noopener,noreferrer');
+      } else {
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* ignorar fallo de scroll */ }
+        toast('Enfocando mapa de proveedores y Los Pinos.', 'info');
+      }
+    }
+  };
+
+  const handleLlamar = () => {
+    setModalLlamar(true);
+  };
+
+  const handleCamara = () => {
+    if (enCurso) {
+      setFotosModalDe(enCurso);
+    } else {
+      setChip('entregados');
+    }
+  };
+
   const enPantallaPrincipal = !accion && !listo;
 
   return (
-    <div className="surtidor">
+    <div className="surtidor dlv-calle-view">
       {/* 10/11/2026 (maqueta): cabecera del motorizado con su nombre, su flota y la píldora del GPS. */}
       <header className="surt-head dlv-head">
         <div className="dlv-conductor">
@@ -403,6 +466,39 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         </>
       )}
 
+      {/* ───── BARRA INFERIOR SEMIFLOTANTE (CALLE / SOL) ───── */}
+      <BarraSemiflotanteCalle
+        enCurso={enCurso}
+        siguiente={enCurso ? siguienteParada(enCurso, provs, losPinos) : null}
+        cercano={cercano}
+        cuenta={cuenta}
+        chip={chip}
+        setChip={setChip}
+        tabActivo={modalLlamar ? 'analista' : fotosModalDe ? 'fotos' : claveRutaActiva ? 'mapa' : 'principal'}
+        onAccionPrincipal={handleAccionPrincipal}
+        onNavegar={handleNavegar}
+        onLlamar={handleLlamar}
+        onCamara={handleCamara}
+      />
+
+      {modalLlamar && (
+        <ModalLlamarRapido
+          pedido={enCurso}
+          disponibles={feed.filter((f) => f.disponible).map((f) => f.p)}
+          onClose={() => setModalLlamar(false)}
+        />
+      )}
+
+      {fotosModalDe && (
+        <EditarFotosDeliveryModal
+          pedidoId={fotosModalDe.pedido_id}
+          origen={fotosModalDe.origen}
+          titulo={esRetiroAlmacen(fotosModalDe) ? `Fotos de ${fotosModalDe.codigo}` : `Fotos de ${ocDe(fotosModalDe)}`}
+          onClose={() => setFotosModalDe(null)}
+          onGuardado={() => { setFotosModalDe(null); void reload().catch(() => {}); }}
+        />
+      )}
+
       {comprobanteDe && <ComprobantePago p={comprobanteDe} onClose={() => setComprobanteDe(null)} />}
     </div>
   );
@@ -476,14 +572,13 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
       {/* 03/11/2026: a cuánto está (proveedor o Los Pinos) y, si el proveedor no está en el mapa, marcarlo al llegar. */}
       {(disponible || enCurso) && (
         metros != null
-          ? <div className="dlv-dist">📍 a {distanciaTxt(metros)}{retiro ? ` de ${ALMACEN_RETIRO}` : ''}</div>
+          ? <div className="dlv-dist" title="Distancia medida desde el teléfono del repartidor al punto de recogida">📍 a {distanciaTxt(metros)} (desde tu ubicación)</div>
           : sinPunto ? <div className="dlv-dist sin">📍 Proveedor sin ubicación en el mapa</div> : null
       )}
-      {/* 10/11/2026 (maqueta): avance 🏍️ → 🏭 → 🏬, el tiempo estimado y la navegación a la próxima parada. */}
+      {/* Avance 🏍️ → 🏭 → 🏬, tiempo estimado y navegación en Google Maps */}
       {mioEnCurso && (() => {
         const tramo = tramoEnCurso(p);
         const google = siguiente ? urlGoogleMapsRuta([siguiente.punto], false) : (tramo === 1 && !retiro ? mapa : null);
-        const waze = urlWaze(siguiente?.punto);
         const haciaTxt = tramo === 1
           ? (retiro ? `Retirar en ${ALMACEN_RETIRO}` : `Buscar en ${p.proveedor_nombre ?? 'el proveedor'}`)
           : (retiro ? `Entregar a ${destino || 'quien lo pidió'}` : `Entregar en ${siguiente?.nombre ?? `Almacén ${nombreAlmacenVisible(p.almacen_destino)}`}`);
@@ -500,14 +595,11 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
               <span>📍 {haciaTxt}</span>
               {eta && <span>⏱️ {eta}</span>}
             </div>
-            {(google || waze) && (
-              <div className="surt-grid2">
-                {google
-                  ? <a className="btn btn-ghost" href={google} target="_blank" rel="noopener noreferrer">🧭 Google Maps</a>
-                  : <span className="btn btn-ghost" aria-disabled>🧭 Google Maps</span>}
-                {waze
-                  ? <a className="btn btn-ghost" href={waze} target="_blank" rel="noopener noreferrer">🚗 Waze</a>
-                  : <span className="btn btn-ghost" aria-disabled title="Falta la ubicación en el mapa">🚗 Waze</span>}
+            {google && (
+              <div style={{ marginTop: '.4rem' }}>
+                <a className="btn btn-ghost" href={google} target="_blank" rel="noopener noreferrer" style={{ width: '100%', justifyContent: 'center' }}>
+                  🧭 Navegar en Google Maps
+                </a>
               </div>
             )}
           </div>
@@ -601,7 +693,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
         {canWrite && disponible && (
           <div className="surt-grid2">
             <button type="button" className="btn dlv-btn-aceptar" disabled={bloqueado} onClick={onTomar}>
-              {ocupado ? 'Aceptando…' : '✓ Aceptar · En camino'}
+              {ocupado ? 'Aceptando…' : p.estado === 'cancelado' ? '✓ Retomar Pedido' : '✓ Aceptar · En camino'}
             </button>
             <button type="button" className="btn dlv-btn-peligro" disabled={bloqueado} onClick={onNoDisponible}>
               ✕ No disponible
@@ -610,7 +702,7 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, siguiente, eta, metros
         )}
         {canWrite && mioEnCurso && p.estado === 'aceptado' && (
           <button type="button" className="btn dlv-btn-ruta" disabled={bloqueado} onClick={onEnRuta}>
-            {ocupado ? 'Guardando…' : '🚚 Marcar en camino'}
+            {ocupado ? 'Guardando…' : p.fotos_recibo.length > 0 ? '🚚 Iniciar Retorno a Sede (Almacén Los Pinos)' : '📸 Subir Foto de Recibo (Obligatoria)'}
           </button>
         )}
         {canWrite && mioEnCurso && p.estado === 'en_ruta' && (
@@ -676,6 +768,7 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
 }) {
   const fotos = tipo === 'recibo' ? p.fotos_recibo : tipo === 'factura' ? p.fotos_factura : p.fotos_entrega;
   const [subiendo, setSubiendo] = useState(false);
+  const [expandido, setExpandido] = useState(p.estado !== 'en_ruta' || fotos.length === 0);
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
   const titulo = tipo === 'recibo'
     ? (esRetiroAlmacen(p) ? '📷 Fotos al retirar en Almacén' : '📦 Fotos del producto')
@@ -703,9 +796,33 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
     } finally { setSubiendo(false); }
   }
 
+  if (tipo === 'recibo' && p.estado === 'en_ruta' && !expandido) {
+    return (
+      <div className="surt-campo" style={{ background: '#0b1320', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: 10, padding: '.5rem .75rem', marginBottom: '.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '.78rem', color: '#34d399', fontWeight: 700 }}>
+            ✓ Fase 1 (Al recibir) ya tiene {fotos.length} foto(s)
+          </span>
+          <button type="button" className="btn btn-xs btn-ghost" style={{ fontSize: '.7rem', color: '#94a3b8' }} onClick={() => setExpandido(true)}>
+            Ver fotos
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="surt-campo">
-      <label htmlFor={puedeSubir ? id : undefined}>{titulo} ({fotos.length}/{MAX_FOTOS_DELIVERY})</label>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
+        <label htmlFor={puedeSubir ? id : undefined} style={{ margin: 0 }}>
+          {titulo} ({fotos.length}/{MAX_FOTOS_DELIVERY})
+        </label>
+        {tipo === 'recibo' && p.estado === 'en_ruta' && (
+          <button type="button" className="btn btn-xs btn-ghost" style={{ fontSize: '.7rem', color: '#94a3b8' }} onClick={() => setExpandido(false)}>
+            Ocultar
+          </button>
+        )}
+      </div>
       <MiniaturasFotos fotos={fotos} />
       {puedeSubir && faltan > 0 && (
         <div className="dlv-subir" style={{ marginTop: fotos.length ? '.5rem' : 0 }}>
@@ -828,6 +945,10 @@ function FormEntregarRetiro({ p, quien, onCancel, onHecho }: {
     e.preventDefault();
     if (!p.pedido_id) return;
     if (falta) { toast('Escribe a quién se lo entregaste (unidad o persona).', 'error'); return; }
+    if (!p.fotos_entrega?.length) {
+      toast('📸 Es obligatorio adjuntar al menos 1 foto de la entrega para cerrar el pedido.', 'error');
+      return;
+    }
     setGuardando(true);
     try {
       await marcarEntregado(p.pedido_id, entregadoA.trim(), nota.trim() || null);
@@ -855,12 +976,15 @@ function FormEntregarRetiro({ p, quien, onCancel, onHecho }: {
         <textarea id="dlv-ent-nota-r" className="input surt-input" rows={3} value={nota}
           placeholder="Ej.: lo recibió el jefe de turno" onChange={(e) => setNota(e.target.value)} />
       </div>
-      {!p.fotos_entrega.length && (
-        <div className="aviso warning sm"><span className="aviso-icono">📷</span><div>Todavía no subiste fotos de la entrega. Puedes volver y agregarlas antes de confirmar.</div></div>
-      )}
+      {!p.fotos_entrega.length ? (
+        <div className="aviso danger sm">
+          <span className="aviso-icono">📸</span>
+          <div><strong>Foto obligatoria:</strong> Debes adjuntar al menos 1 foto de la entrega en destino para poder cerrar el pedido.</div>
+        </div>
+      ) : null}
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
-        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando || falta}>
+        <button type="submit" className="btn btn-primary btn-grande" disabled={guardando || falta || !p.fotos_entrega.length}>
           {guardando ? 'Guardando…' : '✅ Confirmar entrega'}
         </button>
       </div>
@@ -1119,9 +1243,6 @@ function PanelRuta({ p, paradas, ruta, yo, losPinos, puedeMarcarPinos, onQuitar 
       {google && (
         <a className="btn btn-primary" href={google} target="_blank" rel="noopener noreferrer">🗺 Abrir en Google Maps (paso a paso)</a>
       )}
-      {urlWaze(destinos[0]?.punto) && (
-        <a className="btn btn-ghost" href={urlWaze(destinos[0]?.punto) ?? undefined} target="_blank" rel="noopener noreferrer">🚗 Abrir en Waze · {destinos[0]?.nombre}</a>
-      )}
     </section>
   );
 }
@@ -1219,6 +1340,230 @@ function MarcarLosPinosAqui({ yo }: { yo: PosicionGps | null }) {
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost" onClick={() => setConfirmar(false)} disabled={guardando}>Cancelar</button>
         <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Sí, marcar aquí'}</button>
+      </div>
+    </div>
+  );
+}
+
+
+/* ============================================================
+   COMPONENTES DE CALLE · ESTILO YUMMY RIDES / RIDERY
+   ============================================================ */
+
+interface BarraCalleProps {
+  enCurso: PedidoDelivery | null;
+  siguiente: ParadaRuta | null;
+  cercano: { item: PedidoFeed; metros: number | null } | null;
+  cuenta: Record<ChipDelivery, number>;
+  chip: ChipDelivery;
+  setChip: (c: ChipDelivery) => void;
+  onAccionPrincipal: () => void;
+  onNavegar: () => void;
+  onLlamar: () => void;
+  onCamara: () => void;
+  tabActivo?: 'principal' | 'mapa' | 'analista' | 'fotos';
+}
+
+function BarraSemiflotanteCalle({
+  enCurso, siguiente, cercano, cuenta, chip, setChip,
+  onAccionPrincipal, onNavegar, onLlamar, onCamara,
+  tabActivo = 'principal',
+}: BarraCalleProps) {
+  // Con carrera en curso
+  if (enCurso) {
+    const esEntregar = enCurso.estado === 'en_ruta';
+    const tramo = tramoEnCurso(enCurso);
+    return (
+      <nav className="dlv-bottom-bar" aria-label="Acciones de viaje en calle">
+        {/* 1. ACCIÓN PRINCIPAL (Contextual) */}
+        <button
+          type="button"
+          className={`dlv-bar-btn btn-accion-p${esEntregar ? ' entregar' : ''} ${tabActivo === 'principal' ? 'active' : ''}`}
+          onClick={onAccionPrincipal}
+          title={esEntregar ? 'Confirmar entrega en destino' : tramo === 1 ? 'Marcar en camino' : 'Entregar'}
+        >
+          <span className="icono">{esEntregar ? '✅' : '⚡'}</span>
+          <span className="label">{esEntregar ? 'Entregar' : 'En camino'}</span>
+        </button>
+
+        {/* 2. NAVEGACIÓN GPS DIRECTA */}
+        <button
+          type="button"
+          className={`dlv-bar-btn btn-gps ${tabActivo === 'mapa' ? 'active' : ''}`}
+          onClick={onNavegar}
+          title="Abrir navegación en Google Maps"
+        >
+          <span className="icono">🧭</span>
+          <span className="label">Navegar</span>
+        </button>
+
+        {/* 3. LLAMADA TELEFÓNICA INMEDIATA */}
+        <button
+          type="button"
+          className={`dlv-bar-btn btn-llamar ${tabActivo === 'analista' ? 'active' : ''}`}
+          onClick={onLlamar}
+          title="Llamar teléfono directo al contacto"
+        >
+          <span className="icono">📞</span>
+          <span className="label">Llamar</span>
+        </button>
+
+        {/* 4. CÁMARA / EVIDENCIA / GUÍA */}
+        <button
+          type="button"
+          className={`dlv-bar-btn btn-camara ${tabActivo === 'fotos' ? 'active' : ''}`}
+          onClick={onCamara}
+          title="Tomar fotos de la carga o revisar guía"
+        >
+          <span className="icono">📸</span>
+          <span className="label">Fotos</span>
+        </button>
+      </nav>
+    );
+  }
+
+  // Sin carrera activa: Modo exploración de pedidos (el repartidor escoge y prioriza)
+  return (
+    <nav className="dlv-bottom-bar" aria-label="Navegación de pedidos">
+      {/* 1. ELEGIR Y VER PEDIDOS DISPONIBLES (El repartidor decide su orden de recogida) */}
+      <button
+        type="button"
+        className={`dlv-bar-btn btn-accion-p ${tabActivo === 'principal' ? 'active' : ''}`}
+        onClick={onAccionPrincipal}
+        title={`Ver lista de pedidos disponibles (${cuenta.por_tomar})`}
+      >
+        <span className="icono">📦</span>
+        <span className="label">Pedidos ({cuenta.por_tomar})</span>
+      </button>
+
+      {/* 2. GPS / CENTRAR EN MI UBICACIÓN */}
+      <button
+        type="button"
+        className={`dlv-bar-btn btn-gps ${tabActivo === 'mapa' ? 'active' : ''}`}
+        onClick={onNavegar}
+        title="Centrar mapa en mi ubicación actual"
+      >
+        <span className="icono">📍</span>
+        <span className="label">Mi GPS</span>
+      </button>
+
+      {/* 3. LLAMAR A ANALISTA / DESPACHO (Solo contactos internos) */}
+      <button
+        type="button"
+        className={`dlv-bar-btn btn-llamar ${tabActivo === 'analista' ? 'active' : ''}`}
+        onClick={onLlamar}
+        title="Contactar al Analista de Compras o Despacho"
+      >
+        <span className="icono">📞</span>
+        <span className="label">Analista</span>
+      </button>
+
+      {/* 4. HISTORIAL DE ENTREGAS */}
+      <button
+        type="button"
+        className={`dlv-bar-btn btn-camara ${tabActivo === 'fotos' ? 'active' : ''}`}
+        onClick={onCamara}
+        title="Ver pedidos entregados hoy"
+      >
+        <span className="icono">✅</span>
+        <span className="label">Entregas ({cuenta.entregados})</span>
+      </button>
+    </nav>
+  );
+}
+
+interface ModalLlamarProps {
+  pedido: PedidoDelivery | null;
+  disponibles?: PedidoDelivery[];
+  onClose: () => void;
+}
+
+function ModalLlamarRapido({ pedido, disponibles = [], onClose }: ModalLlamarProps) {
+  const retiro = pedido ? esRetiroAlmacen(pedido) : false;
+  // Solo contactos internos autorizados: Analista de compras o Almacenista/Solicitante. NUNCA el proveedor externo.
+  const telAnalista = pedido ? telHref(pedido.analista_telefono) : null;
+  const telSolicitante = pedido ? telHref(pedido.solicitante_telefono) : null;
+
+  return (
+    <div className="dlv-sheet-overlay" onClick={onClose}>
+      <div className="dlv-sheet-container" style={{ paddingBottom: '95px' }} onClick={(e) => e.stopPropagation()}>
+        <div className="dlv-sheet-handle" />
+        <div className="dlv-sheet-header">
+          <h3 className="dlv-sheet-title">
+            {pedido ? `📞 Analista · ${retiro ? pedido.codigo : ocDe(pedido)}` : '📞 Analistas por Orden'}
+          </h3>
+          <button type="button" className="dlv-sheet-close" onClick={onClose} aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
+
+        {pedido ? (
+          <div>
+            <p className="muted" style={{ fontSize: '.84rem', margin: '0 0 .75rem' }}>
+              Analista asignado a la orden activa para coordinar la entrega:
+            </p>
+            {telAnalista && (
+              <div className="dlv-analista-card">
+                <span className="dlv-analista-orden-badge">Orden: {retiro ? pedido.codigo : ocDe(pedido)}</span>
+                <div className="dlv-analista-nombre">{pedido.analista_nombre || 'Analista de Compras'}</div>
+                <div className="dlv-analista-cargo">{retiro ? 'Almacenista Los Pinos' : 'Analista en Procura'}</div>
+                <a className="dlv-analista-call-btn" href={telAnalista} onClick={onClose}>
+                  📞 Llamar al Analista ({pedido.analista_telefono})
+                </a>
+              </div>
+            )}
+            {telSolicitante && (
+              <div className="dlv-analista-card" style={{ borderColor: '#334155' }}>
+                <span className="dlv-analista-orden-badge" style={{ color: '#a78bfa', background: 'rgba(167, 139, 250, 0.12)' }}>
+                  Quien Solicitó en Mina
+                </span>
+                <div className="dlv-analista-nombre">{pedido.solicitante_nombre || 'Destinatario'}</div>
+                <div className="dlv-analista-cargo">Destinatario de la carga</div>
+                <a className="dlv-analista-call-btn" style={{ background: '#3b82f6', boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)' }} href={telSolicitante} onClick={onClose}>
+                  📞 Llamar al Solicitante ({pedido.solicitante_telefono})
+                </a>
+              </div>
+            )}
+            {!telAnalista && !telSolicitante && (
+              <div className="aviso warning sm">
+                No hay teléfono registrado para el analista o almacenista de este pedido.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <p className="muted" style={{ fontSize: '.84rem', margin: '0 0 .75rem' }}>
+              Analista responsable de cada orden disponible para coordinar antes de aceptar:
+            </p>
+            {disponibles.length > 0 ? (
+              disponibles.slice(0, 5).map((p) => {
+                const ret = esRetiroAlmacen(p);
+                const tel = telHref(p.analista_telefono);
+                return (
+                  <div key={claveDelivery(p)} className="dlv-analista-card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="dlv-analista-orden-badge">Orden: {ret ? p.codigo : ocDe(p)}</span>
+                      <span style={{ fontSize: '.72rem', color: '#94a3b8' }}>{ret ? '📦 Retiro' : '🏭 Compra'}</span>
+                    </div>
+                    <div className="dlv-analista-nombre">{p.analista_nombre || 'Analista de Compras'}</div>
+                    <div className="dlv-analista-cargo">{p.proveedor_nombre ?? 'Almacén Los Pinos'}</div>
+                    {tel ? (
+                      <a className="dlv-analista-call-btn" href={tel} onClick={onClose}>
+                        📞 Llamar al Analista ({p.analista_telefono})
+                      </a>
+                    ) : (
+                      <span className="btn btn-ghost" style={{ marginTop: '.4rem', opacity: .6 }} aria-disabled>
+                        Sin teléfono registrado
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="aviso info sm">No hay órdenes pendientes en este momento.</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -176,6 +176,771 @@
   border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
 }
 
+/* ============================================================
+   ESTILO YUMMY RIDES / RIDERY · MODO CALLE Y SOL RADIANTE
+   Alta legibilidad bajo luz solar directa, ergonomía a 1 pulgar
+   tanto para motorizados como para choferes de carga pesada.
+   ============================================================ */
+
+/* Espacio para la barra flotante */
+.surtidor.dlv-calle-view {
+  padding-bottom: 6.5rem !important;
+  background-color: #070c14 !important;
+  color: #f8fafc !important;
+}
+
+/* Tarjeta activa estilo carrera en curso */
+.dlv-card.est-en_camino.mio, .dlv-card.est-aceptado.mio {
+  background: linear-gradient(135deg, rgba(14, 23, 38, 0.95), rgba(9, 16, 29, 0.95)) !important;
+  border: 2px solid var(--primary) !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(245, 158, 11, 0.2) !important;
+  border-radius: 18px !important;
+}
+
+/* Píldora de estado de carrera viva */
+.dlv-ride-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .5rem .75rem;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 12px;
+  margin-bottom: .6rem;
+}
+.dlv-ride-status strong {
+  font-size: .95rem;
+  color: var(--gold-bright, #fbbf24);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.dlv-ride-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .75rem;
+  font-weight: 800;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  padding: .2rem .55rem;
+  border-radius: 999px;
+}
+
+/* Botonera de llamada rápida en tarjeta */
+.dlv-call-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .6rem;
+  margin: .4rem 0;
+}
+.dlv-call-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 54px;
+  padding: .5rem .75rem;
+  border-radius: 14px;
+  font-size: .92rem;
+  font-weight: 800;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--success) 18%, var(--surface-2));
+  border: 1.5px solid var(--success);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  transition: transform .1s, background .15s;
+}
+.dlv-call-btn:active {
+  transform: scale(0.96);
+  background: var(--success);
+  color: #070c14;
+}
+
+/* ============================================================
+   BARRA INFERIOR SEMIFLOTANTE (Máximo 4 acciones de calle)
+   ============================================================ */
+.dlv-bottom-bar {
+  position: fixed;
+  bottom: 1.1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 1.6rem);
+  max-width: 480px;
+  min-height: 66px;
+  background: rgba(14, 23, 38, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 2px solid rgba(245, 158, 11, 0.45);
+  border-radius: 999px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 25px rgba(245, 158, 11, 0.2);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .35rem;
+  padding: .35rem .6rem;
+  z-index: 9999;
+  align-items: center;
+  touch-action: manipulation;
+}
+
+.dlv-bar-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .25rem;
+  min-height: 54px;
+  padding: .35rem .25rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  transition: transform .1s, background .15s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.dlv-bar-btn:active {
+  transform: scale(0.94);
+}
+.dlv-bar-btn .icono {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.dlv-bar-btn .label {
+  font-size: .68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ───── BOTONES DE LA BARRA INFERIOR: BASE INACTIVA Y ESTADO ACTIVO VIVIDO ("AL OJO") ───── */
+.dlv-bar-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .25rem;
+  min-height: 54px;
+  padding: .35rem .25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.75);
+  color: #94a3b8;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  transition: transform .18s cubic-bezier(0.16, 1, 0.3, 1), background .18s, box-shadow .18s, border-color .18s, opacity .18s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0.65;
+}
+.dlv-bar-btn:active {
+  transform: scale(0.93);
+}
+
+.dlv-bar-btn .icono {
+  font-size: 1.35rem;
+  line-height: 1;
+  transition: transform .18s ease;
+}
+.dlv-bar-btn .label {
+  font-size: .66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  color: #94a3b8;
+}
+
+/* Inactivos con sutil acento de color según su rol */
+.dlv-bar-btn.btn-accion-p .icono { color: #fbbf24; }
+.dlv-bar-btn.btn-gps .icono { color: #60a5fa; }
+.dlv-bar-btn.btn-llamar .icono { color: #34d399; }
+.dlv-bar-btn.btn-camara .icono { color: #c084fc; }
+
+/* ───── ESTADO ACTIVO: "HACER SABER AL OJO" (Brillo intenso, contraste para sol, elevación) ───── */
+.dlv-bar-btn.active {
+  opacity: 1 !important;
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
+}
+.dlv-bar-btn.active .icono {
+  transform: scale(1.1);
+}
+
+/* 1. Botón Activo: Acción Principal (Ámbar / En curso) */
+.dlv-bar-btn.btn-accion-p.active {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border: 2px solid #fef08a;
+  box-shadow: 0 0 22px rgba(245, 158, 11, 0.8), 0 6px 16px rgba(0, 0, 0, 0.7);
+  color: #070c14;
+}
+.dlv-bar-btn.btn-accion-p.active .icono {
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+.dlv-bar-btn.btn-accion-p.active .label {
+  color: #070c14;
+  font-weight: 900;
+}
+
+/* 1b. Botón Activo: Confirmar Entrega (Verde Esmeralda) */
+.dlv-bar-btn.btn-accion-p.entregar.active {
+  background: linear-gradient(135deg, #10b981, #059669);
+  border: 2px solid #a7f3d0;
+  box-shadow: 0 0 22px rgba(16, 185, 129, 0.8), 0 6px 16px rgba(0, 0, 0, 0.7);
+  color: #042f14;
+}
+.dlv-bar-btn.btn-accion-p.entregar.active .label {
+  color: #042f14;
+  font-weight: 900;
+}
+
+/* 2. Botón Activo: Mi GPS / Navegación (Azul Eléctrico) */
+.dlv-bar-btn.btn-gps.active {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border: 2px solid #bfdbfe;
+  box-shadow: 0 0 22px rgba(37, 99, 235, 0.85), 0 6px 16px rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+}
+.dlv-bar-btn.btn-gps.active .icono {
+  color: #ffffff;
+  filter: drop-shadow(0 0 6px rgba(147, 197, 253, 0.9));
+}
+.dlv-bar-btn.btn-gps.active .label {
+  color: #ffffff;
+  font-weight: 900;
+}
+
+/* 3. Botón Activo: Analista / Llamada (Verde Intenso) */
+.dlv-bar-btn.btn-llamar.active {
+  background: linear-gradient(135deg, #059669, #047857);
+  border: 2px solid #a7f3d0;
+  box-shadow: 0 0 22px rgba(16, 185, 129, 0.85), 0 6px 16px rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+}
+.dlv-bar-btn.btn-llamar.active .icono {
+  color: #ffffff;
+  filter: drop-shadow(0 0 6px rgba(110, 231, 183, 0.9));
+}
+.dlv-bar-btn.btn-llamar.active .label {
+  color: #ffffff;
+  font-weight: 900;
+}
+
+/* 4. Botón Activo: Fotos / Evidencia (Púrpura Neón) */
+.dlv-bar-btn.btn-camara.active {
+  background: linear-gradient(135deg, #9333ea, #7e22ce);
+  border: 2px solid #f3e8ff;
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.9), 0 6px 16px rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+}
+.dlv-bar-btn.btn-camara.active .icono {
+  color: #ffffff;
+  filter: drop-shadow(0 0 6px rgba(233, 213, 255, 0.95));
+}
+.dlv-bar-btn.btn-camara.active .label {
+  color: #ffffff;
+  font-weight: 900;
+}
+
+/* ───── PANTALLAS PROTAGONISTAS (CERO SOLAPAMIENTOS, PROTAGONISMO TOTAL) ───── */
+.dlv-protagonista-screen {
+  display: flex;
+  flex-direction: column;
+  gap: .9rem;
+  width: 100%;
+  min-height: calc(100vh - 170px);
+  padding-bottom: 105px; /* Amplitud para que NADA quede tapado por la barra flotante */
+  animation: dlv-fade-scale .2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dlv-fade-scale {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dlv-screen-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .6rem .8rem;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+}
+.dlv-screen-title {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #f8fafc;
+  margin: 0;
+}
+.dlv-screen-sub {
+  font-size: .78rem;
+  color: #94a3b8;
+  margin-top: .15rem;
+}
+
+/* ───── TARJETAS DE LOS DOS MOMENTOS FOTOGRÁFICOS ───── */
+.dlv-foto-momento-card {
+  background: #0b1320;
+  border: 1.5px solid #1e293b;
+  border-radius: 16px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  position: relative;
+  transition: border-color .15s;
+}
+.dlv-foto-momento-card.completado {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: linear-gradient(180deg, rgba(6, 78, 59, 0.15) 0%, #0b1320 100%);
+}
+.dlv-foto-momento-card.pendiente {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.15) 0%, #0b1320 100%);
+}
+
+.dlv-momento-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: .5rem;
+}
+.dlv-momento-tag {
+  font-size: .7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: .2rem .55rem;
+  border-radius: 6px;
+  display: inline-block;
+}
+.dlv-momento-tag.m1 {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.dlv-momento-tag.m2 {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.dlv-momento-titulo {
+  font-size: .95rem;
+  font-weight: 800;
+  color: #f1f5f9;
+  margin: .35rem 0 .15rem;
+}
+.dlv-momento-desc {
+  font-size: .78rem;
+  color: #94a3b8;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.dlv-foto-galeria {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: .5rem;
+  margin-top: .25rem;
+}
+.dlv-foto-item {
+  aspect-ratio: 1;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dlv-foto-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dlv-foto-badge-label {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.75);
+  font-size: .62rem;
+  color: #f3f4f6;
+  text-align: center;
+  border-radius: 4px;
+  padding: 1px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dlv-btn-tomar-foto {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 50px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: .9rem;
+  cursor: pointer;
+  border: none;
+  transition: transform .12s, filter .15s;
+  user-select: none;
+  text-decoration: none;
+}
+.dlv-btn-tomar-foto:active {
+  transform: scale(0.96);
+}
+.dlv-btn-tomar-foto.m1 {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #070c14;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);
+}
+.dlv-btn-tomar-foto.m2 {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+}
+
+/* ───── INDICADOR DE FASES DE FOTOS (STEPPER) ───── */
+.dlv-fases-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: .65rem .85rem;
+  gap: .5rem;
+}
+.dlv-fase-step {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex: 1;
+}
+.dlv-fase-step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: .78rem;
+  font-weight: 800;
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1.5px solid #334155;
+  flex-shrink: 0;
+}
+.dlv-fase-step.activo .dlv-fase-step-num {
+  background: #3b82f6;
+  color: #ffffff;
+  border-color: #93c5fd;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+}
+.dlv-fase-step.pasado .dlv-fase-step-num {
+  background: #059669;
+  color: #ffffff;
+  border-color: #34d399;
+}
+.dlv-fase-step-body {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.dlv-fase-step-title {
+  font-size: .76rem;
+  font-weight: 800;
+  color: #f1f5f9;
+}
+.dlv-fase-step-sub {
+  font-size: .67rem;
+  font-weight: 700;
+}
+.dlv-fase-step-sub.listo {
+  color: #34d399;
+}
+.dlv-fase-step-sub.alerta {
+  color: #fbbf24;
+}
+.dlv-fase-step-sub.espera {
+  color: #64748b;
+}
+
+.dlv-fase-step-divider {
+  width: 20px;
+  height: 2px;
+  background: #334155;
+  flex-shrink: 0;
+}
+.dlv-fase-step-divider.listo {
+  background: #10b981;
+}
+
+/* ───── TARJETA BLOQUEADA (PRÓXIMA FASE) ───── */
+.dlv-foto-momento-card.bloqueado {
+  opacity: 0.62;
+  border: 1.5px dashed #334155;
+  background: rgba(15, 23, 42, 0.45);
+}
+.dlv-badge-fase {
+  font-size: .68rem;
+  font-weight: 800;
+  padding: .2rem .5rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+.dlv-badge-fase.bloqueado {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+}
+.dlv-badge-fase.listo {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.dlv-badge-fase.requerido {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+/* ───── TARJETA RESUMEN CUMPLIDO (FASE YA CON FOTO) ───── */
+.dlv-foto-momento-resumen {
+  background: #0b1320;
+  border: 1.5px solid rgba(16, 185, 129, 0.4);
+  border-radius: 14px;
+  padding: .85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+
+/* ───────── BOTTOM SHEET MÓVIL ESTILO APP (NO ROMPE VISTA TELÉFONO) ───────── */
+.dlv-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(6px);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+}
+
+.dlv-sheet-container {
+  width: 100%;
+  max-width: 480px;
+  background: #0b1320;
+  border: 1px solid #1e293b;
+  border-bottom: none;
+  border-radius: 24px 24px 0 0;
+  padding: .85rem 1.15rem 2.25rem;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.85);
+  animation: dlv-sheet-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 88vh;
+  overflow-y: auto;
+  color: #f1f5f9;
+}
+
+@keyframes dlv-sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.dlv-sheet-handle {
+  width: 42px;
+  height: 5px;
+  border-radius: 3px;
+  background: #475569;
+  margin: 0 auto .75rem;
+  opacity: .8;
+}
+
+.dlv-sheet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: .85rem;
+  padding-bottom: .6rem;
+  border-bottom: 1px solid #1e293b;
+}
+
+.dlv-sheet-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 0;
+}
+
+.dlv-sheet-close {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all .15s;
+}
+.dlv-sheet-close:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+/* Tarjeta del Analista Responsable de la Orden */
+.dlv-analista-card {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  padding: .9rem 1rem;
+  border-radius: 16px;
+  background: #111c2e;
+  border: 1px solid #23354d;
+  margin-bottom: .75rem;
+}
+.dlv-analista-card:hover {
+  border-color: #3b82f6;
+}
+.dlv-analista-orden-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .75rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  padding: .15rem .5rem;
+  border-radius: 6px;
+  align-self: flex-start;
+}
+.dlv-analista-nombre {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+.dlv-analista-cargo {
+  font-size: .8rem;
+  color: #94a3b8;
+}
+.dlv-analista-call-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .65rem;
+  min-height: 52px;
+  margin-top: .4rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: .95rem;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+  transition: transform .15s, filter .15s;
+}
+.dlv-analista-call-btn:hover, .dlv-analista-call-btn:active {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+/* Visor de Mapa Móvil en Sheet */
+.dlv-mapa-canvas-mock {
+  width: 100%;
+  height: 240px;
+  border-radius: 16px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+.dlv-mapa-radar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  background: #3b82f6;
+  border-radius: 50%;
+  box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.35);
+  animation: dlv-radar-pulse 2s infinite ease-out;
+}
+@keyframes dlv-radar-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+  70% { box-shadow: 0 0 0 24px rgba(59, 130, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+
+/* Modal de Llamada Rápida de Calle */
+.dlv-modal-llamar-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  padding: .5rem 0;
+}
+.dlv-modal-call-btn {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 64px;
+  padding: .8rem 1.1rem;
+  border-radius: 16px;
+  background: #0e1726;
+  border: 2px solid var(--border);
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 1.05rem;
+  font-weight: 700;
+  transition: border-color .15s, transform .1s;
+}
+.dlv-modal-call-btn:hover, .dlv-modal-call-btn:active {
+  border-color: var(--success);
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--success) 12%, #0e1726);
+}
+.dlv-modal-call-btn .call-ico {
+  font-size: 1.6rem;
+}
+.dlv-modal-call-btn small {
+  display: block;
+  font-size: .8rem;
+  color: #94a3b8;
+  font-family: var(--font-mono);
+}
+
 /* 12/11/2026 · segmentos «Cargar factura» / «Cargar foto del producto». */
 .dlv-seg-wrap { display: flex; flex-direction: column; gap: .45rem; }
 .dlv-seg { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; padding: .25rem; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
