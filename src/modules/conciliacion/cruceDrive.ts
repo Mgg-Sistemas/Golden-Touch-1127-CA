@@ -381,6 +381,7 @@ export function extraerCodigosDeDescripcion(textoDesc: string): { tipo: string; 
   const REGEX_INVERTIDO = /\b(\d{1,5})\s*[-#]?\s*(ODC|OC|CS|SERV|SERVICIO|OSV|SV)\b(?:\s+(MGG|GT))?/gi;
 
   const resultados: { tipo: string; numero: number; raw: string }[] = [];
+  const rangosOcupados: [number, number][] = [];
 
   let m: RegExpExecArray | null;
   while ((m = REGEX_NORMAL.exec(textoDesc)) !== null) {
@@ -388,12 +389,13 @@ export function extraerCodigosDeDescripcion(textoDesc: string): { tipo: string; 
     let tipo = 'OC';
     if (/^(ODC|OC|ORDEN)/i.test(rawPref)) tipo = 'OC';
     else if (/^(CS|CD|CONTROL)/i.test(rawPref)) tipo = 'CS';
-    else if (/^(SERV|SERVICIO|OSV|SV)/i.test(rawPref)) tipo = 'SERV';
+    else if (/^(SERV|SERVICIO)/i.test(rawPref)) tipo = 'SERV';
 
     const num1 = Number(m[2]);
     const tag1 = (m[3] || '').toUpperCase();
     if (tag1 !== 'MGG') {
       resultados.push({ tipo, numero: num1, raw: `${rawPref} ${num1}` });
+      rangosOcupados.push([m.index, m.index + m[0].length]);
     }
 
     if (m[4]) {
@@ -412,6 +414,18 @@ export function extraerCodigosDeDescripcion(textoDesc: string): { tipo: string; 
   }
 
   while ((m = REGEX_INVERTIDO.exec(textoDesc)) !== null) {
+    const inicio = m.index;
+    const fin = inicio + m[0].length;
+    // Si solapa con un rango ya consumido por REGEX_NORMAL, ignorar
+    const solapa = rangosOcupados.some(([rIni, rFin]) => Math.max(inicio, rIni) < Math.min(fin, rFin));
+    if (solapa) continue;
+
+    // Si 'SERVICIO' viene seguido de ' DE ', es frase común en español (ej. "SERVICIO DE MANTENIMIENTO") y no sufijo de código:
+    const textoPosterior = textoDesc.slice(fin);
+    if (/^(SERV|SERVICIO|SERVICIOS)/i.test(m[2]) && /^\s+DE\b/i.test(textoPosterior)) {
+      continue;
+    }
+
     const num = Number(m[1]);
     const rawPref = m[2].toUpperCase();
     const tag = (m[3] || '').toUpperCase();
@@ -421,7 +435,7 @@ export function extraerCodigosDeDescripcion(textoDesc: string): { tipo: string; 
     else if (/^(CS|CD)/i.test(rawPref)) tipo = 'CS';
     else if (/^(SERV|SERVICIO|OSV|SV)/i.test(rawPref)) tipo = 'SERV';
 
-    if (!resultados.some((r) => r.tipo === tipo && r.numero === num)) {
+    if (!resultados.some((r) => r.numero === num)) {
       resultados.push({ tipo, numero: num, raw: `${tipo} ${num}` });
     }
   }
@@ -879,9 +893,34 @@ export interface CruceDrive {
 }
 
 function buscarDoc(f: FilaArchivoDrive, porCodigo: Map<string, FilaConciliacion>, filas: FilaConciliacion[], tol: number) {
+  // 1. PRIORIDAD MÁXIMA: Si el movimiento bancario trae referencia y monto en Bs, y existe exactamente 1 documento
+  // cuyas referencias bancarias y monto coincidan, ese es el documento real (incluso si en la descripción del pago
+  // hubo una errata humana en el código de la OC, ej. escribir "ODC 224" en vez de "ODC 226").
+  if (f.referencia && f.montoBs != null) {
+    const conRefYMonto = filas.filter(
+      (r) => r.referencias.some((x) => mismaReferencia(x, f.referencia)) && coincideMonto(f.montoBs as number, r, tol)
+    );
+    if (conRefYMonto.length === 1) {
+      return { r: conRefYMonto[0], por: 'referencia' as const, nota: null };
+    }
+  }
+
+  // 2. Coincidencia por código de OC / documento
   if (f.oc) {
     const direct = porCodigo.get(normCodigo(f.oc));
-    if (direct) return { r: direct, por: 'codigo' as const, nota: null };
+    if (direct) {
+      // Si el código coincide directamente pero ni el monto ni la referencia coinciden en absoluto,
+      // y el movimiento trae referencia, verificar si esa referencia pertenece a otro documento:
+      const directMontoOk = f.montoBs != null && coincideMonto(f.montoBs, direct, tol);
+      const directRefOk = !f.referencia || direct.referencias.some((x) => mismaReferencia(x, f.referencia));
+      if (!directMontoOk && !directRefOk && f.referencia) {
+        const conRef = filas.filter((r) => r.referencias.some((x) => mismaReferencia(x, f.referencia)));
+        if (conRef.length === 1) {
+          return { r: conRef[0], por: 'referencia' as const, nota: null };
+        }
+      }
+      return { r: direct, por: 'codigo' as const, nota: null };
+    }
     const fuzzy = filas.filter((r) => coincidenCodigosDoc(f.oc, r.codigo));
     if (fuzzy.length === 1) return { r: fuzzy[0], por: 'codigo' as const, nota: null };
     if (fuzzy.length > 1) {
@@ -899,6 +938,8 @@ function buscarDoc(f: FilaArchivoDrive, porCodigo: Map<string, FilaConciliacion>
       if (candidatas.length === 1) return { r: candidatas[0], por: 'codigo' as const, nota: null };
     }
   }
+
+  // 3. Coincidencia por referencia bancaria
   if (f.referencia) {
     const conRef = filas.filter((r) => r.referencias.some((x) => mismaReferencia(x, f.referencia)));
     if (conRef.length === 1) return { r: conRef[0], por: 'referencia' as const, nota: null };
