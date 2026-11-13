@@ -100,6 +100,62 @@ export function espacioLibre(docs: { espacio: number }[]): number | null {
 }
 
 /**
+ * Sugiere un nombre limpio para el documento a partir del nombre original del archivo:
+ * retira la extensión, convierte separadores (guiones, puntos, guiones bajos) en espacios
+ * y lo normaliza a mayúsculas.
+ * Ej: "titulo_de_propiedad-volteo-01.pdf" -> "TITULO DE PROPIEDAD VOLTEO 01"
+ */
+export function sugerirNombreDesdeArchivo(archivo: string | null | undefined): string {
+  if (!archivo) return '';
+  const sinExt = (archivo || '').replace(/\.[a-z0-9]+$/i, '');
+  const conEspacios = sinExt.replace(/[-_+.]+/g, ' ');
+  return normalizarNombreDocumento(conEspacios);
+}
+
+/**
+ * Devuelve todos los números de espacio libres (del 1 al MAX_DOCUMENTOS_EQUIPO) en orden ascendente.
+ */
+export function espaciosLibres<T extends { espacio: number }>(docs: T[]): number[] {
+  const ocupados = new Set(docs.map((d) => d.espacio));
+  const libres: number[] = [];
+  for (let i = 1; i <= MAX_DOCUMENTOS_EQUIPO; i++) {
+    if (!ocupados.has(i)) libres.push(i);
+  }
+  return libres;
+}
+
+export interface ArchivoEnLote {
+  id: string;
+  file: File;
+  espacio: number;
+  nombre: string;
+}
+
+/**
+ * Asigna una lista de archivos a los espacios libres disponibles en el equipo.
+ * Admite hasta `limiteMaximo` archivos por lote (por defecto 10).
+ */
+export function asignarArchivosAEspacios(
+  files: File[],
+  docs: { espacio: number }[],
+  limiteMaximo = 10,
+): ArchivoEnLote[] {
+  const libres = espaciosLibres(docs);
+  const cantidad = Math.min(files.length, libres.length, limiteMaximo);
+  const resultado: ArchivoEnLote[] = [];
+  for (let i = 0; i < cantidad; i++) {
+    const f = files[i];
+    resultado.push({
+      id: `lote-${i}-${Math.random().toString(36).slice(2, 9)}`,
+      file: f,
+      espacio: libres[i],
+      nombre: sugerirNombreDesdeArchivo(f.name) || `DOCUMENTO ${libres[i]}`,
+    });
+  }
+  return resultado;
+}
+
+/**
  * Nombre de una foto subida desde la tarjeta del equipo (16/10/2026): la primera
  * es «FOTO DEL EQUIPO»; las siguientes, «FOTO DEL EQUIPO 2», «… 3»…
  */

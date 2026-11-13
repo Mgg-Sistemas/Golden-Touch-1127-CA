@@ -100,6 +100,57 @@ export async function subirDocumentoEquipo(input: {
   return data as DocumentoEquipo;
 }
 
+export interface ItemSubidaLote {
+  equipoId: string;
+  espacio: number;
+  nombre: string;
+  file: File;
+  actor: string;
+  actorNombre: string | null;
+}
+
+export interface ResultadoSubidaLote {
+  exitosos: DocumentoEquipo[];
+  errores: Array<{ archivo: string; error: string }>;
+}
+
+/**
+ * Sube una lista de documentos en lote de forma secuencial, reportando progreso
+ * y capturando errores individuales para no interrumpir el resto de los archivos.
+ */
+export async function subirDocumentosLote(
+  lote: ItemSubidaLote[],
+  onProgreso?: (progreso: { actual: number; total: number; nombre: string }) => void,
+): Promise<ResultadoSubidaLote> {
+  const exitosos: DocumentoEquipo[] = [];
+  const errores: Array<{ archivo: string; error: string }> = [];
+
+  for (let i = 0; i < lote.length; i++) {
+    const item = lote[i];
+    if (onProgreso) {
+      onProgreso({ actual: i + 1, total: lote.length, nombre: item.nombre || item.file.name });
+    }
+    try {
+      const doc = await subirDocumentoEquipo({
+        equipoId: item.equipoId,
+        espacio: item.espacio,
+        nombre: item.nombre,
+        file: item.file,
+        actor: item.actor,
+        actorNombre: item.actorNombre,
+      });
+      exitosos.push(doc);
+    } catch (err) {
+      errores.push({
+        archivo: item.file.name,
+        error: err instanceof Error ? err.message : 'Error desconocido al subir archivo',
+      });
+    }
+  }
+
+  return { exitosos, errores };
+}
+
 /** Reemplaza el archivo de un documento. El nombre y el espacio no cambian. */
 export async function cambiarArchivoDocumento(
   doc: DocumentoEquipo, file: File, actor: string, actorNombre: string | null,

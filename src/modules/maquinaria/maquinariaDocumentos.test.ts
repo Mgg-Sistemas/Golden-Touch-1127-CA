@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MAX_DOCUMENTOS_EQUIPO, espacioLibre, espaciosDocumentos, espaciosVisibles, ordenarFotosEquipo, nombreFotoEquipo, nombreDescargaDocumento, normalizarNombreDocumento,
-  rutaDocumento, tamanoLegible, validarArchivoDocumento,
+  rutaDocumento, tamanoLegible, validarArchivoDocumento, sugerirNombreDesdeArchivo, espaciosLibres, asignarArchivosAEspacios,
 } from './maquinariaDocumentos';
 
 const MB = 1024 * 1024;
@@ -104,5 +104,55 @@ describe('hasta 20 documentos: se ven los cargados y un espacio libre', () => {
     const llenos = Array.from({ length: 20 }, (_, i) => ({ espacio: i + 1 }));
     expect(espaciosVisibles(llenos)).toHaveLength(20);
     expect(espacioLibre(llenos)).toBeNull();
+  });
+});
+
+describe('sugerirNombreDesdeArchivo', () => {
+  it('quita la extensión y limpia guiones, puntos y guiones bajos', () => {
+    expect(sugerirNombreDesdeArchivo('titulo_de_propiedad_volteo_01.pdf')).toBe('TITULO DE PROPIEDAD VOLTEO 01');
+    expect(sugerirNombreDesdeArchivo('poliza-seguro-2026.png')).toBe('POLIZA SEGURO 2026');
+    expect(sugerirNombreDesdeArchivo('inspeccion.mina.04.JPG')).toBe('INSPECCION MINA 04');
+  });
+  it('maneja valores vacíos', () => {
+    expect(sugerirNombreDesdeArchivo('')).toBe('');
+    expect(sugerirNombreDesdeArchivo(null)).toBe('');
+  });
+});
+
+describe('espaciosLibres y asignarArchivosAEspacios (carga masiva)', () => {
+  it('devuelve todos los números libres del 1 al 20', () => {
+    expect(espaciosLibres([])).toHaveLength(20);
+    expect(espaciosLibres([{ espacio: 1 }, { espacio: 2 }])).toEqual(
+      Array.from({ length: 18 }, (_, i) => i + 3),
+    );
+  });
+
+  it('asigna hasta 10 archivos a los espacios libres disponibles', () => {
+    const mockFiles = Array.from({ length: 12 }, (_, i) => ({
+      name: `documento_${i + 1}.pdf`,
+      size: 1000,
+      type: 'application/pdf',
+    })) as unknown as File[];
+
+    const asignados = asignarArchivosAEspacios(mockFiles, [{ espacio: 1 }, { espacio: 2 }]);
+    // Debe respetar el límite de 10 por lote
+    expect(asignados).toHaveLength(10);
+    expect(asignados[0].espacio).toBe(3);
+    expect(asignados[0].nombre).toBe('DOCUMENTO 1');
+    expect(asignados[9].espacio).toBe(12);
+    expect(asignados[9].nombre).toBe('DOCUMENTO 10');
+  });
+
+  it('no sobrepasa los espacios libres si quedan menos de 10', () => {
+    const ocupados = Array.from({ length: 17 }, (_, i) => ({ espacio: i + 1 })); // quedan 3
+    const mockFiles = Array.from({ length: 5 }, (_, i) => ({
+      name: `archivo_${i}.pdf`,
+      size: 1000,
+      type: 'application/pdf',
+    })) as unknown as File[];
+
+    const asignados = asignarArchivosAEspacios(mockFiles, ocupados);
+    expect(asignados).toHaveLength(3);
+    expect(asignados.map((a) => a.espacio)).toEqual([18, 19, 20]);
   });
 });

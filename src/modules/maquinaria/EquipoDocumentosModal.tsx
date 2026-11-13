@@ -11,11 +11,12 @@ import { MaquinariaCatalogoModal } from './MaquinariaCatalogoModal';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import {
   listDocumentosEquipo, subirDocumentoEquipo, cambiarArchivoDocumento, renombrarDocumento,
-  eliminarDocumentoEquipo, urlDocumentoEquipo, type DocumentoEquipo,
+  eliminarDocumentoEquipo, urlDocumentoEquipo, subirDocumentosLote, type DocumentoEquipo,
 } from './maquinariaDocumentos.repository';
 import {
   ACCEPT_DOCUMENTO, MAX_DOCUMENTOS_EQUIPO, MAX_MB_DOCUMENTO, espaciosVisibles,
   nombreDescargaDocumento, normalizarNombreDocumento, tamanoLegible, validarArchivoDocumento,
+  espaciosLibres, asignarArchivosAEspacios, sugerirNombreDesdeArchivo, type ArchivoEnLote,
 } from './maquinariaDocumentos';
 
 interface Props {
@@ -27,7 +28,8 @@ interface Props {
 }
 
 /**
- * Documentos de un equipo (contrato, catálogo, póliza…): 4 espacios independientes.
+ * Documentos de un equipo (contrato, catálogo, póliza…): hasta 20 espacios independientes.
+ * Admite Drag & Drop masivo (hasta 10 documentos a la vez) y por espacio individual.
  * Cada uno se sube, se ve/descarga, se renombra, se le cambia el archivo y se elimina
  * por separado. Los nombres salen del catálogo (y uno nuevo se guarda solo). En vivo.
  */
@@ -36,6 +38,13 @@ export function EquipoDocumentosModal({ equipo, canWrite, actor, actorName, onCl
   const [nombres, setNombres] = useState<string[]>([]);
   const [cargando, setCargando] = useState(true);
   const [catalogoOpen, setCatalogoOpen] = useState(false);
+
+  // Estados para carga masiva y Drag & Drop
+  const [lote, setLote] = useState<ArchivoEnLote[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [subiendoLote, setSubiendoLote] = useState(false);
+  const [progresoLote, setProgresoLote] = useState<{ actual: number; total: number; nombre: string } | null>(null);
+  const batchInputRef = useRef<HTMLInputElement>(null);
 
   const recargar = useCallback(async () => {
     const [d, n] = await Promise.all([
@@ -58,11 +67,121 @@ export function EquipoDocumentosModal({ equipo, canWrite, actor, actorName, onCl
   }, [recargar]);
 
   const listId = `maq-doc-nombres-${equipo.id}`;
+  const libres = espaciosLibres(docs);
+
+  // Manejadores para Drag & Drop masivo
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!canWrite || subiendoLote) return;
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const procesarArchivos = (fileList: FileList | File[]) => {
+    const rawFiles = Array.from(fileList);
+    if (!rawFiles.length) return;
+
+    if (libres.length === 0) {
+      toast(`Este equipo ya tiene ocupados los ${MAX_DOCUMENTOS_EQUIPO} espacios de documentos.`, 'warning');
+      return;
+    }
+
+    const validos: File[] = [];
+    for (const f of rawFiles) {
+      const problema = validarArchivoDocumento(f);
+      if (problema) {
+        toast(problema, 'error');
+        continue;
+      }
+      validos.push(f);
+    }
+
+    if (!validos.length) return;
+
+    const maxPermitidos = Math.min(libres.length, 10);
+    if (validos.length > maxPermitidos) {
+      toast(
+        `Seleccionaste ${validos.length} archivos. Se procesarán los primeros ${maxPermitidos} (hasta 10 por tanda según los espacios libres).`,
+        'warning',
+      );
+    }
+
+    const asignados = asignarArchivosAEspacios(validos, docs, 10);
+    setLote(asignados);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (!canWrite || subiendoLote) return;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      procesarArchivos(e.dataTransfer.files);
+    }
+  };
+
+  const actualizarNombreLote = (id: string, nuevoNombre: string) => {
+    setLote((prev) => prev.map((item) => (item.id === id ? { ...item, nombre: nuevoNombre.toUpperCase() } : item)));
+  };
+
+  const quitarDelLote = (id: string) => {
+    setLote((prev) => {
+      const restantes = prev.filter((item) => item.id !== id);
+      return restantes.map((item, idx) => ({ ...item, espacio: libres[idx] ?? item.espacio }));
+    });
+  };
+
+  const ejecutarSubidaLote = async () => {
+    if (!lote.length) return;
+
+    const sinNombre = lote.find((item) => !normalizarNombreDocumento(item.nombre));
+    if (sinNombre) {
+      toast(`El archivo «${sinNombre.file.name}» no tiene un nombre de documento asignado.`, 'error');
+      return;
+    }
+
+    setSubiendoLote(true);
+    try {
+      const payload = lote.map((item) => ({
+        equipoId: equipo.id,
+        espacio: item.espacio,
+        nombre: item.nombre,
+        file: item.file,
+        actor,
+        actorNombre: actorName,
+      }));
+
+      const res = await subirDocumentosLote(payload, (p) => setProgresoLote(p));
+
+      if (res.errores.length > 0) {
+        for (const err of res.errores) {
+          toast(`Error en «${err.archivo}»: ${err.error}`, 'error');
+        }
+      }
+
+      if (res.exitosos.length > 0) {
+        toast(`Se subieron con éxito ${res.exitosos.length} documento${res.exitosos.length > 1 ? 's' : ''}`, 'success');
+        setLote([]);
+        await alCambiar();
+      }
+    } catch (e) {
+      toast(mensajeError(e, 'Error al subir los documentos en lote'), 'error');
+    } finally {
+      setSubiendoLote(false);
+      setProgresoLote(null);
+    }
+  };
 
   return (
     <Modal
       title={`📎 Documentos · ${equipo.equipo}`}
-      size="lg"
+      size="xl"
       onClose={onClose}
       footer={
         <>
@@ -75,13 +194,159 @@ export function EquipoDocumentosModal({ equipo, canWrite, actor, actorName, onCl
         </>
       }
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
-        Hasta <strong>{MAX_DOCUMENTOS_EQUIPO} documentos</strong> por equipo, en PDF o imagen de hasta {MAX_MB_DOCUMENTO} MB cada uno.
-        Cada espacio es independiente; al cargar uno aparece el siguiente libre. <strong>{docs.length} de {MAX_DOCUMENTOS_EQUIPO}</strong> cargados.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.65rem' }}>
+        <p className="muted" style={{ margin: 0, fontSize: '.84rem' }}>
+          Hasta <strong>{MAX_DOCUMENTOS_EQUIPO} documentos</strong> por equipo, en PDF o imagen de hasta {MAX_MB_DOCUMENTO} MB cada uno.
+          Actualmente <strong>{docs.length} de {MAX_DOCUMENTOS_EQUIPO}</strong> cargados ({libres.length} espacios libres).
+        </p>
+      </div>
+
       <datalist id={listId}>
         {nombres.map((n) => <option key={n} value={n} />)}
       </datalist>
+
+      {/* Zona de Drag & Drop y Carga Masiva (al menos 10 documentos por intento) */}
+      {canWrite && libres.length > 0 && (
+        <div style={{ marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => { if (!subiendoLote) batchInputRef.current?.click(); }}
+            style={{
+              border: isDragging ? '2px dashed var(--primary, #3b82f6)' : '2px dashed var(--border, rgba(255,255,255,0.18))',
+              background: isDragging ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+              borderRadius: '8px',
+              padding: '1.25rem 1rem',
+              textAlign: 'center',
+              cursor: subiendoLote ? 'not-allowed' : 'pointer',
+              transition: 'all 0.18s ease',
+            }}
+          >
+            <div style={{ fontSize: '1.9rem', marginBottom: '.25rem' }}>📤</div>
+            <div style={{ fontWeight: 700, fontSize: '.95rem', color: 'var(--text)' }}>
+              Arrastra y suelta aquí hasta {Math.min(libres.length, 10)} documentos a la vez (PDF o imágenes)
+            </div>
+            <div className="muted" style={{ fontSize: '.76rem', marginTop: '.25rem' }}>
+              o haz clic para seleccionar varios archivos · hasta {MAX_MB_DOCUMENTO} MB cada uno · sin tener que cargar uno a uno
+            </div>
+            <input
+              ref={batchInputRef}
+              type="file"
+              multiple
+              accept={ACCEPT_DOCUMENTO}
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files) procesarArchivos(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </div>
+
+          {/* Lote en Espera / Staging */}
+          {lote.length > 0 && (
+            <div
+              className="card"
+              style={{
+                margin: 0,
+                padding: '1rem',
+                border: '1px solid var(--primary, #3b82f6)',
+                background: 'var(--surface-2, rgba(255,255,255,0.04))',
+                borderRadius: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '.75rem',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+                <div>
+                  <strong style={{ fontSize: '.95rem' }}>
+                    📋 Documentos preparados para subir ({lote.length})
+                  </strong>
+                  <div className="muted" style={{ fontSize: '.75rem' }}>
+                    Revisa o ajusta el nombre que tendrá cada documento en el catálogo antes de confirmar:
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '.4rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={subiendoLote}
+                    onClick={() => setLote([])}
+                  >
+                    Descartar lote
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={subiendoLote}
+                    onClick={() => void ejecutarSubidaLote()}
+                  >
+                    {subiendoLote ? 'Subiendo…' : `⬆ Subir ${lote.length} documento${lote.length > 1 ? 's' : ''}`}
+                  </button>
+                </div>
+              </div>
+
+              {subiendoLote && progresoLote && (
+                <div style={{ padding: '.5rem .75rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '6px', fontSize: '.82rem' }}>
+                  ⏳ Subiendo {progresoLote.actual} de {progresoLote.total}: <strong>{progresoLote.nombre}</strong>…
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '.5rem', maxHeight: '320px', overflowY: 'auto', paddingRight: '.25rem' }}>
+                {lote.map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '.35rem',
+                      padding: '.6rem .75rem',
+                      background: 'var(--surface-1, rgba(0,0,0,0.25))',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border, rgba(255,255,255,0.08))',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
+                      <span className="badge" style={{ fontSize: '.68rem', padding: '.15rem .45rem' }}>
+                        Espacio {item.espacio}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        style={{ color: 'var(--danger, #ef4444)', padding: '0 .3rem' }}
+                        disabled={subiendoLote}
+                        onClick={() => quitarDelLote(item.id)}
+                        title="Quitar de este lote"
+                      >
+                        ✕ Quitar
+                      </button>
+                    </div>
+
+                    <div className="muted" style={{ fontSize: '.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.file.name}>
+                      📁 {item.file.name} · {tamanoLegible(item.file.size)}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                      <label style={{ fontSize: '.7rem', margin: 0 }} className="muted">Nombre del documento</label>
+                      <input
+                        className="input input-sm"
+                        list={listId}
+                        autoComplete="off"
+                        value={item.nombre}
+                        disabled={subiendoLote}
+                        style={{ fontSize: '.8rem', padding: '.3rem .5rem' }}
+                        onChange={(e) => actualizarNombreLote(item.id, e.target.value)}
+                        placeholder="Ej. CONTRATO DE COMPRA"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {cargando ? (
         <p className="muted">Cargando…</p>
@@ -129,6 +394,8 @@ function EspacioDocumento({ espacio, doc, equipoId, canWrite, actor, actorName, 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [editandoNombre, setEditandoNombre] = useState(false);
   const [confirmarEliminar, setConfirmarEliminar] = useState(false);
+  const [cardDragging, setCardDragging] = useState(false);
+
   // Campos no controlados (con ref): un refresco en vivo no borra lo que se está escribiendo.
   const nombreRef = useRef<HTMLInputElement>(null);
   const renombreRef = useRef<HTMLInputElement>(null);
@@ -224,7 +491,49 @@ function EspacioDocumento({ espacio, doc, equipoId, canWrite, actor, actorName, 
   const quien = doc ? nombreQuien(doc.subido_por_nombre, doc.subido_por) : null;
 
   return (
-    <div className="card" style={{ padding: '.75rem', margin: 0, display: 'grid', gap: '.5rem', alignContent: 'start' }}>
+    <div
+      className="card"
+      style={{
+        padding: '.75rem',
+        margin: 0,
+        display: 'grid',
+        gap: '.5rem',
+        alignContent: 'start',
+        border: cardDragging ? '2px dashed var(--primary, #3b82f6)' : undefined,
+        background: cardDragging ? 'rgba(59, 130, 246, 0.08)' : undefined,
+        transition: 'all 0.15s ease',
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (canWrite && !ocupado) setCardDragging(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setCardDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setCardDragging(false);
+        if (!canWrite || ocupado) return;
+        const f = e.dataTransfer.files?.[0];
+        if (f) {
+          if (doc) {
+            void cambiarArchivo(f);
+          } else {
+            const val = aceptable(f);
+            if (val) {
+              setArchivo(val);
+              if (nombreRef.current && !nombreRef.current.value.trim()) {
+                nombreRef.current.value = sugerirNombreDesdeArchivo(val.name);
+              }
+            }
+          }
+        }
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
         <span className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>Documento {espacio}</span>
         {doc ? <span className="badge success">Cargado</span> : <span className="badge">Libre</span>}
@@ -266,7 +575,7 @@ function EspacioDocumento({ espacio, doc, equipoId, canWrite, actor, actorName, 
             {canWrite && (
               <>
                 <button className="btn btn-sm btn-ghost" disabled={ocupado} title="Cambiar el nombre del documento" onClick={() => setEditandoNombre(true)}>✎ Nombre</button>
-                <button className="btn btn-sm btn-ghost" disabled={ocupado} title="Reemplazar el archivo por otro" onClick={() => cambiarRef.current?.click()}>
+                <button className="btn btn-sm btn-ghost" disabled={ocupado} title="Reemplazar el archivo por otro (o arrastra un archivo aquí)" onClick={() => cambiarRef.current?.click()}>
                   {trabajando === 'cambiar' ? 'Subiendo…' : '⇄ Cambiar archivo'}
                 </button>
                 <button className="btn btn-sm btn-ghost" disabled={ocupado} style={{ color: 'var(--danger)' }} title="Eliminar este documento" onClick={() => setConfirmarEliminar(true)}>
@@ -304,10 +613,13 @@ function EspacioDocumento({ espacio, doc, equipoId, canWrite, actor, actorName, 
               const f = aceptable(e.target.files?.[0] ?? null);
               if (!f) e.target.value = '';
               setArchivo(f);
+              if (f && nombreRef.current && !nombreRef.current.value.trim()) {
+                nombreRef.current.value = sugerirNombreDesdeArchivo(f.name);
+              }
             }}
           />
           <small className="muted" style={{ fontSize: '.72rem', marginTop: '-.25rem' }}>
-            PDF o imagen (JPG, PNG, WEBP o GIF) · hasta {MAX_MB_DOCUMENTO} MB
+            PDF o imagen · hasta {MAX_MB_DOCUMENTO} MB · también puedes arrastrarlo aquí
           </small>
           <button className="btn btn-sm btn-primary" disabled={ocupado} onClick={() => void subir()}>
             {trabajando === 'subir' ? 'Subiendo…' : '⬆ Subir documento'}
