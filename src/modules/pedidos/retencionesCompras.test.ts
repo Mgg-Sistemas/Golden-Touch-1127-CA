@@ -45,6 +45,21 @@ describe('calcularRetencionesCompras', () => {
     expect(r.total).toBe(184.8);
     expect(netoAPagarCompras(1194.8, r.total)).toBe(1010);
   });
+  it('calcula retenciones con base imponible que excluye ítems exentos', () => {
+    // Factura mixta: subtotal 1.000 (400 exentos + 600 gravados), IVA 16% sobre 600 = 96, IGTF = 32.88
+    const basesMixta = { baseImponible: 600, iva: 96, igtf: 32.88 };
+    const r = calcularRetencionesCompras(ui({
+      iva: { activa: true, manual: false, monto: '', pct: '75' },
+      islr: { activa: true, manual: false, monto: '', pct: '2' },
+      isae: { activa: true, manual: false, monto: '', pct: '1' },
+      igtf: { activa: true, manual: false, monto: '', pct: '100' },
+    }), basesMixta);
+    expect(r.iva.monto).toBe(72);
+    expect(r.islr.monto).toBe(12);
+    expect(r.isae.monto).toBe(6);
+    expect(r.igtf.monto).toBe(32.88);
+    expect(r.total).toBe(122.88);
+  });
   it('sin checks marcados no retiene nada', () => {
     expect(calcularRetencionesCompras(ui({}), bases).total).toBe(0);
   });

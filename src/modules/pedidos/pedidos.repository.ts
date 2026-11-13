@@ -392,7 +392,7 @@ export async function actualizarOrdenEditable(
   // cambio de solo texto (nota, motivo, finalidad, solicitante…) NO cuenta. Se compara por
   // una firma canónica de los ítems para ignorar diferencias cosméticas (trim, orden de keys).
   const sigItems = (arr?: ItemOrden[] | null) => JSON.stringify(
-    (arr ?? []).map((i) => [i.productoId ?? i.sku ?? i.nombre, Number(i.cantidad) || 0, Number(i.precio) || 0, i.comprar !== false]),
+    (arr ?? []).map((i) => [i.productoId ?? i.sku ?? i.nombre, Number(i.cantidad) || 0, Number(i.precio) || 0, i.comprar !== false, !!i.exento]),
   );
   const itemsCambian = patch.items !== undefined && sigItems(patch.items) !== sigItems(o.items);
   const descCambiaMaterial = descCambia && Math.round((descNuevo ?? 0) * 100) !== Math.round((Number(o.descuento_obtenido) || 0) * 100);

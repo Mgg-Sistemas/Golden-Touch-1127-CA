@@ -20,6 +20,7 @@ export interface ItemVariante {
   cantidad: number;
   precio: number;
   precio_usd?: number | null;
+  exento?: boolean | null;
 }
 
 /** Clave de agrupación: el sku (o el nombre si no hay sku). */
