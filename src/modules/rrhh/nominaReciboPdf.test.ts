@@ -66,6 +66,38 @@ describe('recibos de nómina: dos por persona (sueldo en Bs y bonificación), un
     const doc = await construir([cargado, base, cargado], meta as never);
     expect(doc.getNumberOfPages()).toBe(6);
   });
+
+  it('alinea los totales y netos del pie en la misma columna y a la derecha debajo de sus montos (nómina y bonificación)', async () => {
+    type CeldaTabla = { x: number; width: number; styles: { halign: string } };
+    type TablaAuto = { body: { cells: Record<number, CeldaTabla> }[]; foot: { cells: Record<number, CeldaTabla> }[] };
+
+    const docSueldo = await construir([base], { ...meta, tipos: ['sueldo'] } as never);
+    const tablaSueldo = (docSueldo as unknown as { lastAutoTable: TablaAuto }).lastAutoTable;
+    // Columna 2 (DEVENGADO Bs) y columna 3 (DEDUCCIÓN Bs): mismo x, mismo ancho y halign 'right'.
+    expect(tablaSueldo.foot[0].cells[2].styles.halign).toBe('right');
+    expect(tablaSueldo.foot[0].cells[3].styles.halign).toBe('right');
+    expect(tablaSueldo.foot[1].cells[2].styles.halign).toBe('right');
+    expect(tablaSueldo.foot[0].cells[2].x).toBeCloseTo(tablaSueldo.body[0].cells[2].x, 2);
+    expect(tablaSueldo.foot[0].cells[2].width).toBeCloseTo(tablaSueldo.body[0].cells[2].width, 2);
+    expect(tablaSueldo.foot[0].cells[3].x).toBeCloseTo(tablaSueldo.body[0].cells[3].x, 2);
+    expect(tablaSueldo.foot[0].cells[3].width).toBeCloseTo(tablaSueldo.body[0].cells[3].width, 2);
+    expect(tablaSueldo.foot[1].cells[2].x).toBeCloseTo(tablaSueldo.body[0].cells[2].x, 2);
+    expect(tablaSueldo.foot[1].cells[2].width).toBeCloseTo(tablaSueldo.body[0].cells[2].width, 2);
+
+    const conDescuentos = { ...base, asignaciones: 40, deduc_prestamos: 50, deduc_anticipos: 30 } as unknown as NominaRenglon;
+    const docBono = await construir([conDescuentos], { ...meta, tipos: ['bono'] } as never);
+    const tablaBono = (docBono as unknown as { lastAutoTable: TablaAuto }).lastAutoTable;
+    expect(tablaBono.foot[0].cells[2].styles.halign).toBe('right');
+    expect(tablaBono.foot[0].cells[3].styles.halign).toBe('right');
+    expect(tablaBono.foot[1].cells[2].styles.halign).toBe('right');
+    expect(tablaBono.foot[0].cells[2].x).toBeCloseTo(tablaBono.body[0].cells[2].x, 2);
+    expect(tablaBono.foot[0].cells[2].width).toBeCloseTo(tablaBono.body[0].cells[2].width, 2);
+    expect(tablaBono.foot[0].cells[3].x).toBeCloseTo(tablaBono.body[0].cells[3].x, 2);
+    expect(tablaBono.foot[0].cells[3].width).toBeCloseTo(tablaBono.body[0].cells[3].width, 2);
+    expect(tablaBono.foot[1].cells[2].x).toBeCloseTo(tablaBono.body[0].cells[2].x, 2);
+    expect(tablaBono.foot[1].cells[2].width).toBeCloseTo(tablaBono.body[0].cells[2].width, 2);
+    expect(docBono.output()).not.toContain('−'); // usa guion ASCII para no romper ancho en Helvetica
+  });
 });
 
 describe('montos de los dos recibos', () => {

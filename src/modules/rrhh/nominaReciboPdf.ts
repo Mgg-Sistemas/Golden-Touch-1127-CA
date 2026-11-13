@@ -389,6 +389,11 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
           2: { halign: 'right', cellWidth: 110 },
           3: { halign: 'right', cellWidth: 110 },
         },
+        didParseCell: (data) => {
+          if (data.section === 'foot' && data.column.index >= 2) {
+            data.cell.styles.halign = 'right';
+          }
+        },
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
@@ -402,14 +407,15 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       const nPrest = (r.deducciones ?? []).filter((d) => d.tipo === 'prestamo').length;
       const nAnt = (r.deducciones ?? []).filter((d) => d.tipo === 'anticipo').length;
       const real = m.esReal;
+      // Guion ASCII (-), no «−» tipográfico: Helvetica del PDF no lo tiene y desalinea el ancho a la derecha.
       const fila = (item: number, concepto: string, monto: number, columna: 'asignacion' | 'deduccion', montoBrl = 0): string[] => {
-        const base = [String(item), concepto, columna === 'asignacion' ? fmtMontoMoneda(monto, simb) : '', columna === 'deduccion' ? (monto > 0 ? `− ${fmtMontoMoneda(monto, simb)}` : fmtMontoMoneda(0, simb)) : ''];
+        const base = [String(item), concepto, columna === 'asignacion' ? fmtMontoMoneda(monto, simb) : '', columna === 'deduccion' ? (monto > 0 ? `- ${fmtMontoMoneda(monto, simb)}` : fmtMontoMoneda(0, simb)) : ''];
         if (!real) return base;
-        return [...base, columna === 'asignacion' ? reales(montoBrl) : '', columna === 'deduccion' ? (montoBrl > 0 ? `− ${reales(montoBrl)}` : reales(0)) : ''];
+        return [...base, columna === 'asignacion' ? reales(montoBrl) : '', columna === 'deduccion' ? (montoBrl > 0 ? `- ${reales(montoBrl)}` : reales(0)) : ''];
       };
       const descTotalBrl = m.prestamosBrl + m.anticiposBrl;
       const footBono: FootCell[][] = [
-        ['', 'TOTALES', der(fmtMontoMoneda(m.bonoBrutoMonto, simb)), der(m.prestamosMonto + m.anticiposMonto > 0 ? `− ${fmtMontoMoneda(m.prestamosMonto + m.anticiposMonto, simb)}` : fmtMontoMoneda(0, simb))],
+        ['', 'TOTALES', der(fmtMontoMoneda(m.bonoBrutoMonto, simb)), der(m.prestamosMonto + m.anticiposMonto > 0 ? `- ${fmtMontoMoneda(m.prestamosMonto + m.anticiposMonto, simb)}` : fmtMontoMoneda(0, simb))],
         ['', `NETO A RECIBIR EN ${m.moneda === 'Bs' ? 'BOLÍVARES' : m.moneda === 'USD' ? 'DIVISAS' : m.moneda}`, der(fmtMontoMoneda(m.bonoNetoMonto, simb)), ''],
       ];
       if (m.esOtraMoneda) {
@@ -417,7 +423,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       }
       if (real) {
         // Las dos monedas en el pie: totales y neto en $ y en R$, y la tasa que los une.
-        footBono[0].push(der(reales(m.bonoBrutoBrl)), der(descTotalBrl > 0 ? `− ${reales(descTotalBrl)}` : reales(0)));
+        footBono[0].push(der(reales(m.bonoBrutoBrl)), der(descTotalBrl > 0 ? `- ${reales(descTotalBrl)}` : reales(0)));
         footBono[1] = ['', 'NETO A RECIBIR EN DIVISAS ($ y R$)', der(fmtMontoMoneda(m.bonoNetoMonto, simb)), '', der(reales(m.bonoNetoBrl)), ''];
         const fechaTasa = meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : '';
         footBono.push(['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(m.tasaBrl)}${fechaTasa}`, colSpan: 4, styles: { halign: 'right' } }]);
@@ -453,6 +459,11 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
               2: { halign: 'right', cellWidth: 104 },
               3: { halign: 'right', cellWidth: 104 },
             },
+        didParseCell: (data) => {
+          if (data.section === 'foot' && data.column.index >= 2) {
+            data.cell.styles.halign = 'right';
+          }
+        },
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
       y = (doc.lastAutoTable?.finalY ?? y) + gap(6);
