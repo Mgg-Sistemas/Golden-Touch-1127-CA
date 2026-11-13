@@ -74,7 +74,7 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
   const [guardando, setGuardando] = useState(false);
   const [hecha, setHecha] = useState<{ at: string; quien: string | null } | null>(null);
   const [fotosArchivos, setFotosArchivos] = useState<File[]>([]);
-  // 11/11/2026: la factura del proveedor es obligatoria al recepcionar (foto o PDF).
+  // La factura del proveedor es opcional al recepcionar (foto o PDF).
   const [facturas, setFacturas] = useState<File[]>([]);
   const problema = errorRecepcion(p, cants);
   const parcial = esParcial(p, cants);
@@ -82,12 +82,13 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (problema) return toast(problema, 'error');
-    if (!facturas.length) return toast('Carga la factura del proveedor (foto o PDF) antes de recepcionar.', 'error');
     setGuardando(true);
     try {
       const r = await recepcionarPedido(p.pedido_id, cantidadesRecibidas(p, cants), nota);
-      try { await subirFacturasAlmacen(p.orden_id, facturas, actor); }
-      catch (e2) { toast(`Recepcionada, pero la factura no se pudo subir: ${errMsg(e2, 'error')}. Pide a Compras que la cargue en «🧾 Factura».`, 'warning'); }
+      if (facturas.length) {
+        try { await subirFacturasAlmacen(p.orden_id, facturas, actor); }
+        catch (e2) { toast(`Recepcionada, pero la factura no se pudo subir: ${errMsg(e2, 'error')}. Pide a Compras que la cargue en «🧾 Factura».`, 'warning'); }
+      }
       toast(r.resultado === 'ya_recibida' ? 'La OC ya estaba recibida en Compras.' : `OC ${p.oc ?? p.sp} recepcionada: ya está en el inventario.`, 'success');
       setHecha({ at: r.at || new Date().toISOString(), quien: r.recepcionado_nombre || actorName });
       void descargarFotosRecepcion([...p.fotos_entrega, ...p.fotos_recibo]).then(setFotosArchivos);
@@ -142,7 +143,7 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
           placeholder="Opcional: estado en que llegó, faltantes…" autoComplete="off" />
       </div>
       <div className="surt-campo">
-        <label htmlFor="rec-factura">🧾 Factura del proveedor <span style={{ color: 'var(--danger)' }}>*</span></label>
+        <label htmlFor="rec-factura">🧾 Factura del proveedor <span className="muted">(opcional)</span></label>
         <div style={{ position: 'relative', display: 'flex' }}>
           <span className="btn btn-primary" style={{ width: '100%', minHeight: 56, fontWeight: 700, justifyContent: 'center' }} aria-hidden>{facturas.length ? `🧾 ${facturas.length} archivo(s) · cambiar` : '🧾 CARGAR FACTURA'}</span>
           <input id="rec-factura" type="file" accept="image/*,application/pdf" multiple disabled={guardando}
@@ -151,10 +152,10 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
             onChange={(e) => { setFacturas(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
         </div>
         {facturas.length > 0 && <small className="muted">📎 {facturas.map((f) => f.name).join(', ')}</small>}
-        <small className="muted">Foto o PDF de la factura. Compras la ve en «🧾 Factura» (Facturas almacén).</small>
+        <small className="muted">Foto o PDF de la factura (opcional). Compras la ve en «🧾 Factura» (Facturas almacén).</small>
       </div>
       {problema && <div className="aviso warning sm"><span className="aviso-icono">⚠</span><div>{problema}</div></div>}
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!problema || !facturas.length}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!problema}>
         {guardando ? 'Recepcionando…' : parcial ? '✅ Recepcionar (incompleta)' : '✅ Recepcionar'}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onVolver} disabled={guardando}>← Volver</button>

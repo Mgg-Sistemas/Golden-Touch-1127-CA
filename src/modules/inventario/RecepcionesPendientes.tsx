@@ -98,7 +98,6 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     // Un servicio no entra a ningún almacén: no se le pide destino.
     if (!esServicio && !almacen.trim()) { setError('Elige el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indica una nota explicando la diferencia.'); return; }
-    if (!esServicio && !facturas.length) { setError('Carga la factura del proveedor (PDF o imagen) para recibir la orden.'); return; }
     setSaving(true);
     try {
       await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, esServicio ? null : almacen.trim());
@@ -221,9 +220,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
           placeholder="Diferencias, faltantes, observaciones de la recepción…" />
       </div>
       <div className="form-row">
-        <label>🧾 Factura del proveedor · PDF o imagen {esServicio
-          ? <span className="muted">(opcional)</span>
-          : <span style={{ color: 'var(--danger)' }}>*</span>}</label>
+        <label>🧾 Factura del proveedor · PDF o imagen <span className="muted">(opcional)</span></label>
         <input className="input" type="file" accept="application/pdf,image/*" multiple disabled={saving}
           onChange={(e) => setFacturas(Array.from(e.target.files ?? []))} />
         {facturas.length > 0 && <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>📎 {facturas.map((f) => f.name).join(', ')}</small>}
