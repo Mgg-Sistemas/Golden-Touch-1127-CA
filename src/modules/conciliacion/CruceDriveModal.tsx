@@ -84,6 +84,21 @@ export function CruceDriveModal({ cruce, archivo, actor, onClose, onAplicado }: 
         <Tarjeta icono="❌" color="#ef4444" titulo="Con error" subtitulo={String(cruce.conError)} />
       </div>
 
+      {cruce.hojas && cruce.hojas.length > 1 && (
+        <div className="card" style={{ padding: '.6rem .9rem', marginBottom: '1rem', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+          <div style={{ fontSize: '.85rem', fontWeight: 600, color: 'var(--primary-2, #60a5fa)', marginBottom: '.3rem' }}>
+            📑 Se procesaron {cruce.hojas.length} hojas del libro de Excel:
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+            {cruce.hojas.map((h) => (
+              <span key={h} className="badge" style={{ background: '#1e293b', color: '#93c5fd', border: '1px solid #3b82f6', fontSize: '.75rem' }}>
+                {h}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {Object.keys(cruce.errorPorColumna).length > 0 && (
         <div className="card" style={{ padding: '.75rem 1rem', marginBottom: '1rem' }}>
           <strong>Errores por columna</strong>
@@ -129,7 +144,10 @@ function FilaTr({ f }: { f: FilaCruce }) {
   const r = RESULTADO[f.resultado];
   return (
     <tr style={{ opacity: f.resultado === 'ignorada' ? 0.55 : 1 }}>
-      <td className="mono">{f.fila}</td>
+      <td className="mono">
+        {f.fila}
+        {f.hoja && <div className="muted" style={{ fontSize: '.68rem', whiteSpace: 'nowrap' }}>{f.hoja}</div>}
+      </td>
       <td className="mono">{f.oc || '—'}{f.doc && f.doc.codigo !== f.oc && <div className="muted" style={{ fontSize: '.7rem' }}>→ {f.doc.codigo}</div>}</td>
       <td className="mono">{f.referencia || '—'}</td>
       <td className="mono" style={{ textAlign: 'right' }}>
