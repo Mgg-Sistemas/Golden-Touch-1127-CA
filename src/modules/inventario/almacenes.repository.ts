@@ -7,6 +7,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
+import { cambiarPapeleraInventario } from './papeleraInventario';
 
 const TABLE = 'almacenes';
 
@@ -21,7 +22,7 @@ export interface AlmacenInput {
 
 /** Sedes existentes (para poblar el selector del formulario). */
 export async function listSedes(): Promise<string[]> {
-  const { data } = await supabase.from(TABLE).select('sede');
+  const { data } = await supabase.from(TABLE).select('sede').is('eliminado_en', null);
   const set = new Set<string>();
   (data ?? []).forEach((r) => { const s = (r as { sede?: string | null }).sede?.trim(); if (s) set.add(s); });
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'es-VE'));
@@ -34,7 +35,7 @@ export interface AlmacenValor {
 }
 
 export async function listAlmacenes(): Promise<Almacen[]> {
-  const { data, error } = await supabase.from(TABLE).select('*').order('nombre', { ascending: true });
+  const { data, error } = await supabase.from(TABLE).select('*').is('eliminado_en', null).order('nombre', { ascending: true });
   if (error) throw error;
   return (data ?? []) as Almacen[];
 }
@@ -175,25 +176,8 @@ export async function renombrarSede(sedeActual: string, nuevoNombre: string): Pr
   return (data ?? []).length;
 }
 
-export async function eliminarAlmacen(id: string, nombre: string): Promise<void> {
-  // Bloquea si hay existencias con stock en este almacén.
-  const { data, error: cErr } = await supabase
-    .from('existencias')
-    .select('stock')
-    .eq('almacen', nombre)
-    .gt('stock', 0);
-  if (cErr) throw cErr;
-  if ((data ?? []).length > 0) {
-    throw new Error(`No se puede eliminar: hay ${(data ?? []).length} producto(s) con stock en este almacén`);
-  }
-  // Bloquea si tiene subalmacenes: primero hay que moverlos o eliminarlos.
-  const { data: hijos, error: hErr } = await supabase.from(TABLE).select('id').eq('parent_id', id);
-  if (hErr) throw hErr;
-  if ((hijos ?? []).length > 0) {
-    throw new Error(`No se puede eliminar: este almacén tiene ${(hijos ?? []).length} subalmacén(es). Elimina o reasigna los subalmacenes primero.`);
-  }
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
+export async function eliminarAlmacen(id: string): Promise<void> {
+  await cambiarPapeleraInventario('almacen', [id], 'enviar');
 }
 
 /** Todas las existencias (stock + costo por almacén). */

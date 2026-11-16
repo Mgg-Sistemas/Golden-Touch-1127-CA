@@ -115,7 +115,7 @@ export async function cargarResumenInventario(desde: string | null, hasta: strin
   // 1) Snapshot actual por almacén (existencias) + estructura de almacenes (sede/sub).
   const [{ data: exData }, { data: almData }] = await Promise.all([
     supabase.from('existencias').select('producto_id, almacen, stock, costo_promedio'),
-    supabase.from('almacenes').select('*'),
+    supabase.from('almacenes').select('*').is('eliminado_en', null),
   ]);
   const existencias = (exData ?? []) as Existencia[];
   const almacenes = (almData ?? []) as Almacen[];

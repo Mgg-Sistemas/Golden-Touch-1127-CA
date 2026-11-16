@@ -196,7 +196,7 @@ export function RolFicha({
                                     <label>
                                       <input
                                         type="checkbox"
-                                        disabled={noEditable || (campo === 'vaciarPapelera' && k !== 'produccion' && k !== 'rrhh' && k !== 'tesoreria')}
+                                        disabled={noEditable || (campo === 'vaciarPapelera' && k !== 'produccion' && k !== 'rrhh' && k !== 'tesoreria' && k !== 'inventario')}
                                         checked={!!p[campo]}
                                         onChange={() => onToggle(k, campo)}
                                         aria-label={`${label} ${info?.label ?? k} para ${rol.label}`}

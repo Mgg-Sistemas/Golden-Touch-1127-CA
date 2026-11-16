@@ -7,16 +7,22 @@ import { date, dateTime, money, num } from '@/shared/lib/format';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 import { listMovimientosPorProducto, TIPOS_MOVIMIENTO } from './movimientos.repository';
 import { descargarProductoPdf } from './productoPdf';
+import { esMovimientoInventarioReversible, revertirMovimientoInventario } from './papeleraInventario';
 
 interface ProductoDetailProps {
   producto: Producto;
+  puedeRevertir?: boolean;
+  onChanged?: () => Promise<void>;
   onClose: () => void;
 }
 
-export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
+export function ProductoDetail({ producto, puedeRevertir, onChanged, onClose }: ProductoDetailProps) {
   const [movs, setMovs] = useState<Movimiento[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reverso, setReverso] = useState<Movimiento | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const [procesando, setProcesando] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +56,23 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
     }
   }
 
+  async function confirmarReverso() {
+    if (!reverso) return;
+    setProcesando(true);
+    try {
+      await revertirMovimientoInventario(reverso, motivo);
+      setReverso(null);
+      setMotivo('');
+      toast('Reverso registrado en el kardex', 'success');
+      const [actual] = await Promise.all([listMovimientosPorProducto(producto.id), onChanged?.()]);
+      setMovs(actual);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo completar la operación', 'error');
+    } finally {
+      setProcesando(false);
+    }
+  }
+
   async function handleDownloadPdf() {
     try {
       await descargarProductoPdf(producto.id);
@@ -62,13 +85,13 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
     <Modal
       title={`Detalle · ${producto.sku}`}
       size="lg"
-      onClose={onClose}
+      onClose={() => { if (!procesando) onClose(); }}
       footer={
         <>
           <button className="btn btn-ghost" onClick={handleDownloadPdf} title="Descargar trazabilidad del producto">
             ↓ Trazabilidad PDF
           </button>
-          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+          <button className="btn btn-ghost" onClick={onClose} disabled={procesando}>Cerrar</button>
         </>
       }
     >
@@ -99,6 +122,16 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
           <MiniStat label="Salidas" value={`−${num(totalOut)}`} color="var(--danger)" />
         </div>
       </div>
+
+      {reverso && <div className="card" style={{ marginBottom: '.75rem' }}>
+        <strong>Registrar reverso de {num(Math.abs(reverso.delta))} {producto.unidad}</strong>
+        <p>El original y el asiento contrario quedarán en el kardex.</p>
+        <label className="form-row">Motivo del reverso
+          <textarea className="input" rows={2} value={motivo} disabled={procesando} onChange={(e) => setMotivo(e.target.value)} />
+        </label>
+        <button className="btn btn-ghost" disabled={procesando} onClick={() => { setReverso(null); setMotivo(''); }}>Cancelar</button>{' '}
+        <button className="btn btn-danger" disabled={procesando || !motivo.trim()} onClick={() => void confirmarReverso()}>Confirmar reverso</button>
+      </div>}
 
       {(() => {
         const ficha: Array<[string, string]> = ([
@@ -145,7 +178,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
         </div>
       ) : (
         <div className="timeline">
-          {movs.map((m) => {
+          {movs.map((m, i) => {
             const meta = TIPOS_MOVIMIENTO[m.tipo] ?? { label: m.tipo, icon: '◔', color: 'info' as const };
             const isIn = m.delta > 0;
             const isOut = m.delta < 0;
@@ -162,7 +195,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
                 <div className={`tl-dot ${dotCls}`} />
                 <div className="tl-body">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem' }}>
-                    <div className="tl-title">{meta.icon} {meta.label}</div>
+                    <div className="tl-title">{meta.icon} {m.reverso_de_id ? 'Reverso' : meta.label}{m.revertido_en ? ' · revertido' : ''}</div>
                     <div className="mono" style={{ fontWeight: 700, fontSize: '.95rem', color: deltaCol }}>
                       {deltaTxt}
                     </div>
@@ -205,6 +238,9 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
                     {m.almacen && <> · <span className="badge" style={{ fontSize: '.62rem' }}>▣ {m.almacen === 'General' ? 'Inventario General' : m.almacen}</span></>} · saldo{' '}
                     <span className="mono">{num(m.stock_despues)}</span>
                   </div>
+                  {i === 0 && puedeRevertir && !reverso && esMovimientoInventarioReversible(m) && (
+                    <button className="btn btn-sm btn-ghost" onClick={() => setReverso(m)}>↶ Registrar reverso</button>
+                  )}
                 </div>
               </div>
             );

@@ -5,6 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Presentacion } from './presentaciones';
+import { cambiarPapeleraInventario } from './papeleraInventario';
 
 const TABLE = 'producto_presentaciones';
 const COLS = 'id, producto_id, proveedor_id, unidad, factor';
@@ -13,7 +14,7 @@ const norm = (r: Presentacion): Presentacion => ({ ...r, factor: Number(r.factor
 
 /** Presentaciones de varios productos (o de todos si no se pasan ids). */
 export async function listPresentaciones(productoIds?: string[]): Promise<Presentacion[]> {
-  let q = supabase.from(TABLE).select(COLS).order('unidad');
+  let q = supabase.from(TABLE).select(COLS).is('eliminado_en', null).order('unidad');
   if (productoIds) {
     const ids = [...new Set(productoIds.filter(Boolean))];
     if (!ids.length) return [];
@@ -50,6 +51,5 @@ export async function actualizarFactorPresentacion(id: string, factor: number): 
 
 /** Quitar una presentación no toca las OC ya hechas: cada renglón guarda su propio factor. */
 export async function quitarPresentacion(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
+  await cambiarPapeleraInventario('presentacion', [id], 'enviar');
 }

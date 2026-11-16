@@ -48,6 +48,7 @@ import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
 import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
 import { ProductoDetail } from './ProductoDetail';
+import { PapeleraInventarioModal } from './PapeleraInventarioModal';
 import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
@@ -189,6 +190,7 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
+  const [papeleraOpen, setPapeleraOpen] = useState(false);
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
   const [unidades, setUnidades] = useState<string[]>([]);
   const [conteoUnid, setConteoUnid] = useState<Record<string, number>>({});
@@ -510,6 +512,7 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
               )}
             </>
           )}
+          {can('inventario') && <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)}>🗑 Papelera</button>}
           {canWriteModulo && (
             <button
               className="btn btn-ghost"
@@ -697,7 +700,9 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
       )}
       {modal.kind === 'detalle' && (
         <ProductoDetail
-          producto={modal.producto}
+          producto={productos.find((p) => p.id === modal.producto.id) ?? modal.producto}
+          puedeRevertir={canWrite}
+          onChanged={reload}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
@@ -810,6 +815,7 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
         />
       )}
 
+      {papeleraOpen && <PapeleraInventarioModal almacenes={almacenes} onChanged={reload} onClose={() => setPapeleraOpen(false)} />}
       {gestionCatsOpen && (
         <GestionarCategoriasModal
           titulo="Categorías y medidas de inventario"

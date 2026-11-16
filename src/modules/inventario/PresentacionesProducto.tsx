@@ -58,7 +58,8 @@ export function PresentacionesProducto({ productoId, unidadUso }: Props) {
   async function quitar(p: Presentacion) {
     try {
       await quitarPresentacion(p.id);
-      cargar();
+      await cargar();
+      toast('Presentación enviada a la papelera', 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo quitar', 'error');
     }

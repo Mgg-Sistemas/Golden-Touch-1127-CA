@@ -1196,6 +1196,9 @@ export interface Producto {
 
 export interface Movimiento {
   id: string;
+  reverso_de_id?: string | null;
+  revertido_en?: string | null;
+  costo_antes?: number | null;
   producto_id: string;
   tipo: TipoMovimiento;
   delta: number;
