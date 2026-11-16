@@ -114,11 +114,12 @@ const fmtFechaCorta = (f: string) => { const [y, m, d] = (f || '').split('-'); r
 
 interface Props {
   ambitoInicial?: AmbitoTesoreria;
+  ordenIds?: readonly string[];
   rangoInicial?: { desde: string; hasta: string };
   onClose: () => void;
 }
 
-export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }: Props) {
+export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, onClose }: Props) {
   const prefs = useMemo(() => leerPrefs(), []);
 
   const [desde, setDesde] = useState<string>(() => rangoInicial?.desde || primerDiaMesActual());
@@ -190,7 +191,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
           } catch { /* sin método: la columna sale vacía */ }
           if (!cancelado) { setMovs(lista); setPagoPorOrden(pagos); setCtx({ tasaBcvHoy, tasaFecha, tasasPorFecha }); }
         } else if (ambito === 'por_pagar') {
-          const datos = await cargarPendientesPorPagar();
+          const datos = await cargarPendientesPorPagar(ordenIds);
           if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
         } else {
           const [p, c] = await Promise.all([listCuentasPorPagar(true), listCuentasPorCobrar(true)]);
@@ -204,7 +205,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     }
     void cargar();
     return () => { cancelado = true; };
-  }, [ambito, desde, hasta]);
+  }, [ambito, desde, hasta, ordenIds]);
 
   // Normalización a filas de detalle según el ámbito
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
@@ -251,7 +252,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
   const { filas, resumen } = useMemo(() => procesarFilasReporteTesoreria(filtradas, agrupacion, { ordenarPor }), [filtradas, agrupacion, ordenarPor]);
   // 07/11/2026: «Por pagar» sin NINGUNA orden pendiente (antes de filtros) → Tesorería al día.
-  const alDia = ambito === 'por_pagar' && !cargando && !!datosPP && filasDetalle.length === 0;
+  const alDia = ambito === 'por_pagar' && !ordenIds?.length && !cargando && !!datosPP && filasDetalle.length === 0;
   // Nombre legible de la dimensión activa (sin el prefijo «Por »), para los avisos de claridad:
   // así el usuario entiende que el nº de tarjetas/filas = nº de grupos de ESA dimensión.
   const nombreDimension = (MODOS.find((m) => m.id === agrupacion)?.label ?? '').replace(/^Por\s+/, '');
@@ -407,7 +408,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
           </div>
           {ambito !== 'movimientos' && (
             <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
-              {ambito === 'por_pagar' ? 'Compromisos vigentes por pagar (no dependen del rango de fechas).' : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
+              {ambito === 'por_pagar' ? (ordenIds?.length ? 'Órdenes marcadas que siguen pendientes por pagar.' : 'Compromisos vigentes por pagar (no dependen del rango de fechas).') : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
             </div>
           )}
         </div>

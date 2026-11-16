@@ -472,10 +472,12 @@ function mkSeg(clave: ClaveSegmento, titulo: string, filas: FilaPendiente[]): Se
 }
 
 /** Arma el reporte a partir de lo ya leído (sin tocar la base). */
-export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPorPagar {
+export function armarPendientesPorPagar(e: EntradaPendientes, ordenIds?: readonly string[]): DatosPendientesPorPagar {
   const tasa = Number(e.tasa) || 0;
   const datosProv = e.datosProv ?? {};
-  const creditos = e.creditos ?? [];
+  const seleccion = ordenIds?.length ? new Set(ordenIds) : null;
+  const rows = seleccion ? e.rows.filter((r) => seleccion.has(r.orden.id)) : e.rows;
+  const creditos = seleccion ? [] : e.creditos ?? [];
 
   const filaOc = (r: OrdenPorPagar): FilaPendiente => {
     const usd = Number(r.montoAPagar || 0);
@@ -530,10 +532,10 @@ export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPo
     };
   };
 
-  const ocRows = e.rows.filter((r) => r.orden.tipo !== 'servicio');
-  const csRows = e.rows.filter((r) => r.orden.tipo === 'servicio');
-  const comprasPP = (e.comprasDir ?? []).filter((c) => c.estado === 'por_pagar');
-  const serviciosPP = (e.serviciosDir ?? []).filter((s) => s.estado === 'por_pagar');
+  const ocRows = rows.filter((r) => r.orden.tipo !== 'servicio');
+  const csRows = rows.filter((r) => r.orden.tipo === 'servicio');
+  const comprasPP = (seleccion ? [] : e.comprasDir ?? []).filter((c) => c.estado === 'por_pagar');
+  const serviciosPP = (seleccion ? [] : e.serviciosDir ?? []).filter((s) => s.estado === 'por_pagar');
 
   const segmentos = [
     mkSeg('compras_directas', 'COMPRAS DIRECTAS', comprasPP.map(filaCompra)),
@@ -556,17 +558,17 @@ export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPo
 }
 
 /** Lee las OC por pagar y a crédito (lo que ve Compras) y arma el reporte. */
-export async function cargarPendientesPorPagar(): Promise<DatosPendientesPorPagar> {
-  const [rows, creditos] = await Promise.all([listOrdenesPorPagar(), listOrdenesEnCredito()]);
-  return cargarConLecturas(rows, creditos);
+export async function cargarPendientesPorPagar(ordenIds?: readonly string[]): Promise<DatosPendientesPorPagar> {
+  const [rows, creditos] = await Promise.all([listOrdenesPorPagar(), ordenIds?.length ? [] : listOrdenesEnCredito()]);
+  return cargarConLecturas(rows, creditos, ordenIds);
 }
 
 /** Igual, pero con las OC ya leídas (la pantalla de Tesorería ya las tiene). */
-export async function cargarConLecturas(rows: OrdenPorPagar[], creditos: OrdenPorPagar[] = []): Promise<DatosPendientesPorPagar> {
+export async function cargarConLecturas(rows: OrdenPorPagar[], creditos: OrdenPorPagar[] = [], ordenIds?: readonly string[]): Promise<DatosPendientesPorPagar> {
   const [tasaHoy, comprasDir, serviciosDir] = await Promise.all([
     getTasaHoy().catch(() => ({ usd: null, eur: null, fecha: null })),
-    listComprasDirectas().catch(() => [] as CompraDirecta[]),
-    listServiciosDirectos().catch(() => [] as ServicioDirecto[]),
+    ordenIds?.length ? [] : listComprasDirectas().catch(() => [] as CompraDirecta[]),
+    ordenIds?.length ? [] : listServiciosDirectos().catch(() => [] as ServicioDirecto[]),
   ]);
   // Datos de pago guardados de TODOS los proveedores del reporte, en una sola consulta
   // (uno por renglón serían decenas). Si falla, el reporte sale igual.
@@ -579,5 +581,5 @@ export async function cargarConLecturas(rows: OrdenPorPagar[], creditos: OrdenPo
   return armarPendientesPorPagar({
     rows, creditos, comprasDir, serviciosDir, datosProv,
     tasa: Number(tasaHoy?.usd) || 0, tasaFecha: tasaHoy?.fecha ?? null,
-  });
+  }, ordenIds);
 }

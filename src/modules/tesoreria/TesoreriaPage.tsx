@@ -111,17 +111,18 @@ import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
  * (botón + estado + modal): se coloca JUNTO a las descargas rígidas existentes sin
  * tocar su flujo ni reemplazarlas. Solo enriquece.
  */
-function BotonReporteMoldeable({ ambito, rango, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
+function BotonReporteMoldeable({ ambito, rango, ordenIds, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
   ambito: AmbitoTesoreria;
   rango?: { desde: string; hasta: string };
+  ordenIds?: readonly string[];
   label?: string;
   className?: string;
 }) {
-  const [abierto, setAbierto] = useState(false);
+  const [abierto, setAbierto] = useState<{ ordenIds?: readonly string[] } | null>(null);
   return (
     <>
-      <button type="button" className={className} onClick={() => setAbierto(true)} title="Reporte moldeable: columnas, filtros, fichas o tabla, PDF/Excel/CSV">{label}</button>
-      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} onClose={() => setAbierto(false)} />}
+      <button type="button" className={className} onClick={() => setAbierto({ ordenIds })} title="Reporte moldeable: columnas, filtros, fichas o tabla, PDF/Excel/CSV">{label}</button>
+      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} ordenIds={abierto.ordenIds} onClose={() => setAbierto(null)} />}
     </>
   );
 }
@@ -3995,7 +3996,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
     <Modal title="Pendientes por pagar · Tesorería" size="xl" onClose={onClose} footer={
       <>
         {/* «↓ Resumen PDF» se quitó a pedido del usuario (03/11/2026); el reporte queda en «📄 Reporte». */}
-        <BotonReporteMoldeable ambito="por_pagar" label="📄 Reporte" className="btn btn-ghost" />
+        <BotonReporteMoldeable ambito="por_pagar" ordenIds={tab === 'ordenes' ? [...seleccion] : undefined} label="📄 Reporte" className="btn btn-ghost" />
         {tab === 'ordenes' && (
           <button className="btn btn-ghost" onClick={() => setWspLote(true)}
             title="Un solo WhatsApp con varias OC: código, proveedor, monto a pagar, total y el motivo de pago">💬 WhatsApp por lote</button>

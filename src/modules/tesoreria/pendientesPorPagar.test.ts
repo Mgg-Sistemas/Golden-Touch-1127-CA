@@ -58,6 +58,21 @@ const entrada = () => ({
   tasa: 36, tasaFecha: '2026-10-20', generadoEn: GEN,
 });
 
+it('aplica la selección al detalle, total y preparación de pagos', () => {
+  const datos = entrada();
+  const elegida = datos.rows[0];
+  const reporte = armarPendientesPorPagar(datos, [elegida.orden.id]);
+  expect(reporte.segmentos.flatMap((s) => s.filas.map((f) => f.codigo))).toEqual(['OC-2026-0150']);
+  expect(reporte.totUsd).toBe(100);
+  expect(reporte.totBs).toBe(3600);
+  expect(reporte.credito).toBeNull();
+  expect(reporte.preparacion).toEqual(calcularPreparacion({
+    ocRows: [elegida], comprasPP: [], serviciosPP: [], tasa: 36,
+  }));
+  expect(armarPendientesPorPagar(datos, [])).toEqual(armarPendientesPorPagar(datos));
+  expect(armarPendientesPorPagar(datos, ['orden-ya-pagada']).totCant).toBe(0);
+});
+
 describe('calcularPreparacion · «Por preparar» nativo por método y moneda', () => {
   const met = (metodo: string, moneda: string, monto = 0) => ({ metodo, moneda, monto });
 
