@@ -98,6 +98,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     MODULES.forEach((m) => (all[m.key] = { lectura: true, escritura: true, full: true }));
     all.rrhh.vaciarPapelera = true;
     all.produccion.vaciarPapelera = true;
+    all.tesoreria.vaciarPapelera = true;
     return all;
   }
   // 31/10/2026: todos los roles pueden pedir (crean sus SP y siguen solo las suyas).
@@ -139,7 +140,11 @@ export function normalizeRolePermisos(stored: Partial<RolePermisos>, role?: Role
   const base = role ? defaultsFor(role) : null;
   return MODULES.reduce<RolePermisos>((acc, m) => {
     const fallback = base ? base[m.key] : emptyPermission;
-    acc[m.key] = stored[m.key] ? { ...emptyPermission, ...stored[m.key] } : { ...fallback };
+    acc[m.key] = stored[m.key] ? {
+      ...emptyPermission,
+      ...(role === 'admin' && m.key === 'tesoreria' ? { vaciarPapelera: true } : {}),
+      ...stored[m.key],
+    } : { ...fallback };
     return acc;
   }, {} as RolePermisos);
 }

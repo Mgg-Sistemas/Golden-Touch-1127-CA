@@ -6,6 +6,7 @@
    Tabla `categorias_gasto`: padre_id NULL = categoría; con padre = subcategoría.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { cambiarPapeleraTesoreria } from './papeleraTesoreria';
 
 export interface CategoriaGasto {
   id: string;
@@ -20,7 +21,7 @@ const TABLE = 'categorias_gasto';
 
 /** Todas las filas (categorías + subcategorías), ordenadas por nombre. */
 export async function listCategoriasGasto(soloActivas = true): Promise<CategoriaGasto[]> {
-  let q = supabase.from(TABLE).select('*').order('nombre', { ascending: true });
+  let q = supabase.from(TABLE).select('*').is('eliminado_en', null).order('nombre', { ascending: true });
   if (soloActivas) q = q.eq('activo', true);
   const { data, error } = await q;
   if (error) throw error;
@@ -56,7 +57,7 @@ export async function ensureCategoriaGasto(nombre: string, padreId: string | nul
   const n = nombre.trim();
   if (!n) throw new Error('El nombre es obligatorio.');
   // ¿Ya existe?
-  let q = supabase.from(TABLE).select('*').ilike('nombre', n);
+  let q = supabase.from(TABLE).select('*').is('eliminado_en', null).ilike('nombre', n);
   q = padreId == null ? q.is('padre_id', null) : q.eq('padre_id', padreId);
   const { data: ex } = await q.maybeSingle();
   if (ex) return ex as CategoriaGasto;
@@ -65,7 +66,7 @@ export async function ensureCategoriaGasto(nombre: string, padreId: string | nul
     .select('*').single();
   if (error) {
     // Si chocó por unicidad (carrera), devolvemos la existente.
-    let r = supabase.from(TABLE).select('*').ilike('nombre', n);
+    let r = supabase.from(TABLE).select('*').is('eliminado_en', null).ilike('nombre', n);
     r = padreId == null ? r.is('padre_id', null) : r.eq('padre_id', padreId);
     const { data: again } = await r.maybeSingle();
     if (again) return again as CategoriaGasto;
@@ -87,8 +88,7 @@ export async function setActivoCategoriaGasto(id: string, activo: boolean): Prom
   if (error) throw error;
 }
 
-/** Borra definitivamente (y por cascada sus subcategorías). Usar con cuidado. */
+/** Envía a la papelera una categoría sin subcategorías activas. */
 export async function eliminarCategoriaGasto(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
+  await cambiarPapeleraTesoreria('categoria', [id], 'enviar');
 }

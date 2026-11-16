@@ -237,6 +237,9 @@ export interface MovimientoCaja {
   /** Enlace a la venta que generó el movimiento: el cobro (categoría
    *  'cobro_venta') o su reversa al anular ('reverso_venta'). */
   ref_venta_id?: string | null;
+  reverso_de_id?: string | null;
+  revertido_en?: string | null;
+  reflejar_acopio?: boolean | null;
   /** Enlace al renglón de nómina pagado (categoría 'pago_nomina'). */
   ref_nomina_renglon_id?: string | null;
   /** Multimoneda: cuenta (Bs jurídica/personal) y tasa aplicada (Bs por unidad). */

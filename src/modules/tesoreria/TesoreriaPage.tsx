@@ -49,7 +49,9 @@ import {
   registrarGasto, disponibilidadFinanciera, listLibroMayor, ultimoCorrelativo,
   type Disponibilidad,
 } from './tesoreria.repository';
-import { esMovimientoEditable, esMovimientoBorrable, esMovimientoPar, editarMovimientoCajaManual, eliminarMovimientoCaja, editarFechaMovimiento } from '@/modules/salidas/cajas.repository';
+import { esMovimientoEditable, editarMovimientoCajaManual, editarFechaMovimiento } from '@/modules/salidas/cajas.repository';
+import { esAsientoDeReverso, puedeRevertirMovimiento, revertirMovimiento } from './papeleraTesoreria';
+import { PapeleraTesoreriaModal } from './PapeleraTesoreriaModal';
 import {
   listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
   type Contraparte, type TipoContraparte,
@@ -244,6 +246,7 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
   const [correoMovOpen, setCorreoMovOpen] = useState(false);
   const [movSel, setMovSel] = useState<MovimientoCaja | null>(null);
   const [resumenMovOpen, setResumenMovOpen] = useState(false);
+  const [papeleraOpen, setPapeleraOpen] = useState(false);
 
   // Filtros del registro de movimientos
   const [fCaja, setFCaja] = useState<string>('');   // billetera/caja (se aplica en memoria, ver `libro`)
@@ -486,6 +489,7 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
             <button className="btn btn-ghost" onClick={() => setResumenMovOpen(true)}>📊 Resumen de movimientos</button>
             <button className="btn btn-ghost" onClick={() => setModal('retencion')}>🧾 Retención</button>
             <button className="btn btn-ghost" onClick={() => setModal('categorias')}>🏷 Categorías (gasto)</button>
+            <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)}>🗑 Papelera</button>
             <button className="btn btn-ghost" onClick={() => setModal('cierre')}>🗓️ Cierre de mes</button>
           </div>
 
@@ -684,6 +688,7 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
       {modal === 'pago' && <NominaPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'cajas' && <GestionarCajasModal actor={actor} actorName={actorName} onClose={() => setModal('none')} onCambioAplicado={reload} />}
       {modal === 'retencion' && <RetencionesTesoreriaModal onClose={() => setModal('none')} />}
+      {papeleraOpen && <PapeleraTesoreriaModal onClose={() => setPapeleraOpen(false)} />}
       {modal === 'categorias' && <CategoriasGastoModal canWrite={canWrite} actor={actor} onClose={() => setModal('none')} />}
       {modal === 'cierre' && <CierreMesModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal('none')} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
@@ -722,16 +727,17 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   const [correoOpen, setCorreoOpen] = useState(false);
 
   // ── Editar / borrar movimiento ──
-  // Editable (monto/motivo): solo manuales sueltos. Borrable (con sincronización de saldo):
-  // manuales + traslados + conversiones (los ligados a un documento se anulan desde su módulo).
-  const editable = esMovimientoEditable(mov);
-  const borrable = esMovimientoBorrable(mov);
-  const esPar = esMovimientoPar(mov);
+  const { can } = usePermissions();
+  const tieneEscritura = can('tesoreria', 'escritura');
+  const esReverso = esAsientoDeReverso(mov);
+  const editable = tieneEscritura && !esReverso && esMovimientoEditable(mov);
+  const reversible = tieneEscritura && puedeRevertirMovimiento(mov);
   const [editando, setEditando] = useState(false);
   // Editar SOLO la fecha — disponible para TODOS los movimientos (también los vinculados),
   // p.ej. cuando el pago real fue otro día pero se cargó tarde. No cambia montos ni saldos.
   const [editandoFecha, setEditandoFecha] = useState(false);
-  const [confirmBorrar, setConfirmBorrar] = useState(false);
+  const [confirmReverso, setConfirmReverso] = useState(false);
+  const [motivoReverso, setMotivoReverso] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [errEdit, setErrEdit] = useState<string | null>(null);
   const [catsEdit, setCatsEdit] = useState<CategoriaGasto[]>([]);
@@ -774,13 +780,13 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       onChanged?.(); onClose();
     } catch (e) { setErrEdit(e instanceof Error ? e.message : 'No se pudo cambiar la fecha'); setSavingEdit(false); }
   }
-  async function borrarMov() {
+  async function registrarReverso() {
     setSavingEdit(true);
     try {
-      await eliminarMovimientoCaja(mov);
-      toast('Movimiento borrado · saldo sincronizado', 'success');
+      await revertirMovimiento(mov, motivoReverso);
+      toast('Reverso contabilizado. El movimiento original sigue en el historial.', 'success');
       onChanged?.(); onClose();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar el movimiento', 'error'); setSavingEdit(false); setConfirmBorrar(false); }
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo registrar el reverso', 'error'); setSavingEdit(false); }
   }
 
   // Si el movimiento es un pago de compra (pago_oc), traemos la OC para mostrar
@@ -897,8 +903,8 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       ) : (
         <>
           {editable && <button className="btn btn-ghost" onClick={() => setEditando(true)} title="Editar este movimiento manual">✏ Editar</button>}
-          {!editable && <button className="btn btn-ghost" onClick={() => { setEFecha((mov.at ?? '').slice(0, 16)); setEditandoFecha(true); }} title="Cambiar la fecha de este movimiento (p.ej. el pago real fue otro día)">📅 Editar fecha</button>}
-          {borrable && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmBorrar(true)} title="Borrar este movimiento y sincronizar el saldo de la caja">🗑 Borrar</button>}
+          {tieneEscritura && !editable && !esReverso && <button className="btn btn-ghost" onClick={() => { setEFecha((mov.at ?? '').slice(0, 16)); setEditandoFecha(true); }} title="Cambiar la fecha de este movimiento (p.ej. el pago real fue otro día)">📅 Editar fecha</button>}
+          {reversible && <button className="btn btn-ghost" onClick={() => setConfirmReverso(true)}>↶ Registrar reverso</button>}
           <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
             {generandoPdf ? 'Generando…' : '↓ PDF'}
           </button>
@@ -907,17 +913,21 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
         </>
       )
     }>
-      {confirmBorrar && (
+      {esReverso && <div className="card" style={{ marginBottom: '.75rem' }}>
+        {mov.reverso_de_id ? 'Asiento de reverso' : 'Movimiento revertido'} · se conserva en el libro de caja.
+      </div>}
+      {confirmReverso && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
-          <strong>¿Borrar este movimiento?</strong> Se revertirá su efecto en el saldo de la caja. No se puede deshacer.
-          {esPar && (
-            <div className="muted" style={{ fontSize: '.78rem', marginTop: '.35rem' }}>
-              ⚠ Es una pata de un <strong>{mov.categoria === 'conversion' ? 'conversión' : 'traslado'}</strong>: esto borra <strong>solo esta pata</strong> y ajusta el saldo de <strong>esta</strong> caja. Si quieres deshacer la operación completa, borra también la <strong>otra pata</strong> en la otra caja/moneda.
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
-            <button className="btn btn-sm btn-ghost" onClick={() => setConfirmBorrar(false)} disabled={savingEdit}>Cancelar</button>
-            <button className="btn btn-sm btn-primary" style={{ background: 'var(--danger)' }} onClick={borrarMov} disabled={savingEdit}>{savingEdit ? 'Borrando…' : 'Sí, borrar'}</button>
+          <strong>Registrar un reverso</strong>
+          <p>Se registra un asiento por el monto contrario y se conserva este movimiento.</p>
+          <label className="form-row">Motivo del reverso
+            <textarea className="input" rows={2} value={motivoReverso} onChange={(e) => setMotivoReverso(e.target.value)} disabled={savingEdit} />
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => setConfirmReverso(false)} disabled={savingEdit}>Cancelar</button>
+            <button className="btn btn-sm btn-danger" onClick={registrarReverso} disabled={savingEdit || !motivoReverso.trim()}>
+              {savingEdit ? 'Registrando…' : 'Confirmar reverso'}
+            </button>
           </div>
         </div>
       )}
@@ -1793,8 +1803,8 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
   }
 
   async function borrar(c: Contraparte) {
-    if (!window.confirm(`¿Eliminar a "${c.nombre}"?`)) return;
-    try { await eliminarContraparte(c.id); if (editId === c.id) nuevo(); await recargar(); }
+    if (!window.confirm(`¿Enviar a "${c.nombre}" a la papelera de Tesorería?`)) return;
+    try { await eliminarContraparte(c.id); if (editId === c.id) nuevo(); await recargar(); toast('Contraparte enviada a la papelera', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 

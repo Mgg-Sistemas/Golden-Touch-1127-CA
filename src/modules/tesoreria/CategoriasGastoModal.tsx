@@ -10,7 +10,7 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto,
-  renombrarCategoriaGasto, setActivoCategoriaGasto, type CategoriaGasto,
+  renombrarCategoriaGasto, setActivoCategoriaGasto, eliminarCategoriaGasto, type CategoriaGasto,
 } from './categoriasGasto.repository';
 
 export function CategoriasGastoModal({ canWrite, actor, onClose }: {
@@ -26,6 +26,7 @@ export function CategoriasGastoModal({ canWrite, actor, onClose }: {
   const cargar = useCallback(async () => {
     setLoading(true);
     try { setRows(await listCategoriasGasto(false)); } // false: incluye inactivas para gestionarlas
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el catálogo', 'error'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -61,6 +62,16 @@ export function CategoriasGastoModal({ canWrite, actor, onClose }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
 
+  async function enviarPapelera(c: CategoriaGasto) {
+    if (!window.confirm(`¿Enviar «${c.nombre}» a la papelera de Tesorería?`)) return;
+    try {
+      await eliminarCategoriaGasto(c.id);
+      if (c.id === selCat) setSelCat(null);
+      await cargar();
+      toast('Categoría enviada a la papelera', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar a la papelera', 'error'); }
+  }
+
   const Lista = ({ items, onAddPlaceholder, nuevo, setNuevo, onAdd, titulo }: {
     items: CategoriaGasto[]; onAddPlaceholder: string; nuevo: string; setNuevo: (v: string) => void; onAdd: () => void; titulo: string;
   }) => (
@@ -83,6 +94,7 @@ export function CategoriasGastoModal({ canWrite, actor, onClose }: {
             {canWrite && <>
               <button type="button" className="btn btn-sm btn-ghost" title="Renombrar" onClick={(e) => { e.stopPropagation(); void renombrar(c); }}>✎</button>
               <button type="button" className="btn btn-sm btn-ghost" title={c.activo ? 'Desactivar' : 'Activar'} onClick={(e) => { e.stopPropagation(); void toggle(c); }}>{c.activo ? '⏸' : '▶'}</button>
+              <button type="button" className="btn btn-sm btn-ghost" title="Enviar a la papelera" onClick={(e) => { e.stopPropagation(); void enviarPapelera(c); }}>🗑</button>
             </>}
           </div>
         ))}

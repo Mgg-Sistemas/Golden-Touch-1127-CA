@@ -5,6 +5,7 @@
    proveedor (esa es su categoría).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { cambiarPapeleraTesoreria } from './papeleraTesoreria';
 
 export type TipoContraparte = 'cliente' | 'proveedor';
 
@@ -32,7 +33,7 @@ export interface ContraparteInput {
 const TABLE = 'tesoreria_contrapartes';
 
 export async function listContrapartes(tipo?: TipoContraparte): Promise<Contraparte[]> {
-  let q = supabase.from(TABLE).select('*').order('nombre', { ascending: true });
+  let q = supabase.from(TABLE).select('*').is('eliminado_en', null).order('nombre', { ascending: true });
   if (tipo) q = q.eq('tipo', tipo);
   const { data, error } = await q;
   if (error) throw error;
@@ -67,6 +68,5 @@ export async function actualizarContraparte(id: string, input: ContraparteInput)
 }
 
 export async function eliminarContraparte(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
+  await cambiarPapeleraTesoreria('contraparte', [id], 'enviar');
 }

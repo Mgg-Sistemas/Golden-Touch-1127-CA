@@ -33,7 +33,7 @@ describe('defaultsFor · permisos por defecto', () => {
     for (const m of MODULES) expect(p[m.key]).toMatchObject({ lectura: true, escritura: true, full: true });
     expect(p.rrhh.vaciarPapelera).toBe(true);
     expect(p.produccion.vaciarPapelera).toBe(true);
-    expect(p.tesoreria.vaciarPapelera).toBeUndefined();
+    expect(p.tesoreria.vaciarPapelera).toBe(true);
     expect(defaultsFor('analista').rrhh.vaciarPapelera).toBeUndefined();
   });
 
@@ -55,6 +55,14 @@ describe('defaultsFor · permisos por defecto', () => {
 });
 
 describe('normalizeRolePermisos · filas guardadas antes de los permisos nuevos', () => {
+  it('habilita por defecto el vaciado de Tesorería solo para el administrador', () => {
+    const full = { lectura: true, escritura: true, full: true };
+    expect(defaultsFor('admin').tesoreria.vaciarPapelera).toBe(true);
+    expect(normalizeRolePermisos({ tesoreria: full }, 'admin').tesoreria.vaciarPapelera).toBe(true);
+    expect(normalizeRolePermisos({ tesoreria: { ...full, vaciarPapelera: false } }, 'admin').tesoreria.vaciarPapelera).toBe(false);
+    expect(normalizeRolePermisos({ tesoreria: full }, 'tesorero').tesoreria.vaciarPapelera).not.toBe(true);
+  });
+
   it('conserva el permiso explícito de vaciar por módulo sin heredarlo de Full control', () => {
     const full = { lectura: true, escritura: true, full: true };
     const permisos = normalizeRolePermisos({
