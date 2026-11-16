@@ -58,6 +58,7 @@ export async function listContratos(): Promise<ContratoAcopio[]> {
   const { data, error } = await supabase
     .from('acopio_contratos')
     .select('*')
+    .is('eliminado_en', null)
     .order('seq', { ascending: false });
   if (error) throw error;
   return (data ?? []) as ContratoAcopio[];
@@ -380,20 +381,42 @@ export async function setContratoHistorico(id: string, historico: boolean): Prom
   if (error) throw error;
 }
 
-export async function eliminarContrato(id: string, actor = 'sistema', actorName: string | null = null): Promise<void> {
-  // GT-SIN-20 · El borrado ES la reserva: `delete … returning` devuelve la fila
-  // una sola vez, así que dos borrados concurrentes no pueden revertir el doble.
-  // Antes se revertía primero y se borraba después, que es el orden inseguro.
-  const { data, error } = await supabase
-    .from('acopio_contratos')
-    .delete()
-    .eq('id', id)
-    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad');
-  if (error) throw error;
-  const fila = data?.[0];
-  if (!fila) return; // ya lo había borrado otro usuario
-  // Si estaba cerrado, sacamos del inventario la casiterita que había sumado.
-  await revertirEntradaCasiterita(fila as ContratoMov, actor, actorName, 'contrato_produccion_eliminacion').catch(() => {});
+export type TipoPapeleraProduccion = 'contrato' | 'catalogo';
+
+export async function cambiarPapeleraProduccion(
+  tipo: TipoPapeleraProduccion, ids: string[], accion: 'enviar' | 'restaurar' | 'vaciar',
+): Promise<number> {
+  if (!ids.length) return 0;
+  const { data, error } = await supabase.rpc('produccion_papelera_cambiar', {
+    p_tipo: tipo, p_ids: ids, p_accion: accion,
+  });
+  if (error) throw new Error(error.message);
+  const cantidad = Number(data) || 0;
+  if (accion !== 'vaciar' && cantidad !== ids.length) throw new Error('El registro ya cambió. Actualiza la lista e inténtalo de nuevo.');
+  return cantidad;
+}
+
+export interface RegistroPapeleraProduccion {
+  id: string;
+  tipo: TipoPapeleraProduccion;
+  nombre: string;
+  eliminado_en: string;
+}
+
+export async function listPapeleraProduccion(): Promise<RegistroPapeleraProduccion[]> {
+  const [contratos, catalogo] = await Promise.all([
+    supabase.from('acopio_contratos').select('id, numero, eliminado_en').not('eliminado_en', 'is', null).is('purgado_en', null),
+    supabase.from('acopio_catalogos').select('id, valor, eliminado_en').not('eliminado_en', 'is', null).is('purgado_en', null),
+  ]);
+  if (contratos.error || catalogo.error) throw new Error(contratos.error?.message ?? catalogo.error?.message);
+  return [
+    ...(contratos.data ?? []).map((r): RegistroPapeleraProduccion => ({ id: r.id, tipo: 'contrato', nombre: r.numero, eliminado_en: r.eliminado_en })),
+    ...(catalogo.data ?? []).map((r): RegistroPapeleraProduccion => ({ id: r.id, tipo: 'catalogo', nombre: r.valor, eliminado_en: r.eliminado_en })),
+  ].sort((a, b) => b.eliminado_en.localeCompare(a.eliminado_en));
+}
+
+export async function eliminarContrato(id: string): Promise<void> {
+  await cambiarPapeleraProduccion('contrato', [id], 'enviar');
 }
 
 /** Resumen para las tarjetas de Producción: contratos activos + KG de Casiterita. */
@@ -411,7 +434,7 @@ export interface ResumenContratos {
 export async function resumenContratos(): Promise<ResumenContratos> {
   const { data, error } = await supabase
     .from('acopio_contratos')
-    .select('estado, kg_seco_limpio, historico');
+    .select('estado, kg_seco_limpio, historico').is('eliminado_en', null);
   if (error) throw error;
   // Los contratos archivados en Históricos NO cuentan en las métricas vigentes.
   const rows = ((data ?? []) as Array<{ estado: string; kg_seco_limpio: number | null; historico: boolean | null }>)
@@ -430,7 +453,7 @@ export async function resumenContratos(): Promise<ResumenContratos> {
 /* ───────────── Catálogo del acopio (lugares de extracción, …) ───────────── */
 
 export async function listCatalogosAcopio(tipo?: TipoCatalogoAcopio): Promise<CatalogoAcopio[]> {
-  let q = supabase.from('acopio_catalogos').select('*')
+  let q = supabase.from('acopio_catalogos').select('*').is('eliminado_en', null)
     .order('orden', { ascending: true })
     .order('valor', { ascending: true });
   if (tipo) q = q.eq('tipo', tipo);
@@ -470,6 +493,5 @@ export async function setCatalogoAcopioActivo(id: string, activo: boolean): Prom
 }
 
 export async function eliminarCatalogoAcopio(id: string): Promise<void> {
-  const { error } = await supabase.from('acopio_catalogos').delete().eq('id', id);
-  if (error) throw error;
+  await cambiarPapeleraProduccion('catalogo', [id], 'enviar');
 }

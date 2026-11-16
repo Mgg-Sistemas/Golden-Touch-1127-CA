@@ -21,7 +21,7 @@ import {
 } from './permisosAlmacen';
 import { resolverDeposito } from '@/modules/inventario/depositos';
 
-export type PermLevel = keyof ModulePermission; // 'lectura' | 'escritura' | 'full'
+export type PermLevel = Exclude<keyof ModulePermission, 'vaciarPapelera'>;
 
 interface PermissionsValue {
   loading: boolean;
