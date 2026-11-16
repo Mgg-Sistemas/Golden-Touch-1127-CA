@@ -1967,7 +1967,13 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
       const f = String(row.fecha ?? '');
       const [y, m] = f.split('-');
       clave = m ? `${MESES_ES[(Number(m) - 1 + 12) % 12]} ${y}` : '— sin fecha —';
-    } else clave = (row.equipo as string)?.trim() || '— sin equipo —';
+    } else {
+      const equipo = (row.equipo as string)?.trim() || '— sin equipo —';
+      const alias = norm(equipo).replace(/[^a-z0-9]/g, '');
+      clave = /^(?:ep01|encavaep01|(?:camioneta)?encavaep1000(?:a96bm3r(?:3)?)?)$/.test(alias)
+        ? 'ENCAVA EP-01'
+        : equipo;
+    }
     const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0, horas: 0 };
     cur.cantidad += litros;
     // Valor = litros × tasa vigente del tanque. Si no se conoce el tanque/tasa, cae al monto guardado.
