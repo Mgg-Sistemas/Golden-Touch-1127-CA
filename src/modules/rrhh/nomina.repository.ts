@@ -476,13 +476,14 @@ export async function eliminarNomina(periodoId: string, motivo: string, actorEma
   if ((regs ?? []).some((r) => (r as { estado: string }).estado === 'pagada')) {
     throw new Error('No se puede eliminar: ya tiene pagos realizados.');
   }
-  const { error: uErr } = await supabase.from('nomina_periodos').update({
+  const { data, error: uErr } = await supabase.from('nomina_periodos').update({
     eliminado_en: new Date().toISOString(),
     eliminado_por: actorEmail,
     eliminado_por_nombre: actorName ?? null,
     eliminado_motivo: m,
-  }).eq('id', periodoId);
+  }).eq('id', periodoId).is('eliminado_en', null).select('id');
   if (uErr) throw uErr;
+  if (!data?.length) throw new Error('No se pudo enviar la nómina a la papelera. Revisa si sigue activa y tienes permiso.');
 }
 
 /** Saca una nómina de la papelera (solo administradores; la base lo exige). */
@@ -494,13 +495,13 @@ export async function recuperarNomina(periodoId: string): Promise<void> {
 }
 
 /**
- * Vacía la papelera: borra DEFINITIVAMENTE las nóminas indicadas (o todas las
- * de la papelera si no se indican). Solo administradores (RPC `security
- * definer` que verifica is_admin()). Devuelve cuántas se borraron.
+ * Retira las nóminas seleccionadas y devuelve el número retirado.
+ * La base valida el permiso específico, comprueba los pagos y respalda antes de retirar.
  */
-export async function vaciarPapeleraNomina(ids?: string[]): Promise<number> {
-  const { data, error } = await supabase.rpc('nomina_vaciar_papelera', { p_ids: ids?.length ? ids : null });
-  if (error) throw error;
+export async function vaciarPapeleraNomina(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const { data, error } = await supabase.rpc('nomina_vaciar_papelera', { p_ids: ids });
+  if (error) throw new Error(error.message);
   return Number(data) || 0;
 }
 
