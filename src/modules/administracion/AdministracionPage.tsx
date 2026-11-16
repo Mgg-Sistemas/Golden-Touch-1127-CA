@@ -9,7 +9,8 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { crearRepoSupabase, type AdminRepo, type Empresa } from './admin.repository';
+import { usePwaInstall } from '@/shared/hooks/usePwaInstall';
+import { crearRepoSupabase, type AdminRepo, type Empresa, type DocumentoEmpresa } from './admin.repository';
 import { crearPreferenciasAdmin, TODAS, type PreferenciasAdmin, type TabAdmin } from './administracionPreferencias';
 import { EmpresasModal } from './EmpresasModal';
 import { GastosFijosTab } from './GastosFijosTab';
@@ -21,6 +22,8 @@ import { ReporteTab } from './ReporteTab';
 import { DocumentosTab } from './DocumentosTab';
 import { ConfiguracionTab } from './ConfiguracionTab';
 import { TableroModuloTab } from './TableroModuloTab';
+import { NotificacionesAdminModal } from './NotificacionesAdminModal';
+import { evaluarAlertasDocumentos } from './notificacionesAdministracion';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
@@ -53,6 +56,9 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
   const [empresaSel, setEmpresaSel] = useState<string>(() => prefs.leerEmpresa());
   const [tab, setTab] = useState<TabAdmin>(() => prefs.leerTab());
   const [gestionar, setGestionar] = useState(false);
+  const [verNotificaciones, setVerNotificaciones] = useState(false);
+  const [todosLosDocs, setTodosLosDocs] = useState<DocumentoEmpresa[]>([]);
+  const { isInstallable, promptInstall } = usePwaInstall();
 
   const cargarEmpresas = useCallback(async () => {
     setError(null);
@@ -60,7 +66,15 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron leer las empresas.'); }
   }, [repo]);
 
+  const cargarDocsAlerta = useCallback(async () => {
+    try {
+      const d = await repo.listDocumentos();
+      setTodosLosDocs(d);
+    } catch { /* ignore */ }
+  }, [repo]);
+
   useEffect(() => { void cargarEmpresas(); }, [cargarEmpresas]);
+  useEffect(() => { void cargarDocsAlerta(); }, [cargarDocsAlerta]);
 
   // Si la empresa elegida ya no está activa (la desactivaron/borraron), vuelve a «Todas».
   useEffect(() => {
@@ -76,6 +90,13 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
   const elegirEmpresa = (v: string) => { setEmpresaSel(v); prefs.guardarEmpresa(v); };
   const elegirTab = (t: TabAdmin) => { setTab(t); prefs.guardarTab(t); };
 
+  // Alertas de documentos según la regla de tiempos establecidos y descartes
+  const { nuevasParaSonar, totalSilenciadas } = useMemo(() => {
+    return evaluarAlertasDocumentos(
+      empresaClave ? todosLosDocs.filter((d) => d.empresaClave === empresaClave) : todosLosDocs,
+    );
+  }, [todosLosDocs, empresaClave]);
+
   return (
     <div>
       {aviso}
@@ -84,7 +105,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
           <h1 style={{ margin: 0 }}>💼 Administración</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Gastos fijos por servicio: plantillas, histórico y reporte.</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
             <span className="muted hint">Empresa</span>
             <select className="input" value={empresaSel} onChange={(e) => elegirEmpresa(e.target.value)} aria-label="Empresa" style={{ minWidth: 190 }}>
@@ -93,6 +114,51 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
             </select>
           </label>
           {puedeFull && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setGestionar(true)}>⚙ Gestionar empresas</button>}
+
+          {/* Botón PWA: Instalable en teléfono o escritorio si el navegador lo soporta */}
+          {isInstallable && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void promptInstall()}
+              title="Instalar Golden Touch en la pantalla de inicio o escritorio"
+            >
+              📲 Instalar App
+            </button>
+          )}
+
+          {/* Campana de Alertas y Notificaciones Push descartables */}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+            onClick={() => setVerNotificaciones(true)}
+            title={
+              nuevasParaSonar.length > 0
+                ? `${nuevasParaSonar.length} alertas activas de vencimiento`
+                : totalSilenciadas > 0
+                ? `${totalSilenciadas} alertas silenciadas temporalmente`
+                : 'Centro de Alertas y Notificaciones'
+            }
+          >
+            <span style={{ fontSize: '1rem' }}>{nuevasParaSonar.length > 0 ? '🔔' : '🔕'}</span>
+            {nuevasParaSonar.length > 0 && (
+              <span
+                style={{
+                  background: '#ef4444',
+                  color: '#fff',
+                  borderRadius: '10px',
+                  fontSize: '.66rem',
+                  padding: '1px 6px',
+                  fontWeight: 700,
+                  lineHeight: '1.2',
+                }}
+              >
+                {nuevasParaSonar.length}
+              </span>
+            )}
+          </button>
+
           <div className="view-toggle" role="tablist" aria-label="Vista de administración">
             {PESTANAS.map((p) => (
               <button key={p.id} className={tab === p.id ? 'active' : ''} onClick={() => elegirTab(p.id)}>{p.label}</button>
@@ -118,6 +184,20 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       {tab === 'config' && <ConfiguracionTab repo={repo} empresas={empresas} puedeFull={puedeFull} puedeEscribir={puedeEscribir} onGestionarEmpresas={() => setGestionar(true)} />}
 
       {gestionar && puedeFull && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
+
+      {verNotificaciones && (
+        <NotificacionesAdminModal
+          documentos={todosLosDocs}
+          empresaClave={empresaClave}
+          onClose={() => {
+            setVerNotificaciones(false);
+            void cargarDocsAlerta();
+          }}
+          onVerDocumento={() => {
+            setTab('documentos');
+          }}
+        />
+      )}
     </div>
   );
 }

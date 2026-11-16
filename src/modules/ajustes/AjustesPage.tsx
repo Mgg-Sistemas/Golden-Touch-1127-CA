@@ -15,7 +15,12 @@ import {
   setNotifPrefs,
   stopNotificationPattern,
 } from '@/shared/lib/sound';
-import { activarNotificaciones, soportaPush } from '@/shared/lib/webpush';
+import {
+  isPushHabilitado,
+  togglePushHabilitado,
+  probarNotificacionPush,
+  soportaPush,
+} from '@/shared/lib/webpush';
 import './ajustes.css';
 
 const VIEW_KEY = 'mgg.view.pedidos';
@@ -62,19 +67,55 @@ export function AjustesPage() {
   const [notifSound, setNotifSound] = useState(() => getNotifPrefs().sound);
   const [notifDuration, setNotifDuration] = useState(() => getNotifPrefs().duration);
 
-  // Notificaciones push de este dispositivo (Web Push · BORRADOR: el envío real lo hará un
-  // Edge Function todavía inexistente — ver shared/lib/webpush.ts).
+  // Notificaciones push de este dispositivo (Web Push y notificaciones nativas en pantalla)
   const pushSoportado = soportaPush();
+  const [pushHabilitado, setPushHabilitado] = useState(() => isPushHabilitado());
   const [pushMsg, setPushMsg] = useState('');
-  const [pushActivando, setPushActivando] = useState(false);
-  async function activarPush() {
-    setPushActivando(true);
+  const [pushCargando, setPushCargando] = useState(false);
+
+  useEffect(() => {
+    function sincronizarPermiso() {
+      setPushHabilitado(isPushHabilitado());
+    }
+    window.addEventListener('focus', sincronizarPermiso);
+    return () => window.removeEventListener('focus', sincronizarPermiso);
+  }, []);
+
+  async function handleTogglePush(habilitar: boolean) {
+    setPushCargando(true);
+    setPushMsg('');
     try {
-      const r = await activarNotificaciones();
-      setPushMsg(r.ok ? 'Activadas en este dispositivo.' : (r.motivo ?? 'No se pudo activar.'));
-      toast(r.ok ? 'Notificaciones activadas en este dispositivo.' : (r.motivo ?? 'No se pudo activar.'), r.ok ? 'success' : 'warning');
+      const res = await togglePushHabilitado(habilitar);
+      if (res.ok) {
+        setPushHabilitado(habilitar);
+        const msg = habilitar
+          ? 'Notificaciones push activadas en este dispositivo.'
+          : 'Notificaciones push desactivadas en este dispositivo.';
+        setPushMsg(msg);
+        toast(msg, 'success');
+      } else {
+        setPushHabilitado(false);
+        const err = res.motivo || 'No se pudo cambiar el estado de las notificaciones.';
+        setPushMsg(err);
+        toast(err, 'warning');
+      }
     } finally {
-      setPushActivando(false);
+      setPushCargando(false);
+    }
+  }
+
+  async function handleProbarPush() {
+    setPushCargando(true);
+    try {
+      const res = await probarNotificacionPush();
+      if (res.ok) {
+        setPushHabilitado(true);
+        toast('Notificación push de prueba emitida en este dispositivo 📲', 'success');
+      } else {
+        toast(res.motivo || 'No se pudo emitir la notificación de prueba.', 'warning');
+      }
+    } finally {
+      setPushCargando(false);
     }
   }
 
@@ -334,35 +375,45 @@ export function AjustesPage() {
           <div className="setting-row">
             <div style={{ flex: 1 }}>
               <strong>
-                Notificaciones en este dispositivo{' '}
-                <span className="badge warning" style={{ fontSize: '.65rem' }}>En preparación</span>
+                Notificaciones en este dispositivo (Push)
               </strong>
               <div className="muted" style={{ fontSize: '.82rem' }}>
-                {/* La pantalla deja de prometer de más: el cliente de Web Push
-                    está listo, pero el envío (Edge Function) todavía no existe,
-                    así que con la app cerrada aún no llega nada. */}
-                Registra este dispositivo para recibir avisos con la app cerrada. El envío
-                todavía no está montado, así que por ahora los avisos solo llegan con el
-                sistema abierto.
-                {!pushSoportado && ' Este navegador no lo soporta.'}
+                Recibe alertas y avisos del sistema en este dispositivo (incluso con la aplicación minimizada).
+                {!pushSoportado && ' Este navegador no soporta notificaciones push.'}
                 {pushMsg && <><br />{pushMsg}</>}
               </div>
             </div>
-            <button type="button" className="btn btn-sm btn-primary" disabled={!pushSoportado || pushActivando} onClick={() => void activarPush()}>
-              {pushActivando ? 'Activando…' : 'Activar'}
-            </button>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={pushHabilitado}
+                disabled={!pushSoportado || pushCargando}
+                onChange={(e) => void handleTogglePush(e.target.checked)}
+              />
+              <span className="slider-toggle"></span>
+            </label>
           </div>
 
-          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.75rem' }}>
+          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.75rem', flexWrap: 'wrap' }}>
             <button
+              type="button"
               className="btn btn-ghost"
               onClick={() => playNotificationPattern(notifDuration)}
               disabled={!notifEnabled || !notifSound}
             >
               🔊 Probar sonido
             </button>
-            <button className="btn btn-ghost" onClick={stopNotificationPattern}>
+            <button type="button" className="btn btn-ghost" onClick={stopNotificationPattern}>
               ■ Detener
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => void handleProbarPush()}
+              disabled={!pushSoportado || pushCargando}
+              title="Envía una notificación push de prueba en este dispositivo"
+            >
+              📲 Probar notificación push
             </button>
           </div>
         </div>

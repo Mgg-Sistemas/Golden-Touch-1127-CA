@@ -56,29 +56,105 @@ function urlB64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 export interface ResultadoActivar { ok: boolean; motivo?: string; }
 
+const STORAGE_KEY_PUSH_HABILITADO = 'gt.push_habilitado';
+let _pushHabilitadoMemoria = true;
+
+/** Comprueba si las notificaciones push en este dispositivo están habilitadas por el usuario */
+export function isPushHabilitado(): boolean {
+  if (!soportaPush()) return false;
+  if (typeof window === 'undefined') return _pushHabilitadoMemoria;
+  if (Notification.permission !== 'granted') return false;
+  const pref = localStorage.getItem(STORAGE_KEY_PUSH_HABILITADO);
+  return pref === null ? true : pref === '1';
+}
+
 /** Pide permiso, suscribe al push y guarda la suscripción. Idempotente. */
 export async function activarNotificaciones(): Promise<ResultadoActivar> {
   if (!soportaPush()) return { ok: false, motivo: 'Este navegador no soporta notificaciones push.' };
-  if (!VAPID_PUBLIC) return { ok: false, motivo: 'Falta la llave pública VAPID (la configura infra/BD).' };
   const permiso = await Notification.requestPermission();
-  if (permiso !== 'granted') return { ok: false, motivo: 'No se concedió el permiso de notificaciones.' };
+  if (permiso !== 'granted') return { ok: false, motivo: 'No se concedió el permiso de notificaciones en el navegador.' };
   const reg = await registrarServiceWorkerPush();
   if (!reg) return { ok: false, motivo: 'No se pudo registrar el service worker.' };
-  try {
-    const previa = await reg.pushManager.getSubscription();
-    const sub = previa ?? await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC),
-    });
-    await guardarSuscripcion(sub);
+
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY_PUSH_HABILITADO, '1');
+  }
+
+  if (VAPID_PUBLIC) {
+    try {
+      const previa = await reg.pushManager.getSubscription();
+      const sub = previa ?? await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC),
+      });
+      await guardarSuscripcion(sub);
+    } catch (e) {
+      console.warn('No se pudo suscribir al push remoto:', e);
+    }
+  }
+  return { ok: true };
+}
+
+/** Alterna el switch de notificaciones push guardando preferencia y gestionando permisos/suscripción */
+export async function togglePushHabilitado(habilitar: boolean): Promise<ResultadoActivar> {
+  _pushHabilitadoMemoria = habilitar;
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY_PUSH_HABILITADO, habilitar ? '1' : '0');
+  }
+
+  if (!soportaPush()) return { ok: false, motivo: 'Este navegador no soporta notificaciones push.' };
+
+  if (habilitar) {
+    return await activarNotificaciones();
+  } else {
+    await desactivarNotificaciones();
     return { ok: true };
-  } catch (e) {
-    return { ok: false, motivo: e instanceof Error ? e.message : 'No se pudo suscribir al push.' };
+  }
+}
+
+/** Envía una notificación nativa de prueba al dispositivo (con vibración) */
+export async function probarNotificacionPush(): Promise<ResultadoActivar> {
+  if (!soportaPush()) {
+    return { ok: false, motivo: 'Este navegador no soporta notificaciones en este dispositivo.' };
+  }
+
+  if (Notification.permission !== 'granted') {
+    const res = await activarNotificaciones();
+    if (!res.ok) return res;
+  }
+
+  try {
+    const reg = (await navigator.serviceWorker.getRegistration(SW_URL)) || (await registrarServiceWorkerPush());
+    const titulo = '🔔 Golden Touch · Notificación de prueba';
+    const opciones: NotificationOptions = {
+      body: 'Las notificaciones push en este dispositivo están funcionando correctamente.',
+      icon: '/android-chrome-192x192.png',
+      badge: '/favicon-32x32.png',
+      tag: 'gt-push-test',
+      data: { url: '/app/ajustes' },
+    };
+
+    if (reg && 'showNotification' in reg) {
+      await reg.showNotification(titulo, opciones);
+    } else {
+      new Notification(titulo, opciones);
+    }
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+      try { navigator.vibrate([150, 80, 150]); } catch { /* ignore */ }
+    }
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, motivo: err instanceof Error ? err.message : 'Error al mostrar la notificación.' };
   }
 }
 
 /** Cancela la suscripción de este dispositivo y la borra del servidor. */
 export async function desactivarNotificaciones(): Promise<void> {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY_PUSH_HABILITADO, '0');
+  }
   if (!soportaPush()) return;
   const reg = await navigator.serviceWorker.getRegistration(SW_URL);
   const sub = await reg?.pushManager.getSubscription();
