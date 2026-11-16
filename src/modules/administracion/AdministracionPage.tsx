@@ -72,7 +72,6 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
 
   const activas = useMemo(() => empresas.filter((e) => e.activa), [empresas]);
   const empresaClave = empresaSel === TODAS ? null : empresaSel;
-  const empresaActual = useMemo(() => empresas.find((e) => e.clave === empresaClave) ?? null, [empresas, empresaClave]);
 
   const elegirEmpresa = (v: string) => { setEmpresaSel(v); prefs.guardarEmpresa(v); };
   const elegirTab = (t: TabAdmin) => { setTab(t); prefs.guardarTab(t); };

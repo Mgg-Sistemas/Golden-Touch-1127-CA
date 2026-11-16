@@ -895,7 +895,7 @@ export function DocumentosTab({
                               }}
                               title="Centro de Acopio Asignado"
                             >
-                              🏭 {mapaCentros.get(d.centroAcopioId || carpetaInfo?.centroAcopioId!) || d.centroAcopioId || carpetaInfo?.centroAcopioId}
+                              🏭 {mapaCentros.get(d.centroAcopioId || carpetaInfo?.centroAcopioId || '') || d.centroAcopioId || carpetaInfo?.centroAcopioId}
                             </span>
                           )}
                           {(() => {
