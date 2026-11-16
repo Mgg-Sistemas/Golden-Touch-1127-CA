@@ -136,6 +136,11 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
       if (i >= 0) centros[i] = { ...centros[i], activo };
       return Promise.resolve();
     },
+    eliminarCentro: (id) => {
+      const i = centros.findIndex((c) => c.id === id);
+      if (i >= 0) centros.splice(i, 1);
+      return Promise.resolve();
+    },
     listProfesionales: () => Promise.resolve(
       profesionales.map((p) => ({ ...p })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
     ),
@@ -446,6 +451,43 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
       const actualizado: DocumentoEmpresa = {
         ...d,
         ...cambios,
+        statusVencimiento: nuevoStatus,
+        historial: [...d.historial, histItem],
+        updatedAt: nowIso,
+      };
+      documentos[idx] = actualizado;
+      return Promise.resolve({ ...actualizado });
+    },
+    renovarDocumento: (id: string, file: File | null, meta: Partial<DocumentoEmpresaInput>, actor?: string, nota?: string) => {
+      const idx = documentos.findIndex((d) => d.id === id);
+      if (idx < 0) return Promise.reject(new Error('Documento demo no encontrado.'));
+      const d = documentos[idx];
+      const nowIso = new Date().toISOString();
+      let path = d.path;
+      let tamano = d.tamano;
+      let detalle = nota ? `Renovación registrada. ${nota}` : 'Documento renovado con nueva vigencia';
+      if (file) {
+        path = `demo/${d.empresaClave}/${uid()}-${file.name}`;
+        tamano = file.size;
+        try { urlsDemo.set(path, URL.createObjectURL(file)); } catch { /* noop */ }
+        detalle = `Renovado con nuevo archivo "${file.name}". ${nota || ''}`.trim();
+      }
+      const nuevoStatus = calcularStatusVencimiento(
+        meta.fechaVencimiento !== undefined ? meta.fechaVencimiento : d.fechaVencimiento,
+        meta.statusVencimiento !== undefined ? meta.statusVencimiento : d.statusVencimiento,
+      );
+      const histItem = {
+        id: uid(),
+        fecha: nowIso,
+        actor: actor || 'demo@goldentouch.com',
+        accion: 'renovacion' as const,
+        detalle,
+      };
+      const actualizado: DocumentoEmpresa = {
+        ...d,
+        ...meta,
+        path,
+        tamano,
         statusVencimiento: nuevoStatus,
         historial: [...d.historial, histItem],
         updatedAt: nowIso,

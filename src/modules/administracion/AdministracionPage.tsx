@@ -22,6 +22,7 @@ import { ReporteTab } from './ReporteTab';
 import { DocumentosTab } from './DocumentosTab';
 import { ConfiguracionTab } from './ConfiguracionTab';
 import { TableroModuloTab } from './TableroModuloTab';
+import { AuditoriaTab } from './AuditoriaTab';
 import { NotificacionesAdminModal } from './NotificacionesAdminModal';
 import { evaluarAlertasDocumentos } from './notificacionesAdministracion';
 import './administracion.css';
@@ -35,6 +36,7 @@ const PESTANAS: { id: TabAdmin; label: string }[] = [
   { id: 'agenda', label: '🗓 Agenda' },
   { id: 'responsabilidad', label: '👥 Responsabilidad' },
   { id: 'reporte', label: '📊 Reporte' },
+  { id: 'auditoria', label: '📜 Auditoría' },
   { id: 'config', label: '⚙ Configuración' },
 ];
 
@@ -181,6 +183,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       {tab === 'agenda' && <AgendaTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
       {tab === 'responsabilidad' && <ResponsabilidadTab repo={repo} empresaClave={empresaClave} empresas={empresas} puedeEscribir={puedeEscribir} />}
       {tab === 'reporte' && <ReporteTab repo={repo} empresaClave={empresaClave} empresas={empresas} />}
+      {tab === 'auditoria' && <AuditoriaTab documentos={todosLosDocs} empresas={empresas} empresaClave={empresaClave} />}
       {tab === 'config' && <ConfiguracionTab repo={repo} empresas={empresas} puedeFull={puedeFull} puedeEscribir={puedeEscribir} onGestionarEmpresas={() => setGestionar(true)} />}
 
       {gestionar && puedeFull && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}

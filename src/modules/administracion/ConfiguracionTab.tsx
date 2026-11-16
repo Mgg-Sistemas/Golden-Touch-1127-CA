@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { ConfirmDialog } from '@/shared/ui/Modal';
 import { FAOV_TIERS, type TierFaov } from './administracionParafiscal';
 import { SeccionColapsable, estadoInicialSecciones } from './SeccionColapsable';
 import {
@@ -71,6 +72,9 @@ export function ConfiguracionTab({
   const [cenForm, setCenForm] = useState(VACIO_CENTRO);
   const [cenEditId, setCenEditId] = useState<string | null>(null);
   const [cenOcupado, setCenOcupado] = useState(false);
+  const [busquedaCentros, setBusquedaCentros] = useState('');
+  const [filtroCentros, setFiltroCentros] = useState<'activos' | 'inactivos' | 'todos'>('activos');
+  const [centroBorrar, setCentroBorrar] = useState<CentroAcopio | null>(null);
 
   // Profesionales (lista propia en la base: abogada, contador…)
   const [profs, setProfs] = useState<Profesional[]>([]);
@@ -195,6 +199,34 @@ export function ConfiguracionTab({
     finally { setCenOcupado(false); }
   }
 
+  async function borrarCentro(c: CentroAcopio) {
+    setCenOcupado(true);
+    try {
+      await repo.eliminarCentro(c.id);
+      toast('Centro de acopio eliminado.', 'success');
+      setCentroBorrar(null);
+      await cargarCentros();
+    } catch (e) {
+      toast(`No se pudo eliminar: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    } finally {
+      setCenOcupado(false);
+    }
+  }
+
+  const centrosActivos = useMemo(() => centros.filter((c) => c.activo).length, [centros]);
+  const centrosFiltrados = useMemo(() => {
+    return centros.filter((c) => {
+      if (filtroCentros === 'activos' && !c.activo) return false;
+      if (filtroCentros === 'inactivos' && c.activo) return false;
+      if (busquedaCentros.trim()) {
+        const q = busquedaCentros.toLowerCase();
+        const m = c.nombre.toLowerCase().includes(q) || (c.descripcion || '').toLowerCase().includes(q) || (c.responsablePrincipal || '').toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      return true;
+    });
+  }, [centros, filtroCentros, busquedaCentros]);
+
   /** Atajo para no empezar de cero: crea los 4 centros que el sistema traía escritos. */
   async function cargarCentrosDeSiempre() {
     const empresaClave = empresaPorDefecto;
@@ -314,18 +346,20 @@ export function ConfiguracionTab({
 
   return (
     <div style={{ display: 'grid', gap: '.75rem' }}>
-      {/* 1. Empresas y proveedores */}
+      {/* 1. Empresas gestionadas */}
       <SeccionColapsable
-        titulo="🏢 Empresas y proveedores"
+        titulo="🏢 Empresas gestionadas"
         subtitulo={`${empresas.length} empresa(s), ${activas} activa(s)`}
         abiertoPorDefecto={ESTADO_SECCIONES.empresas}
       >
+        <p className="muted hint" style={{ marginTop: 0, marginBottom: '.5rem' }}>
+          Razones sociales y entidades jurídicas que conforman el grupo. Cada empresa posee su propio expediente independiente de documentos, permisos, centros de acopio y obligaciones fiscales.
+        </p>
         <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'grid', gap: '.4rem', lineHeight: 1.5 }}>
-          <li><b>Empresas del módulo</b>: {empresas.length} registrada(s), {activas} activa(s). Es la lista propia de Administración (razón social, RIF, moneda, logo).</li>
-          <li><b>Proveedores</b>: se comparten con Pedidos; se agregan y editan desde allá para que todo el sistema use los mismos.</li>
+          <li><b>Empresas registradas</b>: {empresas.length} en total ({activas} activas). Tienen su propia razón social, RIF, moneda operativa y expedientes documentales.</li>
         </ul>
         {puedeFull && onGestionarEmpresas && (
-          <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '.5rem' }} onClick={onGestionarEmpresas}>⚙ Gestionar empresas</button>
+          <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: '.6rem' }} onClick={onGestionarEmpresas}>⚙ Gestionar empresas</button>
         )}
       </SeccionColapsable>
 
@@ -445,47 +479,103 @@ export function ConfiguracionTab({
             )}
           </div>
         ) : (
-          <div className="adm-tabla" style={{ marginTop: '.2rem', maxHeight: '360px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-2)', zIndex: 2 }}>
-                <tr>
-                  <th>Centro</th>
-                  <th>Responsable</th>
-                  <th>Fase</th>
-                  <th>Estado</th>
-                  <th style={{ textAlign: 'right' }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {centros.map((c) => (
-                  <tr key={c.id} className={c.activo ? undefined : 'adm-fila-off'}>
-                    <td>
-                      <strong style={{ color: 'var(--text)', fontSize: '.84rem' }}>{c.nombre}</strong>
-                      {c.descripcion && <div className="muted" style={{ fontSize: '.72rem' }}>{c.descripcion}</div>}
-                    </td>
-                    <td style={{ fontSize: '.82rem' }}>{c.responsablePrincipal || <span className="muted">Sin asignar</span>}</td>
-                    <td style={{ fontSize: '.78rem' }}>{c.fasePredeterminada || <span className="muted">Sin fase</span>}</td>
-                    <td><span className={`adm-badge ${c.activo ? 'activo' : 'suspendido'}`}>{c.activo ? 'Activo' : 'Inactivo'}</span></td>
-                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      {puedeFull ? (
-                        <div style={{ display: 'inline-flex', gap: '.3rem' }}>
-                          <button type="button" className="btn btn-xs btn-ghost" onClick={() => editarCentro(c)} title="Cambiar nombre, responsable o fase">✏️ Editar</button>
-                          <button
-                            type="button"
-                            className="btn btn-xs btn-ghost"
-                            onClick={() => void alternarCentro(c)}
-                            disabled={cenOcupado}
-                            style={{ color: c.activo ? '#f59e0b' : '#10b981' }}
-                          >
-                            {c.activo ? 'Desactivar' : 'Activar'}
-                          </button>
-                        </div>
-                      ) : (<span className="muted">—</span>)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div>
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', margin: '.6rem 0 .5rem', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${filtroCentros === 'activos' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={filtroCentros === 'activos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                  onClick={() => setFiltroCentros('activos')}
+                >
+                  Solo Activos ({centrosActivos})
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${filtroCentros === 'inactivos' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={filtroCentros === 'inactivos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                  onClick={() => setFiltroCentros('inactivos')}
+                >
+                  Inactivos ({centros.length - centrosActivos})
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${filtroCentros === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={filtroCentros === 'todos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                  onClick={() => setFiltroCentros('todos')}
+                >
+                  Todos ({centros.length})
+                </button>
+              </div>
+
+              <input
+                type="search"
+                className="input input-sm"
+                value={busquedaCentros}
+                onChange={(e) => setBusquedaCentros(e.target.value)}
+                placeholder="🔍 Buscar centro…"
+                style={{ maxWidth: 220, fontSize: '.76rem' }}
+              />
+            </div>
+
+            {centrosFiltrados.length === 0 ? (
+              <p className="muted hint" style={{ margin: '.5rem 0' }}>
+                No hay centros que coincidan con el filtro ({filtroCentros === 'activos' ? 'Solo Activos' : filtroCentros === 'inactivos' ? 'Solo Inactivos' : 'Todos'}).
+              </p>
+            ) : (
+              <div className="adm-tabla" style={{ marginTop: '.2rem', maxHeight: '360px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                <table>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-2)', zIndex: 2 }}>
+                    <tr>
+                      <th>Centro</th>
+                      <th>Responsable</th>
+                      <th>Fase</th>
+                      <th>Estado</th>
+                      <th style={{ textAlign: 'right' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {centrosFiltrados.map((c) => (
+                      <tr key={c.id} className={c.activo ? undefined : 'adm-fila-off'}>
+                        <td>
+                          <strong style={{ color: 'var(--text)', fontSize: '.84rem' }}>{c.nombre}</strong>
+                          {c.descripcion && <div className="muted" style={{ fontSize: '.72rem' }}>{c.descripcion}</div>}
+                        </td>
+                        <td style={{ fontSize: '.82rem' }}>{c.responsablePrincipal || <span className="muted">Sin asignar</span>}</td>
+                        <td style={{ fontSize: '.78rem' }}>{c.fasePredeterminada || <span className="muted">Sin fase</span>}</td>
+                        <td><span className={`adm-badge ${c.activo ? 'activo' : 'suspendido'}`}>{c.activo ? 'Activo' : 'Inactivo'}</span></td>
+                        <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                          {puedeFull ? (
+                            <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+                              <button type="button" className="btn btn-xs btn-ghost" onClick={() => editarCentro(c)} title="Cambiar nombre, responsable o fase">✏️ Editar</button>
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-ghost"
+                                onClick={() => void alternarCentro(c)}
+                                disabled={cenOcupado}
+                                style={{ color: c.activo ? '#f59e0b' : '#10b981' }}
+                              >
+                                {c.activo ? 'Desactivar' : 'Activar'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-ghost"
+                                style={{ color: '#ef4444' }}
+                                onClick={() => setCentroBorrar(c)}
+                                disabled={cenOcupado}
+                                title="Eliminar centro definitivamente"
+                              >
+                                🗑️ Borrar
+                              </button>
+                            </div>
+                          ) : (<span className="muted">—</span>)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </SeccionColapsable>
@@ -925,6 +1015,22 @@ export function ConfiguracionTab({
             setCarpetas(nuevas);
             guardarCarpetasPersonalizadas(nuevas);
           }}
+        />
+      )}
+
+      {/* Confirmación para Eliminar Centro de Acopio */}
+      {centroBorrar && (
+        <ConfirmDialog
+          title="Eliminar Centro de Acopio"
+          danger
+          message={
+            <span>
+              ¿Estás seguro de eliminar el centro <strong>«{centroBorrar.nombre}»</strong>?
+              Esta acción eliminará el centro permanentemente del sistema.
+            </span>
+          }
+          onConfirm={() => void borrarCentro(centroBorrar)}
+          onCancel={() => setCentroBorrar(null)}
         />
       )}
     </div>

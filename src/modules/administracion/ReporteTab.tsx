@@ -190,10 +190,11 @@ export function ReporteTab({ repo, empresaClave, empresas }: {
     );
   }
 
-  // 3. Cálculos de Centros de Acopio, Fases y Responsables
+  // 3. Cálculos de Centros de Acopio, Fases y Responsables (Solo centros activos)
   const centrosFiltradosEmpresa = useMemo(() => {
-    if (!empresaClave) return centros;
-    return centros.filter((c) => c.empresaClave === empresaClave);
+    const soloActivos = centros.filter((c) => c.activo !== false);
+    if (!empresaClave) return soloActivos;
+    return soloActivos.filter((c) => c.empresaClave === empresaClave);
   }, [centros, empresaClave]);
 
   const matrizCentros = useMemo(() => {

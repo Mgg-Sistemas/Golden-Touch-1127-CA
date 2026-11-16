@@ -25,6 +25,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { SearchSelect, SearchCreateSelect, type SearchOption } from '@/shared/ui/SearchSelect';
 import { ExportarDocumentosModal } from './ExportarDocumentosModal';
+import { RenovarDocumentoModal } from './RenovarDocumentoModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
 import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
 import { responsablesEfectivosDocumento, nombrePorEmail } from './administracionResponsabilidad';
@@ -147,10 +148,11 @@ export function DocumentosTab({
   const [buscar, setBuscar] = useState('');
 
   // Centros de Acopio disponibles para asociación y filtrado
-  // Los centros viven en la base (Configuracion los crea). Antes se leia una lista
-  // fija del codigo, asi que lo que la lider creaba no aparecia aqui nunca.
+  // Los centros viven en la base (Configuracion los crea). Se filtran únicamente los activos.
   const [centros, setCentros] = useState<CentroAcopio[]>([]);
-  useEffect(() => { repo.listCentros().then(setCentros).catch(() => setCentros([])); }, [repo]);
+  useEffect(() => {
+    repo.listCentros().then((cs) => setCentros(cs.filter((c) => c.activo !== false))).catch(() => setCentros([]));
+  }, [repo]);
 
   // Quien responde por cada documento (se asigna en la pestana Responsabilidad).
   // Sin esto se asignaba un analista y al abrir el documento no se veia por ningun lado.
@@ -196,6 +198,8 @@ export function DocumentosTab({
 
   // Modales
   const [docDetalle, setDocDetalle] = useState<DocumentoEmpresa | null>(null);
+  const [docRenovar, setDocRenovar] = useState<DocumentoEmpresa | null>(null);
+  const [tabDetalleModal, setTabDetalleModal] = useState<'datos' | 'historial'>('datos');
   const [docBorrar, setDocBorrar] = useState<DocumentoEmpresa | null>(null);
   const [verAlertaWsp, setVerAlertaWsp] = useState(false);
   const [modalReporte, setModalReporte] = useState(false);
@@ -873,8 +877,16 @@ export function DocumentosTab({
                   <tr key={d.id}>
                     <td>
                       <div>
-                        <strong style={{ color: 'var(--text)', fontSize: '.86rem' }}>{d.nombre}</strong>
-                        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.15rem', flexWrap: 'wrap' }}>
+                        <strong style={{ color: 'var(--text)', fontSize: '.88rem' }}>{d.nombre}</strong>
+                        {(() => {
+                          const archivoNombre = d.path.split('/').pop() || d.path;
+                          return (
+                            <div style={{ fontSize: '.72rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '.3rem', marginTop: '.1rem' }}>
+                              <span title={`Archivo físico adjunto: ${archivoNombre}`}>📎 {archivoNombre}</span>
+                            </div>
+                          );
+                        })()}
+                        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.2rem', flexWrap: 'wrap' }}>
                           <span className="adm-chip" style={{ fontSize: '.7rem' }}>
                             {TIPO_DOCUMENTO_LABEL[d.tipo] || d.tipo}
                           </span>
@@ -1002,11 +1014,31 @@ export function DocumentosTab({
                       <button type="button" className="btn btn-xs btn-ghost" onClick={() => void abrirDoc(d)} title="Previsualizar archivo">
                         👁️ Ver
                       </button>
+                      {puedeEscribir && (
+                        <button
+                          type="button"
+                          className="btn btn-xs"
+                          style={{
+                            background: '#ff8a00',
+                            color: '#000',
+                            fontWeight: 700,
+                            border: 'none',
+                            padding: '.2rem .55rem',
+                          }}
+                          onClick={() => setDocRenovar(d)}
+                          title="Renovar este documento con nuevo archivo y vigencia"
+                        >
+                          🔄 Renovar
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn-xs btn-ghost"
-                        onClick={() => setDocDetalle(d)}
-                        title="Ver detalle, vigencia interactiva e historial"
+                        onClick={() => {
+                          setDocDetalle(d);
+                          setTabDetalleModal('datos');
+                        }}
+                        title="Ver detalle, editar metadatos y consultar historial"
                       >
                         ✏️ Detalle
                       </button>
@@ -1322,6 +1354,106 @@ export function DocumentosTab({
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Navegación por pestañas dentro del modal de detalle */}
+            <div style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${tabDetalleModal === 'datos' ? 'btn-primary' : 'btn-ghost'}`}
+                style={tabDetalleModal === 'datos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                onClick={() => setTabDetalleModal('datos')}
+              >
+                📋 Datos y Metadatos
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${tabDetalleModal === 'historial' ? 'btn-primary' : 'btn-ghost'}`}
+                style={tabDetalleModal === 'historial' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                onClick={() => setTabDetalleModal('historial')}
+              >
+                📜 Historial de Cambios y Auditoría ({docDetalle.historial?.length || 0})
+              </button>
+              {puedeEscribir && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ marginLeft: 'auto', background: '#ff8a00', color: '#000', fontWeight: 700, border: 'none' }}
+                  onClick={() => {
+                    setDocRenovar(docDetalle);
+                    setDocDetalle(null);
+                  }}
+                >
+                  🔄 Renovar Documento
+                </button>
+              )}
+            </div>
+
+            {/* VISTA 1: Historial Destacado y Cronológico */}
+            {tabDetalleModal === 'historial' && (
+              <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '1rem', background: 'var(--surface-1)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem' }}>
+                  <div style={{ fontWeight: 700, fontSize: '.92rem', color: 'var(--text)' }}>
+                    📜 Bitácora de Trazabilidad e Historial del Documento
+                  </div>
+                  <span className="badge" style={{ fontSize: '.72rem' }}>
+                    {docDetalle.historial?.length || 0} evento(s)
+                  </span>
+                </div>
+                <p className="muted hint" style={{ fontSize: '.78rem', margin: '0 0 .85rem' }}>
+                  Registro cronológico detallado: quién modificó o renovó el documento, cuándo y qué acción realizó.
+                </p>
+
+                {docDetalle.historial && docDetalle.historial.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', maxHeight: '340px', overflowY: 'auto' }}>
+                    {[...docDetalle.historial].reverse().map((h) => {
+                      const esRenovacion = h.accion === 'renovacion';
+                      const esCreacion = h.accion === 'creacion';
+                      return (
+                        <div
+                          key={h.id}
+                          style={{
+                            padding: '.6rem .8rem',
+                            borderRadius: '6px',
+                            background: esRenovacion ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                            border: `1px solid ${esRenovacion ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.06)'}`,
+                            fontSize: '.8rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                              <strong style={{ color: '#ff8a00' }}>👤 {h.actor || 'Usuario'}</strong>
+                              <span
+                                className="adm-chip"
+                                style={{
+                                  fontSize: '.66rem',
+                                  color: esRenovacion ? '#10b981' : esCreacion ? '#38bdf8' : '#f59e0b',
+                                  borderColor: esRenovacion ? '#10b981' : esCreacion ? '#38bdf8' : '#f59e0b',
+                                }}
+                              >
+                                {esRenovacion ? '🔄 Renovación' : esCreacion ? '➕ Creación' : h.accion}
+                              </span>
+                            </div>
+                            <span className="muted mono" style={{ fontSize: '.72rem' }}>
+                              {fFechaHora.format(new Date(h.fecha))}
+                            </span>
+                          </div>
+                          <div style={{ color: 'var(--text)', marginTop: '.3rem', lineHeight: 1.4 }}>
+                            {h.detalle}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="muted" style={{ fontSize: '.8rem', padding: '1rem', textAlign: 'center' }}>
+                    Sin cambios registrados en el historial de este archivo.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* VISTA 2: Datos y Metadatos */}
+            {tabDetalleModal === 'datos' && (
+              <>
             {/* Banner de Estado de Vigencia y Cuenta Regresiva al Item */}
             {(() => {
               const hover = obtenerDetalleHoverVigencia(docDetalle.fechaVencimiento, docDetalle.statusVencimiento, docDetalle.notaTramite);
@@ -1788,6 +1920,8 @@ export function DocumentosTab({
                 </div>
               )}
             </div>
+            </>
+            )}
           </div>
         </Modal>
       )}
@@ -1805,6 +1939,18 @@ export function DocumentosTab({
           confirmText="Eliminar"
           onCancel={() => setDocBorrar(null)}
           onConfirm={() => void confirmarBorrar()}
+        />
+      )}
+
+      {/* 8.1. MODAL: Renovación Formal de Documento */}
+      {docRenovar && (
+        <RenovarDocumentoModal
+          documento={docRenovar}
+          repo={repo}
+          onClose={() => setDocRenovar(null)}
+          onRenovado={async () => {
+            await cargar();
+          }}
         />
       )}
 

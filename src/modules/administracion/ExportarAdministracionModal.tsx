@@ -509,7 +509,9 @@ export function ExportarAdministracionModal({
               visibility: visible !important;
             }
             .reporte-print {
-              position: static !important;
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
               display: block !important;
               width: 100% !important;
               max-width: 100% !important;

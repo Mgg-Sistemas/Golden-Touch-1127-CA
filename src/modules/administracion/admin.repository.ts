@@ -466,6 +466,7 @@ export interface AdminRepo {
   crearCentro(c: CentroAcopioInput): Promise<CentroAcopio>;
   editarCentro(id: string, cambios: Partial<CentroAcopioInput>): Promise<void>;
   setActivoCentro(id: string, activo: boolean): Promise<void>;
+  eliminarCentro(id: string): Promise<void>;
   // Profesionales (abogada, contador…)
   listProfesionales(): Promise<Profesional[]>;
   crearProfesional(p: ProfesionalInput): Promise<Profesional>;
@@ -561,6 +562,8 @@ export interface AdminRepo {
   subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File, meta?: Partial<DocumentoEmpresaInput>, actor?: string): Promise<DocumentoEmpresa>;
   /** Actualiza metadatos de un documento y registra un cambio en su historial ligero de auditoría. */
   editarDocumento(id: string, cambios: Partial<DocumentoEmpresaInput>, actor?: string, detalle?: string): Promise<DocumentoEmpresa>;
+  /** Renueva un documento: opcionalmente sube nuevo soporte, actualiza fechas y registra el evento en auditoría. */
+  renovarDocumento(id: string, file: File | null, meta: Partial<DocumentoEmpresaInput>, actor?: string, nota?: string): Promise<DocumentoEmpresa>;
   /** URL firmada (10 min) para previsualizar/descargar. */
   urlDocumento(path: string): Promise<string>;
   /** Borra el registro y luego el archivo del bucket. */
@@ -968,6 +971,10 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async setActivoCentro(id, activo) {
       const { error } = await supabase.from(T_CEN).update({ activo }).eq('id', id);
+      if (error) throw error;
+    },
+    async eliminarCentro(id) {
+      const { error } = await supabase.from(T_CEN).delete().eq('id', id);
       if (error) throw error;
     },
     async listProfesionales() {
@@ -1587,6 +1594,60 @@ export function crearRepoSupabase(): AdminRepo {
       if (esColumnaQueFalta(error)) throw errorColumnaQueFalta(error, 'el documento');
 
       if (error || !data) throw error || new Error('No se pudo actualizar el documento.');
+      return aDoc(data as RowDoc);
+    },
+    async renovarDocumento(id, file, meta, actor, nota) {
+      const { data: actualRow, error: errGet } = await supabase.from(T_DOC).select('*').eq('id', id).single();
+      if (errGet || !actualRow) throw new Error('No se encontró el documento a renovar.');
+      const doc = aDoc(actualRow as RowDoc);
+
+      let nuevoPath = doc.path;
+      let nuevoTamano = doc.tamano;
+      let detalleHist = nota ? `Renovación registrada. ${nota}` : 'Documento renovado con nueva vigencia';
+
+      if (file) {
+        if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
+          throw new Error('El documento debe ser un PDF o una imagen.');
+        nuevoPath = rutaDoc(doc.empresaClave, file.name);
+        nuevoTamano = file.size;
+        const { error: upErr } = await supabase.storage.from(BUCKET_DOCS).upload(nuevoPath, file, { upsert: true, contentType: file.type || 'application/pdf' });
+        if (upErr) throw upErr;
+        detalleHist = `Renovado con nuevo archivo "${file.name}" (${(file.size / 1024).toFixed(0)} KB). ${nota || ''}`.trim();
+      }
+
+      const nowIso = new Date().toISOString();
+      const histItem: HistorialCambioDoc = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        fecha: nowIso,
+        actor: actor || 'usuario',
+        accion: 'renovacion',
+        detalle: detalleHist,
+      };
+
+      const nuevoHist = [...doc.historial, histItem];
+      const nuevoStatus = calcularStatusVencimiento(
+        meta.fechaVencimiento !== undefined ? meta.fechaVencimiento : doc.fechaVencimiento,
+        meta.statusVencimiento !== undefined ? meta.statusVencimiento : doc.statusVencimiento,
+      );
+
+      const payload: Record<string, unknown> = {
+        path: nuevoPath,
+        tamano: nuevoTamano,
+        updated_at: nowIso,
+        historial: nuevoHist,
+        status_vencimiento: nuevoStatus,
+      };
+
+      if (meta.nombre !== undefined) payload.nombre = meta.nombre;
+      if (meta.fechaVencimiento !== undefined) payload.fecha_vencimiento = meta.fechaVencimiento;
+      if (meta.fechaEmision !== undefined) payload.fecha_emision = meta.fechaEmision;
+      if (meta.numeroRegistro !== undefined) payload.numero_registro = meta.numeroRegistro;
+      if (meta.costoGestion !== undefined) payload.costo_gestion = meta.costoGestion;
+      if (meta.monedaCosto !== undefined) payload.moneda_costo = meta.monedaCosto;
+      if (meta.notaTramite !== undefined) payload.nota_tramite = meta.notaTramite;
+
+      const { data, error } = await supabase.from(T_DOC).update(payload).eq('id', id).select('*').single();
+      if (error || !data) throw error || new Error('No se pudo guardar la renovación del documento.');
       return aDoc(data as RowDoc);
     },
     async urlDocumento(path) {
