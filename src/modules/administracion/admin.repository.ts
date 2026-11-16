@@ -499,6 +499,7 @@ export interface AdminRepo {
   listAvisos(empresaClave?: string): Promise<Aviso[]>;
   crearAviso(a: AvisoInput): Promise<Aviso>;
   marcarAvisoLeido(id: string, leido: boolean): Promise<void>;
+  borrarAviso(id: string): Promise<void>;
   // Requeridos por centro (checklist de fase)
   listCentroRequeridos(empresaClave?: string): Promise<CentroRequerido[]>;
   agregarCentroRequerido(input: CentroRequeridoInput): Promise<CentroRequerido>;
@@ -527,6 +528,8 @@ export interface AdminRepo {
   editarMovimiento(id: string, cambios: Partial<MovimientoInput>): Promise<void>;
   /** Anula un movimiento (estado_pago = 'anulado'); queda fuera de los totales del reporte. */
   anularMovimiento(id: string): Promise<void>;
+  /** Elimina un movimiento definitivamente de la base de datos (ideal para registros de prueba). */
+  borrarMovimiento(id: string): Promise<void>;
   /** Genera los pendientes que faltan hasta `hasta` (default hoy), idempotente. Devuelve cuántos creó. */
   /**
    * Genera los pendientes del periodo y los manda a Tesoreria.
@@ -1052,6 +1055,9 @@ export function crearRepoSupabase(): AdminRepo {
       if (hayPagados) {
         throw new Error('No se puede eliminar la gestión porque ya tiene pagos registrados en Tesorería. Puedes anularla en su lugar.');
       }
+      try {
+        await supabase.from(T_AVISO).delete().eq('origen', 'gestion').eq('origen_id', id);
+      } catch { /* ignorar */ }
       const { error } = await supabase.from(T_GES).delete().eq('id', id);
       if (error) throw error;
     },
@@ -1199,6 +1205,10 @@ export function crearRepoSupabase(): AdminRepo {
       const { error } = await supabase.from(T_AVISO).update({ leido }).eq('id', id);
       if (error) throw error;
     },
+    async borrarAviso(id) {
+      const { error } = await supabase.from(T_AVISO).delete().eq('id', id);
+      if (error) throw error;
+    },
     async listCentroRequeridos(empresaClave) {
       let q = supabase.from(T_CREQ).select('*');
       if (empresaClave) q = q.eq('empresa_clave', empresaClave);
@@ -1336,6 +1346,19 @@ export function crearRepoSupabase(): AdminRepo {
             .ilike('nota', `%${notaClave}%`);
         } catch { /* ignorar */ }
       }
+    },
+    async borrarMovimiento(id) {
+      const { data: movPre } = await supabase.from(T_MOV).select('*').eq('id', id).maybeSingle();
+      if (movPre?.servicio_directo_id) {
+        try {
+          await supabase.from('servicios_directos').delete().eq('id', movPre.servicio_directo_id);
+        } catch { /* ignorar si ya no existe */ }
+      }
+      try {
+        await supabase.from(T_AVISO).delete().eq('origen', 'gasto').eq('origen_id', id);
+      } catch { /* ignorar */ }
+      const { error } = await supabase.from(T_MOV).delete().eq('id', id);
+      if (error) throw error;
     },
     async generarPendientes(empresaClave, hasta = new Date()) {
       let qg = supabase.from(T_GF).select('*');
@@ -1659,6 +1682,9 @@ export function crearRepoSupabase(): AdminRepo {
       const { data, error } = await supabase.from(T_DOC).delete().eq('id', doc.id).select('id');
       if (error) throw error;
       if (!data?.length) throw new Error('No se eliminó el documento: sin permiso, o ya no existe.');
+      try {
+        await supabase.from(T_AVISO).delete().eq('origen', 'documento').eq('origen_id', doc.id);
+      } catch { /* ignorar */ }
       await supabase.storage.from(BUCKET_DOCS).remove([doc.path]).catch(() => { /* el registro ya no está; el archivo suelto se limpia después */ });
     },
   };

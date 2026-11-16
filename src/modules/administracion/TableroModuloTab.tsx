@@ -115,6 +115,17 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
     }
   }
 
+  async function eliminarAviso(a: Aviso) {
+    if (!puedeEscribir) return;
+    try {
+      await repo.borrarAviso(a.id);
+      setAvisos((prev) => prev.filter((x) => x.id !== a.id));
+      toast('Aviso descartado.', 'info', { silent: true });
+    } catch (e) {
+      toast(`No se pudo eliminar aviso: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    }
+  }
+
   async function marcarTodosLeidos() {
     if (!puedeEscribir) return;
     const sinLeer = avisos.filter((a) => !a.leido);
@@ -195,8 +206,18 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
                         className="btn btn-xs btn-ghost"
                         onClick={() => void marcarLeido(a)}
                         title="Marcar como leído"
+                        style={{ marginRight: '.25rem' }}
                       >
                         ✓ Leído
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-ghost"
+                        onClick={() => void eliminarAviso(a)}
+                        title="Descartar y eliminar aviso"
+                        style={{ color: '#ef4444' }}
+                      >
+                        ✕
                       </button>
                     </td>
                   )}

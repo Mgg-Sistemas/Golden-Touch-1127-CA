@@ -43,6 +43,7 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
   const [tasaBcv, setTasaBcv] = useState(50);
   const [parafiscal, setParafiscal] = useState(false);
   const [anular, setAnular] = useState<Movimiento | null>(null);
+  const [borrar, setBorrar] = useState<Movimiento | null>(null);
   const [buscar, setBuscar] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'todos' | Movimiento['estadoPago']>('todos');
 
@@ -124,6 +125,12 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
     catch (e) { toast(`No se pudo anular: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
     finally { setAnular(null); }
   }
+  async function confirmarBorrar() {
+    if (!borrar) return;
+    try { await repo.borrarMovimiento(borrar.id); toast('Movimiento eliminado.', 'success'); await cargar(); }
+    catch (e) { toast(`No se pudo eliminar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
+    finally { setBorrar(null); }
+  }
 
   return (
     <>
@@ -193,22 +200,37 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
                     <td><span className={`adm-badge pago-${m.estadoPago}`}>{ESTADO_LABEL[m.estadoPago]}</span></td>
                     <td className="muted" style={{ fontSize: '.82rem' }}>{ORIGEN_LABEL[m.origen]}{m.servicioDirectoId ? ' · en Tesorería' : ''}</td>
                     <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      {puedeEscribir && m.estadoPago !== 'anulado' && (
+                      {puedeEscribir && (
                         <>
-                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm({ mov: m })}>Editar</button>
-                          {m.estadoPago === 'pendiente' && !m.servicioDirectoId && (
-                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void enviarATesoreria(m)}
-                              title="Lo manda a Tesorería como cuenta por pagar. Administración no paga.">
-                              Enviar a Tesorería
+                          {m.estadoPago !== 'anulado' && (
+                            <>
+                              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm({ mov: m })}>Editar</button>
+                              {m.estadoPago === 'pendiente' && !m.servicioDirectoId && (
+                                <button type="button" className="btn btn-sm btn-ghost" onClick={() => void enviarATesoreria(m)}
+                                  title="Lo manda a Tesorería como cuenta por pagar. Administración no paga.">
+                                  Enviar a Tesorería
+                                </button>
+                              )}
+                              {m.servicioDirectoId && (
+                                <button type="button" className="btn btn-sm btn-ghost" onClick={() => void verComprobante(m)}
+                                  title="Comprobante que cargó Tesorería al pagar">
+                                  Comprobante
+                                </button>
+                              )}
+                              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAnular(m)}>Anular</button>
+                            </>
+                          )}
+                          {!m.servicioDirectoId && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              style={{ color: '#ef4444' }}
+                              onClick={() => setBorrar(m)}
+                              title="Eliminar movimiento definitivamente"
+                            >
+                              Eliminar
                             </button>
                           )}
-                          {m.servicioDirectoId && (
-                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void verComprobante(m)}
-                              title="Comprobante que cargó Tesorería al pagar">
-                              Comprobante
-                            </button>
-                          )}
-                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAnular(m)}>Anular</button>
                         </>
                       )}
                     </td>
@@ -252,6 +274,16 @@ export function MovimientosTab({ repo, empresaClave, empresas, puedeEscribir = t
           confirmText="Anular"
           onCancel={() => setAnular(null)}
           onConfirm={() => void confirmarAnular()}
+        />
+      )}
+      {borrar && (
+        <ConfirmDialog
+          title="Eliminar movimiento"
+          danger
+          message={<>¿Estás seguro de que deseas eliminar permanentemente <strong>{borrar.concepto}</strong> ({montoFmt(borrar.monto)} {borrar.moneda}, {borrar.periodo})? Esta acción lo borra de la base de datos y de la agenda de vencimientos.</>}
+          confirmText="Eliminar definitivamente"
+          onCancel={() => setBorrar(null)}
+          onConfirm={() => void confirmarBorrar()}
         />
       )}
     </>

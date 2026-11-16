@@ -265,6 +265,11 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
       if (i >= 0) avisos[i] = { ...avisos[i], leido };
       return Promise.resolve();
     },
+    borrarAviso: (id) => {
+      const i = avisos.findIndex((x) => x.id === id);
+      if (i >= 0) avisos.splice(i, 1);
+      return Promise.resolve();
+    },
     listCentroRequeridos: (empresaClave) => Promise.resolve(
       centroRequeridos.filter((x) => !empresaClave || x.empresaClave === empresaClave).map((x) => ({ ...x })),
     ),
@@ -344,6 +349,11 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
     anularMovimiento: (id) => {
       const i = movimientos.findIndex((m) => m.id === id);
       if (i >= 0) movimientos[i] = { ...movimientos[i], estadoPago: 'anulado' };
+      return Promise.resolve();
+    },
+    borrarMovimiento: (id) => {
+      const i = movimientos.findIndex((m) => m.id === id);
+      if (i >= 0) movimientos.splice(i, 1);
       return Promise.resolve();
     },
     generarPendientes: (empresaClave, hasta = new Date()) => {
