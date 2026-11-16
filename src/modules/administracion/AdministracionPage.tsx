@@ -21,7 +21,6 @@ import { ReporteTab } from './ReporteTab';
 import { DocumentosTab } from './DocumentosTab';
 import { ConfiguracionTab } from './ConfiguracionTab';
 import { TableroModuloTab } from './TableroModuloTab';
-import { DocumentosEmpresaModal } from './DocumentosEmpresaModal';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
@@ -54,7 +53,6 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
   const [empresaSel, setEmpresaSel] = useState<string>(() => prefs.leerEmpresa());
   const [tab, setTab] = useState<TabAdmin>(() => prefs.leerTab());
   const [gestionar, setGestionar] = useState(false);
-  const [documentos, setDocumentos] = useState(false);
 
   const cargarEmpresas = useCallback(async () => {
     setError(null);
@@ -95,7 +93,6 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
               {activas.map((e) => <option key={e.id} value={e.clave}>{e.nombre}</option>)}
             </select>
           </label>
-          {empresaActual && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDocumentos(true)} title={`Papeles legales de ${empresaActual.nombre}`}>📎 Documentos</button>}
           {puedeFull && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setGestionar(true)}>⚙ Gestionar empresas</button>}
           <div className="view-toggle" role="tablist" aria-label="Vista de administración">
             {PESTANAS.map((p) => (
@@ -122,7 +119,6 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       {tab === 'config' && <ConfiguracionTab repo={repo} empresas={empresas} puedeFull={puedeFull} puedeEscribir={puedeEscribir} onGestionarEmpresas={() => setGestionar(true)} />}
 
       {gestionar && puedeFull && <EmpresasModal repo={repo} onClose={() => setGestionar(false)} onChanged={() => void cargarEmpresas()} />}
-      {documentos && empresaActual && <DocumentosEmpresaModal repo={repo} empresa={empresaActual} puedeEscribir={puedeEscribir} onClose={() => setDocumentos(false)} />}
     </div>
   );
 }

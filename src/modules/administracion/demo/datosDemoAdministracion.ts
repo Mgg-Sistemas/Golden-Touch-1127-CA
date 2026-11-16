@@ -196,6 +196,11 @@ export function crearRepoDemo(): AdminRepo & RepoDemoHooks {
       if (i >= 0) gestiones[i] = { ...gestiones[i], estado: 'anulada' };
       return Promise.resolve();
     },
+    borrarGestion: (id) => {
+      const i = gestiones.findIndex((g) => g.id === id);
+      if (i >= 0) gestiones.splice(i, 1);
+      return Promise.resolve();
+    },
     listEnvios: (gestionId) => Promise.resolve(
       envios.filter((e) => !gestionId || e.gestionId === gestionId).map((e) => ({ ...e }))
         .sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio)),

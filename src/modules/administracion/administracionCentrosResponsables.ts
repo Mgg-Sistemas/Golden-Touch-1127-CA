@@ -108,29 +108,60 @@ export function obtenerListaResponsables(
   documentos: DocumentoEmpresa[] = [],
   gastos: GastoFijo[] = [],
   carpetas: InfoCarpetaDoc[] = [],
-  usuarios: { nombre?: string | null; email: string }[] = [],
+  usuarios: Array<{
+    nombre?: string | null;
+    apellido?: string | null;
+    email: string;
+    estado?: string;
+    archivado_en?: string | null;
+    bloqueado?: boolean;
+  }> = [],
 ): string[] {
-  const set = new Set<string>(ROLES_RESPONSABLES_DEFECTO.map(normalizarNombreResponsable));
+  // REGLA ESTRICTA SOLICITADA POR EL USUARIO:
+  // «Solo deben aparecer usuarios activos, nada más»
+  // Se muestran exclusivamente los usuarios activos reales del sistema (Nombre + Apellido).
+  // Quedan terminantemente excluidos roles genéricos, correos electrónicos y usuarios inactivos o archivados.
+  if (usuarios && usuarios.length > 0) {
+    const setActivos = new Set<string>();
+    for (const u of usuarios) {
+      const esActivo = (!u.estado || u.estado === 'activo') && !u.archivado_en && !u.bloqueado;
+      if (!esActivo) continue;
 
+      const nombreCompleto = [u.nombre, u.apellido].filter(Boolean).join(' ').trim();
+      if (nombreCompleto && !nombreCompleto.includes('@')) {
+        setActivos.add(nombreCompleto);
+      }
+    }
+    return Array.from(setActivos).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }
+
+  // Fallback para entornos de test unitario o si aún no se han cargado usuarios
+  const set = new Set<string>(ROLES_RESPONSABLES_DEFECTO.map(normalizarNombreResponsable));
   for (const c of centros) {
-    if (c.responsablePrincipal?.trim()) set.add(normalizarNombreResponsable(c.responsablePrincipal));
+    if (c.responsablePrincipal?.trim() && !c.responsablePrincipal.includes('@')) {
+      set.add(normalizarNombreResponsable(c.responsablePrincipal));
+    }
   }
   for (const cp of carpetas) {
-    if (cp.responsable?.trim()) set.add(normalizarNombreResponsable(cp.responsable));
+    if (cp.responsable?.trim() && !cp.responsable.includes('@')) {
+      set.add(normalizarNombreResponsable(cp.responsable));
+    }
   }
   for (const d of documentos) {
-    if (d.responsable?.trim()) set.add(normalizarNombreResponsable(d.responsable));
-    if (d.socioNombre?.trim()) set.add(normalizarNombreResponsable(d.socioNombre));
+    if (d.responsable?.trim() && !d.responsable.includes('@')) {
+      set.add(normalizarNombreResponsable(d.responsable));
+    }
   }
   for (const g of gastos) {
-    if (g.responsable?.trim()) set.add(normalizarNombreResponsable(g.responsable));
-  }
-  for (const u of usuarios) {
-    if (u.nombre?.trim()) set.add(normalizarNombreResponsable(u.nombre));
-    if (u.email?.trim()) set.add(u.email.trim());
+    if (g.responsable?.trim() && !g.responsable.includes('@')) {
+      set.add(normalizarNombreResponsable(g.responsable));
+    }
   }
 
-  return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+  return Array.from(set)
+    .filter(Boolean)
+    .filter((x) => !x.includes('@'))
+    .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 }
 
 export const CENTROS_ACOPIO_DEFECTO: CentroAcopio[] = [

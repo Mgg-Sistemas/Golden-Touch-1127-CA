@@ -12,8 +12,15 @@ import { ordenPrioridad } from './administracionVigencia';
 const VENCIDO: StatusVencimiento[] = ['vencido', 'vencido_en_tramite'];
 
 /** Mapa email→nombre para mostrar (cae al email si el nombre viene vacío). */
-export function nombrePorEmail(usuarios: { email: string; nombre: string }[]): Map<string, string> {
-  return new Map(usuarios.map((u) => [u.email, u.nombre?.trim() || u.email]));
+export function nombrePorEmail(usuarios: { email: string; nombre: string; apellido?: string | null }[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const u of usuarios) {
+    const nc = [u.nombre, u.apellido].filter(Boolean).join(' ').trim();
+    const etiqueta = nc || u.email;
+    map.set(u.email, etiqueta);
+    map.set(u.email.toLowerCase(), etiqueta);
+  }
+  return map;
 }
 
 const ETIQUETA_OBJETIVO: Record<ObjetivoResp, string> = { carpeta: 'Carpeta', documento: 'Documento', gasto: 'Gasto', gestion: 'Gestión' };

@@ -78,6 +78,8 @@ export function ConfiguracionTab({
   const [profForm, setProfForm] = useState<{ nombre: string; profesion: string; contacto: string }>({ nombre: '', profesion: '', contacto: '' });
   const [profEditId, setProfEditId] = useState<string | null>(null);
   const [profOcupado, setProfOcupado] = useState(false);
+  const [busquedaProf, setBusquedaProf] = useState('');
+  const [filtroProf, setFiltroProf] = useState<'activos' | 'inactivos' | 'todos'>('activos');
 
   // Factores de la multa FAOV. Son de ley, pero la ley cambia: se guardan en la
   // base para no tener que tocar codigo y desplegar cuando salga otra Gaceta.
@@ -291,6 +293,23 @@ export function ConfiguracionTab({
 
   const totalActivas = useMemo(() => cats.filter((c) => c.activa).length, [cats]);
   const profsActivos = useMemo(() => profs.filter((p) => p.activo).length, [profs]);
+
+  // Filtrado de profesionales para evitar abrumar la pantalla con data inusable si hay muchos inactivos
+  const profsFiltrados = useMemo(() => {
+    const q = busquedaProf.trim().toLowerCase();
+    return profs.filter((p) => {
+      if (filtroProf === 'activos' && !p.activo) return false;
+      if (filtroProf === 'inactivos' && p.activo) return false;
+      if (q) {
+        const n = p.nombre.toLowerCase();
+        const pr = (p.profesion ?? '').toLowerCase();
+        const co = (p.contacto ?? '').toLowerCase();
+        if (!n.includes(q) && !pr.includes(q) && !co.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [profs, filtroProf, busquedaProf]);
+
   const activas = empresas.filter((e) => e.activa).length;
 
   return (
@@ -535,10 +554,73 @@ export function ConfiguracionTab({
           </div>
         )}
 
+        {/* Barra de Búsqueda y Filtros de Profesionales */}
+        {profs.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', margin: '.5rem 0 .4rem', flexWrap: 'wrap' }}>
+            <input
+              type="search"
+              className="input input-sm"
+              placeholder="🔍 Buscar profesional, profesión o contacto…"
+              value={busquedaProf}
+              onChange={(e) => setBusquedaProf(e.target.value)}
+              style={{ maxWidth: 280, fontSize: '.78rem', padding: '.25rem .5rem' }}
+            />
+            <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className={`btn btn-xs ${filtroProf === 'activos' ? 'btn-primary' : 'btn-ghost'}`}
+                style={filtroProf === 'activos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                onClick={() => setFiltroProf('activos')}
+              >
+                Activos ({profsActivos})
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${filtroProf === 'inactivos' ? 'btn-primary' : 'btn-ghost'}`}
+                style={filtroProf === 'inactivos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                onClick={() => setFiltroProf('inactivos')}
+              >
+                Inactivos ({profs.length - profsActivos})
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${filtroProf === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+                style={filtroProf === 'todos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+                onClick={() => setFiltroProf('todos')}
+              >
+                Todos ({profs.length})
+              </button>
+            </div>
+          </div>
+        )}
+
         {cargandoProfs ? (
           <p className="muted" style={{ marginTop: '.4rem' }}>Leyendo profesionales…</p>
         ) : profs.length === 0 ? (
           <EmptyState icon="👤" message={puedeModificar ? 'Sin profesionales todavía. Agregue el primero arriba.' : 'El módulo no tiene profesionales cargados.'} />
+        ) : profsFiltrados.length === 0 ? (
+          <div style={{ padding: '1rem', textAlign: 'center', background: 'var(--surface-2)', borderRadius: 6, border: '1px solid var(--border)' }}>
+            <p className="muted" style={{ margin: '0 0 .5rem', fontSize: '.84rem' }}>
+              No hay profesionales que coincidan con el filtro actual ({filtroProf === 'activos' ? 'Solo Activos' : filtroProf === 'inactivos' ? 'Solo Inactivos' : 'Todos'}{busquedaProf ? ` · «${busquedaProf}»` : ''}).
+            </p>
+            <div style={{ display: 'inline-flex', gap: '.4rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+              {filtroProf !== 'todos' && (
+                <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setFiltroProf('todos'); setBusquedaProf(''); }}>
+                  Mostrar todos ({profs.length})
+                </button>
+              )}
+              {filtroProf !== 'inactivos' && (profs.length - profsActivos) > 0 && (
+                <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setFiltroProf('inactivos'); setBusquedaProf(''); }}>
+                  Ver inactivos ({profs.length - profsActivos})
+                </button>
+              )}
+              {busquedaProf && (
+                <button type="button" className="btn btn-xs btn-ghost" onClick={() => setBusquedaProf('')}>
+                  Limpiar búsqueda
+                </button>
+              )}
+            </div>
+          </div>
         ) : (
           <div className="adm-tabla" style={{ marginTop: '.2rem', maxHeight: '360px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
             <table>
@@ -552,7 +634,7 @@ export function ConfiguracionTab({
                 </tr>
               </thead>
               <tbody>
-                {profs.map((p) => (
+                {profsFiltrados.map((p) => (
                   <tr key={p.id} className={p.activo ? undefined : 'adm-fila-off'}>
                     <td><strong style={{ color: 'var(--text)', fontSize: '.84rem' }}>{p.nombre}</strong></td>
                     <td style={{ fontSize: '.82rem' }}>{p.profesion || <span className="muted">—</span>}</td>

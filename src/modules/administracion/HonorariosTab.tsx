@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { SeccionColapsable } from './SeccionColapsable';
 import { PagoGestionModal } from './PagoGestionModal';
@@ -36,6 +36,10 @@ export function HonorariosTab({ repo, empresaClave, empresas, puedeEscribir = tr
   const [error, setError] = useState<string | null>(null);
   const [pago, setPago] = useState<{ gestion: Gestion; profesionalNombre: string } | null>(null);
   const [nueva, setNueva] = useState(false);
+  const [gestionABorrar, setGestionABorrar] = useState<{ gestion: Gestion; pagado: number; profesionalNombre: string } | null>(null);
+  const [borrando, setBorrando] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroProf, setFiltroProf] = useState<'todos' | 'activos' | 'pendientes'>('todos');
 
   const cargar = useCallback(async () => {
     setCargando(true); setError(null);
@@ -56,7 +60,46 @@ export function HonorariosTab({ repo, empresaClave, empresas, puedeEscribir = tr
 
   const grupos = useMemo(() => agrupaPorProfesional(gestiones, envios, profs), [gestiones, envios, profs]);
 
+  const gruposFiltrados = useMemo(() => {
+    let res = grupos;
+    if (filtroProf === 'activos') {
+      res = res.filter((g) => g.profesional.activo);
+    } else if (filtroProf === 'pendientes') {
+      res = res.filter((g) => g.cuenta.porMoneda.some((s) => s.saldo > 0));
+    }
+    const q = busqueda.trim().toLowerCase();
+    if (q) {
+      res = res.filter((g) => {
+        const nom = g.profesional.nombre.toLowerCase();
+        const pro = (g.profesional.profesion ?? '').toLowerCase();
+        const tieneConcepto = g.cuenta.lineas.some((l) => l.gestion.concepto.toLowerCase().includes(q));
+        return nom.includes(q) || pro.includes(q) || tieneConcepto;
+      });
+    }
+    return res;
+  }, [grupos, filtroProf, busqueda]);
+
   const activas = useMemo(() => empresas.filter((e) => e.activa), [empresas]);
+
+  async function confirmarBorrado() {
+    if (!gestionABorrar) return;
+    if (gestionABorrar.pagado > 0) {
+      toast('No se puede eliminar una gestión que ya tiene pagos registrados.', 'warning');
+      setGestionABorrar(null);
+      return;
+    }
+    setBorrando(true);
+    try {
+      await repo.borrarGestion(gestionABorrar.gestion.id);
+      toast(`Gestión «${gestionABorrar.gestion.concepto}» eliminada correctamente.`, 'success');
+      setGestionABorrar(null);
+      await cargar();
+    } catch (e) {
+      toast(`No se pudo eliminar la gestión: ${e instanceof Error ? e.message : 'error'}`, 'error');
+    } finally {
+      setBorrando(false);
+    }
+  }
 
   return (
     <div style={{ display: 'grid', gap: '.75rem' }}>
@@ -73,12 +116,61 @@ export function HonorariosTab({ repo, empresaClave, empresas, puedeEscribir = tr
 
       {error && <div className="adm-aviso">No se pudieron leer los honorarios: {/relation|does not exist|schema cache|jwt|sesi|permission/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>}
 
+      {/* Filtros y búsqueda de honorarios */}
+      {!cargando && grupos.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', margin: '.2rem 0' }}>
+          <input
+            type="search"
+            className="input input-sm"
+            placeholder="🔍 Buscar por profesional o concepto…"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            style={{ maxWidth: 280, fontSize: '.78rem', padding: '.25rem .5rem' }}
+          />
+          <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`btn btn-xs ${filtroProf === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+              style={filtroProf === 'todos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+              onClick={() => setFiltroProf('todos')}
+            >
+              Todos ({grupos.length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-xs ${filtroProf === 'activos' ? 'btn-primary' : 'btn-ghost'}`}
+              style={filtroProf === 'activos' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+              onClick={() => setFiltroProf('activos')}
+            >
+              Solo activos ({grupos.filter((g) => g.profesional.activo).length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-xs ${filtroProf === 'pendientes' ? 'btn-primary' : 'btn-ghost'}`}
+              style={filtroProf === 'pendientes' ? { background: '#ff8a00', color: '#000', fontWeight: 700 } : undefined}
+              onClick={() => setFiltroProf('pendientes')}
+            >
+              Con saldo ({grupos.filter((g) => g.cuenta.porMoneda.some((s) => s.saldo > 0)).length})
+            </button>
+          </div>
+        </div>
+      )}
+
       {cargando ? (
         <p className="muted">Leyendo honorarios…</p>
       ) : grupos.length === 0 ? (
         <EmptyState icon="💼" message={puedeEscribir ? 'Sin gestiones todavía. Crea la primera con «Nueva gestión».' : 'No hay gestiones registradas.'} />
+      ) : gruposFiltrados.length === 0 ? (
+        <div style={{ padding: '1rem', textAlign: 'center', background: 'var(--surface-2)', borderRadius: 6, border: '1px solid var(--border)' }}>
+          <p className="muted" style={{ margin: '0 0 .5rem', fontSize: '.84rem' }}>
+            No hay honorarios que coincidan con la búsqueda «{busqueda}» o el filtro seleccionado.
+          </p>
+          <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setFiltroProf('todos'); setBusqueda(''); }}>
+            Mostrar todos ({grupos.length})
+          </button>
+        </div>
       ) : (
-        grupos.map(({ profesional, cuenta }) => (
+        gruposFiltrados.map(({ profesional, cuenta }) => (
           <SeccionColapsable
             key={profesional.id}
             titulo={`👤 ${profesional.nombre}${profesional.profesion ? ` · ${profesional.profesion}` : ''}`}
@@ -115,10 +207,23 @@ export function HonorariosTab({ repo, empresaClave, empresas, puedeEscribir = tr
                       <td className="mono" style={{ textAlign: 'right' }}>{n2(l.pagado)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{n2(l.saldo)}</td>
                       <td><span className={`adm-badge ${BADGE_CLASS[l.estado] ?? ''}`}>{ESTADO_GESTION_LABEL[l.estado] ?? l.estado}</span></td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button type="button" className="btn btn-xs btn-ghost" onClick={() => setPago({ gestion: l.gestion, profesionalNombre: profesional.nombre })}>
-                          {puedeEscribir ? 'Pagar / detalle' : 'Detalle'}
-                        </button>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
+                          <button type="button" className="btn btn-xs btn-ghost" onClick={() => setPago({ gestion: l.gestion, profesionalNombre: profesional.nombre })}>
+                            {puedeEscribir ? 'Pagar / detalle' : 'Detalle'}
+                          </button>
+                          {puedeEscribir && (
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-ghost"
+                              title="Eliminar gestión"
+                              style={{ color: '#ef4444' }}
+                              onClick={() => setGestionABorrar({ gestion: l.gestion, pagado: l.pagado, profesionalNombre: profesional.nombre })}
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -127,6 +232,27 @@ export function HonorariosTab({ repo, empresaClave, empresas, puedeEscribir = tr
             </div>
           </SeccionColapsable>
         ))
+      )}
+
+      {gestionABorrar && (
+        <ConfirmDialog
+          title="Eliminar gestión / honorario"
+          danger
+          confirmText={borrando ? 'Eliminando…' : 'Eliminar gestión'}
+          onCancel={() => setGestionABorrar(null)}
+          onConfirm={() => void confirmarBorrado()}
+          message={
+            gestionABorrar.pagado > 0 ? (
+              <p style={{ margin: 0, color: '#ef4444' }}>
+                Esta gestión tiene pagos registrados (<strong>{n2(gestionABorrar.pagado)} {gestionABorrar.gestion.moneda}</strong>). No se puede eliminar directamente para resguardar la consistencia contable. Si necesitas anularla, reversa sus envíos en Tesorería.
+              </p>
+            ) : (
+              <p style={{ margin: 0 }}>
+                ¿Estás seguro de que deseas eliminar la gestión <strong>«{gestionABorrar.gestion.concepto}»</strong> del profesional <strong>{gestionABorrar.profesionalNombre}</strong> por <strong>{n2(gestionABorrar.gestion.costoTotal)} {gestionABorrar.gestion.moneda}</strong>?
+              </p>
+            )
+          }
+        />
       )}
 
       {pago && (

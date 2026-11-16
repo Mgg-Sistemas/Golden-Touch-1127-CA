@@ -6,7 +6,7 @@
    El comprobante del pago se lee del servicio directo (adjunto único).
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import type { AdminRepo, EnvioTesoreria, Gestion } from './admin.repository';
 import { saldoGestion, disponibleParaEnviar, estadoGestion, puedeReversarEnvio } from './administracionHonorarios';
@@ -36,6 +36,7 @@ export function PagoGestionModal({ repo, gestion, profesionalNombre, puedeEscrib
   const [editCosto, setEditCosto] = useState(String(gestion.costoTotal));
   const [editFecha, setEditFecha] = useState(gestion.fechaPactada ?? '');
   const [editNota, setEditNota] = useState(gestion.notaAcuerdo ?? '');
+  const [confirmarEliminar, setConfirmarEliminar] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -80,6 +81,22 @@ export function PagoGestionModal({ repo, gestion, profesionalNombre, puedeEscrib
       onChanged(); onClose();
     } catch (e) { toast(`No se pudo guardar: ${e instanceof Error ? e.message : 'error'}`, 'error'); }
     finally { setOcupado(false); }
+  }
+
+  async function eliminarGestion() {
+    setOcupado(true);
+    try {
+      await repo.borrarGestion(gestion.id);
+      toast(`Gestión «${gestion.concepto}» eliminada correctamente.`, 'success');
+      setConfirmarEliminar(false);
+      onChanged();
+      onClose();
+    } catch (e) {
+      toast(`No se pudo eliminar la gestión: ${e instanceof Error ? e.message : 'error'}`, 'error');
+      setConfirmarEliminar(false);
+    } finally {
+      setOcupado(false);
+    }
   }
 
   async function verComprobante(env: EnvioTesoreria) {
@@ -185,7 +202,44 @@ export function PagoGestionModal({ repo, gestion, profesionalNombre, puedeEscrib
             </div>
           </details>
         )}
+
+        {/* Zona de peligro / eliminación de gestión */}
+        {puedeEscribir && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.5rem', paddingTop: '.6rem', borderTop: '1px solid var(--border)' }}>
+            <span className="muted hint" style={{ fontSize: '.74rem' }}>
+              {envios.some((e) => e.estado === 'pagado')
+                ? '⚠️ Esta gestión no se puede eliminar porque ya tiene pagos registrados en Tesorería.'
+                : '¿Esta gestión se cargó por error o no procede? Puedes eliminarla del sistema.'}
+            </span>
+            {envios.every((e) => e.estado !== 'pagado') && (
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost"
+                style={{ color: '#ef4444', fontWeight: 600 }}
+                onClick={() => setConfirmarEliminar(true)}
+                disabled={ocupado}
+              >
+                🗑️ Eliminar gestión
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {confirmarEliminar && (
+        <ConfirmDialog
+          title="Eliminar gestión / honorario"
+          danger
+          confirmText={ocupado ? 'Eliminando…' : 'Eliminar gestión'}
+          onCancel={() => setConfirmarEliminar(false)}
+          onConfirm={() => void eliminarGestion()}
+          message={
+            <p style={{ margin: 0 }}>
+              ¿Estás seguro de que deseas eliminar la gestión <strong>«{gestion.concepto}»</strong> del profesional <strong>{profesionalNombre}</strong> por un costo de <strong>{n2(gestion.costoTotal)} {gestion.moneda}</strong>? Esta acción no se puede deshacer.
+            </p>
+          }
+        />
+      )}
     </Modal>
   );
 }

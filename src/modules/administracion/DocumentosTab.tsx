@@ -18,6 +18,7 @@
    ============================================================ */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from '@/shared/lib/supabase';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -47,6 +48,7 @@ import {
   STATUS_VENCIMIENTO_COLOR,
   diasRestantes,
   inferirCarpetaYTipo,
+  limpiarNombreArchivo,
   type AdminRepo,
   type DocumentoEmpresa,
   type Empresa,
@@ -156,7 +158,22 @@ export function DocumentosTab({
   const [usuariosResp, setUsuariosResp] = useState<Usuario[]>([]);
   useEffect(() => {
     repo.listResponsabilidades(empresaClave || undefined).then(setResponsabilidades).catch(() => setResponsabilidades([]));
-    listUsuarios().then(setUsuariosResp).catch(() => setUsuariosResp([]));
+    async function cargarUsuarios() {
+      try {
+        const u = await listUsuarios();
+        if (u && u.length > 0) {
+          setUsuariosResp(u);
+          return;
+        }
+      } catch { /* fallback abajo */ }
+      try {
+        const { data } = await supabase.rpc('obtener_directorio_personas');
+        if (data && data.length > 0) {
+          setUsuariosResp(data as Usuario[]);
+        }
+      } catch { /* sin conexión */ }
+    }
+    void cargarUsuarios();
   }, [repo, empresaClave]);
   const nombresResp = useMemo(() => nombrePorEmail(usuariosResp), [usuariosResp]);
 
@@ -278,8 +295,14 @@ export function DocumentosTab({
       // Filtro por carpeta
       if (carpetaActiva !== 'todas' && d.carpeta !== carpetaActiva) return false;
 
-      // Filtro por Centro de Acopio
-      if (filtroCentro !== 'todos') {
+      // Filtro por Centro de Acopio / Alcance
+      if (filtroCentro === 'general') {
+        const cIdDoc = d.centroAcopioId || mapaCarpetas.get(d.carpeta)?.centroAcopioId;
+        if (cIdDoc) return false;
+      } else if (filtroCentro === 'centros') {
+        const cIdDoc = d.centroAcopioId || mapaCarpetas.get(d.carpeta)?.centroAcopioId;
+        if (!cIdDoc) return false;
+      } else if (filtroCentro !== 'todos') {
         const cIdDoc = d.centroAcopioId || mapaCarpetas.get(d.carpeta)?.centroAcopioId;
         if (cIdDoc !== filtroCentro) return false;
       }
@@ -357,7 +380,7 @@ export function DocumentosTab({
         centroAcopioId: carpetaObj?.centroAcopioId || (filtroCentro !== 'todos' ? filtroCentro : undefined),
         responsable: carpetaObj?.responsable || (filtroResponsable !== 'todos' ? filtroResponsable : ''),
         tipo,
-        nombre: f.name,
+        nombre: limpiarNombreArchivo(f.name),
         fechaEmision: '',
         fechaVencimiento: '',
         statusVencimiento: 'vigente',
@@ -727,17 +750,23 @@ export function DocumentosTab({
           />
           <select
             className="select select-sm"
-            style={{ fontSize: '.8rem', maxWidth: 210, background: 'var(--surface-2)' }}
+            style={{ fontSize: '.8rem', maxWidth: 240, background: 'var(--surface-2)' }}
             value={filtroCentro}
             onChange={(e) => setFiltroCentro(e.target.value)}
-            title="Filtrar por Centro de Acopio asociado"
+            title="Filtrar por alcance institucional o Centro de Acopio"
           >
-            <option value="todos">🏭 Todos los Centros</option>
-            {centros.map((c) => (
-              <option key={c.id} value={c.id}>
-                🏭 {c.nombre}
-              </option>
-            ))}
+            <option value="todos">🌐 Ámbito: Todos los documentos</option>
+            <option value="general">🏢 Solo Institucionales (Toda la empresa)</option>
+            <option value="centros">🏭 Solo de Centros de Acopio (Operativos)</option>
+            {centros.length > 0 && (
+              <optgroup label="Centros de Acopio específicos">
+                {centros.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    🏭 {c.nombre}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <select
             className="select select-sm"
@@ -1003,12 +1032,39 @@ export function DocumentosTab({
           onClose={() => { if (!subiendoLote) setArchivosEnEspera(null); }}
           footer={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '.5rem', flexWrap: 'wrap' }}>
-              <div className="muted" style={{ fontSize: '.78rem' }}>
-                {subiendoLote ? (progresoLote ? `Subiendo ${progresoLote.actual} de ${progresoLote.total}: «${progresoLote.nombre}»` : 'Subiendo…') : `${archivosEnEspera.length} archivo(s) listos para cargar`}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+                <span className="muted" style={{ fontSize: '.78rem' }}>
+                  {subiendoLote ? (progresoLote ? `Subiendo ${progresoLote.actual} de ${progresoLote.total}: «${progresoLote.nombre}»` : 'Subiendo…') : `${archivosEnEspera.length} archivo(s) listos para cargar`}
+                </span>
+                {(() => {
+                  const cantDuplicados = archivosEnEspera.filter((it) =>
+                    docs.some(
+                      (d) =>
+                        d.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase() ||
+                        d.nombre.trim().toLowerCase() === it.file.name.trim().toLowerCase() ||
+                        (d.path && d.path.toLowerCase().endsWith('/' + it.file.name.toLowerCase())),
+                    ),
+                  ).length;
+                  if (cantDuplicados === 0) return null;
+                  return (
+                    <span style={{ fontSize: '.74rem', color: '#f59e0b', fontWeight: 600 }}>
+                      ⚠️ {cantDuplicados} archivo(s) ya existen en el sistema.
+                    </span>
+                  );
+                })()}
               </div>
-              <div style={{ display: 'flex', gap: '.4rem' }}>
+              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setArchivosEnEspera(null)} disabled={subiendoLote}>
                   Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void ejecutarSubidaLote()}
+                  disabled={subiendoLote}
+                  title="Sube todos los documentos directamente para asignarles el resto de detalles después"
+                >
+                  ⚡ Cargar ahora y asignar después
                 </button>
                 <button type="button" className="btn btn-primary" onClick={() => void ejecutarSubidaLote()} disabled={subiendoLote}>
                   {subiendoLote ? 'Subiendo Lote…' : `Confirmar y Subir (${archivosEnEspera.length})`}
@@ -1018,16 +1074,72 @@ export function DocumentosTab({
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
-            <p className="muted hint" style={{ margin: 0, fontSize: '.78rem' }}>
-              Revisa y ajusta la carpeta, el tipo y la vigencia con los selectores buscables o presets rápidos antes de subir.
+            <p className="muted hint" style={{ margin: 0, fontSize: '.78rem', background: 'rgba(56, 189, 248, 0.08)', padding: '.45rem .65rem', borderRadius: 6, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+              💡 <strong>Carga rápida:</strong> Puedes subir todos los archivos de inmediato. La clasificación (carpeta, vencimiento, responsable, etc.) puede asignarse o ajustarse en cualquier momento desde la tabla o el botón «Detalle».
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem', maxHeight: '460px', overflowY: 'auto', paddingRight: '.25rem' }}>
-              {archivosEnEspera.map((item, idx) => (
-                <div key={item.id} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '.75rem .85rem', background: 'var(--surface-1)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
-                    <div style={{ fontWeight: 700, fontSize: '.86rem', color: 'var(--text)' }}>
-                      {idx + 1}. {item.file.name} <span className="muted mono" style={{ fontSize: '.74rem' }}>({tamanoFmt(item.file.size)})</span>
+              {archivosEnEspera.map((item, idx) => {
+                const duplicadoEnBD = docs.some(
+                  (d) =>
+                    d.nombre.trim().toLowerCase() === item.nombre.trim().toLowerCase() ||
+                    d.nombre.trim().toLowerCase() === item.file.name.trim().toLowerCase() ||
+                    (d.path && d.path.toLowerCase().endsWith('/' + item.file.name.toLowerCase())),
+                );
+                const duplicadoEnLote = archivosEnEspera.some(
+                  (other) =>
+                    other.id !== item.id &&
+                    (other.file.name.toLowerCase() === item.file.name.toLowerCase() ||
+                      other.nombre.trim().toLowerCase() === item.nombre.trim().toLowerCase()),
+                );
+                const esDuplicado = duplicadoEnBD || duplicadoEnLote;
+
+                return (
+                <div
+                  key={item.id}
+                  style={{
+                    border: esDuplicado ? '1px solid rgba(239, 68, 68, 0.6)' : '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '.75rem .85rem',
+                    background: esDuplicado ? 'rgba(239, 68, 68, 0.04)' : 'var(--surface-1)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700, fontSize: '.86rem', color: 'var(--text)' }}>
+                        {idx + 1}. {item.file.name}
+                      </span>
+                      <span className="muted mono" style={{ fontSize: '.74rem' }}>({tamanoFmt(item.file.size)})</span>
+                      {duplicadoEnBD && (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            color: '#ef4444',
+                            border: '1px solid rgba(239, 68, 68, 0.4)',
+                            fontSize: '.68rem',
+                            fontWeight: 700,
+                          }}
+                          title="Ya existe un documento en el sistema con este nombre o archivo"
+                        >
+                          ⚠️ Ya registrado en sistema
+                        </span>
+                      )}
+                      {duplicadoEnLote && !duplicadoEnBD && (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(245, 158, 11, 0.15)',
+                            color: '#f59e0b',
+                            border: '1px solid rgba(245, 158, 11, 0.4)',
+                            fontSize: '.68rem',
+                            fontWeight: 700,
+                          }}
+                          title="Hay otro archivo con el mismo nombre en este lote"
+                        >
+                          ⚠️ Duplicado en este lote
+                        </span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -1038,6 +1150,35 @@ export function DocumentosTab({
                     >
                       ✕ Quitar
                     </button>
+                  </div>
+
+                  {/* Nombre editable del Documento */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', marginBottom: '.65rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: '.74rem', fontWeight: 700, color: 'var(--text)' }}>
+                        Nombre del Documento (Título visible en el sistema) <span style={{ color: '#ff8a00' }}>*</span>
+                      </label>
+                      {esDuplicado && (
+                        <span style={{ fontSize: '.7rem', color: '#ef4444', fontWeight: 600 }}>
+                          {duplicadoEnBD ? '⚠️ Ya existe un documento con este nombre/archivo' : '⚠️ Nombre repetido en este lote'}
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      className="input input-sm"
+                      style={{
+                        fontSize: '.82rem',
+                        fontWeight: 600,
+                        borderColor: esDuplicado ? '#ef4444' : undefined,
+                      }}
+                      placeholder="Escriba un nombre descriptivo para este documento…"
+                      value={item.nombre}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setArchivosEnEspera(archivosEnEspera.map((x) => (x.id === item.id ? { ...x, nombre: val } : x)));
+                      }}
+                    />
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.6rem', alignItems: 'flex-start' }}>
@@ -1156,10 +1297,11 @@ export function DocumentosTab({
                     />
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-        </Modal>
+        </div>
+      </Modal>
       )}
 
       {/* 7. MODAL: Detalle, Edición e Historial Ligero de Auditoría */}

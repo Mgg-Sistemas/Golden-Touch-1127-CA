@@ -416,12 +416,26 @@ export function calcularStatusVencimiento(
   return 'vigente';
 }
 
+/** Limpia y normaliza el nombre de un archivo para sugerir un título limpio en el sistema. */
+export function limpiarNombreArchivo(nombreArchivo: string): string {
+  let limpio = nombreArchivo
+    // Quitar extensión final
+    .replace(/\.[a-zA-Z0-9]+$/i, '')
+    // Quitar patrones repetidos tipo ".A NUEVO FORMATO.A NUEVO FORMATO" o "_firmado"
+    .replace(/(\.A NUEVO FORMATO)+/gi, '')
+    .replace(/_firmado/gi, '')
+    .replace(/[-_]+/g, ' ')
+    .trim();
+  limpio = limpio.replace(/\s+/g, ' ');
+  return limpio || nombreArchivo;
+}
+
 /** Infiere automáticamente carpeta y tipo de documento a partir del nombre del archivo. */
 export function inferirCarpetaYTipo(nombreArchivo: string): { carpeta: CarpetaDocumento; tipo: TipoDocumento } {
   const s = nombreArchivo.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   if (/rupdae/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'rupdae' };
-  if (/ragda/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'ragda' };
-  if (/miner|concesion|minec|ambient/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'permiso_minero' };
+  if (/ra[cg]da/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'ragda' };
+  if (/miner|concesion|minec|ambient|senafim|rum/i.test(s)) return { carpeta: 'permisos_mineros', tipo: 'permiso_minero' };
   if (/mintra/i.test(s)) return { carpeta: 'laboral_parafiscal', tipo: 'mintras' };
   if (/inces/i.test(s)) return { carpeta: 'laboral_parafiscal', tipo: 'inces' };
   if (/ivss|seguro/i.test(s)) return { carpeta: 'laboral_parafiscal', tipo: 'ivss' };
@@ -431,8 +445,9 @@ export function inferirCarpetaYTipo(nombreArchivo: string): { carpeta: CarpetaDo
   if (/rif.*socio|rif.*personal/i.test(s)) return { carpeta: 'socios_representantes', tipo: 'rif_socio' };
   if (/rif/i.test(s)) return { carpeta: 'legal_constitutivo', tipo: 'rif' };
   if (/socio|accionista|cedula/i.test(s)) return { carpeta: 'socios_representantes', tipo: 'cedula_socio' };
-  if (/patente|alcald|municip/i.test(s)) return { carpeta: 'tributario_fiscal', tipo: 'patente_municipal' };
-  if (/contrat|arrendam/i.test(s)) return { carpeta: 'contratos_servicios', tipo: 'otro' };
+  if (/patente|alcald|municip|actividad.*econom/i.test(s)) return { carpeta: 'tributario_fiscal', tipo: 'patente_municipal' };
+  if (/bombero/i.test(s)) return { carpeta: 'tributario_fiscal', tipo: 'solvencia_municipal' };
+  if (/contrat|arrendam|propuesta/i.test(s)) return { carpeta: 'contratos_servicios', tipo: 'otro' };
   return { carpeta: 'otros', tipo: 'otro' };
 }
 
@@ -466,6 +481,7 @@ export interface AdminRepo {
   crearGestion(g: GestionInput): Promise<Gestion>;
   editarGestion(id: string, cambios: Partial<GestionInput>): Promise<void>;
   anularGestion(id: string): Promise<void>;
+  borrarGestion(id: string): Promise<void>;
   // Envíos a Tesorería (puente atómico, reversible mientras no pagado)
   listEnvios(gestionId?: string): Promise<EnvioTesoreria[]>;
   crearEnvio(input: CrearEnvioInput): Promise<EnvioTesoreria>;
@@ -1022,6 +1038,16 @@ export function crearRepoSupabase(): AdminRepo {
       const { error } = await supabase.from(T_GES).update({ estado: 'anulada' }).eq('id', id);
       if (error) throw error;
     },
+    async borrarGestion(id) {
+      const { data: envios, error: errEnv } = await supabase.from(T_ENV).select('id, estado').eq('gestion_id', id);
+      if (errEnv && !esErrorTablaAusente(errEnv)) throw errEnv;
+      const hayPagados = (envios ?? []).some((e) => e.estado === 'pagado');
+      if (hayPagados) {
+        throw new Error('No se puede eliminar la gestión porque ya tiene pagos registrados en Tesorería. Puedes anularla en su lugar.');
+      }
+      const { error } = await supabase.from(T_GES).delete().eq('id', id);
+      if (error) throw error;
+    },
     async listEnvios(gestionId) {
       let q = supabase.from(T_ENV).select('*').order('fecha_envio', { ascending: false });
       if (gestionId) q = q.eq('gestion_id', gestionId);
@@ -1476,7 +1502,17 @@ export function crearRepoSupabase(): AdminRepo {
         updated_at: nowIso,
       };
 
-      const { data, error } = await supabase.from(T_DOC).insert(filaCompleta).select('*').single();
+      let insertRes = await supabase.from(T_DOC).insert(filaCompleta).select('*').single();
+
+      // Si la BD aún conserva el CHECK constraint legacy ('rif', 'acta_constitutiva', 'acta_modificacion', 'cedula', 'otro')
+      // reintentamos automáticamente con tipo: 'otro' para que el usuario pueda cargar cualquier documento sin interrupciones
+      // y luego clasificarlo o editarlo libremente («luego se les asignará lo demás»).
+      if (insertRes.error && insertRes.error.message?.includes('admin_empresa_documentos_tipo_check')) {
+        const filaFallback = { ...filaCompleta, tipo: 'otro' };
+        insertRes = await supabase.from(T_DOC).insert(filaFallback).select('*').single();
+      }
+
+      const { data, error } = insertRes;
 
       // Antes, si faltaba una columna, se reintentaba con una fila mínima y el
       // documento quedaba SIN carpeta, SIN vencimiento y SIN responsable, pero
@@ -1536,7 +1572,15 @@ export function crearRepoSupabase(): AdminRepo {
       if (cambios.badgeTexto !== undefined) payloadCompleto.badge_texto = cambios.badgeTexto;
       if (cambios.prioridad !== undefined) payloadCompleto.prioridad = cambios.prioridad;
 
-      const { data, error } = await supabase.from(T_DOC).update(payloadCompleto).eq('id', id).select('*').single();
+      let updateRes = await supabase.from(T_DOC).update(payloadCompleto).eq('id', id).select('*').single();
+
+      // Si la BD aún tiene el check constraint legacy y rechaza el tipo seleccionado, degradamos a 'otro'
+      if (updateRes.error && updateRes.error.message?.includes('admin_empresa_documentos_tipo_check')) {
+        const payloadFallback = { ...payloadCompleto, tipo: 'otro' };
+        updateRes = await supabase.from(T_DOC).update(payloadFallback).eq('id', id).select('*').single();
+      }
+
+      const { data, error } = updateRes;
 
       // Antes se reintentaba guardando SOLO el nombre y el tipo: por eso no se
       // podía arreglar a mano un documento al que le faltaba el vencimiento.
