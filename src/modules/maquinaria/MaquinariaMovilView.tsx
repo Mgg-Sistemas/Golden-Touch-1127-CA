@@ -95,13 +95,18 @@ interface InfoMantenimientoMovil {
 export function MaquinariaMovilView() {
   const { user } = useSession();
   const { appUser, soloTelefono, can } = usePermissions();
-  const actor = user?.email ?? 'sistema';
+  const correoUsuario = user?.email;
+  const actor = correoUsuario ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || 'Operador';
   // Permiso de escritura del módulo: habilita responder las alertas de mantenimiento desde el teléfono.
   const canWrite = can('maquinaria', 'escritura');
 
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
-  const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
+  const [ordenesCargadas, setOrdenes] = useState<OrdenServicio[]>([]);
+  const ordenes = useMemo(
+    () => correoUsuario ? ordenesCargadas.filter((orden) => orden.created_by === correoUsuario) : [],
+    [correoUsuario, ordenesCargadas],
+  );
   const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
   const [lecturas, setLecturas] = useState<Map<string, LecturaVigente>>(new Map());
   const [fotos, setFotos] = useState<Map<string, string>>(new Map());
@@ -161,7 +166,7 @@ export function MaquinariaMovilView() {
     try {
       const [eqs, ords, lavs, lecs, fts, um] = await Promise.all([
         listEquipos(),
-        listOrdenesServicio(),
+        correoUsuario ? listOrdenesServicio(undefined, correoUsuario) : Promise.resolve([]),
         listLavadosTodos(),
         lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
         fotosDeEquipos().catch(() => [] as FotoEquipo[]),
@@ -188,7 +193,7 @@ export function MaquinariaMovilView() {
 
   useEffect(() => {
     void cargarDatos();
-  }, []);
+  }, [correoUsuario]);
 
   // Un surtido de combustible (horómetro/km), una anotación en la bitácora o una respuesta a la
   // alerta deben refrescar el aviso de mantenimiento sin recargar la página.

@@ -101,9 +101,10 @@ export interface OrdenServicio {
   compras_notificada_at: string | null;
 }
 
-export async function listOrdenesServicio(equipoId?: string): Promise<OrdenServicio[]> {
+export async function listOrdenesServicio(equipoId?: string, creadoPor?: string): Promise<OrdenServicio[]> {
   let q = supabase.from('maquinaria_ordenes_servicio').select('*').order('created_at', { ascending: false });
   if (equipoId) q = q.eq('equipo_id', equipoId);
+  if (creadoPor !== undefined) q = q.eq('created_by', creadoPor);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as OrdenServicio[];
