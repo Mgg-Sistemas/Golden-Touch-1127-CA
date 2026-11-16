@@ -4,7 +4,8 @@
 }
 
 .tesoreria-movil-inicio {
-  margin-bottom: 1rem;
+  max-width: 560px;
+  margin: 0 auto 1.25rem;
 }
 
 .tesoreria-movil-titulo {
@@ -13,22 +14,63 @@
   align-items: center;
   justify-content: space-between;
   gap: .5rem;
-  margin-bottom: 1rem;
+  margin-bottom: .9rem;
 }
 
 .tesoreria-movil-titulo h1 {
   margin: 0;
+  font-size: clamp(1.4rem, 5vw, 1.85rem);
 }
 
 .tesoreria-movil-acciones {
   display: grid;
-  gap: .6rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .65rem;
 }
 
 .tesoreria-movil-acciones > .btn {
-  min-height: 52px;
-  justify-content: center;
+  min-height: 64px;
+  gap: .55rem;
+  padding: .55rem .7rem;
   white-space: normal;
+  text-align: left;
+  font-weight: 650;
+}
+
+.tesoreria-movil-acciones > :only-child,
+.tesoreria-movil-acciones > .tesoreria-movil-pagar {
+  grid-column: 1 / -1;
+}
+
+.tesoreria-movil-acciones > .tesoreria-movil-pagar {
+  background: var(--bg-2);
+  border-color: var(--primary);
+}
+
+.tesoreria-movil-acciones > .tesoreria-movil-acceso {
+  background: var(--bg-2);
+}
+
+.tesoreria-movil-acciones > .btn[aria-pressed='true'] {
+  border-color: var(--primary);
+}
+
+.tesoreria-movil-icono {
+  display: grid;
+  place-items: center;
+  flex: 0 0 2rem;
+  height: 2rem;
+  border-radius: .55rem;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  font-size: 1.05rem;
+}
+
+.tesoreria-movil-flecha {
+  margin-left: auto;
+  padding-inline: .25rem;
+  color: var(--primary);
+  font-size: 1.5rem;
 }
 
 @media (max-width: 600px) {
