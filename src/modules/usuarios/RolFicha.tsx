@@ -172,6 +172,7 @@ export function RolFicha({
                             <th>Lectura</th>
                             <th>Escritura</th>
                             <th>Full control</th>
+                            <th>Vaciar papelera</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -182,6 +183,7 @@ export function RolFicha({
                               { campo: 'lectura', label: 'Lectura' },
                               { campo: 'escritura', label: 'Escritura' },
                               { campo: 'full', label: 'Full control' },
+                              { campo: 'vaciarPapelera', label: 'Vaciar papelera' },
                             ];
                             return (
                               <tr key={k}>
@@ -194,7 +196,7 @@ export function RolFicha({
                                     <label>
                                       <input
                                         type="checkbox"
-                                        disabled={noEditable}
+                                        disabled={noEditable || (campo === 'vaciarPapelera' && k !== 'rrhh')}
                                         checked={!!p[campo]}
                                         onChange={() => onToggle(k, campo)}
                                         aria-label={`${label} ${info?.label ?? k} para ${rol.label}`}

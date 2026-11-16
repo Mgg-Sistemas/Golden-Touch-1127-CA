@@ -58,8 +58,9 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
   const [cargandoRenglones, setCargandoRenglones] = useState(false);
   const [imprimirDe, setImprimirDe] = useState<NominaPeriodoResumen | null>(null);
   const [resumenOpen, setResumenOpen] = useState(false);
-  // Papelera: las nóminas eliminadas (con motivo). Solo un admin recupera o vacía.
-  const { can } = usePermissions();
+  // Recuperar y vaciar son permisos independientes.
+  const { can, permisos } = usePermissions();
+  const puedeVaciar = canWrite && permisos?.rrhh?.vaciarPapelera === true;
   // Full control de RRHH: papelera y borrado definitivo, como el admin (17/10/2026).
   const isAdmin = can('rrhh', 'full');
   const [vista, setVista] = useState<'activas' | 'papelera'>('activas');
@@ -133,7 +134,11 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
     try {
       const n = await vaciarPapeleraNomina(lista.map((p) => p.id));
       await recargar();
-      toast(`${n} nómina(s) borrada(s) definitivamente`, 'success');
+      if (n !== lista.length) {
+        toast(n ? `${n} nómina(s) retirada(s). La lista cambió desde que la abriste.` : 'Las nóminas seleccionadas ya no están en la papelera.', 'warning');
+        return;
+      }
+      toast(`${n} nómina(s) retirada(s) de la papelera con respaldo`, 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo vaciar la papelera', 'error'); }
   }
 
@@ -149,7 +154,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
         <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button className={`btn btn-sm ${vista === 'activas' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setVista('activas')}>📋 Nóminas</button>
           <button className={`btn btn-sm ${vista === 'papelera' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setVista('papelera')}
-            title="Nóminas eliminadas, con su motivo. Solo un administrador las recupera o las borra del todo.">
+            title="Nóminas eliminadas, con su motivo. El vaciado requiere permiso de RRHH.">
             🗑 Papelera{papelera.length ? ` (${papelera.length})` : ''}
           </button>
           <span className="muted" style={{ fontSize: '.88rem' }}>Nómina quincenal · se paga desde Tesorería.</span>
@@ -164,7 +169,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
               title={abiertaPendiente ? `La ${abiertaPendiente.codigo} todavía no está cerrada` : undefined}>+ Cargar nómina</button>
           </div>
         )}
-        {isAdmin && vista === 'papelera' && papelera.length > 0 && (
+        {puedeVaciar && vista === 'papelera' && papelera.length > 0 && (
           <button className="btn btn-danger" onClick={() => setPorVaciar(papelera)}>Vaciar papelera</button>
         )}
       </div>
@@ -182,6 +187,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
           lista={papelera}
           loading={loading}
           isAdmin={isAdmin}
+          puedeVaciar={puedeVaciar}
           onRecuperar={setPorRecuperar}
           onBorrar={(p) => setPorVaciar([p])}
         />
@@ -302,7 +308,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
           confirmText="Sí, borrar para siempre"
           requireText="BORRAR"
           requireLabel="Escribe BORRAR para confirmar"
-          message={<>Se {porVaciar.length === 1 ? 'borra' : 'borran'} <strong>para siempre</strong> {porVaciar.length === 1 ? 'esta nómina' : `las ${porVaciar.length} nóminas de la papelera`} con todos sus renglones. <strong>No se puede deshacer.</strong></>}
+          message={<>Se {porVaciar.length === 1 ? 'borra' : 'borran'} <strong>para siempre</strong> {porVaciar.length === 1 ? 'esta nómina' : `las ${porVaciar.length} nóminas de la papelera`} con todos sus renglones. El sistema guarda un respaldo antes de retirar los registros.</>}
           preview={
             <VistaPrevia titulo="Se va a borrar definitivamente">
               {porVaciar.length === 1 ? (
@@ -339,8 +345,8 @@ function textoPeriodo(p: Pick<NominaPeriodo, 'periodo_desde' | 'periodo_hasta'>)
 }
 
 /* ───────── Papelera: nóminas eliminadas con su motivo ───────── */
-function PapeleraNomina({ lista, loading, isAdmin, onRecuperar, onBorrar }: {
-  lista: NominaPeriodoResumen[]; loading: boolean; isAdmin: boolean;
+function PapeleraNomina({ lista, loading, isAdmin, puedeVaciar, onRecuperar, onBorrar }: {
+  lista: NominaPeriodoResumen[]; loading: boolean; isAdmin: boolean; puedeVaciar: boolean;
   onRecuperar: (p: NominaPeriodoResumen) => void; onBorrar: (p: NominaPeriodoResumen) => void;
 }) {
   return (
@@ -348,13 +354,13 @@ function PapeleraNomina({ lista, loading, isAdmin, onRecuperar, onBorrar }: {
       <div className="aviso info sm" style={{ marginBottom: '.7rem' }}>
         <span className="aviso-icono">🗑</span>
         <div>Nóminas eliminadas. No se ven en la lista ni se pueden pagar.
-          {isAdmin ? ' Como administrador puedes recuperarlas o borrarlas definitivamente.' : ' Solo un administrador las puede recuperar o borrar del todo.'}</div>
+           Para vaciar hace falta el permiso Vaciar papelera de RRHH.</div>
       </div>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead><tr>
             <th>Nómina</th><th>Período</th><th style={{ textAlign: 'center' }}>Personas</th><th style={{ textAlign: 'right' }}>Total</th>
-            <th>Eliminada</th><th>Motivo</th>{isAdmin && <th style={{ textAlign: 'center' }}>Acciones</th>}
+            <th>Eliminada</th><th>Motivo</th>{(isAdmin || puedeVaciar) && <th style={{ textAlign: 'center' }}>Acciones</th>}
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
@@ -373,10 +379,10 @@ function PapeleraNomina({ lista, loading, isAdmin, onRecuperar, onBorrar }: {
                   <div style={{ fontSize: '.74rem' }}>{p.eliminado_por_nombre || p.eliminado_por || ''}</div>
                 </td>
                 <td style={{ maxWidth: 320, whiteSpace: 'pre-wrap' }}>{p.eliminado_motivo || '—'}</td>
-                {isAdmin && (
+                {(isAdmin || puedeVaciar) && (
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-ghost" onClick={() => onRecuperar(p)} title="Devolver a la lista de nóminas">♻ Recuperar</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => onBorrar(p)} title="Borrar para siempre" style={{ color: 'var(--danger)' }}>✖ Borrar</button>
+                    {isAdmin && <button className="btn btn-sm btn-ghost" onClick={() => onRecuperar(p)} title="Devolver a la lista de nóminas">♻ Recuperar</button>}
+                    {puedeVaciar && <button className="btn btn-sm btn-ghost" onClick={() => onBorrar(p)} title="Borrar con respaldo" style={{ color: 'var(--danger)' }}>✖ Borrar</button>}
                   </td>
                 )}
               </tr>

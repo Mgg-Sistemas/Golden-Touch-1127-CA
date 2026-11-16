@@ -51,6 +51,16 @@ describe('defaultsFor · permisos por defecto', () => {
 });
 
 describe('normalizeRolePermisos · filas guardadas antes de los permisos nuevos', () => {
+  it('conserva el permiso explícito de vaciar por módulo sin heredarlo de Full control', () => {
+    const full = { lectura: true, escritura: true, full: true };
+    const permisos = normalizeRolePermisos({
+      rrhh: { ...full, vaciarPapelera: true },
+      inventario: full,
+    });
+    expect(permisos.rrhh.vaciarPapelera).toBe(true);
+    expect(permisos.inventario.vaciarPapelera).not.toBe(true);
+  });
+
   const vieja = { dashboard: { lectura: true, escritura: false, full: false }, pedidos: NADA } as Partial<RolePermisos>;
 
   it('con rol: los módulos que faltan caen al default del rol', () => {
