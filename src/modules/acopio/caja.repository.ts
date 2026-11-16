@@ -631,6 +631,7 @@ async function listContratosParaCierre(): Promise<ContratoAcopio[]> {
   const { data, error } = await supabase
     .from('acopio_contratos')
     .select('*')
+    .is('eliminado_en', null)
     .order('seq', { ascending: false });
   if (error) throw error;
   return (data ?? []) as ContratoAcopio[];

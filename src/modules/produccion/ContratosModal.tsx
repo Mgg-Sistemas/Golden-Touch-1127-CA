@@ -305,7 +305,7 @@ export function CatalogoAcopioModal({ canWrite, onClose }: { canWrite: boolean; 
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
   async function borrar(id: string) {
-    try { await eliminarCatalogoAcopio(id); await recargar(); toast('Eliminado', 'success'); }
+    try { await eliminarCatalogoAcopio(id); await recargar(); toast('Enviado a la papelera de Producción', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
@@ -361,9 +361,9 @@ export function CatalogoAcopioModal({ canWrite, onClose }: { canWrite: boolean; 
       </div>
       {borrarId && (
         <ConfirmDialog
-          title="Eliminar del catálogo"
-          message={`¿Eliminar este ${tabActual.singular} del catálogo?`}
-          confirmText="Eliminar"
+          title="Enviar a la papelera"
+          message={`¿Enviar este ${tabActual.singular} a la papelera de Producción?`}
+          confirmText="Enviar a la papelera"
           danger
           onCancel={() => setBorrarId(null)}
           onConfirm={() => { const id = borrarId; setBorrarId(null); void borrar(id); }}

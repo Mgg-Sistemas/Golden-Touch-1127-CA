@@ -9,6 +9,7 @@ import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { ContratoAcopio, EstadoContratoAcopio } from '@/shared/lib/types';
 import { listContratos, eliminarContrato, cerrarContrato, reabrirContrato, setContratoHistorico, type TipoContrato } from './contratos.repository';
 import { ContratosModal, pct } from './ContratosModal';
+import { PapeleraProduccionModal } from './PapeleraProduccionModal';
 import { descargarContratosPdf } from './contratoPdf';
 import { descargarContratoDetallePdf } from './contratoDetallePdf';
 import { descargarContratosExcel } from './contratoExcel';
@@ -28,6 +29,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [reportesOpen, setReportesOpen] = useState(false);
   const [historicosOpen, setHistoricosOpen] = useState(false);
+  const [papeleraOpen, setPapeleraOpen] = useState(false);
   const [confirmar, setConfirmar] = useState<{ titulo: string; mensaje: string; confirmText: string; danger?: boolean; run: () => Promise<void> } | null>(null);
   // Filtros (estilo Tesorería).
   const [fTexto, setFTexto] = useState('');
@@ -108,13 +110,15 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   }
 
   function borrar(c: ContratoAcopio) {
-    const aviso = c.estado === 'cerrado' && Number(c.mov_cantidad) > 0
-      ? ` Se revertirán ${num(c.mov_cantidad)} Kg de Casiterita del inventario.` : '';
+    if (c.estado === 'cerrado') {
+      toast('Reabre el contrato y confirma el reverso de inventario antes de enviarlo a la papelera.', 'warning');
+      return;
+    }
     setConfirmar({
-      titulo: 'Eliminar contrato', confirmText: 'Eliminar', danger: true,
-      mensaje: `¿Eliminar el contrato ${c.numero}?${aviso}`,
+      titulo: 'Enviar a la papelera', confirmText: 'Enviar a la papelera', danger: true,
+      mensaje: `¿Enviar el contrato ${c.numero} a la papelera de Producción?`,
       run: async () => {
-        try { await eliminarContrato(c.id, actor, actorName); toast('Contrato eliminado', 'success'); await recargar(); }
+        try { await eliminarContrato(c.id); toast('Contrato enviado a la papelera', 'success'); await recargar(); }
         catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
       },
     });
@@ -164,6 +168,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
         <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-sm btn-primary" disabled={!contratos.length} title="Reportes: por contrato (buscable) o resumen general — con vista previa"
             onClick={() => setReportesOpen(true)}>📄 Reportes</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setPapeleraOpen(true)}>🗑 Papelera</button>
           <button className="btn btn-sm btn-ghost" disabled={!historicos.length} title="Contratos archivados en Históricos (no cuentan en las métricas)"
             onClick={() => setHistoricosOpen(true)}>📚 Históricos{historicos.length ? ` (${historicos.length})` : ''}</button>
           <button className="btn btn-sm btn-ghost" disabled={!filtrados.length} title="Descargar PDF (con el filtro aplicado)"
@@ -239,7 +244,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
                         <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setModal({ kind: 'editar', c })}>✎</button>
                         <button className="btn btn-sm btn-ghost" title={c.estado === 'activo' ? 'Cerrar' : 'Reabrir'} onClick={() => void cambiarEstado(c)}>{c.estado === 'activo' ? '🔒' : '↻'}</button>
                         <button className="btn btn-sm btn-ghost" title="Enviar a Históricos (no cuenta en los KG de Casiterita)" onClick={() => void archivar(c, true)}>📚</button>
-                        <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void borrar(c)}>🗑</button>
+                        <button className="btn btn-sm btn-ghost" title="Enviar a la papelera" onClick={() => void borrar(c)}>🗑</button>
                       </td>
                     )}
                   </tr>
@@ -279,6 +284,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
           onClose={() => setCorreoOpen(false)}
         />
       )}
+      {papeleraOpen && <PapeleraProduccionModal canWrite={canWrite} onChanged={recargar} onClose={() => setPapeleraOpen(false)} />}
       {confirmar && (
         <ConfirmDialog
           title={confirmar.titulo}
