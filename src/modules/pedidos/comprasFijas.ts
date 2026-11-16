@@ -21,6 +21,13 @@ export interface ProductoFijo {
   cantidad: number;
 }
 
+export function agregarProductoFijo(
+  lista: ProductoFijo[], producto: Pick<Producto, 'id' | 'sku' | 'nombre' | 'unidad'>,
+): ProductoFijo[] {
+  if (lista.some((item) => item.producto_id === producto.id)) return lista;
+  return [...lista, { producto_id: producto.id, sku: producto.sku, nombre: producto.nombre, unidad: producto.unidad, cantidad: 1 }];
+}
+
 export interface CompraFija {
   id: string;
   nombre: string;

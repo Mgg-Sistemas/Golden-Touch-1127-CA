@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { Producto } from '@/shared/lib/types';
 import {
-  cantidadesPrevias, entraPorCategoria, errorPlantilla, esSugerencia, estadoFija, renglonesDePlantilla, siguienteFecha, textoEstadoFija, textoFrecuencia,
+  agregarProductoFijo, cantidadesPrevias, entraPorCategoria, errorPlantilla, esSugerencia, estadoFija, renglonesDePlantilla, siguienteFecha, textoEstadoFija, textoFrecuencia,
 } from './comprasFijas';
 
 const prod = (id: string, categoria: string, estado = 'activo'): Producto =>
   ({ id, sku: `SKU-${id}`, nombre: `P${id}`, categoria, unidad: 'KG', estado } as unknown as Producto);
 
 describe('compras fijas', () => {
+  it('añade el producto recién creado aunque todavía no esté en el buscador', () => {
+    const creado = prod('nuevo', 'PAPEL');
+    const lista = agregarProductoFijo([], creado);
+    expect(lista).toEqual([{ producto_id: 'nuevo', sku: 'SKU-nuevo', nombre: 'Pnuevo', unidad: 'KG', cantidad: 1 }]);
+    const editada = [{ ...lista[0], cantidad: 4 }];
+    expect(agregarProductoFijo(editada, creado)).toBe(editada);
+  });
   it('la próxima fecha corre un período y salta lo vencido', () => {
     expect(siguienteFecha({ frecuencia: 'semanal', cada_dias: null, proxima_fecha: '2026-11-12' }, '2026-11-12')).toBe('2026-11-19');
     // Generada antes de tiempo: igual corre un período desde la que tocaba.
