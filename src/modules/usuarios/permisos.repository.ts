@@ -100,6 +100,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.produccion.vaciarPapelera = true;
     all.tesoreria.vaciarPapelera = true;
     all.inventario.vaciarPapelera = true;
+    all.compras.vaciarPapelera = true;
     return all;
   }
   // 31/10/2026: todos los roles pueden pedir (crean sus SP y siguen solo las suyas).
@@ -143,7 +144,7 @@ export function normalizeRolePermisos(stored: Partial<RolePermisos>, role?: Role
     const fallback = base ? base[m.key] : emptyPermission;
     acc[m.key] = stored[m.key] ? {
       ...emptyPermission,
-      ...(role === 'admin' && (m.key === 'tesoreria' || m.key === 'inventario') ? { vaciarPapelera: true } : {}),
+      ...(role === 'admin' && (m.key === 'tesoreria' || m.key === 'inventario' || m.key === 'compras') ? { vaciarPapelera: true } : {}),
       ...stored[m.key],
     } : { ...fallback };
     return acc;

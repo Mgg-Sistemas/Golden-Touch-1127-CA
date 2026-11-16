@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
    qué tabla se pidió y qué métodos se le encadenaron. */
 type Resp = { data: unknown; error: unknown };
 const cola: Resp[] = [];
+const rpc = vi.fn(async (_nombre: string, _args: unknown): Promise<Resp> => ({ data: null, error: null }));
 const llamadas: { tabla: string; metodos: unknown[][] }[] = [];
 
 function consulta(tabla: string, resp: Resp) {
@@ -21,7 +22,7 @@ function consulta(tabla: string, resp: Resp) {
 vi.mock('@/shared/lib/supabase', () => ({
   supabase: {
     from: (tabla: string) => consulta(tabla, cola.shift() ?? { data: [], error: null }),
-    rpc: async () => ({ data: null, error: null }),
+    rpc: (nombre: string, args: unknown) => rpc(nombre, args),
   },
 }));
 
@@ -50,6 +51,7 @@ const metodo = (i: number, m: string) => llamadas[i]?.metodos.find((x) => x[0] =
 
 beforeEach(() => {
   cola.length = 0; llamadas.length = 0;
+  rpc.mockClear();
   revertirEgresoDivisa.mockClear(); ingresarDineroCaja.mockClear();
 });
 
@@ -122,14 +124,12 @@ describe('se comprueba ANTES de mover dinero o stock', () => {
     expect(ultima.metodos.find((m) => m[0] === 'update')?.[1]).toMatchObject({ estado: 'registrada' });
   });
 
-  it('eliminar una OC con una retención declarada: no se revierte ningún egreso y se suelta la reserva', async () => {
-    cola.push({ data: [{ id: 'oc-1' }], error: null });   // la reserva
-    cola.push({ data: [{ id: 'r-1', estado: 'declarada', declarada_at: '2026-10-10T00:00:00Z' }], error: null });
-    cola.push({ data: null, error: null });               // soltar la reserva
+  it('muestra el bloqueo fiscal de la papelera y no revierte egresos desde la pantalla', async () => {
+    rpc.mockResolvedValueOnce({ data: null, error: { message: 'El documento tiene registros fiscales.' } });
     const orden = { id: 'oc-1', codigo: 'OC-1', oc_codigo: 'OC-1' } as unknown as Orden;
-    await expect(eliminarOrdenCompra(orden, 'prueba@ejemplo.com')).rejects.toThrow('ya declaradas');
+    await expect(eliminarOrdenCompra(orden)).rejects.toThrow('tiene registros fiscales');
+    expect(rpc).toHaveBeenCalledWith('compras_papelera_cambiar', { p_tipo: 'orden', p_ids: ['oc-1'], p_accion: 'enviar' });
     expect(revertirEgresoDivisa).not.toHaveBeenCalled();
-    expect(llamadas.some((l) => l.tabla === 'movimientos_caja')).toBe(false);
-    expect(llamadas[llamadas.length - 1].metodos.find((m) => m[0] === 'update')?.[1]).toEqual({ eliminando_at: null });
+    expect(llamadas).toEqual([]);
   });
 });

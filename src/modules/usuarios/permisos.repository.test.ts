@@ -35,6 +35,7 @@ describe('defaultsFor · permisos por defecto', () => {
     expect(p.produccion.vaciarPapelera).toBe(true);
     expect(p.tesoreria.vaciarPapelera).toBe(true);
     expect(p.inventario.vaciarPapelera).toBe(true);
+    expect(p.compras.vaciarPapelera).toBe(true);
     expect(defaultsFor('analista').rrhh.vaciarPapelera).toBeUndefined();
   });
 

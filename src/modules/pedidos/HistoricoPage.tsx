@@ -9,7 +9,7 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime, montoMoneda } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { useSession } from '@/modules/auth/authStore';
+import { PapeleraComprasModal } from './PapeleraComprasModal';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedores, eliminarOrdenCompra, listAbonos, urlAdjuntoOc, sincronizarOrdenesFinalizadas } from './pedidos.repository';
 import { adjuntosDePago, comprobantesDeLaOrden, type AdjuntoPago } from './adjuntosPago';
@@ -65,7 +65,6 @@ export function HistoricoPage() {
   // Eliminar OC (revierte dinero + stock). Gateado por el permiso de escritura de Compras
   // (31/10/2026: `pedidos` quedó como permiso de base; quién trabaja Compras lo decide `compras`).
   const { can, isAdmin } = usePermissions();
-  const { user } = useSession();
   const puedeEliminar = isAdmin || can('compras', 'escritura');
   const [eliminar, setEliminar] = useState<Orden | null>(null);
   // Adjuntos del pago de la OC abierta en el detalle (comprobantes, abonos, retención, factura).
@@ -94,6 +93,7 @@ export function HistoricoPage() {
     }
   }
   const [borrando, setBorrando] = useState(false);
+  const [papeleraOpen, setPapeleraOpen] = useState(false);
 
   async function imprimirPdf(o: Orden, tipo: 'trazabilidad' | 'oc' | 'pago') {
     setPdfBusy(true);
@@ -112,8 +112,8 @@ export function HistoricoPage() {
     if (!eliminar) return;
     setBorrando(true);
     try {
-      await eliminarOrdenCompra(eliminar, user?.email ?? 'sistema', user?.email ?? null);
-      toast(`${eliminar.oc_codigo ?? eliminar.codigo} eliminada. Se revirtió lo que había movido (dinero y stock).`, 'success');
+      await eliminarOrdenCompra(eliminar);
+      toast(`${eliminar.oc_codigo ?? eliminar.codigo} enviada a la papelera.`, 'success');
       setEliminar(null);
       setDetalle(null);
       await cargar();
@@ -207,6 +207,7 @@ export function HistoricoPage() {
           </p>
         </div>
         <div className="actions">
+          <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)}>🗑 Papelera</button>
           <button
             type="button"
             className="btn btn-secondary"
@@ -494,26 +495,16 @@ export function HistoricoPage() {
         );
       })()}
 
-      {eliminar && (() => {
-        const movioPlata = ['pagada', 'cuenta_abierta', 'recibida', 'finalizada'].includes(eliminar.estado);
-        const movioStock = eliminar.afecta_inventario !== false && !!eliminar.recibida_en;
-        const reversa = [
-          movioPlata ? 'devuelve a la caja lo pagado (pago, patas, comisión y abonos)' : null,
-          movioStock ? 'revierte del inventario la mercancía recibida' : null,
-        ].filter(Boolean).join(' y ');
-        return (
-          <ConfirmDialog
-            title="Eliminar orden"
-            message={`¿Eliminar ${eliminar.oc_codigo ?? eliminar.codigo}?`
-              + (reversa ? ` Se ${reversa}.` : ' No movió dinero ni stock, así que solo se borra.')
-              + ' También se borran sus ofertas, abonos, chat y adjuntos. Esta acción no se puede deshacer.'}
-            confirmText={borrando ? 'Eliminando…' : 'Eliminar'}
-            danger
-            onConfirm={confirmarEliminar}
-            onCancel={() => setEliminar(null)}
-          />
-        );
-      })()}
+      {papeleraOpen && <PapeleraComprasModal onChanged={cargar} onClose={() => setPapeleraOpen(false)} />}
+      {eliminar && (
+        <ConfirmDialog title="Enviar orden a la papelera"
+          message={`¿Enviar ${eliminar.oc_codigo ?? eliminar.codigo} a la papelera? Sus archivos se conservan. Si hay movimientos elegibles, quedan el original y su reverso.`}
+          confirmText={borrando ? 'Procesando…' : 'Enviar a la papelera'}
+          danger
+          onConfirm={() => { if (!borrando) void confirmarEliminar(); }}
+          onCancel={() => { if (!borrando) setEliminar(null); }}
+        />
+      )}
     </div>
   );
 }
