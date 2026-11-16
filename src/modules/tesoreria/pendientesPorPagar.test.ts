@@ -73,6 +73,15 @@ it('aplica la selección al detalle, total y preparación de pagos', () => {
   expect(armarPendientesPorPagar(datos, ['orden-ya-pagada']).totCant).toBe(0);
 });
 
+it('el reporte móvil sin selección incluye todas las OC y servicios, sin directos ni créditos', () => {
+  const datos = entrada();
+  const reporte = armarPendientesPorPagar(datos, [], true);
+  expect(reporte.segmentos.map((s) => s.clave)).toEqual(['oc', 'servicios']);
+  expect(reporte.totCant).toBe(3);
+  expect(reporte.totUsd).toBeCloseTo(174.65);
+  expect(reporte.credito).toBeNull();
+});
+
 describe('calcularPreparacion · «Por preparar» nativo por método y moneda', () => {
   const met = (metodo: string, moneda: string, monto = 0) => ({ metodo, moneda, monto });
 

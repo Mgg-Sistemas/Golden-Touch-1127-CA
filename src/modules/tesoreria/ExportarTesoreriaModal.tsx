@@ -115,21 +115,23 @@ const fmtFechaCorta = (f: string) => { const [y, m, d] = (f || '').split('-'); r
 interface Props {
   ambitoInicial?: AmbitoTesoreria;
   ordenIds?: readonly string[];
+  movil?: boolean;
   rangoInicial?: { desde: string; hasta: string };
   onClose: () => void;
 }
 
-export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, onClose }: Props) {
+export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, movil, onClose }: Props) {
   const prefs = useMemo(() => leerPrefs(), []);
+  const iniciarDetallado = ambitoInicial === 'por_pagar' && (movil || !!ordenIds?.length);
 
   const [desde, setDesde] = useState<string>(() => rangoInicial?.desde || primerDiaMesActual());
   const [hasta, setHasta] = useState<string>(() => rangoInicial?.hasta || hoyVE());
   const [ambito, setAmbito] = useState<AmbitoTesoreria>(ambitoInicial ?? prefs.ambito);
-  const [agrupacion, setAgrupacion] = useState<ModoAgrupacionTesoreria>(prefs.agrupacion);
+  const [agrupacion, setAgrupacion] = useState<ModoAgrupacionTesoreria>(iniciarDetallado ? 'detallado' : prefs.agrupacion);
   const [baseTasa, setBaseTasa] = useState<BaseTasaTesoreria>(prefs.baseTasa);
   const [mostrarUsd, setMostrarUsd] = useState<boolean>(prefs.mostrarUsd);
   const [mostrarBs, setMostrarBs] = useState<boolean>(prefs.mostrarBs);
-  const [marcados, setMarcados] = useState<string[]>(prefs.campos);
+  const [marcados, setMarcados] = useState<string[]>(iniciarDetallado ? CAMPOS_POR_DEFECTO_POR_MODO.detallado : prefs.campos);
   const [incluirResumen, setIncluirResumen] = useState<boolean>(prefs.incluirResumen);
   const [kpisSimplificados, setKpisSimplificados] = useState<boolean>(prefs.kpisSimplificados);
   // «Por preparar» (solo por_pagar): encendido por defecto; se recuerda por equipo.
@@ -191,7 +193,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
           } catch { /* sin método: la columna sale vacía */ }
           if (!cancelado) { setMovs(lista); setPagoPorOrden(pagos); setCtx({ tasaBcvHoy, tasaFecha, tasasPorFecha }); }
         } else if (ambito === 'por_pagar') {
-          const datos = await cargarPendientesPorPagar(ordenIds);
+          const datos = await cargarPendientesPorPagar(ordenIds, movil);
           if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
         } else {
           const [p, c] = await Promise.all([listCuentasPorPagar(true), listCuentasPorCobrar(true)]);
@@ -205,7 +207,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
     }
     void cargar();
     return () => { cancelado = true; };
-  }, [ambito, desde, hasta, ordenIds]);
+  }, [ambito, desde, hasta, ordenIds, movil]);
 
   // Normalización a filas de detalle según el ámbito
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
@@ -252,7 +254,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
 
   const { filas, resumen } = useMemo(() => procesarFilasReporteTesoreria(filtradas, agrupacion, { ordenarPor }), [filtradas, agrupacion, ordenarPor]);
   // 07/11/2026: «Por pagar» sin NINGUNA orden pendiente (antes de filtros) → Tesorería al día.
-  const alDia = ambito === 'por_pagar' && !ordenIds?.length && !cargando && !!datosPP && filasDetalle.length === 0;
+  const alDia = ambito === 'por_pagar' && !movil && !ordenIds?.length && !cargando && !!datosPP && filasDetalle.length === 0;
   // Nombre legible de la dimensión activa (sin el prefijo «Por »), para los avisos de claridad:
   // así el usuario entiende que el nº de tarjetas/filas = nº de grupos de ESA dimensión.
   const nombreDimension = (MODOS.find((m) => m.id === agrupacion)?.label ?? '').replace(/^Por\s+/, '');
@@ -304,6 +306,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
 
     const meta: MetadatosExportacionTesoreria = {
       desde, hasta, ambito, agrupacion, baseTasa,
+      alcance: ambito === 'por_pagar' ? (ordenIds?.length ? 'ordenes-marcadas' : movil ? 'oc-servicios' : undefined) : undefined,
       monedaConsolidacion: mostrarUsd ? 'usd' : 'bs',
       mostrarUsd, mostrarBs,
       subtituloFiltros: partes.length ? `Filtros: ${partes.join(' · ')}` : undefined,
@@ -400,7 +403,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
         <div style={surf2}>
           <div style={{ ...tituloSec, marginBottom: '.4rem' }}>🧭 Ámbito del reporte</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
-            {AMBITOS.map((a) => (
+            {AMBITOS.filter((a) => !movil || a.id === ambito).map((a) => (
               <button key={a.id} type="button" className={`btn btn-xs ${ambito === a.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAmbito(a.id)} style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
                 <span>{a.icon}</span><span>{a.label}</span>
               </button>
@@ -408,7 +411,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
           </div>
           {ambito !== 'movimientos' && (
             <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
-              {ambito === 'por_pagar' ? (ordenIds?.length ? 'Órdenes marcadas que siguen pendientes por pagar.' : 'Compromisos vigentes por pagar (no dependen del rango de fechas).') : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
+              {ambito === 'por_pagar' ? (ordenIds?.length ? 'Órdenes marcadas que siguen pendientes por pagar.' : movil ? 'Órdenes de compra y servicios pendientes por pagar.' : 'Compromisos vigentes por pagar (no dependen del rango de fechas).') : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
             </div>
           )}
         </div>

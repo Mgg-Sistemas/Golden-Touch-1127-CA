@@ -24,6 +24,7 @@ import { diaVE } from '@/modules/tesoreria/tasas.repository';
 import { Paginador } from '@/modules/libroFiscal/ListaControles';
 import { paginar } from '@/modules/libroFiscal/listas';
 import '@/modules/libroFiscal/libroFiscal.css';
+import './conciliacion.css';
 import { cargarConciliacion } from './conciliacion.repository';
 import {
   FILTROS_VACIOS, filtrarFilas, indicadores, renumerar, textoFuenteTasa, textoReferencia,
@@ -211,7 +212,7 @@ export function ConciliacionPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page conciliacion-page">
       <div className="page-head">
         <div>
           <h1>📒 Conciliación</h1>
@@ -221,7 +222,7 @@ export function ConciliacionPage() {
             Toca una tarjeta para ver el detalle y una OC para abrirla en Compras.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+        <div className="conciliacion-acciones" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>↻ Actualizar</button>
           {puedeAnotar && notasDisponibles && (<>
             <input ref={inputDrive} type="file" hidden accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -242,7 +243,7 @@ export function ConciliacionPage() {
       ))}
 
       {/* ── Selector de Submódulo: Salidas (Compras/Pagos) vs Entradas (Reintegros de Retención) ── */}
-      <div style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border)', marginBottom: '1.25rem' }}>
+      <div className="conciliacion-pestanas" style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border)', marginBottom: '1.25rem' }}>
         <button
           type="button"
           className="btn btn-ghost"
@@ -304,7 +305,7 @@ export function ConciliacionPage() {
       </div>
 
       {/* ── Filtros ── */}
-      <div className="card" style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
+      <div className="card conciliacion-filtros" style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
         <div className="form-row" style={{ flex: '2 1 220px', margin: 0 }}>
           <label>Buscar</label>
           <input className="input" value={f.texto} onChange={(e) => set('texto', e.target.value)} placeholder="🔍 OC, proveedor, referencia o comprobante…" />
@@ -359,7 +360,7 @@ export function ConciliacionPage() {
       </div>
 
       {/* ── Tabla ── */}
-      <div className="table-wrap card">
+      <div className="table-wrap card conciliacion-listado">
         <table className="table">
           <thead>
             <tr>
@@ -497,8 +498,10 @@ export function ConciliacionPage() {
         </table>
       </div>
       {!cargando && filtradas.length > 0 && (
-        <Paginador pagina={pagina} tam={tam} unidad="OC" tamanos={TAMANOS}
-          onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+        <div className="conciliacion-paginacion">
+          <Paginador pagina={pagina} tam={tam} unidad="OC" tamanos={TAMANOS}
+            onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+        </div>
       )}
         </>
       )}

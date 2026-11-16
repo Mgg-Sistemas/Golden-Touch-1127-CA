@@ -16,7 +16,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'inventario' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes' | 'delivery' | 'carga_pesada';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'inventario' | 'deposito_mina' | 'maquinaria' | 'retenciones' | 'solicitudes' | 'delivery' | 'carga_pesada' | 'tesoreria';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -36,6 +36,10 @@ export interface VistaTelefono {
 }
 
 export const VISTAS_TELEFONO: VistaTelefono[] = [
+  {
+    key: 'tesoreria', label: 'Tesorería', icono: '🏦', modulo: 'tesoreria',
+    ruta: '/app/tesoreria/telefono', descripcion: 'Pagar órdenes y servicios, convertir moneda y consultar movimientos',
+  },
   {
     key: 'maquinaria', label: 'Maquinaria y Flota', icono: '🚜', modulo: 'maquinaria',
     ruta: '/app/maquinaria/telefono', descripcion: 'Servicios, lavados, averías y reportes por WhatsApp',

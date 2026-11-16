@@ -2,7 +2,8 @@ import { skuVisible } from '@/modules/pedidos/nombresGenericos';
 import { Quien } from '@/shared/ui/Quien';
 import { LEYENDA_AL_DIA, TITULO_AL_DIA, textoWhatsappTesoreriaAlDia } from './tesoreriaAlDia';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { TesoreriaMovilView } from './TesoreriaMovilView';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
@@ -111,10 +112,11 @@ import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
  * (botón + estado + modal): se coloca JUNTO a las descargas rígidas existentes sin
  * tocar su flujo ni reemplazarlas. Solo enriquece.
  */
-function BotonReporteMoldeable({ ambito, rango, ordenIds, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
+function BotonReporteMoldeable({ ambito, rango, ordenIds, movil, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
   ambito: AmbitoTesoreria;
   rango?: { desde: string; hasta: string };
   ordenIds?: readonly string[];
+  movil?: boolean;
   label?: string;
   className?: string;
 }) {
@@ -122,7 +124,7 @@ function BotonReporteMoldeable({ ambito, rango, ordenIds, label = '📄 Reporte'
   return (
     <>
       <button type="button" className={className} onClick={() => setAbierto({ ordenIds })} title="Reporte moldeable: columnas, filtros, fichas o tabla, PDF/Excel/CSV">{label}</button>
-      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} ordenIds={abierto.ordenIds} onClose={() => setAbierto(null)} />}
+      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} ordenIds={abierto.ordenIds} movil={movil} onClose={() => setAbierto(null)} />}
     </>
   );
 }
@@ -195,9 +197,9 @@ function normalizarBusqueda(s: string | null | undefined): string {
   return (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 }
 
-export function TesoreriaPage() {
+export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, puedeVista, soloTelefono, vistasTelefono } = usePermissions();
   const canWrite = can('tesoreria', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -218,11 +220,13 @@ export function TesoreriaPage() {
     const ver = searchParams.get('ver');
     if (!ver) return;
     const validos = ['gasto', 'traslado', 'pago', 'cajas', 'tasas', 'porpagar', 'creditos', 'cobrar', 'conversor', 'calculadora', 'grafico', 'contrapartes', 'retencion', 'cierre', 'categorias', 'recibir_mgg'];
-    if (validos.includes(ver)) setModal(ver as typeof modal);
+    if (movil ? canWrite && (ver === 'porpagar' || ver === 'conversor') : validos.includes(ver)) {
+      setModal(ver as typeof modal);
+    }
     const next = new URLSearchParams(searchParams);
     next.delete('ver');
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, movil, canWrite]);
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
@@ -262,6 +266,12 @@ export function TesoreriaPage() {
   // NO depende de los filtros del registro: esos se aplican en memoria sobre
   // `libroTodo`, para que filtrar no vuelva a consultar ni vacíe la tabla.
   const reload = useCallback(async () => {
+    if (movil) {
+      const [cs, mov] = await Promise.all([listCajasActivas(), listLibroMayor()]);
+      setCajas(cs);
+      setLibroTodo(mov);
+      return;
+    }
     const [d, cs, sal, mov, pend, credOc, cxp, cxc, tr, nc] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
@@ -276,7 +286,7 @@ export function TesoreriaPage() {
     ]);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
     setDisp(d); setCajas(cs); setSaldos(sal); setLibroTodo(mov); setPorPagarCount(pend.porPagar); setCreditosCount(credOc + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
-  }, []);
+  }, [movil]);
 
   // Movimientos que se ven en el registro: los filtros se resuelven aquí, sobre lo ya
   // cargado. La comparación por día (`at` recortado a AAAA-MM-DD) da el mismo resultado
@@ -308,6 +318,7 @@ export function TesoreriaPage() {
   // veces escribe—; ahora corre una sola vez al abrir, por fuera, y solo vuelve a pedir
   // los datos si efectivamente reparó algo.
   useEffect(() => {
+    if (movil) return;
     let vivo = true;
     void (async () => {
       const [oc, cd] = await Promise.all([
@@ -317,7 +328,7 @@ export function TesoreriaPage() {
       if (vivo && oc + cd > 0) void reload();
     })();
     return () => { vivo = false; };
-  }, [reload]);
+  }, [reload, movil]);
 
   const cerrarYRecargar = async () => { setModal('none'); await reload(); };
 
@@ -399,7 +410,15 @@ export function TesoreriaPage() {
   useEffect(() => { void refrescarTasasSiVencido().catch(() => { /* sin conexión */ }); }, []);
 
   return (
-    <div>
+    <div className={movil ? 'tesoreria-movil' : undefined}>
+      {movil ? (
+        <TesoreriaMovilView
+          canWrite={canWrite} loading={loading} movimientos={vista === 'movimientos'}
+          volver={soloTelefono ? (vistasTelefono.length > 1 ? '/app/telefono' : undefined) : '/app/tesoreria'}
+          onPagar={() => setModal('porpagar')} onConvertir={() => setModal('conversor')}
+          onMovimientos={() => setVista(vista === 'movimientos' ? 'tesoreria' : 'movimientos')}
+        />
+      ) : (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>🏦 Tesorería</h1>
@@ -410,11 +429,13 @@ export function TesoreriaPage() {
           <button className={vista === 'tasas' ? 'active' : ''} onClick={() => setVista('tasas')}>📈 Tasas del Día</button>
           <button className={vista === 'movimientos' ? 'active' : ''} onClick={() => setVista('movimientos')}>📒 Registro de Movimientos</button>
         </div>
+        {puedeVista('tesoreria') && <Link to="/app/tesoreria/telefono" className="btn btn-sm btn-ghost">📱 Vista teléfono</Link>}
       </div>
+      )}
 
       {vista === 'tasas' && <TasasView />}
 
-      {vista === 'tesoreria' && (
+      {!movil && vista === 'tesoreria' && (
       <>
           {/* Disponibilidad financiera */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
@@ -586,7 +607,7 @@ export function TesoreriaPage() {
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={async () => {
                 try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
-              <BotonReporteMoldeable ambito="movimientos" rango={{ desde: fDesde, hasta: fHasta }} />
+              <BotonReporteMoldeable ambito="movimientos" movil={movil} rango={{ desde: fDesde, hasta: fHasta }} />
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
               {fBuscar.trim() && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
@@ -666,10 +687,10 @@ export function TesoreriaPage() {
       {modal === 'categorias' && <CategoriasGastoModal canWrite={canWrite} actor={actor} onClose={() => setModal('none')} />}
       {modal === 'cierre' && <CierreMesModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal('none')} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
-      {modal === 'conversor' && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onConverted={reload} />}
+      {modal === 'conversor' && (!movil || canWrite) && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onConverted={reload} />}
       {modal === 'calculadora' && <CalculadoraModal actor={actor} onClose={() => setModal('none')} />}
       {modal === 'grafico' && <GraficoTasasModal onClose={() => setModal('none')} />}
-      {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
+      {modal === 'porpagar' && (!movil || canWrite) && <OrdenesPorPagarModal movil={movil} cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'cobrar' && <CuentasPorCobrarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
@@ -3940,8 +3961,8 @@ function GraficoTasasModal({ onClose }: { onClose: () => void }) {
 
 /* ───────────── Órdenes pendientes por pagar (OC confirmadas) ───────────── */
 
-function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
-  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
+function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid, movil }: {
+  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void; movil?: boolean;
 }) {
   const [tab, setTab] = useState<'ordenes' | 'directos'>('ordenes');
   const [directosCount, setDirectosCount] = useState(0);
@@ -3993,10 +4014,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const mismoProveedor = provsSel <= 1;
 
   return (
-    <Modal title="Pendientes por pagar · Tesorería" size="xl" onClose={onClose} footer={
+    <Modal title={movil ? 'Pagar órdenes y servicios' : 'Pendientes por pagar · Tesorería'} size="xl" onClose={onClose} footer={
       <>
         {/* «↓ Resumen PDF» se quitó a pedido del usuario (03/11/2026); el reporte queda en «📄 Reporte». */}
-        <BotonReporteMoldeable ambito="por_pagar" ordenIds={tab === 'ordenes' ? [...seleccion] : undefined} label="📄 Reporte" className="btn btn-ghost" />
+        <BotonReporteMoldeable ambito="por_pagar" movil={movil} ordenIds={tab === 'ordenes' ? [...seleccion] : undefined} label="📄 Reporte" className="btn btn-ghost" />
         {tab === 'ordenes' && (
           <button className="btn btn-ghost" onClick={() => setWspLote(true)}
             title="Un solo WhatsApp con varias OC: código, proveedor, monto a pagar, total y el motivo de pago">💬 WhatsApp por lote</button>
@@ -4005,7 +4026,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       </>
     }>
       {/* Switch principal que alterna entre Órdenes de Compra y Gastos Directos/Fijos */}
-      <div className="view-toggle" role="tablist" aria-label="Tipo de pendientes" style={{ marginBottom: '.85rem' }}>
+      {!movil && <div className="view-toggle" role="tablist" aria-label="Tipo de pendientes" style={{ marginBottom: '.85rem' }}>
         <button
           type="button"
           role="tab"
@@ -4024,19 +4045,19 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         >
           ⚡ Directos y Gastos Fijos {directosCount > 0 ? `(${directosCount})` : ''}
         </button>
-      </div>
+      </div>}
 
       {tab === 'ordenes' && (
         <>
           <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-            Órdenes de compra aprobadas con método de pago cargado desde Compras. Haz clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
+            Órdenes de compra y servicios aprobados con método de pago cargado desde Compras. Haz clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
             compra y registrar el pago, o <strong>marca varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>
             (un egreso por OC).
           </p>
           {seleccionadas.length > 0 && (
             <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .85rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
               <strong>{seleccionadas.length}</strong> OC de <strong>{mismoProveedor ? provNombreSel : `${provsSel} proveedores`}</strong> · total <strong className="mono">{monto(totalSel, 'USD')}</strong>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
+              <div className={movil ? 'tesoreria-movil-seleccion' : undefined} style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
                 <button className="btn btn-sm btn-ghost" onClick={() => setSeleccion(new Set())}>Limpiar</button>
                 <button className="btn btn-sm btn-ghost" onClick={() => setSinCaja(seleccionadas)}
                   title="Marcarlas pagadas SIN descontar dinero de ninguna caja (con motivo). Siguen al delivery y al almacén como siempre.">🧾 Marcar {seleccionadas.length} pagadas sin caja</button>
@@ -4045,10 +4066,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
               </div>
             </div>
           )}
-          <div className="table-wrap">
+          <div className={movil ? 'table-wrap tesoreria-movil-pendientes' : 'table-wrap'}>
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead><tr>
-                <th style={{ width: 34 }}></th>
+                <th style={{ width: 34 }}>{movil ? 'Seleccionar' : null}</th>
                 <th>N°ODC</th><th>OP</th><th>Proveedor</th><th>Condición</th>
                 <th style={{ textAlign: 'right' }}>A pagar $</th><th>OC creada</th><th>Confirmada GG</th><th></th>
               </tr></thead>
@@ -4061,6 +4082,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                   <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
                     <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
                       <input type="checkbox" checked={seleccion.has(r.orden.id)}
+                        aria-label={`Seleccionar ${r.orden.oc_codigo ?? r.orden.codigo}`}
                         title="Seleccionar: pagar varias juntas (mismo proveedor) o marcar varias pagadas sin caja"
                         onChange={() => toggleSel(r)} />
                     </td>
@@ -4119,8 +4141,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                     <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                     <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button className="btn btn-sm btn-ghost" title="Editar los precios de esta OC (se ajusta el total y queda en la traza)"
-                        onClick={(e) => { e.stopPropagation(); setEditarPrecios(r); }}>✏️ Precios</button>{' '}
+                      {!movil && <><button className="btn btn-sm btn-ghost" title="Editar los precios de esta OC (se ajusta el total y queda en la traza)"
+                        onClick={(e) => { e.stopPropagation(); setEditarPrecios(r); }}>✏️ Precios</button>{' '}</>}
                       <button className="btn btn-sm btn-ghost" title="Marcarla pagada SIN descontar dinero de ninguna caja (con motivo). Sigue al delivery y al almacén como siempre."
                         onClick={(e) => { e.stopPropagation(); setSinCaja([r]); }}>🧾 Pagada sin caja</button>{' '}
                       <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>
@@ -4137,14 +4159,14 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       )}
 
       {/* Compras directas montadas por el analista y gastos fijos de Administración */}
-      <div style={{ display: tab === 'directos' ? 'block' : 'none' }}>
+      {!movil && <div style={{ display: tab === 'directos' ? 'block' : 'none' }}>
         <DirectosPorPagarPanel
           cajas={cajas} actor={actor} actorName={actorName}
           sinBorde
           onCountsChange={(c) => setDirectosCount(c.total)}
           onPaid={async () => { await reload(); onPaid(); }}
         />
-      </div>
+      </div>}
 
       {sel && (
         <PagarOrdenModal
@@ -4162,7 +4184,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         />
       )}
 
-      {wspLote && <WhatsappLotePorPagarModal rows={rows} onClose={() => setWspLote(false)} />}
+      {wspLote && <WhatsappLotePorPagarModal movil={movil} rows={rows} onClose={() => setWspLote(false)} />}
 
       {sinCaja && (
         <PagadaSinCajaModal
@@ -4301,11 +4323,12 @@ function PagadaSinCajaModal({ rows, actor, onClose, onDone }: {
    en el aviso individual y sale un solo mensaje con el código, el proveedor y el monto a
    pagar de cada OC, el total y la fecha en que se arma. */
 
-function WhatsappLotePorPagarModal({ rows, onClose, credito = false }: {
+function WhatsappLotePorPagarModal({ rows, onClose, credito = false, movil = false }: {
   rows: Pick<OrdenPorPagar, 'orden' | 'proveedorNombre' | 'montoAPagar'>[];
   onClose: () => void;
   /** 09/11/2026: lote de las cuentas a CRÉDITO de Compras (el monto es el saldo pendiente). */
   credito?: boolean;
+  movil?: boolean;
 }) {
   // 05/11/2026 (formato MGG): cada orden con su propio «¿se pagará?»; arriba se aplica a todas.
   const [marcadas, setMarcadas] = useState<Set<string>>(() => new Set(rows.map((r) => r.orden.id)));
@@ -4331,14 +4354,15 @@ function WhatsappLotePorPagarModal({ rows, onClose, credito = false }: {
     : { ordenes, fecha });
   // 07/11/2026: sin nada por pagar → «ÓRDENES PENDIENTES POR PAGAR: 0 · TESORERÍA AL DÍA».
   if (!rows.length) {
+    const mensaje = 'No hay órdenes de compra ni servicios pendientes por pagar.';
     return (
       <Modal title="💬 WhatsApp · Órdenes pendientes por pagar" size="md" onClose={onClose}
         footer={<button type="button" className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
         <div className="card" style={{ padding: '.8rem 1rem', marginBottom: '.7rem', borderLeft: '3px solid var(--success, #16a34a)', textAlign: 'center' }}>
           <div style={{ fontWeight: 800 }}>📋 {TITULO_AL_DIA}</div>
-          <div style={{ fontWeight: 800, color: 'var(--success, #16a34a)' }}>✅ {LEYENDA_AL_DIA}</div>
+          <div style={{ fontWeight: 800, color: 'var(--success, #16a34a)' }}>✅ {movil ? mensaje : LEYENDA_AL_DIA}</div>
         </div>
-        <CompartirWhatsapp texto={textoWhatsappTesoreriaAlDia(new Date(fecha))} />
+        <CompartirWhatsapp texto={movil ? mensaje : textoWhatsappTesoreriaAlDia(new Date(fecha))} />
       </Modal>
     );
   }

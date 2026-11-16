@@ -162,6 +162,7 @@ export function App() {
           <Route path="maquinaria/repuestos" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><RepuestosComprasPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/repuestos-equipo" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><RepuestosPorEquipoPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/telefono" element={<RequireVistaTelefono vista="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaMovilView /></Suspense></RequireVistaTelefono>} />
+          <Route path="tesoreria/telefono" element={<RequireVistaTelefono vista="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage movil /></Suspense></RequireVistaTelefono>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
           <Route path="administracion" element={<RequireModule module="administracion"><Suspense fallback={<PageLoader />}><AdministracionPage /></Suspense></RequireModule>} />
           <Route path="asignaciones" element={<RequireModule module="asignaciones"><Suspense fallback={<PageLoader />}><AsignacionesPage /></Suspense></RequireModule>} />

@@ -79,6 +79,7 @@ const TITULO_AMBITO: Record<AmbitoTesoreria, string> = {
 };
 
 export interface MetadatosExportacionTesoreria {
+  alcance?: 'ordenes-marcadas' | 'oc-servicios';
   desde: string;
   hasta: string;
   ambito: AmbitoTesoreria;
@@ -409,7 +410,7 @@ export async function descargarTesoreriaExcel(
   });
 
   const bytes = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
-  await previewExcelArchivo(bytes, `tesoreria-${meta.ambito}-${hoyStr()}.xlsx`);
+  await previewExcelArchivo(bytes, `tesoreria-${meta.ambito}${meta.alcance ? `-${meta.alcance}` : ''}-${hoyStr()}.xlsx`);
 }
 
 /* ============================================================
@@ -990,7 +991,7 @@ export async function descargarTesoreriaPdf(
     doc.text(`Página ${i} de ${numPaginas}`, W - M, H - 9, { align: 'right' });
   }
 
-  previewPdf(doc, `tesoreria-${meta.ambito}-${hoyStr()}.pdf`);
+  previewPdf(doc, `tesoreria-${meta.ambito}${meta.alcance ? `-${meta.alcance}` : ''}-${hoyStr()}.pdf`);
 }
 
 /* ============================================================
@@ -1037,7 +1038,7 @@ export function descargarTesoreriaCsv(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `tesoreria-${meta.ambito}-${hoyStr()}.csv`;
+  a.download = `tesoreria-${meta.ambito}${meta.alcance ? `-${meta.alcance}` : ''}-${hoyStr()}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

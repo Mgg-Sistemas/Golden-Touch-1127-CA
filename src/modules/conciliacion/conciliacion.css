@@ -1,0 +1,54 @@
+@media (max-width: 600px) {
+  .conciliacion-page .conciliacion-pestanas > .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding-inline: .4rem !important;
+    font-size: .8rem !important;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .conciliacion-page .conciliacion-acciones {
+    flex-wrap: wrap;
+  }
+
+  .conciliacion-page .conciliacion-filtros > .conciliacion-acciones {
+    flex-basis: 100%;
+    margin-left: 0 !important;
+  }
+
+  .conciliacion-page .conciliacion-acciones > .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .conciliacion-page .conciliacion-filtros > .form-row:first-child {
+    flex-basis: 100% !important;
+  }
+
+  .conciliacion-page .conciliacion-filtros .input {
+    min-height: 44px;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 1rem;
+  }
+
+  .conciliacion-page .conciliacion-acciones .btn,
+  .conciliacion-page .conciliacion-listado .btn,
+  .conciliacion-page .conciliacion-paginacion .btn,
+  .conciliacion-page .conciliacion-paginacion .lf-pb {
+    min-height: 44px;
+    white-space: normal;
+  }
+
+  .conciliacion-page .conciliacion-paginacion > div {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .conciliacion-page .conciliacion-listado .table > tbody > tr > td {
+    white-space: normal !important;
+  }
+}

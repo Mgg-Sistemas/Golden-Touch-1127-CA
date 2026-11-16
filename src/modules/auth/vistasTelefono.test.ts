@@ -25,6 +25,13 @@ describe('vistasPermitidas · pantalla dada Y lectura en su módulo', () => {
   });
 });
 
+it('Tesorería móvil requiere habilitar la pantalla y tener lectura en Tesorería', () => {
+  expect(vistasPermitidas(['tesoreria'], conModulos('pedidos'), false)).toEqual([]);
+  expect(vistasPermitidas([], conModulos('tesoreria'), false)).toEqual([]);
+  const vistas = vistasPermitidas(['tesoreria'], conModulos('tesoreria'), false);
+  expect(inicioTelefono(vistas)).toBe('/app/tesoreria/telefono');
+});
+
 describe('inicioTelefono · adónde entra un rol solo teléfono', () => {
   it('con una sola pantalla, directo a ella', () => {
     const surtidor = VISTAS_TELEFONO.find((v) => v.key === 'surtidor')!;

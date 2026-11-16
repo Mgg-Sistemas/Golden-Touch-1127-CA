@@ -1,0 +1,67 @@
+.tesoreria-movil {
+  max-width: 840px;
+  margin-inline: auto;
+}
+
+.tesoreria-movil-inicio {
+  margin-bottom: 1rem;
+}
+
+.tesoreria-movil-titulo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: 1rem;
+}
+
+.tesoreria-movil-titulo h1 {
+  margin: 0;
+}
+
+.tesoreria-movil-acciones {
+  display: grid;
+  gap: .6rem;
+}
+
+.tesoreria-movil-acciones > .btn {
+  min-height: 52px;
+  justify-content: center;
+  white-space: normal;
+}
+
+@media (max-width: 600px) {
+  .tesoreria-movil :is(.input, .select) {
+    max-width: 100%;
+  }
+
+  .tesoreria-movil :is(.input, .select, .btn),
+  .tesoreria-movil-pendientes .btn {
+    min-height: 44px;
+  }
+
+  .tesoreria-movil-seleccion {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .tesoreria-movil-seleccion .btn {
+    min-height: 44px;
+    white-space: normal;
+  }
+
+  .tesoreria-movil-pendientes td {
+    white-space: normal !important;
+  }
+
+  .tesoreria-movil-pendientes .btn {
+    margin-block: .15rem;
+    white-space: normal;
+  }
+
+  .tesoreria-movil-pendientes input[type='checkbox'] {
+    width: 24px;
+    height: 24px;
+  }
+}

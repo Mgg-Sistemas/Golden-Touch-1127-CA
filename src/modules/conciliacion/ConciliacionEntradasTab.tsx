@@ -297,7 +297,7 @@ export function ConciliacionEntradasTab({
       </div>
 
       {/* ── Filtros ── */}
-      <div className="card" style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
+      <div className="card conciliacion-filtros" style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
         <div className="form-row" style={{ flex: '2 1 220px', margin: 0 }}>
           <label>Buscar</label>
           <input
@@ -345,7 +345,7 @@ export function ConciliacionEntradasTab({
           <input className="input" type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPaginaActual(1); }} />
         </div>
 
-        <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
+        <div className="conciliacion-acciones" style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
           {(busqueda || filtroEstado !== 'todas' || filtroRetencion !== 'todas' || desde || hasta) && (
             <button
               className="btn btn-ghost btn-sm"
@@ -371,7 +371,7 @@ export function ConciliacionEntradasTab({
       </div>
 
       {/* ── Tabla de Entradas · Formato idéntico a MGG ── */}
-      <div className="table-wrap card">
+      <div className="table-wrap card conciliacion-listado">
         <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
@@ -615,6 +615,7 @@ export function ConciliacionEntradasTab({
 
       {/* ── Barra de Paginación inferior estilo MGG ── */}
       <div
+        className="conciliacion-paginacion"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
