@@ -30,7 +30,11 @@ describe('MODULES · Solicitud de Pedido y Compras (31/10/2026)', () => {
 describe('defaultsFor · permisos por defecto', () => {
   it('el admin tiene todo, incluidos los dos nuevos', () => {
     const p = defaultsFor('admin');
-    for (const m of MODULES) expect(p[m.key]).toEqual({ lectura: true, escritura: true, full: true });
+    for (const m of MODULES) expect(p[m.key]).toMatchObject({ lectura: true, escritura: true, full: true });
+    expect(p.rrhh.vaciarPapelera).toBe(true);
+    expect(p.produccion.vaciarPapelera).toBe(true);
+    expect(p.tesoreria.vaciarPapelera).toBeUndefined();
+    expect(defaultsFor('analista').rrhh.vaciarPapelera).toBeUndefined();
   });
 
   it.each(['analista', 'obrero', 'almacenista', 'analista_de_compras', 'rol_nuevo'])(

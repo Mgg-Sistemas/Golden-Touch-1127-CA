@@ -96,6 +96,8 @@ export function defaultsFor(role: RoleKey): RolePermisos {
 
   if (role === 'admin') {
     MODULES.forEach((m) => (all[m.key] = { lectura: true, escritura: true, full: true }));
+    all.rrhh.vaciarPapelera = true;
+    all.produccion.vaciarPapelera = true;
     return all;
   }
   // 31/10/2026: todos los roles pueden pedir (crean sus SP y siguen solo las suyas).
