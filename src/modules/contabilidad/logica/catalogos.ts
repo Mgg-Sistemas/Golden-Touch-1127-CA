@@ -91,7 +91,7 @@ export function erroresInactivarTipo(t: ContTipoComprobante, reglas: ContRegla[]
 
 /* ───────────── Centros de costo ───────────── */
 
-export interface CentroCostoInput { codigo: string; nombre: string; tipo: ContCentroCosto['tipo']; padre_id: string | null }
+export interface CentroCostoInput { empresa_clave?: string; codigo: string; nombre: string; tipo: ContCentroCosto['tipo']; padre_id: string | null }
 
 function erroresPadre(padreId: string | null, existentes: ContCentroCosto[], propio?: string): string[] {
   if (!padreId) return [];
@@ -141,7 +141,7 @@ export function erroresActivarCentro(c: ContCentroCosto, todos: ContCentroCosto[
 
 /* ───────────── Auxiliares ───────────── */
 
-export interface AuxiliarInput { tipo: TipoAuxiliar; codigo: string; nombre: string; rif: string }
+export interface AuxiliarInput { empresa_clave?: string; tipo: TipoAuxiliar; codigo: string; nombre: string; rif: string }
 
 const erroresRif = (rif: string) => (rif.trim() && !normalizarRifAuxiliar(rif) ? ['El RIF no tiene dígitos: se escribe como J-123456789.'] : []);
 

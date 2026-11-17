@@ -23,7 +23,7 @@ import type { ClaseCuenta, ContCuenta, ContParametros, CuentaInput, Moneda, Natu
 const nombreAuxiliar = nombreTipoAuxiliar;
 
 /** La página la monta con `key` = versión de los datos: al reiniciar la simulación arranca de cero. */
-export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
+export function PlanCuentasTab({ parametros, empresaClave = 'GT' }: { parametros: ContParametros; empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [cuentas, setCuentas] = useState<ContCuenta[] | null>(null);
@@ -39,7 +39,7 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
 
   const cargar = useCallback(async () => {
     try {
-      const lista = await listCuentas();
+      const lista = await listCuentas(empresaClave);
       setCuentas(lista);
       if (!inicializado.current) {
         inicializado.current = true;
@@ -48,7 +48,7 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo leer el plan de cuentas.', 'error');
     }
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => { void cargar(); }, [cargar]);
 
@@ -170,7 +170,7 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
       </div>
 
       {nueva && (
-        <NuevaCuentaModal padre={nueva.padre} cuentas={cuentas} parametros={parametros}
+        <NuevaCuentaModal padre={nueva.padre} cuentas={cuentas} parametros={parametros} empresaClave={empresaClave}
           onCerrar={() => setNueva(null)}
           onGuardar={async (input) => {
             const creada = await crearCuenta(input, actor);
@@ -241,10 +241,11 @@ function FichaCuenta({ cuenta, cuentas, parametros, onSubcuenta, onAlternarActiv
   );
 }
 
-function NuevaCuentaModal({ padre, cuentas, parametros, onCerrar, onGuardar }: {
+function NuevaCuentaModal({ padre, cuentas, parametros, empresaClave, onCerrar, onGuardar }: {
   padre: ContCuenta | null;
   cuentas: ContCuenta[];
   parametros: ContParametros;
+  empresaClave?: string;
   onCerrar: () => void;
   onGuardar: (input: CuentaInput) => Promise<void>;
 }) {
@@ -277,6 +278,7 @@ function NuevaCuentaModal({ padre, cuentas, parametros, onCerrar, onGuardar }: {
   }
 
   const input: CuentaInput = {
+    empresa_clave: empresaClave ?? 'GT',
     codigo, nombre, es_movimiento: esMovimiento, naturaleza, clase,
     exige_centro_costo: esMovimiento && exigeCentro,
     exige_auxiliar: esMovimiento && exigeAuxiliar,
