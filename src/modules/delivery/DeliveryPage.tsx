@@ -55,6 +55,7 @@ import { pdfFotosDelivery, pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelive
 import { WhatsappDeliveryModal } from './WhatsappDeliveryModal';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
+import { obtenerDiferenciador, guardarAliasRepartidor } from './deliveryIdentificadores';
 import './deliveryPanel.css';
 
 // 10/11/2026 (como MGG, maqueta de Delivery): «Centro de control» con el mapa en vivo adentro y dos
@@ -89,6 +90,7 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
   const tieneTelefono = vistasTelefono.some((v) => v.key === canal);
   const puedeAmbos = flotas.length > 1;
   const [vista, setVista] = useState<Vista>('tablero');
+  const [repartidorEnfocar, setRepartidorEnfocar] = useState<string | null>(null);
 
   /* ── Tablero: pedidos actuales (y cerrados si se piden) + lo de hoy ── */
   const hoy = useMemo(hoyVenezuela, []);
@@ -193,11 +195,31 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
       </div>
 
       {vista === 'tablero' && (
-        <TableroTab pedidos={pedidos} rechazos={rechazos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
-          verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()}
-          mapa={<DeliveryMapa pedidos={pedidos} canal={canal} />} />
+        <TableroTab
+          pedidos={pedidos}
+          rechazos={rechazos}
+          deHoy={deHoy}
+          cargando={cargando}
+          supervisor={supervisor}
+          verCerrados={verCerrados}
+          setVerCerrados={setVerCerrados}
+          onCambio={() => void recargarTablero()}
+          canal={canal}
+          repartidorEnfocar={repartidorEnfocar}
+          setRepartidorEnfocar={setRepartidorEnfocar}
+        />
       )}
-      {vista === 'repartidores' && <RepartidoresTab canal={canal} pedidos={pedidos} deHoy={deHoy} />}
+      {vista === 'repartidores' && (
+        <RepartidoresTab
+          canal={canal}
+          pedidos={pedidos}
+          deHoy={deHoy}
+          onVerEnMapa={(repId) => {
+            setRepartidorEnfocar(repId);
+            setVista('tablero');
+          }}
+        />
+      )}
       {enHistorico && (
         <BarraRango hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} cargando={cargandoHist} />
       )}
@@ -210,11 +232,30 @@ export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: Can
 
 /* ───────────── Tablero ───────────── */
 
-function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio, mapa }: {
-  pedidos: PedidoDelivery[]; rechazos: RechazoDelivery[]; deHoy: FilaHistorialDelivery[]; cargando: boolean; supervisor: boolean;
-  verCerrados: boolean; setVerCerrados: (v: boolean) => void; onCambio: () => void;
-  /** 10/11/2026: el mapa en vivo (motorizados, proveedores y Los Pinos), debajo de las métricas. */
-  mapa?: ReactNode;
+function TableroTab({
+  pedidos,
+  rechazos,
+  deHoy,
+  cargando,
+  supervisor,
+  verCerrados,
+  setVerCerrados,
+  onCambio,
+  canal,
+  repartidorEnfocar,
+  setRepartidorEnfocar,
+}: {
+  pedidos: PedidoDelivery[];
+  rechazos: RechazoDelivery[];
+  deHoy: FilaHistorialDelivery[];
+  cargando: boolean;
+  supervisor: boolean;
+  verCerrados: boolean;
+  setVerCerrados: (v: boolean) => void;
+  onCambio: () => void;
+  canal: CanalDelivery;
+  repartidorEnfocar: string | null;
+  setRepartidorEnfocar: (id: string | null) => void;
 }) {
   const quien = useQuien();
   const c = conteoPorEstado(pedidos);
@@ -271,12 +312,9 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
         </div>
       </div>
 
-      {mapa && (
-        <div className="card dlv-mapa-card">
-          <div className="card-title">📍 Mapa GPS en vivo · Puerto Ordaz / San Félix</div>
-          {mapa}
-        </div>
-      )}
+      <div className="card dlv-mapa-card">
+        <DeliveryMapa pedidos={pedidos} canal={canal} repartidorEnfocar={repartidorEnfocar} />
+      </div>
 
       <div className="card">
         <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
@@ -306,6 +344,7 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                   const clave = `${claveDelivery(p)}-${p.pedido_id ?? 'libre'}`;
                   const noDisp = rechazosDe(p, rechazos);
                   const destino = retiro ? (p.almacen_entrega || destinoRetiro(p)) : p.almacen_destino;
+                  const dif = p.repartidor_id ? obtenerDiferenciador(p.repartidor_id, p.repartidor_nombre, canal) : null;
                   return (
                     <tr key={clave}>
                       <td>
@@ -320,7 +359,32 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                         {retiro && p.analista_nombre && <div className="muted" style={{ fontSize: '.75rem' }}>Revisó: {p.analista_nombre}</div>}
                       </td>
                       <td>
-                        {p.repartidor_nombre ? quien(p.repartidor_nombre) : <span className="muted">—</span>}
+                        {p.repartidor_nombre ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {dif && (
+                              <span className="dlv-badge-id" style={{ background: dif.color }}>
+                                {dif.codigo}
+                              </span>
+                            )}
+                            <strong>{dif?.nombreVisible ?? quien(p.repartidor_nombre)}</strong>
+                            {p.repartidor_id && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: '0 6px', fontSize: '.72rem', height: 22 }}
+                                onClick={() => {
+                                  setRepartidorEnfocar(p.repartidor_id);
+                                  window.scrollTo({ top: 180, behavior: 'smooth' });
+                                }}
+                                title="Enfocar ruta en el mapa del controlador"
+                              >
+                                🎯 Ver
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
                         {noDisp.map((r) => (
                           <div key={r.id} className="muted" style={{ fontSize: '.75rem', color: 'var(--danger)' }}
                             title={`${fechaHoraVE(r.created_at)} · ${r.motivo}`}>
@@ -755,10 +819,24 @@ function haceTxt(iso: string | null | undefined): string {
 }
 
 /** Cada delivery de la flota: si su GPS está al día, qué lleva y cómo le fue hoy (de las ubicaciones y los pedidos). */
-function RepartidoresTab({ canal, pedidos, deHoy }: { canal: CanalDelivery; pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[] }) {
+function RepartidoresTab({
+  canal,
+  pedidos,
+  deHoy,
+  onVerEnMapa,
+}: {
+  canal: CanalDelivery;
+  pedidos: PedidoDelivery[];
+  deHoy: FilaHistorialDelivery[];
+  onVerEnMapa?: (repartidorId: string) => void;
+}) {
   const quien = useQuien();
   const [ubic, setUbic] = useState<UbicacionDelivery[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [editandoAlias, setEditandoAlias] = useState<{ id: string; nombre: string; aliasActual: string } | null>(null);
+  const [nuevoAlias, setNuevoAlias] = useState('');
+  const [recargaLocal, setRecargaLocal] = useState(0);
+
   const cargar = useCallback(async () => {
     try { setUbic(await listUbicaciones(canal)); } catch { /* sin ubicaciones: solo pedidos */ } finally { setCargando(false); }
   }, [canal]);
@@ -770,52 +848,171 @@ function RepartidoresTab({ canal, pedidos, deHoy }: { canal: CanalDelivery; pedi
 
   const filas = useMemo(() => {
     const norm = (x: string | null | undefined) => (x ?? '').trim().toUpperCase();
-    const mapa = new Map<string, { nombre: string; u: UbicacionDelivery | null; enCurso: PedidoDelivery[]; entregados: number; minutos: number[] }>();
-    const fila = (nombre: string) => {
-      const k = norm(nombre) || '—';
-      if (!mapa.has(k)) mapa.set(k, { nombre: nombre || '—', u: null, enCurso: [], entregados: 0, minutos: [] });
+    const mapa = new Map<string, { id: string; nombre: string; u: UbicacionDelivery | null; enCurso: PedidoDelivery[]; entregados: number; minutos: number[] }>();
+    const fila = (id: string, nombre: string) => {
+      const k = norm(nombre) || id || '—';
+      if (!mapa.has(k)) mapa.set(k, { id, nombre: nombre || '—', u: null, enCurso: [], entregados: 0, minutos: [] });
       return mapa.get(k)!;
     };
     for (const u of ubic) {
-      const f = fila(u.repartidor_nombre || quien(null, u.repartidor_email) || u.repartidor_email || '—');
+      const f = fila(u.repartidor_id, u.repartidor_nombre || quien(null, u.repartidor_email) || u.repartidor_email || '—');
       if (!f.u || f.u.actualizado_en < u.actualizado_en) f.u = u;
     }
-    for (const p of pedidos) if ((p.estado === 'aceptado' || p.estado === 'en_ruta') && p.repartidor_nombre) fila(p.repartidor_nombre).enCurso.push(p);
+    for (const p of pedidos) {
+      if ((p.estado === 'aceptado' || p.estado === 'en_ruta') && p.repartidor_nombre) {
+        fila(p.repartidor_id || p.repartidor_nombre, p.repartidor_nombre).enCurso.push(p);
+      }
+    }
     for (const h of deHoy) {
       if (h.estado !== 'entregado' || !h.repartidor || h.repartidor === '—') continue;
-      const f = fila(h.repartidor); f.entregados++; if (h.minutos != null) f.minutos.push(h.minutos);
+      const f = fila(h.repartidor, h.repartidor);
+      f.entregados++;
+      if (h.minutos != null) f.minutos.push(h.minutos);
     }
     return [...mapa.values()].sort((a, b) => b.enCurso.length - a.enCurso.length || String(b.u?.actualizado_en ?? '').localeCompare(String(a.u?.actualizado_en ?? '')));
-  }, [ubic, pedidos, deHoy, quien]);
+  }, [ubic, pedidos, deHoy, quien, recargaLocal]);
 
   if (cargando && !filas.length) return <p className="muted">Cargando…</p>;
   if (!filas.length) return <div className="card"><p className="muted" style={{ margin: 0 }}>Todavía no hay repartidores con ubicación ni pedidos hoy.</p></div>;
+
   return (
-    <div className="dlv-repartidores">
-      {filas.map((r) => {
-        const conSenal = !!r.u && Date.now() - new Date(r.u.actualizado_en).getTime() <= UBICACION_VIEJA_MS;
-        const prom = r.minutos.length ? Math.round(r.minutos.reduce((a, b) => a + b, 0) / r.minutos.length) : null;
-        const vel = r.u?.velocidad != null && r.u.velocidad > 0 ? Math.round(r.u.velocidad * 3.6) : null;
-        return (
-          <div key={r.nombre} className="dlv-repartidor">
-            <div className="fila">
-              <div className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`} aria-hidden>{CANALES_DELIVERY[canal].icono}</div>
-              <div style={{ minWidth: 0 }}>
-                <div className="nombre">{r.nombre}</div>
-                <span className={`dlv-gps-pill${conSenal ? ' on' : ''}`}>{conSenal ? '● GPS al día' : r.u ? '○ Sin señal reciente' : '○ Sin GPS compartido'}</span>
+    <>
+      <div className="dlv-repartidores">
+        {filas.map((r, idx) => {
+          const dif = obtenerDiferenciador(r.id || r.u?.repartidor_id || r.nombre, r.nombre, canal, idx);
+          const conSenal = !!r.u && Date.now() - new Date(r.u.actualizado_en).getTime() <= UBICACION_VIEJA_MS;
+          const prom = r.minutos.length ? Math.round(r.minutos.reduce((a, b) => a + b, 0) / r.minutos.length) : null;
+          const vel = r.u?.velocidad != null && r.u.velocidad > 0 ? Math.round(r.u.velocidad * 3.6) : null;
+
+          return (
+            <div key={r.nombre} className="dlv-repartidor">
+              <div className="fila">
+                <div
+                  className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`}
+                  style={{ background: dif.color }}
+                  aria-hidden
+                  title={`Unidad ${dif.codigo}`}
+                >
+                  <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#fff' }}>{dif.codigo}</span>
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="nombre" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 800 }}>{dif.nombreVisible}</span>
+                    {dif.alias && <span className="muted" style={{ fontSize: '.75rem' }}>({r.nombre})</span>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                    <span className={`dlv-gps-pill${conSenal ? ' on' : ''}`}>
+                      {conSenal ? '● GPS al día' : r.u ? '○ Sin señal reciente' : '○ Sin GPS compartido'}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '0 6px', fontSize: '.72rem', height: 22 }}
+                      onClick={() => {
+                        setEditandoAlias({ id: r.id || r.u?.repartidor_id || r.nombre, nombre: r.nombre, aliasActual: dif.alias || '' });
+                        setNuevoAlias(dif.alias || '');
+                      }}
+                      title="Asignar o editar identificador / unidad"
+                    >
+                      ✏ Alias / Unidad
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              <div className="dato">
+                📡 Última ubicación: <strong>{haceTxt(r.u?.actualizado_en)}</strong>
+                {vel != null ? <> · <strong>{vel} km/h</strong></> : null}
+              </div>
+
+              <div className="dato">
+                {r.enCurso.length ? (
+                  <>
+                    🚚 Lleva:{' '}
+                    {r.enCurso.map((p) => (
+                      <strong key={claveDelivery(p)} style={{ marginRight: '.35rem' }}>
+                        {esRetiroAlmacen(p) ? p.codigo : ocDe(p)} ({etiquetaEstado(p.estado, p.origen, p.motivo_cancel)})
+                      </strong>
+                    ))}
+                  </>
+                ) : (
+                  <>✅ Libre</>
+                )}
+              </div>
+
+              <div className="dato">
+                📦 Entregados hoy: <strong>{r.entregados}</strong>
+                {prom != null ? <> · ⏱ promedio <strong>{minutosTxt(prom)}</strong></> : null}
+              </div>
+
+              {onVerEnMapa && r.u && (
+                <div style={{ marginTop: 'auto', paddingTop: 6, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => onVerEnMapa(r.u!.repartidor_id)}
+                  >
+                    🎯 Ver en Centro de Control
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="dato">📡 Última ubicación: <strong>{haceTxt(r.u?.actualizado_en)}</strong>{vel != null ? <> · <strong>{vel} km/h</strong></> : null}</div>
-            <div className="dato">
-              {r.enCurso.length
-                ? <>🚚 Lleva: {r.enCurso.map((p) => <strong key={claveDelivery(p)} style={{ marginRight: '.35rem' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)} ({etiquetaEstado(p.estado, p.origen, p.motivo_cancel)})</strong>)}</>
-                : <>✅ Libre</>}
-            </div>
-            <div className="dato">📦 Entregados hoy: <strong>{r.entregados}</strong>{prom != null ? <> · ⏱ promedio <strong>{minutosTxt(prom)}</strong></> : null}</div>
+          );
+        })}
+      </div>
+
+      {editandoAlias && (
+        <Modal
+          title={`✏ Asignar Identificador / Unidad a ${editandoAlias.nombre}`}
+          compact
+          onClose={() => setEditandoAlias(null)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setEditandoAlias(null)}>Cancelar</button>
+              {editandoAlias.aliasActual && (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    guardarAliasRepartidor(editandoAlias.id, null);
+                    setEditandoAlias(null);
+                    setRecargaLocal((n) => n + 1);
+                    toast('Identificador restaurado al valor por defecto.', 'info');
+                  }}
+                >
+                  Restaurar por defecto
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  guardarAliasRepartidor(editandoAlias.id, nuevoAlias.trim() || null);
+                  setEditandoAlias(null);
+                  setRecargaLocal((n) => n + 1);
+                  toast('Identificador de la unidad guardado.', 'success');
+                }}
+              >
+                Guardar
+              </button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0, fontSize: '.88rem' }}>
+            Asigna un identificador reconocible o número de unidad (ej. <strong>Unidad 1</strong>, <strong>Móvil 02</strong>, <strong>Héctor (01)</strong> o placa) para diferenciarlo inmediatamente en el mapa y la lista aunque el nombre esté incompleto o solapado.
+          </p>
+          <div className="form-row">
+            <label htmlFor="dlv-alias-inp">Identificador / Alias de Unidad</label>
+            <input
+              id="dlv-alias-inp"
+              className="input"
+              placeholder="ej. Unidad 1, Móvil 02..."
+              value={nuevoAlias}
+              onChange={(e) => setNuevoAlias(e.target.value)}
+              autoFocus
+            />
           </div>
-        );
-      })}
-    </div>
+        </Modal>
+      )}
+    </>
   );
 }
 

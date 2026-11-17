@@ -356,6 +356,29 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         </div>
       </header>
 
+      {/* ── CAPA 1.5: HUD DE NAVEGACIÓN ACTIVA EN RUTA (UBER / RIDERY / YUMMY) ── */}
+      {enCurso && siguiente && (
+        <div className="dlv-nav-hud-top">
+          <div className="dlv-nav-hud-icono">
+            {siguiente.tipo === 'entrega' ? '🏬' : '📦'}
+          </div>
+          <div className="dlv-nav-hud-info">
+            <div className="dlv-nav-hud-paso">
+              {siguiente.tipo === 'entrega' ? 'Retorno a Almacén' : 'Recogida en Proveedor'}
+            </div>
+            <div className="dlv-nav-hud-destino">{siguiente.nombre}</div>
+            {rutaMapa?.ruta && (
+              <div className="dlv-nav-hud-meta">
+                🧭 {distanciaTxt(rutaMapa.ruta.metros)} {rutaMapa.ruta.segundos != null ? `· ${duracionTxt(rutaMapa.ruta.segundos)}` : ''}
+              </div>
+            )}
+          </div>
+          <button type="button" className="dlv-nav-hud-btn-gmaps" onClick={handleNavegar} title="Abrir navegación en Google Maps">
+            🗺 Google Maps
+          </button>
+        </div>
+      )}
+
       {/* ── CAPA 2: HOJA INFERIOR DESLIZANTE CON GESTOS TÁCTILES Y SNAP POINTS ── */}
       <div className={`dlv-bottom-sheet snap-${snap}`}>
         <div

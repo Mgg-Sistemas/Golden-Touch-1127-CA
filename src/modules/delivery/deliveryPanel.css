@@ -144,3 +144,118 @@
     text-align: center !important;
   }
 }
+
+/* ── Animación de Navegación Vial en Leaflet (Vista de Controlador y Despacho) ── */
+.dlv-ruta-stream-animada {
+  stroke-dasharray: 12, 14;
+  animation: dlvStreamAvance 1.4s linear infinite;
+  stroke-linecap: round;
+}
+@keyframes dlvStreamAvance {
+  from {
+    stroke-dashoffset: 26;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Pin de Controlador (Anti-solapamiento con código M-01) */
+.dlv-pin-controlador {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 4px;
+  border-radius: 999px;
+  color: #fff;
+  font: 700 11px/1.2 system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.dlv-pin-controlador:hover {
+  transform: translate(-50%, -50%) scale(1.08);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+  z-index: 2000 !important;
+}
+.dlv-pin-cod {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  font-family: var(--font-mono, monospace);
+}
+.dlv-pin-ico {
+  font-size: 14px;
+}
+.dlv-pin-nombre {
+  font-weight: 700;
+}
+
+/* Badge de Identificador para Listas y Tablas */
+.dlv-badge-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.02em;
+  font-family: var(--font-mono, monospace);
+  vertical-align: middle;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* HUD Flotante de Telemetría sobre el Mapa del Controlador */
+.dlv-hud-controlador {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #f8fafc;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  max-width: 360px;
+  font-size: 0.85rem;
+  pointer-events: auto;
+}
+.dlv-hud-controlador .cab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.dlv-hud-controlador .btn-cerrar {
+  background: transparent;
+  border: 0;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 4px;
+  line-height: 1;
+}
+.dlv-hud-controlador .btn-cerrar:hover {
+  color: #fff;
+}
+.dlv-hud-telemetria {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 6px;
+}
+
