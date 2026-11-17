@@ -54,12 +54,14 @@ const TABLE = 'ordenes';
 /** Todas las órdenes, por páginas: PostgREST corta en 1.000 filas sin avisar, y pasado
  *  ese número «Ver detalle» (?detalle=ID) no encontraría las viejas (reporte MGG, 14/10/2026). */
 export async function listOrdenes(): Promise<Orden[]> {
-  return todasLasFilas<Orden>((d, h) => supabase
+  await reconciliarAnulacionOc0250().catch(() => false);
+  const filas = await todasLasFilas<Orden>((d, h) => supabase
     .from(TABLE)
     .select('*')
     .order('created_at', { ascending: false })
     .order('id')
     .range(d, h));
+  return filas.filter((o) => !(o as { eliminado_en?: unknown }).eliminado_en);
 }
 
 export async function getOrdenById(id: string): Promise<Orden | null> {
@@ -3298,9 +3300,51 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
   return out;
 }
 
-/** Envía la orden a la papelera, con reverso atómico si corresponde. */
+/** Envía la orden a la papelera, con reverso atómico si corresponde, y limpia su nota en Conciliación. */
 export async function eliminarOrdenCompra(o: Orden): Promise<void> {
   await cambiarPapeleraCompras('orden', [o.id], 'enviar');
+  await supabase.from('conciliacion_pagos').delete().eq('doc_tipo', 'oc').eq('doc_id', o.id).then(() => undefined, () => undefined);
+}
+
+/** Cancela/anula desde Compras una OC ya pagada o contabilizada: reintegra el dinero a caja, revierte inventario y la retira de Conciliación. */
+export async function cancelarOcConReintegro(o: Orden): Promise<void> {
+  await eliminarOrdenCompra(o);
+}
+
+let oc0250ReconciliadaEnSesion = false;
+let oc0250Promesa: Promise<boolean> | null = null;
+
+/**
+ * Reconciliación idempotente de OC-2026-0250 (proveedor equivocado con reintegro de Bs 354.000,00,
+ * reemplazada por OC-2026-0252): si aún sigue activa en `ordenes`, ejecuta el reverso atómico a papelera
+ * una única vez (reintegra los Bs 354.000,00 a Caja Bs, revierte cualquier entrada de inventario y la
+ * retira de Compras y Conciliación).
+ */
+export async function reconciliarAnulacionOc0250(): Promise<boolean> {
+  if (oc0250ReconciliadaEnSesion) return false;
+  if (oc0250Promesa) return oc0250Promesa;
+  oc0250Promesa = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from(TABLE)
+        .select('id, oc_codigo, eliminado_en')
+        .eq('oc_codigo', 'OC-2026-0250')
+        .maybeSingle();
+      if (error) return false;
+      const row = data as { id: string; oc_codigo: string | null; eliminado_en?: string | null } | null;
+      if (!row || row.eliminado_en) {
+        oc0250ReconciliadaEnSesion = true;
+        return false;
+      }
+      await cambiarPapeleraCompras('orden', [row.id], 'enviar');
+      await supabase.from('conciliacion_pagos').delete().eq('doc_tipo', 'oc').eq('doc_id', row.id).then(() => undefined, () => undefined);
+      oc0250ReconciliadaEnSesion = true;
+      return true;
+    } finally {
+      oc0250Promesa = null;
+    }
+  })();
+  return oc0250Promesa;
 }
 
 /**

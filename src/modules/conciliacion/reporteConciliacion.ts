@@ -150,6 +150,9 @@ export function textoWhatsappConciliacion(filas: FilaConciliacion[], meta: MetaR
     lineas.push(`${r.item}. *${r.codigo}*${r.tipo !== 'compra' ? ` (${etiquetaTipo(r.tipo).toLowerCase()})` : ''} · ${r.proveedor}`);
     lineas.push(`   ${usd(r.totalUsd)} · ${bs(r.totalBs)} · ${r.estadoLabel}`);
     const extra = [
+      r.abonadoUsd && r.montoOriginalUsd != null
+        ? `Total: ${usd(r.montoOriginalUsd)} · Abono: ${r.monedaPagoDetalle === 'USDT' ? `${fmt(r.abonadoUsd)} USDT` : usd(r.abonadoUsd)}`
+        : '',
       r.referencias.length ? `Ref: ${r.referencias.join(', ')}` : '',
       r.llevaRetencion ? `Ret: ${textoRetencion(r)}` : '',
     ].filter(Boolean).join(' · ');

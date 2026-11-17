@@ -132,4 +132,54 @@ describe('Conciliación', () => {
     expect(txt).toContain('1. *OC-1* · Ferretería Uno');
     expect(txt).toContain('…y 1 OC más');
   });
+
+  it('en cuentas a crédito abiertas (ej. CS-2026-0032 de $ 450 con abono de 250 USDT) muestra el saldo pendiente de $ 200 y registra el abono', () => {
+    const cs = orden({
+      id: 'cs32',
+      oc_codigo: 'CS-2026-0032',
+      tipo: 'servicio',
+      estado: 'cuenta_abierta',
+      total: 450,
+      total_moneda: 'USD',
+      abonado_total: 250,
+      created_at: '2026-11-07T12:00:00Z',
+    });
+    const baseCtx: ContextoConciliacion = {
+      ...ctx([], [], {}),
+      bcvHoy: 915.75,
+      abonos: new Map([
+        ['cs32', [{
+          ordenId: 'cs32',
+          monto: 250,
+          moneda: 'USD',
+          nota: 'Multipago: 250 USDT',
+          at: '2026-11-10T14:00:00Z',
+        }]],
+      ]),
+      notas: new Map([
+        ['oc:cs32', {
+          referencia: null,
+          comprobantes: [],
+          drive: { estado: 'no_cuadra', detalle: 'No cuadra viejo', archivo: 'x.xlsx', archivoPath: null, en: null, por: null },
+        }],
+      ]),
+    };
+    const [r] = armarFilas([cs], baseCtx);
+    expect(r.totalUsd).toBe(200);
+    expect(r.totalBs).toBe(183150);
+    expect(r.montoOriginalUsd).toBe(450);
+    expect(r.abonadoUsd).toBe(250);
+    expect(r.pagadoUsd).toBe(250);
+    expect(r.pagada).toBe(false);
+    expect(r.monedaPago).toBe('USD');
+    expect(r.monedaPagoDetalle).toBe('USDT');
+    // Limpia falso NO CUADRA bancario sobre cuenta abierta abonada en USDT.
+    expect(r.drive).toBeNull();
+    const k = indicadores([r]);
+    expect(k.totalOc).toEqual({ cantidad: 1, usd: 200, bs: 183150 });
+    expect(k.pagado.usd).toBe(250);
+    const wsp = textoWhatsappConciliacion([r], { titulo: 'Conciliación', filtrosTexto: '', generado: 'hoy' });
+    expect(wsp).toContain('$ 200,00');
+    expect(wsp).toContain('Total: $ 450,00 · Abono: 250,00 USDT');
+  });
 });

@@ -28,10 +28,24 @@ export const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 /** Un egreso de pago de la OC (movimientos_caja, categoría pago_oc). */
 export interface PagoOc {
+  id?: string;
   ordenId: string;
   monto: number;
   moneda: string;
   motivo: string | null;
+  at: string | null;
+}
+
+/** Un abono registrado sobre una OC a crédito (tabla abonos_credito). */
+export interface AbonoOc {
+  ordenId: string;
+  monto: number;
+  moneda: string;
+  cajaId?: string | null;
+  cajaMovId?: string | null;
+  nota?: string | null;
+  comprobantePath?: string | null;
+  comprobanteNombre?: string | null;
   at: string | null;
 }
 
@@ -104,14 +118,23 @@ export interface FilaConciliacion {
   estadoClase: string;
   fecha: string;
   monedaOc: 'USD' | 'Bs';
+  /** En cuentas a crédito abiertas con abonos, representa el saldo pendiente real por pagar. */
   totalUsd: number | null;
   totalBs: number | null;
+  /** Monto total original de la orden cuando tiene abonos parciales en cuenta abierta. */
+  montoOriginalUsd?: number | null;
+  montoOriginalBs?: number | null;
+  /** Monto abonado acumulado cuando la cuenta sigue abierta con saldo pendiente. */
+  abonadoUsd?: number;
+  abonadoBs?: number | null;
   tasa: number | null;
   fuenteTasa: FuenteTasa | null;
   pagada: boolean;
   fechaPago: string | null;
   /** Moneda en que Tesorería pagó la orden: Bs (se concilia en banco) o USD/$ (no se cruza en banco Bs). */
   monedaPago?: 'Bs' | 'USD' | 'Mixto' | null;
+  /** Detalle exacto de moneda para mostrar en UI (ej. «USDT», «Bs + USDT»). */
+  monedaPagoDetalle?: string | null;
   pagadoUsd: number;
   pagadoBs: number | null;
   referencias: string[];
@@ -259,6 +282,8 @@ export interface ContextoConciliacion {
   /** Comprobantes del pago de Tesorería por id de OC. */
   comprobantes?: Map<string, ComprobanteTesoreria[]>;
   pagos: Map<string, PagoOc[]>;
+  /** Abonos de cuentas a crédito por id de OC (tabla abonos_credito). */
+  abonos?: Map<string, AbonoOc[]>;
   retenciones: Map<string, RetencionLibro[]>;
   /** BCV por día (YYYY-MM-DD). */
   bcvPorDia: Map<string, number>;
@@ -267,28 +292,124 @@ export interface ContextoConciliacion {
   dia: (iso: string) => string;
 }
 
+/** Detecta las monedas involucradas en pagos, abonos e historial de una orden. */
+function detectarMonedasAbono(
+  o: Orden,
+  pagos: PagoOc[],
+  abonos: AbonoOc[],
+): { tieneBs: boolean; tieneUsd: boolean; tieneUsdt: boolean } {
+  let tieneBs = false;
+  let tieneUsd = false;
+  let tieneUsdt = false;
+  const marcar = (m: string | null | undefined) => {
+    const u = (m ?? '').trim().toUpperCase();
+    if (u === 'BS' || u === 'VES') tieneBs = true;
+    else if (u === 'USDT') tieneUsdt = true;
+    else if (u === 'USD' || u === '$') tieneUsd = true;
+  };
+  for (const p of pagos) marcar(p.moneda);
+  for (const ab of abonos) {
+    if (ab.nota && /Multipago:/i.test(ab.nota)) {
+      for (const m of ab.nota.matchAll(/\b(USDT|USD|Bs|VES)\b/gi)) marcar(m[1]);
+    } else {
+      marcar(ab.moneda);
+      if (ab.nota && /\bUSDT\b/i.test(ab.nota)) tieneUsdt = true;
+    }
+  }
+  for (const h of o.historial ?? []) {
+    if (h.evento === 'abono' || h.evento === 'credito_saldado') {
+      const multi = (h as unknown as { multipago?: Array<{ moneda?: string }> }).multipago;
+      if (Array.isArray(multi)) {
+        for (const leg of multi) marcar(leg.moneda);
+      }
+    } else if (h.evento === 'anticipo') {
+      marcar((h as unknown as { moneda?: string }).moneda);
+    }
+  }
+  if (!tieneBs && !tieneUsd && !tieneUsdt && (Number(o.anticipo_monto) || 0) > 0) {
+    marcar(o.anticipo_moneda ?? 'USD');
+  }
+  return { tieneBs, tieneUsd, tieneUsdt };
+}
+
 /** Arma las filas, numeradas del 1 al N en el orden recibido. */
 export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaConciliacion[] {
   return ordenes.map((o, i) => {
     const pagos = ctx.pagos.get(o.id) ?? [];
-    const fechaPago = o.pagada_en ?? pagos[0]?.at ?? null;
-    const bcvDiaPago = fechaPago ? ctx.bcvPorDia.get(ctx.dia(fechaPago)) ?? null : null;
-    const { tasa, fuente } = tasaDelPago(o, pagos, bcvDiaPago, ctx.bcvHoy);
+    const abonos = ctx.abonos?.get(o.id) ?? [];
     const monedaOc: 'USD' | 'Bs' = (o.total_moneda ?? 'USD') === 'Bs' ? 'Bs' : 'USD';
-    const total = Number(o.total) || 0;
-    const totalUsd = monedaOc === 'USD' ? r2(total) : (tasa ? r2(total / tasa) : null);
-    const totalBs = monedaOc === 'Bs' ? r2(total) : (tasa ? r2(total * tasa) : null);
+    const totalBruto = Number(o.total) || 0;
+    const esCreditoAbierto = o.estado === 'cuenta_abierta';
+
+    const fechaPago = o.pagada_en ?? pagos[0]?.at ?? abonos[0]?.at ?? o.anticipo_en ?? null;
+    const bcvDiaPago = fechaPago ? ctx.bcvPorDia.get(ctx.dia(fechaPago)) ?? null : null;
+
     const pagadoBsBruto = pagos.filter((p) => p.moneda === 'Bs').reduce((a, p) => a + p.monto, 0);
     const pagadoUsdDirecto = pagos.filter((p) => esDolar(p.moneda)).reduce((a, p) => a + p.monto, 0);
-    const pagadoUsd = r2(pagadoUsdDirecto + (tasa ? pagadoBsBruto / tasa : 0));
-    const pagadoBs = tasa ? r2(pagadoBsBruto + pagadoUsdDirecto * tasa) : (pagadoUsdDirecto ? null : r2(pagadoBsBruto));
+
+    // Tasa base: si la cuenta sigue abierta con saldo por pagar, el saldo pendiente se convierte a la BCV de hoy.
+    const tasaBase = tasaDelPago(o, pagos, bcvDiaPago, ctx.bcvHoy);
+    const pagadoBaseUsd = r2(pagadoUsdDirecto + (tasaBase.tasa ? pagadoBsBruto / tasaBase.tasa : 0));
+    const pagadoBaseNativo = monedaOc === 'USD'
+      ? pagadoBaseUsd
+      : r2(pagadoBsBruto + (tasaBase.tasa ? pagadoUsdDirecto * tasaBase.tasa : 0));
+
+    const sumaAbonosTabla = r2(abonos.reduce((a, x) => {
+      if (monedaOc === 'USD') {
+        if (esDolar(x.moneda)) return a + x.monto;
+        return a + (tasaBase.tasa ? x.monto / tasaBase.tasa : 0);
+      }
+      if (x.moneda === 'Bs') return a + x.monto;
+      return a + (tasaBase.tasa ? x.monto * tasaBase.tasa : 0);
+    }, 0));
+    const abonadoCampo = Math.max(0, r2(Number(o.abonado_total) || 0));
+    const abonadoNativo = esCreditoAbierto
+      ? Math.min(totalBruto, Math.max(abonadoCampo, sumaAbonosTabla, pagadoBaseNativo))
+      : 0;
+    const saldoNativo = esCreditoAbierto ? Math.max(0, r2(totalBruto - abonadoNativo)) : totalBruto;
+    const tieneSaldoPendienteCredito = esCreditoAbierto && saldoNativo > 0.01;
+    const tieneAbonoEnCredito = esCreditoAbierto && abonadoNativo > 0 && saldoNativo < totalBruto;
+
+    const { tasa, fuente }: { tasa: number | null; fuente: FuenteTasa | null } = tieneSaldoPendienteCredito
+      ? (ctx.bcvHoy ? { tasa: ctx.bcvHoy, fuente: 'bcv_hoy' } : tasaBase)
+      : tasaBase;
+
+    const montoVisible = esCreditoAbierto ? saldoNativo : totalBruto;
+    const totalUsd = monedaOc === 'USD' ? r2(montoVisible) : (tasa ? r2(montoVisible / tasa) : null);
+    const totalBs = monedaOc === 'Bs' ? r2(montoVisible) : (tasa ? r2(montoVisible * tasa) : null);
+
+    const montoOriginalUsd = tieneAbonoEnCredito
+      ? (monedaOc === 'USD' ? r2(totalBruto) : (tasa ? r2(totalBruto / tasa) : null))
+      : null;
+    const montoOriginalBs = tieneAbonoEnCredito
+      ? (monedaOc === 'Bs' ? r2(totalBruto) : (tasa ? r2(totalBruto * tasa) : null))
+      : null;
+    const tasaAbono = bcvDiaPago ?? tasa;
+    const abonadoUsd = tieneAbonoEnCredito
+      ? (monedaOc === 'USD' ? r2(abonadoNativo) : (tasaAbono ? r2(abonadoNativo / tasaAbono) : 0))
+      : undefined;
+    const abonadoBs = tieneAbonoEnCredito
+      ? (monedaOc === 'Bs' ? r2(abonadoNativo) : (tasaAbono ? r2(abonadoNativo * tasaAbono) : null))
+      : null;
+
+    let pagadoUsd = r2(pagadoUsdDirecto + (tasa ? pagadoBsBruto / tasa : 0));
+    let pagadoBs = tasa ? r2(pagadoBsBruto + pagadoUsdDirecto * tasa) : (pagadoUsdDirecto ? null : r2(pagadoBsBruto));
+    if (tieneAbonoEnCredito && abonadoUsd != null && pagadoUsd < abonadoUsd) {
+      pagadoUsd = abonadoUsd;
+      pagadoBs = abonadoBs;
+    }
+
     const nota = ctx.notas?.get(claveDoc('oc', o.id)) ?? null;
-    const referencias = conManual([...new Set(pagos.flatMap((p) => referenciasDeMotivo(p.motivo)))], nota?.referencia);
+    const refsSistema = [
+      ...pagos.flatMap((p) => referenciasDeMotivo(p.motivo)),
+      ...abonos.flatMap((ab) => referenciasDeMotivo(ab.nota)),
+    ];
+    const referencias = conManual([...new Set(refsSistema)], nota?.referencia);
     const retLibro = ctx.retenciones.get(o.id) ?? [];
     const retenciones = retencionesDeOrden(o, retLibro);
     const tipo = tipoDeOrden(o);
     const { label, clase } = etiquetaEstado(o.estado, tipo);
-    const estaPagada = !!o.pagada_en || pagos.length > 0;
+    const estaPagada = tieneSaldoPendienteCredito ? false : (!!o.pagada_en || pagos.length > 0);
 
     const sumaLibroBs = retLibro.filter((r) => r.moneda === 'Bs').reduce((a, r) => a + r.monto, 0);
     const sumaLibroUsd = retLibro.filter((r) => r.moneda !== 'Bs').reduce((a, r) => a + r.monto, 0);
@@ -326,20 +447,34 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
       }
     }
 
+    const { tieneBs, tieneUsd, tieneUsdt } = detectarMonedasAbono(o, pagos, abonos);
     let monedaPago: 'Bs' | 'USD' | 'Mixto' | null = null;
-    if (pagadoBsBruto > 0 && pagadoUsdDirecto > 0) {
+    let monedaPagoDetalle: string | null = null;
+    if ((pagadoBsBruto > 0 || tieneBs) && (pagadoUsdDirecto > 0 || tieneUsd || tieneUsdt)) {
       monedaPago = 'Mixto';
-    } else if (pagadoBsBruto > 0) {
+      monedaPagoDetalle = tieneUsdt && !tieneUsd ? 'Bs + USDT' : 'Bs + $';
+    } else if (pagadoBsBruto > 0 || tieneBs) {
       monedaPago = 'Bs';
-    } else if (pagadoUsdDirecto > 0) {
+      monedaPagoDetalle = 'Bs';
+    } else if (pagadoUsdDirecto > 0 || tieneUsd || tieneUsdt) {
       monedaPago = 'USD';
+      monedaPagoDetalle = tieneUsdt && !tieneUsd ? 'USDT' : '$ USD';
+    } else if (tieneAbonoEnCredito) {
+      monedaPago = monedaOc === 'Bs' ? 'Bs' : 'USD';
+      monedaPagoDetalle = monedaOc === 'Bs' ? 'Bs' : '$ USD';
     } else if (estaPagada || o.estado === 'pagada' || o.estado === 'finalizada') {
       const tieneRefBs = referencias.some((r) => /^Bs\b/i.test(r) || /\bBSS?\b/i.test(r));
       const tieneRefBinance = referencias.some((r) => /^Binance\b/i.test(r));
-      if (tieneRefBinance) monedaPago = 'USD';
-      else if (tieneRefBs || monedaOc === 'Bs') monedaPago = 'Bs';
-      else monedaPago = 'USD';
+      if (tieneRefBinance) { monedaPago = 'USD'; monedaPagoDetalle = '$ USD'; }
+      else if (tieneRefBs || monedaOc === 'Bs') { monedaPago = 'Bs'; monedaPagoDetalle = 'Bs'; }
+      else { monedaPago = 'USD'; monedaPagoDetalle = '$ USD'; }
     }
+
+    // No arrastrar un NO CUADRA bancario sobre cuentas pagadas en divisas/USDT o sin pago en Bs.
+    const drive = nota?.drive?.estado === 'no_cuadra'
+      && (monedaPago === 'USD' || (!estaPagada && monedaPago !== 'Bs' && monedaPago !== 'Mixto'))
+      ? null
+      : (nota?.drive ?? null);
 
     return {
       item: i + 1,
@@ -352,10 +487,15 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
       estadoLabel: label,
       estadoClase: clase,
       fecha: o.created_at,
-      monedaOc, totalUsd, totalBs, tasa, fuenteTasa: fuente,
+      monedaOc,
+      totalUsd,
+      totalBs,
+      ...(tieneAbonoEnCredito ? { montoOriginalUsd, montoOriginalBs, abonadoUsd, abonadoBs } : {}),
+      tasa, fuenteTasa: fuente,
       pagada: estaPagada,
       fechaPago,
       monedaPago,
+      monedaPagoDetalle,
       pagadoUsd, pagadoBs,
       referencias,
       referenciaManual: nota?.referencia ?? null,
@@ -368,7 +508,7 @@ export function armarFilas(ordenes: Orden[], ctx: ContextoConciliacion): FilaCon
       retencionMontoBs,
       retencionMontoUsd,
       anulada: ESTADOS_ANULADOS.has(o.estado),
-      drive: nota?.drive ?? null,
+      drive,
     };
   });
 }
@@ -394,6 +534,8 @@ export interface DocDirecto {
   moneda: string | null;
   /** Total del documento en su moneda (`gasto`). */
   total: number | null;
+  /** Total abonado acumulado en servicios directos con abonos parciales. */
+  abonadoTotal?: number | null;
   /** Tasa con la que pagó Tesorería y la del montaje (conversor). */
   tasaPago: number | null;
   tasaConversion: number | null;
@@ -422,11 +564,28 @@ export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): Fi
     else if (d.tasaConversion && d.tasaConversion > 0) { tasa = d.tasaConversion; fuente = d.pagadaAt ? 'pago' : 'bcv_hoy'; }
     else if (ctx.bcvHoy) { tasa = ctx.bcvHoy; fuente = 'bcv_hoy'; }
     const monedaOc: 'USD' | 'Bs' = d.moneda === 'Bs' ? 'Bs' : 'USD';
-    const total = Number(d.total) || 0;
-    const totalUsd = monedaOc === 'USD' ? r2(total) : (tasa ? r2(total / tasa) : null);
-    const totalBs = monedaOc === 'Bs' ? r2(total) : (tasa ? r2(total * tasa) : null);
+    const totalBruto = Number(d.total) || 0;
     const pagada = !!d.pagadaAt;
-    const neto = Math.max(0, total - (Number(d.retencionPago) || 0));
+    const abonadoNativo = !pagada && d.estado !== 'finalizada'
+      ? Math.min(totalBruto, Math.max(0, r2(Number(d.abonadoTotal) || 0)))
+      : 0;
+    const tieneAbonoPendiente = abonadoNativo > 0 && abonadoNativo < totalBruto;
+    const montoVisible = tieneAbonoPendiente ? Math.max(0, r2(totalBruto - abonadoNativo)) : totalBruto;
+    const totalUsd = monedaOc === 'USD' ? r2(montoVisible) : (tasa ? r2(montoVisible / tasa) : null);
+    const totalBs = monedaOc === 'Bs' ? r2(montoVisible) : (tasa ? r2(montoVisible * tasa) : null);
+    const montoOriginalUsd = tieneAbonoPendiente
+      ? (monedaOc === 'USD' ? r2(totalBruto) : (tasa ? r2(totalBruto / tasa) : null))
+      : null;
+    const montoOriginalBs = tieneAbonoPendiente
+      ? (monedaOc === 'Bs' ? r2(totalBruto) : (tasa ? r2(totalBruto * tasa) : null))
+      : null;
+    const abonadoUsd = tieneAbonoPendiente
+      ? (monedaOc === 'USD' ? r2(abonadoNativo) : (tasa ? r2(abonadoNativo / tasa) : 0))
+      : undefined;
+    const abonadoBs = tieneAbonoPendiente
+      ? (monedaOc === 'Bs' ? r2(abonadoNativo) : (tasa ? r2(abonadoNativo * tasa) : null))
+      : null;
+    const neto = Math.max(0, totalBruto - (Number(d.retencionPago) || 0));
     const netoUsd = monedaOc === 'USD' ? neto : (tasa ? neto / tasa : 0);
     const netoBs = monedaOc === 'Bs' ? neto : (tasa ? neto * tasa : null);
     const clave = claveDoc(d.origen, d.id);
@@ -453,6 +612,7 @@ export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): Fi
         retencionMontoBs = tasa ? r2(retencionMontoUsd * tasa) : null;
       }
     }
+    const monedaPago = pagada || tieneAbonoPendiente ? (monedaOc === 'Bs' ? 'Bs' : 'USD') : null;
     return {
       item: i + 1,
       ordenId: d.id,
@@ -464,12 +624,17 @@ export function filasDirectas(docs: DocDirecto[], ctx: ContextoConciliacion): Fi
       estadoLabel: est.label,
       estadoClase: est.clase,
       fecha: d.fecha,
-      monedaOc, totalUsd, totalBs, tasa, fuenteTasa: fuente,
+      monedaOc,
+      totalUsd,
+      totalBs,
+      ...(tieneAbonoPendiente ? { montoOriginalUsd, montoOriginalBs, abonadoUsd, abonadoBs } : {}),
+      tasa, fuenteTasa: fuente,
       pagada,
       fechaPago: d.pagadaAt,
-      monedaPago: pagada ? (monedaOc === 'Bs' ? 'Bs' : 'USD') : null,
-      pagadoUsd: pagada ? r2(netoUsd) : 0,
-      pagadoBs: pagada ? (netoBs == null ? null : r2(netoBs)) : null,
+      monedaPago,
+      monedaPagoDetalle: monedaPago === 'Bs' ? 'Bs' : monedaPago === 'USD' ? '$ USD' : null,
+      pagadoUsd: pagada ? r2(netoUsd) : (abonadoUsd ?? 0),
+      pagadoBs: pagada ? (netoBs == null ? null : r2(netoBs)) : abonadoBs,
       referencias: conManual([], nota?.referencia),
       referenciaManual: nota?.referencia ?? null,
       comprobantesTesoreria: [],
@@ -568,7 +733,7 @@ export interface IndicadoresConciliacion {
 
 export function indicadores(filas: FilaConciliacion[]): IndicadoresConciliacion {
   const suma = (xs: FilaConciliacion[], k: 'totalUsd' | 'totalBs') => r2(xs.reduce((a, r) => a + (r[k] ?? 0), 0));
-  const pagadas = filas.filter((r) => r.pagada);
+  const pagadas = filas.filter((r) => r.pagada || r.pagadoUsd > 0);
   const conRet = filas.filter((r) => r.llevaRetencion);
   return {
     totalOc: { cantidad: filas.length, usd: suma(filas, 'totalUsd'), bs: suma(filas, 'totalBs') },

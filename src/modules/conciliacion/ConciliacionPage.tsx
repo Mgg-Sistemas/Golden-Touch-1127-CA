@@ -197,7 +197,7 @@ export function ConciliacionPage() {
   const pagina = useMemo(() => paginar(filtradas, pag, tam), [filtradas, pag, tam]);
 
   const filasTarjeta = useMemo(() => {
-    if (tarjeta === 'pagado') return filtradas.filter((r) => r.pagada);
+    if (tarjeta === 'pagado') return filtradas.filter((r) => r.pagada || r.pagadoUsd > 0);
     if (tarjeta === 'retencion') return filtradas.filter((r) => r.llevaRetencion);
     return filtradas;
   }, [tarjeta, filtradas]);
@@ -397,6 +397,14 @@ export function ConciliacionPage() {
                 <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <div>{usd(r.totalUsd)}</div>
                   <div>{bs(r.totalBs)}</div>
+                  {r.abonadoUsd != null && r.abonadoUsd > 0 && r.montoOriginalUsd != null && (
+                    <div className="muted" style={{ fontSize: '.7rem' }}
+                      title={`Total orden: ${usd(r.montoOriginalUsd)} · Abonado: ${r.monedaPagoDetalle === 'USDT' ? `${r.abonadoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT` : usd(r.abonadoUsd)} · Saldo pendiente: ${usd(r.totalUsd)}`}>
+                      de {usd(r.montoOriginalUsd)} · abono {r.monedaPagoDetalle === 'USDT'
+                        ? `${r.abonadoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`
+                        : usd(r.abonadoUsd)}
+                    </div>
+                  )}
                   {r.tasa != null && (
                     <div className="muted" style={{ fontSize: '.7rem' }} title={textoFuenteTasa(r.fuenteTasa)}>
                       tasa {r.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -417,17 +425,19 @@ export function ConciliacionPage() {
                     <span
                       className="badge mono warning"
                       style={{ fontSize: '.75rem', padding: '.15rem .45rem', cursor: 'help' }}
-                      title="Pagada en Divisas / Dólares ($) · No se debita en banco en Bs"
+                      title={r.abonadoUsd && !r.pagada
+                        ? `Abono registrado en ${r.monedaPagoDetalle === 'USDT' ? 'USDT' : 'Divisas ($)'} · Saldo pendiente por pagar`
+                        : 'Pagada en Divisas / Dólares ($) · No se debita en banco en Bs'}
                     >
-                      $ USD
+                      {r.monedaPagoDetalle ?? '$ USD'}
                     </span>
                   ) : r.monedaPago === 'Mixto' ? (
                     <span
                       className="badge mono info"
                       style={{ fontSize: '.75rem', padding: '.15rem .45rem', cursor: 'help' }}
-                      title="Pago mixto (Bolívares + Dólares)"
+                      title="Pago mixto (Bolívares + Divisas)"
                     >
-                      Bs + $
+                      {r.monedaPagoDetalle ?? 'Bs + $'}
                     </span>
                   ) : (
                     <span className="muted" title="Sin pago registrado todavía">—</span>
@@ -448,7 +458,7 @@ export function ConciliacionPage() {
                         onClick={() => setReferencia(r)}>✎</button>
                     )}
                   </div>
-                  {r.fechaPago && <div className="muted" style={{ fontSize: '.72rem' }}>Pagada {fechaCorta(r.fechaPago)}</div>}
+                  {r.fechaPago && <div className="muted" style={{ fontSize: '.72rem' }}>{r.abonadoUsd && !r.pagada ? 'Abono' : 'Pagada'} {fechaCorta(r.fechaPago)}</div>}
                 </td>
                 <td>
                   {(() => {

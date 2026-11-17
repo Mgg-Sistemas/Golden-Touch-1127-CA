@@ -856,12 +856,12 @@ export function mismaReferencia(a: string, b: string): boolean {
   return false;
 }
 
-/** El monto en Bs con que se compara: lo pagado en Bs; si no, el de la OC en Bs. */
-export function montosEsperados(r: Pick<FilaConciliacion, 'pagadoBs' | 'totalBs'>): number[] {
-  return [r.pagadoBs, r.totalBs].filter((x): x is number => x != null && Number.isFinite(x) && x > 0);
+/** El monto en Bs con que se compara: lo pagado en Bs, el saldo/monto vigente o el total original en Bs. */
+export function montosEsperados(r: Pick<FilaConciliacion, 'pagadoBs' | 'totalBs' | 'montoOriginalBs'>): number[] {
+  return [r.pagadoBs, r.totalBs, r.montoOriginalBs].filter((x): x is number => x != null && Number.isFinite(x) && x > 0);
 }
 
-const coincideMonto = (monto: number, r: Pick<FilaConciliacion, 'pagadoBs' | 'totalBs'>, tol: number) =>
+const coincideMonto = (monto: number, r: Pick<FilaConciliacion, 'pagadoBs' | 'totalBs' | 'montoOriginalBs'>, tol: number) =>
   montosEsperados(r).some((m) => Math.abs(m - monto) <= tol);
 
 export type ResultadoFila = 'cuadra' | 'no_cuadra' | 'no_encontrada' | 'error' | 'ignorada';

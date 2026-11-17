@@ -25,9 +25,10 @@ import { comprobantesDeLaOrden } from '@/modules/pedidos/adjuntosPago';
 import { cuentaComoFactura, type AdjuntoDirecto, type ModuloDirecto } from '@/modules/pedidos/adjuntosDirectos.repository';
 import { listRetenciones } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import { diaVE, getTasaHoy, getTasasUsdDeFechas } from '@/modules/tesoreria/tasas.repository';
+import { reconciliarAnulacionOc0250 } from '@/modules/pedidos/pedidos.repository';
 import {
   armarFilas, claveDoc, combinarFilas, filasDirectas,
-  type ArchivoNota, type ComprobanteTesoreria, type DocDirecto, type DriveConciliacion, type EstadoDrive, type FilaConciliacion,
+  type AbonoOc, type ArchivoNota, type ComprobanteTesoreria, type DocDirecto, type DriveConciliacion, type EstadoDrive, type FilaConciliacion,
   type NotaConciliacion, type OrigenDoc, type PagoOc, type RetencionLibro,
 } from './conciliacion';
 import {
@@ -60,17 +61,61 @@ async function enLotes<T>(ids: string[], fn: (lote: string[]) => Promise<T[]>): 
   return out;
 }
 
+const CODIGOS_OC_EXCLUIDOS_CONCILIACION = new Set(['OC-2026-0250']);
+
+const sinEliminar = (r: unknown) => !(r as { eliminado_en?: unknown } | null | undefined)?.eliminado_en;
+
 async function pagosDeOrdenes(ids: string[]): Promise<PagoOc[]> {
   return enLotes(ids, async (lote) => {
-    const { data, error } = await supabase.from('movimientos_caja')
-      .select('ref_orden_id, monto, moneda, motivo, at')
+    const res = await supabase.from('movimientos_caja')
+      .select('id, ref_orden_id, monto, moneda, motivo, at, revertido_en, reverso_de_id')
       .in('ref_orden_id', lote)
       .eq('tipo', 'salida')
       .eq('categoria', 'pago_oc')
       .order('at', { ascending: true });
+    let filasRaw: unknown[] | null = res.data as unknown[] | null;
+    let error = res.error;
+    if (error && (error.code === '42703' || /column .* does not exist/i.test(error.message ?? ''))) {
+      const fb = await supabase.from('movimientos_caja')
+        .select('id, ref_orden_id, monto, moneda, motivo, at')
+        .in('ref_orden_id', lote)
+        .eq('tipo', 'salida')
+        .eq('categoria', 'pago_oc')
+        .order('at', { ascending: true });
+      filasRaw = fb.data as unknown[] | null;
+      error = fb.error;
+    }
     if (error) throw error;
-    return ((data ?? []) as { ref_orden_id: string; monto: number; moneda: string; motivo: string | null; at: string | null }[])
-      .map((r) => ({ ordenId: r.ref_orden_id, monto: Number(r.monto) || 0, moneda: r.moneda ?? 'USD', motivo: r.motivo, at: r.at }));
+    return ((filasRaw ?? []) as {
+      id?: string; ref_orden_id: string; monto: number; moneda: string; motivo: string | null; at: string | null;
+      revertido_en?: string | null; reverso_de_id?: string | null;
+    }[])
+      .filter((r) => !r.revertido_en && !r.reverso_de_id)
+      .map((r) => ({ id: r.id, ordenId: r.ref_orden_id, monto: Number(r.monto) || 0, moneda: r.moneda ?? 'USD', motivo: r.motivo, at: r.at }));
+  });
+}
+
+async function abonosDeOrdenes(ids: string[]): Promise<AbonoOc[]> {
+  return enLotes(ids, async (lote) => {
+    const { data, error } = await supabase.from('abonos_credito')
+      .select('orden_id, monto, moneda, caja_id, caja_mov_id, nota, comprobante_path, comprobante_nombre, at')
+      .in('orden_id', lote)
+      .order('at', { ascending: true });
+    if (error) throw error;
+    return ((data ?? []) as {
+      orden_id: string; monto: number; moneda: string | null; caja_id?: string | null; caja_mov_id?: string | null;
+      nota?: string | null; comprobante_path?: string | null; comprobante_nombre?: string | null; at: string | null;
+    }[]).map((r) => ({
+      ordenId: r.orden_id,
+      monto: Number(r.monto) || 0,
+      moneda: r.moneda ?? 'USD',
+      cajaId: r.caja_id ?? null,
+      cajaMovId: r.caja_mov_id ?? null,
+      nota: r.nota ?? null,
+      comprobantePath: r.comprobante_path ?? null,
+      comprobanteNombre: r.comprobante_nombre ?? null,
+      at: r.at ?? null,
+    }));
   });
 }
 
@@ -142,6 +187,7 @@ function aDocDirecto(r: FilaDirecta, origen: 'cd' | 'sd'): DocDirecto {
     fecha: txt('created_at') ?? '',
     moneda: txt('moneda'),
     total: num('gasto'),
+    abonadoTotal: origen === 'sd' ? num('abonado_total') : null,
     tasaPago: num('tasa_pago'),
     tasaConversion: num('tasa_conversion'),
     pagadaAt: txt('pagada_at'),
@@ -164,6 +210,7 @@ async function directos(tabla: 'compras_directas' | 'servicios_directos'): Promi
     .range(desde, hasta) as unknown as PromiseLike<{ data: FilaDirecta[] | null; error: import('@supabase/supabase-js').PostgrestError | null }>);
 
   return filas.filter((r) => {
+    if (!sinEliminar(r)) return false;
     const fc = r.created_at ? diaVE(String(r.created_at)) : '';
     const fp = r.pagada_at ? diaVE(String(r.pagada_at)) : '';
     return fc >= CORTE_CONCILIACION_FECHA || fp >= CORTE_CONCILIACION_FECHA;
@@ -172,6 +219,9 @@ async function directos(tabla: 'compras_directas' | 'servicios_directos'): Promi
 
 export async function cargarConciliacion(): Promise<DatosConciliacion> {
   const avisos: string[] = [];
+
+  // Reintegro y retiro idempotente de OC-2026-0250 si seguía activa en la base.
+  await reconciliarAnulacionOc0250().catch(() => { /* sin permiso de compras: igual se excluye abajo */ });
 
   // Las OC (con código de OC), exclusivamente desde el 1ero de noviembre de 2026 en adelante.
   const ordenesTodas = await todasLasFilas<Orden>((desde, hasta) => supabase.from('ordenes')
@@ -183,6 +233,9 @@ export async function cargarConciliacion(): Promise<DatosConciliacion> {
     .range(desde, hasta) as unknown as PromiseLike<{ data: Orden[] | null; error: import('@supabase/supabase-js').PostgrestError | null }>);
 
   const ordenes = ordenesTodas.filter((o) => {
+    if (!sinEliminar(o)) return false;
+    const cod = (o.oc_codigo ?? o.codigo ?? '').trim().toUpperCase();
+    if (CODIGOS_OC_EXCLUIDOS_CONCILIACION.has(cod)) return false;
     const fc = diaVE(o.created_at);
     const fp = o.pagada_en ? diaVE(o.pagada_en) : null;
     return fc >= CORTE_CONCILIACION_FECHA || (fp != null && fp >= CORTE_CONCILIACION_FECHA);
@@ -198,12 +251,13 @@ export async function cargarConciliacion(): Promise<DatosConciliacion> {
   const idsSd = docs.filter((d) => d.origen === 'sd').map((d) => d.id);
 
   const sinFacturas = () => { avisos.push('No se pudo contar las facturas cargadas.'); return new Map<string, number>(); };
-  const [proveedores, pagos, retenciones, tasaHoy, facOc, facCd, facSd, notas] = await Promise.all([
+  const [proveedores, pagos, abonos, retenciones, tasaHoy, facOc, facCd, facSd, notas] = await Promise.all([
     listProveedores().catch(() => { avisos.push('No se pudieron leer los proveedores.'); return []; }),
     pagosDeOrdenes(ids).catch(() => {
       avisos.push('No tienes acceso a los pagos de Tesorería: las referencias y la tasa del pago no se muestran.');
       return [] as PagoOc[];
     }),
+    abonosDeOrdenes(ids).catch(() => [] as AbonoOc[]),
     listRetenciones({ direccion: 'practicada' }).catch(() => {
       avisos.push('No se pudo leer el libro de retenciones: solo se muestran las retenciones indicadas en Compras.');
       return [];
@@ -227,18 +281,30 @@ export async function cargarConciliacion(): Promise<DatosConciliacion> {
     .map((r) => ({ ordenId: r.docId as string, tipo: r.tipo, comprobante: r.numeroComprobante, monto: r.montoRetenido, moneda: r.moneda ?? null }));
 
   const pagosPorOrden = agrupar(pagos);
+  const abonosPorOrden = agrupar(abonos);
   const diasPago = [
-    ...ordenes.map((o) => o.pagada_en ?? pagosPorOrden.get(o.id)?.[0]?.at ?? null),
+    ...ordenes.map((o) => o.pagada_en ?? pagosPorOrden.get(o.id)?.[0]?.at ?? abonosPorOrden.get(o.id)?.[0]?.at ?? o.anticipo_en ?? null),
     ...docs.map((d) => d.pagadaAt),
   ].filter((x): x is string => !!x).map((iso) => diaVE(iso));
   const bcvPorDia = await getTasasUsdDeFechas(diasPago).catch(() => new Map<string, number>());
 
   const comprobantes = new Map<string, ComprobanteTesoreria[]>(
-    ordenes.map((o) => [o.id, comprobantesDeLaOrden(o).map((c) => ({ path: c.path, nombre: c.nombre }))]),
+    ordenes.map((o) => {
+      const base = comprobantesDeLaOrden(o).map((c) => ({ path: c.path, nombre: c.nombre }));
+      const vistos = new Set(base.map((c) => c.path));
+      for (const ab of abonosPorOrden.get(o.id) ?? []) {
+        if (ab.comprobantePath && !vistos.has(ab.comprobantePath)) {
+          vistos.add(ab.comprobantePath);
+          base.push({ path: ab.comprobantePath, nombre: ab.comprobanteNombre || ab.comprobantePath.split('/').pop() || 'comprobante' });
+        }
+      }
+      return [o.id, base];
+    }),
   );
   const ctx = {
     proveedores: new Map(proveedores.map((p) => [p.id, p.razon_social])),
     pagos: pagosPorOrden,
+    abonos: abonosPorOrden,
     retenciones: agrupar(libro),
     bcvPorDia,
     bcvHoy: tasaHoy?.usd ?? null,

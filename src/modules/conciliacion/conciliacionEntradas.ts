@@ -849,7 +849,10 @@ export function obtenerOrdenesEsperandoReintegro(
   opciones?: { proveedores?: Map<string, string>; tasaBcv?: number | null },
 ): FilaConciliacionEntrada[] {
   const filtradas = ordenes.filter(
-    (o) => esOrdenEsperandoReintegro(o) && !estaOrdenReintegrada(o, entradasReintegradas),
+    (o) => !(o as { eliminado_en?: unknown }).eliminado_en
+      && (o.oc_codigo ?? o.codigo ?? '').trim().toUpperCase() !== 'OC-2026-0250'
+      && esOrdenEsperandoReintegro(o)
+      && !estaOrdenReintegrada(o, entradasReintegradas),
   );
   return filtradas.map((o, idx) =>
     ordenAFilaEsperandoReintegro(o, idx + 1, opciones?.proveedores, opciones?.tasaBcv),

@@ -59,6 +59,7 @@ import {
   actualizarDetalleServicio,
   registrarAnticipoServicio,
   cancelarOrden,
+  cancelarOcConReintegro,
   crearOrden,
   FINALIDAD_MERCADO,
   getUltimaCompraMercado,
@@ -3443,6 +3444,30 @@ function OrdenDetailModal({
   // las ofertas de nuevo (re-elegir, editar precios, cargar IVA/IGTF/descuento).
   const [reelegirOpen, setReelegirOpen] = useState(false);
   const [reelegiendo, setReelegiendo] = useState(false);
+  // Cancelar/anular una OC ya pagada/contabilizada desde Compras (reintegra caja, revierte inventario y la quita de Conciliación).
+  const canCancelarConReintegro =
+    (canManageProcurement || puedeAprobarOc(usuarioRole, actorEmail)) &&
+    ['pagada', 'por_recibir', 'recibida', 'finalizada', 'cuenta_abierta'].includes(o.estado);
+  const [reintegrarOpen, setReintegrarOpen] = useState(false);
+  const [reintegrando, setReintegrando] = useState(false);
+  async function confirmarCancelarConReintegro() {
+    setReintegrando(true);
+    try {
+      await cancelarOcConReintegro(o);
+      notify(
+        `${o.oc_codigo ?? o.codigo} cancelada y enviada a papelera · se reintegró el dinero a caja, se revirtió inventario y se retiró de Conciliación`,
+        'warning',
+        { link: '#/app/pedidos' },
+      );
+      setReintegrarOpen(false);
+      onClose();
+      await onAcceptedOffer();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo cancelar y reintegrar la orden', 'error');
+    } finally {
+      setReintegrando(false);
+    }
+  }
   async function reelegirOferta() {
     setReelegiendo(true);
     try {
@@ -3568,6 +3593,15 @@ function OrdenDetailModal({
       {canCancelOc && (
         <button className="btn btn-danger" onClick={onCancel} title={`Cancelar ${esServicioOrd ? 'el Control de Servicio' : 'la OC'} (indicando el motivo, que aparecerá en el PDF)${firmadaGG ? ' · ya aprobada por el GG: decisión de usuario autorizado' : ''}`}>
           ✖ Cancelar {ocLbl}
+        </button>
+      )}
+      {canCancelarConReintegro && (
+        <button
+          className="btn btn-danger"
+          onClick={() => setReintegrarOpen(true)}
+          title={`Cancelar ${esServicioOrd ? 'el Control de Servicio' : 'la OC'} ya pagada: reintegra el dinero a la caja de origen, revierte cualquier entrada de inventario y la retira de Conciliación`}
+        >
+          ↩ Cancelar {ocLbl} y reintegrar
         </button>
       )}
       {soloAutorizadoCancela && (
@@ -4260,6 +4294,18 @@ function OrdenDetailModal({
         requireLabel="Escribe REELEGIR para confirmar"
         onConfirm={() => void reelegirOferta()}
         onCancel={() => setReelegirOpen(false)}
+      />
+    )}
+    {reintegrarOpen && (
+      <ConfirmDialog
+        title={`Cancelar y reintegrar · ${o.oc_codigo ?? o.codigo}`}
+        message={`Se cancelará ${o.oc_codigo ?? o.codigo} enviándola a la papelera de Compras: se reintegra automáticamente el dinero pagado a su caja de origen en Tesorería, se revierte cualquier entrada de inventario que haya generado y se retira de Conciliación (conservando los asientos originales, reversos y adjuntos para auditoría).`}
+        confirmText={reintegrando ? 'Procesando reintegro…' : `Cancelar ${ocLbl} y reintegrar`}
+        danger
+        requireText="CANCELAR"
+        requireLabel="Escribe CANCELAR para confirmar el reintegro"
+        onConfirm={() => { if (!reintegrando) void confirmarCancelarConReintegro(); }}
+        onCancel={() => { if (!reintegrando) setReintegrarOpen(false); }}
       />
     )}
     </>
