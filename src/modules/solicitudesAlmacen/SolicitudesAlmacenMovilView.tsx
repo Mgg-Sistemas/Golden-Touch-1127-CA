@@ -12,10 +12,13 @@
 
    Solo Los Pinos: el Depósito Mina no entra en la revisión (02/11/2026).
    ============================================================ */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { playNotificationSound } from '@/shared/lib/sound';
+import { emitirWebPush } from '@/shared/lib/webpush';
+import { toast } from '@/shared/ui/Toast';
 import { nombreYApellido } from '@/shared/lib/directorioUsuarios';
 import { Quien } from '@/shared/ui/Quien';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
@@ -51,6 +54,39 @@ export function SolicitudesAlmacenMovilView() {
   const quien = nombreYApellido(appUser?.nombre, appUser?.apellido) || user?.email || '';
 
   const datos = useSolicitudesAlmacen();
+  const prevSpRef = useRef<Set<string> | null>(null);
+
+  // Alerta sonora y push nativo al llegar nuevas solicitudes por revisar
+  useEffect(() => {
+    if (datos.loading) return;
+    const idsActuales = datos.porRevisar.map((x) => x.orden.id);
+    if (prevSpRef.current !== null) {
+      const nuevas = datos.porRevisar.filter((x) => !prevSpRef.current!.has(x.orden.id));
+      if (nuevas.length > 0) {
+        const primera = nuevas[0];
+        const tieneUrgente = nuevas.some((x) => x.orden.urgente);
+        const titulo = tieneUrgente
+          ? '🚨 Almacén: Solicitud URGENTE recibida'
+          : '📋 Almacén: Nueva Solicitud de Pedido';
+        const cuerpo = nuevas.length === 1
+          ? `Solicitud ${primera.orden.codigo} (${primera.orden.solicitante}) lista para revisión de stock.`
+          : `Hay ${nuevas.length} nuevas solicitudes de pedido esperando por revisión.`;
+
+        try { playNotificationSound(); } catch { /* ignore */ }
+        void emitirWebPush({
+          modulo: 'inventario',
+          titulo,
+          cuerpo,
+          url: '/app/solicitudes/telefono',
+          tag: `gt-solicitud-${primera.orden.id}`,
+          vibrar: true,
+        });
+        toast(cuerpo, tieneUrgente ? 'warning' : 'info');
+      }
+    }
+    prevSpRef.current = new Set(idsActuales);
+  }, [datos.loading, datos.porRevisar]);
+
   const bor = useBorradores(datos.stock);
   const [filtro, setFiltro] = useState<Filtro>('pendientes');
   const [q, setQ] = useState('');

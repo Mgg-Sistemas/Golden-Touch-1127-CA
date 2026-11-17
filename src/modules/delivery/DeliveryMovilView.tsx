@@ -13,6 +13,8 @@ import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { Quien } from '@/shared/ui/Quien';
+import { playNotificationSound } from '@/shared/lib/sound';
+import { emitirWebPush } from '@/shared/lib/webpush';
 import {
   ALMACEN_RETIRO, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery,
   esRetiroAlmacen, mensajeCancelado, mensajeEntregado,
@@ -59,6 +61,8 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   const [loading, setLoading] = useState(true);
 
   const turno = useRef(0);
+  const prevPedidosRef = useRef<Set<string> | null>(null);
+
   const reload = useCallback(async () => {
     const mio = ++turno.current;
     try {
@@ -70,6 +74,35 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         a.filter((p) => p.estado === 'por_tomar' || p.estado === 'cancelado').map((p) => p.orden_id),
       ).catch(() => [] as RechazoDelivery[]);
       if (mio !== turno.current) return;
+
+      // Detección de nuevos pedidos en estado 'por_tomar' para alertar al motorizado
+      const porTomarActuales = a.filter((p) => p.estado === 'por_tomar');
+      if (prevPedidosRef.current !== null) {
+        const nuevos = porTomarActuales.filter((p) => !prevPedidosRef.current!.has(claveDelivery(p)));
+        if (nuevos.length > 0) {
+          const primer = nuevos[0];
+          const ordenTxt = primer.codigo || `Orden #${primer.orden_id}`;
+          const titulo = canal === 'carga_pesada'
+            ? '🚚 Carga Pesada: Nuevo pedido disponible'
+            : '🛵 Delivery: Nuevo pedido disponible';
+          const cuerpo = nuevos.length === 1
+            ? `Hay 1 nuevo pedido por tomar: ${ordenTxt}. Toca para abrir.`
+            : `Hay ${nuevos.length} nuevos pedidos disponibles para entrega.`;
+
+          try { playNotificationSound(); } catch { /* ignore */ }
+          void emitirWebPush({
+            modulo: 'delivery',
+            titulo,
+            cuerpo,
+            url: canal === 'carga_pesada' ? '/app/carga-pesada/telefono' : '/app/delivery/telefono',
+            tag: `gt-delivery-${claveDelivery(primer).replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+            vibrar: true,
+          });
+          toast(cuerpo, 'info');
+        }
+      }
+      prevPedidosRef.current = new Set(porTomarActuales.map((p) => claveDelivery(p)));
+
       setActivos(a);
       setCerrados(c);
       setRechazos(r);

@@ -5,6 +5,7 @@ import { num } from '@/shared/lib/format';
 import { combustibleDisponibleGeneral, UMBRAL_COMBUSTIBLE_BAJO } from '@/modules/combustible/tanques.repository';
 import { push as pushNotif, markReadByDedup } from '@/modules/notificaciones/notif.repository';
 import { emitNotifRefresh } from '@/shared/lib/notify';
+import { emitirWebPush } from '@/shared/lib/webpush';
 
 /** Cada cuánto reaparece el aviso tras cerrarlo (2 horas). */
 const SNOOZE_MS = 2 * 60 * 60 * 1000;
@@ -63,13 +64,26 @@ export function AvisoCombustibleBajo() {
       clearedRef.current = false;
       if (!pushedRef.current) {
         pushedRef.current = true;
+        const msgCuerpo = `El combustible disponible bajó a ${num(litros)} ltrs (umbral ${num(UMBRAL_COMBUSTIBLE_BAJO)}). Se debe reponer.`;
         pushNotif({
           destino: 'all', kind: 'warning',
           title: '⛽ Hay que comprar combustible',
-          message: `El combustible disponible bajó a ${num(litros)} ltrs (umbral ${num(UMBRAL_COMBUSTIBLE_BAJO)}). Se debe reponer.`,
+          message: msgCuerpo,
           link: '#/app/combustible',
           dedup_key: DEDUP,
-        }).then((creada) => { if (creada) emitNotifRefresh(); }).catch(() => { /* best-effort */ });
+        }).then((creada) => {
+          if (creada) {
+            emitNotifRefresh();
+            void emitirWebPush({
+              modulo: 'combustible',
+              titulo: '⛽ Hay que comprar combustible',
+              cuerpo: msgCuerpo,
+              url: '/app/combustible',
+              tag: 'gt-combustible-bajo',
+              vibrar: true,
+            });
+          }
+        }).catch(() => { /* best-effort */ });
       }
     } else {
       pushedRef.current = false;

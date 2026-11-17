@@ -1,5 +1,6 @@
 import { toast, type ToastKind } from '@/shared/ui/Toast';
 import { push } from '@/modules/notificaciones/notif.repository';
+import { emitirWebPush, type ModuloNotifKey } from '@/shared/lib/webpush';
 
 const TOAST_KIND_TO_NOTIF: Record<ToastKind, 'info' | 'success' | 'warning' | 'error'> = {
   info: 'info', success: 'success', warning: 'warning', error: 'error',
@@ -34,6 +35,10 @@ export interface NotifyOptions {
   dedup_key?: string;
   /** Destinatario lógico ('all' por default). */
   destino?: string;
+  /** Emitir además notificación Web Push / PWA nativa en el dispositivo */
+  push?: boolean;
+  /** Módulo al que pertenece la alerta para respetar el selector de módulos en Ajustes */
+  modulo?: ModuloNotifKey;
 }
 
 /**
@@ -47,6 +52,15 @@ export function notify(
   options: NotifyOptions = {},
 ): void {
   toast(message, kind);
+  if (options.push) {
+    void emitirWebPush({
+      titulo: message,
+      cuerpo: options.detail || message,
+      url: options.link || '/',
+      modulo: options.modulo,
+      vibrar: true,
+    });
+  }
   if (options.persist === false) return;
   push({
     kind: TOAST_KIND_TO_NOTIF[kind],

@@ -4,7 +4,13 @@
    ============================================================ */
 
 import { playNotificationSound } from '@/shared/lib/sound';
-import { activarNotificaciones, soportaPush, estadoPermisoNotif } from '@/shared/lib/webpush';
+import {
+  activarNotificaciones,
+  soportaPush,
+  estadoPermisoNotif,
+  emitirWebPush,
+  isModuloNotifActivo,
+} from '@/shared/lib/webpush';
 import type { DocumentoEmpresa, StatusVencimiento } from './admin.repository';
 import { diasRestantes } from './admin.repository';
 
@@ -267,6 +273,7 @@ export function evaluarAlertasDocumentos(
  */
 export function dispararSonidoAlertaAdmin(): void {
   if (typeof window === 'undefined') return;
+  if (!isModuloNotifActivo('administracion')) return;
   const muted = localStorage.getItem(STORAGE_KEY_SONIDO_MUTED) === '1';
   if (muted) return;
   try {
@@ -276,39 +283,17 @@ export function dispararSonidoAlertaAdmin(): void {
 
 /**
  * Envía una notificación Web Push / Notification nativa en el dispositivo
+ * para el módulo de Administración (respetando si el módulo está activo en Ajustes)
  */
-export async function emitirNotificacionPushNativa(titulo: string, cuerpo: string, url = '/'): Promise<boolean> {
-  if (typeof window === 'undefined') return false;
-  if (!('Notification' in window)) return false;
-
-  if (Notification.permission === 'granted') {
-    try {
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration('/sw.js');
-        if (reg) {
-          await reg.showNotification(titulo, {
-            body: cuerpo,
-            icon: '/android-chrome-192x192.png',
-            badge: '/favicon-32x32.png',
-            tag: 'gt-admin-alerta',
-            data: { url },
-          });
-          if (typeof navigator !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
-            try { navigator.vibrate([200, 100, 200]); } catch { /* ignore */ }
-          }
-          return true;
-        }
-      }
-      new Notification(titulo, {
-        body: cuerpo,
-        icon: '/android-chrome-192x192.png',
-      });
-      return true;
-    } catch (e) {
-      console.warn('Error al emitir notificación nativa:', e);
-    }
-  }
-  return false;
+export async function emitirNotificacionPushNativa(titulo: string, cuerpo: string, url = '/administracion'): Promise<boolean> {
+  return await emitirWebPush({
+    titulo,
+    cuerpo,
+    url,
+    modulo: 'administracion',
+    tag: 'gt-admin-alerta',
+    vibrar: true,
+  });
 }
 
 /**

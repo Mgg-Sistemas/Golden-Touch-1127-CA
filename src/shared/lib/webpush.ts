@@ -56,6 +56,148 @@ function urlB64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 export interface ResultadoActivar { ok: boolean; motivo?: string; }
 
+export type ModuloNotifKey =
+  | 'administracion'
+  | 'delivery'
+  | 'inventario'
+  | 'maquinaria'
+  | 'combustible'
+  | 'tesoreria'
+  | 'cocina'
+  | 'compras';
+
+export interface ModuloNotifConfig {
+  key: ModuloNotifKey;
+  label: string;
+  icono: string;
+  hint: string;
+}
+
+export const MODULOS_NOTIFICACION: readonly ModuloNotifConfig[] = [
+  { key: 'administracion', label: 'Administración', icono: '💼', hint: 'Vencimientos de documentos, licencias y permisos' },
+  { key: 'delivery', label: 'Delivery / Carga', icono: '🛵', hint: 'Nuevos pedidos por tomar, asignaciones y traslados' },
+  { key: 'inventario', label: 'Almacén / Solicitudes', icono: '📦', hint: 'Solicitudes de pedido por revisar y stock mínimo' },
+  { key: 'maquinaria', label: 'Maquinaria y Flota', icono: '🚜', hint: 'Mantenimientos por horas, servicios y averías' },
+  { key: 'combustible', label: 'Combustible', icono: '⛽', hint: 'Surtidor de combustible y niveles bajos de tanques' },
+  { key: 'tesoreria', label: 'Tesorería', icono: '🏦', hint: 'Cuentas por pagar, aprobaciones y movimientos' },
+  { key: 'cocina', label: 'Cocina / Comidas', icono: '🍽️', hint: 'Reposición de mercado y comensales' },
+  { key: 'compras', label: 'Compras / Pedidos', icono: '🛒', hint: 'Órdenes de compra nuevas y cotizaciones' },
+];
+
+const STORAGE_KEY_MODULOS_NOTIF = 'gt.notif_modulos_activos';
+const MODULOS_DEFECTO: Record<ModuloNotifKey, boolean> = {
+  administracion: true,
+  delivery: true,
+  inventario: true,
+  maquinaria: true,
+  combustible: true,
+  tesoreria: true,
+  cocina: true,
+  compras: true,
+};
+
+let _modulosMemoria: Record<ModuloNotifKey, boolean> = { ...MODULOS_DEFECTO };
+
+export function getModulosNotifActivos(): Record<ModuloNotifKey, boolean> {
+  if (typeof window === 'undefined') return _modulosMemoria;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_MODULOS_NOTIF);
+    if (!raw) return { ...MODULOS_DEFECTO };
+    const parsed = JSON.parse(raw) as Partial<Record<ModuloNotifKey, boolean>>;
+    return { ...MODULOS_DEFECTO, ...parsed };
+  } catch {
+    return { ...MODULOS_DEFECTO };
+  }
+}
+
+export function isModuloNotifActivo(key: ModuloNotifKey): boolean {
+  const activos = getModulosNotifActivos();
+  return activos[key] ?? true;
+}
+
+export function setModuloNotifActivo(key: ModuloNotifKey, activo: boolean): Record<ModuloNotifKey, boolean> {
+  const actuales = getModulosNotifActivos();
+  actuales[key] = activo;
+  _modulosMemoria = actuales;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY_MODULOS_NOTIF, JSON.stringify(actuales));
+    } catch { /* ignore */ }
+  }
+  return actuales;
+}
+
+export function setTodosModulosNotif(activo: boolean): Record<ModuloNotifKey, boolean> {
+  const todos = (Object.keys(MODULOS_DEFECTO) as ModuloNotifKey[]).reduce((acc, k) => {
+    acc[k] = activo;
+    return acc;
+  }, {} as Record<ModuloNotifKey, boolean>);
+  _modulosMemoria = todos;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY_MODULOS_NOTIF, JSON.stringify(todos));
+    } catch { /* ignore */ }
+  }
+  return todos;
+}
+
+export interface OpcionesWebPush {
+  titulo: string;
+  cuerpo: string;
+  url?: string;
+  modulo?: ModuloNotifKey;
+  tag?: string;
+  vibrar?: boolean;
+}
+
+/**
+ * Emite una notificación push nativa en el dispositivo si el usuario tiene
+ * el push habilitado y el módulo activo en sus ajustes.
+ */
+export async function emitirWebPush(opciones: OpcionesWebPush): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  if (!('Notification' in window)) return false;
+
+  // Si se especifica un módulo, verificar si el usuario tiene activas sus alertas
+  if (opciones.modulo && !isModuloNotifActivo(opciones.modulo)) {
+    return false;
+  }
+
+  if (Notification.permission === 'granted') {
+    try {
+      const url = opciones.url || '/';
+      const tag = opciones.tag || (opciones.modulo ? `gt-${opciones.modulo}` : 'gt-alerta');
+      const notificationOptions: NotificationOptions = {
+        body: opciones.cuerpo,
+        icon: '/android-chrome-192x192.png',
+        badge: '/favicon-32x32.png',
+        tag,
+        data: { url },
+      };
+
+      if ('serviceWorker' in navigator) {
+        const reg = (await navigator.serviceWorker.getRegistration(SW_URL)) || (await registrarServiceWorkerPush());
+        if (reg && 'showNotification' in reg) {
+          await reg.showNotification(opciones.titulo, notificationOptions);
+          if (opciones.vibrar !== false && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+            try { navigator.vibrate([200, 100, 200]); } catch { /* ignore */ }
+          }
+          return true;
+        }
+      }
+
+      new Notification(opciones.titulo, notificationOptions);
+      if (opciones.vibrar !== false && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+        try { navigator.vibrate([200, 100, 200]); } catch { /* ignore */ }
+      }
+      return true;
+    } catch (e) {
+      console.warn('Error al emitir notificación nativa:', e);
+    }
+  }
+  return false;
+}
+
 const STORAGE_KEY_PUSH_HABILITADO = 'gt.push_habilitado';
 let _pushHabilitadoMemoria = true;
 
