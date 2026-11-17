@@ -58,6 +58,7 @@ export interface ResultadoActivar { ok: boolean; motivo?: string; }
 
 export type ModuloNotifKey =
   | 'administracion'
+  | 'contabilidad'
   | 'delivery'
   | 'inventario'
   | 'maquinaria'
@@ -75,6 +76,7 @@ export interface ModuloNotifConfig {
 
 export const MODULOS_NOTIFICACION: readonly ModuloNotifConfig[] = [
   { key: 'administracion', label: 'Administración', icono: '💼', hint: 'Vencimientos de documentos, licencias y permisos' },
+  { key: 'contabilidad', label: 'Contabilidad', icono: '📒', hint: 'Comprobantes, cierres de mes y estados financieros' },
   { key: 'delivery', label: 'Delivery / Carga', icono: '🛵', hint: 'Nuevos pedidos por tomar, asignaciones y traslados' },
   { key: 'inventario', label: 'Almacén / Solicitudes', icono: '📦', hint: 'Solicitudes de pedido por revisar y stock mínimo' },
   { key: 'maquinaria', label: 'Maquinaria y Flota', icono: '🚜', hint: 'Mantenimientos por horas, servicios y averías' },
@@ -87,6 +89,7 @@ export const MODULOS_NOTIFICACION: readonly ModuloNotifConfig[] = [
 const STORAGE_KEY_MODULOS_NOTIF = 'gt.notif_modulos_activos';
 const MODULOS_DEFECTO: Record<ModuloNotifKey, boolean> = {
   administracion: true,
+  contabilidad: true,
   delivery: true,
   inventario: true,
   maquinaria: true,

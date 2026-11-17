@@ -38,6 +38,8 @@ const RUTA_A_MODULO: Record<string, ModuleKey> = {
   acopio: 'acopio',
   cocina: 'cocina',
   tesoreria: 'tesoreria',
+  administracion: 'administracion',
+  contabilidad: 'contabilidad',
   ventas: 'ventas',
   retenciones: 'retenciones',
   documentacion: 'documentacion',
@@ -118,6 +120,9 @@ export function moduloDeNotificacion(n: Pick<Notificacion, 'link' | 'title' | 'm
   }
   if (/\bcocina\b|\bcomida\b|\bmercado\b/.test(texto)) {
     return 'cocina';
+  }
+  if (/\bcontabilidad|\basiento\b|\bcomprobante\b|\bcuenta contable\b|\blibro mayor\b|\blibro diario\b/.test(texto)) {
+    return 'contabilidad';
   }
   if (/\busuario\b|\bclave\b|\brol\b/.test(texto)) {
     return 'usuarios';

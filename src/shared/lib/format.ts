@@ -88,6 +88,11 @@ function partesFecha(d: Date, tz: string, conHora: boolean): string | null {
   return conHora ? `${fecha} ${p.hour}:${p.minute}` : fecha;
 }
 
+export function hoyISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function date(iso: string | null | undefined): string {
   if (!iso) return '—';
   // Una fecha SIN hora (YYYY-MM-DD) representa un día calendario: no debe correrse

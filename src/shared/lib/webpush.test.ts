@@ -45,9 +45,10 @@ describe('webpush · Notificaciones Push y del Dispositivo', () => {
   });
 
   it('contiene la lista completa de módulos con notificaciones configurables', () => {
-    expect(MODULOS_NOTIFICACION.length).toBeGreaterThanOrEqual(8);
+    expect(MODULOS_NOTIFICACION.length).toBeGreaterThanOrEqual(9);
     const keys = MODULOS_NOTIFICACION.map((m) => m.key);
     expect(keys).toContain('administracion');
+    expect(keys).toContain('contabilidad');
     expect(keys).toContain('delivery');
     expect(keys).toContain('inventario');
     expect(keys).toContain('maquinaria');

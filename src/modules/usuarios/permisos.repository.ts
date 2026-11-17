@@ -18,6 +18,7 @@ export type ModuleKey =
   | 'cocina'
   | 'tesoreria'
   | 'administracion'
+  | 'contabilidad'
   | 'ventas'
   | 'retenciones'
   | 'conciliacion'
@@ -68,6 +69,7 @@ export const MODULES: { key: ModuleKey; label: string; ayuda?: string }[] = [
   { key: 'cocina',      label: 'Control de Alimentación (Cocina)' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'administracion', label: 'Administración', ayuda: 'Gastos fijos por servicio: plantillas, histórico y reporte; se reflejan en Tesorería (multi-empresa).' },
+  { key: 'contabilidad', label: 'Contabilidad', ayuda: 'Plan de cuentas, comprobantes, balances y libros contables estilo Galac Software.' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'retenciones', label: 'Retenciones' },
   // 12/11/2026: solo lectura. Para ver las referencias de pago el rol necesita también leer Tesorería.

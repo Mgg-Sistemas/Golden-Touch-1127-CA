@@ -175,7 +175,7 @@ export function AppShell() {
       ['solicitud_pedido', '/app/pedidos'], ['compras', '/app/pedidos'], ['pedidos', '/app/pedidos'], ['compras', '/app/pedidos/historico'],
       ['delivery', '/app/delivery'], ['carga_pesada', '/app/carga-pesada'], ['inventario', '/app/inventario'], ['inventario', '/app/inventario/deposito-mina'],
       ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],
-      ['ventas', '/app/ventas'], ['administracion', '/app/administracion'],
+      ['ventas', '/app/ventas'], ['administracion', '/app/administracion'], ['contabilidad', '/app/contabilidad'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
       ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['maquinaria', '/app/maquinaria/repuestos-equipo'], ['retenciones', '/app/retenciones'], ['conciliacion', '/app/conciliacion'], ['documentacion', '/app/documentacion'],
@@ -369,6 +369,7 @@ export function AppShell() {
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación (Cocina)" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('administracion') && <NavItem to="/app/administracion" icon="💼" label="Administración" />}
+          {can('contabilidad') && <NavItem to="/app/contabilidad" icon="📒" label="Contabilidad" />}
           {can('ventas') && <NavItem to="/app/ventas" icon="↗" label="Ventas" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('conciliacion') && <NavItem to="/app/conciliacion" icon="📒" label="Conciliación" />}
