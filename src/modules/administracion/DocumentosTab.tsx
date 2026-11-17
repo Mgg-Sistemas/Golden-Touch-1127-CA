@@ -32,6 +32,8 @@ import { responsablesEfectivosDocumento, nombrePorEmail } from './administracion
 import { gestionDelDocumento } from './administracionHonorarios';
 import type { Gestion, Profesional } from './admin.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
 import type { Responsabilidad } from './admin.repository';
 import type { Usuario } from '@/shared/lib/types';
 import {
@@ -135,6 +137,17 @@ export function DocumentosTab({
   const [docs, setDocs] = useState<DocumentoEmpresa[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const { appUser } = usePermissions();
+  const { user } = useSession();
+  const currentActor = useMemo(() => {
+    if (appUser) {
+      const nombreCompleto = [appUser.nombre, appUser.apellido].filter(Boolean).join(' ');
+      if (nombreCompleto.trim()) return nombreCompleto.trim();
+      if (appUser.email) return appUser.email;
+    }
+    return user?.email || 'Administrador';
+  }, [appUser, user]);
 
   // Carpetas configuradas (estándar + personalizadas con notas)
   const [carpetas, setCarpetas] = useState<InfoCarpetaDoc[]>(() => leerCarpetasPersonalizadas(empresaClave));
@@ -440,6 +453,7 @@ export function DocumentosTab({
             numeroRegistro: item.numeroRegistro || null,
             notaTramite: item.notaTramite || null,
           },
+          currentActor,
         );
         exitosos += 1;
       } catch (e) {

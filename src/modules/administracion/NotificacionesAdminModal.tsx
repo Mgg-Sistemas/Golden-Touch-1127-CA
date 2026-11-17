@@ -5,11 +5,13 @@
 
 import { useState, useEffect } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { toast } from '@/shared/ui/Toast';
 import {
   evaluarAlertasDocumentos,
   descartarNotificacionDocumento,
   restaurarNotificacionDocumento,
   dispararSonidoAlertaAdmin,
+  emitirNotificacionPushNativa,
   activarNotificaciones,
   soportaPush,
   estadoPermisoNotif,
@@ -91,6 +93,23 @@ export function NotificacionesAdminModal({
     }
   };
 
+  const handleProbarAlertaAdmin = async () => {
+    dispararSonidoAlertaAdmin();
+    const docEjemplo = alertas[0]?.nombre || 'RIF ACTUALIZADO GOLDEN TOUCH';
+    const empresaEjemplo = alertas[0]?.empresaClave || empresaClave || 'GT';
+    const diasEjemplo = alertas[0]?.diasRestantes ?? 3;
+    const enviado = await emitirNotificacionPushNativa(
+      `💼 Alerta de Documento · ${empresaEjemplo}`,
+      `«${docEjemplo}»: Vence en ${diasEjemplo} días. Requiere atención oportuna.`,
+      '/administracion',
+    );
+    if (enviado) {
+      toast('Notificación de documento enviada al dispositivo.', 'success');
+    } else {
+      toast('No se pudo emitir la notificación. Revisa permisos del navegador.', 'warning');
+    }
+  };
+
   return (
     <Modal
       title="🔔 Centro de Alertas y Notificaciones de Administración"
@@ -163,6 +182,18 @@ export function NotificacionesAdminModal({
               disabled={activandoPush || permisoPush === 'denied'}
             >
               {activandoPush ? 'Activando…' : 'Activar Notificaciones Push'}
+            </button>
+          )}
+
+          {pushSoportado && permisoPush === 'granted' && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void handleProbarAlertaAdmin()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+              title="Envía una notificación de documento real de prueba a este teléfono o equipo"
+            >
+              📲 Probar alerta de documento
             </button>
           )}
         </div>

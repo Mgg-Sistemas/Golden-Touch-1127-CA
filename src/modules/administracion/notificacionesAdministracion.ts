@@ -290,8 +290,12 @@ export async function emitirNotificacionPushNativa(titulo: string, cuerpo: strin
             body: cuerpo,
             icon: '/android-chrome-192x192.png',
             badge: '/favicon-32x32.png',
+            tag: 'gt-admin-alerta',
             data: { url },
           });
+          if (typeof navigator !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+            try { navigator.vibrate([200, 100, 200]); } catch { /* ignore */ }
+          }
           return true;
         }
       }

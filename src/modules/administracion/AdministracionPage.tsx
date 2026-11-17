@@ -24,7 +24,11 @@ import { ConfiguracionTab } from './ConfiguracionTab';
 import { TableroModuloTab } from './TableroModuloTab';
 import { AuditoriaTab } from './AuditoriaTab';
 import { NotificacionesAdminModal } from './NotificacionesAdminModal';
-import { evaluarAlertasDocumentos } from './notificacionesAdministracion';
+import {
+  evaluarAlertasDocumentos,
+  emitirNotificacionPushNativa,
+  dispararSonidoAlertaAdmin,
+} from './notificacionesAdministracion';
 import './administracion.css';
 
 const PESTANAS: { id: TabAdmin; label: string }[] = [
@@ -98,6 +102,38 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
       empresaClave ? todosLosDocs.filter((d) => d.empresaClave === empresaClave) : todosLosDocs,
     );
   }, [todosLosDocs, empresaClave]);
+
+  // Emitir notificación PWA nativa y sonido al detectar alertas activas
+  useEffect(() => {
+    if (nuevasParaSonar.length === 0) return;
+    try {
+      const storageKey = 'gt.admin.alertas_notificadas_session';
+      const raw = sessionStorage.getItem(storageKey);
+      const yaNotificados = new Set<string>(raw ? JSON.parse(raw) : []);
+
+      const pendientes = nuevasParaSonar.filter((a) => !yaNotificados.has(`${a.docId}_${a.hitoActual}`));
+      if (pendientes.length === 0) return;
+
+      for (const p of pendientes) {
+        yaNotificados.add(`${p.docId}_${p.hitoActual}`);
+      }
+      sessionStorage.setItem(storageKey, JSON.stringify(Array.from(yaNotificados)));
+
+      // 1. Sonido de alerta
+      dispararSonidoAlertaAdmin();
+
+      // 2. Notificación push emergente en el dispositivo
+      const masUrgente = pendientes[0];
+      const titulo = pendientes.length === 1
+        ? `💼 Alerta de Documento · ${masUrgente.empresaClave}`
+        : `💼 Administración: ${pendientes.length} alertas de vigencia`;
+      const cuerpo = pendientes.length === 1
+        ? `«${masUrgente.nombre}»: ${masUrgente.mensaje}`
+        : `«${masUrgente.nombre}» y otros documentos requieren atención.`;
+
+      void emitirNotificacionPushNativa(titulo, cuerpo, '/administracion');
+    } catch { /* best-effort */ }
+  }, [nuevasParaSonar]);
 
   return (
     <div>

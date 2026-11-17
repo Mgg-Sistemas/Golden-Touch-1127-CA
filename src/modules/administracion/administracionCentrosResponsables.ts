@@ -629,7 +629,7 @@ export function extraerHistorialGlobalDocumentos(
         tipo: d.tipo,
         tipoLabel: TIPO_DOCUMENTO_LABEL[d.tipo] || d.tipo,
         empresaClave: d.empresaClave,
-        actor: h.actor || 'usuario',
+        actor: h.actor && h.actor !== 'usuario' ? h.actor : (responsable || 'Administrador'),
         fecha: h.fecha,
         accion: h.accion,
         detalle: h.detalle,

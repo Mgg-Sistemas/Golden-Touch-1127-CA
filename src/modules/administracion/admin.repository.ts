@@ -923,6 +923,23 @@ function rutaDoc(empresaClave: string, nombre: string): string {
   return `${empresaClave}/${stamp}-${safe}`;
 }
 
+/** Resuelve el nombre o email real del usuario autenticado para la bitácora de auditoría */
+async function obtenerActorActual(actorPropuesto?: string): Promise<string> {
+  if (actorPropuesto && actorPropuesto.trim() && actorPropuesto.trim().toLowerCase() !== 'usuario') {
+    return actorPropuesto.trim();
+  }
+  try {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user) {
+      const meta = data.user.user_metadata as Record<string, unknown> | undefined;
+      const nombreCompleto = [meta?.nombre, meta?.apellido].filter(Boolean).join(' ') || (meta?.full_name as string) || (meta?.name as string);
+      if (nombreCompleto && nombreCompleto.trim()) return nombreCompleto.trim();
+      if (data.user.email) return data.user.email;
+    }
+  } catch { /* ignore */ }
+  return actorPropuesto?.trim() || 'Administrador';
+}
+
 /** Impl contra Supabase (la app real). Las tablas las crea BD (SQL en borrador). */
 export function crearRepoSupabase(): AdminRepo {
   return {
@@ -1494,10 +1511,11 @@ export function crearRepoSupabase(): AdminRepo {
       if (upErr) throw upErr;
 
       const nowIso = new Date().toISOString();
+      const actorFinal = await obtenerActorActual(actor);
       const histItem: HistorialCambioDoc = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         fecha: nowIso,
-        actor: actor || 'usuario',
+        actor: actorFinal,
         accion: 'creacion',
         detalle: 'Documento subido y registrado en el sistema',
       };
@@ -1564,10 +1582,11 @@ export function crearRepoSupabase(): AdminRepo {
 
       const doc = aDoc(actualRow as RowDoc);
       const nowIso = new Date().toISOString();
+      const actorFinal = await obtenerActorActual(actor);
       const histItem: HistorialCambioDoc = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         fecha: nowIso,
-        actor: actor || 'usuario',
+        actor: actorFinal,
         accion: cambios.statusVencimiento ? 'cambio_status' : cambios.fechaVencimiento ? 'renovacion' : 'modificacion',
         detalle: detalle || 'Metadatos del documento actualizados',
       };
@@ -1639,10 +1658,11 @@ export function crearRepoSupabase(): AdminRepo {
       }
 
       const nowIso = new Date().toISOString();
+      const actorFinal = await obtenerActorActual(actor);
       const histItem: HistorialCambioDoc = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         fecha: nowIso,
-        actor: actor || 'usuario',
+        actor: actorFinal,
         accion: 'renovacion',
         detalle: detalleHist,
       };
