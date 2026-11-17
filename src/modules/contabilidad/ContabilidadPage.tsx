@@ -170,13 +170,13 @@ export function ContabilidadPage() {
       {!parametros && <p className="muted">Cargando…</p>}
       {parametros && <>
         {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
-        {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} />}
+        {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'cuenta' && <PlanCuentasTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} />}
         {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} />}
-        {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} />}
-        {menu === 'informes' && <InformesTab key={`${version}-${empresaActiva}`} parametros={parametros} />}
-        {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} />}
+        {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'informes' && <InformesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} />}
       </>}
 
