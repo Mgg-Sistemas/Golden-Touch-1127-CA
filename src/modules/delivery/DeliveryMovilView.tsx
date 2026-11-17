@@ -17,7 +17,7 @@ import { playNotificationSound } from '@/shared/lib/sound';
 import { emitirWebPush } from '@/shared/lib/webpush';
 import {
   ALMACEN_RETIRO, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery,
-  esRetiroAlmacen, mensajeCancelado, mensajeEntregado,
+  esRetiroAlmacen, esRetornoPendiente, fechaHoraVE, mensajeCancelado, mensajeEntregado,
   mensajeNoDisponible, ocDe, type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
 import {
@@ -27,7 +27,7 @@ import {
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
 import { EditarFotosDeliveryModal } from './EditarFotosDelivery';
 import {
-  armarFeed, debeEnviarUbicacion, distanciaMetros, rechazadosPor, telHref,
+  armarFeed, debeEnviarUbicacion, distanciaMetros, fueCanceladoPreviamente, rechazadosPor, telHref,
   type ChipDelivery, type EnvioGps,
 } from './deliveryMovil';
 import {
@@ -147,9 +147,45 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
     [feed],
   );
 
-  // Pestaña actual en bandeja (cuando no hay carrera en curso)
-  const [tab, setTab] = useState<'por_tomar' | 'entregados'>('por_tomar');
-  const [expandido, setExpandido] = useState(false);
+  // Pestañas y estado del Bottom Sheet con Snap Points ('peek' | 'mid' | 'full')
+  type SnapState = 'peek' | 'mid' | 'full';
+  type TabMovil = 'en_curso' | 'por_tomar' | 'entregados';
+
+  const [tab, setTab] = useState<TabMovil>(enCurso ? 'en_curso' : 'por_tomar');
+  const [snap, setSnap] = useState<SnapState>('mid');
+
+  // Si cambia el pedido en curso o se acepta uno, enfocar automáticamente en la carrera
+  useEffect(() => {
+    if (enCurso) {
+      setTab('en_curso');
+      setSnap('mid');
+    }
+  }, [enCurso?.pedido_id]);
+
+  // Gestos táctiles en el tirador (swipe up / swipe down)
+  const touchStartY = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartY.current === null) return;
+    const endY = e.changedTouches[0].clientY;
+    const diff = endY - touchStartY.current;
+    touchStartY.current = null;
+    if (diff > 45) {
+      // Swipe down -> colapsar
+      setSnap((curr) => (curr === 'full' ? 'mid' : 'peek'));
+    } else if (diff < -45) {
+      // Swipe up -> expandir
+      setSnap((curr) => (curr === 'peek' ? 'mid' : 'full'));
+    }
+  };
+
+  const toggleSnap = () => {
+    setSnap((curr) => (curr === 'peek' ? 'mid' : curr === 'mid' ? 'full' : 'mid'));
+  };
 
   // Modales
   const [accion, setAccion] = useState<{ tipo: 'cancelar' | 'entregar' | 'no_disponible'; clave: string } | null>(null);
@@ -320,167 +356,58 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         </div>
       </header>
 
-      {/* ── CAPA 2: HOJA INFERIOR DESLIZANTE (BOTTOM SHEET) ── */}
-      <div className={`dlv-bottom-sheet ${expandido ? 'expandido' : ''}`}>
-        <div className="dlv-sheet-handle-wrap" onClick={() => setExpandido(!expandido)}>
+      {/* ── CAPA 2: HOJA INFERIOR DESLIZANTE CON GESTOS TÁCTILES Y SNAP POINTS ── */}
+      <div className={`dlv-bottom-sheet snap-${snap}`}>
+        <div
+          className="dlv-sheet-handle-wrap"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onClick={toggleSnap}
+        >
           <div className="dlv-sheet-handle-bar" />
-        </div>
-
-        <div className="dlv-sheet-body">
-          {/* CASO A: Formulario de Acción en Curso */}
-          {accion?.tipo === 'cancelar' && pedidoAccion && (
-            <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
-          )}
-          {accion?.tipo === 'entregar' && pedidoAccion && (
-            <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
-          )}
-          {accion?.tipo === 'no_disponible' && pedidoAccion && (
-            <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
-          )}
-
-          {/* CASO B: Mensaje de Entrega Realizada (WhatsApp) */}
-          {listo && !accion && (
-            <div className="dlv-cockpit">
-              <div className="dlv-cockpit-bar" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: '#10b981' }}>
-                <span className="dlv-cockpit-tag" style={{ color: '#34d399' }}>✅ {listo.titulo}</span>
-              </div>
-              <CompartirWhatsapp texto={listo.texto} />
-              <button type="button" className="btn btn-primary dlv-btn-hero dlv-btn-hero-green" onClick={volver}>
-                ← Volver a la Ruta
-              </button>
-            </div>
-          )}
-
-          {/* CASO C: CARRERA ACTIVA EN CURSO (COCKPIT ESTILO YUMMY) */}
-          {!accion && !listo && enCurso && (
-            <div className="dlv-cockpit">
-              <div className="dlv-cockpit-bar">
-                <span className="dlv-cockpit-tag">
-                  {enCurso.estado === 'aceptado' ? '🚀 FASE 1: RETIRO EN CURSO' : '🚚 FASE 2: RETORNO A SEDE'}
-                </span>
-                <span className="dlv-cockpit-eta">
-                  {distDe(enCurso) != null ? distanciaTxt(distDe(enCurso)) : ''} {duracionTxt(rutaVigente?.segundos)}
-                </span>
-              </div>
-
-              {/* Trazado y paradas de la carrera */}
-              <div className="dlv-trip-card" style={{ cursor: 'default' }}>
-                <div className="dlv-trip-header">
-                  <span className="dlv-trip-codigo">{esRetiroAlmacen(enCurso) ? enCurso.codigo : ocDe(enCurso)}</span>
-                  <span className="dlv-trip-dist">{esRetiroAlmacen(enCurso) ? 'Retiro de Almacén' : 'Compra con Proveedor'}</span>
-                </div>
-
-                <div className="dlv-route-timeline">
-                  <div className="dlv-route-point">
-                    <span className="dlv-route-dot origen">1</span>
-                    <span className="dlv-route-label">Recogida / Retiro</span>
-                    <div className="dlv-route-name">{esRetiroAlmacen(enCurso) ? ALMACEN_RETIRO : (enCurso.proveedor_nombre ?? 'Proveedor')}</div>
-                    {enCurso.proveedor_direccion && <small style={{ color: '#94a3b8' }}>{enCurso.proveedor_direccion}</small>}
-                  </div>
-
-                  <div className="dlv-route-point">
-                    <span className="dlv-route-dot destino">2</span>
-                    <span className="dlv-route-label">Entrega en Destino</span>
-                    <div className="dlv-route-name">Almacén {nombreAlmacenVisible(enCurso.almacen_entrega ?? enCurso.almacen_destino)}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Fila de Navegación y Llamada (Google Maps intencional bajo demanda) */}
-              <div className="dlv-quick-nav-row" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
-                <button type="button" className="dlv-btn-nav-gmaps" onClick={handleNavegar} title="Abrir ruta en Google Maps">
-                  <span>🧭 Abrir en Google Maps</span>
-                </button>
-                <button type="button" className="dlv-btn-call" onClick={() => setModalLlamar(true)} title="Llamar al analista">
-                  <span>📞 Llamar</span>
-                </button>
-              </div>
-
-              {/* BOTONES PROTAGONISTAS SEGÚN LA FASE ACTIVA */}
-              {enCurso.estado === 'aceptado' && (
-                <>
-                  {(enCurso.fotos_recibo?.length ?? 0) === 0 ? (
-                    <>
-                      <button
-                        type="button"
-                        className="dlv-btn-hero dlv-btn-hero-amber"
-                        onClick={() => setFotosModalDe(enCurso)}
-                      >
-                        📸 Tomar Foto al Recibir (0/5) · Obligatoria
-                      </button>
-                      <div className="dlv-hero-subtext">
-                        Sube foto de la remisión, factura física o paquetes para habilitar el retorno.
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="dlv-phase-badge-ok">
-                        <span>✓ Foto de recibo cargada ({enCurso.fotos_recibo.length} fotos)</span>
-                        <button type="button" className="dlv-btn-link" onClick={() => setFotosModalDe(enCurso)}>
-                          Ver / Agregar
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        className="dlv-btn-hero dlv-btn-hero-blue"
-                        disabled={!!ocupado}
-                        onClick={() => void enRuta(enCurso)}
-                      >
-                        {ocupado ? 'Iniciando…' : '🚚 Iniciar Retorno a Sede'}
-                      </button>
-                    </>
-                  )}
-                </>
-              )}
-
-              {enCurso.estado === 'en_ruta' && (
-                <>
-                  <div className="dlv-phase-badge-ok">
-                    <span>✓ Fase 1 completada · En camino al almacén de recepción</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="dlv-btn-hero dlv-btn-hero-green"
-                    disabled={!!ocupado}
-                    onClick={() => setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) })}
-                  >
-                    📦 Registrar Entrega Final
-                  </button>
-                </>
-              )}
-
-              {/* Acciones Secundarias Limpias */}
-              <div className="dlv-secondary-actions">
-                <button
-                  type="button"
-                  className="dlv-btn-subtle dlv-btn-subtle-danger"
-                  onClick={() => setAccion({ tipo: 'cancelar', clave: claveDelivery(enCurso) })}
-                >
-                  ✕ Desasignar / Cancelar
-                </button>
-
-                {!esRetiroAlmacen(enCurso) && (
-                  <button
-                    type="button"
-                    className="dlv-btn-subtle"
-                    onClick={() => setComprobanteDe(enCurso)}
-                  >
-                    🧾 Ver Comprobante
-                  </button>
+          {snap === 'peek' && (
+            <div className="dlv-sheet-peek-bar">
+              <div className="dlv-sheet-peek-info">
+                {enCurso ? (
+                  <>
+                    <span className="dlv-dot-live"></span>
+                    <span>
+                      {enCurso.estado === 'aceptado'
+                        ? esRetornoPendiente(enCurso)
+                          ? '📸 Retorno preliminar'
+                          : 'Recogiendo'
+                        : 'En retorno'}: {esRetiroAlmacen(enCurso) ? enCurso.codigo : ocDe(enCurso)} · Almacén {nombreAlmacenVisible(enCurso.almacen_entrega ?? enCurso.almacen_destino)}
+                    </span>
+                  </>
+                ) : (
+                  <span>📦 {cuenta.por_tomar} pedido(s) disponible(s)</span>
                 )}
               </div>
+              <span className="dlv-sheet-peek-hint">▲ Desliza para abrir</span>
             </div>
           )}
+        </div>
 
-          {/* CASO D: BANDEJA DE VIAJES Y ENTREGAS (SIN PEDIDO EN CURSO) */}
-          {!accion && !listo && !enCurso && (
-            <>
-              {/* Selector de Pestañas Estilo Ridery */}
+        {snap !== 'peek' && (
+          <div className="dlv-sheet-body">
+            {/* Pestañas de Navegación y Atajo al Mapa */}
+            <div className="dlv-sheet-subbar">
               <div className="dlv-tabs-ridery">
+                {enCurso && (
+                  <button
+                    type="button"
+                    className={`dlv-tab-btn ${tab === 'en_curso' ? 'activo' : ''}`}
+                    onClick={() => { setTab('en_curso'); setSnap('mid'); }}
+                  >
+                    <span className="dlv-dot-live" />
+                    <span>En Ruta</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   className={`dlv-tab-btn ${tab === 'por_tomar' ? 'activo' : ''}`}
-                  onClick={() => setTab('por_tomar')}
+                  onClick={() => { setTab('por_tomar'); }}
                 >
                   <span>📦 Disponibles</span>
                   <span className="dlv-tab-badge">{cuenta.por_tomar}</span>
@@ -489,128 +416,346 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                 <button
                   type="button"
                   className={`dlv-tab-btn ${tab === 'entregados' ? 'activo' : ''}`}
-                  onClick={() => setTab('entregados')}
+                  onClick={() => { setTab('entregados'); }}
                 >
-                  <span>✅ Entregas Hoy</span>
+                  <span>✅ Entregas</span>
                   <span className="dlv-tab-badge">{cuenta.entregados}</span>
                 </button>
               </div>
 
-              {/* Lista de Disponibles */}
-              {tab === 'por_tomar' && (
-                <>
-                  {loading && <p style={{ textAlign: 'center', color: '#94a3b8' }}>Actualizando mapa y pedidos…</p>}
+              <button
+                type="button"
+                className="dlv-btn-mapa-shortcut"
+                onClick={() => setSnap(enCurso ? 'mid' : 'peek')}
+                title="Minimizar panel para ver mapa completo"
+              >
+                🗺 Mapa
+              </button>
+            </div>
 
-                  {!loading && pedidosDisponibles.length === 0 && (
-                    <div className="dlv-radar-empty">
-                      <div className="dlv-radar-icon">📡</div>
-                      <h3>Esperando pedidos</h3>
-                      <p>En cuanto Compras o Almacén asigne una orden, aparecerá aquí automáticamente en tiempo real.</p>
+            {/* CASO A: Formulario de Acción en Curso */}
+            {accion?.tipo === 'cancelar' && pedidoAccion && (
+              <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+            )}
+            {accion?.tipo === 'entregar' && pedidoAccion && (
+              <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+            )}
+            {accion?.tipo === 'no_disponible' && pedidoAccion && (
+              <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+            )}
+
+            {/* CASO B: Mensaje de Entrega Realizada (WhatsApp) */}
+            {listo && !accion && (
+              <div className="dlv-cockpit">
+                <div className="dlv-cockpit-bar" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: '#10b981' }}>
+                  <span className="dlv-cockpit-tag" style={{ color: '#34d399' }}>✅ {listo.titulo}</span>
+                </div>
+                <CompartirWhatsapp texto={listo.texto} />
+                <button type="button" className="btn btn-primary dlv-btn-hero dlv-btn-hero-green" onClick={volver}>
+                  ← Volver a la Ruta
+                </button>
+              </div>
+            )}
+
+            {/* CONTENIDO SEGÚN LA PESTAÑA SELECCIONADA */}
+            {!accion && !listo && (
+              <>
+                {/* PESTAÑA 1: COCKPIT DE PEDIDO EN CURSO */}
+                {tab === 'en_curso' && enCurso && (
+                  <div className="dlv-cockpit">
+                    <div className="dlv-cockpit-bar">
+                      <span className="dlv-cockpit-tag">
+                        {enCurso.estado === 'aceptado'
+                          ? esRetornoPendiente(enCurso)
+                            ? '📸 FOTO CARGADA · RETORNO PRELIMINAR'
+                            : '🚀 FASE 1: RETIRO EN CURSO'
+                          : '🚚 FASE 2: RETORNO A SEDE'}
+                      </span>
+                      <span className="dlv-cockpit-eta">
+                        {distDe(enCurso) != null ? distanciaTxt(distDe(enCurso)) : ''} {duracionTxt(rutaVigente?.segundos)}
+                      </span>
                     </div>
-                  )}
 
-                  {!loading && pedidosDisponibles.map((f) => {
-                    const p = f.p;
-                    const k = claveDelivery(p);
-                    const sel = claveRutaActiva === k;
-                    const m = distDe(p);
-                    const retiro = esRetiroAlmacen(p);
-
-                    return (
-                      <div
-                        key={k}
-                        className={`dlv-trip-card ${sel ? 'sel' : ''}`}
-                        onClick={() => { setRutaClave(k); }}
-                      >
-                        <div className="dlv-trip-header">
-                          <span className="dlv-trip-codigo">{retiro ? p.codigo : ocDe(p)}</span>
-                          {p.urgente ? (
-                            <span className="dlv-trip-urgente">🚨 Urgente</span>
-                          ) : (
-                            <span className="dlv-trip-dist">{distanciaTxt(m)}</span>
-                          )}
-                        </div>
-
-                        <div className="dlv-route-timeline">
-                          <div className="dlv-route-point">
-                            <span className="dlv-route-dot origen">●</span>
-                            <span className="dlv-route-label">Recoger en</span>
-                            <div className="dlv-route-name">{retiro ? ALMACEN_RETIRO : (p.proveedor_nombre ?? 'Proveedor')}</div>
-                          </div>
-
-                          <div className="dlv-route-point">
-                            <span className="dlv-route-dot destino">●</span>
-                            <span className="dlv-route-label">Entregar en</span>
-                            <div className="dlv-route-name">Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
-                          </div>
-                        </div>
-
-                        {canWrite && (
-                          <button
-                            type="button"
-                            className="dlv-btn-tomar-viaje"
-                            disabled={!!ocupado}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void tomar(p);
-                            }}
-                          >
-                            <span>✓ Aceptar Pedido y En Camino</span>
-                          </button>
-                        )}
+                    {/* Trazado y paradas de la carrera */}
+                    <div className="dlv-trip-card" style={{ cursor: 'default' }}>
+                      <div className="dlv-trip-header">
+                        <span className="dlv-trip-codigo">{esRetiroAlmacen(enCurso) ? enCurso.codigo : ocDe(enCurso)}</span>
+                        <span className="dlv-trip-dist">{esRetiroAlmacen(enCurso) ? 'Retiro de Almacén' : 'Compra con Proveedor'}</span>
                       </div>
-                    );
-                  })}
-                </>
-              )}
 
-              {/* Lista de Entregados */}
-              {tab === 'entregados' && (
-                <>
-                  {pedidosEntregados.length === 0 ? (
-                    <div className="dlv-radar-empty">
-                      <div className="dlv-radar-icon">📦</div>
-                      <h3>Sin entregas registradas</h3>
-                      <p>Tus entregas completadas de la jornada aparecerán en este historial.</p>
+                      <div className="dlv-route-timeline">
+                        <div className="dlv-route-point">
+                          <span className="dlv-route-dot origen">1</span>
+                          <span className="dlv-route-label">Recogida / Retiro</span>
+                          <div className="dlv-route-name">{esRetiroAlmacen(enCurso) ? ALMACEN_RETIRO : (enCurso.proveedor_nombre ?? 'Proveedor')}</div>
+                          {enCurso.proveedor_direccion && <small style={{ color: '#94a3b8' }}>{enCurso.proveedor_direccion}</small>}
+                        </div>
+
+                        <div className="dlv-route-point">
+                          <span className="dlv-route-dot destino">2</span>
+                          <span className="dlv-route-label">Entrega en Destino</span>
+                          <div className="dlv-route-name">Almacén {nombreAlmacenVisible(enCurso.almacen_entrega ?? enCurso.almacen_destino)}</div>
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    pedidosEntregados.map((f) => {
-                      const p = f.p;
-                      const k = claveDelivery(p);
-                      const retiro = esRetiroAlmacen(p);
-                      return (
-                        <div key={k} className="dlv-trip-card" style={{ cursor: 'default' }}>
-                          <div className="dlv-trip-header">
-                            <span className="dlv-trip-codigo">{retiro ? p.codigo : ocDe(p)}</span>
-                            <span style={{ color: '#34d399', fontWeight: 700, fontSize: '.8rem' }}>
-                              ✅ Entregado
-                            </span>
-                          </div>
-                          <div style={{ fontSize: '.85rem', color: '#cbd5e1' }}>
-                            <div>🏬 Recibido en: Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
-                            <div style={{ color: '#94a3b8', fontSize: '.78rem', marginTop: 4 }}>
-                              📷 {p.fotos_recibo.length + p.fotos_entrega.length} fotos guardadas
+
+                    {/* Fila de Navegación y Llamada (Google Maps intencional bajo demanda) */}
+                    <div className="dlv-quick-nav-row" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+                      <button type="button" className="dlv-btn-nav-gmaps" onClick={handleNavegar} title="Abrir ruta en Google Maps">
+                        <span>🧭 Abrir en Google Maps</span>
+                      </button>
+                      <button type="button" className="dlv-btn-call" onClick={() => setModalLlamar(true)} title="Llamar al analista">
+                        <span>📞 Llamar</span>
+                      </button>
+                    </div>
+
+                    {/* Acceso dedicado para tomar o revisar fotos (SOLO con pedido activo) */}
+                    <div
+                      className="dlv-cockpit-photo-chip"
+                      onClick={() => setFotosModalDe(enCurso)}
+                      title="Administrar fotos de esta orden"
+                    >
+                      <span>
+                        📸 Evidencias ({enCurso.fotos_recibo.length} recibo · {enCurso.fotos_entrega.length} entrega)
+                      </span>
+                      <span className="dlv-chip-cta">Tomar / Ver →</span>
+                    </div>
+
+                    {/* BOTONES PROTAGONISTAS SEGÚN LA FASE ACTIVA */}
+                    {enCurso.estado === 'aceptado' && (
+                      <>
+                        {(enCurso.fotos_recibo?.length ?? 0) === 0 ? (
+                          <>
+                            <button
+                              type="button"
+                              className="dlv-btn-hero dlv-btn-hero-amber"
+                              onClick={() => setFotosModalDe(enCurso)}
+                            >
+                              📸 Tomar Foto al Recibir (0/5) · Obligatoria
+                            </button>
+                            <div className="dlv-hero-subtext">
+                              Sube foto de la remisión, factura física o paquetes para habilitar el retorno.
                             </div>
-                          </div>
-                          {p.pedido_id && (
+                          </>
+                        ) : (
+                          <>
+                            <div className="dlv-phase-badge-ok" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                                <span>✓ Foto recibida ({enCurso.fotos_recibo.length} foto/s cargada/s)</span>
+                                <button type="button" className="dlv-btn-link" onClick={() => setFotosModalDe(enCurso)}>
+                                  Ver / Agregar
+                                </button>
+                              </div>
+                              <span style={{ fontSize: '.72rem', color: '#93c5fd', fontWeight: 500 }}>
+                                ℹ️ Retorno preliminar: confirma cuando inicies el viaje o registra entrega si ya estás en almacén.
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="dlv-btn-hero dlv-btn-hero-blue"
+                              disabled={!!ocupado}
+                              onClick={() => void enRuta(enCurso)}
+                            >
+                              {ocupado ? 'Iniciando…' : '🚚 Iniciar Retorno a Sede'}
+                            </button>
                             <button
                               type="button"
                               className="dlv-btn-subtle"
-                              style={{ alignSelf: 'flex-start', color: '#38bdf8' }}
-                              onClick={() => setFotosModalDe(p)}
+                              style={{ color: '#34d399', alignSelf: 'center', marginTop: -4 }}
+                              onClick={() => setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) })}
                             >
-                              ✏ Ver / Editar fotos
+                              📦 ¿Ya llegaste a Almacén? Registrar Entrega Directa
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {enCurso.estado === 'en_ruta' && (
+                      <>
+                        <div className="dlv-phase-badge-ok">
+                          <span>✓ Fase 1 completada · En camino al almacén de recepción</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="dlv-btn-hero dlv-btn-hero-green"
+                          disabled={!!ocupado}
+                          onClick={() => setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) })}
+                        >
+                          📦 Registrar Entrega Final
+                        </button>
+                      </>
+                    )}
+
+                    {/* Acciones Secundarias Limpias */}
+                    <div className="dlv-secondary-actions">
+                      <button
+                        type="button"
+                        className="dlv-btn-subtle dlv-btn-subtle-danger"
+                        onClick={() => setAccion({ tipo: 'cancelar', clave: claveDelivery(enCurso) })}
+                      >
+                        ✕ Desasignar / Cancelar
+                      </button>
+
+                      {!esRetiroAlmacen(enCurso) && (
+                        <button
+                          type="button"
+                          className="dlv-btn-subtle"
+                          onClick={() => setComprobanteDe(enCurso)}
+                        >
+                          🧾 Ver Comprobante
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* PESTAÑA 2: BANDEJA DE PEDIDOS DISPONIBLES */}
+                {tab === 'por_tomar' && (
+                  <>
+                    {loading && <p style={{ textAlign: 'center', color: '#94a3b8' }}>Actualizando mapa y pedidos…</p>}
+
+                    {!loading && pedidosDisponibles.length === 0 && (
+                      <div className="dlv-radar-empty">
+                        <div className="dlv-radar-icon">📡</div>
+                        <h3>Esperando pedidos</h3>
+                        <p>En cuanto Compras o Almacén asigne una orden, aparecerá aquí automáticamente en tiempo real.</p>
+                      </div>
+                    )}
+
+                    {!loading && pedidosDisponibles.map((f) => {
+                      const p = f.p;
+                      const k = claveDelivery(p);
+                      const sel = claveRutaActiva === k;
+                      const m = distDe(p);
+                      const retiro = esRetiroAlmacen(p);
+                      const canceladoPrev = fueCanceladoPreviamente(p);
+
+                      return (
+                        <div
+                          key={k}
+                          className={`dlv-trip-card ${sel ? 'sel' : ''}`}
+                          onClick={() => { setRutaClave(k); }}
+                        >
+                          <div className="dlv-trip-header">
+                            <span className="dlv-trip-codigo">{retiro ? p.codigo : ocDe(p)}</span>
+                            {p.urgente ? (
+                              <span className="dlv-trip-urgente">🚨 Urgente</span>
+                            ) : (
+                              <span className="dlv-trip-dist">{distanciaTxt(m)}</span>
+                            )}
+                          </div>
+
+                          {/* ALERTA DE REASIGNACIÓN SI FUE CANCELADO PREVIAMENTE */}
+                          {canceladoPrev && (
+                            <div className="dlv-trip-cancel-alert">
+                              <div className="dlv-trip-cancel-tag">
+                                ⚠️ Liberado tras cancelación
+                              </div>
+                              <div className="dlv-trip-cancel-body">
+                                <div className="dlv-trip-cancel-row">
+                                  <strong>Motivo:</strong> {p.motivo_cancel || 'Desasignado / Liberado'}
+                                </div>
+                                {p.detalle_cancel && (
+                                  <div className="dlv-trip-cancel-det">{p.detalle_cancel}</div>
+                                )}
+                                <div className="dlv-trip-cancel-meta">
+                                  Motorizado previo: {p.repartidor_nombre || 'No registrado'}
+                                  {p.cancelado_en && <span> · {fechaHoraVE(p.cancelado_en)}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="dlv-route-timeline">
+                            <div className="dlv-route-point">
+                              <span className="dlv-route-dot origen">●</span>
+                              <span className="dlv-route-label">Recoger en</span>
+                              <div className="dlv-route-name">{retiro ? ALMACEN_RETIRO : (p.proveedor_nombre ?? 'Proveedor')}</div>
+                            </div>
+
+                            <div className="dlv-route-point">
+                              <span className="dlv-route-dot destino">●</span>
+                              <span className="dlv-route-label">Entregar en</span>
+                              <div className="dlv-route-name">Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
+                            </div>
+                          </div>
+
+                          {canWrite && (
+                            <button
+                              type="button"
+                              className="dlv-btn-tomar-viaje"
+                              disabled={!!ocupado || (!!enCurso && enCurso.pedido_id !== p.pedido_id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (enCurso && enCurso.pedido_id !== p.pedido_id) {
+                                  toast('Tienes un pedido activo. Finaliza o desasigna tu carrera actual antes de tomar otro.', 'warning');
+                                  return;
+                                }
+                                void tomar(p);
+                              }}
+                            >
+                              <span>
+                                {enCurso && enCurso.pedido_id !== p.pedido_id
+                                  ? '⚠️ Carrera activa en curso'
+                                  : '✓ Aceptar Pedido y En Camino'}
+                              </span>
                             </button>
                           )}
                         </div>
                       );
-                    })
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
+                    })}
+                  </>
+                )}
+
+                {/* PESTAÑA 3: BANDEJA DE ENTREGADOS */}
+                {tab === 'entregados' && (
+                  <>
+                    {pedidosEntregados.length === 0 ? (
+                      <div className="dlv-radar-empty">
+                        <div className="dlv-radar-icon">📦</div>
+                        <h3>Sin entregas registradas</h3>
+                        <p>Tus entregas completadas de la jornada aparecerán en este historial.</p>
+                      </div>
+                    ) : (
+                      pedidosEntregados.map((f) => {
+                        const p = f.p;
+                        const k = claveDelivery(p);
+                        const retiro = esRetiroAlmacen(p);
+                        return (
+                          <div key={k} className="dlv-trip-card" style={{ cursor: 'default' }}>
+                            <div className="dlv-trip-header">
+                              <span className="dlv-trip-codigo">{retiro ? p.codigo : ocDe(p)}</span>
+                              <span style={{ color: '#34d399', fontWeight: 700, fontSize: '.8rem' }}>
+                                ✅ Entregado
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '.85rem', color: '#cbd5e1' }}>
+                              <div>🏬 Recibido en: Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
+                              <div style={{ color: '#94a3b8', fontSize: '.78rem', marginTop: 4 }}>
+                                📷 {p.fotos_recibo.length + p.fotos_entrega.length} fotos guardadas
+                              </div>
+                            </div>
+                            {p.pedido_id && (
+                              <button
+                                type="button"
+                                className="dlv-btn-subtle"
+                                style={{ alignSelf: 'flex-start', color: '#38bdf8' }}
+                                onClick={() => setFotosModalDe(p)}
+                              >
+                                ✏ Ver / Editar fotos
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── MODALES Y PANTALLAS DE SOPORTE ── */}

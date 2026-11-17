@@ -144,6 +144,11 @@ export function tramoEnCurso(p: Pick<PedidoDelivery, 'fotos_recibo'>): 1 | 2 {
   return (p.fotos_recibo?.length ?? 0) > 0 ? 2 : 1;
 }
 
+/** ¿El pedido fue previamente cancelado/desasignado antes de quedar libre para re-toma? */
+export function fueCanceladoPreviamente(p: Pick<PedidoDelivery, 'estado' | 'motivo_cancel'>): boolean {
+  return p.estado === 'cancelado' || !!p.motivo_cancel;
+}
+
 /** El pedido que este motorizado tiene en curso (en ruta primero). */
 export function trabajoEnCurso(feed: PedidoFeed[]): PedidoDelivery | null {
   const mios = feed.filter((f) => !f.disponible && f.p.es_mio && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta'));

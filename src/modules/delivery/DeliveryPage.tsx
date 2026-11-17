@@ -34,7 +34,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
   ALMACEN_RETIRO, ESTADO_DELIVERY, UBICACION_VIEJA_MS, cerradoPorRecepcion, MOTIVOS_CANCELACION, ORIGEN_DELIVERY, claveDelivery, destinoRetiro, esRetiroAlmacen,
-  etiquetaEstado, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe, rechazosDe, rotuloFotos,
+  esRetornoPendiente, etiquetaEstado, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe, rechazosDe, rotuloFotos,
   type FotoDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';
 import {
@@ -330,6 +330,11 @@ function TableroTab({ pedidos, rechazos, deHoy, cargando, supervisor, verCerrado
                       </td>
                       <td>
                         <span className={`badge ${est?.badge ?? ''}`}>{cerradoPorRecepcion(p) ? '📥' : est?.emoji} {etiquetaEstado(p.estado, p.origen, p.motivo_cancel)}</span>
+                        {esRetornoPendiente(p) && (
+                          <div style={{ fontSize: '.72rem', color: '#38bdf8', fontWeight: 600, marginTop: 3 }}>
+                            📸 Foto tomada · Posible retorno
+                          </div>
+                        )}
                         {p.estado === 'cancelado' && p.motivo_cancel && <div className="muted" style={{ fontSize: '.75rem' }}>{p.motivo_cancel}</div>}
                       </td>
                       <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>

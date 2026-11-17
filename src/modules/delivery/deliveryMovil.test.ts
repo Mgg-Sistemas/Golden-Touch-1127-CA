@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PedidoDelivery } from './delivery';
 import {
-  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, errorUbicacion, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor,
+  armarFeed, debeEnviarUbicacion, distanciaMetros, enChip, errorUbicacion, fueCanceladoPreviamente, mapaHref, mensajeDeEstado, productosTxt, rechazadosPor,
   telHref, trabajoEnCurso, estadoTarjeta, tramoEnCurso,
 } from './deliveryMovil';
 
@@ -150,5 +150,9 @@ describe('Delivery teléfono · franja de color y tramo (10/11/2026)', () => {
   it('tramo 1 hasta que sube fotos al recibir; después, tramo 2', () => {
     expect(tramoEnCurso(P({}))).toBe(1);
     expect(tramoEnCurso(P({ fotos_recibo: [{ path: 'a', filename: 'a.jpg' }] }))).toBe(2);
+  });
+  it('detecta si el pedido fue cancelado o desasignado previamente', () => {
+    expect(fueCanceladoPreviamente(P({ estado: 'cancelado', motivo_cancel: 'El proveedor no tiene el pedido listo' }))).toBe(true);
+    expect(fueCanceladoPreviamente(P({ estado: 'por_tomar', motivo_cancel: null }))).toBe(false);
   });
 });

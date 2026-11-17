@@ -201,6 +201,11 @@ export function cerradoPorRecepcion(p: Pick<PedidoDelivery, 'estado' | 'motivo_c
   return p.estado === 'cancelado' && p.motivo_cancel === MOTIVO_RECIBIDA_ALMACEN;
 }
 
+/** ¿El motorizado ya tomó foto al recibir del proveedor pero aún no confirmó el inicio de retorno a sede? */
+export function esRetornoPendiente(p: Pick<PedidoDelivery, 'estado' | 'fotos_recibo'>): boolean {
+  return p.estado === 'aceptado' && (p.fotos_recibo?.length ?? 0) > 0;
+}
+
 /** Etiqueta del estado: un retiro «entregado» no va a un almacén sino a quien lo pidió. */
 export function etiquetaEstado(estado: EstadoDelivery, origen?: OrigenDelivery | null, motivoCancel?: string | null): string {
   if (estado === 'entregado' && origen === 'almacen') return 'Entregado';
