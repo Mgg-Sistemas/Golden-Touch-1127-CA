@@ -24,7 +24,7 @@
    en Inventario (realtime). Editar o desactivar productos es tarea de la PC.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -44,6 +44,8 @@ import {
 } from './depositos';
 import { listAlmacenes } from './almacenes.repository';
 import { FormSalidaMina, ItemsLoteMovil, Listo, PorRetornarMina, itemsLoteListos, type ItemLoteMovil } from './SalidaMinaMovil';
+import { PreSalidasMovilView, type SemillaPreSalida } from './PreSalidaMovil';
+import { listPreSalidas } from './preSalidasMina.repository';
 import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovilView';
 import { HistoricoRecepcionesMovil, RecepcionDeliveryMovil, usePorRecepcionar } from './RecepcionMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
@@ -74,7 +76,7 @@ const SIN_BUSCAR = 15;
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones' | 'recepTraslados' | 'enCamino';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'presalidas' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones' | 'recepTraslados' | 'enCamino';
 
 /** Vista de teléfono del Inventario General. */
 export function InventarioMovilView() {
@@ -105,12 +107,15 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [almacenesList, setAlmacenesList] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
-  const [paso, setPaso] = useState<Paso>('inicio');
+  const [paso, setPaso] = useState<Paso>(() => (searchParams.get('paso') === 'presalidas' ? 'presalidas' : 'inicio'));
+  const [semillaPre, setSemillaPre] = useState<SemillaPreSalida | null>(null);
+  const [preSalidasCount, setPreSalidasCount] = useState(0);
   const [enviosMgg, setEnviosMgg] = useState(false);
   const [elegido, setElegido] = useState<Producto | null>(null);
   const [busca, setBusca] = useState('');
@@ -124,21 +129,31 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const trasPorRecibir = useTrasladosEnTransito({ destino: DEP.almacen }, esMina && canWrite);
   const trasEnCamino = useTrasladosEnTransito({ origen: DEP.almacen }, esGeneral && canWrite);
 
+  useEffect(() => {
+    if (searchParams.get('paso') !== 'presalidas') return;
+    setPaso('presalidas');
+    const next = new URLSearchParams(searchParams);
+    next.delete('paso');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const reload = useCallback(async () => {
     const ps = await listProductos(deposito);
     setProductos(ps.filter((p) => p.estado === 'activo'));
-    const [cats, uds, alms, ret, devs] = await Promise.all([
+    const [cats, uds, alms, ret, devs, pres] = await Promise.all([
       getCategorias(ps),
       getUnidades(ps),
       listAlmacenes().catch(() => [] as Almacen[]),
       listPorRetornarMina(DEP.almacen).catch(() => [] as SalidaMina[]),
       listDevolucionesPendientes('telefono').catch(() => [] as EntregaAlmacen[]),
+      listPreSalidas(DEP.almacen, false).catch(() => []),
     ]);
     setCategorias(cats);
     setUnidades(uds);
     setAlmacenesList(alms);
     setPorRetornar(ret);
     setDevolucionesCount(devs.length);
+    setPreSalidasCount(pres.length);
   }, [deposito, DEP.almacen]);
 
   useEffect(() => {
@@ -149,7 +164,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   }, [reload]);
 
   useRealtime(
-    ['deposito_mina_salidas', 'maquinaria_entregas_almacen', 'deposito_mina_retornos', 'movimientos'],
+    ['deposito_mina_salidas', 'maquinaria_entregas_almacen', 'deposito_mina_retornos', 'movimientos', 'pre_salidas_almacen'],
     () => { void reload().catch(() => {}); },
   );
 
@@ -240,11 +255,17 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             <span>Entrada</span>
             <small>Llegó más de un producto que ya está</small>
           </button>
+          <button type="button" className="surt-btn wsp"
+            onClick={() => { setSemillaPre(null); setElegido(null); setPaso('presalidas'); }}>
+            <span className="icono" aria-hidden>📝</span>
+            <span>Pre-salidas ({preSalidasCount})</span>
+            <small>{preSalidasCount ? `${preSalidasCount} esperando aprobación en WhatsApp` : 'Borrador + enviar a WhatsApp'}</small>
+          </button>
           <button type="button" className="surt-btn salida"
             onClick={() => { setElegido(null); setPaso('salida'); }}>
             <span className="icono" aria-hidden>⬆️</span>
-            <span>Salida</span>
-            <small>Sale material {esReutilizables ? 'de reutilizables' : esMina ? 'del depósito' : 'del inventario'}</small>
+            <span>Salida directa</span>
+            <small>Con autorización · {esReutilizables ? 'reutilizables' : esMina ? 'depósito' : 'inventario'}</small>
           </button>
           {destinosTraslado.some((d) => d.almacen.toLowerCase() !== DEP.almacen.toLowerCase()) && (
           <button type="button" className="surt-btn traslado"
@@ -398,8 +419,23 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
+      {paso === 'presalidas' && (
+        <PreSalidasMovilView
+          almacen={DEP.almacen}
+          productos={productos}
+          actor={actor}
+          actorName={actorName}
+          canWrite={canWrite}
+          semillaInicial={semillaPre}
+          onSemillaConsumida={() => setSemillaPre(null)}
+          onCambioStock={() => { void reload().catch(() => {}); }}
+          onVolver={() => { setSemillaPre(null); volver(); void reload().catch(() => {}); }}
+        />
+      )}
+
       {paso === 'salida' && elegido && (
         <FormSalidaMina producto={elegido} productos={productos} almacen={DEP.almacen} actor={actor} actorName={actorName}
+          onPasarAPreSalida={(semilla) => { setSemillaPre(semilla); setElegido(null); setPaso('presalidas'); }}
           onCancel={() => setElegido(null)}
           onSaved={() => { volver(); void reload().catch(() => {}); }} />
       )}

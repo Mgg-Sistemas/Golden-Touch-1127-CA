@@ -128,8 +128,9 @@ export function Listo({ titulo, texto, onListo, pdf, fotos }: { titulo: string; 
   );
 }
 
-export function FormSalidaMina({ producto, productos = [], almacen, actor, actorName, onCancel, onSaved }: {
+export function FormSalidaMina({ producto, productos = [], almacen, actor, actorName, onPasarAPreSalida, onCancel, onSaved }: {
   producto: Producto; productos?: Producto[]; almacen: string; actor: string; actorName: string | null;
+  onPasarAPreSalida?: (semilla: { items: ItemLoteMovil[]; motivo: string; equipoId: string; equipoNombre: string | null; tipoMant: string; retorna: boolean | null }) => void;
   onCancel: () => void; onSaved: () => void;
 }) {
   const lugar = almacen === 'General' ? 'el inventario' : 'el depósito';
@@ -287,6 +288,28 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
             <small className="muted">Maquinaria recibe la entrega, registra el trabajo con el horómetro y queda en la bitácora de la máquina.</small>
           </div>
         </>
+      )}
+      {onPasarAPreSalida && (
+        <div className="surt-campo" style={{ padding: '.6rem .75rem', borderRadius: 10, border: '1px dashed var(--brand, #ff8a00)', background: 'rgba(255,138,0,.07)' }}>
+          <div style={{ fontSize: '.83rem', marginBottom: '.4rem' }}>
+            <strong>📝 ¿Aún no tienes la aprobación?</strong> Arma una <strong>Pre-salida (borrador)</strong> sin descontar stock y mándala al grupo de WhatsApp para que te la aprueben primero.
+          </div>
+          <button
+            type="button"
+            className="btn btn-wsp btn-grande"
+            disabled={guardando}
+            onClick={() => onPasarAPreSalida({
+              items,
+              motivo: motivo.trim(),
+              equipoId: paraMant ? equipoId : '',
+              equipoNombre: paraMant ? (equipo?.equipo ?? null) : null,
+              tipoMant: paraMant ? tipoMant : '',
+              retorna,
+            })}
+          >
+            📲 Pasar a Pre-salida / Borrador (WhatsApp)
+          </button>
+        </div>
       )}
       <div className="surt-campo">
         <label htmlFor="mina-salida-autorizado">Autorizado por</label>
