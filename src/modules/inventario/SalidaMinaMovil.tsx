@@ -130,8 +130,9 @@ export function Listo({ titulo, texto, onListo, pdf, fotos }: { titulo: string; 
   );
 }
 
-export function FormSalidaMina({ producto, productos = [], almacen, actor, actorName, onPreSalidaGuardada, onCancel, onSaved }: {
+export function FormSalidaMina({ producto, productos = [], almacen, actor, actorName, mostrarPreSalidas = false, onPreSalidaGuardada, onCancel, onSaved }: {
   producto: Producto; productos?: Producto[]; almacen: string; actor: string; actorName: string | null;
+  mostrarPreSalidas?: boolean;
   onPreSalidaGuardada?: (pre: PreSalida) => void;
   onCancel: () => void; onSaved: () => void;
 }) {
@@ -338,7 +339,7 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
       )}
       <div className="surt-campo">
         <label htmlFor="mina-salida-autorizado">
-          Autorizado por <small className="muted">(solo para salida directa; en pre-salida se aprueba por WhatsApp)</small>
+          Autorizado por {mostrarPreSalidas && <small className="muted">(solo para salida directa; en pre-salida se aprueba por WhatsApp)</small>}
         </label>
         <div className="surt-buscable">
           <SearchSelect id="mina-salida-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Busca quién autorizó…"
@@ -376,21 +377,27 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
         )}
       </div>
       <div style={{ display: 'grid', gap: '.5rem', marginTop: '.75rem' }}>
-        <button
-          type="button"
-          className="btn btn-ghost btn-grande"
-          style={{ borderColor: 'var(--warning)', color: 'var(--text)', fontWeight: 600 }}
-          disabled={guardando || guardandoPre || !!malItems || motivo.trim().length < 3 || (!!paraMant && !equipoId)}
-          onClick={() => void guardarComoPreSalida()}
-        >
-          {guardandoPre ? 'Guardando pre-salida…' : '⏳ Guardar Pre-salida y pedir autorización (WhatsApp)'}
-        </button>
+        {mostrarPreSalidas && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-grande"
+            style={{ borderColor: 'var(--warning)', color: 'var(--text)', fontWeight: 600 }}
+            disabled={guardando || guardandoPre || !!malItems || motivo.trim().length < 3 || (!!paraMant && !equipoId)}
+            onClick={() => void guardarComoPreSalida()}
+          >
+            {guardandoPre ? 'Guardando pre-salida…' : '⏳ Guardar Pre-salida y pedir autorización (WhatsApp)'}
+          </button>
+        )}
         <button
           type="submit"
           className="btn btn-primary surt-guardar"
           disabled={guardando || guardandoPre || !!malItems || retorna === null || paraMant === null || (!!paraMant && !equipoId) || !autorizado.trim()}
         >
-          {guardando ? 'Guardando…' : items.length === 1 ? '✓ Salida directa con autorización' : `✓ Salida directa (${items.length} productos)`}
+          {guardando
+            ? 'Guardando…'
+            : mostrarPreSalidas
+              ? (items.length === 1 ? '✓ Salida directa con autorización' : `✓ Salida directa (${items.length} productos)`)
+              : (items.length === 1 ? '✓ Guardar salida' : `✓ Guardar salida (${items.length} productos)`)}
         </button>
       </div>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando || guardandoPre}>← Otro material</button>

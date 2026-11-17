@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CLAVE_INTERRUPTOR_PRESALIDAS,
+  PRESALIDAS_HABILITADAS,
   desempaquetarPreSalidaPng,
   empaquetarPreSalidaPng,
   filtrarPreSalidas,
@@ -10,6 +12,11 @@ import {
 } from './presalidas';
 
 describe('presalidas de inventario (flujo MGG en vista teléfono)', () => {
+  it('queda listo pero oculto por defecto hasta que se active', () => {
+    expect(PRESALIDAS_HABILITADAS).toBe(false);
+    expect(CLAVE_INTERRUPTOR_PRESALIDAS).toBe('inventario_presalidas');
+  });
+
   it('genera correlativos de pre-salida correctamente', () => {
     expect(siguienteCodigoPreSalida([], 2026)).toBe('PRE-2026-0001');
     expect(siguienteCodigoPreSalida([{ codigo: 'PRE-2026-0001' }], 2026)).toBe('PRE-2026-0002');

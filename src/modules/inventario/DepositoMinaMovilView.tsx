@@ -46,7 +46,8 @@ import { listAlmacenes } from './almacenes.repository';
 import { FormSalidaMina, ItemsLoteMovil, Listo, PorRetornarMina, itemsLoteListos, type ItemLoteMovil } from './SalidaMinaMovil';
 import { PreSalidasView } from './PreSalidasView';
 import { listPreSalidas } from './presalidas.repository';
-import { mensajePreSalidaWhatsapp, type PreSalida } from './presalidas';
+import { CLAVE_INTERRUPTOR_PRESALIDAS, PRESALIDAS_HABILITADAS, mensajePreSalidaWhatsapp, type PreSalida } from './presalidas';
+import { useInterruptor } from '@/shared/lib/interruptores';
 import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovilView';
 import { HistoricoRecepcionesMovil, RecepcionDeliveryMovil, usePorRecepcionar } from './RecepcionMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
@@ -135,10 +136,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const trasPorRecibir = useTrasladosEnTransito({ destino: DEP.almacen }, esMina && canWrite);
   const trasEnCamino = useTrasladosEnTransito({ origen: DEP.almacen }, esGeneral && canWrite);
 
+  const interruptorPresalidas = useInterruptor(CLAVE_INTERRUPTOR_PRESALIDAS);
+  const mostrarPreSalidas = PRESALIDAS_HABILITADAS || interruptorPresalidas;
   const cargarPresalidas = useCallback(async () => {
+    if (!mostrarPreSalidas) { setPresalidas([]); return; }
     try { setPresalidas(await listPreSalidas(DEP.almacen, true)); }
     catch { setPresalidas([]); }
-  }, [DEP.almacen]);
+  }, [DEP.almacen, mostrarPreSalidas]);
   useEffect(() => { void cargarPresalidas(); }, [cargarPresalidas]);
   useRealtime(['inventario_presalidas'], () => { void cargarPresalidas(); });
 
@@ -308,6 +312,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             <span>Por retornar ({totalRetornos})</span>
             <small>{totalRetornos ? `${totalRetornos} ${totalRetornos === 1 ? 'pendiente' : 'pendientes'} por volver` : 'Sin pendientes'}</small>
           </button>
+          {mostrarPreSalidas && (
           <button type="button" className="surt-btn"
             style={{ borderColor: 'var(--warning)', background: presalidas.length ? 'rgba(234, 179, 8, 0.08)' : undefined }}
             onClick={() => setPaso('presalidas')}>
@@ -315,6 +320,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             <span>Pre-salidas ({presalidas.length})</span>
             <small>{presalidas.length ? `${presalidas.length} borrador(es) por autorizar` : 'Borradores para WhatsApp'}</small>
           </button>
+          )}
         </div>
       )}
 
@@ -491,7 +497,8 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
 
       {paso === 'salida' && elegido && (
         <FormSalidaMina producto={elegido} productos={productos} almacen={DEP.almacen} actor={actor} actorName={actorName}
-          onPreSalidaGuardada={(pre) => {
+          mostrarPreSalidas={mostrarPreSalidas}
+          onPreSalidaGuardada={mostrarPreSalidas ? (pre) => {
             setListoPre({
               titulo: `Pre-salida ${pre.codigo} lista`,
               texto: mensajePreSalidaWhatsapp(pre, actorName ?? actor),
@@ -500,7 +507,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             setElegido(null);
             void reload().catch(() => {});
             void cargarPresalidas().catch(() => {});
-          }}
+          } : undefined}
           onCancel={() => setElegido(null)}
           onSaved={() => { volver(); void reload().catch(() => {}); void cargarPresalidas().catch(() => {}); }} />
       )}

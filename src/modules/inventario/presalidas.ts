@@ -11,6 +11,14 @@
 import { norm } from '@/shared/lib/texto';
 import { fechaHoraVE, num } from './salidasMina';
 
+/**
+ * Interruptor de Pre-salidas: queda listo en código pero OCULTO por defecto (`false`).
+ * Cuando se solicite activarlo, basta pasar `PRESALIDAS_HABILITADAS = true` o encender
+ * la clave `inventario_presalidas` en `sistema_interruptores`.
+ */
+export const PRESALIDAS_HABILITADAS = false;
+export const CLAVE_INTERRUPTOR_PRESALIDAS = 'inventario_presalidas';
+
 export interface LineaPreSalida {
   productoId: string;
   productoNombre: string;
