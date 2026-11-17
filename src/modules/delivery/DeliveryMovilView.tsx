@@ -113,6 +113,10 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
     }
   }, [canal]);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   useEffect(() => { void reload(); }, [reload]);
   useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => { void reload(); });
 
