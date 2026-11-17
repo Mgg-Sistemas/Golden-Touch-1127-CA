@@ -432,7 +432,7 @@ const INFORMES_MOVIMIENTOS: Array<{ clave: InformeMovimientos; nombre: string }>
   { clave: 'auxiliares', nombre: 'Movimientos de Auxiliares' },
 ];
 
-function MovimientosCuentasVista({ parametros }: { parametros: ContParametros }) {
+function MovimientosCuentasVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
   const [informe, setInforme] = useState<InformeMovimientos>('cuenta');
   return (
     <div className="cont-movimientos">
@@ -445,14 +445,14 @@ function MovimientosCuentasVista({ parametros }: { parametros: ContParametros })
         ))}
       </div>
       <div>
-        {informe === 'cuenta' && <MayorAnaliticoVista parametros={parametros} titulo="Movimiento de una Cuenta" />}
-        {informe === 'auxiliares' && <MovimientosAuxiliaresVista parametros={parametros} />}
+        {informe === 'cuenta' && <MayorAnaliticoVista parametros={parametros} titulo="Movimiento de una Cuenta" empresaClave={empresaClave} />}
+        {informe === 'auxiliares' && <MovimientosAuxiliaresVista parametros={parametros} empresaClave={empresaClave} />}
       </div>
     </div>
   );
 }
 
-function MovimientosAuxiliaresVista({ parametros }: { parametros: ContParametros }) {
+function MovimientosAuxiliaresVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
   const ej = useEjercicio();
   const [auxiliares, setAuxiliares] = useState<ContAuxiliar[]>([]);
   const [desde, setDesde] = useState('');
@@ -465,10 +465,10 @@ function MovimientosAuxiliaresVista({ parametros }: { parametros: ContParametros
   const [datos, setDatos] = useState<AuxiliarMayor[] | null>(null);
 
   useEffect(() => {
-    listAuxiliares()
+    listAuxiliares(empresaClave)
       .then(setAuxiliares)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los auxiliares.', 'error'));
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => {
     if (ej === undefined) return;
@@ -479,10 +479,10 @@ function MovimientosAuxiliaresVista({ parametros }: { parametros: ContParametros
 
   useEffect(() => {
     if (!desde || !hasta) return;
-    getMovimientosAuxiliares({ desde, hasta, moneda, tipo, auxiliarDesde: auxDesde, auxiliarHasta: auxHasta || auxDesde, incluirSinMovimiento: sinMovimiento })
+    getMovimientosAuxiliares({ desde, hasta, moneda, tipo, auxiliarDesde: auxDesde, auxiliarHasta: auxHasta || auxDesde, incluirSinMovimiento: sinMovimiento }, empresaClave)
       .then(setDatos)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo armar el informe.', 'error'));
-  }, [desde, hasta, moneda, tipo, auxDesde, auxHasta, sinMovimiento]);
+  }, [desde, hasta, moneda, tipo, auxDesde, auxHasta, sinMovimiento, empresaClave]);
 
   // Desde y Hasta son códigos dentro del tipo elegido (sin tipo, de todos).
   const opciones = useMemo(() => auxiliares
