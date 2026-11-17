@@ -43,6 +43,7 @@ import {
 import { AlmacenSimulado, almacen as almacenDeLaApp } from './simulacion/almacen';
 import { AlmacenCambios, almacenCambios as almacenCambiosDeLaApp } from './simulacion/almacenCambios';
 import { cargarDocumentos } from './simulacion/datosBd';
+import { PARAMETROS_GT, CENTROS_COSTO_GT, generarPlanCuentasGT } from './planCuentasGt';
 import type {
   ContAuxiliar, ContCambio, ContCentroCosto, ContCierre, ContComprobante, ContComprobanteLinea, ContCuenta, ContEjercicio, ContIntegracion,
   ContEsquemaEf, ContMapeo, ContMoneda, ContMonedaLocal, ContPais, ContTasa, ContParametros, ContPeriodo, ContRegla, ContReglaLinea, ContTipoComprobante, CuentaInput, EstadoSimulacion, Moneda,
@@ -920,9 +921,33 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     });
   }
 
+  async function aplicarPlanGoldenTouch(): Promise<void> {
+    await almacen.modificar((estado) => {
+      estado.cont_parametros.empresa_nombre = PARAMETROS_GT.empresa_nombre;
+      estado.cont_parametros.centro_costo_defecto_id = PARAMETROS_GT.centro_costo_defecto_id;
+      for (const cc of CENTROS_COSTO_GT) {
+        const existe = estado.cont_centros_costo.find((x) => x.codigo === cc.codigo);
+        if (existe) {
+          Object.assign(existe, cc);
+        } else {
+          estado.cont_centros_costo.push(cc as ContCentroCosto);
+        }
+      }
+      const cuentasGT = generarPlanCuentasGT();
+      for (const cta of cuentasGT) {
+        const existe = estado.cont_cuentas.find((x) => x.codigo === cta.codigo);
+        if (existe) {
+          Object.assign(existe, cta);
+        } else {
+          estado.cont_cuentas.push(cta);
+        }
+      }
+    });
+  }
+
   return {
     listCuentas, getParametros, listEjercicios, listPeriodos, listMonedas, listTiposComprobante,
-    crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo,
+    crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanGoldenTouch,
     listCentrosCosto, listAuxiliares, getTasa, listComprobantes, getComprobante,
     grabarComprobante, reversarComprobante,
     getLibroDiario, getMayorAnalitico, getMovimientosAuxiliares, getBalanceComprobacion,
@@ -1061,7 +1086,7 @@ const repo = crearRepositorio(almacenDeLaApp, FUENTES_BD, almacenCambiosDeLaApp)
 
 export const {
   listCuentas, getParametros, listEjercicios, listPeriodos, listMonedas, listTiposComprobante,
-  crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo,
+  crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanGoldenTouch,
   listCentrosCosto, listAuxiliares, getTasa, listComprobantes, getComprobante,
   grabarComprobante, reversarComprobante,
   getLibroDiario, getMayorAnalitico, getMovimientosAuxiliares, getBalanceComprobacion,
