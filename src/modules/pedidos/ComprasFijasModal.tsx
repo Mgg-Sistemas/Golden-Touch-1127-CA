@@ -36,12 +36,13 @@ const NUEVA: CompraFijaEditable = {
   proveedor_id: null, proveedor_nombre: null, categorias: [], productos: [], nota: '', orden: 0,
 };
 
-export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGenerarSolicitud, onGenerarDirecta, onClose }: {
+export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGenerarSolicitud, onGenerarDirecta, onProductoCreado, onClose }: {
   productos: Producto[];
   proveedores: Proveedor[];
   puedeEditar: boolean;
   onGenerarSolicitud: (c: CompraFija) => void;
   onGenerarDirecta: (c: CompraFija) => Promise<void>;
+  onProductoCreado?: () => void;
   onClose: () => void;
 }) {
   const [lista, setLista] = useState<CompraFija[] | null>(null);
@@ -86,6 +87,7 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
   if (editando) {
     return (
       <EditorCompraFija inicial={editando.datos} id={editando.id} sugerencia={!!editando.sugerencia} productos={productos} proveedores={proveedores}
+        onProductoCreado={onProductoCreado}
         onClose={() => setEditando(null)} onGuardada={() => { setEditando(null); void cargar(); }} />
     );
   }
@@ -145,6 +147,8 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
                   {textoFrecuencia(c)} · {c.modo === 'compra_directa' ? 'Compra directa' : 'Solicitud de pedido → OC'}
                   <br />Próxima: <strong>{fecha(c.proxima_fecha)}</strong>
                   {c.ultima_codigo && <> · Última: <span className="mono">{c.ultima_codigo}</span> ({fecha(c.ultima_generada_en)})</>}
+                  {c.productos.length > 0 && <><br />📋 Lista fija: <strong>{c.productos.length} material{c.productos.length === 1 ? '' : 'es'}</strong></>}
+                  {!c.productos.length && c.categorias.length > 0 && <><br />🗂 Categorías: {c.categorias.join(', ')}</>}
                   {c.proveedor_nombre && <><br />Proveedor: {c.proveedor_nombre}</>}
                 </div>
                 <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginTop: '.4rem' }}>
@@ -199,11 +203,14 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
   );
 }
 
-function EditorCompraFija({ inicial, id, sugerencia = false, productos, proveedores, onClose, onGuardada }: {
+function EditorCompraFija({ inicial, id, sugerencia = false, productos, proveedores, onProductoCreado, onClose, onGuardada }: {
   inicial: CompraFijaEditable; id: string | null; sugerencia?: boolean; productos: Producto[]; proveedores: Proveedor[];
-  onClose: () => void; onGuardada: () => void;
+  onProductoCreado?: () => void; onClose: () => void; onGuardada: () => void;
 }) {
   const [d, setD] = useState<CompraFijaEditable>(inicial);
+  const [modoSeleccion, setModoSeleccion] = useState<'lista' | 'categorias'>(
+    inicial.productos.length > 0 || !inicial.categorias.length ? 'lista' : 'categorias',
+  );
   const [catTxt, setCatTxt] = useState(inicial.categorias.join(', '));
   const [prodSel, setProdSel] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -252,6 +259,7 @@ function EditorCompraFija({ inicial, id, sugerencia = false, productos, proveedo
         sku, nombre: nombreNuevo, categoria: categoriaNueva, unidad: unidad.trim() || 'und',
         almacen: 'General', stock: 0, stock_min: 0, precio: 0, estado: 'activo',
       });
+      onProductoCreado?.();
       terminarAlta(producto);
       toast('Producto creado en Inventario y añadido. Guarda la compra fija para conservarlo en la plantilla.', 'success');
     } catch (e) {
@@ -263,7 +271,9 @@ function EditorCompraFija({ inicial, id, sugerencia = false, productos, proveedo
 
   async function guardar() {
     if (creando) return;
-    const datos = { ...d, categorias };
+    const datos = modoSeleccion === 'lista'
+      ? { ...d, categorias: [], productos: d.productos }
+      : { ...d, categorias, productos: [] };
     const mal = errorPlantilla(datos);
     if (mal) { toast(mal, 'error'); return; }
     setGuardando(true);
@@ -365,51 +375,70 @@ function EditorCompraFija({ inicial, id, sugerencia = false, productos, proveedo
       </div>
 
       <div className="card" style={{ background: 'var(--surface-2)' }}>
-        <div className="form-row" style={{ margin: 0 }}>
-          <label>Categorías que entran (separadas por coma; basta una parte: «papel» trae PAPELERÍA)</label>
-          <input className="input" value={catTxt} onChange={(e) => setCatTxt(e.target.value)} placeholder="papel, oficina" />
-          <small className="muted">
-            Entran {porCategoria.length} producto{porCategoria.length === 1 ? '' : 's'} por categoría
-            {porCategoria.length > 0 && <>: {porCategoria.slice(0, 6).map((p) => p.nombre).join(', ')}{porCategoria.length > 6 ? '…' : ''}</>}
-          </small>
-        </div>
-        <div className="form-row" style={{ margin: '.6rem 0 0' }}>
-          <label>Productos fijos (además de los de las categorías)</label>
-          <SearchSelect options={opciones} value={prodSel} onChange={(v) => {
-            const producto = productos.find((p) => p.id === v);
-            if (producto) agregarProducto(producto);
-          }} placeholder="🔍 Agregar un producto…" />
-          <button type="button" className="btn btn-ghost" disabled={creando || guardando} onClick={() => setAlta(!alta)}>
-            {alta ? 'Cerrar alta de producto' : '＋ Crear producto nuevo'}
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${modoSeleccion === 'lista' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setModoSeleccion('lista')}
+          >
+            📋 Lista de materiales específica
           </button>
-          {alta && (
-            <div style={{ display: 'grid', gap: '.5rem', margin: '.5rem 0' }}>
-              <label>Nombre del producto<input className="input" value={nombre} disabled={creando} onChange={(e) => setNombre(e.target.value)} /></label>
-              <label htmlFor="compra-fija-producto-categoria">Categoría</label>
-              <CategoriaProductoSelect id="compra-fija-producto-categoria" value={categoria} disabled={creando} onChange={setCategoria} />
-              <label>Unidad<input className="input" value={unidad} disabled={creando} onChange={(e) => setUnidad(e.target.value)} /></label>
-              <button type="button" className="btn btn-primary" disabled={creando || guardando} onClick={() => void altaProducto()}>
-                {creando ? 'Creando…' : 'Crear y añadir'}
-              </button>
-            </div>
-          )}
-          {parecidos.length > 0 && (
-            <ProductoParecidoModal nombreNuevo={nombre.trim()} categoriaNueva={categoria} unidadNueva={unidad.trim() || 'und'}
-              parecidos={parecidos} creando={creando} onUsarExistente={terminarAlta}
-              onCrearIgual={() => void altaProducto(true)} onClose={() => setParecidos([])} />
-          )}
-          {d.productos.map((f, i) => (
-            <div key={f.producto_id} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.35rem' }}>
-              <span style={{ flex: 1 }}>{f.nombre} <span className="muted mono" style={{ fontSize: '.75rem' }}>{f.sku}</span></span>
-              <input className="input" type="number" min={0} step="any" style={{ width: '6rem' }} value={f.cantidad || ''}
-                aria-label={`Cantidad de ${f.nombre}`}
-                onChange={(e) => set('productos', d.productos.map((x, j) => (j === i ? { ...x, cantidad: Number(e.target.value) || 0 } : x)))} />
-              <span className="muted" style={{ width: '3.5rem' }}>{f.unidad}</span>
-              <button className="btn btn-ghost btn-sm" aria-label={`Quitar ${f.nombre}`} onClick={() => set('productos', d.productos.filter((_, j) => j !== i))}>✕</button>
-            </div>
-          ))}
-          <small className="muted">La cantidad de aquí se usa solo la primera vez; después sale la de la última compra.</small>
+          <button
+            type="button"
+            className={`btn btn-sm ${modoSeleccion === 'categorias' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setModoSeleccion('categorias')}
+          >
+            🗂 Por categorías de inventario
+          </button>
         </div>
+        {modoSeleccion === 'categorias' ? (
+          <div className="form-row" style={{ margin: 0 }}>
+            <label>Categorías que entran (separadas por coma; basta una parte: «papel» trae PAPELERÍA)</label>
+            <input className="input" value={catTxt} onChange={(e) => setCatTxt(e.target.value)} placeholder="papel, oficina" />
+            <small className="muted">
+              Entran {porCategoria.length} producto{porCategoria.length === 1 ? '' : 's'} por categoría
+              {porCategoria.length > 0 && <>: {porCategoria.slice(0, 6).map((p) => p.nombre).join(', ')}{porCategoria.length > 6 ? '…' : ''}</>}
+            </small>
+          </div>
+        ) : (
+          <div className="form-row" style={{ margin: 0 }}>
+            <label>Materiales establecidos para esta compra fija</label>
+            <SearchSelect options={opciones} value={prodSel} onChange={(v) => {
+              const producto = productos.find((p) => p.id === v);
+              if (producto) agregarProducto(producto);
+            }} placeholder="🔍 Agregar un producto…" />
+            <button type="button" className="btn btn-ghost" disabled={creando || guardando} onClick={() => setAlta(!alta)}>
+              {alta ? 'Cerrar alta de producto' : '＋ Crear producto nuevo'}
+            </button>
+            {alta && (
+              <div style={{ display: 'grid', gap: '.5rem', margin: '.5rem 0' }}>
+                <label>Nombre del producto<input className="input" value={nombre} disabled={creando} onChange={(e) => setNombre(e.target.value)} /></label>
+                <label htmlFor="compra-fija-producto-categoria">Categoría</label>
+                <CategoriaProductoSelect id="compra-fija-producto-categoria" value={categoria} disabled={creando} onChange={setCategoria} />
+                <label>Unidad<input className="input" value={unidad} disabled={creando} onChange={(e) => setUnidad(e.target.value)} /></label>
+                <button type="button" className="btn btn-primary" disabled={creando || guardando} onClick={() => void altaProducto()}>
+                  {creando ? 'Creando…' : 'Crear y añadir'}
+                </button>
+              </div>
+            )}
+            {parecidos.length > 0 && (
+              <ProductoParecidoModal nombreNuevo={nombre.trim()} categoriaNueva={categoria} unidadNueva={unidad.trim() || 'und'}
+                parecidos={parecidos} creando={creando} onUsarExistente={terminarAlta}
+                onCrearIgual={() => void altaProducto(true)} onClose={() => setParecidos([])} />
+            )}
+            {d.productos.map((f, i) => (
+              <div key={f.producto_id} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.35rem' }}>
+                <span style={{ flex: 1 }}>{f.nombre} <span className="muted mono" style={{ fontSize: '.75rem' }}>{f.sku}</span></span>
+                <input className="input" type="number" min={0} step="any" style={{ width: '6rem' }} value={f.cantidad || ''}
+                  aria-label={`Cantidad de ${f.nombre}`}
+                  onChange={(e) => set('productos', d.productos.map((x, j) => (j === i ? { ...x, cantidad: Number(e.target.value) || 0 } : x)))} />
+                <span className="muted" style={{ width: '3.5rem' }}>{f.unidad}</span>
+                <button className="btn btn-ghost btn-sm" aria-label={`Quitar ${f.nombre}`} onClick={() => set('productos', d.productos.filter((_, j) => j !== i))}>✕</button>
+              </div>
+            ))}
+            <small className="muted">Se generará únicamente con los materiales y cantidades establecidos en esta lista (sin traer productos de otras compras).</small>
+          </div>
+        )}
       </div>
       <div className="form-row" style={{ marginTop: '.6rem' }}>
         <label>Nota (va en la solicitud)</label>

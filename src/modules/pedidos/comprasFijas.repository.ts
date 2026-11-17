@@ -80,16 +80,32 @@ export async function marcarCompraFijaGenerada(c: CompraFija, ref: { tipo: 'orde
   if (error) throw err(error, 'No se pudo actualizar la compra fija.');
 }
 
-/** Los renglones de la última vez que se generó esta plantilla (solicitud o compra directa). */
+const ESTADOS_DESCARTADOS_FIJA = new Set(['cancelada', 'rechazada', 'desistida_proveedor', 'reasignada']);
+
+/** Los renglones de la última vez que se generó esta plantilla (solo aplica a plantillas por categoría). */
 export async function ultimosItemsDe(c: CompraFija): Promise<{ items: Array<Pick<ItemOrden, 'productoId' | 'sku' | 'cantidad'>>; codigo: string | null; fecha: string | null }> {
-  const [o, cd] = await Promise.all([
-    supabase.from('ordenes').select('codigo, items, created_at').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('compras_directas').select('codigo, items, created_at').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-  ]);
-  type FilaO = { codigo: string; items: ItemOrden[] | null; created_at: string };
-  type FilaCd = { codigo: string | null; items: Array<{ producto_id: string; producto_sku: string | null; cantidad: number }> | null; created_at: string };
-  const ord = (o.data ?? null) as FilaO | null;
-  const comp = (cd.data ?? null) as FilaCd | null;
+  if ((c.productos?.length ?? 0) > 0) {
+    return { items: [], codigo: null, fecha: null };
+  }
+  const consultarOrdenes = async () => {
+    const r = await supabase.from('ordenes').select('codigo, items, created_at, estado, eliminado_en').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(10);
+    if (r.error && /eliminado_en/i.test(r.error.message ?? '')) {
+      return supabase.from('ordenes').select('codigo, items, created_at, estado').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(10);
+    }
+    return r;
+  };
+  const consultarDirectas = async () => {
+    const r = await supabase.from('compras_directas').select('codigo, items, created_at, estado, eliminado_en').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(10);
+    if (r.error && /eliminado_en/i.test(r.error.message ?? '')) {
+      return supabase.from('compras_directas').select('codigo, items, created_at, estado').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(10);
+    }
+    return r;
+  };
+  const [o, cd] = await Promise.all([consultarOrdenes(), consultarDirectas()]);
+  type FilaO = { codigo: string; items: ItemOrden[] | null; created_at: string; estado?: string | null; eliminado_en?: string | null };
+  type FilaCd = { codigo: string | null; items: Array<{ producto_id: string; producto_sku: string | null; cantidad: number }> | null; created_at: string; estado?: string | null; eliminado_en?: string | null };
+  const ord = ((o.data ?? []) as FilaO[]).find((x) => !x.eliminado_en && !ESTADOS_DESCARTADOS_FIJA.has(String(x.estado ?? ''))) ?? null;
+  const comp = ((cd.data ?? []) as FilaCd[]).find((x) => !x.eliminado_en && !ESTADOS_DESCARTADOS_FIJA.has(String(x.estado ?? ''))) ?? null;
   if (ord && (!comp || ord.created_at >= comp.created_at)) {
     return { items: (ord.items ?? []).filter((i) => i.comprar !== false), codigo: ord.codigo, fecha: ord.created_at };
   }
@@ -107,13 +123,21 @@ export interface GeneradaFija { tipo: 'orden' | 'compra_directa'; id: string; co
 /** Historial de una plantilla: sus solicitudes y compras directas. */
 export async function historialCompraFija(id: string): Promise<GeneradaFija[]> {
   const [o, cd] = await Promise.all([
-    supabase.from('ordenes').select('id, codigo, oc_codigo, created_at, estado, total').eq('compra_fija_id', id).order('created_at', { ascending: false }).limit(50),
-    supabase.from('compras_directas').select('id, codigo, created_at, estado, gasto').eq('compra_fija_id', id).order('created_at', { ascending: false }).limit(50),
+    supabase.from('ordenes').select('id, codigo, oc_codigo, created_at, estado, total, eliminado_en').eq('compra_fija_id', id).order('created_at', { ascending: false }).limit(50),
+    supabase.from('compras_directas').select('id, codigo, created_at, estado, gasto, eliminado_en').eq('compra_fija_id', id).order('created_at', { ascending: false }).limit(50),
   ]);
-  if (o.error) throw err(o.error, 'No se pudo leer el historial.');
-  const ords = ((o.data ?? []) as Array<Pick<Orden, 'id' | 'codigo' | 'oc_codigo' | 'created_at' | 'estado' | 'total'>>)
+  const oRes = o.error && /eliminado_en/i.test(o.error.message ?? '')
+    ? await supabase.from('ordenes').select('id, codigo, oc_codigo, created_at, estado, total').eq('compra_fija_id', id).order('created_at', { ascending: false }).limit(50)
+    : o;
+  const cdRes = cd.error && /eliminado_en/i.test(cd.error.message ?? '')
+    ? await supabase.from('compras_directas').select('id, codigo, created_at, estado, gasto').eq('compra_fija_id', id).order('created_at', { ascending: false }).limit(50)
+    : cd;
+  if (oRes.error) throw err(oRes.error, 'No se pudo leer el historial.');
+  const ords = ((oRes.data ?? []) as Array<Pick<Orden, 'id' | 'codigo' | 'oc_codigo' | 'created_at' | 'estado' | 'total'> & { eliminado_en?: string | null }>)
+    .filter((x) => !x.eliminado_en)
     .map((x) => ({ tipo: 'orden' as const, id: x.id, codigo: x.oc_codigo ?? x.codigo, fecha: x.created_at, estado: x.estado, total: Number(x.total) || null }));
-  const cds = ((cd.data ?? []) as Array<{ id: string; codigo: string | null; created_at: string; estado: string; gasto: number | null }>)
+  const cds = ((cdRes.data ?? []) as Array<{ id: string; codigo: string | null; created_at: string; estado: string; gasto: number | null; eliminado_en?: string | null }>)
+    .filter((x) => !x.eliminado_en)
     .map((x) => ({ tipo: 'compra_directa' as const, id: x.id, codigo: x.codigo, fecha: x.created_at, estado: x.estado, total: x.gasto == null ? null : Number(x.gasto) }));
   return [...ords, ...cds].sort((a, b) => b.fecha.localeCompare(a.fecha));
 }

@@ -591,19 +591,27 @@ export function PedidosPage() {
   );
   function generarSolicitudFija(c: CompraFija) {
     setComprasFijasOpen(false);
-    setModal({ kind: 'create', mercado: c.finalidad === FINALIDAD_MERCADO, compraFija: c });
+    setModal({ kind: 'create', mercado: false, compraFija: c });
   }
   async function generarCompraDirectaFija(c: CompraFija) {
     try {
-      const previo = await ultimosItemsDe(c);
-      const renglones = renglonesDePlantilla(c, productos, cantidadesPrevias(previo.items));
+      const tieneLista = c.productos.length > 0;
+      const previo = tieneLista ? { items: [], codigo: null, fecha: null } : await ultimosItemsDe(c);
+      const renglones = renglonesDePlantilla(c, productos, tieneLista ? new Map() : cantidadesPrevias(previo.items));
       if (!renglones.length) { toast('La compra fija no tiene productos: edítala y agrega categorías o productos.', 'error'); return; }
+      const conocidos = new Set(productos.map((p) => p.id));
+      const extrasCatalogo: Producto[] = renglones
+        .filter((r) => r.productoId && !conocidos.has(r.productoId))
+        .map((r) => ({
+          id: r.productoId!, sku: r.sku, nombre: r.nombre, categoria: 'GENERAL',
+          unidad: r.unidad || 'und', almacen: 'General', stock: 0, stock_min: 0, precio: 0, estado: 'activo',
+        } as Producto));
       const creada = await crearCompraDirectaFija({
         lineas: renglones.filter((r) => r.productoId).map((r) => ({ modo: 'existente' as const, productoId: r.productoId!, cantidad: Number(r.cantidad) || 1 })),
         almacen: 'General', proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre,
         nota: c.nota || `Compra fija: ${c.nombre}`, compraFijaId: c.id,
         actor: usuario?.email ?? user?.email ?? 'sistema', actorName: usuario?.nombre ?? null,
-      }, productos);
+      }, [...productos, ...extrasCatalogo]);
       await marcarCompraFijaGenerada(c, { tipo: 'compra_directa', id: creada.id, codigo: creada.codigo }).catch(() => { /* la compra ya quedó */ });
       toast(`Compra directa ${creada.codigo ?? ''} creada en proceso con ${renglones.length} producto(s): ajusta cantidades y precios.`, 'success');
       setComprasFijasOpen(false);
@@ -928,7 +936,7 @@ export function PedidosPage() {
                   {a.nota ? <> · <em>{a.nota}</em></> : null}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={() => setModal({ kind: 'create', mercado: true, compraFija: plantillaMercado })} title="Crear la Solicitud de Pedido de MERCADO">
+              <button className="btn btn-primary" onClick={() => setModal({ kind: 'create', mercado: !(plantillaMercado && plantillaMercado.productos.length > 0), compraFija: plantillaMercado })} title="Crear la Solicitud de Pedido de MERCADO">
                 🛒 Montar mercado
               </button>
               <button className="btn btn-ghost" onClick={() => void atenderAlerta(a.id)} title="Marcar como atendida (quitar la alerta)">
@@ -1187,6 +1195,7 @@ export function PedidosPage() {
       {comprasFijasOpen && (
         <ComprasFijasModal productos={productos} proveedores={proveedores} puedeEditar={canManageProcurement}
           onGenerarSolicitud={generarSolicitudFija} onGenerarDirecta={generarCompraDirectaFija}
+          onProductoCreado={() => void refresh()}
           onClose={() => setComprasFijasOpen(false)} />
       )}
 
@@ -4652,8 +4661,8 @@ function CrearOrdenModal({
     return () => { vivo = false; };
   }, []);
   const rolCreador = usuario?.role ?? rol ?? null;
-  const modoGenerico = spConNombresGenericos({ revisionAlmacenActiva: revisionAlmacenActiva === true, rol: rolCreador, mercado: !!mercadoInicial });
-  const cargandoModo = revisionAlmacenActiva === null && !mercadoInicial;
+  const modoGenerico = spConNombresGenericos({ revisionAlmacenActiva: revisionAlmacenActiva === true, rol: rolCreador, mercado: !!mercadoInicial || !!compraFija });
+  const cargandoModo = revisionAlmacenActiva === null && !mercadoInicial && !compraFija;
   // Alta de un nombre genérico (inputs NO controlados: un re-render no corta lo tecleado).
   const genNombreRef = useRef<HTMLInputElement>(null);
   const genCantRef = useRef<HTMLInputElement>(null);
@@ -4754,20 +4763,24 @@ function CrearOrdenModal({
   const mercadoCargado = useRef(false);
   // De qué solicitud salieron las cantidades sugeridas (para decirlo en pantalla).
   const [mercadoPrevio, setMercadoPrevio] = useState<{ codigo: string; fecha: string } | null>(null);
-  // COMPRA FIJA (12/11/2026): los productos de la plantilla (categorías + fijos) con las
-  // cantidades de la última vez que se generó (si nunca, las del mercado anterior o 1).
+  // COMPRA FIJA (12/11/2026): si la plantilla tiene lista de materiales establecida,
+  // se usa EXCLUSIVAMENTE esa lista y sus cantidades (sin traer compras anteriores ni mercado).
   const [fijaPrevio, setFijaPrevio] = useState<{ codigo: string; fecha: string } | null>(null);
   const fijaCargada = useRef(false);
   useEffect(() => {
-    if (!compraFija || fijaCargada.current || !productos.length) return;
+    if (!compraFija || fijaCargada.current) return;
+    const tieneLista = compraFija.productos.length > 0;
+    if (!tieneLista && !productos.length) return;
     fijaCargada.current = true;
     let vivo = true;
     void (async () => {
-      let previo = await ultimosItemsDe(compraFija).catch(() => ({ items: [], codigo: null, fecha: null }));
-      if (!previo.codigo && compraFija.finalidad === FINALIDAD_MERCADO) {
-        const m = await getUltimaCompraMercado().catch(() => null);
-        if (m) previo = { items: m.items ?? [], codigo: m.codigo, fecha: m.created_at };
+      if (tieneLista) {
+        if (!vivo) return;
+        setItems(renglonesDePlantilla(compraFija, productos, new Map()));
+        setFijaPrevio(null);
+        return;
       }
+      const previo = await ultimosItemsDe(compraFija).catch(() => ({ items: [], codigo: null, fecha: null }));
       if (!vivo) return;
       setItems(renglonesDePlantilla(compraFija, productos, cantidadesPrevias(previo.items)));
       if (previo.codigo && previo.fecha) setFijaPrevio({ codigo: previo.codigo, fecha: previo.fecha });
@@ -5085,8 +5098,8 @@ function CrearOrdenModal({
       // Nombres genéricos: se vuelve a leer el interruptor al guardar (pudo cambiar con el
       // modal abierto). Si toca genérica, ningún renglón sale casado a un producto.
       const genericaAhora = spConNombresGenericos({
-        revisionAlmacenActiva: mercado ? false : await interruptorActivo(CLAVE_INTERRUPTOR_REVISION_ALMACEN),
-        rol: rolCreador, mercado,
+        revisionAlmacenActiva: (mercado || !!compraFija) ? false : await interruptorActivo(CLAVE_INTERRUPTOR_REVISION_ALMACEN),
+        rol: rolCreador, mercado: mercado || !!compraFija,
       });
       const itemsFinal = genericaAhora ? itemsParaSpGenerica(itemsLeidos) : itemsLeidos;
       const email = usuario?.email ?? authEmail;
@@ -5214,9 +5227,11 @@ function CrearOrdenModal({
         <div className="card" style={{ padding: '.7rem .9rem', marginBottom: '1rem', borderLeft: '4px solid var(--brand, #ff8a00)' }}>
           <strong>🔁 Compra fija · {compraFija.nombre}</strong>
           <span className="muted" style={{ fontSize: '.8rem' }}>
-            {' '}· {fijaPrevio
-              ? <>cantidades de la última vez: <strong className="mono">{fijaPrevio.codigo}</strong> ({dateTime(fijaPrevio.fecha)})</>
-              : 'primera vez: cantidades de la plantilla'}. Son editables.
+            {' '}· {compraFija.productos.length > 0
+              ? <>lista establecida de <strong>{compraFija.productos.length} material{compraFija.productos.length === 1 ? '' : 'es'}</strong></>
+              : fijaPrevio
+                ? <>cantidades de la última vez: <strong className="mono">{fijaPrevio.codigo}</strong> ({dateTime(fijaPrevio.fecha)})</>
+                : 'cantidades iniciales de las categorías'}. Son editables.
           </span>
         </div>
       )}

@@ -150,23 +150,61 @@ export function cantidadesPrevias(items: Array<Pick<ItemOrden, 'productoId' | 's
 }
 
 /**
- * Los renglones de la plantilla: los productos fijos y los activos de sus categorías,
- * con la cantidad de la última vez (o la de la plantilla, o 1). Lo que se compró la
- * última vez y hoy ya no entra por categoría igual se trae.
+ * Los renglones de la plantilla:
+ * - Si la compra fija tiene una lista de materiales establecida (`c.productos` no vacía),
+ *   usa EXCLUSIVAMENTE esa lista y sus cantidades establecidas (sin arrastrar categorías
+ *   residuales ni materiales/cantidades de otras compras anteriores).
+ * - Solo si la plantilla NO tiene lista fija (`c.productos` vacía), usa los productos activos
+ *   de `c.categorias` (con cantidad previa solo para esos productos, sin colar ajenos).
  */
-export function renglonesDePlantilla(c: Pick<CompraFija, 'categorias' | 'productos' | 'finalidad'>, productos: Producto[], previas: Map<string, number>): ItemOrden[] {
+export function renglonesDePlantilla(
+  c: Pick<CompraFija, 'categorias' | 'productos' | 'finalidad'>,
+  productos: Producto[],
+  previas: Map<string, number> = new Map(),
+): ItemOrden[] {
+  const porId = new Map(productos.map((p) => [p.id, p]));
+  const listaEstablecida = c.productos ?? [];
+  if (listaEstablecida.length > 0) {
+    const vistos = new Set<string>();
+    const out: ItemOrden[] = [];
+    for (const f of listaEstablecida) {
+      const clave = f.producto_id || f.sku || f.nombre;
+      if (!clave || vistos.has(clave)) continue;
+      vistos.add(clave);
+      const p = f.producto_id ? porId.get(f.producto_id) : undefined;
+      if (p && p.estado && p.estado !== 'activo') continue;
+      const cantEstablecida = Number(f.cantidad);
+      const cantidad = Number.isFinite(cantEstablecida) && cantEstablecida > 0
+        ? cantEstablecida
+        : (previas.get(f.producto_id) ?? previas.get(f.sku) ?? 1);
+      out.push({
+        productoId: p?.id ?? f.producto_id,
+        sku: p?.sku ?? f.sku,
+        nombre: p?.nombre ?? f.nombre,
+        precio: 0,
+        unidad: p?.unidad ?? f.unidad,
+        comprar: true,
+        cantidad,
+        ...(p?.marca ? { marca: p.marca } : {}),
+        ...(p?.modelo ? { modelo: p.modelo } : {}),
+        ...(c.finalidad ? { finalidad: c.finalidad } : {}),
+      });
+    }
+    return out;
+  }
+
   const activos = productos.filter((p) => p.estado === 'activo');
-  const porId = new Map(activos.map((p) => [p.id, p]));
-  const elegidos: Producto[] = [];
-  const ya = new Set<string>();
-  const sumar1 = (p: Producto | undefined) => { if (p && !ya.has(p.id)) { ya.add(p.id); elegidos.push(p); } };
-  for (const f of c.productos ?? []) sumar1(porId.get(f.producto_id));
-  for (const p of activos) if (entraPorCategoria(p.categoria, c.categorias ?? [])) sumar1(p);
-  for (const p of activos) if (previas.has(p.id) || previas.has(p.sku)) sumar1(p);
-  const fija = new Map((c.productos ?? []).map((f) => [f.producto_id, Number(f.cantidad) || 0]));
+  const elegidos = activos.filter((p) => entraPorCategoria(p.categoria, c.categorias ?? []));
   return elegidos.map((p) => ({
-    productoId: p.id, sku: p.sku, nombre: p.nombre, precio: 0, unidad: p.unidad, comprar: true,
-    cantidad: previas.get(p.id) ?? previas.get(p.sku) ?? (fija.get(p.id) || 1),
+    productoId: p.id,
+    sku: p.sku,
+    nombre: p.nombre,
+    precio: 0,
+    unidad: p.unidad,
+    comprar: true,
+    cantidad: previas.get(p.id) ?? previas.get(p.sku) ?? 1,
+    ...(p.marca ? { marca: p.marca } : {}),
+    ...(p.modelo ? { modelo: p.modelo } : {}),
     ...(c.finalidad ? { finalidad: c.finalidad } : {}),
   }));
 }

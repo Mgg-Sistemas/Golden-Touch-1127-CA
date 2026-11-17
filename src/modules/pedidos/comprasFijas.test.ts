@@ -38,16 +38,37 @@ describe('compras fijas', () => {
     expect(textoFrecuencia({ frecuencia: 'cada_dias', cada_dias: 20 })).toBe('Cada 20 días');
   });
 
-  it('arma los renglones por categoría y lista fija, con las cantidades de la última vez', () => {
+  it('cuando tiene lista de materiales establecida, respeta estrictamente esa lista y cantidades sin arrastrar otras compras ni categorías', () => {
     expect(entraPorCategoria('PAPELERÍA Y OFICINA', ['papeleria'])).toBe(true);
     const productos = [prod('1', 'PAPELERIA'), prod('2', 'LIMPIEZA'), prod('3', 'FERRETERIA'), prod('4', 'PAPELERIA', 'inactivo'), prod('5', 'OTROS')];
+    const previasDeOtrasCompras = cantidadesPrevias([
+      { productoId: '1', sku: 'SKU-1', cantidad: 6 },
+      { productoId: '3', sku: 'SKU-3', cantidad: 99 },
+      { productoId: '5', sku: 'SKU-5', cantidad: 2 },
+    ]);
+    const r = renglonesDePlantilla({
+      categorias: ['papel'], // aunque hayan quedado categorías viejas, manda la lista establecida
+      finalidad: 'COMPRA FIJA',
+      productos: [
+        { producto_id: '3', sku: 'SKU-3', nombre: 'P3', unidad: 'UND', cantidad: 4 },
+        { producto_id: 'recien-creado', sku: 'SKU-NEW', nombre: 'MATERIAL NUEVO', unidad: 'CAJA', cantidad: 7 },
+        { producto_id: '4', sku: 'SKU-4', nombre: 'P4', unidad: 'UND', cantidad: 2 }, // inactivo en inventario -> no entra
+      ],
+    }, productos, previasDeOtrasCompras);
+    expect(r.map((x) => [x.productoId, x.nombre, x.cantidad, x.unidad])).toEqual([
+      ['3', 'P3', 4, 'KG'],
+      ['recien-creado', 'MATERIAL NUEVO', 7, 'CAJA'],
+    ]);
+    expect(r[0].finalidad).toBe('COMPRA FIJA');
+  });
+
+  it('cuando NO tiene lista fija y trabaja solo por categorías, trae solo productos activos de esas categorías sin colar ajenos', () => {
+    const productos = [prod('1', 'PAPELERIA'), prod('2', 'LIMPIEZA'), prod('4', 'PAPELERIA', 'inactivo'), prod('5', 'OTROS')];
     const previas = cantidadesPrevias([{ productoId: '1', sku: 'SKU-1', cantidad: 6 }, { productoId: '5', sku: 'SKU-5', cantidad: 2 }]);
     const r = renglonesDePlantilla({
-      categorias: ['papel'], finalidad: 'COMPRA FIJA',
-      productos: [{ producto_id: '3', sku: 'SKU-3', nombre: 'P3', unidad: 'UND', cantidad: 4 }],
+      categorias: ['papel'], finalidad: 'PAPELERIA MENSUAL', productos: [],
     }, productos, previas);
-    expect(r.map((x) => [x.productoId, x.cantidad])).toEqual([['3', 4], ['1', 6], ['5', 2]]);
-    expect(r[0].finalidad).toBe('COMPRA FIJA');
+    expect(r.map((x) => [x.productoId, x.cantidad])).toEqual([['1', 6]]);
   });
 
   it('valida la plantilla', () => {
