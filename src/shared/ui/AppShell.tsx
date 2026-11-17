@@ -56,6 +56,8 @@ export function AppShell() {
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono, puedeVerAlmacen } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
+  // Vistas inmersivas a pantalla completa para conductores en calle (Delivery / Carga Pesada)
+  const esVistaInmersiva = location.pathname.startsWith('/app/delivery/telefono') || location.pathname.startsWith('/app/carga-pesada/telefono');
   // Pedidos (31/10/2026): se abre con «Solicitud de Pedido», «Compras» o el viejo `pedidos` (base).
   // Quien solo pide (sin Compras) lo ve como «Solicitud de Pedido».
   const verPedidos = MODULOS_PANTALLA_PEDIDOS.some((m) => can(m));
@@ -327,7 +329,7 @@ export function AppShell() {
   }
 
   return (
-    <div className={`app${collapsed ? ' sidebar-collapsed' : ''}${drawerOpen ? ' drawer-open' : ''}`}>
+    <div className={`app${collapsed ? ' sidebar-collapsed' : ''}${drawerOpen ? ' drawer-open' : ''}${esVistaInmersiva ? ' app--inmersivo' : ''}`}>
       <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
       <aside className="sidebar" ref={sidebarRef}>
         <div className="sidebar-brand">
@@ -453,77 +455,79 @@ export function AppShell() {
         </div>
       </aside>
 
-      <header className="topbar">
-        <div className="crumb" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-          <button
-            type="button"
-            onClick={handleMenuBtn}
-            className="btn btn-icon btn-ghost"
-            title={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
-            aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
-            style={{ fontSize: '1.1rem', lineHeight: 1 }}
-          >
-            ☰
-          </button>
-          <span>GOLDEN TOUCH 1127 C.A. · <strong>Sistema</strong></span>
-        </div>
-        <div className="top-actions">
-          <TasaChip />
-          <GlobalSearch />
-          <HintsToggle />
-          <button
-            type="button"
-            className="notif-btn"
-            onClick={handleOpenNotif}
-            title="Notificaciones"
-            style={{
-              position: 'relative',
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              padding: '.45rem .65rem',
-              borderRadius: 'var(--r-md)',
-              cursor: 'pointer',
-              fontSize: '1.05rem',
-              lineHeight: 1,
-            }}
-          >
-            ◔
-            {unread > 0 && (
-              <span
-                aria-label={`${unread} sin leer`}
-                style={{
-                  position: 'absolute',
-                  top: '-4px',
-                  right: '-4px',
-                  background: 'var(--danger)',
-                  color: '#fff',
-                  borderRadius: '999px',
-                  minWidth: 18,
-                  height: 18,
-                  fontSize: '.65rem',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '0 5px',
-                  boxShadow: '0 0 0 2px var(--bg-1)',
-                }}
-              >
-                {unread > 9 ? '9+' : unread}
-              </span>
-            )}
-          </button>
-        </div>
-      </header>
+      {!esVistaInmersiva && (
+        <header className="topbar">
+          <div className="crumb" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <button
+              type="button"
+              onClick={handleMenuBtn}
+              className="btn btn-icon btn-ghost"
+              title={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
+              aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
+              style={{ fontSize: '1.1rem', lineHeight: 1 }}
+            >
+              ☰
+            </button>
+            <span>GOLDEN TOUCH 1127 C.A. · <strong>Sistema</strong></span>
+          </div>
+          <div className="top-actions">
+            <TasaChip />
+            <GlobalSearch />
+            <HintsToggle />
+            <button
+              type="button"
+              className="notif-btn"
+              onClick={handleOpenNotif}
+              title="Notificaciones"
+              style={{
+                position: 'relative',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                padding: '.45rem .65rem',
+                borderRadius: 'var(--r-md)',
+                cursor: 'pointer',
+                fontSize: '1.05rem',
+                lineHeight: 1,
+              }}
+            >
+              ◔
+              {unread > 0 && (
+                <span
+                  aria-label={`${unread} sin leer`}
+                  style={{
+                    position: 'absolute',
+                    top: '-4px',
+                    right: '-4px',
+                    background: 'var(--danger)',
+                    color: '#fff',
+                    borderRadius: '999px',
+                    minWidth: 18,
+                    height: 18,
+                    fontSize: '.65rem',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0 5px',
+                    boxShadow: '0 0 0 2px var(--bg-1)',
+                  }}
+                >
+                  {unread > 9 ? '9+' : unread}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+      )}
 
-      <AvisoSalidaModulo />
+      {!esVistaInmersiva && <AvisoSalidaModulo />}
       {/* Barra de pestañas minimizadas (hasta 3) de cualquier módulo */}
-      <DockMinimizadas />
+      {!esVistaInmersiva && <DockMinimizadas />}
 
-      <main className="main">
-        <AvisoActualizacion />
-        <AvisoCombustibleBajo />
+      <main className={`main${esVistaInmersiva ? ' main--inmersivo' : ''}`}>
+        {!esVistaInmersiva && <AvisoActualizacion />}
+        {!esVistaInmersiva && <AvisoCombustibleBajo />}
         <Outlet />
       </main>
 

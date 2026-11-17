@@ -65,3 +65,82 @@
 .dlv-repartidor .dlv-avatar { flex: 0 0 auto; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #ff8a00, #ffc94d); }
 .dlv-repartidor .dlv-gps-pill { display: inline-flex; font-size: .72rem; font-weight: 700; padding: .15rem .55rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); background: var(--surface-3); }
 .dlv-repartidor .dlv-gps-pill.on { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); background: color-mix(in srgb, var(--success) 12%, transparent); }
+
+/* ── Adaptación Móvil del Centro de Control (para Compras/Supervisión en teléfono) ── */
+@media (max-width: 768px) {
+  .dlv-centro-head {
+    padding: .75rem .85rem;
+    gap: .5rem;
+  }
+  .dlv-centro-head h1 {
+    font-size: 1.15rem;
+  }
+  .dlv-centro-head p {
+    font-size: .78rem;
+  }
+  .dlv-pills {
+    width: 100%;
+  }
+  .dlv-pills button {
+    flex: 1;
+    font-size: .8rem;
+    padding: .35rem .6rem;
+    text-align: center;
+  }
+  /* Cuadrícula compacta 2x2 para las métricas: no satura la pantalla vertical */
+  .dlv-metricas {
+    grid-template-columns: 1fr 1fr !important;
+    gap: .5rem !important;
+    margin-bottom: .75rem !important;
+  }
+  .dlv-metrica {
+    padding: .6rem .75rem !important;
+    gap: .55rem !important;
+  }
+  .dlv-metrica .ico {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 1.15rem !important;
+    border-radius: 9px !important;
+  }
+  .dlv-metrica .val {
+    font-size: 1.25rem !important;
+  }
+  .dlv-metrica .lbl {
+    font-size: .65rem !important;
+  }
+  .dlv-metrica .sub {
+    display: none !important; /* oculta texto largo en móvil para ahorrar espacio */
+  }
+
+  /* El mapa se posiciona con altura cómoda y visible de inmediato */
+  .dlv-mapa-card .card-title {
+    font-size: .85rem;
+    gap: .4rem;
+  }
+  .dlv-mapa-card .card-title button {
+    font-size: .75rem;
+    padding: .25rem .5rem;
+  }
+  .dlv-mapa-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: .75rem !important;
+  }
+  .dlv-mapa-caja {
+    min-height: 340px !important;
+    height: 48vh !important;
+  }
+  .dlv-mapa-barra {
+    flex-wrap: wrap !important;
+    gap: .4rem !important;
+  }
+  .dlv-mapa-barra .dlv-seg {
+    width: 100% !important;
+    display: flex !important;
+  }
+  .dlv-mapa-barra .dlv-seg-btn {
+    flex: 1 !important;
+    text-align: center !important;
+  }
+}

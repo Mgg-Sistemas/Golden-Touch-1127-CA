@@ -1,7 +1,7 @@
 /* ============================================================
-   Golden Touch · Delivery · Mapa Inmersivo Estilo Ridery / Yummy
-   Lienzo nocturno a sangre total con CartoDB Dark Matter,
-   posicionamiento en vivo del conductor y trazado de rutas.
+   Golden Touch · Delivery · Mapa del Conductor / Repartidor
+   Lienzo completo interactivo con OpenStreetMap, posicionamiento
+   en vivo del conductor (GPS) y trazado de rutas.
    ============================================================ */
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
@@ -61,7 +61,7 @@ export function MapaMotorizado({
   const elegir = useRef(onElegir);
   useEffect(() => { elegir.current = onElegir; }, [onElegir]);
 
-  // Inicializar mapa nocturno con CartoDB Dark Matter
+  // Inicializar mapa Leaflet con OpenStreetMap oficial
   useEffect(() => {
     if (!contenedor.current || mapa.current) return;
     const m = L.map(contenedor.current, {
@@ -71,11 +71,17 @@ export function MapaMotorizado({
       attributionControl: false,
     });
 
-    // Tiles oficiales de OpenStreetMap (100% libres, sin API key ni marcas de agua)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // Mismo proveedor y capas que la vista PC (Calles de OpenStreetMap y Satelital de Esri)
+    const calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap',
-    }).addTo(m);
+    });
+    const satelital = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Imágenes &copy; Esri',
+    });
+    calles.addTo(m);
+    L.control.layers({ Calles: calles, Satelital: satelital }, undefined, { position: 'topright' }).addTo(m);
 
     capaRuta.current = L.layerGroup().addTo(m);
     capaDestinos.current = L.layerGroup().addTo(m);

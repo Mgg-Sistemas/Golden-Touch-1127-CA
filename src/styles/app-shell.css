@@ -26,6 +26,37 @@
 .app.sidebar-collapsed .user-chip { justify-content: center; padding: .4rem; }
 .app.sidebar-collapsed .menu-buscar { display: none; }
 
+/* Modo inmersivo pantalla completa para vistas de teléfono de conductores (Delivery / Carga Pesada) */
+.app.app--inmersivo {
+  display: block !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  background: #070c14 !important;
+}
+.app.app--inmersivo .topbar,
+.app.app--inmersivo .sidebar,
+.app.app--inmersivo .sidebar-overlay {
+  display: none !important;
+}
+.app.app--inmersivo .main.main--inmersivo {
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
 /* Buscador de módulos del menú (12/11/2026). */
 .menu-buscar { padding: .6rem .75rem 0; }
 .menu-buscar .input { width: 100%; font-size: .85rem; padding: .45rem .6rem; }
