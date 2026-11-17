@@ -24,7 +24,7 @@
    en Inventario (realtime). Editar o desactivar productos es tarea de la PC.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -44,8 +44,9 @@ import {
 } from './depositos';
 import { listAlmacenes } from './almacenes.repository';
 import { FormSalidaMina, ItemsLoteMovil, Listo, PorRetornarMina, itemsLoteListos, type ItemLoteMovil } from './SalidaMinaMovil';
-import { PreSalidasMovilView, type SemillaPreSalida } from './PreSalidaMovil';
-import { listPreSalidas } from './preSalidasMina.repository';
+import { PreSalidasView } from './PreSalidasView';
+import { listPreSalidas } from './presalidas.repository';
+import { mensajePreSalidaWhatsapp, type PreSalida } from './presalidas';
 import { HistoricoSalidasMovil, HistoricoTrasladosMovil } from './HistoricoMovilView';
 import { HistoricoRecepcionesMovil, RecepcionDeliveryMovil, usePorRecepcionar } from './RecepcionMovilView';
 import { listPorRetornarMina } from './salidasMina.repository';
@@ -56,9 +57,9 @@ import type { SalidaMina } from './salidasMina';
 import { mensajeStockMina, stockPorPeriodo, type MovimientoStock } from './stockMinaWhatsapp';
 import { listMovimientosDepositoDesde } from './stockMina.repository';
 import { mensajeEntrada, mensajeProductoNuevo, mensajeTraslados } from './inventarioMovil';
-import { errorItemsLote } from './salidasMina';
+import { errorItemsLote, mensajeSalidasMina } from './salidasMina';
 import { trasladarEntreAlmacenes, trasladarVariosEntreAlmacenes } from './trasladoAlmacen.repository';
-import { costoProducto, docEntradaMovil, docTrasladosMovil, type DocMovilPdf } from './inventarioMovilPdf';
+import { costoProducto, docEntradaMovil, docSalidasMovil, docTrasladosMovil, type DocMovilPdf } from './inventarioMovilPdf';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
 import { mensajeEnvioTraslado, usaRecepcion } from './trasladosTransito';
@@ -76,7 +77,7 @@ const SIN_BUSCAR = 15;
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'presalidas' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones' | 'recepTraslados' | 'enCamino';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'presalidas' | 'listoPre' | 'listoSalidaPre' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones' | 'recepTraslados' | 'enCamino';
 
 /** Vista de teléfono del Inventario General. */
 export function InventarioMovilView() {
@@ -107,15 +108,20 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
-  const [searchParams, setSearchParams] = useSearchParams();
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [almacenesList, setAlmacenesList] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
-  const [paso, setPaso] = useState<Paso>(() => (searchParams.get('paso') === 'presalidas' ? 'presalidas' : 'inicio'));
-  const [semillaPre, setSemillaPre] = useState<SemillaPreSalida | null>(null);
-  const [preSalidasCount, setPreSalidasCount] = useState(0);
+  const [paso, setPaso] = useState<Paso>('inicio');
+  const [presalidas, setPresalidas] = useState<PreSalida[]>([]);
+  const [listoPre, setListoPre] = useState<{ titulo: string; texto: string } | null>(null);
+  const [salidaConfirmadaPre, setSalidaConfirmadaPre] = useState<{
+    salidas: SalidaMina[];
+    fotos: File[];
+    entregaCodigo: string | null;
+    entregaFallo: string | null;
+  } | null>(null);
   const [enviosMgg, setEnviosMgg] = useState(false);
   const [elegido, setElegido] = useState<Producto | null>(null);
   const [busca, setBusca] = useState('');
@@ -129,32 +135,30 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   const trasPorRecibir = useTrasladosEnTransito({ destino: DEP.almacen }, esMina && canWrite);
   const trasEnCamino = useTrasladosEnTransito({ origen: DEP.almacen }, esGeneral && canWrite);
 
-  useEffect(() => {
-    if (searchParams.get('paso') !== 'presalidas') return;
-    setPaso('presalidas');
-    const next = new URLSearchParams(searchParams);
-    next.delete('paso');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const cargarPresalidas = useCallback(async () => {
+    try { setPresalidas(await listPreSalidas(DEP.almacen, true)); }
+    catch { setPresalidas([]); }
+  }, [DEP.almacen]);
+  useEffect(() => { void cargarPresalidas(); }, [cargarPresalidas]);
+  useRealtime(['inventario_presalidas'], () => { void cargarPresalidas(); });
 
   const reload = useCallback(async () => {
     const ps = await listProductos(deposito);
     setProductos(ps.filter((p) => p.estado === 'activo'));
-    const [cats, uds, alms, ret, devs, pres] = await Promise.all([
+    const [cats, uds, alms, ret, devs] = await Promise.all([
       getCategorias(ps),
       getUnidades(ps),
       listAlmacenes().catch(() => [] as Almacen[]),
       listPorRetornarMina(DEP.almacen).catch(() => [] as SalidaMina[]),
       listDevolucionesPendientes('telefono').catch(() => [] as EntregaAlmacen[]),
-      listPreSalidas(DEP.almacen, false).catch(() => []),
     ]);
     setCategorias(cats);
     setUnidades(uds);
     setAlmacenesList(alms);
     setPorRetornar(ret);
     setDevolucionesCount(devs.length);
-    setPreSalidasCount(pres.length);
-  }, [deposito, DEP.almacen]);
+    void cargarPresalidas().catch(() => {});
+  }, [deposito, DEP.almacen, cargarPresalidas]);
 
   useEffect(() => {
     let cancel = false;
@@ -164,7 +168,7 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   }, [reload]);
 
   useRealtime(
-    ['deposito_mina_salidas', 'maquinaria_entregas_almacen', 'deposito_mina_retornos', 'movimientos', 'pre_salidas_almacen'],
+    ['deposito_mina_salidas', 'maquinaria_entregas_almacen', 'deposito_mina_retornos', 'movimientos'],
     () => { void reload().catch(() => {}); },
   );
 
@@ -255,17 +259,11 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             <span>Entrada</span>
             <small>Llegó más de un producto que ya está</small>
           </button>
-          <button type="button" className="surt-btn wsp"
-            onClick={() => { setSemillaPre(null); setElegido(null); setPaso('presalidas'); }}>
-            <span className="icono" aria-hidden>📝</span>
-            <span>Pre-salidas ({preSalidasCount})</span>
-            <small>{preSalidasCount ? `${preSalidasCount} esperando aprobación en WhatsApp` : 'Borrador + enviar a WhatsApp'}</small>
-          </button>
           <button type="button" className="surt-btn salida"
             onClick={() => { setElegido(null); setPaso('salida'); }}>
             <span className="icono" aria-hidden>⬆️</span>
-            <span>Salida directa</span>
-            <small>Con autorización · {esReutilizables ? 'reutilizables' : esMina ? 'depósito' : 'inventario'}</small>
+            <span>Salida</span>
+            <small>Sale material {esReutilizables ? 'de reutilizables' : esMina ? 'del depósito' : 'del inventario'}</small>
           </button>
           {destinosTraslado.some((d) => d.almacen.toLowerCase() !== DEP.almacen.toLowerCase()) && (
           <button type="button" className="surt-btn traslado"
@@ -309,6 +307,13 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
             <span className="icono" aria-hidden>🔄</span>
             <span>Por retornar ({totalRetornos})</span>
             <small>{totalRetornos ? `${totalRetornos} ${totalRetornos === 1 ? 'pendiente' : 'pendientes'} por volver` : 'Sin pendientes'}</small>
+          </button>
+          <button type="button" className="surt-btn"
+            style={{ borderColor: 'var(--warning)', background: presalidas.length ? 'rgba(234, 179, 8, 0.08)' : undefined }}
+            onClick={() => setPaso('presalidas')}>
+            <span className="icono" aria-hidden>⏳</span>
+            <span>Pre-salidas ({presalidas.length})</span>
+            <small>{presalidas.length ? `${presalidas.length} borrador(es) por autorizar` : 'Borradores para WhatsApp'}</small>
           </button>
         </div>
       )}
@@ -419,25 +424,85 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
           onCancel={() => setElegido(null)} onSaved={guardado} />
       )}
 
+      {paso === 'listoPre' && listoPre && (
+        <Listo
+          titulo={listoPre.titulo}
+          texto={listoPre.texto}
+          onListo={() => {
+            setListoPre(null);
+            volver();
+            void reload().catch(() => {});
+          }}
+        />
+      )}
+
+      {paso === 'listoSalidaPre' && salidaConfirmadaPre && (
+        <>
+          {salidaConfirmadaPre.entregaCodigo && (
+            <div className="surt-campo" style={{ borderLeft: '4px solid var(--success)', paddingLeft: '.6rem' }}>
+              <span>🔧 Entrega <strong>{salidaConfirmadaPre.entregaCodigo}</strong> enviada a Maquinaria.</span>
+            </div>
+          )}
+          {salidaConfirmadaPre.entregaFallo && (
+            <div className="surt-campo" style={{ borderLeft: '4px solid var(--danger)', paddingLeft: '.6rem' }}>
+              <span>⚠ La salida quedó registrada, pero no se pudo avisar a Maquinaria: {salidaConfirmadaPre.entregaFallo}</span>
+            </div>
+          )}
+          <Listo
+            titulo={salidaConfirmadaPre.salidas.length === 1
+              ? `Salida ${salidaConfirmadaPre.salidas[0].codigo} registrada`
+              : `Salida de ${salidaConfirmadaPre.salidas.length} productos registrada`}
+            texto={mensajeSalidasMina(salidaConfirmadaPre.salidas, actorName ?? actor)}
+            fotos={salidaConfirmadaPre.fotos}
+            pdf={docSalidasMovil(
+              salidaConfirmadaPre.salidas,
+              (id) => productos.find((p) => p.id === id),
+              DEP.almacen,
+              { actor, nombre: actorName },
+            )}
+            onListo={() => {
+              setSalidaConfirmadaPre(null);
+              volver();
+              void reload().catch(() => {});
+            }}
+          />
+        </>
+      )}
+
       {paso === 'presalidas' && (
-        <PreSalidasMovilView
+        <PreSalidasView
           almacen={DEP.almacen}
           productos={productos}
           actor={actor}
           actorName={actorName}
+          quien={actorName ?? actor}
           canWrite={canWrite}
-          semillaInicial={semillaPre}
-          onSemillaConsumida={() => setSemillaPre(null)}
-          onCambioStock={() => { void reload().catch(() => {}); }}
-          onVolver={() => { setSemillaPre(null); volver(); void reload().catch(() => {}); }}
+          onVolver={volver}
+          onNuevaPreSalida={() => { setElegido(null); setPaso('salida'); }}
+          onSalidaHecha={(res) => {
+            setSalidaConfirmadaPre(res);
+            setPaso('listoSalidaPre');
+            setElegido(null);
+            void reload().catch(() => {});
+            void cargarPresalidas().catch(() => {});
+          }}
         />
       )}
 
       {paso === 'salida' && elegido && (
         <FormSalidaMina producto={elegido} productos={productos} almacen={DEP.almacen} actor={actor} actorName={actorName}
-          onPasarAPreSalida={(semilla) => { setSemillaPre(semilla); setElegido(null); setPaso('presalidas'); }}
+          onPreSalidaGuardada={(pre) => {
+            setListoPre({
+              titulo: `Pre-salida ${pre.codigo} lista`,
+              texto: mensajePreSalidaWhatsapp(pre, actorName ?? actor),
+            });
+            setPaso('listoPre');
+            setElegido(null);
+            void reload().catch(() => {});
+            void cargarPresalidas().catch(() => {});
+          }}
           onCancel={() => setElegido(null)}
-          onSaved={() => { volver(); void reload().catch(() => {}); }} />
+          onSaved={() => { volver(); void reload().catch(() => {}); void cargarPresalidas().catch(() => {}); }} />
       )}
 
       {paso === 'traslado' && elegido && (

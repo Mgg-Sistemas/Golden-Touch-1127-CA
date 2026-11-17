@@ -1,7 +1,6 @@
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal as ModalUI } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -236,7 +235,6 @@ export function SalidasPage() {
         <div className="actions">
           {!esTemporales && (
             <>
-              <Link className="btn btn-ghost" to="/app/inventario/telefono?paso=presalidas" title="Borradores de pre-salida (sin descontar stock) para enviar al grupo de WhatsApp y confirmar con autorización">📝 Pre-salidas (WhatsApp)</Link>
               <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen-unidad' })}>📊 Resumen de gasto (material)</button>
               {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
             </>

@@ -460,7 +460,6 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
           {esGeneral ? (
             <>
               {puedeVista('inventario') && <Link className="btn btn-ghost" to="/app/inventario/telefono" title="La pantalla del inventario con botones grandes para el teléfono: producto nuevo, entrada, traslado y reporte de stock">📱 Vista teléfono</Link>}
-              {canWriteModulo && <Link className="btn btn-ghost" to="/app/inventario/telefono?paso=presalidas" title="Borradores de pre-salida sin descontar stock para enviar a WhatsApp y confirmar con aprobación">📝 Pre-salidas (WhatsApp)</Link>}
               <button
                 className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
@@ -509,11 +508,6 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
               {telDeposito && (
                 <Link className="btn btn-ghost" to={dep.rutaTelefono} title={`La pantalla de ${dep.nombre} con botones grandes para el teléfono`}>
                   📱 Vista teléfono
-                </Link>
-              )}
-              {canWriteModulo && (
-                <Link className="btn btn-ghost" to={`${dep.rutaTelefono}?paso=presalidas`} title={`Borradores de pre-salida de ${dep.nombre} con envío a WhatsApp`}>
-                  📝 Pre-salidas (WhatsApp)
                 </Link>
               )}
             </>

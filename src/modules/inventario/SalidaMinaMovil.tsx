@@ -24,6 +24,8 @@ import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.reposit
 import { nombreCortoEquipo } from '@/modules/maquinaria/flota';
 import { errorEntregaMantenimiento } from '@/modules/maquinaria/entregasAlmacen';
 import { crearEntregaTelefono } from '@/modules/maquinaria/entregasAlmacen.repository';
+import { mensajePreSalidaWhatsapp, type PreSalida } from './presalidas';
+import { guardarPreSalida } from './presalidas.repository';
 
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -128,9 +130,9 @@ export function Listo({ titulo, texto, onListo, pdf, fotos }: { titulo: string; 
   );
 }
 
-export function FormSalidaMina({ producto, productos = [], almacen, actor, actorName, onPasarAPreSalida, onCancel, onSaved }: {
+export function FormSalidaMina({ producto, productos = [], almacen, actor, actorName, onPreSalidaGuardada, onCancel, onSaved }: {
   producto: Producto; productos?: Producto[]; almacen: string; actor: string; actorName: string | null;
-  onPasarAPreSalida?: (semilla: { items: ItemLoteMovil[]; motivo: string; equipoId: string; equipoNombre: string | null; tipoMant: string; retorna: boolean | null }) => void;
+  onPreSalidaGuardada?: (pre: PreSalida) => void;
   onCancel: () => void; onSaved: () => void;
 }) {
   const lugar = almacen === 'General' ? 'el inventario' : 'el depósito';
@@ -141,6 +143,8 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
   const [retorna, setRetorna] = useState<boolean | null>(null);
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [guardandoPre, setGuardandoPre] = useState(false);
+  const [preHecha, setPreHecha] = useState<PreSalida | null>(null);
   const [hechas, setHechas] = useState<SalidaMina[] | null>(null);
   // 12/11/2026: ¿el material va al mantenimiento de una máquina? → entrega a Maquinaria.
   const [paraMant, setParaMant] = useState<boolean | null>(null);
@@ -174,6 +178,39 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
     if (mal) toast(mal, 'warning');
     setFotos((xs) => [...xs, ...nuevas.filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name))]
       .slice(0, MAX_FOTOS_SALIDA_MINA));
+  }
+
+  async function guardarComoPreSalida() {
+    if (malItems) return toast(malItems, 'error');
+    if (motivo.trim().length < 3) return toast('Indica el motivo de la salida (para qué sale, a quién o a qué equipo).', 'error');
+    if (paraMant && !equipoId) return toast('Elige la máquina para el mantenimiento.', 'error');
+    setGuardandoPre(true);
+    try {
+      const pre = await guardarPreSalida({
+        almacen,
+        motivo: motivoFinal,
+        retorna: Boolean(retorna),
+        equipo: paraMant && equipo ? { id: equipo.id, nombre: equipo.equipo } : null,
+        tipoMant: paraMant ? (tipoMant || null) : null,
+        lineas: listos.map((it) => ({
+          productoId: it.producto.id,
+          productoNombre: it.producto.nombre,
+          sku: it.producto.sku,
+          categoria: it.producto.categoria,
+          unidad: it.producto.unidad,
+          cantidad: it.cantidad,
+        })),
+        actor,
+        actorName,
+      });
+      toast(`Pre-salida ${pre.codigo} guardada. Envíala a WhatsApp para solicitar autorización.`, 'success');
+      if (onPreSalidaGuardada) onPreSalidaGuardada(pre);
+      else setPreHecha(pre);
+    } catch (err) {
+      toast(errMsg(err, 'No se pudo guardar la pre-salida'), 'error');
+    } finally {
+      setGuardandoPre(false);
+    }
   }
 
   async function guardar(e: FormEvent) {
@@ -226,6 +263,16 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
     } catch (err) {
       setEntregaFallo(errMsg(err, 'No se pudo avisar a Maquinaria'));
     }
+  }
+
+  if (preHecha) {
+    return (
+      <Listo
+        titulo={`Pre-salida ${preHecha.codigo} lista`}
+        texto={mensajePreSalidaWhatsapp(preHecha, actorName ?? actor)}
+        onListo={onSaved}
+      />
+    );
   }
 
   if (hechas?.length) {
@@ -289,30 +336,10 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
           </div>
         </>
       )}
-      {onPasarAPreSalida && (
-        <div className="surt-campo" style={{ padding: '.6rem .75rem', borderRadius: 10, border: '1px dashed var(--brand, #ff8a00)', background: 'rgba(255,138,0,.07)' }}>
-          <div style={{ fontSize: '.83rem', marginBottom: '.4rem' }}>
-            <strong>📝 ¿Aún no tienes la aprobación?</strong> Arma una <strong>Pre-salida (borrador)</strong> sin descontar stock y mándala al grupo de WhatsApp para que te la aprueben primero.
-          </div>
-          <button
-            type="button"
-            className="btn btn-wsp btn-grande"
-            disabled={guardando}
-            onClick={() => onPasarAPreSalida({
-              items,
-              motivo: motivo.trim(),
-              equipoId: paraMant ? equipoId : '',
-              equipoNombre: paraMant ? (equipo?.equipo ?? null) : null,
-              tipoMant: paraMant ? tipoMant : '',
-              retorna,
-            })}
-          >
-            📲 Pasar a Pre-salida / Borrador (WhatsApp)
-          </button>
-        </div>
-      )}
       <div className="surt-campo">
-        <label htmlFor="mina-salida-autorizado">Autorizado por</label>
+        <label htmlFor="mina-salida-autorizado">
+          Autorizado por <small className="muted">(solo para salida directa; en pre-salida se aprueba por WhatsApp)</small>
+        </label>
         <div className="surt-buscable">
           <SearchSelect id="mina-salida-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Busca quién autorizó…"
             options={autorizadores.map((v) => ({ value: v, label: v }))} />
@@ -348,10 +375,25 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
           </div>
         )}
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || retorna === null || paraMant === null || (!!paraMant && !equipoId) || !autorizado.trim()}>
-        {guardando ? 'Guardando…' : items.length === 1 ? '✓ Guardar salida' : `✓ Guardar salida (${items.length} productos)`}
-      </button>
-      <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro material</button>
+      <div style={{ display: 'grid', gap: '.5rem', marginTop: '.75rem' }}>
+        <button
+          type="button"
+          className="btn btn-ghost btn-grande"
+          style={{ borderColor: 'var(--warning)', color: 'var(--text)', fontWeight: 600 }}
+          disabled={guardando || guardandoPre || !!malItems || motivo.trim().length < 3 || (!!paraMant && !equipoId)}
+          onClick={() => void guardarComoPreSalida()}
+        >
+          {guardandoPre ? 'Guardando pre-salida…' : '⏳ Guardar Pre-salida y pedir autorización (WhatsApp)'}
+        </button>
+        <button
+          type="submit"
+          className="btn btn-primary surt-guardar"
+          disabled={guardando || guardandoPre || !!malItems || retorna === null || paraMant === null || (!!paraMant && !equipoId) || !autorizado.trim()}
+        >
+          {guardando ? 'Guardando…' : items.length === 1 ? '✓ Salida directa con autorización' : `✓ Salida directa (${items.length} productos)`}
+        </button>
+      </div>
+      <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando || guardandoPre}>← Otro material</button>
     </form>
   );
 }
