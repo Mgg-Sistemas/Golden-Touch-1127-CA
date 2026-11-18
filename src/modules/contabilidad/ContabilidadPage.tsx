@@ -36,13 +36,15 @@ import { IntegracionTab } from './IntegracionTab';
 import { CerrarPeriodoTab, PeriodoTab } from './PeriodoTab';
 import { NOMBRE_NUMERACION } from './logica/comprobantes';
 import { PlanCuentasTab } from './PlanCuentasTab';
+import { ReporteDinamicoTab } from './ReporteDinamicoTab';
 import type { ContCuenta, ContEjercicio, ContParametros, ContTipoComprobante } from './tipos';
 import './contabilidad.css';
 
-type Menu = 'comprobante' | 'integracion' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'compania';
+type Menu = 'comprobante' | 'reporte' | 'integracion' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'compania';
 
 const MENUS: { key: Menu; label: string }[] = [
   { key: 'comprobante', label: 'Comprobantes' },
+  { key: 'reporte', label: '📊 Reporte Dinámico' },
   { key: 'integracion', label: 'Por Contabilizar' },
   { key: 'cuenta', label: 'Plan de Cuentas' },
   { key: 'balances', label: 'Estados Financieros' },
@@ -169,6 +171,7 @@ export function ContabilidadPage() {
       {!parametros && <p className="muted">Cargando…</p>}
       {parametros && <>
         {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'reporte' && <ReporteDinamicoTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'cuenta' && <PlanCuentasTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}

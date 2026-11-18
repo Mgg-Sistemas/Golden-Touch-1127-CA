@@ -821,11 +821,19 @@ async function fuenteInformesSupabase(empresaClave = EMPRESA_DEFECTO): Promise<F
 }
 
 export async function getFuenteReporteDinamico(empresaClave = EMPRESA_DEFECTO) {
-  const f = await fuenteInformesSupabase(empresaClave);
-  const tipos = await listTiposComprobante();
+  const [f, tipos, periodos, ejercicios, cierres] = await Promise.all([
+    fuenteInformesSupabase(empresaClave),
+    listTiposComprobante(),
+    listPeriodos(empresaClave),
+    listEjercicios(empresaClave),
+    listCierres(empresaClave),
+  ]);
   return {
     ...f,
     tipos,
+    periodos,
+    ejercicios,
+    cierres,
   };
 }
 

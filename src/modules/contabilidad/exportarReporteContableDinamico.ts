@@ -1,19 +1,24 @@
 /* ============================================================
-   Golden Touch · Contabilidad · Exportación del Reporte Dinámico
-   (Excel / PDF / CSV) · 18/11/2026
+   Golden Touch · Contabilidad · Exportador del Reporte Dinámico
+   (18/11/2026)
 
-   Exportación bimoneda transparente (VES y USD), con soporte para:
-   - Formatos: Resumen (KPIs + analítica), Detallado o Híbrido.
-   - Selección dinámica de columnas activas.
-   - Membrete oficial de la empresa activa (GT, GL, MGG, etc.).
-   - Previsualización nativa antes de descargar (previewPdf / previewExcelArchivo).
+   Exportación a PDF y Excel del Reporte Dinámico de Contabilidad:
+     - 4 ámbitos: Asientos y Movimientos, Plan de Cuentas,
+       Balances y Saldos, Períodos y Cierres.
+     - Membrete institucional, logo corporativo y colores de marca.
+     - Formato Bimoneda estricto (VES y USD) y verificación de cuadre.
+     - Selección dinámica de columnas y opciones de salida (resumen,
+       detallado o híbrido).
+     - Preview interactivo: NADA se descarga solo.
    ============================================================ */
 
 import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
+import { anchoLogoPdf, dibujarLogoPdf, loadLogoPdfEmpresa } from '@/shared/lib/pdfLogo';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 import {
-  CAMPOS_REPORTE_CONTABLE, ETIQUETA_MODO_CONTABLE,
+  ETIQUETA_MODO_CONTABLE,
+  obtenerCamposPorAmbito,
+  type FilaReporteContable,
   type ReporteContableGenerado,
 } from './logica/reporteContableDinamico';
 
@@ -34,6 +39,60 @@ const fmtFecha = (f: string) => {
   return y && m && d ? `${d}/${m}/${y}` : f || '—';
 };
 
+function obtenerValorCelda(f: FilaReporteContable, clave: string): string {
+  switch (clave) {
+    case 'fecha': return fmtFecha(f.fecha);
+    case 'comprobante': return f.comprobante || '—';
+    case 'tipo': return f.tipo || '—';
+    case 'origen': return f.origen || '—';
+    case 'referencia': return f.referencia || '—';
+    case 'descripcion': return f.descripcion || '—';
+    case 'cuenta_codigo': return f.cuenta_codigo || '—';
+    case 'cuenta_nombre': return f.cuenta_nombre || '—';
+    case 'centro': return f.centro || '—';
+    case 'auxiliar': return f.auxiliar || '—';
+    case 'moneda': return f.moneda || '—';
+    case 'debe_ves': return f.debe_ves > 0 ? fmtNum(f.debe_ves) : '—';
+    case 'haber_ves': return f.haber_ves > 0 ? fmtNum(f.haber_ves) : '—';
+    case 'debe_usd': return f.debe_usd > 0 ? fmtNum(f.debe_usd) : '—';
+    case 'haber_usd': return f.haber_usd > 0 ? fmtNum(f.haber_usd) : '—';
+    case 'saldo_ves': return fmtNum(f.saldo_ves);
+    case 'saldo_usd': return fmtNum(f.saldo_usd);
+
+    // Plan de Cuentas:
+    case 'nivel': return String(f.nivel ?? '—');
+    case 'clase': return f.clase || '—';
+    case 'naturaleza': return f.naturaleza || '—';
+    case 'es_monetaria': return f.es_monetaria || '—';
+    case 'exige_centro': return f.exige_centro || '—';
+    case 'exige_auxiliar': return f.exige_auxiliar || '—';
+    case 'tipo_auxiliar': return f.tipo_auxiliar || '—';
+    case 'activa': return f.activa || '—';
+    case 'padre_codigo': return f.padre_codigo || '—';
+
+    // Balances:
+    case 'saldo_inicial_ves': return fmtNum(f.saldo_inicial_ves ?? 0);
+    case 'saldo_final_ves': return fmtNum(f.saldo_final_ves ?? 0);
+    case 'saldo_inicial_usd': return fmtNum(f.saldo_inicial_usd ?? 0);
+    case 'saldo_final_usd': return fmtNum(f.saldo_final_usd ?? 0);
+
+    // Períodos:
+    case 'ejercicio': return f.ejercicio || '—';
+    case 'periodo_numero': return String(f.periodo_numero ?? '—');
+    case 'periodo_nombre': return f.periodo_nombre || '—';
+    case 'periodo_estado': return f.periodo_estado || '—';
+    case 'fecha_inicio': return fmtFecha(f.fecha_inicio || '');
+    case 'fecha_fin': return fmtFecha(f.fecha_fin || '');
+    case 'fecha_cierre': return f.fecha_cierre ? fmtFecha(f.fecha_cierre) : '—';
+    case 'cerrado_por': return f.cerrado_por || '—';
+    case 'diferencial_aj_ves': return f.diferencial_aj_ves ? fmtNum(f.diferencial_aj_ves) : '—';
+    case 'diferencial_aj_usd': return f.diferencial_aj_usd ? fmtNum(f.diferencial_aj_usd) : '—';
+    case 'comprobantes_count': return String(f.comprobantes_count ?? 0);
+    default:
+      return '—';
+  }
+}
+
 /* ───────────── Exportación a PDF ───────────── */
 
 export async function exportarReporteContablePdf(
@@ -43,6 +102,7 @@ export async function exportarReporteContablePdf(
   const { default: jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
+  const ambito = reporte.config.ambito ?? 'asientos';
   const esLandscape = formato !== 'resumen';
   const doc = new jsPDF({
     orientation: esLandscape ? 'landscape' : 'portrait',
@@ -86,17 +146,34 @@ export async function exportarReporteContablePdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(...NARANJA);
-  doc.text('REPORTE DINÁMICO DE CONTABILIDAD', textX, y + (empRif ? 33 : 24));
+
+  let tituloPrincipal = 'REPORTE DINÁMICO DE CONTABILIDAD';
+  let subtituloInfo = '';
+
+  if (ambito === 'cuentas') {
+    tituloPrincipal = 'REPORTE DINÁMICO · PLAN DE CUENTAS';
+    subtituloInfo = `Catálogo General de Cuentas | Total Cuentas: ${reporte.resumen.totalCuentas ?? reporte.filas.length}`;
+  } else if (ambito === 'balances') {
+    tituloPrincipal = 'REPORTE DINÁMICO · BALANCES Y SALDOS';
+    subtituloInfo = `Período: ${fmtFecha(reporte.config.desde)} al ${fmtFecha(reporte.config.hasta)} | Nivel de Corte: ${reporte.config.nivelBalance ?? 3}`;
+  } else if (ambito === 'periodos') {
+    tituloPrincipal = 'REPORTE DINÁMICO · PERÍODOS Y CIERRES';
+    subtituloInfo = `Auditoría Mensual de Ejercicios y Cierres | Meses: ${reporte.filas.length}`;
+  } else {
+    tituloPrincipal = 'REPORTE DINÁMICO · ASIENTOS Y MOVIMIENTOS';
+    subtituloInfo = `Período: ${fmtFecha(reporte.config.desde)} al ${fmtFecha(reporte.config.hasta)} | Agrupación: ${ETIQUETA_MODO_CONTABLE[reporte.config.agrupacion]}`;
+  }
+
+  doc.text(tituloPrincipal, textX, y + (empRif ? 33 : 24));
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  const rangoTxt = `Período: ${fmtFecha(reporte.config.desde)} al ${fmtFecha(reporte.config.hasta)} | Agrupación: ${ETIQUETA_MODO_CONTABLE[reporte.config.agrupacion]}`;
-  doc.text(pdfSafe(rangoTxt), textX, y + (empRif ? 44 : 35));
+  doc.text(pdfSafe(subtituloInfo), textX, y + (empRif ? 44 : 35));
 
   y += Math.max(logoH, empRif ? 50 : 42) + 12;
 
-  // 3. Resumen Ejecutivo y KPIs (para formato resumen o hibrido)
+  // 3. Resumen Ejecutivo y KPIs
   if (formato === 'resumen' || formato === 'hibrido') {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
@@ -104,7 +181,46 @@ export async function exportarReporteContablePdf(
     doc.text('RESUMEN GENERAL Y TOTALES DE CONTROL', margin, y);
     y += 8;
 
-    const cuadreTxt = reporte.resumen.cuadra ? 'CUADRADO (Partida Doble Exacta)' : `DESCUADRADO (Dif Bs: ${fmtBs(reporte.resumen.diferenciaVes)})`;
+    let kpiHead = ['Métrica de Control', 'Valor Principal', 'Referencia / Detalle', 'Estado'];
+    let kpiBody: string[][] = [];
+
+    if (ambito === 'cuentas') {
+      kpiHead = ['Métrica del Plan', 'Cantidad', 'Porcentaje / Detalle', 'Estado'];
+      const total = reporte.resumen.totalCuentas || reporte.filas.length || 1;
+      kpiBody = [
+        ['Total Cuentas Catalogadas', fmtNum(reporte.resumen.totalCuentas ?? reporte.filas.length), '100%', 'Estructura activa'],
+        ['Cuentas Activas', fmtNum(reporte.resumen.cuentasActivas ?? 0), `${Math.round(((reporte.resumen.cuentasActivas ?? 0) / total) * 100)}%`, 'Disponibles para asientos'],
+        ['Cuentas Inactivas', fmtNum(reporte.resumen.cuentasInactivas ?? 0), `${Math.round(((reporte.resumen.cuentasInactivas ?? 0) / total) * 100)}%`, 'Históricas'],
+        ['Cuentas de Movimiento (Imputables)', fmtNum(reporte.resumen.cuentasMovimiento ?? 0), `${Math.round(((reporte.resumen.cuentasMovimiento ?? 0) / total) * 100)}%`, 'Nivel transaccional'],
+      ];
+    } else if (ambito === 'balances') {
+      kpiHead = ['Métrica de Balance', 'VES (Bolívares)', 'USD (Dólares)', 'Estado'];
+      const cuadreTxt = reporte.resumen.cuadra ? 'CUADRADO (Partida Doble)' : `DESCUADRE (Bs ${fmtBs(reporte.resumen.diferenciaVes)})`;
+      kpiBody = [
+        ['Total Saldo Inicial', fmtBs(reporte.resumen.totalSaldoInicialVes), fmtUsd(reporte.resumen.totalSaldoInicialUsd), 'Saldos al inicio'],
+        ['Total Movimientos Debe', fmtBs(reporte.resumen.totalDebeVes), fmtUsd(reporte.resumen.totalDebeUsd), 'Cargos del período'],
+        ['Total Movimientos Haber', fmtBs(reporte.resumen.totalHaberVes), fmtUsd(reporte.resumen.totalHaberUsd), 'Abonos del período'],
+        ['Total Saldo Final Acumulado', fmtBs(reporte.resumen.totalSaldoFinalVes), fmtUsd(reporte.resumen.totalSaldoFinalUsd), cuadreTxt],
+      ];
+    } else if (ambito === 'periodos') {
+      kpiHead = ['Control de Períodos', 'Cantidad / Monto Bs', 'Monto USD', 'Estado'];
+      kpiBody = [
+        ['Meses del Ejercicio', String(reporte.filas.length), '12 Meses + Cierre', 'Registrados en el sistema'],
+        ['Meses Abiertos', String(reporte.resumen.mesesAbiertos ?? 0), '—', 'Permiten operaciones'],
+        ['Meses Cerrados', String(reporte.resumen.mesesCerrados ?? 0), '—', 'Bloqueados con foto de saldos'],
+        ['Diferencial Cambiario AJ Acumulado', fmtBs(reporte.resumen.totalDiferencialAjVes), fmtUsd(reporte.resumen.totalDiferencialAjUsd), 'Ajuste de tasa al cierre'],
+        ['Comprobantes Totales Emitidos', fmtNum(reporte.resumen.totalComprobantes), '—', 'Volumen procesado'],
+      ];
+    } else {
+      const cuadreTxt = reporte.resumen.cuadra ? 'CUADRADO (Partida Doble Exacta)' : `DESCUADRADO (Dif Bs: ${fmtBs(reporte.resumen.diferenciaVes)})`;
+      kpiBody = [
+        ['Total Comprobantes', fmtNum(reporte.resumen.totalComprobantes), '—', 'Registrados en el rango'],
+        ['Total Asientos / Renglones', fmtNum(reporte.resumen.totalAsientos), '—', 'Líneas contables evaluadas'],
+        ['Total Debe (Cargos)', fmtBs(reporte.resumen.totalDebeVes), fmtUsd(reporte.resumen.totalDebeUsd), 'Suma total cargada'],
+        ['Total Haber (Abonos)', fmtBs(reporte.resumen.totalHaberVes), fmtUsd(reporte.resumen.totalHaberUsd), 'Suma total abonada'],
+        ['Diferencia / Estado', fmtBs(reporte.resumen.diferenciaVes), fmtUsd(reporte.resumen.diferenciaUsd), cuadreTxt],
+      ];
+    }
 
     autoTable(doc, {
       startY: y,
@@ -112,95 +228,35 @@ export async function exportarReporteContablePdf(
       theme: 'grid',
       headStyles: { fillColor: NARANJA, textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 8 },
       bodyStyles: { fontSize: 8, textColor: TINTA },
-      head: [['Métrica de Control', 'VES (Bolívares)', 'USD (Dólares)', 'Estado']],
-      body: [
-        ['Total Comprobantes', fmtNum(reporte.resumen.totalComprobantes), '—', 'Registrados en el rango'],
-        ['Total Asientos / Renglones', fmtNum(reporte.resumen.totalAsientos), '—', 'Líneas contables evaluadas'],
-        ['Total Debe (Cargos)', fmtBs(reporte.resumen.totalDebeVes), fmtUsd(reporte.resumen.totalDebeUsd), 'Suma total cargada'],
-        ['Total Haber (Abonos)', fmtBs(reporte.resumen.totalHaberVes), fmtUsd(reporte.resumen.totalHaberUsd), 'Suma total abonada'],
-        ['Diferencia de Cuadre', fmtBs(reporte.resumen.diferenciaVes), fmtUsd(reporte.resumen.diferenciaUsd), cuadreTxt],
-      ],
+      head: [kpiHead],
+      body: kpiBody,
     });
 
-    const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 80;
-    y = finalY + 14;
-
-    // Desglose por tipo si cabe
-    if (formato === 'resumen' && reporte.resumen.porTipo.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('DESGLOSE POR TIPO DE COMPROBANTE', margin, y);
-      y += 6;
-
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        theme: 'striped',
-        headStyles: { fillColor: [71, 85, 105], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
-        bodyStyles: { fontSize: 7.5, textColor: TINTA },
-        head: [['Tipo de Comprobante', 'Cantidad', 'Total Debe (VES)', 'Total Debe (USD)']],
-        body: reporte.resumen.porTipo.map((t) => [t.tipo, fmtNum(t.cantidad), fmtBs(t.totalVes), fmtUsd(t.totalUsd)]),
-      });
-      y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 60) + 14;
-    }
+    const lastTable = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable;
+    y = (lastTable?.finalY ?? y) + 14;
   }
 
-  // 4. Detallado Renglón a Renglón (para detallado o híbrido)
+  // 4. Detalle de Registros y Agrupaciones
   if (formato === 'detallado' || formato === 'hibrido') {
-    if (formato === 'hibrido') {
-      doc.addPage();
-      y = margin;
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(...TINTA);
-    doc.text(`DETALLE DE ASIENTOS (${ETIQUETA_MODO_CONTABLE[reporte.config.agrupacion].toUpperCase()})`, margin, y);
-    y += 8;
-
-    const colsVisibles = CAMPOS_REPORTE_CONTABLE.filter((c) => reporte.config.columnasVisibles.includes(c.clave));
+    const camposDisponibles = obtenerCamposPorAmbito(ambito);
+    const colsVisibles = camposDisponibles.filter((c) => reporte.config.columnasVisibles.includes(c.clave));
     const headRow = colsVisibles.map((c) => c.etiqueta);
 
-    const bodyRows: Array<Array<string | number>> = [];
+    const bodyRows: Array<string[]> = [];
 
     for (const g of reporte.grupos) {
-      if (reporte.config.agrupacion !== 'detallado') {
-        bodyRows.push([
-          {
-            content: `▶ ${g.etiqueta} ${g.subetiqueta ? `(${g.subetiqueta})` : ''} · ${g.totalAsientos} asientos`,
-            colSpan: colsVisibles.length,
-            styles: { fillColor: [241, 245, 249], fontStyle: 'bold', textColor: [30, 41, 59] },
-          } as unknown as string,
-        ]);
+      if (reporte.config.agrupacion !== 'detallado' && ambito === 'asientos') {
+        const headerGrupo = [`>> ${g.etiqueta.toUpperCase()}`];
+        for (let i = 1; i < colsVisibles.length; i++) headerGrupo.push('');
+        bodyRows.push(headerGrupo);
       }
 
       for (const f of g.filas) {
-        const row = colsVisibles.map((col) => {
-          switch (col.clave) {
-            case 'fecha': return fmtFecha(f.fecha);
-            case 'comprobante': return f.comprobante;
-            case 'tipo': return f.tipo;
-            case 'origen': return f.origen;
-            case 'referencia': return f.referencia;
-            case 'descripcion': return f.descripcion;
-            case 'cuenta_codigo': return f.cuenta_codigo;
-            case 'cuenta_nombre': return f.cuenta_nombre;
-            case 'centro': return f.centro;
-            case 'auxiliar': return f.auxiliar;
-            case 'moneda': return f.moneda;
-            case 'debe_ves': return f.debe_ves > 0 ? fmtNum(f.debe_ves) : '—';
-            case 'haber_ves': return f.haber_ves > 0 ? fmtNum(f.haber_ves) : '—';
-            case 'debe_usd': return f.debe_usd > 0 ? fmtNum(f.debe_usd) : '—';
-            case 'haber_usd': return f.haber_usd > 0 ? fmtNum(f.haber_usd) : '—';
-            case 'saldo_ves': return fmtNum(f.saldo_ves);
-            case 'saldo_usd': return fmtNum(f.saldo_usd);
-            default: return '—';
-          }
-        });
+        const row = colsVisibles.map((col) => obtenerValorCelda(f, col.clave));
         bodyRows.push(row);
       }
 
-      if (reporte.config.agrupacion !== 'detallado') {
+      if (reporte.config.agrupacion !== 'detallado' && ambito === 'asientos') {
         const subtotalRow = colsVisibles.map((col) => {
           if (col.clave === 'cuenta_nombre' || col.clave === 'descripcion') return 'SUBTOTAL:';
           if (col.clave === 'debe_ves') return fmtNum(g.debe_ves);
@@ -213,16 +269,18 @@ export async function exportarReporteContablePdf(
       }
     }
 
-    // Fila final de totales
-    const totalRow = colsVisibles.map((col) => {
-      if (col.clave === 'cuenta_nombre' || col.clave === 'descripcion') return 'TOTAL GENERAL:';
-      if (col.clave === 'debe_ves') return fmtNum(reporte.resumen.totalDebeVes);
-      if (col.clave === 'haber_ves') return fmtNum(reporte.resumen.totalHaberVes);
-      if (col.clave === 'debe_usd') return fmtNum(reporte.resumen.totalDebeUsd);
-      if (col.clave === 'haber_usd') return fmtNum(reporte.resumen.totalHaberUsd);
-      return '';
-    });
-    bodyRows.push(totalRow);
+    // Fila final de totales (para asientos o balances)
+    if (ambito === 'asientos' || ambito === 'balances') {
+      const totalRow = colsVisibles.map((col) => {
+        if (col.clave === 'cuenta_nombre' || col.clave === 'descripcion') return 'TOTAL GENERAL:';
+        if (col.clave === 'debe_ves') return fmtNum(reporte.resumen.totalDebeVes);
+        if (col.clave === 'haber_ves') return fmtNum(reporte.resumen.totalHaberVes);
+        if (col.clave === 'debe_usd') return fmtNum(reporte.resumen.totalDebeUsd);
+        if (col.clave === 'haber_usd') return fmtNum(reporte.resumen.totalHaberUsd);
+        return '';
+      });
+      bodyRows.push(totalRow);
+    }
 
     autoTable(doc, {
       startY: y,
@@ -251,7 +309,7 @@ export async function exportarReporteContablePdf(
     doc.text(pdfSafe(txtPie), pageW / 2, pageH - 18, { align: 'center' });
   }
 
-  const nombreArchivo = `Reporte-Contable-${empClave}-${reporte.config.desde}-al-${reporte.config.hasta}.pdf`;
+  const nombreArchivo = `Reporte-Contable-${ambito.toUpperCase()}-${empClave}-${reporte.config.desde}-al-${reporte.config.hasta}.pdf`;
   previewPdf(doc, nombreArchivo);
 }
 
@@ -259,79 +317,67 @@ export async function exportarReporteContablePdf(
 
 export async function exportarReporteContableExcel(
   reporte: ReporteContableGenerado,
-  formato: 'resumen' | 'detallado' | 'hibrido' = 'hibrido',
+  _formato: 'resumen' | 'detallado' | 'hibrido' = 'hibrido',
 ): Promise<void> {
   const XLSX = await import('xlsx-js-style');
 
-  const empNombre = reporte.config.empresaNombre || 'GOLDEN TOUCH 1127, C.A.';
+  const ambito = reporte.config.ambito ?? 'asientos';
+  const camposDisponibles = obtenerCamposPorAmbito(ambito);
+  const colsVisibles = camposDisponibles.filter((c) => reporte.config.columnasVisibles.includes(c.clave));
+  const empNombre = (reporte.config.empresaNombre || 'GOLDEN TOUCH 1127, C.A.').toUpperCase();
   const empClave = reporte.config.empresaClave || 'GT';
+
   const wb = XLSX.utils.book_new();
+  const wsData: Array<Array<string | number>> = [];
 
-  // Hoja 1: Resumen de Control y Totales
-  if (formato === 'resumen' || formato === 'hibrido') {
-    const ws1Data: unknown[][] = [
-      [`${empNombre.toUpperCase()} - REPORTE DINÁMICO DE CONTABILIDAD`],
-      [`Período: ${fmtFecha(reporte.config.desde)} al ${fmtFecha(reporte.config.hasta)} | Agrupación: ${ETIQUETA_MODO_CONTABLE[reporte.config.agrupacion]}`],
-      [],
-      ['KPIs Y TOTALES DE CONTROL CONTABLE'],
-      ['Métrica', 'VES (Bolívares)', 'USD (Dólares)', 'Estado'],
-      ['Total Comprobantes', reporte.resumen.totalComprobantes, null, 'Registrados'],
-      ['Total Asientos / Renglones', reporte.resumen.totalAsientos, null, 'Líneas contables'],
-      ['Total Debe (Cargos)', reporte.resumen.totalDebeVes, reporte.resumen.totalDebeUsd, 'Cargos'],
-      ['Total Haber (Abonos)', reporte.resumen.totalHaberVes, reporte.resumen.totalHaberUsd, 'Abonos'],
-      ['Diferencia de Cuadre', reporte.resumen.diferenciaVes, reporte.resumen.diferenciaUsd, reporte.resumen.cuadra ? 'CUADRADO' : 'DESCUADRADO'],
-      [],
-      ['DESGLOSE POR TIPO DE COMPROBANTE'],
-      ['Tipo', 'Cantidad', 'Total Debe (VES)', 'Total Debe (USD)'],
-      ...reporte.resumen.porTipo.map((t) => [t.tipo, t.cantidad, t.totalVes, t.totalUsd]),
-    ];
+  // Encabezado institucional
+  wsData.push([empNombre]);
+  wsData.push([`REPORTE DINÁMICO DE CONTABILIDAD · ${ambito.toUpperCase()}`]);
+  wsData.push([`Período: ${reporte.config.desde} al ${reporte.config.hasta} | Empresa: ${empClave}`]);
+  wsData.push([]);
 
-    const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
-    XLSX.utils.book_append_sheet(wb, ws1, 'Resumen Contable');
-  }
+  // Fila de encabezados de columna
+  wsData.push(colsVisibles.map((c) => c.etiqueta));
 
-  // Hoja 2: Detalle de Asientos
-  if (formato === 'detallado' || formato === 'hibrido') {
-    const colsVisibles = CAMPOS_REPORTE_CONTABLE.filter((c) => reporte.config.columnasVisibles.includes(c.clave));
-    const ws2Data: unknown[][] = [
-      [`${empNombre.toUpperCase()} - DETALLE DE MOVIMIENTOS CONTABLES`],
-      [`Período: ${fmtFecha(reporte.config.desde)} al ${fmtFecha(reporte.config.hasta)}`],
-      [],
-      colsVisibles.map((c) => c.etiqueta),
-    ];
-
-    for (const f of reporte.filas) {
-      const row = colsVisibles.map((col) => {
-        switch (col.clave) {
-          case 'fecha': return f.fecha;
-          case 'comprobante': return f.comprobante;
-          case 'tipo': return f.tipo;
-          case 'origen': return f.origen;
-          case 'referencia': return f.referencia;
-          case 'descripcion': return f.descripcion;
-          case 'cuenta_codigo': return f.cuenta_codigo;
-          case 'cuenta_nombre': return f.cuenta_nombre;
-          case 'centro': return f.centro;
-          case 'auxiliar': return f.auxiliar;
-          case 'moneda': return f.moneda;
-          case 'debe_ves': return f.debe_ves;
-          case 'haber_ves': return f.haber_ves;
-          case 'debe_usd': return f.debe_usd;
-          case 'haber_usd': return f.haber_usd;
-          case 'saldo_ves': return f.saldo_ves;
-          case 'saldo_usd': return f.saldo_usd;
-          default: return '';
+  // Filas de datos
+  for (const f of reporte.filas) {
+    const row = colsVisibles.map((col) => {
+      switch (col.formato) {
+        case 'moneda':
+        case 'moneda_bs': {
+          const val = (f as unknown as Record<string, unknown>)[col.clave];
+          return typeof val === 'number' ? val : 0;
         }
-      });
-      ws2Data.push(row);
-    }
-
-    const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
-    XLSX.utils.book_append_sheet(wb, ws2, 'Detalle Movimientos');
+        case 'numero': {
+          const val = (f as unknown as Record<string, unknown>)[col.clave];
+          return typeof val === 'number' ? val : 0;
+        }
+        default:
+          return obtenerValorCelda(f, col.clave);
+      }
+    });
+    wsData.push(row);
   }
 
-  const nombreArchivo = `Reporte-Contable-${empClave}-${reporte.config.desde}-al-${reporte.config.hasta}.xlsx`;
-  const wbOut = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-  const buf = wbOut instanceof ArrayBuffer ? wbOut : new Uint8Array(wbOut).buffer;
-  previewExcelArchivo(buf, nombreArchivo);
+  // Fila de Totales si aplica
+  if (ambito === 'asientos' || ambito === 'balances') {
+    const filaTotal = colsVisibles.map((col) => {
+      if (col.clave === 'cuenta_nombre' || col.clave === 'descripcion' || col.clave === 'comprobante') return 'TOTAL GENERAL:';
+      if (col.clave === 'debe_ves') return reporte.resumen.totalDebeVes;
+      if (col.clave === 'haber_ves') return reporte.resumen.totalHaberVes;
+      if (col.clave === 'debe_usd') return reporte.resumen.totalDebeUsd;
+      if (col.clave === 'haber_usd') return reporte.resumen.totalHaberUsd;
+      return '';
+    });
+    wsData.push(filaTotal);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = colsVisibles.map((c) => ({ wch: Math.max(c.anchoExcel, 12) }));
+
+  XLSX.utils.book_append_sheet(wb, ws, `Reporte-${ambito.toUpperCase()}`);
+
+  const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  const nombreArchivo = `Reporte-Contable-${ambito.toUpperCase()}-${empClave}-${reporte.config.desde}-al-${reporte.config.hasta}.xlsx`;
+  previewExcelArchivo(wbout, nombreArchivo);
 }

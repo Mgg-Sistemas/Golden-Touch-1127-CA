@@ -1445,10 +1445,18 @@ export async function getFuenteReporteDinamico(empresaClave?: string) {
     }
   }
   const f = await repo.fuenteInformes(empresaClave);
-  const tipos = await repo.listTiposComprobante();
+  const [tipos, periodos, ejercicios, cierres] = await Promise.all([
+    repo.listTiposComprobante(),
+    repo.listPeriodos(empresaClave),
+    repo.listEjercicios(empresaClave),
+    repo.listCierres(empresaClave),
+  ]);
   return {
     ...f,
     tipos,
+    periodos,
+    ejercicios,
+    cierres,
   };
 }
 

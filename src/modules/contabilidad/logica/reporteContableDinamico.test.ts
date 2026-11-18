@@ -1,23 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import {
-  generarReporteContableDinamico, calcularRangoPreset, CAMPOS_REPORTE_CONTABLE,
-  type FuenteReporteContable, type ConfiguracionFiltroContable,
+  AMBITOS_REPORTE_CONTABLE,
+  calcularRangoPreset,
+  CAMPOS_REPORTE_ASIENTOS,
+  CAMPOS_REPORTE_BALANCES,
+  CAMPOS_REPORTE_CUENTAS,
+  CAMPOS_REPORTE_PERIODOS,
+  generarReporteContableDinamico,
+  obtenerCamposPorAmbito,
+  obtenerColumnasDefectoPorAmbito,
+  type ConfiguracionFiltroContable,
+  type FuenteReporteContable,
 } from './reporteContableDinamico';
 import type { ContComprobante, ContComprobanteLinea, ContCuenta } from '../tipos';
 
-describe('Motor de Reporte Dinámico Contable', () => {
+describe('Contabilidad · Motor de Reporte Dinámico Multidimensional', () => {
   const cuentasMock: ContCuenta[] = [
     {
-      id: 'cta-1', empresa_clave: 'GT', codigo: '1.1.01.01.001', nombre: 'Caja Principal',
-      nivel: 5, padre_id: 'cta-padre', clase: 'activo', naturaleza: 'deudora', es_movimiento: true,
-      exige_centro_costo: false, exige_auxiliar: false, tipo_auxiliar: null, moneda: null,
-      es_monetaria: true, rubro: 'efectivo', activa: true, notas: null, created_at: '', created_by: null,
+      id: 'cta-padre-1', empresa_clave: 'GT', codigo: '1', nombre: 'ACTIVO',
+      nivel: 1, padre_id: null, clase: 'activo', naturaleza: 'deudora', es_movimiento: false,
+      exige_centro_costo: false, exige_auxiliar: false, tipo_auxiliar: null, moneda: 'VES',
+      es_monetaria: true, rubro: 'caja_bancos', activa: true, notas: null, created_at: '2026-01-01T00:00:00Z', created_by: null,
     },
     {
-      id: 'cta-2', empresa_clave: 'GT', codigo: '2.1.01.01.001', nombre: 'Proveedores Nacionales',
+      id: 'cta-padre-2', empresa_clave: 'GT', codigo: '2', nombre: 'PASIVO',
+      nivel: 1, padre_id: null, clase: 'pasivo', naturaleza: 'acreedora', es_movimiento: false,
+      exige_centro_costo: false, exige_auxiliar: false, tipo_auxiliar: null, moneda: 'VES',
+      es_monetaria: true, rubro: 'cuentas_por_pagar', activa: true, notas: null, created_at: '2026-01-01T00:00:00Z', created_by: null,
+    },
+    {
+      id: 'cta-1', empresa_clave: 'GT', codigo: '1.1.01.01.001', nombre: 'CAJA CHICA',
+      nivel: 5, padre_id: 'cta-padre-1', clase: 'activo', naturaleza: 'deudora', es_movimiento: true,
+      exige_centro_costo: false, exige_auxiliar: false, tipo_auxiliar: null, moneda: 'VES',
+      es_monetaria: true, rubro: 'caja_bancos', activa: true, notas: null, created_at: '2026-01-01T00:00:00Z', created_by: null,
+    },
+    {
+      id: 'cta-2', empresa_clave: 'GT', codigo: '2.1.01.01.001', nombre: 'CUENTAS POR PAGAR PROVEEDORES',
       nivel: 5, padre_id: 'cta-padre-2', clase: 'pasivo', naturaleza: 'acreedora', es_movimiento: true,
-      exige_centro_costo: false, exige_auxiliar: true, tipo_auxiliar: 'proveedor', moneda: null,
-      es_monetaria: true, rubro: 'cuentas_por_pagar', activa: true, notas: null, created_at: '', created_by: null,
+      exige_centro_costo: false, exige_auxiliar: true, tipo_auxiliar: 'proveedor', moneda: 'VES',
+      es_monetaria: true, rubro: 'cuentas_por_pagar', activa: true, notas: null, created_at: '2026-01-01T00:00:00Z', created_by: null,
     },
   ];
 
@@ -64,16 +85,25 @@ describe('Motor de Reporte Dinámico Contable', () => {
     centros: [{ id: 'cen-1', empresa_clave: 'GT', codigo: 'OP-01', nombre: 'Planta Mina', padre_id: null, tipo: 'area', origen_clave: null, activo: true }],
     auxiliares: [{ id: 'aux-1', empresa_clave: 'GT', tipo: 'proveedor', codigo: 'PRV-01', nombre: 'Ferretería Industrial', rif: 'J-12345678-9', origen_tabla: null, origen_id: null, activo: true }],
     tipos: [{ id: 'tipo-01', codigo: '01', nombre: 'Cheques', origen: 'ambos', activo: true, sistema: false }],
+    periodos: [{ id: 'per-2026-10', empresa_clave: 'GT', ejercicio_id: 'ej-2026', numero: 10, codigo: '202610', fecha_inicio: '2026-10-01', fecha_fin: '2026-10-31', estado: 'abierto', cerrado_en: null, cerrado_por: null, reabierto_en: null, reabierto_por: null, reabierto_motivo: null }],
+    ejercicios: [{ id: 'ej-2026', empresa_clave: 'GT', nombre: '2026', fecha_inicio: '2026-01-01', fecha_fin: '2026-12-31', estado: 'abierto', cerrado_en: null, cerrado_por: null, comprobante_cierre_id: null }],
+    cierres: [],
   };
 
-  it('catálogo de columnas disponibles está debidamente definido', () => {
-    expect(CAMPOS_REPORTE_CONTABLE.length).toBeGreaterThan(10);
-    expect(CAMPOS_REPORTE_CONTABLE.some((c) => c.clave === 'debe_ves')).toBe(true);
-    expect(CAMPOS_REPORTE_CONTABLE.some((c) => c.clave === 'haber_usd')).toBe(true);
+  it('los 4 ámbitos cuentan con catálogos de columnas completos', () => {
+    expect(AMBITOS_REPORTE_CONTABLE.length).toBe(4);
+    expect(CAMPOS_REPORTE_ASIENTOS.length).toBeGreaterThan(10);
+    expect(CAMPOS_REPORTE_CUENTAS.length).toBeGreaterThan(8);
+    expect(CAMPOS_REPORTE_BALANCES.length).toBeGreaterThan(8);
+    expect(CAMPOS_REPORTE_PERIODOS.length).toBeGreaterThan(8);
+
+    expect(obtenerCamposPorAmbito('cuentas')).toBe(CAMPOS_REPORTE_CUENTAS);
+    expect(obtenerColumnasDefectoPorAmbito('periodos').length).toBeGreaterThan(5);
   });
 
-  it('filtra y calcula totales con partida doble cuadrada', () => {
+  it('ámbito asientos: calcula totales con partida doble cuadrada y bimoneda', () => {
     const config: ConfiguracionFiltroContable = {
+      ambito: 'asientos',
       empresaClave: 'GT',
       desde: '2026-10-01',
       hasta: '2026-10-31',
@@ -93,25 +123,66 @@ describe('Motor de Reporte Dinámico Contable', () => {
     expect(reporte.resumen.cuadra).toBe(true);
   });
 
-  it('agrupa por cuenta contable correctamente', () => {
+  it('ámbito cuentas: genera el catálogo estructural del plan de cuentas', () => {
     const config: ConfiguracionFiltroContable = {
+      ambito: 'cuentas',
       empresaClave: 'GT',
-      desde: '2026-10-01',
-      hasta: '2026-10-31',
+      desde: '2026-01-01',
+      hasta: '2026-12-31',
       agrupacion: 'cuenta',
-      columnasVisibles: ['fecha', 'comprobante', 'debe_ves', 'haber_ves'],
-      monedaVista: 'todas',
+      columnasVisibles: ['cuenta_codigo', 'cuenta_nombre', 'nivel', 'clase'],
     };
 
     const reporte = generarReporteContableDinamico(fuente, config);
 
-    expect(reporte.grupos.length).toBe(2);
-    expect(reporte.grupos.some((g) => g.clave === '1.1.01.01.001')).toBe(true);
-    expect(reporte.grupos.some((g) => g.clave === '2.1.01.01.001')).toBe(true);
+    expect(reporte.filas.length).toBe(4);
+    expect(reporte.resumen.totalCuentas).toBe(4);
+    expect(reporte.resumen.cuentasActivas).toBe(4);
+    expect(reporte.resumen.cuentasMovimiento).toBe(2);
+    expect(reporte.filas[0].cuenta_codigo).toBe('1');
+    expect(reporte.filas[0].clase).toBe('Activo');
+  });
+
+  it('ámbito balances: calcula balance de saldos con totales por nivel', () => {
+    const config: ConfiguracionFiltroContable = {
+      ambito: 'balances',
+      empresaClave: 'GT',
+      desde: '2026-10-01',
+      hasta: '2026-10-31',
+      agrupacion: 'cuenta',
+      nivelBalance: 5,
+      columnasVisibles: ['cuenta_codigo', 'cuenta_nombre', 'debe_ves', 'haber_ves', 'saldo_final_ves'],
+    };
+
+    const reporte = generarReporteContableDinamico(fuente, config);
+
+    expect(reporte.filas.length).toBeGreaterThan(0);
+    expect(reporte.resumen.totalDebeVes).toBe(4000);
+    expect(reporte.resumen.totalHaberVes).toBe(4000);
+    expect(reporte.resumen.cuadra).toBe(true);
+  });
+
+  it('ámbito periodos: genera auditoría de meses del ejercicio fiscal', () => {
+    const config: ConfiguracionFiltroContable = {
+      ambito: 'periodos',
+      empresaClave: 'GT',
+      desde: '2026-01-01',
+      hasta: '2026-12-31',
+      agrupacion: 'comprobante',
+      columnasVisibles: ['ejercicio', 'periodo_numero', 'periodo_nombre', 'periodo_estado'],
+    };
+
+    const reporte = generarReporteContableDinamico(fuente, config);
+
+    expect(reporte.filas.length).toBe(1);
+    expect(reporte.filas[0].periodo_numero).toBe(10);
+    expect(reporte.filas[0].periodo_estado).toBe('Abierto');
+    expect(reporte.filas[0].comprobantes_count).toBe(2);
   });
 
   it('ignora comprobantes de otra empresa (aislamiento estricto)', () => {
     const config: ConfiguracionFiltroContable = {
+      ambito: 'asientos',
       empresaClave: 'GL',
       desde: '2026-10-01',
       hasta: '2026-10-31',
