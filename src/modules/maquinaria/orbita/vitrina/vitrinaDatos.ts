@@ -21,7 +21,7 @@ export interface DatoEsencial {
 export interface Protagonista {
   id: string;
   /** Qué dibujar a la izquierda. */
-  grafico: { modo: ModoVitrina; tipo?: string; inicial?: string };
+  grafico: { modo: ModoVitrina; tipo?: string; clase?: string; inicial?: string };
   /** Ojal pequeño arriba del título. */
   supra: string;
   titulo: string;
@@ -32,8 +32,8 @@ export interface Protagonista {
   /** Texto normalizado para buscar (marca, modelo, placa, dueño…). */
   buscar: string;
   datos: DatoEsencial[];
-  /** Acción primaria: 'ficha' (abre la máquina) o 'elegir' (segmenta la flota). */
-  accion?: { tipo: 'ficha' | 'elegir'; id: string; texto: string };
+  /** Acción primaria: 'ficha' (abre la máquina), 'elegir' (segmenta por dueño) o 'ubicacion' (segmenta por ubicación). */
+  accion?: { tipo: 'ficha' | 'elegir' | 'ubicacion'; id: string; texto: string };
 }
 
 const ESTADO_LABEL: Record<EstadoEquipo, { texto: string; tono: Tono }> = {
@@ -58,7 +58,7 @@ function deMaquina(f: FilaFlota): Protagonista {
     : f.aviso?.nivel === 'proximo' ? { etiqueta: 'Servicio', valor: 'Próximo', tono: 'warn' as Tono } : null;
   return {
     id: f.id,
-    grafico: { modo: 'maquina', tipo: f.tipo },
+    grafico: { modo: 'maquina', tipo: f.tipo, clase: f.clase },
     supra: `${f.propietarioNombre || 'Sin propietario'} · ${ETIQUETA_CATEGORIA[f.categoria]}`,
     titulo: f.equipo || f.tipo,
     sub: f.tipo,
@@ -108,6 +108,7 @@ function deUbicacion(modelo: ModeloOrbita): Protagonista[] {
       const averiados = fs.filter((f) => f.estado === 'averiada' || f.estado === 'parada').length;
       const duenos = new Set(fs.map((f) => f.propietarioId)).size;
       const pct = fs.length ? Math.round((operativos * 100) / fs.length) : 0;
+      const esSin = u === 'Sin ubicación';
       return {
         id: `u:${u}`,
         grafico: { modo: 'ubicacion' as ModoVitrina },
@@ -122,6 +123,11 @@ function deUbicacion(modelo: ModeloOrbita): Protagonista[] {
           { etiqueta: 'Averiados', valor: String(averiados), tono: averiados ? 'bad' : 'muted' },
           { etiqueta: 'Propietarios', valor: String(duenos) },
         ],
+        accion: {
+          tipo: 'ubicacion',
+          id: esSin ? '__sin__' : u,
+          texto: esSin ? '📍 Ver flota sin ubicación' : `📍 Ver flota en ${u}`,
+        },
       };
     });
 }

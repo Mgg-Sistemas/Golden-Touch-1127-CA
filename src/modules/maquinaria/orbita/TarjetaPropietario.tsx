@@ -1,7 +1,7 @@
 /* ============================================================
    Golden Touch · Control de Maquinaria · el rosetón · un propietario
    Como en la maqueta de Mgg-Sistemas: la categoría con su color, el
-   nombre y las cifras. Además, la barra de salud (andando / activos) y la
+   nombre y las cifras. Además, la barra de salud (operativos / activos) y la
    MEZCLA de categorías de sus equipos (D22: la categoría es de cada equipo).
    Tipo de oración, cifras con tabular-nums, el color de categoría como
    punto (no el color solo: va con su nombre).
@@ -46,7 +46,7 @@ export function TarjetaPropietario({ p, posicion, elegido, onElegir }: {
       className={`ros-tarjeta${elegido ? ' elegido' : ''}${enEscena ? ' en-escena' : ''}`}
       style={posicion}
       aria-pressed={elegido} onClick={onElegir}
-      aria-label={`${nombre}, ${p.total} equipos, ${p.operativos} andando, ${p.pctSalud} por ciento${problemas ? `, ${problemas} averiados o en taller` : ''}`}
+      aria-label={`${nombre}, ${p.total} equipos, ${p.operativos} operativos, ${p.pctSalud} por ciento${problemas ? `, ${problemas} averiados o en taller` : ''}`}
       title={p.agrupa ? p.agrupa.map((a) => `${a.nombre} (${a.cantidad})`).join(' · ') : undefined}>
       {enEscena && problemas > 0 && <span className="ros-tarjeta-badge" aria-hidden="true">⚠ {problemas}</span>}
       <Categorias p={p} max={enEscena ? 1 : 2} />

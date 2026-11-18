@@ -37,21 +37,45 @@ function PinUbicacion() {
   );
 }
 
-function Grafico({ p }: { p: Protagonista }) {
+function FotoVehiculo({ src, alt, fallback }: { src: string; alt: string; fallback: React.ReactNode }) {
+  const [error, setError] = useState(false);
+  if (error) return <>{fallback}</>;
+  return (
+    <div className="vit-foto-marco">
+      <img
+        src={src}
+        alt={alt}
+        className="vit-foto-img"
+        loading="lazy"
+        onError={() => setError(true)}
+      />
+    </div>
+  );
+}
+
+function Grafico({ p, fotos }: { p: Protagonista; fotos?: ReadonlyMap<string, string> }) {
   if (p.grafico.modo === 'propietario') {
     return <div className="vit-inicial" aria-hidden="true">{p.grafico.inicial}</div>;
   }
   if (p.grafico.modo === 'ubicacion') return <PinUbicacion />;
-  return <SiluetaMaquina tipo={p.grafico.tipo} className="vit-sil" />;
+  const silueta = <SiluetaMaquina tipo={p.grafico.tipo} clase={p.grafico.clase} className="vit-sil" />;
+  const foto = fotos?.get(p.id);
+  if (foto) {
+    return <FotoVehiculo key={p.id} src={foto} alt={p.titulo} fallback={silueta} />;
+  }
+  return silueta;
 }
 
-export function VitrinaVista({ modelo, onElegir, modoInicial = 'maquina', enfocarId = null }: {
+export function VitrinaVista({ modelo, onElegir, onElegirUbicacion, modoInicial = 'maquina', enfocarId = null, fotos }: {
   modelo: ModeloOrbita;
   onElegir: (propietarioId: string) => void;
+  onElegirUbicacion?: (ubicacion: string) => void;
   /** Modo con el que abre. La entrada cinemática desde el mapa la fija en 'propietario'. */
   modoInicial?: ModoVitrina;
   /** Si viene, abre en modo propietario y se desliza hasta ese propietario (drill del mapa). */
   enfocarId?: string | null;
+  /** Mapa equipo_id → url de foto real */
+  fotos?: ReadonlyMap<string, string>;
 }) {
   const [modo, setModo] = useState<ModoVitrina>(enfocarId ? 'propietario' : modoInicial);
   const [q, setQ] = useState('');
@@ -131,7 +155,7 @@ export function VitrinaVista({ modelo, onElegir, modoInicial = 'maquina', enfoca
         {filtrada.map((p, i) => (
           <article key={p.id} className="vit-panel" data-i={i} data-acento={p.acento ?? 'muted'}>
             <span className="vit-numero" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
-            <div className="vit-grafico"><Grafico p={p} /></div>
+            <div className="vit-grafico"><Grafico p={p} fotos={fotos} /></div>
             <div className="vit-datos">
               <span className="vit-supra">{p.supra}</span>
               <h3 className="vit-titulo">{p.titulo}</h3>
@@ -146,6 +170,10 @@ export function VitrinaVista({ modelo, onElegir, modoInicial = 'maquina', enfoca
               </dl>
               {p.accion && (p.accion.tipo === 'ficha' ? (
                 <Link className="btn btn-primary vit-cta" to={`/app/maquinaria/equipo/${p.accion.id}`}>{p.accion.texto}</Link>
+              ) : p.accion.tipo === 'ubicacion' ? (
+                <button type="button" className="btn btn-primary vit-cta" onClick={() => (onElegirUbicacion ? onElegirUbicacion(p.accion!.id) : onElegir(p.accion!.id))}>
+                  {p.accion.texto}
+                </button>
               ) : (
                 <button type="button" className="btn btn-primary vit-cta" onClick={() => onElegir(p.accion!.id)}>{p.accion.texto}</button>
               ))}

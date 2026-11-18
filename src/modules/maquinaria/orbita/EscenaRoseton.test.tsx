@@ -31,7 +31,7 @@ describe('el rosetón', () => {
     const { m, html } = render(cien());
     const etiquetas = [...html.matchAll(/class="ros-tarjeta[^"]*"[^>]*aria-label="([^"]+)"/g)].map((x) => x[1]);
     expect(etiquetas).toHaveLength(m.propietarios.length);
-    for (const e of etiquetas) expect(e).toMatch(/^[^,]+, \d+ equipos, \d+ andando, \d+ por ciento/);
+    for (const e of etiquetas) expect(e).toMatch(/^[^,]+, \d+ equipos, \d+ operativos, \d+ por ciento/);
   });
 
   it('el anillo es aria-hidden y la medalla dice toda la flota', () => {

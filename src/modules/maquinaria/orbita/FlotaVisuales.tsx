@@ -31,14 +31,22 @@ export type EscenaFlota = 'roseton' | 'vitrina';
 /** Filtro de propietario para la lista rica: el nombre, '__sin__' (sin propietario) o null (toda la flota). */
 export type FiltroPropietario = string | null;
 
-export function FlotaVisuales({ escena, equipos, lecturas, avisos, onVerFlota, prefs: prefsDadas }: {
+export function FlotaVisuales({ escena, equipos, lecturas, avisos, fotos, propietarioActivo, onVerFlota, onSeleccionarPropietario, onVerUbicacion, prefs: prefsDadas }: {
   /** Qué visual pinta el selector de la página. */
   escena: EscenaFlota;
   equipos: readonly MaquinariaEquipo[];
   lecturas: ReadonlyMap<string, LecturaOrbita>;
   avisos: ReadonlyMap<string, AvisoServicio | null>;
+  /** Mapa de fotos reales por equipo_id */
+  fotos?: ReadonlyMap<string, string>;
+  /** Propietario actualmente seleccionado en la lista (si lo hay) */
+  propietarioActivo?: string;
   /** Llevar a la LISTA RICA de la página, filtrada por este propietario. */
   onVerFlota: (propietario: FiltroPropietario) => void;
+  /** Sincronizar el propietario seleccionado sin salir de la vista actual */
+  onSeleccionarPropietario?: (propietario: FiltroPropietario) => void;
+  /** Llevar a la LISTA RICA de la página, filtrada por esta ubicación. */
+  onVerUbicacion?: (ubicacion: string) => void;
   /** Por defecto, las de este navegador con el prefijo real (posiciones del rosetón). */
   prefs?: PreferenciasOrbita;
 }) {
@@ -71,11 +79,19 @@ export function FlotaVisuales({ escena, equipos, lecturas, avisos, onVerFlota, p
   const verFlotaDe = (id: string) => {
     if (id === ID_GENERAL || id === ID_OTROS) { onVerFlota(null); return; } // GENERAL y el agregado «Otros» = toda la flota
     if (id === ID_SIN) { onVerFlota('__sin__'); return; }
-    onVerFlota(modelo.propietarios.find((p) => p.id === id)?.nombre ?? null);
+    const prop = modelo.propietarios.find((p) => p.id === id);
+    onVerFlota(prop?.nombre ?? id);
   };
-  // Clic en el Rosetón: GENERAL muestra toda la flota (lista); una empresa entra a su Vitrina (drill).
+  const verUbicacionDe = (ubicacion: string) => {
+    if (onVerUbicacion) onVerUbicacion(ubicacion);
+    else onVerFlota(null);
+  };
+  // Clic en el Rosetón: GENERAL muestra toda la flota (lista); una empresa entra a su Vitrina (drill) y preselecciona el propietario.
   const elegirDesdeMapa = (id: string) => {
     if (id === ID_GENERAL) { onVerFlota(null); return; }
+    const prop = modelo.propietarios.find((p) => p.id === id);
+    const nom = id === ID_SIN ? '__sin__' : (prop?.nombre ?? id);
+    if (onSeleccionarPropietario) onSeleccionarPropietario(nom);
     setDrillId(id);
   };
   const volverAlMapa = () => {
@@ -109,8 +125,16 @@ export function FlotaVisuales({ escena, equipos, lecturas, avisos, onVerFlota, p
           <div className="orb-drill-barra">
             <button type="button" className="btn btn-ghost btn-sm" onClick={volverAlMapa}>← Volver al mapa</button>
             <span className="orb-drill-rotulo">🏢 <strong>{empresaDrill!.nombre}</strong> · explorando desde el mapa</span>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => verFlotaDe(drillId!)}
+              style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+            >
+              🚜 Ver en lista ({empresaDrill!.total})
+            </button>
           </div>
-          <VitrinaVista modelo={modelo} onElegir={verFlotaDe} modoInicial="propietario" enfocarId={drillId} />
+          <VitrinaVista modelo={modelo} onElegir={verFlotaDe} onElegirUbicacion={verUbicacionDe} fotos={fotos} modoInicial="propietario" enfocarId={drillId} />
         </section>
       ) : escena === 'roseton' ? (
         <section key="mapa" className="orb-mapa orb-mapa-entra" aria-label="Mapa de propietarios">
@@ -123,18 +147,29 @@ export function FlotaVisuales({ escena, equipos, lecturas, avisos, onVerFlota, p
               <button type="button" className="btn btn-ghost btn-sm orb-dorado" onClick={() => onVerFlota(null)}>👑 Ver toda la flota</button>
             </div>
           </div>
-          <EscenaRoseton general={modelo.general} propietarios={modelo.propietarios} elegido={ID_GENERAL} onElegir={elegirDesdeMapa}
-            desplazamientos={posiciones} onMover={moverTarjeta} />
+          <EscenaRoseton
+            general={modelo.general}
+            propietarios={modelo.propietarios}
+            elegido={drillId ?? (propietarioActivo ? (modelo.propietarios.find((p) => p.nombre === propietarioActivo || (p.id === ID_SIN && propietarioActivo === '__sin__'))?.id ?? ID_GENERAL) : ID_GENERAL)}
+            onElegir={elegirDesdeMapa}
+            desplazamientos={posiciones}
+            onMover={moverTarjeta}
+          />
           {/* Teléfono: el rosetón solo, y las tarjetas en lista, en el orden del anillo. */}
           <div className="ros-lista" role="group" aria-label="Propietarios">
             {modelo.propietarios.map((p) => (
-              <TarjetaPropietario key={p.id} p={p} elegido={false} onElegir={() => elegirDesdeMapa(p.id)} />
+              <TarjetaPropietario
+                key={p.id}
+                p={p}
+                elegido={p.id === drillId || (!!propietarioActivo && (p.nombre === propietarioActivo || (p.id === ID_SIN && propietarioActivo === '__sin__')))}
+                onElegir={() => elegirDesdeMapa(p.id)}
+              />
             ))}
           </div>
         </section>
       ) : (
         <section key="vitrina" className="orb-vitrina orb-vitrina-entra" aria-label="Vitrina de la flota">
-          <VitrinaVista modelo={modelo} onElegir={verFlotaDe} />
+          <VitrinaVista modelo={modelo} onElegir={verFlotaDe} onElegirUbicacion={verUbicacionDe} fotos={fotos} />
         </section>
       )}
     </div>

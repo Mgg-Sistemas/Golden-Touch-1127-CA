@@ -117,27 +117,92 @@ const herramienta: Dibujo = () => (
   </>
 );
 
+const sedan: Dibujo = () => (
+  <>
+    {/* Chasis y carrocería de sedán / automóvil */}
+    <path className="sil-cuerpo" d="M14 82 h172 v10 h-172 Z" />
+    <path className="sil-cuerpo" d="M18 82 L26 72 L58 72 L84 48 L142 48 L168 72 L186 74 L188 82 Z" />
+    {/* Ventanillas delantera y trasera */}
+    <path className="sil-acento" d="M64 70 L86 52 L112 52 L112 70 Z" />
+    <path className="sil-acento" d="M116 52 L138 52 L158 70 L116 70 Z" />
+    {/* Luces */}
+    <rect className="sil-acento" x="184" y="74" width="4" height="4" rx="1" />
+    <rect className="sil-acento" x="18" y="74" width="4" height="4" rx="1" />
+    {rueda(54, 94, 15)}
+    {rueda(150, 94, 15)}
+  </>
+);
+
+const autobus: Dibujo = () => (
+  <>
+    {/* Carrocería del autobús / chasis / encava */}
+    <path className="sil-cuerpo" d="M16 42 h140 q18 0 26 18 l6 22 v8 h-172 v-44 q0 -4 4 -4 Z" />
+    {/* Parabrisas delantero con acento naranja */}
+    <path className="sil-acento" d="M156 46 h18 q10 0 14 12 l4 14 h-36 Z" />
+    {/* Ventanillas laterales de pasajeros */}
+    <rect className="sil-rueda" x="24" y="48" width="26" height="18" rx="2" />
+    <rect className="sil-rueda" x="56" y="48" width="26" height="18" rx="2" />
+    <rect className="sil-rueda" x="88" y="48" width="26" height="18" rx="2" />
+    <rect className="sil-rueda" x="120" y="48" width="26" height="18" rx="2" />
+    {/* Franja / moldura inferior */}
+    <rect className="sil-cuerpo" x="14" y="82" width="174" height="8" rx="2" />
+    {/* Luces delantera y trasera */}
+    <rect className="sil-acento" x="184" y="82" width="4" height="5" rx="1" />
+    <rect className="sil-acento" x="14" y="82" width="4" height="5" rx="1" />
+    {rueda(54, 94, 15)}
+    {rueda(146, 94, 15)}
+  </>
+);
+
+const tractor: Dibujo = () => (
+  <>
+    {/* Cabina y chasis */}
+    <rect className="sil-cuerpo" x="42" y="38" width="46" height="46" rx="4" />
+    <rect className="sil-acento" x="48" y="44" width="34" height="24" rx="2" />
+    <path className="sil-cuerpo" d="M88 56 h66 v28 h-66 Z" />
+    <rect className="sil-cuerpo" x="100" y="24" width="6" height="32" rx="2" />
+    <rect className="sil-acento" x="98" y="20" width="10" height="4" rx="1" />
+    {rueda(62, 88, 24)}
+    {rueda(146, 94, 15)}
+  </>
+);
+
 const generico: Dibujo = () => (
   <>
-    <path className="sil-cuerpo" d="M100 34 l10 4 4 -8 12 4 -2 10 10 7 -6 9 7 10 -10 7 2 10 -12 4 -4 -8 -11 4 -6 -9 -11 2 -2 -11 10 -7 -7 -9 7 -10 11 2 Z" />
-    <circle className="sil-rueda" cx="100" cy="70" r="16" />
+    {/* Orugas */}
+    <rect className="sil-rueda" x="24" y="86" width="132" height="18" rx="9" />
+    <circle className="sil-cuerpo" cx="42" cy="95" r="5" />
+    <circle className="sil-cuerpo" cx="72" cy="95" r="4" />
+    <circle className="sil-cuerpo" cx="102" cy="95" r="4" />
+    <circle className="sil-cuerpo" cx="138" cy="95" r="5" />
+    {/* Cabina y cuerpo de maquinaria pesada */}
+    <rect className="sil-cuerpo" x="38" y="44" width="56" height="42" rx="4" />
+    <rect className="sil-acento" x="46" y="50" width="40" height="20" rx="2" />
+    <path className="sil-cuerpo" d="M94 56 h46 v30 h-46 Z" />
+    <rect className="sil-cuerpo" x="104" y="32" width="6" height="24" rx="2" />
+    {/* Pala / implemento frontal */}
+    <path className="sil-acento" d="M152 64 l16 26 l-8 4 l-16 -24 Z" />
+    <path className="sil-cuerpo" d="M162 76 h12 v24 h-12 Z" />
   </>
 );
 
 const POR_TIPO: { claves: string[]; dibujo: Dibujo }[] = [
-  { claves: ['retro', 'excavad'], dibujo: excavadora },
+  { claves: ['retro', 'excavad', 'jumbo'], dibujo: excavadora },
   { claves: ['payload', 'cargad'], dibujo: cargador },
-  { claves: ['camioneta', 'pick'], dibujo: camioneta },
-  { claves: ['camion'], dibujo: camion }, // tras «camioneta»
+  { claves: ['tractor', 'agricola'], dibujo: tractor },
+  { claves: ['sedan', 'auto', 'carro', 'corolla', 'yaris', 'aveo', 'civic', 'optra'], dibujo: sedan },
+  { claves: ['camioneta', 'pick', 'suv', 'rustico', 'jeep', 'explorer', 'fortuner', 'hilux', '4x4'], dibujo: camioneta },
+  { claves: ['autobus', 'bus', 'chasis', 'encava', 'colectivo', 'microbus', 'transporte', 'van'], dibujo: autobus },
+  { claves: ['camion', 'volteo', 'chuto', 'cisterna', 'gandola', 'furgon', 'dumper', 'cava'], dibujo: camion },
   { claves: ['moto'], dibujo: moto },
   { claves: ['lancha', 'bote', 'barco'], dibujo: lancha },
   { claves: ['planta', 'generad'], dibujo: planta },
-  { claves: ['hidrolav', 'herramient', 'compres', 'soldad'], dibujo: herramienta },
+  { claves: ['hidrolav', 'herramient', 'compres', 'soldad', 'bomba'], dibujo: herramienta },
 ];
 
 const POR_CLASE: Record<string, Dibujo> = {
   maquinaria: excavadora,
-  vehiculo: camion,
+  vehiculo: sedan,
   moto,
   lancha,
   herramienta,
