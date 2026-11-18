@@ -38,5 +38,22 @@ describe('Inventario (teléfono) · recepción de lo que entrega el delivery', (
     const d = docRecepcion(p, ['8', ''], { actor: 'isner@gt.com', nombre: 'ISNER ORENCE' }, '2026-11-04T16:00:00Z');
     expect(d.opciones.titulo).toBe('ORDEN DE ENTRADA');
     expect(d.sol.items?.map((i) => i.cantidad)).toEqual([8, 4]);
+    expect(t).toContain('🛒 *Analista encargado:* NAZARET SALAZAR');
+
+    const pConFechas: PorRecepcionar = {
+      ...p,
+      analista: 'comprasanalista9@gmail.com',
+      fecha_montada: '2026-11-03T14:00:00Z',
+      fecha_pago_tesoreria: '2026-11-04T13:30:00Z',
+    };
+    const t2 = mensajeRecepcion(pConFechas, ['', ''], 'ISNER ORENCE', '2026-11-04T16:00:00Z');
+    expect(t2).toContain('🛒 *Analista encargado:* KELVIN PEÑA');
+    expect(t2).toContain('📅 *Fecha montada:*');
+    expect(t2).toContain('💳 *Pago Tesorería:*');
+    const d2 = docRecepcion(pConFechas, ['', ''], { actor: 'isner@gt.com', nombre: 'ISNER ORENCE' }, '2026-11-04T16:00:00Z');
+    expect(d2.opciones.autorizadoPor).toBe('KELVIN PEÑA');
+    expect(d2.sol.motivo).toContain('Analista encargado: KELVIN PEÑA');
+    expect(d2.sol.motivo).toContain('Fecha montada:');
+    expect(d2.sol.motivo).toContain('Pago Tesorería:');
   });
 });

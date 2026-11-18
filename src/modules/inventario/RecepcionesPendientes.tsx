@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { Modal } from '@/shared/ui/Modal';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { toast } from '@/shared/ui/Toast';
+import { supabase } from '@/shared/lib/supabase';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { date, dateTime, money, num, montoMoneda } from '@/shared/lib/format';
 import type { Almacen, ItemOrden, Orden } from '@/shared/lib/types';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
@@ -16,6 +19,19 @@ import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { nombreCortoAlmacen } from './almacenes.repository';
 import { rotuloMarcaModelo } from '@/shared/lib/marcaModelo';
 import { MAX_RECEPCIONES_VISIBLES, filtrarRecepciones, partirRecepciones, unidadesDeOrden } from './recepcionesFinalizadas';
+import {
+  construirWhatsappDetallePendiente,
+  etiquetaSinPagoTesoreria,
+  fechaMontadaOrden,
+  fechaPagoTesoreriaOrden,
+  limpiarNombrePersona,
+  normalizarPendientesRecepcion,
+  resolverAnalistaCompraDirecta,
+  resolverAnalistaOrden,
+  type ResolverPersonaFn,
+} from './pendientesRecepcionReporte';
+import { descargarDetallePendientePdf } from './pendientesRecepcionPdf';
+import { ReportePendientesRecepcionModal } from './ReportePendientesRecepcionModal';
 
 interface RecepcionesPendientesProps {
   /** Órdenes ya finalizadas (historial). */
@@ -78,6 +94,10 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
   const [almacen, setAlmacen] = useState<string>(orden.almacen_destino ?? almacenesOrdenados(almacenes)[0]?.nombre ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const quien = useQuien();
+  const analistaOrden = resolverAnalistaOrden(orden, quien);
+  const fMontada = fechaMontadaOrden(orden);
+  const fPago = fechaPagoTesoreriaOrden(orden);
 
   function setRec(sku: string, cantPedida: number, v: string) {
     const n = Number(v);
@@ -149,6 +169,26 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
           Si llegó menos de lo pedido, deja una <strong>nota</strong>; la orden cierra sin saldo pendiente.
         </p>
       )}
+      <div
+        className="card"
+        style={{
+          margin: '0 0 .65rem',
+          padding: '.55rem .75rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '.4rem 1.25rem',
+          fontSize: '.8rem',
+        }}
+      >
+        <div><span className="muted">Analista encargado:</span> <strong>{analistaOrden}</strong></div>
+        <div><span className="muted">Fecha montada:</span> <strong className="mono">{fMontada ? dateTime(fMontada) : '—'}</strong></div>
+        <div>
+          <span className="muted">Pago Tesorería:</span>{' '}
+          <strong className="mono" style={{ color: fPago ? 'var(--success, #10b981)' : 'var(--warning, #f59e0b)' }}>
+            {fPago ? dateTime(fPago) : etiquetaSinPagoTesoreria(orden.condiciones_pago)}
+          </strong>
+        </div>
+      </div>
       {orden.tipo === 'servicio' && (
         <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.75rem' }}>
           <small>
@@ -322,8 +362,28 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       {compra.proveedor_nombre && (
-        <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>Proveedor: <strong>{compra.proveedor_nombre}</strong></div>
+        <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.35rem' }}>Proveedor: <strong>{compra.proveedor_nombre}</strong></div>
       )}
+      <div
+        className="card"
+        style={{
+          margin: '0 0 .6rem',
+          padding: '.5rem .75rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '.35rem 1.25rem',
+          fontSize: '.78rem',
+        }}
+      >
+        <div><span className="muted">Analista encargado:</span> <strong>{resolverAnalistaCompraDirecta(compra)}</strong></div>
+        <div><span className="muted">Fecha montada:</span> <strong className="mono">{dateTime(compra.enviada_pagar_at ?? compra.created_at)}</strong></div>
+        <div>
+          <span className="muted">Pago Tesorería:</span>{' '}
+          <strong className="mono" style={{ color: compra.pagada_at ? 'var(--success, #10b981)' : undefined }}>
+            {compra.pagada_at ? dateTime(compra.pagada_at) : '—'}
+          </strong>
+        </div>
+      </div>
 
       {esBs && (
         <div className="card" style={{ marginBottom: '.5rem', fontSize: '.8rem', borderColor: 'var(--warning)' }}>
@@ -388,36 +448,128 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
   );
 }
 
-/** Modal con el detalle de una orden finalizada: ítems con cantidad y precio. */
-function DetalleRecepcionModal({ orden, onClose }: { orden: Orden; onClose: () => void }) {
+/** Modal con el detalle de una orden (pendiente o finalizada): metadatos completos, PDF/WhatsApp e ítems. */
+function DetalleRecepcionModal({
+  orden,
+  proveedoresMap,
+  quien,
+  onClose,
+}: {
+  orden: Orden;
+  proveedoresMap?: Map<string, string>;
+  quien?: ResolverPersonaFn;
+  onClose: () => void;
+}) {
   const items = Array.isArray(orden.items) ? orden.items : [];
   const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
+  const analista = resolverAnalistaOrden(orden, quien);
+  const fMontada = fechaMontadaOrden(orden);
+  const fPago = fechaPagoTesoreriaOrden(orden);
+  const provNombre = (orden.proveedor_id ? proveedoresMap?.get(orden.proveedor_id) : '')?.trim() || null;
+  const solicitanteLimpio = limpiarNombrePersona(orden.solicitante, orden.solicitante_email, quien) || orden.solicitante || null;
+
+  const [verWsp, setVerWsp] = useState(false);
+  const [abriendoPdf, setAbriendoPdf] = useState(false);
+
+  const filaNormalizada = useMemo(
+    () =>
+      normalizarPendientesRecepcion({
+        ordenesPendientes: [orden],
+        proveedoresMap,
+        resolverPersona: quien,
+      })[0],
+    [orden, proveedoresMap, quien],
+  );
+
+  async function abrirPdfIndividual() {
+    if (!filaNormalizada) return;
+    setAbriendoPdf(true);
+    try {
+      await descargarDetallePendientePdf(filaNormalizada);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF.', 'error');
+    } finally {
+      setAbriendoPdf(false);
+    }
+  }
+
   return (
-    <Modal title={`Detalle · ${orden.codigo}`} size="lg" onClose={onClose}>
+    <Modal title={`Detalle · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose}>
       {/* Cabecera */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem 1.5rem', alignItems: 'center', marginBottom: '.75rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem 1.4rem', alignItems: 'center', marginBottom: '.75rem' }}>
         <div>
           <div className="muted" style={{ fontSize: '.72rem' }}>Orden</div>
-          <div className="mono" style={{ fontWeight: 700 }}>{orden.codigo}{orden.oc_codigo ? ` · ${orden.oc_codigo}` : ''}</div>
+          <div className="mono" style={{ fontWeight: 700 }}>{orden.oc_codigo ? `${orden.oc_codigo} · ${orden.codigo}` : orden.codigo}</div>
         </div>
         <div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>Fecha</div>
-          <div>{date(orden.created_at)}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Analista encargado</div>
+          <div style={{ fontWeight: 600 }}>{analista}</div>
         </div>
-        {orden.solicitante && (
+        <div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Fecha montada</div>
+          <div className="mono">{fMontada ? dateTime(fMontada) : '—'}</div>
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Pago Tesorería</div>
+          <div
+            className="mono"
+            style={{
+              color: fPago ? 'var(--success, #10b981)' : 'var(--warning, #f59e0b)',
+              fontWeight: fPago ? 600 : 400,
+            }}
+          >
+            {fPago ? dateTime(fPago) : etiquetaSinPagoTesoreria(orden.condiciones_pago)}
+          </div>
+        </div>
+        {provNombre && (
+          <div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>Proveedor</div>
+            <div>{provNombre}</div>
+          </div>
+        )}
+        {solicitanteLimpio && (
           <div>
             <div className="muted" style={{ fontSize: '.72rem' }}>Solicita</div>
-            <div>{orden.solicitante}</div>
+            <div>{solicitanteLimpio}</div>
           </div>
         )}
         {orden.recibida_en && (
           <div>
             <div className="muted" style={{ fontSize: '.72rem' }}>Recibida</div>
-            <div>{dateTime(orden.recibida_en)}</div>
+            <div className="mono">{dateTime(orden.recibida_en)}</div>
           </div>
         )}
-        <div style={{ marginLeft: 'auto' }}><StatusBadge estado={orden.estado} /></div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {!orden.recibida_en && filaNormalizada && (
+            <>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => void abrirPdfIndividual()}
+                disabled={abriendoPdf}
+                title="Descargar ficha en PDF de esta orden pendiente"
+              >
+                {abriendoPdf ? 'PDF…' : '📄 PDF'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-wsp"
+                onClick={() => setVerWsp((v) => !v)}
+                title="Ver o enviar aviso por WhatsApp de esta orden pendiente"
+              >
+                📲 WhatsApp
+              </button>
+            </>
+          )}
+          <StatusBadge estado={orden.estado} />
+        </div>
       </div>
+
+      {verWsp && filaNormalizada && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.75rem' }}>
+          <CompartirWhatsapp texto={construirWhatsappDetallePendiente(filaNormalizada)} />
+        </div>
+      )}
 
       {/* Ítems */}
       <div className="table-wrap">
@@ -551,12 +703,73 @@ function HistoricoRecepcionesModal({ ordenes, onVer, onClose }: {
 export function RecepcionesPendientes({
   ordenes, pendientes, comprasPendientes, almacenes, actor, actorName, canWrite, onRecibida,
 }: RecepcionesPendientesProps) {
+  const quien = useQuien();
   const [detalle, setDetalle] = useState<Orden | null>(null);
   // Tarjetas: solo las más recientes. El resto va al Histórico (lista buscable).
   const [historicoOpen, setHistoricoOpen] = useState(false);
   const { recientes, anteriores } = useMemo(() => partirRecepciones(ordenes), [ordenes]);
   const [recibir, setRecibir] = useState<Orden | null>(null);
   const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
+  const [modoReporte, setModoReporte] = useState<'pdf' | 'whatsapp' | null>(null);
+
+  // Directorio de proveedores para mostrar razón social en tarjetas, modal y reportes
+  const [proveedoresMap, setProveedoresMap] = useState<Map<string, string>>(() => new Map());
+  const provIdsKey = useMemo(() => {
+    const ids = new Set<string>();
+    pendientes.forEach((o) => { if (o.proveedor_id) ids.add(o.proveedor_id); });
+    comprasPendientes.forEach((c) => { if (c.proveedor_id) ids.add(c.proveedor_id); });
+    recientes.forEach((o) => { if (o.proveedor_id) ids.add(o.proveedor_id); });
+    if (detalle?.proveedor_id) ids.add(detalle.proveedor_id);
+    return Array.from(ids).sort().join(',');
+  }, [pendientes, comprasPendientes, recientes, detalle?.proveedor_id]);
+
+  useEffect(() => {
+    if (!provIdsKey) return;
+    let vivo = true;
+    const ids = provIdsKey.split(',').filter(Boolean);
+    supabase
+      .from('proveedores')
+      .select('id, razon_social')
+      .in('id', ids)
+      .then(({ data }) => {
+        if (!vivo || !data) return;
+        setProveedoresMap((prev) => {
+          const next = new Map(prev);
+          for (const row of data as Array<{ id: string; razon_social?: string | null }>) {
+            const rs = (row.razon_social ?? '').trim();
+            if (row.id && rs) next.set(row.id, rs);
+          }
+          return next;
+        });
+      });
+    return () => { vivo = false; };
+  }, [provIdsKey]);
+
+  const hayComprasEnBs = useMemo(
+    () => comprasPendientes.some((c) => c.moneda === 'Bs'),
+    [comprasPendientes],
+  );
+  const [tasaHoy, setTasaHoy] = useState(0);
+  useEffect(() => {
+    if (!hayComprasEnBs) return;
+    let vivo = true;
+    getTasaHoy()
+      .then((t) => { if (vivo && t.usd && Number(t.usd) > 0) setTasaHoy(Number(t.usd)); })
+      .catch(() => { /* sin tasa */ });
+    return () => { vivo = false; };
+  }, [hayComprasEnBs]);
+
+  const filasReportePendientes = useMemo(
+    () =>
+      normalizarPendientesRecepcion({
+        ordenesPendientes: pendientes,
+        comprasPendientes,
+        proveedoresMap,
+        resolverPersona: quien,
+        tasaUsdHoy: tasaHoy,
+      }),
+    [pendientes, comprasPendientes, proveedoresMap, quien, tasaHoy],
+  );
 
   return (
     <>
@@ -571,12 +784,14 @@ export function RecepcionesPendientes({
             {comprasPendientes.map((c) => {
               const items = Array.isArray(c.items) ? c.items : [];
               const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
+              const analistaCd = resolverAnalistaCompraDirecta(c, quien);
+              const fMontadaCd = c.enviada_pagar_at ?? c.created_at;
               return (
                 <div key={c.id} className="card" style={{ margin: 0, padding: '.85rem', borderColor: 'var(--warning, #f59e0b)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
                     <div>
                       <div className="mono" style={{ fontWeight: 700 }}>{c.codigo ?? 'Compra directa'}</div>
-                      <div className="muted" style={{ fontSize: '.75rem' }}>{date(c.pagada_at ?? c.created_at)}</div>
+                      <div className="muted" style={{ fontSize: '.72rem' }}>Destino: {c.almacen || 'General'}</div>
                     </div>
                     <span className="badge success">Pagada</span>
                   </div>
@@ -584,9 +799,21 @@ export function RecepcionesPendientes({
                     <div>{num(items.length)} material{items.length !== 1 ? 'es' : ''} · {num(totalUnidades)} und.</div>
                     <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{montoMoneda(Number(c.gasto) || 0, c.moneda)}</div>
                   </div>
-                  {c.proveedor_nombre && (
-                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Proveedor: {c.proveedor_nombre}</div>
-                  )}
+                  <div style={{ marginTop: '.45rem', fontSize: '.73rem', display: 'grid', gap: '.18rem' }}>
+                    <div><span className="muted">Analista encargado:</span> <strong>{analistaCd}</strong></div>
+                    <div title={fMontadaCd ? dateTime(fMontadaCd) : undefined}>
+                      <span className="muted">Fecha montada:</span> <span className="mono">{fMontadaCd ? date(fMontadaCd) : '—'}</span>
+                    </div>
+                    <div title={c.pagada_at ? dateTime(c.pagada_at) : undefined}>
+                      <span className="muted">Pago Tesorería:</span>{' '}
+                      <span className="mono" style={{ color: 'var(--success, #10b981)', fontWeight: 600 }}>
+                        {c.pagada_at ? date(c.pagada_at) : '—'}
+                      </span>
+                    </div>
+                    {c.proveedor_nombre && (
+                      <div className="muted">Proveedor: {c.proveedor_nombre}</div>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem' }}>
                     {canWrite && (
                       <button type="button" className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setRecibirCompra(c)} title="Ver el detalle y dar entrada al inventario eligiendo el almacén">
@@ -603,9 +830,29 @@ export function RecepcionesPendientes({
 
       {/* ─── Pendientes por recepción ─── */}
       <div className="card">
-        <div className="card-title">
+        <div className="card-title" style={{ flexWrap: 'wrap', gap: '.5rem' }}>
           <span>Pendientes por recepción</span>
-          <span className="muted mono">{num(pendientes.length)} órden{pendientes.length !== 1 ? 'es' : ''}</span>
+          <span style={{ display: 'flex', gap: '.45rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="muted mono">{num(pendientes.length)} órden{pendientes.length !== 1 ? 'es' : ''}</span>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              disabled={filasReportePendientes.length === 0}
+              onClick={() => setModoReporte('pdf')}
+              title="Generar reporte dinámico en PDF de las órdenes pendientes por recepcionar"
+            >
+              📄 Reporte PDF
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-wsp"
+              disabled={filasReportePendientes.length === 0}
+              onClick={() => setModoReporte('whatsapp')}
+              title="Generar mensaje dinámico de WhatsApp (NO HA LLEGADO A ALMACEN DAR STATUS)"
+            >
+              📲 Reporte WhatsApp
+            </button>
+          </span>
         </div>
 
         {!pendientes.length ? (
@@ -617,12 +864,19 @@ export function RecepcionesPendientes({
               const totalUnidades = Array.isArray(o.items)
                 ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0)
                 : 0;
+              const analista = resolverAnalistaOrden(o, quien);
+              const fMontada = fechaMontadaOrden(o);
+              const fPago = fechaPagoTesoreriaOrden(o);
+              const provNombre = (o.proveedor_id ? proveedoresMap.get(o.proveedor_id) : '')?.trim() || null;
+              const solicitanteLimpio = limpiarNombrePersona(o.solicitante, o.solicitante_email, quien) || o.solicitante;
               return (
                 <div key={o.id} className="card" style={{ margin: 0, padding: '.85rem', borderColor: 'var(--primary-3, #2563eb)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
                     <div>
                       <div className="mono" style={{ fontWeight: 700 }}>{o.oc_codigo ?? o.codigo}</div>
-                      <div className="muted" style={{ fontSize: '.75rem' }}>{date(o.created_at)}</div>
+                      {o.oc_codigo && o.codigo && o.codigo !== o.oc_codigo && (
+                        <div className="muted mono" style={{ fontSize: '.7rem' }}>{o.codigo}</div>
+                      )}
                     </div>
                     <StatusBadge estado={o.estado} />
                   </div>
@@ -632,12 +886,37 @@ export function RecepcionesPendientes({
                     <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(o.total)}</div>
                   </div>
 
-                  {o.solicitante && (
-                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Solicita: {o.solicitante}</div>
-                  )}
-                  {o.almacen_destino && (
-                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>Destino sugerido: {o.almacen_destino}</div>
-                  )}
+                  <div style={{ marginTop: '.45rem', fontSize: '.73rem', display: 'grid', gap: '.18rem' }}>
+                    <div>
+                      <span className="muted">Analista encargado:</span>{' '}
+                      <strong>{analista}</strong>
+                    </div>
+                    <div title={fMontada ? dateTime(fMontada) : undefined}>
+                      <span className="muted">Fecha montada:</span>{' '}
+                      <span className="mono">{fMontada ? date(fMontada) : '—'}</span>
+                    </div>
+                    <div title={fPago ? dateTime(fPago) : undefined}>
+                      <span className="muted">Pago Tesorería:</span>{' '}
+                      <span
+                        className="mono"
+                        style={{
+                          color: fPago ? 'var(--success, #10b981)' : 'var(--warning, #f59e0b)',
+                          fontWeight: fPago ? 600 : 400,
+                        }}
+                      >
+                        {fPago ? date(fPago) : etiquetaSinPagoTesoreria(o.condiciones_pago)}
+                      </span>
+                    </div>
+                    {provNombre && (
+                      <div className="muted">Proveedor: {provNombre}</div>
+                    )}
+                    {solicitanteLimpio && (
+                      <div className="muted">Solicita: {solicitanteLimpio}</div>
+                    )}
+                    <div className="muted">
+                      Destino sugerido: {o.tipo === 'servicio' ? 'Servicio (Equipo)' : (o.almacen_destino || 'General')}
+                    </div>
+                  </div>
 
                   <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem' }}>
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetalle(o)} title="Ver el detalle de la orden">
@@ -690,6 +969,10 @@ export function RecepcionesPendientes({
               const totalUnidades = Array.isArray(o.items)
                 ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0)
                 : 0;
+              const analista = resolverAnalistaOrden(o, quien);
+              const fMontada = fechaMontadaOrden(o);
+              const fPago = fechaPagoTesoreriaOrden(o);
+              const solicitanteLimpio = limpiarNombrePersona(o.solicitante, o.solicitante_email, quien) || o.solicitante;
 
               return (
                 <button
@@ -702,10 +985,10 @@ export function RecepcionesPendientes({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
                     <div>
-                      <div className="mono" style={{ fontWeight: 700 }}>{o.codigo}</div>
-                      <div className="muted" style={{ fontSize: '.75rem' }}>
-                        {date(o.created_at)}
-                      </div>
+                      <div className="mono" style={{ fontWeight: 700 }}>{o.oc_codigo ?? o.codigo}</div>
+                      {o.oc_codigo && o.codigo && o.codigo !== o.oc_codigo && (
+                        <div className="muted mono" style={{ fontSize: '.7rem' }}>{o.codigo}</div>
+                      )}
                     </div>
                     <StatusBadge estado={o.estado} />
                   </div>
@@ -717,11 +1000,17 @@ export function RecepcionesPendientes({
                     </div>
                   </div>
 
-                  {o.solicitante && (
-                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
-                      Solicita: {o.solicitante}
+                  <div style={{ marginTop: '.45rem', fontSize: '.72rem', display: 'grid', gap: '.16rem' }}>
+                    <div><span className="muted">Analista encargado:</span> <strong>{analista}</strong></div>
+                    <div><span className="muted">Fecha montada:</span> <span className="mono">{fMontada ? date(fMontada) : '—'}</span></div>
+                    <div>
+                      <span className="muted">Pago Tesorería:</span>{' '}
+                      <span className="mono">{fPago ? date(fPago) : etiquetaSinPagoTesoreria(o.condiciones_pago)}</span>
                     </div>
-                  )}
+                    {solicitanteLimpio && (
+                      <div className="muted">Solicita: {solicitanteLimpio}</div>
+                    )}
+                  </div>
                   <div className="muted" style={{ fontSize: '.7rem', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
                     👁 Ver detalle
                   </div>
@@ -740,10 +1029,24 @@ export function RecepcionesPendientes({
         )}
       </div>
 
+      {modoReporte && (
+        <ReportePendientesRecepcionModal
+          filas={filasReportePendientes}
+          modoInicial={modoReporte}
+          onClose={() => setModoReporte(null)}
+        />
+      )}
       {historicoOpen && (
         <HistoricoRecepcionesModal ordenes={anteriores} onVer={setDetalle} onClose={() => setHistoricoOpen(false)} />
       )}
-      {detalle && <DetalleRecepcionModal orden={detalle} onClose={() => setDetalle(null)} />}
+      {detalle && (
+        <DetalleRecepcionModal
+          orden={detalle}
+          proveedoresMap={proveedoresMap}
+          quien={quien}
+          onClose={() => setDetalle(null)}
+        />
+      )}
       {recibir && (
         <RecibirOrdenModal
           orden={recibir}

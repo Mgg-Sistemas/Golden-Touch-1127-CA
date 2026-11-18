@@ -13,6 +13,7 @@ import { fechaHoraVE } from './salidasMina';
 import { nombreDepositoChat } from './inventarioMovil';
 import type { DocMovilPdf } from './inventarioMovilPdf';
 import type { Recepcion } from './recepcionesHistorico';
+import { limpiarNombrePersona } from './pendientesRecepcionReporte';
 
 export interface FotoRecepcion { path: string; filename: string }
 
@@ -27,6 +28,8 @@ export interface PorRecepcionar {
   solicitante: string | null;
   unidad_solicitante: string | null;
   analista: string | null;
+  fecha_montada?: string | null;
+  fecha_pago_tesoreria?: string | null;
   delivery: string | null;
   entregado_en: string | null;
   almacen_entrega: string | null;
@@ -87,9 +90,12 @@ export function mensajeRecepcion(p: PorRecepcionar, cants: CantidadesRecepcion, 
     `🔖 *OC:* ${p.oc ?? '—'} · ${p.sp}`,
     '',
   ];
+  const analistaLimpio = p.analista ? (limpiarNombrePersona(p.analista, p.analista) || p.analista) : null;
   if (p.proveedor) l.push(`🏭 *Proveedor:* ${p.proveedor}`);
   if (p.solicitante) l.push(`👤 *Solicita:* ${p.solicitante}${p.unidad_solicitante ? ` · ${p.unidad_solicitante}` : ''}`);
-  if (p.analista) l.push(`🛒 *Analista:* ${p.analista}`);
+  if (analistaLimpio) l.push(`🛒 *Analista encargado:* ${analistaLimpio}`);
+  if (p.fecha_montada) l.push(`📅 *Fecha montada:* ${fechaHoraVE(p.fecha_montada)}`);
+  if (p.fecha_pago_tesoreria) l.push(`💳 *Pago Tesorería:* ${fechaHoraVE(p.fecha_pago_tesoreria)}`);
   if (p.delivery) l.push(`🛵 *Delivery:* ${p.delivery}${p.entregado_en ? ` · entregó ${fechaHoraVE(p.entregado_en)}` : ''}`);
   l.push(`🏬 *Almacén:* ${nombreDepositoChat(p.almacen_destino || 'General')}`);
   l.push('', `📦 *Recibido (${p.items.length}):*`);
@@ -114,8 +120,12 @@ export function mensajeRecepcion(p: PorRecepcionar, cants: CantidadesRecepcion, 
 export function docRecepcion(p: PorRecepcionar, cants: CantidadesRecepcion, q: { actor: string | null; nombre: string | null }, at: string, nota?: string | null): DocMovilPdf {
   const rec = cantidadesRecibidas(p, cants);
   const codigo = p.oc ? `${p.oc} · ${p.sp}` : p.sp;
+  const analistaLimpio = p.analista ? (limpiarNombrePersona(p.analista, p.analista) || p.analista) : null;
   const motivo = [
     p.proveedor ? `Proveedor: ${p.proveedor}` : '',
+    analistaLimpio ? `Analista encargado: ${analistaLimpio}` : '',
+    p.fecha_montada ? `Fecha montada: ${fechaHoraVE(p.fecha_montada)}` : '',
+    p.fecha_pago_tesoreria ? `Pago Tesorería: ${fechaHoraVE(p.fecha_pago_tesoreria)}` : '',
     p.delivery ? `Entregó: ${p.delivery} (Delivery)` : '',
     p.solicitante ? `Solicita: ${p.solicitante}${p.unidad_solicitante ? ` · ${p.unidad_solicitante}` : ''}` : '',
     esParcial(p, cants) ? 'Llegó incompleta' : 'Llegó completa',
@@ -123,7 +133,7 @@ export function docRecepcion(p: PorRecepcionar, cants: CantidadesRecepcion, q: {
   ].filter(Boolean).join(' · ');
   return {
     actor: q.actor,
-    opciones: { titulo: 'ORDEN DE ENTRADA', subtitulo: 'Recepción de compra', rotuloAlmacen: 'Almacén de entrada', autorizadoPor: p.analista },
+    opciones: { titulo: 'ORDEN DE ENTRADA', subtitulo: 'Recepción de compra', rotuloAlmacen: 'Almacén de entrada', autorizadoPor: analistaLimpio },
     sol: {
       id: p.pedido_id,
       codigo,
@@ -156,13 +166,20 @@ export function docRecepcion(p: PorRecepcionar, cants: CantidadesRecepcion, q: {
 export interface RecepcionDetallada {
   r: Recepcion;
   proveedor: string | null;
+  analista?: string | null;
+  fecha_montada?: string | null;
+  fecha_pago_tesoreria?: string | null;
   items: { producto_id: string; nombre: string; sku: string | null; unidad: string | null; cantidad: number; precio: number | null }[];
 }
 
 export function mensajeRecepcionHistorica(d: RecepcionDetallada, quien: string | null): string {
   const { r } = d;
+  const analistaLimpio = d.analista ? (limpiarNombrePersona(d.analista, d.analista) || d.analista) : null;
   const l = ['📥 *RECEPCIÓN EN ALMACÉN*', `🔖 *N°:* ${r.codigo}`, ''];
   if (d.proveedor) l.push(`🏭 *Proveedor:* ${d.proveedor}`);
+  if (analistaLimpio) l.push(`🛒 *Analista encargado:* ${analistaLimpio}`);
+  if (d.fecha_montada) l.push(`📅 *Fecha montada:* ${fechaHoraVE(d.fecha_montada)}`);
+  if (d.fecha_pago_tesoreria) l.push(`💳 *Pago Tesorería:* ${fechaHoraVE(d.fecha_pago_tesoreria)}`);
   l.push(`🏬 *Almacén:* ${nombreDepositoChat(r.almacen || 'General')}`);
   l.push('', `📦 *Recibido (${d.items.length}):*`);
   d.items.forEach((it, i) => l.push(`${i + 1}. ${it.nombre} — *${num(it.cantidad)}${it.unidad ? ` ${it.unidad}` : ''}*`));
@@ -176,9 +193,10 @@ export function mensajeRecepcionHistorica(d: RecepcionDetallada, quien: string |
 
 export function docRecepcionHistorica(d: RecepcionDetallada): DocMovilPdf {
   const { r } = d;
+  const analistaLimpio = d.analista ? (limpiarNombrePersona(d.analista, d.analista) || d.analista) : null;
   return {
     actor: r.actor,
-    opciones: { titulo: 'ORDEN DE ENTRADA', subtitulo: 'Recepción de compra', rotuloAlmacen: 'Almacén de entrada', autorizadoPor: null },
+    opciones: { titulo: 'ORDEN DE ENTRADA', subtitulo: 'Recepción de compra', rotuloAlmacen: 'Almacén de entrada', autorizadoPor: analistaLimpio },
     sol: {
       id: `${r.ref_id ?? r.codigo}-${r.numero}`,
       codigo: r.codigo,
@@ -192,7 +210,13 @@ export function docRecepcionHistorica(d: RecepcionDetallada): DocMovilPdf {
       created_at: r.at,
       ejecutada_en: r.at,
       almacen_origen: nombreDepositoChat(r.almacen || 'General'),
-      motivo: [d.proveedor ? `Proveedor: ${d.proveedor}` : '', r.documento ? `Documento: ${r.documento}` : ''].filter(Boolean).join(' · ') || null,
+      motivo: [
+        d.proveedor ? `Proveedor: ${d.proveedor}` : '',
+        analistaLimpio ? `Analista encargado: ${analistaLimpio}` : '',
+        d.fecha_montada ? `Fecha montada: ${fechaHoraVE(d.fecha_montada)}` : '',
+        d.fecha_pago_tesoreria ? `Pago Tesorería: ${fechaHoraVE(d.fecha_pago_tesoreria)}` : '',
+        r.documento ? `Documento: ${r.documento}` : '',
+      ].filter(Boolean).join(' · ') || null,
       items: d.items.map((it) => ({
         producto_id: it.producto_id, producto_nombre: it.nombre, producto_sku: it.sku, unidad: it.unidad,
         cantidad: it.cantidad, precio_unit: Number(it.precio) || 0,

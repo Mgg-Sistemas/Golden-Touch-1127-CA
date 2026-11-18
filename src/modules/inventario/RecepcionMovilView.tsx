@@ -110,7 +110,9 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
         <div className="surt-fila"><span>Pedido</span><span className="mono">{p.sp}{p.oc ? ` · ${p.oc}` : ''}</span></div>
         {p.proveedor && <div className="surt-fila"><span>Proveedor</span><span>{p.proveedor}</span></div>}
         {p.solicitante && <div className="surt-fila"><span>Solicita</span><span>{p.solicitante}{p.unidad_solicitante ? ` · ${p.unidad_solicitante}` : ''}</span></div>}
-        {p.analista && <div className="surt-fila"><span>Analista</span><span>{p.analista}</span></div>}
+        {p.analista && <div className="surt-fila"><span>Analista encargado</span><span>{p.analista}</span></div>}
+        {p.fecha_montada && <div className="surt-fila"><span>Fecha montada</span><span className="mono">{fechaHoraVE(p.fecha_montada)}</span></div>}
+        {p.fecha_pago_tesoreria && <div className="surt-fila"><span>Pago Tesorería</span><span className="mono">{fechaHoraVE(p.fecha_pago_tesoreria)}</span></div>}
         <div className="surt-fila"><span>Delivery</span><span>🛵 {p.delivery ?? '—'}</span></div>
         {p.entregado_en && <div className="surt-fila"><span>Entregó</span><span>{fechaHoraVE(p.entregado_en)}</span></div>}
         {p.nota_entrega && <div className="surt-fila"><span>Nota del delivery</span><span>{p.nota_entrega}</span></div>}
@@ -185,6 +187,7 @@ export function RecepcionDeliveryMovil({ pendientes, actor, actorName, canWrite,
           <span style={{ minWidth: 0 }}>
             <div className="titulo">{p.proveedor ?? 'Proveedor'} · {p.oc ?? p.sp}</div>
             <div className="sub">{p.sp} · {p.items.length} producto(s){p.solicitante ? ` · ${p.solicitante}` : ''}</div>
+            {p.analista && <div className="sub">🛒 Analista: {p.analista}{p.fecha_pago_tesoreria ? ` · 💳 Pagó: ${fechaHoraVE(p.fecha_pago_tesoreria)}` : ''}</div>}
             <div className="sub">🛵 {p.delivery ?? '—'}{p.entregado_en ? ` · ${fechaHoraVE(p.entregado_en)}` : ''}</div>
           </span>
           <span className="litros">›</span>
