@@ -289,8 +289,9 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
 
   async function enRuta(p: PedidoDelivery) {
     if (!p.pedido_id) return;
-    if ((p.fotos_recibo?.length ?? 0) === 0) {
-      toast('📸 Es obligatorio subir al menos 1 foto al recibir (remisión/factura) antes de iniciar retorno.', 'error');
+    const totalFotosPrevias = (p.fotos_recibo?.length ?? 0) + (p.fotos_factura?.length ?? 0);
+    if (totalFotosPrevias === 0) {
+      toast('📸 Toma al menos 1 foto del material o la factura antes de iniciar retorno.', 'error');
       setFotosModalDe(p);
       return;
     }
@@ -615,76 +616,79 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                     </div>
 
                     {/* BOTONES PROTAGONISTAS SEGÚN LA FASE ACTIVA */}
-                    {enCurso.estado === 'aceptado' && (
-                      <>
-                        {(enCurso.fotos_recibo?.length ?? 0) === 0 ? (
-                          <>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'stretch' }}>
-                              <label
-                                className="btn btn-primary dlv-btn-hero dlv-btn-hero-amber"
-                                style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                              >
-                                {subiendoFoto ? 'Subiendo foto…' : '📸 Tomar Foto al Recibir (Cámara)'}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  capture="environment"
-                                  disabled={subiendoFoto}
-                                  style={{ display: 'none' }}
-                                  onChange={(e) => {
-                                    const f = e.target.files?.[0];
-                                    if (f) void handleSubirFotoRapida(enCurso, 'recibo', f);
-                                    e.target.value = '';
-                                  }}
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                className="btn btn-ghost"
-                                style={{ padding: '0 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', fontSize: '.85rem' }}
-                                title="Abrir selector de fotos o archivos guardados"
-                                onClick={() => setFotosModalDe(enCurso)}
-                              >
-                                📁 Galería
-                              </button>
-                            </div>
-                            <div className="dlv-hero-subtext">
-                              Toma foto de la remisión, factura física o paquetes para habilitar el retorno a sede.
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="dlv-phase-badge-ok" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                                <span>✓ Foto recibida ({enCurso.fotos_recibo.length} foto/s cargada/s)</span>
-                                <button type="button" className="dlv-btn-link" onClick={() => setFotosModalDe(enCurso)}>
-                                  Ver / Agregar
+                    {enCurso.estado === 'aceptado' && (() => {
+                      const totalFotosRecogida = (enCurso.fotos_recibo?.length ?? 0) + (enCurso.fotos_factura?.length ?? 0);
+                      return (
+                        <>
+                          {totalFotosRecogida === 0 ? (
+                            <>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'stretch' }}>
+                                <label
+                                  className="btn btn-primary dlv-btn-hero dlv-btn-hero-amber"
+                                  style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                                >
+                                  {subiendoFoto ? 'Subiendo foto…' : '📸 Tomar Foto al Recibir (Cámara)'}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    disabled={subiendoFoto}
+                                    style={{ display: 'none' }}
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0];
+                                      if (f) void handleSubirFotoRapida(enCurso, 'recibo', f);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  style={{ padding: '0 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', fontSize: '.85rem' }}
+                                  title="Abrir selector de fotos o archivos guardados"
+                                  onClick={() => setFotosModalDe(enCurso)}
+                                >
+                                  📁 Galería
                                 </button>
                               </div>
-                              <span style={{ fontSize: '.72rem', color: '#93c5fd', fontWeight: 500 }}>
-                                ℹ️ Retorno preliminar: confirma cuando inicies el viaje o registra entrega si ya estás en almacén.
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              className="dlv-btn-hero dlv-btn-hero-blue"
-                              disabled={!!ocupado}
-                              onClick={() => void enRuta(enCurso)}
-                            >
-                              {ocupado ? 'Iniciando…' : '🚚 Iniciar Retorno a Sede'}
-                            </button>
-                            <button
-                              type="button"
-                              className="dlv-btn-subtle"
-                              style={{ color: '#34d399', alignSelf: 'center', marginTop: -4 }}
-                              onClick={() => setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) })}
-                            >
-                              📦 ¿Ya llegaste a Almacén? Registrar Entrega Directa
-                            </button>
-                          </>
-                        )}
-                      </>
-                    )}
+                              <div className="dlv-hero-subtext">
+                                Toma foto de la remisión, factura física o paquetes para habilitar el retorno a sede.
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="dlv-phase-badge-ok" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                                  <span>✓ Evidencia lista ({totalFotosRecogida} foto/s cargada/s)</span>
+                                  <button type="button" className="dlv-btn-link" onClick={() => setFotosModalDe(enCurso)}>
+                                    Ver / Agregar
+                                  </button>
+                                </div>
+                                <span style={{ fontSize: '.72rem', color: '#93c5fd', fontWeight: 500 }}>
+                                  ℹ️ Inicia el retorno a sede o registra la entrega si ya estás en el almacén.
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                className="dlv-btn-hero dlv-btn-hero-blue"
+                                disabled={!!ocupado}
+                                onClick={() => void enRuta(enCurso)}
+                              >
+                                {ocupado ? 'Iniciando…' : '🚚 Iniciar Retorno a Sede'}
+                              </button>
+                              <button
+                                type="button"
+                                className="dlv-btn-subtle"
+                                style={{ color: '#34d399', alignSelf: 'center', marginTop: -4 }}
+                                onClick={() => setAccion({ tipo: 'entregar', clave: claveDelivery(enCurso) })}
+                              >
+                                📦 ¿Ya llegaste a Almacén? Registrar Entrega Directa
+                              </button>
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     {enCurso.estado === 'en_ruta' && (
                       <>
@@ -1013,11 +1017,7 @@ function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos, onSubirFotoRa
     e.preventDefault();
     if (!p.pedido_id) return;
     if (!recibidoPor.trim()) { toast('Escribe el nombre de quien recibe.', 'error'); return; }
-    if ((p.fotos_entrega?.length ?? 0) === 0) {
-      toast('📸 Es obligatorio subir la foto de la guía firmada / entrega antes de finalizar.', 'error');
-      onAbrirFotos();
-      return;
-    }
+    // Foto de entrega flexibilizada: es opcional si ya cuenta con fotos de recibo/factura o entrega física en almacén
     setGuardando(true);
     const almacen = nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino);
     const notaCompleta = [
@@ -1025,6 +1025,9 @@ function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos, onSubirFotoRa
       nota.trim() || '',
     ].filter(Boolean).join(' · ');
     try {
+      if (p.estado === 'aceptado') {
+        await marcarEnRuta(p.pedido_id);
+      }
       await marcarEntregado(p.pedido_id, almacen, notaCompleta || null);
       toast(`Entrega registrada correctamente.`, 'success');
       onHecho('Entrega finalizada', mensajeEntregado(p, quien, almacen, notaCompleta || null));
@@ -1034,6 +1037,7 @@ function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos, onSubirFotoRa
   }
 
   const tieneFotoEntrega = (p.fotos_entrega?.length ?? 0) > 0;
+  const tieneEvidenciaPrevia = (p.fotos_recibo?.length ?? 0) > 0 || (p.fotos_factura?.length ?? 0) > 0;
 
   return (
     <form className="dlv-cockpit" onSubmit={(e) => void guardar(e)}>
@@ -1044,14 +1048,21 @@ function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos, onSubirFotoRa
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'stretch' }}>
         <label
-          className={`btn ${tieneFotoEntrega ? 'btn-ghost' : 'btn-primary dlv-btn-hero-amber'}`}
-          style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flex: 1 }}
+          className={`btn ${tieneFotoEntrega ? 'btn-ghost' : 'btn-primary'}`}
+          style={{
+            cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flex: 1,
+            background: tieneFotoEntrega ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+            borderColor: tieneFotoEntrega ? '#22c55e' : 'rgba(255, 255, 255, 0.2)',
+            color: tieneFotoEntrega ? '#86efac' : '#cbd5e1',
+          }}
         >
           {subiendoFoto
             ? 'Subiendo foto…'
             : tieneFotoEntrega
-              ? `✓ Foto lista (${p.fotos_entrega.length}) · Tomar otra`
-              : '📸 Tomar Foto de Entrega (Cámara)'}
+              ? `✓ Foto de entrega lista (${p.fotos_entrega.length}) · Agregar otra`
+              : tieneEvidenciaPrevia
+                ? '📸 Foto de entrega / guía (Opcional)'
+                : '📸 Foto de entrega en almacén (Opcional)'}
           <input
             type="file"
             accept="image/*"
