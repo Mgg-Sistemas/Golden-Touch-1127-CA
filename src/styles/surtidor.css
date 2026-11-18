@@ -34,6 +34,8 @@
 .surt-btn small { font-weight: 500; font-size: .85rem; color: var(--text-muted); }
 .surt-btn.primario { border-color: var(--primary); background: var(--grad-primary-soft); }
 .surt-btn.entrada { border-color: var(--success); }
+.surt-btn.merma { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface-3)); }
+.surt-acciones .surt-btn:not(.primario):last-child:nth-child(even) { grid-column: 1 / -1; min-height: 100px; }
 .surt-btn:active { transform: scale(.98); }
 
 .surt-form {

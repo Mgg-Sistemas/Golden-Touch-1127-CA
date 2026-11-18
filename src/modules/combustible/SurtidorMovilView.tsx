@@ -28,7 +28,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { num, date, dateTime, money } from '@/shared/lib/format';
 import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCatalogoCombustible, TipoMovTanque } from '@/shared/lib/types';
 import {
-  listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada,
+  listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada, registrarMerma,
   eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
   setMovimientoCuaderno,
 } from './tanques.repository';
@@ -39,10 +39,12 @@ import { CalculadoraCubicacionModal } from './CalculadoraCubicacionModal';
 import { mensajeMovimiento } from './mensajeMovimiento';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
-import { contadorFinalPropuesto } from './contadorSurtidor';
+import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
 import { errorSaldoInsuficiente, tanqueSinLitros } from './saldoSuficiente';
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
+import { calcularMermaImplicitaTanque, DEFAULT_MERMA_IMPLICITA_PCT, generarObservacionMermaImplicita } from './mermaImplicita';
+import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
 import { mensajeError } from '@/shared/lib/errores';
 import { useFichasEquipos } from './fichasEquipos';
 import { opcionesEquipos } from './opcionesEquipos';
@@ -57,17 +59,21 @@ const NOMBRE_TIPO: Record<TipoMovTanque, string> = { entrada: 'Entrada', uso: 'S
 const hoyVE = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const horaVE = () => new Intl.DateTimeFormat('en-US', { timeZone: 'America/Caracas', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(new Date());
 
-/** Lo que se puede registrar desde el teléfono (el retorno y la merma quedan para la PC). */
-type TipoSurtidor = 'uso' | 'traslado' | 'entrada';
+/** Movimientos que se pueden registrar desde el teléfono (surtido, traslado, entrada y merma). */
+type TipoSurtidor = 'uso' | 'traslado' | 'entrada' | 'merma';
 
 const TITULO: Record<TipoSurtidor, string> = {
-  uso: 'Surtir a un equipo', traslado: 'Pasar a otro tanque', entrada: 'Entrada de combustible',
+  uso: 'Surtir a un equipo',
+  traslado: 'Pasar a otro tanque',
+  entrada: 'Entrada de combustible',
+  merma: 'Registrar merma / faltante',
 };
 
 export function SurtidorMovilView() {
   const { user } = useSession();
   const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const canWrite = can('combustible', 'escritura');
+  const isAdmin = can('combustible', 'full');
   // Rol solo teléfono: no tiene módulo de PC al que ir.
   const esSurtidor = soloTelefono;
   const actor = user?.email ?? 'sistema';
@@ -77,6 +83,7 @@ export function SurtidorMovilView() {
   const [catalogos, setCatalogos] = useState<CatalogoCombustible[]>([]);
   const [selId, setSelId] = useState('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
+  const [todosMovs, setTodosMovs] = useState<MovimientoTanque[]>([]);
   const [conteo, setConteo] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [paso, setPaso] = useState<'inicio' | 'form'>('inicio');
@@ -99,8 +106,9 @@ export function SurtidorMovilView() {
   // Solo los últimos 10 del tanque, del más nuevo al más viejo: en el teléfono no se
   // lee un libro mayor, se mira lo que acaba de pasar.
   const reloadMovs = useCallback(async (id: string): Promise<MovimientoTanque[]> => {
-    if (!id) { setMovs([]); setConteo(new Map()); return []; }
+    if (!id) { setMovs([]); setTodosMovs([]); setConteo(new Map()); return []; }
     const todos = await listMovimientosTanque(id);
+    setTodosMovs(todos);
     const ultimos = todos.slice(-ULTIMOS_EN_TELEFONO).reverse();
     setMovs(ultimos);
     try { setConteo(await adjuntosCombustible.contar(MODULO_ADJUNTO_TANQUE, ultimos.map((m) => m.id))); }
@@ -198,12 +206,18 @@ export function SurtidorMovilView() {
             <span>Entrada</span>
             <small>Llega combustible al tanque</small>
           </button>
+          <button type="button" className="surt-btn merma" onClick={() => abrirForm('merma')} disabled={tanqueSinLitros(sel.saldo_litros)}>
+            <span className="icono" aria-hidden>🔻</span>
+            <span>Merma</span>
+            <small>Faltante, evaporación o ajuste en {sel.nombre}</small>
+          </button>
         </div>
       )}
       {sel && !canWrite && <div className="aviso warning sm" style={{ margin: '.75rem 0' }}><span className="aviso-icono">👁</span><div>Tu rol solo puede ver. Para registrar surtidos hace falta escritura en Combustible.</div></div>}
 
       {sel && paso === 'form' && (
         <FormularioSurtido key={`${sel.id}-${tipo}`} tipo={tipo} tanque={sel} tanques={tanques} catalogos={catalogos} fichas={fichas}
+          movimientosTanque={todosMovs} isAdmin={isAdmin}
           actor={actor} actorName={actorName}
           onCancel={() => setPaso('inicio')}
           onSaved={async (movId) => {
@@ -262,10 +276,10 @@ export function SurtidorMovilView() {
   );
 }
 
-/* ───────────── Formulario: surtido, traslado o entrada ───────────── */
-function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, actorName, onCancel, onSaved }: {
+/* ───────────── Formulario: surtido, traslado, entrada o merma ───────────── */
+function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, movimientosTanque, isAdmin, actor, actorName, onCancel, onSaved }: {
   tipo: TipoSurtidor; tanque: TanqueCombustible; tanques: TanqueCombustible[]; catalogos: CatalogoCombustible[];
-  fichas: MaquinariaEquipo[];
+  fichas: MaquinariaEquipo[]; movimientosTanque: MovimientoTanque[]; isAdmin: boolean;
   actor: string; actorName: string | null; onCancel: () => void; onSaved: (movId?: string) => Promise<void>;
 }) {
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
@@ -277,6 +291,10 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   const [destinoId, setDestinoId] = useState('');
   const [ubicacion, setUbicacion] = useState('');
   const [observacion, setObservacion] = useState('');
+  const [recibidos, setRecibidos] = useState('');
+  const [motivoMerma, setMotivoMerma] = useState('');
+  const [pctMermaImplicita, setPctMermaImplicita] = useState<number>(() => tanque.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT);
+  const [verRespaldoMovs, setVerRespaldoMovs] = useState(false);
   const [fecha, setFecha] = useState(hoyVE());
   const [hora, setHora] = useState(horaVE());
   const [hi, setHi] = useState(''); const [hiAuto, setHiAuto] = useState(false);
@@ -330,18 +348,46 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
   const hrs = horasTrabajadas(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
   // El contador al terminar es donde arranca el siguiente surtido: si se deja vacío, se
   // guarda inicial + litros (lo completa el repositorio; aquí solo se muestra).
-  const cfPropuesto = contadorFinalPropuesto(ci === '' ? null : Number(ci), litrosNum);
+  const cfPropuesto = pasaPorSurtidor(tipo) ? contadorFinalPropuesto(ci === '' ? null : Number(ci), litrosNum) : null;
   // No se surte más de lo que hay (09/10/2026): se avisa mientras se escribe y no deja guardar.
   const errSaldo = sale ? errorSaldoInsuficiente({ nombre: tanque.nombre, saldo: tanque.saldo_litros, litros: litrosNum }) : null;
+
+  const destinos = tanques.filter((t) => t.id !== tanque.id);
+  const destinoSel = destinos.find((t) => t.id === destinoId);
+  const esBidonDestino = tipo === 'traslado' && !!destinoSel && esBidon(destinoSel.nombre);
+
+  // Merma de recepción opcional en entradas y traslados (salvo hacia bidones)
+  const tanqueRecibe = tipo === 'entrada'
+    ? tanque
+    : (tipo === 'traslado' && destinoId && !esBidonDestino ? destinoSel : undefined);
+  const margenRecibe = tanqueRecibe?.margen_merma_pct ?? MARGEN_MERMA_DEFECTO;
+  const recepcion = tanqueRecibe
+    ? mermaDeRecepcion(litrosNum, recibidos.trim() === '' ? null : Number(recibidos.replace(',', '.')), margenRecibe)
+    : { ok: null, error: null };
+
+  // Merma implícita sugerida al registrar una merma directa en el tanque
+  const resumenMerma = useMemo(() => {
+    if (tipo !== 'merma') return null;
+    return calcularMermaImplicitaTanque({
+      movimientos: movimientosTanque,
+      porcentaje: pctMermaImplicita,
+    });
+  }, [tipo, movimientosTanque, pctMermaImplicita]);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!(litrosNum > 0)) { setError(tipo === 'entrada' ? 'Indica los litros que entraron.' : 'Indica los litros surtidos.'); return; }
+    if (!(litrosNum > 0)) {
+      setError(tipo === 'entrada' ? 'Indica los litros que entraron.' : tipo === 'merma' ? 'Indica los litros de merma.' : 'Indica los litros surtidos.');
+      return;
+    }
     if (tipo === 'uso' && !equipo) { setError('Indica a qué equipo o camión va el combustible.'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indica a qué tanque pasa el combustible.'); return; }
     if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indica el costo por litro.'); return; }
     if (errSaldo) { setError(errSaldo); return; }
+    if (recepcion.error) { setError(recepcion.error); return; }
+    if (recepcion.ok?.excede && !motivoMerma.trim()) { setError(`La merma de recepción pasa el margen de ${margenRecibe}%: indica el motivo.`); return; }
+    if (recepcion.ok?.excede && !isAdmin) { setError(`La merma de recepción pasa el margen de ${margenRecibe}%: solo un administrador puede guardarla.`); return; }
     // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
     let hiNum = hi === '' ? null : Number(hi); const hfNum = hf === '' ? null : Number(hf);
     // Con mala señal el inicial puede no haber llegado todavía: se pide ahora, antes de guardar,
@@ -357,6 +403,9 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
     if (errHor) { setError(errHor); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
+      const rec = tanqueRecibe && recibidos.trim() !== ''
+        ? { recibidos: Number(recibidos.replace(',', '.')), motivo: motivoMerma }
+        : null;
       const cLitrosNum = registradoEnCuaderno
         ? (cuadernoLitros.trim() !== '' ? Number(cuadernoLitros.replace(',', '.')) : litrosNum)
         : null;
@@ -371,8 +420,9 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
       };
       let movId: string;
       if (tipo === 'uso') movId = (await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
-      else if (tipo === 'traslado') movId = (await registrarTraslado({ tanqueId: tanque.id, litros: litrosNum, tanqueDestinoId: destinoId, campos, actor, actorName })).id;
-      else movId = (await registrarEntrada({ tanqueId: tanque.id, litros: litrosNum, costoLitro: costoNum, campos, actor, actorName })).id;
+      else if (tipo === 'traslado') movId = (await registrarTraslado({ tanqueId: tanque.id, litros: litrosNum, tanqueDestinoId: destinoId, campos, actor, actorName, recepcion: rec })).id;
+      else if (tipo === 'merma') movId = (await registrarMerma({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
+      else movId = (await registrarEntrada({ tanqueId: tanque.id, litros: litrosNum, costoLitro: costoNum, campos, actor, actorName, recepcion: rec })).id;
       // Las fotos se suben recién ahora: la carpeta lleva el id del movimiento.
       if (adjuntos.length) {
         setEtapa('fotos');
@@ -384,10 +434,6 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
     } catch (err) { setError(mensajeError(err, 'No se pudo registrar.')); }
     finally { setGuardando(false); }
   }
-
-  const destinos = tanques.filter((t) => t.id !== tanque.id);
-  const destinoSel = destinos.find((t) => t.id === destinoId);
-  const esBidonDestino = tipo === 'traslado' && !!destinoSel && esBidon(destinoSel.nombre);
 
   // Lista agrupada por apartado (🚜 Maquinaria / 🚚 Vehículos / 🏍️ Motos / 🚤 Lanchas…) y con el
   // nombre corto que usa el operador (alias de la ficha, o modelo / placa). Se guarda el
@@ -429,13 +475,110 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
 
       {error && <div className="aviso danger"><span className="aviso-icono">⛔</span><div>{error}</div></div>}
 
+      {/* Merma implícita sugerida cuando el operador registra una merma */}
+      {tipo === 'merma' && resumenMerma && (
+        <div style={{
+          background: 'linear-gradient(145deg, #182230 0%, #0f172a 100%)',
+          border: '1.5px solid rgba(255, 138, 0, 0.45)',
+          borderRadius: '12px',
+          padding: '.85rem .9rem',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '.5rem' }}>
+            <div>
+              <div style={{ fontSize: '.74rem', textTransform: 'uppercase', fontWeight: 700, color: '#FF8A00', letterSpacing: '0.04em' }}>
+                💡 Merma Implícita Sugerida
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '.45rem', flexWrap: 'wrap', marginTop: '2px' }}>
+                <span className="mono" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#ffedd5' }}>
+                  {num(resumenMerma.totalSugerido)} L
+                </span>
+                <span style={{ fontSize: '.78rem', color: '#94a3b8' }}>
+                  sobre {num(resumenMerma.totalLitrosBase)} L ({resumenMerma.cantidadMovimientos} mov.)
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', background: '#0b1120', padding: '.25rem .5rem', borderRadius: '8px', border: '1px solid #334155' }}>
+              <span style={{ fontSize: '.74rem', color: '#94a3b8' }}>Margen:</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.05"
+                min="0.01"
+                max="10"
+                value={pctMermaImplicita}
+                onChange={(e) => setPctMermaImplicita(Math.max(0.01, Number(e.target.value) || DEFAULT_MERMA_IMPLICITA_PCT))}
+                style={{ width: '52px', background: 'transparent', border: 'none', color: '#FF8A00', fontWeight: 700, fontSize: '.88rem', textAlign: 'right', outline: 'none' }}
+              />
+              <span style={{ fontSize: '.78rem', color: '#FF8A00', fontWeight: 700 }}>%</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-warning"
+            onClick={() => {
+              setLitros(String(resumenMerma.totalSugerido));
+              setObservacion(generarObservacionMermaImplicita(resumenMerma));
+            }}
+            style={{ width: '100%', marginTop: '.65rem', minHeight: '44px', background: '#FF8A00', color: '#182230', fontWeight: 800, border: 'none', justifyContent: 'center' }}
+          >
+            ⚡ Usar sugerida ({num(resumenMerma.totalSugerido)} L)
+          </button>
+
+          <div style={{ marginTop: '.65rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '.5rem' }}>
+            <button
+              type="button"
+              onClick={() => setVerRespaldoMovs((v) => !v)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#38bdf8',
+                cursor: 'pointer',
+                fontSize: '.8rem',
+                fontWeight: 600,
+                padding: 0,
+                textAlign: 'left',
+              }}
+            >
+              {verRespaldoMovs ? '▾ Ocultar respaldo de movimientos' : `▸ Ver respaldo (${resumenMerma.cantidadMovimientos} movimientos)`}
+              {resumenMerma.fechaUltimaMermaPrevia ? ` · desde ${resumenMerma.fechaUltimaMermaPrevia}` : ''}
+            </button>
+
+            {verRespaldoMovs && (
+              <div style={{ marginTop: '.5rem', maxHeight: 200, overflowY: 'auto', display: 'grid', gap: '.35rem' }}>
+                {!resumenMerma.items.length ? (
+                  <div className="muted" style={{ fontSize: '.78rem', padding: '.4rem 0' }}>
+                    No hay movimientos registrados desde la última merma.
+                  </div>
+                ) : (
+                  resumenMerma.items.map((it) => (
+                    <div key={it.id} style={{ padding: '.4rem .55rem', borderRadius: '8px', background: '#0b1120', border: '1px solid #1e293b', fontSize: '.76rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700 }}>
+                          {it.tipo === 'traslado' ? '🔁 Traslado' : '⛽ Surtido'}{it.equipo ? ` · ${it.equipo}` : ''}
+                        </div>
+                        <div className="muted">{it.fecha}{it.hora ? ` · ${it.hora}` : ''} · Base {num(it.litros)} L ({it.pctAplicado}%)</div>
+                      </div>
+                      <div className="mono" style={{ fontWeight: 800, color: '#FF8A00', whiteSpace: 'nowrap' }}>
+                        +{num(it.mermaLitros)} L
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="surt-campo">
         <label htmlFor="surt-litros">
-          <span>⛽ Litros {tipo === 'entrada' ? 'que entraron' : 'a despachar'}</span>
+          <span>{tipo === 'merma' ? '🔻 Litros de merma / faltante' : `⛽ Litros ${tipo === 'entrada' ? 'que entraron' : 'a despachar'}`}</span>
         </label>
         <div style={{ position: 'relative' }}>
           <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
-            value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
+            value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus={tipo !== 'merma'} required />
           <span style={{
             position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)',
             fontWeight: 800, color: 'var(--primary-2, #ffa733)', fontSize: '1.15rem',
@@ -471,15 +614,72 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
         </div>
       )}
 
-      <div className="surt-campo">
-        <label htmlFor="surt-equipo">
-          <span>🚜 {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}</span>
-        </label>
-        <div className="surt-buscable">
-          <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe el alias (L220G), la placa o parte del nombre…"
-            options={equiposOpts} />
+      {tanqueRecibe && (
+        <div className="surt-campo" style={{ padding: '.75rem .85rem', borderRadius: '10px', background: 'rgba(15, 23, 42, 0.7)', border: `1px solid ${recepcion.ok?.excede ? 'var(--danger)' : '#334155'}` }}>
+          <label htmlFor="surt-recibidos">
+            <span>📏 Litros recibidos (medido) · opcional</span>
+          </label>
+          <input
+            id="surt-recibidos"
+            className="input surt-input mono"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step="any"
+            value={recibidos}
+            onChange={(e) => setRecibidos(e.target.value)}
+            placeholder={tipo === 'entrada' ? 'Lo que llegó realmente al tanque…' : `Lo que llegó a ${tanqueRecibe.nombre}…`}
+          />
+          {recepcion.ok ? (
+            <small style={{ color: recepcion.ok.excede ? 'var(--danger)' : recepcion.ok.merma > 0 ? 'var(--warning)' : 'var(--success)', fontWeight: 700 }}>
+              🔻 Merma calculada: {num(recepcion.ok.merma)} L ({num(recepcion.ok.pct)}% de {num(margenRecibe)}% permitido)
+            </small>
+          ) : (
+            <small className="muted">
+              Si llegó menos de lo enviado, anota la medición real y la diferencia quedará registrada como merma. Vacío = llegó todo.
+            </small>
+          )}
+          {recepcion.error && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{recepcion.error}</small>}
+          {recepcion.ok?.excede && (
+            <div style={{ marginTop: '.55rem' }}>
+              <label htmlFor="surt-motivo-merma">Motivo de la merma *</label>
+              <input
+                id="surt-motivo-merma"
+                className="input surt-input"
+                value={motivoMerma}
+                onChange={(e) => setMotivoMerma(e.target.value)}
+                placeholder="Explica por qué superó el margen permitido…"
+              />
+              <small style={{ color: 'var(--danger)' }}>
+                Supera el margen de {num(margenRecibe)}%. {isAdmin ? 'Se registrará con tu autorización.' : 'Solo un administrador puede guardarla.'}
+              </small>
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {tipo === 'merma' ? (
+        <div className="surt-campo">
+          <label htmlFor="surt-obs-merma"><span>📝 Motivo / Observación de la merma</span></label>
+          <input
+            id="surt-obs-merma"
+            className="input surt-input"
+            value={observacion}
+            onChange={(e) => setObservacion(e.target.value)}
+            placeholder="Ej. Evaporación, ajuste por varilla, merma implícita…"
+          />
+        </div>
+      ) : (
+        <div className="surt-campo">
+          <label htmlFor="surt-equipo">
+            <span>🚜 {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}</span>
+          </label>
+          <div className="surt-buscable">
+            <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe el alias (L220G), la placa o parte del nombre…"
+              options={equiposOpts} />
+          </div>
+        </div>
+      )}
 
       {tipo === 'uso' && equipo && (
         <>
@@ -619,13 +819,22 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
       </div>
 
       <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos}
-        titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : '📷 Fotos (contador, equipo, vale)'} grande />
+        titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : tipo === 'merma' ? '📷 Fotos (medida de varilla, soporte, acta)' : '📷 Fotos (contador, equipo, vale)'} grande />
 
       <button type="button" className="surt-mas" onClick={() => setMasDatos((v) => !v)}>
-        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'uso' ? 'kilometraje, ' : tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora, observación)`}
+        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'uso' ? 'kilometraje, ' : tipo === 'traslado' ? 'horómetro, kilometraje, ' : tipo === 'merma' ? 'equipo, ' : ''}destino, hora${tipo === 'merma' ? '' : ', observación'})`}
       </button>
       {masDatos && (
         <>
+          {tipo === 'merma' && (
+            <div className="surt-campo">
+              <label htmlFor="surt-equipo-merma">Equipo relacionado (opcional)</label>
+              <div className="surt-buscable">
+                <SearchSelect id="surt-equipo-merma" value={equipo} onChange={setEquipo} placeholder="🔍 Equipo o camión relacionado…"
+                  options={equiposOpts} />
+              </div>
+            </div>
+          )}
           {(tipo === 'uso' || tipo === 'traslado') && (
             <>
               {tipo === 'traslado' && <div className="surt-grid2">
@@ -671,11 +880,13 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
                 value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
             </div>
           </div>
-          <div className="surt-campo">
-            <label htmlFor="surt-obs">Observación</label>
-            <input id="surt-obs" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
-              placeholder={tipo === 'entrada' ? 'Compra PDVSA, guía N°…' : 'SUMINISTRO COMBUSTIBLE…'} />
-          </div>
+          {tipo !== 'merma' && (
+            <div className="surt-campo">
+              <label htmlFor="surt-obs">Observación</label>
+              <input id="surt-obs" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
+                placeholder={tipo === 'entrada' ? 'Compra PDVSA, guía N°…' : 'SUMINISTRO COMBUSTIBLE…'} />
+            </div>
+          )}
         </>
       )}
 
@@ -695,7 +906,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, actor, ac
       <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!errSaldo}>
         {guardando
           ? (etapa === 'fotos' ? `Subiendo ${adjuntos.length === 1 ? 'la foto' : `${adjuntos.length} fotos`}…` : 'Guardando…')
-          : `✔ Registrar ${tipo === 'uso' ? 'surtido' : tipo === 'traslado' ? 'traslado' : 'entrada'}`}
+          : `✔ Registrar ${tipo === 'uso' ? 'surtido' : tipo === 'traslado' ? 'traslado' : tipo === 'merma' ? 'merma' : 'entrada'}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>Cancelar</button>
     </form>
