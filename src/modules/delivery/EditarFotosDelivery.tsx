@@ -15,13 +15,35 @@ type Tipo = TipoFotoDelivery;
 
 const SIN_FOTOS: FotoDelivery[] = [];
 
-const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
+export const esImagen = (f: File) =>
+  !f.type ||
+  /^image\//.test(f.type) ||
+  f.type === 'application/octet-stream' ||
+  /\.(jpe?g|png|webp|gif|heic|heif|bmp)$/i.test(f.name);
 
 /** ¿Puede este usuario editar las fotos de un pedido entregado? */
 export function puedeEditarFotosDelivery(
   p: { estado: string; pedido_id?: string | null; es_mio?: boolean }, admin: boolean, escritura: boolean,
 ): boolean {
   return p.estado === 'entregado' && !!p.pedido_id && (admin || escritura || !!p.es_mio);
+}
+
+/** Sube y guarda una foto directamente en un solo paso (sin modal previo), ideal para móvil en ruta. */
+export async function subirFotoDirectaDelivery(
+  pedidoId: string,
+  tipo: TipoFotoDelivery,
+  archivo: File,
+  estado: string | null | undefined,
+  fotosExistentes: FotoDelivery[] = [],
+): Promise<FotoDelivery[]> {
+  if (!esImagen(archivo)) {
+    throw new Error('Solo se pueden subir fotos (imágenes).');
+  }
+  if (fotosExistentes.length >= MAX_FOTOS_DELIVERY) {
+    throw new Error(`Ya alcanzaste el máximo de ${MAX_FOTOS_DELIVERY} fotos para ${tipo}.`);
+  }
+  const r = await editarFotosDelivery(pedidoId, tipo, fotosExistentes, [archivo], [], estado);
+  return r.fotos;
 }
 
 export function EditarFotosDeliveryModal({ pedidoId, estado = 'entregado', origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, onClose, onGuardado }: {
@@ -119,10 +141,32 @@ export function EditarFotosDeliveryModal({ pedidoId, estado = 'entregado', orige
         </div>
         {!total && <p className="muted" style={{ margin: '.3rem 0 0' }}>Sin fotos.</p>}
         {total < MAX_FOTOS_DELIVERY && (
-          <div className="dlv-subir" style={{ marginTop: '.5rem' }}>
-            <label htmlFor={id} className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>➕ Agregar fotos</label>
-            <input id={id} type="file" accept="image/*" multiple disabled={guardando} style={{ display: 'none' }}
-              onChange={(e) => { agregar(tipo, e.target.files); e.target.value = ''; }} />
+          <div className="dlv-subir" style={{ marginTop: '.6rem', display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <label htmlFor={`${id}-cam`} className="btn btn-primary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              📸 Tomar foto (Cámara)
+            </label>
+            <input
+              id={`${id}-cam`}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              disabled={guardando}
+              style={{ display: 'none' }}
+              onChange={(e) => { agregar(tipo, e.target.files); e.target.value = ''; }}
+            />
+
+            <label htmlFor={`${id}-gal`} className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              📁 Galería / Archivo
+            </label>
+            <input
+              id={`${id}-gal`}
+              type="file"
+              accept="image/*"
+              multiple
+              disabled={guardando}
+              style={{ display: 'none' }}
+              onChange={(e) => { agregar(tipo, e.target.files); e.target.value = ''; }}
+            />
           </div>
         )}
       </div>

@@ -20,6 +20,8 @@ export type { PuntoMapa };
 
 /** Clave del Almacén Los Pinos en `delivery_lugares`. */
 export const LUGAR_LOS_PINOS = 'los_pinos';
+/** Coordenadas predeterminadas de Almacén Los Pinos (Zona Industrial Los Pinos, Puerto Ordaz). */
+export const LOS_PINOS_DEFECTO: PuntoMapa = { lat: 8.2869, lng: -62.7467 };
 
 /** Un punto fijo de la ruta (`delivery_lugares`). */
 export interface LugarDelivery {
@@ -38,6 +40,13 @@ export type UbicacionesProveedores = Map<string, PuntoMapa>;
 export function puntoLugar(lugares: LugarDelivery[], clave: string): PuntoMapa | null {
   const l = lugares.find((x) => x.clave === clave);
   return l ? puntoValido(l.lat, l.lng) : null;
+}
+
+/** El punto de un lugar fijo con fallback predeterminado para Los Pinos. */
+export function puntoLugarConDefecto(lugares: LugarDelivery[], clave: string): PuntoMapa | null {
+  const p = puntoLugar(lugares, clave);
+  if (!p && clave === LUGAR_LOS_PINOS) return LOS_PINOS_DEFECTO;
+  return p;
 }
 
 /* ── Textos ── */
@@ -88,6 +97,7 @@ export function puntoEntrega(p: Pick<PedidoDelivery, 'origen' | 'almacen_destino
 export interface ParadaRuta {
   tipo: 'yo' | 'recogida' | 'entrega';
   nombre: string;
+  direccion?: string | null;
   punto: PuntoMapa;
 }
 
@@ -106,11 +116,19 @@ export function paradasRuta(
   if (yo) out.push({ tipo: 'yo', nombre: 'Tú', punto: yo });
   const recogida = yaRecogido(p) ? null : puntoRecogida(p, provs, losPinos);
   if (recogida) {
-    out.push({ tipo: 'recogida', nombre: esRetiroAlmacen(p) ? ALMACEN_RETIRO : (p.proveedor_nombre?.trim() || 'Proveedor'), punto: recogida });
+    const dir = 'proveedor_direccion' in p && typeof (p as { proveedor_direccion?: string | null }).proveedor_direccion === 'string'
+      ? (p as { proveedor_direccion?: string | null }).proveedor_direccion
+      : null;
+    out.push({
+      tipo: 'recogida',
+      nombre: esRetiroAlmacen(p) ? ALMACEN_RETIRO : (p.proveedor_nombre?.trim() || 'Proveedor'),
+      direccion: esRetiroAlmacen(p) ? 'Zona Industrial Los Pinos' : dir,
+      punto: recogida,
+    });
   }
   const entrega = puntoEntrega(p, losPinos);
   if (entrega && !(recogida && distanciaMetros(recogida, entrega) < MISMO_LUGAR_M)) {
-    out.push({ tipo: 'entrega', nombre: ALMACEN_RETIRO, punto: entrega });
+    out.push({ tipo: 'entrega', nombre: ALMACEN_RETIRO, direccion: 'Zona Industrial Los Pinos', punto: entrega });
   }
   return out;
 }
@@ -187,14 +205,25 @@ export function urlWaze(p: PuntoMapa | null | undefined): string | null {
   return `https://waze.com/ul?ll=${ll(p)}&navigate=yes`;
 }
 
-/** Navegación directa paso a paso hacia un destino en Google Maps (aprovecha GPS actual como origen si existe). */
-export function urlNavegacionDestino(destino: PuntoMapa | null | undefined, yo: PuntoMapa | null | undefined): string | null {
-  if (!destino || !puntoValido(destino.lat, destino.lng)) return null;
-  const q = new URLSearchParams({ api: '1', destination: ll(destino), travelmode: 'driving' });
+/** Navegación directa paso a paso hacia un destino en Google Maps (aprovecha GPS actual como origen si existe y soporta texto si no hay coordenadas). */
+export function urlNavegacionDestino(
+  destino: PuntoMapa | null | undefined,
+  yo: PuntoMapa | null | undefined,
+  direccionTexto?: string | null,
+): string | null {
+  const q = new URLSearchParams({ api: '1', travelmode: 'driving' });
   if (yo && puntoValido(yo.lat, yo.lng)) {
     q.set('origin', ll(yo));
   }
-  return `https://www.google.com/maps/dir/?${q.toString()}`;
+  if (destino && puntoValido(destino.lat, destino.lng)) {
+    q.set('destination', ll(destino));
+    return `https://www.google.com/maps/dir/?${q.toString()}`;
+  }
+  if (direccionTexto?.trim()) {
+    q.set('destination', `${direccionTexto.trim()}, Puerto Ordaz, Venezuela`);
+    return `https://www.google.com/maps/dir/?${q.toString()}`;
+  }
+  return null;
 }
 
 /** 10/11/2026: la próxima parada del pedido (buscar donde el proveedor / Los Pinos, o entregar). */
@@ -255,9 +284,9 @@ export function claveRuta(puntos: PuntoMapa[]): string {
   return puntos.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(';');
 }
 
-/** OSRM público: como máximo una consulta por segundo. */
+/** OSRM público: como máximo una consulta por segundo y timeout rápido a línea recta para no trabar el teléfono. */
 const OSRM_MIN_MS = 1_100;
-const OSRM_TIMEOUT_MS = 8_000;
+const OSRM_TIMEOUT_MS = 2_500;
 const CACHE_MAX = 40;
 const cache = new Map<string, RutaCalculada>();
 let cola: Promise<unknown> = Promise.resolve();

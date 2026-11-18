@@ -18,21 +18,21 @@ import { emitirWebPush } from '@/shared/lib/webpush';
 import {
   ALMACEN_RETIRO, MOTIVOS_CANCELACION, MOTIVOS_NO_DISPONIBLE, claveDelivery,
   esRetiroAlmacen, esRetornoPendiente, fechaHoraVE, mensajeCancelado, mensajeEntregado,
-  mensajeNoDisponible, ocDe, type PedidoDelivery, type RechazoDelivery,
+  mensajeNoDisponible, ocDe, type PedidoDelivery, type RechazoDelivery, type TipoFotoDelivery,
 } from './delivery';
 import {
   cancelarPedido, compartirUbicacion, listPedidosDelivery, listRechazosDelivery, marcarEnRuta, marcarEntregado,
   rechazarPedido, tomarPedido, useUbicacionesRuta,
 } from './delivery.repository';
 import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
-import { EditarFotosDeliveryModal } from './EditarFotosDelivery';
+import { EditarFotosDeliveryModal, subirFotoDirectaDelivery } from './EditarFotosDelivery';
 import {
   armarFeed, debeEnviarUbicacion, distanciaMetros, fueCanceladoPreviamente, rechazadosPor, telHref,
   type ChipDelivery, type EnvioGps,
 } from './deliveryMovil';
 import {
-  LUGAR_LOS_PINOS, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, ordenarDisponibles, paradasRuta,
-  puntoLugar, puntoRecogida, siguienteParada, urlNavegacionDestino, type PuntoMapa, type RutaCalculada,
+  LUGAR_LOS_PINOS, LOS_PINOS_DEFECTO, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, ordenarDisponibles, paradasRuta,
+  puntoEntrega, puntoLugar, puntoRecogida, siguienteParada, urlNavegacionDestino, type PuntoMapa, type RutaCalculada,
 } from './deliveryRutas';
 import { MapaMotorizado, type DestinoMapa } from './MapaMotorizado';
 import { usePosicionGps, type PosicionGps } from './usePosicionGps';
@@ -66,14 +66,26 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   const reload = useCallback(async () => {
     const mio = ++turno.current;
     try {
-      const [a, c] = await Promise.all([
-        listPedidosDelivery(false, canal),
-        listPedidosDelivery(true, canal).catch(() => [] as PedidoDelivery[]),
-      ]);
-      const r = await listRechazosDelivery(
-        a.filter((p) => p.estado === 'por_tomar' || p.estado === 'cancelado').map((p) => p.orden_id),
-      ).catch(() => [] as RechazoDelivery[]);
+      // 1. Carga prioritaria e inmediata de pedidos activos (sin esperar los cerrados)
+      const a = await listPedidosDelivery(false, canal);
       if (mio !== turno.current) return;
+      setActivos(a);
+      setLoading(false); // ¡Desbloqueo visual ultrarrápido (<200ms)!
+
+      // 2. Carga en paralelo de rechazos para los pedidos activos / cancelados
+      const ordenesActivas = a.filter((p) => p.estado === 'por_tomar' || p.estado === 'cancelado').map((p) => p.orden_id);
+      if (ordenesActivas.length > 0) {
+        void listRechazosDelivery(ordenesActivas)
+          .then((r) => { if (mio === turno.current) setRechazos(r); })
+          .catch(() => {});
+      } else {
+        setRechazos([]);
+      }
+
+      // 3. Histórico cerrado en segundo plano diferido (no congela la vista móvil)
+      void listPedidosDelivery(true, canal)
+        .then((c) => { if (mio === turno.current) setCerrados(c); })
+        .catch(() => {});
 
       // Detección de nuevos pedidos en estado 'por_tomar' para alertar al motorizado
       const porTomarActuales = a.filter((p) => p.estado === 'por_tomar');
@@ -102,10 +114,6 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         }
       }
       prevPedidosRef.current = new Set(porTomarActuales.map((p) => claveDelivery(p)));
-
-      setActivos(a);
-      setCerrados(c);
-      setRechazos(r);
     } catch (e) {
       toast(errMsg(e, 'No se pudieron cargar los pedidos'), 'error');
     } finally {
@@ -118,7 +126,15 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
-  useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => { void reload(); });
+
+  // Debounce para eventos Realtime (evita recargas en ráfaga que saturan el teléfono)
+  const debounceRealtimeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => {
+    if (debounceRealtimeRef.current) clearTimeout(debounceRealtimeRef.current);
+    debounceRealtimeRef.current = setTimeout(() => {
+      void reload();
+    }, 450);
+  });
 
   const uid = user?.id ?? null;
   const feedBase = useMemo(() => armarFeed(activos, cerrados, rechazadosPor(rechazos, uid)), [activos, cerrados, rechazos, uid]);
@@ -128,7 +144,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
 
   const idsProveedores = useMemo(() => activos.map((p) => p.proveedor_id), [activos]);
   const { provs, lugares } = useUbicacionesRuta(idsProveedores);
-  const losPinos = useMemo(() => puntoLugar(lugares, LUGAR_LOS_PINOS), [lugares]);
+  const losPinos = useMemo(() => puntoLugar(lugares, LUGAR_LOS_PINOS) ?? LOS_PINOS_DEFECTO, [lugares]);
 
   const distDe = useCallback((p: PedidoDelivery) => {
     if (!yo) return null;
@@ -296,13 +312,54 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   // Parada siguiente del pedido en curso para Google Maps / Waze
   const siguiente = useMemo(() => (enCurso ? siguienteParada(enCurso, provs, losPinos) : null), [enCurso, provs, losPinos]);
 
+  // Destino inteligente garantizado (no desaparece si el proveedor no tiene coordenadas GPS fijadas)
+  const siguienteDestino = useMemo(() => {
+    if (!enCurso) return null;
+    if (siguiente) return siguiente;
+    if (enCurso.estado === 'aceptado') {
+      return {
+        tipo: 'recogida' as const,
+        nombre: esRetiroAlmacen(enCurso) ? ALMACEN_RETIRO : (enCurso.proveedor_nombre?.trim() || 'Proveedor'),
+        direccion: esRetiroAlmacen(enCurso) ? 'Zona Industrial Los Pinos' : (enCurso.proveedor_direccion?.trim() || null),
+        punto: puntoRecogida(enCurso, provs, losPinos),
+      };
+    }
+    return {
+      tipo: 'entrega' as const,
+      nombre: `Almacén ${nombreAlmacenVisible(enCurso.almacen_entrega ?? enCurso.almacen_destino)}`,
+      direccion: 'Zona Industrial Los Pinos',
+      punto: puntoEntrega(enCurso, losPinos) ?? LOS_PINOS_DEFECTO,
+    };
+  }, [enCurso, siguiente, provs, losPinos]);
+
   const handleNavegar = () => {
-    if (siguiente?.punto) {
-      const url = urlNavegacionDestino(siguiente.punto, yo);
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
-    } else if (enCurso) {
-      toast('Calculando destino en el mapa de la app.', 'info');
+    if (!enCurso) return;
+    const destinoPunto = siguienteDestino?.punto ?? siguiente?.punto;
+    const destinoTexto = siguienteDestino?.direccion || siguienteDestino?.nombre || enCurso.proveedor_direccion || enCurso.proveedor_nombre;
+    const url = urlNavegacionDestino(destinoPunto, yo, destinoTexto);
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      toast('Destino no especificado en el pedido.', 'warning');
       setRutaClave(claveDelivery(enCurso));
+    }
+  };
+
+  // Subida rápida de fotos en 1 solo paso desde la tarjeta o la cámara del teléfono
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const handleSubirFotoRapida = async (p: PedidoDelivery, tipo: TipoFotoDelivery, archivo: File) => {
+    if (!p.pedido_id) return;
+    setSubiendoFoto(true);
+    toast('📸 Procesando y subiendo foto…', 'info');
+    try {
+      const existentes = tipo === 'recibo' ? p.fotos_recibo : tipo === 'factura' ? p.fotos_factura : p.fotos_entrega;
+      await subirFotoDirectaDelivery(p.pedido_id, tipo, archivo, p.estado, existentes);
+      toast('Foto guardada correctamente.', 'success');
+      void reload();
+    } catch (err) {
+      toast(errMsg(err, 'No se pudo subir la foto'), 'error');
+    } finally {
+      setSubiendoFoto(false);
     }
   };
 
@@ -357,16 +414,21 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
       </header>
 
       {/* ── CAPA 1.5: HUD DE NAVEGACIÓN ACTIVA EN RUTA (UBER / RIDERY / YUMMY) ── */}
-      {enCurso && siguiente && (
+      {enCurso && siguienteDestino && (
         <div className="dlv-nav-hud-top">
           <div className="dlv-nav-hud-icono">
-            {siguiente.tipo === 'entrega' ? '🏬' : '📦'}
+            {siguienteDestino.tipo === 'entrega' ? '🏬' : '📦'}
           </div>
           <div className="dlv-nav-hud-info">
             <div className="dlv-nav-hud-paso">
-              {siguiente.tipo === 'entrega' ? 'Retorno a Almacén' : 'Recogida en Proveedor'}
+              {siguienteDestino.tipo === 'entrega' ? 'Retorno a Almacén' : 'Recogida en Proveedor'}
             </div>
-            <div className="dlv-nav-hud-destino">{siguiente.nombre}</div>
+            <div className="dlv-nav-hud-destino">{siguienteDestino.nombre}</div>
+            {siguienteDestino.direccion && (
+              <div style={{ fontSize: '.72rem', color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+                📍 {siguienteDestino.direccion}
+              </div>
+            )}
             {rutaMapa?.ruta && (
               <div className="dlv-nav-hud-meta">
                 🧭 {distanciaTxt(rutaMapa.ruta.metros)} {rutaMapa.ruta.segundos != null ? `· ${duracionTxt(rutaMapa.ruta.segundos)}` : ''}
@@ -461,7 +523,15 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
               <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
             )}
             {accion?.tipo === 'entregar' && pedidoAccion && (
-              <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} onAbrirFotos={() => setFotosModalDe(pedidoAccion)} />
+              <FormEntregar
+                p={pedidoAccion}
+                quien={quien}
+                onCancel={volver}
+                onHecho={hecho}
+                onAbrirFotos={() => setFotosModalDe(pedidoAccion)}
+                onSubirFotoRapida={(tipo, archivo) => void handleSubirFotoRapida(pedidoAccion, tipo, archivo)}
+                subiendoFoto={subiendoFoto}
+              />
             )}
             {accion?.tipo === 'no_disponible' && pedidoAccion && (
               <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
@@ -549,15 +619,37 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                       <>
                         {(enCurso.fotos_recibo?.length ?? 0) === 0 ? (
                           <>
-                            <button
-                              type="button"
-                              className="dlv-btn-hero dlv-btn-hero-amber"
-                              onClick={() => setFotosModalDe(enCurso)}
-                            >
-                              📸 Tomar Foto al Recibir (0/5) · Obligatoria
-                            </button>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'stretch' }}>
+                              <label
+                                className="btn btn-primary dlv-btn-hero dlv-btn-hero-amber"
+                                style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                              >
+                                {subiendoFoto ? 'Subiendo foto…' : '📸 Tomar Foto al Recibir (Cámara)'}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  disabled={subiendoFoto}
+                                  style={{ display: 'none' }}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) void handleSubirFotoRapida(enCurso, 'recibo', f);
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ padding: '0 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', fontSize: '.85rem' }}
+                                title="Abrir selector de fotos o archivos guardados"
+                                onClick={() => setFotosModalDe(enCurso)}
+                              >
+                                📁 Galería
+                              </button>
+                            </div>
                             <div className="dlv-hero-subtext">
-                              Sube foto de la remisión, factura física o paquetes para habilitar el retorno.
+                              Toma foto de la remisión, factura física o paquetes para habilitar el retorno a sede.
                             </div>
                           </>
                         ) : (
@@ -904,8 +996,14 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
 }
 
 /* ── Formulario de Entrega ── */
-function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos }: {
-  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void; onAbrirFotos: () => void;
+function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos, onSubirFotoRapida, subiendoFoto }: {
+  p: PedidoDelivery;
+  quien: string;
+  onCancel: () => void;
+  onHecho: (titulo: string, texto: string) => void;
+  onAbrirFotos: () => void;
+  onSubirFotoRapida: (tipo: TipoFotoDelivery, archivo: File) => void;
+  subiendoFoto?: boolean;
 }) {
   const [recibidoPor, setRecibidoPor] = useState('');
   const [nota, setNota] = useState('');
@@ -944,19 +1042,39 @@ function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos }: {
         <span style={{ fontSize: '.85rem', color: '#94a3b8' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)}</span>
       </div>
 
-      <button
-        type="button"
-        className={`btn ${tieneFotoEntrega ? 'btn-ghost' : 'btn-primary dlv-btn-hero-amber'}`}
-        style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
-        onClick={onAbrirFotos}
-      >
-        <span>
-          {tieneFotoEntrega
-            ? `✓ Foto de entrega lista (${p.fotos_entrega.length}${!esRetiroAlmacen(p) ? ` · factura: ${p.fotos_factura.length}` : ''})`
-            : '📸 Subir foto de entrega / factura (Obligatoria)'}
-        </span>
-        <span style={{ fontSize: '.8rem', opacity: 0.9 }}>{tieneFotoEntrega ? 'Ver / Editar →' : 'Abrir cámara →'}</span>
-      </button>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'stretch' }}>
+        <label
+          className={`btn ${tieneFotoEntrega ? 'btn-ghost' : 'btn-primary dlv-btn-hero-amber'}`}
+          style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flex: 1 }}
+        >
+          {subiendoFoto
+            ? 'Subiendo foto…'
+            : tieneFotoEntrega
+              ? `✓ Foto lista (${p.fotos_entrega.length}) · Tomar otra`
+              : '📸 Tomar Foto de Entrega (Cámara)'}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            disabled={subiendoFoto || guardando}
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onSubirFotoRapida('entrega', f);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ padding: '0 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.15)', fontSize: '.8rem' }}
+          onClick={onAbrirFotos}
+          title="Ver o seleccionar fotos desde galería"
+        >
+          📁 Ver / Galería
+        </button>
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <label style={{ fontSize: '.82rem', color: '#94a3b8' }}>¿Quién recibe el material?</label>
