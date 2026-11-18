@@ -20,6 +20,7 @@ import {
   type EstadoFinanciero, type EstructuraEF, type VarianteResultados,
 } from './logica/estados';
 import { codigoPadre, compararCodigos, nivelDe, validarNuevaCuenta } from './logica/planCuentas';
+import { generarPlanCuentasGT } from './planCuentasGt';
 import {
   auxiliaresConEquivalente, balanceComprobacion, balanceConEquivalente, diarioConEquivalente,
   libroDiario, mayorAnalitico, mayorConEquivalente, movimientosAuxiliares,
@@ -169,6 +170,185 @@ function mapLinea(r: Record<string, unknown>): ContComprobanteLinea {
 
 // ── Parámetros y Catálogos Maestros ──────────────────────────────────────────
 
+async function autoAprovisionarEjercicioYPeriodos(empresaClave: string): Promise<void> {
+  const ejId = `ej-${empresaClave.toLowerCase()}-2026`;
+  try {
+    await supabase
+      .from('cont_ejercicios')
+      .upsert({
+        id: ejId,
+        empresa_clave: empresaClave,
+        nombre: '2026',
+        fecha_inicio: '2026-01-01',
+        fecha_fin: '2026-12-31',
+        estado: 'abierto',
+      }, { onConflict: 'empresa_clave,nombre' });
+
+    const meses = [
+      { num: 1,  ini: '2026-01-01', fin: '2026-01-31' },
+      { num: 2,  ini: '2026-02-01', fin: '2026-02-28' },
+      { num: 3,  ini: '2026-03-01', fin: '2026-03-31' },
+      { num: 4,  ini: '2026-04-01', fin: '2026-04-30' },
+      { num: 5,  ini: '2026-05-01', fin: '2026-05-31' },
+      { num: 6,  ini: '2026-06-01', fin: '2026-06-30' },
+      { num: 7,  ini: '2026-07-01', fin: '2026-07-31' },
+      { num: 8,  ini: '2026-08-01', fin: '2026-08-31' },
+      { num: 9,  ini: '2026-09-01', fin: '2026-09-30' },
+      { num: 10, ini: '2026-10-01', fin: '2026-10-31' },
+      { num: 11, ini: '2026-11-01', fin: '2026-11-30' },
+      { num: 12, ini: '2026-12-01', fin: '2026-12-31' },
+      { num: 13, ini: '2026-12-31', fin: '2026-12-31' },
+    ];
+
+    const periodosRows = meses.map((m) => {
+      const sufijo = String(m.num).padStart(2, '0');
+      return {
+        id: `per-${empresaClave.toLowerCase()}-2026${sufijo}`,
+        empresa_clave: empresaClave,
+        ejercicio_id: ejId,
+        numero: m.num,
+        codigo: `2026${sufijo}`,
+        fecha_inicio: m.ini,
+        fecha_fin: m.fin,
+        estado: 'abierto',
+      };
+    });
+
+    await supabase.from('cont_periodos').upsert(periodosRows, { ignoreDuplicates: true });
+  } catch (err) {
+    console.warn(`Error al auto-aprovisionar ejercicio y períodos para ${empresaClave}:`, err);
+  }
+}
+
+async function autoAprovisionarParametros(empresaClave: string): Promise<ContParametros> {
+  let nombre = empresaClave;
+  let moneda: Moneda = 'VES';
+  try {
+    const { data: emp } = await supabase
+      .from('admin_empresas')
+      .select('nombre, moneda')
+      .eq('clave', empresaClave)
+      .maybeSingle();
+    if (emp?.nombre) nombre = String(emp.nombre);
+    if (emp?.moneda === 'USD' || emp?.moneda === 'VES') moneda = emp.moneda;
+  } catch {
+    // Si admin_empresas no responde, continuar con defaults
+  }
+
+  const nuevoRow = {
+    empresa_clave: empresaClave,
+    empresa_nombre: nombre,
+    mascara_codigo: '9.9.99.99.999',
+    niveles: 5,
+    moneda_funcional: moneda,
+    moneda_referencia: 'USD',
+    fuente_tasa: 'bcv',
+    tolerancia_cuadre: 0.01,
+    tipo_numeracion: 'mes_consecutivo',
+    permite_descuadrados: false,
+    permite_fecha_futura: false,
+    tipo_comprobante_defecto_id: 'tipo-09',
+    tipo_diferencial_id: 'tipo-10',
+    tipo_cierre_id: 'tipo-11',
+    tipo_apertura_id: 'tipo-93',
+  };
+
+  try {
+    const { data } = await supabase
+      .from('cont_parametros')
+      .insert(nuevoRow)
+      .select('*')
+      .maybeSingle();
+
+    await autoAprovisionarEjercicioYPeriodos(empresaClave);
+
+    if (data) {
+      return {
+        id: true,
+        empresa_clave: data.empresa_clave,
+        empresa_nombre: data.empresa_nombre ?? nombre,
+        centro_costo_defecto_id: null,
+        mascara_codigo: data.mascara_codigo ?? '9.9.99.99.999',
+        niveles: Number(data.niveles ?? 5),
+        moneda_funcional: (data.moneda_funcional as Moneda) ?? moneda,
+        moneda_referencia: (data.moneda_referencia as Moneda) ?? 'USD',
+        fuente_tasa: (data.fuente_tasa as ContParametros['fuente_tasa']) ?? 'bcv',
+        tolerancia_cuadre: Number(data.tolerancia_cuadre ?? 0.01),
+        cuenta_resultado_ejercicio_id: null,
+        cuenta_utilidades_retenidas_id: null,
+        cuenta_dif_cambio_ganancia_id: null,
+        cuenta_dif_cambio_perdida_id: null,
+        tipo_numeracion: (data.tipo_numeracion as ContParametros['tipo_numeracion']) ?? 'mes_consecutivo',
+        permite_descuadrados: Boolean(data.permite_descuadrados),
+        permite_fecha_futura: Boolean(data.permite_fecha_futura),
+        tipo_comprobante_defecto_id: data.tipo_comprobante_defecto_id ?? 'tipo-09',
+        tipo_diferencial_id: data.tipo_diferencial_id ?? 'tipo-10',
+        tipo_cierre_id: data.tipo_cierre_id ?? 'tipo-11',
+        tipo_apertura_id: data.tipo_apertura_id ?? 'tipo-93',
+      };
+    }
+  } catch (err) {
+    console.warn(`No se pudo auto-insertar cont_parametros para ${empresaClave}:`, err);
+  }
+
+  return {
+    id: true,
+    empresa_clave: empresaClave,
+    empresa_nombre: nombre,
+    centro_costo_defecto_id: null,
+    mascara_codigo: '9.9.99.99.999',
+    niveles: 5,
+    moneda_funcional: moneda,
+    moneda_referencia: 'USD',
+    fuente_tasa: 'bcv',
+    tolerancia_cuadre: 0.01,
+    cuenta_resultado_ejercicio_id: null,
+    cuenta_utilidades_retenidas_id: null,
+    cuenta_dif_cambio_ganancia_id: null,
+    cuenta_dif_cambio_perdida_id: null,
+    tipo_numeracion: 'mes_consecutivo',
+    permite_descuadrados: false,
+    permite_fecha_futura: false,
+    tipo_comprobante_defecto_id: 'tipo-09',
+    tipo_diferencial_id: 'tipo-10',
+    tipo_cierre_id: 'tipo-11',
+    tipo_apertura_id: 'tipo-93',
+  };
+}
+
+export async function aplicarPlanCuentasMaestro(empresaClave = EMPRESA_DEFECTO, actor = 'sistema'): Promise<void> {
+  const cuentasDef = generarPlanCuentasGT();
+  const cuentas = cuentasDef.map((c) => ({
+    id: `cta-${empresaClave.toLowerCase()}-${c.codigo.replace(/\./g, '-')}`,
+    empresa_clave: empresaClave,
+    codigo: c.codigo,
+    nombre: c.nombre,
+    nivel: c.nivel,
+    padre_id: c.padre_id ? `cta-${empresaClave.toLowerCase()}-${c.padre_id.replace(/^cta-/, '')}` : null,
+    clase: c.clase,
+    naturaleza: c.naturaleza,
+    es_movimiento: c.es_movimiento,
+    exige_centro_costo: c.exige_centro_costo,
+    exige_auxiliar: c.exige_auxiliar,
+    tipo_auxiliar: c.tipo_auxiliar,
+    moneda: c.moneda,
+    es_monetaria: c.es_monetaria,
+    rubro: c.rubro,
+    activa: true,
+    notas: null,
+    created_at: new Date().toISOString(),
+    created_by: actor,
+  }));
+
+  for (let i = 0; i < cuentas.length; i += 50) {
+    const chunk = cuentas.slice(i, i + 50);
+    const { error } = await supabase
+      .from('cont_cuentas')
+      .upsert(chunk, { onConflict: 'empresa_clave,codigo' });
+    if (error) throw error;
+  }
+}
+
 export async function getParametros(empresaClave = EMPRESA_DEFECTO): Promise<ContParametros> {
   const { data, error } = await supabase
     .from('cont_parametros')
@@ -178,7 +358,7 @@ export async function getParametros(empresaClave = EMPRESA_DEFECTO): Promise<Con
 
   if (error) throw error;
   if (!data) {
-    throw new Error(`No se encontraron parámetros contables configurados para la empresa "${empresaClave}".`);
+    return autoAprovisionarParametros(empresaClave);
   }
 
   return {
@@ -316,17 +496,46 @@ export async function listEjercicios(empresaClave = EMPRESA_DEFECTO): Promise<Co
     .eq('empresa_clave', empresaClave)
     .order('fecha_inicio', { ascending: false });
   if (error) throw error;
-  return (data ?? []) as ContEjercicio[];
+  if (!data || data.length === 0) {
+    await autoAprovisionarEjercicioYPeriodos(empresaClave);
+    const { data: data2 } = await supabase
+      .from('cont_ejercicios')
+      .select('*')
+      .eq('empresa_clave', empresaClave)
+      .order('fecha_inicio', { ascending: false });
+    if (data2 && data2.length > 0) return data2 as ContEjercicio[];
+    return [{
+      id: `ej-${empresaClave.toLowerCase()}-2026`,
+      empresa_clave: empresaClave,
+      nombre: '2026',
+      fecha_inicio: '2026-01-01',
+      fecha_fin: '2026-12-31',
+      estado: 'abierto',
+      cerrado_en: null,
+      cerrado_por: null,
+      comprobante_cierre_id: null,
+    }];
+  }
+  return data as ContEjercicio[];
 }
 
 export async function listPeriodos(empresaClave = EMPRESA_DEFECTO): Promise<ContPeriodo[]> {
   const { data, error } = await supabase
     .from('cont_periodos')
     .select('*')
+    .eq('empresa_clave', empresaClave)
     .order('codigo', { ascending: true });
   if (error) throw error;
-  const list = (data ?? []) as ContPeriodo[];
-  return list.filter((p) => !p.empresa_clave || p.empresa_clave === empresaClave);
+  if (!data || data.length === 0) {
+    await autoAprovisionarEjercicioYPeriodos(empresaClave);
+    const { data: data2 } = await supabase
+      .from('cont_periodos')
+      .select('*')
+      .eq('empresa_clave', empresaClave)
+      .order('codigo', { ascending: true });
+    if (data2 && data2.length > 0) return data2 as ContPeriodo[];
+  }
+  return (data ?? []) as ContPeriodo[];
 }
 
 // ── Comprobantes y Asientos Contables ────────────────────────────────────────

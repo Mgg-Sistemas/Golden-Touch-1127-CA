@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useSession } from '@/modules/auth/authStore';
 import { cambiarActivaCuenta, crearCuenta, listCuentas, aplicarPlanGoldenTouch } from './contabilidad.repository';
@@ -66,13 +66,14 @@ export function PlanCuentasTab({ parametros, empresaClave = 'GT' }: { parametros
   });
 
   const [cargandoGT, setCargandoGT] = useState(false);
-  const cargarPlanGT = async () => {
-    if (!window.confirm('¿Deseas aplicar el Plan de Cuentas oficial de Golden Touch 1127, C.A.? Se incorporarán las cuentas de bancos nacionales, divisas, inventarios mineros y centros de costo de la empresa.')) return;
+  const [confirmarGT, setConfirmarGT] = useState(false);
+
+  const ejecutarPlanGT = async () => {
     setCargandoGT(true);
     try {
-      await aplicarPlanGoldenTouch();
+      await aplicarPlanGoldenTouch(actor, empresaClave);
       await cargar();
-      toast('Plan de cuentas oficial de Golden Touch aplicado con éxito.', 'success');
+      toast(`Plan de cuentas oficial para ${empresaClave} aplicado con éxito.`, 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo aplicar el plan de cuentas.', 'error');
     } finally {
@@ -125,8 +126,8 @@ export function PlanCuentasTab({ parametros, empresaClave = 'GT' }: { parametros
           <input type="checkbox" checked={verInactivas} onChange={(e) => setVerInactivas(e.target.checked)} /> Mostrar inactivas
         </label>
         <span className="cont-sep" />
-        <button type="button" className="btn btn-secondary btn-sm" title="Aplica el catálogo oficial de cuentas de Golden Touch 1127, C.A." disabled={cargandoGT} onClick={() => void cargarPlanGT()}>
-          {cargandoGT ? 'Aplicando…' : '⭐ Plan Golden Touch'}
+        <button type="button" className="btn btn-secondary btn-sm" title={`Aplica el catálogo oficial de cuentas adaptado a la operación para ${empresaClave}`} disabled={cargandoGT} onClick={() => setConfirmarGT(true)}>
+          {cargandoGT ? 'Aplicando…' : `⭐ ${empresaClave === 'GT' ? 'Plan Golden Touch' : `Plan Oficial ${empresaClave}`}`}
         </button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setNueva({ padre: null })}>+ Nueva cuenta</button>
       </div>
@@ -168,6 +169,19 @@ export function PlanCuentasTab({ parametros, empresaClave = 'GT' }: { parametros
           onSubcuenta={(padre) => setNueva({ padre })}
           onAlternarActiva={(c) => void alternarActiva(c)} />
       </div>
+
+      {confirmarGT && (
+        <ConfirmDialog
+          title={`Plan de Cuentas Oficial (${empresaClave})`}
+          message={`¿Deseas aplicar el Plan de Cuentas oficial para ${empresaClave}? Se incorporarán las cuentas de bancos nacionales, divisas, inventarios mineros y centros de costo de la empresa.`}
+          confirmText="Aplicar Plan"
+          onConfirm={() => {
+            setConfirmarGT(false);
+            void ejecutarPlanGT();
+          }}
+          onCancel={() => setConfirmarGT(false)}
+        />
+      )}
 
       {nueva && (
         <NuevaCuentaModal padre={nueva.padre} cuentas={cuentas} parametros={parametros} empresaClave={empresaClave}
