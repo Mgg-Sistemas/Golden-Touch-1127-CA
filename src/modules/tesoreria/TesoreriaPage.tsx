@@ -29,6 +29,15 @@ import { getServicioDirectoByCajaMovId, type ServicioDirecto } from '@/modules/p
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { repartirPagoYReembolso } from './reembolsoPago';
+import {
+  calcularPrellenadoMultipago,
+  cajasSugeridasParaCompletar,
+  elegirCajaInicialPago,
+  etiquetaCajaConSaldos,
+  etiquetaCuentaCorta,
+  resolverBilleteraComision,
+  validarFondosPorBilletera,
+} from './resolucionSaldosPago';
 import { filtrarMovimientos } from './filtrosMovimientos';
 import { filtrarRenglonesNomina, montoRenglonLote, totalLote } from './nominaLote';
 import { convertirRetencion } from './retencionPago';
@@ -4810,7 +4819,8 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
     saldosDeCaja(cajaId).then((rows) => {
       const con = rows.filter((r) => Number(r.saldo) > 0);
       setSaldosCaja(con);
-      setComisionSaldoId((p) => (p && con.some((s) => s.id === p)) ? p : (con[0]?.id ?? ''));
+      const mayor = [...con].sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0))[0];
+      setComisionSaldoId((p) => (p && con.some((s) => s.id === p)) ? p : (mayor?.id ?? ''));
     }).catch(() => setSaldosCaja([]));
     setLegMontos({}); setComisionMonto('');
   }, [cajaId]);
@@ -6086,6 +6096,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [confirmarReembolso, setConfirmarReembolso] = useState(false);
   const pagoParcial = row.esContraEntrega && o.recibido_total != null && Number(o.recibido_total) < Number(o.total);
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const cajaElegidaManual = useRef(false);
+  const [todosSaldos, setTodosSaldos] = useState<CajaSaldo[]>([]);
+  const [saldosNonce, setSaldosNonce] = useState(0);
   const [montoStr, setMontoStr] = useState(String(baseOrden));
   // Un pago repartido entre varias cuentas tiene una captura por cada transferencia.
   // Por eso el comprobante es una LISTA (hasta MAX_COMPROBANTES_PAGO), no un archivo.
@@ -6118,8 +6131,30 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [cajasExtra, setCajasExtra] = useState<string[]>([]);
   const [extraSaldos, setExtraSaldos] = useState<CajaSaldo[]>([]);
   useEffect(() => {
+    listSaldos().then(setTodosSaldos).catch(() => setTodosSaldos([]));
+  }, [saldosNonce]);
+  useEffect(() => {
     if (!cajaId) { setPrimarySaldos([]); return; }
-    saldosDeCaja(cajaId).then((rows) => setPrimarySaldos(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setPrimarySaldos([]));
+    saldosDeCaja(cajaId)
+      .then((rows) => {
+        const positivos = rows.filter((r) => Number(r.saldo) > 0);
+        if (positivos.length > 0 || rows.length > 0) {
+          setPrimarySaldos(positivos);
+          return;
+        }
+        // Si la caja primaria es legada (sin filas en caja_saldos) y se combinan cajas extra,
+        // exponer su saldo legado como pata para no perderlo en la tabla multipago.
+        const cj = cajas.find((c) => c.id === cajaId);
+        if (cajasExtra.length > 0 && cj && Number(cj.saldo) > 0) {
+          setPrimarySaldos([{ id: `legacy:${cajaId}`, caja_id: cajaId, cuenta: 'general', moneda: cj.moneda, saldo: Number(cj.saldo), tasa_prom: null } as unknown as CajaSaldo]);
+        } else {
+          setPrimarySaldos([]);
+        }
+      })
+      .catch(() => setPrimarySaldos([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cajaId, cajasExtra.length > 0, saldosNonce]);
+  useEffect(() => {
     setLegMontos({});
     setCajasExtra([]);
   }, [cajaId]);
@@ -6127,11 +6162,11 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   useEffect(() => {
     const ids = cajasExtra.filter((id) => id && id !== cajaId);
     if (!ids.length) { setExtraSaldos([]); return; }
-    Promise.all(ids.map((id) => saldosDeCaja(id).then((rows) => ({ id, rows: rows.filter((r) => Number(r.saldo) > 0) })).catch(() => ({ id, rows: [] as CajaSaldo[] }))))
+    Promise.all(ids.map((id) => saldosDeCaja(id).then((rows) => ({ id, allCount: rows.length, rows: rows.filter((r) => Number(r.saldo) > 0) })).catch(() => ({ id, allCount: 0, rows: [] as CajaSaldo[] }))))
       .then((res) => {
         const out: CajaSaldo[] = [];
-        for (const { id, rows } of res) {
-          if (rows.length) { out.push(...rows); continue; }
+        for (const { id, allCount, rows } of res) {
+          if (rows.length || allCount > 0) { out.push(...rows); continue; }
           // Caja sin saldos multimoneda: usar su saldo visible (legado) como una cuenta.
           const cj = cajas.find((c) => c.id === id);
           if (cj && Number(cj.saldo) > 0) {
@@ -6141,7 +6176,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         setExtraSaldos(out);
       }).catch(() => setExtraSaldos([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cajasExtra.join('|'), cajaId]);
+  }, [cajasExtra.join('|'), cajaId, saldosNonce]);
   // Lista combinada de cuentas disponibles para el multipago (primaria + extra).
   const saldosCaja = useMemo(() => [...primarySaldos, ...extraSaldos], [primarySaldos, extraSaldos]);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
@@ -6315,73 +6350,48 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     });
   }
 
-  // Al elegir una caja multimoneda, prellenar cuánto sale de cada cuenta para
-  // cubrir el total automáticamente (de mayor a menor saldo en USD), así el
-  // usuario ve de una vez lo que debe pagar sin teclear el monto en Bs a mano.
-  // Solo prellena cuando aún no se cargó nada (no pisa lo que el usuario edite).
-  const saldosKey = saldosCaja.map((s) => s.id).join('|');
-  // Objetivo por moneda indicado desde la OC (Compras puede repartir el total por
-  // moneda; los montos vienen en USD). Si trae reparto, el prellenado lo respeta.
+  // Al abrir el modal (antes de que el usuario cambie la caja a mano), elegir automáticamente
+  // la caja que cubra la moneda indicada por Compras (ej. Bs en Pago móvil) en vez de quedarse
+  // en `cajas[0]` cuando esa primera caja solo tiene un remanente pequeño (ej. Bs 2,37).
   const indicKey = JSON.stringify((o.metodo_pago ?? []).map((m) => [m.moneda, m.monto]));
   useEffect(() => {
+    if (cajaElegidaManual.current || !cajas.length || !todosSaldos.length) return;
+    const ideal = elegirCajaInicialPago(cajas, todosSaldos, o.metodo_pago, totalUsd, tasa, mercado?.copUsd);
+    if (ideal && ideal !== cajaId) {
+      setCajaId(ideal);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todosSaldos, tasa, mercado, totalUsd, indicKey]);
+
+  // Al elegir una caja multimoneda, prellenar cuánto sale de cada cuenta para
+  // cubrir el total automáticamente (de mayor a menor saldo en USD), sin superar
+  // jamás el saldo real de ninguna cuenta por efecto de redondeo Bs↔USD.
+  const saldosKey = saldosCaja.map((s) => `${s.id}:${s.saldo}`).join('|');
+  useEffect(() => {
     if (!saldosCaja.length || totalUsd <= 0) return;
-    // Si hay cuentas en Bs/COP, esperar a tener la tasa para poder convertir.
-    if (saldosCaja.some((s) => s.moneda === 'Bs') && !(tasa > 0)) return;
-    if (saldosCaja.some((s) => s.moneda === 'COP') && !mercado?.copUsd) return;
-
-    // Reparto por moneda que indicó Compras en la OC (montos en USD).
-    const objetivo: Record<string, number> = {};
-    let indicUsd = 0;
-    for (const m of o.metodo_pago ?? []) {
-      const u = round2(Number(m.monto) || 0);
-      if (u <= 0) continue;
-      objetivo[m.moneda] = round2((objetivo[m.moneda] || 0) + u);
-      indicUsd = round2(indicUsd + u);
+    const next = calcularPrellenadoMultipago(
+      saldosCaja,
+      o.metodo_pago,
+      totalUsd,
+      tasa,
+      mercado?.copUsd,
+      dosDecimales,
+    );
+    if (Object.keys(next).length > 0 || Object.keys(legMontos).length === 0) {
+      setLegMontos(next);
     }
-    const usarIndic = indicUsd > 0.01;
-
-    // Disponible (en USD) de cada cuenta y cuánto le vamos asignando.
-    const capUsd = (s: CajaSaldo) => legUsd(s.moneda, Number(s.saldo));
-    const asignadoUsd: Record<string, number> = {};
-    // Paso 1: por cada moneda indicada, repartir su USD entre las cuentas de esa
-    // moneda (de mayor a menor saldo).
-    if (usarIndic) {
-      for (const [mon, usdObj] of Object.entries(objetivo)) {
-        let rest = usdObj;
-        const legsMon = saldosCaja.filter((s) => s.moneda === mon).sort((a, b) => capUsd(b) - capUsd(a));
-        for (const s of legsMon) {
-          if (rest <= 0.01) break;
-          const space = round2(capUsd(s) - (asignadoUsd[s.id] || 0));
-          const use = Math.min(rest, space);
-          if (use <= 0) continue;
-          asignadoUsd[s.id] = round2((asignadoUsd[s.id] || 0) + use);
-          rest = round2(rest - use);
-        }
-      }
-    }
-    // Paso 2: completar el total que falte (sin reparto, o monedas sin cuenta) de
-    // mayor a menor saldo entre las cuentas con espacio libre.
-    let totalAsig = round2(Object.values(asignadoUsd).reduce((a, b) => a + b, 0));
-    let restante = round2(totalUsd - totalAsig);
-    if (restante > 0.01) {
-      const ordenadas = [...saldosCaja].sort((a, b) => capUsd(b) - capUsd(a));
-      for (const s of ordenadas) {
-        if (restante <= 0.01) break;
-        const space = round2(capUsd(s) - (asignadoUsd[s.id] || 0));
-        const use = Math.min(restante, space);
-        if (use <= 0) continue;
-        asignadoUsd[s.id] = round2((asignadoUsd[s.id] || 0) + use);
-        restante = round2(restante - use);
-      }
-    }
-    const next: Record<string, string> = {};
-    for (const s of saldosCaja) {
-      const u = asignadoUsd[s.id] || 0;
-      if (u > 0) next[s.id] = dosDecimales(String(montoDesdeUsd(s.moneda, u)));
-    }
-    setLegMontos(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saldosKey, tasa, mercado, totalUsd, indicKey]);
+
+  const comMontoNum = Number(comisionMonto) || 0;
+  const comSaldoResuelto = useMemo(
+    () => resolverBilleteraComision(saldosCaja, legMontos, comisionSaldoId, comMontoNum),
+    [saldosCaja, legMontos, comisionSaldoId, comMontoNum],
+  );
+  const cajasSugeridas = useMemo(
+    () => cajasSugeridasParaCompletar(cajas, todosSaldos, cajaId, cajasExtra, o.metodo_pago),
+    [cajas, todosSaldos, cajaId, cajasExtra, o.metodo_pago],
+  );
 
   // ¿El pago entrega USD físico (efectivo)? Solo entonces se piden los seriales de
   // los billetes. Simple: caja en USD. Multimoneda: pata USD con monto cargado.
@@ -6440,10 +6450,26 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     const motivoFinal = motivoConReferencias(motivoPago, patasRef, refsPago);
     const noSirve = comprobantes.find((c) => c.type && c.type !== 'application/pdf' && !c.type.startsWith('image/'));
     if (noSirve) { setError(`«${noSirve.name}» no es PDF ni imagen. Cada comprobante tiene que ser una de las dos cosas.`); return; }
-    // Comisión bancaria opcional: sale de la billetera elegida (egreso extra, no suma al total).
-    const comSaldo = saldosCaja.find((s) => s.id === comisionSaldoId) ?? saldosCaja[0] ?? null;
+    // Comisión bancaria opcional: resuelve hacia la billetera activa con holgura suficiente
+    // (nunca toma `saldosCaja[0]` a ciegas cuando Bs jurídica tiene un saldo residual como 2,37).
     const comMonto = Number(comisionMonto) || 0;
+    const comSaldo = resolverBilleteraComision(saldosCaja, legMontos, comisionSaldoId, comMonto);
     if (comMonto > 0 && !comSaldo) { setError('Elige de qué billetera sale la comisión bancaria.'); return; }
+    if (esMultimoneda) {
+      const errorFondos = validarFondosPorBilletera({
+        saldosCaja,
+        legMontos,
+        comSaldo,
+        comMonto,
+        todosSaldos,
+        cajas,
+        fmtMonto: monto,
+      });
+      if (errorFondos) {
+        setError(errorFondos);
+        return;
+      }
+    }
     const comision = comMonto > 0 && comSaldo
       ? { cajaId: comSaldo.caja_id, cuenta: comSaldo.cuenta as CuentaCaja, moneda: comSaldo.moneda, monto: comMonto, montoUsd: legUsd(comSaldo.moneda, comMonto) }
       : null;
@@ -6518,6 +6544,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         });
         return;
       }
+      setSaldosNonce((k) => k + 1);
       setError(mensajeError(err, 'No se pudo pagar.')); setSaving(false);
     }
   }
@@ -6979,11 +7006,23 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           <div className="card-title" style={{ marginBottom: '.4rem' }}>Comisión bancaria <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>(opcional · no suma al total de la OC)</span></div>
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <input className="input mono" type="number" min={0} step="any" value={comisionMonto} onChange={(e) => setComisionMonto(dosDecimales(e.target.value))} placeholder="0,00" style={{ width: 140, textAlign: 'right' }} />
-            <select className="select" value={comisionSaldoId} onChange={(e) => setComisionSaldoId(e.target.value)} style={{ maxWidth: 240 }}>
-              <option value="">— billetera de la comisión —</option>
-              {saldosCaja.map((s) => <option key={s.id} value={s.id}>{s.moneda}{s.cuenta !== 'general' ? ` · ${s.cuenta}` : ''} · {monto(Number(s.saldo), s.moneda)}</option>)}
+            <select className="select" value={comisionSaldoId} onChange={(e) => setComisionSaldoId(e.target.value)} style={{ maxWidth: 300 }}>
+              <option value="">
+                {comSaldoResuelto
+                  ? `Automática (${cajas.find((c) => c.id === comSaldoResuelto.caja_id)?.nombre ?? 'Caja'} · ${comSaldoResuelto.moneda}${etiquetaCuentaCorta(comSaldoResuelto.cuenta) ? ` · ${etiquetaCuentaCorta(comSaldoResuelto.cuenta)}` : ''})`
+                  : '— billetera de la comisión —'}
+              </option>
+              {saldosCaja.map((s) => {
+                const cjNom = cajasExtra.length > 0 ? `${cajas.find((c) => c.id === s.caja_id)?.nombre ?? ''} · ` : '';
+                const etq = etiquetaCuentaCorta(s.cuenta);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {cjNom}{s.moneda}{etq ? ` · ${etq}` : ''} · {monto(Number(s.saldo), s.moneda)}
+                  </option>
+                );
+              })}
             </select>
-            <span className="muted" style={{ fontSize: '.78rem' }}>Se descuenta de la caja como gasto aparte.</span>
+            <span className="muted" style={{ fontSize: '.78rem' }}>Se descuenta de la billetera con saldo disponible como gasto aparte.</span>
           </div>
         </div>
 
@@ -7010,9 +7049,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Caja (de dónde sale el dinero)</label>
-            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length}
+            <SearchSelect value={cajaId} onChange={(id) => { cajaElegidaManual.current = true; setCajaId(id); }} disabled={!cajas.length}
               placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
-              options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
+              options={cajas.map((c) => ({ value: c.id, label: todosSaldos.length ? etiquetaCajaConSaldos(c, todosSaldos, monto) : `${c.nombre} · ${monto(c.saldo, c.moneda)}` }))} />
             <small className="muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).{esMultimoneda ? ' Abajo eliges de qué cuentas (con saldo) sale el dinero.' : ''}</small>
           </div>
           {!esMultimoneda && (
@@ -7046,7 +7085,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 <tbody>
                   {saldosCaja.map((s) => {
                     const n = Number(legMontos[s.id]) || 0;
-                    const excede = n > Number(s.saldo);
+                    const extraCom = comMontoNum > 0 && comSaldoResuelto?.id === s.id ? comMontoNum : 0;
+                    const excede = round2(n + extraCom) > round2(Number(s.saldo)) + 0.005;
                     const etiquetaCuenta = s.cuenta === 'general' ? '' : s.cuenta === 'juridica' ? ' · Jurídica' : ' · Personal';
                     const cajaNombre = cajas.find((c) => c.id === s.caja_id)?.nombre ?? '—';
                     return (
@@ -7075,13 +7115,30 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 </tfoot>
               </table>
             </div>
+            {/* Sugerencia directa cuando otra caja activa sí tiene saldo para completar el pago */}
+            {!cubreTotalMulti && cajasSugeridas.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginTop: '.45rem', flexWrap: 'wrap', fontSize: '.8rem' }}>
+                <span style={{ color: 'var(--warning)', fontWeight: 600 }}>💡 Otras cajas con saldo disponible:</span>
+                {cajasSugeridas.slice(0, 3).map(({ caja: cj }) => (
+                  <button
+                    key={cj.id}
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ borderColor: 'var(--brand, #ff8a00)' }}
+                    onClick={() => setCajasExtra((xs) => (xs.includes(cj.id) ? xs : [...xs, cj.id]))}
+                  >
+                    + Añadir {etiquetaCajaConSaldos(cj, todosSaldos, monto)}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Añadir otra caja para completar el total (multipago entre cajas). */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
               <span className="muted" style={{ fontSize: '.8rem' }}>¿No alcanza una sola caja?</span>
-              <div style={{ minWidth: 220 }}>
+              <div style={{ minWidth: 240 }}>
                 <SearchSelect value="" onChange={(id) => { if (id) setCajasExtra((xs) => (xs.includes(id) ? xs : [...xs, id])); }}
                   placeholder="+ Añadir otra caja…"
-                  options={cajas.filter((c) => c.id !== cajaId && !cajasExtra.includes(c.id)).map((c) => ({ value: c.id, label: c.nombre }))} />
+                  options={cajas.filter((c) => c.id !== cajaId && !cajasExtra.includes(c.id)).map((c) => ({ value: c.id, label: todosSaldos.length ? etiquetaCajaConSaldos(c, todosSaldos, monto) : `${c.nombre} · ${monto(c.saldo, c.moneda)}` }))} />
               </div>
               {cajasExtra.length > 0 && (
                 <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>

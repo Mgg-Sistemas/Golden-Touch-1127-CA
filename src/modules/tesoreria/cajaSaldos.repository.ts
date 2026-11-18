@@ -184,7 +184,7 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
  */
 export async function revertirEgresoDivisa(input: {
   cajaId: string; cuenta: CuentaCaja; moneda: string; monto: number;
-  concepto?: string | null; actor: string; actorName?: string | null;
+  concepto?: string | null; refOrdenId?: string | null; actor: string; actorName?: string | null;
 }): Promise<void> {
   const monto = round2(input.monto);
   if (monto <= 0) return;
@@ -202,6 +202,7 @@ export async function revertirEgresoDivisa(input: {
     caja_id: input.cajaId, tipo: 'ingreso', monto, moneda: input.moneda, cuenta: input.cuenta,
     tasa_bs: input.moneda === 'Bs' ? null : tasaProm, saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto?.trim() || 'Reversión de egreso', categoria: 'reverso',
+    ...(input.refOrdenId ? { ref_orden_id: input.refOrdenId } : {}),
     actor: input.actor, actor_name: input.actorName ?? null,
   });
 }

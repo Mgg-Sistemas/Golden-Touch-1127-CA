@@ -106,9 +106,18 @@ export async function registrarGasto(input: {
   // Si la caja maneja saldos multimoneda (caja_saldos), se descuenta del saldo
   // elegido (cuenta+moneda); si no, del saldo legado de la caja.
   const monedaPago = (input.moneda ?? caja.moneda) as string;
-  const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
-  const { data: saldoRow } = await supabase.from(SALDOS)
-    .select('id').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+  let cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
+  let { data: saldoRow } = await supabase.from(SALDOS)
+    .select('id, cuenta').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+  if (!saldoRow && !input.cuenta) {
+    const { data: altRows } = await supabase.from(SALDOS)
+      .select('id, cuenta, saldo').eq('caja_id', input.cajaId).eq('moneda', monedaPago)
+      .order('saldo', { ascending: false }).limit(1);
+    if (altRows && altRows.length > 0) {
+      saldoRow = altRows[0] as { id: string; cuenta: string };
+      cuentaSel = String(saldoRow.cuenta) as CuentaCaja;
+    }
+  }
   const usaSaldos = !!saldoRow;
 
   // ── Descuento ATÓMICO (GT-SIN-01) ──────────────────────────────────────────
@@ -189,9 +198,18 @@ export async function registrarIngresoCaja(input: {
   if (!input.concepto.trim()) throw new Error('Indica el concepto del ingreso.');
   const caja = await getCaja(input.cajaId);
   const monedaPago = (input.moneda ?? caja.moneda) as string;
-  const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
-  const { data: saldoRow } = await supabase.from(SALDOS)
-    .select('id').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+  let cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
+  let { data: saldoRow } = await supabase.from(SALDOS)
+    .select('id, cuenta').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+  if (!saldoRow && !input.cuenta) {
+    const { data: altRows } = await supabase.from(SALDOS)
+      .select('id, cuenta, saldo').eq('caja_id', input.cajaId).eq('moneda', monedaPago)
+      .order('saldo', { ascending: false }).limit(1);
+    if (altRows && altRows.length > 0) {
+      saldoRow = altRows[0] as { id: string; cuenta: string };
+      cuentaSel = String(saldoRow.cuenta) as CuentaCaja;
+    }
+  }
   const usaSaldos = !!saldoRow;
 
   const mover = async (delta: number) => {
@@ -228,70 +246,145 @@ export async function registrarIngresoCaja(input: {
    cualquier otra cuenta de esa misma moneda con fondos suficientes. Solo si no hay
    ninguna fila en caja_saldos para esa moneda se cae al saldo legado. El descuento
    es atómico con lock en la base (aplicar_saldo_divisa), que también valida fondos. */
+interface TramoDescuentoVivo {
+  cuenta: string | null;
+  monto: number;
+  saldoAntes: number;
+  saldoDespues: number;
+}
+
 async function descontarSaldoVivo(caja: { id: string; nombre: string; moneda: string }, monto: number): Promise<{
-  saldoAntes: number; saldoDespues: number; cuenta: string | null; revertir: () => Promise<void>;
+  saldoAntes: number;
+  saldoDespues: number;
+  cuenta: string | null;
+  tramos: TramoDescuentoVivo[];
+  revertir: () => Promise<void>;
 }> {
-  // 1) Cuenta «general» en la moneda de la caja (comportamiento histórico).
-  const { data: rowGeneral } = await supabase.from(SALDOS)
-    .select('id, saldo').eq('caja_id', caja.id).eq('cuenta', 'general').eq('moneda', caja.moneda).maybeSingle();
-  if (rowGeneral) {
-    const { data: r, error } = await supabase.rpc('aplicar_saldo_divisa', {
-      p_caja_id: caja.id, p_cuenta: 'general', p_moneda: caja.moneda, p_delta: -monto, p_permitir_negativo: false,
-    });
-    if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
-    const res = r as { saldo_antes: number; saldo_despues: number };
-    return {
-      saldoAntes: Number(res.saldo_antes) || 0, saldoDespues: Number(res.saldo_despues) || 0, cuenta: 'general',
-      revertir: async () => { await supabase.rpc('aplicar_saldo_divisa', { p_caja_id: caja.id, p_cuenta: 'general', p_moneda: caja.moneda, p_delta: monto, p_permitir_negativo: true }); },
-    };
-  }
+  const { data: filasRaw } = await supabase.from(SALDOS)
+    .select('cuenta, saldo').eq('caja_id', caja.id).eq('moneda', caja.moneda);
+  const todas = (filasRaw ?? []) as Array<{ cuenta: string; saldo: number | string | null }>;
 
-  // 2) Sin «general»: buscar otra cuenta de la MISMA moneda con saldo suficiente
-  //    (p. ej. Bs en «juridica» o «personal»). Se elige la de mayor saldo para
-  //    cubrir el monto sin depender del orden.
-  const { data: alternativas } = await supabase.from(SALDOS)
-    .select('cuenta, saldo').eq('caja_id', caja.id).eq('moneda', caja.moneda).gt('saldo', 0);
-  const candidatas = (alternativas ?? []) as Array<{ cuenta: string; saldo: number | string | null }>;
-  const conFondos = candidatas
-    .filter((s) => (Number(s.saldo) || 0) >= monto - 0.01)
-    .sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0));
-  const elegida = conFondos[0] ?? null;
-  if (elegida) {
-    const cuenta = String(elegida.cuenta);
+  if (todas.length > 0) {
+    const positivas = todas
+      .filter((s) => (Number(s.saldo) || 0) > 0)
+      .sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0));
+
+    // 1) Si «general» cubre por sí sola el monto, mantenerla como primera opción.
+    const rowGeneral = positivas.find((s) => s.cuenta === 'general' && (Number(s.saldo) || 0) >= monto - 0.005);
+    // 2) Si no, cualquier otra cuenta individual (jurídica / personal) que alcance sola.
+    const cuentaUnica = rowGeneral ?? positivas.find((s) => (Number(s.saldo) || 0) >= monto - 0.005) ?? null;
+
+    if (cuentaUnica) {
+      const cuenta = String(cuentaUnica.cuenta);
+      const { data: r, error } = await supabase.rpc('aplicar_saldo_divisa', {
+        p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: -monto, p_permitir_negativo: false,
+      });
+      if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
+      const res = r as { saldo_antes: number; saldo_despues: number };
+      const saldoAntes = Number(res.saldo_antes) || 0;
+      const saldoDespues = Number(res.saldo_despues) || 0;
+      return {
+        saldoAntes,
+        saldoDespues,
+        cuenta,
+        tramos: [{ cuenta, monto, saldoAntes, saldoDespues }],
+        revertir: async () => {
+          await supabase.rpc('aplicar_saldo_divisa', {
+            p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: monto, p_permitir_negativo: true,
+          });
+        },
+      };
+    }
+
+    // 3) Si ninguna cuenta sola cubre `monto`, pero la SUMA de las cuentas de esa moneda en la
+    //    caja sí alcanza (mismo total que muestra `conSaldoVivo`), repartir de mayor a menor saldo.
+    const sumaTotal = round2(positivas.reduce((acc, s) => acc + (Number(s.saldo) || 0), 0));
+    if (sumaTotal >= monto - 0.005 && positivas.length > 1) {
+      let restante = monto;
+      const tramos: TramoDescuentoVivo[] = [];
+      try {
+        for (const s of positivas) {
+          if (restante <= 0.004) break;
+          const disp = round2(Number(s.saldo) || 0);
+          const parte = round2(Math.min(restante, disp));
+          if (parte <= 0) continue;
+          const cuenta = String(s.cuenta);
+          const { data: r, error } = await supabase.rpc('aplicar_saldo_divisa', {
+            p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: -parte, p_permitir_negativo: false,
+          });
+          if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
+          const res = r as { saldo_antes: number; saldo_despues: number };
+          tramos.push({
+            cuenta,
+            monto: parte,
+            saldoAntes: Number(res.saldo_antes) || 0,
+            saldoDespues: Number(res.saldo_despues) || 0,
+          });
+          restante = round2(restante - parte);
+        }
+      } catch (err) {
+        for (const t of [...tramos].reverse()) {
+          if (t.cuenta) {
+            await supabase.rpc('aplicar_saldo_divisa', {
+              p_caja_id: caja.id, p_cuenta: t.cuenta, p_moneda: caja.moneda, p_delta: t.monto, p_permitir_negativo: true,
+            });
+          }
+        }
+        throw err;
+      }
+      const primero = tramos[0];
+      return {
+        saldoAntes: primero?.saldoAntes ?? sumaTotal,
+        saldoDespues: primero?.saldoDespues ?? round2(sumaTotal - monto),
+        cuenta: primero?.cuenta ?? null,
+        tramos,
+        revertir: async () => {
+          for (const t of [...tramos].reverse()) {
+            if (t.cuenta) {
+              await supabase.rpc('aplicar_saldo_divisa', {
+                p_caja_id: caja.id, p_cuenta: t.cuenta, p_moneda: caja.moneda, p_delta: t.monto, p_permitir_negativo: true,
+              });
+            }
+          }
+        },
+      };
+    }
+
+    // 4) Ninguna combinación en esta caja alcanza: debitar de la de mayor saldo para que el RPC
+    //    devuelva el mensaje real y no el de una cuenta en 0 ni el legado desfasado.
+    const ref = positivas[0] ?? [...todas].sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0))[0];
+    const cuenta = String(ref.cuenta);
     const { data: r, error } = await supabase.rpc('aplicar_saldo_divisa', {
       p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: -monto, p_permitir_negativo: false,
     });
     if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
     const res = r as { saldo_antes: number; saldo_despues: number };
+    const saldoAntes = Number(res.saldo_antes) || 0;
+    const saldoDespues = Number(res.saldo_despues) || 0;
     return {
-      saldoAntes: Number(res.saldo_antes) || 0, saldoDespues: Number(res.saldo_despues) || 0, cuenta,
-      revertir: async () => { await supabase.rpc('aplicar_saldo_divisa', { p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: monto, p_permitir_negativo: true }); },
+      saldoAntes,
+      saldoDespues,
+      cuenta,
+      tramos: [{ cuenta, monto, saldoAntes, saldoDespues }],
+      revertir: async () => {
+        await supabase.rpc('aplicar_saldo_divisa', {
+          p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: monto, p_permitir_negativo: true,
+        });
+      },
     };
   }
 
-  // 3) Sin filas en caja_saldos para esta moneda (o sin fondos en ninguna): saldo legado.
-  //    Si hay filas pero ninguna alcanza, el RPC validará fondos y dará el error correcto.
-  if (candidatas.length > 0) {
-    // Hay saldos de esta moneda pero ninguno cubre el monto: debitar del de mayor saldo
-    // para que el RPC devuelva el "Saldo insuficiente" real (no el del legado desfasado).
-    const mayor = [...candidatas].sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0))[0];
-    const cuenta = String(mayor.cuenta);
-    const { data: r, error } = await supabase.rpc('aplicar_saldo_divisa', {
-      p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: -monto, p_permitir_negativo: false,
-    });
-    if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
-    const res = r as { saldo_antes: number; saldo_despues: number };
-    return {
-      saldoAntes: Number(res.saldo_antes) || 0, saldoDespues: Number(res.saldo_despues) || 0, cuenta,
-      revertir: async () => { await supabase.rpc('aplicar_saldo_divisa', { p_caja_id: caja.id, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: monto, p_permitir_negativo: true }); },
-    };
-  }
-
+  // 5) Caja legada sin filas en `caja_saldos`: usar `aplicar_saldo_caja`.
   const { data: r, error } = await supabase.rpc('aplicar_saldo_caja', { p_caja_id: caja.id, p_delta: -monto, p_permitir_negativo: false });
   if (error) throw new Error(error.message || `Saldo insuficiente en ${caja.nombre}.`);
   const res = r as { saldo_antes: number; saldo_despues: number };
+  const saldoAntes = Number(res.saldo_antes) || 0;
+  const saldoDespues = Number(res.saldo_despues) || 0;
   return {
-    saldoAntes: Number(res.saldo_antes) || 0, saldoDespues: Number(res.saldo_despues) || 0, cuenta: null,
+    saldoAntes,
+    saldoDespues,
+    cuenta: null,
+    tramos: [{ cuenta: null, monto, saldoAntes, saldoDespues }],
     revertir: async () => { await supabase.rpc('aplicar_saldo_caja', { p_caja_id: caja.id, p_delta: monto, p_permitir_negativo: true }); },
   };
 }
@@ -348,20 +441,26 @@ export async function pagarOrden(input: {
   const caja = await getCaja(input.cajaId);
   // 05/11/2026: contra el saldo vivo (caja_saldos), descontado de una vez en la base.
   const desc = await descontarSaldoVivo(caja, monto);
-  const saldoAntes = desc.saldoAntes;
-  const saldoDespues = desc.saldoDespues;
-
-  const { data, error } = await supabase.from(LIBRO).insert({
-    caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues, cuenta: desc.cuenta,
-    motivo: input.concepto?.trim() || 'Pago de compra', categoria: input.categoria || 'pago_oc',
+  const filas = desc.tramos.map((t) => ({
+    caja_id: input.cajaId,
+    tipo: 'salida' as const,
+    monto: t.monto,
+    moneda: caja.moneda,
+    saldo_antes: t.saldoAntes,
+    saldo_despues: t.saldoDespues,
+    cuenta: t.cuenta,
+    motivo: input.concepto?.trim() || 'Pago de compra',
+    categoria: input.categoria || 'pago_oc',
     gasto_categoria: input.gastoCategoria?.trim() || null,
     gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
     ref_orden_id: input.ordenId,
-    actor: input.actor, actor_name: input.actorName ?? null,
-  }).select('*').single();
+    actor: input.actor,
+    actor_name: input.actorName ?? null,
+  }));
+
+  const { data, error } = await supabase.from(LIBRO).insert(filas).select('*');
   if (error) { await desc.revertir(); throw error; }
-  return data as MovimientoCaja;
+  return ((data ?? [])[0]) as MovimientoCaja;
 }
 
 /* ───────────── Disponibilidad financiera ───────────── */

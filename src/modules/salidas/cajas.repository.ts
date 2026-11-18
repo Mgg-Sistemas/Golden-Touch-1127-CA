@@ -127,27 +127,56 @@ async function aplicarSaldoCaja(cajaId: string, delta: number, permitirNegativo:
   return { saldoAntes: Number(r.saldo_antes) || 0, saldoDespues: Number(r.saldo_despues) || 0, moneda: r.moneda, nombre: r.nombre };
 }
 
-/** Espeja el delta en el saldo multimoneda (cuenta general) de la misma moneda, SOLO si
- *  esa fila existe (para no crear cuentas multimoneda donde no las hay). Atómico. */
-async function espejarSaldoGeneral(cajaId: string, moneda: string, delta: number): Promise<void> {
+/** Espeja el delta en el saldo multimoneda de la misma moneda (prefiere `general`; en Bs cae
+ *  a `juridica` o `personal` cuando la caja lleva esas cuentas en `caja_saldos`), SOLO si ya
+ *  existe alguna fila para esa caja y moneda. Atómico. */
+async function espejarSaldoGeneral(
+  cajaId: string,
+  moneda: string,
+  delta: number,
+): Promise<{ cuenta: string; saldoAntes: number; saldoDespues: number } | null> {
+  if (!delta) return null;
   const { data } = await supabase.from('caja_saldos')
-    .select('id').eq('caja_id', cajaId).eq('cuenta', 'general').eq('moneda', moneda).maybeSingle();
-  if (!data) return;
-  const { error } = await supabase.rpc('aplicar_saldo_divisa', {
-    p_caja_id: cajaId, p_cuenta: 'general', p_moneda: moneda, p_delta: delta, p_permitir_negativo: true,
+    .select('id, cuenta, saldo').eq('caja_id', cajaId).eq('moneda', moneda);
+  const filas = (data ?? []) as Array<{ id: string; cuenta: string; saldo: number | string | null }>;
+  if (!filas.length) return null;
+  const elegida =
+    filas.find((f) => f.cuenta === 'general') ??
+    (moneda === 'Bs' ? filas.find((f) => f.cuenta === 'juridica') : undefined) ??
+    [...filas].sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0))[0];
+  const cuenta = String(elegida.cuenta);
+  const { data: r, error } = await supabase.rpc('aplicar_saldo_divisa', {
+    p_caja_id: cajaId, p_cuenta: cuenta, p_moneda: moneda, p_delta: delta, p_permitir_negativo: true,
   });
   if (error) throw new Error(error.message || 'No se pudo espejar el saldo multimoneda.');
+  const res = r as { saldo_antes: number; saldo_despues: number };
+  return {
+    cuenta,
+    saldoAntes: Number(res.saldo_antes) || 0,
+    saldoDespues: Number(res.saldo_despues) || 0,
+  };
 }
 
-/** Ajuste manual del saldo (deja registro en el libro). */
+/** Ajuste manual del saldo (deja registro en el libro y sincroniza `caja_saldos` si existe). */
 export async function ajustarSaldo(id: string, nuevoSaldo: number, motivo: string, actor: string, actorName?: string | null): Promise<void> {
   const caja = await getCaja(id);
-  const saldoAntes = Number(caja.saldo) || 0;
+  const { data: filasSaldos } = await supabase.from('caja_saldos')
+    .select('cuenta, saldo').eq('caja_id', id).eq('moneda', caja.moneda);
+  const vivos = (filasSaldos ?? []) as Array<{ cuenta: string; saldo: number | string | null }>;
+  const saldoAntes = vivos.length
+    ? round2(vivos.reduce((acc, r) => acc + (Number(r.saldo) || 0), 0))
+    : Number(caja.saldo) || 0;
   const saldoDespues = round2(Number(nuevoSaldo) || 0);
   const delta = round2(saldoDespues - saldoAntes);
+  let cuentaMov: string | null = null;
+  if (vivos.length && delta !== 0) {
+    const esp = await espejarSaldoGeneral(id, caja.moneda, delta);
+    cuentaMov = esp?.cuenta ?? null;
+  }
   await supabase.from(LIBRO).insert({
     caja_id: id, tipo: 'ajuste', monto: Math.abs(delta), moneda: caja.moneda,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    ...(cuentaMov ? { cuenta: cuentaMov } : {}),
     motivo: motivo || 'Ajuste de saldo', actor, actor_name: actorName ?? null,
   });
   const { error } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', id);
@@ -166,18 +195,20 @@ export async function ingresarDinero(
   const m = round2(Number(monto) || 0);
   if (m <= 0) throw new Error('El monto a ingresar debe ser mayor que 0.');
   const { saldoAntes, saldoDespues, moneda } = await aplicarSaldoCaja(id, m, true);
+  const esp = await espejarSaldoGeneral(id, moneda, m);
   await supabase.from(LIBRO).insert({
     caja_id: id, tipo: 'ingreso', monto: m, moneda,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    saldo_antes: esp ? esp.saldoAntes : saldoAntes,
+    saldo_despues: esp ? esp.saldoDespues : saldoDespues,
+    ...(esp ? { cuenta: esp.cuenta } : {}),
     motivo: motivo || 'Ingreso de dinero', actor, actor_name: actorName ?? null,
   });
 }
 
-/* ───────────── Egreso simple sincronizado con el saldo VISIBLE de la caja ─────────────
-   Descuenta el `cajas.saldo` (el saldo que se ve en el selector de caja y en el módulo
-   de Cajas) y, si la caja además lleva un saldo multimoneda (caja_saldos) en su moneda,
-   lo espeja para que ambos queden alineados. Se usa en Compra Directa: el gasto SIEMPRE
-   debe reflejarse en el saldo de la caja de la que sale el dinero. */
+/* ───────────── Egreso simple sincronizado con el saldo VIVO de la caja ─────────────
+   Si la caja maneja `caja_saldos` en su moneda (general / jurídica / personal), valida y
+   descuenta contra ese saldo vivo (nunca contra un `cajas.saldo` desfasado) y espeja en
+   `cajas.saldo`. Si no tiene filas en `caja_saldos`, descuenta de `cajas.saldo`. */
 export async function egresarGastoCaja(input: {
   cajaId: string; monto: number; concepto: string; categoria?: string;
   gastoCategoria?: string | null; gastoSubcategoria?: string | null;
@@ -186,9 +217,50 @@ export async function egresarGastoCaja(input: {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   if (!input.concepto.trim()) throw new Error('Indica el concepto del gasto.');
-  // Descuento ATÓMICO del saldo visible (lock + valida fondos en el servidor).
-  const { saldoAntes, saldoDespues, moneda } = await aplicarSaldoCaja(input.cajaId, -monto, false);
 
+  const caja = await getCaja(input.cajaId);
+  const { data: filasRaw } = await supabase.from('caja_saldos')
+    .select('cuenta, saldo').eq('caja_id', input.cajaId).eq('moneda', caja.moneda);
+  const todas = (filasRaw ?? []) as Array<{ cuenta: string; saldo: number | string | null }>;
+
+  if (todas.length > 0) {
+    const positivas = todas
+      .filter((s) => (Number(s.saldo) || 0) > 0)
+      .sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0));
+    const candidata =
+      positivas.find((s) => s.cuenta === 'general' && (Number(s.saldo) || 0) >= monto - 0.005) ??
+      positivas.find((s) => (Number(s.saldo) || 0) >= monto - 0.005) ??
+      positivas[0] ??
+      todas[0];
+    const cuenta = String(candidata.cuenta);
+    const { data: r, error: eDiv } = await supabase.rpc('aplicar_saldo_divisa', {
+      p_caja_id: input.cajaId, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: -monto, p_permitir_negativo: false,
+    });
+    if (eDiv) throw new Error(eDiv.message || `Saldo insuficiente en ${caja.nombre}.`);
+    const res = r as { saldo_antes: number; saldo_despues: number };
+    const saldoAntes = Number(res.saldo_antes) || 0;
+    const saldoDespues = Number(res.saldo_despues) || 0;
+
+    const { data, error } = await supabase.from(LIBRO).insert({
+      caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda, cuenta,
+      saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+      motivo: input.concepto.trim(), categoria: input.categoria ?? 'gasto',
+      gasto_categoria: input.gastoCategoria?.trim() || null,
+      gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
+      actor: input.actor, actor_name: input.actorName ?? null,
+    }).select('*').single();
+    if (error) {
+      await supabase.rpc('aplicar_saldo_divisa', {
+        p_caja_id: input.cajaId, p_cuenta: cuenta, p_moneda: caja.moneda, p_delta: monto, p_permitir_negativo: true,
+      });
+      throw error;
+    }
+    await aplicarSaldoCaja(input.cajaId, -monto, true).catch(() => undefined);
+    return data as MovimientoCaja;
+  }
+
+  // Caja legada sin `caja_saldos`: descuento ATÓMICO del saldo visible.
+  const { saldoAntes, saldoDespues, moneda } = await aplicarSaldoCaja(input.cajaId, -monto, false);
   const { data, error } = await supabase.from(LIBRO).insert({
     caja_id: input.cajaId, tipo: 'salida', monto, moneda,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
@@ -197,17 +269,17 @@ export async function egresarGastoCaja(input: {
     gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
-  if (error) throw error;
-
-  // Espejo multimoneda (cuenta general en su moneda), también atómico.
-  await espejarSaldoGeneral(input.cajaId, moneda, -monto);
+  if (error) {
+    await aplicarSaldoCaja(input.cajaId, monto, true).catch(() => undefined);
+    throw error;
+  }
   return data as MovimientoCaja;
 }
 
-/* ───────────── Ingreso de dinero sincronizado con el saldo VISIBLE de la caja ─────────────
-   Inverso de `egresarGastoCaja`: SUMA al `cajas.saldo` (el que se ve en el selector y en
-   Cajas) y, si la caja además lleva saldo multimoneda (caja_saldos) en su moneda, lo
-   espeja. Devuelve el movimiento (para anclar, p. ej., una cuenta por pagar). */
+/* ───────────── Ingreso de dinero sincronizado con el saldo VIVO de la caja ─────────────
+   Inverso de `egresarGastoCaja`: SUMA al `cajas.saldo` y, si la caja además lleva saldo
+   multimoneda (`caja_saldos`, incluida jurídica/personal en Bs), lo espeja de inmediato
+   para que el dinero recibido (ej. Recibir dinero de MGG o reversos) quede disponible al pagar. */
 export async function ingresarDineroCaja(input: {
   cajaId: string; monto: number; concepto: string; categoria?: string;
   actor: string; actorName?: string | null;
@@ -215,18 +287,19 @@ export async function ingresarDineroCaja(input: {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   if (!input.concepto.trim()) throw new Error('Indica el concepto del ingreso.');
-  // Ingreso ATÓMICO (suma; permite quedar como esté, no valida fondos).
   const { saldoAntes, saldoDespues, moneda } = await aplicarSaldoCaja(input.cajaId, monto, true);
+  const esp = await espejarSaldoGeneral(input.cajaId, moneda, monto);
 
   const { data, error } = await supabase.from(LIBRO).insert({
     caja_id: input.cajaId, tipo: 'ingreso', monto, moneda,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    saldo_antes: esp ? esp.saldoAntes : saldoAntes,
+    saldo_despues: esp ? esp.saldoDespues : saldoDespues,
+    ...(esp ? { cuenta: esp.cuenta } : {}),
     motivo: input.concepto.trim(), categoria: input.categoria ?? 'ingreso',
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
 
-  await espejarSaldoGeneral(input.cajaId, moneda, monto);
   return data as MovimientoCaja;
 }
 

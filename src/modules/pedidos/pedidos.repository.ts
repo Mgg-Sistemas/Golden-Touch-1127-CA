@@ -12,7 +12,7 @@ import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventar
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
 import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, recomponerImpuestos, type IvaEditado } from './impuestosOrden';
-import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { errorRenglonesSinFicha } from './nombreInventario';
@@ -1715,19 +1715,26 @@ export async function reconciliarPagosOcHuerfanos(): Promise<number> {
   if (!ordenes.length) return 0;
   const ids = ordenes.map((o) => o.id);
   const { data: movs } = await supabase.from('movimientos_caja')
-    .select('id, caja_id, ref_orden_id, actor, at')
-    .eq('categoria', 'pago_oc').eq('tipo', 'salida')
+    .select('id, caja_id, ref_orden_id, actor, at, tipo, categoria, monto')
+    .in('categoria', ['pago_oc', 'reverso'])
     .in('ref_orden_id', ids)
     .order('at', { ascending: false });
-  // El primero por orden = el más reciente (por el order desc de arriba).
+  // Si un intento fallido se revirtió (suma de reversos >= suma de pago_oc), NO reconciliar como pagada.
+  const netoPorOrden = new Map<string, number>();
   const porOrden = new Map<string, { id: string; caja_id: string; actor: string | null; at: string }>();
-  for (const m of (movs ?? []) as Array<{ id: string; caja_id: string; ref_orden_id: string; actor: string | null; at: string }>) {
-    if (m.ref_orden_id && !porOrden.has(m.ref_orden_id)) porOrden.set(m.ref_orden_id, { id: m.id, caja_id: m.caja_id, actor: m.actor, at: m.at });
+  for (const m of (movs ?? []) as Array<{ id: string; caja_id: string; ref_orden_id: string; actor: string | null; at: string; tipo: string; categoria: string; monto: number }>) {
+    if (!m.ref_orden_id) continue;
+    const val = Number(m.monto) || 0;
+    const signo = m.categoria === 'pago_oc' && m.tipo === 'salida' ? val : m.categoria === 'reverso' && m.tipo === 'ingreso' ? -val : 0;
+    netoPorOrden.set(m.ref_orden_id, (netoPorOrden.get(m.ref_orden_id) ?? 0) + signo);
+    if (m.categoria === 'pago_oc' && m.tipo === 'salida' && !porOrden.has(m.ref_orden_id)) {
+      porOrden.set(m.ref_orden_id, { id: m.id, caja_id: m.caja_id, actor: m.actor, at: m.at });
+    }
   }
   let reparadas = 0;
   for (const o of ordenes) {
     const mov = porOrden.get(o.id);
-    if (!mov) continue;
+    if (!mov || (netoPorOrden.get(o.id) ?? 0) <= 0.01) continue;
     const patch = {
       estado: 'pagada' as EstadoOrden,
       pagada_por: mov.actor ?? o.oc_aprobada_por ?? null,
@@ -2095,8 +2102,24 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   // 2) Egreso(s). Si falla (p. ej. saldo insuficiente), liberamos la reserva para que la
   //    OC no quede «pagada» sin dinero movido.
   const reembolsoMovIds: string[] = [];
-  let mov: { id: string };
+  let mov: { id: string } | null = null;
   let comisionMovId: string | null = null;
+  const revertirSimple = async (movId: string, montoRev: number) => {
+    const { data: mRow } = await supabase.from('movimientos_caja')
+      .select('caja_id, moneda, cuenta').eq('id', movId).maybeSingle();
+    if (!mRow) return;
+    const r = mRow as { caja_id: string; moneda: string; cuenta?: string | null };
+    if (r.cuenta) {
+      await revertirEgresoDivisa({
+        cajaId: r.caja_id, cuenta: r.cuenta as CuentaCaja, moneda: r.moneda, monto: montoRev,
+        concepto: `Reverso automático por fallo al pagar ${o.oc_codigo ?? o.codigo}`,
+        refOrdenId: o.id, actor: input.actorEmail, actorName: input.actorName ?? null,
+      });
+    } else {
+      await supabase.rpc('aplicar_saldo_caja', { p_caja_id: r.caja_id, p_delta: montoRev, p_permitir_negativo: true });
+    }
+  };
+  const revertirHechosSimple: Array<() => Promise<void>> = [];
   try {
     mov = await pagarOrden({
       cajaId: input.cajaId, ordenId: o.id, monto,
@@ -2104,6 +2127,8 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
+    const movPrincipalId = mov.id;
+    revertirHechosSimple.push(() => revertirSimple(movPrincipalId, monto));
     // Lo pagado DE MÁS: sale de la misma caja en un egreso APARTE, para que el pago
     // de la OC diga exactamente lo que valía la factura.
     if (reembolso > 0) {
@@ -2113,6 +2138,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
         actor: input.actorEmail, actorName: input.actorName ?? null,
       });
       reembolsoMovIds.push(movR.id);
+      revertirHechosSimple.push(() => revertirSimple(movR.id, reembolso));
     }
     // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
     if (comision) {
@@ -2124,6 +2150,9 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
       comisionMovId = movC.id;
     }
   } catch (e) {
+    for (const fn of [...revertirHechosSimple].reverse()) {
+      await fn().catch(() => { /* best-effort */ });
+    }
     await liberarCierrePagoOrden(o).catch(() => { /* best-effort */ });
     throw e;
   }
@@ -2387,26 +2416,79 @@ export interface PagarOcMultiCajasInput {
  */
 export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput): Promise<Orden> {
   const { orden: o } = input;
-  if (o.estado !== 'oc_aprobada')
+  if (o.estado !== 'oc_aprobada' && o.estado !== 'confirmada_metodo')
     throw new Error('Solo se pagan órdenes de compra confirmadas (aprobadas en lote).');
   const legs = (input.legs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
   if (!legs.length) throw new Error('Indica al menos un monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
   // Lo que puede rechazar el pago se valida ANTES de reservar (si no, la OC
-  // quedaría «pagada» sin que salga un peso).
+  // quedaría «pagada» sin que salga un peso, o se descontaría una pata y fallaría la comisión).
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
   const retencion = centavos(input.retencionMonto);
   validarRetencion(o, retencion);
   const retTxt = textoRetencion(o, retencion, input.retencionMontoBs, input.retencionTasa);
+  const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
+
+  // Pre-validación agregada por (caja, cuenta, moneda) antes de mover dinero:
+  // si pata + reembolso + comisión supera el disponible de esa cuenta, rechaza sin tocar ningún saldo.
+  const requeridoPorCuenta = new Map<string, { cajaId: string; cuenta: CuentaCaja; moneda: string; total: number }>();
+  const acumularReq = (cajaId: string, cuenta: CuentaCaja, moneda: string, montoLeg: number) => {
+    const m = centavos(montoLeg);
+    if (m <= 0) return;
+    const k = `${cajaId}|${cuenta}|${moneda}`;
+    const prev = requeridoPorCuenta.get(k);
+    requeridoPorCuenta.set(k, {
+      cajaId,
+      cuenta,
+      moneda,
+      total: centavos((prev?.total ?? 0) + m),
+    });
+  };
+  for (const l of legs) acumularReq(l.cajaId, l.cuenta, l.moneda, l.monto);
+  for (const l of reembolsoLegs) acumularReq(l.cajaId, l.cuenta, l.moneda, l.monto);
+  if (comision) acumularReq(comision.cajaId, comision.cuenta, comision.moneda, comision.monto);
+
+  const cajaIdsInvolucradas = [...new Set([...requeridoPorCuenta.values()].map((r) => r.cajaId))];
+  if (cajaIdsInvolucradas.length > 0) {
+    const { data: saldosRows } = await supabase
+      .from('caja_saldos')
+      .select('caja_id, cuenta, moneda, saldo')
+      .in('caja_id', cajaIdsInvolucradas);
+    const mapaSaldos = new Map<string, number>();
+    for (const r of (saldosRows ?? []) as Array<{ caja_id: string; cuenta: string; moneda: string; saldo: number }>) {
+      mapaSaldos.set(`${r.caja_id}|${r.cuenta}|${r.moneda}`, centavos(r.saldo));
+    }
+    for (const req of requeridoPorCuenta.values()) {
+      const k = `${req.cajaId}|${req.cuenta}|${req.moneda}`;
+      if (mapaSaldos.has(k)) {
+        const disp = mapaSaldos.get(k) ?? 0;
+        if (req.total > disp + 0.005) {
+          throw new Error(`Saldo insuficiente en ${req.moneda} (${req.cuenta}). Disponible: ${disp}.`);
+        }
+      }
+    }
+  }
 
   // Reserva atómica ANTES de mover dinero: bloquea el doble cobro por doble clic/reintento.
   if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
     throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
-  const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
   const reembolsoMovIds: string[] = [];
   const movIds: string[] = [];
   let comisionMovId: string | null = null;
+  const revertirHechos: Array<() => Promise<void>> = [];
+  const registrarReversoLegacy = (cajaId: string, montoRev: number) => async () => {
+    const { data: cj } = await supabase.from('cajas').select('moneda').eq('id', cajaId).maybeSingle();
+    const mon = (cj as { moneda?: string } | null)?.moneda ?? 'Bs';
+    const { data: r } = await supabase.rpc('aplicar_saldo_caja', { p_caja_id: cajaId, p_delta: montoRev, p_permitir_negativo: true });
+    const res = (r ?? {}) as { saldo_antes?: number; saldo_despues?: number };
+    await supabase.from('movimientos_caja').insert({
+      caja_id: cajaId, tipo: 'ingreso', monto: montoRev, moneda: mon,
+      saldo_antes: Number(res.saldo_antes) || 0, saldo_despues: Number(res.saldo_despues) || 0,
+      motivo: `Reverso automático por fallo al pagar ${o.oc_codigo ?? o.codigo}`, categoria: 'reverso',
+      ref_orden_id: o.id, actor: input.actorEmail, actor_name: input.actorName ?? null,
+    });
+  };
   try {
     for (const leg of legs) {
       const serLeg = leg.moneda === 'USD' ? seriales : null;
@@ -2422,6 +2504,11 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
           actor: input.actorEmail, actorName: input.actorName ?? null,
         });
         movIds.push(mov.id);
+        revertirHechos.push(() => revertirEgresoDivisa({
+          cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+          concepto: `Reverso automático por fallo al pagar ${o.oc_codigo ?? o.codigo}`,
+          refOrdenId: o.id, actor: input.actorEmail, actorName: input.actorName ?? null,
+        }));
       } else {
         const mov = await egresarLegacyOC({
           cajaId: leg.cajaId, monto: leg.monto, concepto, refOrdenId: o.id,
@@ -2429,6 +2516,7 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
           actor: input.actorEmail, actorName: input.actorName ?? null,
         });
         movIds.push(mov.id);
+        revertirHechos.push(registrarReversoLegacy(leg.cajaId, leg.monto));
       }
     }
     // Lo pagado DE MÁS: cada cuenta devuelve su parte en un egreso APARTE, desde el
@@ -2437,28 +2525,48 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
       const concepto = conceptoReembolsoOc(o, input.motivoPago, leg.moneda);
       const { data: rowR } = await supabase.from('caja_saldos').select('id')
         .eq('caja_id', leg.cajaId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
-      const movR = rowR
-        ? await egresarDivisa({
-            cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
-            concepto, categoria: 'reembolso_oc', refOrdenId: o.id,
-            actor: input.actorEmail, actorName: input.actorName ?? null,
-          })
-        : await egresarLegacyOC({
-            cajaId: leg.cajaId, monto: leg.monto, concepto, refOrdenId: o.id, categoria: 'reembolso_oc',
-            actor: input.actorEmail, actorName: input.actorName ?? null,
-          });
-      reembolsoMovIds.push(movR.id);
+      if (rowR) {
+        const movR = await egresarDivisa({
+          cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+          concepto, categoria: 'reembolso_oc', refOrdenId: o.id,
+          actor: input.actorEmail, actorName: input.actorName ?? null,
+        });
+        reembolsoMovIds.push(movR.id);
+        revertirHechos.push(() => revertirEgresoDivisa({
+          cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+          concepto: `Reverso automático de reembolso · ${o.oc_codigo ?? o.codigo}`,
+          refOrdenId: o.id, actor: input.actorEmail, actorName: input.actorName ?? null,
+        }));
+      } else {
+        const movR = await egresarLegacyOC({
+          cajaId: leg.cajaId, monto: leg.monto, concepto, refOrdenId: o.id, categoria: 'reembolso_oc',
+          actor: input.actorEmail, actorName: input.actorName ?? null,
+        });
+        reembolsoMovIds.push(movR.id);
+        revertirHechos.push(registrarReversoLegacy(leg.cajaId, leg.monto));
+      }
     }
     // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
     if (comision) {
-      const movC = await egresarDivisa({
-        cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
-        concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
-        actor: input.actorEmail, actorName: input.actorName ?? null,
-      });
+      const { data: rowC } = await supabase.from('caja_saldos').select('id')
+        .eq('caja_id', comision.cajaId).eq('cuenta', comision.cuenta).eq('moneda', comision.moneda).maybeSingle();
+      const movC = rowC
+        ? await egresarDivisa({
+            cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
+            concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+            actor: input.actorEmail, actorName: input.actorName ?? null,
+          })
+        : await egresarLegacyOC({
+            cajaId: comision.cajaId, monto: comision.monto,
+            concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, refOrdenId: o.id, categoria: 'comision_bancaria',
+            actor: input.actorEmail, actorName: input.actorName ?? null,
+          });
       comisionMovId = movC.id;
     }
   } catch (e) {
+    for (const fn of [...revertirHechos].reverse()) {
+      await fn().catch(() => { /* best-effort */ });
+    }
     await liberarCierrePagoOrden(o).catch(() => { /* best-effort */ });
     throw e;
   }

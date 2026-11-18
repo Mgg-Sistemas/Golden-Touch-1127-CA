@@ -995,6 +995,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
   if (errReserva) throw errReserva;
   if (!reserva?.length) throw new Error('Esta compra ya fue pagada por otro usuario.');
 
+  const revertirHechosCd: Array<() => Promise<void>> = [];
   try {
   // 1) Egreso de la caja (valida saldo) → Tesorería / Libro Mayor.
   const concepto = `Compra directa · ${compra.codigo ?? compra.producto_nombre}`;
@@ -1003,12 +1004,19 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
   if (legs.length) {
     let primero: string | null = null;
     for (const leg of legs) {
+      const cajaLeg = leg.cajaId ?? input.cajaId;
+      const montoLeg = Number(leg.monto);
       const r = await egresarDivisa({
-        cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: cajaLeg, cuenta: leg.cuenta, moneda: leg.moneda, monto: montoLeg,
         concepto, categoria: 'compra_directa',
         gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
       });
+      revertirHechosCd.push(() => revertirEgresoDivisa({
+        cajaId: cajaLeg, cuenta: leg.cuenta, moneda: leg.moneda, monto: montoLeg,
+        concepto: `Reverso automático por fallo al pagar ${compra.codigo ?? compra.producto_nombre}`,
+        actor: input.actor, actorName: input.actorName ?? null,
+      }));
       if (!primero) primero = r.id;
     }
     if (!primero) throw new Error('Indica cuánto pagar en al menos una moneda.');
@@ -1019,24 +1027,63 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
     });
+    revertirHechosCd.push(async () => {
+      await ingresarDineroCaja({
+        cajaId: input.cajaId, monto: neto,
+        concepto: `Reverso automático por fallo al pagar ${compra.codigo ?? compra.producto_nombre}`,
+        categoria: 'reverso', actor: input.actor, actorName: input.actorName ?? null,
+      });
+    });
     movCajaId = movCaja.id;
   }
 
   // 1.b) COMISIÓN BANCARIA: egreso ADICIONAL de la caja, NO suma al total de la factura.
-  //      Sale de la misma billetera/moneda del pago (o de la caja legacy si no hay legs).
   const comision = Math.round((Number(input.comision) || 0) * 100) / 100;
   if (comision > 0) {
     const conceptoCom = `Comisión bancaria · ${compra.codigo ?? compra.producto_nombre}`;
     if (legs.length) {
+      const cajaIdsLegs = [...new Set(legs.map((l) => l.cajaId ?? input.cajaId))];
+      const { data: saldosPost } = await supabase
+        .from('caja_saldos')
+        .select('caja_id, cuenta, moneda, saldo')
+        .in('caja_id', cajaIdsLegs);
+      const filasPost = (saldosPost ?? []) as Array<{ caja_id: string; cuenta: string; moneda: string; saldo: number }>;
+      const pataConSaldo = legs.find((l) => {
+        const cid = l.cajaId ?? input.cajaId;
+        const f = filasPost.find((x) => x.caja_id === cid && x.cuenta === l.cuenta && x.moneda === l.moneda);
+        return (Number(f?.saldo) || 0) >= comision - 0.005;
+      });
+      const altBsConSaldo = !pataConSaldo
+        ? filasPost
+            .filter((x) => x.moneda === 'Bs' && (Number(x.saldo) || 0) >= comision - 0.005)
+            .sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0))[0]
+        : null;
+      const destinoCom = pataConSaldo
+        ? { cajaId: pataConSaldo.cajaId ?? input.cajaId, cuenta: pataConSaldo.cuenta, moneda: pataConSaldo.moneda }
+        : altBsConSaldo
+          ? { cajaId: altBsConSaldo.caja_id, cuenta: altBsConSaldo.cuenta as typeof legs[0]['cuenta'], moneda: altBsConSaldo.moneda }
+          : { cajaId: legs[0].cajaId ?? input.cajaId, cuenta: legs[0].cuenta, moneda: legs[0].moneda };
       await egresarDivisa({
-        cajaId: legs[0].cajaId ?? input.cajaId, cuenta: legs[0].cuenta, moneda: legs[0].moneda, monto: comision,
+        cajaId: destinoCom.cajaId, cuenta: destinoCom.cuenta, moneda: destinoCom.moneda, monto: comision,
         concepto: conceptoCom, categoria: 'gasto', gastoCategoria: 'Comisión bancaria',
         actor: input.actor, actorName: input.actorName ?? null,
       });
+      revertirHechosCd.push(() => revertirEgresoDivisa({
+        cajaId: destinoCom.cajaId, cuenta: destinoCom.cuenta, moneda: destinoCom.moneda, monto: comision,
+        concepto: `Reverso automático de comisión · ${compra.codigo ?? compra.producto_nombre}`,
+        actor: input.actor, actorName: input.actorName ?? null,
+      }));
     } else {
       await egresarGastoCaja({
         cajaId: input.cajaId, monto: comision, concepto: conceptoCom, categoria: 'gasto',
         gastoCategoria: 'Comisión bancaria', actor: input.actor, actorName: input.actorName ?? null,
+      });
+      revertirHechosCd.push(async () => {
+        await ingresarDineroCaja({
+          cajaId: input.cajaId, monto: comision,
+          concepto: `Reverso automático de comisión · ${compra.codigo ?? compra.producto_nombre}`,
+          categoria: 'reverso', actor: input.actor, actorName: input.actorName ?? null,
+        });
       });
     }
   }
@@ -1044,13 +1091,20 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
   // 1.c) Lo pagado DE MÁS: cada cuenta devuelve su parte en un egreso APARTE, desde el
   //      mismo saldo del que salió (igual que la OC). No suma al gasto de la compra.
   for (const leg of reembolsoLegs) {
+    const cajaLeg = leg.cajaId ?? input.cajaId;
+    const montoLeg = Number(leg.monto);
     const r = await egresarDivisa({
-      cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+      cajaId: cajaLeg, cuenta: leg.cuenta, moneda: leg.moneda, monto: montoLeg,
       concepto: `REEMBOLSO DE COMPRA DIRECTA ${compra.codigo ?? compra.producto_nombre}`,
       categoria: CATEGORIA_REEMBOLSO.compra,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     reembolsoMovIds.push(r.id);
+    revertirHechosCd.push(() => revertirEgresoDivisa({
+      cajaId: cajaLeg, cuenta: leg.cuenta, moneda: leg.moneda, monto: montoLeg,
+      concepto: `Reverso automático de reembolso · ${compra.codigo ?? compra.producto_nombre}`,
+      actor: input.actor, actorName: input.actorName ?? null,
+    }));
   }
 
   // 2) La ENTRADA al inventario NO ocurre al pagar: es INDEPENDIENTE del pago. La mercancía
@@ -1079,9 +1133,9 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
     .eq('id', compra.id);
   if (error) throw error;
   } catch (e) {
-    // No se pudo completar el pago: se libera la reserva para poder reintentar.
-    // (Si el egreso ya había salido, el error de Tesorería lo indica y queda su
-    //  movimiento en el libro; la compra vuelve a «Por pagar» para revisarla.)
+    for (const fn of [...revertirHechosCd].reverse()) {
+      await fn().catch(() => { /* best-effort */ });
+    }
     await supabase
       .from('compras_directas')
       .update({ estado: estadoPrevio })
