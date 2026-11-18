@@ -7,12 +7,14 @@ import {
   CAMPOS_REPORTE_PERSONAL,
   calcularKpisCabeceraDinamicos,
   filtrarFilasPersonal,
+  formatearBs,
   formatearDatosPagoPersonal,
   normalizarHistoricoCargos,
   normalizarHistoricoSalarial,
   normalizarPersonal,
   obtenerMetricasFichaPersonal,
   procesarFilasReportePersonal,
+  sueldosEnBs,
 } from './personalMoldeable';
 
 const mockPersonal1: Personal = {
@@ -365,5 +367,29 @@ describe('personalMoldeable · Motor Puro', () => {
     expect(metricas.some((m) => m.clave === 'datos_pago')).toBe(true);
     expect(metricas.some((m) => m.clave === 'emergencia')).toBe(true);
     expect(metricas.some((m) => m.clave === 'trabajo_anterior')).toBe(true);
+  });
+});
+
+describe('sueldos en Bs a la tasa del día', () => {
+  it('convierte el sueldo completo y sus porciones 20/80/100 %', () => {
+    const bs = sueldosEnBs(1000, 160.25);
+    expect(bs.p100).toBe(160250);
+    expect(bs.p20).toBe(32050);
+    expect(bs.p80).toBe(128200);
+    expect(bs.p20 + bs.p80).toBe(bs.p100);
+  });
+
+  it('redondea a 2 decimales y no inventa Bs si no hay tasa', () => {
+    expect(sueldosEnBs(10.5, 40.125).p100).toBe(421.31);
+    expect(sueldosEnBs(1000, 0)).toEqual({ p20: 0, p80: 0, p100: 0 });
+    expect(formatearBs(160250)).toBe('Bs 160.250,00');
+  });
+
+  it('registra las columnas como checks seleccionables', () => {
+    const claves = CAMPOS_REPORTE_PERSONAL.map((c) => c.clave);
+    expect(claves).toContain('sueldo_bs_20');
+    expect(claves).toContain('sueldo_bs_80');
+    expect(claves).toContain('sueldo_bs_100');
+    expect(CAMPOS_REPORTE_PERSONAL.find((c) => c.clave === 'sueldo_bs_100')?.formato).toBe('moneda_bs');
   });
 });

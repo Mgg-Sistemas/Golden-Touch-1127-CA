@@ -118,6 +118,15 @@ export interface FilaReportePersonal {
   // Remuneración
   sueldo_base: number;
   sueldo_base_formato: string;
+  /** Sueldo convertido a Bs con la tasa BCV del día (100 %). */
+  sueldo_bs_100?: number;
+  /** 20 % del sueldo en Bs (porción «sueldo» de la nómina). */
+  sueldo_bs_20?: number;
+  /** 80 % del sueldo en Bs (porción «bono» de la nómina). */
+  sueldo_bs_80?: number;
+  /** Tasa BCV usada para la conversión (Bs por 1 USD). */
+  tasa_bs?: number | null;
+  tasa_bs_fecha?: string | null;
   datos_pago: string;
 
   // Carga familiar e hijos
@@ -245,7 +254,7 @@ export interface CampoColumnaPersonal {
   anchoPdf: number;
   anchoExcel: number;
   alineacion: 'left' | 'right' | 'center';
-  formato?: 'texto' | 'numero' | 'moneda' | 'fecha';
+  formato?: 'texto' | 'numero' | 'moneda' | 'moneda_bs' | 'fecha';
 }
 
 export const CAMPOS_REPORTE_PERSONAL: CampoColumnaPersonal[] = [
@@ -267,6 +276,9 @@ export const CAMPOS_REPORTE_PERSONAL: CampoColumnaPersonal[] = [
 
   // Remuneración
   { clave: 'sueldo_base', etiqueta: 'Sueldo Base ($ USD)', categoria: 'remuneracion', anchoPdf: 26, anchoExcel: 16, alineacion: 'right', formato: 'moneda' },
+  { clave: 'sueldo_bs_20', etiqueta: 'Sueldo 20% (Bs · tasa día)', categoria: 'remuneracion', anchoPdf: 26, anchoExcel: 17, alineacion: 'right', formato: 'moneda_bs', descripcion: '20 % del sueldo mensual convertido a Bs con la tasa BCV del día.' },
+  { clave: 'sueldo_bs_80', etiqueta: 'Sueldo 80% (Bs · tasa día)', categoria: 'remuneracion', anchoPdf: 26, anchoExcel: 17, alineacion: 'right', formato: 'moneda_bs', descripcion: '80 % del sueldo mensual convertido a Bs con la tasa BCV del día.' },
+  { clave: 'sueldo_bs_100', etiqueta: 'Sueldo 100% (Bs · tasa día)', categoria: 'remuneracion', anchoPdf: 26, anchoExcel: 17, alineacion: 'right', formato: 'moneda_bs', descripcion: 'Sueldo mensual completo convertido a Bs con la tasa BCV del día.' },
   { clave: 'datos_pago', etiqueta: 'Método / Datos de Pago', categoria: 'remuneracion', anchoPdf: 44, anchoExcel: 32, alineacion: 'left', formato: 'texto' },
 
   // Carga familiar e hijos
@@ -362,6 +374,29 @@ export function formatearUsd(monto: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+/** Formatea montos en bolívares: Bs 125.000,00 */
+export function formatearBs(monto: number): string {
+  return `Bs ${Number(monto || 0).toLocaleString('es-VE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+/**
+ * Sueldo mensual en Bs a la tasa BCV del día y sus porciones 20 / 80 / 100 %.
+ * El 100 % es el sueldo completo convertido; el 20 % y el 80 % salen de ese
+ * total (no de redondeos distintos) para que la suma cuadre en la nómina.
+ */
+export function sueldosEnBs(sueldoUsd: number, tasaBs: number) {
+  const tasa = Math.max(0, Number(tasaBs) || 0);
+  const total = round2((Number(sueldoUsd) || 0) * tasa);
+  return {
+    p20: round2(total * 0.2),
+    p80: round2(total * 0.8),
+    p100: total,
+  };
 }
 
 /** Formatea `personal.datos_pago` en texto legible para impresión/exportación (evita `{}` o JSON crudo). */
@@ -902,6 +937,26 @@ export function obtenerMetricasFichaPersonal(
       sub: f.activo ? 'Vigente mensual' : 'Inactivo',
       colorHex: f.sueldo_base > 0 ? '#22c55e' : '#94a3b8',
       colorRgb: f.sueldo_base > 0 ? [34, 197, 94] : [148, 163, 184],
+    });
+  }
+
+  // 1b. Sueldo en Bs a la tasa del día (porcentajes marcados)
+  const columnasBs = [
+    { clave: 'sueldo_bs_20', pct: '20', valor: f.sueldo_bs_20 ?? 0 },
+    { clave: 'sueldo_bs_80', pct: '80', valor: f.sueldo_bs_80 ?? 0 },
+    { clave: 'sueldo_bs_100', pct: '100', valor: f.sueldo_bs_100 ?? 0 },
+  ].filter((c) => cols.has(c.clave));
+  if (columnasBs.length) {
+    const tasaTxt = f.tasa_bs && f.tasa_bs > 0
+      ? `Tasa BCV ${f.tasa_bs_fecha ? `(${f.tasa_bs_fecha}) ` : ''}Bs ${Number(f.tasa_bs).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/$`
+      : 'Sin tasa del día disponible';
+    metricas.push({
+      clave: 'sueldo_bs',
+      etiqueta: `SUELDO ${columnasBs.map((c) => `${c.pct}%`).join(' / ')} (BS)`,
+      valor: formatearBs(columnasBs[0].valor),
+      sub: `${columnasBs.map((c) => `${c.pct}%: ${formatearBs(c.valor)}`).join(' · ')} · ${tasaTxt}`,
+      colorHex: '#0ea5e9',
+      colorRgb: [14, 165, 233],
     });
   }
 

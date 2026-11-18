@@ -27,6 +27,7 @@ import type {
 import {
   CAMPOS_REPORTE_PERSONAL,
   calcularKpisCabeceraDinamicos,
+  formatearBs,
   obtenerMetricasFichaPersonal,
 } from './personalMoldeable';
 
@@ -64,6 +65,8 @@ function formatearValorCelda(fila: FilaReportePersonal, col: CampoColumnaPersona
   switch (col.formato) {
     case 'moneda':
       return `$ ${Number(val || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    case 'moneda_bs':
+      return formatearBs(Number(val || 0));
     case 'numero':
       return Number(val).toLocaleString('es-VE');
     default:
@@ -217,6 +220,9 @@ export async function descargarPersonalExcel(
       if (col.formato === 'moneda') {
         c.value = Number(rawVal || 0);
         c.numFmt = '"$"#,##0.00';
+      } else if (col.formato === 'moneda_bs') {
+        c.value = Number(rawVal || 0);
+        c.numFmt = '"Bs "#,##0.00';
       } else if (col.formato === 'numero') {
         if (rawVal === null || rawVal === undefined || rawVal === '') {
           c.value = '—';
@@ -261,6 +267,9 @@ export async function descargarPersonalExcel(
     } else if (col.clave === 'sueldo_base') {
       c.value = resumen.masaSalarialTotalUsd;
       c.numFmt = '"$"#,##0.00';
+    } else if (col.formato === 'moneda_bs') {
+      c.value = filas.reduce((sum, f) => sum + Number((f as unknown as Record<string, unknown>)[col.clave] || 0), 0);
+      c.numFmt = '"Bs "#,##0.00';
     } else if (col.clave === 'cantidad_hijos') {
       c.value = resumen.totalHijosRegistrados;
       c.numFmt = '#,##0';
@@ -656,7 +665,8 @@ export function descargarPersonalCsv(
   filas.forEach((f) => {
     const valores = columnas.map((c) => {
       const val = (f as unknown as Record<string, unknown>)[c.clave];
-      return limpiar(val != null ? String(val) : '');
+      if (val == null || val === '') return limpiar('');
+      return limpiar(c.formato === 'moneda_bs' ? formatearBs(Number(val || 0)) : String(val));
     });
     lineas.push(valores.join(';'));
   });

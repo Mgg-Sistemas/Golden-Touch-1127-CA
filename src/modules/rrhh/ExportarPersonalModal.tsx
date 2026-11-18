@@ -24,6 +24,7 @@ import { listFamiliaresDeTodos } from './familiares.repository';
 import { listPersonal } from './personal.repository';
 import { listTodosCambiosSueldo } from './sueldos.repository';
 import { listTodosCambiosCargo } from './cargos.repository';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   CAMPOS_POR_DEFECTO_POR_MODO,
   CAMPOS_POR_DEFECTO_POR_AMBITO,
@@ -31,14 +32,17 @@ import {
   CAMPOS_REPORTE_PERSONAL,
   calcularKpisCabeceraDinamicos,
   filtrarFilasPersonal,
+  formatearBs,
   normalizarPersonal,
   normalizarHistoricoSalarial,
   normalizarHistoricoCargos,
   obtenerMetricasFichaPersonal,
   procesarFilasReportePersonal,
+  sueldosEnBs,
   type AmbitoReportePersonal,
   type CriterioOrdenPersonal,
   type FiltroTriestado,
+  type FilaReportePersonal,
   type FormatoPresentacionPersonal,
   type ModoAgrupacionPersonal,
   type OrientacionReportePersonal,
@@ -98,6 +102,10 @@ export function ExportarPersonalModal({
   const [familiaresMap, setFamiliaresMap] = useState<Map<string, PersonalFamiliar[]>>(
     familiaresProp || new Map(),
   );
+
+  // Tasa BCV del día para los sueldos en bolívares
+  const [tasaBs, setTasaBs] = useState<number | null>(null);
+  const [tasaBsFecha, setTasaBsFecha] = useState<string | null>(null);
 
   // Estados de datos históricos operativos
   const [cambiosSueldo, setCambiosSueldo] = useState<PersonalSueldo[] | null>(null);
@@ -178,6 +186,20 @@ export function ExportarPersonalModal({
     }
   }, [familiaresProp]);
 
+  // Tasa del día (la misma que usa Tesorería/Nómina) para convertir sueldos a Bs
+  useEffect(() => {
+    let vivo = true;
+    getTasaHoy()
+      .then((t) => {
+        if (!vivo) return;
+        const usd = Number(t?.usd);
+        if (Number.isFinite(usd) && usd > 0) setTasaBs(usd);
+        setTasaBsFecha(t?.fecha ?? null);
+      })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+
   // Carga reactiva de históricos al activar un ámbito operativo
   useEffect(() => {
     if (ambito === 'historico_salarial' && cambiosSueldo === null) {
@@ -252,18 +274,31 @@ export function ExportarPersonalModal({
     return new Map(personalCompleto.map((p) => [p.id, p]));
   }, [personalCompleto]);
 
-  // Normalización plana según el ámbito activo
+  // Normalización plana según el ámbito activo + sueldos en Bs a la tasa del día
   const filasNormalizadas = useMemo(() => {
+    let base: FilaReportePersonal[];
     if (ambito === 'historico_salarial') {
       if (!cambiosSueldo) return [];
-      return normalizarHistoricoSalarial(cambiosSueldo, personasMap, familiaresMap);
-    }
-    if (ambito === 'historico_cargos') {
+      base = normalizarHistoricoSalarial(cambiosSueldo, personasMap, familiaresMap);
+    } else if (ambito === 'historico_cargos') {
       if (!cambiosCargo) return [];
-      return normalizarHistoricoCargos(cambiosCargo, personasMap, familiaresMap);
+      base = normalizarHistoricoCargos(cambiosCargo, personasMap, familiaresMap);
+    } else {
+      base = personalCompleto.map((p) => normalizarPersonal(p, familiaresMap, 'directorio'));
     }
-    return personalCompleto.map((p) => normalizarPersonal(p, familiaresMap, 'directorio'));
-  }, [ambito, cambiosSueldo, cambiosCargo, personalCompleto, personasMap, familiaresMap]);
+
+    return base.map((f) => {
+      const bs = sueldosEnBs(f.sueldo_base, tasaBs ?? 0);
+      return {
+        ...f,
+        sueldo_bs_20: bs.p20,
+        sueldo_bs_80: bs.p80,
+        sueldo_bs_100: bs.p100,
+        tasa_bs: tasaBs,
+        tasa_bs_fecha: tasaBsFecha,
+      };
+    });
+  }, [ambito, cambiosSueldo, cambiosCargo, personalCompleto, personasMap, familiaresMap, tasaBs, tasaBsFecha]);
 
   // Filtrado
   const filasFiltradas = useMemo(() => {
@@ -363,6 +398,13 @@ export function ExportarPersonalModal({
       if (departamentosSel.length) partesSubtitulo.push(`Deptos: ${departamentosSel.join(', ')}`);
       if (hijosFiltro === 'si') partesSubtitulo.push('Solo con hijos');
       if (hijosFiltro === 'no') partesSubtitulo.push('Sin hijos');
+      if (marcados.some((c) => c === 'sueldo_bs_20' || c === 'sueldo_bs_80' || c === 'sueldo_bs_100')) {
+        partesSubtitulo.push(
+          tasaBs && tasaBs > 0
+            ? `Tasa BCV ${tasaBsFecha ?? 'del día'}: ${formatearBs(tasaBs)}/USD`
+            : 'Tasa BCV del día no disponible',
+        );
+      }
 
       const meta: MetadatosExportacionPersonal = {
         ambito,
@@ -817,6 +859,12 @@ export function ExportarPersonalModal({
             </div>
           </div>
 
+          <div style={{ fontSize: '.72rem', color: 'var(--text-muted, #94a3b8)', marginBottom: '.4rem' }}>
+            {tasaBs && tasaBs > 0
+              ? `Sueldos en Bs a la tasa BCV del día${tasaBsFecha ? ` (${tasaBsFecha})` : ''}: ${formatearBs(tasaBs)} por USD.`
+              : 'Tasa BCV del día no disponible: los sueldos en Bs se mostrarán en 0 hasta que cargue.'}
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '.3rem .6rem', maxHeight: '140px', overflowY: 'auto' }}>
             {CAMPOS_REPORTE_PERSONAL.map((col) => {
               const estaMarcado = marcados.includes(col.clave);
@@ -1093,6 +1141,8 @@ export function ExportarPersonalModal({
                         if (val != null && val !== '') {
                           if (colDef?.formato === 'moneda') {
                             displayVal = `$ ${Number(val || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                          } else if (colDef?.formato === 'moneda_bs') {
+                            displayVal = formatearBs(Number(val || 0));
                           } else if (cKey === 'variacion_sueldo_usd') {
                             const num = Number(val || 0);
                             const pref = num > 0 ? '+$ ' : num < 0 ? '-$ ' : '$ ';
