@@ -1,15 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import { recorteDeEncuadre, type Encuadre } from '@/modules/rrhh/encuadreFoto';
+import { recorteDeEncuadre, esNeutro, type Encuadre } from '@/modules/rrhh/encuadreFoto';
 
 /**
- * Foto que llena su recuadro respetando el encuadre guardado (zoom y punto
- * centrado), con el mismo cálculo que «Ajustar la foto» (16/10/2026). Sin
- * encuadre se ve como siempre: cubrir y centrar.
- *
- * El recuadro se mide en vivo (ResizeObserver): la foto del expediente cambia
- * de proporción entre la PC y el teléfono, y el recorte se recalcula.
+ * Foto del expediente de maquinaria:
+ * - Sin encuadre personalizado: presenta el vehículo completo y centrado (contain)
+ *   sobre un fondo cinemático difuminado de la misma foto, evitando recortes
+ *   agresivos en fotos verticales o cuadradas.
+ * - Con encuadre personalizado: respeta fielmente el zoom y centro elegidos en
+ *   «Ajustar foto», con el mismo cálculo continuo.
+ * - Al hacer clic en la foto, permite abrirla en alta resolución si se pasa `onAmpliar`.
  */
-export function ImagenEncuadrada({ src, alt, encuadre }: { src: string; alt: string; encuadre?: Encuadre | null }) {
+export function ImagenEncuadrada({
+  src,
+  alt,
+  encuadre,
+  onAmpliar,
+}: {
+  src: string;
+  alt: string;
+  encuadre?: Encuadre | null;
+  onAmpliar?: () => void;
+}) {
   const caja = useRef<HTMLDivElement>(null);
   const [destino, setDestino] = useState<{ w: number; h: number } | null>(null);
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
@@ -26,8 +37,10 @@ export function ImagenEncuadrada({ src, alt, encuadre }: { src: string; alt: str
 
   useEffect(() => { setNat(null); }, [src]);
 
+  const tieneEncuadrePersonalizado = Boolean(encuadre && !esNeutro(encuadre));
+
   let estilo: React.CSSProperties | undefined;
-  if (destino && nat && destino.w > 0 && destino.h > 0) {
+  if (tieneEncuadrePersonalizado && destino && nat && destino.w > 0 && destino.h > 0) {
     const { sx, sy, sw } = recorteDeEncuadre(nat.w, nat.h, destino.w, destino.h, encuadre);
     if (sw > 0) {
       const k = destino.w / sw;
@@ -36,9 +49,37 @@ export function ImagenEncuadrada({ src, alt, encuadre }: { src: string; alt: str
   }
 
   return (
-    <div ref={caja} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-      <img src={src} alt={alt} style={estilo}
-        onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} />
+    <div
+      ref={caja}
+      className="flo-media-canvas"
+      onClick={onAmpliar}
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden', cursor: onAmpliar ? 'zoom-in' : undefined }}
+      title={onAmpliar ? 'Clic para ampliar foto en alta resolución' : undefined}
+    >
+      {/* Fondo ambiental difuminado cinemático */}
+      <div
+        className="flo-media-glow-bg"
+        style={{ backgroundImage: `url("${src}")` }}
+        aria-hidden="true"
+      />
+
+      {tieneEncuadrePersonalizado ? (
+        <img
+          src={src}
+          alt={alt}
+          style={estilo}
+          onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+        />
+      ) : (
+        <div className="flo-media-fg">
+          <img
+            src={src}
+            alt={alt}
+            className="flo-media-hero-img"
+            onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          />
+        </div>
+      )}
     </div>
   );
 }

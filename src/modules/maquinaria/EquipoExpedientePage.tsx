@@ -1,6 +1,7 @@
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { Quien } from '@/shared/ui/Quien';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
@@ -119,6 +120,7 @@ export function EquipoExpedientePage() {
   const [documentos, setDocumentos] = useState(false);
   const [subirFoto, setSubirFoto] = useState(false);
   const [ajustarFoto, setAjustarFoto] = useState(false);
+  const [visorFoto, setVisorFoto] = useState<string | null>(null);
   const [guardandoEncuadre, setGuardandoEncuadre] = useState(false);
   const [movimientos, setMovimientos] = useState(false);
   const [editar, setEditar] = useState(false);
@@ -306,10 +308,28 @@ export function EquipoExpedientePage() {
 
       <div className="flo-hero">
         <div className="flo-media">
-          {foto ? <ImagenEncuadrada src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} encuadre={fotos[0].encuadre} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
-          {foto && perm.maquinaria && (
-            <button className="ajustar-btn" type="button" onClick={() => setAjustarFoto(true)} title="Acercar o alejar la foto y elegir qué queda en el centro">✂ Ajustar foto</button>
+          {foto ? (
+            <ImagenEncuadrada
+              src={foto}
+              alt={`${eq.equipo}: ${fotos[0].nombre}`}
+              encuadre={fotos[0].encuadre}
+              onAmpliar={() => setVisorFoto(foto)}
+            />
+          ) : (
+            <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>
           )}
+          <div className="flo-media-acciones-izq">
+            {foto && perm.maquinaria && (
+              <button className="ajustar-btn" type="button" onClick={() => setAjustarFoto(true)} title="Acercar o alejar la foto y elegir qué queda en el centro">
+                ✂ Ajustar foto
+              </button>
+            )}
+            {foto && (
+              <button className="ampliar-btn" type="button" onClick={() => setVisorFoto(foto)} title="Ver foto completa en alta resolución">
+                🔍 Ampliar
+              </button>
+            )}
+          </div>
           <div className={`estado tone-${st.tono}`}><Chip tono={st.tono} lg>{st.icon} {st.label}</Chip></div>
           {/* Quien edita Maquinaria elige aquí: tomar foto con la cámara o subirla de un archivo (16/10/2026). */}
           <button className="fotos-btn" type="button" onClick={() => (perm.maquinaria ? setSubirFoto(true) : fotos.length ? setTab('fotos') : setDocumentos(true))}>
@@ -520,7 +540,58 @@ export function EquipoExpedientePage() {
               .catch((e) => toast(errMsg(e, 'No se pudo eliminar'), 'error'));
           }} />
       )}
+      {visorFoto && (
+        <VisorFotoModal
+          src={visorFoto}
+          titulo={eq.equipo}
+          subtitulo={[eq.marca, eq.modelo, eq.placa ? `Placa: ${eq.placa}` : null].filter(Boolean).join(' · ')}
+          onClose={() => setVisorFoto(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function VisorFotoModal({
+  src,
+  titulo,
+  subtitulo,
+  onClose,
+}: {
+  src: string;
+  titulo: string;
+  subtitulo?: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="flo-visor-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={`Foto de ${titulo}`}>
+      <div className="flo-visor-caja" onClick={(e) => e.stopPropagation()}>
+        <div className="flo-visor-head">
+          <div className="flo-visor-titulos">
+            <strong>{titulo}</strong>
+            {subtitulo && <small>{subtitulo}</small>}
+          </div>
+          <div className="flo-visor-acciones">
+            <a href={src} target="_blank" rel="noreferrer" className="btn btn-sm btn-ghost" title="Abrir imagen original">
+              ↗ Abrir original
+            </a>
+            <button type="button" className="btn btn-sm btn-ghost flo-visor-cerrar" onClick={onClose} aria-label="Cerrar">
+              ✕
+            </button>
+          </div>
+        </div>
+        <div className="flo-visor-body">
+          <img src={src} alt={titulo} />
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 

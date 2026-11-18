@@ -37,11 +37,12 @@ function PinUbicacion() {
   );
 }
 
-function FotoVehiculo({ src, alt, fallback }: { src: string; alt: string; fallback: React.ReactNode }) {
+function FotoVehiculo({ src, alt, fallback, enlace }: { src: string; alt: string; fallback: React.ReactNode; enlace?: string }) {
   const [error, setError] = useState(false);
   if (error) return <>{fallback}</>;
-  return (
+  const contenido = (
     <div className="vit-foto-marco">
+      <img src={src} alt="" className="vit-foto-glow" aria-hidden="true" />
       <img
         src={src}
         alt={alt}
@@ -51,6 +52,14 @@ function FotoVehiculo({ src, alt, fallback }: { src: string; alt: string; fallba
       />
     </div>
   );
+  if (enlace) {
+    return (
+      <Link to={enlace} className="vit-foto-link" title={`Ver ficha completa de ${alt}`}>
+        {contenido}
+      </Link>
+    );
+  }
+  return contenido;
 }
 
 function Grafico({ p, fotos }: { p: Protagonista; fotos?: ReadonlyMap<string, string> }) {
@@ -61,7 +70,8 @@ function Grafico({ p, fotos }: { p: Protagonista; fotos?: ReadonlyMap<string, st
   const silueta = <SiluetaMaquina tipo={p.grafico.tipo} clase={p.grafico.clase} className="vit-sil" />;
   const foto = fotos?.get(p.id);
   if (foto) {
-    return <FotoVehiculo key={p.id} src={foto} alt={p.titulo} fallback={silueta} />;
+    const enlace = p.accion?.tipo === 'ficha' ? `/app/maquinaria/equipo/${p.accion.id}` : undefined;
+    return <FotoVehiculo key={p.id} src={foto} alt={p.titulo} fallback={silueta} enlace={enlace} />;
   }
   return silueta;
 }
