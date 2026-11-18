@@ -425,25 +425,27 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
      transacción; la única (origen_tabla, origen_id, evento) impide
      contabilizar dos veces. */
 
-  async function listReglasContabilizacion(): Promise<ReglaCompleta[]> {
+  async function listReglasContabilizacion(empresaClave?: string): Promise<ReglaCompleta[]> {
     const e = await almacen.leer();
-    return e.cont_reglas
+    const reglas = empresaClave ? e.cont_reglas.filter((r) => !r.empresa_clave || r.empresa_clave === empresaClave) : e.cont_reglas;
+    return reglas
       .sort((a, b) => a.origen_modulo.localeCompare(b.origen_modulo) || a.pestana.localeCompare(b.pestana) || a.codigo.localeCompare(b.codigo))
       .map((regla) => ({ regla, lineas: e.cont_regla_lineas.filter((l) => l.regla_id === regla.id).sort((a, b) => a.renglon - b.renglon) }));
   }
 
-  async function listMapeos(): Promise<ContMapeo[]> {
-    return (await almacen.leer()).cont_mapeos;
+  async function listMapeos(empresaClave?: string): Promise<ContMapeo[]> {
+    const mapeos = (await almacen.leer()).cont_mapeos;
+    return empresaClave ? mapeos.filter((m) => !m.empresa_clave || m.empresa_clave === empresaClave) : mapeos;
   }
 
   /** La bandeja: los documentos de los módulos con su estado frente a Contabilidad, en orden de fecha. */
-  async function listIntegraciones(filtro: { estados?: ContIntegracion['estado'][] } = {}): Promise<DocumentoIntegracion[]> {
+  async function listIntegraciones(filtro: { estados?: ContIntegracion['estado'][] } = {}, empresaClave?: string): Promise<DocumentoIntegracion[]> {
     const [e, docs, cs] = await Promise.all([almacen.leer(), fuentes.documentos(), cambios.leer()]);
     const porId = new Map(docs.map((d) => [d.id, d]));
     const comprobante = new Map(e.cont_comprobantes.map((c) => [c.id, c]));
     const cat = catalogoDe(conCambios(e, cs));
     return e.cont_integraciones
-      .filter((i) => !filtro.estados || filtro.estados.includes(i.estado))
+      .filter((i) => (!empresaClave || !i.empresa_clave || i.empresa_clave === empresaClave) && (!filtro.estados || filtro.estados.includes(i.estado)))
       .sort(ordenIntegracion)
       .map((integracion) => {
         const documento = porId.get(integracion.origen_id) ?? null;

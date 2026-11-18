@@ -177,7 +177,7 @@ export function ContabilidadPage() {
         {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'informes' && <InformesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
-        {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} />}
+        {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
       </>}
 
       {confirmarReinicio && (

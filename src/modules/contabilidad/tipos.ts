@@ -389,6 +389,7 @@ export type TipoMapeo = 'caja' | 'categoria_gasto' | 'almacen' | 'categoria_prod
 /** cont_reglas: de un hecho de un módulo a un comprobante (DDL v0.4, con los datos de Galac). */
 export interface ContRegla {
   id: string;
+  empresa_clave?: string;
   codigo: string;
   nombre: string;
   origen_modulo: string;
@@ -429,6 +430,7 @@ export interface ContReglaLinea {
 /** cont_mapeos: qué cuenta corresponde a cada cosa de MGG (caja, categoría de gasto, almacén…). */
 export interface ContMapeo {
   id: string;
+  empresa_clave?: string;
   tipo: TipoMapeo;
   clave: string;
   cuenta_id: string;
