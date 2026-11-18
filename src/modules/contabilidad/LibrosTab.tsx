@@ -31,6 +31,7 @@ import type { AuxiliarMayor, BalanceComprobacion, CuentaMayor, LibroDiario, Mone
 import { ImporteDoble, SelectorMoneda, useMonedaVista } from './ImporteDoble';
 import type { ContAuxiliar, ContCuenta, ContEjercicio, ContParametros, TipoAuxiliar } from './tipos';
 import { BalanceGeneralVista, EstadoResultadosVista } from './EstadosTab';
+import { ReporteDinamicoTab } from './ReporteDinamicoTab';
 import {
   verAuxiliaresExcel, verAuxiliaresPdf, verBalanceExcel, verBalancePdf, verDiarioExcel, verDiarioPdf, verMayorExcel, verMayorPdf,
   type ContextoLibro,
@@ -313,7 +314,7 @@ function MayorAnaliticoVista({ parametros, titulo = 'Mayor Analítico', empresaC
 /** Comprobantes por página del Diario: el trimestre trae cientos por mes. */
 const DIARIO_POR_PAGINA = 50;
 
-type VistaInformes = 'diario' | 'movimientos';
+type VistaInformes = 'diario' | 'movimientos' | 'dinamico';
 
 export function InformesTab({ parametros, empresaClave = 'GT' }: { parametros: ContParametros; empresaClave?: string }) {
   const [vista, setVista] = useState<VistaInformes>('diario');
@@ -322,9 +323,11 @@ export function InformesTab({ parametros, empresaClave = 'GT' }: { parametros: C
       <div className="view-toggle" role="tablist" aria-label="Informes" style={{ marginBottom: '1rem' }}>
         <button role="tab" aria-selected={vista === 'diario'} className={vista === 'diario' ? 'active' : ''} onClick={() => setVista('diario')}>Diario de Comprobantes</button>
         <button role="tab" aria-selected={vista === 'movimientos'} className={vista === 'movimientos' ? 'active' : ''} onClick={() => setVista('movimientos')}>Informes de Movimientos de Cuentas</button>
+        <button role="tab" aria-selected={vista === 'dinamico'} className={vista === 'dinamico' ? 'active' : ''} onClick={() => setVista('dinamico')}>📊 Reporte Dinámico</button>
       </div>
       {vista === 'diario' && <DiarioVista parametros={parametros} empresaClave={empresaClave} />}
       {vista === 'movimientos' && <MovimientosCuentasVista parametros={parametros} empresaClave={empresaClave} />}
+      {vista === 'dinamico' && <ReporteDinamicoTab parametros={parametros} empresaClave={empresaClave} />}
     </>
   );
 }

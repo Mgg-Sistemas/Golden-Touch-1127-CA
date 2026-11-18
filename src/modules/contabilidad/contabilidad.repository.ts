@@ -980,6 +980,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
   }
 
   return {
+    fuenteInformes,
     listCuentas, getParametros, listEjercicios, listPeriodos, listMonedas, listTiposComprobante,
     crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanGoldenTouch,
     listCentrosCosto, listAuxiliares, getTasa, listComprobantes, getComprobante,
@@ -1433,6 +1434,22 @@ export async function listCierres(empresaClave?: string): Promise<ContCierre[]> 
     }
   }
   return repo.listCierres(empresaClave);
+}
+
+export async function getFuenteReporteDinamico(empresaClave?: string) {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getFuenteReporteDinamico(empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para fuente de reporte dinamico:', e);
+    }
+  }
+  const f = await repo.fuenteInformes(empresaClave);
+  const tipos = await repo.listTiposComprobante();
+  return {
+    ...f,
+    tipos,
+  };
 }
 
 export async function aplicarPlanGoldenTouch(actor = 'sistema', empresaClave = 'GT'): Promise<void> {

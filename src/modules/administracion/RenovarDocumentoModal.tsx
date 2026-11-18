@@ -4,10 +4,12 @@
    nuevas fechas de vigencia y trazabilidad estricta en el historial.
    ============================================================ */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
 import type { DocumentoEmpresa, AdminRepo } from './admin.repository';
 import type { Moneda } from './administracionCalculo';
 import { diasRestantes } from './admin.repository';
@@ -33,7 +35,20 @@ export function RenovarDocumentoModal({
   onRenovado,
 }: Props) {
   const { user } = useSession();
-  const actor = user?.email || 'Usuario';
+  const { appUser } = usePermissions();
+  const quien = useQuien();
+
+  const actor = useMemo(() => {
+    if (appUser) {
+      const nom = [appUser.nombre, appUser.apellido].filter(Boolean).join(' ');
+      if (nom.trim()) return nom.trim();
+    }
+    if (user?.email) {
+      const res = quien(user.email);
+      if (res && !res.includes('@')) return res;
+    }
+    return user?.email || 'Usuario';
+  }, [appUser, user, quien]);
 
   // Metadatos editables en la renovación
   const [titulo, setTitulo] = useState(documento.nombre);

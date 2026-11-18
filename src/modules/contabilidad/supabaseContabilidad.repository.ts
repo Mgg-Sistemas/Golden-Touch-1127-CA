@@ -820,6 +820,15 @@ async function fuenteInformesSupabase(empresaClave = EMPRESA_DEFECTO): Promise<F
   };
 }
 
+export async function getFuenteReporteDinamico(empresaClave = EMPRESA_DEFECTO) {
+  const f = await fuenteInformesSupabase(empresaClave);
+  const tipos = await listTiposComprobante();
+  return {
+    ...f,
+    tipos,
+  };
+}
+
 export async function getLibroDiario(desde: string, hasta: string, moneda: MonedaInforme, empresaClave = EMPRESA_DEFECTO): Promise<LibroDiario> {
   const f = await fuenteInformesSupabase(empresaClave);
   return diarioConEquivalente(libroDiario(f, desde, hasta, moneda), libroDiario(f, desde, hasta, otraMoneda(moneda)));

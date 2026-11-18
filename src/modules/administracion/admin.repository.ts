@@ -46,6 +46,55 @@ export const EMPRESA_ADMIN_DEFECTO: Empresa = {
   orden: 1,
 };
 
+export interface ActorVisible {
+  nombre: string;
+  correo: string | null;
+}
+
+/** Resuelve el nombre del usuario como protagonista para la interfaz, dejando el correo como secundario. */
+export function resolverActorVisible(
+  actorRaw: string | null | undefined,
+  quien?: (guardado: string | null | undefined, correo?: string | null) => string,
+): ActorVisible {
+  const raw = (actorRaw ?? '').trim();
+  if (!raw) return { nombre: 'Usuario', correo: null };
+
+  const esMail = raw.includes('@');
+  const resuelto = quien ? quien(raw, esMail ? raw : undefined) : raw;
+
+  if (resuelto && !resuelto.includes('@')) {
+    return {
+      nombre: resuelto,
+      correo: esMail ? raw : null,
+    };
+  }
+
+  if (esMail) {
+    const parteLocal = raw.split('@')[0];
+    const amigable = parteLocal
+      .replace(/[._-]+/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(' ')
+      .filter(Boolean)
+      .map((w) => {
+        const up = w.toUpperCase();
+        if (up === 'GT' || up === 'MGG' || up === 'GL' || up === 'CA' || up === 'SA') return up;
+        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      })
+      .join(' ');
+
+    return {
+      nombre: amigable || raw,
+      correo: raw,
+    };
+  }
+
+  return {
+    nombre: raw,
+    correo: null,
+  };
+}
+
 /** Centro de acopio de una empresa (tabla `admin_centros_acopio`). */
 export interface CentroAcopio {
   id: string;

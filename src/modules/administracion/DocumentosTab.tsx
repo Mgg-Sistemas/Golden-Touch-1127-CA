@@ -34,7 +34,11 @@ import type { Gestion, Profesional } from './admin.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
-import type { Responsabilidad } from './admin.repository';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
+import {
+  resolverActorVisible,
+  type Responsabilidad,
+} from './admin.repository';
 import type { Usuario } from '@/shared/lib/types';
 import {
   GestionarCarpetasModal,
@@ -140,14 +144,18 @@ export function DocumentosTab({
 
   const { appUser } = usePermissions();
   const { user } = useSession();
+  const quien = useQuien();
   const currentActor = useMemo(() => {
     if (appUser) {
       const nombreCompleto = [appUser.nombre, appUser.apellido].filter(Boolean).join(' ');
       if (nombreCompleto.trim()) return nombreCompleto.trim();
-      if (appUser.email) return appUser.email;
+    }
+    if (user?.email) {
+      const res = quien(user.email);
+      if (res && !res.includes('@')) return res;
     }
     return user?.email || 'Administrador';
-  }, [appUser, user]);
+  }, [appUser, user, quien]);
 
   // Carpetas configuradas (estándar + personalizadas con notas)
   const [carpetas, setCarpetas] = useState<InfoCarpetaDoc[]>(() => leerCarpetasPersonalizadas(empresaClave));
@@ -1433,8 +1441,13 @@ export function DocumentosTab({
                           }}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-                              <strong style={{ color: '#ff8a00' }}>👤 {h.actor || 'Usuario'}</strong>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                              <strong style={{ color: '#ff8a00' }}>👤 {resolverActorVisible(h.actor, quien).nombre}</strong>
+                              {resolverActorVisible(h.actor, quien).correo && (
+                                <span className="muted hint mono" style={{ fontSize: '.68rem', opacity: 0.75 }}>
+                                  ({resolverActorVisible(h.actor, quien).correo})
+                                </span>
+                              )}
                               <span
                                 className="adm-chip"
                                 style={{
@@ -1917,7 +1930,14 @@ export function DocumentosTab({
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <strong style={{ color: '#ff8a00' }}>👤 {h.actor || 'Usuario'}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
+                          <strong style={{ color: '#ff8a00' }}>👤 {resolverActorVisible(h.actor, quien).nombre}</strong>
+                          {resolverActorVisible(h.actor, quien).correo && (
+                            <span className="muted hint mono" style={{ fontSize: '.64rem', opacity: 0.75 }}>
+                              ({resolverActorVisible(h.actor, quien).correo})
+                            </span>
+                          )}
+                        </div>
                         <span className="muted mono" style={{ fontSize: '.68rem' }}>
                           {fFechaHora.format(new Date(h.fecha))}
                         </span>
