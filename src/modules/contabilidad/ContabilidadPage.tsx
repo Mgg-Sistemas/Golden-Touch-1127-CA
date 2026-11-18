@@ -172,8 +172,8 @@ export function ContabilidadPage() {
         {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
         {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'cuenta' && <PlanCuentasTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
-        {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} />}
-        {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} />}
+        {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
+        {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'informes' && <InformesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
