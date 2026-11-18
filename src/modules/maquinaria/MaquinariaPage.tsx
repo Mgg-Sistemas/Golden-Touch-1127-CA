@@ -33,7 +33,28 @@ import { AccionConEquipo } from './AccionConEquipo';
 import { avisoDeEquipo } from './avisoEquipo';
 import { ultimosMantenimientosPorEquipo, type UltimoMantenimientoEquipo } from './maquinariaMant.repository';
 import { FlotaVisuales } from './orbita/FlotaVisuales';
-import type { LecturaOrbita } from './orbita/orbitaDatos';
+import { idPropietario, ID_SIN, ID_OTROS, type LecturaOrbita } from './orbita/orbitaDatos';
+
+/** Coincidencia flexible de propietario: maneja '__sin__', slugs, diferencias de mayúsculas y variantes como 'C.A.' */
+export function coincidePropietario(
+  propietarioEquipo: string | null | undefined,
+  filtroPropietario: string | null | undefined
+): boolean {
+  if (!filtroPropietario || filtroPropietario === 'todos') return true;
+  const f = filtroPropietario.trim();
+  const p = (propietarioEquipo ?? '').trim();
+  const esSinFiltro = f === '__sin__' || norm(f) === 'sin propietario' || f === ID_SIN;
+  const esSinEquipo = !p || norm(p) === 'sin propietario';
+  if (esSinFiltro) return esSinEquipo;
+  if (esSinEquipo) return false;
+  if (f === '__otros__' || f === ID_OTROS) return true;
+  if (f.startsWith('p:')) return idPropietario(p) === f;
+  if (p === f || norm(p) === norm(f)) return true;
+  if (idPropietario(p) === idPropietario(f)) return true;
+  const np = norm(p);
+  const nf = norm(f);
+  return np.includes(nf) || nf.includes(np);
+}
 
 interface InfoEquipo {
   estado: EstadoEquipo;
@@ -96,13 +117,48 @@ export function MaquinariaPage() {
   const [tipo, setTipo] = useState('');
   const [vista, setVista] = useState<VistaFlotaPrincipal>(() => leerVistaFlota());
   const cambiarVista = (v: VistaFlotaPrincipal) => { setVista(v); guardarVistaFlota(v); };
+  // Modo de visualización de los filtros en la vista de lista (persistente)
+  type ModoFiltrosLista = 'enfocado' | 'extendido';
+  const CLAVE_MODO_FILTROS = 'maquinaria_filtros_modo';
+  const [modoFiltros, setModoFiltros] = useState<ModoFiltrosLista>(() => {
+    try {
+      const g = localStorage.getItem(CLAVE_MODO_FILTROS);
+      return g === 'extendido' ? 'extendido' : 'enfocado';
+    } catch {
+      return 'enfocado';
+    }
+  });
+  const cambiarModoFiltros = (m: ModoFiltrosLista) => {
+    setModoFiltros(m);
+    try { localStorage.setItem(CLAVE_MODO_FILTROS, m); } catch {}
+  };
+
+  type DimSecundaria = 'ubicacion' | 'propietario' | 'tipo';
+  const [dimSecundaria, setDimSecundaria] = useState<DimSecundaria>('ubicacion');
+
+  // Si hay un filtro activo en propietario o tipo, enfocar esa dimensión automáticamente
+  useEffect(() => {
+    if (propietario && ubicacion === 'todos') setDimSecundaria('propietario');
+    else if (tipo && !propietario && ubicacion === 'todos') setDimSecundaria('tipo');
+  }, [propietario, tipo, ubicacion]);
+
   // Desde el Rosetón/Vitrina, «Ver su flota» cae en la lista de equipos prefiltrada por la empresa
-  const verFlotaEnLista = (propietarioNombre: string | null) => {
+  const verFlotaEnLista = useCallback((propietarioNombre: string | null) => {
     setBucket(null); setClase('todos'); setUbicacion('todos'); setTipo(''); setFiltro('');
     setPropietario(propietarioNombre ?? '');
+    setDimSecundaria('propietario');
     cambiarVista('lista');
     if (typeof window !== 'undefined') requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
-  };
+  }, []);
+
+  // Desde la Vitrina, «Ver flota en [Ubicación]» cae en la lista prefiltrada por ubicación
+  const verUbicacionEnLista = useCallback((ubicacionNombre: string) => {
+    setBucket(null); setClase('todos'); setPropietario(''); setTipo(''); setFiltro('');
+    setUbicacion(ubicacionNombre === 'Sin ubicación' || ubicacionNombre === '__sin__' ? '__sin__' : ubicacionNombre);
+    setDimSecundaria('ubicacion');
+    cambiarVista('lista');
+    if (typeof window !== 'undefined') requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  }, []);
 
   useEffect(() => {
     const handler = () => setApartados(listarApartados());
@@ -215,17 +271,12 @@ export function MaquinariaPage() {
       const uNorm = normalizarUbicacion(e.ubicacion);
       if (ubicacion === '__sin__') {
         if (uNorm !== '') return false;
-      } else if (uNorm !== ubicacion) {
+      } else if (uNorm !== ubicacion && norm(uNorm) !== norm(ubicacion)) {
         return false;
       }
     }
     if (ignorar !== 'propietario' && propietario) {
-      const pNorm = (e.propietario ?? '').trim();
-      if (propietario === '__sin__') {
-        if (pNorm !== '') return false;
-      } else if (pNorm !== propietario) {
-        return false;
-      }
+      if (!coincidePropietario(e.propietario, propietario)) return false;
     }
     if (ignorar !== 'tipo' && tipo && norm(e.tipo) !== norm(tipo)) return false;
     return coincideEquipo(e, filtro);
@@ -360,6 +411,24 @@ export function MaquinariaPage() {
     return '+ Nuevo equipo';
   }, [clase]);
 
+  const hayFiltrosActivos = Boolean(
+    filtro.trim() ||
+    bucket !== null ||
+    clase !== 'todos' ||
+    ubicacion !== 'todos' ||
+    propietario !== '' ||
+    tipo !== ''
+  );
+
+  const limpiarTodosLosFiltros = () => {
+    setFiltro('');
+    setBucket(null);
+    setClase('todos');
+    setUbicacion('todos');
+    setPropietario('');
+    setTipo('');
+  };
+
   return (
     <div className="flo">
       <FlotaNav />
@@ -402,7 +471,20 @@ export function MaquinariaPage() {
           ) : !equipos.length ? (
             <EmptyState icon="🚜" message="Aún no hay equipos registrados." />
           ) : (
-            <FlotaVisuales escena={vista} equipos={equipos} lecturas={lecturasOrbita} avisos={avisosFlota} onVerFlota={verFlotaEnLista} />
+            <FlotaVisuales
+              escena={vista}
+              equipos={equipos}
+              lecturas={lecturasOrbita}
+              avisos={avisosFlota}
+              fotos={fotos}
+              propietarioActivo={propietario}
+              onVerFlota={verFlotaEnLista}
+              onSeleccionarPropietario={(p) => {
+                setPropietario(p ?? '');
+                setDimSecundaria('propietario');
+              }}
+              onVerUbicacion={verUbicacionEnLista}
+            />
           )
         ) : (
           <div className="flo-vista-lista">
@@ -435,62 +517,109 @@ export function MaquinariaPage() {
         </div>
       )}
 
-      <div className="flo-filtros">
-        {/* Fila 1: Búsqueda rápida */}
-        <div className="fila" style={{ width: '100%', minWidth: 0 }}>
-          <input
-            className="input flo-buscar"
-            type="search"
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-            placeholder="🔍 Buscar equipo, marca, serial, placa, ubicación…"
-            aria-label="Buscar equipo"
-            style={{ width: '100%', flex: '1 1 auto', minWidth: 0 }}
-          />
-        </div>
-
-        {/* Fila 2: Cinta de Clases / Apartados (Maquinaria, Vehículos, Motos...) con scroll lateral */}
-        <div
-          className="flo-cinta-scroll"
-          onWheel={(e) => {
-            if (e.deltaY !== 0 && !e.shiftKey) {
-              e.currentTarget.scrollLeft += e.deltaY;
-            }
-          }}
-        >
-          <div className="flo-seg" role="group" aria-label="Clase de equipo">
-            <button
-              type="button"
-              aria-pressed={clase === 'todos'}
-              onClick={() => setClase('todos')}
-            >
-              Todos <span className="n">{conteosClases.total}</span>
-            </button>
-            {apartados.map((c) => (
+      {/* Panel de Filtros Rediseñado: ligero, intuitivo, sin scrollbars intrusivos ni sensación de saturación */}
+      <div className="flo-filtros-panel" role="search" aria-label="Filtros del catálogo de flota">
+        {/* Cabecera: Búsqueda rápida, conteo y alternador de modo (compacto / extendido) */}
+        <div className="flo-filtros-cab">
+          <div className="flo-buscar-box">
+            <span className="flo-buscar-icono" aria-hidden="true">🔍</span>
+            <input
+              className="input flo-buscar"
+              type="search"
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              placeholder="Buscar por equipo, marca, serial, placa, ubicación…"
+              aria-label="Buscar equipo"
+            />
+            {filtro && (
               <button
-                key={c.id}
                 type="button"
-                aria-pressed={clase === c.id}
-                onClick={() => setClase(clase === c.id ? 'todos' : c.id)}
-                title={`Filtrar por ${c.label}`}
+                className="flo-buscar-limpiar"
+                onClick={() => setFiltro('')}
+                title="Borrar término de búsqueda"
+                aria-label="Borrar término de búsqueda"
               >
-                {c.icon} {c.label} <span className="n">{conteosClases.map.get(c.id) ?? 0}</span>
+                ✕
               </button>
-            ))}
+            )}
           </div>
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            onClick={() => setGestionarApartadosOpen(true)}
-            title="Administrar o agregar apartados de la flota"
-            style={{ padding: '.35rem .65rem', fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem', whiteSpace: 'nowrap', flexShrink: 0 }}
-          >
-            ➕ Apartados
-          </button>
+
+          <div className="flo-filtros-meta">
+            <span className="flo-filtros-conteo">
+              <strong>{lista.length}</strong> de {disponibles} equipo(s)
+            </span>
+            <div className="flo-filtros-vista-toggle" role="group" aria-label="Modo de cintas">
+              <button
+                type="button"
+                className={modoFiltros === 'enfocado' ? 'active' : ''}
+                onClick={() => cambiarModoFiltros('enfocado')}
+                title="Vista compacta: organiza las dimensiones en pestañas limpias"
+              >
+                📑 Compacto
+              </button>
+              <button
+                type="button"
+                className={modoFiltros === 'extendido' ? 'active' : ''}
+                onClick={() => cambiarModoFiltros('extendido')}
+                title="Vista extendida: muestra todas las cintas simultáneamente"
+              >
+                🎛️ Todas
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Fila 3: Cinta de Ubicaciones con scroll lateral */}
-        {listaUbicaciones.length > 0 && (
+        {/* Resumen de filtros activos con eliminación directa en 1 toque */}
+        {hayFiltrosActivos && (
+          <div className="flo-activos-barra" role="region" aria-label="Filtros activos">
+            <span className="flo-activos-tit">Filtros:</span>
+            {bucket !== null && (
+              <span className="flo-activo-chip">
+                {BUCKETS_FLOTA.find((b) => b.id === bucket)?.icon} {BUCKETS_FLOTA.find((b) => b.id === bucket)?.label}
+                <button type="button" onClick={() => setBucket(null)} title="Quitar filtro de estado" aria-label="Quitar filtro de estado">✕</button>
+              </span>
+            )}
+            {clase !== 'todos' && (
+              <span className="flo-activo-chip">
+                🏷️ {apartados.find((a) => a.id === clase)?.label ?? clase}
+                <button type="button" onClick={() => setClase('todos')} title="Quitar filtro de clase" aria-label="Quitar filtro de clase">✕</button>
+              </span>
+            )}
+            {ubicacion !== 'todos' && (
+              <span className="flo-activo-chip">
+                📍 {ubicacion === '__sin__' ? 'Sin ubicación' : ubicacion}
+                <button type="button" onClick={() => setUbicacion('todos')} title="Quitar filtro de ubicación" aria-label="Quitar filtro de ubicación">✕</button>
+              </span>
+            )}
+            {propietario !== '' && (
+              <span className="flo-activo-chip">
+                🏢 {propietario === '__sin__' ? 'Sin propietario' : propietario}
+                <button type="button" onClick={() => setPropietario('')} title="Quitar filtro de propietario" aria-label="Quitar filtro de propietario">✕</button>
+              </span>
+            )}
+            {tipo !== '' && (
+              <span className="flo-activo-chip">
+                🚜 {tipo}
+                <button type="button" onClick={() => setTipo('')} title="Quitar filtro de tipo" aria-label="Quitar filtro de tipo">✕</button>
+              </span>
+            )}
+            {filtro.trim() && (
+              <span className="flo-activo-chip">
+                🔍 «{filtro}»
+                <button type="button" onClick={() => setFiltro('')} title="Quitar término de búsqueda" aria-label="Quitar término de búsqueda">✕</button>
+              </span>
+            )}
+            <button type="button" className="flo-activos-limpiar" onClick={limpiarTodosLosFiltros}>
+              ✕ Limpiar todo
+            </button>
+          </div>
+        )}
+
+        {/* Fila 1: Clases / Apartados (Maquinaria, Vehículos, Motos...) siempre visible */}
+        <div className="flo-cinta-fila">
+          {modoFiltros === 'extendido' && (
+            <span className="flo-cinta-etiqueta"><span aria-hidden="true">🏷️</span> Clase</span>
+          )}
           <div
             className="flo-cinta-scroll"
             onWheel={(e) => {
@@ -498,15 +627,115 @@ export function MaquinariaPage() {
                 e.currentTarget.scrollLeft += e.deltaY;
               }
             }}
+            role="group"
+            aria-label="Clase de equipo"
           >
-            <div className="flo-seg" role="group" aria-label="Ubicación del equipo">
+            <button
+              type="button"
+              className="flo-chip"
+              aria-pressed={clase === 'todos'}
+              onClick={() => setClase('todos')}
+            >
+              Todos <span className="flo-chip-badge">{conteosClases.total}</span>
+            </button>
+            {apartados.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="flo-chip"
+                aria-pressed={clase === c.id}
+                onClick={() => setClase(clase === c.id ? 'todos' : c.id)}
+                title={`Filtrar por ${c.label}`}
+              >
+                <span aria-hidden="true">{c.icon}</span> {c.label}
+                <span className="flo-chip-badge">{conteosClases.map.get(c.id) ?? 0}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={() => setGestionarApartadosOpen(true)}
+              title="Administrar o agregar apartados de la flota"
+              style={{ padding: '.25rem .65rem', fontSize: '.76rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem', whiteSpace: 'nowrap', flexShrink: 0, borderRadius: '999px' }}
+            >
+              ➕ Apartados
+            </button>
+          </div>
+        </div>
+
+        {/* Modo Enfocado: Selector de dimensión secundaria en pestañas */}
+        {modoFiltros === 'enfocado' && (
+          <div className="flo-dim-nav" role="tablist" aria-label="Dimensión de filtro secundaria">
+            <span className="flo-dim-tit">Filtrar por:</span>
+            {listaUbicaciones.length > 0 && (
               <button
                 type="button"
+                role="tab"
+                aria-selected={dimSecundaria === 'ubicacion'}
+                className={`flo-dim-tab ${dimSecundaria === 'ubicacion' ? 'activa' : ''} ${ubicacion !== 'todos' ? 'tiene-filtro' : ''}`}
+                onClick={() => setDimSecundaria('ubicacion')}
+              >
+                <span aria-hidden="true">📍</span>
+                <span>Ubicación</span>
+                <span className="flo-dim-badge">{conteosUbicaciones.total}</span>
+                {ubicacion !== 'todos' && <span className="flo-dim-dot" title="Filtro aplicado" />}
+              </button>
+            )}
+            {listaPropietarios.length > 0 && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={dimSecundaria === 'propietario'}
+                className={`flo-dim-tab ${dimSecundaria === 'propietario' ? 'activa' : ''} ${propietario !== '' ? 'tiene-filtro' : ''}`}
+                onClick={() => setDimSecundaria('propietario')}
+              >
+                <span aria-hidden="true">🏢</span>
+                <span>Propietario</span>
+                <span className="flo-dim-badge">{conteosPropietarios.total}</span>
+                {propietario !== '' && <span className="flo-dim-dot" title="Filtro aplicado" />}
+              </button>
+            )}
+            {tipos.length > 0 && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={dimSecundaria === 'tipo'}
+                className={`flo-dim-tab ${dimSecundaria === 'tipo' ? 'activa' : ''} ${tipo !== '' ? 'tiene-filtro' : ''}`}
+                onClick={() => setDimSecundaria('tipo')}
+              >
+                <span aria-hidden="true">🚜</span>
+                <span>Tipo</span>
+                <span className="flo-dim-badge">{tipos.length}</span>
+                {tipo !== '' && <span className="flo-dim-dot" title="Filtro aplicado" />}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Cinta de Ubicaciones */}
+        {listaUbicaciones.length > 0 && (modoFiltros === 'extendido' || dimSecundaria === 'ubicacion') && (
+          <div className="flo-cinta-fila">
+            {modoFiltros === 'extendido' && (
+              <span className="flo-cinta-etiqueta"><span aria-hidden="true">📍</span> Ubicación</span>
+            )}
+            <div
+              className="flo-cinta-scroll"
+              onWheel={(e) => {
+                if (e.deltaY !== 0 && !e.shiftKey) {
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
+              role="group"
+              aria-label="Ubicación del equipo"
+            >
+              <button
+                type="button"
+                className="flo-chip"
                 aria-pressed={ubicacion === 'todos'}
                 onClick={() => setUbicacion('todos')}
                 title="Mostrar todas las ubicaciones"
               >
-                Todas las ubicaciones <span className="n">{conteosUbicaciones.total}</span>
+                Todas las ubicaciones <span className="flo-chip-badge">{conteosUbicaciones.total}</span>
               </button>
               {listaUbicaciones.map((u) => {
                 const n = conteosUbicaciones.map.get(u) ?? 0;
@@ -514,48 +743,56 @@ export function MaquinariaPage() {
                   <button
                     key={u}
                     type="button"
+                    className="flo-chip"
                     aria-pressed={ubicacion === u}
                     onClick={() => setUbicacion(ubicacion === u ? 'todos' : u)}
                     title={`Filtrar por ubicación: ${u}`}
-                    style={n === 0 && ubicacion !== u ? { opacity: 0.55 } : undefined}
+                    style={n === 0 && ubicacion !== u ? { opacity: 0.45 } : undefined}
                   >
-                    📍 {u} <span className="n">{n}</span>
+                    📍 {u} <span className="flo-chip-badge">{n}</span>
                   </button>
                 );
               })}
               {hasSinUbicGlobal && (
                 <button
                   type="button"
+                  className="flo-chip"
                   aria-pressed={ubicacion === '__sin__'}
                   onClick={() => setUbicacion(ubicacion === '__sin__' ? 'todos' : '__sin__')}
                   title="Equipos sin ubicación asignada"
-                  style={conteosUbicaciones.sinUbic === 0 && ubicacion !== '__sin__' ? { opacity: 0.55 } : undefined}
+                  style={conteosUbicaciones.sinUbic === 0 && ubicacion !== '__sin__' ? { opacity: 0.45 } : undefined}
                 >
-                  📍 Sin ubicación <span className="n">{conteosUbicaciones.sinUbic}</span>
+                  📍 Sin ubicación <span className="flo-chip-badge">{conteosUbicaciones.sinUbic}</span>
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {/* Fila 4: Cinta de Propietarios con scroll lateral */}
-        {listaPropietarios.length > 0 && (
-          <div
-            className="flo-cinta-scroll"
-            onWheel={(e) => {
-              if (e.deltaY !== 0 && !e.shiftKey) {
-                e.currentTarget.scrollLeft += e.deltaY;
-              }
-            }}
-          >
-            <div className="flo-seg" role="group" aria-label="Propietario del equipo">
+        {/* Cinta de Propietarios */}
+        {listaPropietarios.length > 0 && (modoFiltros === 'extendido' || dimSecundaria === 'propietario') && (
+          <div className="flo-cinta-fila">
+            {modoFiltros === 'extendido' && (
+              <span className="flo-cinta-etiqueta"><span aria-hidden="true">🏢</span> Propietario</span>
+            )}
+            <div
+              className="flo-cinta-scroll"
+              onWheel={(e) => {
+                if (e.deltaY !== 0 && !e.shiftKey) {
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
+              role="group"
+              aria-label="Propietario del equipo"
+            >
               <button
                 type="button"
+                className="flo-chip"
                 aria-pressed={propietario === ''}
                 onClick={() => setPropietario('')}
                 title="Mostrar todos los propietarios"
               >
-                Todos los propietarios <span className="n">{conteosPropietarios.total}</span>
+                Todos los propietarios <span className="flo-chip-badge">{conteosPropietarios.total}</span>
               </button>
               {listaPropietarios.map((p) => {
                 const n = conteosPropietarios.map.get(p) ?? 0;
@@ -563,47 +800,70 @@ export function MaquinariaPage() {
                   <button
                     key={p}
                     type="button"
+                    className="flo-chip"
                     aria-pressed={propietario === p}
                     onClick={() => setPropietario(propietario === p ? '' : p)}
                     title={`Filtrar por propietario: ${p}`}
-                    style={n === 0 && propietario !== p ? { opacity: 0.55 } : undefined}
+                    style={n === 0 && propietario !== p ? { opacity: 0.45 } : undefined}
                   >
-                    🏢 {p} <span className="n">{n}</span>
+                    🏢 {p} <span className="flo-chip-badge">{n}</span>
                   </button>
                 );
               })}
               {hasSinPropGlobal && (
                 <button
                   type="button"
+                  className="flo-chip"
                   aria-pressed={propietario === '__sin__'}
                   onClick={() => setPropietario(propietario === '__sin__' ? '' : '__sin__')}
                   title="Equipos sin propietario registrado"
-                  style={conteosPropietarios.sinProp === 0 && propietario !== '__sin__' ? { opacity: 0.55 } : undefined}
+                  style={conteosPropietarios.sinProp === 0 && propietario !== '__sin__' ? { opacity: 0.45 } : undefined}
                 >
-                  🏢 Sin propietario <span className="n">{conteosPropietarios.sinProp}</span>
+                  🏢 Sin propietario <span className="flo-chip-badge">{conteosPropietarios.sinProp}</span>
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {/* Fila 5: Tipo de equipo (pills) */}
-        {tipos.length > 0 && (
-          <div
-            className="flo-pills"
-            role="group"
-            aria-label="Tipo de equipo"
-            onWheel={(e) => {
-              if (e.deltaY !== 0 && !e.shiftKey) {
-                e.currentTarget.scrollLeft += e.deltaY;
-              }
-            }}
-          >
-            {tipos.map(([t, n]) => (
-              <button key={t} type="button" className="flo-pill" aria-pressed={tipo === t} onClick={() => setTipo(tipo === t ? '' : t)}>
-                {t}<span className="n">{n}</span>
+        {/* Cinta de Tipo de equipo */}
+        {tipos.length > 0 && (modoFiltros === 'extendido' || dimSecundaria === 'tipo') && (
+          <div className="flo-cinta-fila">
+            {modoFiltros === 'extendido' && (
+              <span className="flo-cinta-etiqueta"><span aria-hidden="true">🚜</span> Tipo</span>
+            )}
+            <div
+              className="flo-cinta-scroll"
+              onWheel={(e) => {
+                if (e.deltaY !== 0 && !e.shiftKey) {
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
+              role="group"
+              aria-label="Tipo de equipo"
+            >
+              <button
+                type="button"
+                className="flo-chip"
+                aria-pressed={tipo === ''}
+                onClick={() => setTipo('')}
+                title="Mostrar todos los tipos"
+              >
+                Todos los tipos <span className="flo-chip-badge">{tipos.reduce((s, [, n]) => s + n, 0)}</span>
               </button>
-            ))}
+              {tipos.map(([t, n]) => (
+                <button
+                  key={t}
+                  type="button"
+                  className="flo-chip"
+                  aria-pressed={tipo === t}
+                  onClick={() => setTipo(tipo === t ? '' : t)}
+                  title={`Filtrar por tipo: ${t}`}
+                >
+                  {t} <span className="flo-chip-badge">{n}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>

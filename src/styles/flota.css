@@ -79,11 +79,348 @@
 }
 .flo-fleet button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-/* ───────── Filtros ───────── */
+/* ───────── Panel de Filtros Rediseñado ───────── */
+.flo-filtros-panel {
+  display: flex;
+  flex-direction: column;
+  gap: .65rem;
+  background: color-mix(in srgb, var(--surface) 92%, #000 8%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl, 14px);
+  padding: .85rem 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.flo-filtros-cab {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.flo-buscar-box {
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex: 1 1 280px;
+  min-width: 200px;
+}
+
+.flo-buscar-box .flo-buscar {
+  width: 100%;
+  padding-left: 2.2rem;
+  padding-right: 2rem;
+  height: 38px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  font-size: .84rem;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+
+.flo-buscar-box .flo-buscar:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+  outline: none;
+}
+
+.flo-buscar-icono {
+  position: absolute;
+  left: .8rem;
+  font-size: .85rem;
+  opacity: .5;
+  pointer-events: none;
+}
+
+.flo-buscar-limpiar {
+  position: absolute;
+  right: .6rem;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: .2rem .4rem;
+  font-size: .78rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s ease, background .15s ease;
+}
+.flo-buscar-limpiar:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.flo-filtros-meta {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  flex-shrink: 0;
+}
+
+.flo-filtros-conteo {
+  font-size: .78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.flo-filtros-vista-toggle {
+  display: inline-flex;
+  background: var(--surface);
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  gap: 2px;
+}
+.flo-filtros-vista-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: .74rem;
+  font-weight: 600;
+  padding: .25rem .6rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.flo-filtros-vista-toggle button.active {
+  background: var(--primary);
+  color: #000;
+  font-weight: 700;
+}
+
+/* Filtros activos resumidos con eliminación directa en 1 toque */
+.flo-activos-barra {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex-wrap: wrap;
+  padding: .35rem .6rem;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  border: 1px dashed color-mix(in srgb, var(--primary) 35%, transparent);
+  border-radius: var(--r-md, 8px);
+  animation: floRowFadeIn .2s ease-out;
+}
+.flo-activos-tit {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  font-weight: 700;
+  color: var(--primary);
+  margin-right: .2rem;
+}
+.flo-activo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .15rem .55rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: .75rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.flo-activo-chip button {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 .15rem;
+  font-size: .75rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 50%;
+}
+.flo-activo-chip button:hover {
+  color: #ef4444;
+}
+.flo-activos-limpiar {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: .74rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: .2rem .4rem;
+  margin-left: auto;
+  border-radius: 4px;
+  transition: opacity .15s ease;
+}
+.flo-activos-limpiar:hover {
+  text-decoration: underline;
+  opacity: .85;
+}
+
+/* Selector de dimensiones secundarias */
+.flo-dim-nav {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: .45rem;
+  margin-top: .15rem;
+  flex-wrap: wrap;
+}
+.flo-dim-tit {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-right: .3rem;
+}
+.flo-dim-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .28rem .7rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.flo-dim-tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.flo-dim-tab.activa {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+.flo-dim-tab.tiene-filtro {
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.flo-dim-badge {
+  font-size: .7rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-weight: 700;
+}
+.flo-dim-tab.activa .flo-dim-badge {
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface-2));
+  color: var(--primary);
+}
+.flo-dim-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: inline-block;
+}
+
+/* Fila de cinta (con etiqueta lateral si es extendido) */
+.flo-cinta-fila {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.flo-cinta-etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-dim);
+  width: 105px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* Cinta scroll moderna (SIN scrollbars estridentes, con máscara suave) */
+.flo-cinta-scroll {
+  display: flex !important;
+  align-items: center !important;
+  gap: .4rem !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  padding: .2rem 2px !important;
+  -webkit-overflow-scrolling: touch;
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+}
+.flo-cinta-scroll::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Chip/Pill Moderno */
+.flo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  flex-shrink: 0;
+  padding: .3rem .75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .15s ease, background .15s ease, color .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.flo-chip:hover:not([aria-pressed="true"]) {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+.flo-chip:active {
+  transform: scale(0.98);
+}
+.flo-chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  border-color: var(--primary);
+  color: var(--text);
+  font-weight: 700;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.flo-chip-badge {
+  font-size: .7rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  margin-left: .2rem;
+  transition: all .15s ease;
+}
+.flo-chip[aria-pressed="true"] .flo-chip-badge {
+  background: var(--primary);
+  color: #000;
+}
+
+/* Estilos de compatibilidad legacy para flo-filtros, flo-seg y flo-pills */
 .flo-filtros { display: grid; gap: .55rem; margin-bottom: .8rem; min-width: 0; max-width: 100%; }
 .flo-filtros .fila { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; min-width: 0; max-width: 100%; }
-.flo-filtros .input, .flo-filtros .select { min-width: 0; }
-.flo-buscar { flex: 1 1 260px; }
 .flo-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; flex-wrap: wrap; max-width: 100%; }
 .flo-seg button {
   border: 0; background: var(--surface); color: var(--text-muted); font: inherit; font-size: .82rem; font-weight: 600;
@@ -99,59 +436,8 @@
 .flo-seg button:active { transform: scale(0.98); }
 .flo-seg button + button { border-left: 1px solid var(--border); }
 .flo-seg button[aria-pressed="true"] { background: var(--grad-primary-soft), var(--surface-2); color: var(--text); font-weight: 700; }
-.flo-seg .n {
-  color: var(--text-dim); font-size: .75rem; font-weight: 700; margin-left: .25rem;
-}
-.flo-seg button[aria-pressed="true"] .n {
-  color: var(--primary);
-}
-
-/* Cinta de alternadores con scroll lateral (Clase, Ubicación, Propietarios) */
-.flo-cinta-scroll {
-  display: flex !important;
-  align-items: center;
-  gap: .4rem;
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
-  scrollbar-width: thin !important;
-  scrollbar-color: var(--primary) var(--surface-2) !important;
-  padding-bottom: 6px;
-  -webkit-overflow-scrolling: touch;
-}
-.flo-cinta-scroll::-webkit-scrollbar {
-  height: 6px;
-}
-.flo-cinta-scroll::-webkit-scrollbar-track {
-  background: var(--surface-2);
-  border-radius: 999px;
-}
-.flo-cinta-scroll::-webkit-scrollbar-thumb {
-  background: var(--primary);
-  border-radius: 999px;
-}
-.flo-cinta-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--primary-hover, #ea580c);
-}
-.flo-cinta-scroll .flo-seg {
-  display: inline-flex !important;
-  flex-wrap: nowrap !important;
-  flex: 0 0 auto !important;
-  max-width: none !important;
-  width: max-content !important;
-  overflow: visible !important;
-  grid-template-columns: none !important;
-}
-.flo-cinta-scroll .flo-seg button {
-  white-space: nowrap !important;
-  flex-shrink: 0 !important;
-}
-.flo-cinta-scroll .flo-seg button + button {
-  border-left: 1px solid var(--border) !important;
-  border-top: 0 !important;
-}
+.flo-seg .n { color: var(--text-dim); font-size: .75rem; font-weight: 700; margin-left: .25rem; }
+.flo-seg button[aria-pressed="true"] .n { color: var(--primary); }
 .flo-pills { display: flex; gap: .4rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .flo-pills::-webkit-scrollbar { display: none; }
 .flo-pill {

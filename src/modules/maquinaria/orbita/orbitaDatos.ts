@@ -14,7 +14,7 @@
    ============================================================ */
 import { norm } from '@/shared/lib/texto';
 import type { MaquinariaEquipo } from '../maquinariaEquipos.repository';
-import { estadoEfectivo, type AvisoServicio, type EstadoEquipo } from '../flota';
+import { claseEquipo, estadoEfectivo, type AvisoServicio, type EstadoEquipo } from '../flota';
 
 /* ───────── Categorías (por equipo, D22) ───────── */
 
@@ -97,6 +97,7 @@ export interface FilaFlota {
   id: string;
   equipo: string;
   tipo: string;
+  clase: string;
   marca: string | null;
   modelo: string | null;
   serial: string | null;
@@ -192,6 +193,7 @@ export function armarOrbita(entrada: EntradaOrbita): ModeloOrbita {
       id: e.id,
       equipo: limpiar(e.equipo),
       tipo: limpiar(e.tipo) || 'Sin tipo',
+      clase: claseEquipo(e),
       marca: limpiar(e.marca) || null,
       modelo: limpiar(e.modelo) || null,
       serial: limpiar(e.serial) || null,

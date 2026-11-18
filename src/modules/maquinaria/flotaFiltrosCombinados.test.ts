@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { normalizarUbicacion, UBICACION_UNIFICADA_GT } from './exportarEquipos';
+import { coincidePropietario } from './MaquinariaPage';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
 const crearEq = (datos: Partial<MaquinariaEquipo>): MaquinariaEquipo => ({
@@ -139,16 +140,14 @@ describe('flotaFiltrosCombinados · Lógica de alternadores y filtros combinados
     expect(resultado.map((e) => e.id)).toEqual(['eq-3']);
   });
 
-  it('calcula conteos cruzados correctamente respetando la combinación', () => {
-    // Si la clase activa es 'vehiculo', ¿cuántos hay por ubicación?
-    const vehiculos = dummyEquipos.filter((e) => e.clase === 'vehiculo');
-    const conteosUbic = new Map<string, number>();
-    for (const v of vehiculos) {
-      const u = normalizarUbicacion(v.ubicacion) || '__sin__';
-      conteosUbic.set(u, (conteosUbic.get(u) ?? 0) + 1);
-    }
-    expect(conteosUbic.get(UBICACION_UNIFICADA_GT)).toBe(1);
-    expect(conteosUbic.get('CAMPAMENTO LA ESPERANZA')).toBe(1);
-    expect(conteosUbic.get('__sin__')).toBeUndefined();
+  it('coincidePropietario reconoce variantes de nombre, C.A., mayúsculas y sin propietario', () => {
+    expect(coincidePropietario('GOLDEN TOUCH 1127 C.A.', 'GOLDEN TOUCH 1127')).toBe(true);
+    expect(coincidePropietario('golden touch 1127', 'GOLDEN TOUCH 1127')).toBe(true);
+    expect(coincidePropietario('ENDERSON ENRIQUE LOZADA MORA', 'p:enderson-enrique-lozada-mora')).toBe(true);
+    expect(coincidePropietario('', '__sin__')).toBe(true);
+    expect(coincidePropietario(null, '__sin__')).toBe(true);
+    expect(coincidePropietario('Sin propietario', '__sin__')).toBe(true);
+    expect(coincidePropietario('Sin propietario', 'Sin propietario')).toBe(true);
+    expect(coincidePropietario('MINERAL GROUP GUAYANA', 'GOLDEN TOUCH 1127')).toBe(false);
   });
 });

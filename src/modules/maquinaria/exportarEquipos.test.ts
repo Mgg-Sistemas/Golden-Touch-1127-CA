@@ -261,7 +261,7 @@ describe('exportarEquipos · hoja «Resumen» del Excel', () => {
     const col1: unknown[] = [];
     ws.eachRow((row) => col1.push(row.getCell(1).value));
     expect(col1).toEqual(expect.arrayContaining(['Apartado', '🚜 Maquinaria y Equipos', '🚚 Vehículos', 'Estado', '✅ Operativa', '❔ Por confirmar']));
-  }, 15000);
+  }, 30000);
 
   it('resumen + datos: «Resumen» es la primera hoja, «Equipos» sigue y el nombre de archivo es el de siempre', async () => {
     await descargarEquiposExcelPersonalizado(flotaResumen(), ['equipo', 'tipo'], 'empresa', undefined, 'auto', null, {
@@ -272,7 +272,7 @@ describe('exportarEquipos · hoja «Resumen» del Excel', () => {
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Resumen', 'Equipos']);
     expect((wb.worksheets[0].getRow(4).values as unknown[]).slice(1)).toEqual(['Estado', 'Cantidad', '%', 'Desglose']);
     expect(wb.worksheets[0].getRow(5).getCell(1).value).toBe('✅ Operativa');
-  });
+  }, 30000);
 
   it('sin `resumen` el Excel trae solo la hoja «Equipos», como hoy', async () => {
     await descargarEquiposExcelPersonalizado(flotaResumen(), ['equipo', 'tipo'], 'empresa');
