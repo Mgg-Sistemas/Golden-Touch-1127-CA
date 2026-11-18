@@ -1472,12 +1472,44 @@ export async function aplicarPlanGoldenTouch(actor = 'sistema', empresaClave = '
   return repo.aplicarPlanGoldenTouch();
 }
 
+export async function vistaPreviaIntegracion(integracionId: string, empresaClave = 'GT') {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.vistaPreviaIntegracion(integracionId, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para vista previa:', e);
+    }
+  }
+  return repo.vistaPreviaIntegracion(integracionId);
+}
+
+export async function contabilizarIntegraciones(ids: string[], actor: string, empresaClave = 'GT') {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.contabilizarIntegraciones(ids, actor, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para contabilizar:', e);
+    }
+  }
+  return repo.contabilizarIntegraciones(ids, actor);
+}
+
+export async function sincronizarHechosOperativos(empresaClave = 'GT'): Promise<{ total: number; nuevos: number; errores: number }> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.sincronizarHechosOperativos(empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback al sincronizar hechos operativos:', e);
+    }
+  }
+  return { total: 0, nuevos: 0, errores: 0 };
+}
+
 export const {
   listMonedas,
   reiniciarDatosEjemplo,
   getTasa,
   vistaPreviaCierreMes, cerrarMes, reabrirMes, cerrarEjercicio, reabrirEjercicio, abrirEjercicioSiguiente,
-  vistaPreviaIntegracion, contabilizarIntegraciones,
   crearTipoComprobante, modificarTipoComprobante, cambiarActivoTipoComprobante,
   crearCentroCosto, modificarCentroCosto, cambiarActivoCentroCosto,
   crearAuxiliar, modificarAuxiliar, cambiarActivoAuxiliar,

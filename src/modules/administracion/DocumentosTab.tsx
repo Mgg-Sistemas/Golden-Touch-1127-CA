@@ -153,8 +153,9 @@ export function DocumentosTab({
     if (user?.email) {
       const res = quien(user.email);
       if (res && !res.includes('@')) return res;
+      return resolverActorVisible(user.email, quien).nombre;
     }
-    return user?.email || 'Administrador';
+    return 'Administrador';
   }, [appUser, user, quien]);
 
   // Carpetas configuradas (estándar + personalizadas con notas)

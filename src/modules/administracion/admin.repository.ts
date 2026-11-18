@@ -51,6 +51,75 @@ export interface ActorVisible {
   correo: string | null;
 }
 
+const PALABRAS_DEPARTAMENTO: Record<string, string> = {
+  recursoshumanos: 'Recursos Humanos',
+  administracion: 'Administración',
+  mantenimiento: 'Mantenimiento',
+  contabilidad: 'Contabilidad',
+  operaciones: 'Operaciones',
+  transporte: 'Transporte',
+  impuestos: 'Impuestos',
+  tributos: 'Tributos',
+  tesoreria: 'Tesorería',
+  auditoria: 'Auditoría',
+  logistica: 'Logística',
+  seguridad: 'Seguridad',
+  recepcion: 'Recepción',
+  sistemas: 'Sistemas',
+  gerencia: 'Gerencia',
+  compras: 'Compras',
+  nomina: 'Nómina',
+  almacen: 'Almacén',
+  ventas: 'Ventas',
+  rrhh: 'Recursos Humanos',
+  mgg: 'MGG',
+  gt: 'GT',
+  gl: 'GL',
+  ca: 'C.A.',
+  sa: 'S.A.',
+};
+
+/** Desglosa una cuenta local unida sin separadores como "impuestostributosgt" en un nombre legible. */
+function desglosarTerminosUnidos(str: string): string {
+  let s = str.toLowerCase();
+  const tokens: string[] = [];
+  const keys = Object.keys(PALABRAS_DEPARTAMENTO).sort((a, b) => b.length - a.length);
+
+  while (s.length > 0) {
+    const match = keys.find((k) => s.startsWith(k));
+    if (match) {
+      tokens.push(PALABRAS_DEPARTAMENTO[match]);
+      s = s.slice(match.length);
+    } else {
+      const nextIdx = keys
+        .map((k) => s.indexOf(k))
+        .filter((idx) => idx > 0)
+        .sort((a, b) => a - b)[0];
+      if (nextIdx !== undefined) {
+        tokens.push(s.slice(0, nextIdx));
+        s = s.slice(nextIdx);
+      } else {
+        tokens.push(s);
+        break;
+      }
+    }
+  }
+
+  if (tokens.length > 1) {
+    if (tokens[0] === 'Impuestos' && tokens[1] === 'Tributos') {
+      return ['Impuestos y Tributos', ...tokens.slice(2)].join(' ');
+    }
+    return tokens.map((t) => (PALABRAS_DEPARTAMENTO[t.toLowerCase()] ?? (t.charAt(0).toUpperCase() + t.slice(1)))).join(' ');
+  }
+
+  const unica = tokens[0]?.toLowerCase();
+  if (unica && PALABRAS_DEPARTAMENTO[unica]) {
+    return PALABRAS_DEPARTAMENTO[unica];
+  }
+
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
 /** Resuelve el nombre del usuario como protagonista para la interfaz, dejando el correo como secundario. */
 export function resolverActorVisible(
   actorRaw: string | null | undefined,
@@ -71,17 +140,26 @@ export function resolverActorVisible(
 
   if (esMail) {
     const parteLocal = raw.split('@')[0];
-    const amigable = parteLocal
-      .replace(/[._-]+/g, ' ')
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .split(' ')
-      .filter(Boolean)
-      .map((w) => {
-        const up = w.toUpperCase();
-        if (up === 'GT' || up === 'MGG' || up === 'GL' || up === 'CA' || up === 'SA') return up;
-        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
-      })
-      .join(' ');
+    const tieneSeparador = /[._-]+/.test(parteLocal) || /([a-z])([A-Z])/.test(parteLocal);
+
+    let amigable = '';
+    if (tieneSeparador) {
+      amigable = parteLocal
+        .replace(/[._-]+/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .split(' ')
+        .filter(Boolean)
+        .map((w) => {
+          const up = w.toUpperCase();
+          if (up === 'GT' || up === 'MGG' || up === 'GL' || up === 'CA' || up === 'SA') return up;
+          const low = w.toLowerCase();
+          if (PALABRAS_DEPARTAMENTO[low]) return PALABRAS_DEPARTAMENTO[low];
+          return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+        })
+        .join(' ');
+    } else {
+      amigable = desglosarTerminosUnidos(parteLocal);
+    }
 
     return {
       nombre: amigable || raw,

@@ -7,12 +7,19 @@
      vertical libre con ResizeObserver.
    - Controles de búsqueda integrados, centrado inteligente y atajo con Escape.
    ============================================================ */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { EMPRESA_EMAIL } from '@/shared/lib/empresa';
 import { toast } from '@/shared/ui/Toast';
-import { buscarDireccion, coordsTxt, parsearCoordenadas, puntoValido, type PuntoMapa, type ResultadoGeo } from './ubicacionProveedor';
+import {
+  buscarDireccion,
+  coordsTxt,
+  interpretarEntradaUbicacion,
+  puntoValido,
+  type PuntoMapa,
+  type ResultadoGeo,
+} from './ubicacionProveedor';
 
 /** Centro de Puerto Ordaz (el mismo que usa Delivery). */
 const CENTRO: [number, number] = [8.2869, -62.7467];
@@ -38,6 +45,11 @@ export function SelectorUbicacionMapa({ value, onChange, direccion }: {
   const [buscando, setBuscando] = useState(false);
   const [resultados, setResultados] = useState<ResultadoGeo[]>([]);
   const [gpsOcupado, setGpsOcupado] = useState(false);
+
+  // Interpretación inteligente del campo unificado (dirección física, coordenadas o URL)
+  const interpretacion = useMemo(() => {
+    return interpretarEntradaUbicacion(q || direccion);
+  }, [q, direccion]);
 
   // Opciones de visualización y tamaño amplio
   const [maximizado, setMaximizado] = useState(false);
@@ -126,26 +138,62 @@ export function SelectorUbicacionMapa({ value, onChange, direccion }: {
     if (!m.getBounds().contains(ll)) m.setView(ll, Math.max(m.getZoom(), 15));
   }, [value]);
 
-  async function buscar() {
-    const texto = q.trim() || (direccion ?? '').trim();
-    if (!texto) { toast('Escribe la dirección o pega las coordenadas.', 'error'); return; }
-    const coords = parsearCoordenadas(texto);
-    if (coords) { elegir({ nombre: coordsTxt(coords), ...coords }); return; }
-    setBuscando(true);
-    try {
-      const r = await buscarDireccion(texto, EMPRESA_EMAIL);
-      setResultados(r);
-      if (!r.length) toast('No se encontró esa dirección. Prueba con menos palabras (sector y ciudad), pega el código de Google Maps (ej. 76MV+CR) o marca el punto en el mapa.', 'error');
-      else if (r.length === 1) elegir(r[0]);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo buscar la dirección.', 'error');
-    } finally { setBuscando(false); }
-  }
-
   function elegir(r: ResultadoGeo) {
     setResultados([]);
     cambiar.current({ lat: r.lat, lng: r.lng });
     mapa.current?.setView([r.lat, r.lng], 16);
+  }
+
+  function manejarCambioTexto(nuevoTexto: string) {
+    setQ(nuevoTexto);
+    if (!nuevoTexto.trim()) return;
+
+    // Si el usuario escribe o pega coordenadas o una URL con posición, ubicar y recentrar de inmediato
+    const interp = interpretarEntradaUbicacion(nuevoTexto);
+    if (interp.punto) {
+      elegir({ nombre: coordsTxt(interp.punto), ...interp.punto });
+    }
+  }
+
+  async function buscar() {
+    const texto = q.trim() || (direccion ?? '').trim();
+    if (!texto) {
+      toast('Escribe la dirección, pega las coordenadas o la URL de Google Maps.', 'error');
+      return;
+    }
+
+    const interp = interpretarEntradaUbicacion(texto);
+    if (interp.punto) {
+      elegir({ nombre: coordsTxt(interp.punto), ...interp.punto });
+      toast(`📍 Ubicación fijada: ${coordsTxt(interp.punto)}`, 'success');
+      return;
+    }
+
+    if (interp.esUrlCorta) {
+      toast(
+        'Enlace corto de Google Maps (maps.app.goo.gl): ábrelo en tu navegador y copia la URL completa con coordenadas o pega las coordenadas directas.',
+        'info',
+      );
+      return;
+    }
+
+    setBuscando(true);
+    try {
+      const r = await buscarDireccion(texto, EMPRESA_EMAIL);
+      setResultados(r);
+      if (!r.length) {
+        toast(
+          'No se encontró esa dirección. Prueba con menos palabras (sector y ciudad), pega las coordenadas o el enlace de Google Maps.',
+          'error',
+        );
+      } else if (r.length === 1) {
+        elegir(r[0]);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo buscar la dirección.', 'error');
+    } finally {
+      setBuscando(false);
+    }
   }
 
   function usarMiUbicacion() {
@@ -245,16 +293,53 @@ export function SelectorUbicacionMapa({ value, onChange, direccion }: {
         )}
 
         {/* Barra de Búsqueda y Controles de Tamaño */}
-        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            className="input"
-            style={{ flex: '1 1 240px' }}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={direccion?.trim() ? `Buscar: ${direccion.trim()}` : 'Dirección, sector y ciudad · o coordenadas / enlace de Google Maps'}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void buscar(); } }}
-            aria-label="Buscar dirección"
-          />
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 280px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              value={q}
+              onChange={(e) => manejarCambioTexto(e.target.value)}
+              onPaste={(e) => {
+                const pegado = e.clipboardData.getData('text');
+                if (pegado) {
+                  const interp = interpretarEntradaUbicacion(pegado);
+                  if (interp.punto) {
+                    elegir({ nombre: coordsTxt(interp.punto), ...interp.punto });
+                    toast(`📍 Coordenadas reconocidas (${interp.tipo === 'url' ? 'URL' : 'GPS'}): ${coordsTxt(interp.punto)}`, 'success');
+                  }
+                }
+              }}
+              placeholder={direccion?.trim() ? `Buscar: ${direccion.trim()} (o pega coordenadas / URL)` : 'Dirección física, coordenadas (ej. 8.2869, -62.7467) o URL de Google Maps'}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void buscar(); } }}
+              aria-label="Buscar dirección, coordenadas o URL de mapa"
+            />
+            {/* Feedback en tiempo real del campo unificado */}
+            {q.trim() && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.74rem', padding: '1px 4px' }}>
+                {interpretacion.tipo === 'coordenadas' && (
+                  <span className="badge" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '2px 6px' }}>
+                    ✓ Coordenadas detectadas: {coordsTxt(interpretacion.punto!)}
+                  </span>
+                )}
+                {interpretacion.tipo === 'url' && interpretacion.punto && (
+                  <span className="badge" style={{ background: 'rgba(56,189,248,0.15)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.3)', padding: '2px 6px' }}>
+                    ✓ Enlace de mapa interpretado: {coordsTxt(interpretacion.punto!)}
+                  </span>
+                )}
+                {interpretacion.tipo === 'url' && !interpretacion.punto && (
+                  <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', padding: '2px 6px' }}>
+                    🔗 {interpretacion.etiqueta}
+                  </span>
+                )}
+                {interpretacion.tipo === 'direccion' && (
+                  <span className="badge" style={{ background: 'rgba(148,163,184,0.12)', color: 'var(--text-muted, #94a3b8)', border: '1px solid var(--border)', padding: '2px 6px' }}>
+                    🏢 Dirección física · Presiona [Buscar] o [Enter]
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           <button type="button" className="btn btn-ghost" onClick={() => void buscar()} disabled={buscando}>
             {buscando ? 'Buscando…' : '🔍 Buscar'}
           </button>

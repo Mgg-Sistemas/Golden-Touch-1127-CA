@@ -31,7 +31,7 @@ import { norm } from '@/shared/lib/texto';
 import { ExportarProveedoresModal } from './ExportarProveedoresModal';
 import { SelectorUbicacionMapa } from './SelectorUbicacionMapa';
 import { guardarUbicacion, ubicacionDe } from './proveedores.repository';
-import { coordsTxt, type PuntoMapa } from './ubicacionProveedor';
+import { coordsTxt, parsearCoordenadas, type PuntoMapa } from './ubicacionProveedor';
 
 type EstadoFilter = '' | EstadoGenerico;
 type ModoVista = 'tarjetas' | 'tabla';
@@ -1507,7 +1507,15 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
           <input
             className="input"
             value={form.direccion ?? ''}
-            onChange={(e) => update('direccion', e.target.value.toUpperCase())}
+            onChange={(e) => {
+              const val = e.target.value;
+              update('direccion', val.toUpperCase());
+              const coords = parsearCoordenadas(val);
+              if (coords) {
+                setUbicacion(coords);
+              }
+            }}
+            placeholder="Dirección física, coordenadas o enlace de mapa"
           />
         </div>
 

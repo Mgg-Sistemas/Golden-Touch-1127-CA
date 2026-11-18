@@ -12,7 +12,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 import type { DocumentoEmpresa, AdminRepo } from './admin.repository';
 import type { Moneda } from './administracionCalculo';
-import { diasRestantes } from './admin.repository';
+import { diasRestantes, resolverActorVisible } from './admin.repository';
 
 function tamanoFmt(b: number | null): string {
   if (!b) return '—';
@@ -46,8 +46,9 @@ export function RenovarDocumentoModal({
     if (user?.email) {
       const res = quien(user.email);
       if (res && !res.includes('@')) return res;
+      return resolverActorVisible(user.email, quien).nombre;
     }
-    return user?.email || 'Usuario';
+    return 'Usuario';
   }, [appUser, user, quien]);
 
   // Metadatos editables en la renovación

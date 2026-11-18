@@ -30,9 +30,16 @@ import {
 import type {
   ContAuxiliar, ContCentroCosto, ContCierre, ContComprobante, ContComprobanteLinea,
   ContCuenta, ContEjercicio, ContIntegracion, ContMapeo, ContParametros, ContPeriodo,
-  ContTipoComprobante, CuentaInput, Moneda,
+  ContTasa, ContTipoComprobante, CuentaInput, Moneda,
 } from './tipos';
 import type { ComprobanteCompleto, DocumentoIntegracion, ReglaCompleta } from './contabilidad.repository';
+import {
+  catalogoDe, contabilizarHecho,
+  type CatalogoMotor, type ComprobanteGenerado, type HechoContable,
+} from './logica/motorReglas';
+import { encolarHechoContable, sincronizarHechosOperativos } from './logica/alimentadorModulos';
+
+export { encolarHechoContable, sincronizarHechosOperativos };
 
 const EMPRESA_DEFECTO = 'GT';
 const otraMoneda = (m: MonedaInforme): MonedaInforme => (m === 'VES' ? 'USD' : 'VES');
@@ -914,14 +921,16 @@ export async function getBalanceGeneral(
 // ── Integraciones y Reglas ───────────────────────────────────────────────────
 
 export async function listReglasContabilizacion(empresaClave = EMPRESA_DEFECTO): Promise<ReglaCompleta[]> {
-  const { data: reglas, error: errR } = await supabase
-    .from('cont_reglas')
-    .select('*')
-    .eq('empresa_clave', empresaClave)
-    .order('codigo');
-  if (errR) throw errR;
-  if (!reglas || reglas.length === 0) return [];
+  const [resReglas, resCuentas] = await Promise.all([
+    supabase.from('cont_reglas').select('*').eq('empresa_clave', empresaClave).order('codigo'),
+    supabase.from('cont_cuentas').select('id, codigo').eq('empresa_clave', empresaClave),
+  ]);
 
+  const reglas = resReglas.data ?? [];
+  if (resReglas.error) throw resReglas.error;
+  if (reglas.length === 0) return [];
+
+  const mapaCuentasCodigo = new Map((resCuentas.data ?? []).map((c) => [c.codigo, c.id]));
   const reglaIds = reglas.map((r) => r.id);
   const { data: lineas, error: errL } = await supabase
     .from('cont_regla_lineas')
@@ -951,21 +960,24 @@ export async function listReglasContabilizacion(empresaClave = EMPRESA_DEFECTO):
         vigente_hasta: null,
         activa: Boolean(r.activo),
       },
-      lineas: rl.map((l) => ({
-        id: l.id,
-        regla_id: l.regla_id,
-        renglon: Number(l.renglon),
-        lado: l.lado as 'debe' | 'haber',
-        cuenta_fuente: l.mapeo_codigo ? 'por_mapeo' : 'fija',
-        cuenta_id: l.cuenta_codigo ? `cta-${l.cuenta_codigo}` : null,
-        mapeo_tipo: null,
-        mapeo_campo: l.mapeo_codigo,
-        importe: l.monto_campo,
-        centro_fuente: 'ninguno',
-        centro_costo_id: null,
-        auxiliar_fuente: 'ninguno',
-        descripcion: l.descripcion_plantilla,
-      })),
+      lineas: rl.map((l) => {
+        const ctaIdReal = l.cuenta_codigo ? (mapaCuentasCodigo.get(l.cuenta_codigo) ?? `cta-${l.cuenta_codigo}`) : null;
+        return {
+          id: l.id,
+          regla_id: l.regla_id,
+          renglon: Number(l.renglon),
+          lado: l.lado as 'debe' | 'haber',
+          cuenta_fuente: l.mapeo_codigo ? 'por_mapeo' : 'fija',
+          cuenta_id: ctaIdReal,
+          mapeo_tipo: null,
+          mapeo_campo: l.mapeo_codigo,
+          importe: l.monto_campo,
+          centro_fuente: 'ninguno',
+          centro_costo_id: null,
+          auxiliar_fuente: 'ninguno',
+          descripcion: l.descripcion_plantilla,
+        };
+      }),
     };
   });
 }
@@ -987,6 +999,75 @@ export async function listMapeos(empresaClave = EMPRESA_DEFECTO): Promise<ContMa
   }));
 }
 
+export async function listTasasContables(): Promise<ContTasa[]> {
+  const { data: cambios } = await supabase.from('cont_cambios').select('*').order('fecha', { ascending: false });
+  const { data: tasasBd } = await supabase.from('tasa_cambio').select('*').order('fecha', { ascending: false }).limit(200);
+
+  const lista: ContTasa[] = [];
+  for (const c of cambios ?? []) {
+    lista.push({
+      id: c.id,
+      fecha: c.fecha,
+      moneda: c.moneda as Moneda,
+      tasa_ves: Number(c.tasa_ves),
+      fuente: 'manual',
+    });
+  }
+  for (const t of tasasBd ?? []) {
+    lista.push({
+      id: `tasa-sys-${t.fecha}-${t.moneda}`,
+      fecha: t.fecha,
+      moneda: (t.moneda === 'Bs' ? 'VES' : t.moneda) as Moneda,
+      tasa_ves: Number(t.tasa ?? t.tasa_bcv ?? 1),
+      fuente: 'bcv',
+    });
+  }
+
+  if (lista.length === 0) {
+    const hoy = hoyISO();
+    lista.push({ id: 'tasa-base-usd', fecha: hoy, moneda: 'USD', tasa_ves: 50, fuente: 'manual' });
+    lista.push({ id: 'tasa-base-ves', fecha: hoy, moneda: 'VES', tasa_ves: 1, fuente: 'manual' });
+  }
+
+  return lista;
+}
+
+export async function buildCatalogoMotor(empresaClave = EMPRESA_DEFECTO): Promise<CatalogoMotor> {
+  const [reglasCompletas, mapeos, cuentas, centros, auxiliares, parametros, tasas] = await Promise.all([
+    listReglasContabilizacion(empresaClave),
+    listMapeos(empresaClave),
+    listCuentas(empresaClave),
+    listCentrosCosto(empresaClave),
+    listAuxiliares(empresaClave),
+    getParametros(empresaClave),
+    listTasasContables(),
+  ]);
+
+  const mapaCuentasPorCodigo = new Map(cuentas.map((c) => [c.codigo, c]));
+  const reglas = reglasCompletas.map((rc) => rc.regla);
+  const lineasRegla = reglasCompletas.flatMap((rc) =>
+    rc.lineas.map((l) => {
+      const cta = l.cuenta_id ? cuentas.find((c) => c.id === l.cuenta_id) : undefined;
+      const ctaPorCod = l.cuenta_id ? mapaCuentasPorCodigo.get(l.cuenta_id.replace(/^cta-/, '')) : undefined;
+      return {
+        ...l,
+        cuenta_id: cta?.id ?? ctaPorCod?.id ?? l.cuenta_id ?? '',
+      };
+    })
+  );
+
+  return catalogoDe({
+    cont_reglas: reglas,
+    cont_regla_lineas: lineasRegla,
+    cont_mapeos: mapeos,
+    cont_cuentas: cuentas,
+    cont_tasas: tasas,
+    cont_centros_costo: centros,
+    cont_auxiliares: auxiliares,
+    cont_parametros: { centro_costo_defecto_id: parametros.centro_costo_defecto_id ?? null },
+  });
+}
+
 export async function listIntegraciones(
   filtro: { estados?: ContIntegracion['estado'][]; estado?: string; modulo?: string; busqueda?: string } = {},
   empresaClave = EMPRESA_DEFECTO,
@@ -1003,29 +1084,240 @@ export async function listIntegraciones(
 
   const { data, error } = await query.order('created_at', { ascending: false });
   if (error) throw error;
+  if (!data || data.length === 0) return [];
 
-  return (data ?? []).map((i) => ({
-    integracion: {
-      id: i.id,
-      empresa_clave: i.empresa_clave,
-      origen_modulo: i.modulo,
-      origen_tabla: i.origen_tabla ?? 'modulo_operativo',
-      origen_id: i.documento_id,
-      evento: i.evento,
-      fecha: i.fecha,
-      estado: i.estado as ContIntegracion['estado'],
-      comprobante_id: i.comprobante_id,
-      error: i.error_detalle,
-      created_at: i.created_at,
-      created_by: null,
-      updated_at: null,
-      updated_by: null,
-    },
-    documento: null,
-    regla: null,
-    comprobante: i.comprobante_id ? { id: i.comprobante_id, codigo: i.documento_codigo ?? i.comprobante_id } : null,
-    debe: null,
-  }));
+  let cat: CatalogoMotor | null = null;
+  try {
+    cat = await buildCatalogoMotor(empresaClave);
+  } catch (err) {
+    console.warn('No se pudo construir catalogo del motor para integraciones:', err);
+  }
+
+  const reglas = cat?.reglas ?? [];
+
+  return data.map((i) => {
+    let doc: HechoContable | null = null;
+    if (i.datos_origen && typeof i.datos_origen === 'object') {
+      doc = i.datos_origen as HechoContable;
+    }
+
+    const regla = reglas.find((r) => r.id === i.regla_id || (r.origen_modulo === i.modulo && r.evento === i.evento)) ?? null;
+
+    let debe: { ves: number; usd: number } | null = null;
+    if (doc && cat) {
+      try {
+        const g = contabilizarHecho(doc, cat);
+        const s = (k: 'debe_ves' | 'debe_usd') => g.lineas.reduce((a, l) => a + Math.round(l[k] * 100), 0) / 100;
+        debe = { ves: s('debe_ves'), usd: s('debe_usd') };
+      } catch {
+        debe = null;
+      }
+    }
+
+    return {
+      integracion: {
+        id: i.id,
+        empresa_clave: i.empresa_clave,
+        origen_modulo: i.modulo,
+        origen_tabla: i.origen_tabla ?? 'modulo_operativo',
+        origen_id: i.documento_id,
+        evento: i.evento,
+        fecha: i.fecha,
+        estado: i.estado as ContIntegracion['estado'],
+        comprobante_id: i.comprobante_id,
+        error: i.error_detalle,
+        created_at: i.created_at,
+        created_by: null,
+        updated_at: null,
+        updated_by: null,
+      },
+      documento: doc,
+      regla,
+      comprobante: i.comprobante_id ? { id: i.comprobante_id, codigo: i.documento_codigo ?? i.comprobante_id } : null,
+      debe,
+    };
+  });
+}
+
+export async function vistaPreviaIntegracion(
+  integracionId: string,
+  empresaClave = EMPRESA_DEFECTO,
+): Promise<ComprobanteGenerado> {
+  const { data: integ, error } = await supabase
+    .from('cont_integraciones')
+    .select('*')
+    .eq('id', integracionId)
+    .single();
+
+  if (error || !integ) throw new Error('El documento ya no está en la bandeja de integración.');
+
+  const doc = integ.datos_origen as HechoContable;
+  if (!doc) throw new Error(`El registro ${integracionId} no contiene datos de origen.`);
+
+  const cat = await buildCatalogoMotor(empresaClave);
+  return contabilizarHecho(doc, cat);
+}
+
+export async function contabilizarIntegraciones(
+  ids: string[],
+  actor: string,
+  empresaClave = EMPRESA_DEFECTO,
+): Promise<{ comprobantes: ContComprobante[]; errores: Array<{ documento: string; error: string }> }> {
+  const { data: elegidas, error } = await supabase
+    .from('cont_integraciones')
+    .select('*')
+    .in('id', ids)
+    .eq('empresa_clave', empresaClave);
+
+  if (error) throw error;
+  if (!elegidas || elegidas.length === 0) return { comprobantes: [], errores: [] };
+
+  const [cat, periodos, parametros, tipos, comprobantesExistentes] = await Promise.all([
+    buildCatalogoMotor(empresaClave),
+    listPeriodos(empresaClave),
+    getParametros(empresaClave),
+    listTiposComprobante(),
+    listComprobantes(empresaClave),
+  ]);
+
+  const comprobantes: ContComprobante[] = [];
+  const errores: Array<{ documento: string; error: string }> = [];
+  const ahora = new Date().toISOString();
+
+  let cbtesActuales = [...comprobantesExistentes];
+
+  for (const integ of elegidas) {
+    try {
+      const doc = integ.datos_origen as HechoContable;
+      if (!doc) throw new Error(`El registro ${integ.documento_id} no contiene datos de origen.`);
+
+      const periodo = periodoDeFecha(doc.fecha, periodos);
+      if (!periodo) throw new Error(`No hay un mes contable para la fecha ${doc.fecha}.`);
+      if (periodo.estado !== 'abierto') throw new Error(mensajeMesCerrado(periodo.codigo));
+
+      const generado = contabilizarHecho(doc, cat);
+      const tipo = tipos.find((t) => t.id === generado.regla.tipo_comprobante_id) ?? tipos[0];
+
+      const numero = siguienteNumero(cbtesActuales, { tipo_id: tipo.id, periodo_id: periodo.id }, parametros.tipo_numeracion, periodos);
+      const codigo = codigoComprobante(parametros.tipo_numeracion, tipo, periodo, numero);
+      const compId = `cbte-${empresaClave.toLowerCase()}-${periodo.codigo}-${String(numero).padStart(6, '0')}`;
+
+      const totalDebeVes = generado.lineas.reduce((a, l) => a + Math.round(l.debe_ves * 100), 0) / 100;
+      const totalHaberVes = generado.lineas.reduce((a, l) => a + Math.round(l.haber_ves * 100), 0) / 100;
+      const totalDebeUsd = generado.lineas.reduce((a, l) => a + Math.round(l.debe_usd * 100), 0) / 100;
+      const totalHaberUsd = generado.lineas.reduce((a, l) => a + Math.round(l.haber_usd * 100), 0) / 100;
+
+      const estado: ContComprobante['estado'] =
+        totalDebeVes === totalHaberVes && totalDebeUsd === totalHaberUsd ? 'contabilizado' : 'descuadrado';
+
+      const payloadComp = {
+        id: compId,
+        empresa_clave: empresaClave,
+        codigo,
+        numero,
+        fecha: generado.fecha,
+        periodo_id: periodo.id,
+        tipo_id: tipo.id,
+        concepto: generado.concepto,
+        moneda: doc.moneda,
+        tasa_ves: generado.tasa,
+        origen: 'automatico',
+        origen_documento_id: doc.id,
+        estado: estado === 'contabilizado' ? 'cuadrado' : 'descuadrado',
+        total_debe_ves: totalDebeVes,
+        total_haber_ves: totalHaberVes,
+        total_debe_usd: totalDebeUsd,
+        total_haber_usd: totalHaberUsd,
+        diferencia_ves: Math.abs(totalDebeVes - totalHaberVes),
+        created_at: ahora,
+        created_by: actor,
+      };
+
+      const { error: errComp } = await supabase.from('cont_comprobantes').insert(payloadComp);
+      if (errComp) throw errComp;
+
+      const lineasPayload = generado.lineas.map((l, idx) => ({
+        id: `${compId}-l${idx + 1}`,
+        comprobante_id: compId,
+        renglon: idx + 1,
+        cuenta_id: l.cuenta_id,
+        centro_costo_id: l.centro_costo_id,
+        auxiliar_id: l.auxiliar_id,
+        descripcion: l.descripcion ?? generado.concepto,
+        documento_referencia: l.referencia,
+        debe_ves: l.debe_ves,
+        haber_ves: l.haber_ves,
+        debe_usd: l.debe_usd,
+        haber_usd: l.haber_usd,
+        created_at: ahora,
+      }));
+
+      const { error: errLin } = await supabase.from('cont_comprobante_lineas').insert(lineasPayload);
+      if (errLin) throw errLin;
+
+      await supabase
+        .from('cont_integraciones')
+        .update({
+          estado: 'contabilizado',
+          comprobante_id: compId,
+          error_detalle: null,
+          contabilizado_en: ahora,
+          contabilizado_por: actor,
+        })
+        .eq('id', integ.id);
+
+      const nuevoComp: ContComprobante = {
+        id: compId,
+        empresa_clave: empresaClave,
+        ejercicio_id: periodo.ejercicio_id,
+        tipo_id: tipo.id,
+        periodo_id: periodo.id,
+        numero,
+        codigo,
+        fecha: generado.fecha,
+        concepto: generado.concepto,
+        estado,
+        origen: 'automatico',
+        origen_modulo: doc.origen_modulo,
+        origen_tabla: 'cont_integraciones',
+        origen_id: doc.id,
+        origen_ref: doc.origen_ref ?? null,
+        numero_lote: generado.numero_lote,
+        modificado: false,
+        regla_id: generado.regla.id,
+        moneda_documento: doc.moneda,
+        tasa: generado.tasa,
+        total_debe_ves: totalDebeVes,
+        total_haber_ves: totalHaberVes,
+        total_debe_usd: totalDebeUsd,
+        total_haber_usd: totalHaberUsd,
+        reverso_de_id: null,
+        historial: [{ at: ahora, evento: 'grabado', actor, origen: 'automatico' }],
+        created_at: ahora,
+        created_by: actor,
+        updated_at: null,
+        updated_by: null,
+      };
+
+      comprobantes.push(nuevoComp);
+      cbtesActuales.push(nuevoComp);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Error desconocido al contabilizar.';
+      errores.push({ documento: integ.documento_id, error: errorMsg });
+
+      await supabase
+        .from('cont_integraciones')
+        .update({
+          estado: 'error',
+          error_detalle: errorMsg,
+          updated_at: ahora,
+          updated_by: actor,
+        })
+        .eq('id', integ.id);
+    }
+  }
+
+  return { comprobantes, errores };
 }
 
 export async function listCierres(empresaClave = EMPRESA_DEFECTO): Promise<ContCierre[]> {
