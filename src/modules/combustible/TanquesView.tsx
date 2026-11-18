@@ -1728,11 +1728,11 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
                   <span style={{ fontSize: '.75rem', color: '#94a3b8' }}>Margen:</span>
                   <input
                     type="number"
-                    step="0.05"
-                    min="0.01"
+                    step="0.01"
+                    min="0"
                     max="10"
                     value={pctMermaImplicita}
-                    onChange={(e) => setPctMermaImplicita(Math.max(0.01, Number(e.target.value) || DEFAULT_MERMA_IMPLICITA_PCT))}
+                    onChange={(e) => setPctMermaImplicita(Math.max(0, Number(e.target.value) || 0))}
                     style={{ width: '56px', background: 'transparent', border: 'none', color: '#FF8A00', fontWeight: 700, fontSize: '.88rem', textAlign: 'right', outline: 'none' }}
                   />
                   <span style={{ fontSize: '.78rem', color: '#FF8A00', fontWeight: 700 }}>%</span>
