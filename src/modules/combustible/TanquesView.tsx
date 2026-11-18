@@ -219,7 +219,7 @@ export function TanquesView() {
 
   // GT-INT-16 · Faltaban `combustible_cubicaciones` (el modal de cubicación cargaba
   // el historial solo al montarse) y las transferencias con MGG.
-  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_conciliaciones', 'combustible_cubicaciones', 'transferencias_combustible_inter', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
+  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_contador_cambios', 'combustible_catalogos', 'combustible_conciliaciones', 'combustible_cubicaciones', 'transferencias_combustible_inter', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
     void reloadTanques();
     void reloadMovs(selId);
     setReloadKey((k) => k + 1);
@@ -1441,7 +1441,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
 
   // En vivo: si se elimina/edita/agrega un movimiento o se actualiza un horómetro en Maquinaria,
   // el HI del equipo y el contador del tanque se vuelven a consultar para no quedar desfasados.
-  useRealtime(['combustible_tanque_movimientos', 'maquinaria_lecturas', 'maquinaria_equipos'], () => { cargarHi(); cargarCi(); });
+  useRealtime(['combustible_tanque_movimientos', 'combustible_contador_cambios', 'maquinaria_lecturas', 'maquinaria_equipos'], () => { cargarHi(); cargarCi(); });
 
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
   // Litros usados según el contador del surtidor (final − inicial). No se modifica.
@@ -2221,7 +2221,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
       capacidadLitros: Number(capacidad) || 0,
       ubicacion: ubicacion || null,
       margenMermaPct: margen.trim() === '' ? MARGEN_MERMA_DEFECTO : Number(margen.replace(',', '.')),
-      mermaImplicitaPct: mermaImplicita.trim() === '' ? 0.5 : Number(mermaImplicita.replace(',', '.')),
+      mermaImplicitaPct: mermaImplicita.trim() === '' ? 0 : Number(mermaImplicita.replace(',', '.')),
     };
   }
 
