@@ -26,6 +26,7 @@ import { prefetchRuta, prefetchRutasEnIdle } from '@/shared/lib/routePrefetch';
 import { intentarSalir, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
+import { useAlertaCombustiblePush } from '@/modules/combustible/useAlertaCombustiblePush';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -56,6 +57,9 @@ export function AppShell() {
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono, puedeVerAlmacen } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Alerta push de poco combustible en tanques al acceder al sistema (anti-saturación)
+  useAlertaCombustiblePush('sistema');
   // Vistas inmersivas a pantalla completa para conductores en calle (Delivery / Carga Pesada)
   const esVistaInmersiva = location.pathname.startsWith('/app/delivery/telefono') || location.pathname.startsWith('/app/carga-pesada/telefono');
   // Pedidos (31/10/2026): se abre con «Solicitud de Pedido», «Compras» o el viejo `pedidos` (base).

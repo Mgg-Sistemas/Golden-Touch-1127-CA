@@ -5,7 +5,10 @@ import { num } from '@/shared/lib/format';
 import { combustibleDisponibleGeneral, UMBRAL_COMBUSTIBLE_BAJO } from '@/modules/combustible/tanques.repository';
 import { push as pushNotif, markReadByDedup } from '@/modules/notificaciones/notif.repository';
 import { emitNotifRefresh } from '@/shared/lib/notify';
-import { emitirWebPush } from '@/shared/lib/webpush';
+import {
+  limpiarMarcasSesionCombustible,
+  notificarCombustibleBajoSiAplica,
+} from '@/modules/combustible/alertaCombustiblePush';
 
 /** Cada cuánto reaparece el aviso tras cerrarlo (2 horas). */
 const SNOOZE_MS = 2 * 60 * 60 * 1000;
@@ -26,7 +29,8 @@ function leerSnooze(): number {
  * compre el combustible y entre en los totales. Además deja una notificación en la campana.
  */
 export function AvisoCombustibleBajo() {
-  const { isAdmin, can } = usePermissions();
+  const perms = usePermissions();
+  const { isAdmin, can } = perms;
   const audiencia = isAdmin || can('tesoreria') || can('combustible') || can('inventario');
 
   const [litros, setLitros] = useState<number | null>(null);
@@ -71,22 +75,19 @@ export function AvisoCombustibleBajo() {
           message: msgCuerpo,
           link: '#/app/combustible',
           dedup_key: DEDUP,
-        }).then((creada) => {
-          if (creada) {
-            emitNotifRefresh();
-            void emitirWebPush({
-              modulo: 'combustible',
-              titulo: '⛽ Hay que comprar combustible',
-              cuerpo: msgCuerpo,
-              url: '/app/combustible',
-              tag: 'gt-combustible-bajo',
-              vibrar: true,
-            });
-          }
+        }).then(() => {
+          emitNotifRefresh();
         }).catch(() => { /* best-effort */ });
+
+        // Emisión Web Push respetando permisos sobre combustible y anti-saturación
+        void notificarCombustibleBajoSiAplica({
+          tipoAcceso: 'sistema',
+          perms,
+        });
       }
     } else {
       pushedRef.current = false;
+      limpiarMarcasSesionCombustible();
       if (!clearedRef.current) {
         clearedRef.current = true;
         markReadByDedup(DEDUP).then(() => emitNotifRefresh()).catch(() => { /* best-effort */ });
@@ -95,7 +96,7 @@ export function AvisoCombustibleBajo() {
       try { localStorage.removeItem(SNOOZE_KEY); } catch { /* sin storage */ }
       if (snoozeUntil) setSnoozeUntil(0);
     }
-  }, [litros, bajo, audiencia, snoozeUntil]);
+  }, [litros, bajo, audiencia, snoozeUntil, perms]);
 
   function cerrar() {
     const until = Date.now() + SNOOZE_MS;

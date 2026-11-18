@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useAlertaCombustiblePush } from './useAlertaCombustiblePush';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
@@ -73,6 +74,9 @@ export function SurtidorMovilView() {
   const { user } = useSession();
   const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const canWrite = can('combustible', 'escritura');
+
+  // Alerta push al acceder al módulo surtidor móvil si la alerta roja está activa
+  useAlertaCombustiblePush('modulo');
   const isAdmin = can('combustible', 'full');
   // Rol solo teléfono: no tiene módulo de PC al que ir.
   const esSurtidor = soloTelefono;

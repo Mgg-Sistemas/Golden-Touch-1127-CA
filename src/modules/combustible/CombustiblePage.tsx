@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { TanquesView } from './TanquesView';
+import { useAlertaCombustiblePush } from './useAlertaCombustiblePush';
 
 /**
  * Módulo Combustible. La sección «Solicitudes de salida» se retiró de la interfaz
@@ -11,6 +12,9 @@ import { TanquesView } from './TanquesView';
 export function CombustiblePage() {
   // Un rol solo teléfono no llega aquí: RequireModule lo manda a su pantalla de teléfono.
   const { puedeVista } = usePermissions();
+
+  // Notificación push al acceder al módulo si la alerta roja de poco combustible está activa
+  useAlertaCombustiblePush('modulo');
   return (
     <div>
       <div className="page-head">
