@@ -738,6 +738,92 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 .flo-mv-opcion { min-height: 48px; justify-content: center; gap: .5rem; white-space: normal; text-align: center; font-size: .9rem; }
 .flo-mv-opcion.ficha { color: var(--primary-2); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
 
+/* ── Selector de modalidad en formulario móvil (Solicitar a Compras vs Registrar en Bitácora) ── */
+.flo-mv-form-card {
+  padding: .95rem .85rem !important;
+}
+
+.flo-mv-modo-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: .5rem !important;
+  margin-bottom: .75rem !important;
+}
+
+.flo-mv-modo-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: .2rem !important;
+  min-height: 68px !important;
+  padding: .55rem .45rem !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  border-radius: var(--r-md) !important;
+  border: 1px solid var(--border-strong) !important;
+  background: var(--bg-1) !important;
+  color: var(--text) !important;
+  cursor: pointer;
+  text-align: center;
+  font: inherit;
+  transition: all var(--t-fast, .15s ease);
+  user-select: none;
+}
+
+.flo-mv-modo-btn .ico {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.flo-mv-modo-btn .tit {
+  font-size: .84rem;
+  font-weight: 700;
+  line-height: 1.18;
+  color: var(--text);
+}
+
+.flo-mv-modo-btn .sub {
+  font-size: .71rem;
+  font-weight: 500;
+  line-height: 1.15;
+  color: var(--text-muted);
+}
+
+.flo-mv-modo-btn.activa {
+  background: var(--grad-primary-soft) !important;
+  border: 2px solid var(--primary) !important;
+  box-shadow: var(--glow-primary) !important;
+}
+
+.flo-mv-modo-btn.activa .tit {
+  color: var(--primary-3);
+}
+
+.flo-mv-modo-btn.activa .sub {
+  color: var(--text);
+  opacity: .9;
+}
+
+.flo-mv-modo-btn:active {
+  transform: scale(0.98);
+}
+
+/* Grillas auxiliares en tarjetas móviles (evitan el colapso genérico de estilos inline en <=600px) */
+.flo-mv-grid2 {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: .45rem !important;
+}
+
+.flo-mv-fotos-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)) !important;
+  gap: .5rem !important;
+  margin-top: .65rem !important;
+}
+
 /* ── Grilla / Tabla de Sistemas e Intervenciones de Servicio (Móvil) ── */
 .flo-mv-servicios-grid {
   display: grid !important;
@@ -746,7 +832,7 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
   margin: .35rem 0 .75rem !important;
 }
 
-@media (max-width: 320px) {
+@media (max-width: 330px) {
   .flo-mv-servicios-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
@@ -757,17 +843,18 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: .5rem .25rem !important;
-  gap: .25rem !important;
-  min-height: 72px !important;
+  padding: .55rem .35rem !important;
+  gap: .3rem !important;
+  min-height: 76px !important;
   border-radius: var(--r-md) !important;
   border: 1px solid var(--border-strong) !important;
-  background: var(--surface-2) !important;
+  background: var(--bg-1) !important;
   color: var(--text) !important;
   cursor: pointer;
   text-align: center;
   transition: all var(--t-fast, .15s ease);
   width: 100% !important;
+  min-width: 0 !important;
   box-sizing: border-box !important;
   user-select: none;
 }
@@ -796,12 +883,15 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 }
 
 .flo-mv-servicio-btn .lbl {
-  font-size: .8rem;
+  font-size: .78rem;
   font-weight: 600;
-  line-height: 1.18;
-  white-space: normal;
+  line-height: 1.22;
+  white-space: pre-line;
   text-align: center;
   display: block;
+  width: 100%;
+  padding: 0 3px;
+  box-sizing: border-box;
   overflow: visible;
   letter-spacing: -0.01em;
   word-break: normal;

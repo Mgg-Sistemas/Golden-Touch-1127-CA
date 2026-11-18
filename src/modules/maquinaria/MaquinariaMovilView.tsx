@@ -702,9 +702,12 @@ export function MaquinariaMovilView() {
 
   const formatoEtiquetaServicio = (label: string): string => {
     return label
-      .replace('Cambio de piezas', 'Cambio de\u00A0piezas')
-      .replace('Cauchos / neumáticos', 'Cauchos\u00A0/ neumáticos')
-      .replace('Aceite y filtros', 'Aceite\u00A0y filtros');
+      .replace('Mantenimiento preventivo', 'Mantenimiento\npreventivo')
+      .replace('Cambio de piezas', 'Cambio de\npiezas')
+      .replace('Cauchos / neumáticos', 'Cauchos /\nneumáticos')
+      .replace('Aceite y filtros', 'Aceite y\nfiltros')
+      .replace('Sistema eléctrico', 'Sistema\neléctrico')
+      .replace('Sistema hidráulico', 'Sistema\nhidráulico');
   };
 
   return (
@@ -1169,55 +1172,39 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Solicitar Servicio (a Compras) o Registrar Servicio / Mantenimiento (Bitácora) ── */}
       {modo === 'servicio' && (
-        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2)' }}>
+        <div className="card flo-mv-form-card" style={{ marginBottom: '1rem', background: 'var(--surface-2)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem', gap: '.5rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.02rem', lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: '.35rem', minWidth: 0 }}>
               <span>{tipoAccionServicio === 'registrar' ? '📒' : '🔧'}</span>
-              <span>{tipoAccionServicio === 'registrar' ? 'Registrar Servicio / Mantenimiento' : 'Solicitud de Servicio a Compras'}</span>
+              <span>{tipoAccionServicio === 'registrar' ? 'Registrar Servicio / Mant.' : 'Solicitar Servicio a Compras'}</span>
             </h3>
-            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem', flexShrink: 0 }} onClick={() => setModo('menu')}>✕ Volver</button>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.82rem', flexShrink: 0, padding: '.25rem .55rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>
 
-          {/* Selector táctil de modalidad: Solicitar a Compras vs Registrar Servicio ya realizado (Solo Bitácora) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.45rem', marginBottom: '.85rem' }}>
+          {/* Selector táctil de modalidad en 2 columnas parejo: Solicitar a Compras vs Registrar en Bitácora */}
+          <div className="flo-mv-modo-grid" role="tablist" aria-label="Tipo de registro de servicio">
             <button
               type="button"
-              className={`btn ${tipoAccionServicio === 'solicitar' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{
-                padding: '.55rem .5rem',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '.15rem',
-                minHeight: '54px',
-                lineHeight: 1.2,
-                border: tipoAccionServicio === 'solicitar' ? undefined : '1px solid var(--border)',
-              }}
+              role="tab"
+              aria-selected={tipoAccionServicio === 'solicitar'}
+              className={`flo-mv-modo-btn ${tipoAccionServicio === 'solicitar' ? 'activa' : ''}`}
               onClick={() => setTipoAccionServicio('solicitar')}
             >
-              <strong style={{ fontSize: '.84rem' }}>🛒 Solicitar Servicio</strong>
-              <span style={{ fontSize: '.7rem', opacity: 0.85 }}>Enviar a Compras</span>
+              <span className="ico">🛒</span>
+              <span className="tit">Solicitar Servicio</span>
+              <span className="sub">Enviar a Compras</span>
             </button>
 
             <button
               type="button"
-              className={`btn ${tipoAccionServicio === 'registrar' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{
-                padding: '.55rem .5rem',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '.15rem',
-                minHeight: '54px',
-                lineHeight: 1.2,
-                border: tipoAccionServicio === 'registrar' ? undefined : '1px solid var(--border)',
-              }}
+              role="tab"
+              aria-selected={tipoAccionServicio === 'registrar'}
+              className={`flo-mv-modo-btn ${tipoAccionServicio === 'registrar' ? 'activa' : ''}`}
               onClick={() => setTipoAccionServicio('registrar')}
             >
-              <strong style={{ fontSize: '.84rem' }}>📒 Registrar Servicio / Mant.</strong>
-              <span style={{ fontSize: '.7rem', opacity: 0.85 }}>Ya realizado · Solo Bitácora</span>
+              <span className="ico">📒</span>
+              <span className="tit">Registrar Servicio</span>
+              <span className="sub">Solo Bitácora</span>
             </button>
           </div>
 
@@ -1620,7 +1607,7 @@ export function MaquinariaMovilView() {
               </label>
 
               {fotosServicio.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(78px, 1fr))', gap: '.5rem', marginTop: '.65rem' }}>
+                <div className="flo-mv-fotos-grid">
                   {fotosServicio.map((f, idx) => (
                     <div
                       key={`${f.name}-${idx}`}
@@ -1677,13 +1664,13 @@ export function MaquinariaMovilView() {
             <button
               type="button"
               className="btn btn-primary"
-              style={{ padding: '.85rem', fontWeight: 700, fontSize: '1rem' }}
+              style={{ padding: '.85rem', fontWeight: 700, fontSize: '.98rem', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.25 }}
               disabled={saving}
               onClick={() => void (tipoAccionServicio === 'registrar' ? guardarServicioBitacora() : guardarServicio())}
             >
               {saving
                 ? (tipoAccionServicio === 'registrar' ? 'Guardando en Bitácora…' : 'Enviando a Compras…')
-                : (tipoAccionServicio === 'registrar' ? '📒 Guardar en Bitácora (Sin enviar a Compras)' : '🛒 Guardar y Enviar a Compras')}
+                : (tipoAccionServicio === 'registrar' ? '📒 Guardar en Bitácora' : '🛒 Guardar y Enviar a Compras')}
             </button>
           </div>
         </div>
@@ -1710,7 +1697,7 @@ export function MaquinariaMovilView() {
 
             <div>
               <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Tipo de lavado</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.45rem' }}>
+              <div className="flo-mv-grid2">
                 {TIPOS_LAVADO.map((t) => (
                   <button
                     key={t}
@@ -1781,7 +1768,7 @@ export function MaquinariaMovilView() {
 
             <div>
               <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Nuevo estado del equipo</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.45rem' }}>
+              <div className="flo-mv-grid2">
                 <button
                   type="button"
                   className={`btn ${estadoAveria === 'averiada' ? 'btn-danger' : 'btn-ghost'}`}
