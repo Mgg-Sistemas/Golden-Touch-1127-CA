@@ -461,7 +461,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
               <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
             )}
             {accion?.tipo === 'entregar' && pedidoAccion && (
-              <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
+              <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} onAbrirFotos={() => setFotosModalDe(pedidoAccion)} />
             )}
             {accion?.tipo === 'no_disponible' && pedidoAccion && (
               <NoDisponibleModal p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
@@ -539,7 +539,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                       title="Administrar fotos de esta orden"
                     >
                       <span>
-                        📸 Evidencias ({enCurso.fotos_recibo.length} recibo · {enCurso.fotos_entrega.length} entrega)
+                        📸 Evidencias ({enCurso.fotos_recibo.length} recibo{!esRetiroAlmacen(enCurso) ? ` · ${enCurso.fotos_factura.length} factura` : ''} · {enCurso.fotos_entrega.length} entrega)
                       </span>
                       <span className="dlv-chip-cta">Tomar / Ver →</span>
                     </div>
@@ -756,7 +756,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                             <div style={{ fontSize: '.85rem', color: '#cbd5e1' }}>
                               <div>🏬 Recibido en: Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
                               <div style={{ color: '#94a3b8', fontSize: '.78rem', marginTop: 4 }}>
-                                📷 {p.fotos_recibo.length + p.fotos_entrega.length} fotos guardadas
+                                📷 {p.fotos_recibo.length + p.fotos_factura.length + p.fotos_entrega.length} fotos guardadas
                               </div>
                             </div>
                             {p.pedido_id && (
@@ -807,18 +807,23 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
         />
       )}
 
-      {fotosModalDe && fotosModalDe.pedido_id && (
-        <EditarFotosDeliveryModal
-          pedidoId={fotosModalDe.pedido_id}
-          origen={fotosModalDe.origen}
-          titulo={esRetiroAlmacen(fotosModalDe) ? `Fotos de ${fotosModalDe.codigo}` : `Fotos de ${ocDe(fotosModalDe)}`}
-          fotosRecibo={fotosModalDe.fotos_recibo}
-          fotosEntrega={fotosModalDe.fotos_entrega}
-          fotosFactura={fotosModalDe.fotos_factura}
-          onClose={() => setFotosModalDe(null)}
-          onGuardado={() => { setFotosModalDe(null); void reload(); }}
-        />
-      )}
+      {fotosModalDe && fotosModalDe.pedido_id && (() => {
+        const pedidoVivo = feed.find((f) => f.p.pedido_id === fotosModalDe.pedido_id)?.p ?? fotosModalDe;
+        if (!pedidoVivo.pedido_id) return null;
+        return (
+          <EditarFotosDeliveryModal
+            pedidoId={pedidoVivo.pedido_id}
+            estado={pedidoVivo.estado}
+            origen={pedidoVivo.origen}
+            titulo={esRetiroAlmacen(pedidoVivo) ? `Fotos de ${pedidoVivo.codigo}` : `Fotos de ${ocDe(pedidoVivo)}`}
+            fotosRecibo={pedidoVivo.fotos_recibo}
+            fotosEntrega={pedidoVivo.fotos_entrega}
+            fotosFactura={pedidoVivo.fotos_factura}
+            onClose={() => setFotosModalDe(null)}
+            onGuardado={() => { setFotosModalDe(null); void reload(); }}
+          />
+        );
+      })()}
 
       {comprobanteDe && <ComprobantePago p={comprobanteDe} onClose={() => setComprobanteDe(null)} />}
     </div>
@@ -899,8 +904,8 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
 }
 
 /* ── Formulario de Entrega ── */
-function FormEntregar({ p, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+function FormEntregar({ p, quien, onCancel, onHecho, onAbrirFotos }: {
+  p: PedidoDelivery; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void; onAbrirFotos: () => void;
 }) {
   const [recibidoPor, setRecibidoPor] = useState('');
   const [nota, setNota] = useState('');
@@ -912,18 +917,25 @@ function FormEntregar({ p, quien, onCancel, onHecho }: {
     if (!recibidoPor.trim()) { toast('Escribe el nombre de quien recibe.', 'error'); return; }
     if ((p.fotos_entrega?.length ?? 0) === 0) {
       toast('📸 Es obligatorio subir la foto de la guía firmada / entrega antes de finalizar.', 'error');
+      onAbrirFotos();
       return;
     }
     setGuardando(true);
     const almacen = nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino);
+    const notaCompleta = [
+      `Recibido por: ${recibidoPor.trim()}`,
+      nota.trim() || '',
+    ].filter(Boolean).join(' · ');
     try {
-      await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
+      await marcarEntregado(p.pedido_id, almacen, notaCompleta || null);
       toast(`Entrega registrada correctamente.`, 'success');
-      onHecho('Entrega finalizada', mensajeEntregado(p, quien, almacen, nota.trim() || null));
+      onHecho('Entrega finalizada', mensajeEntregado(p, quien, almacen, notaCompleta || null));
     } catch (err) {
       toast(errMsg(err, 'No se pudo registrar la entrega'), 'error');
     } finally { setGuardando(false); }
   }
+
+  const tieneFotoEntrega = (p.fotos_entrega?.length ?? 0) > 0;
 
   return (
     <form className="dlv-cockpit" onSubmit={(e) => void guardar(e)}>
@@ -931,6 +943,20 @@ function FormEntregar({ p, quien, onCancel, onHecho }: {
         <span className="dlv-cockpit-tag" style={{ color: '#34d399' }}>📦 Finalizar Entrega</span>
         <span style={{ fontSize: '.85rem', color: '#94a3b8' }}>{esRetiroAlmacen(p) ? p.codigo : ocDe(p)}</span>
       </div>
+
+      <button
+        type="button"
+        className={`btn ${tieneFotoEntrega ? 'btn-ghost' : 'btn-primary dlv-btn-hero-amber'}`}
+        style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
+        onClick={onAbrirFotos}
+      >
+        <span>
+          {tieneFotoEntrega
+            ? `✓ Foto de entrega lista (${p.fotos_entrega.length}${!esRetiroAlmacen(p) ? ` · factura: ${p.fotos_factura.length}` : ''})`
+            : '📸 Subir foto de entrega / factura (Obligatoria)'}
+        </span>
+        <span style={{ fontSize: '.8rem', opacity: 0.9 }}>{tieneFotoEntrega ? 'Ver / Editar →' : 'Abrir cámara →'}</span>
+      </button>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <label style={{ fontSize: '.82rem', color: '#94a3b8' }}>¿Quién recibe el material?</label>

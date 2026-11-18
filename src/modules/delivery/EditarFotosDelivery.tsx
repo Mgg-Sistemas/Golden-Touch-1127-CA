@@ -24,8 +24,12 @@ export function puedeEditarFotosDelivery(
   return p.estado === 'entregado' && !!p.pedido_id && (admin || escritura || !!p.es_mio);
 }
 
-export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, onClose, onGuardado }: {
-  pedidoId: string; origen: OrigenDelivery | null | undefined; titulo: string;
+export function EditarFotosDeliveryModal({ pedidoId, estado = 'entregado', origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, onClose, onGuardado }: {
+  pedidoId: string;
+  /** Estado actual del pedido (`aceptado` | `en_ruta` | `entregado`): define la RPC de guardado. */
+  estado?: string | null;
+  origen: OrigenDelivery | null | undefined;
+  titulo: string;
   fotosRecibo: FotoDelivery[]; fotosEntrega: FotoDelivery[];
   /** 11/11/2026: fotos de la factura del proveedor (solo compras). */
   fotosFactura?: FotoDelivery[];
@@ -67,7 +71,7 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
     try {
       let sinBorrar = 0;
       for (const t of cambios) {
-        const r = await editarFotosDelivery(pedidoId, t, quedan[t], nuevos[t], quitadas[t]);
+        const r = await editarFotosDelivery(pedidoId, t, quedan[t], nuevos[t], quitadas[t], estado);
         sinBorrar += r.sinBorrar;
       }
       toast(sinBorrar ? `Fotos guardadas (${sinBorrar} archivo(s) no se pudieron borrar del almacenamiento).` : 'Fotos guardadas.', sinBorrar ? 'warning' : 'success');
@@ -127,7 +131,7 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
 
   return (
     <>
-      <Modal title={`✏ Editar fotos · ${titulo}`} size="lg" onClose={guardando ? () => {} : onClose}
+      <Modal title={`${estado === 'entregado' ? '✏ Editar fotos' : '📸 Cargar / editar fotos'} · ${titulo}`} size="lg" onClose={guardando ? () => {} : onClose}
         footer={<>
           <button type="button" className="btn btn-ghost" disabled={guardando} onClick={onClose}>Cancelar</button>
           <button type="button" className="btn btn-primary" disabled={guardando || !cambios.length} onClick={() => void guardar()}>

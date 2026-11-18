@@ -436,3 +436,14 @@ export function esDelCanal(modalidad: string | null | undefined, canal: CanalDel
   const m = modalidad === 'carga_pesada' || modalidad === 'proveedor' ? modalidad : 'delivery';
   return canal === 'carga_pesada' ? m === 'carga_pesada' : m !== 'carga_pesada';
 }
+
+/**
+ * RPC de base de datos que corresponde según el estado actual del pedido:
+ * · En curso (`aceptado` / `en_ruta`) → `delivery_fotos` (carga operativa del motorizado).
+ * · Ya entregado (`entregado` o sin estado explícito desde el historial) → `delivery_editar_fotos`
+ *   (deja rastro de auditoría `fotos_editadas` en `historial`).
+ */
+export function rpcFotosParaEstado(estado?: string | null): 'delivery_fotos' | 'delivery_editar_fotos' {
+  if (estado === 'aceptado' || estado === 'en_ruta') return 'delivery_fotos';
+  return 'delivery_editar_fotos';
+}

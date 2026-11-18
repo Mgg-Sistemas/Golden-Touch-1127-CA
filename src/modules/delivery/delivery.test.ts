@@ -168,4 +168,12 @@ describe('canales Delivery / Carga pesada (04/11/2026)', () => {
     expect(tituloPantallaCanal('carga_pesada')).toBe('CARGA PESADA');
     expect(tituloPantallaCanal('delivery')).toBe('Delivery');
   });
+
+  it('elige delivery_fotos mientras el pedido está en curso y delivery_editar_fotos cuando ya fue entregado', async () => {
+    const { rpcFotosParaEstado } = await import('./delivery');
+    expect(rpcFotosParaEstado('aceptado')).toBe('delivery_fotos');
+    expect(rpcFotosParaEstado('en_ruta')).toBe('delivery_fotos');
+    expect(rpcFotosParaEstado('entregado')).toBe('delivery_editar_fotos');
+    expect(rpcFotosParaEstado(undefined)).toBe('delivery_editar_fotos');
+  });
 });

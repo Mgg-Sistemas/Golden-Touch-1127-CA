@@ -24,7 +24,7 @@ import { comprobantesDeLaOrden } from '@/modules/pedidos/adjuntosPago';
 import { labelMetodoPago, urlAdjuntoOc } from '@/modules/pedidos/pedidos.repository';
 import type { PagoMetodo } from '@/shared/lib/types';
 import {
-  INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, type FotoDelivery, type TipoFotoDelivery, type OrigenDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
+  INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, rpcFotosParaEstado, type FotoDelivery, type TipoFotoDelivery, type OrigenDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';
 import { puntoValido, type LugarDelivery, type PuntoMapa, type UbicacionesProveedores } from './deliveryRutas';
 
@@ -163,13 +163,21 @@ export async function subirFotosDelivery(
 }
 
 /**
- * 03/11/2026 · Editar las fotos de un pedido YA ENTREGADO (supabase/2026-11-03-delivery-editar-fotos.sql):
- * sube las nuevas (comprimidas), anota la lista final con `delivery_editar_fotos` (admin, escritura en
- * Delivery o el motorizado que lo entregó; queda en el historial) y recién después borra del bucket los
- * archivos quitados — desde la app, porque Supabase no deja borrar storage.objects desde SQL.
+ * Guarda cambios de fotos (agregar / quitar) de un pedido de Delivery:
+ * · Si el pedido sigue EN CURSO (`aceptado` / `en_ruta`), usa `delivery_fotos` para no rechazar
+ *   al motorizado con «Solo se pueden editar las fotos de un pedido entregado».
+ * · Si ya está `entregado`, usa `delivery_editar_fotos` (deja rastro en `historial` y borra del
+ *   bucket los archivos quitados).
+ * · Si el estado de pantalla quedó desfasado en cualquiera de los dos sentidos, reintenta con la
+ *   otra RPC antes de fallar para no perder las fotos recién tomadas.
  */
 export async function editarFotosDelivery(
-  pedidoId: string, tipo: TipoFotoDelivery, quedan: FotoDelivery[], nuevos: File[], quitadas: FotoDelivery[],
+  pedidoId: string,
+  tipo: TipoFotoDelivery,
+  quedan: FotoDelivery[],
+  nuevos: File[],
+  quitadas: FotoDelivery[],
+  estado?: string | null,
 ): Promise<{ fotos: FotoDelivery[]; sinBorrar: number }> {
   if (quedan.length + nuevos.length > MAX_FOTOS_DELIVERY) throw new Error(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`);
   const subidas = await Promise.all(nuevos.map(async (original) => {
@@ -180,7 +188,26 @@ export async function editarFotosDelivery(
     return { path, filename: original.name };
   }));
   const fotos = [...quedan, ...subidas];
-  const { error } = await supabase.rpc('delivery_editar_fotos', { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos });
+  const rpcPrimaria = rpcFotosParaEstado(estado);
+  const args = { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos };
+  let { error } = await supabase.rpc(rpcPrimaria, args);
+  let usoEditarEntregado = rpcPrimaria === 'delivery_editar_fotos';
+
+  if (error) {
+    const msg = String((error as { message?: string }).message ?? '');
+    if (rpcPrimaria === 'delivery_editar_fotos' && /pedido entregado/i.test(msg)) {
+      const retry = await supabase.rpc('delivery_fotos', args);
+      error = retry.error;
+      usoEditarEntregado = false;
+    } else if (rpcPrimaria === 'delivery_fotos' && /entregado|solo el delivery/i.test(msg)) {
+      const retry = await supabase.rpc('delivery_editar_fotos', args);
+      if (!retry.error) {
+        error = null;
+        usoEditarEntregado = true;
+      }
+    }
+  }
+
   if (error) {
     // No quedaron anotadas: se limpian las recién subidas para no dejar huérfanas.
     if (subidas.length) await supabase.storage.from(BUCKET).remove(subidas.map((s) => s.path)).catch(() => {});
@@ -189,7 +216,9 @@ export async function editarFotosDelivery(
   let sinBorrar = 0;
   if (quitadas.length) {
     const { data, error: e2 } = await supabase.storage.from(BUCKET).remove(quitadas.map((q) => q.path));
-    sinBorrar = e2 ? quitadas.length : Math.max(0, quitadas.length - (data?.length ?? 0));
+    if (usoEditarEntregado) {
+      sinBorrar = e2 ? quitadas.length : Math.max(0, quitadas.length - (data?.length ?? 0));
+    }
   }
   return { fotos, sinBorrar };
 }
