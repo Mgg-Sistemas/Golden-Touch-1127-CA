@@ -87,6 +87,26 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+const MARCA_FOTOS_OBS = '\n[FOTOS_BITACORA:';
+
+function hidratarFilaMant(r: MantenimientoMaquinaria): MantenimientoMaquinaria {
+  let obs = r.observacion ?? null;
+  let fotos = Array.isArray(r.fotos) ? r.fotos : null;
+  if (obs && obs.includes('[FOTOS_BITACORA:')) {
+    const idx = obs.indexOf('[FOTOS_BITACORA:');
+    const fin = obs.indexOf(']', idx);
+    if (fin > idx) {
+      const raw = obs.slice(idx + '[FOTOS_BITACORA:'.length, fin);
+      try {
+        const parsed = JSON.parse(raw);
+        if ((!fotos || !fotos.length) && Array.isArray(parsed)) fotos = parsed;
+      } catch { /* ignore */ }
+      obs = (obs.slice(0, idx) + obs.slice(fin + 1)).trim() || null;
+    }
+  }
+  return { ...r, observacion: obs, fotos };
+}
+
 /**
  * Lista la bitácora de un equipo (más reciente primero) y calcula HRS y consumo Lts/h.
  * HRS = lectura de este registro − lectura del registro inmediatamente anterior en el
@@ -98,7 +118,7 @@ export async function listMantenimientos(equipoId: string): Promise<Mantenimient
     .order('fecha', { ascending: false })
     .order('created_at', { ascending: false });
   if (error) throw error;
-  const rows = (data ?? []) as MantenimientoMaquinaria[];
+  const rows = ((data ?? []) as MantenimientoMaquinaria[]).map(hidratarFilaMant);
   // rows está en orden descendente (nuevo→viejo). El "anterior" de la fila i es la fila i+1.
   return rows.map((r, i) => {
     const actual = num(r.horometro);
@@ -108,6 +128,18 @@ export async function listMantenimientos(equipoId: string): Promise<Mantenimient
     const consumoLh = gasoil != null && horas != null && horas > 0 ? Math.round((gasoil / horas) * 10000) / 10000 : null;
     return { ...r, horas, consumoLh };
   });
+}
+
+/** Últimos mantenimientos registrados por un usuario (para «Mis Solicitudes y Registros» en el teléfono). */
+export async function listMantenimientosDeActor(actor: string, limite = 25): Promise<MantenimientoMaquinaria[]> {
+  if (!actor.trim()) return [];
+  const { data, error } = await supabase.from(TABLE)
+    .select('*')
+    .eq('created_by', actor.trim())
+    .order('created_at', { ascending: false })
+    .limit(limite);
+  if (error) return [];
+  return ((data ?? []) as MantenimientoMaquinaria[]).map(hidratarFilaMant);
 }
 
 function sanitize(input: MantenimientoInput): Record<string, unknown> {
@@ -125,6 +157,8 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
     gasoil_lts: num(input.gasoil_lts),
     trabajo: v(input.trabajo), consumibles: v(input.consumibles),
     mecanico: v(input.mecanico), ubicacion: v(input.ubicacion), observacion: v(input.observacion),
+    ...(Array.isArray(input.tipos) && input.tipos.length ? { tipos: input.tipos } : {}),
+    ...(Array.isArray(input.fotos) && input.fotos.length ? { fotos: input.fotos } : {}),
   };
 }
 
@@ -164,15 +198,35 @@ export async function ultimosMantenimientosPorEquipo(): Promise<Map<string, Ulti
   return out;
 }
 
+const faltaColumnaExtra = (e: { code?: string; message?: string } | null | undefined): boolean =>
+  !!e && (
+    e.code === '42703'
+    || e.code === 'PGRST204'
+    || /Could not find the '(?:fotos|tipos)' column|column .*(?:fotos|tipos).* does not exist/i.test(e.message ?? '')
+  );
+
+function payloadSinColumnasExtras(base: Record<string, unknown>, fotos?: { path: string; filename: string }[] | null): Record<string, unknown> {
+  const copia = { ...base };
+  delete copia.fotos;
+  delete copia.tipos;
+  if (Array.isArray(fotos) && fotos.length) {
+    const obsPrev = typeof copia.observacion === 'string' ? copia.observacion : '';
+    copia.observacion = `${obsPrev}${MARCA_FOTOS_OBS}${JSON.stringify(fotos)}]`.trim();
+  }
+  return copia;
+}
+
 export async function addMantenimiento(
   input: MantenimientoInput,
   actor: string,
   actorName?: string | null,
   opts?: { reiniciarContador?: boolean },
 ): Promise<MantenimientoMaquinaria> {
-  const { data, error } = await supabase.from(TABLE)
-    .insert({ ...sanitize(input), created_by: actor, actor_name: actorName ?? null })
-    .select('*').single();
+  const base = { ...sanitize(input), created_by: actor, actor_name: actorName ?? null };
+  let { data, error } = await supabase.from(TABLE).insert(base).select('*').single();
+  if (error && faltaColumnaExtra(error)) {
+    ({ data, error } = await supabase.from(TABLE).insert(payloadSinColumnasExtras(base, input.fotos)).select('*').single());
+  }
   if (error) throw error;
 
   if (opts?.reiniciarContador) {
@@ -186,11 +240,15 @@ export async function addMantenimiento(
     }
   }
 
-  return data as MantenimientoMaquinaria;
+  return hidratarFilaMant(data as MantenimientoMaquinaria);
 }
 
 export async function updateMantenimiento(id: string, input: MantenimientoInput): Promise<void> {
-  const { error } = await supabase.from(TABLE).update(sanitize(input)).eq('id', id);
+  const base = sanitize(input);
+  let { error } = await supabase.from(TABLE).update(base).eq('id', id);
+  if (error && faltaColumnaExtra(error)) {
+    ({ error } = await supabase.from(TABLE).update(payloadSinColumnasExtras(base, input.fotos)).eq('id', id));
+  }
   if (error) throw error;
 }
 

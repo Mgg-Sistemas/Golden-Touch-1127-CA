@@ -14,7 +14,7 @@
    ============================================================ */
 import { num as fmtNum } from '@/shared/lib/format';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { estadoEfectivo, ESTADOS_EQUIPO } from './flota';
+import { estadoEfectivo, ESTADOS_EQUIPO, servicioPorId } from './flota';
 
 /** Limpia cualquier selector invisible U+FE0F que descompone emojis en WhatsApp. */
 const sinSelector = (s: string) => s.replace(/\uFE0F/g, '');
@@ -472,6 +472,97 @@ export function textoReporteFlotaWhatsapp(d: DatosReporteFlotaWhatsapp): string 
   }
 
   lineas.push('');
+  lineas.push(sinSelector('_Enviado desde el Sistema Golden Touch_'));
+
+  return lineas.join('\n');
+}
+
+/* ── 8. Servicio / Mantenimiento YA REALIZADO (directo a Bitácora, sin enviar a Compras) ── */
+
+/** Traduce las intervenciones seleccionadas y piezas usadas a los códigos `tipo` / `tipos` de `maquinaria_mantenimientos`. */
+export function tiposBitacoraDeIntervenciones(
+  intervenciones: string[],
+  piezas: Array<{ nombre: string }> = [],
+): string[] {
+  const out: string[] = [];
+  const push = (t: string) => { if (t && !out.includes(t)) out.push(t); };
+  for (const id of intervenciones) {
+    const s = servicioPorId(id);
+    if (s?.bitacora) push(s.bitacora);
+    if (id === 'aceite') push('cambio_filtro');
+  }
+  const nombresTxt = piezas.map((p) => (p.nombre ?? '').toLowerCase()).join(' ');
+  if (/\bfiltros?\b/.test(nombresTxt)) push('cambio_filtro');
+  if (/\bmangueras?\b/.test(nombresTxt)) push('cambio_manguera');
+  if (!out.length) push('servicio');
+  return out;
+}
+
+export interface DatosMantenimientoBitacoraWhatsapp {
+  equipo: string;
+  tipoEquipo?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  placa?: string | null;
+  fechaServicio: string; // YYYY-MM-DD
+  intervenciones: string[];
+  horasActuales?: number | null;
+  kmActuales?: number | null;
+  responsable?: string | null;
+  registradoPor?: string | null;
+  descripcion: string;
+  repuestos?: Array<{
+    nombre: string;
+    cantidad: number;
+    unidad?: string | null;
+  }>;
+  fotosCount?: number;
+}
+
+export function textoMantenimientoBitacoraWhatsapp(d: DatosMantenimientoBitacoraWhatsapp): string {
+  const partesFecha = /^(\d{4})-(\d{2})-(\d{2})/.exec(d.fechaServicio.trim());
+  const fechaServicioLegible = partesFecha ? `${partesFecha[3]}/${partesFecha[2]}/${partesFecha[1]}` : d.fechaServicio;
+  const eqDetalle = [d.tipoEquipo, d.marca, d.modelo, d.placa ? `Placa ${d.placa}` : null].filter(Boolean).join(' · ');
+  const etiquetasInterv = d.intervenciones
+    .map((id) => servicioPorId(id)?.label ?? id)
+    .filter(Boolean)
+    .join(', ');
+
+  const lineas: string[] = [
+    sinSelector('🔧 *GOLDEN TOUCH 1127 CA*'),
+    sinSelector('📒 *SERVICIO / MANTENIMIENTO REGISTRADO EN BITÁCORA*'),
+    `*Fecha del servicio:* ${fechaServicioLegible}`,
+    '',
+    sinSelector(`🚜 *EQUIPO:* ${d.equipo}`),
+    eqDetalle ? `*Detalle:* ${eqDetalle}` : '',
+    etiquetasInterv ? `*Intervención:* ${etiquetasInterv.toUpperCase()}` : '',
+    d.horasActuales != null ? `*Horómetro:* ${fmtNum(d.horasActuales)} h` : '',
+    d.kmActuales != null ? `*Kilometraje:* ${fmtNum(d.kmActuales)} km` : '',
+    d.responsable ? `*Responsable / Mecánico:* ${d.responsable}` : '',
+    d.registradoPor ? `*Registrado por:* ${d.registradoPor}` : '',
+  ].filter(Boolean);
+
+  if (d.descripcion?.trim()) {
+    lineas.push('');
+    lineas.push(sinSelector('📋 *TRABAJO / MANTENIMIENTO REALIZADO:*'));
+    lineas.push(d.descripcion.trim());
+  }
+
+  if (d.repuestos && d.repuestos.length > 0) {
+    lineas.push('');
+    lineas.push(sinSelector('🔩 *REPUESTOS / PIEZAS UTILIZADAS:*'));
+    d.repuestos.forEach((r) => {
+      lineas.push(` • ${r.nombre}: *${fmtNum(r.cantidad)} ${r.unidad || 'und'}*`);
+    });
+  }
+
+  if ((d.fotosCount ?? 0) > 0) {
+    lineas.push('');
+    lineas.push(sinSelector(`📷 *Fotos de soporte en bitácora:* ${d.fotosCount}`));
+  }
+
+  lineas.push('');
+  lineas.push(sinSelector('_(Registro histórico de bitácora · No requiere gestión de Compras)_'));
   lineas.push(sinSelector('_Enviado desde el Sistema Golden Touch_'));
 
   return lineas.join('\n');

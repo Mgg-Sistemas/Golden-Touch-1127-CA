@@ -1,6 +1,11 @@
 import { supabase } from '@/shared/lib/supabase';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { cambiarPapeleraCompras } from './papeleraCompras';
+import {
+  codigosOrdenServicioEnOrdenCompra,
+  eliminarOrdenesMaquinariaDeSolicitudServicio,
+  ordenServicioMaquinariaHuerfana,
+} from '@/modules/maquinaria/sincronizacionComprasServicio';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { FilaCierre, FilaCotizacionCierre } from './cierreDiario';
 import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
@@ -51,6 +56,43 @@ const BUCKET_OC = 'compras-oc';
 
 const TABLE = 'ordenes';
 
+async function reconciliarSolicitudesServicioHuerfanas(filas: Orden[]): Promise<Orden[]> {
+  const codigosReferenciados = new Set<string>();
+  for (const o of filas) {
+    for (const c of codigosOrdenServicioEnOrdenCompra(o)) codigosReferenciados.add(c);
+  }
+  if (!codigosReferenciados.size) return filas;
+
+  const { data, error } = await supabase
+    .from('maquinaria_ordenes_servicio')
+    .select('codigo')
+    .in('codigo', [...codigosReferenciados]);
+  if (error) return filas;
+
+  const osVivas = new Set<string>(
+    ((data ?? []) as Array<{ codigo?: string | null }>)
+      .map((r) => String(r.codigo ?? '').trim().toUpperCase())
+      .filter(Boolean),
+  );
+
+  return filas.map((o) => {
+    const check = ordenServicioMaquinariaHuerfana(o, osVivas);
+    if (!check.cancelar) return o;
+    const motivo = `Cancelada automáticamente al eliminarse la orden de servicio ${check.codigosEliminados.join(', ')} en Control de Maquinaria`;
+    const nuevoHist = appendHistorial(o, 'cancelada', 'sistema', { motivo });
+    void supabase
+      .from(TABLE)
+      .update({ estado: 'cancelada' as EstadoOrden, historial: nuevoHist })
+      .eq('id', o.id)
+      .then(() => undefined, () => undefined);
+    return {
+      ...o,
+      estado: 'cancelada' as EstadoOrden,
+      historial: nuevoHist,
+    };
+  });
+}
+
 /** Todas las órdenes, por páginas: PostgREST corta en 1.000 filas sin avisar, y pasado
  *  ese número «Ver detalle» (?detalle=ID) no encontraría las viejas (reporte MGG, 14/10/2026). */
 export async function listOrdenes(): Promise<Orden[]> {
@@ -61,7 +103,8 @@ export async function listOrdenes(): Promise<Orden[]> {
     .order('created_at', { ascending: false })
     .order('id')
     .range(d, h));
-  return filas.filter((o) => !(o as { eliminado_en?: unknown }).eliminado_en);
+  const activas = filas.filter((o) => !(o as { eliminado_en?: unknown }).eliminado_en);
+  return reconciliarSolicitudesServicioHuerfanas(activas);
 }
 
 export async function getOrdenById(id: string): Promise<Orden | null> {
@@ -658,7 +701,9 @@ export async function listOrdenesPendientes(): Promise<Orden[]> {
     .eq('estado', 'pendiente')
     .order('created_at', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as Orden[];
+  const activas = ((data ?? []) as Orden[]).filter((o) => !(o as { eliminado_en?: unknown }).eliminado_en);
+  const reconciliadas = await reconciliarSolicitudesServicioHuerfanas(activas);
+  return reconciliadas.filter((o) => o.estado === 'pendiente');
 }
 
 /** Aprueba EN LOTE varias OP pendientes (pendiente → aprobada). Devuelve cuántas. */
@@ -1388,6 +1433,7 @@ export async function rechazarOrden(
     .select('*')
     .single();
   if (error) throw error;
+  await eliminarOrdenesMaquinariaDeSolicitudServicio(o).catch(() => undefined);
   return data as Orden;
 }
 
@@ -3141,10 +3187,8 @@ export async function cancelarOrden(
     .single();
   if (error) throw error;
 
-  // La orden de servicio de Maquinaria enlazada (orden_compra_id) la sincroniza la BASE
-  // (trigger compras_sincroniza_ordenes_servicio, 26/10/2026): anula la OS, devuelve el equipo
-  // a su estado y avisa al rol de Maquinaria. Antes se hacía aquí con un try/catch silencioso
-  // que fallaba si el usuario de Compras no tenía permiso en Maquinaria (y nadie se enteraba).
+  // Al cancelar o rechazar la Solicitud de Servicio en Compras, se elimina en Control de Maquinaria.
+  await eliminarOrdenesMaquinariaDeSolicitudServicio(o).catch(() => undefined);
 
   return data as Orden;
 }
@@ -3300,10 +3344,13 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
   return out;
 }
 
-/** Envía la orden a la papelera, con reverso atómico si corresponde, y limpia su nota en Conciliación. */
+/** Envía la orden a la papelera, con reverso atómico si corresponde, y limpia su nota en Conciliación y su orden en Control de Maquinaria. */
 export async function eliminarOrdenCompra(o: Orden): Promise<void> {
   await cambiarPapeleraCompras('orden', [o.id], 'enviar');
-  await supabase.from('conciliacion_pagos').delete().eq('doc_tipo', 'oc').eq('doc_id', o.id).then(() => undefined, () => undefined);
+  await Promise.all([
+    supabase.from('conciliacion_pagos').delete().eq('doc_tipo', 'oc').eq('doc_id', o.id).then(() => undefined, () => undefined),
+    eliminarOrdenesMaquinariaDeSolicitudServicio(o).catch(() => undefined),
+  ]);
 }
 
 /** Cancela/anula desde Compras una OC ya pagada o contabilizada: reintegra el dinero a caja, revierte inventario y la retira de Conciliación. */

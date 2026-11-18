@@ -8,6 +8,8 @@ import {
   textoEstadoEquipoWhatsapp,
   textoAlertaMantenimientoWhatsapp,
   textoReporteFlotaWhatsapp,
+  textoMantenimientoBitacoraWhatsapp,
+  tiposBitacoraDeIntervenciones,
 } from './maquinariaWhatsapp';
 
 describe('maquinariaWhatsapp', () => {
@@ -283,6 +285,45 @@ describe('maquinariaWhatsapp', () => {
       expect(txt).toContain('Filtros activos: Categoría: MAQUINARIA · Propietario: GOLDEN TOUCH · Estatus: OPERATIVA');
       expect(txt).toContain('CAT 320D');
     });
+  });
+
+  it('tiposBitacoraDeIntervenciones y textoMantenimientoBitacoraWhatsapp arman registro directo de bitácora sin Compras', () => {
+    expect(tiposBitacoraDeIntervenciones(['preventivo', 'aceite'], [{ nombre: 'MANGUERA 1/2' }])).toEqual([
+      'servicio',
+      'cambio_aceite',
+      'cambio_filtro',
+      'cambio_manguera',
+    ]);
+
+    const txt = textoMantenimientoBitacoraWhatsapp({
+      equipo: 'AUTOMÓVIL CHERY ORINOCO AB905FC',
+      tipoEquipo: 'SEDÁN',
+      marca: 'CHERY',
+      modelo: 'ORINOCO',
+      placa: 'AB905FC',
+      fechaServicio: '2026-10-15',
+      intervenciones: ['preventivo', 'cambio_pieza'],
+      horasActuales: null,
+      kmActuales: 120500,
+      responsable: 'JUAN PÉREZ',
+      registradoPor: 'ADMINISTRADOR',
+      descripcion: 'Cambio de kit de embrague y aceite realizado el mes pasado',
+      repuestos: [
+        { nombre: 'KIT DE EMBRAGUE', cantidad: 1, unidad: 'jgo' },
+        { nombre: 'FILTRO DE ACEITE', cantidad: 1, unidad: 'und' },
+      ],
+      fotosCount: 3,
+    });
+
+    expect(txt).toContain('SERVICIO / MANTENIMIENTO REGISTRADO EN BITÁCORA');
+    expect(txt).toContain('*Fecha del servicio:* 15/10/2026');
+    expect(txt).toContain('AUTOMÓVIL CHERY ORINOCO AB905FC');
+    expect(txt).toContain('MANTENIMIENTO PREVENTIVO, CAMBIO DE PIEZAS');
+    expect(txt).toContain('120.500 km');
+    expect(txt).toContain('KIT DE EMBRAGUE: *1 jgo*');
+    expect(txt).toContain('*Fotos de soporte en bitácora:* 3');
+    expect(txt).toContain('No requiere gestión de Compras');
+    expect(txt).not.toContain('\uFE0F');
   });
 
 });

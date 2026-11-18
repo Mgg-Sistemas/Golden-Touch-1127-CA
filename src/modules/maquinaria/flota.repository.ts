@@ -19,6 +19,11 @@ import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
 import { ordenarFotosEquipo } from './maquinariaDocumentos';
 import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
+import {
+  cancelarSolicitudesServicioDeOrdenMaquinaria,
+  ordenServicioDebeEliminarsePorCompras,
+  purgarOrdenServicioEnSegundoPlano,
+} from './sincronizacionComprasServicio';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
 import { servicioPorId } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
@@ -107,16 +112,53 @@ export async function listOrdenesServicio(equipoId?: string, creadoPor?: string)
   if (creadoPor !== undefined) q = q.eq('created_by', creadoPor);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []) as OrdenServicio[];
+  const filas = (data ?? []) as OrdenServicio[];
+  if (!filas.length) return filas;
+
+  const compraIds = [...new Set(filas.map((f) => f.orden_compra_id).filter(Boolean))] as string[];
+  const comprasMap = new Map<string, { id: string; estado: string; eliminado_en?: unknown }>();
+  if (compraIds.length > 0) {
+    const { data: cmps } = await supabase
+      .from('ordenes')
+      .select('id, estado, eliminado_en')
+      .in('id', compraIds);
+    for (const c of (cmps ?? []) as Array<{ id: string; estado: string; eliminado_en?: unknown }>) {
+      comprasMap.set(c.id, c);
+    }
+  }
+
+  const vigentes: OrdenServicio[] = [];
+  for (const os of filas) {
+    const cmp = os.orden_compra_id ? comprasMap.get(os.orden_compra_id) : null;
+    if (ordenServicioDebeEliminarsePorCompras(os, cmp)) {
+      purgarOrdenServicioEnSegundoPlano({ id: os.id, codigo: os.codigo });
+      continue;
+    }
+    vigentes.push(os);
+  }
+  return vigentes;
 }
 
 /** Órdenes abiertas por equipo (para el catálogo). */
 export async function ordenesAbiertasPorEquipo(): Promise<Map<string, number>> {
-  const { data, error } = await supabase.from('maquinaria_ordenes_servicio').select('equipo_id')
+  const { data, error } = await supabase.from('maquinaria_ordenes_servicio').select('id, codigo, equipo_id, estado, nota_cierre, orden_compra_id')
     .in('estado', ['abierta', 'repuestos', 'en_proceso']);
   if (error) throw error;
+  const filas = (data ?? []) as Array<{ id: string; codigo: string; equipo_id: string; estado: string; nota_cierre: string | null; orden_compra_id: string | null }>;
+  const compraIds = [...new Set(filas.map((f) => f.orden_compra_id).filter(Boolean))] as string[];
+  const comprasMap = new Map<string, { id: string; estado: string; eliminado_en?: unknown }>();
+  if (compraIds.length > 0) {
+    const { data: cmps } = await supabase.from('ordenes').select('id, estado, eliminado_en').in('id', compraIds);
+    for (const c of (cmps ?? []) as Array<{ id: string; estado: string; eliminado_en?: unknown }>) comprasMap.set(c.id, c);
+  }
   const out = new Map<string, number>();
-  for (const r of (data ?? []) as { equipo_id: string }[]) out.set(r.equipo_id, (out.get(r.equipo_id) ?? 0) + 1);
+  for (const r of filas) {
+    if (ordenServicioDebeEliminarsePorCompras(r, r.orden_compra_id ? comprasMap.get(r.orden_compra_id) : null)) {
+      purgarOrdenServicioEnSegundoPlano({ id: r.id, codigo: r.codigo });
+      continue;
+    }
+    out.set(r.equipo_id, (out.get(r.equipo_id) ?? 0) + 1);
+  }
   return out;
 }
 
@@ -220,7 +262,7 @@ export interface CompraEquipo {
  */
 export async function comprasDeEquipo(equipoId: string, ordenes: OrdenServicio[]): Promise<CompraEquipo[]> {
   const vinculadas = ordenes.map((o) => o.orden_compra_id).filter(Boolean) as string[];
-  const cols = 'id, codigo, oc_codigo, tipo, estado, created_at, total, total_moneda, items';
+  const cols = 'id, codigo, oc_codigo, tipo, estado, created_at, total, total_moneda, items, eliminado_en';
   const [porItem, porId] = await Promise.all([
     supabase.from('ordenes').select(cols).contains('items', [{ equipo_id: equipoId }]).order('created_at', { ascending: false }),
     vinculadas.length ? supabase.from('ordenes').select(cols).in('id', vinculadas) : Promise.resolve({ data: [], error: null }),
@@ -230,6 +272,8 @@ export async function comprasDeEquipo(equipoId: string, ordenes: OrdenServicio[]
   const porCompra = new Map(ordenes.filter((o) => o.orden_compra_id).map((o) => [o.orden_compra_id as string, o.codigo]));
   const vistos = new Map<string, CompraEquipo>();
   for (const r of [...(porItem.data ?? []), ...(porId.data ?? [])] as Array<Record<string, unknown>>) {
+    if (r.eliminado_en) continue;
+    if (r.tipo === 'servicio' && (r.estado === 'cancelada' || r.estado === 'rechazada')) continue;
     const id = r.id as string;
     if (vistos.has(id)) continue;
     const items = Array.isArray(r.items) ? (r.items as Array<{ nombre?: string; cantidad?: number; unidad?: string; equipo_id?: string | null }>) : [];
@@ -329,16 +373,33 @@ export async function editarOrdenServicio(id: string, input: EdicionOrdenServici
 }
 
 /**
- * Borra la orden con sus fotos. La base valida (una orden realizada solo la borra un
- * administrador) y, si estaba en curso, devuelve el equipo al estado que tenía antes.
- * Los archivos de las fotos se borran desde la app y solo si la orden se borró.
+ * Borra la orden con sus fotos y cancela automáticamente la Solicitud de Servicio
+ * vinculada en Compras → Servicios (SS-…). La base valida (una orden realizada solo la
+ * borra un administrador) y, si estaba en curso, devuelve el equipo al estado previo.
  */
-export async function eliminarOrdenServicio(o: Pick<OrdenServicio, 'id' | 'codigo'>): Promise<void> {
-  const fotos = await listFotosOrden(o.id).catch(() => []);
+export async function eliminarOrdenServicio(o: Pick<OrdenServicio, 'id' | 'codigo'> & { orden_compra_id?: string | null }): Promise<void> {
+  const [fotos, previaRes, sessionRes] = await Promise.all([
+    listFotosOrden(o.id).catch(() => []),
+    supabase.from('maquinaria_ordenes_servicio').select('codigo, orden_compra_id').eq('id', o.id).maybeSingle(),
+    supabase.auth.getSession(),
+  ]);
+  const previa = previaRes.data as { codigo?: string | null; orden_compra_id?: string | null } | null;
+  const codigoOs = (previa?.codigo ?? o.codigo ?? '').trim();
+  const ordenCompraId = previa?.orden_compra_id ?? o.orden_compra_id ?? null;
+  const actorEmail = sessionRes.data.session?.user?.email ?? null;
+
   const { data, error } = await supabase.from('maquinaria_ordenes_servicio').delete().eq('id', o.id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error(`No se pudo borrar la orden ${o.codigo} (puede que ya no exista o que no tengas permiso).`);
-  await borrarArchivosFotosOrden(fotos.map((f) => f.path));
+
+  await Promise.all([
+    borrarArchivosFotosOrden(fotos.map((f) => f.path)).catch(() => undefined),
+    cancelarSolicitudesServicioDeOrdenMaquinaria({
+      ordenCompraId,
+      codigoOs,
+      actorEmail,
+    }).catch(() => undefined),
+  ]);
 }
 
 /* ───────── Lavados ───────── */

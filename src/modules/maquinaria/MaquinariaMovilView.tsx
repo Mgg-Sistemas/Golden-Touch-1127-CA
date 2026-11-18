@@ -27,6 +27,7 @@ import { ExportarEquiposModal } from './ExportarEquiposModal';
 import {
   listEquipos,
   extraerEncargado,
+  reiniciarMantenimientoDeEquipo,
   type MaquinariaEquipo,
 } from './maquinariaEquipos.repository';
 import {
@@ -36,7 +37,6 @@ import {
   eliminarOrdenServicio,
   registrarLavado,
   listLavadosTodos,
-  eliminarLavado,
   lecturasVigentesPorEquipo,
   solicitarCompraDeOrden,
   fotosDeEquipos,
@@ -60,10 +60,23 @@ import { listRepuestosEquipo } from './repuestosEquipo.repository';
 import { sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
 import { EquipoFormModal } from './EquipoFormModal';
 import { SubirFotoEquipoModal } from './SubirFotoEquipoModal';
-import { addMantenimiento, ultimosMantenimientosPorEquipo, type UltimoMantenimientoEquipo } from './maquinariaMant.repository';
+import { BitacoraModal } from './BitacoraModal';
+import {
+  addMantenimiento,
+  eliminarMantenimiento,
+  etiquetaTipoMant,
+  listMantenimientosDeActor,
+  ultimosMantenimientosPorEquipo,
+  type MantenimientoMaquinaria,
+  type UltimoMantenimientoEquipo,
+} from './maquinariaMant.repository';
+import { MAX_FOTOS_MANTENIMIENTO, subirFotosMantenimiento } from './entregasAlmacen.repository';
+import { prepararFotoOrden, subirFotosOrden } from './osFotos.repository';
 import { avisoDeEquipo } from './avisoEquipo';
 import {
   textoServicioWhatsapp,
+  textoMantenimientoBitacoraWhatsapp,
+  tiposBitacoraDeIntervenciones,
   textoLavadoWhatsapp,
   textoAveriaEstadoWhatsapp,
   textoFichaFiltrosWhatsapp,
@@ -71,6 +84,9 @@ import {
 } from './maquinariaWhatsapp';
 
 type ModoMovil = 'menu' | 'servicio' | 'lavado' | 'averia' | 'filtros' | 'solicitudes';
+type TipoAccionServicio = 'solicitar' | 'registrar';
+
+const hoyVE = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
 
 const TIPOS_LAVADO = ['SENCILLO', 'COMPLETO', 'CHASIS / MOTOR', 'ENGRASADO Y LAVADO'];
 
@@ -110,10 +126,12 @@ export function MaquinariaMovilView() {
     [correoUsuario, ordenesCargadas],
   );
   const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
+  const [mantenimientosPropios, setMantenimientosPropios] = useState<MantenimientoMaquinaria[]>([]);
   const [lecturas, setLecturas] = useState<Map<string, LecturaVigente>>(new Map());
   const [fotos, setFotos] = useState<Map<string, string>>(new Map());
   const [ultimosMant, setUltimosMant] = useState<Map<string, UltimoMantenimientoEquipo>>(new Map());
   const [subirFotoEq, setSubirFotoEq] = useState<MaquinariaEquipo | null>(null);
+  const [equipoBitacoraMovil, setEquipoBitacoraMovil] = useState<MaquinariaEquipo | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Modo / pantalla activa dentro de la vista móvil
@@ -121,7 +139,8 @@ export function MaquinariaMovilView() {
   const [equipoSelId, setEquipoSelId] = useState<string>('');
   const [repuestosEquipo, setRepuestosEquipo] = useState<RepuestoEquipo[]>([]);
 
-  // Estados de catálogo y opciones táctiles
+  // Catálogo oculto por defecto: solo se despliega al tocar «Ver Catálogo»
+  const [verCatalogo, setVerCatalogo] = useState(false);
   const [busquedaCatalogo, setBusquedaCatalogo] = useState('');
   const [filtroCatalogo, setFiltroCatalogo] = useState<'todos' | 'alertas' | 'lanchas' | 'pesada' | 'vehiculos' | 'motos' | 'herramientas'>('todos');
   const [equipoOpciones, setEquipoOpciones] = useState<MaquinariaEquipo | null>(null);
@@ -129,20 +148,29 @@ export function MaquinariaMovilView() {
   const [exportarPdfMovilOpen, setExportarPdfMovilOpen] = useState(false);
 
   // Borrado de movimientos
-  const [borrandoMov, setBorrandoMov] = useState<{ tipo: 'orden' | 'lavado'; id: string; codigo: string } | null>(null);
+  const [borrandoMov, setBorrandoMov] = useState<{ tipo: 'orden' | 'bitacora'; id: string; codigo: string } | null>(null);
 
   // Estados de los formularios móviles
   const [saving, setSaving] = useState(false);
   const [mensajeWhatsapp, setMensajeWhatsapp] = useState<string | null>(null);
+  const [fotosWhatsapp, setFotosWhatsapp] = useState<File[]>([]);
 
-  function mostrarWhatsapp(texto: string) {
+  function mostrarWhatsapp(texto: string, archivos: File[] = []) {
     setMensajeWhatsapp(texto);
+    setFotosWhatsapp(archivos);
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }
 
-  // Formulario Servicio (Intervenciones y Solicitud a Compras)
+  // Formulario Servicio: modo 'solicitar' (va a Compras) o 'registrar' (ya realizado, solo Bitácora)
+  const [tipoAccionServicio, setTipoAccionServicio] = useState<TipoAccionServicio>('solicitar');
+  const [fechaServicioBitacora, setFechaServicioBitacora] = useState<string>(hoyVE);
+  const [reiniciarContadorBitacora, setReiniciarContadorBitacora] = useState<boolean>(true);
+  const [fotosServicio, setFotosServicio] = useState<File[]>([]);
+  const previasFotosServicio = useMemo(() => fotosServicio.map((f) => URL.createObjectURL(f)), [fotosServicio]);
+  useEffect(() => () => { previasFotosServicio.forEach((u) => URL.revokeObjectURL(u)); }, [previasFotosServicio]);
+
   const [tipoServicio, setTipoServicio] = useState<string>('preventivo');
   const [intervencionesServicio, setIntervencionesServicio] = useState<string[]>(['preventivo']);
   const [urgenciaServicio, setUrgenciaServicio] = useState<'normal' | 'urgente'>('normal');
@@ -166,13 +194,14 @@ export function MaquinariaMovilView() {
 
   async function cargarDatos() {
     try {
-      const [eqs, ords, lavs, lecs, fts, um] = await Promise.all([
+      const [eqs, ords, lavs, lecs, fts, um, mantsPropios] = await Promise.all([
         listEquipos(),
         correoUsuario ? listOrdenesServicio(undefined, correoUsuario) : Promise.resolve([]),
         listLavadosTodos(),
         lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
         fotosDeEquipos().catch(() => [] as FotoEquipo[]),
         ultimosMantenimientosPorEquipo().catch(() => new Map<string, UltimoMantenimientoEquipo>()),
+        correoUsuario ? listMantenimientosDeActor(correoUsuario, 25).catch(() => [] as MantenimientoMaquinaria[]) : Promise.resolve([] as MantenimientoMaquinaria[]),
       ]);
 
       const mapFotos = new Map<string, string>();
@@ -186,6 +215,7 @@ export function MaquinariaMovilView() {
       setLecturas(lecs);
       setFotos(mapFotos);
       setUltimosMant(um);
+      setMantenimientosPropios(mantsPropios);
     } catch (e) {
       console.error('Error al cargar datos de maquinaria móvil:', e);
     } finally {
@@ -361,6 +391,23 @@ export function MaquinariaMovilView() {
     setEquipoSelId(eq.id);
   }
 
+  function agregarFotosServicio(lista: FileList | null) {
+    if (!lista?.length) return;
+    const max = tipoAccionServicio === 'registrar' ? MAX_FOTOS_MANTENIMIENTO : 4;
+    const imagenes = Array.from(lista).filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name));
+    if (!imagenes.length) {
+      toast('Selecciona archivos de imagen válidos.', 'warning');
+      return;
+    }
+    setFotosServicio((actual) => {
+      const juntos = [...actual, ...imagenes].slice(0, max);
+      if (actual.length + imagenes.length > max) {
+        toast(`Se permiten hasta ${max} fotos de soporte.`, 'info');
+      }
+      return juntos;
+    });
+  }
+
   // ── Guardar Servicio (Solicitud Directa a Compras + Bitácora) ──
   async function guardarServicio() {
     if (!equipoActual) { toast('Selecciona la máquina o vehículo', 'error'); return; }
@@ -406,16 +453,31 @@ export function MaquinariaMovilView() {
         }
       }
 
+      // 2b. Si se adjuntaron fotos de soporte, subirlas tanto a la orden como a la bitácora
+      let fotosPreparadas: File[] = [];
+      let fotosBitacora: Array<{ path: string; filename: string }> = [];
+      if (fotosServicio.length > 0) {
+        fotosPreparadas = await Promise.all(fotosServicio.map((f) => prepararFotoOrden(f).catch(() => f)));
+        await subirFotosOrden(res.id, fotosPreparadas.slice(0, 4), actor, actorName).catch(() => null);
+        fotosBitacora = await subirFotosMantenimiento(equipoActual.id, fotosPreparadas).catch(() => []);
+      }
+
       // 3. Registrar todo en la Bitácora del equipo (historial completo de mantenimientos)
+      const tiposBit = tiposBitacoraDeIntervenciones(
+        intervencionesServicio.length ? intervencionesServicio : [tipoServicio],
+        piezasSeleccionadas,
+      );
       try {
         await addMantenimiento({
           equipo_id: equipoActual.id,
-          fecha: new Date().toISOString().slice(0, 10),
-          tipo: tipoServicio,
-          pieza: piezasSeleccionadas.map((p) => p.nombre).join(', ') || null,
+          fecha: hoyVE(),
+          tipo: tiposBit[0] ?? tipoServicio,
+          tipos: tiposBit,
+          pieza: piezasSeleccionadas.map((p) => `${p.nombre} (${fmtNum(p.cantidad)} ${p.unidad})`).join(', ') || null,
           horometro: horasServicio ? Number(horasServicio) : null,
           kilometraje: kmServicio ? Number(kmServicio) : null,
           trabajo: descripcionServicio.trim(),
+          fotos: fotosBitacora.length ? fotosBitacora : undefined,
           observacion: `Orden de servicio ${res.codigo}${spCodigo ? ` · Solicitud de Servicio ${spCodigo}` : ''}. Piezas solicitadas con nombres generales: Compras les pone el producto del inventario al cotizar.`,
           mecanico: responsableServicio.trim() || actorName,
         }, actor, actorName);
@@ -453,13 +515,107 @@ export function MaquinariaMovilView() {
       });
 
       toast(`Orden ${res.codigo} creada ${spCodigo ? `· Solicitud de Servicio ${spCodigo}` : ''}`, 'success');
-      mostrarWhatsapp(txt);
+      mostrarWhatsapp(txt, fotosPreparadas.length ? fotosPreparadas : [...fotosServicio]);
       setDescripcionServicio('');
       setPiezasSeleccionadas([]);
+      setFotosServicio([]);
       setModo('solicitudes');
       await cargarDatos();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error al solicitar el servicio', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Registrar Servicio / Mantenimiento YA REALIZADO (Solo Bitácora, SIN ir a Compras) ──
+  async function guardarServicioBitacora() {
+    if (!equipoActual) { toast('Selecciona la máquina o vehículo', 'error'); return; }
+    if (intervencionesServicio.length === 0) { toast('Selecciona al menos un sistema o intervención realizada', 'error'); return; }
+    if (!fechaServicioBitacora) { toast('Indica la fecha en que se realizó el servicio', 'error'); return; }
+    if (!descripcionServicio.trim()) { toast('Describe el mantenimiento o servicio realizado', 'error'); return; }
+
+    setSaving(true);
+    try {
+      // 1. Preparar y comprimir fotos de soporte para el bucket de bitácora (JPG <= 2 MB)
+      let fotosPreparadas: File[] = [];
+      let fotosSubidas: Array<{ path: string; filename: string }> = [];
+      if (fotosServicio.length > 0) {
+        fotosPreparadas = await Promise.all(fotosServicio.map((f) => prepararFotoOrden(f).catch(() => f)));
+        fotosSubidas = await subirFotosMantenimiento(equipoActual.id, fotosPreparadas);
+      }
+
+      // 2. Clasificar segmentos de bitácora y consolidar repuestos/consumibles utilizados
+      const tiposBit = tiposBitacoraDeIntervenciones(intervencionesServicio, piezasSeleccionadas);
+      const piezasTexto = piezasSeleccionadas.length > 0
+        ? piezasSeleccionadas.map((p) => `${p.nombre} (${fmtNum(p.cantidad)} ${p.unidad})`).join(', ')
+        : null;
+
+      const aceiteLts = piezasSeleccionadas
+        .filter((p) => p.unidad === 'lts' && /aceite/i.test(p.nombre))
+        .reduce((acc, p) => acc + (Number(p.cantidad) || 0), 0);
+      const refrigLts = piezasSeleccionadas
+        .filter((p) => p.unidad === 'lts' && /refrigerante|anticongelante/i.test(p.nombre))
+        .reduce((acc, p) => acc + (Number(p.cantidad) || 0), 0);
+
+      const horoNum = horasServicio ? Number(horasServicio) : null;
+      const kmNum = kmServicio ? Number(kmServicio) : null;
+
+      // 3. Guardar directamente en maquinaria_mantenimientos (NO crea Orden de Servicio ni va a Compras)
+      await addMantenimiento({
+        equipo_id: equipoActual.id,
+        fecha: fechaServicioBitacora,
+        tipo: tiposBit[0] ?? 'servicio',
+        tipos: tiposBit,
+        pieza: piezasTexto,
+        consumibles: piezasTexto,
+        aceite_lts: aceiteLts > 0 ? aceiteLts : null,
+        refrigerante_lts: refrigLts > 0 ? refrigLts : null,
+        horometro: horoNum,
+        kilometraje: kmNum,
+        trabajo: descripcionServicio.trim(),
+        mecanico: responsableServicio.trim() || actorName,
+        ubicacion: equipoActual.ubicacion ?? null,
+        fotos: fotosSubidas.length > 0 ? fotosSubidas : undefined,
+        observacion: 'Servicio / mantenimiento ya realizado registrado desde teléfono (solo Bitácora, sin enviar a Compras).',
+      }, actor, actorName, { reiniciarContador: reiniciarContadorBitacora });
+
+      if (reiniciarContadorBitacora && (horoNum != null || kmNum != null)) {
+        try {
+          await reiniciarMantenimientoDeEquipo(equipoActual.id, {
+            horas: horoNum,
+            km: kmNum,
+          });
+        } catch { /* best-effort */ }
+      }
+
+      // 4. Generar reporte de WhatsApp con las fotos adjuntas
+      const txt = textoMantenimientoBitacoraWhatsapp({
+        equipo: equipoActual.equipo,
+        tipoEquipo: equipoActual.tipo,
+        marca: equipoActual.marca,
+        modelo: equipoActual.modelo,
+        placa: equipoActual.placa,
+        fechaServicio: fechaServicioBitacora,
+        intervenciones: intervencionesServicio,
+        horasActuales: horoNum,
+        kmActuales: kmNum,
+        responsable: responsableServicio.trim() || actorName,
+        registradoPor: actorName,
+        descripcion: descripcionServicio.trim(),
+        repuestos: piezasSeleccionadas,
+        fotosCount: fotosSubidas.length,
+      });
+
+      toast('Servicio registrado en la Bitácora del equipo (sin enviar a Compras)', 'success');
+      mostrarWhatsapp(txt, fotosPreparadas.length ? fotosPreparadas : [...fotosServicio]);
+      setDescripcionServicio('');
+      setPiezasSeleccionadas([]);
+      setFotosServicio([]);
+      setModo('solicitudes');
+      await cargarDatos();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Error al registrar el servicio en la bitácora', 'error');
     } finally {
       setSaving(false);
     }
@@ -554,35 +710,30 @@ export function MaquinariaMovilView() {
   return (
     <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', margin: '0 auto' }}>
       {/* ── Encabezado Móvil ── */}
-      <header className="surt-head" style={{ marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <header className="surt-head" style={{ marginBottom: '.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 800 }}>📱 Maquinaria y Equipos</h1>
-          <div className="muted" style={{ fontSize: '.74rem' }}>{actorName}</div>
+          <h1 style={{ fontSize: '1.22rem', margin: 0, fontWeight: 800 }}>📱 Maquinaria y Equipos</h1>
+          <div className="muted" style={{ fontSize: '.78rem' }}>{actorName}</div>
         </div>
         {!soloTelefono && (
-          <Link to="/app/maquinaria" className="btn btn-sm btn-ghost" style={{ padding: '.2rem .5rem', fontSize: '.74rem', border: '1px solid var(--border)' }} title="Ir a la vista completa de computadora">
+          <Link to="/app/maquinaria" className="btn btn-sm btn-ghost" style={{ padding: '.3rem .65rem', fontSize: '.78rem', border: '1px solid var(--border)' }} title="Ir a la vista completa de computadora">
             💻 Modo PC
           </Link>
         )}
       </header>
 
-      {/* ── Alertas de mantenimiento (como el «Dinero por entrar» de Acopio): equipos con servicio
-          próximo o vencido; al tocarlo se ven y se responden (26/10/2026). Arriba de todo. ── */}
-      <EntregasAlmacenAviso canWrite={canWrite} actorName={actorName} />
-      <AlertasMantenimientoBanner compacto items={alertasMant} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargarDatos()} />
-
       {/* ── Modal flotante de WhatsApp: aparece al instante centrado en pantalla ── */}
       {mensajeWhatsapp && (
-        <Modal title="📲 Compartir por WhatsApp" size="md" onClose={() => setMensajeWhatsapp(null)}>
+        <Modal title="📲 Compartir por WhatsApp" size="md" onClose={() => { setMensajeWhatsapp(null); setFotosWhatsapp([]); }}>
           <div style={{ marginBottom: '.75rem', fontSize: '.84rem', color: 'var(--text-muted)' }}>
             Reporte generado listo para enviar por WhatsApp o copiar:
           </div>
-          <CompartirWhatsapp texto={mensajeWhatsapp} />
+          <CompartirWhatsapp texto={mensajeWhatsapp} fotos={fotosWhatsapp} />
           <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => setMensajeWhatsapp(null)}
+              onClick={() => { setMensajeWhatsapp(null); setFotosWhatsapp([]); }}
             >
               Cerrar
             </button>
@@ -600,14 +751,14 @@ export function MaquinariaMovilView() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
             <strong style={{ color: 'var(--success)', fontSize: '.82rem' }}>✅ Movimiento registrado con éxito</strong>
-            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.74rem', padding: '.15rem .45rem' }} onClick={() => setMensajeWhatsapp(null)}>✕ Cerrar</button>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.74rem', padding: '.15rem .45rem' }} onClick={() => { setMensajeWhatsapp(null); setFotosWhatsapp([]); }}>✕ Cerrar</button>
           </div>
-          <CompartirWhatsapp texto={mensajeWhatsapp} />
+          <CompartirWhatsapp texto={mensajeWhatsapp} fotos={fotosWhatsapp} />
         </div>
       )}
 
       {/* ── Menú de Acciones Rápidas (Compacto con colores institucionales) ── */}
-      <div className="surt-rotulo" style={{ fontSize: '.72rem', fontWeight: 700, margin: '.15rem 0 .3rem', color: 'var(--text-muted)', letterSpacing: '.04em' }}>
+      <div className="surt-rotulo" style={{ fontSize: '.78rem', fontWeight: 700, margin: '.25rem 0 .5rem', color: 'var(--text-muted)', letterSpacing: '.04em' }}>
         ¿QUÉ DESEAS REPORTAR HOY?
       </div>
 
@@ -616,7 +767,7 @@ export function MaquinariaMovilView() {
           type="button"
           className="btn btn-ghost flo-mv-accion"
           aria-pressed={modo === 'servicio'}
-          onClick={() => { setModo('servicio'); setMensajeWhatsapp(null); }}
+          onClick={() => { setModo(modo === 'servicio' ? 'menu' : 'servicio'); setMensajeWhatsapp(null); setFotosWhatsapp([]); }}
         >
           <span className="ico">🔧</span>
           <strong>Solicitar Servicio</strong>
@@ -626,7 +777,7 @@ export function MaquinariaMovilView() {
           type="button"
           className="btn btn-ghost flo-mv-accion tone-info"
           aria-pressed={modo === 'lavado'}
-          onClick={() => { setModo('lavado'); setMensajeWhatsapp(null); }}
+          onClick={() => { setModo(modo === 'lavado' ? 'menu' : 'lavado'); setMensajeWhatsapp(null); setFotosWhatsapp([]); }}
         >
           <span className="ico">🚿</span>
           <strong>Registrar Lavado</strong>
@@ -636,7 +787,7 @@ export function MaquinariaMovilView() {
           type="button"
           className="btn btn-ghost flo-mv-accion tone-danger"
           aria-pressed={modo === 'averia'}
-          onClick={() => { setModo('averia'); setMensajeWhatsapp(null); }}
+          onClick={() => { setModo(modo === 'averia' ? 'menu' : 'averia'); setMensajeWhatsapp(null); setFotosWhatsapp([]); }}
         >
           <span className="ico">⚠️</span>
           <strong>Reportar Avería</strong>
@@ -646,22 +797,23 @@ export function MaquinariaMovilView() {
           type="button"
           className="btn btn-ghost flo-mv-accion tone-primary-3"
           aria-pressed={modo === 'filtros'}
-          onClick={() => { setModo('filtros'); setMensajeWhatsapp(null); }}
+          onClick={() => { setModo(modo === 'filtros' ? 'menu' : 'filtros'); setMensajeWhatsapp(null); setFotosWhatsapp([]); }}
         >
           <span className="ico">🔍</span>
           <strong>Ver Filtros / Rep.</strong>
         </button>
       </div>
 
-      {/* Botón de acceso directo a Solicitudes / Órdenes (Compacto) */}
+      {/* Botón de acceso directo a Solicitudes / Órdenes y Bitácora (Compacto) */}
       {(() => {
         const ordenesActivas = ordenes.filter((o) => o.estado !== 'cancelada' && o.estado !== 'anulada' && o.estado !== 'realizada');
+        const bitacoraDirectos = mantenimientosPropios.filter((m) => !(m.observacion ?? '').startsWith('Orden de servicio '));
         return (
           <button
             type="button"
             className="btn btn-ghost flo-mv-solicitudes"
             aria-pressed={modo === 'solicitudes'}
-            onClick={() => { setModo(modo === 'solicitudes' ? 'menu' : 'solicitudes'); setMensajeWhatsapp(null); }}
+            onClick={() => { setModo(modo === 'solicitudes' ? 'menu' : 'solicitudes'); setMensajeWhatsapp(null); setFotosWhatsapp([]); }}
           >
             <span>
               <span className="ico">📋</span>
@@ -669,17 +821,34 @@ export function MaquinariaMovilView() {
             </span>
             <span className={`badge ${ordenesActivas.length > 0 ? 'primary' : ''}`}>
               {ordenesActivas.length} {ordenesActivas.length === 1 ? 'activa' : 'activas'}
+              {bitacoraDirectos.length > 0 ? ` · ${bitacoraDirectos.length} bit.` : ''}
             </span>
           </button>
         );
       })()}
 
-      {/* ── Vista: Lista de Solicitudes y Órdenes de Servicio (Compacta) ── */}
+      {/* Botón para mostrar u ocultar el Catálogo de Equipos (oculto por defecto) */}
+      <button
+        type="button"
+        className="btn btn-ghost flo-mv-solicitudes"
+        aria-pressed={verCatalogo}
+        onClick={() => setVerCatalogo((v) => !v)}
+      >
+        <span>
+          <span className="ico">🚜</span>
+          <span>{verCatalogo ? 'Ocultar Catálogo' : 'Ver Catálogo'}</span>
+        </span>
+        <span className={`badge ${verCatalogo ? 'primary' : ''}`}>
+          {equipos.length} {equipos.length === 1 ? 'equipo' : 'equipos'}
+        </span>
+      </button>
+
+      {/* ── Vista: Lista de Solicitudes y Registros de Bitácora ── */}
       {modo === 'solicitudes' && (
         <div className="card" style={{ padding: '.65rem', marginBottom: '.65rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
-            <h3 style={{ margin: 0, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: '.35rem' }}>
-              <span>📋</span> Solicitudes y Órdenes ({ordenes.length})
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.55rem' }}>
+            <h3 style={{ margin: 0, fontSize: '.92rem', display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+              <span>📋</span> Mis Solicitudes y Servicios Registrados
             </h3>
             <button
               type="button"
@@ -691,168 +860,380 @@ export function MaquinariaMovilView() {
             </button>
           </div>
 
-          {ordenes.length === 0 ? (
-            <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: '1.8rem', marginBottom: '.35rem' }}>📭</div>
-              <div style={{ fontSize: '.82rem' }}>No hay solicitudes registradas todavía.</div>
-              <button
-                type="button"
-                className="btn btn-sm btn-primary"
-                style={{ marginTop: '.6rem', fontSize: '.76rem', padding: '.25rem .6rem' }}
-                onClick={() => setModo('servicio')}
-              >
-                + Crear primera solicitud
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: '.5rem' }}>
-              {ordenes.map((o) => {
-                const eq = equipos.find((e) => e.id === o.equipo_id);
-                const foto = eq ? fotos.get(eq.id) : null;
-                const isCancelada = o.estado === 'cancelada';
-                const isRepuestos = o.estado === 'repuestos';
-                const isRealizada = o.estado === 'realizada';
-                return (
-                  <div
-                    key={o.id}
-                    style={{
-                      padding: '.65rem',
-                      background: 'var(--bg-1)',
-                      borderRadius: 'var(--r-md)',
-                      border: isCancelada
-                        ? '1px solid rgba(239, 79, 94, 0.4)'
-                        : isRepuestos
-                        ? '1px solid rgba(245, 177, 51, 0.4)'
-                        : '1px solid var(--border)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.3rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
-                        <span className="mono" style={{ fontWeight: 800, fontSize: '.88rem', color: 'var(--primary-3)' }}>
-                          {o.codigo}
-                        </span>
-                        <span
-                          className={`badge ${isCancelada ? 'danger' : isRepuestos ? 'warning' : isRealizada ? 'success' : 'info'}`}
-                          style={{ fontSize: '.68rem', fontWeight: 700, textTransform: 'uppercase' }}
-                        >
-                          {isCancelada ? '❌ CANCELADA (COMPRAS)' : o.estado}
-                        </span>
-                        {o.urgencia === 'urgente' && (
-                          <span className="badge danger" style={{ fontSize: '.66rem' }}>
-                            🚨 URGENTE
-                          </span>
-                        )}
-                      </div>
-                      <div className="muted" style={{ fontSize: '.7rem' }}>
-                        {dateTime(o.created_at)}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', margin: '.4rem 0' }}>
-                      {foto ? (
-                        <img src={foto} alt={eq?.equipo ?? 'Equipo'} style={{ width: 44, height: 44, borderRadius: 'var(--r-sm)', objectFit: 'cover' }} />
-                      ) : (
-                        <div style={{ width: 44, height: 44, borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
-                          {eq ? iconoDeClase(claseEquipo(eq)) : '🚜'}
-                        </div>
-                      )}
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '.88rem' }}>{eq?.equipo ?? 'Equipo'}</div>
-                        <div className="muted" style={{ fontSize: '.74rem' }}>
-                          {[eq?.marca, eq?.modelo].filter(Boolean).join(' · ')}
-                          {eq?.placa && <span style={{ marginLeft: '.4rem', padding: '1px 5px', background: 'var(--surface-3)', borderRadius: 'var(--r-sm)', fontWeight: 600 }}>🚗 {eq.placa}</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ fontSize: '.82rem', marginBottom: '.35rem', color: 'var(--text)' }}>
-                      <strong>Trabajo / Falla:</strong> {o.descripcion || 'Sin descripción'}
-                    </div>
-
-                    {(o.horometro != null || o.kilometraje != null || o.responsable) && (
-                      <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
-                        {o.responsable && <span>👤 Responsable: {o.responsable}</span>}
-                        {o.horometro != null && <span>⏱️ Horómetro: {fmtNum(o.horometro)} h</span>}
-                        {o.kilometraje != null && <span>🚗 Km: {fmtNum(o.kilometraje)} km</span>}
-                      </div>
-                    )}
-
-                    {o.repuestos && o.repuestos.length > 0 && (
-                      <div style={{ fontSize: '.75rem', padding: '.35rem .5rem', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', marginBottom: '.5rem' }}>
-                        <strong style={{ display: 'block', marginBottom: '.15rem', color: 'var(--warning)' }}>
-                          🛒 Piezas enviadas a Compras ({o.repuestos.length}):
-                        </strong>
-                        {o.repuestos.map((r, ri) => (
-                          <div key={ri} className="muted">
-                            • {r.nombre} ({fmtNum(r.cantidad)} {r.unidad})
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.45rem' }}>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-success"
-                        style={{
-                          fontSize: '.78rem',
-                          fontWeight: 700,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '.35rem',
-                        }}
-                        onClick={() => {
-                          const txt = textoServicioWhatsapp({
-                            codigo: o.codigo,
-                            equipo: eq?.equipo ?? 'Equipo',
-                            tipoEquipo: eq?.tipo,
-                            marca: eq?.marca,
-                            modelo: eq?.modelo,
-                            tipoServicio: o.tipo,
-                            urgencia: o.urgencia === 'urgente' ? 'urgente' : 'normal',
-                            horasActuales: o.horometro,
-                            kmActuales: o.kilometraje,
-                            responsable: o.responsable,
-                            descripcion: o.descripcion,
-                            repuestos: o.repuestos.map((r) => ({ nombre: r.nombre, cantidad: r.cantidad, unidad: r.unidad })),
-                            fecha: o.created_at,
-                          });
-                          mostrarWhatsapp(txt);
-                        }}
-                      >
-                        <span>📲</span> Compartir por WhatsApp
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-danger"
-                        style={{
-                          fontSize: '.75rem',
-                          fontWeight: 600,
-                        }}
-                        title="Eliminar orden"
-                        onClick={() => setBorrandoMov({ tipo: 'orden', id: o.id, codigo: o.codigo })}
-                      >
-                        🗑 Borrar
-                      </button>
-                    </div>
+          {(() => {
+            const bitacoraDirectos = mantenimientosPropios.filter((m) => !(m.observacion ?? '').startsWith('Orden de servicio '));
+            if (ordenes.length === 0 && bitacoraDirectos.length === 0) {
+              return (
+                <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '1.8rem', marginBottom: '.35rem' }}>📭</div>
+                  <div style={{ fontSize: '.82rem' }}>No hay solicitudes ni servicios registrados todavía.</div>
+                  <div style={{ display: 'flex', gap: '.45rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '.65rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      style={{ fontSize: '.76rem', padding: '.25rem .6rem' }}
+                      onClick={() => { setTipoAccionServicio('solicitar'); setModo('servicio'); }}
+                    >
+                      + Solicitar servicio a Compras
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.76rem', padding: '.25rem .6rem', border: '1px solid var(--border)' }}
+                      onClick={() => { setTipoAccionServicio('registrar'); setModo('servicio'); }}
+                    >
+                      📒 Registrar en Bitácora
+                    </button>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display: 'grid', gap: '.75rem' }}>
+                {ordenes.length > 0 && (
+                  <div style={{ display: 'grid', gap: '.5rem' }}>
+                    <div className="muted" style={{ fontSize: '.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em' }}>
+                      🛒 Solicitudes enviadas a Compras ({ordenes.length})
+                    </div>
+                    {ordenes.map((o) => {
+                      const eq = equipos.find((e) => e.id === o.equipo_id);
+                      const foto = eq ? fotos.get(eq.id) : null;
+                      const isCancelada = o.estado === 'cancelada';
+                      const isRepuestos = o.estado === 'repuestos';
+                      const isRealizada = o.estado === 'realizada';
+                      return (
+                        <div
+                          key={o.id}
+                          style={{
+                            padding: '.65rem',
+                            background: 'var(--bg-1)',
+                            borderRadius: 'var(--r-md)',
+                            border: isCancelada
+                              ? '1px solid rgba(239, 79, 94, 0.4)'
+                              : isRepuestos
+                              ? '1px solid rgba(245, 177, 51, 0.4)'
+                              : '1px solid var(--border)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.3rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                              <span className="mono" style={{ fontWeight: 800, fontSize: '.88rem', color: 'var(--primary-3)' }}>
+                                {o.codigo}
+                              </span>
+                              <span
+                                className={`badge ${isCancelada ? 'danger' : isRepuestos ? 'warning' : isRealizada ? 'success' : 'info'}`}
+                                style={{ fontSize: '.68rem', fontWeight: 700, textTransform: 'uppercase' }}
+                              >
+                                {isCancelada ? '❌ CANCELADA (COMPRAS)' : o.estado}
+                              </span>
+                              {o.urgencia === 'urgente' && (
+                                <span className="badge danger" style={{ fontSize: '.66rem' }}>
+                                  🚨 URGENTE
+                                </span>
+                              )}
+                            </div>
+                            <div className="muted" style={{ fontSize: '.7rem' }}>
+                              {dateTime(o.created_at)}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', margin: '.4rem 0' }}>
+                            {foto ? (
+                              <img src={foto} alt={eq?.equipo ?? 'Equipo'} style={{ width: 44, height: 44, borderRadius: 'var(--r-sm)', objectFit: 'cover' }} />
+                            ) : (
+                              <div style={{ width: 44, height: 44, borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                                {eq ? iconoDeClase(claseEquipo(eq)) : '🚜'}
+                              </div>
+                            )}
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '.88rem' }}>{eq?.equipo ?? 'Equipo'}</div>
+                              <div className="muted" style={{ fontSize: '.74rem' }}>
+                                {[eq?.marca, eq?.modelo].filter(Boolean).join(' · ')}
+                                {eq?.placa && <span style={{ marginLeft: '.4rem', padding: '1px 5px', background: 'var(--surface-3)', borderRadius: 'var(--r-sm)', fontWeight: 600 }}>🚗 {eq.placa}</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: '.82rem', marginBottom: '.35rem', color: 'var(--text)' }}>
+                            <strong>Trabajo / Falla:</strong> {o.descripcion || 'Sin descripción'}
+                          </div>
+
+                          {(o.horometro != null || o.kilometraje != null || o.responsable) && (
+                            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
+                              {o.responsable && <span>👤 Responsable: {o.responsable}</span>}
+                              {o.horometro != null && <span>⏱️ Horómetro: {fmtNum(o.horometro)} h</span>}
+                              {o.kilometraje != null && <span>🚗 Km: {fmtNum(o.kilometraje)} km</span>}
+                            </div>
+                          )}
+
+                          {o.repuestos && o.repuestos.length > 0 && (
+                            <div style={{ fontSize: '.75rem', padding: '.35rem .5rem', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', marginBottom: '.5rem' }}>
+                              <strong style={{ display: 'block', marginBottom: '.15rem', color: 'var(--warning)' }}>
+                                🛒 Piezas enviadas a Compras ({o.repuestos.length}):
+                              </strong>
+                              {o.repuestos.map((r, ri) => (
+                                <div key={ri} className="muted">
+                                  • {r.nombre} ({fmtNum(r.cantidad)} {r.unidad})
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.45rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-success"
+                              style={{
+                                fontSize: '.78rem',
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '.35rem',
+                              }}
+                              onClick={() => {
+                                const txt = textoServicioWhatsapp({
+                                  codigo: o.codigo,
+                                  equipo: eq?.equipo ?? 'Equipo',
+                                  tipoEquipo: eq?.tipo,
+                                  marca: eq?.marca,
+                                  modelo: eq?.modelo,
+                                  tipoServicio: o.tipo,
+                                  urgencia: o.urgencia === 'urgente' ? 'urgente' : 'normal',
+                                  horasActuales: o.horometro,
+                                  kmActuales: o.kilometraje,
+                                  responsable: o.responsable,
+                                  descripcion: o.descripcion,
+                                  repuestos: o.repuestos.map((r) => ({ nombre: r.nombre, cantidad: r.cantidad, unidad: r.unidad })),
+                                  fecha: o.created_at,
+                                });
+                                mostrarWhatsapp(txt);
+                              }}
+                            >
+                              <span>📲</span> Compartir por WhatsApp
+                            </button>
+
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger"
+                              style={{
+                                fontSize: '.75rem',
+                                fontWeight: 600,
+                              }}
+                              title="Eliminar orden"
+                              onClick={() => setBorrandoMov({ tipo: 'orden', id: o.id, codigo: o.codigo })}
+                            >
+                              🗑 Borrar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {bitacoraDirectos.length > 0 && (
+                  <div style={{ display: 'grid', gap: '.5rem' }}>
+                    <div className="muted" style={{ fontSize: '.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em' }}>
+                      📒 Servicios / Mantenimientos registrados en Bitácora ({bitacoraDirectos.length})
+                    </div>
+                    {bitacoraDirectos.map((m) => {
+                      const eq = equipos.find((e) => e.id === m.equipo_id);
+                      const foto = eq ? fotos.get(eq.id) : null;
+                      const tiposLista = m.tipos && m.tipos.length > 0 ? m.tipos : (m.tipo ? [m.tipo] : ['servicio']);
+                      const numFotos = m.fotos?.length ?? 0;
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            padding: '.65rem',
+                            background: 'var(--bg-1)',
+                            borderRadius: 'var(--r-md)',
+                            border: '1px solid color-mix(in srgb, var(--info) 40%, var(--border))',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.3rem', gap: '.4rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                              <span className="badge info" style={{ fontSize: '.68rem', fontWeight: 700 }}>
+                                📒 BITÁCORA · SIN COMPRAS
+                              </span>
+                              {numFotos > 0 && (
+                                <span className="badge success" style={{ fontSize: '.68rem', fontWeight: 700 }}>
+                                  📷 {numFotos} {numFotos === 1 ? 'foto' : 'fotos'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mono muted" style={{ fontSize: '.74rem', fontWeight: 700 }}>
+                              📅 {String(m.fecha).slice(0, 10)}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', margin: '.4rem 0' }}>
+                            {foto ? (
+                              <img src={foto} alt={eq?.equipo ?? 'Equipo'} style={{ width: 44, height: 44, borderRadius: 'var(--r-sm)', objectFit: 'cover' }} />
+                            ) : (
+                              <div style={{ width: 44, height: 44, borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                                {eq ? iconoDeClase(claseEquipo(eq)) : '🚜'}
+                              </div>
+                            )}
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '.88rem' }}>{eq?.equipo ?? 'Equipo'}</div>
+                              <div className="muted" style={{ fontSize: '.74rem' }}>
+                                {tiposLista.map((tp) => etiquetaTipoMant(tp)).join(' · ')}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: '.82rem', marginBottom: '.35rem', color: 'var(--text)' }}>
+                            <strong>Trabajo realizado:</strong> {m.trabajo || 'Sin descripción'}
+                          </div>
+
+                          {(m.pieza || m.consumibles) && (
+                            <div style={{ fontSize: '.75rem', padding: '.35rem .5rem', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', marginBottom: '.45rem' }}>
+                              <strong style={{ display: 'block', marginBottom: '.15rem', color: 'var(--info)' }}>
+                                ⚙️ Repuestos / piezas utilizadas:
+                              </strong>
+                              <div className="muted">{m.pieza || m.consumibles}</div>
+                            </div>
+                          )}
+
+                          {(m.horometro != null || m.kilometraje != null || m.mecanico) && (
+                            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
+                              {m.mecanico && <span>👤 Mecánico: {m.mecanico}</span>}
+                              {m.horometro != null && <span>⏱️ Horómetro: {fmtNum(m.horometro)} h</span>}
+                              {m.kilometraje != null && <span>🚗 Km: {fmtNum(m.kilometraje)} km</span>}
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap', marginTop: '.45rem' }}>
+                            <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-success"
+                                style={{ fontSize: '.76rem', fontWeight: 700 }}
+                                onClick={() => {
+                                  const txt = textoMantenimientoBitacoraWhatsapp({
+                                    equipo: eq?.equipo ?? 'Equipo',
+                                    tipoEquipo: eq?.tipo,
+                                    marca: eq?.marca,
+                                    modelo: eq?.modelo,
+                                    placa: eq?.placa,
+                                    fechaServicio: String(m.fecha).slice(0, 10),
+                                    intervenciones: tiposLista,
+                                    horasActuales: m.horometro,
+                                    kmActuales: m.kilometraje,
+                                    responsable: m.mecanico,
+                                    registradoPor: m.actor_name,
+                                    descripcion: m.trabajo ?? '',
+                                    repuestos: (m.pieza || m.consumibles)
+                                      ? [{ nombre: m.pieza || m.consumibles || '', cantidad: 1, unidad: 'lote' }]
+                                      : [],
+                                    fotosCount: numFotos,
+                                  });
+                                  mostrarWhatsapp(txt);
+                                }}
+                              >
+                                📲 WhatsApp
+                              </button>
+                              {eq && (
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-ghost"
+                                  style={{ fontSize: '.76rem', border: '1px solid var(--border)' }}
+                                  onClick={() => setEquipoBitacoraMovil(eq)}
+                                >
+                                  📒 Ver Bitácora
+                                </button>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger"
+                              style={{ fontSize: '.74rem', fontWeight: 600 }}
+                              onClick={() => setBorrandoMov({ tipo: 'bitacora', id: m.id, codigo: `Bitácora ${String(m.fecha).slice(0, 10)} · ${eq?.equipo ?? ''}` })}
+                            >
+                              🗑 Borrar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
-      {/* ── Formulario: Solicitar Servicio (Solicitud a Compras) ── */}
+      {/* ── Formulario: Solicitar Servicio (a Compras) o Registrar Servicio / Mantenimiento (Bitácora) ── */}
       {modo === 'servicio' && (
         <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              <span>🔧</span> Solicitud de Servicio a Compras
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem', gap: '.5rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span>{tipoAccionServicio === 'registrar' ? '📒' : '🔧'}</span>
+              <span>{tipoAccionServicio === 'registrar' ? 'Registrar Servicio / Mantenimiento' : 'Solicitud de Servicio a Compras'}</span>
             </h3>
-            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem', flexShrink: 0 }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>
+
+          {/* Selector táctil de modalidad: Solicitar a Compras vs Registrar Servicio ya realizado (Solo Bitácora) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.45rem', marginBottom: '.85rem' }}>
+            <button
+              type="button"
+              className={`btn ${tipoAccionServicio === 'solicitar' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{
+                padding: '.55rem .5rem',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '.15rem',
+                minHeight: '54px',
+                lineHeight: 1.2,
+                border: tipoAccionServicio === 'solicitar' ? undefined : '1px solid var(--border)',
+              }}
+              onClick={() => setTipoAccionServicio('solicitar')}
+            >
+              <strong style={{ fontSize: '.84rem' }}>🛒 Solicitar Servicio</strong>
+              <span style={{ fontSize: '.7rem', opacity: 0.85 }}>Enviar a Compras</span>
+            </button>
+
+            <button
+              type="button"
+              className={`btn ${tipoAccionServicio === 'registrar' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{
+                padding: '.55rem .5rem',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '.15rem',
+                minHeight: '54px',
+                lineHeight: 1.2,
+                border: tipoAccionServicio === 'registrar' ? undefined : '1px solid var(--border)',
+              }}
+              onClick={() => setTipoAccionServicio('registrar')}
+            >
+              <strong style={{ fontSize: '.84rem' }}>📒 Registrar Servicio / Mant.</strong>
+              <span style={{ fontSize: '.7rem', opacity: 0.85 }}>Ya realizado · Solo Bitácora</span>
+            </button>
+          </div>
+
+          {tipoAccionServicio === 'registrar' && (
+            <div style={{
+              padding: '.6rem .75rem',
+              marginBottom: '.85rem',
+              borderRadius: 'var(--r-md)',
+              background: 'color-mix(in srgb, var(--info) 12%, var(--bg-1))',
+              border: '1px solid color-mix(in srgb, var(--info) 45%, var(--border))',
+              fontSize: '.82rem',
+              lineHeight: 1.35,
+            }}>
+              📒 <strong>Servicio / mantenimiento ya realizado:</strong> queda guardado directo en la <strong>Bitácora</strong> del equipo con sus repuestos y fotos de soporte (<strong>no va a Compras</strong>).
+            </div>
+          )}
 
           <div style={{ display: 'grid', gap: '.85rem' }}>
             <div>
@@ -874,19 +1255,29 @@ export function MaquinariaMovilView() {
                     {iconoDeClase(claseEquipo(equipoActual))}
                   </div>
                 )}
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div><strong>{equipoActual.equipo}</strong> · {[equipoActual.marca, equipoActual.modelo].filter(Boolean).join(' ')}</div>
                   {equipoActual.placa && <div><span className="badge" style={{ fontSize: '.75rem', padding: '2px 6px' }}>🚗 Placa: {equipoActual.placa}</span></div>}
                   {extraerEncargado(equipoActual) && <div className="muted" style={{ fontSize: '.8rem' }}>👤 Encargado: {extraerEncargado(equipoActual)}</div>}
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-ghost"
-                  style={{ fontSize: '.78rem', padding: '.3rem .55rem' }}
-                  onClick={() => setSubirFotoEq(equipoActual)}
-                >
-                  📷 Foto
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.76rem', padding: '.25rem .5rem' }}
+                    onClick={() => setEquipoBitacoraMovil(equipoActual)}
+                  >
+                    📒 Bitácora
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.76rem', padding: '.25rem .5rem' }}
+                    onClick={() => setSubirFotoEq(equipoActual)}
+                  >
+                    📷 Foto
+                  </button>
+                </div>
               </div>
             )}
 
@@ -894,7 +1285,7 @@ export function MaquinariaMovilView() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
                 <label style={{ fontSize: '.9rem', fontWeight: 600, margin: 0 }}>
-                  Sistema / Intervención requerida *
+                  {tipoAccionServicio === 'registrar' ? 'Sistema / Intervención realizada *' : 'Sistema / Intervención requerida *'}
                 </label>
                 {intervencionesServicio.length > 0 && (
                   <span className="badge" style={{ fontSize: '.78rem', padding: '2px 8px' }}>
@@ -937,13 +1328,31 @@ export function MaquinariaMovilView() {
             </div>
 
             <div className="surt-grid2">
-              <div>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Urgencia</label>
-                <select className="select" style={{ fontSize: '.92rem' }} value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
-                  <option value="normal">NORMAL</option>
-                  <option value="urgente">🚨 URGENTE</option>
-                </select>
-              </div>
+              {tipoAccionServicio === 'registrar' ? (
+                <div>
+                  <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Fecha del servicio *</label>
+                  <input
+                    type="date"
+                    className="input mono"
+                    style={{ fontSize: '.92rem' }}
+                    max={hoyVE()}
+                    value={fechaServicioBitacora}
+                    onChange={(e) => {
+                      const nuevaFecha = e.target.value;
+                      setFechaServicioBitacora(nuevaFecha);
+                      setReiniciarContadorBitacora(nuevaFecha >= hoyVE());
+                    }}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Urgencia</label>
+                  <select className="select" style={{ fontSize: '.92rem' }} value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
+                    <option value="normal">NORMAL</option>
+                    <option value="urgente">🚨 URGENTE</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Responsable / Mecánico</label>
@@ -953,14 +1362,16 @@ export function MaquinariaMovilView() {
                   style={{ fontSize: '.92rem' }}
                   value={responsableServicio}
                   onChange={(e) => setResponsableServicio(e.target.value)}
-                  placeholder="Nombre de quien revisa…"
+                  placeholder={tipoAccionServicio === 'registrar' ? 'Quién realizó el trabajo…' : 'Nombre de quien revisa…'}
                 />
               </div>
             </div>
 
             <div className="surt-grid2">
               <div>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Horómetro actual</label>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                  {tipoAccionServicio === 'registrar' ? 'Horómetro en el servicio' : 'Horómetro actual'}
+                </label>
                 <input
                   type="number"
                   className="input mono"
@@ -972,7 +1383,9 @@ export function MaquinariaMovilView() {
               </div>
 
               <div>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Kilometraje actual</label>
+                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                  {tipoAccionServicio === 'registrar' ? 'Kilometraje en el servicio' : 'Kilometraje actual'}
+                </label>
                 <input
                   type="number"
                   className="input mono"
@@ -984,15 +1397,49 @@ export function MaquinariaMovilView() {
               </div>
             </div>
 
+            {tipoAccionServicio === 'registrar' && (
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '.55rem',
+                padding: '.55rem .7rem',
+                background: 'var(--bg-1)',
+                borderRadius: 'var(--r-md)',
+                border: '1px solid var(--border)',
+                fontSize: '.84rem',
+                cursor: 'pointer',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={reiniciarContadorBitacora}
+                  onChange={(e) => setReiniciarContadorBitacora(e.target.checked)}
+                />
+                <span>
+                  🔄 Actualizar contador de próximo mantenimiento con esta lectura
+                  {fechaServicioBitacora < hoyVE() && (
+                    <small className="muted" style={{ display: 'block', fontSize: '.74rem' }}>
+                      Desmárcalo si es un mantenimiento viejo para no alterar el horómetro/km actual.
+                    </small>
+                  )}
+                </span>
+              </label>
+            )}
+
             <div>
-              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Trabajo o falla a reparar *</label>
+              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                {tipoAccionServicio === 'registrar' ? 'Trabajo o mantenimiento realizado *' : 'Trabajo o falla a reparar *'}
+              </label>
               <textarea
                 className="input"
                 rows={3}
                 style={{ fontSize: '.92rem' }}
                 value={descripcionServicio}
                 onChange={(e) => setDescripcionServicio(e.target.value)}
-                placeholder="Describe qué trabajo necesita la máquina o qué repuesto hace falta…"
+                placeholder={
+                  tipoAccionServicio === 'registrar'
+                    ? 'Detalla el servicio o mantenimiento que se le realizó al equipo…'
+                    : 'Describe qué trabajo necesita la máquina o qué repuesto hace falta…'
+                }
               />
             </div>
 
@@ -1010,23 +1457,26 @@ export function MaquinariaMovilView() {
                       className="btn btn-sm btn-ghost"
                       style={{ fontSize: '.82rem', padding: '.25rem .55rem' }}
                       onClick={() => {
-                        const ya = piezasSeleccionadas.some((p) => p.nombre === r.tipo);
+                        const etiqueta = r.numero_parte && tipoAccionServicio === 'registrar' ? `${r.tipo} (${r.numero_parte})` : r.tipo;
+                        const ya = piezasSeleccionadas.some((p) => p.nombre === etiqueta);
                         if (!ya) {
-                          setPiezasSeleccionadas((prev) => [...prev, { nombre: r.tipo, cantidad: r.cantidad || 1, unidad: r.unidad || 'und' }]);
+                          setPiezasSeleccionadas((prev) => [...prev, { nombre: etiqueta, cantidad: r.cantidad || 1, unidad: r.unidad || 'und' }]);
                         }
                       }}
                     >
-                      + {r.tipo}
+                      + {r.tipo}{r.numero_parte && tipoAccionServicio === 'registrar' ? ` · ${r.numero_parte}` : ''}
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Agregar pieza libre con nombre general (Compras formalizará con N° de parte) */}
+            {/* Agregar repuestos / piezas (para Compras o cambiadas/utilizadas en el servicio) */}
             <div style={{ padding: '.85rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)', border: '1px dashed var(--border-strong)' }}>
               <label style={{ fontSize: '.92rem', fontWeight: 700, display: 'block', marginBottom: '.5rem', color: 'var(--text)' }}>
-                🛒 Pedir pieza o repuesto a Compras (nombre general):
+                {tipoAccionServicio === 'registrar'
+                  ? '⚙️ Repuestos o piezas que cambiaron / utilizaron:'
+                  : '🛒 Pedir pieza o repuesto a Compras (nombre general):'}
               </label>
 
               {/* Fila 1: Campo de texto con ancho completo para el nombre o descripción */}
@@ -1035,7 +1485,11 @@ export function MaquinariaMovilView() {
                   type="text"
                   className="input"
                   style={{ fontSize: '.92rem', padding: '.6rem .75rem', width: '100%', boxSizing: 'border-box' }}
-                  placeholder="Ej. Filtro de aceite, Manguera 1/2, Correa…"
+                  placeholder={
+                    tipoAccionServicio === 'registrar'
+                      ? 'Ej. Filtro de aceite 1R-0716, Aceite 15W40, Pastillas…'
+                      : 'Ej. Filtro de aceite, Manguera 1/2, Correa…'
+                  }
                   value={nombrePiezaLibre}
                   onChange={(e) => setNombrePiezaLibre(e.target.value)}
                   onKeyDown={(e) => {
@@ -1071,6 +1525,8 @@ export function MaquinariaMovilView() {
                     <option value="lts">lts</option>
                     <option value="jgo">jgo</option>
                     <option value="mts">mts</option>
+                    <option value="cuñ">cuñ</option>
+                    <option value="gal">gal</option>
                   </select>
                 </div>
                 <button
@@ -1094,15 +1550,19 @@ export function MaquinariaMovilView() {
               </div>
 
               <small className="muted" style={{ fontSize: '.78rem', display: 'block', marginTop: '.5rem', lineHeight: 1.35 }}>
-                💡 Escribe nombres generales. Compras recibirá la solicitud directa para cotizar y asignar el N° de parte oficial.
+                {tipoAccionServicio === 'registrar'
+                  ? '💡 Anota cada repuesto, filtro o consumible que cambiaron o usaron para que quede detallado en la bitácora.'
+                  : '💡 Escribe nombres generales. Compras recibirá la solicitud directa para cotizar y asignar el N° de parte oficial.'}
               </small>
             </div>
 
             {/* Piezas agregadas */}
             {piezasSeleccionadas.length > 0 && (
               <div style={{ padding: '.65rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)' }}>
-                <small style={{ fontWeight: 700, fontSize: '.88rem', display: 'block', marginBottom: '.35rem', color: 'var(--warning)' }}>
-                  Piezas que se enviarán a Compras ({piezasSeleccionadas.length}):
+                <small style={{ fontWeight: 700, fontSize: '.88rem', display: 'block', marginBottom: '.35rem', color: tipoAccionServicio === 'registrar' ? 'var(--info)' : 'var(--warning)' }}>
+                  {tipoAccionServicio === 'registrar'
+                    ? `Repuestos / piezas cambiadas o utilizadas (${piezasSeleccionadas.length}):`
+                    : `Piezas que se enviarán a Compras (${piezasSeleccionadas.length}):`}
                 </small>
                 {piezasSeleccionadas.map((p, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.86rem', marginBottom: '.3rem' }}>
@@ -1120,14 +1580,110 @@ export function MaquinariaMovilView() {
               </div>
             )}
 
+            {/* Fotos de soporte para la Bitácora */}
+            <div style={{ padding: '.85rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)', border: '1px dashed var(--border-strong)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+                <label style={{ fontSize: '.92rem', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                  📷 {tipoAccionServicio === 'registrar' ? 'Fotos de soporte para la bitácora' : 'Fotos de soporte (opcional)'}
+                </label>
+                <span className="badge" style={{ fontSize: '.75rem' }}>
+                  {fotosServicio.length} / {tipoAccionServicio === 'registrar' ? MAX_FOTOS_MANTENIMIENTO : 4}
+                </span>
+              </div>
+
+              <label
+                className="btn btn-ghost"
+                style={{
+                  width: '100%',
+                  minHeight: '44px',
+                  justifyContent: 'center',
+                  gap: '.45rem',
+                  fontSize: '.88rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: '1px solid var(--border)',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <span>📸</span>
+                <span>Tomar o seleccionar fotos de soporte</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    agregarFotosServicio(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+
+              {fotosServicio.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(78px, 1fr))', gap: '.5rem', marginTop: '.65rem' }}>
+                  {fotosServicio.map((f, idx) => (
+                    <div
+                      key={`${f.name}-${idx}`}
+                      style={{
+                        position: 'relative',
+                        aspectRatio: '1 / 1',
+                        borderRadius: 'var(--r-sm)',
+                        overflow: 'hidden',
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
+                      }}
+                    >
+                      <img
+                        src={previasFotosServicio[idx]}
+                        alt={f.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                      <button
+                        type="button"
+                        title="Quitar foto"
+                        onClick={() => setFotosServicio((prev) => prev.filter((_, i) => i !== idx))}
+                        style={{
+                          position: 'absolute',
+                          top: 3,
+                          right: 3,
+                          width: 22,
+                          height: 22,
+                          borderRadius: '999px',
+                          border: 'none',
+                          background: 'rgba(0,0,0,0.72)',
+                          color: '#fff',
+                          fontSize: '.75rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <small className="muted" style={{ fontSize: '.77rem', display: 'block', marginTop: '.45rem', lineHeight: 1.35 }}>
+                {tipoAccionServicio === 'registrar'
+                  ? 'Adjunta fotos de los repuestos cambiados, filtros o del mantenimiento realizado como respaldo en la Bitácora.'
+                  : 'Opcional: adjunta fotos de la falla o de la pieza requerida.'}
+              </small>
+            </div>
+
             <button
               type="button"
               className="btn btn-primary"
               style={{ padding: '.85rem', fontWeight: 700, fontSize: '1rem' }}
               disabled={saving}
-              onClick={() => void guardarServicio()}
+              onClick={() => void (tipoAccionServicio === 'registrar' ? guardarServicioBitacora() : guardarServicio())}
             >
-              {saving ? 'Enviando a Compras…' : '🛒 Guardar y Enviar a Compras'}
+              {saving
+                ? (tipoAccionServicio === 'registrar' ? 'Guardando en Bitácora…' : 'Enviando a Compras…')
+                : (tipoAccionServicio === 'registrar' ? '📒 Guardar en Bitácora (Sin enviar a Compras)' : '🛒 Guardar y Enviar a Compras')}
             </button>
           </div>
         </div>
@@ -1376,176 +1932,190 @@ export function MaquinariaMovilView() {
         </div>
       )}
 
-      {/* ── Catálogo de Máquinas y Horas de Mantenimiento ── */}
-      <div className="flo-mv-cat">
-        <div className="flo-mv-cat-head">
-          <div>
-            <strong>🚜 Catálogo de Equipos y Horas</strong>
-            <span className="badge">{equiposCatalogo.length} de {equipos.length}</span>
-          </div>
-          <div className="flo-mv-cat-acc">
-            <button
-              type="button"
-              className="btn btn-sm btn-ghost"
-              title="Descargar Catálogo y Fichas Técnicas en PDF"
-              onClick={() => setExportarPdfMovilOpen(true)}
-            >
-              📄 PDF
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-primary"
-              onClick={() => setNuevoEquipoMovilOpen(true)}
-            >
-              {filtroCatalogo === 'motos' ? '+ Nueva moto' : filtroCatalogo === 'lanchas' ? '+ Nueva lancha' : filtroCatalogo === 'vehiculos' ? '+ Nuevo vehículo' : filtroCatalogo === 'pesada' ? '+ Nueva maquinaria' : '+ Nuevo equipo'}
-            </button>
-          </div>
-        </div>
+      {/* ── Catálogo de Máquinas y Horas de Mantenimiento (solo se muestra al tocar «Ver Catálogo») ── */}
+      {verCatalogo && (
+        <>
+          <EntregasAlmacenAviso canWrite={canWrite} actorName={actorName} />
+          <AlertasMantenimientoBanner compacto items={alertasMant} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargarDatos()} />
 
-        {/* Buscador táctil */}
-        <input
-          className="input"
-          placeholder="🔍 Buscar máquina, modelo, placa, encargado…"
-          value={busquedaCatalogo}
-          onChange={(e) => setBusquedaCatalogo(e.target.value)}
-        />
-
-        {/* Filtros rápidos por categoría: chips deslizables (sin scroll horizontal de la página) */}
-        <div className="flo-pills solido" role="tablist" aria-label="Filtrar catálogo por categoría">
-          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'todos'} onClick={() => setFiltroCatalogo('todos')}>
-            Todos<span className="n">{conteosCatalogo.total}</span>
-          </button>
-          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'lanchas'} onClick={() => setFiltroCatalogo('lanchas')}>
-            🚤 Lanchas<span className="n">{conteosCatalogo.lanchas}</span>
-          </button>
-          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'pesada'} onClick={() => setFiltroCatalogo('pesada')}>
-            🚜 Maquinaria<span className="n">{conteosCatalogo.pesada}</span>
-          </button>
-          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'vehiculos'} onClick={() => setFiltroCatalogo('vehiculos')}>
-            🚚 Vehículos<span className="n">{conteosCatalogo.vehiculos}</span>
-          </button>
-          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'motos'} onClick={() => setFiltroCatalogo('motos')}>
-            🏍️ Motos<span className="n">{conteosCatalogo.motos}</span>
-          </button>
-          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'herramientas'} onClick={() => setFiltroCatalogo('herramientas')}>
-            🛠️ Herramientas<span className="n">{conteosCatalogo.herramientas}</span>
-          </button>
-          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'alertas'} onClick={() => setFiltroCatalogo('alertas')}>
-            ⚠️ Próx. / Vencidos<span className="n">{conteosCatalogo.alertas}</span>
-          </button>
-        </div>
-
-        {/* Lista / Tarjetas de equipos tipo catálogo */}
-        <div className="flo-mv-lista">
-          {equiposCatalogo.map((eq) => {
-            const inf = infoEquipos.get(eq.id);
-            const av = inf?.aviso;
-            const horo = inf?.horometro;
-            const km = inf?.kilometraje;
-            const enc = inf?.encargado;
-            const foto = fotos.get(eq.id);
-            const operativa = !inf?.estado || inf.estado === 'operativa';
-
-            return (
-              <div
-                key={eq.id}
-                role="button"
-                tabIndex={0}
-                className={`flo-mv-card${av?.nivel === 'vencido' ? ' vencido' : av?.nivel === 'proximo' ? ' proximo' : ''}`}
-                onClick={() => abrirOpcionesEquipo(eq)}
-                onKeyDown={(e) => { if (e.key === 'Enter') abrirOpcionesEquipo(eq); }}
-              >
-                <div className="flo-mv-card-top">
-                  {/* Foto miniatura o icono de clase */}
-                  <div className="flo-mv-thumb">
-                    <div className="flo-thumb">
-                      {foto ? (
-                        <img src={foto} alt={eq.equipo} />
-                      ) : (
-                        iconoDeClase(claseEquipo(eq))
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost flo-mv-foto-btn"
-                      title="Cambiar foto del equipo"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSubirFotoEq(eq);
-                      }}
-                    >
-                      📷
-                    </button>
-                  </div>
-
-                  {/* Datos del equipo */}
-                  <div className="flo-mv-datos">
-                    <div className="flo-mv-nombre">
-                      <strong>{eq.equipo}</strong>
-                      <span className={`badge ${operativa ? 'success' : 'danger'}`}>
-                        {inf?.estado?.toUpperCase() || 'OPERATIVA'}
-                      </span>
-                    </div>
-
-                    <div className="flo-mv-sub muted">
-                      <span>{[eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' · ') || 'Sin tipo'}</span>
-                      {eq.placa && <span className="flo-mv-placa mono">{eq.placa}</span>}
-                    </div>
-
-                    {enc && (
-                      <div className="flo-mv-enc">
-                        👤 Encargado: <strong>{enc}</strong>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Lectura vigente + estado del servicio en una sola fila */}
-                <div className="flo-mv-lectura">
-                  <span>
-                    <span className="muted">{horo == null && km != null ? 'Kilometraje: ' : 'Horómetro: '}</span>
-                    <span className="mono">{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</span>
-                  </span>
-                  <BadgeServicio av={av} />
-                </div>
-
-                <div className="flo-mv-card-acc">
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const txt = textoEstadoEquipoWhatsapp({
-                        equipo: eq.equipo,
-                        tipo: eq.tipo,
-                        marca: eq.marca,
-                        modelo: eq.modelo,
-                        estado: inf?.estado || 'operativa',
-                        encargado: enc,
-                        horometro: horo,
-                        kilometraje: km,
-                        horasFaltantes: av?.restante ?? null,
-                        nivelAviso: av?.nivel ?? null,
-                        unidadAviso: av?.unidad ?? 'h',
-                      });
-                      mostrarWhatsapp(txt);
-                    }}
-                  >
-                    📲 WhatsApp
-                  </button>
-                  <span className="ayuda">Toque para ver opciones ▸</span>
-                </div>
+          <div className="flo-mv-cat">
+            <div className="flo-mv-cat-head">
+              <div>
+                <strong>🚜 Catálogo de Equipos y Horas</strong>
+                <span className="badge">{equiposCatalogo.length} de {equipos.length}</span>
               </div>
-            );
-          })}
-
-          {!equiposCatalogo.length && (
-            <div className="muted" style={{ padding: '1rem', textAlign: 'center', fontSize: '.84rem' }}>
-              No se encontraron equipos con ese filtro o búsqueda.
+              <div className="flo-mv-cat-acc">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  title="Descargar Catálogo y Fichas Técnicas en PDF"
+                  onClick={() => setExportarPdfMovilOpen(true)}
+                >
+                  📄 PDF
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={() => setNuevoEquipoMovilOpen(true)}
+                >
+                  {filtroCatalogo === 'motos' ? '+ Nueva moto' : filtroCatalogo === 'lanchas' ? '+ Nueva lancha' : filtroCatalogo === 'vehiculos' ? '+ Nuevo vehículo' : filtroCatalogo === 'pesada' ? '+ Nueva maquinaria' : '+ Nuevo equipo'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => setVerCatalogo(false)}
+                >
+                  ✕ Ocultar
+                </button>
+              </div>
             </div>
-          )}
-        </div>
-      </div>
+
+            {/* Buscador táctil */}
+            <input
+              className="input"
+              placeholder="🔍 Buscar máquina, modelo, placa, encargado…"
+              value={busquedaCatalogo}
+              onChange={(e) => setBusquedaCatalogo(e.target.value)}
+            />
+
+            {/* Filtros rápidos por categoría: chips deslizables (sin scroll horizontal de la página) */}
+            <div className="flo-pills solido" role="tablist" aria-label="Filtrar catálogo por categoría">
+              <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'todos'} onClick={() => setFiltroCatalogo('todos')}>
+                Todos<span className="n">{conteosCatalogo.total}</span>
+              </button>
+              <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'lanchas'} onClick={() => setFiltroCatalogo('lanchas')}>
+                🚤 Lanchas<span className="n">{conteosCatalogo.lanchas}</span>
+              </button>
+              <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'pesada'} onClick={() => setFiltroCatalogo('pesada')}>
+                🚜 Maquinaria<span className="n">{conteosCatalogo.pesada}</span>
+              </button>
+              <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'vehiculos'} onClick={() => setFiltroCatalogo('vehiculos')}>
+                🚚 Vehículos<span className="n">{conteosCatalogo.vehiculos}</span>
+              </button>
+              <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'motos'} onClick={() => setFiltroCatalogo('motos')}>
+                🏍️ Motos<span className="n">{conteosCatalogo.motos}</span>
+              </button>
+              <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'herramientas'} onClick={() => setFiltroCatalogo('herramientas')}>
+                🛠️ Herramientas<span className="n">{conteosCatalogo.herramientas}</span>
+              </button>
+              <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'alertas'} onClick={() => setFiltroCatalogo('alertas')}>
+                ⚠️ Próx. / Vencidos<span className="n">{conteosCatalogo.alertas}</span>
+              </button>
+            </div>
+
+            {/* Lista / Tarjetas de equipos tipo catálogo */}
+            <div className="flo-mv-lista">
+              {equiposCatalogo.map((eq) => {
+                const inf = infoEquipos.get(eq.id);
+                const av = inf?.aviso;
+                const horo = inf?.horometro;
+                const km = inf?.kilometraje;
+                const enc = inf?.encargado;
+                const foto = fotos.get(eq.id);
+                const operativa = !inf?.estado || inf.estado === 'operativa';
+
+                return (
+                  <div
+                    key={eq.id}
+                    role="button"
+                    tabIndex={0}
+                    className={`flo-mv-card${av?.nivel === 'vencido' ? ' vencido' : av?.nivel === 'proximo' ? ' proximo' : ''}`}
+                    onClick={() => abrirOpcionesEquipo(eq)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') abrirOpcionesEquipo(eq); }}
+                  >
+                    <div className="flo-mv-card-top">
+                      {/* Foto miniatura o icono de clase */}
+                      <div className="flo-mv-thumb">
+                        <div className="flo-thumb">
+                          {foto ? (
+                            <img src={foto} alt={eq.equipo} />
+                          ) : (
+                            iconoDeClase(claseEquipo(eq))
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost flo-mv-foto-btn"
+                          title="Cambiar foto del equipo"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSubirFotoEq(eq);
+                          }}
+                        >
+                          📷
+                        </button>
+                      </div>
+
+                      {/* Datos del equipo */}
+                      <div className="flo-mv-datos">
+                        <div className="flo-mv-nombre">
+                          <strong>{eq.equipo}</strong>
+                          <span className={`badge ${operativa ? 'success' : 'danger'}`}>
+                            {inf?.estado?.toUpperCase() || 'OPERATIVA'}
+                          </span>
+                        </div>
+
+                        <div className="flo-mv-sub muted">
+                          <span>{[eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' · ') || 'Sin tipo'}</span>
+                          {eq.placa && <span className="flo-mv-placa mono">{eq.placa}</span>}
+                        </div>
+
+                        {enc && (
+                          <div className="flo-mv-enc">
+                            👤 Encargado: <strong>{enc}</strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Lectura vigente + estado del servicio en una sola fila */}
+                    <div className="flo-mv-lectura">
+                      <span>
+                        <span className="muted">{horo == null && km != null ? 'Kilometraje: ' : 'Horómetro: '}</span>
+                        <span className="mono">{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</span>
+                      </span>
+                      <BadgeServicio av={av} />
+                    </div>
+
+                    <div className="flo-mv-card-acc">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const txt = textoEstadoEquipoWhatsapp({
+                            equipo: eq.equipo,
+                            tipo: eq.tipo,
+                            marca: eq.marca,
+                            modelo: eq.modelo,
+                            estado: inf?.estado || 'operativa',
+                            encargado: enc,
+                            horometro: horo,
+                            kilometraje: km,
+                            horasFaltantes: av?.restante ?? null,
+                            nivelAviso: av?.nivel ?? null,
+                            unidadAviso: av?.unidad ?? 'h',
+                          });
+                          mostrarWhatsapp(txt);
+                        }}
+                      >
+                        📲 WhatsApp
+                      </button>
+                      <span className="ayuda">Toque para ver opciones ▸</span>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!equiposCatalogo.length && (
+                <div className="muted" style={{ padding: '1rem', textAlign: 'center', fontSize: '.84rem' }}>
+                  No se encontraron equipos con ese filtro o búsqueda.
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── Modal de Opciones para un Equipo (al tocarlo en el catálogo) ── */}
       {equipoOpciones && (
@@ -1606,12 +2176,40 @@ export function MaquinariaMovilView() {
                   className="btn btn-primary flo-mv-opcion"
                   onClick={() => {
                     setEquipoSelId(equipoOpciones.id);
+                    setTipoAccionServicio('solicitar');
                     setModo('servicio');
                     setEquipoOpciones(null);
                   }}
                 >
                   <span>🔧</span>
-                  <span>Solicitar Servicio a este Equipo</span>
+                  <span>Solicitar Servicio (Enviar a Compras)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost flo-mv-opcion ficha"
+                  onClick={() => {
+                    setEquipoSelId(equipoOpciones.id);
+                    setTipoAccionServicio('registrar');
+                    setModo('servicio');
+                    setEquipoOpciones(null);
+                  }}
+                >
+                  <span>📒</span>
+                  <span>Registrar Servicio / Mant. (Solo Bitácora)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost flo-mv-opcion"
+                  onClick={() => {
+                    const eq = equipoOpciones;
+                    setEquipoOpciones(null);
+                    setEquipoBitacoraMovil(eq);
+                  }}
+                >
+                  <span>📖</span>
+                  <span>Ver Bitácora Completa del Equipo</span>
                 </button>
 
                 <button
@@ -1724,143 +2322,10 @@ export function MaquinariaMovilView() {
         </Modal>
       )}
 
-      {/* ── Últimos Movimientos de la Flota (con reenvío WhatsApp y Borrado) ── */}
-      <div style={{ marginTop: '1.25rem' }}>
-        <div style={{ fontSize: '.86rem', fontWeight: 600, marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between' }}>
-          <span>📋 Últimos movimientos</span>
-          <span className="muted" style={{ fontSize: '.75rem' }}>{ordenes.length + lavados.length} registros</span>
-        </div>
-
-        {loading ? (
-          <div className="muted" style={{ fontSize: '.8rem' }}>Cargando movimientos…</div>
-        ) : (
-          <div style={{ display: 'grid', gap: '.45rem' }}>
-            {ordenes.slice(0, 5).map((o) => {
-              const eq = equipos.find((e) => e.id === o.equipo_id);
-              return (
-                <div key={o.id} className="flo-linea" style={{
-                  padding: '.55rem .75rem',
-                  background: 'var(--surface-2)',
-                  borderRadius: 'var(--r-md)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}>
-                  <div style={{ minWidth: 0, marginRight: '.5rem' }}>
-                    <div style={{ fontWeight: 600, fontSize: '.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      🔧 {o.codigo} · {eq?.equipo ?? 'Equipo'}
-                    </div>
-                    <div className="muted" style={{ fontSize: '.72rem' }}>
-                      {o.tipo.toUpperCase()} · {o.responsable ?? 'Sin resp.'} · {dateTime(o.created_at)}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '.3rem', flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      style={{ fontSize: '.72rem', padding: '.2rem .4rem' }}
-                      title="Compartir por WhatsApp"
-                      onClick={() => {
-                        const txt = textoServicioWhatsapp({
-                          codigo: o.codigo,
-                          equipo: eq?.equipo ?? 'Equipo',
-                          tipoEquipo: eq?.tipo,
-                          marca: eq?.marca,
-                          modelo: eq?.modelo,
-                          tipoServicio: o.tipo,
-                          urgencia: o.urgencia,
-                          horasActuales: o.horometro,
-                          kmActuales: o.kilometraje,
-                          responsable: o.responsable,
-                          descripcion: o.descripcion,
-                          repuestos: o.repuestos.map((r) => ({ nombre: r.nombre, cantidad: r.cantidad, unidad: r.unidad })),
-                          fecha: o.created_at,
-                        });
-                        setMensajeWhatsapp(txt);
-                      }}
-                    >
-                      📲 WhatsApp
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger)' }}
-                      title="Eliminar este movimiento"
-                      onClick={() => setBorrandoMov({ tipo: 'orden', id: o.id, codigo: o.codigo })}
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            {lavados.slice(0, 3).map((l) => {
-              const eq = equipos.find((e) => e.id === l.equipo_id);
-              return (
-                <div key={l.id} className="flo-linea" style={{
-                  padding: '.55rem .75rem',
-                  background: 'var(--surface-2)',
-                  borderRadius: 'var(--r-md)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}>
-                  <div style={{ minWidth: 0, marginRight: '.5rem' }}>
-                    <div style={{ fontWeight: 600, fontSize: '.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      🚿 Lavado {l.tipo} · {eq?.equipo ?? 'Equipo'}
-                    </div>
-                    <div className="muted" style={{ fontSize: '.72rem' }}>
-                      Lavador: {l.responsable ?? '—'} · {dateTime(l.fecha)}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '.3rem', flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      style={{ fontSize: '.72rem', padding: '.2rem .4rem' }}
-                      title="Compartir por WhatsApp"
-                      onClick={() => {
-                        const txt = textoLavadoWhatsapp({
-                          equipo: eq?.equipo ?? 'Equipo',
-                          tipoEquipo: eq?.tipo,
-                          tipoLavado: l.tipo,
-                          lavador: l.responsable,
-                          notas: l.nota,
-                          fecha: l.fecha,
-                        });
-                        mostrarWhatsapp(txt);
-                      }}
-                    >
-                      📲 WhatsApp
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger)' }}
-                      title="Eliminar este lavado"
-                      onClick={() => setBorrandoMov({ tipo: 'lavado', id: l.id, codigo: `Lavado ${l.tipo}` })}
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            {!ordenes.length && !lavados.length && (
-              <div className="muted" style={{ fontSize: '.8rem', padding: '.6rem', textAlign: 'center' }}>
-                Sin movimientos recientes registrados.
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* Confirmación para borrar movimiento */}
       {borrandoMov && (
         <ConfirmDialog
-          title="Eliminar movimiento"
+          title="Eliminar registro"
           message={`¿Estás seguro de eliminar el registro «${borrandoMov.codigo}»? Esta acción no se puede deshacer.`}
           confirmText="Sí, eliminar"
           danger
@@ -1869,16 +2334,30 @@ export function MaquinariaMovilView() {
               if (borrandoMov.tipo === 'orden') {
                 await eliminarOrdenServicio({ id: borrandoMov.id, codigo: borrandoMov.codigo });
               } else {
-                await eliminarLavado(borrandoMov.id);
+                await eliminarMantenimiento(borrandoMov.id);
               }
-              toast('Movimiento eliminado correctamente', 'success');
+              toast('Registro eliminado correctamente', 'success');
               setBorrandoMov(null);
               await cargarDatos();
             } catch (err) {
-              toast(err instanceof Error ? err.message : 'No se pudo eliminar el movimiento', 'error');
+              toast(err instanceof Error ? err.message : 'No se pudo eliminar el registro', 'error');
             }
           }}
           onCancel={() => setBorrandoMov(null)}
+        />
+      )}
+
+      {/* Modal de Bitácora del Equipo desde Móvil */}
+      {equipoBitacoraMovil && (
+        <BitacoraModal
+          equipo={equipoBitacoraMovil}
+          canWrite={canWrite}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => {
+            setEquipoBitacoraMovil(null);
+            void cargarDatos();
+          }}
         />
       )}
 

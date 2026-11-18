@@ -413,7 +413,7 @@ export function PedidosPage() {
   }, []);
 
   // Realtime multiusuario: las órdenes/compras se reflejan al instante entre usuarios.
-  useRealtime(['ordenes', 'productos'], () => { void refresh(); });
+  useRealtime(['ordenes', 'productos', 'maquinaria_ordenes_servicio'], () => { void refresh(); });
 
   // Badge "Pendientes por pagar": contador liviano que se actualiza en vivo cada vez
   // que cambia una OC, compra/servicio directo o una cuenta por pagar (p. ej. al pagar).

@@ -159,12 +159,14 @@ export async function listServiciosDeEquipo(equipoId: string): Promise<ServicioD
   if (!equipoId) return [];
   const { data, error } = await supabase
     .from('ordenes')
-    .select('id, codigo, oc_codigo, estado, total, created_at, items')
+    .select('id, codigo, oc_codigo, estado, total, created_at, items, eliminado_en')
     .eq('tipo', 'servicio')
     .contains('items', JSON.stringify([{ equipo_id: equipoId }]))
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return (data ?? []).map((o) => {
+  return (data ?? [])
+    .filter((o) => !o.eliminado_en && o.estado !== 'cancelada' && o.estado !== 'rechazada')
+    .map((o) => {
     const items = (Array.isArray(o.items) ? o.items : []) as Array<{
       nombre?: string; cantidad?: number; equipo_id?: string | null;
       insumo_producto_id?: string | null; insumo_nombre?: string | null; sin_insumo?: boolean | null;
