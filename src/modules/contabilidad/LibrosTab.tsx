@@ -44,13 +44,13 @@ function rangoEjercicio(ej: ContEjercicio | null): { desde: string; hasta: strin
   return { desde: ej.fecha_inicio, hasta: hoy < ej.fecha_fin ? hoy : ej.fecha_fin };
 }
 
-function useEjercicio(): ContEjercicio | null | undefined {
+function useEjercicio(empresaClave?: string): ContEjercicio | null | undefined {
   const [ej, setEj] = useState<ContEjercicio | null | undefined>(undefined);
   useEffect(() => {
-    listEjercicios()
+    listEjercicios(empresaClave)
       .then((l) => setEj(l.find((x) => x.estado === 'abierto') ?? l[0] ?? null))
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo leer el ejercicio.', 'error'));
-  }, []);
+  }, [empresaClave]);
   return ej;
 }
 
@@ -106,8 +106,8 @@ export function BalancesTab({ parametros, empresaClave = 'GT' }: { parametros: C
         <button role="tab" aria-selected={vista === 'comprobacion'} className={vista === 'comprobacion' ? 'active' : ''} onClick={() => setVista('comprobacion')}>Balance de Comprobación</button>
         <button role="tab" aria-selected={vista === 'mayor'} className={vista === 'mayor' ? 'active' : ''} onClick={() => setVista('mayor')}>Mayor Analítico</button>
       </div>
-      {vista === 'general' && <BalanceGeneralVista parametros={parametros} />}
-      {vista === 'resultados' && <EstadoResultadosVista parametros={parametros} />}
+      {vista === 'general' && <BalanceGeneralVista parametros={parametros} empresaClave={empresaClave} />}
+      {vista === 'resultados' && <EstadoResultadosVista parametros={parametros} empresaClave={empresaClave} />}
       {vista === 'comprobacion' && <BalanceComprobacionVista parametros={parametros} empresaClave={empresaClave} />}
       {vista === 'mayor' && <MayorAnaliticoVista parametros={parametros} empresaClave={empresaClave} />}
     </>
@@ -115,7 +115,7 @@ export function BalancesTab({ parametros, empresaClave = 'GT' }: { parametros: C
 }
 
 function BalanceComprobacionVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
-  const ej = useEjercicio();
+  const ej = useEjercicio(empresaClave);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [nivel, setNivel] = useState(Math.min(3, parametros.niveles));
@@ -201,7 +201,7 @@ function BalanceComprobacionVista({ parametros, empresaClave }: { parametros: Co
 
 /** `titulo`: en Balances es «Mayor Analítico»; en Informes, «Movimiento de una Cuenta» (el nombre de Galac). */
 function MayorAnaliticoVista({ parametros, titulo = 'Mayor Analítico', empresaClave }: { parametros: ContParametros; titulo?: string; empresaClave?: string }) {
-  const ej = useEjercicio();
+  const ej = useEjercicio(empresaClave);
   const [cuentas, setCuentas] = useState<ContCuenta[]>([]);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -453,7 +453,7 @@ function MovimientosCuentasVista({ parametros, empresaClave }: { parametros: Con
 }
 
 function MovimientosAuxiliaresVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
-  const ej = useEjercicio();
+  const ej = useEjercicio(empresaClave);
   const [auxiliares, setAuxiliares] = useState<ContAuxiliar[]>([]);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');

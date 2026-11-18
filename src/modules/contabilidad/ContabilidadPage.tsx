@@ -18,13 +18,11 @@
    ============================================================ */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useSession } from '@/modules/auth/authStore';
 import { date } from '@/shared/lib/format';
 import {
-  getParametros, listCuentas, listEjercicios, listTiposComprobante, modificarTiposDeParametros, reiniciarDatosEjemplo,
-  verificarConexionSupabase,
+  getParametros, listCuentas, listEjercicios, listTiposComprobante, modificarTiposDeParametros,
 } from './contabilidad.repository';
 import {
   listEmpresasContables, leerEmpresaContableActiva, guardarEmpresaContableActiva,
@@ -40,18 +38,18 @@ import { PlanCuentasTab } from './PlanCuentasTab';
 import type { ContCuenta, ContEjercicio, ContParametros, ContTipoComprobante } from './tipos';
 import './contabilidad.css';
 
-type Menu = 'compania' | 'comprobante' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'integracion';
+type Menu = 'comprobante' | 'integracion' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'compania';
 
 const MENUS: { key: Menu; label: string }[] = [
-  { key: 'compania', label: 'Compañía' },
-  { key: 'comprobante', label: 'Comprobante' },
-  { key: 'cuenta', label: 'Cuenta' },
-  { key: 'balances', label: 'Balances' },
-  { key: 'informes', label: 'Informes' },
-  { key: 'periodo', label: 'Período' },
-  { key: 'cerrar', label: 'Cerrar Período' },
-  { key: 'auxiliares', label: 'Auxiliares y Otros' },
-  { key: 'integracion', label: 'Integración' },
+  { key: 'comprobante', label: 'Comprobantes' },
+  { key: 'integracion', label: 'Por Contabilizar' },
+  { key: 'cuenta', label: 'Plan de Cuentas' },
+  { key: 'balances', label: 'Estados Financieros' },
+  { key: 'informes', label: 'Libros Contables' },
+  { key: 'periodo', label: 'Períodos Mensuales' },
+  { key: 'cerrar', label: 'Cierre de Ejercicio' },
+  { key: 'auxiliares', label: 'Terceros y Centros' },
+  { key: 'compania', label: 'Parámetros Empresa' },
 ];
 
 const CLAVE_MENU = 'gt.contabilidad.menu';
@@ -72,16 +70,8 @@ export function ContabilidadPage() {
   const [menu, setMenu] = useState<Menu>(menuGuardado);
   const [parametros, setParametros] = useState<ContParametros | null>(null);
   const [ejercicio, setEjercicio] = useState<ContEjercicio | null>(null);
-  // Sube al reiniciar la simulación o cambiar de empresa: las pestañas se vuelven a montar desde cero.
+  // Sube al cambiar de empresa: las pestañas se vuelven a montar desde cero.
   const [version, setVersion] = useState(0);
-  const [confirmarReinicio, setConfirmarReinicio] = useState(false);
-  const [esEnVivo, setEsEnVivo] = useState(false);
-
-  useEffect(() => {
-    void verificarConexionSupabase(empresaActiva).then((conectado) => {
-      setEsEnVivo(conectado);
-    });
-  }, [empresaActiva, version]);
 
   useEffect(() => {
     void listEmpresasContables().then((lista) => {
@@ -98,7 +88,7 @@ export function ContabilidadPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [p, ejercicios] = await Promise.all([getParametros(empresaActiva), listEjercicios()]);
+      const [p, ejercicios] = await Promise.all([getParametros(empresaActiva), listEjercicios(empresaActiva)]);
       setParametros(p);
       setEjercicio(ejercicios.find((e) => e.estado === 'abierto') ?? ejercicios[0] ?? null);
     } catch (e) {
@@ -117,13 +107,6 @@ export function ContabilidadPage() {
     setEmpresaActiva(clave);
     guardarEmpresaContableActiva(clave);
     setVersion((v) => v + 1);
-  }
-
-  async function reiniciar() {
-    setConfirmarReinicio(false);
-    await reiniciarDatosEjemplo();
-    setVersion((n) => n + 1);
-    toast('Datos de ejemplo restablecidos.', 'success');
   }
 
   const empresaSelObj = empresas.find((e) => e.clave === empresaActiva) ?? empresas[0];
@@ -152,23 +135,8 @@ export function ContabilidadPage() {
               ))}
             </select>
           </label>
-          {!esEnVivo && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmarReinicio(true)}>↺ Reiniciar datos de ejemplo</button>
-          )}
         </div>
       </div>
-
-      {esEnVivo ? (
-        <div className="cont-aviso cont-aviso-en-vivo" role="status" style={{ borderLeft: '4px solid #10b981', background: 'rgba(16, 185, 129, 0.08)' }}>
-          <strong style={{ color: '#10b981' }}>🟢 Base de datos en vivo (Supabase)</strong>
-          <span>Conectado en tiempo real a las tablas contables oficiales de <strong>{empresaSelObj?.nombre ?? empresaActiva}</strong>. Todos los comprobantes, balances y cuentas operan directamente sobre la base del sistema.</span>
-        </div>
-      ) : (
-        <div className="cont-aviso" role="note">
-          <strong>Maqueta</strong>
-          <span>Datos simulados en este navegador. Nada se lee ni se guarda en la base del sistema.</span>
-        </div>
-      )}
 
       <nav className="view-toggle cont-menus" role="tablist" aria-label="Menús de Contabilidad">
         {MENUS.map((m) => (
@@ -186,27 +154,16 @@ export function ContabilidadPage() {
 
       {!parametros && <p className="muted">Cargando…</p>}
       {parametros && <>
-        {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
         {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'cuenta' && <PlanCuentasTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
-        {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
-        {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'informes' && <InformesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
+        {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
-        {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
+        {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
       </>}
-
-      {confirmarReinicio && (
-        <ConfirmDialog
-          title="Reiniciar datos de ejemplo"
-          message={'Se descartan los cambios hechos en la maqueta (cuentas y comprobantes) y se vuelve a los datos de ejemplo.\nSolo afecta a este navegador.'}
-          confirmText="Reiniciar"
-          danger
-          onConfirm={() => void reiniciar()}
-          onCancel={() => setConfirmarReinicio(false)}
-        />
-      )}
     </div>
   );
 }
@@ -272,7 +229,7 @@ function CompaniaTab({
           </table>
         </div>
       </div>
-      <TiposDeProcesoCard parametros={p} tipos={datos.tipos} onCambio={onCambio} />
+      <TiposDeProcesoCard parametros={p} tipos={datos.tipos} empresaClave={empresaClave} onCambio={onCambio} />
     </div>
   );
 }
@@ -291,8 +248,8 @@ const PROCESOS: Array<[CampoTipo, string]> = [
  * Parámetros · tipos de comprobante de los procesos. Se eligen entre los activos; el que ya está
  * elegido se sigue ofreciendo aunque se haya inactivado, para que se vea y se cambie.
  */
-function TiposDeProcesoCard({ parametros, tipos, onCambio }: {
-  parametros: ContParametros; tipos: ContTipoComprobante[]; onCambio: () => Promise<void>;
+function TiposDeProcesoCard({ parametros, tipos, empresaClave, onCambio }: {
+  parametros: ContParametros; tipos: ContTipoComprobante[]; empresaClave?: string; onCambio: () => Promise<void>;
 }) {
   const inicial = () => Object.fromEntries(PROCESOS.map(([k]) => [k, parametros[k] ?? ''])) as Record<CampoTipo, string>;
   const [editando, setEditando] = useState(false);
@@ -313,7 +270,7 @@ function TiposDeProcesoCard({ parametros, tipos, onCambio }: {
         tipo_diferencial_id: valores.tipo_diferencial_id || null,
         tipo_cierre_id: valores.tipo_cierre_id || null,
         tipo_apertura_id: valores.tipo_apertura_id || null,
-      });
+      }, undefined, empresaClave);
       await onCambio();
       setEditando(false);
       toast('Parámetros grabados.', 'success');

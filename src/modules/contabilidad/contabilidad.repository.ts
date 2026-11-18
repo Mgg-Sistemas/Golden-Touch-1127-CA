@@ -1130,13 +1130,12 @@ export function esModoSupabaseActivo(): boolean {
   return isSupabaseConfigured;
 }
 
-export async function verificarConexionSupabase(empresaClave = 'GT'): Promise<boolean> {
+export async function verificarConexionSupabase(empresaClave?: string): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const { count, error } = await supabase
-      .from('cont_parametros')
-      .select('empresa_clave', { count: 'exact', head: true })
-      .eq('empresa_clave', empresaClave);
+    let q = supabase.from('cont_parametros').select('empresa_clave', { count: 'exact', head: true });
+    if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+    const { count, error } = await q;
     return !error && (count ?? 0) > 0;
   } catch {
     return false;
@@ -1436,9 +1435,21 @@ export async function listCierres(empresaClave?: string): Promise<ContCierre[]> 
   return repo.listCierres(empresaClave);
 }
 
+export async function aplicarPlanGoldenTouch(actor = 'sistema', empresaClave = 'GT'): Promise<void> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.aplicarPlanCuentasMaestro(empresaClave, actor);
+    } catch (e) {
+      if (forzarModo === 'supabase') throw e;
+      console.warn('Contabilidad: fallback a simulador tras error al aplicar plan maestro:', e);
+    }
+  }
+  return repo.aplicarPlanGoldenTouch();
+}
+
 export const {
   listMonedas,
-  reiniciarDatosEjemplo, aplicarPlanGoldenTouch,
+  reiniciarDatosEjemplo,
   getTasa,
   vistaPreviaCierreMes, cerrarMes, reabrirMes, cerrarEjercicio, reabrirEjercicio, abrirEjercicioSiguiente,
   vistaPreviaIntegracion, contabilizarIntegraciones,
