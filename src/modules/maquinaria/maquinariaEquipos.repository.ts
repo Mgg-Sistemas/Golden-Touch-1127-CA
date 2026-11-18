@@ -11,11 +11,17 @@ import { norm } from '@/shared/lib/texto';
 import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
 import { pathsFotosDeEquipo, borrarArchivosFotosOrden } from './osFotos.repository';
 
+/** Categoría del vínculo con el propietario (mapa de propietarios, D22). */
+export type CategoriaPropietario = 'propio' | 'alquilado' | 'asociado' | 'contratista';
+
 export interface MaquinariaEquipo {
   id: string;
   equipo: string;
   tipo: string | null;
   propietario: string | null;
+  /** Categoría del vínculo con el propietario: propio/alquilado/asociado/contratista. null =
+   *  por asignar. Persiste en la ficha (BD) desde el 09/11/2026. */
+  categoria_propietario?: CategoriaPropietario | null;
   status: string;
   ubicacion: string | null;
   anio: number | null;
@@ -187,6 +193,18 @@ export async function updateEquipo(id: string, input: MaquinariaEquipoInput): Pr
 
 export async function setEquipoActivo(id: string, activo: boolean): Promise<void> {
   const { error } = await supabase.from(TABLE).update({ activo, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+/**
+ * Fija (o limpia, con null) la categoría del propietario del equipo (mapa de propietarios).
+ * Best-effort desde la Órbita: si la columna `categoria_propietario` aún no existe (migración
+ * sin aplicar) o no hay permiso de escritura, lanza y el llamador cae al navegador.
+ */
+export async function setCategoriaPropietario(id: string, categoria: CategoriaPropietario | null): Promise<void> {
+  const { error } = await supabase.from(TABLE)
+    .update({ categoria_propietario: categoria, updated_at: new Date().toISOString() })
+    .eq('id', id);
   if (error) throw error;
 }
 

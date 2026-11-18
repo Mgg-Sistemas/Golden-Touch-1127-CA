@@ -32,6 +32,8 @@ import { BitacoraModal } from './BitacoraModal';
 import { AccionConEquipo } from './AccionConEquipo';
 import { avisoDeEquipo } from './avisoEquipo';
 import { ultimosMantenimientosPorEquipo, type UltimoMantenimientoEquipo } from './maquinariaMant.repository';
+import { FlotaVisuales } from './orbita/FlotaVisuales';
+import type { LecturaOrbita } from './orbita/orbitaDatos';
 
 interface InfoEquipo {
   estado: EstadoEquipo;
@@ -41,6 +43,24 @@ interface InfoEquipo {
   avisoH: AvisoServicio | null;
   avisoK: AvisoServicio | null;
   aviso: AvisoServicio | null;
+}
+
+/* Cómo ver la flota: Rosetón (mapa de propietarios), Vitrina (recorrer la flota tipo tienda) o Lista (el catálogo de siempre). Recuerda la última elección en este navegador */
+type VistaFlotaPrincipal = 'roseton' | 'vitrina' | 'lista';
+const CLAVE_VISTA_FLOTA = 'gt.maquinaria.flota.v1.vista';
+const VISTAS_FLOTA: { id: VistaFlotaPrincipal; icon: string; label: string }[] = [
+  { id: 'roseton', icon: '⚙', label: 'Rosetón' },
+  { id: 'vitrina', icon: '🎬', label: 'Vitrina' },
+  { id: 'lista', icon: '🚜', label: 'Lista' },
+];
+function leerVistaFlota(): VistaFlotaPrincipal {
+  try {
+    const v = window.localStorage?.getItem(CLAVE_VISTA_FLOTA);
+    return v === 'roseton' || v === 'vitrina' || v === 'lista' ? v : 'roseton';
+  } catch { return 'roseton'; }
+}
+function guardarVistaFlota(v: VistaFlotaPrincipal): void {
+  try { window.localStorage?.setItem(CLAVE_VISTA_FLOTA, v); } catch { /* da igual */ }
 }
 
 /**
@@ -74,6 +94,15 @@ export function MaquinariaPage() {
   const [ubicacion, setUbicacion] = useState<string>('todos');
   const [propietario, setPropietario] = useState('');
   const [tipo, setTipo] = useState('');
+  const [vista, setVista] = useState<VistaFlotaPrincipal>(() => leerVistaFlota());
+  const cambiarVista = (v: VistaFlotaPrincipal) => { setVista(v); guardarVistaFlota(v); };
+  // Desde el Rosetón/Vitrina, «Ver su flota» cae en la lista de equipos prefiltrada por la empresa
+  const verFlotaEnLista = (propietarioNombre: string | null) => {
+    setBucket(null); setClase('todos'); setUbicacion('todos'); setTipo(''); setFiltro('');
+    setPropietario(propietarioNombre ?? '');
+    cambiarVista('lista');
+    if (typeof window !== 'undefined') requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  };
 
   useEffect(() => {
     const handler = () => setApartados(listarApartados());
@@ -135,6 +164,18 @@ export function MaquinariaPage() {
     }
     return m;
   }, [equipos, lecturas, ultimosMant]);
+
+  // El Rosetón y la Vitrina leen de lo que la página ya consultó
+  const lecturasOrbita = useMemo(() => {
+    const m = new Map<string, LecturaOrbita>();
+    for (const [id, l] of lecturas) m.set(id, { horometro: l.horometro, kilometraje: l.kilometraje });
+    return m;
+  }, [lecturas]);
+  const avisosFlota = useMemo(() => {
+    const m = new Map<string, AvisoServicio | null>();
+    for (const e of equipos) m.set(e.id, info.get(e.id)?.aviso ?? null);
+    return m;
+  }, [equipos, info]);
 
   async function confirmarReinicio(e: MaquinariaEquipo) {
     try {
@@ -342,7 +383,30 @@ export function MaquinariaPage() {
       <EntregasAlmacenAviso canWrite={canWrite} actorName={actorName} />
       <AlertasMantenimientoBanner items={alertas} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargar()} />
 
-      <div className="flo-fleet" role="group" aria-label="Filtrar por estado">
+      <div className="flo-vistas">
+        <span className="flo-vistas-tit">Cómo ver la flota</span>
+        <div className="view-toggle" role="tablist" aria-label="Cómo ver la flota">
+          {VISTAS_FLOTA.map((v) => (
+            <button key={v.id} type="button" role="tab" aria-selected={vista === v.id}
+              className={vista === v.id ? 'active' : ''} onClick={() => cambiarVista(v.id)}>
+              <span aria-hidden="true">{v.icon}</span> {v.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div key={vista} className="flo-vista-animada">
+        {vista !== 'lista' ? (
+          loading ? (
+            <EmptyState message="Cargando…" />
+          ) : !equipos.length ? (
+            <EmptyState icon="🚜" message="Aún no hay equipos registrados." />
+          ) : (
+            <FlotaVisuales escena={vista} equipos={equipos} lecturas={lecturasOrbita} avisos={avisosFlota} onVerFlota={verFlotaEnLista} />
+          )
+        ) : (
+          <div className="flo-vista-lista">
+            <div className="flo-fleet" role="group" aria-label="Filtrar por estado">
         {BUCKETS_FLOTA.map((b) => {
           const n = baseFlota.filter((e) => ESTADOS_EQUIPO[info.get(e.id)?.estado ?? 'operativa'].bucket === b.id).length;
           return (
@@ -640,6 +704,9 @@ export function MaquinariaPage() {
           </div>
         </div>
       ))}
+            </div>
+          )}
+        </div>
 
       {catalogoOpen && <MaquinariaCatalogoModal canWrite={canWrite} onClose={() => setCatalogoOpen(false)} />}
       {resumenOpen && <ResumenMaquinariaModal equipos={equipos.filter((e) => e.activo)} onClose={() => setResumenOpen(false)} />}

@@ -4,7 +4,10 @@ import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { listActivosMaquinaria, addCatalogoMaquinaria } from './maquinaria.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
-import { addEquipo, updateEquipo, vincularEquipoEnCombustible, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
+import {
+  addEquipo, updateEquipo, setCategoriaPropietario, vincularEquipoEnCombustible, GRUPOS_MANTENIMIENTO,
+  type MaquinariaEquipo, type MaquinariaEquipoInput, type CategoriaPropietario,
+} from './maquinariaEquipos.repository';
 import { norm } from '@/shared/lib/texto';
 import { claseEquipo, listarApartados, type ClaseEquipo } from './flota';
 
@@ -86,6 +89,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
     encargado_responsable: equipo?.encargado_responsable ?? null,
     notas: equipo?.notas ?? null,
   }));
+  const [categoriaProp, setCategoriaProp] = useState<CategoriaPropietario | null>(() => equipo?.categoria_propietario ?? null);
   const [tipos, setTipos] = useState<string[]>([]);
   const [props, setProps] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
@@ -176,8 +180,12 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
       // La categoría elegida en el bloque superior se guarda en la ficha (27/10/2026): así el
       // equipo queda en ese apartado aunque su tipo diga otra cosa.
       const datos: MaquinariaEquipoInput = { ...f, clase: claseSel || null };
-      if (esNuevo) await addEquipo(datos, actor);
-      else await updateEquipo(equipo!.id, datos);
+      const guardado = esNuevo ? await addEquipo(datos, actor) : null;
+      if (!esNuevo) await updateEquipo(equipo!.id, datos);
+      const idGuardado = esNuevo ? guardado?.id : equipo!.id;
+      if (idGuardado) {
+        void setCategoriaPropietario(idGuardado, categoriaProp ?? null).catch(() => { /* best-effort si la columna aún no existe */ });
+      }
       if (f.tipo?.trim()) {
         addCatalogoMaquinaria('tipo_maquinaria', f.tipo.trim().toUpperCase()).catch(() => {});
       }
@@ -356,6 +364,24 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
             <select className="select" value={f.status ?? 'ACTIVO'} onChange={(e) => set('status', e.target.value)}>
               {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+          </div>
+        </div>
+
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Categoría del propietario</label>
+            <select
+              className="select"
+              value={categoriaProp ?? ''}
+              onChange={(e) => setCategoriaProp((e.target.value || null) as CategoriaPropietario | null)}
+            >
+              <option value="">— por asignar —</option>
+              <option value="propio">🏢 Propio</option>
+              <option value="alquilado">⛏️ Alquilado</option>
+              <option value="asociado">🚚 Asociado</option>
+              <option value="contratista">🏗️ Contratista</option>
+            </select>
+            <small className="muted">Cómo se relaciona el propietario con el equipo (propio, alquilado…). Colorea el mapa de propietarios (Rosetón).</small>
           </div>
         </div>
 

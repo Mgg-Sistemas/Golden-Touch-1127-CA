@@ -1,0 +1,301 @@
+/* ============================================================
+   Golden Touch · Control de Maquinaria · catálogo de propietarios
+   «Rosetón de mando» (D26; guía informes/maquinaria-roseton-diseno.md).
+   Tokens del sistema: fondo --bg-0, placa --surface, acero, oro --gold y
+   naranja --primary SOLO para lo elegido y el foco. --text-dim no se usa
+   para texto (3,2:1); el secundario es --text-muted (6,1:1).
+   Peso (§5): en reposo nada se mueve; un solo dibujo al cargar (600 ms);
+   el hover anima solo transform/opacity; ningún filter; una sola sombra
+   (la medalla). Prefijos .orb- (página y flota) y .ros- (el rosetón).
+   ============================================================ */
+
+.orb {
+  --orb-acero: #b9c2cc;            /* el acero de --flo-steel-grad (Flota) */
+  --orb-acero-bajo: #6f7883;       /* --flo-steel-edge */
+  --orb-cat-propio: var(--gold);
+  --orb-cat-alquilado: #4fc3f7;
+  --orb-cat-asociado: var(--success);
+  --orb-cat-contratista: var(--primary);
+  --orb-cat-por_asignar: var(--text-muted);
+  display: flex; flex-direction: column; gap: 1rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.orb-cat-propio { --cat: var(--orb-cat-propio); }
+.orb-cat-alquilado { --cat: var(--orb-cat-alquilado); }
+.orb-cat-asociado { --cat: var(--orb-cat-asociado); }
+.orb-cat-contratista { --cat: var(--orb-cat-contratista); }
+.orb-cat-por_asignar { --cat: var(--orb-cat-por_asignar); }
+.orb-cat-bg-propio { background: var(--orb-cat-propio); }
+.orb-cat-bg-alquilado { background: var(--orb-cat-alquilado); }
+.orb-cat-bg-asociado { background: var(--orb-cat-asociado); }
+.orb-cat-bg-contratista { background: var(--orb-cat-contratista); }
+.orb-cat-bg-por_asignar { background: var(--orb-cat-por_asignar); }
+.orb-dorado { color: var(--gold); }
+.orb .tono-success { color: var(--success); }
+.orb .tono-warning { color: var(--warning); }
+.orb .tono-danger { color: var(--danger); font-weight: 700; }
+.orb .tono-retired { color: var(--text-muted); }
+
+/* ───────── Encabezado y entradas ───────── */
+.orb-cab { padding: 1.1rem 1.25rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+.orb-cab-fila { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.orb-cab h1 { margin: 0 0 .3rem; font-size: 1.4rem; font-weight: 700; }
+.orb-cab p { margin: 0; color: var(--text-muted); font-size: .9rem; max-width: 780px; }
+.orb-entradas { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: .5rem; }
+.orb-entradas-tit { font-size: .8rem; font-weight: 600; color: var(--text-muted); }
+.orb-entradas .view-toggle { align-self: flex-start; margin-left: 0; }
+
+.orb-aviso { padding: .55rem .85rem; border-radius: 8px; font-size: .88rem; background: rgba(239, 79, 94, .12); color: var(--danger); font-weight: 600; }
+.orb-aviso.demo { background: rgba(255, 213, 74, .1); color: var(--gold); border: 1px dashed rgba(255, 213, 74, .4); }
+.orb-cargando { color: var(--text-muted); }
+.orb-demo { padding: 1rem 1.25rem; min-height: 100vh; background: var(--bg-0); }
+
+/* ───────── El rosetón ───────── */
+.orb-mapa { border-radius: 12px; padding: 1rem 1.1rem 1.2rem; background: var(--bg-0); border: 1px solid var(--border); }
+.orb-mapa-cab { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; font-size: .88rem; color: var(--text-muted); margin-bottom: .4rem; }
+.orb-mapa-cab strong { color: var(--text); }
+.orb-mapa-acciones { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* ───────── Drill cinemático: del mapa a la Vitrina de una empresa ───────── */
+.orb-drill-barra { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.orb-drill-rotulo { font-size: .85rem; color: var(--text-muted); }
+.orb-drill-rotulo strong { color: var(--text); }
+/* Una sola animación al entrar (nada en reposo); el GPU solo mueve transform/opacity. */
+@keyframes orbDrillEntra {
+  from { opacity: 0; transform: scale(.93) translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+.orb-drill-entra { animation: orbDrillEntra .35s cubic-bezier(.16, 1, .3, 1) both; transform-origin: center 28%; will-change: opacity, transform; }
+
+@keyframes orbDrillSale {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: scale(.94) translateY(12px); }
+}
+.orb-drill-sale { animation: orbDrillSale .22s cubic-bezier(.4, 0, .2, 1) both; pointer-events: none; transform-origin: center 28%; }
+
+@keyframes orbMapaEntra {
+  from { opacity: 0; transform: scale(.96) translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.orb-mapa-entra { animation: orbMapaEntra .35s cubic-bezier(.16, 1, .3, 1) both; will-change: opacity, transform; }
+
+@keyframes orbVitrinaEntra {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+.orb-vitrina-entra { animation: orbVitrinaEntra .35s cubic-bezier(.16, 1, .3, 1) both; will-change: opacity, transform; }
+@media (prefers-reduced-motion: reduce) { .orb-drill-entra, .orb-drill-sale, .orb-mapa-entra, .orb-vitrina-entra { animation: none; } }
+
+.ros-escena {
+  position: relative; margin: 0 auto;
+  /* Cuadrada. Se achica con la ventana para entrar en pantalla, pero con un
+     PISO para que el texto no baje de lo legible (las tarjetas escalan su
+     texto con su tamaño); en ventanas bajas el mapa se baja con scroll antes
+     que volverse ilegible. */
+  width: min(100%, 920px, max(560px, calc(100vh - 310px)));
+}
+.ros-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+/* Líneas tarjeta → arco. */
+.ros-linea {
+  fill: none;
+  stroke: var(--orb-acero-bajo);
+  stroke-width: 1.5;
+  transition: stroke .25s ease, stroke-width .25s ease, opacity .25s ease, filter .25s ease;
+}
+.ros-linea[data-on], .ros-linea.elegido {
+  stroke: var(--primary);
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 5px rgba(255, 138, 0, .6));
+}
+
+/* El medidor, en el borde de la medalla. */
+.ros-medidor-pista { fill: none; stroke: rgba(185, 194, 204, .18); stroke-width: 8; stroke-linecap: round; }
+.ros-medidor-valor { fill: none; stroke: var(--gold); stroke-width: 8; stroke-linecap: round; stroke-dasharray: 100 100; stroke-dashoffset: 0; }
+.ros-marca { stroke: var(--orb-acero-bajo); stroke-width: 1.5; }
+.ros-marca.mayor { stroke: var(--orb-acero); stroke-width: 2.5; }
+
+/* El anillo: arcos de acero con muescas; la franja de estados por dentro. */
+.ros-arco {
+  cursor: pointer;
+  transform: translate(0, 0);
+  transition: transform .22s cubic-bezier(.16, 1, .3, 1), filter .22s cubic-bezier(.16, 1, .3, 1);
+}
+.ros-arco-cuerpo { fill: #3a424d; stroke: var(--orb-acero); stroke-width: 1; transition: stroke .2s ease, fill .2s ease; }
+.ros-arco:hover { filter: brightness(1.18) drop-shadow(0 0 8px rgba(255, 138, 0, .35)); }
+.ros-arco:active { filter: brightness(.95); }
+.ros-arco[data-on] { transform: translate(var(--dx), var(--dy)); }
+.ros-arco[data-on] .ros-arco-cuerpo { stroke: var(--primary); stroke-width: 2; }
+.ros-arco.elegido .ros-arco-cuerpo { fill: color-mix(in srgb, var(--primary) 38%, #3a424d); stroke: var(--primary); stroke-width: 2; }
+.ros-franja.success { fill: var(--success); }
+.ros-franja.warning { fill: var(--warning); }
+.ros-franja.danger { fill: var(--danger); }
+
+/* Un solo momento al cargar: el anillo aparece y el medidor sube hasta su %. */
+.ros-escena .ros-medidor-valor { animation: ros-medidor .6s ease-out both; }
+.ros-escena .ros-arco { animation: ros-arco .6s ease-out both; }
+@keyframes ros-medidor { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes ros-arco { from { opacity: 0; } to { opacity: 1; } }
+
+/* La medalla: oro, con corona; su borde es el medidor (en el SVG). */
+.ros-medalla {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: calc(236 / 920 * 100%); aspect-ratio: 1; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .05rem;
+  background: radial-gradient(circle at 50% 35%, #3d3110 0%, #241c07 60%, #161105 100%);
+  border: 2px solid rgba(255, 213, 74, .55); color: var(--text); cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  transition: transform .25s cubic-bezier(.16, 1, .3, 1), box-shadow .25s cubic-bezier(.16, 1, .3, 1), border-color .25s ease;
+}
+.ros-medalla:hover {
+  transform: translate(-50%, -50%) scale(1.04);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .6), 0 0 25px rgba(255, 213, 74, .35);
+  border-color: var(--gold);
+}
+.ros-medalla:active {
+  transform: translate(-50%, -50%) scale(0.98);
+}
+.ros-medalla-corona { font-size: clamp(1rem, 2.4vw, 1.6rem); line-height: 1; }
+.ros-medalla-tit { font-weight: 700; color: var(--gold); font-size: clamp(.8rem, 1.5vw, 1.05rem); }
+.ros-medalla-cifra { font-weight: 700; font-size: clamp(1.8rem, 4.6vw, 3.5rem); line-height: 1; }
+.ros-medalla-sub { font-size: clamp(.7rem, 1.1vw, .85rem); color: var(--text-muted); }
+.ros-medalla-pct { font-size: clamp(.7rem, 1.1vw, .85rem); color: var(--gold); font-weight: 700; }
+.ros-medalla.elegido { border-color: var(--primary); }
+
+/* Las tarjetas. */
+.ros-tarjeta {
+  display: flex; flex-direction: column; gap: .3rem; text-align: left;
+  padding: .6rem .7rem; border-radius: 12px; min-height: 44px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--orb-acero-bajo); cursor: pointer;
+  transition: border-color .2s cubic-bezier(.16, 1, .3, 1), transform .2s cubic-bezier(.16, 1, .3, 1), box-shadow .2s cubic-bezier(.16, 1, .3, 1), background .2s ease;
+}
+.ros-tarjeta:hover {
+  border-color: var(--primary);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .35);
+  transform: translateY(-2px);
+}
+.ros-tarjeta:active {
+  transform: translateY(0) scale(.99);
+}
+/* En la escena, la tarjeta mide su caja (208×150 u de rosetonGeometria.ts) en
+   proporción de la escena, SIN min-width: el anti-choque vale a cualquier
+   tamaño. Es un CONTENEDOR y su texto se mide en cqw (proporción de la propia
+   tarjeta): escala con ella y nunca recorta, y envuelve por PALABRAS COMPLETAS.
+   La lista (teléfono) va aparte, con el detalle completo. */
+.ros-tarjeta.en-escena {
+  position: absolute; transform: translate(-50%, -50%);
+  width: calc(208 / 920 * 100%); height: calc(150 / 920 * 100%);
+  min-width: 0; overflow: hidden; justify-content: center;
+  container-type: inline-size; /* el texto de los HIJOS se mide en cqw contra ESTA tarjeta */
+  padding: .35rem .45rem; gap: .2rem; /* fijos: cqw aquí se mediría contra el ancestro, no la tarjeta */
+  cursor: grab; touch-action: none; /* arrastrable: el toque no hace scroll al moverla */
+}
+.ros-tarjeta.en-escena:active { cursor: grabbing; }
+.ros-tarjeta.en-escena .ros-tarjeta-cats { gap: 3cqw; flex-wrap: wrap; }
+.ros-tarjeta.en-escena .ros-cat { font-size: 6.4cqw; line-height: 1.15; gap: 2cqw; }
+.ros-tarjeta.en-escena .ros-cat::before { width: 4.5cqw; height: 4.5cqw; }
+.ros-tarjeta.en-escena .ros-tarjeta-nom {
+  font-size: 8.6cqw; line-height: 1.12; display: block; -webkit-line-clamp: none;
+  white-space: normal; overflow-wrap: normal; word-break: normal; overflow: visible;
+}
+.ros-tarjeta.en-escena .ros-tarjeta-fila { gap: 3cqw; }
+.ros-tarjeta.en-escena .ros-tarjeta-total { font-size: 13cqw; }
+.ros-tarjeta.en-escena .ros-tarjeta-pct { font-size: 6.6cqw; }
+.ros-tarjeta.en-escena .ros-salud { height: 4cqw; }
+/* El ⚠ de problemas va en la esquina, sin quitarle ancho al nombre. */
+.ros-tarjeta-badge { position: absolute; top: 4cqw; right: 5cqw; color: var(--danger); font-weight: 700; font-size: 6.6cqw; white-space: nowrap; }
+.ros-tarjeta[data-on] { border-color: var(--primary); }
+.ros-tarjeta.en-escena:hover { transform: translate(-50%, -50%) translateY(-3px) scale(1.025); box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 16px rgba(255, 138, 0, .2); }
+.ros-tarjeta.en-escena[data-on] { transform: translate(-50%, -50%) translateY(-3px) scale(1.02); }
+.ros-tarjeta.elegido { border: 2px solid var(--primary); box-shadow: 0 0 18px rgba(255, 138, 0, .35); }
+.ros-tarjeta-cats { display: flex; gap: .55rem; flex-wrap: wrap; }
+.ros-cat { font-size: .74rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
+.ros-cat::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--cat); }
+.ros-tarjeta-nom { font-size: 1rem; font-weight: 600; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ros-tarjeta-fila { display: flex; align-items: center; gap: .5rem; }
+.ros-tarjeta-total { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+.ros-tarjeta-pct { font-size: .82rem; color: var(--text-muted); }
+.ros-tarjeta-alerta { font-size: .78rem; color: var(--danger); font-weight: 700; }
+.ros-salud { flex: 1; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.ros-salud span { display: block; height: 100%; border-radius: inherit; }
+.ros-salud.ok span { background: var(--success); }
+.ros-salud.medio span { background: var(--warning); }
+.ros-salud.bajo span { background: var(--danger); }
+.ros-mezcla { display: flex; height: 5px; gap: 2px; border-radius: 999px; overflow: hidden; }
+.ros-mezcla span { display: block; min-width: 4px; border-radius: 999px; }
+
+/* Foco visible: 2 px naranja con 2 px de separación. */
+.ros-tarjeta:focus-visible, .ros-medalla:focus-visible, .orb-flota button:focus-visible, .orb-chip-cat:focus-within {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+}
+/* WCAG 2.2 (2.4.11, foco no oscurecido): al enfocar con Tab, el navegador deja un margen del
+   borde, así una tarjeta de arriba no queda rozando el límite ni tapada por la barra superior. */
+.ros-tarjeta, .ros-medalla { scroll-margin-block: calc(var(--topbar-h, 56px) + 16px); }
+
+/* Teléfono: el rosetón solo; las tarjetas en lista debajo, en el orden del anillo. */
+.ros-lista { display: none; }
+@media (max-width: 720px) {
+  /* Sin tarjetas alrededor sobra el lugar reservado para ellas: el anillo y la medalla se agrandan
+     sobre el centro (el anillo llega a 194/460 del medio lado; × 2,15 queda dentro de la caja). */
+  .ros-escena { width: min(100%, 420px); }
+  .ros-svg { transform: scale(2.15); transform-origin: 50% 50%; }
+  .ros-medalla { transform: translate(-50%, -50%) scale(2.15); }
+  .ros-escena .ros-tarjeta.en-escena, .ros-linea { display: none; }
+  .ros-lista { display: grid; grid-template-columns: 1fr; gap: .5rem; margin-top: .8rem; }
+}
+
+/* ───────── La flota (sin servicios) ───────── */
+.orb-flota { padding: 1.2rem; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); scroll-margin-top: calc(var(--topbar-h, 56px) + 12px); }
+.orb-flota-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.orb-flota-cab h2 { margin: 0 0 .4rem; font-size: 1.25rem; font-weight: 700; }
+.orb-flota-cab .ros-mezcla { max-width: 260px; }
+.orb-flota-sub { margin: .35rem 0 0; font-size: .8rem; color: var(--text-muted); max-width: 640px; }
+.orb-cifras { display: flex; gap: .5rem; flex-wrap: wrap; }
+.orb-cifra { min-width: 86px; padding: .45rem .7rem; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--border); text-align: center; display: flex; flex-direction: column; }
+.orb-cifra strong { font-size: 1.25rem; }
+.orb-cifra span { font-size: .72rem; color: var(--text-muted); }
+.orb-cifra.tono-success strong { color: var(--success); }
+.orb-cifra.tono-warning strong { color: var(--warning); }
+.orb-cifra.tono-danger strong { color: var(--danger); }
+.orb-flota-barra { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .7rem; }
+.orb-buscar { flex: 1 1 280px; max-width: 460px; }
+.orb-flota-barra .view-toggle { margin-left: auto; }
+.orb-nota { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 0 0 .9rem; padding: .55rem .8rem; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--border); font-size: .82rem; color: var(--text-muted); }
+.orb-nota .btn { margin-left: auto; }
+.orb-vacio { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: 2.5rem 1rem; color: var(--text-muted); }
+.orb-vacio span:first-child { font-size: 2.2rem; }
+
+.orb-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: .8rem; }
+.orb-equipo { display: flex; flex-direction: column; gap: .55rem; padding: .85rem .9rem; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--border); }
+.orb-equipo > header { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
+.orb-equipo-tipo { display: block; font-size: .75rem; font-weight: 600; color: var(--text-muted); }
+.orb-equipo-nom { font-size: 1rem; }
+.orb-estado { font-size: .74rem; font-weight: 700; white-space: nowrap; padding: .15rem .45rem; border-radius: 999px; background: rgba(255, 255, 255, .06); }
+.orb-equipo-datos { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem .7rem; margin: 0; padding: .55rem .6rem; border-radius: 8px; background: rgba(0, 0, 0, .2); }
+.orb-equipo-datos .ancho { grid-column: 1 / -1; }
+.orb-equipo-datos dt { font-size: .72rem; color: var(--text-muted); }
+.orb-equipo-datos dd { margin: 0; font-size: .84rem; font-weight: 600; overflow-wrap: anywhere; }
+.orb-dueno { color: var(--gold); }
+.orb-dueno em { color: var(--primary); font-style: normal; font-size: .76rem; }
+.orb-ver-ficha { margin-top: auto; }
+
+.orb-chip-cat { align-self: flex-start; display: inline-flex; border-radius: 999px; border: 1px solid var(--cat, var(--border)); background: color-mix(in srgb, var(--cat, #9aa6b5) 14%, transparent); }
+.orb-chip-cat select { appearance: none; border: 0; background: transparent; color: var(--cat, var(--text)); font-size: .78rem; font-weight: 700; padding: .25rem .65rem; cursor: pointer; min-height: 28px; }
+.orb-chip-cat select option { color: var(--text); background: var(--surface); }
+.orb-mono { font-variant-numeric: tabular-nums; }
+.orb-tabla { overflow-x: auto; }
+.orb-tabla table { width: 100%; font-size: .84rem; }
+
+/* Ficha. */
+.orb-ficha-estado { display: flex; flex-direction: column; gap: .3rem; font-weight: 600; font-size: .88rem; margin-bottom: .8rem; }
+.orb-ficha dl { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem .9rem; margin: 0; }
+.orb-ficha dt { font-size: .74rem; color: var(--text-muted); }
+.orb-ficha dd { margin: 0; font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
+.orb-maqueta { margin: .8rem 0 0; font-size: .8rem; color: var(--warning); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ros-escena .ros-medidor-valor, .ros-escena .ros-arco, .orb-drill-entra, .orb-drill-sale, .orb-mapa-entra, .orb-vitrina-entra { animation: none; }
+  .ros-arco, .ros-tarjeta, .ros-medalla, .ros-linea { transition: none; transform: none !important; }
+}

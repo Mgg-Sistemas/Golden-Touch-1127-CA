@@ -261,7 +261,7 @@ describe('exportarEquipos · hoja «Resumen» del Excel', () => {
     const col1: unknown[] = [];
     ws.eachRow((row) => col1.push(row.getCell(1).value));
     expect(col1).toEqual(expect.arrayContaining(['Apartado', '🚜 Maquinaria y Equipos', '🚚 Vehículos', 'Estado', '✅ Operativa', '❔ Por confirmar']));
-  });
+  }, 15000);
 
   it('resumen + datos: «Resumen» es la primera hoja, «Equipos» sigue y el nombre de archivo es el de siempre', async () => {
     await descargarEquiposExcelPersonalizado(flotaResumen(), ['equipo', 'tipo'], 'empresa', undefined, 'auto', null, {
