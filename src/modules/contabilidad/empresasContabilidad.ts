@@ -11,10 +11,12 @@
 import { supabase } from '@/shared/lib/supabase';
 
 export interface EmpresaContable {
+  id?: string;
   clave: string;
   nombre: string;
   rif: string | null;
   activa: boolean;
+  orden?: number;
 }
 
 export const EMPRESAS_CONTABLES_DEFECTO: EmpresaContable[] = [
@@ -41,7 +43,7 @@ export function guardarEmpresaContableActiva(clave: string): void {
 }
 
 /**
- * Consulta la lista de empresas registradas en `admin_empresas`.
+ * Consulta la lista de empresas activas registradas en `admin_empresas`.
  * Si Supabase no está conectado o falla, devuelve la lista base (GT y MTO).
  */
 export async function listEmpresasContables(): Promise<EmpresaContable[]> {
@@ -49,7 +51,7 @@ export async function listEmpresasContables(): Promise<EmpresaContable[]> {
     try {
       const { data, error } = await supabase
         .from('admin_empresas')
-        .select('clave, nombre, rif, activa')
+        .select('id, clave, nombre, rif, activa, orden')
         .order('orden', { ascending: true })
         .order('clave', { ascending: true });
       if (!error && data && data.length > 0) {
@@ -60,4 +62,75 @@ export async function listEmpresasContables(): Promise<EmpresaContable[]> {
     }
   }
   return EMPRESAS_CONTABLES_DEFECTO;
+}
+
+/**
+ * Consulta todas las empresas (activas e inactivas) para administración.
+ */
+export async function listTodasEmpresasContables(): Promise<EmpresaContable[]> {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('admin_empresas')
+        .select('id, clave, nombre, rif, activa, orden')
+        .order('orden', { ascending: true })
+        .order('clave', { ascending: true });
+      if (!error && data && data.length > 0) {
+        return data as EmpresaContable[];
+      }
+    } catch {
+      // Usar fallback
+    }
+  }
+  return EMPRESAS_CONTABLES_DEFECTO;
+}
+
+export async function guardarNuevaEmpresaContable(input: {
+  clave: string;
+  nombre: string;
+  rif: string | null;
+  activa: boolean;
+  orden?: number;
+}): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('admin_empresas')
+    .insert({
+      clave: input.clave,
+      nombre: input.nombre,
+      rif: input.rif,
+      activa: input.activa,
+      orden: input.orden ?? 99,
+    });
+  if (error) throw error;
+}
+
+export async function actualizarEmpresaContable(
+  claveOriginal: string,
+  input: {
+    nombre: string;
+    rif: string | null;
+    activa: boolean;
+  },
+): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('admin_empresas')
+    .update({
+      nombre: input.nombre,
+      rif: input.rif,
+      activa: input.activa,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('clave', claveOriginal);
+  if (error) throw error;
+}
+
+export async function cambiarActivaEmpresaContable(clave: string, activa: boolean): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('admin_empresas')
+    .update({ activa, updated_at: new Date().toISOString() })
+    .eq('clave', clave);
+  if (error) throw error;
 }

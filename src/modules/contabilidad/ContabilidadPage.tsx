@@ -28,6 +28,7 @@ import {
   listEmpresasContables, leerEmpresaContableActiva, guardarEmpresaContableActiva,
   EMPRESAS_CONTABLES_DEFECTO, type EmpresaContable
 } from './empresasContabilidad';
+import { GestionEmpresasContablesModal } from './GestionEmpresasContablesModal';
 import { AuxiliaresTab } from './AuxiliaresTab';
 import { ComprobantesTab } from './ComprobantesTab';
 import { BalancesTab, InformesTab } from './LibrosTab';
@@ -70,10 +71,11 @@ export function ContabilidadPage() {
   const [menu, setMenu] = useState<Menu>(menuGuardado);
   const [parametros, setParametros] = useState<ContParametros | null>(null);
   const [ejercicio, setEjercicio] = useState<ContEjercicio | null>(null);
+  const [abrirGestionEmpresas, setAbrirGestionEmpresas] = useState(false);
   // Sube al cambiar de empresa: las pestañas se vuelven a montar desde cero.
   const [version, setVersion] = useState(0);
 
-  useEffect(() => {
+  const recargarEmpresas = useCallback(() => {
     void listEmpresasContables().then((lista) => {
       if (lista.length > 0) {
         setEmpresas(lista);
@@ -85,6 +87,10 @@ export function ContabilidadPage() {
       }
     });
   }, [empresaActiva]);
+
+  useEffect(() => {
+    recargarEmpresas();
+  }, [recargarEmpresas]);
 
   const cargar = useCallback(async () => {
     try {
@@ -135,6 +141,14 @@ export function ContabilidadPage() {
               ))}
             </select>
           </label>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setAbrirGestionEmpresas(true)}
+            title="Administrar el catálogo de empresas jurídicas del grupo (crear, editar RIF y estado)"
+          >
+            ⚙ Gestionar Empresas
+          </button>
         </div>
       </div>
 
@@ -164,6 +178,16 @@ export function ContabilidadPage() {
         {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
       </>}
+
+      {abrirGestionEmpresas && (
+        <GestionEmpresasContablesModal
+          onClose={() => setAbrirGestionEmpresas(false)}
+          onActualizado={() => {
+            recargarEmpresas();
+            void cargar();
+          }}
+        />
+      )}
     </div>
   );
 }
