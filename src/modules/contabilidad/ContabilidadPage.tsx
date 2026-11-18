@@ -24,6 +24,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { date } from '@/shared/lib/format';
 import {
   getParametros, listCuentas, listEjercicios, listTiposComprobante, modificarTiposDeParametros, reiniciarDatosEjemplo,
+  verificarConexionSupabase,
 } from './contabilidad.repository';
 import {
   listEmpresasContables, leerEmpresaContableActiva, guardarEmpresaContableActiva,
@@ -74,6 +75,13 @@ export function ContabilidadPage() {
   // Sube al reiniciar la simulación o cambiar de empresa: las pestañas se vuelven a montar desde cero.
   const [version, setVersion] = useState(0);
   const [confirmarReinicio, setConfirmarReinicio] = useState(false);
+  const [esEnVivo, setEsEnVivo] = useState(false);
+
+  useEffect(() => {
+    void verificarConexionSupabase(empresaActiva).then((conectado) => {
+      setEsEnVivo(conectado);
+    });
+  }, [empresaActiva, version]);
 
   useEffect(() => {
     void listEmpresasContables().then((lista) => {
@@ -144,14 +152,23 @@ export function ContabilidadPage() {
               ))}
             </select>
           </label>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmarReinicio(true)}>↺ Reiniciar datos de ejemplo</button>
+          {!esEnVivo && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmarReinicio(true)}>↺ Reiniciar datos de ejemplo</button>
+          )}
         </div>
       </div>
 
-      <div className="cont-aviso" role="note">
-        <strong>Maqueta</strong>
-        <span>Datos simulados en este navegador. Nada se lee ni se guarda en la base del sistema.</span>
-      </div>
+      {esEnVivo ? (
+        <div className="cont-aviso cont-aviso-en-vivo" role="status" style={{ borderLeft: '4px solid #10b981', background: 'rgba(16, 185, 129, 0.08)' }}>
+          <strong style={{ color: '#10b981' }}>🟢 Base de datos en vivo (Supabase)</strong>
+          <span>Conectado en tiempo real a las tablas contables oficiales de <strong>{empresaSelObj?.nombre ?? empresaActiva}</strong>. Todos los comprobantes, balances y cuentas operan directamente sobre la base del sistema.</span>
+        </div>
+      ) : (
+        <div className="cont-aviso" role="note">
+          <strong>Maqueta</strong>
+          <span>Datos simulados en este navegador. Nada se lee ni se guarda en la base del sistema.</span>
+        </div>
+      )}
 
       <nav className="view-toggle cont-menus" role="tablist" aria-label="Menús de Contabilidad">
         {MENUS.map((m) => (
