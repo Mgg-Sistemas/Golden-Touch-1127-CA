@@ -53,6 +53,20 @@ import {
   descargarPersonalPdf,
   type MetadatosExportacionPersonal,
 } from './exportarPersonalReporte';
+import {
+  CONFIG_CARGA_MASIVA_DEFECTO,
+  buscarCuentaBancoTesoro,
+  formatearCorrelativo7,
+  generarLoteCargaMasivaNomina,
+  type ConfigCargaMasivaNomina,
+} from './cargaMasivaNomina';
+import {
+  descargarCargaMasivaCsv,
+  descargarCargaMasivaExcel,
+  descargarCargaMasivaPdf,
+  descargarCargaMasivaTxt,
+} from './cargaMasivaNominaExport';
+import { CargaMasivaNominaPanel, type FiltroCuenta0163 } from './CargaMasivaNominaPanel';
 
 const CLAVE_LOCAL_CAMPOS = 'gt.rrhh.reporte.campos';
 const CLAVE_LOCAL_AGRUPACION = 'gt.rrhh.reporte.agrupacion';
@@ -60,6 +74,9 @@ const CLAVE_LOCAL_FORMATO = 'gt.rrhh.reporte.formato';
 const CLAVE_LOCAL_ORIENTACION = 'gt.rrhh.reporte.orientacion';
 const CLAVE_LOCAL_ORDEN = 'gt.rrhh.reporte.orden';
 const CLAVE_LOCAL_RESUMEN = 'gt.rrhh.reporte.resumen';
+const CLAVE_LOCAL_CARGA_MASIVA = 'gt.rrhh.cargaMasiva.config';
+
+type PestanaReporteRrhh = AmbitoReportePersonal | 'carga_masiva_nomina';
 
 const MODOS_AGRUPACION: { id: ModoAgrupacionPersonal; icon: string; label: string }[] = [
   { id: 'departamento', icon: '🏢', label: 'Por Departamento' },
@@ -94,8 +111,10 @@ export function ExportarPersonalModal({
 }: Props) {
   const catalogoEmpresas = useEmpresasRrhh();
 
-  // Ámbito del reporte (Directorio o históricos operativos)
+  // Ámbito del reporte (Directorio, históricos operativos o Carga Masiva - Nómina)
   const [ambito, setAmbito] = useState<AmbitoReportePersonal>('directorio');
+  const [pestanaActiva, setPestanaActiva] = useState<PestanaReporteRrhh>('directorio');
+  const esCargaMasiva = pestanaActiva === 'carga_masiva_nomina';
 
   // Estado de datos base
   const [personalCompleto, setPersonalCompleto] = useState<Personal[]>(personasIniciales);
@@ -175,7 +194,34 @@ export function ExportarPersonalModal({
 
   // Buscador en vista previa
   const [busquedaPrevia, setBusquedaPrevia] = useState('');
-  const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | 'csv' | null>(null);
+  const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | 'csv' | 'txt' | null>(null);
+
+  // Estado específico de la pestaña «CARGA MASIVA - NOMINA»
+  const [configCargaMasiva, setConfigCargaMasiva] = useState<ConfigCargaMasivaNomina>(() => {
+    try {
+      const guardado = JSON.parse(localStorage.getItem(CLAVE_LOCAL_CARGA_MASIVA) ?? 'null');
+      if (guardado && typeof guardado === 'object') {
+        return { ...CONFIG_CARGA_MASIVA_DEFECTO, ...guardado };
+      }
+    } catch { /* ignore */ }
+    return CONFIG_CARGA_MASIVA_DEFECTO;
+  });
+  const [filtroCuenta0163, setFiltroCuenta0163] = useState<FiltroCuenta0163>('todos');
+  const [excluidosCargaMasiva, setExcluidosCargaMasiva] = useState<Set<string>>(() => new Set());
+  const [busquedaCargaMasiva, setBusquedaCargaMasiva] = useState('');
+
+  const actualizarConfigCargaMasiva = (parcial: Partial<ConfigCargaMasivaNomina>) => {
+    setConfigCargaMasiva((prev) => {
+      const nuevo = { ...prev, ...parcial };
+      try {
+        localStorage.setItem(
+          CLAVE_LOCAL_CARGA_MASIVA,
+          JSON.stringify({ ...nuevo, tasaBs: 0 }),
+        );
+      } catch { /* ignore */ }
+      return nuevo;
+    });
+  };
 
   // Carga de familiares si no venían pasados por prop
   useEffect(() => {
@@ -193,7 +239,10 @@ export function ExportarPersonalModal({
       .then((t) => {
         if (!vivo) return;
         const usd = Number(t?.usd);
-        if (Number.isFinite(usd) && usd > 0) setTasaBs(usd);
+        if (Number.isFinite(usd) && usd > 0) {
+          setTasaBs(usd);
+          setConfigCargaMasiva((prev) => (prev.tasaBs > 0 ? prev : { ...prev, tasaBs: usd }));
+        }
         setTasaBsFecha(t?.fecha ?? null);
       })
       .catch(() => {});
@@ -277,10 +326,10 @@ export function ExportarPersonalModal({
   // Normalización plana según el ámbito activo + sueldos en Bs a la tasa del día
   const filasNormalizadas = useMemo(() => {
     let base: FilaReportePersonal[];
-    if (ambito === 'historico_salarial') {
+    if (!esCargaMasiva && ambito === 'historico_salarial') {
       if (!cambiosSueldo) return [];
       base = normalizarHistoricoSalarial(cambiosSueldo, personasMap, familiaresMap);
-    } else if (ambito === 'historico_cargos') {
+    } else if (!esCargaMasiva && ambito === 'historico_cargos') {
       if (!cambiosCargo) return [];
       base = normalizarHistoricoCargos(cambiosCargo, personasMap, familiaresMap);
     } else {
@@ -298,7 +347,7 @@ export function ExportarPersonalModal({
         tasa_bs_fecha: tasaBsFecha,
       };
     });
-  }, [ambito, cambiosSueldo, cambiosCargo, personalCompleto, personasMap, familiaresMap, tasaBs, tasaBsFecha]);
+  }, [esCargaMasiva, ambito, cambiosSueldo, cambiosCargo, personalCompleto, personasMap, familiaresMap, tasaBs, tasaBsFecha]);
 
   // Filtrado
   const filasFiltradas = useMemo(() => {
@@ -316,6 +365,77 @@ export function ExportarPersonalModal({
   const resultado = useMemo(() => {
     return procesarFilasReportePersonal(filasFiltradas, agrupacion, orden);
   }, [filasFiltradas, agrupacion, orden]);
+
+  // Lote calculado en vivo para la pestaña «CARGA MASIVA - NOMINA»
+  const datosCargaMasiva = useMemo(() => {
+    const vistos = new Set<string>();
+    const personasOrdenadas: Personal[] = [];
+    for (const f of resultado.filasPlanasyOrdenadas) {
+      if (vistos.has(f.id)) continue;
+      const p = personasMap.get(f.id);
+      if (!p) continue;
+      vistos.add(f.id);
+      personasOrdenadas.push(p);
+    }
+
+    let conteoCon0163 = 0;
+    let conteoSin0163 = 0;
+    personasOrdenadas.forEach((p) => {
+      if (buscarCuentaBancoTesoro(p.datos_pago)) conteoCon0163 += 1;
+      else conteoSin0163 += 1;
+    });
+
+    const candidatos = personasOrdenadas.filter((p) => {
+      if (filtroCuenta0163 === 'todos') return true;
+      const tiene = Boolean(buscarCuentaBancoTesoro(p.datos_pago));
+      return filtroCuenta0163 === 'con_0163' ? tiene : !tiene;
+    });
+
+    const loteBase = generarLoteCargaMasivaNomina(candidatos, familiaresMap, configCargaMasiva);
+
+    // Renumerar correlativos contiguamente solo entre los trabajadores marcados
+    let corrActual = Math.max(1, Math.floor(configCargaMasiva.correlativoInicial || 1));
+    const filasConCorrelativo = loteBase.map((fila) => {
+      if (excluidosCargaMasiva.has(fila.personalId)) {
+        const celdasExcl = [...fila.celdas];
+        celdasExcl[1] = '-------';
+        return {
+          ...fila,
+          campos: { ...fila.campos, correlativo_cliente: '-------' },
+          celdas: celdasExcl,
+        };
+      }
+      const corrStr = formatearCorrelativo7(corrActual++);
+      const celdasIncl = [...fila.celdas];
+      celdasIncl[1] = corrStr;
+      return {
+        ...fila,
+        campos: { ...fila.campos, correlativo_cliente: corrStr },
+        celdas: celdasIncl,
+      };
+    });
+
+    const filasSeleccionadas = filasConCorrelativo.filter(
+      (f) => !excluidosCargaMasiva.has(f.personalId),
+    );
+    const masaBsSeleccionada = filasSeleccionadas.reduce((acc, f) => acc + f.montoBs, 0);
+
+    return {
+      totalCandidatos: candidatos.length,
+      conteoCon0163,
+      conteoSin0163,
+      filasTabla: filasConCorrelativo,
+      filasSeleccionadas,
+      masaBsSeleccionada,
+    };
+  }, [
+    resultado.filasPlanasyOrdenadas,
+    personasMap,
+    filtroCuenta0163,
+    familiaresMap,
+    configCargaMasiva,
+    excluidosCargaMasiva,
+  ]);
 
   // Filas visibles en la vista previa con buscador rápido
   const filasParaPreview = useMemo(() => {
@@ -351,11 +471,36 @@ export function ExportarPersonalModal({
   };
 
   const cambiarAmbito = (nuevoAmbito: AmbitoReportePersonal) => {
+    setPestanaActiva(nuevoAmbito);
     setAmbito(nuevoAmbito);
     const sugeridas = CAMPOS_POR_DEFECTO_POR_AMBITO[nuevoAmbito];
     if (sugeridas && sugeridas.length > 0) {
       setMarcados(sugeridas);
     }
+  };
+
+  const activarCargaMasiva = () => {
+    setPestanaActiva('carga_masiva_nomina');
+    if (orden === 'sueldo_desc') {
+      setOrden('alfabetico');
+    }
+  };
+
+  const alternarTrabajadorCargaMasiva = (personalId: string) => {
+    setExcluidosCargaMasiva((prev) => {
+      const next = new Set(prev);
+      if (next.has(personalId)) next.delete(personalId);
+      else next.add(personalId);
+      return next;
+    });
+  };
+
+  const seleccionarTodosCargaMasiva = () => {
+    setExcluidosCargaMasiva(new Set());
+  };
+
+  const limpiarSeleccionCargaMasiva = () => {
+    setExcluidosCargaMasiva(new Set(datosCargaMasiva.filasTabla.map((f) => f.personalId)));
   };
 
   const cambiarModoAgrupacion = (modo: ModoAgrupacionPersonal) => {
@@ -378,7 +523,64 @@ export function ExportarPersonalModal({
     }
   };
 
-  // Acciones de descarga
+  const armarMetadatosFiltrosComunes = () => {
+    const empresaUnica =
+      empresasSel.length === 1
+        ? empresasSel[0]
+        : empresasSel.length === 0 && catalogoEmpresas.length === 1
+          ? catalogoEmpresas[0].clave
+          : null;
+    const partesSubtitulo: string[] = [];
+    if (empresaUnica) partesSubtitulo.push(`Empresa: ${empresaUnica}`);
+    else if (empresasSel.length > 1) partesSubtitulo.push(`Empresas: ${empresasSel.join(', ')}`);
+    if (departamentosSel.length) partesSubtitulo.push(`Deptos: ${departamentosSel.join(', ')}`);
+    if (hijosFiltro === 'si') partesSubtitulo.push('Solo con hijos');
+    if (hijosFiltro === 'no') partesSubtitulo.push('Sin hijos');
+    return { empresaUnica, partesSubtitulo };
+  };
+
+  // Acciones de descarga para «CARGA MASIVA - NOMINA» (Excel, CSV, TXT, PDF)
+  const descargarCargaMasiva = async (tipo: 'xlsx' | 'csv' | 'txt' | 'pdf') => {
+    const lote = datosCargaMasiva.filasSeleccionadas;
+    if (lote.length === 0) {
+      toast('Selecciona al menos un trabajador para exportar la carga masiva.', 'warning');
+      return;
+    }
+
+    setOcupado(tipo);
+    try {
+      const { empresaUnica, partesSubtitulo } = armarMetadatosFiltrosComunes();
+      if (filtroCuenta0163 === 'sin_0163') partesSubtitulo.push('Sin cuenta 0163');
+      if (filtroCuenta0163 === 'con_0163') partesSubtitulo.push('Con cuenta 0163');
+      if (configCargaMasiva.tasaBs > 0 && configCargaMasiva.porcionSueldo !== 'monto_fijo_bs') {
+        partesSubtitulo.push(`Tasa BCV: ${formatearBs(configCargaMasiva.tasaBs)}/USD`);
+      }
+
+      const metaExport = {
+        empresaPrincipal: empresaUnica,
+        tasaBsFecha,
+        subtituloFiltros: partesSubtitulo.join(' · ') || undefined,
+      };
+
+      if (tipo === 'xlsx') {
+        await descargarCargaMasivaExcel(lote, configCargaMasiva, metaExport);
+      } else if (tipo === 'pdf') {
+        await descargarCargaMasivaPdf(lote, configCargaMasiva, metaExport);
+      } else if (tipo === 'csv') {
+        descargarCargaMasivaCsv(lote, configCargaMasiva, metaExport);
+        toast(`CSV de Carga Masiva descargado (${lote.length} registros)`, 'success');
+      } else {
+        descargarCargaMasivaTxt(lote, configCargaMasiva, metaExport);
+        toast(`TXT de Carga Masiva descargado (${lote.length} registros)`, 'success');
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Error al exportar Carga Masiva - Nómina', 'error');
+    } finally {
+      setOcupado(null);
+    }
+  };
+
+  // Acciones de descarga estándar
   const descargar = async (tipo: 'xlsx' | 'pdf' | 'csv') => {
     if (marcados.length === 0) {
       toast('Selecciona al menos una columna para exportar.', 'warning');
@@ -391,13 +593,7 @@ export function ExportarPersonalModal({
 
     setOcupado(tipo);
     try {
-      const empresaUnica = empresasSel.length === 1 ? empresasSel[0] : (empresasSel.length === 0 && catalogoEmpresas.length === 1 ? catalogoEmpresas[0].clave : null);
-      const partesSubtitulo: string[] = [];
-      if (empresaUnica) partesSubtitulo.push(`Empresa: ${empresaUnica}`);
-      else if (empresasSel.length > 1) partesSubtitulo.push(`Empresas: ${empresasSel.join(', ')}`);
-      if (departamentosSel.length) partesSubtitulo.push(`Deptos: ${departamentosSel.join(', ')}`);
-      if (hijosFiltro === 'si') partesSubtitulo.push('Solo con hijos');
-      if (hijosFiltro === 'no') partesSubtitulo.push('Sin hijos');
+      const { empresaUnica, partesSubtitulo } = armarMetadatosFiltrosComunes();
       if (marcados.some((c) => c === 'sueldo_bs_20' || c === 'sueldo_bs_80' || c === 'sueldo_bs_100')) {
         partesSubtitulo.push(
           tasaBs && tasaBs > 0
@@ -441,60 +637,114 @@ export function ExportarPersonalModal({
       size="xl"
       onClose={onClose}
       footer={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '.6rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.84rem', color: 'var(--text-muted, #94a3b8)' }}>
-            <span>Registros: <strong>{filasFiltradas.length}</strong> de {personalCompleto.length}</span>
-            <span>·</span>
-            <span>Masa salarial: <strong style={{ color: '#22c55e' }}>${resultado.resumen.masaSalarialTotalUsd.toLocaleString('es-VE')}</strong></span>
+        esCargaMasiva ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.84rem', color: 'var(--text-muted, #94a3b8)', flexWrap: 'wrap' }}>
+              <span>
+                En lote: <strong>{datosCargaMasiva.filasSeleccionadas.length}</strong> de {datosCargaMasiva.totalCandidatos}
+              </span>
+              <span>·</span>
+              <span>
+                Masa salarial Bs:{' '}
+                <strong style={{ color: '#22c55e' }}>
+                  {formatearBs(datosCargaMasiva.masaBsSeleccionada)}
+                </strong>
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '.45rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void descargarCargaMasiva('txt')}
+                disabled={!!ocupado || datosCargaMasiva.filasSeleccionadas.length === 0}
+              >
+                {ocupado === 'txt' ? 'Generando…' : '📝 TXT'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void descargarCargaMasiva('csv')}
+                disabled={!!ocupado || datosCargaMasiva.filasSeleccionadas.length === 0}
+              >
+                {ocupado === 'csv' ? 'Generando…' : '📋 CSV'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void descargarCargaMasiva('xlsx')}
+                disabled={!!ocupado || datosCargaMasiva.filasSeleccionadas.length === 0}
+              >
+                {ocupado === 'xlsx' ? 'Generando…' : '📊 Excel'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void descargarCargaMasiva('pdf')}
+                disabled={!!ocupado || datosCargaMasiva.filasSeleccionadas.length === 0}
+              >
+                {ocupado === 'pdf' ? 'Generando…' : '📄 PDF (Imprimir)'}
+              </button>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '.45rem' }}>
-            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>
-              Cerrar
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => void descargar('csv')}
-              disabled={!!ocupado || !filasFiltradas.length || !marcados.length}
-            >
-              {ocupado === 'csv' ? 'Generando…' : '📋 CSV'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => void descargar('xlsx')}
-              disabled={!!ocupado || !filasFiltradas.length || !marcados.length}
-            >
-              {ocupado === 'xlsx' ? 'Generando…' : '📊 Excel'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void descargar('pdf')}
-              disabled={!!ocupado || !filasFiltradas.length || !marcados.length}
-            >
-              {ocupado === 'pdf' ? 'Generando…' : '📄 PDF (Imprimir)'}
-            </button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.84rem', color: 'var(--text-muted, #94a3b8)' }}>
+              <span>Registros: <strong>{filasFiltradas.length}</strong> de {personalCompleto.length}</span>
+              <span>·</span>
+              <span>Masa salarial: <strong style={{ color: '#22c55e' }}>${resultado.resumen.masaSalarialTotalUsd.toLocaleString('es-VE')}</strong></span>
+            </div>
+            <div style={{ display: 'flex', gap: '.45rem' }}>
+              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void descargar('csv')}
+                disabled={!!ocupado || !filasFiltradas.length || !marcados.length}
+              >
+                {ocupado === 'csv' ? 'Generando…' : '📋 CSV'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void descargar('xlsx')}
+                disabled={!!ocupado || !filasFiltradas.length || !marcados.length}
+              >
+                {ocupado === 'xlsx' ? 'Generando…' : '📊 Excel'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void descargar('pdf')}
+                disabled={!!ocupado || !filasFiltradas.length || !marcados.length}
+              >
+                {ocupado === 'pdf' ? 'Generando…' : '📄 PDF (Imprimir)'}
+              </button>
+            </div>
           </div>
-        </div>
+        )
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
 
-        {/* 1. SECCIÓN: Ámbito del Reporte (Directorio / Históricos operativos) */}
+        {/* 1. SECCIÓN: Ámbito del Reporte (Directorio / Históricos / Carga Masiva - Nómina) */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.5rem .8rem', flexWrap: 'wrap', gap: '.4rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '.82rem', fontWeight: 600 }}>Ámbito:</span>
             <button
               type="button"
-              className={`btn btn-xs ${ambito === 'directorio' ? 'btn-primary' : 'btn-ghost'}`}
+              className={`btn btn-xs ${pestanaActiva === 'directorio' ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => cambiarAmbito('directorio')}
             >
               👥 Directorio Activo
             </button>
             <button
               type="button"
-              className={`btn btn-xs ${ambito === 'historico_salarial' ? 'btn-primary' : 'btn-ghost'}`}
+              className={`btn btn-xs ${pestanaActiva === 'historico_salarial' ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => cambiarAmbito('historico_salarial')}
               title="Histórico de aumentos, variaciones salariales y motivos"
             >
@@ -502,26 +752,37 @@ export function ExportarPersonalModal({
             </button>
             <button
               type="button"
-              className={`btn btn-xs ${ambito === 'historico_cargos' ? 'btn-primary' : 'btn-ghost'}`}
+              className={`btn btn-xs ${pestanaActiva === 'historico_cargos' ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => cambiarAmbito('historico_cargos')}
               title="Histórico de cargos, promociones y ascensos"
             >
               🎖️ Histórico de Cargos {cambiosCargo ? `(${cambiosCargo.length})` : ''}
             </button>
-            {cargandoHistorico && (
+            <button
+              type="button"
+              className={`btn btn-xs ${esCargaMasiva ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={activarCargaMasiva}
+              title="Formato oficial bancario de Carga Masiva - Nómina (44 columnas con correlativos y códigos)"
+            >
+              🏦 CARGA MASIVA - NOMINA
+            </button>
+            {cargandoHistorico && !esCargaMasiva && (
               <span className="muted" style={{ fontSize: '.74rem', marginLeft: '.4rem' }}>
                 ⏳ Cargando datos…
               </span>
             )}
           </div>
           <span className="muted" style={{ fontSize: '.76rem' }}>
-            {ambito === 'directorio'
-              ? `${total} personas en catálogo`
-              : `${filasFiltradas.length} registros en historial`}
+            {esCargaMasiva
+              ? `${datosCargaMasiva.filasSeleccionadas.length} en lote bancario`
+              : pestanaActiva === 'directorio'
+                ? `${total} personas en catálogo`
+                : `${filasFiltradas.length} registros en historial`}
           </span>
         </div>
 
         {/* 2. SECCIÓN: Dimensión Principal (Agrupar por) */}
+        {!esCargaMasiva && (
         <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' }}>
           <div style={{ fontSize: '.84rem', fontWeight: 600, marginBottom: '.4rem', color: 'var(--text, #f1f5f9)' }}>
             🎯 Dimensión Principal (Agrupar por)
@@ -541,6 +802,7 @@ export function ExportarPersonalModal({
             ))}
           </div>
         </div>
+        )}
 
         {/* 3. SECCIÓN: Filtros Secundarios con Pestañas y Chips de Checks */}
         <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' }}>
@@ -846,6 +1108,29 @@ export function ExportarPersonalModal({
           )}
         </div>
 
+        {esCargaMasiva ? (
+          <CargaMasivaNominaPanel
+            filasLote={datosCargaMasiva.filasTabla}
+            totalCandidatos={datosCargaMasiva.totalCandidatos}
+            excluidosIds={excluidosCargaMasiva}
+            onToggleTrabajador={alternarTrabajadorCargaMasiva}
+            onSeleccionarTodos={seleccionarTodosCargaMasiva}
+            onLimpiarSeleccion={limpiarSeleccionCargaMasiva}
+            filtroCuenta0163={filtroCuenta0163}
+            onChangeFiltroCuenta0163={setFiltroCuenta0163}
+            conteoSin0163={datosCargaMasiva.conteoSin0163}
+            conteoCon0163={datosCargaMasiva.conteoCon0163}
+            orden={orden}
+            onChangeOrden={setOrden}
+            config={configCargaMasiva}
+            onChangeConfig={actualizarConfigCargaMasiva}
+            tasaBsSistema={tasaBs}
+            tasaBsFecha={tasaBsFecha}
+            busqueda={busquedaCargaMasiva}
+            onChangeBusqueda={setBusquedaCargaMasiva}
+          />
+        ) : (
+          <>
         {/* 4. SECCIÓN: Selección de Columnas (con checks) */}
         <div style={{ background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
@@ -1174,6 +1459,8 @@ export function ExportarPersonalModal({
             )}
           </div>
         </div>
+          </>
+        )}
 
       </div>
     </Modal>

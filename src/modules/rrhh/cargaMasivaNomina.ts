@@ -1,0 +1,1358 @@
+/* ============================================================
+   Golden Touch · RRHH · Motor de Carga Masiva - Nómina (Banco 0163)
+   (19/11/2026)
+
+   Implementa la especificación oficial de 44 columnas (A..AR) de
+   «1-FORMATO CARGA MASIVA-MONEDA NACIONAL.xls» (Banco del Tesoro 0163):
+     · Correlativos secuenciales de 7 dígitos (0000001, 0000002, …).
+     · Cédula rellenada a 15 dígitos con ceros a la izquierda.
+     · Fechas en formato bancario DDMMYYYY (8 caracteres sin guiones).
+     · Sueldo básico en Bs a 15 dígitos con ceros a la izquierda (céntimos ×100).
+     · Zonas postales a 10 dígitos y teléfonos a 11 dígitos.
+     · Catálogos oficiales integrados: Estado Civil, Educación, Profesión,
+       Tipo de Cargo (79 códigos), Región, Estado, Ciudad, Municipio,
+       Parroquia y Oficinas Bancarias (66 agencias).
+     · 100% puro, síncrono y determinista.
+   ============================================================ */
+
+import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
+import { leerCuentas } from './datosBancarios';
+
+/* ───────────── Catálogos Oficiales (extraídos del XLS) ───────────── */
+
+export interface ItemCatalogo {
+  codigo: string;
+  descripcion: string;
+}
+
+export const CATALOGO_REGIONES: ItemCatalogo[] = [
+  { codigo: '01', descripcion: 'REGION CAPITAL' },
+  { codigo: '02', descripcion: 'REGION CENTRAL' },
+  { codigo: '03', descripcion: 'REGION LOS LLANOS' },
+  { codigo: '04', descripcion: 'REGION CENTRO OCCIDENTAL' },
+  { codigo: '05', descripcion: 'REGION ZULIANA' },
+  { codigo: '06', descripcion: 'REGION LOS ANDES' },
+  { codigo: '07', descripcion: 'REGION NOR-ORIENTAL' },
+  { codigo: '08', descripcion: 'REGION INSULAR' },
+  { codigo: '09', descripcion: 'REGION GUAYANA' },
+];
+
+export const CATALOGO_ESTADOS: ItemCatalogo[] = [
+  { codigo: '01', descripcion: 'DISTRITO CAPITAL' },
+  { codigo: '02', descripcion: 'AMAZONAS' },
+  { codigo: '03', descripcion: 'ANZOATEGUI' },
+  { codigo: '04', descripcion: 'APURE' },
+  { codigo: '05', descripcion: 'ARAGUA' },
+  { codigo: '06', descripcion: 'BARINAS' },
+  { codigo: '07', descripcion: 'BOLIVAR' },
+  { codigo: '08', descripcion: 'CARABOBO' },
+  { codigo: '09', descripcion: 'COJEDES' },
+  { codigo: '10', descripcion: 'DELTA AMACURO' },
+  { codigo: '11', descripcion: 'FALCON' },
+  { codigo: '12', descripcion: 'GUARICO' },
+  { codigo: '13', descripcion: 'LARA' },
+  { codigo: '14', descripcion: 'MERIDA' },
+  { codigo: '15', descripcion: 'MIRANDA' },
+  { codigo: '16', descripcion: 'MONAGAS' },
+  { codigo: '17', descripcion: 'NUEVA ESPARTA' },
+  { codigo: '18', descripcion: 'PORTUGUESA' },
+  { codigo: '19', descripcion: 'SUCRE' },
+  { codigo: '20', descripcion: 'TACHIRA' },
+  { codigo: '21', descripcion: 'TRUJILLO' },
+  { codigo: '22', descripcion: 'YARACUY' },
+  { codigo: '23', descripcion: 'ZULIA' },
+  { codigo: '24', descripcion: 'VARGAS' },
+];
+
+export const CATALOGO_CIUDADES_PRINCIPALES: (ItemCatalogo & { estado: string; zonaPostal: string })[] = [
+  { codigo: '7029', descripcion: 'PUERTO ORDAZ', estado: '07', zonaPostal: '8050' },
+  { codigo: '7031', descripcion: 'SAN FELIX', estado: '07', zonaPostal: '8051' },
+  { codigo: '7004', descripcion: 'CIUDAD GUAYANA', estado: '07', zonaPostal: '8050' },
+  { codigo: '7026', descripcion: 'MATANZAS', estado: '07', zonaPostal: '8001' },
+  { codigo: '7003', descripcion: 'CIUDAD BOLIVAR', estado: '07', zonaPostal: '8001' },
+  { codigo: '7040', descripcion: 'UPATA', estado: '07', zonaPostal: '8052' },
+  { codigo: '7007', descripcion: 'EL CALLAO', estado: '07', zonaPostal: '8056' },
+  { codigo: '7013', descripcion: 'GUASIPATI', estado: '07', zonaPostal: '8050' },
+  { codigo: '7039', descripcion: 'TUMEREMO', estado: '07', zonaPostal: '8057' },
+  { codigo: '7008', descripcion: 'EL DORADO', estado: '07', zonaPostal: '8050' },
+  { codigo: '7009', descripcion: 'EL MANTECO', estado: '07', zonaPostal: '8050' },
+  { codigo: '7011', descripcion: 'EL PALMAR', estado: '07', zonaPostal: '8054' },
+  { codigo: '7005', descripcion: 'CIUDAD PIAR', estado: '07', zonaPostal: '8003' },
+  { codigo: '7002', descripcion: 'CAICARA DEL ORINOCO', estado: '07', zonaPostal: '8007' },
+  { codigo: '7035', descripcion: 'SANTA ELENA DE UAIREN', estado: '07', zonaPostal: '8011' },
+  { codigo: '1505', descripcion: 'CARACAS', estado: '01', zonaPostal: '1010' },
+  { codigo: '3014', descripcion: 'BARCELONA', estado: '03', zonaPostal: '6001' },
+  { codigo: '3052', descripcion: 'PUERTO LA CRUZ', estado: '03', zonaPostal: '6023' },
+  { codigo: '16036', descripcion: 'MATURIN', estado: '16', zonaPostal: '6201' },
+];
+
+export const CATALOGO_MUNICIPIOS_PRINCIPALES: ItemCatalogo[] = [
+  { codigo: '0701', descripcion: 'PUERTO ORDAZ (CARONI · BOLIVAR)' },
+  { codigo: '0702', descripcion: 'SAN FELIX (CARONI · BOLIVAR)' },
+  { codigo: '0703', descripcion: 'CIUDAD BOLIVAR (HERES · BOLIVAR)' },
+  { codigo: '0101', descripcion: 'CARACAS (DISTRITO CAPITAL)' },
+  { codigo: '0301', descripcion: 'BARCELONA (ANZOATEGUI)' },
+  { codigo: '0302', descripcion: 'PUERTO LA CRUZ (ANZOATEGUI)' },
+  { codigo: '1001', descripcion: 'TUCUPITA (DELTA AMACURO)' },
+  { codigo: '1601', descripcion: 'MATURIN (MONAGAS)' },
+];
+
+export const CATALOGO_PARROQUIAS_PRINCIPALES: ItemCatalogo[] = [
+  { codigo: '070106', descripcion: 'UNARE (CIUDAD GUAYANA)' },
+  { codigo: '070101', descripcion: 'CACHAMAY (CIUDAD GUAYANA)' },
+  { codigo: '070107', descripcion: 'UNIVERSIDAD (CIUDAD GUAYANA)' },
+  { codigo: '070102', descripcion: 'CHIRICA (CIUDAD GUAYANA)' },
+  { codigo: '070103', descripcion: 'DALLA COSTA (CIUDAD GUAYANA)' },
+  { codigo: '070104', descripcion: 'ONCE DE ABRIL (CIUDAD GUAYANA)' },
+  { codigo: '070105', descripcion: 'SIMON BOLIVAR (CIUDAD GUAYANA)' },
+  { codigo: '070108', descripcion: 'VISTA AL SOL (CIUDAD GUAYANA)' },
+  { codigo: '070109', descripcion: 'POZO VERDE (CARONI)' },
+  { codigo: '070110', descripcion: 'YOCOIMA (CARONI)' },
+  { codigo: '070201', descripcion: 'AGUA SALADA (CIUDAD BOLIVAR)' },
+  { codigo: '070202', descripcion: 'CATEDRAL (CIUDAD BOLIVAR)' },
+  { codigo: '070203', descripcion: 'JOSE ANTONIO PAEZ (CIUDAD BOLIVAR)' },
+  { codigo: '070204', descripcion: 'LA SABANITA (CIUDAD BOLIVAR)' },
+  { codigo: '070205', descripcion: 'MARHUANTA (CIUDAD BOLIVAR)' },
+  { codigo: '070206', descripcion: 'VISTA HERMOSA (CIUDAD BOLIVAR)' },
+  { codigo: '070501', descripcion: 'EL CALLAO' },
+  { codigo: '070801', descripcion: 'PIAR (UPATA)' },
+  { codigo: '070901', descripcion: 'RAUL LEONI (CIUDAD PIAR)' },
+  { codigo: '071001', descripcion: 'ROSCIO (GUASIPATI)' },
+  { codigo: '071101', descripcion: 'SIFONTES (TUMEREMO)' },
+  { codigo: '071102', descripcion: 'DALLA COSTA (EL DORADO)' },
+  { codigo: '071103', descripcion: 'SAN ISIDRO (LAS CLARITAS / KM 88)' },
+  { codigo: '010105', descripcion: 'CATEDRAL (CARACAS)' },
+];
+
+export const CATALOGO_OFICINAS_TESORO: ItemCatalogo[] = [
+  { codigo: '0405', descripcion: 'PUERTO ORDAZ' },
+  { codigo: '0410', descripcion: 'SANTA ELENA DE UAIREN' },
+  { codigo: '0402', descripcion: 'MATURIN' },
+  { codigo: '0408', descripcion: 'MATURIN CONTRIBUYENTES ESPECIALES' },
+  { codigo: '0404', descripcion: 'LECHERIAS' },
+  { codigo: '0403', descripcion: 'CUMANA' },
+  { codigo: '0401', descripcion: 'PORLAMAR' },
+  { codigo: '0406', descripcion: 'EL YAQUE' },
+  { codigo: '0407', descripcion: 'GUAMACHE' },
+  { codigo: '0002', descripcion: 'MARACAIBO' },
+  { codigo: '0202', descripcion: 'CCCT' },
+  { codigo: '0203', descripcion: 'CHACAITO' },
+  { codigo: '0204', descripcion: 'SANTA TERESA' },
+  { codigo: '0205', descripcion: 'MACARACUAY' },
+  { codigo: '0206', descripcion: 'LA CASTELLANA' },
+  { codigo: '0208', descripcion: 'CHARALLAVE NORTE' },
+  { codigo: '0209', descripcion: 'CHARALLAVE SUR' },
+  { codigo: '0210', descripcion: 'CUA' },
+  { codigo: '0211', descripcion: 'LA RINCONADA' },
+  { codigo: '0212', descripcion: 'TAQUILLA FRANCISCO SOLANO' },
+  { codigo: '0213', descripcion: 'SANTA PAULA' },
+  { codigo: '0214', descripcion: 'PARAISO PLAZA' },
+  { codigo: '0215', descripcion: 'VICTORIA PLAZA' },
+  { codigo: '0216', descripcion: 'MINEP' },
+  { codigo: '0217', descripcion: 'SAN DIEGO' },
+  { codigo: '0218', descripcion: 'VALLE DE LA PASCUA' },
+  { codigo: '0219', descripcion: 'CATIA LA MAR' },
+  { codigo: '0220', descripcion: 'PROPATRIA' },
+  { codigo: '0221', descripcion: 'LA CALIFORNIA' },
+  { codigo: '0222', descripcion: 'COCHE ARAGUA' },
+  { codigo: '0223', descripcion: 'GUACARA' },
+  { codigo: '0224', descripcion: 'METRO VALENCIA' },
+  { codigo: '0225', descripcion: 'COTIZA' },
+  { codigo: '0226', descripcion: 'MARACAY CENTRO' },
+  { codigo: '0227', descripcion: 'EL TAMBOR' },
+  { codigo: '0228', descripcion: 'SAN FERNANDO' },
+  { codigo: '0229', descripcion: 'VTV' },
+  { codigo: '0230', descripcion: 'VICEPRESIDENCIA' },
+  { codigo: '0231', descripcion: 'COMANDANCIA GENERAL' },
+  { codigo: '0232', descripcion: 'KPMG' },
+  { codigo: '0234', descripcion: 'LOS PROCERES' },
+  { codigo: '0235', descripcion: 'IND' },
+  { codigo: '0237', descripcion: 'KPMG ESPECIALES' },
+  { codigo: '0238', descripcion: 'ACADEMIA MILITAR' },
+  { codigo: '0239', descripcion: 'ACARIGUA' },
+  { codigo: '0241', descripcion: 'TAQUILLA CHUAO' },
+  { codigo: '0242', descripcion: 'GUATIRE CENTER' },
+  { codigo: '0244', descripcion: 'TAQUILLA URDANETA' },
+  { codigo: '0245', descripcion: 'TINAQUILLO' },
+  { codigo: '0247', descripcion: 'TAQUILLA MARACAY' },
+  { codigo: '0301', descripcion: 'BARQUISIMETO' },
+  { codigo: '0303', descripcion: 'MARACAIBO KIRINET' },
+  { codigo: '0304', descripcion: 'BARRIO OBRERO' },
+  { codigo: '0305', descripcion: 'MERIDA' },
+  { codigo: '0306', descripcion: 'CORO' },
+  { codigo: '0307', descripcion: 'CRP' },
+  { codigo: '0308', descripcion: 'VALERA' },
+  { codigo: '0309', descripcion: 'BARINAS' },
+  { codigo: '0310', descripcion: 'PUNTO FIJO' },
+  { codigo: '0311', descripcion: 'SAN CRISTOBAL ESPECIALES' },
+  { codigo: '0312', descripcion: 'PARAGUACHON' },
+  { codigo: '0601', descripcion: 'PUERTO LA GUAIRA' },
+  { codigo: '0602', descripcion: 'TAQ. AEROPUERTO' },
+  { codigo: '0605', descripcion: 'PLAZA MORELOS' },
+  { codigo: '0606', descripcion: 'GAMMA' },
+  { codigo: '0913', descripcion: 'EL ROSAL' },
+];
+
+export const CATALOGO_EDO_CIVIL: ItemCatalogo[] = [
+  { codigo: '1', descripcion: 'SOLTERO(A)' },
+  { codigo: '2', descripcion: 'CASADO(A)' },
+  { codigo: '3', descripcion: 'DIVORCIADO(A)' },
+  { codigo: '4', descripcion: 'VIUDO(A)' },
+  { codigo: '5', descripcion: 'CONCUBINO(A)' },
+];
+
+export const CATALOGO_NIVEL_EDUCACION: ItemCatalogo[] = [
+  { codigo: '01', descripcion: 'PRIMARIA' },
+  { codigo: '02', descripcion: 'BACHILLERATO' },
+  { codigo: '03', descripcion: 'TECNICO MEDIO' },
+  { codigo: '04', descripcion: 'TECNICO SUPERIOR' },
+  { codigo: '05', descripcion: 'UNIVERSITARIO' },
+  { codigo: '06', descripcion: 'POST GRADO' },
+  { codigo: '07', descripcion: 'DOCTORADO' },
+];
+
+export const CATALOGO_CONDICION_INMUEBLE: ItemCatalogo[] = [
+  { codigo: '1', descripcion: 'PROPIA' },
+  { codigo: '2', descripcion: 'ALQUILADA' },
+  { codigo: '3', descripcion: 'DE UN FAMILIAR' },
+];
+
+export const CATALOGO_TIPO_VIVIENDA: ItemCatalogo[] = [
+  { codigo: '1', descripcion: 'CASA' },
+  { codigo: '2', descripcion: 'QUINTA' },
+  { codigo: '3', descripcion: 'APARTAMENTO' },
+];
+
+export const CATALOGO_FUENTE_INGRESO: ItemCatalogo[] = [
+  { codigo: '1', descripcion: 'SUELDO' },
+  { codigo: '2', descripcion: 'SALARIO' },
+  { codigo: '3', descripcion: 'JUBILACION' },
+  { codigo: '4', descripcion: 'INDEPENDIENTE' },
+];
+
+export const CATALOGO_TIEMPO_CONTRATO: ItemCatalogo[] = [
+  { codigo: '1', descripcion: 'FIJO' },
+  { codigo: '2', descripcion: 'INDEFINIDO' },
+];
+
+export const CATALOGO_TIPO_NOMINA: ItemCatalogo[] = [
+  { codigo: 'W', descripcion: 'SEMANAL' },
+  { codigo: 'B', descripcion: 'QUINCENAL' },
+  { codigo: 'M', descripcion: 'MENSUAL' },
+  { codigo: 'S', descripcion: 'SEMESTRAL' },
+  { codigo: 'Y', descripcion: 'ANUAL' },
+];
+
+export const CATALOGO_TIPO_CUENTA: ItemCatalogo[] = [
+  { codigo: 'CCVI', descripcion: 'CUENTA CORRIENTE VIRTUAL' },
+  { codigo: 'VI01', descripcion: 'CUENTA NOMINA' },
+];
+
+export const CATALOGO_TIPO_SOLICITUD: ItemCatalogo[] = [
+  { codigo: 'I', descripcion: 'INGRESO NUEVO' },
+  { codigo: 'M', descripcion: 'CAMBIOS' },
+  { codigo: 'D', descripcion: 'DESINCORPORAR' },
+];
+
+export const CATALOGO_TIPOS_CARGO: ItemCatalogo[] = [
+  { codigo: '001', descripcion: 'PRESIDENTE' },
+  { codigo: '002', descripcion: 'DIRECTOR' },
+  { codigo: '003', descripcion: 'GERENTE' },
+  { codigo: '004', descripcion: 'SUBGERENTE' },
+  { codigo: '005', descripcion: 'SUPERVISOR' },
+  { codigo: '006', descripcion: 'COORDINADOR(A)' },
+  { codigo: '007', descripcion: 'ANALISTA' },
+  { codigo: '008', descripcion: 'SECRETARIA' },
+  { codigo: '009', descripcion: 'ENCARGADO(A)' },
+  { codigo: '010', descripcion: 'VENDEDOR(A)' },
+  { codigo: '011', descripcion: 'OBRERO' },
+  { codigo: '012', descripcion: 'ESPECIALISTA' },
+  { codigo: '013', descripcion: 'ASISTENTE' },
+  { codigo: '014', descripcion: 'PROMOTOR(A)' },
+  { codigo: '015', descripcion: 'JEFE DE AREA' },
+  { codigo: '016', descripcion: 'TECNICO' },
+  { codigo: '017', descripcion: 'OPERADOR' },
+  { codigo: '018', descripcion: 'CAJERO(A)' },
+  { codigo: '019', descripcion: 'EJECUTIVO' },
+  { codigo: '020', descripcion: 'AUXILIAR' },
+  { codigo: '021', descripcion: 'CHOFER' },
+  { codigo: '022', descripcion: 'CONSERJE' },
+  { codigo: '023', descripcion: 'VIGILANTE' },
+  { codigo: '024', descripcion: 'RECEPCIONISTA' },
+  { codigo: '025', descripcion: 'PERITO' },
+  { codigo: '026', descripcion: 'ASESOR' },
+  { codigo: '027', descripcion: 'AUDITOR' },
+  { codigo: '028', descripcion: 'PROGRAMADOR' },
+  { codigo: '029', descripcion: 'VICEPRESIDENTE' },
+  { codigo: '030', descripcion: 'OFICINISTA' },
+  { codigo: '031', descripcion: 'INGENIERO' },
+  { codigo: '032', descripcion: 'ABOGADO' },
+  { codigo: '033', descripcion: 'MEDICO/CIRUJANO' },
+  { codigo: '034', descripcion: 'DIBUJANTE/PINTOR' },
+  { codigo: '035', descripcion: 'ARQUITECTO' },
+  { codigo: '037', descripcion: 'ECONOMISTA' },
+  { codigo: '038', descripcion: 'DOCENTE' },
+  { codigo: '041', descripcion: 'ADMINISTRADOR' },
+  { codigo: '045', descripcion: 'CONSULTOR' },
+  { codigo: '046', descripcion: 'CHEF' },
+  { codigo: '047', descripcion: 'MESONERO' },
+  { codigo: '050', descripcion: 'VETERINARIO' },
+  { codigo: '053', descripcion: 'TRABAJADOR SOCIAL' },
+  { codigo: '067', descripcion: 'QUIMICO/FISICO' },
+  { codigo: '068', descripcion: 'GEOLOGO' },
+  { codigo: '074', descripcion: 'COMPRADOR' },
+  { codigo: '075', descripcion: 'GERENTE GENERAL' },
+  { codigo: '077', descripcion: 'ADJUNTO' },
+  { codigo: '078', descripcion: 'OTROS' },
+];
+
+export const CATALOGO_PROFESIONES_MAP: Record<string, string> = {
+  ABOG: 'ABOGADO',
+  LADM: 'ADMINISTRACION',
+  LAEM: 'ADMINISTRACION DE EMPRESAS',
+  LARH: 'ADMINISTRACION DE RECURSOS HUMANOS',
+  LAIN: 'ADMINISTRACION INDUSTRIAL',
+  LATR: 'ADMINISTRACION TRIBUTARIA',
+  ANAL: 'ANALISTA',
+  ARQU: 'ARQUITECTO',
+  ASIS: 'ASISTENTE',
+  CAJE: 'CAJERO BANCARIO',
+  CHEF: 'CHEF/COCINERO (A)',
+  CHOF: 'CHOFER',
+  COMP: 'COMPRADOR',
+  LCOM: 'COMPUTACION',
+  CONS: 'CONSERJE',
+  COSL: 'CONSULTOR/ASESOR',
+  LCPU: 'CONTADURIA PUBLICA',
+  COOR: 'COORDINADOR',
+  DIBU: 'DIBUJANTE/PINTOR',
+  ECON: 'ECONOMISTA',
+  LEDU: 'EDUCACION',
+  ELEC: 'ELECTRONICA',
+  ENFE: 'ENFERMERA',
+  GEOL: 'GEOLOGO',
+  HERR: 'HERRERO',
+  LINF: 'INFORMATICA',
+  INGE: 'INGENIERO',
+  INGA: 'INGENIERO AMBIENTAL',
+  INCI: 'INGENIERO CIVIL',
+  INGM: 'INGENIERO DE MATERIALES',
+  INSI: 'INGENIERO DE SISTEMAS',
+  INEL: 'INGENIERO ELECTRICO',
+  INET: 'INGENIERO ELECTRONICO',
+  INCO: 'INGENIERO EN COMPUTACION',
+  ININ: 'INGENIERO EN INFORMATICA',
+  INGO: 'INGENIERO GEODESTA',
+  INID: 'INGENIERO INDUSTRIAL',
+  INME: 'INGENIERO MECANICO',
+  INQU: 'INGENIERO QUIMICO',
+  JARD: 'JARDINERO',
+  LATO: 'LATONERO',
+  MECA: 'MECANICO',
+  MEDI: 'MEDICO (A)',
+  MENS: 'MENSAJERO',
+  MESO: 'MESONERO/BARMAN',
+  OBRE: 'OBRERO',
+  OTRO: 'OTROS',
+  LPSI: 'PSICOLOGIA',
+  RECE: 'RECEPCIONISTA',
+  LRIN: 'RELACIONES INDUSTRIALES',
+  SECR: 'SECRETARIA',
+  SERV: 'SERVICIOS DE MANTENIMIENTO',
+  SINE: 'SIN ESTUDIOS',
+  LSIS: 'SISTEMAS',
+  SUPE: 'SUPERVISOR',
+  TOPO: 'TOPOGRAFO',
+  TADE: 'TSU ADMINISTRACION DE EMPRESAS',
+  TACF: 'TSU ADMON CONTABILIDAD Y FINANZAS',
+  TSUG: 'TSU GEOLOGIA',
+  TINF: 'TSU INFORMATICA',
+  TMIN: 'TSU MANTENIMIENTO INDUSTRIAL',
+  TMEC: 'TSU MECANICA',
+  TSUO: 'TSU OBRAS CIVILES',
+  TRIN: 'TSU RELACIONES INDUSTRIALES',
+  TMEL: 'TSU TECNICO ELECTRICISTA',
+  TTAU: 'TSU TECNOLOGIA AUTOMOTRIZ',
+  VEND: 'VENDEDOR (A)',
+  VIGI: 'VIGILANTE',
+};
+
+/* ───────────── Definición de las 44 Columnas A..AR ───────────── */
+
+export interface ColumnaCargaMasivaDef {
+  indice: number; // 1..44
+  colLetra: string; // A..AR
+  clave: keyof CamposCargaMasivaFila;
+  tituloPlanilla: string;
+  etiquetaCorta: string;
+  mascara: string;
+  anchoFijo: number;
+  alineacion: 'left' | 'center' | 'right';
+}
+
+export interface CamposCargaMasivaFila {
+  numero_banco: string;
+  correlativo_cliente: string;
+  tipo_documento: string;
+  numero_cedula: string;
+  primer_apellido: string;
+  segundo_apellido: string;
+  primer_nombre: string;
+  segundo_nombre: string;
+  fecha_nacimiento: string;
+  pais_nacimiento: string;
+  nacionalidad: string;
+  sexo: string;
+  estado_civil: string;
+  dependientes: string;
+  calle_avenida: string;
+  casa_edificio: string;
+  piso_nivel: string;
+  apto_local: string;
+  referencia: string;
+  region: string;
+  estado: string;
+  ciudad: string;
+  municipio: string;
+  parroquia: string;
+  zona_postal: string;
+  telefono_local: string;
+  telefono_celular: string;
+  condicion_inmueble: string;
+  tipo_vivienda: string;
+  correo_electronico: string;
+  tiempo_residencia: string;
+  nivel_educacion: string;
+  profesion: string;
+  codigo_industria: string;
+  fuente_ingreso: string;
+  tipo_contrato: string;
+  tipo_nomina: string;
+  tipo_cuenta: string;
+  sueldo_basico: string;
+  fecha_ingreso: string;
+  tipo_cargo: string;
+  oficina_principal: string;
+  oficina_secundaria: string;
+  tipo_solicitud: string;
+}
+
+export const COLUMNAS_CARGA_MASIVA_NOMINA: ColumnaCargaMasivaDef[] = [
+  { indice: 1, colLetra: 'A', clave: 'numero_banco', tituloPlanilla: 'NUMERO BANCO (NO MODIFICAR)', etiquetaCorta: 'Banco', mascara: '0000', anchoFijo: 4, alineacion: 'center' },
+  { indice: 2, colLetra: 'B', clave: 'correlativo_cliente', tituloPlanilla: 'CORRELATIVO CLIENTE', etiquetaCorta: 'Correlativo', mascara: '0000000', anchoFijo: 7, alineacion: 'center' },
+  { indice: 3, colLetra: 'C', clave: 'tipo_documento', tituloPlanilla: 'NACIONALIDAD', etiquetaCorta: 'Doc.', mascara: '@', anchoFijo: 1, alineacion: 'center' },
+  { indice: 4, colLetra: 'D', clave: 'numero_cedula', tituloPlanilla: 'NUEMRO DE CEDULA (COMPLETAR CON CEROS A LA IZQ)', etiquetaCorta: 'Cédula (15 díg.)', mascara: '000000000000000', anchoFijo: 15, alineacion: 'center' },
+  { indice: 5, colLetra: 'E', clave: 'primer_apellido', tituloPlanilla: 'PRIMER APELLIDO', etiquetaCorta: '1er Apellido', mascara: '@', anchoFijo: 20, alineacion: 'left' },
+  { indice: 6, colLetra: 'F', clave: 'segundo_apellido', tituloPlanilla: 'SEGUNDO APELLIDO', etiquetaCorta: '2do Apellido', mascara: '@', anchoFijo: 20, alineacion: 'left' },
+  { indice: 7, colLetra: 'G', clave: 'primer_nombre', tituloPlanilla: 'PRIMER NOMBRE', etiquetaCorta: '1er Nombre', mascara: '@', anchoFijo: 20, alineacion: 'left' },
+  { indice: 8, colLetra: 'H', clave: 'segundo_nombre', tituloPlanilla: 'SEGUNDO NOMBRE', etiquetaCorta: '2do Nombre', mascara: '@', anchoFijo: 20, alineacion: 'left' },
+  { indice: 9, colLetra: 'I', clave: 'fecha_nacimiento', tituloPlanilla: 'FECHA DE NACIMIENTO', etiquetaCorta: 'F. Nacimiento', mascara: 'ddmmyyyy', anchoFijo: 8, alineacion: 'center' },
+  { indice: 10, colLetra: 'J', clave: 'pais_nacimiento', tituloPlanilla: 'PAIS DE NACIMIENTO', etiquetaCorta: 'País Nac.', mascara: '@', anchoFijo: 2, alineacion: 'center' },
+  { indice: 11, colLetra: 'K', clave: 'nacionalidad', tituloPlanilla: 'NACIONALIDAD', etiquetaCorta: 'Nac. ISO', mascara: '@', anchoFijo: 2, alineacion: 'center' },
+  { indice: 12, colLetra: 'L', clave: 'sexo', tituloPlanilla: 'SEXO', etiquetaCorta: 'Sexo', mascara: '@', anchoFijo: 1, alineacion: 'center' },
+  { indice: 13, colLetra: 'M', clave: 'estado_civil', tituloPlanilla: 'ESTADO CIVIL', etiquetaCorta: 'Edo. Civil', mascara: '0', anchoFijo: 1, alineacion: 'center' },
+  { indice: 14, colLetra: 'N', clave: 'dependientes', tituloPlanilla: 'DEPENDIENTES', etiquetaCorta: 'Dep.', mascara: '00', anchoFijo: 2, alineacion: 'center' },
+  { indice: 15, colLetra: 'O', clave: 'calle_avenida', tituloPlanilla: 'CALLE / AVENIDA', etiquetaCorta: 'Calle / Av.', mascara: '@', anchoFijo: 35, alineacion: 'left' },
+  { indice: 16, colLetra: 'P', clave: 'casa_edificio', tituloPlanilla: 'CASA / EDIFICIO', etiquetaCorta: 'Casa / Edif.', mascara: '@', anchoFijo: 20, alineacion: 'left' },
+  { indice: 17, colLetra: 'Q', clave: 'piso_nivel', tituloPlanilla: 'PISO / NIVEL', etiquetaCorta: 'Piso', mascara: '@', anchoFijo: 6, alineacion: 'center' },
+  { indice: 18, colLetra: 'R', clave: 'apto_local', tituloPlanilla: 'APTO / OFIC / LOCAL / DEPTO', etiquetaCorta: 'Apto / Nro', mascara: '@', anchoFijo: 10, alineacion: 'center' },
+  { indice: 19, colLetra: 'S', clave: 'referencia', tituloPlanilla: 'REFERENCIA', etiquetaCorta: 'Referencia', mascara: '@', anchoFijo: 25, alineacion: 'left' },
+  { indice: 20, colLetra: 'T', clave: 'region', tituloPlanilla: 'REGION', etiquetaCorta: 'Región', mascara: '00', anchoFijo: 2, alineacion: 'center' },
+  { indice: 21, colLetra: 'U', clave: 'estado', tituloPlanilla: 'ESTADO', etiquetaCorta: 'Estado', mascara: '00', anchoFijo: 2, alineacion: 'center' },
+  { indice: 22, colLetra: 'V', clave: 'ciudad', tituloPlanilla: 'CIUDAD', etiquetaCorta: 'Ciudad', mascara: '0000', anchoFijo: 4, alineacion: 'center' },
+  { indice: 23, colLetra: 'W', clave: 'municipio', tituloPlanilla: 'MUNICIPIO', etiquetaCorta: 'Municipio', mascara: '0000', anchoFijo: 4, alineacion: 'center' },
+  { indice: 24, colLetra: 'X', clave: 'parroquia', tituloPlanilla: 'PARROQUIA', etiquetaCorta: 'Parroquia', mascara: '000000', anchoFijo: 6, alineacion: 'center' },
+  { indice: 25, colLetra: 'Y', clave: 'zona_postal', tituloPlanilla: 'ZONA POSTAL', etiquetaCorta: 'Zona Postal', mascara: '0000000000', anchoFijo: 10, alineacion: 'center' },
+  { indice: 26, colLetra: 'Z', clave: 'telefono_local', tituloPlanilla: 'TELEFONO LOCAL', etiquetaCorta: 'Tlf. Local', mascara: '00000000000', anchoFijo: 11, alineacion: 'center' },
+  { indice: 27, colLetra: 'AA', clave: 'telefono_celular', tituloPlanilla: 'TELEFONO DE CELULAR', etiquetaCorta: 'Celular', mascara: '00000000000', anchoFijo: 11, alineacion: 'center' },
+  { indice: 28, colLetra: 'AB', clave: 'condicion_inmueble', tituloPlanilla: 'CONDICION DEL INMUEBLE', etiquetaCorta: 'Cond. Inm.', mascara: '0', anchoFijo: 1, alineacion: 'center' },
+  { indice: 29, colLetra: 'AC', clave: 'tipo_vivienda', tituloPlanilla: 'TIPODE VIVIENDA', etiquetaCorta: 'Vivienda', mascara: '0', anchoFijo: 1, alineacion: 'center' },
+  { indice: 30, colLetra: 'AD', clave: 'correo_electronico', tituloPlanilla: 'CORREO ELECTRONICO', etiquetaCorta: 'Correo', mascara: '@', anchoFijo: 40, alineacion: 'left' },
+  { indice: 31, colLetra: 'AE', clave: 'tiempo_residencia', tituloPlanilla: 'TIEMPO DE RESIDENCIA', etiquetaCorta: 'Residencia', mascara: '00', anchoFijo: 2, alineacion: 'center' },
+  { indice: 32, colLetra: 'AF', clave: 'nivel_educacion', tituloPlanilla: 'NIVEL DE EDUCACION', etiquetaCorta: 'Educación', mascara: '00', anchoFijo: 2, alineacion: 'center' },
+  { indice: 33, colLetra: 'AG', clave: 'profesion', tituloPlanilla: 'PROFESION', etiquetaCorta: 'Profesión', mascara: '@', anchoFijo: 4, alineacion: 'center' },
+  { indice: 34, colLetra: 'AH', clave: 'codigo_industria', tituloPlanilla: 'CÓDIGO DE LA INDUSTRIA (UNA CONSTANTE)', etiquetaCorta: 'Industria', mascara: '0000', anchoFijo: 4, alineacion: 'center' },
+  { indice: 35, colLetra: 'AI', clave: 'fuente_ingreso', tituloPlanilla: 'FUENTE DE INGRESO', etiquetaCorta: 'Fuente Ing.', mascara: '0', anchoFijo: 1, alineacion: 'center' },
+  { indice: 36, colLetra: 'AJ', clave: 'tipo_contrato', tituloPlanilla: 'TIPO DE CONTRATO', etiquetaCorta: 'Contrato', mascara: '0', anchoFijo: 1, alineacion: 'center' },
+  { indice: 37, colLetra: 'AK', clave: 'tipo_nomina', tituloPlanilla: 'TIPO DE NOMINA', etiquetaCorta: 'Nómina', mascara: '@', anchoFijo: 1, alineacion: 'center' },
+  { indice: 38, colLetra: 'AL', clave: 'tipo_cuenta', tituloPlanilla: 'TIPO DE CUENTE (NOMINA O PERSONAL)', etiquetaCorta: 'Tipo Cta.', mascara: '@', anchoFijo: 4, alineacion: 'center' },
+  { indice: 39, colLetra: 'AM', clave: 'sueldo_basico', tituloPlanilla: 'SUELDO BASICO (COMPLETAR CON CEROS A LA IZQUIERDA)', etiquetaCorta: 'Sueldo (15 díg.)', mascara: '000000000000000', anchoFijo: 15, alineacion: 'right' },
+  { indice: 40, colLetra: 'AN', clave: 'fecha_ingreso', tituloPlanilla: 'FECHA DE INGRESO', etiquetaCorta: 'F. Ingreso', mascara: 'ddmmyyyy', anchoFijo: 8, alineacion: 'center' },
+  { indice: 41, colLetra: 'AO', clave: 'tipo_cargo', tituloPlanilla: 'TIPO DE CARGO', etiquetaCorta: 'Cód. Cargo', mascara: '000', anchoFijo: 3, alineacion: 'center' },
+  { indice: 42, colLetra: 'AP', clave: 'oficina_principal', tituloPlanilla: 'CÓDIGO DE LA OFICINA BANCARIA', etiquetaCorta: 'Ofic. Ppal.', mascara: '0000', anchoFijo: 4, alineacion: 'center' },
+  { indice: 43, colLetra: 'AQ', clave: 'oficina_secundaria', tituloPlanilla: 'CÓDIGO DE LA OFICINA BANCARIA', etiquetaCorta: 'Ofic. Sec.', mascara: '0000', anchoFijo: 4, alineacion: 'center' },
+  { indice: 44, colLetra: 'AR', clave: 'tipo_solicitud', tituloPlanilla: 'CONSTANTE (SE MANTIENE IGUAL)', etiquetaCorta: 'Solicitud', mascara: '@', anchoFijo: 1, alineacion: 'center' },
+];
+
+/* ───────────── Configuración del Lote ───────────── */
+
+export type PorcionSueldoCargaMasiva = 'bs_100' | 'bs_20' | 'bs_80' | 'monto_fijo_bs';
+export type ModoDecimalesSueldo = 'centimos' | 'entero';
+export type SeparadorTxtCargaMasiva = ';' | '|' | '\t' | 'ancho_fijo';
+
+export interface ConfigCargaMasivaNomina {
+  numeroBanco: string; // '0163'
+  correlativoInicial: number; // 1 -> '0000001'
+  porcionSueldo: PorcionSueldoCargaMasiva;
+  tasaBs: number;
+  montoFijoBs: number;
+  modoDecimalesSueldo: ModoDecimalesSueldo;
+
+  oficinaPrincipal: string; // '0405'
+  oficinaSecundaria: string; // '0405'
+  tipoCuenta: 'CCVI' | 'VI01';
+  tipoNomina: 'W' | 'B' | 'M' | 'S' | 'Y';
+  tipoContrato: '1' | '2';
+  fuenteIngreso: '1' | '2' | '3' | '4';
+  tipoSolicitud: 'I' | 'M' | 'D';
+
+  regionDefecto: string; // '09'
+  estadoDefecto: string; // '07'
+  ciudadDefecto: string; // '7029'
+  municipioDefecto: string; // '0701'
+  parroquiaDefecto: string; // '070106'
+  zonaPostalDefecto: string; // '8050'
+
+  condicionInmuebleDefecto: '1' | '2' | '3';
+  tipoViviendaDefecto: '1' | '2' | '3';
+  tiempoResidenciaAnios: number;
+  calleDefecto: string;
+  telefonoLocalDefecto: string;
+  correoDefecto: string;
+
+  incluirEncabezadoPlano: boolean;
+  separadorTxt: SeparadorTxtCargaMasiva;
+}
+
+export const CONFIG_CARGA_MASIVA_DEFECTO: ConfigCargaMasivaNomina = {
+  numeroBanco: '0163',
+  correlativoInicial: 1,
+  porcionSueldo: 'bs_100',
+  tasaBs: 0,
+  montoFijoBs: 0,
+  modoDecimalesSueldo: 'centimos',
+
+  oficinaPrincipal: '0405',
+  oficinaSecundaria: '0405',
+  tipoCuenta: 'CCVI',
+  tipoNomina: 'B',
+  tipoContrato: '2',
+  fuenteIngreso: '1',
+  tipoSolicitud: 'I',
+
+  regionDefecto: '09',
+  estadoDefecto: '07',
+  ciudadDefecto: '7029',
+  municipioDefecto: '0701',
+  parroquiaDefecto: '070106',
+  zonaPostalDefecto: '8050',
+
+  condicionInmuebleDefecto: '1',
+  tipoViviendaDefecto: '1',
+  tiempoResidenciaAnios: 1,
+  calleDefecto: 'SECTOR UNARE PUERTO ORDAZ',
+  telefonoLocalDefecto: '00000000000',
+  correoDefecto: '',
+
+  incluirEncabezadoPlano: true,
+  separadorTxt: ';',
+};
+
+export interface FilaCargaMasivaNomina {
+  personalId: string;
+  empresa: string;
+  departamento: string;
+  cargoOriginal: string;
+  tituloOriginal: string;
+  nombreCompleto: string;
+  cedulaLegible: string;
+  sueldoUsd: number;
+  montoBs: number;
+  tieneCuenta0163: boolean;
+  cuenta0163Numero: string;
+  cargoCatalogoDesc: string;
+  profesionCatalogoDesc: string;
+  campos: CamposCargaMasivaFila;
+  celdas: string[]; // 44 valores exactos A..AR
+  alertas: string[];
+}
+
+/* ───────────── Utilidades Puras de Formateo ───────────── */
+
+/** Normaliza texto para archivos bancarios: mayúsculas, sin tildes ni caracteres de control. */
+export function limpiarTextoBancario(valor: string | null | undefined, maxLen?: number): string {
+  if (!valor) return '';
+  let limpio = String(valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[ñÑ]/g, 'N')
+    .toUpperCase()
+    .replace(/[;|"\r\n\t]/g, ' ')
+    .replace(/[^A-Z0-9 .,#/\-_@]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (maxLen && maxLen > 0 && limpio.length > maxLen) {
+    limpio = limpio.slice(0, maxLen).trim();
+  }
+  return limpio;
+}
+
+const PREPOSICIONES_COMPUESTAS = new Set([
+  'DE',
+  'DEL',
+  'LA',
+  'LAS',
+  'LOS',
+  'SAN',
+  'SANTA',
+  'VAN',
+  'VON',
+  'DA',
+  'DAS',
+  'DO',
+  'DOS',
+  'MC',
+]);
+
+/**
+ * Divide apellidos o nombres en [primero, segundo] respetando conectores hispanos
+ * como "DE LA CRUZ PEREZ" -> ["DE LA CRUZ", "PEREZ"] o "MARIA DEL VALLE" -> ["MARIA", "DEL VALLE"].
+ */
+export function dividirNombreCompuesto(valor: string | null | undefined): [string, string] {
+  const limpio = limpiarTextoBancario(valor);
+  if (!limpio) return ['', ''];
+  const tokens = limpio.split(' ').filter(Boolean);
+  if (tokens.length === 1) return [tokens[0], ''];
+
+  // Agrupar preposiciones con el sustantivo que les sigue (p. ej. ["DE", "LA", "CRUZ", "PEREZ"] -> ["DE LA CRUZ", "PEREZ"])
+  const bloques: string[] = [];
+  let prefijo: string[] = [];
+  for (const tk of tokens) {
+    if (PREPOSICIONES_COMPUESTAS.has(tk)) {
+      prefijo.push(tk);
+    } else {
+      bloques.push([...prefijo, tk].join(' '));
+      prefijo = [];
+    }
+  }
+  if (prefijo.length > 0) {
+    if (bloques.length > 0) {
+      bloques[bloques.length - 1] = `${bloques[bloques.length - 1]} ${prefijo.join(' ')}`;
+    } else {
+      bloques.push(prefijo.join(' '));
+    }
+  }
+
+  if (bloques.length === 1) return [bloques[0].slice(0, 25), ''];
+  return [bloques[0].slice(0, 25), bloques.slice(1).join(' ').slice(0, 25)];
+}
+
+export function formatearCorrelativo7(n: number): string {
+  const entero = Math.max(1, Math.floor(Number.isFinite(n) ? n : 1));
+  return String(entero).padStart(7, '0').slice(-7);
+}
+
+export function extraerTipoDocYCedula15(
+  cedulaRaw: string | null | undefined,
+  nacionalidadRaw?: string | null,
+): { tipoDoc: 'V' | 'E' | 'P'; cedula15: string; digitos: string } {
+  const texto = String(cedulaRaw ?? '').trim().toUpperCase();
+  const nac = limpiarTextoBancario(nacionalidadRaw);
+
+  let tipoDoc: 'V' | 'E' | 'P' = 'V';
+  if (/^E\b|^E[-.\s0-9]/.test(texto)) {
+    tipoDoc = 'E';
+  } else if (/^P\b|^P[-.\s0-9]/.test(texto)) {
+    tipoDoc = 'P';
+  } else if (nac && !nac.startsWith('VENEZ') && nac !== 'VE' && nac !== 'V') {
+    tipoDoc = 'E';
+  }
+
+  const digitos = texto.replace(/\D/g, '').slice(0, 15);
+  return {
+    tipoDoc,
+    cedula15: digitos.padStart(15, '0'),
+    digitos,
+  };
+}
+
+/** Convierte YYYY-MM-DD o DD/MM/YYYY a DDMMYYYY (8 dígitos exactos). */
+export function formatearFechaBancaria8(fechaRaw: string | null | undefined): string {
+  if (!fechaRaw) return '';
+  const s = String(fechaRaw).trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso) return `${iso[3]}${iso[2]}${iso[1]}`;
+  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(s);
+  if (dmy) return `${dmy[1].padStart(2, '0')}${dmy[2].padStart(2, '0')}${dmy[3]}`;
+  const soloDigitos = s.replace(/\D/g, '');
+  if (soloDigitos.length === 8) return soloDigitos;
+  return '';
+}
+
+export function mapearPaisYNacionalidadISO2(nacionalidadRaw: string | null | undefined, tipoDoc: 'V' | 'E' | 'P'): {
+  pais: string;
+  nacionalidad: string;
+} {
+  const nac = limpiarTextoBancario(nacionalidadRaw);
+  if (!nac || nac.startsWith('VENEZ') || nac === 'VE' || nac === 'V') {
+    return tipoDoc === 'V' ? { pais: 'VE', nacionalidad: 'VE' } : { pais: 'CO', nacionalidad: 'CO' };
+  }
+  const mapa: Array<[RegExp, string]> = [
+    [/COLOMB/, 'CO'],
+    [/PERU/, 'PE'],
+    [/ECUAT|ECUAD/, 'EC'],
+    [/BRASIL|BRAZIL/, 'BR'],
+    [/CUBA/, 'CU'],
+    [/ESPAN/, 'ES'],
+    [/PORTUG/, 'PT'],
+    [/ITALI/, 'IT'],
+    [/CHIN/, 'CN'],
+    [/CHIL/, 'CL'],
+    [/ARGENT/, 'AR'],
+    [/DOMINIC/, 'DO'],
+    [/MEXIC/, 'MX'],
+    [/GUYAN/, 'GY'],
+    [/TRINID/, 'TT'],
+    [/ESTADOS UNIDOS|ESTADOUNID|USA/, 'US'],
+  ];
+  for (const [re, iso] of mapa) {
+    if (re.test(nac)) return { pais: iso, nacionalidad: iso };
+  }
+  if (/^[A-Z]{2}$/.test(nac)) return { pais: nac, nacionalidad: nac };
+  return { pais: tipoDoc === 'V' ? 'VE' : 'CO', nacionalidad: tipoDoc === 'V' ? 'VE' : 'CO' };
+}
+
+export function mapearEstadoCivil1(estadoCivilRaw: string | null | undefined): string {
+  const s = limpiarTextoBancario(estadoCivilRaw);
+  if (s.startsWith('CASAD')) return '2';
+  if (s.startsWith('DIVORC')) return '3';
+  if (s.startsWith('VIUD')) return '4';
+  if (s.startsWith('CONCUB') || s.includes('UNION')) return '5';
+  return '1';
+}
+
+export function formatearTelefono11(raw: string | null | undefined, fallback = '00000000000'): string {
+  if (!raw) return fallback.replace(/\D/g, '').padStart(11, '0').slice(-11);
+  // Tomar el primer número telefónico si hay varios separados por / o -
+  const candidatos = String(raw).split(/[;/|,]/);
+  for (const c of candidatos) {
+    let d = c.replace(/\D/g, '');
+    if (!d) continue;
+    if (d.startsWith('0058') && d.length >= 14) d = '0' + d.slice(4);
+    else if (d.startsWith('58') && d.length >= 12) d = '0' + d.slice(2);
+    else if (d.length === 10 && /^[24]/.test(d)) d = '0' + d;
+
+    if (d.length >= 10) {
+      return d.slice(0, 11).padStart(11, '0');
+    }
+  }
+  return fallback.replace(/\D/g, '').padStart(11, '0').slice(-11);
+}
+
+function obtenerCuentasSeguras(datosPagoRaw: unknown): ReturnType<typeof leerCuentas> {
+  if (!datosPagoRaw) return [];
+  if (typeof datosPagoRaw === 'string') {
+    try {
+      return leerCuentas(JSON.parse(datosPagoRaw));
+    } catch {
+      return [];
+    }
+  }
+  return leerCuentas(datosPagoRaw);
+}
+
+export function extraerTelefonosPersonal(
+  telefonoRaw: string | null | undefined,
+  datosPagoRaw: unknown,
+  localDefecto: string,
+): { local11: string; celular11: string; tieneCelularReal: boolean } {
+  const partes = String(telefonoRaw ?? '')
+    .split(/[;/|,]/)
+    .map((x) => formatearTelefono11(x, ''))
+    .filter((x) => x.length === 11 && x !== '00000000000');
+
+  let celular = partes.find((x) => /^04(12|14|24|16|26|22)/.test(x)) || '';
+  let local = partes.find((x) => /^02/.test(x)) || '';
+
+  if (!celular) {
+    // Buscar celular en Pago Móvil de datos_pago si existe
+    const cuentas = obtenerCuentasSeguras(datosPagoRaw);
+    for (const cta of cuentas) {
+      if (cta.telefono) {
+        const cand = formatearTelefono11(cta.telefono, '');
+        if (/^04(12|14|24|16|26|22)/.test(cand)) {
+          celular = cand;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!celular && partes.length > 0) {
+    celular = partes[0];
+  }
+
+  const tieneCelularReal = Boolean(celular && celular !== '00000000000');
+  return {
+    local11: local || formatearTelefono11(localDefecto, '00000000000'),
+    celular11: celular || '00000000000',
+    tieneCelularReal,
+  };
+}
+
+export function desglosarDireccionBancaria(
+  direccionRaw: string | null | undefined,
+  calleDefecto: string,
+  viviendaDefecto: '1' | '2' | '3',
+): {
+  calle: string;
+  casaEdificio: string;
+  piso: string;
+  aptoLocal: string;
+  referencia: string;
+  tipoVivienda: '1' | '2' | '3';
+} {
+  const dir = limpiarTextoBancario(direccionRaw);
+  const defCalle = limpiarTextoBancario(calleDefecto, 35) || 'PUERTO ORDAZ';
+  if (!dir) {
+    return {
+      calle: defCalle,
+      casaEdificio: 'CASA',
+      piso: 'PB',
+      aptoLocal: 'S/N',
+      referencia: '',
+      tipoVivienda: viviendaDefecto,
+    };
+  }
+
+  const esApto = /\b(EDIF|EDIFICIO|RESIDENCIA|RESIDENCIAS|RES\.|TORRE|BLOQUE|APTO|APARTAMENTO)\b/.test(dir);
+  const esQuinta = /\b(QUINTA|QTA)\b/.test(dir);
+  const tipoVivienda: '1' | '2' | '3' = esApto ? '3' : esQuinta ? '2' : viviendaDefecto;
+
+  const matchPiso = /\b(?:PISO|NIVEL)\s*([A-Z0-9-]{1,4})\b/.exec(dir);
+  const piso = matchPiso ? matchPiso[1] : 'PB';
+
+  const matchNro = /\b(?:CASA|APTO|APARTAMENTO|LOCAL|NRO|NO|#)\s*([A-Z0-9-]{1,8})\b/.exec(dir);
+  const aptoLocal = matchNro ? matchNro[1] : 'S/N';
+
+  let referencia = '';
+  const matchRef = /\b((?:CERCA|FRENTE|DETRAS|AL LADO|DIAGONAL)\s+[A-Z0-9 ]{3,30})/.exec(dir);
+  if (matchRef) {
+    referencia = matchRef[1].trim().slice(0, 25);
+  }
+
+  let casaEdificio = esApto ? 'EDIFICIO' : esQuinta ? 'QUINTA' : 'CASA';
+  const matchEdif = /\b(?:EDIF(?:ICIO)?|RES(?:IDENCIAS?)?|TORRE|CONJ(?:UNTO)?)\s+([A-Z0-9 ]{2,18})/.exec(dir);
+  if (matchEdif) {
+    casaEdificio = matchEdif[0].trim().slice(0, 20);
+  }
+
+  return {
+    calle: dir.slice(0, 35) || defCalle,
+    casaEdificio,
+    piso,
+    aptoLocal,
+    referencia,
+    tipoVivienda,
+  };
+}
+
+export function inferirUbicacionBancaria(
+  direccionRaw: string | null | undefined,
+  config: Pick<
+    ConfigCargaMasivaNomina,
+    'regionDefecto' | 'estadoDefecto' | 'ciudadDefecto' | 'municipioDefecto' | 'parroquiaDefecto' | 'zonaPostalDefecto'
+  >,
+): {
+  region: string;
+  estado: string;
+  ciudad: string;
+  municipio: string;
+  parroquia: string;
+  zonaPostal10: string;
+} {
+  const dir = limpiarTextoBancario(direccionRaw);
+  let region = config.regionDefecto || '09';
+  let estado = config.estadoDefecto || '07';
+  let ciudad = config.ciudadDefecto || '7029';
+  let municipio = config.municipioDefecto || '0701';
+  let parroquia = config.parroquiaDefecto || '070106';
+  let zp = config.zonaPostalDefecto || '8050';
+
+  if (dir) {
+    if (/\b(SAN FELIX|CHIRICA|VISTA AL SOL|ONCE DE ABRIL|DALLA COSTA|MANOA|UD\s*145|UD\s*146|FRANCISCO DE MIRANDA)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = '7031';
+      municipio = '0702';
+      zp = '8051';
+      if (dir.includes('VISTA AL SOL')) parroquia = '070108';
+      else if (dir.includes('DALLA COSTA')) parroquia = '070103';
+      else if (dir.includes('ONCE DE ABRIL')) parroquia = '070104';
+      else if (dir.includes('SIMON BOLIVAR')) parroquia = '070105';
+      else parroquia = '070102'; // CHIRICA
+    } else if (/\b(PUERTO ORDAZ|PTO ORDAZ|UNARE|ALTA VISTA|LOS OLIVOS|VILLA ASIA|CASTILLITO|CACHAMAY|CORE 8|VILLA BRASIL|VENTUARI|CURAGUA|CAMPO B|MATANZAS)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = dir.includes('MATANZAS') ? '7026' : '7029';
+      municipio = '0701';
+      zp = dir.includes('MATANZAS') ? '8001' : '8050';
+      if (/\b(ALTA VISTA|LOS OLIVOS|VILLA ASIA|UNIVERSIDAD)\b/.test(dir)) parroquia = '070107';
+      else if (/\b(CACHAMAY|CASTILLITO|CAMPO B)\b/.test(dir)) parroquia = '070101';
+      else parroquia = '070106'; // UNARE
+    } else if (/\b(CIUDAD BOLIVAR|CD BOLIVAR|LA SABANITA|MARHUANTA|AGUA SALADA|VISTA HERMOSA)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = '7003';
+      municipio = '0703';
+      zp = '8001';
+      if (dir.includes('SABANITA')) parroquia = '070204';
+      else if (dir.includes('MARHUANTA')) parroquia = '070205';
+      else if (dir.includes('VISTA HERMOSA')) parroquia = '070206';
+      else parroquia = '070201';
+    } else if (/\b(EL CALLAO)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = '7007';
+      municipio = '0701';
+      parroquia = '070501';
+      zp = '8056';
+    } else if (/\b(TUMEREMO|SIFONTES)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = '7039';
+      municipio = '0701';
+      parroquia = '071101';
+      zp = '8057';
+    } else if (/\b(EL DORADO|LAS CLARITAS|SAN ISIDRO)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = '7008';
+      municipio = '0701';
+      parroquia = dir.includes('EL DORADO') ? '071102' : '071103';
+      zp = '8050';
+    } else if (/\b(GUASIPATI|ROSCIO)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = '7013';
+      municipio = '0701';
+      parroquia = '071001';
+      zp = '8050';
+    } else if (/\b(UPATA|PIAR)\b/.test(dir)) {
+      region = '09';
+      estado = '07';
+      ciudad = '7040';
+      municipio = '0701';
+      parroquia = '070801';
+      zp = '8052';
+    }
+  }
+
+  return {
+    region: region.replace(/\D/g, '').padStart(2, '0').slice(-2),
+    estado: estado.replace(/\D/g, '').padStart(2, '0').slice(-2),
+    ciudad: ciudad.replace(/\D/g, '').padStart(4, '0').slice(-4),
+    municipio: municipio.replace(/\D/g, '').padStart(4, '0').slice(-4),
+    parroquia: parroquia.replace(/\D/g, '').padStart(6, '0').slice(-6),
+    zonaPostal10: zp.replace(/\D/g, '').padStart(10, '0').slice(-10),
+  };
+}
+
+export function mapearNivelEducacion2(
+  gradoRaw: string | null | undefined,
+  tituloRaw: string | null | undefined,
+): string {
+  const g = limpiarTextoBancario(gradoRaw);
+  const t = limpiarTextoBancario(tituloRaw);
+
+  if (/\b(DOCTOR|DOCTORADO|PHD)\b/.test(t)) return '07';
+  if (/\b(MAGISTER|MAESTRIA|POSTGRADO|POST GRADO|ESPECIALIZACION)\b/.test(t)) return '06';
+  if (/\b(TSU|T\.S\.U|TECNICO SUPERIOR)\b/.test(t)) return '04';
+  if (/\b(TECNICO MEDIO)\b/.test(t)) return '03';
+
+  if (g === 'PRIMARIA') return '01';
+  if (g === 'BACHILLER' || g === 'BACHILLERATO' || g === 'SECUNDARIA') return '02';
+  if (g === 'UNIVERSITARIO') return '05';
+
+  if (/\b(INGENIERO|ING\.|LICENCIAD|LIC\.|ABOGAD|CONTADOR|MEDICO|ARQUITECTO|GEOLOGO|ECONOMISTA|PSICOLOGO)\b/.test(t)) {
+    return '05';
+  }
+  return '02';
+}
+
+export function mapearCodigoProfesion4(
+  tituloRaw: string | null | undefined,
+  cargoRaw: string | null | undefined,
+): { codigo: string; descripcion: string } {
+  const t = limpiarTextoBancario(tituloRaw);
+  const c = limpiarTextoBancario(cargoRaw);
+  const fuente = `${t} ${c}`.trim();
+
+  const elegir = (codigo: string) => ({
+    codigo,
+    descripcion: CATALOGO_PROFESIONES_MAP[codigo] || codigo,
+  });
+
+  // 1. TSU específicos primero
+  if (/\b(TSU|T\.S\.U|TECNICO SUPERIOR)\b/.test(t)) {
+    if (/GEOLOG|MINA/.test(t)) return elegir('TSUG');
+    if (/MANTENIMIENTO/.test(t)) return elegir('TMIN');
+    if (/MECANIC/.test(t)) return elegir('TMEC');
+    if (/ELECTRI/.test(t)) return elegir('TMEL');
+    if (/AUTOMOT/.test(t)) return elegir('TTAU');
+    if (/INFORMAT|SISTEMA|COMPUT/.test(t)) return elegir('TINF');
+    if (/CONTAB|FINANZ|TRIBUT/.test(t)) return elegir('TACF');
+    if (/RECURSOS HUMANOS|RELACIONES INDUSTRIALES|RRHH/.test(t)) return elegir('TRIN');
+    if (/OBRAS CIVILES|CONSTRUCCION|CIVIL/.test(t)) return elegir('TSUO');
+    return elegir('TADE');
+  }
+
+  // 2. Ingenierías y licenciaturas en título o cargo
+  const reglas: Array<[RegExp, string]> = [
+    [/\bGEOLOG/, 'GEOL'],
+    [/\bTOPOGRAF/, 'TOPO'],
+    [/\bABOGAD|JURIDIC|LEGAL/, 'ABOG'],
+    [/\bCONTAD|TRIBUTAR|AUDITOR/, 'LCPU'],
+    [/\bPSICOLOG/, 'LPSI'],
+    [/\bMEDICO|DOCTORA?\b|SALUD OCUPACIONAL/, 'MEDI'],
+    [/\bENFERMER|PARAMEDIC/, 'ENFE'],
+    [/\bARQUITECT/, 'ARQU'],
+    [/\bECONOMIST/, 'ECON'],
+    [/\bRELACIONES INDUSTRIALES/, 'LRIN'],
+    [/\bRECURSOS HUMANOS|TALENTO HUMANO|\bRRHH\b/, 'LARH'],
+    [/\bING[A-Z.]*\s+(?:DE\s+)?SISTEMAS/, 'INSI'],
+    [/\bING[A-Z.]*\s+(?:EN\s+)?INFORMATIC/, 'ININ'],
+    [/\bING[A-Z.]*\s+(?:EN\s+)?COMPUTAC/, 'INCO'],
+    [/\bING[A-Z.]*\s+INDUSTRIAL/, 'INID'],
+    [/\bING[A-Z.]*\s+MECANIC/, 'INME'],
+    [/\bING[A-Z.]*\s+ELECTRIC/, 'INEL'],
+    [/\bING[A-Z.]*\s+ELECTRONIC/, 'INET'],
+    [/\bING[A-Z.]*\s+CIVIL/, 'INCI'],
+    [/\bING[A-Z.]*\s+QUIMIC|METALURG/, 'INQU'],
+    [/\bING[A-Z.]*\s+AMBIENT/, 'INGA'],
+    [/\bING[A-Z.]*\s+MATERIAL/, 'INGM'],
+    [/\bINGENIER|\bING\b/, 'INGE'],
+    [/\bINFORMATIC|\bSISTEMAS\b|\bPROGRAMAD/, 'LINF'],
+    [/\bADMINISTRAD|\bADMINISTRACION\b|\bTESORER/, 'LADM'],
+    [/\bCOMPRAD|\bPROCURA\b|\bSUMINISTRO/, 'COMP'],
+    [/\bCHOFER|\bCONDUCTOR|\bMOTORIZADO|\bDELIVERY/, 'CHOF'],
+    [/\bCOCINER|\bCHEF\b|\bAYUDANTE DE COCINA/, 'CHEF'],
+    [/\bMECANIC|\bELECTROMECANIC|\bLUBRICAD/, 'MECA'],
+    [/\bHERRER|\bSOLDAD|\bTORNER/, 'HERR'],
+    [/\bLATONER|\bPINTOR AUTOMOT/, 'LATO'],
+    [/\bELECTRICIST|\bELECTRONIC/, 'ELEC'],
+    [/\bVIGILANT|\bSEGURIDAD FISICA|\bPCP\b|\bCUSTODIO/, 'VIGI'],
+    [/\bCONSERJ|\bASEAD|\bLIMPIEZA|\bCAMARER/, 'CONS'],
+    [/\bRECEPCION/, 'RECE'],
+    [/\bSECRETAR/, 'SECR'],
+    [/\bCAJER/, 'CAJE'],
+    [/\bMENSAJER/, 'MENS'],
+    [/\bJARDINER/, 'JARD'],
+    [/\bSUPERVISOR|\bCAPATAZ/, 'SUPE'],
+    [/\bCOORDINAD/, 'COOR'],
+    [/\bANALISTA/, 'ANAL'],
+    [/\bASISTENT|\bAUXILIAR/, 'ASIS'],
+    [/\bMANTENIMIENTO/, 'SERV'],
+  ];
+
+  for (const [re, cod] of reglas) {
+    if (re.test(fuente)) return elegir(cod);
+  }
+
+  return elegir('OBRE');
+}
+
+export function mapearCodigoCargo3(cargoRaw: string | null | undefined): {
+  codigo: string;
+  descripcion: string;
+} {
+  const c = limpiarTextoBancario(cargoRaw);
+  const elegir = (codigo: string) => ({
+    codigo,
+    descripcion: CATALOGO_TIPOS_CARGO.find((x) => x.codigo === codigo)?.descripcion || 'OTROS',
+  });
+
+  if (!c) return elegir('011');
+
+  const reglas: Array<[RegExp, string]> = [
+    [/\bVICEPRESIDENTE/, '029'],
+    [/\bPRESIDENTE/, '001'],
+    [/\bDIRECTOR/, '002'],
+    [/\bGERENTE\s+GENERAL/, '075'],
+    [/\bSUB\s*GERENTE/, '004'],
+    [/\bGERENTE/, '003'],
+    [/\bJEFE\b|\bSUPERINTENDENTE/, '015'],
+    [/\bCOORDINAD/, '006'],
+    [/\bSUPERVISOR|\bCAPATAZ|\bLIDER/, '005'],
+    [/\bADJUNTO/, '077'],
+    [/\bAUDITOR/, '027'],
+    [/\bASESOR/, '026'],
+    [/\bCONSULTOR/, '045'],
+    [/\bCOMPRADOR|\bPROCURA/, '074'],
+    [/\bADMINISTRADOR/, '041'],
+    [/\bABOGAD/, '032'],
+    [/\bGEOLOG/, '068'],
+    [/\bQUIMIC|\bLABORATORIST|\bFUNDIDOR/, '067'],
+    [/\bARQUITECT/, '035'],
+    [/\bMEDICO|\bDOCTOR|\bENFERMER|\bPARAMEDIC/, '033'],
+    [/\bPROGRAMADOR|\bDESARROLLADOR|\bSISTEMAS/, '028'],
+    [/\bINGENIER/, '031'],
+    [/\bESPECIALISTA|\bSHA\b|\bSIHO|\bSEGURIDAD INDUSTRIAL/, '012'],
+    [/\bANALISTA|\bCONTADOR|\bTESORER|\bPLANIFICADOR/, '007'],
+    [/\bENCARGAD|\bALMACENISTA|\bDEPOSITARIO/, '009'],
+    [/\bASISTENTE/, '013'],
+    [/\bAUXILIAR|\bAYUDANTE/, '020'],
+    [/\bSECRETARI/, '008'],
+    [/\bRECEPCION/, '024'],
+    [/\bOFICINISTA|\bARCHIVIST/, '030'],
+    [/\bCAJER/, '018'],
+    [/\bVENDEDOR/, '010'],
+    [/\bTECNICO|\bMECANICO|\bELECTRICISTA|\bSOLDADOR|\bTORNERO|\bLATONERO/, '016'],
+    [/\bOPERADOR|\bMAQUINISTA|\bEXCAVADOR|\bRETROEXCAVADOR|\bMONTACARGUISTA|\bMOLINERO/, '017'],
+    [/\bCHOFER|\bCONDUCTOR|\bMOTORIZADO|\bDELIVERY/, '021'],
+    [/\bCHEF|\bCOCINER/, '046'],
+    [/\bMESONER/, '047'],
+    [/\bVIGILANT|\bPCP\b|\bCUSTODIO|\bSEGURIDAD/, '023'],
+    [/\bCONSERJ|\bASEAD|\bLIMPIEZA|\bMANTENIMIENTO GENERAL/, '022'],
+    [/\bOBRERO|\bMINERO|\bCUADRILLA/, '011'],
+  ];
+
+  for (const [re, cod] of reglas) {
+    if (re.test(c)) return elegir(cod);
+  }
+  return elegir('011');
+}
+
+export function formatearSueldoBancario15(
+  montoBs: number,
+  modo: ModoDecimalesSueldo = 'centimos',
+): string {
+  const seguro = Number.isFinite(montoBs) && montoBs > 0 ? montoBs : 0;
+  const entero = modo === 'centimos' ? Math.round(seguro * 100) : Math.round(seguro);
+  return String(Math.max(0, entero)).padStart(15, '0').slice(-15);
+}
+
+export function buscarCuentaBancoTesoro(datosPagoRaw: unknown): string {
+  const cuentas = obtenerCuentasSeguras(datosPagoRaw);
+  for (const c of cuentas) {
+    const num = (c.cuenta ?? '').replace(/\D/g, '');
+    if (c.banco === '0163' || num.startsWith('0163')) {
+      return num || '0163';
+    }
+  }
+  return '';
+}
+
+export function calcularMontoBsCargaMasiva(sueldoUsd: number, config: ConfigCargaMasivaNomina): number {
+  if (config.porcionSueldo === 'monto_fijo_bs') {
+    return Math.max(0, Math.round((Number(config.montoFijoBs) || 0) * 100) / 100);
+  }
+  const usd = Number.isFinite(sueldoUsd) && sueldoUsd > 0 ? sueldoUsd : 0;
+  const tasa = Number.isFinite(config.tasaBs) && config.tasaBs > 0 ? config.tasaBs : 0;
+  const totalBs = usd * tasa;
+  const factor = config.porcionSueldo === 'bs_20' ? 0.2 : config.porcionSueldo === 'bs_80' ? 0.8 : 1;
+  return Math.round(totalBs * factor * 100) / 100;
+}
+
+/* ───────────── Generador Principal del Lote ───────────── */
+
+export function generarLoteCargaMasivaNomina(
+  personas: Personal[],
+  familiaresMap: Map<string, PersonalFamiliar[]>,
+  configParcial?: Partial<ConfigCargaMasivaNomina>,
+): FilaCargaMasivaNomina[] {
+  const config: ConfigCargaMasivaNomina = {
+    ...CONFIG_CARGA_MASIVA_DEFECTO,
+    ...configParcial,
+  };
+
+  const numBanco = (config.numeroBanco || '0163').replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const oficPpal = (config.oficinaPrincipal || '0405').replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const oficSec = (config.oficinaSecundaria || oficPpal).replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const tiempoRes = String(Math.max(1, Math.min(99, Math.floor(config.tiempoResidenciaAnios || 1)))).padStart(2, '0');
+  const inicioCorrelativo = Math.max(1, Math.floor(config.correlativoInicial || 1));
+
+  return personas.map((p, idx) => {
+    const alertas: string[] = [];
+    const correlativo = formatearCorrelativo7(inicioCorrelativo + idx);
+
+    const { tipoDoc, cedula15, digitos: digitosCedula } = extraerTipoDocYCedula15(p.cedula, p.nacionalidad);
+    if (!digitosCedula) alertas.push('Sin cédula');
+
+    const [primerApellido, segundoApellido] = dividirNombreCompuesto(p.apellido);
+    const [primerNombre, segundoNombre] = dividirNombreCompuesto(p.nombre);
+    if (!primerApellido) alertas.push('Sin apellido');
+    if (!primerNombre) alertas.push('Sin nombre');
+
+    const fechaNac8 = formatearFechaBancaria8(p.fecha_nacimiento);
+    if (!fechaNac8) alertas.push('Falta F. Nacimiento');
+
+    const { pais, nacionalidad } = mapearPaisYNacionalidadISO2(p.nacionalidad, tipoDoc);
+    const sexo = p.genero === 'F' ? 'F' : 'M';
+    const estadoCivil = mapearEstadoCivil1(p.estado_civil);
+
+    const cantDep = Math.min(99, (familiaresMap.get(p.id) || []).length);
+    const dependientes = String(cantDep).padStart(2, '0');
+
+    const dirDesglose = desglosarDireccionBancaria(
+      p.direccion,
+      config.calleDefecto,
+      config.tipoViviendaDefecto,
+    );
+    const ubicacion = inferirUbicacionBancaria(p.direccion, config);
+
+    const telefonos = extraerTelefonosPersonal(
+      p.telefono,
+      p.datos_pago,
+      config.telefonoLocalDefecto,
+    );
+    if (!telefonos.tieneCelularReal) alertas.push('Sin celular');
+
+    const correoLimpio = limpiarTextoBancario(p.correo || config.correoDefecto, 60);
+    if (!correoLimpio) alertas.push('Sin correo');
+
+    const nivelEducacion = mapearNivelEducacion2(p.grado_instruccion, p.titulo_obtenido);
+    const profesionMatch = mapearCodigoProfesion4(p.titulo_obtenido, p.cargo);
+    const cargoMatch = mapearCodigoCargo3(p.cargo);
+
+    const sueldoUsd = Number(p.sueldo_base ?? 0);
+    const montoBs = calcularMontoBsCargaMasiva(sueldoUsd, config);
+    if (montoBs <= 0) alertas.push('Sueldo Bs en 0');
+    const sueldoBasico15 = formatearSueldoBancario15(montoBs, config.modoDecimalesSueldo);
+
+    const fechaIngreso8 = formatearFechaBancaria8(p.fecha_ingreso);
+    if (!fechaIngreso8) alertas.push('Falta F. Ingreso');
+
+    const cuenta0163 = buscarCuentaBancoTesoro(p.datos_pago);
+
+    const campos: CamposCargaMasivaFila = {
+      numero_banco: numBanco,
+      correlativo_cliente: correlativo,
+      tipo_documento: tipoDoc,
+      numero_cedula: cedula15,
+      primer_apellido: primerApellido,
+      segundo_apellido: segundoApellido,
+      primer_nombre: primerNombre,
+      segundo_nombre: segundoNombre,
+      fecha_nacimiento: fechaNac8,
+      pais_nacimiento: pais,
+      nacionalidad,
+      sexo,
+      estado_civil: estadoCivil,
+      dependientes,
+      calle_avenida: dirDesglose.calle,
+      casa_edificio: dirDesglose.casaEdificio,
+      piso_nivel: dirDesglose.piso,
+      apto_local: dirDesglose.aptoLocal,
+      referencia: dirDesglose.referencia,
+      region: ubicacion.region,
+      estado: ubicacion.estado,
+      ciudad: ubicacion.ciudad,
+      municipio: ubicacion.municipio,
+      parroquia: ubicacion.parroquia,
+      zona_postal: ubicacion.zonaPostal10,
+      telefono_local: telefonos.local11,
+      telefono_celular: telefonos.celular11,
+      condicion_inmueble: config.condicionInmuebleDefecto,
+      tipo_vivienda: dirDesglose.tipoVivienda,
+      correo_electronico: correoLimpio,
+      tiempo_residencia: tiempoRes,
+      nivel_educacion: nivelEducacion,
+      profesion: profesionMatch.codigo,
+      codigo_industria: '0902',
+      fuente_ingreso: config.fuenteIngreso,
+      tipo_contrato: config.tipoContrato,
+      tipo_nomina: config.tipoNomina,
+      tipo_cuenta: config.tipoCuenta,
+      sueldo_basico: sueldoBasico15,
+      fecha_ingreso: fechaIngreso8,
+      tipo_cargo: cargoMatch.codigo,
+      oficina_principal: oficPpal,
+      oficina_secundaria: oficSec,
+      tipo_solicitud: config.tipoSolicitud,
+    };
+
+    const celdas = COLUMNAS_CARGA_MASIVA_NOMINA.map((col) => campos[col.clave]);
+
+    return {
+      personalId: p.id,
+      empresa: p.empresa || 'GT',
+      departamento: (p.departamento ?? '').trim() || 'Sin departamento',
+      cargoOriginal: (p.cargo ?? '').trim() || 'Sin cargo',
+      tituloOriginal: (p.titulo_obtenido ?? '').trim(),
+      nombreCompleto: [p.apellido, p.nombre].filter(Boolean).join(', ') || p.nombre || '—',
+      cedulaLegible: digitosCedula ? `${tipoDoc}-${digitosCedula}` : (p.cedula ?? '—'),
+      sueldoUsd,
+      montoBs,
+      tieneCuenta0163: Boolean(cuenta0163),
+      cuenta0163Numero: cuenta0163,
+      cargoCatalogoDesc: cargoMatch.descripcion,
+      profesionCatalogoDesc: profesionMatch.descripcion,
+      campos,
+      celdas,
+      alertas,
+    };
+  });
+}
+
+/* ───────────── Serializadores Planos (CSV y TXT) ───────────── */
+
+export function serializarCargaMasivaCsv(
+  filas: FilaCargaMasivaNomina[],
+  incluirEncabezado = true,
+): string {
+  const escaparCsv = (v: string) => {
+    const limpio = String(v ?? '').replace(/"/g, '""');
+    return `"${limpio}"`;
+  };
+
+  const lineas: string[] = [];
+  if (incluirEncabezado) {
+    lineas.push(COLUMNAS_CARGA_MASIVA_NOMINA.map((c) => escaparCsv(c.tituloPlanilla)).join(';'));
+  }
+  for (const f of filas) {
+    lineas.push(f.celdas.map((val) => escaparCsv(val)).join(';'));
+  }
+  return lineas.join('\r\n');
+}
+
+export function serializarCargaMasivaTxt(
+  filas: FilaCargaMasivaNomina[],
+  opciones?: {
+    separador?: SeparadorTxtCargaMasiva;
+    incluirEncabezado?: boolean;
+  },
+): string {
+  const sep = opciones?.separador ?? ';';
+  const incluirEnc = opciones?.incluirEncabezado ?? false;
+  const lineas: string[] = [];
+
+  if (sep === 'ancho_fijo') {
+    if (incluirEnc) {
+      lineas.push(
+        COLUMNAS_CARGA_MASIVA_NOMINA.map((c) =>
+          c.etiquetaCorta.toUpperCase().slice(0, c.anchoFijo).padEnd(c.anchoFijo, ' '),
+        ).join(''),
+      );
+    }
+    for (const f of filas) {
+      const trama = COLUMNAS_CARGA_MASIVA_NOMINA.map((col, idx) => {
+        const v = String(f.celdas[idx] ?? '');
+        if (col.mascara.startsWith('0')) {
+          return v.replace(/\D/g, '').padStart(col.anchoFijo, '0').slice(-col.anchoFijo);
+        }
+        return v.slice(0, col.anchoFijo).padEnd(col.anchoFijo, ' ');
+      }).join('');
+      lineas.push(trama);
+    }
+    return lineas.join('\r\n');
+  }
+
+  if (incluirEnc) {
+    lineas.push(COLUMNAS_CARGA_MASIVA_NOMINA.map((c) => c.tituloPlanilla).join(sep));
+  }
+  for (const f of filas) {
+    lineas.push(f.celdas.join(sep));
+  }
+  return lineas.join('\r\n');
+}
