@@ -57,6 +57,7 @@ import {
   CONFIG_CARGA_MASIVA_DEFECTO,
   buscarCuentaBancoTesoro,
   formatearCorrelativo7,
+  formatearReferenciaHoja1,
   generarLoteCargaMasivaNomina,
   type ConfigCargaMasivaNomina,
 } from './cargaMasivaNomina';
@@ -403,15 +404,19 @@ export function ExportarPersonalModal({
           ...fila,
           campos: { ...fila.campos, correlativo_cliente: '-------' },
           celdas: celdasExcl,
+          resumenTxt: { ...fila.resumenTxt, referencia10: '----------' },
         };
       }
-      const corrStr = formatearCorrelativo7(corrActual++);
+      const seq = corrActual++;
+      const corrStr = formatearCorrelativo7(seq);
+      const ref10 = formatearReferenciaHoja1(configCargaMasiva.numeroBanco, seq);
       const celdasIncl = [...fila.celdas];
       celdasIncl[1] = corrStr;
       return {
         ...fila,
         campos: { ...fila.campos, correlativo_cliente: corrStr },
         celdas: celdasIncl,
+        resumenTxt: { ...fila.resumenTxt, referencia10: ref10 },
       };
     });
 

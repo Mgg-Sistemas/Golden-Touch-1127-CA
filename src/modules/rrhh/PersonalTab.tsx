@@ -54,6 +54,12 @@ import { CARNET_VENCE_POR_DEFECTO } from './vigenciaCarnet';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import { EstadoPersonalModal } from './EstadoPersonalModal';
 import { DatosBancariosPersona } from './DatosBancariosPersona';
+import { CamposFichaNominaBancaria } from './CamposFichaNominaBancaria';
+import {
+  FICHA_NOMINA_VACIA,
+  leerFichaNominaPersonal,
+  type FichaNominaBancaria,
+} from './cargaMasivaNomina';
 
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
@@ -129,6 +135,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PersonalInput>(VACIO);
+  const [fichaNomina, setFichaNomina] = useState<FichaNominaBancaria>(FICHA_NOMINA_VACIA);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
@@ -306,7 +313,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     } finally { setFotoOcupada(false); }
   }
 
-  function abrirNuevo() { setEditId(null); setForm(VACIO); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(true); }
+  function abrirNuevo() { setEditId(null); setForm(VACIO); setFichaNomina(FICHA_NOMINA_VACIA); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
     setForm({
@@ -330,6 +337,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       trabajo_anterior_sueldo: p.trabajo_anterior_sueldo ?? null,
       carnet_vence: p.carnet_vence ?? '',
     });
+    setFichaNomina(leerFichaNominaPersonal(p.datos_pago));
     setCedula(p.cedula ?? '');
     setFicha(p.ficha_nro ?? '');
     setFichaActual(p.ficha_nro ?? null);
@@ -340,7 +348,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     setFotoEncuadre(p.foto_encuadre ?? null);
     setError(null); setFormOpen(true);
   }
-  function cerrarForm() { setEditId(null); setForm(VACIO); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(false); }
+  function cerrarForm() { setEditId(null); setForm(VACIO); setFichaNomina(FICHA_NOMINA_VACIA); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(false); }
 
   /** Un archivo elegido en el ALTA: espera a que la persona exista. */
   function elegirDocPendiente(tipo: TipoDocumento, file: File | null) {
@@ -452,6 +460,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       correo: val('p-correo').trim(),
       contacto_emergencia: (form.contacto_emergencia ?? '').trim(),
       telefono_emergencia: val('p-telefono-emergencia').trim(),
+      ficha_nomina: fichaNomina,
     };
     if (faltantes.length) {
       // No se guarda nada: es preferible un error raro a un borrado silencioso.
@@ -1085,11 +1094,16 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
               </div>
               <div className="form-row"><label>Teléfono de emergencia</label><input className="input" name="p-telefono-emergencia" defaultValue={form.telefono_emergencia ?? ''} placeholder="0414-7654321" inputMode="tel" /></div>
               <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                <label>Dirección</label>
+                <label>Dirección general (resumen)</label>
                 <input className="input" name="p-direccion" defaultValue={form.direccion ?? ''}
-                  placeholder="Ciudad, sector, calle…" />
+                  placeholder="Ciudad, sector, calle… (si la dejas vacía se arma sola con el domicilio detallado de abajo)" />
               </div>
             </div>
+
+            <CamposFichaNominaBancaria
+              value={fichaNomina}
+              onChange={(parcial) => setFichaNomina((prev) => ({ ...prev, ...parcial }))}
+            />
 
             {/* Instrucción y último trabajo: lo que pregunta la hoja de ingreso
                 (28/09/2026). El título se habilita solo con un grado marcado, como

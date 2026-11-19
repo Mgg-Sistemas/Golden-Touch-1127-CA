@@ -259,6 +259,43 @@ export async function descargarCargaMasivaExcel(
     };
   });
 
+  /* ───── Hoja 4: Hoja1 (Formato Resumen TXT: Ref 10 · Cédula V+9 · Cuenta 20 · Monto 15) ───── */
+  const wsHoja1 = wb.addWorksheet('Hoja1', {
+    views: [{ showGridLines: true, state: 'frozen', ySplit: 1 }],
+  });
+
+  const colsH1 = [
+    { h: 'REFERENCIA (10 DÍG.)', w: 18 },
+    { h: 'CÉDULA (V+9 DÍG.)', w: 18 },
+    { h: 'CUENTA BANCARIA (20 DÍG.)', w: 26 },
+    { h: 'MONTO BS (15 DÍG.)', w: 22 },
+  ];
+  const headH1 = wsHoja1.getRow(1);
+  headH1.height = 22;
+  colsH1.forEach((col, i) => {
+    const colExcel = wsHoja1.getColumn(i + 1);
+    colExcel.width = col.w;
+    colExcel.numFmt = '@';
+    const c = headH1.getCell(i + 1);
+    c.value = col.h;
+    c.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+    c.alignment = { horizontal: 'center', vertical: 'middle' };
+  });
+
+  filas.forEach((f, idx) => {
+    const r = wsHoja1.getRow(2 + idx);
+    r.height = 18;
+    const vals = [f.resumenTxt.referencia10, f.resumenTxt.cedula10, f.resumenTxt.cuenta20, f.resumenTxt.monto15];
+    vals.forEach((v, ci) => {
+      const cell = r.getCell(ci + 1);
+      cell.value = v;
+      cell.numFmt = '@';
+      cell.font = { name: 'Consolas', size: 9.5 };
+      cell.alignment = { horizontal: ci === 3 ? 'right' : 'center', vertical: 'middle' };
+    });
+  });
+
   const bytes = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
   await previewExcelArchivo(
     bytes,
@@ -295,6 +332,7 @@ export function descargarCargaMasivaTxt(
 ): void {
   if (!filas.length) throw new Error('No hay trabajadores seleccionados para exportar.');
   const contenido = serializarCargaMasivaTxt(filas, {
+    modo: config.modoContenidoTxt ?? 'resumen_hoja1',
     separador: config.separadorTxt,
     incluirEncabezado: config.incluirEncabezadoPlano,
   });

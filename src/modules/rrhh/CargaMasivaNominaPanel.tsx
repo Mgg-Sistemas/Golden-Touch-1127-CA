@@ -25,6 +25,7 @@ import {
   COLUMNAS_CARGA_MASIVA_NOMINA,
   type ConfigCargaMasivaNomina,
   type FilaCargaMasivaNomina,
+  type ModoContenidoTxt,
   type ModoDecimalesSueldo,
   type PorcionSueldoCargaMasiva,
   type SeparadorTxtCargaMasiva,
@@ -79,7 +80,7 @@ export function CargaMasivaNominaPanel({
   onChangeBusqueda,
 }: Props) {
   const [mostrarUbicacionAvanzada, setMostrarUbicacionAvanzada] = useState(false);
-  const [vistaSabana44, setVistaSabana44] = useState(true);
+  const [modoVista, setModoVista] = useState<'sabana_44' | 'resumen_txt' | 'legible'>('sabana_44');
   const [soloConAlertas, setSoloConAlertas] = useState(false);
 
   const filasActivas = useMemo(
@@ -576,6 +577,20 @@ export function CargaMasivaNominaPanel({
             </label>
 
             <label style={labelStyle}>
+              <span>Estructura Archivo TXT</span>
+              <select
+                className="input input-xs"
+                value={config.modoContenidoTxt}
+                onChange={(e) =>
+                  onChangeConfig({ modoContenidoTxt: e.target.value as ModoContenidoTxt })
+                }
+              >
+                <option value="resumen_hoja1">Resumen Hoja 1 (Ref · Cédula · Cuenta · Monto)</option>
+                <option value="sabana_44">Sábana Completa 44 Columnas (Apertura)</option>
+              </select>
+            </label>
+
+            <label style={labelStyle}>
               <span>Separador Archivo TXT</span>
               <select
                 className="input input-xs"
@@ -584,10 +599,10 @@ export function CargaMasivaNominaPanel({
                   onChangeConfig({ separadorTxt: e.target.value as SeparadorTxtCargaMasiva })
                 }
               >
+                <option value={'\t'}>Tabulación (TAB · Hoja 1 Excel)</option>
+                <option value="ancho_fijo">Sin separador (trama fija continua)</option>
                 <option value=";">Punto y coma (;)</option>
                 <option value="|">Barra vertical (|)</option>
-                <option value={'\t'}>Tabulación (TAB)</option>
-                <option value="ancho_fijo">Ancho fijo continuo (sin separador)</option>
               </select>
             </label>
 
@@ -737,18 +752,26 @@ export function CargaMasivaNominaPanel({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-            <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+            <div style={{ display: 'inline-flex', gap: '.25rem', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                className={`btn btn-xs ${vistaSabana44 ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setVistaSabana44(true)}
+                className={`btn btn-xs ${modoVista === 'sabana_44' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setModoVista('sabana_44')}
               >
                 🏦 Sábana 44 Cols (A–AR)
               </button>
               <button
                 type="button"
-                className={`btn btn-xs ${!vistaSabana44 ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setVistaSabana44(false)}
+                className={`btn btn-xs ${modoVista === 'resumen_txt' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setModoVista('resumen_txt')}
+                title="Datos tipo resumen de la Hoja 1 del Excel que se exportan en el TXT"
+              >
+                📝 Resumen TXT (Hoja 1)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${modoVista === 'legible' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setModoVista('legible')}
               >
                 📋 Resumen Legible
               </button>
@@ -769,7 +792,73 @@ export function CargaMasivaNominaPanel({
             <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#94a3b8', fontSize: '.84rem' }}>
               No hay trabajadores que coincidan con los filtros actuales.
             </div>
-          ) : vistaSabana44 ? (
+          ) : modoVista === 'resumen_txt' ? (
+            /* VISTA PREVIA DEL RESUMEN TXT (HOJA 1 DEL EXCEL: REF 10 · CÉDULA V+9 · CUENTA 20 · MONTO 15) */
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.76rem' }}>
+              <thead>
+                <tr style={{ background: 'var(--surface-3, #334155)', color: '#fff', position: 'sticky', top: 0, zIndex: 2 }}>
+                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>✓</th>
+                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>A · Referencia (10 díg.)</th>
+                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>B · Cédula (V+9 díg.)</th>
+                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>C · Cuenta Bancaria (20 díg.)</th>
+                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'right' }}>D · Monto TXT (15 díg.)</th>
+                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'left' }}>Trabajador (Referencia visual)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filasVisibles.map((f, idx) => {
+                  const incluido = !excluidosIds.has(f.personalId);
+                  const sinCuenta = f.resumenTxt.cuenta20 === '00000000000000000000';
+                  return (
+                    <tr
+                      key={f.personalId}
+                      style={{
+                        background: idx % 2 === 1 ? 'rgba(255,255,255,0.025)' : 'transparent',
+                        borderBottom: '1px solid var(--border)',
+                        opacity: incluido ? 1 : 0.45,
+                      }}
+                    >
+                      <td style={{ padding: '.38rem .5rem', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={incluido}
+                          onChange={() => onToggleTrabajador(f.personalId)}
+                        />
+                      </td>
+                      <td style={{ padding: '.38rem .5rem', textAlign: 'center', fontFamily: 'monospace', fontWeight: 700, color: '#38bdf8' }}>
+                        {f.resumenTxt.referencia10}
+                      </td>
+                      <td style={{ padding: '.38rem .5rem', textAlign: 'center', fontFamily: 'monospace' }}>
+                        {f.resumenTxt.cedula10}
+                      </td>
+                      <td
+                        style={{
+                          padding: '.38rem .5rem',
+                          textAlign: 'center',
+                          fontFamily: 'monospace',
+                          color: sinCuenta ? '#f59e0b' : '#e2e8f0',
+                        }}
+                      >
+                        {f.resumenTxt.cuenta20}
+                      </td>
+                      <td style={{ padding: '.38rem .5rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#22c55e' }}>
+                        {f.resumenTxt.monto15}
+                        <div style={{ fontSize: '.66rem', color: '#94a3b8', fontFamily: 'sans-serif', fontWeight: 500 }}>
+                          {formatearBs(f.montoBs)}
+                        </div>
+                      </td>
+                      <td style={{ padding: '.38rem .5rem' }}>
+                        <div style={{ fontWeight: 600 }}>{f.nombreCompleto}</div>
+                        <div style={{ fontSize: '.68rem', color: sinCuenta ? '#f59e0b' : '#94a3b8' }}>
+                          {sinCuenta ? '⚠ Sin cuenta de 20 dígitos en Datos Bancarios' : '✓ Cuenta bancaria cargada'}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : modoVista === 'sabana_44' ? (
             /* SÁBANA BANCARIA EXACTA DE LAS 44 COLUMNAS A..AR */
             <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'collapse', fontSize: '.74rem' }}>
               <thead>

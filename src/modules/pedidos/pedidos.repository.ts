@@ -299,17 +299,67 @@ export async function registrarAnticipoServicio(
   return data as Orden;
 }
 
+/**
+ * Regla de enrutamiento inicial de Solicitudes de Pedido (19/11/2026):
+ *   · Servicios (SS): nacen en 'pendiente' (flujo de Servicios).
+ *   · Compras Fijas (`compra_fija_id` presente): son las ÚNICAS solicitudes de
+ *     pedido de productos que pasan directo a Compras ('aprobada' → cotización).
+ *   · Cualquier otra Solicitud de Pedido de productos: pasa SIEMPRE primero por
+ *     Almacén ('revision_almacen'), sin importar la categoría o finalidad de sus ítems.
+ */
+export function enrutarSolicitudInicial(
+  input: Pick<CrearOrdenInput, 'tipo' | 'compra_fija_id' | 'solicitante_email'>,
+  nowIso = new Date().toISOString(),
+): {
+  estado: EstadoOrden;
+  aprobada_en?: string;
+  aprobada_por?: string;
+  historial: EventoHistorial[];
+} {
+  const actor = input.solicitante_email;
+  const base: EventoHistorial[] = [{ at: nowIso, evento: 'creada', actor }];
+
+  if (input.tipo === 'servicio') {
+    return { estado: 'pendiente', historial: base };
+  }
+
+  const compraFijaId = (input.compra_fija_id ?? '').trim();
+  if (compraFijaId) {
+    return {
+      estado: 'aprobada',
+      aprobada_en: nowIso,
+      aprobada_por: actor,
+      historial: [
+        ...base,
+        {
+          at: nowIso,
+          evento: 'aprobada',
+          actor,
+          motivo: 'Compra fija: pasa directo a Compras para cotizar (sin revisión de Almacén)',
+        },
+      ],
+    };
+  }
+
+  return {
+    estado: 'revision_almacen',
+    historial: [
+      ...base,
+      {
+        at: nowIso,
+        evento: 'enviada_revision_almacen',
+        actor,
+        motivo: 'Enviada a Almacén para revisar existencias antes de Compras',
+      },
+    ],
+  };
+}
+
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
   const esServicio = input.tipo === 'servicio';
   const codigo = esServicio ? await nextCodigoServicio() : await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);
-  const historial: EventoHistorial[] = [
-    {
-      at: new Date().toISOString(),
-      evento: 'creada',
-      actor: input.solicitante_email,
-    },
-  ];
+  const ruteo = enrutarSolicitudInicial(input);
   const row = {
     codigo,
     tipo: esServicio ? 'servicio' : 'producto',
@@ -320,7 +370,8 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     ci_solicitante: input.ci_solicitante,
     items: input.items,
     total,
-    estado: 'pendiente' as EstadoOrden,
+    estado: ruteo.estado,
+    ...(ruteo.aprobada_en ? { aprobada_en: ruteo.aprobada_en, aprobada_por: ruteo.aprobada_por } : {}),
     notas: input.notas ?? null,
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,
@@ -329,7 +380,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     imagen_path: input.imagen_path ?? null,
     detalle_servicio: esServicio ? (input.detalle_servicio ?? []) : null,
     sede_entrega: esServicio ? null : (input.sede_entrega ?? null),
-    historial,
+    historial: ruteo.historial,
     ...(input.compra_fija_id ? { compra_fija_id: input.compra_fija_id } : {}),
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();

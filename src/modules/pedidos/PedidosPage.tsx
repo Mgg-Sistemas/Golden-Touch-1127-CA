@@ -936,7 +936,18 @@ export function PedidosPage() {
                   {a.nota ? <> · <em>{a.nota}</em></> : null}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={() => setModal({ kind: 'create', mercado: !(plantillaMercado && plantillaMercado.productos.length > 0), compraFija: plantillaMercado })} title="Crear la Solicitud de Pedido de MERCADO">
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (plantillaMercado) {
+                    setModal({ kind: 'create', mercado: plantillaMercado.productos.length === 0, compraFija: plantillaMercado });
+                  } else {
+                    setComprasFijasOpen(true);
+                    toast('Selecciona o activa la plantilla de Mercado en Compras Fijas.', 'info');
+                  }
+                }}
+                title="Crear la Solicitud de Pedido desde la Compra Fija de Mercado"
+              >
                 🛒 Montar mercado
               </button>
               <button className="btn btn-ghost" onClick={() => void atenderAlerta(a.id)} title="Marcar como atendida (quitar la alerta)">
@@ -4661,8 +4672,8 @@ function CrearOrdenModal({
     return () => { vivo = false; };
   }, []);
   const rolCreador = usuario?.role ?? rol ?? null;
-  const modoGenerico = spConNombresGenericos({ revisionAlmacenActiva: revisionAlmacenActiva === true, rol: rolCreador, mercado: !!mercadoInicial || !!compraFija });
-  const cargandoModo = revisionAlmacenActiva === null && !mercadoInicial && !compraFija;
+  const modoGenerico = spConNombresGenericos({ revisionAlmacenActiva: revisionAlmacenActiva === true, rol: rolCreador, mercado: !!compraFija });
+  const cargandoModo = revisionAlmacenActiva === null && !compraFija;
   // Alta de un nombre genérico (inputs NO controlados: un re-render no corta lo tecleado).
   const genNombreRef = useRef<HTMLInputElement>(null);
   const genCantRef = useRef<HTMLInputElement>(null);
@@ -5098,8 +5109,8 @@ function CrearOrdenModal({
       // Nombres genéricos: se vuelve a leer el interruptor al guardar (pudo cambiar con el
       // modal abierto). Si toca genérica, ningún renglón sale casado a un producto.
       const genericaAhora = spConNombresGenericos({
-        revisionAlmacenActiva: (mercado || !!compraFija) ? false : await interruptorActivo(CLAVE_INTERRUPTOR_REVISION_ALMACEN),
-        rol: rolCreador, mercado: mercado || !!compraFija,
+        revisionAlmacenActiva: compraFija ? false : await interruptorActivo(CLAVE_INTERRUPTOR_REVISION_ALMACEN),
+        rol: rolCreador, mercado: !!compraFija,
       });
       const itemsFinal = genericaAhora ? itemsParaSpGenerica(itemsLeidos) : itemsLeidos;
       const email = usuario?.email ?? authEmail;
@@ -5137,8 +5148,18 @@ function CrearOrdenModal({
       if (compraFija) {
         await marcarCompraFijaGenerada(compraFija, { tipo: 'orden', id: saved.id, codigo: saved.codigo })
           .catch(() => toast('La solicitud quedó, pero no se pudo correr la fecha de la compra fija.', 'warning'));
+        notify(
+          `Compra fija ${saved.codigo} enviada directo a Compras para cotizar`,
+          'success',
+          { link: '#/app/pedidos?tab=oc', destino: 'admin' },
+        );
+      } else {
+        notify(
+          `Nueva solicitud de pedido ${saved.codigo} enviada a revisión de Almacén`,
+          'success',
+          { link: '#/app/pedidos?tab=almacen', destino: 'almacenista' },
+        );
       }
-      notify(`Nueva solicitud de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
     } catch (e) {
       // Los errores de Supabase no son instancias de Error: igual traen `.message`.

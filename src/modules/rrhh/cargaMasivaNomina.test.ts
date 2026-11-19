@@ -14,6 +14,8 @@ import {
   mapearCodigoCargo3,
   mapearCodigoProfesion4,
   mapearNivelEducacion2,
+  mezclarDatosPagoConCuentas,
+  mezclarDatosPagoConFichaNomina,
   serializarCargaMasivaCsv,
   serializarCargaMasivaTxt,
   CONFIG_CARGA_MASIVA_DEFECTO,
@@ -208,25 +210,119 @@ describe('cargaMasivaNomina · especificación 44 columnas (A..AR)', () => {
     expect(lote[1].tieneCuenta0163).toBe(false);
   });
 
-  it('serializa CSV y TXT preservando ceros a la izquierda en modo delimitado y ancho fijo', () => {
+  it('toma prioritariamente los campos guardados en ficha_nomina del formulario de personal sin perder cuentas bancarias', () => {
+    const conCuentas = mezclarDatosPagoConCuentas(null, [
+      { id: 'c1', tipo: 'transferencia', banco: '0163', cuenta: '01630221012211002934' },
+    ]);
+    const combinado = mezclarDatosPagoConFichaNomina(conCuentas, {
+      calle_avenida: 'Av. Atlántico Manzana 8',
+      casa_edificio: 'Res. Caroní',
+      piso_nivel: '03',
+      apto_local: '3-B',
+      referencia: 'Diagonal al parque',
+      telefono_local: '0286-9621455',
+      condicion_inmueble: '2',
+      tipo_vivienda: '3',
+      tiempo_residencia: 5,
+      pais_nacimiento: 'CO',
+      region: '09',
+      estado: '07',
+      ciudad: '7029',
+      municipio: '0701',
+      parroquia: '070107',
+      zona_postal: '8050',
+      nivel_educacion_cod: '06',
+      profesion_cod: 'GEOL',
+      tipo_cargo_cod: '068',
+      fuente_ingreso: '2',
+      tipo_contrato: '1',
+      tipo_nomina: 'M',
+      tipo_cuenta_nomina: 'VI01',
+      oficina_principal: '0410',
+      oficina_secundaria: '0405',
+    });
+
+    const p = crearPersonalBase({ datos_pago: combinado });
+    const [fila] = generarLoteCargaMasivaNomina([p], new Map(), {
+      correlativoInicial: 180719,
+      porcionSueldo: 'monto_fijo_bs',
+      montoFijoBs: 7250,
+    });
+
+    expect(fila.campos.calle_avenida).toBe('AV. ATLANTICO MANZANA 8');
+    expect(fila.campos.casa_edificio).toBe('RES. CARONI');
+    expect(fila.campos.piso_nivel).toBe('03');
+    expect(fila.campos.apto_local).toBe('3-B');
+    expect(fila.campos.referencia).toBe('DIAGONAL AL PARQUE');
+    expect(fila.campos.telefono_local).toBe('02869621455');
+    expect(fila.campos.condicion_inmueble).toBe('2');
+    expect(fila.campos.tipo_vivienda).toBe('3');
+    expect(fila.campos.tiempo_residencia).toBe('05');
+    expect(fila.campos.pais_nacimiento).toBe('CO');
+    expect(fila.campos.parroquia).toBe('070107');
+    expect(fila.campos.nivel_educacion).toBe('06');
+    expect(fila.campos.profesion).toBe('GEOL');
+    expect(fila.campos.tipo_cargo).toBe('068');
+    expect(fila.campos.fuente_ingreso).toBe('2');
+    expect(fila.campos.tipo_contrato).toBe('1');
+    expect(fila.campos.tipo_nomina).toBe('M');
+    expect(fila.campos.tipo_cuenta).toBe('VI01');
+    expect(fila.campos.oficina_principal).toBe('0410');
+    expect(fila.campos.oficina_secundaria).toBe('0405');
+    // Y las cuentas bancarias no se perdieron:
+    expect(fila.resumenTxt).toEqual({
+      referencia10: '0163180719',
+      cedula10: 'V002980635',
+      cuenta20: '01630221012211002934',
+      monto15: '000000000725000',
+    });
+  });
+
+  it('serializa CSV (44 cols) y TXT en formato Resumen Hoja 1 (por defecto) y Sábana 44 cols', () => {
     const lote = generarLoteCargaMasivaNomina(
-      [crearPersonalBase()],
+      [
+        crearPersonalBase({
+          datos_pago: {
+            cuentas: [{ id: 'c1', tipo: 'transferencia', banco: '0163', cuenta: '01630221012211002934' }],
+          },
+        }),
+      ],
       new Map(),
-      { correlativoInicial: 1, porcionSueldo: 'monto_fijo_bs', montoFijoBs: 14846.5 },
+      { correlativoInicial: 180719, porcionSueldo: 'monto_fijo_bs', montoFijoBs: 7250 },
     );
 
     const csv = serializarCargaMasivaCsv(lote, true);
     const lineasCsv = csv.split('\r\n');
     expect(lineasCsv).toHaveLength(2);
-    expect(lineasCsv[1]).toContain('"0163";"0000001";"V";"000000002980635"');
-    expect(lineasCsv[1]).toContain('"000000001484650"');
+    expect(lineasCsv[1]).toContain('"0163";"0180719";"V";"000000002980635"');
+    expect(lineasCsv[1]).toContain('"000000000725000"');
 
-    const txtPipe = serializarCargaMasivaTxt(lote, { separador: '|', incluirEncabezado: false });
-    expect(txtPipe.startsWith('0163|0000001|V|000000002980635|MARTINEZ|VILLALTA|CARLOS|ARGENIS|04051990|VE|VE|M|2|00|')).toBe(true);
+    // Por defecto el TXT genera el Resumen de Hoja1 del Excel:
+    const txtResumenTab = serializarCargaMasivaTxt(lote);
+    expect(txtResumenTab).toBe('0163180719\tV002980635\t01630221012211002934\t000000000725000');
 
-    const txtAnchoFijo = serializarCargaMasivaTxt(lote, { separador: 'ancho_fijo', incluirEncabezado: false });
+    const txtResumenFijo = serializarCargaMasivaTxt(lote, {
+      modo: 'resumen_hoja1',
+      separador: 'ancho_fijo',
+      incluirEncabezado: false,
+    });
+    expect(txtResumenFijo).toBe('0163180719V00298063501630221012211002934000000000725000');
+    expect(txtResumenFijo).toHaveLength(55);
+
+    // Y en modo sabana_44 sigue soportando las 44 columnas:
+    const txtPipe44 = serializarCargaMasivaTxt(lote, {
+      modo: 'sabana_44',
+      separador: '|',
+      incluirEncabezado: false,
+    });
+    expect(txtPipe44.startsWith('0163|0180719|V|000000002980635|MARTINEZ|VILLALTA|CARLOS|ARGENIS|04051990|VE|VE|M|2|00|')).toBe(true);
+
+    const txtAnchoFijo44 = serializarCargaMasivaTxt(lote, {
+      modo: 'sabana_44',
+      separador: 'ancho_fijo',
+      incluirEncabezado: false,
+    });
     const anchoEsperado = COLUMNAS_CARGA_MASIVA_NOMINA.reduce((acc, c) => acc + c.anchoFijo, 0);
-    expect(txtAnchoFijo).toHaveLength(anchoEsperado);
-    expect(txtAnchoFijo.slice(0, 27)).toBe('01630000001V000000002980635');
+    expect(txtAnchoFijo44).toHaveLength(anchoEsperado);
   });
 });

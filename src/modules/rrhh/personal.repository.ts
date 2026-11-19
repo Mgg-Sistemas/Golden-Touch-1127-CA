@@ -10,6 +10,12 @@
    llevara, cualquier edición de un teléfono volvería a escribir el sueldo.
    ============================================================ */
 import { leerCuentas, type CuentaPago } from './datosBancarios';
+import {
+  componerDireccionDesdeFichaNomina,
+  mezclarDatosPagoConCuentas,
+  mezclarDatosPagoConFichaNomina,
+  type FichaNominaBancaria,
+} from './cargaMasivaNomina';
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { compararFicha, errorFicha, normalizarFicha } from './fichaNro';
@@ -94,6 +100,8 @@ export interface PersonalInput {
   trabajo_anterior_cargo?: string | null;
   trabajo_anterior_duracion?: string | null;
   trabajo_anterior_sueldo?: number | null;
+  /** Datos detallados de domicilio y códigos para Carga Masiva - Nómina (19/11/2026). */
+  ficha_nomina?: FichaNominaBancaria | null;
 }
 
 function payload(input: PersonalInput) {
@@ -197,10 +205,19 @@ export async function crearPersonal(input: PersonalInput, actorEmail?: string): 
   if (malaFicha) throw new Error(malaFicha);
   const malCorreo = errorCorreo(input.correo);
   if (malCorreo) throw new Error(malCorreo);
+  const dirCompuesta = input.direccion?.trim() || componerDireccionDesdeFichaNomina(input.ficha_nomina) || null;
+  const datosPagoInicial = input.ficha_nomina
+    ? mezclarDatosPagoConFichaNomina(null, input.ficha_nomina)
+    : undefined;
   // La empresa se fija en el alta y no se toca después: mover a alguien de
   // nómina es una baja y un alta, no un campo que se edita.
   const { data, error } = await supabase.from(TABLE)
-    .insert({ ...payload(input), empresa: input.empresa ?? 'GT', created_by: actorEmail ?? null })
+    .insert({
+      ...payload({ ...input, direccion: dirCompuesta }),
+      ...(datosPagoInicial ? { datos_pago: datosPagoInicial } : {}),
+      empresa: input.empresa ?? 'GT',
+      created_by: actorEmail ?? null,
+    })
     .select('*').single();
   if (error) throw errorDuplicado(error) ?? error;
   return data as Personal;
@@ -210,9 +227,16 @@ export async function actualizarPersonal(id: string, patch: PersonalInput): Prom
   if (!patch.nombre.trim()) throw new Error('Indica el nombre.');
   const malCorreo = errorCorreo(patch.correo);
   if (malCorreo) throw new Error(malCorreo);
+  const dirEfectiva =
+    patch.direccion !== undefined
+      ? patch.direccion?.trim() || componerDireccionDesdeFichaNomina(patch.ficha_nomina) || null
+      : undefined;
   // Sin el sueldo, a propósito: ese cambio va por cambiarSueldo(), con motivo.
   // Y solo con los campos que vinieron: un campo ausente NO se borra.
-  const row = baseSinSueldo(patch, true) as Record<string, unknown>;
+  const row = baseSinSueldo(
+    dirEfectiva !== undefined ? { ...patch, direccion: dirEfectiva } : patch,
+    true,
+  ) as Record<string, unknown>;
   // La ficha se puede cambiar (02/10/2026). Vacía NO se manda: no se le borra a
   // quien ya tiene. Que no se repita en la nómina lo cuida el índice único.
   const ficha = normalizarFicha(patch.ficha_nro);
@@ -220,6 +244,13 @@ export async function actualizarPersonal(id: string, patch: PersonalInput): Prom
     const malaFicha = errorFicha(ficha);
     if (malaFicha) throw new Error(malaFicha);
     row.ficha_nro = ficha;
+  }
+  if (patch.ficha_nomina !== undefined) {
+    const { data: actual } = await supabase.from(TABLE).select('datos_pago').eq('id', id).maybeSingle();
+    row.datos_pago = mezclarDatosPagoConFichaNomina(
+      (actual as { datos_pago?: unknown } | null)?.datos_pago,
+      patch.ficha_nomina,
+    );
   }
   const { data, error } = await supabase.from(TABLE).update(row).eq('id', id).select('*').single();
   if (error) throw errorDuplicado(error) ?? error;
@@ -393,9 +424,14 @@ export async function listCuentasPago(id: string): Promise<CuentaPago[]> {
   return leerCuentas((data as { datos_pago?: unknown } | null)?.datos_pago);
 }
 
-/** Reemplaza la lista completa. Pide la fila de vuelta: sin permiso la base no toca nada y no da error. */
+/** Reemplaza la lista completa preservando `ficha_nomina`. Pide la fila de vuelta: sin permiso la base no toca nada y no da error. */
 export async function guardarCuentasPago(id: string, cuentas: CuentaPago[]): Promise<void> {
-  const { data, error } = await supabase.from(TABLE).update({ datos_pago: { cuentas } }).eq('id', id).select('id');
+  const { data: actual } = await supabase.from(TABLE).select('datos_pago').eq('id', id).maybeSingle();
+  const nuevoDatosPago = mezclarDatosPagoConCuentas(
+    (actual as { datos_pago?: unknown } | null)?.datos_pago,
+    cuentas,
+  );
+  const { data, error } = await supabase.from(TABLE).update({ datos_pago: nuevoDatosPago }).eq('id', id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error('No se pudieron guardar los datos bancarios: no tienes permiso de escritura en RRHH.');
 }

@@ -377,6 +377,180 @@ export const CATALOGO_PROFESIONES_MAP: Record<string, string> = {
   VIGI: 'VIGILANTE',
 };
 
+export const CATALOGO_PROFESIONES: ItemCatalogo[] = Object.entries(CATALOGO_PROFESIONES_MAP)
+  .map(([codigo, descripcion]) => ({ codigo, descripcion }))
+  .sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'));
+
+export const CATALOGO_PAISES_ISO2: ItemCatalogo[] = [
+  { codigo: 'VE', descripcion: 'VENEZUELA' },
+  { codigo: 'CO', descripcion: 'COLOMBIA' },
+  { codigo: 'PE', descripcion: 'PERU' },
+  { codigo: 'EC', descripcion: 'ECUADOR' },
+  { codigo: 'BR', descripcion: 'BRASIL' },
+  { codigo: 'CU', descripcion: 'CUBA' },
+  { codigo: 'DO', descripcion: 'REPUBLICA DOMINICANA' },
+  { codigo: 'CL', descripcion: 'CHILE' },
+  { codigo: 'AR', descripcion: 'ARGENTINA' },
+  { codigo: 'MX', descripcion: 'MEXICO' },
+  { codigo: 'ES', descripcion: 'ESPANA' },
+  { codigo: 'PT', descripcion: 'PORTUGAL' },
+  { codigo: 'IT', descripcion: 'ITALIA' },
+  { codigo: 'CN', descripcion: 'CHINA' },
+  { codigo: 'GY', descripcion: 'GUYANA' },
+  { codigo: 'TT', descripcion: 'TRINIDAD Y TOBAGO' },
+  { codigo: 'US', descripcion: 'ESTADOS UNIDOS' },
+];
+
+/**
+ * Datos domiciliarios y bancarios de nómina guardados en la ficha de cada
+ * trabajador (`personal.datos_pago.ficha_nomina`), tomados directamente al
+ * generar la pestaña «CARGA MASIVA - NOMINA».
+ */
+export interface FichaNominaBancaria {
+  pais_nacimiento?: string | null;
+  calle_avenida?: string | null;
+  casa_edificio?: string | null;
+  piso_nivel?: string | null;
+  apto_local?: string | null;
+  referencia?: string | null;
+  region?: string | null;
+  estado?: string | null;
+  ciudad?: string | null;
+  municipio?: string | null;
+  parroquia?: string | null;
+  zona_postal?: string | null;
+  telefono_local?: string | null;
+  condicion_inmueble?: '1' | '2' | '3' | '' | null;
+  tipo_vivienda?: '1' | '2' | '3' | '' | null;
+  tiempo_residencia?: number | null;
+  nivel_educacion_cod?: string | null;
+  profesion_cod?: string | null;
+  tipo_cargo_cod?: string | null;
+  fuente_ingreso?: '1' | '2' | '3' | '4' | '' | null;
+  tipo_contrato?: '1' | '2' | '' | null;
+  tipo_nomina?: 'W' | 'B' | 'M' | 'S' | 'Y' | '' | null;
+  tipo_cuenta_nomina?: 'CCVI' | 'VI01' | '' | null;
+  oficina_principal?: string | null;
+  oficina_secundaria?: string | null;
+}
+
+export const FICHA_NOMINA_VACIA: FichaNominaBancaria = {
+  pais_nacimiento: '',
+  calle_avenida: '',
+  casa_edificio: '',
+  piso_nivel: '',
+  apto_local: '',
+  referencia: '',
+  region: '',
+  estado: '',
+  ciudad: '',
+  municipio: '',
+  parroquia: '',
+  zona_postal: '',
+  telefono_local: '',
+  condicion_inmueble: '',
+  tipo_vivienda: '',
+  tiempo_residencia: null,
+  nivel_educacion_cod: '',
+  profesion_cod: '',
+  tipo_cargo_cod: '',
+  fuente_ingreso: '',
+  tipo_contrato: '',
+  tipo_nomina: '',
+  tipo_cuenta_nomina: '',
+  oficina_principal: '',
+  oficina_secundaria: '',
+};
+
+function parsearObjetoDatosPago(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw);
+      return p && typeof p === 'object' && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof raw === 'object' && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
+}
+
+export function leerFichaNominaPersonal(datosPago: unknown): FichaNominaBancaria {
+  const obj = parsearObjetoDatosPago(datosPago);
+  const fn = obj.ficha_nomina;
+  if (!fn || typeof fn !== 'object' || Array.isArray(fn)) return { ...FICHA_NOMINA_VACIA };
+  const d = fn as Record<string, unknown>;
+  const str = (k: string) => (typeof d[k] === 'string' ? d[k].trim() : '');
+  const numRes = d.tiempo_residencia != null && d.tiempo_residencia !== '' ? Number(d.tiempo_residencia) : null;
+  return {
+    pais_nacimiento: str('pais_nacimiento'),
+    calle_avenida: str('calle_avenida'),
+    casa_edificio: str('casa_edificio'),
+    piso_nivel: str('piso_nivel'),
+    apto_local: str('apto_local'),
+    referencia: str('referencia'),
+    region: str('region'),
+    estado: str('estado'),
+    ciudad: str('ciudad'),
+    municipio: str('municipio'),
+    parroquia: str('parroquia'),
+    zona_postal: str('zona_postal'),
+    telefono_local: str('telefono_local'),
+    condicion_inmueble: str('condicion_inmueble') as FichaNominaBancaria['condicion_inmueble'],
+    tipo_vivienda: str('tipo_vivienda') as FichaNominaBancaria['tipo_vivienda'],
+    tiempo_residencia: Number.isFinite(numRes) && (numRes as number) > 0 ? Math.floor(numRes as number) : null,
+    nivel_educacion_cod: str('nivel_educacion_cod'),
+    profesion_cod: str('profesion_cod'),
+    tipo_cargo_cod: str('tipo_cargo_cod'),
+    fuente_ingreso: str('fuente_ingreso') as FichaNominaBancaria['fuente_ingreso'],
+    tipo_contrato: str('tipo_contrato') as FichaNominaBancaria['tipo_contrato'],
+    tipo_nomina: str('tipo_nomina') as FichaNominaBancaria['tipo_nomina'],
+    tipo_cuenta_nomina: str('tipo_cuenta_nomina') as FichaNominaBancaria['tipo_cuenta_nomina'],
+    oficina_principal: str('oficina_principal'),
+    oficina_secundaria: str('oficina_secundaria'),
+  };
+}
+
+export function mezclarDatosPagoConFichaNomina(
+  datosPagoActual: unknown,
+  ficha: FichaNominaBancaria | null | undefined,
+): Record<string, unknown> {
+  const base = parsearObjetoDatosPago(datosPagoActual);
+  if (!ficha) return base;
+  const limpia: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ficha)) {
+    if (v === undefined || v === null || v === '') continue;
+    limpia[k] = typeof v === 'string' ? v.trim().toUpperCase() : v;
+  }
+  return {
+    ...base,
+    ficha_nomina: limpia,
+  };
+}
+
+export function mezclarDatosPagoConCuentas(
+  datosPagoActual: unknown,
+  cuentas: unknown[],
+): Record<string, unknown> {
+  const base = parsearObjetoDatosPago(datosPagoActual);
+  return {
+    ...base,
+    cuentas,
+  };
+}
+
+export function componerDireccionDesdeFichaNomina(ficha: FichaNominaBancaria | null | undefined): string {
+  if (!ficha) return '';
+  const partes = [
+    ficha.calle_avenida?.trim(),
+    ficha.casa_edificio?.trim(),
+    ficha.piso_nivel?.trim() ? `PISO ${ficha.piso_nivel.trim()}` : '',
+    ficha.apto_local?.trim() ? `NRO ${ficha.apto_local.trim()}` : '',
+    ficha.referencia?.trim() ? `REF. ${ficha.referencia.trim()}` : '',
+  ].filter(Boolean);
+  return partes.join(', ').toUpperCase();
+}
+
 /* ───────────── Definición de las 44 Columnas A..AR ───────────── */
 
 export interface ColumnaCargaMasivaDef {
@@ -489,10 +663,25 @@ export const COLUMNAS_CARGA_MASIVA_NOMINA: ColumnaCargaMasivaDef[] = [
 export type PorcionSueldoCargaMasiva = 'bs_100' | 'bs_20' | 'bs_80' | 'monto_fijo_bs';
 export type ModoDecimalesSueldo = 'centimos' | 'entero';
 export type SeparadorTxtCargaMasiva = ';' | '|' | '\t' | 'ancho_fijo';
+export type ModoContenidoTxt = 'resumen_hoja1' | 'sabana_44';
+
+/**
+ * Los 4 campos del TXT tipo resumen que están en «Hoja1» del Excel oficial:
+ *   1) Referencia 10 dígitos: Banco (0163) + correlativo 6 dígitos (ej. 0163180719)
+ *   2) Cédula 10 caracteres: V/E/P + 9 dígitos con ceros a la izq. (ej. V002940602)
+ *   3) Cuenta bancaria 20 dígitos (ej. 01630221012211002934)
+ *   4) Monto en Bs 15 dígitos con céntimos ×100 (ej. 000000000725000)
+ */
+export interface ResumenTxtHoja1 {
+  referencia10: string;
+  cedula10: string;
+  cuenta20: string;
+  monto15: string;
+}
 
 export interface ConfigCargaMasivaNomina {
   numeroBanco: string; // '0163'
-  correlativoInicial: number; // 1 -> '0000001'
+  correlativoInicial: number; // 1 -> '0000001' en Modelo y '0163000001' en TXT Hoja1
   porcionSueldo: PorcionSueldoCargaMasiva;
   tasaBs: number;
   montoFijoBs: number;
@@ -521,6 +710,7 @@ export interface ConfigCargaMasivaNomina {
   correoDefecto: string;
 
   incluirEncabezadoPlano: boolean;
+  modoContenidoTxt: ModoContenidoTxt;
   separadorTxt: SeparadorTxtCargaMasiva;
 }
 
@@ -554,8 +744,9 @@ export const CONFIG_CARGA_MASIVA_DEFECTO: ConfigCargaMasivaNomina = {
   telefonoLocalDefecto: '00000000000',
   correoDefecto: '',
 
-  incluirEncabezadoPlano: true,
-  separadorTxt: ';',
+  incluirEncabezadoPlano: false,
+  modoContenidoTxt: 'resumen_hoja1',
+  separadorTxt: '\t',
 };
 
 export interface FilaCargaMasivaNomina {
@@ -574,6 +765,7 @@ export interface FilaCargaMasivaNomina {
   profesionCatalogoDesc: string;
   campos: CamposCargaMasivaFila;
   celdas: string[]; // 44 valores exactos A..AR
+  resumenTxt: ResumenTxtHoja1;
   alertas: string[];
 }
 
@@ -1143,6 +1335,41 @@ export function buscarCuentaBancoTesoro(datosPagoRaw: unknown): string {
   return '';
 }
 
+/** Extrae la cuenta bancaria de 20 dígitos (priorizando 0163 y luego cualquier cuenta transferencia Bs). */
+export function extraerCuentaBancaria20(datosPagoRaw: unknown): string {
+  const cuentas = obtenerCuentasSeguras(datosPagoRaw);
+  for (const c of cuentas) {
+    const num = (c.cuenta ?? '').replace(/\D/g, '');
+    if (num.length === 20 && (c.banco === '0163' || num.startsWith('0163'))) {
+      return num;
+    }
+  }
+  for (const c of cuentas) {
+    const num = (c.cuenta ?? '').replace(/\D/g, '');
+    if (num.length === 20) return num;
+  }
+  return '00000000000000000000';
+}
+
+/**
+ * Formatea la referencia de 10 dígitos de Hoja1:
+ *   · Si `n` <= 999999 -> `numeroBanco` (4 díg., ej. '0163') + `n` rellenado a 6 díg. ('0163180719' / '0163000001')
+ *   · Si `n` ya trae el prefijo completo (>= 1000000) -> se rellena a 10 dígitos ('0163180719').
+ */
+export function formatearReferenciaHoja1(numeroBanco: string, n: number): string {
+  const banco4 = (numeroBanco || '0163').replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const entero = Math.max(1, Math.floor(Number.isFinite(n) ? n : 1));
+  const txt = String(entero);
+  if (txt.length > 6) {
+    return txt.padStart(10, '0').slice(-10);
+  }
+  return `${banco4}${txt.padStart(6, '0')}`;
+}
+
+export function formatearCedulaHoja1(tipoDoc: 'V' | 'E' | 'P', digitosCedula: string): string {
+  return `${tipoDoc}${(digitosCedula || '').replace(/\D/g, '').padStart(9, '0').slice(-9)}`;
+}
+
 export function calcularMontoBsCargaMasiva(sueldoUsd: number, config: ConfigCargaMasivaNomina): number {
   if (config.porcionSueldo === 'monto_fijo_bs') {
     return Math.max(0, Math.round((Number(config.montoFijoBs) || 0) * 100) / 100);
@@ -1167,14 +1394,16 @@ export function generarLoteCargaMasivaNomina(
   };
 
   const numBanco = (config.numeroBanco || '0163').replace(/\D/g, '').padStart(4, '0').slice(-4);
-  const oficPpal = (config.oficinaPrincipal || '0405').replace(/\D/g, '').padStart(4, '0').slice(-4);
-  const oficSec = (config.oficinaSecundaria || oficPpal).replace(/\D/g, '').padStart(4, '0').slice(-4);
-  const tiempoRes = String(Math.max(1, Math.min(99, Math.floor(config.tiempoResidenciaAnios || 1)))).padStart(2, '0');
+  const oficPpalGlobal = (config.oficinaPrincipal || '0405').replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const oficSecGlobal = (config.oficinaSecundaria || oficPpalGlobal).replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const tiempoResGlobal = String(Math.max(1, Math.min(99, Math.floor(config.tiempoResidenciaAnios || 1)))).padStart(2, '0');
   const inicioCorrelativo = Math.max(1, Math.floor(config.correlativoInicial || 1));
 
   return personas.map((p, idx) => {
     const alertas: string[] = [];
-    const correlativo = formatearCorrelativo7(inicioCorrelativo + idx);
+    const fichaNomina = leerFichaNominaPersonal(p.datos_pago);
+    const numSecuencia = inicioCorrelativo + idx;
+    const correlativo = formatearCorrelativo7(numSecuencia);
 
     const { tipoDoc, cedula15, digitos: digitosCedula } = extraerTipoDocYCedula15(p.cedula, p.nacionalidad);
     if (!digitosCedula) alertas.push('Sin cédula');
@@ -1187,7 +1416,8 @@ export function generarLoteCargaMasivaNomina(
     const fechaNac8 = formatearFechaBancaria8(p.fecha_nacimiento);
     if (!fechaNac8) alertas.push('Falta F. Nacimiento');
 
-    const { pais, nacionalidad } = mapearPaisYNacionalidadISO2(p.nacionalidad, tipoDoc);
+    const { pais: paisInferido, nacionalidad } = mapearPaisYNacionalidadISO2(p.nacionalidad, tipoDoc);
+    const pais = limpiarTextoBancario(fichaNomina.pais_nacimiento, 2) || paisInferido;
     const sexo = p.genero === 'F' ? 'F' : 'M';
     const estadoCivil = mapearEstadoCivil1(p.estado_civil);
 
@@ -1199,21 +1429,100 @@ export function generarLoteCargaMasivaNomina(
       config.calleDefecto,
       config.tipoViviendaDefecto,
     );
-    const ubicacion = inferirUbicacionBancaria(p.direccion, config);
+    const ubicacionInferida = inferirUbicacionBancaria(p.direccion, config);
+
+    const calleFinal = limpiarTextoBancario(fichaNomina.calle_avenida, 35) || dirDesglose.calle;
+    const casaFinal = limpiarTextoBancario(fichaNomina.casa_edificio, 20) || dirDesglose.casaEdificio;
+    const pisoFinal = limpiarTextoBancario(fichaNomina.piso_nivel, 6) || dirDesglose.piso;
+    const aptoFinal = limpiarTextoBancario(fichaNomina.apto_local, 10) || dirDesglose.aptoLocal;
+    const refFinal =
+      fichaNomina.referencia != null && fichaNomina.referencia !== ''
+        ? limpiarTextoBancario(fichaNomina.referencia, 25)
+        : dirDesglose.referencia;
+
+    const padCod = (val: string | null | undefined, len: number, fallback: string) => {
+      const d = (val ?? '').replace(/\D/g, '');
+      return d ? d.padStart(len, '0').slice(-len) : fallback;
+    };
+
+    const regionFinal = padCod(fichaNomina.region, 2, ubicacionInferida.region);
+    const estadoFinal = padCod(fichaNomina.estado, 2, ubicacionInferida.estado);
+    const ciudadFinal = padCod(fichaNomina.ciudad, 4, ubicacionInferida.ciudad);
+    const municipioFinal = padCod(fichaNomina.municipio, 4, ubicacionInferida.municipio);
+    const parroquiaFinal = padCod(fichaNomina.parroquia, 6, ubicacionInferida.parroquia);
+    const zonaPostalFinal = padCod(fichaNomina.zona_postal, 10, ubicacionInferida.zonaPostal10);
 
     const telefonos = extraerTelefonosPersonal(
       p.telefono,
       p.datos_pago,
-      config.telefonoLocalDefecto,
+      fichaNomina.telefono_local || config.telefonoLocalDefecto,
     );
+    const telefonoLocalFinal = fichaNomina.telefono_local
+      ? formatearTelefono11(fichaNomina.telefono_local, telefonos.local11)
+      : telefonos.local11;
     if (!telefonos.tieneCelularReal) alertas.push('Sin celular');
+
+    const condicionInmuebleFinal =
+      fichaNomina.condicion_inmueble && ['1', '2', '3'].includes(fichaNomina.condicion_inmueble)
+        ? fichaNomina.condicion_inmueble
+        : config.condicionInmuebleDefecto;
+    const tipoViviendaFinal =
+      fichaNomina.tipo_vivienda && ['1', '2', '3'].includes(fichaNomina.tipo_vivienda)
+        ? fichaNomina.tipo_vivienda
+        : dirDesglose.tipoVivienda;
 
     const correoLimpio = limpiarTextoBancario(p.correo || config.correoDefecto, 60);
     if (!correoLimpio) alertas.push('Sin correo');
 
-    const nivelEducacion = mapearNivelEducacion2(p.grado_instruccion, p.titulo_obtenido);
-    const profesionMatch = mapearCodigoProfesion4(p.titulo_obtenido, p.cargo);
-    const cargoMatch = mapearCodigoCargo3(p.cargo);
+    const tiempoResFinal =
+      fichaNomina.tiempo_residencia && fichaNomina.tiempo_residencia > 0
+        ? String(Math.min(99, fichaNomina.tiempo_residencia)).padStart(2, '0')
+        : tiempoResGlobal;
+
+    const nivelEducacionInferido = mapearNivelEducacion2(p.grado_instruccion, p.titulo_obtenido);
+    const nivelEducacion = padCod(fichaNomina.nivel_educacion_cod, 2, nivelEducacionInferido);
+
+    const profesionInferida = mapearCodigoProfesion4(p.titulo_obtenido, p.cargo);
+    const profGuardada = limpiarTextoBancario(fichaNomina.profesion_cod, 4);
+    const profesionMatch =
+      profGuardada && CATALOGO_PROFESIONES_MAP[profGuardada]
+        ? { codigo: profGuardada, descripcion: CATALOGO_PROFESIONES_MAP[profGuardada] }
+        : profesionInferida;
+
+    const cargoInferido = mapearCodigoCargo3(p.cargo);
+    const cargoGuardado = fichaNomina.tipo_cargo_cod
+      ? fichaNomina.tipo_cargo_cod.replace(/\D/g, '').padStart(3, '0').slice(-3)
+      : '';
+    const cargoCatalogoItem = cargoGuardado
+      ? CATALOGO_TIPOS_CARGO.find((c) => c.codigo === cargoGuardado)
+      : undefined;
+    const cargoMatch = cargoCatalogoItem
+      ? { codigo: cargoCatalogoItem.codigo, descripcion: cargoCatalogoItem.descripcion }
+      : cargoInferido;
+
+    const fuenteIngresoFinal =
+      fichaNomina.fuente_ingreso && ['1', '2', '3', '4'].includes(fichaNomina.fuente_ingreso)
+        ? fichaNomina.fuente_ingreso
+        : config.fuenteIngreso;
+    const tipoContratoFinal =
+      fichaNomina.tipo_contrato && ['1', '2'].includes(fichaNomina.tipo_contrato)
+        ? fichaNomina.tipo_contrato
+        : config.tipoContrato;
+    const tipoNominaFinal =
+      fichaNomina.tipo_nomina && ['W', 'B', 'M', 'S', 'Y'].includes(fichaNomina.tipo_nomina)
+        ? fichaNomina.tipo_nomina
+        : config.tipoNomina;
+    const tipoCuentaFinal =
+      fichaNomina.tipo_cuenta_nomina && ['CCVI', 'VI01'].includes(fichaNomina.tipo_cuenta_nomina)
+        ? fichaNomina.tipo_cuenta_nomina
+        : config.tipoCuenta;
+
+    const oficPpalFinal = padCod(fichaNomina.oficina_principal, 4, oficPpalGlobal);
+    const oficSecFinal = padCod(
+      fichaNomina.oficina_secundaria,
+      4,
+      fichaNomina.oficina_principal ? oficPpalFinal : oficSecGlobal,
+    );
 
     const sueldoUsd = Number(p.sueldo_base ?? 0);
     const montoBs = calcularMontoBsCargaMasiva(sueldoUsd, config);
@@ -1224,6 +1533,14 @@ export function generarLoteCargaMasivaNomina(
     if (!fechaIngreso8) alertas.push('Falta F. Ingreso');
 
     const cuenta0163 = buscarCuentaBancoTesoro(p.datos_pago);
+    const cuenta20 = extraerCuentaBancaria20(p.datos_pago);
+
+    const resumenTxt: ResumenTxtHoja1 = {
+      referencia10: formatearReferenciaHoja1(numBanco, numSecuencia),
+      cedula10: formatearCedulaHoja1(tipoDoc, digitosCedula),
+      cuenta20,
+      monto15: sueldoBasico15,
+    };
 
     const campos: CamposCargaMasivaFila = {
       numero_banco: numBanco,
@@ -1240,35 +1557,35 @@ export function generarLoteCargaMasivaNomina(
       sexo,
       estado_civil: estadoCivil,
       dependientes,
-      calle_avenida: dirDesglose.calle,
-      casa_edificio: dirDesglose.casaEdificio,
-      piso_nivel: dirDesglose.piso,
-      apto_local: dirDesglose.aptoLocal,
-      referencia: dirDesglose.referencia,
-      region: ubicacion.region,
-      estado: ubicacion.estado,
-      ciudad: ubicacion.ciudad,
-      municipio: ubicacion.municipio,
-      parroquia: ubicacion.parroquia,
-      zona_postal: ubicacion.zonaPostal10,
-      telefono_local: telefonos.local11,
+      calle_avenida: calleFinal,
+      casa_edificio: casaFinal,
+      piso_nivel: pisoFinal,
+      apto_local: aptoFinal,
+      referencia: refFinal,
+      region: regionFinal,
+      estado: estadoFinal,
+      ciudad: ciudadFinal,
+      municipio: municipioFinal,
+      parroquia: parroquiaFinal,
+      zona_postal: zonaPostalFinal,
+      telefono_local: telefonoLocalFinal,
       telefono_celular: telefonos.celular11,
-      condicion_inmueble: config.condicionInmuebleDefecto,
-      tipo_vivienda: dirDesglose.tipoVivienda,
+      condicion_inmueble: condicionInmuebleFinal,
+      tipo_vivienda: tipoViviendaFinal,
       correo_electronico: correoLimpio,
-      tiempo_residencia: tiempoRes,
+      tiempo_residencia: tiempoResFinal,
       nivel_educacion: nivelEducacion,
       profesion: profesionMatch.codigo,
       codigo_industria: '0902',
-      fuente_ingreso: config.fuenteIngreso,
-      tipo_contrato: config.tipoContrato,
-      tipo_nomina: config.tipoNomina,
-      tipo_cuenta: config.tipoCuenta,
+      fuente_ingreso: fuenteIngresoFinal,
+      tipo_contrato: tipoContratoFinal,
+      tipo_nomina: tipoNominaFinal,
+      tipo_cuenta: tipoCuentaFinal,
       sueldo_basico: sueldoBasico15,
       fecha_ingreso: fechaIngreso8,
       tipo_cargo: cargoMatch.codigo,
-      oficina_principal: oficPpal,
-      oficina_secundaria: oficSec,
+      oficina_principal: oficPpalFinal,
+      oficina_secundaria: oficSecFinal,
       tipo_solicitud: config.tipoSolicitud,
     };
 
@@ -1290,6 +1607,7 @@ export function generarLoteCargaMasivaNomina(
       profesionCatalogoDesc: profesionMatch.descripcion,
       campos,
       celdas,
+      resumenTxt,
       alertas,
     };
   });
@@ -1319,14 +1637,36 @@ export function serializarCargaMasivaCsv(
 export function serializarCargaMasivaTxt(
   filas: FilaCargaMasivaNomina[],
   opciones?: {
+    modo?: ModoContenidoTxt;
     separador?: SeparadorTxtCargaMasiva;
     incluirEncabezado?: boolean;
   },
 ): string {
-  const sep = opciones?.separador ?? ';';
+  const modo = opciones?.modo ?? 'resumen_hoja1';
+  const sep = opciones?.separador ?? '\t';
   const incluirEnc = opciones?.incluirEncabezado ?? false;
   const lineas: string[] = [];
 
+  // Formato por defecto: Resumen de Hoja1 del Excel (Ref 10 díg., Cédula V+9 díg., Cuenta 20 díg., Monto 15 díg.)
+  if (modo === 'resumen_hoja1') {
+    const sepReal = sep === 'ancho_fijo' ? '' : sep;
+    if (incluirEnc) {
+      if (sep === 'ancho_fijo') {
+        lineas.push(
+          ['REFERENCIA'.padEnd(10), 'CEDULA'.padEnd(10), 'CUENTA_BANCARIA'.padEnd(20), 'MONTO_BS'.padEnd(15)].join(''),
+        );
+      } else {
+        lineas.push(['REFERENCIA', 'CEDULA', 'CUENTA_BANCARIA', 'MONTO_BS'].join(sepReal));
+      }
+    }
+    for (const f of filas) {
+      const r = f.resumenTxt;
+      lineas.push([r.referencia10, r.cedula10, r.cuenta20, r.monto15].join(sepReal));
+    }
+    return lineas.join('\r\n');
+  }
+
+  // Modo alternativo: Sábana completa de 44 columnas
   if (sep === 'ancho_fijo') {
     if (incluirEnc) {
       lineas.push(

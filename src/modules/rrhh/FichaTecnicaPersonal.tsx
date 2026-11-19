@@ -25,6 +25,7 @@ import { descargarFichaTecnicaPdf } from './fichaTecnicaPdf';
 import { etiquetaFicha } from './fichaNro';
 import { textoCondicion } from './saludPersonal';
 import { labelGrado } from './instruccionYTrabajo';
+import { leerFichaNominaPersonal } from './cargaMasivaNomina';
 
 /** Un dato de la ficha: etiqueta a la izquierda, valor a la derecha. */
 function Dato({ label, children }: { label: string; children: ReactNode }) {
@@ -86,6 +87,14 @@ export function FichaTecnicaPersonal({
   const nombre = `${persona.nombre} ${persona.apellido ?? ''}`.trim();
   const anios = edad(persona.fecha_nacimiento);
   const anti = antiguedad(persona.fecha_ingreso);
+  const fnBancaria = leerFichaNominaPersonal(persona.datos_pago);
+  const tieneDomicilioDetallado = Boolean(
+    fnBancaria.calle_avenida ||
+      fnBancaria.casa_edificio ||
+      fnBancaria.apto_local ||
+      fnBancaria.zona_postal ||
+      fnBancaria.telefono_local,
+  );
 
   async function pdf() {
     setGenerando(true);
@@ -151,8 +160,9 @@ export function FichaTecnicaPersonal({
         </div>
       </Seccion>
 
-      <Seccion titulo="Contacto">
-        <Dato label="Teléfono">{oVacio(persona.telefono)}</Dato>
+      <Seccion titulo="Contacto y Domicilio">
+        <Dato label="Teléfono celular">{oVacio(persona.telefono)}</Dato>
+        {fnBancaria.telefono_local && <Dato label="Teléfono local">{oVacio(fnBancaria.telefono_local)}</Dato>}
         <Dato label="Correo">{oVacio(persona.correo)}</Dato>
         <Dato label="En una emergencia, llamar a">
           {persona.contacto_emergencia?.trim()
@@ -160,6 +170,16 @@ export function FichaTecnicaPersonal({
             : vacio}
         </Dato>
         <Dato label="Dirección">{oVacio(persona.direccion)}</Dato>
+        {tieneDomicilioDetallado && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', columnGap: '1.2rem' }}>
+            {fnBancaria.calle_avenida && <Dato label="Calle / Avenida">{fnBancaria.calle_avenida}</Dato>}
+            {fnBancaria.casa_edificio && <Dato label="Casa / Edificio">{fnBancaria.casa_edificio}</Dato>}
+            {fnBancaria.piso_nivel && <Dato label="Piso / Nivel">{fnBancaria.piso_nivel}</Dato>}
+            {fnBancaria.apto_local && <Dato label="N° Casa / Apto / Local">{fnBancaria.apto_local}</Dato>}
+            {fnBancaria.referencia && <Dato label="Punto de referencia">{fnBancaria.referencia}</Dato>}
+            {fnBancaria.zona_postal && <Dato label="Zona postal">{fnBancaria.zona_postal}</Dato>}
+          </div>
+        )}
       </Seccion>
 
       {/* Salud aparte del contacto: es lo que se busca primero en una

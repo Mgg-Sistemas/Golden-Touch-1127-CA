@@ -35,10 +35,14 @@ export function useSolicitudesAlmacen() {
 
   const reload = useCallback(async () => {
     try {
-      const on = await interruptorRevisionAlmacen();
-      setActivo(on);
-      if (!on) { setPorRevisar([]); setRevisadas([]); setError(null); return; }
-      const [pr, rv] = await Promise.all([listSolicitudesPorRevisar(), listRevisadasRecientes(7)]);
+      const [on, pr, rv] = await Promise.all([
+        interruptorRevisionAlmacen(),
+        listSolicitudesPorRevisar(),
+        listRevisadasRecientes(7),
+      ]);
+      const habilitado = on || pr.length > 0;
+      setActivo(habilitado);
+      if (!habilitado) { setPorRevisar([]); setRevisadas([]); setError(null); return; }
       const ids = pr.flatMap((s) => s.orden.items.map((i) => i.productoId ?? '')).filter(Boolean);
       setExistencias(await existenciasDe(ids));
       setPorRevisar(pr);
