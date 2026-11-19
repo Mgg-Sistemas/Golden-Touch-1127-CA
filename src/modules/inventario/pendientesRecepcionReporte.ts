@@ -551,12 +551,21 @@ export function construirWhatsappPendientesRecepcion(
     lineas.push(`   💰 *Monto:* ${money(f.montoNativo, f.moneda)}`);
 
     if (f.items.length > 0) {
-      const resumenItems = f.items
-        .slice(0, 3)
-        .map((it) => `${it.nombre} (${num(it.cantidad)}${it.unidad ? ` ${it.unidad}` : ''})`)
-        .join(', ');
-      const resto = f.items.length > 3 ? ` y ${f.items.length - 3} más…` : '';
-      lineas.push(`   🛒 _${resumenItems}${resto}_`);
+      if (filas.length === 1) {
+        lineas.push('   🛒 *Materiales / ítems por recibir:*');
+        f.items.forEach((it, i) => {
+          const skuTxt = it.sku ? ` · ${it.sku}` : '';
+          const undTxt = it.unidad ? ` ${it.unidad}` : ' und.';
+          lineas.push(`      ${i + 1}. ${it.nombre}${skuTxt}: *${num(it.cantidad)}${undTxt}*`);
+        });
+      } else {
+        const resumenItems = f.items
+          .slice(0, 3)
+          .map((it) => `${it.nombre} (${num(it.cantidad)}${it.unidad ? ` ${it.unidad}` : ''})`)
+          .join(', ');
+        const resto = f.items.length > 3 ? ` y ${f.items.length - 3} más…` : '';
+        lineas.push(`   🛒 _${resumenItems}${resto}_`);
+      }
     }
 
     lineas.push('────────────────────────');
@@ -569,7 +578,46 @@ export function construirWhatsappPendientesRecepcion(
   return lineas.join('\n');
 }
 
-/** Mensaje de WhatsApp individual de una orden pendiente por recepcionar. */
+/** Mensaje de WhatsApp detallado para una orden individual pendiente por recepcionar. */
 export function construirWhatsappDetallePendiente(f: FilaPendienteRecepcion, actor?: string | null): string {
-  return construirWhatsappPendientesRecepcion([f], undefined, actor);
+  const ahora = new Date();
+  const fechaStr = ahora.toLocaleDateString('es-VE', { timeZone: TZ_VE });
+  const horaStr = ahora.toLocaleTimeString('es-VE', { timeZone: TZ_VE, hour: '2-digit', minute: '2-digit' });
+
+  const lineas: string[] = [];
+  lineas.push('📦 *GOLDEN TOUCH 1127 C.A.*');
+  lineas.push(`📋 *ORDEN PENDIENTE POR RECEPCIONAR · ${f.codigo}*`);
+  lineas.push(`🚨 *${AVISO_WHATSAPP_POR_DEFECTO}*`);
+  lineas.push(`📅 *Fecha de emisión:* ${fechaStr} · ${horaStr}`);
+  if (actor) lineas.push(`👤 *Generado por:* ${actor}`);
+  lineas.push('');
+  lineas.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  lineas.push(`🔹 *${f.codigo}* (${f.estadoLabel})`);
+  lineas.push(`📄 *Tipo:* ${f.origenLabel}${f.codigoSolicitud ? ` · Solicitud ${f.codigoSolicitud}` : ''}`);
+  lineas.push(`📅 *Montada:* ${f.fechaMontadaFmt}`);
+  lineas.push(`💳 *Pagó Tesorería:* ${f.fechaPagoFmt}`);
+  lineas.push(`👤 *Analista encargado:* ${f.analista}`);
+  if (f.solicitante && f.solicitante !== '—') lineas.push(`🙋 *Solicita:* ${f.solicitante}`);
+  if (f.proveedor && f.proveedor !== '—') lineas.push(`🏭 *Proveedor:* ${f.proveedor}`);
+  lineas.push(`🏢 *Destino sugerido:* ${f.almacenDestino}`);
+  lineas.push(`📦 *Resumen:* ${f.numItems} ítem(s) · ${num(f.totalUnidades)} und.`);
+  lineas.push(`💰 *Monto total:* ${money(f.montoNativo, f.moneda)}`);
+  lineas.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  if (f.items.length > 0) {
+    lineas.push('');
+    lineas.push(`🛒 *MATERIALES / ÍTEMS POR RECIBIR (${f.items.length}):*`);
+    f.items.forEach((it, idx) => {
+      const skuTxt = it.sku ? ` · ${it.sku}` : '';
+      const undTxt = it.unidad ? ` ${it.unidad}` : ' und.';
+      const subTxt = it.subtotalUsd > 0 ? ` · ${money(it.subtotalUsd, 'USD')}` : '';
+      lineas.push(`${idx + 1}. *${it.nombre}*${skuTxt} — *${num(it.cantidad)}${undTxt}*${subTxt}`);
+    });
+  }
+
+  lineas.push('');
+  lineas.push(`🚨 *${AVISO_WHATSAPP_POR_DEFECTO}*`);
+  lineas.push('ℹ️ _Favor indicar estatus de entrega para coordinar su recepción oportuna en almacén._');
+
+  return lineas.join('\n');
 }

@@ -49,7 +49,16 @@ export async function generarReportePendientesRecepcionPdf(
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(217, 119, 6); // ámbar ejecutivo
-  doc.text(pdfSafe('REPORTE DE MERCANCÍA PENDIENTE POR RECEPCIONAR EN ALMACÉN'), tx, y + 23);
+  const esOrdenUnica = filas.length === 1;
+  doc.text(
+    pdfSafe(
+      esOrdenUnica
+        ? `REPORTE DE ORDEN PENDIENTE POR RECEPCIONAR · ${filas[0].codigo}`
+        : 'REPORTE DE MERCANCÍA PENDIENTE POR RECEPCIONAR EN ALMACÉN',
+    ),
+    tx,
+    y + 23,
+  );
 
   doc.setFontSize(9.5);
   doc.setFont('helvetica', 'bold');
@@ -184,7 +193,103 @@ export async function generarReportePendientesRecepcionPdf(
     },
   });
 
-  const filename = `Pendientes_Recepcionar_${ahora.toISOString().slice(0, 10)}.pdf`;
+  // Si el reporte corresponde a una orden individual, desglosar todos sus materiales / ítems debajo
+  if (esOrdenUnica && filas[0].items.length > 0) {
+    const f = filas[0];
+    const lastY = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y + 60;
+    let yItems = lastY + 22;
+    if (yItems > pageHeight - 110) {
+      doc.addPage();
+      yItems = 42;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text(
+      pdfSafe(`DETALLE DE MATERIALES / ÍTEMS PENDIENTES DE ${f.codigo} (${f.items.length})`),
+      36,
+      yItems,
+    );
+
+    const itemsBody = f.items.map((it, idx) => [
+      String(idx + 1),
+      pdfSafe(it.sku || '—'),
+      pdfSafe(it.nombre),
+      pdfSafe(num(it.cantidad)),
+      pdfSafe(it.unidad || 'UND'),
+      pdfSafe(it.subtotalUsd > 0 ? money(it.subtotalUsd, 'USD') : '—'),
+    ]);
+
+    autoTable(doc, {
+      startY: yItems + 8,
+      margin: { left: 36, right: 36, bottom: 36 },
+      head: [[
+        '#',
+        pdfSafe('SKU / Código'),
+        pdfSafe('Material / Servicio Solicitado'),
+        pdfSafe('Cantidad Pedida'),
+        pdfSafe('Unidad'),
+        pdfSafe('Subtotal Est. ($)'),
+      ]],
+      body: itemsBody,
+      foot: [[
+        '',
+        '',
+        pdfSafe('TOTAL PENDIENTE POR RECIBIR'),
+        pdfSafe(num(f.totalUnidades)),
+        '',
+        pdfSafe(money(f.montoNativo, f.moneda)),
+      ]],
+      theme: 'grid',
+      styles: {
+        fontSize: 8.2,
+        cellPadding: 4.5,
+        textColor: [30, 41, 59],
+        valign: 'middle',
+        lineColor: [226, 232, 240],
+        lineWidth: 0.5,
+      },
+      headStyles: {
+        fillColor: [217, 119, 6],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 8,
+        halign: 'center',
+      },
+      footStyles: {
+        fillColor: [248, 250, 252],
+        textColor: [30, 41, 59],
+        fontStyle: 'bold',
+        fontSize: 8.5,
+      },
+      columnStyles: {
+        0: { cellWidth: 28, halign: 'center' },
+        1: { cellWidth: 96, fontStyle: 'bold' },
+        2: { cellWidth: 'auto' },
+        3: { cellWidth: 90, halign: 'right', fontStyle: 'bold' },
+        4: { cellWidth: 64, halign: 'center' },
+        5: { cellWidth: 96, halign: 'right', fontStyle: 'bold' },
+      },
+      didDrawPage: (data) => {
+        const pageNumber = data.pageNumber;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          pdfSafe(`Página ${pageNumber} · Golden Touch 1127 C.A. · Documento de Control Interno`),
+          pageWidth / 2,
+          pageHeight - 18,
+          { align: 'center' },
+        );
+      },
+    });
+  }
+
+  const codigoLimpio = esOrdenUnica ? filas[0].codigo.replace(/[^A-Za-z0-9_-]/g, '_') : '';
+  const filename = esOrdenUnica
+    ? `Pendiente_Recepcionar_${codigoLimpio}_${ahora.toISOString().slice(0, 10)}.pdf`
+    : `Pendientes_Recepcionar_${ahora.toISOString().slice(0, 10)}.pdf`;
   previewPdf(doc, filename);
 }
 

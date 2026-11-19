@@ -30,6 +30,7 @@ import {
   normalizarPendientesRecepcion,
   resolverAnalistaCompraDirecta,
   resolverAnalistaOrden,
+  type FilaPendienteRecepcion,
   type ResolverPersonaFn,
 } from './pendientesRecepcionReporte';
 import { descargarDetallePendientePdf } from './pendientesRecepcionPdf';
@@ -73,11 +74,22 @@ function almacenesOrdenados(almacenes: Almacen[]): Almacen[] {
  * Modal de recepción: el almacenista confirma cuánto entró por ítem y elige el
  * almacén destino. Solo lo recibido entra al inventario (vía `recibirOrdenParcial`).
  */
-function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSaved }: {
+function RecibirOrdenModal({
+  orden,
+  almacenes,
+  actor,
+  actorName,
+  filaPendiente,
+  onAbrirReporteOrden,
+  onClose,
+  onSaved,
+}: {
   orden: Orden;
   almacenes: Almacen[];
   actor: string;
   actorName: string | null;
+  filaPendiente?: FilaPendienteRecepcion;
+  onAbrirReporteOrden?: (fila: FilaPendienteRecepcion, modo: 'pdf' | 'whatsapp') => void;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
@@ -96,10 +108,36 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
   const [almacen, setAlmacen] = useState<string>(orden.almacen_destino ?? almacenesOrdenados(almacenes)[0]?.nombre ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verWspModal, setVerWspModal] = useState(false);
+  const [generandoPdfOrden, setGenerandoPdfOrden] = useState(false);
   const quien = useQuien();
   const analistaOrden = resolverAnalistaOrden(orden, quien);
   const fMontada = fechaMontadaOrden(orden);
   const fPago = fechaPagoTesoreriaOrden(orden);
+  const actorVisible = quien(actorName, actor) || actorName || actor;
+
+  const filaOrdenEfectiva = useMemo(
+    () =>
+      filaPendiente ??
+      normalizarPendientesRecepcion({
+        ordenesPendientes: [orden],
+        almacenes,
+        resolverPersona: quien,
+      })[0],
+    [filaPendiente, orden, almacenes, quien],
+  );
+
+  async function handlePdfRapido() {
+    if (!filaOrdenEfectiva) return;
+    setGenerandoPdfOrden(true);
+    try {
+      await descargarDetallePendientePdf(filaOrdenEfectiva, actorVisible);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF.', 'error');
+    } finally {
+      setGenerandoPdfOrden(false);
+    }
+  }
 
   function setRec(sku: string, cantPedida: number, v: string) {
     const n = Number(v);
@@ -178,6 +216,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
           padding: '.55rem .75rem',
           display: 'flex',
           flexWrap: 'wrap',
+          alignItems: 'center',
           gap: '.4rem 1.25rem',
           fontSize: '.8rem',
         }}
@@ -190,7 +229,44 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
             {fPago ? dateTime(fPago) : etiquetaSinPagoTesoreria(orden.condiciones_pago)}
           </strong>
         </div>
+        {filaOrdenEfectiva && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {onAbrirReporteOrden && (
+              <button
+                type="button"
+                className="btn btn-xs btn-secondary"
+                onClick={() => onAbrirReporteOrden(filaOrdenEfectiva, 'pdf')}
+                title="Abrir reporte dinámico exclusivo de esta orden pendiente"
+              >
+                📊 Reporte Dinámico
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-xs btn-ghost"
+              onClick={() => void handlePdfRapido()}
+              disabled={generandoPdfOrden}
+              title="Descargar PDF detallado de esta orden pendiente"
+            >
+              {generandoPdfOrden ? 'PDF…' : '📄 PDF'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-xs btn-outline-success"
+              style={{ color: '#25D366', borderColor: '#25D366' }}
+              onClick={() => setVerWspModal((v) => !v)}
+              title="Ver o enviar mensaje de WhatsApp de esta orden pendiente"
+            >
+              💬 WhatsApp
+            </button>
+          </div>
+        )}
       </div>
+      {verWspModal && filaOrdenEfectiva && (
+        <div className="card" style={{ margin: '0 0 .7rem', padding: '.75rem', borderColor: '#25D366' }}>
+          <CompartirWhatsapp texto={construirWhatsappDetallePendiente(filaOrdenEfectiva, actorVisible)} />
+        </div>
+      )}
       {orden.tipo === 'servicio' && (
         <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.75rem' }}>
           <small>
@@ -283,11 +359,22 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
  * ENTRADA al inventario (vía `recepcionarCompraDirecta`). Las cantidades vienen fijas
  * de la compra (ya se pagaron); solo se elige el destino.
  */
-export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSaved }: {
+export function RecibirCompraModal({
+  compra,
+  almacenes,
+  actor,
+  actorName,
+  filaPendiente,
+  onAbrirReporteOrden,
+  onClose,
+  onSaved,
+}: {
   compra: CompraDirecta;
   almacenes: Almacen[];
   actor: string;
   actorName: string | null;
+  filaPendiente?: FilaPendienteRecepcion;
+  onAbrirReporteOrden?: (fila: FilaPendienteRecepcion, modo: 'pdf' | 'whatsapp') => void;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
@@ -297,6 +384,10 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
   const [almacen, setAlmacen] = useState<string>(destinoValido || ordenados[0]?.nombre || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verWspCompra, setVerWspCompra] = useState(false);
+  const [generandoPdfCompra, setGenerandoPdfCompra] = useState(false);
+  const quien = useQuien();
+  const actorVisible = quien(actorName, actor) || actorName || actor;
   // P03: al recibir, la compra tiene que tener al menos una factura del proveedor; si no la tiene, se carga aquí.
   const conP03 = useP03();
   const [facturasPrevias, setFacturasPrevias] = useState<number | null>(null);
@@ -325,6 +416,31 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
   // Costo en $ (lo que ENTRA al inventario) de un gasto de renglón en la moneda de la compra.
   const gastoUsd = (gasto: number): number => (esBs ? (tasa > 0 ? Math.round((gasto / tasa) * 100) / 100 : 0) : gasto);
   const totalUsd = items.reduce((a, it) => a + gastoUsd(Number(it.gasto) || 0), 0);
+
+  const filaCompraEfectiva = useMemo(
+    () =>
+      filaPendiente ??
+      normalizarPendientesRecepcion({
+        ordenesPendientes: [],
+        comprasPendientes: [compra],
+        almacenes,
+        resolverPersona: quien,
+        tasaUsdHoy: tasa,
+      })[0],
+    [filaPendiente, compra, almacenes, quien, tasa],
+  );
+
+  async function handlePdfCompra() {
+    if (!filaCompraEfectiva) return;
+    setGenerandoPdfCompra(true);
+    try {
+      await descargarDetallePendientePdf(filaCompraEfectiva, actorVisible);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF.', 'error');
+    } finally {
+      setGenerandoPdfCompra(false);
+    }
+  }
 
   async function handleConfirm() {
     setError(null);
@@ -373,11 +489,12 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
           padding: '.5rem .75rem',
           display: 'flex',
           flexWrap: 'wrap',
+          alignItems: 'center',
           gap: '.35rem 1.25rem',
           fontSize: '.78rem',
         }}
       >
-        <div><span className="muted">Analista encargado:</span> <strong>{resolverAnalistaCompraDirecta(compra)}</strong></div>
+        <div><span className="muted">Analista encargado:</span> <strong>{resolverAnalistaCompraDirecta(compra, quien)}</strong></div>
         <div><span className="muted">Fecha montada:</span> <strong className="mono">{dateTime(compra.enviada_pagar_at ?? compra.created_at)}</strong></div>
         <div>
           <span className="muted">Pago Tesorería:</span>{' '}
@@ -385,7 +502,44 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
             {compra.pagada_at ? dateTime(compra.pagada_at) : '—'}
           </strong>
         </div>
+        {filaCompraEfectiva && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {onAbrirReporteOrden && (
+              <button
+                type="button"
+                className="btn btn-xs btn-secondary"
+                onClick={() => onAbrirReporteOrden(filaCompraEfectiva, 'pdf')}
+                title="Abrir reporte dinámico exclusivo de esta compra pendiente"
+              >
+                📊 Reporte Dinámico
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-xs btn-ghost"
+              onClick={() => void handlePdfCompra()}
+              disabled={generandoPdfCompra}
+              title="Descargar PDF detallado de esta compra pendiente"
+            >
+              {generandoPdfCompra ? 'PDF…' : '📄 PDF'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-xs btn-outline-success"
+              style={{ color: '#25D366', borderColor: '#25D366' }}
+              onClick={() => setVerWspCompra((v) => !v)}
+              title="Ver o enviar mensaje de WhatsApp de esta compra pendiente"
+            >
+              💬 WhatsApp
+            </button>
+          </div>
+        )}
       </div>
+      {verWspCompra && filaCompraEfectiva && (
+        <div className="card" style={{ margin: '0 0 .65rem', padding: '.75rem', borderColor: '#25D366' }}>
+          <CompartirWhatsapp texto={construirWhatsappDetallePendiente(filaCompraEfectiva, actorVisible)} />
+        </div>
+      )}
 
       {esBs && (
         <div className="card" style={{ marginBottom: '.5rem', fontSize: '.8rem', borderColor: 'var(--warning)' }}>
@@ -713,6 +867,10 @@ export function RecepcionesPendientes({
   const [recibir, setRecibir] = useState<Orden | null>(null);
   const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
   const [modoReporte, setModoReporte] = useState<'pdf' | 'whatsapp' | null>(null);
+  const [reporteIndividual, setReporteIndividual] = useState<{
+    fila: FilaPendienteRecepcion;
+    modo: 'pdf' | 'whatsapp';
+  } | null>(null);
 
   // Directorio de proveedores para mostrar razón social en tarjetas, modal y reportes
   const [proveedoresMap, setProveedoresMap] = useState<Map<string, string>>(() => new Map());
@@ -772,6 +930,11 @@ export function RecepcionesPendientes({
         tasaUsdHoy: tasaHoy,
       }),
     [pendientes, comprasPendientes, almacenes, proveedoresMap, quien, tasaHoy],
+  );
+
+  const filasPorUid = useMemo(
+    () => new Map(filasReportePendientes.map((f) => [f.uid, f])),
+    [filasReportePendientes],
   );
 
   return (
@@ -860,11 +1023,38 @@ export function RecepcionesPendientes({
                     Sugerido: 🏭 {destinoSugerido}
                   </div>
 
+                  {(() => {
+                    const filaOrden = filasPorUid.get(`orden:${o.id}`);
+                    if (!filaOrden) return null;
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.4rem', marginTop: '.55rem' }}>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-secondary"
+                          style={{ width: '100%', justifyContent: 'center' }}
+                          onClick={() => setReporteIndividual({ fila: filaOrden, modo: 'pdf' })}
+                          title={`Abrir reporte dinámico de ${o.oc_codigo ?? o.codigo}`}
+                        >
+                          📊 Reporte Dinámico
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-outline-success"
+                          style={{ width: '100%', justifyContent: 'center', color: '#25D366', borderColor: '#25D366' }}
+                          onClick={() => setReporteIndividual({ fila: filaOrden, modo: 'whatsapp' })}
+                          title={`Compartir por WhatsApp el estatus de ${o.oc_codigo ?? o.codigo}`}
+                        >
+                          💬 WhatsApp
+                        </button>
+                      </div>
+                    );
+                  })()}
+
                   {canWrite ? (
                     <button
                       type="button"
                       className="btn btn-sm btn-primary"
-                      style={{ marginTop: '.6rem', width: '100%' }}
+                      style={{ marginTop: '.45rem', width: '100%' }}
                       onClick={() => setRecibir(o)}
                       title="Recibir esta orden y elegir el almacén destino"
                     >
@@ -874,7 +1064,7 @@ export function RecepcionesPendientes({
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      style={{ marginTop: '.6rem', width: '100%' }}
+                      style={{ marginTop: '.45rem', width: '100%' }}
                       onClick={() => setDetalle(o)}
                     >
                       👁 Ver detalle
@@ -935,11 +1125,37 @@ export function RecepcionesPendientes({
                       Sugerido: 🏭 {nombreSedeAlmacen(c.almacen, almacenes)}
                     </div>
                   )}
+                  {(() => {
+                    const filaDirecta = filasPorUid.get(`directa:${c.id}`);
+                    if (!filaDirecta) return null;
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.4rem', marginTop: '.55rem' }}>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-secondary"
+                          style={{ width: '100%', justifyContent: 'center' }}
+                          onClick={() => setReporteIndividual({ fila: filaDirecta, modo: 'pdf' })}
+                          title={`Abrir reporte dinámico de ${c.codigo ?? 'compra directa'}`}
+                        >
+                          📊 Reporte Dinámico
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-outline-success"
+                          style={{ width: '100%', justifyContent: 'center', color: '#25D366', borderColor: '#25D366' }}
+                          onClick={() => setReporteIndividual({ fila: filaDirecta, modo: 'whatsapp' })}
+                          title={`Compartir por WhatsApp el estatus de ${c.codigo ?? 'compra directa'}`}
+                        >
+                          💬 WhatsApp
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {canWrite && (
                     <button
                       type="button"
                       className="btn btn-sm btn-primary"
-                      style={{ marginTop: '.6rem', width: '100%' }}
+                      style={{ marginTop: '.45rem', width: '100%' }}
                       onClick={() => setRecibirCompra(c)}
                       title="Ver el detalle y dar entrada al inventario eligiendo el almacén"
                     >
@@ -1072,6 +1288,8 @@ export function RecepcionesPendientes({
           almacenes={almacenes}
           actor={actor}
           actorName={actorName}
+          filaPendiente={filasPorUid.get(`orden:${recibir.id}`)}
+          onAbrirReporteOrden={(fila, modo) => setReporteIndividual({ fila, modo })}
           onClose={() => setRecibir(null)}
           onSaved={onRecibida}
         />
@@ -1082,8 +1300,19 @@ export function RecepcionesPendientes({
           almacenes={almacenes}
           actor={actor}
           actorName={actorName}
+          filaPendiente={filasPorUid.get(`directa:${recibirCompra.id}`)}
+          onAbrirReporteOrden={(fila, modo) => setReporteIndividual({ fila, modo })}
           onClose={() => setRecibirCompra(null)}
           onSaved={onRecibida}
+        />
+      )}
+      {reporteIndividual && (
+        <ReportePendientesRecepcionModal
+          filas={[reporteIndividual.fila]}
+          actor={quien(actorName, actor) || actorName || actor}
+          modoInicial={reporteIndividual.modo}
+          ordenIndividual
+          onClose={() => setReporteIndividual(null)}
         />
       )}
     </>

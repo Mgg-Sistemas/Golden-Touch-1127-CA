@@ -4,6 +4,7 @@ import type { CompraDirecta } from '@/modules/pedidos/compras.repository';
 import {
   AVISO_WHATSAPP_POR_DEFECTO,
   calcularTotalesPendientes,
+  construirWhatsappDetallePendiente,
   construirWhatsappPendientesRecepcion,
   filtrarPendientesRecepcion,
   normalizarPendientesRecepcion,
@@ -138,5 +139,38 @@ describe('pendientesRecepcionReporte · estilo estándar MGG', () => {
     expect(wsp).toContain('*Pagó Tesorería:* 17 nov. 2026');
     expect(wsp).toContain('*Analista:* JAVIER LEIVA');
     expect(wsp).not.toContain('OC-2026-0209');
+  });
+
+  it('genera mensaje de WhatsApp individual por orden pendiente con todos sus materiales sin truncar', () => {
+    const ordenMulti = crearOrdenBase({
+      id: 'o-ind',
+      oc_codigo: 'OC-2026-0264',
+      total: 312.6,
+      oc_creada_por: 'analista1mgg@gmail.com',
+      items: [
+        { sku: 'VIV-085', nombre: 'CARNE', cantidad: 20, precio: 8.5, unidad: 'KG' },
+        { sku: 'CAR-030', nombre: 'COCHINO', cantidad: 25, precio: 5.7, unidad: 'KG' },
+        { sku: 'VIV-090', nombre: 'POLLO', cantidad: 15, precio: 4.2, unidad: 'KG' },
+        { sku: 'VIV-091', nombre: 'QUESO', cantidad: 10, precio: 7.0, unidad: 'KG' },
+        { sku: 'VIV-092', nombre: 'ARROZ', cantidad: 24, precio: 1.5, unidad: 'UND' },
+      ],
+    });
+
+    const [fila] = normalizarPendientesRecepcion({
+      ordenesPendientes: [ordenMulti],
+      proveedoresMap: new Map([['prov-1', 'DISTRIBUIDORA GUAYANA']]),
+      ahoraMs: Date.parse('2026-11-19T16:00:00Z'),
+    });
+
+    const wspInd = construirWhatsappDetallePendiente(fila, 'Almacén');
+    expect(wspInd).toContain('ORDEN PENDIENTE POR RECEPCIONAR · OC-2026-0264');
+    expect(wspInd).toContain(AVISO_WHATSAPP_POR_DEFECTO);
+    expect(wspInd).toContain('*Analista encargado:* JAVIER LEIVA');
+    expect(wspInd).toContain('*Proveedor:* DISTRIBUIDORA GUAYANA');
+    expect(wspInd).toContain('CARNE');
+    expect(wspInd).toContain('VIV-085');
+    expect(wspInd).toContain('COCHINO');
+    expect(wspInd).toContain('ARROZ');
+    expect(wspInd).not.toContain('más…');
   });
 });

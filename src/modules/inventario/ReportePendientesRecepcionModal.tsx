@@ -10,6 +10,7 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import {
   calcularTotalesPendientes,
+  construirWhatsappDetallePendiente,
   construirWhatsappPendientesRecepcion,
   filtrarPendientesRecepcion,
   isoADiaVE,
@@ -17,7 +18,7 @@ import {
   type FiltrosReportePendientes,
   type TipoFiltroRecepcion,
 } from './pendientesRecepcionReporte';
-import { generarReportePendientesRecepcionPdf } from './pendientesRecepcionPdf';
+import { descargarDetallePendientePdf, generarReportePendientesRecepcionPdf } from './pendientesRecepcionPdf';
 
 const surf2 = {
   background: 'var(--surface-2, #182230)',
@@ -42,6 +43,7 @@ interface ReportePendientesRecepcionModalProps {
   filas: FilaPendienteRecepcion[];
   actor?: string | null;
   modoInicial?: 'reporte' | 'pdf' | 'whatsapp';
+  ordenIndividual?: boolean;
   onClose: () => void;
 }
 
@@ -61,8 +63,38 @@ export function ReportePendientesRecepcionModal({
   filas,
   actor,
   modoInicial = 'reporte',
+  ordenIndividual = false,
   onClose,
 }: ReportePendientesRecepcionModalProps) {
+  const esModoIndividual = ordenIndividual && filas.length === 1;
+  const ordenBase = esModoIndividual ? filas[0] : null;
+  const [busquedaItemsOrden, setBusquedaItemsOrden] = useState('');
+  const [filaWspIndividual, setFilaWspIndividual] = useState<FilaPendienteRecepcion | null>(null);
+  const [generandoPdfUid, setGenerandoPdfUid] = useState<string | null>(null);
+
+  const ordenIndividualDinamica: FilaPendienteRecepcion | null = useMemo(() => {
+    if (!ordenBase) return null;
+    const q = busquedaItemsOrden.trim().toLowerCase();
+    if (!q) return ordenBase;
+    const itemsFiltrados = ordenBase.items.filter(
+      (it) =>
+        it.nombre.toLowerCase().includes(q) ||
+        it.sku.toLowerCase().includes(q) ||
+        it.unidad.toLowerCase().includes(q),
+    );
+    const totalUnidades = itemsFiltrados.reduce((acc, it) => acc + it.cantidad, 0);
+    const sumaSubUsd = Math.round(itemsFiltrados.reduce((acc, it) => acc + it.subtotalUsd, 0) * 100) / 100;
+    const montoDinamico = ordenBase.moneda === 'USD' && sumaSubUsd > 0 ? sumaSubUsd : ordenBase.montoNativo;
+    return {
+      ...ordenBase,
+      items: itemsFiltrados,
+      numItems: itemsFiltrados.length,
+      totalUnidades,
+      montoNativo: montoDinamico,
+      montoUsd: ordenBase.moneda === 'USD' ? montoDinamico : ordenBase.montoUsd,
+    };
+  }, [ordenBase, busquedaItemsOrden]);
+
   const totalesBase = useMemo(() => calcularTotalesPendientes(filas), [filas]);
 
   const { sedesDisponibles, analistasDisponibles } = useMemo(() => {
@@ -106,15 +138,21 @@ export function ReportePendientesRecepcionModal({
   );
 
   const filasFiltradas = useMemo(
-    () => filtrarPendientesRecepcion(filas, filtrosActuales),
-    [filas, filtrosActuales],
+    () =>
+      esModoIndividual && ordenIndividualDinamica
+        ? [ordenIndividualDinamica]
+        : filtrarPendientesRecepcion(filas, filtrosActuales),
+    [esModoIndividual, ordenIndividualDinamica, filas, filtrosActuales],
   );
 
   const totales = useMemo(() => calcularTotalesPendientes(filasFiltradas), [filasFiltradas]);
 
   const textoWhatsapp = useMemo(
-    () => construirWhatsappPendientesRecepcion(filasFiltradas, filtrosActuales, actor),
-    [filasFiltradas, filtrosActuales, actor],
+    () =>
+      esModoIndividual && ordenIndividualDinamica
+        ? construirWhatsappDetallePendiente(ordenIndividualDinamica, actor)
+        : construirWhatsappPendientesRecepcion(filasFiltradas, filtrosActuales, actor),
+    [esModoIndividual, ordenIndividualDinamica, filasFiltradas, filtrosActuales, actor],
   );
 
   async function handleDescargarPdf() {
@@ -124,11 +162,26 @@ export function ReportePendientesRecepcionModal({
     }
     try {
       setGenerandoPdf(true);
-      await generarReportePendientesRecepcionPdf(filasFiltradas, filtrosActuales, actor);
+      if (esModoIndividual && ordenIndividualDinamica) {
+        await descargarDetallePendientePdf(ordenIndividualDinamica, actor);
+      } else {
+        await generarReportePendientesRecepcionPdf(filasFiltradas, filtrosActuales, actor);
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : 'No se pudo generar el PDF', 'error');
     } finally {
       setGenerandoPdf(false);
+    }
+  }
+
+  async function handlePdfDeFila(f: FilaPendienteRecepcion) {
+    try {
+      setGenerandoPdfUid(f.uid);
+      await descargarDetallePendientePdf(f, actor);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo generar el PDF individual', 'error');
+    } finally {
+      setGenerandoPdfUid(null);
     }
   }
 
@@ -171,13 +224,25 @@ export function ReportePendientesRecepcionModal({
 
   return (
     <Modal
-      title="📦 Reporte Dinámico de Pendientes por Recepcionar"
+      title={
+        esModoIndividual && ordenBase
+          ? `📦 Reporte Dinámico · ${ordenBase.codigo} · Pendiente por Recepcionar`
+          : '📦 Reporte Dinámico de Pendientes por Recepcionar'
+      }
       size="xl"
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '.5rem' }}>
           <div className="muted" style={{ fontSize: '.84rem' }}>
-            Mostrando <strong>{num(filasFiltradas.length)}</strong> de <strong>{num(filas.length)}</strong> registros
+            {esModoIndividual && ordenIndividualDinamica && ordenBase ? (
+              <>
+                Orden <strong>{ordenBase.codigo}</strong> · Mostrando <strong>{num(ordenIndividualDinamica.numItems)}</strong> de <strong>{num(ordenBase.numItems)}</strong> ítem(s)
+              </>
+            ) : (
+              <>
+                Mostrando <strong>{num(filasFiltradas.length)}</strong> de <strong>{num(filas.length)}</strong> registros
+              </>
+            )}
           </div>
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
@@ -235,7 +300,10 @@ export function ReportePendientesRecepcionModal({
                   color: 'var(--success, #25D366)',
                 }}
               >
-                <span>💬</span> Mensaje estructurado para WhatsApp · Pendientes por Recepcionar
+                <span>💬</span>{' '}
+                {esModoIndividual && ordenBase
+                  ? `Mensaje estructurado para WhatsApp · ${ordenBase.codigo}`
+                  : 'Mensaje estructurado para WhatsApp · Pendientes por Recepcionar'}
               </strong>
               <button
                 type="button"
@@ -247,13 +315,111 @@ export function ReportePendientesRecepcionModal({
               </button>
             </div>
             <p className="muted" style={{ fontSize: '.78rem', marginTop: 0, marginBottom: '.65rem' }}>
-              Incluye analista, fechas de montaje y pago, destino sugerido y la leyenda obligatoria: <strong>NO HA LLEGADO A ALMACEN DAR STATUS</strong>.
+              Incluye analista, fechas de montaje y pago, destino sugerido{esModoIndividual ? ', materiales detallados' : ''} y la leyenda obligatoria: <strong>NO HA LLEGADO A ALMACEN DAR STATUS</strong>.
             </p>
             <CompartirWhatsapp texto={textoWhatsapp} />
           </div>
         )}
 
-        {/* ── 2. Tarjetas de Filtros Dinámicos (Estilo Tarjetas MGG) ── */}
+        {/* Panel individual de WhatsApp disparado desde la tabla general */}
+        {!esModoIndividual && filaWspIndividual && (
+          <div
+            className="card"
+            style={{
+              margin: 0,
+              background: 'var(--surface-3, #1e293b)',
+              border: '1px solid var(--success, #25D366)',
+              padding: '.85rem',
+              borderRadius: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.55rem' }}>
+              <strong style={{ fontSize: '.9rem', color: 'var(--success, #25D366)' }}>
+                💬 WhatsApp individual · {filaWspIndividual.codigo} ({filaWspIndividual.origenLabel})
+              </strong>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setFilaWspIndividual(null)}
+                style={{ fontSize: '.78rem' }}
+              >
+                ✕ Cerrar
+              </button>
+            </div>
+            <CompartirWhatsapp texto={construirWhatsappDetallePendiente(filaWspIndividual, actor)} />
+          </div>
+        )}
+
+        {/* ── 2. Ficha / Filtros según modo (Individual por Orden vs General) ── */}
+        {esModoIndividual && ordenBase && ordenIndividualDinamica ? (
+          <div style={surf2}>
+            <div style={tituloSec}>
+              <span>📋</span> Ficha de la Orden Pendiente por Recepcionar · {ordenBase.codigo}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: '.6rem .9rem', fontSize: '.82rem' }}>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>Documento / Tipo</div>
+                <div className="mono" style={{ fontWeight: 700, color: '#f1f5f9' }}>
+                  {ordenBase.codigo}{' '}
+                  <span className="muted" style={{ fontWeight: 500 }}>({ordenBase.origenLabel})</span>
+                </div>
+              </div>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>👤 Analista encargado</div>
+                <div style={{ fontWeight: 700, color: '#f1f5f9' }}>{ordenBase.analista}</div>
+              </div>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>📅 Fecha montada</div>
+                <div className="mono">{ordenBase.fechaMontadaFmt}</div>
+              </div>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>💳 Pagó Tesorería</div>
+                <div>
+                  <span className={`badge ${ordenBase.tienePagoTesoreria ? 'success' : 'warning'}`} style={{ fontSize: '.74rem' }}>
+                    {ordenBase.fechaPagoFmt}
+                  </span>
+                </div>
+              </div>
+              {ordenBase.proveedor && ordenBase.proveedor !== '—' && (
+                <div>
+                  <div className="muted" style={{ fontSize: '.72rem' }}>🏭 Proveedor</div>
+                  <div style={{ fontWeight: 600 }}>{ordenBase.proveedor}</div>
+                </div>
+              )}
+              {ordenBase.solicitante && ordenBase.solicitante !== '—' && (
+                <div>
+                  <div className="muted" style={{ fontSize: '.72rem' }}>🙋 Solicita</div>
+                  <div>{ordenBase.solicitante}</div>
+                </div>
+              )}
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>🏢 Destino sugerido</div>
+                <div style={{ fontWeight: 600 }}>🏭 {ordenBase.almacenDestino}</div>
+              </div>
+            </div>
+            {ordenBase.items.length > 1 && (
+              <div style={{ marginTop: '.7rem', display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  className="input input-sm"
+                  style={{ flex: 1, fontSize: '.82rem' }}
+                  placeholder={`🔎 Filtrar materiales dentro de ${ordenBase.codigo} por nombre o SKU…`}
+                  value={busquedaItemsOrden}
+                  onChange={(e) => setBusquedaItemsOrden(e.target.value)}
+                />
+                {busquedaItemsOrden && (
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => setBusquedaItemsOrden('')}
+                  >
+                    ✕ Todos ({ordenBase.items.length})
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '.65rem' }}>
 
           {/* Tarjeta A: Búsqueda y Segmentación */}
@@ -465,6 +631,7 @@ export function ReportePendientesRecepcionModal({
           </div>
 
         </div>
+        )}
 
         {/* ── 3. Tarjetas KPI Ejecutivas (Estilo MGG) ── */}
         <div
@@ -530,6 +697,67 @@ export function ReportePendientesRecepcionModal({
         </div>
 
         {/* ── 4. Vista Previa Tabular Ejecutiva (Estilo Tabla MGG) ── */}
+        {esModoIndividual && ordenIndividualDinamica ? (
+          <div style={surf2}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+              <span style={{ ...tituloSec, fontSize: '.84rem', color: 'var(--text, #f1f5f9)' }}>
+                <span>🛒</span> Materiales / Ítems pendientes por entrar a almacén
+                <span className="badge" style={{ fontSize: '.72rem', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1' }}>
+                  {ordenIndividualDinamica.items.length} {ordenIndividualDinamica.items.length === 1 ? 'ítem' : 'ítems'}
+                </span>
+              </span>
+            </div>
+
+            <div style={{ maxHeight: '42vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.8rem', margin: 0 }}>
+                <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-1, #0f172a)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>
+                  <tr>
+                    <th style={{ padding: '.5rem .6rem', textAlign: 'center', width: 38, color: '#94a3b8', fontWeight: 600 }}>#</th>
+                    <th style={{ padding: '.5rem .6rem', textAlign: 'left', width: 115, color: '#94a3b8', fontWeight: 600 }}>SKU / CÓDIGO</th>
+                    <th style={{ padding: '.5rem .6rem', textAlign: 'left', color: '#94a3b8', fontWeight: 600 }}>MATERIAL / SERVICIO</th>
+                    <th style={{ padding: '.5rem .6rem', textAlign: 'right', width: 105, color: '#94a3b8', fontWeight: 600 }}>CANTIDAD</th>
+                    <th style={{ padding: '.5rem .6rem', textAlign: 'center', width: 85, color: '#94a3b8', fontWeight: 600 }}>UNIDAD</th>
+                    <th style={{ padding: '.5rem .6rem', textAlign: 'right', width: 120, color: '#94a3b8', fontWeight: 600 }}>SUBTOTAL EST.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!ordenIndividualDinamica.items.length ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '1.8rem 1rem', color: 'var(--text-muted)' }}>
+                        No hay ítems que coincidan con el filtro aplicado.
+                      </td>
+                    </tr>
+                  ) : (
+                    ordenIndividualDinamica.items.map((it, idx) => (
+                      <tr
+                        key={`${it.sku || it.nombre}-${idx}`}
+                        style={{
+                          borderBottom: '1px solid rgba(255,255,255,0.05)',
+                          background: idx % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                        }}
+                      >
+                        <td style={{ padding: '.45rem .6rem', textAlign: 'center', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                        <td className="mono" style={{ padding: '.45rem .6rem', fontWeight: 700, color: '#cbd5e1' }}>
+                          {it.sku || '—'}
+                        </td>
+                        <td style={{ padding: '.45rem .6rem', fontWeight: 600, color: '#f1f5f9' }}>{it.nombre}</td>
+                        <td className="mono" style={{ padding: '.45rem .6rem', textAlign: 'right', fontWeight: 700 }}>
+                          {num(it.cantidad)}
+                        </td>
+                        <td style={{ padding: '.45rem .6rem', textAlign: 'center', color: '#94a3b8' }}>
+                          {it.unidad || 'UND'}
+                        </td>
+                        <td className="mono" style={{ padding: '.45rem .6rem', textAlign: 'right', fontWeight: 700, color: '#22c55e' }}>
+                          {it.subtotalUsd > 0 ? money(it.subtotalUsd, 'USD') : '—'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
         <div style={surf2}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
             <span style={{ ...tituloSec, fontSize: '.84rem', color: 'var(--text, #f1f5f9)' }}>
@@ -553,12 +781,13 @@ export function ReportePendientesRecepcionModal({
                   <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>ÍTEMS / UND.</th>
                   <th style={{ padding: '.5rem .6rem', textAlign: 'right', color: '#94a3b8', fontWeight: 600 }}>MONTO TOTAL</th>
                   <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>ESTADO</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>POR ORDEN</th>
                 </tr>
               </thead>
               <tbody>
                 {!filasFiltradas.length ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
                       No hay recepciones pendientes que coincidan con los filtros aplicados.
                     </td>
                   </tr>
@@ -607,6 +836,28 @@ export function ReportePendientesRecepcionModal({
                           {f.estadoLabel}
                         </span>
                       </td>
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: '.3rem' }}>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={() => void handlePdfDeFila(f)}
+                            disabled={generandoPdfUid === f.uid}
+                            title={`Generar PDF detallado de ${f.codigo}`}
+                          >
+                            {generandoPdfUid === f.uid ? '…' : '📄'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            style={{ color: '#25D366' }}
+                            onClick={() => setFilaWspIndividual((prev) => (prev?.uid === f.uid ? null : f))}
+                            title={`Compartir por WhatsApp ${f.codigo}`}
+                          >
+                            💬
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -614,6 +865,7 @@ export function ReportePendientesRecepcionModal({
             </table>
           </div>
         </div>
+        )}
 
       </div>
     </Modal>
