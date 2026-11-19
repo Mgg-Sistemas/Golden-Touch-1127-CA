@@ -124,17 +124,452 @@ interface Props {
   formatoInicial?: 'pdf' | 'xlsx' | null;
 }
 
+/* ───────────── Componente Buscable con lista desplegable y casillas ───────────── */
+interface OpcionBuscable {
+  value: string;
+  label: string;
+  cant?: number;
+  destacado?: boolean;
+}
+
+function FiltroBuscableDesplegable({
+  id,
+  label,
+  icono,
+  opciones,
+  seleccionados,
+  onChange,
+  textoTodos,
+  totalCant,
+}: {
+  id: string;
+  label: string;
+  icono: string;
+  opciones: OpcionBuscable[];
+  seleccionados: string[];
+  onChange: (nuevos: string[]) => void;
+  textoTodos: string;
+  totalCant: number;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function handleClickAfuera(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setAbierto(false);
+        setBusqueda('');
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setAbierto(false);
+        setBusqueda('');
+      }
+    }
+    if (abierto) {
+      document.addEventListener('mousedown', handleClickAfuera);
+      document.addEventListener('keydown', handleKeyDown);
+      setTimeout(() => inputRef.current?.focus(), 40);
+      return () => {
+        document.removeEventListener('mousedown', handleClickAfuera);
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [abierto]);
+
+  const marcados = useMemo(() => seleccionados.filter((x) => x !== '__ninguna__'), [seleccionados]);
+  const estaActivo = seleccionados.length > 0;
+  const esNinguno = seleccionados.includes('__ninguna__') && seleccionados.length === 1;
+
+  const textoResumen = useMemo(() => {
+    if (!estaActivo) return `${textoTodos} (${totalCant})`;
+    if (esNinguno) return 'Ninguno seleccionado (0)';
+    if (marcados.length === 1) {
+      const op = opciones.find((o) => o.value === marcados[0]);
+      if (op) return `${op.label}${op.cant != null ? ` (${op.cant})` : ''}`;
+      return marcados[0];
+    }
+    if (marcados.length === 2) {
+      const ops = marcados.map((m) => {
+        const op = opciones.find((o) => o.value === m);
+        return op?.label ?? m;
+      });
+      const suma = marcados.reduce((acc, m) => acc + (opciones.find((o) => o.value === m)?.cant ?? 0), 0);
+      return `${ops.join(', ')} (${suma})`;
+    }
+    const suma = marcados.reduce((acc, m) => acc + (opciones.find((o) => o.value === m)?.cant ?? 0), 0);
+    return `${marcados.length} seleccionados (${suma})`;
+  }, [estaActivo, esNinguno, marcados, textoTodos, totalCant, opciones]);
+
+  const normB = (s: string | null | undefined) =>
+    (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+  const opcionesVisibles = useMemo(() => {
+    const q = normB(busqueda);
+    if (!q) return opciones;
+    return opciones.filter((o) => normB(o.label).includes(q) || normB(o.value).includes(q));
+  }, [opciones, busqueda]);
+
+  function alternarOpcion(val: string) {
+    if (!estaActivo) {
+      onChange([val]);
+      return;
+    }
+    if (marcados.includes(val)) {
+      const res = marcados.filter((x) => x !== val);
+      onChange(res.length === 0 ? ['__ninguna__'] : res);
+    } else {
+      const res = [...marcados, val];
+      if (opciones.length > 0 && opciones.every((o) => res.includes(o.value))) {
+        onChange([]);
+      } else {
+        onChange(res);
+      }
+    }
+  }
+
+  function marcarCoincidentes() {
+    const vals = opcionesVisibles.map((o) => o.value);
+    if (!vals.length) return;
+    if (!estaActivo) {
+      onChange(vals);
+    } else {
+      const union = Array.from(new Set([...marcados, ...vals]));
+      if (opciones.length > 0 && opciones.every((o) => union.includes(o.value))) {
+        onChange([]);
+      } else {
+        onChange(union);
+      }
+    }
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <label
+        htmlFor={id}
+        style={{
+          fontSize: '.82rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '.25rem',
+          color: 'var(--text, #f1f5f9)',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: '.3rem' }}>
+          {icono} {label}:
+        </span>
+        {estaActivo && (
+          <span
+            className="badge"
+            style={{
+              fontSize: '.7rem',
+              padding: '1px 6px',
+              background: 'var(--primary, #f97316)',
+              color: '#1a0e00',
+              fontWeight: 700,
+            }}
+          >
+            {esNinguno ? '0' : marcados.length} sel.
+          </span>
+        )}
+      </label>
+
+      <button
+        id={id}
+        type="button"
+        className="select"
+        style={{
+          width: '100%',
+          fontSize: '.82rem',
+          padding: '.35rem .55rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+          textAlign: 'left',
+          borderColor: estaActivo ? 'var(--primary, #f97316)' : undefined,
+          boxShadow: estaActivo ? '0 0 0 1px var(--primary, #f97316)' : undefined,
+        }}
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        title={textoResumen}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: estaActivo ? '78%' : '88%' }}>
+          {textoResumen}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexShrink: 0 }}>
+          {estaActivo && (
+            <span
+              role="button"
+              tabIndex={0}
+              title="Restablecer a todos"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange([]);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation();
+                  onChange([]);
+                }
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.12)',
+                color: 'var(--text, #f1f5f9)',
+                fontSize: '.68rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </span>
+          )}
+          <span style={{ fontSize: '.7rem', opacity: 0.7 }}>
+            {abierto ? '▲' : '▼'}
+          </span>
+        </div>
+      </button>
+
+      {/* Menú flotante con buscador y casillas */}
+      {abierto && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            minWidth: '260px',
+            zIndex: 110,
+            marginTop: '4px',
+            background: 'var(--surface-1, #0f172a)',
+            border: '1px solid var(--border-strong, #334155)',
+            borderRadius: '8px',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.75)',
+            padding: '.55rem .6rem',
+            maxHeight: '340px',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {/* Input de Búsqueda rápida */}
+          <div style={{ position: 'relative', marginBottom: '.4rem' }}>
+            <input
+              ref={inputRef}
+              type="text"
+              className="input"
+              style={{
+                width: '100%',
+                fontSize: '.82rem',
+                padding: '.3rem 1.6rem .3rem .55rem',
+                background: 'rgba(15, 23, 42, 0.9)',
+                borderColor: busqueda ? 'var(--primary, #f97316)' : undefined,
+              }}
+              placeholder={`🔍 Buscar ${label.toLowerCase()}…`}
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+            />
+            {busqueda && (
+              <button
+                type="button"
+                onClick={() => setBusqueda('')}
+                style={{
+                  position: 'absolute',
+                  right: '6px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--muted, #94a3b8)',
+                  cursor: 'pointer',
+                  padding: '2px 4px',
+                  fontSize: '.75rem',
+                }}
+                title="Limpiar búsqueda"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Barra rápida de acciones: Todos / Ninguno / Marcar coincidentes */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingBottom: '.35rem',
+            marginBottom: '.35rem',
+            borderBottom: '1px solid var(--border, #334155)',
+            gap: '.3rem',
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ display: 'flex', gap: '.3rem' }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize: '.72rem', padding: '.15rem .45rem', height: 'auto' }}
+                onClick={() => onChange([])}
+              >
+                ✓ Todos
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize: '.72rem', padding: '.15rem .45rem', height: 'auto' }}
+                onClick={() => onChange(['__ninguna__'])}
+              >
+                ✕ Ninguno
+              </button>
+            </div>
+            {busqueda.trim() && opcionesVisibles.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize: '.72rem', padding: '.15rem .45rem', height: 'auto', color: 'var(--primary, #f97316)', fontWeight: 600 }}
+                onClick={marcarCoincidentes}
+              >
+                ✓ Marcar {opcionesVisibles.length} coincidentes
+              </button>
+            )}
+          </div>
+
+          {/* Lista de opciones con scroll */}
+          <div style={{ overflowY: 'auto', flex: 1, maxHeight: '220px', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+            {/* Fila: Todos */}
+            {!busqueda && (
+              <>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '.32rem .45rem',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                    background: !estaActivo ? 'rgba(249, 115, 22, 0.12)' : 'transparent',
+                    fontSize: '.82rem',
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={!estaActivo}
+                      onChange={() => onChange([])}
+                    />
+                    <strong style={{ color: !estaActivo ? 'var(--primary, #f97316)' : 'inherit' }}>
+                      {textoTodos}
+                    </strong>
+                  </span>
+                  <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px' }}>
+                    {totalCant}
+                  </span>
+                </label>
+                <div style={{ borderTop: '1px dashed var(--border, #334155)', margin: '.25rem 0' }} />
+              </>
+            )}
+
+            {/* Opciones individuales */}
+            {opcionesVisibles.length === 0 ? (
+              <div className="muted" style={{ fontSize: '.78rem', padding: '.6rem .45rem', textAlign: 'center' }}>
+                Sin resultados para «{busqueda}»
+              </div>
+            ) : (
+              opcionesVisibles.map((op) => {
+                const checked = !estaActivo || marcados.includes(op.value);
+                return (
+                  <label
+                    key={op.value}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '.5rem',
+                      padding: '.32rem .45rem',
+                      borderRadius: '5px',
+                      cursor: 'pointer',
+                      background: checked && estaActivo ? 'rgba(249, 115, 22, 0.10)' : 'transparent',
+                      fontSize: '.8rem',
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => alternarOpcion(op.value)}
+                      />
+                      <span style={{
+                        fontWeight: op.destacado ? 700 : checked && estaActivo ? 600 : 400,
+                        color: op.destacado ? 'var(--primary, #f97316)' : 'inherit',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {op.label}
+                      </span>
+                    </span>
+                    {op.cant != null && (
+                      <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', flexShrink: 0 }}>
+                        {op.cant}
+                      </span>
+                    )}
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          {/* Pie del desplegable: Conteo y botón Listo */}
+          <div style={{
+            marginTop: '.45rem',
+            paddingTop: '.4rem',
+            borderTop: '1px solid var(--border, #334155)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}>
+            <span className="muted" style={{ fontSize: '.72rem' }}>
+              {!estaActivo
+                ? 'Todos activos'
+                : esNinguno
+                ? '0 seleccionados'
+                : `${marcados.length} de ${opciones.length} sel.`}
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              style={{ fontSize: '.74rem', padding: '.2rem .65rem' }}
+              onClick={() => {
+                setAbierto(false);
+                setBusqueda('');
+              }}
+            >
+              Listo ✓
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, onClose, formatoInicial }: Props) {
   const [marcados, setMarcados] = useState<string[]>(seleccionGuardada);
   const [modoAgrupacion, setModoAgrupacion] = useState<ModoAgrupacionEquipos>(agrupacionGuardada);
-  const [propietarioSel, setPropietarioSel] = useState<string>('todos');
-  // Multi-selección de ubicaciones por casillas (checkboxes): vacío = todas las ubicaciones
+  const [propietariosSel, setPropietariosSel] = useState<string[]>([]);
   const [ubicacionesSel, setUbicacionesSel] = useState<string[]>([]);
-  const [menuUbicAbierto, setMenuUbicAbierto] = useState(false);
-  const dropdownUbicRef = useRef<HTMLDivElement>(null);
   const [categoriaSel, setCategoriaSel] = useState<'todas' | ClaseEquipo>('todas');
-  const [tipoSel, setTipoSel] = useState<string>('todos');
-  const [estatusSel, setEstatusSel] = useState<string>('todos');
+  const [tiposSel, setTiposSel] = useState<string[]>([]);
+  const [estatusSel, setEstatusSel] = useState<string[]>([]);
   const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | null>(null);
   const [orientacion, setOrientacion] = useState<OrientacionHoja>('auto');
   const [verWhatsapp, setVerWhatsapp] = useState(false);
@@ -142,19 +577,6 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
   const [resumenActivo, setResumenActivo] = useState<boolean>(() => resumenGuardado().activo);
   const [resumenAgrupar, setResumenAgrupar] = useState<AgrupacionResumen>(() => resumenGuardado().agruparPor);
   const [resumenSolo, setResumenSolo] = useState<boolean>(() => resumenGuardado().soloResumen === true);
-
-  // Cerrar menú flotante al hacer clic afuera
-  useEffect(() => {
-    function handleClickAfuera(e: MouseEvent) {
-      if (dropdownUbicRef.current && !dropdownUbicRef.current.contains(e.target as Node)) {
-        setMenuUbicAbierto(false);
-      }
-    }
-    if (menuUbicAbierto) {
-      document.addEventListener('mousedown', handleClickAfuera);
-      return () => document.removeEventListener('mousedown', handleClickAfuera);
-    }
-  }, [menuUbicAbierto]);
 
   // Listas únicas de propietarios y ubicaciones normalizadas
   const listaPropietarios = useMemo(() => {
@@ -195,54 +617,6 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     return { map, sinUbic };
   }, [equipos]);
 
-  const todasLasUbicacionesIds = useMemo(() => {
-    const ids = [...listaUbicaciones];
-    if (conteosUbicaciones.sinUbic > 0) ids.push('__sin__');
-    return ids;
-  }, [listaUbicaciones, conteosUbicaciones]);
-
-  const alternarUbicacion = (id: string) => {
-    setUbicacionesSel((prev) => {
-      if (prev.length === 0) {
-        // Estaban todas seleccionadas: desmarca la que se tocó
-        return todasLasUbicacionesIds.filter((x) => x !== id);
-      }
-      const limpia = prev.filter((x) => x !== '__ninguna__');
-      if (limpia.includes(id)) {
-        const res = limpia.filter((x) => x !== id);
-        return res.length === 0 ? ['__ninguna__'] : res;
-      } else {
-        const nuevo = [...limpia, id];
-        if (todasLasUbicacionesIds.every((x) => nuevo.includes(x))) {
-          return [];
-        }
-        return nuevo;
-      }
-    });
-  };
-
-  const resumenUbicTexto = useMemo(() => {
-    if (ubicacionesSel.length === 0) {
-      return `Todas las ubicaciones (${equipos.length})`;
-    }
-    if (ubicacionesSel.includes('__ninguna__') && ubicacionesSel.length === 1) {
-      return 'Ninguna ubicación seleccionada (0)';
-    }
-    const marcadas = ubicacionesSel.filter((x) => x !== '__ninguna__');
-    if (marcadas.length === 1) {
-      const u = marcadas[0];
-      if (u === '__sin__') return `Sin ubicación asignada (${conteosUbicaciones.sinUbic})`;
-      const cant = conteosUbicaciones.map.get(u) ?? 0;
-      return `${u} (${cant})`;
-    }
-    let cantTotal = 0;
-    for (const u of marcadas) {
-      if (u === '__sin__') cantTotal += conteosUbicaciones.sinUbic;
-      else cantTotal += conteosUbicaciones.map.get(u) ?? 0;
-    }
-    return `${marcadas.length} ubicaciones seleccionadas (${cantTotal})`;
-  }, [ubicacionesSel, equipos.length, conteosUbicaciones]);
-
   // Lista de estatus presentes en los equipos
   const listaEstatusPresentes = useMemo(() => {
     const s = new Set<EstadoEquipo>();
@@ -258,11 +632,12 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
   // Lista de tipos de equipos disponibles en el subconjunto filtrado por propietario, ubicación, categoría y estatus
   const infoTipos = useMemo(() => {
     const base = equipos.filter((e) => {
-      if (propietarioSel !== 'todos') {
+      if (propietariosSel.length > 0) {
+        if (propietariosSel.includes('__ninguna__') && propietariosSel.length === 1) return false;
         const p = (e.propietario ?? '').trim();
-        if (propietarioSel === '__sin__') {
-          if (p) return false;
-        } else if (p.toUpperCase() !== propietarioSel.toUpperCase()) {
+        if (!p) {
+          if (!propietariosSel.includes('__sin__')) return false;
+        } else if (!propietariosSel.some((sel) => sel.toUpperCase() === p.toUpperCase())) {
           return false;
         }
       }
@@ -271,15 +646,16 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         const u = normalizarUbicacion(e.ubicacion);
         if (!u) {
           if (!ubicacionesSel.includes('__sin__')) return false;
-        } else {
-          if (!ubicacionesSel.includes(u)) return false;
+        } else if (!ubicacionesSel.includes(u)) {
+          return false;
         }
       }
       if (categoriaSel !== 'todas') {
         if (claseEquipo(e) !== categoriaSel) return false;
       }
-      if (estatusSel !== 'todos') {
-        if (estadoEfectivo(e) !== estatusSel) return false;
+      if (estatusSel.length > 0) {
+        if (estatusSel.includes('__ninguna__') && estatusSel.length === 1) return false;
+        if (!estatusSel.includes(estadoEfectivo(e))) return false;
       }
       return true;
     });
@@ -299,40 +675,89 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     }
     const lista = Array.from(mapa.values()).sort((a, b) => a.tipoOriginal.localeCompare(b.tipoOriginal, 'es'));
     return { lista, sinTipo, total: base.length };
-  }, [equipos, propietarioSel, ubicacionesSel, categoriaSel, estatusSel]);
+  }, [equipos, propietariosSel, ubicacionesSel, categoriaSel, estatusSel]);
 
-  // Si el tipo activo no existe en la combinación actual, se restablece
+  // Si algún tipo activo ya no existe en la combinación actual, se limpia
   useEffect(() => {
-    if (tipoSel !== 'todos') {
-      if (tipoSel === '__sin__') {
-        if (infoTipos.sinTipo === 0) setTipoSel('todos');
-      } else if (!infoTipos.lista.some((t) => normTipo(t.tipoOriginal) === normTipo(tipoSel))) {
-        setTipoSel('todos');
+    if (tiposSel.length > 0) {
+      const validos = tiposSel.filter((t) => {
+        if (t === '__sin__') return infoTipos.sinTipo > 0;
+        if (t === '__ninguna__') return true;
+        return infoTipos.lista.some((it) => normTipo(it.tipoOriginal) === normTipo(t));
+      });
+      if (validos.length !== tiposSel.length) {
+        setTiposSel(validos);
       }
     }
-  }, [tipoSel, infoTipos]);
+  }, [tiposSel, infoTipos]);
+
+  // Opciones formateadas para los 4 buscables
+  const opcionesPropietarios = useMemo<OpcionBuscable[]>(() => {
+    const lista: OpcionBuscable[] = listaPropietarios.map((p) => {
+      const cant = equipos.filter((e) => (e.propietario ?? '').trim().toUpperCase() === p.toUpperCase()).length;
+      return { value: p, label: p, cant };
+    });
+    const sinProp = equipos.filter((e) => !(e.propietario ?? '').trim()).length;
+    if (sinProp > 0) {
+      lista.push({ value: '__sin__', label: 'Sin propietario asignado', cant: sinProp });
+    }
+    return lista;
+  }, [equipos, listaPropietarios]);
+
+  const opcionesUbicaciones = useMemo<OpcionBuscable[]>(() => {
+    const lista: OpcionBuscable[] = listaUbicaciones.map((u) => {
+      const cant = conteosUbicaciones.map.get(u) ?? 0;
+      const esGT = u === UBICACION_UNIFICADA_GT;
+      return { value: u, label: esGT ? `⭐ ${u}` : u, cant, destacado: esGT };
+    });
+    if (conteosUbicaciones.sinUbic > 0) {
+      lista.push({ value: '__sin__', label: 'Sin ubicación asignada', cant: conteosUbicaciones.sinUbic });
+    }
+    return lista;
+  }, [listaUbicaciones, conteosUbicaciones]);
+
+  const opcionesEstatus = useMemo<OpcionBuscable[]>(() => {
+    return listaEstatusPresentes.map((st) => {
+      const infoSt = ESTADOS_EQUIPO[st];
+      const cant = equipos.filter((e) => estadoEfectivo(e) === st).length;
+      return { value: st, label: `${infoSt?.icon ?? '•'} ${infoSt?.label ?? st}`, cant };
+    });
+  }, [equipos, listaEstatusPresentes]);
+
+  const opcionesTipos = useMemo<OpcionBuscable[]>(() => {
+    const lista: OpcionBuscable[] = infoTipos.lista.map((t) => ({
+      value: t.tipoOriginal,
+      label: t.tipoOriginal,
+      cant: t.cant,
+    }));
+    if (infoTipos.sinTipo > 0) {
+      lista.push({ value: '__sin__', label: 'Sin tipo especificado', cant: infoTipos.sinTipo });
+    }
+    return lista;
+  }, [infoTipos]);
 
   // Filtrado reactivo de equipos con todos los criterios combinados
   const equiposAExportar = useMemo(() => {
     return equipos.filter((e) => {
-      // 1. Propietario
-      if (propietarioSel !== 'todos') {
+      // 1. Propietarios
+      if (propietariosSel.length > 0) {
+        if (propietariosSel.includes('__ninguna__') && propietariosSel.length === 1) return false;
         const p = (e.propietario ?? '').trim();
-        if (propietarioSel === '__sin__') {
-          if (p) return false;
-        } else if (p.toUpperCase() !== propietarioSel.toUpperCase()) {
+        if (!p) {
+          if (!propietariosSel.includes('__sin__')) return false;
+        } else if (!propietariosSel.some((sel) => sel.toUpperCase() === p.toUpperCase())) {
           return false;
         }
       }
 
-      // 2. Ubicación / Garaje (Multi-selección con checkboxes)
+      // 2. Ubicación / Garaje
       if (ubicacionesSel.length > 0) {
         if (ubicacionesSel.includes('__ninguna__') && ubicacionesSel.length === 1) return false;
         const u = normalizarUbicacion(e.ubicacion);
         if (!u) {
           if (!ubicacionesSel.includes('__sin__')) return false;
-        } else {
-          if (!ubicacionesSel.includes(u)) return false;
+        } else if (!ubicacionesSel.includes(u)) {
+          return false;
         }
       }
 
@@ -341,33 +766,37 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         if (claseEquipo(e) !== categoriaSel) return false;
       }
 
-      // 3b. Tipo de equipo específico (ej. Retroexcavadoras, Generadores)
-      if (tipoSel !== 'todos') {
+      // 3b. Tipos de equipo
+      if (tiposSel.length > 0) {
+        if (tiposSel.includes('__ninguna__') && tiposSel.length === 1) return false;
         const t = (e.tipo ?? '').trim();
-        if (tipoSel === '__sin__') {
-          if (t) return false;
-        } else if (normTipo(t) !== normTipo(tipoSel)) {
-          return false;
+        if (!t) {
+          if (!tiposSel.includes('__sin__')) return false;
+        } else {
+          const k = normTipo(t);
+          if (!tiposSel.some((sel) => normTipo(sel) === k)) return false;
         }
       }
 
       // 4. Estatus / Condición operativa
-      if (estatusSel !== 'todos') {
-        if (estadoEfectivo(e) !== estatusSel) return false;
+      if (estatusSel.length > 0) {
+        if (estatusSel.includes('__ninguna__') && estatusSel.length === 1) return false;
+        if (!estatusSel.includes(estadoEfectivo(e))) return false;
       }
 
       return true;
     });
-  }, [equipos, propietarioSel, ubicacionesSel, categoriaSel, tipoSel, estatusSel]);
+  }, [equipos, propietariosSel, ubicacionesSel, categoriaSel, tiposSel, estatusSel]);
 
   // Conteos de categorías calculados sobre el subconjunto de los otros filtros
   const conteoCategorias = useMemo(() => {
     const base = equipos.filter((e) => {
-      if (propietarioSel !== 'todos') {
+      if (propietariosSel.length > 0) {
+        if (propietariosSel.includes('__ninguna__') && propietariosSel.length === 1) return false;
         const p = (e.propietario ?? '').trim();
-        if (propietarioSel === '__sin__') {
-          if (p) return false;
-        } else if (p.toUpperCase() !== propietarioSel.toUpperCase()) {
+        if (!p) {
+          if (!propietariosSel.includes('__sin__')) return false;
+        } else if (!propietariosSel.some((sel) => sel.toUpperCase() === p.toUpperCase())) {
           return false;
         }
       }
@@ -376,18 +805,20 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         const u = normalizarUbicacion(e.ubicacion);
         if (!u) {
           if (!ubicacionesSel.includes('__sin__')) return false;
-        } else {
-          if (!ubicacionesSel.includes(u)) return false;
+        } else if (!ubicacionesSel.includes(u)) {
+          return false;
         }
       }
-      if (estatusSel !== 'todos') {
-        if (estadoEfectivo(e) !== estatusSel) return false;
+      if (estatusSel.length > 0) {
+        if (estatusSel.includes('__ninguna__') && estatusSel.length === 1) return false;
+        if (!estatusSel.includes(estadoEfectivo(e))) return false;
       }
-      if (tipoSel !== 'todos') {
+      if (tiposSel.length > 0) {
+        if (tiposSel.includes('__ninguna__') && tiposSel.length === 1) return false;
         const t = (e.tipo ?? '').trim();
-        if (tipoSel === '__sin__') {
-          if (t) return false;
-        } else if (normTipo(t) !== normTipo(tipoSel)) {
+        if (!t) {
+          if (!tiposSel.includes('__sin__')) return false;
+        } else if (!tiposSel.some((sel) => normTipo(sel) === normTipo(t))) {
           return false;
         }
       }
@@ -400,15 +831,45 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
       m.set(c, (m.get(c) ?? 0) + 1);
     }
     return { mapa: m, total: base.length };
-  }, [equipos, propietarioSel, ubicacionesSel, estatusSel, tipoSel]);
+  }, [equipos, propietariosSel, ubicacionesSel, estatusSel, tiposSel]);
 
   const apartados = useMemo(() => listarApartados(), []);
 
   const categoriaLabel = categoriaSel === 'todas' ? null : (apartados.find((c) => c.id === categoriaSel)?.label ?? null);
-  const tipoLabel = tipoSel === 'todos' ? null : tipoSel === '__sin__' ? 'Sin tipo' : tipoSel;
-  const propietarioLabel = propietarioSel === 'todos' ? null : propietarioSel === '__sin__' ? 'Sin propietario' : propietarioSel;
-  const ubicacionesLabel = ubicacionesSel.length === 0 ? null : ubicacionesSel.includes('__ninguna__') ? 'Ninguna ubicación' : ubicacionesSel.length === 1 ? (ubicacionesSel[0] === '__sin__' ? 'Sin ubicación' : ubicacionesSel[0]) : `${ubicacionesSel.length} ubicaciones`;
-  const estatusLabel = estatusSel === 'todos' ? null : (ESTADOS_EQUIPO[estatusSel as EstadoEquipo]?.label ?? estatusSel);
+  const tipoLabel = useMemo(() => {
+    if (tiposSel.length === 0) return null;
+    if (tiposSel.includes('__ninguna__') && tiposSel.length === 1) return 'Ningún tipo';
+    const marcados = tiposSel.filter((x) => x !== '__ninguna__');
+    if (marcados.length === 1) return marcados[0] === '__sin__' ? 'Sin tipo' : marcados[0];
+    if (marcados.length <= 2) return marcados.map((m) => m === '__sin__' ? 'Sin tipo' : m).join(', ');
+    return `${marcados.length} tipos (${marcados.slice(0, 2).map((m) => m === '__sin__' ? 'Sin tipo' : m).join(', ')}…)`;
+  }, [tiposSel]);
+
+  const propietarioLabel = useMemo(() => {
+    if (propietariosSel.length === 0) return null;
+    if (propietariosSel.includes('__ninguna__') && propietariosSel.length === 1) return 'Ningún propietario';
+    const marcados = propietariosSel.filter((x) => x !== '__ninguna__');
+    if (marcados.length === 1) return marcados[0] === '__sin__' ? 'Sin propietario' : marcados[0];
+    if (marcados.length <= 2) return marcados.map((m) => m === '__sin__' ? 'Sin prop.' : m).join(', ');
+    return `${marcados.length} propietarios`;
+  }, [propietariosSel]);
+
+  const ubicacionesLabel = useMemo(() => {
+    if (ubicacionesSel.length === 0) return null;
+    if (ubicacionesSel.includes('__ninguna__') && ubicacionesSel.length === 1) return 'Ninguna ubicación';
+    const marcadas = ubicacionesSel.filter((x) => x !== '__ninguna__');
+    if (marcadas.length === 1) return marcadas[0] === '__sin__' ? 'Sin ubicación' : marcadas[0];
+    if (marcadas.length <= 2) return marcadas.map((m) => m === '__sin__' ? 'Sin ubic.' : m).join(', ');
+    return `${marcadas.length} ubicaciones`;
+  }, [ubicacionesSel]);
+
+  const estatusLabel = useMemo(() => {
+    if (estatusSel.length === 0) return null;
+    if (estatusSel.includes('__ninguna__') && estatusSel.length === 1) return 'Ningún estatus';
+    const marcados = estatusSel.filter((x) => x !== '__ninguna__');
+    if (marcados.length === 1) return ESTADOS_EQUIPO[marcados[0] as EstadoEquipo]?.label ?? marcados[0];
+    return `${marcados.length} estatus`;
+  }, [estatusSel]);
 
   const subtituloExportacion = useMemo(() => {
     if (tipoLabel && categoriaLabel) return `${categoriaLabel} · ${tipoLabel}`;
@@ -416,14 +877,14 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     return categoriaLabel;
   }, [tipoLabel, categoriaLabel]);
 
-  const hayFiltrosActivos = propietarioSel !== 'todos' || ubicacionesSel.length > 0 || categoriaSel !== 'todas' || tipoSel !== 'todos' || estatusSel !== 'todos';
+  const hayFiltrosActivos = propietariosSel.length > 0 || ubicacionesSel.length > 0 || categoriaSel !== 'todas' || tiposSel.length > 0 || estatusSel.length > 0;
 
   const resetearFiltros = () => {
-    setPropietarioSel('todos');
+    setPropietariosSel([]);
     setUbicacionesSel([]);
     setCategoriaSel('todas');
-    setTipoSel('todos');
-    setEstatusSel('todos');
+    setTiposSel([]);
+    setEstatusSel([]);
   };
 
   const alternar = (clave: string) =>
@@ -473,13 +934,13 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
       equipos: equiposAExportar,
       categoriaSel,
       tipoSel: tipoLabel ?? undefined,
-      propietarioSel,
-      ubicacionesSel,
-      estatusSel,
+      propietarioSel: propietarioLabel ?? undefined,
+      ubicacionesSel: ubicacionesSel.length > 0 ? ubicacionesSel : undefined,
+      estatusSel: estatusLabel ?? undefined,
       modoAgrupacion,
       contextoMap,
     });
-  }, [equiposAExportar, categoriaSel, tipoLabel, propietarioSel, ubicacionesSel, estatusSel, modoAgrupacion, contextoMap]);
+  }, [equiposAExportar, categoriaSel, tipoLabel, propietarioLabel, ubicacionesSel, estatusLabel, modoAgrupacion, contextoMap]);
 
     // Con «Solo el resumen» se puede descargar aunque no haya datos marcados.
   const nada = marcados.length === 0 && !soloResumen;
@@ -606,7 +1067,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         )}
       </div>
 
-      {/* Panel de Filtros Combinados */}
+      {/* Panel de Filtros Combinados (Buscables / Buscadoras con lista desplegable y casillas) */}
       <div style={{
         background: 'var(--surface-2, #182230)',
         border: '1px solid var(--border)',
@@ -618,305 +1079,52 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         gap: '.6rem .8rem',
       }}>
         {/* Filtro: Propietario / Empresa */}
-        <div>
-          <label htmlFor="exp-filtro-propietario" style={{ fontSize: '.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '.3rem', marginBottom: '.25rem', color: 'var(--text, #f1f5f9)' }}>
-            🏢 Empresa / Propietario:
-          </label>
-          <select
-            id="exp-filtro-propietario"
-            className="select"
-            style={{ width: '100%', fontSize: '.82rem', padding: '.3rem .55rem' }}
-            value={propietarioSel}
-            onChange={(e) => setPropietarioSel(e.target.value)}
-          >
-            <option value="todos">Todos los propietarios ({equipos.length})</option>
-            {listaPropietarios.map((p) => {
-              const cant = equipos.filter((e) => (e.propietario ?? '').trim().toUpperCase() === p.toUpperCase()).length;
-              return (
-                <option key={p} value={p}>
-                  {p} ({cant})
-                </option>
-              );
-            })}
-            {equipos.some((e) => !(e.propietario ?? '').trim()) && (
-              <option value="__sin__">Sin propietario asignado</option>
-            )}
-          </select>
-        </div>
+        <FiltroBuscableDesplegable
+          id="exp-filtro-propietario"
+          icono="🏢"
+          label="Empresa / Propietario"
+          textoTodos="Todos los propietarios"
+          totalCant={equipos.length}
+          opciones={opcionesPropietarios}
+          seleccionados={propietariosSel}
+          onChange={setPropietariosSel}
+        />
 
-        {/* Filtro: Ubicación / Garaje (Multi-selección tipo check) */}
-        <div ref={dropdownUbicRef} style={{ position: 'relative' }}>
-          <label
-            htmlFor="exp-filtro-ubicacion-btn"
-            style={{
-              fontSize: '.82rem',
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '.25rem',
-              color: 'var(--text, #f1f5f9)',
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '.3rem' }}>
-              📍 Ubicación / Garaje:
-            </span>
-            {ubicacionesSel.length > 0 && (
-              <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', background: 'var(--primary, #eab308)', color: '#1a0e00', fontWeight: 700 }}>
-                {ubicacionesSel.includes('__ninguna__') ? '0' : ubicacionesSel.length} sel.
-              </span>
-            )}
-          </label>
-
-          <button
-            id="exp-filtro-ubicacion-btn"
-            type="button"
-            className="select"
-            style={{
-              width: '100%',
-              fontSize: '.82rem',
-              padding: '.35rem .55rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              textAlign: 'left',
-              borderColor: ubicacionesSel.length > 0 ? 'var(--primary, #eab308)' : undefined,
-              boxShadow: ubicacionesSel.length > 0 ? '0 0 0 1px var(--primary, #eab308)' : undefined,
-            }}
-            onClick={() => setMenuUbicAbierto((v) => !v)}
-            aria-expanded={menuUbicAbierto}
-            title={resumenUbicTexto}
-          >
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%' }}>
-              {resumenUbicTexto}
-            </span>
-            <span style={{ fontSize: '.7rem', opacity: .7, marginLeft: '.3rem' }}>
-              {menuUbicAbierto ? '▲' : '▼'}
-            </span>
-          </button>
-
-          {/* Menú flotante con casillas (checkboxes) */}
-          {menuUbicAbierto && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                minWidth: '290px',
-                zIndex: 100,
-                marginTop: '4px',
-                background: 'var(--surface-1, #0f172a)',
-                border: '1px solid var(--border-strong, #334155)',
-                borderRadius: '8px',
-                boxShadow: '0 12px 32px rgba(0,0,0,0.7)',
-                padding: '.55rem .6rem',
-                maxHeight: '320px',
-                overflowY: 'auto',
-              }}
-            >
-              {/* Barra rápida: Todas / Ninguna */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '.4rem', marginBottom: '.4rem', borderBottom: '1px solid var(--border)' }}>
-                <span className="muted" style={{ fontSize: '.74rem' }}>
-                  {ubicacionesSel.length === 0 ? 'Todas seleccionadas' : `${ubicacionesSel.filter((x) => x !== '__ninguna__').length} seleccionada(s)`}
-                </span>
-                <div style={{ display: 'flex', gap: '.3rem' }}>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    style={{ fontSize: '.72rem', padding: '.15rem .45rem', height: 'auto' }}
-                    onClick={() => setUbicacionesSel([])}
-                  >
-                    ✓ Todas
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    style={{ fontSize: '.72rem', padding: '.15rem .45rem', height: 'auto' }}
-                    onClick={() => setUbicacionesSel(['__ninguna__'])}
-                  >
-                    ✕ Ninguna
-                  </button>
-                </div>
-              </div>
-
-              {/* Casilla: Todas las ubicaciones */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '.35rem .45rem',
-                  borderRadius: '5px',
-                  cursor: 'pointer',
-                  background: ubicacionesSel.length === 0 ? 'rgba(234, 179, 8, 0.12)' : 'transparent',
-                  marginBottom: '.25rem',
-                  fontSize: '.82rem',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={ubicacionesSel.length === 0}
-                    onChange={() => setUbicacionesSel([])}
-                  />
-                  <strong style={{ color: ubicacionesSel.length === 0 ? 'var(--primary, #eab308)' : 'inherit' }}>
-                    Todas las ubicaciones
-                  </strong>
-                </span>
-                <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px' }}>
-                  {equipos.length}
-                </span>
-              </label>
-
-              <div style={{ borderTop: '1px dashed var(--border)', margin: '.35rem 0' }} />
-
-              {/* Lista de ubicaciones normalizadas */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-                {listaUbicaciones.map((u) => {
-                  const cant = conteosUbicaciones.map.get(u) ?? 0;
-                  const marcada = ubicacionesSel.length === 0 || ubicacionesSel.includes(u);
-                  const esGT = u === UBICACION_UNIFICADA_GT;
-                  return (
-                    <label
-                      key={u}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '.5rem',
-                        padding: '.35rem .45rem',
-                        borderRadius: '5px',
-                        cursor: 'pointer',
-                        background: marcada && ubicacionesSel.length > 0 ? 'rgba(234, 179, 8, 0.10)' : 'transparent',
-                        fontSize: '.8rem',
-                      }}
-                    >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minWidth: 0 }}>
-                        <input
-                          type="checkbox"
-                          checked={marcada}
-                          onChange={() => alternarUbicacion(u)}
-                        />
-                        <span style={{
-                          fontWeight: esGT ? 700 : marcada ? 600 : 400,
-                          color: esGT ? 'var(--primary, #eab308)' : 'inherit',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}>
-                          {esGT ? `⭐ ${u}` : u}
-                        </span>
-                      </span>
-                      <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', flexShrink: 0 }}>
-                        {cant}
-                      </span>
-                    </label>
-                  );
-                })}
-
-                {/* Opción Sin ubicación si existen */}
-                {conteosUbicaciones.sinUbic > 0 && (
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '.5rem',
-                      padding: '.35rem .45rem',
-                      borderRadius: '5px',
-                      cursor: 'pointer',
-                      background: (ubicacionesSel.length === 0 || ubicacionesSel.includes('__sin__')) && ubicacionesSel.length > 0 ? 'rgba(234, 179, 8, 0.10)' : 'transparent',
-                      fontSize: '.8rem',
-                    }}
-                  >
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={ubicacionesSel.length === 0 || ubicacionesSel.includes('__sin__')}
-                        onChange={() => alternarUbicacion('__sin__')}
-                      />
-                      <span className="muted" style={{ fontStyle: 'italic' }}>
-                        Sin ubicación asignada
-                      </span>
-                    </span>
-                    <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', flexShrink: 0 }}>
-                      {conteosUbicaciones.sinUbic}
-                    </span>
-                  </label>
-                )}
-              </div>
-
-              {/* Botón cerrar / listo */}
-              <div style={{ marginTop: '.5rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)', textAlign: 'right' }}>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  style={{ fontSize: '.74rem', padding: '.2rem .6rem' }}
-                  onClick={() => setMenuUbicAbierto(false)}
-                >
-                  Listo ✓
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Filtro: Ubicación / Garaje */}
+        <FiltroBuscableDesplegable
+          id="exp-filtro-ubicacion"
+          icono="📍"
+          label="Ubicación / Garaje"
+          textoTodos="Todas las ubicaciones"
+          totalCant={equipos.length}
+          opciones={opcionesUbicaciones}
+          seleccionados={ubicacionesSel}
+          onChange={setUbicacionesSel}
+        />
 
         {/* Filtro: Estatus / Condición operativa */}
-        <div>
-          <label htmlFor="exp-filtro-estatus" style={{ fontSize: '.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '.3rem', marginBottom: '.25rem', color: 'var(--text, #f1f5f9)' }}>
-            🚦 Estatus / Condición:
-          </label>
-          <select
-            id="exp-filtro-estatus"
-            className="select"
-            style={{ width: '100%', fontSize: '.82rem', padding: '.3rem .55rem' }}
-            value={estatusSel}
-            onChange={(e) => setEstatusSel(e.target.value)}
-          >
-            <option value="todos">Todos los estatus ({equipos.length})</option>
-            {listaEstatusPresentes.map((st) => {
-              const infoSt = ESTADOS_EQUIPO[st];
-              const cant = equipos.filter((e) => estadoEfectivo(e) === st).length;
-              return (
-                <option key={st} value={st}>
-                  {infoSt?.icon ?? '•'} {infoSt?.label ?? st} ({cant})
-                </option>
-              );
-            })}
-          </select>
-        </div>
+        <FiltroBuscableDesplegable
+          id="exp-filtro-estatus"
+          icono="🚦"
+          label="Estatus / Condición"
+          textoTodos="Todos los estatus"
+          totalCant={equipos.length}
+          opciones={opcionesEstatus}
+          seleccionados={estatusSel}
+          onChange={setEstatusSel}
+        />
 
-        {/* Filtro: Tipo de equipo específico (ej. Retroexcavadoras, Generadores, Jumbos, etc.) */}
-        <div>
-          <label htmlFor="exp-filtro-tipo" style={{ fontSize: '.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '.3rem', marginBottom: '.25rem', color: 'var(--text, #f1f5f9)' }}>
-            ⚙️ Tipo de equipo:
-          </label>
-          <select
-            id="exp-filtro-tipo"
-            className="select"
-            style={{
-              width: '100%',
-              fontSize: '.82rem',
-              padding: '.3rem .55rem',
-              borderColor: tipoSel !== 'todos' ? 'var(--primary, #f97316)' : undefined,
-              boxShadow: tipoSel !== 'todos' ? '0 0 0 1px var(--primary, #f97316)' : undefined,
-            }}
-            value={tipoSel}
-            onChange={(e) => setTipoSel(e.target.value)}
-          >
-            <option value="todos">Todos los tipos ({infoTipos.total})</option>
-            {infoTipos.lista.map((t) => (
-              <option key={t.tipoOriginal} value={t.tipoOriginal}>
-                {t.tipoOriginal} ({t.cant})
-              </option>
-            ))}
-            {infoTipos.sinTipo > 0 && (
-              <option value="__sin__">Sin tipo especificado ({infoTipos.sinTipo})</option>
-            )}
-          </select>
-        </div>
+        {/* Filtro: Tipo de equipo específico (ej. Generador, Generador Eléctrico, etc.) */}
+        <FiltroBuscableDesplegable
+          id="exp-filtro-tipo"
+          icono="⚙️"
+          label="Tipo de equipo"
+          textoTodos="Todos los tipos"
+          totalCant={infoTipos.total}
+          opciones={opcionesTipos}
+          seleccionados={tiposSel}
+          onChange={setTiposSel}
+        />
       </div>
 
       {/* Categoría a exportar (pills combinadas con los otros filtros) */}
