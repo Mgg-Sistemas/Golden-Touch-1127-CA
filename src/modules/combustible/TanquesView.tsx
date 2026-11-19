@@ -1376,13 +1376,24 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const [registradoEnDrive, setRegistradoEnDrive] = useState(false);
   const [saldoDrive, setSaldoDrive] = useState('');
   const [movsTanque, setMovsTanque] = useState<MovimientoTanque[]>([]);
-  const [pctMermaImplicita, setPctMermaImplicita] = useState<number>(() => {
+  const [pctMermaInput, setPctMermaInput] = useState<string>(() => {
     const t = tanques.find((x) => x.id === tanqueId);
-    return t?.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT;
+    return String(t?.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT);
   });
+  const pctMermaImplicita = useMemo(() => {
+    const limpio = pctMermaInput.trim().replace(',', '.');
+    if (limpio === '') return 0;
+    const n = Number(limpio);
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MERMA_IMPLICITA_PCT;
+  }, [pctMermaInput]);
   const [verRespaldoMovs, setVerRespaldoMovs] = useState(false);
   const { can } = usePermissions();
   const isAdmin = can('combustible', 'full'); // Full control de Combustible guarda mermas fuera de margen (17/10/2026).
+
+  useEffect(() => {
+    const t = tanques.find((x) => x.id === tanqueId);
+    setPctMermaInput(String(t?.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT));
+  }, [tanqueId, tanques]);
 
   useEffect(() => {
     if (tipo === 'merma' && tanqueId) {
@@ -1568,7 +1579,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           {tipo === 'entrada' && (
             <div className="form-row">
               <label>Costo por litro (USD)</label>
-              <input className="input mono" type="number" min={0} step="0.0001" name="mov-costo" defaultValue={costo} onChange={(e) => setCosto(e.target.value)} />
+              <input className="input mono" type="number" min={0} step="any" name="mov-costo" defaultValue={costo} onChange={(e) => setCosto(e.target.value)} />
               <small className="muted">Recalcula la tasa promedio del tanque.</small>
             </div>
           )}
@@ -1728,11 +1739,18 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
                   <span style={{ fontSize: '.75rem', color: '#94a3b8' }}>Margen:</span>
                   <input
                     type="number"
-                    step="0.01"
+                    inputMode="decimal"
+                    step="any"
                     min="0"
-                    max="10"
-                    value={pctMermaImplicita}
-                    onChange={(e) => setPctMermaImplicita(Math.max(0, Number(e.target.value) || 0))}
+                    max="100"
+                    value={pctMermaInput}
+                    onChange={(e) => setPctMermaInput(e.target.value)}
+                    onBlur={() => {
+                      if (pctMermaInput.trim() === '') {
+                        const t = tanques.find((x) => x.id === tanqueId);
+                        setPctMermaInput(String(t?.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT));
+                      }
+                    }}
                     style={{ width: '56px', background: 'transparent', border: 'none', color: '#FF8A00', fontWeight: 700, fontSize: '.88rem', textAlign: 'right', outline: 'none' }}
                   />
                   <span style={{ fontSize: '.78rem', color: '#FF8A00', fontWeight: 700 }}>%</span>
@@ -2024,7 +2042,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
           {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}</div>
       </div>
       <div className="form-grid">
-        <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="0.0001" name="det-tasa" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="any" name="det-tasa" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>
         <div className="form-row">
           <label>Monto $ (= litros × tasa)</label>
           <input className="input mono" value={montoCalc == null ? '' : money(montoCalc)} readOnly placeholder="se calcula automáticamente"
@@ -2301,12 +2319,12 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
         {!editando ? (
           <div className="form-grid">
             <div className="form-row"><label>Saldo inicial (L)</label><input className="input mono" type="number" min={0} step="any" name="tnk-saldo" defaultValue={saldo} onChange={(e) => setSaldo(e.target.value)} /></div>
-            <div className="form-row"><label>Tasa inicial (USD/L)</label><input className="input mono" type="number" min={0} step="0.0001" name="tnk-tasa-new" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} /></div>
+            <div className="form-row"><label>Tasa inicial (USD/L)</label><input className="input mono" type="number" min={0} step="any" name="tnk-tasa-new" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} /></div>
           </div>
         ) : (
           <div className="form-row">
             <label>Tasa (USD/L)</label>
-            <input className="input mono" type="number" min={0} step="0.0001" name="tnk-tasa-edit" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} />
+            <input className="input mono" type="number" min={0} step="any" name="tnk-tasa-edit" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} />
             <small className="muted">Modifica la tasa promedio del tanque; recalcula el saldo en $ (saldo L × tasa).</small>
           </div>
         )}
@@ -2322,7 +2340,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
         </div>
         <div className="form-row">
           <label>Margen de merma implícita sugerida por movimiento (%)</label>
-          <input className="input mono" type="number" min={0} max={10} step="0.05" name="tnk-merma-implicita"
+          <input className="input mono" type="number" min={0} max={100} step="any" name="tnk-merma-implicita"
             value={mermaImplicita} onChange={(e) => setMermaImplicita(e.target.value)} />
           <small className="muted">Porcentaje técnico sugerido al registrar una merma en este tanque (por defecto 0.5%). Respalda el cálculo con la lista de despachos.</small>
         </div>

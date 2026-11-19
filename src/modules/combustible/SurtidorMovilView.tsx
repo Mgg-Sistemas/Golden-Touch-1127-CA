@@ -307,7 +307,15 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, movimient
   const [observacion, setObservacion] = useState('');
   const [recibidos, setRecibidos] = useState('');
   const [motivoMerma, setMotivoMerma] = useState('');
-  const [pctMermaImplicita, setPctMermaImplicita] = useState<number>(() => tanque.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT);
+  const [pctMermaInput, setPctMermaInput] = useState<string>(() =>
+    String(tanque.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT),
+  );
+  const pctMermaImplicita = useMemo(() => {
+    const limpio = pctMermaInput.trim().replace(',', '.');
+    if (limpio === '') return 0;
+    const n = Number(limpio);
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MERMA_IMPLICITA_PCT;
+  }, [pctMermaInput]);
   const [verRespaldoMovs, setVerRespaldoMovs] = useState(false);
   const [fecha, setFecha] = useState(hoyVE());
   const [hora, setHora] = useState(horaVE());
@@ -517,11 +525,16 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, movimient
               <input
                 type="number"
                 inputMode="decimal"
-                step="0.05"
-                min="0.01"
-                max="10"
-                value={pctMermaImplicita}
-                onChange={(e) => setPctMermaImplicita(Math.max(0.01, Number(e.target.value) || DEFAULT_MERMA_IMPLICITA_PCT))}
+                step="any"
+                min="0"
+                max="100"
+                value={pctMermaInput}
+                onChange={(e) => setPctMermaInput(e.target.value)}
+                onBlur={() => {
+                  if (pctMermaInput.trim() === '') {
+                    setPctMermaInput(String(tanque.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT));
+                  }
+                }}
                 style={{ width: '52px', background: 'transparent', border: 'none', color: '#FF8A00', fontWeight: 700, fontSize: '.88rem', textAlign: 'right', outline: 'none' }}
               />
               <span style={{ fontSize: '.78rem', color: '#FF8A00', fontWeight: 700 }}>%</span>
@@ -607,7 +620,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, movimient
       {tipo === 'entrada' && (
         <div className="surt-campo">
           <label htmlFor="surt-costo">Costo por litro (USD)</label>
-          <input id="surt-costo" className="input surt-input" type="number" inputMode="decimal" step="0.0001" min={0}
+          <input id="surt-costo" className="input surt-input" type="number" inputMode="decimal" step="any" min={0}
             value={costo} onChange={(e) => setCosto(e.target.value)} placeholder="0,00" />
           <small className="muted">Recalcula la tasa promedio del tanque. Viene precargado con la tasa de hoy.</small>
         </div>
