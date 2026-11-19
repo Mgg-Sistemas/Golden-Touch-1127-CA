@@ -32,6 +32,7 @@ import { hoyVenezuela as hoyVenezuelaFijas } from '@/shared/lib/rangosFecha';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
+  DetalleServicioItem,
   EstadoOrden,
   EventoHistorial,
   ItemOrden,
@@ -57,6 +58,8 @@ import {
   actualizarComprarItems,
   actualizarOrdenEditable,
   actualizarDetalleServicio,
+  puedeEditarOrdenCompleta,
+  puedeEditarPreciosOrden,
   registrarAnticipoServicio,
   cancelarOrden,
   cancelarOcConReintegro,
@@ -96,7 +99,8 @@ import { CierreDiarioModal } from './CierreDiarioModal';
 import { ReportePendientesPagarModal } from './ReportePendientesPagarModal';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
-import { esRecargaAgua } from './servicios.repository';
+import { CATEGORIAS_SERVICIO, esRecargaAgua } from './servicios.repository';
+import { DetalleServicioEditor, limpiarDetalleServicio } from './DetalleServicioEditor';
 import { obtenerInfoModalidadPago } from './modalidadPago';
 import {
   RETENCION_INFO, TIPOS_RETENCION, calcularRetencionesCompras, errorRetencionesCompras, netoAPagarCompras,
@@ -1227,11 +1231,12 @@ export function PedidosPage() {
         <CategoriasModal canWrite={canManageProcurement} onClose={() => setCategoriasOpen(false)} />
       )}
 
-      {/* Modal: editar OC (etapa cargar ofertas) */}
+      {/* Modal: editar OC / Servicio */}
       {modal.kind === 'edit-orden' && (
         <EditarOrdenModal
           orden={modal.orden}
           productos={productos}
+          proveedores={proveedores}
           actorEmail={user?.email ?? ''}
           onClose={() => setModal({ kind: 'detail', ordenId: modal.orden.id })}
           onSaved={async () => { await refresh(); setModal({ kind: 'detail', ordenId: modal.orden.id }); }}
@@ -3413,8 +3418,8 @@ function OrdenDetailModal({
   // la OC VUELVE A APROBACIÓN del Gerente General. Tras enviarla a pagar, se congela.
   // El Gerente General (quien aprueba OC) también la edita mientras espera SU aprobación,
   // aunque no tenga el permiso de Compras: corrige antes de firmar en vez de devolverla.
-  const puedeEditarOc = (canManageProcurement
-    && (['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'] as string[]).includes(o.estado))
+  const puedeEditarOc =
+    ((canManageProcurement || (o.tipo === 'servicio' && isAdmin)) && puedeEditarOrdenCompleta(o))
     || (isOcCreada && puedeAprobarOc(usuarioRole, actorEmail));
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
@@ -3459,7 +3464,8 @@ function OrdenDetailModal({
   // sin devolverla a aprobación. El total se recalcula y se sincroniza a Tesorería.
   const [editarPreciosOpen, setEditarPreciosOpen] = useState(false);
   const [whatsappPagarOpen, setWhatsappPagarOpen] = useState(false);
-  const puedeEditarPreciosPago = canManageProcurement && (isConfirmadaMetodo || isOcAprobada) && Number(o.total) > 0;
+  const puedeEditarPreciosPago =
+    (canManageProcurement || (o.tipo === 'servicio' && isAdmin)) && puedeEditarPreciosOrden(o);
   // Reelegir oferta: devuelve la OC (oc_creada) a la etapa de elección para mostrar todas
   // las ofertas de nuevo (re-elegir, editar precios, cargar IVA/IGTF/descuento).
   const [reelegirOpen, setReelegirOpen] = useState(false);
@@ -3601,10 +3607,12 @@ function OrdenDetailModal({
       )}
       {puedeEditarOc && (
         <button className="btn btn-ghost" onClick={onEditarOrden}
-          title={isOcCreada
-            ? 'Editar todo lo de la OC antes de aprobarla: unidad solicitante, solicitante, motivo, finalidad, productos (agregar, quitar, cantidades y costos), descuento, IVA, condición de pago, clasificación, urgencia, nota y adjunto. La oferta aceptada se actualiza con los mismos datos y la OC sigue pendiente de aprobación.'
-            : 'Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.'}>
-          {isOcCreada ? '✎ Editar OC (todo)' : '✎ Editar orden'}
+          title={esServicioOrd
+            ? 'Editar todo del servicio: precios unitarios, cantidades, servicios, IVA/IGTF, descuento, proveedor, condición de pago, anticipo, unidad solicitante, solicitante, motivo, finalidad, detalle del servicio, clasificación, urgencia, nota y adjunto.'
+            : isOcCreada
+              ? 'Editar todo lo de la OC antes de aprobarla: unidad solicitante, solicitante, motivo, finalidad, productos (agregar, quitar, cantidades y costos), descuento, IVA, condición de pago, clasificación, urgencia, nota y adjunto. La oferta aceptada se actualiza con los mismos datos y la OC sigue pendiente de aprobación.'
+              : 'Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.'}>
+          {esServicioOrd ? '✎ Editar servicio (todo)' : isOcCreada ? '✎ Editar OC (todo)' : '✎ Editar orden'}
         </button>
       )}
       {canCancel && (
@@ -3682,8 +3690,8 @@ function OrdenDetailModal({
       )}
       {puedeEditarPreciosPago && (
         <button className="btn btn-ghost" onClick={() => setEditarPreciosOpen(true)}
-          title="Corregir los precios y/o agregar productos (hasta 3) sin devolver la OC a aprobación. El total se recalcula y se sincroniza a Tesorería.">
-          ✏️ Editar precios y cantidades / agregar productos
+          title={`Corregir precios, cantidades, impuestos y/o agregar ${esServicioOrd ? 'servicios' : 'productos'} sin devolver a aprobación. El total se recalcula y se sincroniza a Tesorería y al PDF.`}>
+          {esServicioOrd ? '✏️ Editar precios y servicios' : '✏️ Editar precios y cantidades / agregar productos'}
         </button>
       )}
       {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar.
@@ -5643,24 +5651,35 @@ function CrearOrdenModal({
 function EditarOrdenModal({
   orden,
   productos,
+  proveedores = [],
   actorEmail,
   onClose,
   onSaved,
 }: {
   orden: Orden;
   productos: Producto[];
+  proveedores?: Proveedor[];
   actorEmail: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [items, setItems] = useState<ItemOrden[]>(() => orden.items.map((i) => ({ ...i })));
+  const esServicio = orden.tipo === 'servicio';
+  const enDivisa = !!orden.pago_en_divisa;
+  const [items, setItems] = useState<ItemOrden[]>(() =>
+    orden.items.map((i) => ({
+      ...i,
+      ...(esServicio && enDivisa && i.precio_usd != null ? { precio: Number(i.precio_usd) || 0 } : {}),
+    })),
+  );
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
   const [precioEdit, setPrecioEdit] = useState<Record<string, string>>({});
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
-  // El costo de los productos solo se edita cuando la OC ya tiene oferta/precio elegido
-  // (oc_creada o confirmada_metodo). Si se está esperando el método de pago (firmada por
-  // el GG), al guardar la OC vuelve a aprobación del Gerente General (ver `guardar`).
-  const editarPrecios = ['oc_creada', 'confirmada_metodo'].includes(orden.estado) && Number(orden.total) > 0;
+  // En órdenes de producto, el costo solo se edita cuando tiene oferta/precio elegido
+  // (oc_creada o confirmada_metodo). En órdenes de SERVICIO se permite editar precios y
+  // todos los datos en cualquier etapa activa (oc_creada, cuenta_abierta, oc_aprobada, etc.).
+  const editarPrecios = esServicio
+    ? (Boolean(orden.oc_codigo) || Number(orden.total) > 0 || !['pendiente', 'revision_almacen'].includes(orden.estado))
+    : (['oc_creada', 'confirmada_metodo'].includes(orden.estado) && Number(orden.total) > 0);
   const subtotalEditado = items.reduce(
     (a, it) => a + (it.comprar !== false ? (Number(it.cantidad) || 0) * (Number(it.precio) || 0) : 0),
     0,
@@ -5678,26 +5697,14 @@ function EditarOrdenModal({
   const totalEditado = Math.max(0, Math.round((subtotalEditado - descuentoObtNum) * 100) / 100);
   const factorGravadoEditado = subtotalEditado > 0 ? Math.max(0, subtotalGravadoEditado / subtotalEditado) : 1;
   const baseGravadaNetaEditada = Math.max(0, Math.round(totalEditado * factorGravadoEditado * 100) / 100);
-  // Los impuestos se recalculan sobre la base editada, con el MISMO cálculo que
-  // usa el backend al guardar. Antes aquí se mostraba el monto guardado tal cual:
-  // al cambiar una cantidad, la pantalla prometía un total y se guardaba otro.
   const impPreviosOrden = impuestosDeOrden(orden);
   const baseOrdenPrev = baseNetaDesdeTotal(orden.total, impPreviosOrden);
-  // IVA editable en TODA OC con precio (servicios desde el 01/10/2026; productos desde el
-  // 10/10/2026, para que el Gerente General corrija todo antes de aprobar): se puede prender,
-  // apagar o corregir, en % o en monto. Con un % cargado, el monto sigue a la base mientras
-  // no se escriba a mano.
   const ivaEditable = editarPrecios;
   const [conIva, setConIva] = useState(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0);
   const [ivaPct, setIvaPct] = useState(String(impPreviosOrden.ivaPct > 0 ? impPreviosOrden.ivaPct : 16));
   const [ivaMontoStr, setIvaMontoStr] = useState(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0 ? String(impPreviosOrden.ivaMonto) : '');
-  // Un monto guardado sin % se escribió a mano: no se recalcula solo.
   const ivaManualRef = useRef(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0 && !(impPreviosOrden.ivaPct > 0));
-  // 05/11/2026: precios con el IVA adentro (se guarda pero no suma).
   const [ivaIncluido, setIvaIncluidoState] = useState<boolean>(!!impPreviosOrden.ivaIncluido);
-  // Mientras no se toque el IVA ni cambie la base, se respeta el monto guardado tal cual:
-  // abrir la orden y guardar otra cosa (una nota) no puede mover el IVA por un centavo de
-  // redondeo, porque en una OC ya firmada eso la devolvería al Gerente General.
   const ivaTocadoRef = useRef(false);
   useEffect(() => {
     if (!ivaEditable || !conIva || ivaManualRef.current) return;
@@ -5709,7 +5716,6 @@ function EditarOrdenModal({
   const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
   const ivaMontoNum = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
   function onConIva(activo: boolean) {
-    // Al prenderlo sin monto, se calcula con el % (no queda «marcado en cero»).
     if (activo && !(Number(ivaMontoStr) > 0)) { ivaManualRef.current = false; ivaTocadoRef.current = true; }
     setConIva(activo);
   }
@@ -5721,12 +5727,47 @@ function EditarOrdenModal({
     setIvaPct(m > 0 && baseCalc > 0 ? String(porcentajeDesdeIva(baseCalc, m, ivaIncluido)) : '0');
   }
   const ivaEditado = ivaEditable ? { aplicado: conIva, pct: ivaPctNum, monto: ivaMontoNum, incluido: ivaIncluido } : null;
+
+  // IGTF editable en órdenes de servicio cuando se editan precios
+  const igtfEditable = esServicio && editarPrecios;
+  const [conIgtf, setConIgtf] = useState(impPreviosOrden.igtfAplicado && impPreviosOrden.igtfMonto > 0);
+  const [igtfPct, setIgtfPct] = useState(String(impPreviosOrden.igtfPct > 0 ? impPreviosOrden.igtfPct : 3));
+  const [igtfMontoStr, setIgtfMontoStr] = useState(impPreviosOrden.igtfAplicado && impPreviosOrden.igtfMonto > 0 ? String(impPreviosOrden.igtfMonto) : '');
+  const igtfManualRef = useRef(impPreviosOrden.igtfAplicado && impPreviosOrden.igtfMonto > 0 && !(impPreviosOrden.igtfPct > 0));
+  const igtfTocadoRef = useRef(false);
+  const ivaSumaParaIgtf = ivaIncluido ? 0 : ivaMontoNum;
+  const baseIgtfEditada = Math.max(0, Math.round((totalEditado + ivaSumaParaIgtf) * 100) / 100);
+  useEffect(() => {
+    if (!igtfEditable || !conIgtf || igtfManualRef.current) return;
+    if (!igtfTocadoRef.current && !ivaTocadoRef.current && Math.abs(totalEditado - baseOrdenPrev) < 0.005) return;
+    const p = Number(igtfPct) || 0;
+    setIgtfMontoStr(p > 0 && baseIgtfEditada > 0 ? String(Math.round(baseIgtfEditada * p) / 100) : '');
+  }, [igtfEditable, conIgtf, igtfPct, baseIgtfEditada, totalEditado, baseOrdenPrev]);
+  const igtfPctNum = Math.max(0, Math.min(100, Math.round((Number(igtfPct) || 0) * 100) / 100));
+  const igtfMontoNum = conIgtf ? Math.max(0, Math.round((Number(igtfMontoStr) || 0) * 100) / 100) : 0;
+  function onConIgtf(activo: boolean) {
+    if (activo && !(Number(igtfMontoStr) > 0)) { igtfManualRef.current = false; igtfTocadoRef.current = true; }
+    setConIgtf(activo);
+  }
+  function onIgtfPct(v: string) { igtfManualRef.current = false; igtfTocadoRef.current = true; setConIgtf(true); setIgtfPct(v); }
+  function onIgtfMonto(v: string) {
+    igtfManualRef.current = true; igtfTocadoRef.current = true; setConIgtf(true); setIgtfMontoStr(v);
+    const m = Number(v) || 0;
+    setIgtfPct(m > 0 && baseIgtfEditada > 0 ? String(Math.round((m / baseIgtfEditada) * 10000) / 100) : '0');
+  }
+  const igtfEditado = igtfEditable ? { aplicado: conIgtf, pct: igtfPctNum, monto: igtfMontoNum } : null;
+
   const impRecalculados = ivaEditado
     ? recomponerConIva(baseOrdenPrev, totalEditado, impPreviosOrden, ivaEditado)
     : recomponerImpuestos(baseOrdenPrev, totalEditado, impPreviosOrden);
-  const impuestosOrden = impRecalculados.impuestos;
-  const totalConImpuestos = impRecalculados.total;
-  // Datos de cabecera editables de la OP: solicitante, unidad, clasificación, urgencia y notas.
+  const impuestosOrden = igtfEditado
+    ? Math.round(((ivaIncluido ? 0 : (conIva ? ivaMontoNum : 0)) + igtfMontoNum) * 100) / 100
+    : impRecalculados.impuestos;
+  const totalConImpuestos = igtfEditado
+    ? Math.round((totalEditado + impuestosOrden) * 100) / 100
+    : impRecalculados.total;
+
+  // Datos de cabecera editables de la OP / Servicio
   const [solicitante, setSolicitante] = useState(orden.solicitante ?? '');
   const [ciSolicitante, setCiSolicitante] = useState(orden.ci_solicitante ?? '');
   const [unidadSol, setUnidadSol] = useState(orden.unidad_solicitante ?? '');
@@ -5735,14 +5776,25 @@ function EditarOrdenModal({
   const [notas, setNotas] = useState(orden.notas ?? '');
   const [motivo, setMotivo] = useState(orden.motivo ?? '');
   const [finalidad, setFinalidad] = useState(orden.finalidad ?? '');
-  // Condición de pago: solo mientras la OC espera la aprobación del Gerente General (al
-  // aprobarla, el estado al que pasa sale de aquí).
-  const condicionEditable = orden.estado === 'oc_creada';
+  const mostrarProveedor = esServicio && (Boolean(orden.oc_codigo) || Boolean(orden.proveedor_id) || proveedores.length > 0);
+  const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
+  const provOptions = useMemo(
+    () => proveedores.map((p) => ({
+      value: p.id,
+      label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}`,
+    })),
+    [proveedores],
+  );
+  const [detalleServicio, setDetalleServicio] = useState<DetalleServicioItem[]>(
+    () => (orden.detalle_servicio ?? []).map((d) => ({ ...d })),
+  );
+  // Condición de pago: en OC de producto solo mientras espera firma; en Servicios cuando ya es CS o edita precios.
+  const condicionEditable = orden.estado === 'oc_creada' || (esServicio && (Boolean(orden.oc_codigo) || editarPrecios));
   const [condicion, setCondicion] = useState(orden.condiciones_pago ?? '');
   // Pago anticipado (adelanto parcial) de la OC de servicio: editable aquí mientras la orden
   // tenga total y no esté pagada/cerrada. No toca caja; se resta del total y el resto queda a
   // crédito (misma lógica que el bloque «Pago anticipado» del detalle). En blanco/0 lo quita.
-  const anticipoAplicable = orden.tipo === 'servicio' && Number(orden.total) > 0
+  const anticipoAplicable = esServicio && (editarPrecios || Number(orden.total) > 0)
     && !['pagada', 'recibida', 'finalizada'].includes(orden.estado);
   const anticipoYaPuesto = (Number(orden.anticipo_monto) || 0) > 0;
   const [anticipoOn, setAnticipoOn] = useState<boolean>(anticipoYaPuesto);
@@ -5790,7 +5842,6 @@ function EditarOrdenModal({
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCategoria, setNuevoCategoria] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
-  // Inventario único: el producto nuevo entra siempre al Inventario General ('General' en BD).
   const nuevoAlmacen = 'General';
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   const [unidadesList, setUnidadesList] = useState<string[]>([]);
@@ -5798,9 +5849,7 @@ function EditarOrdenModal({
   useEffect(() => {
     getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((p) => (u.includes(p) ? p : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
   }, []);
-  // Opciones del selector de producto: se arman SOLO cuando cambia la lista.
   const prodOptions = useMemo(
-    // Con el código anterior al final: quien busca por «GEN-179» sigue encontrando el producto.
     () => allProductos.map((p) => ({
       value: p.id,
       label: `${p.sku} · ${p.nombre}${p.sku_anteriores?.length ? ` (antes ${p.sku_anteriores.join(', ')})` : ''}`,
@@ -5813,11 +5862,30 @@ function EditarOrdenModal({
   }
   function removeItem(idx: number) {
     setItems((prev) => prev.filter((_, k) => k !== idx));
+    setCantEdit({});
+    setPrecioEdit({});
+  }
+  function addServicioItem() {
+    const skuNuevo = `SRV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    setItems((prev) => [
+      ...prev,
+      {
+        sku: skuNuevo,
+        nombre: '',
+        cantidad: 1,
+        precio: 0,
+        precio_usd: enDivisa ? 0 : null,
+        unidad: 'SERV',
+        comprar: true,
+        es_servicio: true,
+        categoria_servicio: CATEGORIAS_SERVICIO[0] ?? 'MANTENIMIENTO',
+        sin_insumo: true,
+      },
+    ]);
   }
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
     if (!p) return;
-    // Mismo aviso que al crear la solicitud: el usuario tiene que ver que se agregó.
     const yaEnLista = items.find((i) => i.productoId === p.id);
     if (yaEnLista) toast(`«${p.nombre}» ya estaba en la solicitud · cantidad: ${yaEnLista.cantidad + 1}`, 'info');
     else toast(`«${p.nombre}» agregado a la solicitud`, 'success');
@@ -5826,8 +5894,6 @@ function EditarOrdenModal({
       : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
   }
 
-  // Mismo aviso de producto parecido que en la creación de la solicitud: el
-  // índice único solo frena el nombre idéntico, y los duplicados nunca lo son.
   const [parecidos, setParecidos] = useState<ProductoParecido[]>([]);
   const [altaPendiente, setAltaPendiente] = useState<{ nombre: string; categoria: string } | null>(null);
 
@@ -5845,8 +5911,6 @@ function EditarOrdenModal({
 
   /** Puerta: mira si ya hay algo parecido antes de dar de alta. */
   async function crearProductoNuevo() {
-    // Fuente de verdad: el DOM (inputs NO controlados), no el estado React — así un
-    // re-render pesado del modal no pisa lo tecleado (el nombre "cortado a medias").
     const nombre = (nuevoNombreRef.current?.value ?? nuevoNombre).trim().toUpperCase();
     if (!nombre) { toast('Escribe el nombre del producto', 'error'); return; }
     const categoria = nuevoCategoria.trim().toUpperCase();
@@ -5865,9 +5929,6 @@ function EditarOrdenModal({
   async function crearProductoAhora(nombre: string, categoria: string) {
     setCreandoNuevo(true);
     try {
-      // SKU correlativo por categoría (prefijo propio de cada categoría + Nº
-      // incremental, p. ej. PRO-001), con contador persistente en la base. Una
-      // categoría nueva entra antes al catálogo.
       categoria = await asegurarCategoria(categoria);
       const sku = await nextSku(categoria);
       const creado = await createProducto({
@@ -5894,15 +5955,24 @@ function EditarOrdenModal({
   }
 
   async function guardar() {
-    if (!items.length) { toast('La OC debe tener al menos un ítem.', 'error'); return; }
-    if (!items.some((i) => i.comprar !== false)) { toast('Marca al menos un ítem a comprar.', 'error'); return; }
-    if (items.some((i) => !(i.nombre ?? '').trim())) { toast('El nombre del producto no puede quedar vacío.', 'error'); return; }
+    if (!items.length) { toast(esServicio ? 'El servicio debe tener al menos un renglón.' : 'La OC debe tener al menos un ítem.', 'error'); return; }
+    if (!items.some((i) => i.comprar !== false)) { toast(esServicio ? 'Marca al menos un servicio activo.' : 'Marca al menos un ítem a comprar.', 'error'); return; }
+    if (items.some((i) => !(i.nombre ?? '').trim())) { toast(esServicio ? 'La descripción del servicio no puede quedar vacía.' : 'El nombre del producto no puede quedar vacío.', 'error'); return; }
     setSaving(true);
     try {
-      // Nombres normalizados (trim). Se sincronizan con el inventario abajo.
-      const itemsFinal = items.map((i) => ({ ...i, nombre: (i.nombre ?? '').trim() }));
-      // Adjunto: si hay archivo nuevo lo subimos; si se pidió quitar, va a null;
-      // si no se tocó, queda undefined (sin cambios). Limpiamos el anterior luego.
+      const itemsFinal = items.map((i) => ({
+        ...i,
+        nombre: (i.nombre ?? '').trim(),
+        ...(esServicio
+          ? {
+              es_servicio: i.es_servicio ?? true,
+              unidad: (i.unidad ?? '').trim() || 'SERV',
+              sin_insumo: i.insumo_producto_id ? false : (i.sin_insumo ?? true),
+              ...(enDivisa ? { precio_usd: Number(i.precio) || 0 } : {}),
+            }
+          : {}),
+      }));
+
       let imagenPatch: string | null | undefined = undefined;
       if (imagenFile) imagenPatch = await subirImagenOrden(imagenFile);
       else if (quitarImagen && imagenPathActual) imagenPatch = null;
@@ -5912,9 +5982,12 @@ function EditarOrdenModal({
         total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
         descuento_obtenido: editarPrecios ? descuentoObtNum : undefined,
         iva: ivaEditado ?? undefined,
+        igtf: igtfEditado ?? undefined,
         motivo: motivo.trim() || null,
         finalidad: finalidad.trim() || null,
         ...(condicionEditable ? { condiciones_pago: condicion || null } : {}),
+        ...(mostrarProveedor ? { proveedor_id: proveedorId || null } : {}),
+        ...(esServicio ? { detalle_servicio: limpiarDetalleServicio(detalleServicio) } : {}),
         solicitante: solicitante.trim() || null,
         ci_solicitante: ciSolicitante.trim() || null,
         unidad_solicitante: unidadSol.trim().toUpperCase() || null,
@@ -5924,35 +5997,34 @@ function EditarOrdenModal({
         imagen_path: imagenPatch,
       }, actorEmail || 'sistema');
 
-      // Pago anticipado (adelanto parcial): se aplica sobre la orden YA actualizada (con el
-      // total nuevo). Registrar/editar cuando está activo; con 0 (o desmarcado) lo quita.
-      // Misma lógica que el bloque «Pago anticipado» del detalle (no toca caja, resto a crédito).
       if (anticipoAplicable && (anticipoOn || anticipoYaPuesto) && Number(savedOrden.total) > 0) {
         const montoAnt = anticipoOn ? (Number(anticipoMonto) || 0) : 0;
         await registrarAnticipoServicio(savedOrden, { monto: montoAnt, moneda: anticipoMoneda }, actorEmail || 'sistema');
       }
 
-      // Si reemplazamos o quitamos, borramos el archivo anterior del bucket (best-effort).
       if (imagenPatch !== undefined && imagenPathActual && imagenPathActual !== imagenPatch) {
         await eliminarImagenOrden(imagenPathActual);
       }
 
-      // Sincroniza con el inventario el nombre de los productos que cambiaron.
-      const origPorPid = new Map(orden.items.map((i) => [i.productoId, i.nombre]));
-      const cambiados = itemsFinal.filter((i) => i.productoId && i.nombre && i.nombre !== origPorPid.get(i.productoId));
-      if (cambiados.length) {
-        const res = await Promise.allSettled(cambiados.map((i) => updateProducto(i.productoId!, { nombre: i.nombre })));
-        const fallos = res.filter((r) => r.status === 'rejected').length;
-        if (fallos) toast(`OC actualizada, pero ${fallos} nombre(s) no se pudo sincronizar con inventario.`, 'error');
-        else toast(`Nombre sincronizado con inventario (${cambiados.length}).`, 'success');
+      if (!esServicio) {
+        const origPorPid = new Map(orden.items.map((i) => [i.productoId, i.nombre]));
+        const cambiados = itemsFinal.filter((i) => !i.es_servicio && i.productoId && i.nombre && i.nombre !== origPorPid.get(i.productoId));
+        if (cambiados.length) {
+          const res = await Promise.allSettled(cambiados.map((i) => updateProducto(i.productoId!, { nombre: i.nombre })));
+          const fallos = res.filter((r) => r.status === 'rejected').length;
+          if (fallos) toast(`OC actualizada, pero ${fallos} nombre(s) no se pudo sincronizar con inventario.`, 'error');
+          else toast(`Nombre sincronizado con inventario (${cambiados.length}).`, 'success');
+        }
       }
-      if (orden.estado === 'confirmada_metodo') {
+      if (!esServicio && orden.estado === 'confirmada_metodo') {
         notify(`OC ${orden.codigo} modificada · vuelve a aprobación del Gerente General`, 'warning', { link: '#/app/pedidos' });
+      } else if (esServicio) {
+        notify(`Servicio ${orden.oc_codigo ?? orden.codigo} actualizado`, 'success', { link: '#/app/pedidos' });
       } else {
         notify(`${orden.estado === 'pendiente' ? 'Solicitud de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
       }
       onSaved();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar la OC', 'error'); setSaving(false); }
+    } catch (e) { toast(e instanceof Error ? e.message : (esServicio ? 'No se pudo actualizar el servicio' : 'No se pudo modificar la OC'), 'error'); setSaving(false); }
   }
 
   const footer = (
@@ -5964,25 +6036,29 @@ function EditarOrdenModal({
 
   const esOp = orden.estado === 'pendiente';
   return (
-    <Modal title={`Editar ${esOp ? 'solicitud de pedido' : 'orden'} · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
+    <Modal title={`Editar ${esServicio ? 'servicio' : (esOp ? 'solicitud de pedido' : 'orden')} · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.8rem' }}>
-        {orden.estado === 'oc_creada'
-          ? 'OC pendiente de aprobación del Gerente General: se puede editar todo — unidad solicitante, solicitante, motivo, finalidad, productos, cantidades, costos, descuento, IVA, condición de pago, clasificación, urgencia, nota y adjunto.'
-          : <>Modifica solicitante, unidad, ítems, clasificación y urgencia. {esOp
-            ? 'Disponible mientras la solicitud de pedido esté pendiente (antes de aprobarla).'
-            : 'Disponible hasta que el Gerente General apruebe la OC.'}</>}
+        {esServicio
+          ? 'Edición completa del servicio: puedes modificar unidad solicitante, solicitante, proveedor, condición de pago, servicios, cantidades, precios unitarios, descuento, IVA, IGTF, detalle del servicio, clasificación, urgencia, notas y adjunto. Los cambios se sincronizan en el PDF, WhatsApp y Tesorería.'
+          : orden.estado === 'oc_creada'
+            ? 'OC pendiente de aprobación del Gerente General: se puede editar todo — unidad solicitante, solicitante, motivo, finalidad, productos, cantidades, costos, descuento, IVA, condición de pago, clasificación, urgencia, nota y adjunto.'
+            : <>Modifica solicitante, unidad, ítems, clasificación y urgencia. {esOp
+              ? 'Disponible mientras la solicitud de pedido esté pendiente (antes de aprobarla).'
+              : 'Disponible hasta que el Gerente General apruebe la OC.'}</>}
       </p>
       {Number(orden.total) > 0 && (
-        <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.6rem', fontSize: '.8rem' }}>
-          {editarPrecios
-            ? (orden.estado === 'oc_creada'
-              ? <>🧾 <strong>Cotización aceptada.</strong> Puedes <strong>agregar productos</strong> (del inventario, abajo en «Buscar producto», o nuevos con «+ Producto nuevo») y <strong>editar cantidades y costo unitario</strong>. Al guardar, la <strong>oferta aceptada se actualiza</strong> con los mismos renglones y precio, el total se recalcula y la OC <strong>sigue pendiente de aprobación del Gerente General</strong>.</>
-              : <>⚠ Puedes <strong>editar el costo unitario</strong> de cada producto aquí abajo. Al guardar, el total se recalcula y la OC <strong>vuelve a aprobación del Gerente General</strong>.</>)
-            : <>⚠ Esta orden ya tiene una oferta con precio elegida. Si cambias los ítems o cantidades, deberás <strong>volver a evaluar la oferta</strong> para recalcular el monto.</>}
+        <div className="card" style={{ borderColor: esServicio ? 'var(--primary, #f97316)' : 'var(--warning, #f59e0b)', marginBottom: '.6rem', fontSize: '.8rem' }}>
+          {esServicio
+            ? <>🔧 <strong>Servicio activo ({orden.oc_codigo ?? orden.codigo}).</strong> Puedes <strong>editar precios, cantidades, descripciones, impuestos, proveedor y detalle</strong>, o agregar/quitar renglones de servicio. El estado actual se conserva y el saldo en Tesorería se actualiza automáticamente.</>
+            : editarPrecios
+              ? (orden.estado === 'oc_creada'
+                ? <>🧾 <strong>Cotización aceptada.</strong> Puedes <strong>agregar productos</strong> (del inventario, abajo en «Buscar producto», o nuevos con «+ Producto nuevo») y <strong>editar cantidades y costo unitario</strong>. Al guardar, la <strong>oferta aceptada se actualiza</strong> con los mismos renglones y precio, el total se recalcula y la OC <strong>sigue pendiente de aprobación del Gerente General</strong>.</>
+                : <>⚠ Puedes <strong>editar el costo unitario</strong> de cada producto aquí abajo. Al guardar, el total se recalcula y la OC <strong>vuelve a aprobación del Gerente General</strong>.</>)
+              : <>⚠ Esta orden ya tiene una oferta con precio elegida. Si cambias los ítems o cantidades, deberás <strong>volver a evaluar la oferta</strong> para recalcular el monto.</>}
         </div>
       )}
 
-      {/* Cabecera editable de la OP: unidad, código (solo lectura), solicitante y cédula. */}
+      {/* Cabecera editable: unidad, código (solo lectura), solicitante y cédula. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
         <div className="form-row" style={{ marginBottom: 0 }}>
           <label>Unidad solicitante</label>
@@ -5992,7 +6068,7 @@ function EditarOrdenModal({
         </div>
         <div className="form-row" style={{ marginBottom: 0 }}>
           <label>Código</label>
-          <input className="input mono" value={orden.oc_codigo ?? orden.codigo} readOnly disabled />
+          <input className="input mono" value={orden.oc_codigo ? `${orden.oc_codigo} (${orden.codigo})` : orden.codigo} readOnly disabled />
         </div>
       </div>
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', marginTop: '.35rem' }}>
@@ -6008,13 +6084,27 @@ function EditarOrdenModal({
         La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).
       </small>
 
-      <div className="form-row">
-        <label>Solicitante</label>
-        <input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)}
-          placeholder="Nombre de la persona que solicita" />
+      <div style={{ display: 'grid', gridTemplateColumns: mostrarProveedor ? '1fr 1fr' : '1fr', gap: '.75rem' }}>
+        <div className="form-row" style={{ marginBottom: 0 }}>
+          <label>Solicitante</label>
+          <input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)}
+            placeholder="Nombre de la persona que solicita" />
+        </div>
+        {mostrarProveedor && (
+          <div className="form-row" style={{ marginBottom: 0 }}>
+            <label>Proveedor del servicio</label>
+            <SearchSelect
+              value={proveedorId}
+              onChange={setProveedorId}
+              options={provOptions}
+              placeholder="Seleccionar proveedor…"
+              emptyText="Ningún proveedor coincide"
+            />
+          </div>
+        )}
       </div>
 
-      <div className="form-row">
+      <div className="form-row" style={{ marginTop: '.6rem' }}>
         <label>Cédula del solicitante</label>
         <input className="input mono" value={ciSolicitante} onChange={(e) => setCiSolicitante(e.target.value)}
           placeholder="C.I. del solicitante (opcional)" />
@@ -6042,69 +6132,105 @@ function EditarOrdenModal({
         )}
       </div>
 
-      <div className="form-row">
-        <label>Productos solicitados</label>
-        <small className="muted" style={{ marginBottom: '.35rem' }}>Marca los artículos a comprar e indica la finalidad de cada uno. Los desmarcados quedan en la solicitud pero no se cotizan.</small>
+      <div className="form-row" style={{ marginTop: '.65rem' }}>
+        <label>{esServicio ? 'Servicios solicitados' : 'Productos solicitados'}</label>
+        <small className="muted" style={{ marginBottom: '.35rem' }}>
+          {esServicio
+            ? 'Edita la descripción, categoría, unidad, cantidad y precio unitario de cada renglón del servicio, o agrega/quita renglones.'
+            : 'Marca los artículos a comprar e indica la finalidad de cada uno. Los desmarcados quedan en la solicitud pero no se cotizan.'}
+        </small>
         <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
-          <div title="Comprar">✓</div><div>Producto</div><div>Cantidad</div><div></div>
+          <div title="Activo">✓</div><div>{esServicio ? 'Servicio / descripción' : 'Producto'}</div><div>Cantidad</div><div></div>
         </div>
-        {/* Scroll propio: muchos productos (sin tope) sin empujar el buscador «+ Añadir». */}
         <div style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: '.2rem' }}>
           {!items.length && <div className="muted" style={{ fontSize: '.84rem', padding: '.4rem 0' }}>Sin ítems. Añade al menos uno.</div>}
           {items.map((it, idx) => {
             const comprar = it.comprar !== false;
+            const rowKey = `${it.sku || 'it'}-${idx}`;
             return (
-              <div key={`${it.sku}-${idx}`} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.4rem' }}>
+              <div key={rowKey} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.45rem' }}>
                 <div className="line-picker" style={{ gridTemplateColumns: '34px 2fr 130px 40px', marginBottom: 0 }}>
-                  <input type="checkbox" checked={comprar} title={comprar ? 'Se comprará' : 'No se comprará'}
+                  <input type="checkbox" checked={comprar} title={comprar ? 'Incluido' : 'Excluido'}
                     onChange={(e) => updateItem(idx, { comprar: e.target.checked })} style={{ alignSelf: 'center' }} />
                   <div>
-                    {/* Nombre editable: al guardar se sincroniza con el inventario. */}
                     <input className="input" style={{ width: '100%', fontSize: '.84rem' }}
                       value={it.nombre}
-                      title="Editar nombre del producto (se actualiza también en el inventario)"
+                      placeholder={esServicio ? 'Descripción del servicio *' : 'Nombre del producto *'}
+                      title={esServicio ? 'Descripción del servicio' : 'Editar nombre del producto (se actualiza también en el inventario)'}
                       onChange={(e) => updateItem(idx, { nombre: e.target.value })} />
-                    <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.15rem' }}>{skuVisible(it.sku)}</div>
+                    {!esServicio && <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.15rem' }}>{skuVisible(it.sku)}</div>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
                     <input className="input mono" type="number" min={0} step="any" style={{ flex: 1, minWidth: 0 }}
-                      value={cantEdit[it.sku] ?? String(it.cantidad)}
+                      value={cantEdit[rowKey] ?? String(it.cantidad)}
                       onChange={(e) => {
                         const raw = e.target.value;
-                        setCantEdit((m) => ({ ...m, [it.sku]: raw }));
+                        setCantEdit((m) => ({ ...m, [rowKey]: raw }));
                         const n = Number(raw.replace(',', '.'));
                         if (raw !== '' && Number.isFinite(n) && n > 0) updateItem(idx, { cantidad: n });
                       }}
                       onBlur={() => {
-                        const n = Number((cantEdit[it.sku] ?? String(it.cantidad)).replace(',', '.'));
+                        const n = Number((cantEdit[rowKey] ?? String(it.cantidad)).replace(',', '.'));
                         const val = Number.isFinite(n) && n > 0 ? n : 1;
                         updateItem(idx, { cantidad: val });
-                        setCantEdit((m) => ({ ...m, [it.sku]: String(val) }));
+                        setCantEdit((m) => ({ ...m, [rowKey]: String(val) }));
                       }} />
-                    {it.unidad && <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{it.unidad}</span>}
+                    {!esServicio && it.unidad && <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{it.unidad}</span>}
                   </div>
                   <button type="button" className="rm" title="Quitar" onClick={() => removeItem(idx)}>✕</button>
                 </div>
                 {comprar && (
                   <div style={{ marginLeft: 34, display: 'grid', gap: '.3rem', marginTop: '.3rem' }}>
+                    {esServicio && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: '.4rem' }}>
+                        <select
+                          className="select"
+                          style={{ fontSize: '.8rem' }}
+                          value={it.categoria_servicio ?? CATEGORIAS_SERVICIO[0] ?? 'MANTENIMIENTO'}
+                          onChange={(e) => updateItem(idx, { categoria_servicio: e.target.value })}
+                        >
+                          {CATEGORIAS_SERVICIO.map((cat) => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                          {it.categoria_servicio && !CATEGORIAS_SERVICIO.includes(it.categoria_servicio as any) && (
+                            <option value={it.categoria_servicio}>{it.categoria_servicio}</option>
+                          )}
+                        </select>
+                        <input
+                          className="input mono"
+                          style={{ fontSize: '.8rem' }}
+                          value={it.unidad ?? 'SERV'}
+                          placeholder="Unidad (SERV)"
+                          onChange={(e) => updateItem(idx, { unidad: e.target.value.toUpperCase() })}
+                        />
+                      </div>
+                    )}
                     {editarPrecios && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
                           <span className="muted" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>Costo unitario $</span>
                           <input className="input mono" type="number" min={0} step="any" style={{ width: 130 }}
-                            title="Costo unitario del producto. Al cambiarlo se recalcula el total y la OC vuelve a aprobación del Gerente General."
-                            value={precioEdit[it.sku] ?? String(it.precio ?? 0)}
+                            title="Costo unitario en USD"
+                            value={precioEdit[rowKey] ?? String(it.precio ?? 0)}
                             onChange={(e) => {
                               const raw = e.target.value;
-                              setPrecioEdit((m) => ({ ...m, [it.sku]: raw }));
+                              setPrecioEdit((m) => ({ ...m, [rowKey]: raw }));
                               const n = Number(raw.replace(',', '.'));
-                              if (raw !== '' && Number.isFinite(n) && n >= 0) updateItem(idx, { precio: n });
+                              if (raw !== '' && Number.isFinite(n) && n >= 0) {
+                                updateItem(idx, {
+                                  precio: n,
+                                  ...(esServicio && (enDivisa || it.precio_usd != null) ? { precio_usd: n } : {}),
+                                });
+                              }
                             }}
                             onBlur={() => {
-                              const n = Number((precioEdit[it.sku] ?? String(it.precio ?? 0)).replace(',', '.'));
+                              const n = Number((precioEdit[rowKey] ?? String(it.precio ?? 0)).replace(',', '.'));
                               const val = Number.isFinite(n) && n >= 0 ? n : 0;
-                              updateItem(idx, { precio: val });
-                              setPrecioEdit((m) => ({ ...m, [it.sku]: String(val) }));
+                              updateItem(idx, {
+                                precio: val,
+                                ...(esServicio && (enDivisa || it.precio_usd != null) ? { precio_usd: val } : {}),
+                              });
+                              setPrecioEdit((m) => ({ ...m, [rowKey]: String(val) }));
                             }} />
                           <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
                             = {money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}
@@ -6118,19 +6244,20 @@ function EditarOrdenModal({
                       </div>
                     )}
                     <input className="input" style={{ width: '100%', fontSize: '.82rem' }}
-                      placeholder="Finalidad de este producto (¿para qué se compra?)"
+                      placeholder={esServicio ? 'Finalidad / detalle puntual de este servicio (opcional)' : 'Finalidad de este producto (¿para qué se compra?)'}
                       defaultValue={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
-                    {/* Marca y modelo pedidos: se pueden corregir mientras la orden se edita. */}
-                    <div style={{ display: 'flex', gap: '.3rem' }}>
-                      <input className="input" style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
-                        placeholder="Marca (opcional)"
-                        defaultValue={it.marca ?? ''}
-                        onChange={(e) => updateItem(idx, { marca: e.target.value.toUpperCase() || null })} />
-                      <input className="input" style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
-                        placeholder="Modelo (opcional)"
-                        defaultValue={it.modelo ?? ''}
-                        onChange={(e) => updateItem(idx, { modelo: e.target.value.toUpperCase() || null })} />
-                    </div>
+                    {!esServicio && (
+                      <div style={{ display: 'flex', gap: '.3rem' }}>
+                        <input className="input" style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
+                          placeholder="Marca (opcional)"
+                          defaultValue={it.marca ?? ''}
+                          onChange={(e) => updateItem(idx, { marca: e.target.value.toUpperCase() || null })} />
+                        <input className="input" style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
+                          placeholder="Modelo (opcional)"
+                          defaultValue={it.modelo ?? ''}
+                          onChange={(e) => updateItem(idx, { modelo: e.target.value.toUpperCase() || null })} />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -6145,7 +6272,7 @@ function EditarOrdenModal({
               <input className="input mono" type="number" min={0} step="any" style={{ width: 120, textAlign: 'right' }}
                 value={descuentoObt} onChange={(e) => setDescuentoObt(e.target.value)} placeholder="0,00" />
             </div>
-            {/* IVA del servicio: editable aquí (01/10/2026). Se puede prender, apagar o corregir. */}
+            {/* IVA editable */}
             {ivaEditable && (
               <div style={{ marginTop: '.35rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -6166,18 +6293,36 @@ function EditarOrdenModal({
                 {conIva && (
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.2rem' }}>
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.82rem', cursor: 'pointer' }}
-                    title="Factura de punto de venta: cada renglón ya trae el IVA adentro. El IVA se guarda (retención, libro fiscal) pero NO se suma otra vez al total.">
-                    <input type="checkbox" checked={ivaIncluido} onChange={(e) => setIvaIncluido(e.target.checked)} disabled={saving} />
-                    <span>Los precios cotizados <strong>ya traen el IVA</strong></span>
-                  </label>
+                      title="Factura de punto de venta: cada renglón ya trae el IVA adentro. El IVA se guarda (retención, libro fiscal) pero NO se suma otra vez al total.">
+                      <input type="checkbox" checked={ivaIncluido} onChange={(e) => setIvaIncluido(e.target.checked)} disabled={saving} />
+                      <span>Los precios cotizados <strong>ya traen el IVA</strong></span>
+                    </label>
                   </div>
                 )}
                 <div className="muted" style={{ fontSize: '.74rem', textAlign: 'right', marginTop: '.15rem' }}>
                   {conIva && ivaMontoNum > 0
                     ? <>IVA sobre base {money(baseGravadaNetaEditada)}{exentoEditado > 0 ? ` (exento: ${money(exentoEditado)})` : ''}{ivaPctNum > 0 && ivaPctNum !== 16 ? ` · estás aplicando ${ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}% en vez del 16% general` : ''}</>
-                    : 'Servicio sin IVA. Márcalo para sumarlo al total.'}
-                  {orden.estado === 'confirmada_metodo' && ' · Cambiar el IVA devuelve la orden a aprobación del Gerente General.'}
+                    : 'Sin IVA aplicado. Márcalo para sumarlo al total.'}
+                  {!esServicio && orden.estado === 'confirmada_metodo' && ' · Cambiar el IVA devuelve la orden a aprobación del Gerente General.'}
                 </div>
+              </div>
+            )}
+            {/* IGTF editable en servicios */}
+            {igtfEditable && (
+              <div style={{ marginTop: '.35rem', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.82rem' }}>
+                  <input type="checkbox" checked={conIgtf} onChange={(e) => onConIgtf(e.target.checked)} disabled={saving} />
+                  <span>IGTF</span>
+                </label>
+                <input className="input mono" type="number" min={0} max={100} step="any" style={{ width: 76, textAlign: 'right' }}
+                  value={igtfPct} onChange={(e) => onIgtfPct(e.target.value)} disabled={saving} title="Porcentaje de IGTF (editable)" />
+                <span className="muted" style={{ fontSize: '.82rem' }}>%</span>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => onIgtfPct('3')} disabled={saving}
+                  title="Aplicar el IGTF del 3% sobre base + IVA">3%</button>
+                <span className="muted" style={{ fontSize: '.82rem' }}>Monto $</span>
+                <input className="input mono" type="number" min={0} step="any" style={{ width: 120, textAlign: 'right' }}
+                  value={conIgtf ? igtfMontoStr : ''} onChange={(e) => onIgtfMonto(e.target.value)} disabled={saving}
+                  title="Monto del IGTF" placeholder="0,00" />
               </div>
             )}
             {(descuentoObtNum > 0 || impuestosOrden > 0 || exentoEditado > 0) && (
@@ -6189,7 +6334,7 @@ function EditarOrdenModal({
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '.5rem', marginTop: '.25rem' }}>
-              <span className="muted" style={{ fontSize: '.82rem' }}>Total de la OC</span>
+              <span className="muted" style={{ fontSize: '.82rem' }}>{esServicio ? 'Total del servicio' : 'Total de la OC'}</span>
               <strong className="mono" style={{ fontSize: '1rem' }}>{money(totalConImpuestos)}</strong>
               {Math.abs(totalConImpuestos - Number(orden.total)) > 0.01 && (
                 <span className="muted mono" style={{ fontSize: '.76rem', textDecoration: 'line-through' }}>{money(Number(orden.total))}</span>
@@ -6198,8 +6343,7 @@ function EditarOrdenModal({
           </div>
         )}
 
-        {/* Pago anticipado (adelanto parcial) de la OC de servicio: editable aquí. No toca caja;
-            se resta del total y el resto queda a crédito. En blanco/0 lo quita al guardar. */}
+        {/* Pago anticipado (adelanto parcial) de la OC de servicio */}
         {anticipoAplicable && (
           <div className="card" style={{ padding: '.65rem', marginTop: '.5rem', display: 'grid', gap: '.4rem' }}>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}>
@@ -6223,56 +6367,69 @@ function EditarOrdenModal({
             </small>
           </div>
         )}
-        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
-          <SearchSelect style={{ flex: 1 }} value={prodSelectId} onChange={setProdSelectId}
-            options={prodOptions}
-            placeholder="Buscar producto por nombre o SKU…" emptyText="Ningún producto coincide" />
-          <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
-        </div>
 
-        <div style={{ marginTop: '.5rem' }}>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoOpen((v) => !v)}>
-            {nuevoOpen ? '× Cerrar' : '+ Producto nuevo (no existe en inventario)'}
-          </button>
-          {nuevoOpen && (
-            <div className="card" style={{ padding: '.65rem', marginTop: '.4rem', display: 'grid', gap: '.5rem' }}>
-              <div className="muted" style={{ fontSize: '.78rem' }}>
-                Datos mínimos. Se crea en inventario y lo completas luego (stock, precio…).
-              </div>
-              {/* NO controlado (defaultValue + ref): el DOM conserva lo tecleado aunque el
-                  modal re-renderice; con `value` controlado un re-render pisaba el campo y
-                  cortaba el nombre a medias (aparecía al borrar una letra). */}
-              <input
-                ref={nuevoNombreRef}
-                className="input"
-                name="op-edit-nuevo-nombre"
-                autoComplete="off"
-                placeholder="Nombre del producto *"
-                defaultValue={nuevoNombre}
-                onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
-                style={{ textTransform: 'uppercase' }}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
-              />
-              <div className="form-grid">
-                <CategoriaProductoSelect id="op-edit-nuevo-categoria" value={nuevoCategoria} onChange={setNuevoCategoria} />
-                <div className="form-row" style={{ margin: 0 }}>
-                  <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
-                    placeholder="🔍 Unidad…" options={unidadesList.map((u) => ({ value: u, label: u }))} />
-                </div>
-              </div>
-              <div className="form-row" style={{ margin: 0 }}>
-                <label style={{ fontSize: '.74rem' }}>Destino</label>
-                <input className="input" value="Inventario General" disabled readOnly />
-              </div>
-              <div>
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => void crearProductoNuevo()} disabled={creandoNuevo}>
-                  {creandoNuevo ? 'Creando…' : 'Crear y añadir a la solicitud'}
-                </button>
-              </div>
+        {esServicio ? (
+          <div style={{ marginTop: '.5rem' }}>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={addServicioItem}>
+              ＋ Agregar renglón de servicio
+            </button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
+              <SearchSelect style={{ flex: 1 }} value={prodSelectId} onChange={setProdSelectId}
+                options={prodOptions}
+                placeholder="Buscar producto por nombre o SKU…" emptyText="Ningún producto coincide" />
+              <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
             </div>
-          )}
-        </div>
+
+            <div style={{ marginTop: '.5rem' }}>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoOpen((v) => !v)}>
+                {nuevoOpen ? '× Cerrar' : '+ Producto nuevo (no existe en inventario)'}
+              </button>
+              {nuevoOpen && (
+                <div className="card" style={{ padding: '.65rem', marginTop: '.4rem', display: 'grid', gap: '.5rem' }}>
+                  <div className="muted" style={{ fontSize: '.78rem' }}>
+                    Datos mínimos. Se crea en inventario y lo completas luego (stock, precio…).
+                  </div>
+                  <input
+                    ref={nuevoNombreRef}
+                    className="input"
+                    name="op-edit-nuevo-nombre"
+                    autoComplete="off"
+                    placeholder="Nombre del producto *"
+                    defaultValue={nuevoNombre}
+                    onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
+                    style={{ textTransform: 'uppercase' }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
+                  />
+                  <div className="form-grid">
+                    <CategoriaProductoSelect id="op-edit-nuevo-categoria" value={nuevoCategoria} onChange={setNuevoCategoria} />
+                    <div className="form-row" style={{ margin: 0 }}>
+                      <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
+                        placeholder="🔍 Unidad…" options={unidadesList.map((u) => ({ value: u, label: u }))} />
+                    </div>
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '.74rem' }}>Destino</label>
+                    <input className="input" value="Inventario General" disabled readOnly />
+                  </div>
+                  <div>
+                    <button type="button" className="btn btn-sm btn-primary" onClick={() => void crearProductoNuevo()} disabled={creandoNuevo}>
+                      {creandoNuevo ? 'Creando…' : 'Crear y añadir a la solicitud'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
+
+      {/* Detalle del servicio (piezas + descripción + precio referencial) */}
+      {esServicio && (
+        <DetalleServicioEditor value={detalleServicio} onChange={setDetalleServicio} />
+      )}
 
       {/* Clasificación y urgencia de la OP. */}
       <div className="form-row">

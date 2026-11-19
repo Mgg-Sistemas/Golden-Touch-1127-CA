@@ -83,5 +83,25 @@ export function textoWhatsappCompras(resumen: ResumenReporteCompras, opts: Opcio
     L.push(`🧾 *Compras directas (por categoría de gasto):* ${dinero(resumen.totalDirectasUsd, resumen.totalDirectasBs)}`);
   }
 
+  if (resumen.cuentasCredito && resumen.cuentasCredito.length > 0) {
+    L.push('');
+    const partesTipo: string[] = [];
+    if (resumen.creditoOcCount > 0) partesTipo.push(`${resumen.creditoOcCount} OC`);
+    if (resumen.creditoOsCount > 0) partesTipo.push(`${resumen.creditoOsCount} OS`);
+    const sufijoTipo = partesTipo.length ? ` · ${partesTipo.join(' + ')}` : '';
+    L.push(`💳 *Cuentas a crédito · Compras (${resumen.creditoCount}${sufijoTipo}):*`);
+    L.push(`   Total crédito: ${dinero(resumen.creditoTotalUsd, resumen.creditoTotalBs)} · Abonado: ${dinero(resumen.creditoAbonadoUsd, resumen.creditoAbonadoBs)}`);
+    L.push(`   ⚠️ *Saldo pendiente por pagar:* ${dinero(resumen.creditoSaldoUsd, resumen.creditoSaldoBs)}`);
+    for (const c of resumen.cuentasCredito) {
+      const cod = c.codigoSolicitud ? `${c.codigo} (${c.codigoSolicitud})` : c.codigo;
+      const prov = c.proveedor && c.proveedor !== '—' ? ` · ${c.proveedor}` : '';
+      const depto = c.departamento && c.departamento !== 'Sin departamento asignado' ? ` [${c.departamento}]` : '';
+      const abTxt = c.abonadoUsd > 0 || c.abonadoBs > 0
+        ? ` · Abonado: ${dinero(c.abonadoUsd, c.abonadoBs)}`
+        : ' · Sin abonos';
+      L.push(`   • *[${c.origen}] ${cod}*${prov}${depto} — Total: ${dinero(c.totalUsd, c.totalBs)}${abTxt} · *Saldo: ${dinero(c.saldoUsd, c.saldoBs)}*`);
+    }
+  }
+
   return L.join('\n');
 }

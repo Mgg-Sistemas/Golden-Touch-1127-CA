@@ -167,6 +167,12 @@ export interface FilaReporteCompras {
   pagado_bs: number;
   analista?: string | null;
   notas?: string | null;
+  /** Subtipo cuando proviene de Compras: OC (Orden de Compra) u OS (Orden/Control de Servicio). */
+  subtipo_orden?: 'OC' | 'OS';
+  codigo_solicitud?: string | null;
+  es_credito?: boolean;
+  saldo_pendiente_usd?: number;
+  saldo_pendiente_bs?: number;
   items_lista?: Array<{
     nombre: string;
     cantidad: number;
@@ -206,10 +212,17 @@ export function normalizarOrdenes(ordenes: Orden[], ctx: ContextoCompras): FilaR
       ? monto
       : (o.estado === 'cuenta_abierta' ? (Number(o.abonado_total) || 0) : 0);
     const pagado = montoUsdBs(pagadoNativo, moneda, ctx.tasaBcv);
+    const esServicio = o.tipo === 'servicio';
+    const esCredito = o.estado === 'cuenta_abierta';
     filas.push({
       id: `oc-${o.id}`,
       ambito: 'ordenes',
       tipo_compra: 'orden',
+      subtipo_orden: esServicio ? 'OS' : 'OC',
+      codigo_solicitud: o.oc_codigo && o.codigo && o.oc_codigo !== o.codigo ? o.codigo.trim() : null,
+      es_credito: esCredito,
+      saldo_pendiente_usd: esCredito ? Math.max(0, round2(usd - pagado.usd)) : 0,
+      saldo_pendiente_bs: esCredito ? Math.max(0, round2(bs - pagado.bs)) : 0,
       fecha: diaDe(o.created_at),
       codigo: (o.oc_codigo || o.codigo || '—').trim() || '—',
       departamento: normalizarDepartamento(o.unidad_solicitante),
@@ -405,10 +418,15 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
     const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
     const pagadoNativo = s.pagada_at ? monto : (Number(s.abonado_total) || 0);
     const pagado = montoUsdBs(pagadoNativo, moneda, ctx.tasaBcv);
+    const esCreditoSrv = !s.empresa_clave && s.estado === 'por_pagar' && (Boolean(s.con_abonos) || (Number(s.abonado_total) || 0) > 0);
     filas.push({
       id: `sd-${s.id}`,
       ambito: 'ordenes',
       tipo_compra: 'servicio',
+      subtipo_orden: 'OS',
+      es_credito: esCreditoSrv,
+      saldo_pendiente_usd: esCreditoSrv ? Math.max(0, round2(usd - pagado.usd)) : 0,
+      saldo_pendiente_bs: esCreditoSrv ? Math.max(0, round2(bs - pagado.bs)) : 0,
       fecha: diaDe(s.created_at),
       codigo: (s.codigo || '—').trim() || '—',
       departamento: normalizarDepartamento(s.unidad_solicitante),
@@ -427,7 +445,7 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
       pagado_usd: pagado.usd,
       pagado_bs: pagado.bs,
       analista: nombrePersonaCompras((s as any).actor_name || (s as any).actor || (s as any).creado_por),
-      notas: ((s as any).observaciones || (s as any).descripcion || '').trim() || null,
+      notas: ((s as any).observaciones || (s as any).nota || (s as any).descripcion || '').trim() || null,
       items_lista: Array.isArray((s as any).items) && (s as any).items.length > 0
         ? (s as any).items.map((it: any) => ({
             nombre: (it.descripcion || 'Servicio directo').trim(),
@@ -446,6 +464,143 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
     });
   }
   return filas;
+}
+
+/* ───────────── Cuentas a Crédito desde Compras (OC y OS) ───────────── */
+
+export type OrigenCreditoCompras = 'OC' | 'OS';
+
+export interface CuentaCreditoCompras {
+  id: string;
+  origen: OrigenCreditoCompras;
+  origenLabel: string;
+  codigo: string;
+  codigoSolicitud: string | null;
+  fecha: string;
+  departamento: string;
+  proveedor: string;
+  analista: string | null;
+  concepto: string;
+  totalUsd: number;
+  totalBs: number;
+  abonadoUsd: number;
+  abonadoBs: number;
+  saldoUsd: number;
+  saldoBs: number;
+}
+
+/**
+ * Extrae las cuentas a crédito abiertas originadas en Compras:
+ * - OC (Órdenes de Compra: `ordenes` con `tipo !== 'servicio'` y `estado === 'cuenta_abierta'`)
+ * - OS (Órdenes/Controles de Servicio: `ordenes` con `tipo === 'servicio'` y `estado === 'cuenta_abierta'`,
+ *       más `servicios_directos` de Compras con `estado === 'por_pagar'` y abonos/crédito).
+ */
+export function extraerCuentasCreditoCompras(
+  ordenes: Orden[],
+  servicios: ServicioDirecto[],
+  ctx: ContextoCompras,
+): CuentaCreditoCompras[] {
+  const lista: CuentaCreditoCompras[] = [];
+
+  for (const o of ordenes) {
+    if (o.estado !== 'cuenta_abierta') continue;
+    if ((o as { eliminado_en?: unknown }).eliminado_en) continue;
+    const moneda = (o.total_moneda || 'USD').toUpperCase();
+    const monto = Number(o.total) || 0;
+    const abonadoNativo = Math.max(0, Number(o.abonado_total) || 0);
+    const saldoNativo = Math.max(0, round2(monto - abonadoNativo));
+    if (monto > 0 && saldoNativo <= 0.005) continue;
+
+    const tot = montoUsdBs(monto, moneda, ctx.tasaBcv);
+    const ab = montoUsdBs(abonadoNativo, moneda, ctx.tasaBcv);
+    const saldo = montoUsdBs(saldoNativo, moneda, ctx.tasaBcv);
+
+    const esServicio = o.tipo === 'servicio';
+    const itemsActivos = (Array.isArray(o.items) ? o.items : []).filter((i) => i.comprar !== false);
+    const nombresItems = itemsActivos.map((i) => (i.nombre || '').trim()).filter(Boolean);
+    const conceptoItems = nombresItems.length > 0
+      ? (nombresItems.length > 3 ? `${nombresItems.slice(0, 3).join(', ')} (+${nombresItems.length - 3})` : nombresItems.join(', '))
+      : '';
+    const concepto = conceptoItems || (o.notas || o.motivo || o.finalidad || '').trim() || (esServicio ? 'Orden de servicio a crédito' : 'Orden de compra a crédito');
+
+    lista.push({
+      id: `cred-ord-${o.id}`,
+      origen: esServicio ? 'OS' : 'OC',
+      origenLabel: esServicio ? 'Orden de Servicio (OS)' : 'Orden de Compra (OC)',
+      codigo: (o.oc_codigo || o.codigo || '—').trim() || '—',
+      codigoSolicitud: o.oc_codigo && o.codigo && o.oc_codigo !== o.codigo ? o.codigo.trim() : null,
+      fecha: diaDe(o.oc_aprobada_en || o.oc_creada_en || o.created_at),
+      departamento: normalizarDepartamento(o.unidad_solicitante),
+      proveedor: proveedorDe(o.proveedor_id, ctx),
+      analista: nombrePersonaCompras(o.oc_creada_por || o.oc_emitida_por || o.solicitante_email),
+      concepto,
+      totalUsd: tot.usd,
+      totalBs: tot.bs,
+      abonadoUsd: ab.usd,
+      abonadoBs: ab.bs,
+      saldoUsd: saldo.usd,
+      saldoBs: saldo.bs,
+    });
+  }
+
+  for (const s of servicios) {
+    if (s.empresa_clave) continue;
+    if (s.estado !== 'por_pagar') continue;
+    if ((s as { eliminado_en?: unknown }).eliminado_en) continue;
+    if (!s.con_abonos && !((Number(s.abonado_total) || 0) > 0)) continue;
+
+    const moneda = (s.moneda || 'USD').toUpperCase();
+    const monto = Number(s.gasto) || 0;
+    const abonadoNativo = Math.max(0, Number(s.abonado_total) || 0);
+    const saldoNativo = Math.max(0, round2(monto - abonadoNativo));
+    if (monto > 0 && saldoNativo <= 0.005) continue;
+
+    const tot = montoUsdBs(monto, moneda, ctx.tasaBcv);
+    const ab = montoUsdBs(abonadoNativo, moneda, ctx.tasaBcv);
+    const saldo = montoUsdBs(saldoNativo, moneda, ctx.tasaBcv);
+
+    const descItems = (Array.isArray(s.items) ? s.items : []).map((i) => (i.descripcion || '').trim()).filter(Boolean);
+    const concepto = (descItems.length ? descItems.slice(0, 3).join(', ') : '') || (s.descripcion || s.nota || '').trim() || 'Servicio directo a crédito';
+
+    lista.push({
+      id: `cred-sd-${s.id}`,
+      origen: 'OS',
+      origenLabel: 'Servicio Directo (OS)',
+      codigo: (s.codigo || '—').trim() || '—',
+      codigoSolicitud: null,
+      fecha: diaDe(s.created_at),
+      departamento: normalizarDepartamento(s.unidad_solicitante),
+      proveedor: (s.proveedor_nombre || '').trim() || proveedorDe(s.proveedor_id, ctx),
+      analista: nombrePersonaCompras((s as any).actor_name || (s as any).actor || (s as any).creado_por),
+      concepto,
+      totalUsd: tot.usd,
+      totalBs: tot.bs,
+      abonadoUsd: ab.usd,
+      abonadoBs: ab.bs,
+      saldoUsd: saldo.usd,
+      saldoBs: saldo.bs,
+    });
+  }
+
+  return lista.sort((a, b) => (b.saldoUsd - a.saldoUsd) || (b.fecha || '').localeCompare(a.fecha || ''));
+}
+
+/** Filtra las cuentas a crédito según los filtros activos del reporte. */
+export function filtrarCuentasCreditoCompras(
+  cuentas: CuentaCreditoCompras[],
+  f: FiltrosCompras,
+): CuentaCreditoCompras[] {
+  const { departamentosSel, proveedoresSel, estadosSel, tiposSel } = f;
+  return cuentas.filter((c) => {
+    if (departamentosSel && departamentosSel.length > 0 && !departamentosSel.includes(c.departamento)) return false;
+    if (proveedoresSel && proveedoresSel.length > 0 && !proveedoresSel.includes(c.proveedor)) return false;
+    if (estadosSel && estadosSel.length > 0 && !estadosSel.includes('pendiente')) return false;
+    if (tiposSel && tiposSel.length > 0) {
+      if (c.origen === 'OC' && !tiposSel.includes('orden')) return false;
+      if (c.origen === 'OS' && !tiposSel.includes('servicio') && !tiposSel.includes('orden')) return false;
+    }
+    return true;
+  });
 }
 
 /* ───────────── Filtros ───────────── */
@@ -518,6 +673,17 @@ export interface ResumenReporteCompras {
   topItems: TopCompras[];
   deptoQueMasGasto: string | null;
   tasaBcv: number;
+  /** Cuentas a crédito abiertas que vienen desde Compras (OC y OS). */
+  cuentasCredito: CuentaCreditoCompras[];
+  creditoCount: number;
+  creditoOcCount: number;
+  creditoOsCount: number;
+  creditoTotalUsd: number;
+  creditoTotalBs: number;
+  creditoAbonadoUsd: number;
+  creditoAbonadoBs: number;
+  creditoSaldoUsd: number;
+  creditoSaldoBs: number;
 }
 
 /** Top-N de una clave sumando usd (y, opcional, cantidad). */
@@ -542,21 +708,50 @@ function topPor(
     .slice(0, n);
 }
 
+/** Deriva cuentas a crédito desde filas normalizadas cuando no se pasa una lista explícita. */
+function derivarCuentasCreditoDesdeFilas(filasOrdenes: FilaReporteCompras[]): CuentaCreditoCompras[] {
+  const res: CuentaCreditoCompras[] = [];
+  for (const f of filasOrdenes) {
+    if (f.estado !== 'cuenta_abierta' && !f.es_credito) continue;
+    const saldoUsd = f.saldo_pendiente_usd != null ? f.saldo_pendiente_usd : Math.max(0, round2(f.monto_usd - f.pagado_usd));
+    const saldoBs = f.saldo_pendiente_bs != null ? f.saldo_pendiente_bs : Math.max(0, round2(f.monto_bs - f.pagado_bs));
+    if (f.monto_usd > 0 && saldoUsd <= 0.005) continue;
+    const origen: OrigenCreditoCompras = f.subtipo_orden === 'OS' || f.tipo_compra === 'servicio' ? 'OS' : 'OC';
+    const itemsNombres = (f.items_lista ?? []).map((i) => i.nombre).filter(Boolean);
+    res.push({
+      id: f.id,
+      origen,
+      origenLabel: origen === 'OS' ? 'Orden de Servicio (OS)' : 'Orden de Compra (OC)',
+      codigo: f.codigo,
+      codigoSolicitud: f.codigo_solicitud ?? null,
+      fecha: f.fecha,
+      departamento: f.departamento,
+      proveedor: f.proveedor,
+      analista: f.analista ?? null,
+      concepto: (itemsNombres.length ? itemsNombres.slice(0, 3).join(', ') : '') || f.notas || '—',
+      totalUsd: round2(f.monto_usd),
+      totalBs: round2(f.monto_bs),
+      abonadoUsd: round2(f.pagado_usd),
+      abonadoBs: round2(f.pagado_bs),
+      saldoUsd: round2(saldoUsd),
+      saldoBs: round2(saldoBs),
+    });
+  }
+  return res.sort((a, b) => (b.saldoUsd - a.saldoUsd) || (b.fecha || '').localeCompare(a.fecha || ''));
+}
+
 /**
  * Resumen/KPIs del rango. `filasOrdenes` = ámbito órdenes (las 3 fuentes, ya sin
  * excluidas); `filasItems` = ámbito ítems (solo órdenes); `cotizaciones` = ya
- * atribuidas a su departamento por la capa de datos.
- *
- * Reglas duras (decisión de la líder):
- *  · Total del rango: incluye las TRES fuentes.
- *  · Ranking por departamento: SOLO órdenes + servicios (EXCLUYE compras directas).
- *  · Compras directas: bloque propio por categoría de gasto, dentro del total.
+ * atribuidas a su departamento por la capa de datos; `cuentasCreditoExplicitas`
+ * = cuentas a crédito abiertas desde Compras (OC y OS).
  */
 export function resumenCompras(
   filasOrdenes: FilaReporteCompras[],
   filasItems: FilaReporteCompras[],
   cotizaciones: CotizacionCompras[],
   tasaBcv: number,
+  cuentasCreditoExplicitas?: CuentaCreditoCompras[],
 ): ResumenReporteCompras {
   let totalUsd = 0, totalBs = 0;
   let finCount = 0, finUsd = 0, finBs = 0;
@@ -605,6 +800,16 @@ export function resumenCompras(
     .map(([departamento, n]) => ({ departamento, cotizaciones: n }))
     .sort((a, b) => b.cotizaciones - a.cotizaciones);
 
+  const cuentasCredito = cuentasCreditoExplicitas ?? derivarCuentasCreditoDesdeFilas(filasOrdenes);
+  const creditoOcCount = cuentasCredito.filter((c) => c.origen === 'OC').length;
+  const creditoOsCount = cuentasCredito.filter((c) => c.origen === 'OS').length;
+  const creditoTotalUsd = round2(cuentasCredito.reduce((a, c) => a + c.totalUsd, 0));
+  const creditoTotalBs = round2(cuentasCredito.reduce((a, c) => a + c.totalBs, 0));
+  const creditoAbonadoUsd = round2(cuentasCredito.reduce((a, c) => a + c.abonadoUsd, 0));
+  const creditoAbonadoBs = round2(cuentasCredito.reduce((a, c) => a + c.abonadoBs, 0));
+  const creditoSaldoUsd = round2(cuentasCredito.reduce((a, c) => a + c.saldoUsd, 0));
+  const creditoSaldoBs = round2(cuentasCredito.reduce((a, c) => a + c.saldoBs, 0));
+
   return {
     totalCompras: filasOrdenes.length,
     totalUsd: round2(totalUsd),
@@ -626,6 +831,16 @@ export function resumenCompras(
     topItems: topPor(filasItems, (f) => f.nombre_item, true),
     deptoQueMasGasto: rankingDeptoGasto[0]?.departamento ?? null,
     tasaBcv,
+    cuentasCredito,
+    creditoCount: cuentasCredito.length,
+    creditoOcCount,
+    creditoOsCount,
+    creditoTotalUsd,
+    creditoTotalBs,
+    creditoAbonadoUsd,
+    creditoAbonadoBs,
+    creditoSaldoUsd,
+    creditoSaldoBs,
   };
 }
 

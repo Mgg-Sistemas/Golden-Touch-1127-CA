@@ -168,6 +168,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                     <button className="btn btn-sm btn-ghost" onClick={() => setVer(s)} title="Ver detalle">👁 Ver</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(s)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
+                    {(s.estado === 'en_proceso' || s.estado === 'por_pagar') && <button className="btn btn-sm btn-ghost" onClick={() => setEditar(s)} title="Editar servicios, proveedor, equipo, solicitante y datos generales">✏ Editar</button>}
                     {s.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(s)} title="Editar factura, montos, moneda y nota (antes de que Tesorería pague)">✏ Editar factura/monto</button>}
                     {s.estado === 'por_pagar' && <span className="badge" title="El pago se realiza desde Tesorería">🧾 DIRECTO · por pagar</span>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Enviar servicio a la papelera">🗑 Papelera</button>}
@@ -288,7 +289,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-      {servicio.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={onEditar} title="Editar servicios / proveedor">✏ Editar</button>}
+      {(servicio.estado === 'en_proceso' || servicio.estado === 'por_pagar') && <button className="btn btn-ghost" onClick={onEditar} title="Editar servicios, proveedor, equipo, solicitante y datos generales">✏ Editar</button>}
       {servicio.estado === 'por_pagar' && <button className="btn btn-ghost" onClick={onMontar} title="Editar factura, montos, moneda y nota (antes de que Tesorería pague)">✏ Editar factura/monto</button>}
       {servicio.estado === 'en_proceso' && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Enviar servicio a la papelera">🗑 Papelera</button>}
       {servicio.estado === 'finalizada' && <button className="btn btn-ghost" style={{ color: 'var(--warning)' }} onClick={onReabrir} title="Reabrir para editar (devuelve el dinero a la caja)">↺ Reabrir</button>}

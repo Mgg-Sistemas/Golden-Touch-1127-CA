@@ -847,8 +847,8 @@ export interface EditarServicioDirectoInput {
 
 /** Edita un servicio directo EN PROCESO: reemplaza renglones y proveedor. No toca caja. */
 export async function editarServicioDirectoEnProceso(input: EditarServicioDirectoInput): Promise<ServicioDirecto> {
-  if (input.servicio.estado !== 'en_proceso')
-    throw new Error('Solo se puede editar un servicio En proceso. Reabre el servicio primero.');
+  if (input.servicio.estado === 'finalizada')
+    throw new Error('Para editar un servicio ya finalizado y pagado, reabre el servicio primero.');
   const lineas = input.lineas
     .map((l) => ({
       categoria: (l.categoria ?? '').trim() || null,

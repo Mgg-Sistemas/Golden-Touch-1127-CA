@@ -24,9 +24,11 @@ import {
   normalizarItemsOrdenes,
   normalizarDepartamento,
   clasificarEstadoOrden,
+  extraerCuentasCreditoCompras,
   SIN_DEPARTAMENTO,
   type ContextoCompras,
   type CotizacionCompras,
+  type CuentaCreditoCompras,
   type FilaReporteCompras,
 } from './comprasMoldeable';
 
@@ -34,6 +36,7 @@ export interface DatosReporteCompras {
   filasOrdenes: FilaReporteCompras[];
   filasItems: FilaReporteCompras[];
   cotizaciones: CotizacionCompras[];
+  cuentasCredito: CuentaCreditoCompras[];
   tasaBcv: number;
   /** Opciones para los filtros del modal. */
   departamentos: string[];
@@ -107,6 +110,8 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
     ...normalizarServicios(servicios, ctx),
   ];
   const filasItems = normalizarItemsOrdenes(ordenes, ctx);
+  // Cuentas a crédito abiertas que provienen de Compras (OC y OS), independientemente de la fecha de apertura
+  const cuentasCredito = extraerCuentasCreditoCompras(ordenesAll, serviciosAll, ctx);
 
   // Cotizaciones por departamento: ofertas de las órdenes del rango que cuentan
   // (no excluidas). Cada oferta se atribuye al departamento de su orden.
@@ -126,9 +131,13 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
     filasOrdenes,
     filasItems,
     cotizaciones,
+    cuentasCredito,
     tasaBcv,
-    departamentos: unicos(filasOrdenes.map((f) => f.departamento)),
+    departamentos: unicos([...filasOrdenes.map((f) => f.departamento), ...cuentasCredito.map((c) => c.departamento)]),
     categorias: unicos(filasItems.map((f) => f.categoria)),
-    proveedores: unicos(filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—')),
+    proveedores: unicos([
+      ...filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—'),
+      ...cuentasCredito.map((c) => c.proveedor).filter((p) => p !== '—'),
+    ]),
   };
 }

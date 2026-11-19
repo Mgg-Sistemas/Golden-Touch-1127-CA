@@ -447,13 +447,24 @@ export async function actualizarComprarItems(
 }
 
 /** Estados en los que la orden todavía se puede editar: TODO el trámite antes de
- *  que el Gerente General apruebe la OC (firma). A partir de `oc_aprobada` se congela. */
+ *  que el Gerente General apruebe la OC (firma). En órdenes de SERVICIO se permite
+ *  editar precios y todos los campos en cualquier etapa activa (no cancelada). */
 const ESTADOS_EDITABLES_ORDEN: EstadoOrden[] = ['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'];
 
+export function puedeEditarOrdenCompleta(o: Pick<Orden, 'tipo' | 'estado'>): boolean {
+  if (o.tipo === 'servicio') return o.estado !== 'cancelada';
+  return ESTADOS_EDITABLES_ORDEN.includes(o.estado);
+}
+
+export function puedeEditarPreciosOrden(o: Pick<Orden, 'tipo' | 'estado' | 'total'>): boolean {
+  if (o.tipo === 'servicio') return o.estado !== 'cancelada' && Number(o.total) > 0;
+  return (o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada') && Number(o.total) > 0;
+}
+
 /**
- * Modifica una orden mientras NO la haya aprobado el Gerente General. Permite cambiar
- * los ítems (cantidades, agregar/quitar, comprar), el motivo y la finalidad en cualquier
- * etapa previa a la firma del GG. Una vez aprobada la OC, queda congelada.
+ * Modifica una orden de producto (hasta antes de indicar método de pago) o cualquier
+ * orden de SERVICIO activa (no cancelada), permitiendo editar precios, cantidades,
+ * servicios, impuestos, proveedor, condición de pago y todos los metadatos.
  */
 export async function actualizarOrdenEditable(
   o: Orden,
@@ -469,13 +480,16 @@ export async function actualizarOrdenEditable(
     /** IVA escrito a mano al editar (servicios, 01/10/2026). Manda sobre el de la oferta:
      *  se puede prender, apagar o corregir. Solo se aplica junto con `total`. */
     iva?: IvaEditado;
-    /** Condición de pago (contado, contra entrega, anticipado, crédito). Solo mientras la OC
-     *  espera la aprobación del Gerente General: al aprobarla, el estado sale de aquí. */
+    /** IGTF editable cuando se ajusta el total de la orden/servicio. */
+    igtf?: { aplicado: boolean; pct: number; monto: number };
+    /** Proveedor asignado (editable en órdenes de servicio). */
+    proveedor_id?: string | null;
+    /** Condición de pago (contado, contra entrega, anticipado, crédito). */
     condiciones_pago?: string | null;
   },
   actorEmail: string,
 ): Promise<Orden> {
-  if (!ESTADOS_EDITABLES_ORDEN.includes(o.estado)) {
+  if (!puedeEditarOrdenCompleta(o)) {
     throw new Error('Solo se puede modificar la orden hasta indicar el método de pago; una vez enviada a pagar queda congelada.');
   }
   if (patch.items && !patch.items.length) throw new Error('La OC debe tener al menos un ítem.');
@@ -505,23 +519,35 @@ export async function actualizarOrdenEditable(
   const ivaCambia = !!conIvaEditado && ivaCambio(impPrevOrden, conIvaEditado);
   const condNueva = patch.condiciones_pago !== undefined ? (patch.condiciones_pago?.trim() || null) : undefined;
   const condCambia = condNueva !== undefined && condNueva !== (o.condiciones_pago ?? null);
-  if (condCambia && o.estado !== 'oc_creada') {
+  if (condCambia && o.estado !== 'oc_creada' && o.tipo !== 'servicio') {
     throw new Error('La condición de pago solo se cambia mientras la OC espera la aprobación del Gerente General.');
   }
+  const provNuevo = patch.proveedor_id !== undefined ? (patch.proveedor_id?.trim() || null) : undefined;
+  const provCambia = provNuevo !== undefined && provNuevo !== (o.proveedor_id ?? null);
   const cambioMaterial = itemsCambian || descCambiaMaterial || ivaCambia;
-  // Solo un cambio MATERIAL sobre una OC ya FIRMADA (confirmada_metodo) la devuelve a
-  // aprobación del Gerente General (vuelve a `oc_creada`) y limpia la firma previa. Guardar
-  // solo texto o sin cambios NO reabre ni borra la firma (antes cualquier guardado la borraba).
-  const vuelveAGerente = o.estado === 'confirmada_metodo' && cambioMaterial;
+  // Solo un cambio MATERIAL sobre una OC de producto ya FIRMADA (confirmada_metodo) la devuelve a
+  // aprobación del Gerente General (vuelve a `oc_creada`). En servicios se mantiene su estado actual.
+  const vuelveAGerente = o.tipo !== 'servicio' && o.estado === 'confirmada_metodo' && cambioMaterial;
   const upd: Record<string, unknown> = {
     historial: appendHistorial(o, 'orden_modificada', actorEmail, {
       ...(vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
       ...(descCambia ? { descuento_obtenido: descNuevo } : {}),
       ...(ivaCambia && conIvaEditado ? { iva_anterior: impPrevOrden.ivaAplicado ? impPrevOrden.ivaMonto : 0, iva_nuevo: conIvaEditado.ivaMonto } : {}),
       ...(condCambia ? { condicion_anterior: o.condiciones_pago ?? null, condicion_nueva: condNueva } : {}),
+      ...(provCambia ? { proveedor_anterior: o.proveedor_id ?? null, proveedor_nuevo: provNuevo } : {}),
     }),
   };
-  if (condCambia) upd.condiciones_pago = condNueva;
+  if (condCambia) {
+    upd.condiciones_pago = condNueva;
+    if (o.tipo === 'servicio') {
+      if (o.estado === 'oc_aprobada' && condNueva === 'credito') {
+        upd.estado = 'cuenta_abierta' as EstadoOrden;
+      } else if (o.estado === 'cuenta_abierta' && condNueva !== 'credito' && !(Number(o.abonado_total) > 0)) {
+        upd.estado = 'oc_aprobada' as EstadoOrden;
+      }
+    }
+  }
+  if (provCambia) upd.proveedor_id = provNuevo;
   if (descCambia) upd.descuento_obtenido = descNuevo;
   if (vuelveAGerente) {
     upd.estado = 'oc_creada' as EstadoOrden;
@@ -545,7 +571,21 @@ export async function actualizarOrdenEditable(
     const basePrev = baseNetaDesdeTotal(o.total, impPrev);
     const baseNeta = Math.round((Number(patch.total) || 0) * 100) / 100;
     const imp = conIvaEditado ?? recomponerImpuestos(basePrev, baseNeta, impPrev);
-    upd.total = imp.total;
+    const ivaInclEfectivo = conIvaEditado ? conIvaEditado.ivaIncluido : impPrev.ivaIncluido;
+    const ivaMontoEfectivo = conIvaEditado ? (conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : 0) : (o.iva_aplicado ? imp.ivaMonto : 0);
+    let totalFinal = imp.total;
+    if (patch.igtf !== undefined) {
+      const igtfAp = !!patch.igtf.aplicado;
+      const igtfPct = igtfAp ? Math.max(0, Math.min(100, Math.round((Number(patch.igtf.pct) || 0) * 100) / 100)) : 0;
+      const igtfMonto = igtfAp ? Math.max(0, Math.round((Number(patch.igtf.monto) || 0) * 100) / 100) : 0;
+      upd.igtf_aplicado = igtfAp;
+      upd.igtf_pct = igtfPct;
+      upd.igtf_monto = igtfAp ? igtfMonto : null;
+      totalFinal = Math.max(0, Math.round((baseNeta + (ivaInclEfectivo ? 0 : ivaMontoEfectivo) + igtfMonto) * 100) / 100);
+    } else if (o.igtf_aplicado) {
+      upd.igtf_monto = imp.igtfMonto;
+    }
+    upd.total = totalFinal;
     if (conIvaEditado) {
       // La pantalla puede prender o apagar el IVA: se escriben las tres columnas.
       upd.iva_aplicado = conIvaEditado.ivaAplicado;
@@ -553,8 +593,7 @@ export async function actualizarOrdenEditable(
       upd.iva_monto = conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : null;
       upd.iva_incluido = conIvaEditado.ivaIncluido;
     } else if (o.iva_aplicado) upd.iva_monto = imp.ivaMonto;
-    if (o.igtf_aplicado) upd.igtf_monto = imp.igtfMonto;
-    if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = imp.total;
+    if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = totalFinal;
   }
   if (patch.motivo !== undefined) upd.motivo = patch.motivo;
   if (patch.finalidad !== undefined) upd.finalidad = patch.finalidad;
@@ -577,8 +616,16 @@ export async function actualizarOrdenEditable(
   // GG o esperando método) se le agregan/quitan productos o cambian precios, la oferta
   // ACEPTADA toma los mismos renglones y su precio, para que la comparativa, el PDF
   // (precio BCV / divisa) y «Reelegir» hablen de lo mismo que la OC.
-  if (patch.items && itemsCambian && (o.estado === 'oc_creada' || o.estado === 'confirmada_metodo') && Number(o.total) > 0) {
+  if (patch.items && itemsCambian && (Number(upd.total ?? o.total) > 0 || Boolean(o.oc_codigo))) {
     await sincronizarOfertaAceptada(o.id, patch.items);
+  }
+  if (provCambia && provNuevo) {
+    const { error: eProv } = await supabase
+      .from('ofertas_proveedor')
+      .update({ proveedor_id: provNuevo })
+      .eq('orden_id', o.id)
+      .eq('estado', 'aceptada');
+    if (eProv) throw eProv;
   }
   // El IVA editado también va a la oferta aceptada: es la fuente de los impuestos de la
   // OC, y si quedara con el IVA viejo lo volvería a imponer la próxima vez que se edite.
@@ -642,8 +689,8 @@ export async function editarPreciosOrdenPorPagar(
     conIgtf: boolean; igtfPct: number; igtfMonto: number;
   } | null,
 ): Promise<Orden> {
-  if (o.estado !== 'confirmada_metodo' && o.estado !== 'oc_aprobada') {
-    throw new Error('Solo se pueden editar los precios de una OC confirmada para pagar.');
+  if (!puedeEditarPreciosOrden(o)) {
+    throw new Error('Solo se pueden editar los precios de una OC confirmada para pagar o de una orden de servicio activa.');
   }
   if (!items.length) throw new Error('La OC debe tener al menos un ítem.');
   const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -726,6 +773,14 @@ export async function editarPreciosOrdenPorPagar(
   else if (o.total_divisa != null) upd.total_divisa = Math.max(0, r2((Number(o.total_divisa) || 0) + deltaUsd));
   const { data, error } = await supabase.from(TABLE).update(upd).eq('id', o.id).select('*').single();
   if (error) throw error;
+  await sincronizarOfertaAceptada(o.id, items);
+  if (impuestos) {
+    await supabase.from('ofertas_proveedor').update({
+      iva_aplicado: ivaAp,
+      iva_pct: ivaAp ? ivaPctFinal : 0,
+      iva_monto: ivaAp ? ivaNuevo : 0,
+    }).eq('orden_id', o.id).eq('estado', 'aceptada');
+  }
   return data as Orden;
 }
 

@@ -233,6 +233,102 @@ export async function construirComprasExcel(
       ['Ítem', 'Monto ($)', 'Cantidad'],
       resumen.topItems.map((t) => [t.nombre, t.usd, t.cantidad ?? 0]),
     );
+    if (resumen.cuentasCredito && resumen.cuentasCredito.length > 0) {
+      bloque(
+        `CUENTAS A CRÉDITO DESDE COMPRAS · OC Y OS (${resumen.creditoCount} cuentas: ${resumen.creditoOcCount} OC / ${resumen.creditoOsCount} OS · Saldo: ${fmtUsd(resumen.creditoSaldoUsd)} · ${fmtBs(resumen.creditoSaldoBs)})`,
+        ['Tipo · Código', 'Proveedor / Departamento', 'Total ($)', 'Abonado ($)', 'Saldo Pendiente ($)'],
+        resumen.cuentasCredito.map((c) => [
+          `[${c.origen}] ${c.codigoSolicitud ? `${c.codigo} (${c.codigoSolicitud})` : c.codigo}`,
+          `${c.proveedor} · ${c.departamento}`,
+          c.totalUsd,
+          c.abonadoUsd,
+          c.saldoUsd,
+        ]),
+      );
+    }
+  }
+
+  // 1.B Hoja dedicada de Cuentas a Crédito (OC y OS) cuando existen cuentas activas
+  if (resumen.cuentasCredito && resumen.cuentasCredito.length > 0) {
+    const wsCred = wb.addWorksheet('Cuentas a Crédito (OC-OS)', {
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+      views: [{ state: 'frozen', ySplit: 5 }],
+    });
+    const colsCred = [
+      { label: 'Tipo', width: 10, align: 'center' as const },
+      { label: 'Código', width: 18, align: 'left' as const },
+      { label: 'Solicitud', width: 16, align: 'left' as const },
+      { label: 'Fecha', width: 13, align: 'center' as const },
+      { label: 'Departamento', width: 22, align: 'left' as const },
+      { label: 'Proveedor', width: 28, align: 'left' as const },
+      { label: 'Concepto / Detalle', width: 34, align: 'left' as const },
+      { label: 'Total ($)', width: 16, align: 'right' as const },
+      { label: 'Abonado ($)', width: 16, align: 'right' as const },
+      { label: 'Saldo Pend. ($)', width: 18, align: 'right' as const },
+      { label: 'Saldo Pend. (Bs)', width: 20, align: 'right' as const },
+    ];
+    wsCred.columns = [{ width: 4 }, ...colsCred.map((c) => ({ width: c.width }))];
+    wsCred.mergeCells(2, 2, 2, colsCred.length + 1);
+    const titC = wsCred.getCell(2, 2);
+    titC.value = `${idEmp.nombre} · CUENTAS A CRÉDITO DESDE COMPRAS (OC Y OS)`;
+    titC.font = { name: 'Arial', size: 13, bold: true, color: { argb: NAR } };
+
+    wsCred.mergeCells(3, 2, 3, colsCred.length + 1);
+    const subC = wsCred.getCell(3, 2);
+    subC.value = `${resumen.creditoCount} cuenta(s) abierta(s) (${resumen.creditoOcCount} OC · ${resumen.creditoOsCount} OS) | Total: ${fmtUsd(resumen.creditoTotalUsd)} | Abonado: ${fmtUsd(resumen.creditoAbonadoUsd)} | Saldo pendiente: ${fmtUsd(resumen.creditoSaldoUsd)} (${fmtBs(resumen.creditoSaldoBs)})`;
+    subC.font = { name: 'Arial', size: 8.5, italic: true, color: { argb: 'FF64748B' } };
+
+    const headCred = wsCred.getRow(5);
+    headCred.height = 24;
+    colsCred.forEach((c, idx) => {
+      const cell = headCred.getCell(idx + 2);
+      cell.value = c.label;
+      cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAR } };
+      cell.alignment = { horizontal: c.align, vertical: 'middle', wrapText: true };
+    });
+
+    resumen.cuentasCredito.forEach((c, idx) => {
+      const r = wsCred.getRow(6 + idx);
+      r.height = 18;
+      const vals: (string | number)[] = [
+        c.origen,
+        c.codigo,
+        c.codigoSolicitud || '-',
+        fmtFecha(c.fecha),
+        c.departamento,
+        c.proveedor,
+        c.concepto,
+        c.totalUsd,
+        c.abonadoUsd,
+        c.saldoUsd,
+        c.saldoBs,
+      ];
+      vals.forEach((v, cIdx) => {
+        const cell = r.getCell(cIdx + 2);
+        cell.value = v;
+        if (cIdx >= 7 && cIdx <= 9) cell.numFmt = '"$"#,##0.00';
+        else if (cIdx === 10) cell.numFmt = '"Bs "#,##0.00';
+        cell.font = { name: 'Arial', size: 8.5, bold: cIdx === 0 || cIdx === 1 || cIdx === 9, color: { argb: 'FF1E293B' } };
+        cell.alignment = { horizontal: colsCred[cIdx].align, vertical: 'middle' };
+        if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAF6F0' } };
+      });
+    });
+
+    const totCredRow = wsCred.getRow(6 + resumen.cuentasCredito.length);
+    totCredRow.height = 22;
+    colsCred.forEach((col, cIdx) => {
+      const cell = totCredRow.getCell(cIdx + 2);
+      cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF1E293B' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.alignment = { horizontal: col.align, vertical: 'middle' };
+      if (cIdx === 0) cell.value = 'TOTALES';
+      else if (cIdx === 1) cell.value = `${resumen.creditoCount} cuentas`;
+      else if (cIdx === 7) { cell.value = resumen.creditoTotalUsd; cell.numFmt = '"$"#,##0.00'; }
+      else if (cIdx === 8) { cell.value = resumen.creditoAbonadoUsd; cell.numFmt = '"$"#,##0.00'; }
+      else if (cIdx === 9) { cell.value = resumen.creditoSaldoUsd; cell.numFmt = '"$"#,##0.00'; }
+      else if (cIdx === 10) { cell.value = resumen.creditoSaldoBs; cell.numFmt = '"Bs "#,##0.00'; }
+    });
   }
 
   // 2. Hoja de datos (listado)
@@ -660,6 +756,145 @@ export async function construirComprasPdf(
     );
     y = resBloque.y;
     seccionNum = resBloque.siguienteSeccion;
+  }
+
+  // 4.B CUENTAS A CRÉDITO DESDE COMPRAS (OC Y OS) — presente en Resumen, Detallado y Consolidado
+  if (resumen.cuentasCredito && resumen.cuentasCredito.length > 0) {
+    if (y + 65 > PAGE_H - MARGIN) {
+      doc.addPage();
+      y = MARGIN;
+    }
+
+    const partesCredito: string[] = [];
+    if (resumen.creditoOcCount > 0) partesCredito.push(`${resumen.creditoOcCount} OC`);
+    if (resumen.creditoOsCount > 0) partesCredito.push(`${resumen.creditoOsCount} OS`);
+    const detOrigen = partesCredito.length ? ` (${partesCredito.join(' · ')})` : '';
+
+    y = dibujarHeaderSeccion(
+      doc,
+      `${seccionNum++}. Cuentas a Crédito desde Compras · OC y OS (${resumen.creditoCount} cuentas)${detOrigen}`,
+      `Total crédito: ${fmtUsd(resumen.creditoTotalUsd)} · Abonado: ${fmtUsd(resumen.creditoAbonadoUsd)} · Saldo pendiente: ${fmtUsd(resumen.creditoSaldoUsd)} (${fmtBs(resumen.creditoSaldoBs)})`,
+      MARGIN,
+      y,
+      NARANJA_GT,
+      TINTA_GT,
+      GRIS_TEXTO_GT,
+    );
+
+    const headCredPdf = [
+      '#',
+      'Tipo',
+      'Código',
+      'Fecha',
+      'Departamento',
+      'Proveedor',
+      'Concepto / Detalle',
+      'Total ($)',
+      'Abonado ($)',
+      'Saldo ($)',
+      'Saldo (Bs)',
+    ];
+
+    const bodyCredPdf = resumen.cuentasCredito.map((c, idx) => [
+      String(idx + 1),
+      c.origen,
+      pdfSafe(c.codigoSolicitud ? `${c.codigo}\n(${c.codigoSolicitud})` : c.codigo),
+      fmtFecha(c.fecha),
+      pdfSafe(c.departamento),
+      pdfSafe(c.proveedor),
+      pdfSafe(c.concepto),
+      fmtUsd(c.totalUsd),
+      fmtUsd(c.abonadoUsd),
+      fmtUsd(c.saldoUsd),
+      fmtBs(c.saldoBs),
+    ]);
+
+    const footCredPdf = [
+      {
+        content: `TOTAL CRÉDITOS COMPRAS (${resumen.creditoCount}${detOrigen})`,
+        colSpan: 7,
+        styles: { halign: 'left' as const, fontStyle: 'bold' as const },
+      },
+      {
+        content: fmtUsd(resumen.creditoTotalUsd),
+        styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+      },
+      {
+        content: fmtUsd(resumen.creditoAbonadoUsd),
+        styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+      },
+      {
+        content: fmtUsd(resumen.creditoSaldoUsd),
+        styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+      },
+      {
+        content: fmtBs(resumen.creditoSaldoBs),
+        styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+      },
+    ];
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN, bottom: 24 },
+      head: [headCredPdf],
+      body: bodyCredPdf,
+      foot: [footCredPdf as unknown as string[]],
+      theme: 'grid',
+      styles: {
+        fontSize: esLandscape ? 8.0 : 7.0,
+        cellPadding: { top: 2.2, bottom: 2.6, left: 2.4, right: 2.4 },
+        lineColor: BORDE_GT,
+        lineWidth: 0.3,
+        textColor: TINTA_GT,
+        overflow: 'linebreak',
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: [153, 27, 27], // Rojo corporativo ejecutivo para cuentas por pagar a crédito
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center',
+        cellPadding: { top: 2.4, bottom: 3.0, left: 2.4, right: 2.4 },
+        fontSize: esLandscape ? 8.0 : 7.0,
+      },
+      footStyles: {
+        fillColor: [254, 242, 242],
+        textColor: TINTA_GT,
+        fontStyle: 'bold',
+        fontSize: esLandscape ? 8.0 : 7.0,
+      },
+      alternateRowStyles: { fillColor: FONDO_ALT_GT },
+      columnStyles: esLandscape
+        ? {
+            0: { cellWidth: 18, halign: 'center' },
+            1: { cellWidth: 28, halign: 'center', fontStyle: 'bold' },
+            2: { cellWidth: 66, halign: 'center', fontStyle: 'bold' },
+            3: { cellWidth: 44, halign: 'center' },
+            4: { cellWidth: 68, halign: 'left' },
+            5: { cellWidth: 86, halign: 'left' },
+            6: { halign: 'left' },
+            7: { cellWidth: 58, halign: 'right' },
+            8: { cellWidth: 58, halign: 'right', textColor: VERDE_GT },
+            9: { cellWidth: 62, halign: 'right', fontStyle: 'bold', textColor: [185, 28, 28] },
+            10: { cellWidth: 74, halign: 'right' },
+          }
+        : {
+            0: { cellWidth: 15, halign: 'center' },
+            1: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
+            2: { cellWidth: 54, halign: 'center', fontStyle: 'bold' },
+            3: { cellWidth: 38, halign: 'center' },
+            4: { cellWidth: 54, halign: 'left' },
+            5: { cellWidth: 66, halign: 'left' },
+            6: { halign: 'left' },
+            7: { cellWidth: 46, halign: 'right' },
+            8: { cellWidth: 46, halign: 'right', textColor: VERDE_GT },
+            9: { cellWidth: 48, halign: 'right', fontStyle: 'bold', textColor: [185, 28, 28] },
+            10: { cellWidth: 58, halign: 'right' },
+          },
+    });
+
+    const lastTableCred = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
+    y = (lastTableCred?.finalY ?? y) + 14;
   }
 
   // 5. LISTADO DE COMPRAS PENDIENTES CON ANALISTA, CÓDIGO Y MONTOS

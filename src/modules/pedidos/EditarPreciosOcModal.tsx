@@ -20,24 +20,41 @@ function monto(n: number | null | undefined, moneda: string): string {
 export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   orden: Orden; actor: string; onClose: () => void; onSaved: () => Promise<void> | void;
 }) {
+  const esServicio = o.tipo === 'servicio';
   // El total que paga Tesorería está en divisa cuando el pago es en divisa; si no, en la
   // moneda de la OC. Se edita el precio que ALIMENTA ese total (precio_usd o precio).
   const enDivisa = !!o.pago_en_divisa;
   const moneda = enDivisa ? 'USD' : (o.total_moneda ?? 'USD');
   const priceKey: 'precio' | 'precio_usd' = enDivisa ? 'precio_usd' : 'precio';
-  const [items, setItems] = useState<ItemOrden[]>(() => (o.items ?? []).map((i) => ({ ...i })));
+  const [items, setItems] = useState<ItemOrden[]>(() =>
+    (o.items ?? []).map((i) => ({
+      ...i,
+      ...(enDivisa && i.precio_usd == null ? { precio_usd: Number(i.precio) || 0 } : {}),
+    })),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Los ítems ORIGINALES de la OC ocupan los primeros `origLen` índices; los que se
-  // agreguen aquí quedan a partir de ahí y son totalmente editables (nombre, cant., precio).
+  // Los ítems ORIGINALES de la OC ocupan los primeros `origLen` índices; en órdenes de
+  // servicio todos los ítems son 100% editables y se pueden agregar/quitar libremente.
   const origLen = (o.items ?? []).length;
-  const MAX_NUEVOS = 3; // «solo 2 o 3 productos»
+  const MAX_NUEVOS = esServicio ? 25 : 3;
   const nuevos = Math.max(0, items.length - origLen);
 
   const idxComprar = items.map((it, i) => ({ it, i })).filter(({ it }) => it.comprar !== false);
   function setPrecio(i: number, v: string) {
     const n = Number(v);
-    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [priceKey]: Number.isFinite(n) ? n : 0 } : it)));
+    const val = Number.isFinite(n) ? n : 0;
+    setItems((prev) =>
+      prev.map((it, idx) =>
+        idx === i
+          ? {
+              ...it,
+              [priceKey]: val,
+              ...(esServicio ? { precio: val, ...(enDivisa ? { precio_usd: val } : {}) } : {}),
+            }
+          : it,
+      ),
+    );
   }
   function setNombre(i: number, v: string) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, nombre: v } : it)));
@@ -48,9 +65,13 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   }
   function agregarItem() {
     if (nuevos >= MAX_NUEVOS) return;
+    const skuNuevo = esServicio
+      ? `SRV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`
+      : '';
     setItems((prev) => [...prev, {
-      sku: '', nombre: '', cantidad: 1, precio: 0, precio_usd: enDivisa ? 0 : null,
-      comprar: true, marca: null, es_servicio: true,
+      sku: skuNuevo, nombre: '', cantidad: 1, precio: 0, precio_usd: enDivisa ? 0 : null,
+      comprar: true, marca: null, es_servicio: true, sin_insumo: true,
+      ...(esServicio ? { unidad: 'SERV' } : {}),
     } as ItemOrden]);
   }
   function quitarItem(i: number) {
@@ -126,10 +147,12 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
 
   async function guardar() {
     setError(null);
-    // Los ítems agregados aquí deben tener nombre y cantidad válida.
+    // Los ítems editados o agregados deben tener nombre y cantidad válida.
+    const sinNombre = items.some((it) => it.comprar !== false && !it.nombre.trim());
+    if (sinNombre) { setError(`Completa el nombre de cada ${esServicio ? 'servicio' : 'producto'}.`); return; }
     const nuevosInvalidos = items.slice(origLen).some((it) => !it.nombre.trim() || !(Number(it.cantidad) > 0));
-    if (nuevosInvalidos) { setError('Completa nombre y cantidad (> 0) de los productos agregados.'); return; }
-    if (idxComprar.some(({ it }) => !(Number(it.cantidad) > 0))) { setError('La cantidad de cada producto debe ser mayor que 0.'); return; }
+    if (nuevosInvalidos) { setError(`Completa nombre y cantidad (> 0) de los ${esServicio ? 'servicios' : 'productos'} agregados.`); return; }
+    if (idxComprar.some(({ it }) => !(Number(it.cantidad) > 0))) { setError(`La cantidad de cada ${esServicio ? 'servicio' : 'producto'} debe ser mayor que 0.`); return; }
     setSaving(true);
     try {
       const limpios = items.map((it) => ({
@@ -140,13 +163,13 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
         conIva, ivaPct: ivaPctNum, ivaMonto,
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
       });
-      toast('OC actualizada · el total a pagar quedó sincronizado', 'success');
+      toast(`${esServicio ? 'Servicio actualizado' : 'OC actualizada'} · el total quedó sincronizado`, 'success');
       await onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
   }
 
   return (
-    <Modal title={`✏️ Editar precios y cantidades · ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={
+    <Modal title={`✏️ Editar precios y ${esServicio ? 'servicios' : 'cantidades'} · ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
@@ -154,13 +177,13 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-        Ajusta la <strong>cantidad</strong> y el <strong>precio unitario</strong> de cada ítem y, si hace falta, <strong>agrega productos</strong> (hasta {MAX_NUEVOS}). También puedes <strong>corregir el IVA y el IGTF</strong> aquí abajo. El <strong>total a pagar</strong> se recompone desde cero (base + IVA + IGTF), el cambio queda en la <strong>traza</strong> de la OC y se sincroniza solo en Tesorería.
+        Ajusta la <strong>descripción</strong>, <strong>cantidad</strong> y <strong>precio unitario</strong> de cada {esServicio ? 'servicio' : 'ítem'} y, si hace falta, <strong>agrega {esServicio ? 'servicios' : `productos (hasta ${MAX_NUEVOS})`}</strong>. También puedes <strong>corregir el IVA y el IGTF</strong> aquí abajo. El <strong>total</strong> se recompone automáticamente, queda en la <strong>traza</strong> y se sincroniza en Tesorería y en el PDF.
       </p>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead>
             <tr>
-              <th>Producto</th>
+              <th>{esServicio ? 'Servicio' : 'Producto'}</th>
               <th style={{ textAlign: 'center' }} title="Exento de IVA (Art. 18 Ley del IVA). No genera base gravada de IVA (0%)">Exento</th>
               <th className="num">Cant.</th>
               <th className="num">Precio unit. ({moneda})</th>
@@ -174,11 +197,11 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
               return (
               <tr key={i}>
                 <td>
-                  {esNuevo ? (
+                  {esNuevo || esServicio ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
-                      <span className="badge" style={{ background: 'var(--primary-3, #ff8a00)', color: '#000' }}>NUEVO</span>
-                      <input className="input" style={{ minWidth: 160 }} placeholder="Nombre del producto"
-                        value={it.nombre} onChange={(e) => setNombre(i, e.target.value)} />
+                      {esNuevo && <span className="badge" style={{ background: 'var(--primary-3, #ff8a00)', color: '#000' }}>NUEVO</span>}
+                      <input className="input" style={{ minWidth: 160, width: '100%' }} placeholder={esServicio ? 'Descripción del servicio' : 'Nombre del producto'}
+                        value={it.nombre} onChange={(e) => setNombre(i, e.target.value)} disabled={saving} />
                     </div>
                   ) : (
                     <>{it.nombre}{it.marca ? <span className="muted"> · {it.marca}</span> : ''}</>
@@ -210,8 +233,8 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
                 </td>
                 <td className="num mono">{monto(Number(it.cantidad) * (Number(it[priceKey]) || 0), moneda)}</td>
                 <td className="num">
-                  {esNuevo && (
-                    <button type="button" className="btn btn-ghost btn-sm" title="Quitar producto agregado"
+                  {(esNuevo || (esServicio && idxComprar.length > 1)) && (
+                    <button type="button" className="btn btn-ghost btn-sm" title={`Quitar ${esServicio ? 'servicio' : 'producto'}`}
                       onClick={() => quitarItem(i)} disabled={saving}>✕</button>
                   )}
                 </td>
@@ -223,7 +246,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
       </div>
       <div style={{ marginTop: '.5rem' }}>
         <button type="button" className="btn btn-ghost btn-sm" onClick={agregarItem} disabled={saving || nuevos >= MAX_NUEVOS}>
-          ＋ Agregar producto {nuevos >= MAX_NUEVOS ? `(máx. ${MAX_NUEVOS})` : ''}
+          ＋ Agregar {esServicio ? 'servicio' : 'producto'} {nuevos >= MAX_NUEVOS ? `(máx. ${MAX_NUEVOS})` : ''}
         </button>
       </div>
       {/* IVA / IGTF. Se editan aquí porque es donde se corrige el monto a pagar, y

@@ -29,6 +29,7 @@ import {
   CAMPOS_DETALLE_POR_AMBITO,
   ETIQUETA_TIPO_COMPRA,
   filtrarFilasCompras,
+  filtrarCuentasCreditoCompras,
   resumenCompras,
   procesarFilasCompras,
   type AmbitoCompras,
@@ -164,6 +165,7 @@ export function ExportarComprasModal({ onClose }: Props) {
 
   const filasOrdenes = datos?.filasOrdenes ?? [];
   const filasItems = datos?.filasItems ?? [];
+  const cuentasCredito = datos?.cuentasCredito ?? [];
   const tasaBcv = datos?.tasaBcv ?? 0;
 
   // Filtros comunes (sin categoría; la categoría solo aplica a ítems)
@@ -174,13 +176,14 @@ export function ExportarComprasModal({ onClose }: Props) {
     tiposSel: tiposSel.length ? tiposSel : undefined,
   }), [departamentosSel, proveedoresSel, estadosSel, tiposSel]);
 
-  // Resumen (siempre agrega las tres fuentes y ambos niveles)
+  // Resumen (siempre agrega las tres fuentes, niveles y cuentas a crédito OC/OS)
   const resumen: ResumenReporteCompras = useMemo(() => {
     const ordFilt = filtrarFilasCompras(filasOrdenes, filtrosBase);
     const itFilt = filtrarFilasCompras(filasItems, { ...filtrosBase, categoriasSel: categoriasSel.length ? categoriasSel : undefined });
+    const credFilt = filtrarCuentasCreditoCompras(cuentasCredito, filtrosBase);
     const cot = departamentosSel.length ? (datos?.cotizaciones ?? []).filter((c) => departamentosSel.includes(c.departamento)) : (datos?.cotizaciones ?? []);
-    return resumenCompras(ordFilt, itFilt, cot, tasaBcv);
-  }, [filasOrdenes, filasItems, filtrosBase, categoriasSel, departamentosSel, datos, tasaBcv]);
+    return resumenCompras(ordFilt, itFilt, cot, tasaBcv, credFilt);
+  }, [filasOrdenes, filasItems, cuentasCredito, filtrosBase, categoriasSel, departamentosSel, datos, tasaBcv]);
 
   // Resumen mostrado (ranking asc/desc)
   const resumenMostrado: ResumenReporteCompras = useMemo(() => {
@@ -209,11 +212,14 @@ export function ExportarComprasModal({ onClose }: Props) {
       return Array.from(m.entries()).map(([nombre, count]) => ({ nombre, count })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     };
     return {
-      departamentos: cuenta(filasOrdenes.map((f) => f.departamento)),
-      proveedores: cuenta(filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—')),
+      departamentos: cuenta([...filasOrdenes.map((f) => f.departamento), ...cuentasCredito.map((c) => c.departamento)]),
+      proveedores: cuenta([
+        ...filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—'),
+        ...cuentasCredito.map((c) => c.proveedor).filter((p) => p !== '—'),
+      ]),
       categorias: cuenta(filasItems.map((f) => f.categoria)),
     };
-  }, [filasOrdenes, filasItems]);
+  }, [filasOrdenes, filasItems, cuentasCredito]);
 
   const columnasAmbito = useMemo(() => CAMPOS_REPORTE_COMPRAS.filter((c) => !c.ambito || c.ambito === 'ambos' || c.ambito === ambito), [ambito]);
   const marcadosVisibles = useMemo(() => marcados.filter((c) => columnasAmbito.some((col) => col.clave === c)), [marcados, columnasAmbito]);
@@ -260,7 +266,8 @@ export function ExportarComprasModal({ onClose }: Props) {
   const descargar = async (fmt: 'pdf' | 'xlsx' | 'csv') => {
     if (!mostrarUsd && !mostrarBs) { toast('Deja encendida al menos una moneda ($ o Bs).', 'warning'); return; }
     if (formato !== 'resumen' && marcadosVisibles.length === 0) { toast('Marca al menos una columna para el listado.', 'warning'); return; }
-    if (resumen.totalCompras === 0) { toast('No hay compras con los filtros y el período seleccionados.', 'warning'); return; }
+    if (resumen.totalCompras === 0 && resumen.creditoCount === 0) { toast('No hay compras ni cuentas a crédito con los filtros y el período seleccionados.', 'warning'); return; }
+    if (fmt === 'csv' && resumen.totalCompras === 0) { toast('No hay filas de compras en el período para exportar a CSV.', 'warning'); return; }
     setOcupado(fmt);
     try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_FORMATO, formato); } catch { /* no crítico */ }
     const meta = metaDe();
@@ -338,13 +345,17 @@ export function ExportarComprasModal({ onClose }: Props) {
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '.5rem', flexWrap: 'wrap' }}>
-          <div className="muted" style={{ fontSize: '.8rem' }}>{cargando ? 'Cargando datos...' : `${resumen.totalCompras} compra(s) · ${filas.length} fila(s) en el listado`}</div>
+          <div className="muted" style={{ fontSize: '.8rem' }}>
+            {cargando
+              ? 'Cargando datos...'
+              : `${resumen.totalCompras} compra(s) · ${resumen.creditoCount} crédito(s) OC/OS · ${filas.length} fila(s) en el listado`}
+          </div>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
             <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
-            <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
-            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>💬 WhatsApp</button>
-            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
+            <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || (resumen.totalCompras === 0 && resumen.creditoCount === 0)}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
+            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || (resumen.totalCompras === 0 && resumen.creditoCount === 0)}>💬 WhatsApp</button>
+            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || (resumen.totalCompras === 0 && resumen.creditoCount === 0)}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
           </div>
         </div>
       }
@@ -508,12 +519,73 @@ export function ExportarComprasModal({ onClose }: Props) {
         </div>
 
         {/* KPIs */}
-        <div style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.5rem .8rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.5rem' }}>
+        <div style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.5rem .8rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '.5rem' }}>
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>TOTAL DE COMPRAS</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b' }}>{resumen.totalCompras}</div><div className="muted" style={{ fontSize: '.68rem' }}>{dinero(resumen.totalUsd, resumen.totalBs)}</div></div>
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>FINALIZADAS</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>{resumen.finalizadasCount}</div><div className="muted" style={{ fontSize: '.68rem' }}>{dinero(resumen.finalizadasUsd, resumen.finalizadasBs)}</div></div>
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>PENDIENTES</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#eab308' }}>{resumen.pendientesCount}</div><div className="muted" style={{ fontSize: '.68rem' }}>{dinero(resumen.pendientesUsd, resumen.pendientesBs)}</div></div>
+          <div>
+            <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>CRÉDITO COMPRAS (OC / OS)</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fb7185' }}>
+              {resumen.creditoCount}{' '}
+              <span className="muted" style={{ fontSize: '.72rem', fontWeight: 500 }}>
+                ({resumen.creditoOcCount} OC · {resumen.creditoOsCount} OS)
+              </span>
+            </div>
+            <div className="muted" style={{ fontSize: '.68rem' }}>Saldo: {dinero(resumen.creditoSaldoUsd, resumen.creditoSaldoBs)}</div>
+          </div>
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>MÁS GASTÓ</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#38bdf8' }}>{resumenMostrado.deptoQueMasGasto ?? '—'}</div><div className="muted" style={{ fontSize: '.68rem' }}>no incluye compras directas</div></div>
         </div>
+
+        {/* Vista previa de Cuentas a Crédito desde Compras (OC y OS) */}
+        {resumenMostrado.cuentasCredito.length > 0 && (
+          <div style={{ ...surf2, borderColor: 'rgba(251, 113, 133, 0.35)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+              <span style={{ ...tituloSec, display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                💳 Cuentas a Crédito desde Compras · OC y OS
+                <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(251,113,133,0.16)', color: '#fda4af' }}>
+                  {resumenMostrado.creditoCount} ({resumenMostrado.creditoOcCount} OC · {resumenMostrado.creditoOsCount} OS)
+                </span>
+              </span>
+              <span style={{ fontSize: '.78rem', fontWeight: 600, color: '#fb7185' }}>
+                Saldo pendiente: {dinero(resumenMostrado.creditoSaldoUsd, resumenMostrado.creditoSaldoBs)}
+              </span>
+            </div>
+            <div style={{ maxHeight: '220px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.75rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-1, #0f172a)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '.35rem .5rem', textAlign: 'center', color: '#94a3b8' }}>Tipo</th>
+                    <th style={{ padding: '.35rem .5rem', textAlign: 'left', color: '#94a3b8' }}>Código</th>
+                    <th style={{ padding: '.35rem .5rem', textAlign: 'left', color: '#94a3b8' }}>Proveedor</th>
+                    <th style={{ padding: '.35rem .5rem', textAlign: 'left', color: '#94a3b8' }}>Departamento</th>
+                    <th style={{ padding: '.35rem .5rem', textAlign: 'right', color: '#94a3b8' }}>Total</th>
+                    <th style={{ padding: '.35rem .5rem', textAlign: 'right', color: '#94a3b8' }}>Abonado</th>
+                    <th style={{ padding: '.35rem .5rem', textAlign: 'right', color: '#94a3b8' }}>Saldo Pendiente</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumenMostrado.cuentasCredito.map((c, idx) => (
+                    <tr key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: idx % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                      <td style={{ padding: '.35rem .5rem', textAlign: 'center' }}>
+                        <span className="badge" style={{ fontSize: '.68rem', background: c.origen === 'OS' ? 'rgba(56,189,248,0.18)' : 'rgba(249,115,22,0.18)', color: c.origen === 'OS' ? '#38bdf8' : '#fb923c' }}>
+                          {c.origen}
+                        </span>
+                      </td>
+                      <td style={{ padding: '.35rem .5rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {c.codigo}{c.codigoSolicitud ? <span className="muted" style={{ fontWeight: 400 }}> ({c.codigoSolicitud})</span> : null}
+                      </td>
+                      <td style={{ padding: '.35rem .5rem' }}>{c.proveedor}</td>
+                      <td style={{ padding: '.35rem .5rem' }}>{c.departamento}</td>
+                      <td style={{ padding: '.35rem .5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>{dinero(c.totalUsd, c.totalBs)}</td>
+                      <td style={{ padding: '.35rem .5rem', textAlign: 'right', whiteSpace: 'nowrap', color: '#22c55e' }}>{dinero(c.abonadoUsd, c.abonadoBs)}</td>
+                      <td style={{ padding: '.35rem .5rem', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, color: '#fb7185' }}>{dinero(c.saldoUsd, c.saldoBs)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Vista previa del listado */}
         {incluyeDetalle && (
